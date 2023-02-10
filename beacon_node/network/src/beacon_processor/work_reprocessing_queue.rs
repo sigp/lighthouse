@@ -827,7 +827,18 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                 }
             }
             InboundEvent::ReadyBackfillSync(queued_backfill_batch) => {
-                debug!(log, "Sending scheduled backfill work to Beacon Processor");
+                let seconds_from_slot_start = slot_clock
+                    .seconds_from_current_slot_start()
+                    .map_or("unknown", |duration| {
+                        duration.as_secs().to_string().as_str()
+                    });
+
+                debug!(
+                    log,
+                    "Sending scheduled backfill work to Beacon Processor at {} seconds from current slot start",
+                    seconds_from_slot_start
+                );
+
                 if self
                     .ready_work_tx
                     .try_send(ReadyWork::BackfillSync(queued_backfill_batch.clone()))
@@ -885,7 +896,9 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                             let duration_to_next_slot = slot_duration - duration_from_slot_start;
                             duration_to_next_slot + Duration::from_secs(next_event_time_secs)
                         } else {
-                            Duration::from_secs(next_event_time_secs)
+                            Duration::from_secs(
+                                next_event_time_secs - duration_from_slot_start.as_secs(),
+                            )
                         }
                     })
             })
