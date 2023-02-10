@@ -104,14 +104,6 @@ impl ForkChoiceTest {
         self
     }
 
-    /// Assert the epochs match.
-    ///
-    /// Note: this test is a no-op since the best-justified-checkpoint was
-    /// removed by Aditya's PR #18.
-    pub fn assert_best_justified_epoch(self, _epoch: u64) -> Self {
-        self
-    }
-
     /// Assert the given slot is greater than the head slot.
     pub fn assert_finalized_epoch_is_less_than(self, epoch: Epoch) -> Self {
         assert!(self.harness.finalized_checkpoint().epoch < epoch);
@@ -239,6 +231,11 @@ impl ForkChoiceTest {
     ///
     /// If the chain is presently in an unsafe period, transition through it and the following safe
     /// period.
+    ///
+    /// Note: the `SAFE_SLOTS_TO_UPDATE_JUSTIFIED` variable has been removed
+    /// from the fork choice spec in Q1 2023. We're still leaving references to
+    /// it in our tests because (a) it's easier and (b) it allows us to easily
+    /// test for the absence of that parameter.
     pub fn move_to_next_unsafe_period(self) -> Self {
         self.move_inside_safe_to_update()
             .move_outside_safe_to_update()
@@ -532,7 +529,6 @@ async fn justified_checkpoint_updates_with_descendent_outside_safe_slots() {
         .unwrap()
         .move_outside_safe_to_update()
         .assert_justified_epoch(2)
-        .assert_best_justified_epoch(2)
         .apply_blocks(1)
         .await
         .assert_justified_epoch(3);
@@ -549,11 +545,9 @@ async fn justified_checkpoint_updates_first_justification_outside_safe_to_update
         .unwrap()
         .move_to_next_unsafe_period()
         .assert_justified_epoch(0)
-        .assert_best_justified_epoch(0)
         .apply_blocks(1)
         .await
-        .assert_justified_epoch(2)
-        .assert_best_justified_epoch(2);
+        .assert_justified_epoch(2);
 }
 
 /// - The new justified checkpoint **does not** descend from the current.
@@ -581,8 +575,7 @@ async fn justified_checkpoint_updates_with_non_descendent_inside_safe_slots_with
                 .unwrap();
         })
         .await
-        .assert_justified_epoch(3)
-        .assert_best_justified_epoch(3);
+        .assert_justified_epoch(3);
 }
 
 /// - The new justified checkpoint **does not** descend from the current.
@@ -640,8 +633,7 @@ async fn justified_checkpoint_updates_with_non_descendent_outside_safe_slots_wit
                 .unwrap();
         })
         .await
-        .assert_justified_epoch(3)
-        .assert_best_justified_epoch(3);
+        .assert_justified_epoch(3);
 }
 
 /// Check that the balances are obtained correctly.
