@@ -3,15 +3,19 @@ use crate::{Config, ExecutionLayer, PayloadAttributes};
 use async_trait::async_trait;
 use eth2::types::{BlockId, StateId, ValidatorId};
 use eth2::{BeaconNodeHttpClient, Timeouts};
-use ethereum_consensus::crypto::{SecretKey, Signature};
-use ethereum_consensus::primitives::BlsPublicKey;
 pub use ethereum_consensus::state_transition::Context;
+use ethereum_consensus::{
+    crypto::{SecretKey, Signature},
+    primitives::{BlsPublicKey, BlsSignature, ExecutionAddress, Hash32, Root, U256},
+    state_transition::Error,
+};
 use fork_choice::ForkchoiceUpdateParameters;
-use mev_build_rs::{
+use mev_rs::{
+    bellatrix::{BuilderBid as BuilderBidBellatrix, SignedBuilderBid as SignedBuilderBidBellatrix},
+    capella::{BuilderBid as BuilderBidCapella, SignedBuilderBid as SignedBuilderBidCapella},
     sign_builder_message, verify_signed_builder_message, BidRequest, BlindedBlockProviderError,
     BlindedBlockProviderServer, BuilderBid, ExecutionPayload as ServerPayload,
-    ExecutionPayloadHeader as ServerPayloadHeader, SignedBlindedBeaconBlock, SignedBuilderBid,
-    SignedValidatorRegistration,
+    SignedBlindedBeaconBlock, SignedBuilderBid, SignedValidatorRegistration,
 };
 use parking_lot::RwLock;
 use sensitive_url::SensitiveUrl;
@@ -39,22 +43,126 @@ pub enum Operation {
     PrevRandao(Hash256),
     BlockNumber(usize),
     Timestamp(usize),
+    WithdrawalsRoot(Hash256),
 }
 
 impl Operation {
-    fn apply(self, bid: &mut BuilderBid) -> Result<(), BlindedBlockProviderError> {
+    fn apply<B: BidStuff>(self, bid: &mut B) -> Result<(), BlindedBlockProviderError> {
         match self {
             Operation::FeeRecipient(fee_recipient) => {
-                bid.header.fee_recipient = to_ssz_rs(&fee_recipient)?
+                *bid.fee_recipient_mut() = to_ssz_rs(&fee_recipient)?
             }
-            Operation::GasLimit(gas_limit) => bid.header.gas_limit = gas_limit as u64,
-            Operation::Value(value) => bid.value = to_ssz_rs(&value)?,
-            Operation::ParentHash(parent_hash) => bid.header.parent_hash = to_ssz_rs(&parent_hash)?,
-            Operation::PrevRandao(prev_randao) => bid.header.prev_randao = to_ssz_rs(&prev_randao)?,
-            Operation::BlockNumber(block_number) => bid.header.block_number = block_number as u64,
-            Operation::Timestamp(timestamp) => bid.header.timestamp = timestamp as u64,
+            Operation::GasLimit(gas_limit) => *bid.gas_limit_mut() = gas_limit as u64,
+            Operation::Value(value) => *bid.value_mut() = to_ssz_rs(&value)?,
+            Operation::ParentHash(parent_hash) => *bid.parent_hash_mut() = to_ssz_rs(&parent_hash)?,
+            Operation::PrevRandao(prev_randao) => *bid.prev_randao_mut() = to_ssz_rs(&prev_randao)?,
+            Operation::BlockNumber(block_number) => *bid.block_number_mut() = block_number as u64,
+            Operation::Timestamp(timestamp) => *bid.timestamp_mut() = timestamp as u64,
+            Operation::WithdrawalsRoot(root) => *bid.withdrawals_root_mut()? = to_ssz_rs(&root)?,
         }
         Ok(())
+    }
+}
+
+// contains functions we need for BuilderBids.. not sure what to call this
+pub trait BidStuff {
+    fn fee_recipient_mut(&mut self) -> &mut ExecutionAddress;
+    fn gas_limit_mut(&mut self) -> &mut u64;
+    fn value_mut(&mut self) -> &mut U256;
+    fn parent_hash_mut(&mut self) -> &mut Hash32;
+    fn prev_randao_mut(&mut self) -> &mut Hash32;
+    fn block_number_mut(&mut self) -> &mut u64;
+    fn timestamp_mut(&mut self) -> &mut u64;
+    fn withdrawals_root_mut(&mut self) -> Result<&mut Root, BlindedBlockProviderError>;
+
+    fn sign_builder_message(
+        &mut self,
+        signing_key: &SecretKey,
+        context: &Context,
+    ) -> Result<BlsSignature, Error>;
+
+    fn to_signed_bid(self, signature: BlsSignature) -> SignedBuilderBid;
+}
+
+impl BidStuff for BuilderBid {
+    fn fee_recipient_mut(&mut self) -> &mut ExecutionAddress {
+        match self {
+            Self::Bellatrix(bid) => &mut bid.header.fee_recipient,
+            Self::Capella(bid) => &mut bid.header.fee_recipient,
+        }
+    }
+
+    fn gas_limit_mut(&mut self) -> &mut u64 {
+        match self {
+            Self::Bellatrix(bid) => &mut bid.header.gas_limit,
+            Self::Capella(bid) => &mut bid.header.gas_limit,
+        }
+    }
+
+    fn value_mut(&mut self) -> &mut U256 {
+        match self {
+            Self::Bellatrix(bid) => &mut bid.value,
+            Self::Capella(bid) => &mut bid.value,
+        }
+    }
+
+    fn parent_hash_mut(&mut self) -> &mut Hash32 {
+        match self {
+            Self::Bellatrix(bid) => &mut bid.header.parent_hash,
+            Self::Capella(bid) => &mut bid.header.parent_hash,
+        }
+    }
+
+    fn prev_randao_mut(&mut self) -> &mut Hash32 {
+        match self {
+            Self::Bellatrix(bid) => &mut bid.header.prev_randao,
+            Self::Capella(bid) => &mut bid.header.prev_randao,
+        }
+    }
+
+    fn block_number_mut(&mut self) -> &mut u64 {
+        match self {
+            Self::Bellatrix(bid) => &mut bid.header.block_number,
+            Self::Capella(bid) => &mut bid.header.block_number,
+        }
+    }
+
+    fn timestamp_mut(&mut self) -> &mut u64 {
+        match self {
+            Self::Bellatrix(bid) => &mut bid.header.timestamp,
+            Self::Capella(bid) => &mut bid.header.timestamp,
+        }
+    }
+
+    fn withdrawals_root_mut(&mut self) -> Result<&mut Root, BlindedBlockProviderError> {
+        match self {
+            Self::Bellatrix(_) => Err(BlindedBlockProviderError::Custom(
+                "withdrawals_root called on bellatrix bid".to_string(),
+            )),
+            Self::Capella(bid) => Ok(&mut bid.header.withdrawals_root),
+        }
+    }
+
+    fn sign_builder_message(
+        &mut self,
+        signing_key: &SecretKey,
+        context: &Context,
+    ) -> Result<Signature, Error> {
+        match self {
+            Self::Bellatrix(message) => sign_builder_message(message, signing_key, context),
+            Self::Capella(message) => sign_builder_message(message, signing_key, context),
+        }
+    }
+
+    fn to_signed_bid(self, signature: Signature) -> SignedBuilderBid {
+        match self {
+            Self::Bellatrix(message) => {
+                SignedBuilderBid::Bellatrix(SignedBuilderBidBellatrix { message, signature })
+            }
+            Self::Capella(message) => {
+                SignedBuilderBid::Capella(SignedBuilderBidCapella { message, signature })
+            }
+        }
     }
 }
 
@@ -112,7 +220,10 @@ impl<E: EthSpec> TestingBuilder<E> {
     }
 
     pub async fn run(&self) {
-        self.server.run().await
+        let server = self.server.serve();
+        if let Err(err) = server.await {
+            println!("error while listening for incoming: {err}")
+        }
     }
 }
 
@@ -163,7 +274,7 @@ impl<E: EthSpec> MockBuilder<E> {
         *self.invalidate_signatures.write() = false;
     }
 
-    fn apply_operations(&self, bid: &mut BuilderBid) -> Result<(), BlindedBlockProviderError> {
+    fn apply_operations<B: BidStuff>(&self, bid: &mut B) -> Result<(), BlindedBlockProviderError> {
         let mut guard = self.operations.write();
         while let Some(op) = guard.pop() {
             op.apply(bid)?;
@@ -173,7 +284,7 @@ impl<E: EthSpec> MockBuilder<E> {
 }
 
 #[async_trait]
-impl<E: EthSpec> mev_build_rs::BlindedBlockProvider for MockBuilder<E> {
+impl<E: EthSpec> mev_rs::BlindedBlockProvider for MockBuilder<E> {
     async fn register_validators(
         &self,
         registrations: &mut [SignedValidatorRegistration],
@@ -201,6 +312,7 @@ impl<E: EthSpec> mev_build_rs::BlindedBlockProvider for MockBuilder<E> {
         bid_request: &BidRequest,
     ) -> Result<SignedBuilderBid, BlindedBlockProviderError> {
         let slot = Slot::new(bid_request.slot);
+        let fork = self.spec.fork_name_at_slot::<E>(slot);
         let signed_cached_data = self
             .val_registration_cache
             .read()
@@ -216,9 +328,13 @@ impl<E: EthSpec> mev_build_rs::BlindedBlockProvider for MockBuilder<E> {
             .map_err(convert_err)?
             .ok_or_else(|| convert_err("missing head block"))?;
 
-        let block = head.data.message_merge().map_err(convert_err)?;
+        let block = head.data.message();
         let head_block_root = block.tree_hash_root();
-        let head_execution_hash = block.body.execution_payload.execution_payload.block_hash;
+        let head_execution_hash = block
+            .body()
+            .execution_payload()
+            .map_err(convert_err)?
+            .block_hash();
         if head_execution_hash != from_ssz_rs(&bid_request.parent_hash)? {
             return Err(BlindedBlockProviderError::Custom(format!(
                 "head mismatch: {} {}",
@@ -233,12 +349,11 @@ impl<E: EthSpec> mev_build_rs::BlindedBlockProvider for MockBuilder<E> {
             .map_err(convert_err)?
             .ok_or_else(|| convert_err("missing finalized block"))?
             .data
-            .message_merge()
+            .message()
+            .body()
+            .execution_payload()
             .map_err(convert_err)?
-            .body
-            .execution_payload
-            .execution_payload
-            .block_hash;
+            .block_hash();
 
         let justified_execution_hash = self
             .beacon_client
@@ -247,12 +362,11 @@ impl<E: EthSpec> mev_build_rs::BlindedBlockProvider for MockBuilder<E> {
             .map_err(convert_err)?
             .ok_or_else(|| convert_err("missing finalized block"))?
             .data
-            .message_merge()
+            .message()
+            .body()
+            .execution_payload()
             .map_err(convert_err)?
-            .body
-            .execution_payload
-            .execution_payload
-            .block_hash;
+            .block_hash();
 
         let val_index = self
             .beacon_client
@@ -288,12 +402,22 @@ impl<E: EthSpec> mev_build_rs::BlindedBlockProvider for MockBuilder<E> {
             .get_randao_mix(head_state.current_epoch())
             .map_err(convert_err)?;
 
-        // FIXME: think about proper fork here
-        let payload_attributes =
-            PayloadAttributes::new(timestamp, *prev_randao, fee_recipient, None);
+        let payload_attributes = match fork {
+            ForkName::Merge => PayloadAttributes::new(timestamp, *prev_randao, fee_recipient, None),
+            // the withdrawals root is filled in by operations
+            ForkName::Capella | ForkName::Eip4844 => {
+                PayloadAttributes::new(timestamp, *prev_randao, fee_recipient, Some(vec![]))
+            }
+            ForkName::Base | ForkName::Altair => {
+                return Err(BlindedBlockProviderError::Custom(format!(
+                    "Unsupported fork: {}",
+                    fork
+                )));
+            }
+        };
 
         self.el
-            .insert_proposer(slot, head_block_root, val_index, payload_attributes)
+            .insert_proposer(slot, head_block_root, val_index, payload_attributes.clone())
             .await;
 
         let forkchoice_update_params = ForkchoiceUpdateParameters {
@@ -303,17 +427,13 @@ impl<E: EthSpec> mev_build_rs::BlindedBlockProvider for MockBuilder<E> {
             finalized_hash: Some(finalized_execution_hash),
         };
 
-        let payload_attributes =
-            PayloadAttributes::new(timestamp, *prev_randao, fee_recipient, None);
-
         let payload = self
             .el
             .get_full_payload_caching::<BlindedPayload<E>>(
                 head_execution_hash,
                 &payload_attributes,
                 forkchoice_update_params,
-                // TODO: do we need to write a test for this if this is Capella fork?
-                ForkName::Merge,
+                fork,
             )
             .await
             .map_err(convert_err)?
@@ -321,44 +441,54 @@ impl<E: EthSpec> mev_build_rs::BlindedBlockProvider for MockBuilder<E> {
             .to_execution_payload_header();
 
         let json_payload = serde_json::to_string(&payload).map_err(convert_err)?;
-        let mut header: ServerPayloadHeader =
-            serde_json::from_str(json_payload.as_str()).map_err(convert_err)?;
-
-        header.gas_limit = cached_data.gas_limit;
-
-        let mut message = BuilderBid {
-            header,
-            value: to_ssz_rs(&Uint256::from(DEFAULT_BUILDER_PAYLOAD_VALUE_WEI))?,
-            public_key: self.builder_sk.public_key(),
+        let mut message = match fork {
+            ForkName::Capella => BuilderBid::Capella(BuilderBidCapella {
+                header: serde_json::from_str(json_payload.as_str()).map_err(convert_err)?,
+                value: to_ssz_rs(&Uint256::from(DEFAULT_BUILDER_PAYLOAD_VALUE_WEI))?,
+                public_key: self.builder_sk.public_key(),
+            }),
+            ForkName::Merge => BuilderBid::Bellatrix(BuilderBidBellatrix {
+                header: serde_json::from_str(json_payload.as_str()).map_err(convert_err)?,
+                value: to_ssz_rs(&Uint256::from(DEFAULT_BUILDER_PAYLOAD_VALUE_WEI))?,
+                public_key: self.builder_sk.public_key(),
+            }),
+            ForkName::Base | ForkName::Altair | ForkName::Eip4844 => {
+                return Err(BlindedBlockProviderError::Custom(format!(
+                    "Unsupported fork: {}",
+                    fork
+                )))
+            }
         };
+        *message.gas_limit_mut() = cached_data.gas_limit;
 
         self.apply_operations(&mut message)?;
-
         let mut signature =
-            sign_builder_message(&mut message, &self.builder_sk, self.context.as_ref())?;
+            message.sign_builder_message(&self.builder_sk, self.context.as_ref())?;
 
         if *self.invalidate_signatures.read() {
             signature = Signature::default();
         }
 
-        let signed_bid = SignedBuilderBid { message, signature };
-        Ok(signed_bid)
+        Ok(message.to_signed_bid(signature))
     }
 
     async fn open_bid(
         &self,
         signed_block: &mut SignedBlindedBeaconBlock,
     ) -> Result<ServerPayload, BlindedBlockProviderError> {
+        let node = match signed_block {
+            SignedBlindedBeaconBlock::Bellatrix(block) => {
+                block.message.body.execution_payload_header.hash_tree_root()
+            }
+            SignedBlindedBeaconBlock::Capella(block) => {
+                block.message.body.execution_payload_header.hash_tree_root()
+            }
+        }
+        .map_err(convert_err)?;
+
         let payload = self
             .el
-            .get_payload_by_root(&from_ssz_rs(
-                &signed_block
-                    .message
-                    .body
-                    .execution_payload_header
-                    .hash_tree_root()
-                    .map_err(convert_err)?,
-            )?)
+            .get_payload_by_root(&from_ssz_rs(&node)?)
             .ok_or_else(|| convert_err("missing payload for tx root"))?;
 
         let json_payload = serde_json::to_string(&payload).map_err(convert_err)?;
