@@ -829,8 +829,8 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
             InboundEvent::ReadyBackfillSync(queued_backfill_batch) => {
                 let seconds_from_slot_start = slot_clock
                     .seconds_from_current_slot_start()
-                    .map_or("unknown", |duration| {
-                        duration.as_secs().to_string().as_str()
+                    .map_or("unknown".to_string(), |duration| {
+                        duration.as_secs().to_string()
                     });
 
                 debug!(
