@@ -45,7 +45,6 @@ pub struct Checks {
     justified_checkpoint: Option<Checkpoint>,
     justified_checkpoint_root: Option<Hash256>,
     finalized_checkpoint: Option<Checkpoint>,
-    best_justified_checkpoint: Option<Checkpoint>,
     u_justified_checkpoint: Option<Checkpoint>,
     u_finalized_checkpoint: Option<Checkpoint>,
     proposer_boost_root: Option<Hash256>,
@@ -229,7 +228,6 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
                         justified_checkpoint,
                         justified_checkpoint_root,
                         finalized_checkpoint,
-                        best_justified_checkpoint,
                         u_justified_checkpoint,
                         u_finalized_checkpoint,
                         proposer_boost_root,
@@ -258,11 +256,6 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
 
                     if let Some(expected_finalized_checkpoint) = finalized_checkpoint {
                         tester.check_finalized_checkpoint(*expected_finalized_checkpoint)?;
-                    }
-
-                    if let Some(expected_best_justified_checkpoint) = best_justified_checkpoint {
-                        tester
-                            .check_best_justified_checkpoint(*expected_best_justified_checkpoint)?;
                     }
 
                     if let Some(expected_u_justified_checkpoint) = u_justified_checkpoint {
@@ -573,14 +566,6 @@ impl<E: EthSpec> Tester<E> {
         assert_checkpoints_eq("finalized_checkpoint", head_checkpoint, fc_checkpoint);
 
         check_equal("finalized_checkpoint", fc_checkpoint, expected_checkpoint)
-    }
-
-    /// This test is now a no-op since it was removed by Aditya's PR #18.
-    pub fn check_best_justified_checkpoint(
-        &self,
-        _expected_checkpoint: Checkpoint,
-    ) -> Result<(), Error> {
-        Ok(())
     }
 
     pub fn check_u_justified_checkpoint(
