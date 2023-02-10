@@ -18,6 +18,7 @@ use beacon_chain::{BeaconChainTypes, GossipVerifiedBlock, MAXIMUM_GOSSIP_CLOCK_D
 use fnv::FnvHashMap;
 use futures::task::Poll;
 use futures::{Stream, StreamExt};
+use itertools::Itertools;
 use lighthouse_network::{MessageId, PeerId};
 use logging::TimeLatch;
 use slog::{crit, debug, error, trace, warn, Logger};
@@ -67,6 +68,9 @@ const MAXIMUM_QUEUED_ATTESTATIONS: usize = 16_384;
 
 /// How many light client updates we keep before new ones get dropped.
 const MAXIMUM_QUEUED_LIGHT_CLIENT_UPDATES: usize = 128;
+
+// Process backfill batch 50%, 60%, 80% through each slot
+pub const BACKFILL_SCHEDULE_IN_SLOT: [f32; 3] = [0.5f32, 0.6, 0.8];
 
 /// Messages that the scheduler can receive.
 pub enum ReprocessQueueMessage<T: BeaconChainTypes> {
@@ -863,14 +867,32 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
 
     fn recompute_next_backfill_batch_event(&mut self) {
         let slot_duration = self.slot_clock.slot_duration();
-        // currently firing the event at 6s after slot start
-        // FIXME(jimmy): calculation to be re-worked to support multiple events per slot
         let delay_duration = self
             .slot_clock
-            .duration_to_next_slot()
-            .map_or(slot_duration, |duration_to_next_slot| {
-                duration_to_next_slot + (slot_duration / 2)
-            });
+            .seconds_from_current_slot_start()
+            .and_then(|duration_from_slot_start| {
+                BACKFILL_SCHEDULE_IN_SLOT
+                    .iter()
+                    .map(|percentage_in_slot| {
+                        // convert % to seconds from slot start
+                        (percentage_in_slot * slot_duration.as_secs_f32()) as u64
+                    })
+                    .find_or_first(|event_time_from_slot_start| {
+                        *event_time_from_slot_start > duration_from_slot_start.as_secs()
+                    })
+                    .map(|next_event_time_secs| {
+                        if duration_from_slot_start.as_secs() > next_event_time_secs {
+                            // event is in next slot, add duration to next slot
+                            let duration_to_next_slot = slot_duration - duration_from_slot_start;
+                            duration_to_next_slot + Duration::from_secs(next_event_time_secs)
+                        } else {
+                            Duration::from_secs(next_event_time_secs)
+                        }
+                    })
+            })
+            // If we can't read the slot clock, just wait another slot.
+            .unwrap_or(slot_duration);
+
         self.next_backfill_batch_event = Box::pin(tokio::time::sleep(delay_duration));
     }
 }
