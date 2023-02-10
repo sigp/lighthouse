@@ -906,7 +906,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("count-unrealized-full")
                 .long("count-unrealized-full")
                 .hidden(true)
-                .help("Stricter version of `count-unrealized`.")
+                .help("This flag is deprecated and has no effect.")
                 .takes_value(true)
                 .default_value("false")
         )

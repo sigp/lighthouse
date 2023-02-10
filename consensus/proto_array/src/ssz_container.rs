@@ -1,6 +1,6 @@
 use crate::proto_array::ProposerBoost;
 use crate::{
-    proto_array::{CountUnrealizedFull, ProtoArray, ProtoNode},
+    proto_array::{ProtoArray, ProtoNode},
     proto_array_fork_choice::{ElasticList, ProtoArrayForkChoice, VoteTracker},
     Error, JustifiedBalances,
 };
@@ -43,12 +43,10 @@ impl From<&ProtoArrayForkChoice> for SszContainer {
     }
 }
 
-impl TryFrom<(SszContainer, CountUnrealizedFull)> for ProtoArrayForkChoice {
+impl TryFrom<SszContainer> for ProtoArrayForkChoice {
     type Error = Error;
 
-    fn try_from(
-        (from, count_unrealized_full): (SszContainer, CountUnrealizedFull),
-    ) -> Result<Self, Error> {
+    fn try_from(from: SszContainer) -> Result<Self, Error> {
         let proto_array = ProtoArray {
             prune_threshold: from.prune_threshold,
             justified_checkpoint: from.justified_checkpoint,
@@ -56,7 +54,6 @@ impl TryFrom<(SszContainer, CountUnrealizedFull)> for ProtoArrayForkChoice {
             nodes: from.nodes,
             indices: from.indices.into_iter().collect::<HashMap<_, _>>(),
             previous_proposer_boost: from.previous_proposer_boost,
-            count_unrealized_full,
         };
 
         Ok(Self {

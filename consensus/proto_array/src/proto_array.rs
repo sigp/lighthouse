@@ -118,24 +118,6 @@ impl Default for ProposerBoost {
     }
 }
 
-/// Indicate whether we should strictly count unrealized justification/finalization votes.
-#[derive(Default, PartialEq, Eq, Debug, Serialize, Deserialize, Copy, Clone)]
-pub enum CountUnrealizedFull {
-    True,
-    #[default]
-    False,
-}
-
-impl From<bool> for CountUnrealizedFull {
-    fn from(b: bool) -> Self {
-        if b {
-            CountUnrealizedFull::True
-        } else {
-            CountUnrealizedFull::False
-        }
-    }
-}
-
 #[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
 pub struct ProtoArray {
     /// Do not attempt to prune the tree unless it has at least this many nodes. Small prunes
@@ -146,7 +128,6 @@ pub struct ProtoArray {
     pub nodes: Vec<ProtoNode>,
     pub indices: HashMap<Hash256, usize>,
     pub previous_proposer_boost: ProposerBoost,
-    pub count_unrealized_full: CountUnrealizedFull,
 }
 
 impl ProtoArray {

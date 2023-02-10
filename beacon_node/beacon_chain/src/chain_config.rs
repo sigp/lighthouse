@@ -1,4 +1,4 @@
-pub use proto_array::{CountUnrealizedFull, ReOrgThreshold};
+pub use proto_array::ReOrgThreshold;
 use serde_derive::{Deserialize, Serialize};
 use std::time::Duration;
 use types::{Checkpoint, Epoch};
@@ -56,8 +56,6 @@ pub struct ChainConfig {
     pub always_reset_payload_statuses: bool,
     /// Whether to apply paranoid checks to blocks proposed by this beacon node.
     pub paranoid_block_proposal: bool,
-    /// Whether to strictly count unrealized justified votes.
-    pub count_unrealized_full: CountUnrealizedFull,
     /// Optionally set timeout for calls to checkpoint sync endpoint.
     pub checkpoint_sync_url_timeout: u64,
     /// The offset before the start of a proposal slot at which payload attributes should be sent.
@@ -88,7 +86,6 @@ impl Default for ChainConfig {
             count_unrealized: true,
             always_reset_payload_statuses: false,
             paranoid_block_proposal: false,
-            count_unrealized_full: CountUnrealizedFull::default(),
             checkpoint_sync_url_timeout: 60,
             prepare_payload_lookahead: Duration::from_secs(4),
             optimistic_finalized_sync: true,
