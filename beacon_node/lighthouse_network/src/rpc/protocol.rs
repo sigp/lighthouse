@@ -14,7 +14,7 @@ use std::io;
 use std::marker::PhantomData;
 use std::sync::Arc;
 use std::time::Duration;
-use strum::IntoStaticStr;
+use strum::{AsRefStr, Display, EnumString, IntoStaticStr};
 use tokio_io_timeout::TimeoutStream;
 use tokio_util::{
     codec::Framed,
@@ -139,21 +139,26 @@ pub fn rpc_block_limits_by_fork(current_fork: ForkName) -> RpcLimits {
 }
 
 /// Protocol names to be used.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, EnumString, AsRefStr, Display)]
+#[strum(serialize_all = "snake_case")]
 pub enum Protocol {
     /// The Status protocol name.
     Status,
     /// The Goodbye protocol name.
     Goodbye,
     /// The `BlocksByRange` protocol name.
+    #[strum(serialize = "beacon_blocks_by_range")]
     BlocksByRange,
     /// The `BlocksByRoot` protocol name.
+    #[strum(serialize = "beacon_blocks_by_root")]
     BlocksByRoot,
     /// The `Ping` protocol name.
     Ping,
     /// The `MetaData` protocol name.
+    #[strum(serialize = "metadata")]
     MetaData,
     /// The `LightClientBootstrap` protocol name.
+    #[strum(serialize = "light_client_bootstrap")]
     LightClientBootstrap,
 }
 
@@ -170,21 +175,6 @@ pub enum Version {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Encoding {
     SSZSnappy,
-}
-
-impl std::fmt::Display for Protocol {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let repr = match self {
-            Protocol::Status => "status",
-            Protocol::Goodbye => "goodbye",
-            Protocol::BlocksByRange => "beacon_blocks_by_range",
-            Protocol::BlocksByRoot => "beacon_blocks_by_root",
-            Protocol::Ping => "ping",
-            Protocol::MetaData => "metadata",
-            Protocol::LightClientBootstrap => "light_client_bootstrap",
-        };
-        f.write_str(repr)
-    }
 }
 
 impl std::fmt::Display for Encoding {

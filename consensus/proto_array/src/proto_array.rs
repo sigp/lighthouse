@@ -1014,9 +1014,9 @@ impl ProtoArray {
         // ancestors of `node` that are likely to coincide with the store's
         // finalized checkpoint.
         //
-        // Don't continue checking these values for ancestors. If they don't
-        // match for the child then they're unlikely to start matching for its
-        // ancestors.
+        // Run this check once, outside of the loop rather than inside the loop.
+        // If the conditions don't match for this node then they're unlikely to
+        // start matching for its ancestors.
         for checkpoint in &[
             node.finalized_checkpoint,
             node.justified_checkpoint,
