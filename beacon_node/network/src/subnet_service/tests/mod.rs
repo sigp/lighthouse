@@ -182,6 +182,7 @@ mod attestation_service {
     #[cfg(feature = "deterministic_long_lived_attnets")]
     use std::collections::HashSet;
 
+    #[cfg(not(windows))]
     use crate::subnet_service::attestation_subnets::MIN_PEER_DISCOVERY_SLOT_LOOK_AHEAD;
 
     use super::*;
