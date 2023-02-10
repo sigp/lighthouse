@@ -14,6 +14,7 @@ pub use engine_api::{http, http::deposit_methods, http::HttpJsonRpc};
 use engines::{Engine, EngineError};
 pub use engines::{EngineState, ForkchoiceState};
 use eth2::types::{builder_bid::SignedBuilderBid, ForkVersionedResponse};
+use ethers_core::abi::ethereum_types::FromStrRadixErr;
 use ethers_core::types::transaction::eip2930::AccessListItem;
 use ethers_core::types::{Transaction as EthersTransaction, U64};
 use fork_choice::ForkchoiceUpdateParameters;
@@ -2042,9 +2043,9 @@ pub enum BlobTxConversionError {
     /// There was an error converting the transaction from JSON.
     SerdeJson(serde_json::Error),
     /// There was an error converting the transaction from hex.
-    FromHexError(String),
-    /// The `max_fee_per_data_gas` field did not contains 32 bytes.
-    InvalidDataGasBytesLen,
+    FromHex(String),
+    /// There was an error converting the transaction from hex.
+    FromStrRadix(FromStrRadixErr),
     /// A `versioned_hash` did not contain 32 bytes.
     InvalidVersionedHashBytesLen,
 }
@@ -2150,19 +2151,15 @@ fn ethers_tx_to_bytes<T: EthSpec>(
         // `ethers-rs` does not yet support SSZ and therefore the blobs transaction type.
 
         // maxFeePerDataGas
-        let data_gas_bytes = eth2_serde_utils::hex::decode(
+        let max_fee_per_data_gas = Uint256::from_str_radix(
             other
                 .get("maxFeePerDataGas")
                 .ok_or(BlobTxConversionError::MaxFeePerDataGasMissing)?
                 .as_str()
                 .ok_or(BlobTxConversionError::MaxFeePerDataGasMissing)?,
+            16,
         )
-        .map_err(BlobTxConversionError::FromHexError)?;
-        let max_fee_per_data_gas = if data_gas_bytes.len() != Uint256::ssz_fixed_len() {
-            Err(BlobTxConversionError::InvalidDataGasBytesLen)
-        } else {
-            Ok(Uint256::from_big_endian(&data_gas_bytes))
-        }?;
+        .map_err(BlobTxConversionError::FromStrRadix)?;
 
         // blobVersionedHashes
         let blob_versioned_hashes = other
@@ -2177,7 +2174,7 @@ fn ethers_tx_to_bytes<T: EthSpec>(
                         .as_str()
                         .ok_or(BlobTxConversionError::BlobVersionedHashesMissing)?,
                 )
-                .map_err(BlobTxConversionError::FromHexError)?;
+                .map_err(BlobTxConversionError::FromHex)?;
                 if hash_bytes.len() != Hash256::ssz_fixed_len() {
                     Err(BlobTxConversionError::InvalidVersionedHashBytesLen)
                 } else {
