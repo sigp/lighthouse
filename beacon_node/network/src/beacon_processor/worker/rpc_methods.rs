@@ -394,7 +394,8 @@ impl<T: BeaconChainTypes> Worker<T> {
                         Err(e) => {
                             if matches!(
                                 e,
-                                BeaconChainError::ExecutionLayerErrorPayloadReconstruction(..)
+                                BeaconChainError::ExecutionLayerErrorPayloadReconstruction(_block_hash, ref boxed_error)
+                                if matches!(**boxed_error, execution_layer::Error::EngineError(_))
                             ) {
                                 warn!(
                                     self.log,
