@@ -399,7 +399,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                             ) {
                                 warn!(
                                     self.log,
-                                    "Error rebuildinging payload for peer";
+                                    "Error rebuilding payload for peer";
                                     "info" => "this may occur occasionally when the EE is busy",
                                     "block_root" => ?root,
                                     "error" => ?e,
