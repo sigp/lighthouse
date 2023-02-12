@@ -9,6 +9,7 @@ use libp2p::gossipsub::{
     FastMessageId, GossipsubConfig, GossipsubConfigBuilder, GossipsubMessage, MessageId,
     RawGossipsubMessage, ValidationMode,
 };
+use libp2p::multiaddr::Protocol;
 use libp2p::Multiaddr;
 use serde_derive::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -48,66 +49,6 @@ pub fn gossip_max_size(is_merge_enabled: bool) -> usize {
         GOSSIP_MAX_SIZE_POST_MERGE
     } else {
         GOSSIP_MAX_SIZE
-    }
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct ListenAddr<Ip> {
-    pub addr: Ip,
-    pub udp_port: u16,
-    pub tcp_port: u16,
-}
-
-impl<Ip: Into<std::net::IpAddr>> ListenAddr<Ip> {
-    pub fn udp_socket_addr(&self) -> std::net::SocketAddr {
-        std::net::SocketAddr::new(self.addr.into(), self.udp_port)
-    }
-
-    pub fn tcp_socket_addr(&self) -> std::net::SocketAddr {
-        std::net::SocketAddr::new(self.addr.into(), self.tcp_port)
-    }
-}
-
-#[cfg(test)]
-impl<Ip> ListenAddr<Ip> {}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum ListenAddress {
-    V4(ListenAddr<Ipv4Addr>),
-    V6(ListenAddr<Ipv6Addr>),
-    DualStack(ListenAddr<Ipv4Addr>, ListenAddr<Ipv6Addr>),
-}
-impl ListenAddress {
-    pub fn v4(&self) -> Option<&ListenAddr<Ipv4Addr>> {
-        match self {
-            ListenAddress::V4(v4_addr) | ListenAddress::DualStack(v4_addr, _) => Some(v4_addr),
-            ListenAddress::V6(_) => None,
-        }
-    }
-
-    pub fn v6(&self) -> Option<&ListenAddr<Ipv6Addr>> {
-        match self {
-            ListenAddress::V6(v6_addr) | ListenAddress::DualStack(_, v6_addr) => Some(v6_addr),
-            ListenAddress::V4(_) => None,
-        }
-    }
-
-    #[cfg(test)]
-    pub fn unused_v4_ports() -> Self {
-        ListenAddress::V4(ListenAddr {
-            addr: Ipv4Addr::UNSPECIFIED,
-            udp_port: unused_port::unused_udp_port().unwrap(),
-            tcp_port: unused_port::unused_tcp_port().unwrap(),
-        })
-    }
-
-    #[cfg(test)]
-    pub fn unused_v6_ports() -> Self {
-        ListenAddress::V6(ListenAddr {
-            addr: Ipv6Addr::UNSPECIFIED,
-            udp_port: unused_port::unused_udp_port().unwrap(),
-            tcp_port: unused_port::unused_tcp_port().unwrap(),
-        })
     }
 }
 
@@ -244,7 +185,8 @@ impl Default for Config {
             .filter_rate_limiter(filter_rate_limiter)
             .filter_max_bans_per_ip(Some(5))
             .filter_max_nodes_per_ip(Some(10))
-            .table_filter(|enr| enr.ip4().map_or(false, |ip| is_global(&ip))) // Filter non-global IPs
+            // TODO eh what to do here
+            .table_filter(|enr| enr.ip4().map_or(false, |ip| is_global_ipv4(&ip))) // Filter non-global IPs
             .ban_duration(Some(Duration::from_secs(3600)))
             .ping_interval(Duration::from_secs(300))
             .build();
@@ -425,10 +367,97 @@ pub fn gossipsub_config(network_load: u8, fork_context: Arc<ForkContext>) -> Gos
         .expect("valid gossipsub configuration")
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ListenAddr<Ip> {
+    pub addr: Ip,
+    pub udp_port: u16,
+    pub tcp_port: u16,
+}
+
+impl<Ip: Into<std::net::IpAddr>> ListenAddr<Ip> {
+    pub fn udp_socket_addr(&self) -> std::net::SocketAddr {
+        std::net::SocketAddr::new(self.addr.into(), self.udp_port)
+    }
+
+    pub fn tcp_socket_addr(&self) -> std::net::SocketAddr {
+        std::net::SocketAddr::new(self.addr.into(), self.tcp_port)
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum ListenAddress {
+    V4(ListenAddr<Ipv4Addr>),
+    V6(ListenAddr<Ipv6Addr>),
+    DualStack(ListenAddr<Ipv4Addr>, ListenAddr<Ipv6Addr>),
+}
+impl ListenAddress {
+    pub fn v4(&self) -> Option<&ListenAddr<Ipv4Addr>> {
+        match self {
+            ListenAddress::V4(v4_addr) | ListenAddress::DualStack(v4_addr, _) => Some(v4_addr),
+            ListenAddress::V6(_) => None,
+        }
+    }
+
+    pub fn v6(&self) -> Option<&ListenAddr<Ipv6Addr>> {
+        match self {
+            ListenAddress::V6(v6_addr) | ListenAddress::DualStack(_, v6_addr) => Some(v6_addr),
+            ListenAddress::V4(_) => None,
+        }
+    }
+
+    pub fn tcp_addresses(&self) -> impl Iterator<Item = Multiaddr> + '_ {
+        let v4_multiaddr = self
+            .v4()
+            .map(|v4_addr| Multiaddr::from(v4_addr.addr).with(Protocol::Tcp(v4_addr.tcp_port)));
+        let v6_multiaddr = self
+            .v6()
+            .map(|v6_addr| Multiaddr::from(v6_addr.addr).with(Protocol::Tcp(v6_addr.tcp_port)));
+        v4_multiaddr.into_iter().chain(v6_multiaddr)
+    }
+
+    #[cfg(test)]
+    pub fn unused_v4_ports() -> Self {
+        ListenAddress::V4(ListenAddr {
+            addr: Ipv4Addr::UNSPECIFIED,
+            udp_port: unused_port::unused_udp_port().unwrap(),
+            tcp_port: unused_port::unused_tcp_port().unwrap(),
+        })
+    }
+
+    #[cfg(test)]
+    pub fn unused_v6_ports() -> Self {
+        ListenAddress::V6(ListenAddr {
+            addr: Ipv6Addr::UNSPECIFIED,
+            udp_port: unused_port::unused_udp_port().unwrap(),
+            tcp_port: unused_port::unused_tcp_port().unwrap(),
+        })
+    }
+}
+
+impl slog::KV for ListenAddress {
+    fn serialize(
+        &self,
+        record: &slog::Record,
+        serializer: &mut dyn slog::Serializer,
+    ) -> slog::Result {
+        if let Some(v4_addr) = self.v4() {
+            serializer.emit_arguments("ip4_address", &format_args!("{}", v4_addr.addr))?;
+            serializer.emit_u16("udp4_port", v4_addr.udp_port)?;
+            serializer.emit_u16("tcp4_port", v4_addr.tcp_port)?;
+        }
+        if let Some(v6_addr) = self.v4() {
+            serializer.emit_arguments("ip6_address", &format_args!("{}", v6_addr.addr))?;
+            serializer.emit_u16("udp6_port", v6_addr.udp_port)?;
+            serializer.emit_u16("tcp6_port", v6_addr.tcp_port)?;
+        }
+        slog::Result::Ok(())
+    }
+}
+
 /// Helper function to determine if the IpAddr is a global address or not. The `is_global()`
 /// function is not yet stable on IpAddr.
 #[allow(clippy::nonminimal_bool)]
-fn is_global(addr: &Ipv4Addr) -> bool {
+fn is_global_ipv4(addr: &Ipv4Addr) -> bool {
     // check if this address is 192.0.0.9 or 192.0.0.10. These addresses are the only two
     // globally routable addresses in the 192.0.0.0/24 range.
     if u32::from_be_bytes(addr.octets()) == 0xc0000009
@@ -448,4 +477,56 @@ fn is_global(addr: &Ipv4Addr) -> bool {
             && !(addr.octets()[0] == 192 && addr.octets()[1] == 0 && addr.octets()[2] == 0)
             // Make sure the address is not in 0.0.0.0/8
             && addr.octets()[0] != 0
+}
+
+/// NOTE: Docs taken from https://doc.rust-lang.org/stable/std/net/struct.Ipv6Addr.html#method.is_global
+/// Returns true if the address appears to be globally reachable as specified by the IANA IPv6 Special-Purpose Address Registry. Whether or not an address is practically reachable will depend on your network configuration.
+///
+/// Most IPv6 addresses are globally reachable; unless they are specifically defined as not globally reachable.
+///
+/// Non-exhaustive list of notable addresses that are not globally reachable:
+///
+///     The unspecified address (is_unspecified)
+///     The loopback address (is_loopback)
+///     IPv4-mapped addresses
+///     Addresses reserved for benchmarking
+///     Addresses reserved for documentation (is_documentation)
+///     Unique local addresses (is_unique_local)
+///     Unicast addresses with link-local scope (is_unicast_link_local)
+// TODO: replace with [`Ipv6Addr::is_global`] once [Ip](https://github.com/rust-lang/rust/issues/27709) is stable.
+pub const fn is_global_ipv6(addr: &Ipv6Addr) -> bool {
+    const fn is_documentation(addr: &Ipv6Addr) -> bool {
+        (addr.segments()[0] == 0x2001) && (addr.segments()[1] == 0xdb8)
+    }
+    const fn is_unique_local(addr: &Ipv6Addr) -> bool {
+        (addr.segments()[0] & 0xfe00) == 0xfc00
+    }
+    const fn is_unicast_link_local(addr: &Ipv6Addr) -> bool {
+        (addr.segments()[0] & 0xffc0) == 0xfe80
+    }
+    !(addr.is_unspecified()
+            || addr.is_loopback()
+            // IPv4-mapped Address (`::ffff:0:0/96`)
+            || matches!(addr.segments(), [0, 0, 0, 0, 0, 0xffff, _, _])
+            // IPv4-IPv6 Translat. (`64:ff9b:1::/48`)
+            || matches!(addr.segments(), [0x64, 0xff9b, 1, _, _, _, _, _])
+            // Discard-Only Address Block (`100::/64`)
+            || matches!(addr.segments(), [0x100, 0, 0, 0, _, _, _, _])
+            // IETF Protocol Assignments (`2001::/23`)
+            || (matches!(addr.segments(), [0x2001, b, _, _, _, _, _, _] if b < 0x200)
+                && !(
+                    // Port Control Protocol Anycast (`2001:1::1`)
+                    u128::from_be_bytes(addr.octets()) == 0x2001_0001_0000_0000_0000_0000_0000_0001
+                    // Traversal Using Relays around NAT Anycast (`2001:1::2`)
+                    || u128::from_be_bytes(addr.octets()) == 0x2001_0001_0000_0000_0000_0000_0000_0002
+                    // AMT (`2001:3::/32`)
+                    || matches!(addr.segments(), [0x2001, 3, _, _, _, _, _, _])
+                    // AS112-v6 (`2001:4:112::/48`)
+                    || matches!(addr.segments(), [0x2001, 4, 0x112, _, _, _, _, _])
+                    // ORCHIDv2 (`2001:20::/28`)
+                    || matches!(addr.segments(), [0x2001, b, _, _, _, _, _, _] if b >= 0x20 && b <= 0x2F)
+                ))
+            || is_documentation(addr)
+            || is_unique_local(addr)
+            || is_unicast_link_local(addr))
 }
