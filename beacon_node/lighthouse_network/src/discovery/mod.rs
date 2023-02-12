@@ -1033,14 +1033,27 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
                             *self.network_globals.local_enr.write() = enr;
                             // A new UDP socket has been detected.
                             // Build a multiaddr to report to libp2p
-                            let mut address = Multiaddr::from(socket_addr.ip());
-                            // NOTE: This doesn't actually track the external TCP port. More sophisticated NAT handling
-                            // should handle this.
-                            address.push(Protocol::Tcp(self.network_globals.listen_port_tcp()));
-                            return Poll::Ready(NBAction::ReportObservedAddr {
-                                address,
-                                score: AddressScore::Finite(1),
-                            });
+                            let addr = match socket_addr.ip() {
+                                IpAddr::V4(v4_addr) => {
+                                    self.network_globals.listen_port_tcp4().map(|tcp4_port| {
+                                        Multiaddr::from(v4_addr).with(Protocol::Tcp(tcp4_port))
+                                    })
+                                }
+                                IpAddr::V6(v6_addr) => {
+                                    self.network_globals.listen_port_tcp6().map(|tcp6_port| {
+                                        Multiaddr::from(v6_addr).with(Protocol::Tcp(tcp6_port))
+                                    })
+                                }
+                            };
+
+                            if let Some(address) = addr {
+                                // NOTE: This doesn't actually track the external TCP port. More sophisticated NAT handling
+                                // should handle this.
+                                return Poll::Ready(NBAction::ReportObservedAddr {
+                                    address,
+                                    score: AddressScore::Finite(1),
+                                });
+                            }
                         }
                         Discv5Event::EnrAdded { .. }
                         | Discv5Event::TalkRequest(_)
@@ -1132,8 +1145,8 @@ mod tests {
         let log = build_log(slog::Level::Debug, false);
         let globals = NetworkGlobals::new(
             enr,
-            9000,
-            9000,
+            Some(9000),
+            None,
             MetaData::V2(MetaDataV2 {
                 seq_number: 0,
                 attnets: Default::default(),
