@@ -2855,7 +2855,7 @@ pub fn serve<T: BeaconChainTypes>(
                     .await
                     .map(|resp| warp::reply::json(&resp))
                     .map_err(|e| {
-                        error!(
+                        warn!(
                             log,
                             "Relay error when registering validator(s)";
                             "num_registrations" => filtered_registration_data.len(),

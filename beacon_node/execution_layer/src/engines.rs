@@ -5,7 +5,7 @@ use crate::engine_api::{
 };
 use crate::HttpJsonRpc;
 use lru::LruCache;
-use slog::{debug, error, info, Logger};
+use slog::{debug, error, info, warn, Logger};
 use std::future::Future;
 use std::sync::Arc;
 use task_executor::TaskExecutor;
@@ -325,7 +325,7 @@ impl Engine {
                 Ok(result)
             }
             Err(error) => {
-                error!(
+                warn!(
                     self.log,
                     "Execution engine call failed";
                     "error" => ?error,

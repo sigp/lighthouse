@@ -4988,6 +4988,7 @@ dependencies = [
  "eth2_ssz",
  "eth2_ssz_types",
  "ethereum-types 0.14.1",
+ "execution_layer",
  "exit-future",
  "fnv",
  "futures",
