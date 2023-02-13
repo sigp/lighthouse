@@ -20,13 +20,14 @@ pub struct UPnPConfig {
     disable_discovery: bool,
 }
 
-impl From<&NetworkConfig> for UPnPConfig {
-    fn from(config: &NetworkConfig) -> Self {
-        UPnPConfig {
-            tcp_port: config.libp2p_port,
-            udp_port: config.discovery_port,
+impl UPnPConfig {
+    pub fn from_config(config: &NetworkConfig) -> Option<Self> {
+        // TODO: need to read more on UPnP over ipv6
+        config.listen_addresses.v4().map(|v4_addr| UPnPConfig {
+            tcp_port: v4_addr.tcp_port,
+            udp_port: v4_addr.udp_port,
             disable_discovery: config.disable_discovery,
-        }
+        })
     }
 }
 
