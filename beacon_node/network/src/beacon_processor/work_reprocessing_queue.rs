@@ -853,7 +853,8 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                         log,
                         "Failed to send scheduled backfill work. Sending it back to queue.";
                     );
-                    self.queued_backfill_batches.push(queued_backfill_batch);
+                    self.queued_backfill_batches
+                        .insert(0, queued_backfill_batch);
                 }
             }
         }
