@@ -59,14 +59,7 @@ The following fields are returned:
 - `previous_epoch_head_attesting_gwei`: the total staked gwei that attested to a
 	head beacon block that is in the canonical chain.
 
-From this data you can calculate some interesting figures:
-
-#### Participation Rate
-
-`previous_epoch_attesting_gwei / previous_epoch_active_gwei`
-
-Expresses the ratio of validators that managed to have an attestation
-voting upon the previous epoch included in a block.
+From this data you can calculate:
 
 #### Justification/Finalization Rate
 

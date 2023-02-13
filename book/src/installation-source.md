@@ -64,6 +64,7 @@ choco install protoc
 These dependencies are for compiling Lighthouse natively on Windows. Lighthouse can also run
 successfully under the [Windows Subsystem for Linux (WSL)][WSL]. If using Ubuntu under WSL, you
 should follow the instructions for Ubuntu listed in the [Dependencies (Ubuntu)](#ubuntu) section.
+
 [WSL]: https://docs.microsoft.com/en-us/windows/wsl/about
 
 ## Build Lighthouse
@@ -128,8 +129,12 @@ Commonly used features include:
 * `gnosis`: support for the Gnosis Beacon Chain.
 * `portable`: support for legacy hardware.
 * `modern`: support for exclusively modern hardware.
-* `slasher-mdbx`: support for the MDBX slasher backend (enabled by default).
+* `slasher-mdbx`: support for the MDBX slasher backend. Enabled by default.
 * `slasher-lmdb`: support for the LMDB slasher backend.
+* `jemalloc`: use [`jemalloc`][jemalloc] to allocate memory. Enabled by default on Linux and macOS.
+  Not supported on Windows.
+
+[jemalloc]: https://jemalloc.net/
 
 ## Compilation Profiles
 

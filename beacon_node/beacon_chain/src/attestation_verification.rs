@@ -27,6 +27,11 @@
 //!                                ▼
 //!                  impl VerifiedAttestation
 //! ```
+
+// Ignore this lint for `AttestationSlashInfo` which is of comparable size to the non-error types it
+// is returned alongside.
+#![allow(clippy::result_large_err)]
+
 mod batch;
 
 use crate::{
