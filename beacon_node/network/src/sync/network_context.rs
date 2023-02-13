@@ -562,13 +562,12 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
     /// blocks and blobs.
     #[allow(unused)]
     pub fn batch_type(&self, epoch: types::Epoch) -> ByRangeRequestType {
-        if super::backfill_sync::BACKFILL_EPOCHS_PER_BATCH * super::range_sync::EPOCHS_PER_BATCH
-            != 1
-        {
-            panic!(
-                "To deal with alignment with 4844 boundaries, batches need to be of just one epoch"
-            );
-        }
+        const _: () = assert!(
+            super::backfill_sync::BACKFILL_EPOCHS_PER_BATCH == 1
+                && super::range_sync::EPOCHS_PER_BATCH == 1,
+            "To deal with alignment with 4844 boundaries, batches need to be of just one epoch"
+        );
+
         #[cfg(test)]
         {
             // Keep tests only for blocks.
