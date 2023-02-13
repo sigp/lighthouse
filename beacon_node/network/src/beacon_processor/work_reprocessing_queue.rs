@@ -228,7 +228,7 @@ struct ReprocessQueue<T: BeaconChainTypes> {
     /// Light Client Updates per parent_root.
     awaiting_lc_updates_per_parent_root: HashMap<Hash256, Vec<QueuedLightClientUpdateId>>,
     /// Queued backfill batches
-    queued_backfill_batches: SmallVec<[QueuedBackfillBatch<T::EthSpec>; 4]>,
+    queued_backfill_batches: SmallVec<[QueuedBackfillBatch<T::EthSpec>; 2]>,
 
     /* Aux */
     /// Next attestation id, used for both aggregated and unaggregated attestations
@@ -723,7 +723,8 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                 }
             }
             InboundEvent::Msg(BackfillSync(queued_backfill_batch)) => {
-                self.queued_backfill_batches.push(queued_backfill_batch);
+                self.queued_backfill_batches
+                    .insert(0, queued_backfill_batch);
             }
             // A block that was queued for later processing is now ready to be processed.
             InboundEvent::ReadyGossipBlock(ready_block) => {
@@ -961,7 +962,7 @@ mod tests {
             ))
         }
 
-        // check for next event in beyond this slot
+        // check for next event beyond the current slot
         let duration_to_next_slot = slot_clock.duration_to_next_slot().unwrap();
         let duration_to_next_event =
             ReprocessQueue::<TestBeaconChainType>::duration_until_next_backfill_batch_event(
