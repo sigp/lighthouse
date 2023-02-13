@@ -958,7 +958,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         block_root: &Hash256,
     ) -> Result<Option<SignedBeaconBlockAndBlobsSidecar<T::EthSpec>>, Error> {
         // If there is no data availability boundary, the Eip4844 fork is disabled.
-        if self.finalized_data_availability_boundary().is_some() {
+        if let Some(finalized_data_availability_boundary) =
+            self.finalized_data_availability_boundary()
+        {
             // Only use the attester cache if we can find both the block and blob
             if let (Some(block), Some(blobs)) = (
                 self.early_attester_cache.get_block(*block_root),
@@ -970,7 +972,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 }))
             // Attempt to get the block and blobs from the database
             } else if let Some(block) = self.get_block(block_root).await?.map(Arc::new) {
-                let blobs = self.get_blobs(block_root)?.map(Arc::new);
+                let blobs = self
+                    .get_blobs(block_root, finalized_data_availability_boundary)?
+                    .map(Arc::new);
                 Ok(blobs.map(|blobs| SignedBeaconBlockAndBlobsSidecar {
                     beacon_block: block,
                     blobs_sidecar: blobs,
@@ -1066,27 +1070,32 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn get_blobs(
         &self,
         block_root: &Hash256,
+        data_availability_boundary: Epoch,
     ) -> Result<Option<BlobsSidecar<T::EthSpec>>, Error> {
         match self.store.get_blobs(block_root)? {
             Some(blobs) => Ok(Some(blobs)),
             None => {
-                if let Ok(Some(block)) = self.get_blinded_block(block_root) {
-                    let expected_kzg_commitments = block.message().body().blob_kzg_commitments()?;
-
-                    if !expected_kzg_commitments.is_empty() {
-                        Err(Error::DBInconsistent(format!(
-                            "Expected kzg commitments but no blobs stored for block root {}",
-                            block_root
-                        )))
-                    } else {
-                        Ok(Some(BlobsSidecar::empty_from_parts(
-                            *block_root,
-                            block.slot(),
-                        )))
-                    }
-                } else {
-                    Ok(None)
-                }
+                // Check for the corresponding block to understand whether we *should* have blobs.
+                self.get_blinded_block(block_root)?
+                    .map(|block| {
+                        // If there are no KZG commitments in the block, we know the sidecar should
+                        // be empty.
+                        let expected_kzg_commitments =
+                            match block.message().body().blob_kzg_commitments() {
+                                Ok(kzg_commitments) => kzg_commitments,
+                                Err(_) => return Err(Error::NoKzgCommitmentsFieldOnBlock),
+                            };
+                        if expected_kzg_commitments.is_empty() {
+                            Ok(BlobsSidecar::empty_from_parts(*block_root, block.slot()))
+                        } else if data_availability_boundary <= block.epoch() {
+                            // We should have blobs for all blocks younger than the boundary.
+                            Err(Error::BlobsUnavailable)
+                        } else {
+                            // We shouldn't have blobs for blocks older than the boundary.
+                            Err(Error::BlobsOlderThanDataAvailabilityBoundary(block.epoch()))
+                        }
+                    })
+                    .transpose()
             }
         }
     }
@@ -3033,10 +3042,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 }
             }
         }
-
         let txn_lock = self.store.hot_db.begin_rw_transaction();
 
-        if let Err(e) = self.store.do_atomically(ops) {
+        if let Err(e) = self.store.do_atomically_with_block_and_blobs_cache(ops) {
             error!(
                 self.log,
                 "Database write failed!";
@@ -4641,7 +4649,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         debug!(
             self.log,
             "Produced block on state";
-            "block_size" => %block_size,
+            "block_size" => block_size,
         );
 
         metrics::observe(&metrics::BLOCK_SIZE, block_size as f64);

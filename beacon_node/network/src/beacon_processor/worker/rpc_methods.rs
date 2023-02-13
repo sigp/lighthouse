@@ -799,7 +799,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         let mut send_response = true;
 
         for root in block_roots {
-            match self.chain.get_blobs(&root) {
+            match self.chain.get_blobs(&root, data_availability_boundary) {
                 Ok(Some(blobs)) => {
                     blobs_sent += 1;
                     self.send_network_message(NetworkMessage::SendResponse {

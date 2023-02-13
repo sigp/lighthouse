@@ -560,7 +560,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
 
     /// Check whether a batch for this epoch (and only this epoch) should request just blocks or
     /// blocks and blobs.
-    pub fn batch_type(&self, _epoch: types::Epoch) -> ByRangeRequestType {
+    pub fn batch_type(&self, #[cfg(not(test))] epoch: types::Epoch) -> ByRangeRequestType {
         if super::backfill_sync::BACKFILL_EPOCHS_PER_BATCH * super::range_sync::EPOCHS_PER_BATCH
             != 1
         {
@@ -576,7 +576,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         #[cfg(not(test))]
         {
             if let Some(data_availability_boundary) = self.chain.data_availability_boundary() {
-                if _epoch >= data_availability_boundary {
+                if epoch >= data_availability_boundary {
                     ByRangeRequestType::BlocksAndBlobs
                 } else {
                     ByRangeRequestType::Blocks
