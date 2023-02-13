@@ -21,9 +21,12 @@ use types::{
     Hash256, Slot,
 };
 
-const JUNK_CHECKPOINT: Checkpoint = Checkpoint {
-    epoch: Epoch::new(42),
-    root: Hash256::repeat_byte(42),
+/// Ensure this justified checkpoint has an epoch of 0 so that it is never
+/// greater than the justified checkpoint and enshrined as the actual justified
+/// checkpoint.
+const JUNK_BEST_JUSTIFIED_CHECKPOINT: Checkpoint = Checkpoint {
+    epoch: Epoch::new(0),
+    root: Hash256::repeat_byte(0),
 };
 
 #[derive(Debug)]
