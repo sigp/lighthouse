@@ -892,10 +892,11 @@ async fn test_rpc_block_reprocessing() {
 #[tokio::test]
 async fn test_backfill_sync_processing() {
     let mut rig = TestRig::new(SMALL_CHAIN).await;
-    // Note: Unfortunately I can't find an easy way to manipulate the slot clock used by the the
-    // `work_reprocessing_queue` due to cloning of `SlotClock` in code, so for now the timing
-    // calculation is done separately.
-    for _ in 0..3 {
+    // Note: to verify the exact event times in an integration test is not straight forward here
+    // (not straight forward to manipulate `TestingSlotClock` due to cloning of `SlotClock` in code)
+    // and makes the test very slow, hence timing calculation is unit tested separately in
+    // `work_reprocessing_queue`.
+    for _ in 0..1 {
         rig.enqueue_backfill_batch();
         // ensure queued batch is not processed until later
         rig.assert_no_events_for(Duration::from_millis(100)).await;

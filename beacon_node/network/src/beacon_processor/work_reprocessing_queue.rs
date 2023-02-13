@@ -911,3 +911,65 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
             .unwrap_or(slot_duration)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use beacon_chain::builder::Witness;
+    use beacon_chain::eth1_chain::CachingEth1Backend;
+    use slot_clock::TestingSlotClock;
+    use store::MemoryStore;
+    use types::MainnetEthSpec as E;
+    use types::Slot;
+
+    type TestBeaconChainType =
+        Witness<TestingSlotClock, CachingEth1Backend<E>, E, MemoryStore<E>, MemoryStore<E>>;
+
+    #[test]
+    fn backfill_processing_schedule_calculation() {
+        let slot_duration = 12;
+        let slot_clock = TestingSlotClock::new(
+            Slot::new(0),
+            Duration::from_secs(0),
+            Duration::from_secs(slot_duration),
+        );
+
+        let current_slot_start = slot_clock.start_of(Slot::new(100)).unwrap();
+        slot_clock.set_current_time(current_slot_start);
+
+        let event_times = BACKFILL_SCHEDULE_IN_SLOT
+            .map(|percentage_in_slot| (percentage_in_slot * slot_duration as f32) as u64);
+
+        for event_secs_from_slot_start in event_times.iter() {
+            let duration_to_next_event =
+                ReprocessQueue::<TestBeaconChainType>::duration_until_next_backfill_batch_event(
+                    &slot_clock,
+                );
+
+            let current_time = slot_clock
+                .seconds_from_current_slot_start()
+                .unwrap()
+                .as_secs();
+
+            assert_eq!(
+                duration_to_next_event,
+                Duration::from_secs(*event_secs_from_slot_start - current_time)
+            );
+
+            slot_clock.set_current_time(Duration::from_secs(
+                current_slot_start.as_secs() + *event_secs_from_slot_start,
+            ))
+        }
+
+        // check for next event in beyond this slot
+        let duration_to_next_slot = slot_clock.duration_to_next_slot().unwrap();
+        let duration_to_next_event =
+            ReprocessQueue::<TestBeaconChainType>::duration_until_next_backfill_batch_event(
+                &slot_clock,
+            );
+        assert_eq!(
+            duration_to_next_event,
+            Duration::from_secs(duration_to_next_slot.as_secs() + event_times[0])
+        );
+    }
+}
