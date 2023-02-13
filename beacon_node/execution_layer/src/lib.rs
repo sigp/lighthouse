@@ -2160,7 +2160,7 @@ fn ethers_tx_to_bytes<T: EthSpec>(
             .ok_or(BlobTxConversionError::BlobVersionedHashesMissing)?
             .as_array()
             .ok_or(BlobTxConversionError::BlobVersionedHashesMissing)?
-            .into_iter()
+            .iter()
             .map(|versioned_hash| {
                 let hash_bytes = eth2_serde_utils::hex::decode(
                     versioned_hash

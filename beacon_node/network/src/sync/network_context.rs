@@ -562,6 +562,8 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
     /// blocks and blobs.
     #[allow(unused)]
     pub fn batch_type(&self, epoch: types::Epoch) -> ByRangeRequestType {
+        // Induces a compile time panic if this doesn't hold true.
+        #[allow(clippy::assertions_on_constants)]
         const _: () = assert!(
             super::backfill_sync::BACKFILL_EPOCHS_PER_BATCH == 1
                 && super::range_sync::EPOCHS_PER_BATCH == 1,
