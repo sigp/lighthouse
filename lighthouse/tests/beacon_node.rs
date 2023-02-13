@@ -234,7 +234,7 @@ fn count_unrealized_full_no_arg() {
         .flag("count-unrealized-full", None)
         // This flag should be ignored, so there's nothing to test but that the
         // client starts with the flag present.
-        .run_with_zero_port()
+        .run_with_zero_port();
 }
 
 #[test]
