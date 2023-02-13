@@ -6,7 +6,6 @@
 pub(crate) mod enr;
 pub mod enr_ext;
 
-use crate::config::ListenAddr;
 // Allow external use of the lighthouse ENR builder
 use crate::metrics;
 use crate::service::TARGET_SUBNET_PEERS;
@@ -35,7 +34,6 @@ pub use libp2p::{
 use lru::LruCache;
 use slog::{crit, debug, error, info, trace, warn};
 use ssz::Encode;
-use std::net::SocketAddrV4;
 use std::{
     collections::{HashMap, VecDeque},
     net::{IpAddr, SocketAddr},
@@ -1118,7 +1116,6 @@ mod tests {
     use enr::EnrBuilder;
     use slog::{o, Drain};
     use types::{BitVector, MinimalEthSpec, SubnetId};
-    use unused_port::unused_udp_port;
 
     type E = MinimalEthSpec;
 

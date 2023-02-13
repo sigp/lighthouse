@@ -15,7 +15,7 @@ pub mod peer_manager;
 pub mod rpc;
 pub mod types;
 
-pub use config::gossip_max_size;
+pub use config::{gossip_max_size, ListenAddr, ListenAddress};
 
 use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
 use std::str::FromStr;

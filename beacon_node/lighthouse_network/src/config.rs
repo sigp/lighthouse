@@ -374,13 +374,13 @@ pub struct ListenAddr<Ip> {
     pub tcp_port: u16,
 }
 
-impl<Ip: Into<std::net::IpAddr>> ListenAddr<Ip> {
+impl<Ip: Into<std::net::IpAddr> + Clone> ListenAddr<Ip> {
     pub fn udp_socket_addr(&self) -> std::net::SocketAddr {
-        std::net::SocketAddr::new(self.addr.into(), self.udp_port)
+        std::net::SocketAddr::new(self.addr.clone().into(), self.udp_port)
     }
 
     pub fn tcp_socket_addr(&self) -> std::net::SocketAddr {
-        std::net::SocketAddr::new(self.addr.into(), self.tcp_port)
+        std::net::SocketAddr::new(self.addr.clone().into(), self.tcp_port)
     }
 }
 
@@ -437,7 +437,7 @@ impl ListenAddress {
 impl slog::KV for ListenAddress {
     fn serialize(
         &self,
-        record: &slog::Record,
+        _record: &slog::Record,
         serializer: &mut dyn slog::Serializer,
     ) -> slog::Result {
         if let Some(v4_addr) = self.v4() {
