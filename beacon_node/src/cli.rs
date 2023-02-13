@@ -28,6 +28,13 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .help("Data directory for the freezer database.")
                 .takes_value(true)
         )
+        .arg(
+            Arg::with_name("blobs-dir")
+                .long("blobs-dir")
+                .value_name("DIR")
+                .help("Data directory for the blobs database.")
+                .takes_value(true)
+        )
         /*
          * Network parameters.
          */

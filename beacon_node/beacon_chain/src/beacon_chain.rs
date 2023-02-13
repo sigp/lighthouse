@@ -3031,7 +3031,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             // margin, or younger (of higher epoch number).
             if block_epoch >= import_boundary {
                 if let Some(blobs) = blobs {
-                    if blobs.blobs.len() > 0 {
+                    if !blobs.blobs.is_empty() {
                         //FIXME(sean) using this for debugging for now
                         info!(
                             self.log, "Writing blobs to store";
@@ -3042,10 +3042,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 }
             }
         }
-
         let txn_lock = self.store.hot_db.begin_rw_transaction();
 
-        if let Err(e) = self.store.do_atomically(ops) {
+        if let Err(e) = self.store.do_atomically_with_block_and_blobs_cache(ops) {
             error!(
                 self.log,
                 "Database write failed!";

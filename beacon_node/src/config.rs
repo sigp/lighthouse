@@ -390,6 +390,10 @@ pub fn get_config<E: EthSpec>(
         client_config.freezer_db_path = Some(PathBuf::from(freezer_dir));
     }
 
+    if let Some(blobs_db_dir) = cli_args.value_of("blobs-dir") {
+        client_config.blobs_db_path = Some(PathBuf::from(blobs_db_dir));
+    }
+
     let (sprp, sprp_explicit) = get_slots_per_restore_point::<E>(cli_args)?;
     client_config.store.slots_per_restore_point = sprp;
     client_config.store.slots_per_restore_point_set_explicitly = sprp_explicit;
