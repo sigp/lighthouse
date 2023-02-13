@@ -329,7 +329,9 @@ impl<T: BeaconChainTypes> Stream for ReprocessQueue<T> {
 
         match self.next_backfill_batch_event.as_mut().poll(cx) {
             Poll::Ready(_) => {
-                self.recompute_next_backfill_batch_event();
+                self.next_backfill_batch_event = Box::pin(tokio::time::sleep(
+                    ReprocessQueue::<T>::duration_until_next_backfill_batch_event(&self.slot_clock),
+                ));
                 if let Some(batch) = self.queued_backfill_batches.pop() {
                     return Poll::Ready(Some(InboundEvent::ReadyBackfillSync(batch)));
                 }
@@ -380,7 +382,9 @@ pub fn spawn_reprocess_scheduler<T: BeaconChainTypes>(
         rpc_block_debounce: TimeLatch::default(),
         attestation_delay_debounce: TimeLatch::default(),
         lc_update_delay_debounce: TimeLatch::default(),
-        next_backfill_batch_event: Box::pin(tokio::time::sleep(Duration::from_secs(1))),
+        next_backfill_batch_event: Box::pin(tokio::time::sleep(
+            ReprocessQueue::<T>::duration_until_next_backfill_batch_event(&slot_clock),
+        )),
         slot_clock: Box::pin(slot_clock.clone()),
     };
 
@@ -875,10 +879,11 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
         );
     }
 
-    fn recompute_next_backfill_batch_event(&mut self) {
-        let slot_duration = self.slot_clock.slot_duration();
-        let delay_duration = self
-            .slot_clock
+    /// Returns duration until the next scheduled processing time. The schedule ensure that backfill
+    /// processing is done in windows of time that aren't critical
+    fn duration_until_next_backfill_batch_event(slot_clock: &T::SlotClock) -> Duration {
+        let slot_duration = slot_clock.slot_duration();
+        slot_clock
             .seconds_from_current_slot_start()
             .and_then(|duration_from_slot_start| {
                 BACKFILL_SCHEDULE_IN_SLOT
@@ -903,8 +908,6 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                     })
             })
             // If we can't read the slot clock, just wait another slot.
-            .unwrap_or(slot_duration);
-
-        self.next_backfill_batch_event = Box::pin(tokio::time::sleep(delay_duration));
+            .unwrap_or(slot_duration)
     }
 }

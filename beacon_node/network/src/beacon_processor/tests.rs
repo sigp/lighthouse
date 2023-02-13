@@ -2,7 +2,7 @@
 #![cfg(test)]
 
 use crate::beacon_processor::work_reprocessing_queue::{
-    BACKFILL_SCHEDULE_IN_SLOT, QUEUED_ATTESTATION_DELAY, QUEUED_RPC_BLOCK_DELAY,
+    QUEUED_ATTESTATION_DELAY, QUEUED_RPC_BLOCK_DELAY,
 };
 use crate::beacon_processor::*;
 use crate::{service::NetworkMessage, sync::SyncMessage};
@@ -19,11 +19,9 @@ use lighthouse_network::{
 use slot_clock::SlotClock;
 use std::cmp;
 use std::iter::Iterator;
-use std::ops::Add;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
-use tokio::time::Instant;
 use types::{
     Attestation, AttesterSlashing, Epoch, EthSpec, MainnetEthSpec, ProposerSlashing,
     SignedBeaconBlock, SignedVoluntaryExit, SubnetId,
@@ -894,31 +892,19 @@ async fn test_rpc_block_reprocessing() {
 #[tokio::test]
 async fn test_backfill_sync_processing() {
     let mut rig = TestRig::new(SMALL_CHAIN).await;
-    let slot_clock = &rig.chain.slot_clock;
-    let slot_duration_secs = slot_clock.slot_duration().as_secs_f32();
-
-    let event_times = BACKFILL_SCHEDULE_IN_SLOT.map(|percentage_in_slot| {
-        Instant::now().add(Duration::from_secs_f32(
-            percentage_in_slot * slot_duration_secs,
-        ))
-    });
-
-    let slot_start = slot_clock.start_of(rig.next_block.slot()).unwrap();
-    slot_clock.set_current_time(slot_start);
-
-    for _ in 0..4 {
+    // Note: Unfortunately I can't find an easy way to manipulate the slot clock used by the the
+    // `work_reprocessing_queue` due to cloning of `SlotClock` in code, so for now the timing
+    // calculation is done separately.
+    for _ in 0..3 {
         rig.enqueue_backfill_batch();
-    }
-
-    // only the first batch is processed
-    rig.assert_event_journal(&[CHAIN_SEGMENT, WORKER_FREED, NOTHING_TO_DO])
+        // ensure queued batch is not processed until later
+        rig.assert_no_events_for(Duration::from_millis(100)).await;
+        // A new batch should be processed within a slot.
+        rig.assert_event_journal_with_timeout(
+            &[CHAIN_SEGMENT, WORKER_FREED, NOTHING_TO_DO],
+            rig.chain.slot_clock.slot_duration(),
+        )
         .await;
-
-    // The 2nd, 3rd and 4th batches should arrive at the beacon processor after the scheduled intervals
-    for event_time in event_times.iter() {
-        tokio::time::sleep_until(*event_time).await;
-        rig.assert_event_journal(&[CHAIN_SEGMENT, WORKER_FREED, NOTHING_TO_DO])
-            .await;
     }
 }
 
@@ -936,6 +922,9 @@ async fn test_backfill_sync_processing_rate_limiting_disabled() {
     }
 
     // ensure all batches are processed
-    rig.assert_event_journal_contains_ordered(&[CHAIN_SEGMENT, CHAIN_SEGMENT, CHAIN_SEGMENT])
-        .await;
+    rig.assert_event_journal_with_timeout(
+        &[CHAIN_SEGMENT, CHAIN_SEGMENT, CHAIN_SEGMENT],
+        Duration::from_millis(100),
+    )
+    .await;
 }
