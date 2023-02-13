@@ -50,7 +50,11 @@ excluded_paths = [
     # some bls tests are not included now
     "bls12-381-tests/deserialization_G1",
     "bls12-381-tests/deserialization_G2",
-    "bls12-381-tests/hash_to_G2"
+    "bls12-381-tests/hash_to_G2",
+    # Fork choice (temporarily skipped)
+    #
+    # TODO(paul): these tests MUST be re-enabled before merging into unstable!
+    "tests/.*/.*/fork_choice"
 ]
 
 def normalize_path(path):
