@@ -62,7 +62,6 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         }
     }
 
-
     /// Returns the Client type of the peer if known
     pub fn client_type(&self, peer_id: &PeerId) -> Client {
         self.network_globals
