@@ -2714,7 +2714,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // is so we don't have to think about lock ordering with respect to the fork choice lock.
         // There are a bunch of places where we lock both fork choice and the pubkey cache and it
         // would be difficult to check that they all lock fork choice first.
-        let mut kv_store_ops = self
+        let mut ops = self
             .validator_pubkey_cache
             .try_write_for(VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT)
             .ok_or(Error::ValidatorPubkeyCacheLockTimeout)?
@@ -2816,9 +2816,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // ---------------------------- BLOCK PROBABLY ATTESTABLE ----------------------------------
         // Most blocks are now capable of being attested to thanks to the `early_attester_cache`
         // cache above. Resume non-essential processing.
+        //
+        // It is important NOT to return errors here before the database commit, because the block
+        // has already been added to fork choice and the database would be left in an inconsistent
+        // state if we returned early without committing. In other words, an error here would
+        // corrupt the node's database permanently.
         // -----------------------------------------------------------------------------------------
 
-        self.import_block_update_shuffling_cache(block_root, &mut state)?;
+        self.import_block_update_shuffling_cache(block_root, &mut state);
         self.import_block_observe_attestations(
             block,
             &state,
@@ -2841,17 +2846,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // If the write fails, revert fork choice to the version from disk, else we can
         // end up with blocks in fork choice that are missing from disk.
         // See https://github.com/sigp/lighthouse/issues/2028
-        let mut ops: Vec<_> = confirmed_state_roots
-            .into_iter()
-            .map(StoreOp::DeleteStateTemporaryFlag)
-            .collect();
+        ops.extend(
+            confirmed_state_roots
+                .into_iter()
+                .map(StoreOp::DeleteStateTemporaryFlag),
+        );
         ops.push(StoreOp::PutBlock(block_root, signed_block.clone()));
         ops.push(StoreOp::PutState(block.state_root(), &state));
         let txn_lock = self.store.hot_db.begin_rw_transaction();
 
-        kv_store_ops.extend(self.store.convert_to_kv_batch(ops)?);
-
-        if let Err(e) = self.store.hot_db.do_atomically(kv_store_ops) {
+        if let Err(e) = self.store.do_atomically(ops) {
             error!(
                 self.log,
                 "Database write failed!";
@@ -3280,13 +3284,27 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
     }
 
+    // For the current and next epoch of this state, ensure we have the shuffling from this
+    // block in our cache.
     fn import_block_update_shuffling_cache(
         &self,
         block_root: Hash256,
         state: &mut BeaconState<T::EthSpec>,
+    ) {
+        if let Err(e) = self.import_block_update_shuffling_cache_fallible(block_root, state) {
+            warn!(
+                self.log,
+                "Failed to prime shuffling cache";
+                "error" => ?e
+            );
+        }
+    }
+
+    fn import_block_update_shuffling_cache_fallible(
+        &self,
+        block_root: Hash256,
+        state: &mut BeaconState<T::EthSpec>,
     ) -> Result<(), BlockError<T::EthSpec>> {
-        // For the current and next epoch of this state, ensure we have the shuffling from this
-        // block in our cache.
         for relative_epoch in [RelativeEpoch::Current, RelativeEpoch::Next] {
             let shuffling_id = AttestationShufflingId::new(block_root, state, relative_epoch)?;
 
