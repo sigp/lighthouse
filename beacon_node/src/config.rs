@@ -24,7 +24,7 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::time::Duration;
 use types::{Checkpoint, Epoch, EthSpec, Hash256, PublicKeyBytes, GRAFFITI_BYTES_LEN};
-use unused_port::{unused_tcp_port, unused_udp_port};
+use unused_port::{unused_tcp4_port, unused_udp4_port};
 
 /// Gets the fully-initialized global client.
 ///
@@ -404,13 +404,13 @@ pub fn get_config<E: EthSpec>(
      * Discovery address is set to localhost by default.
      */
     if cli_args.is_present("zero-ports") {
-        if client_config.network.enr_address == Some(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0))) {
+        if client_config.network.enr_address == Some(Ipv4Addr::UNSPECIFIED) {
             client_config.network.enr_address = None
         }
         client_config.network.libp2p_port =
-            unused_tcp_port().map_err(|e| format!("Failed to get port for libp2p: {}", e))?;
+            unused_tcp4_port().map_err(|e| format!("Failed to get port for libp2p: {}", e))?;
         client_config.network.discovery_port =
-            unused_udp_port().map_err(|e| format!("Failed to get port for discovery: {}", e))?;
+            unused_udp4_port().map_err(|e| format!("Failed to get port for discovery: {}", e))?;
         client_config.http_api.listen_port = 0;
         client_config.http_metrics.listen_port = 0;
     }

@@ -419,8 +419,8 @@ impl ListenAddress {
     pub fn unused_v4_ports() -> Self {
         ListenAddress::V4(ListenAddr {
             addr: Ipv4Addr::UNSPECIFIED,
-            udp_port: unused_port::unused_udp_port().unwrap(),
-            tcp_port: unused_port::unused_tcp_port().unwrap(),
+            udp_port: unused_port::unused_udp4_port().unwrap(),
+            tcp_port: unused_port::unused_tcp4_port().unwrap(),
         })
     }
 
@@ -428,8 +428,8 @@ impl ListenAddress {
     pub fn unused_v6_ports() -> Self {
         ListenAddress::V6(ListenAddr {
             addr: Ipv6Addr::UNSPECIFIED,
-            udp_port: unused_port::unused_udp_port().unwrap(),
-            tcp_port: unused_port::unused_tcp_port().unwrap(),
+            udp_port: unused_port::unused_udp6_port().unwrap(),
+            tcp_port: unused_port::unused_tcp6_port().unwrap(),
         })
     }
 }
@@ -480,9 +480,13 @@ fn is_global_ipv4(addr: &Ipv4Addr) -> bool {
 }
 
 /// NOTE: Docs taken from https://doc.rust-lang.org/stable/std/net/struct.Ipv6Addr.html#method.is_global
-/// Returns true if the address appears to be globally reachable as specified by the IANA IPv6 Special-Purpose Address Registry. Whether or not an address is practically reachable will depend on your network configuration.
 ///
-/// Most IPv6 addresses are globally reachable; unless they are specifically defined as not globally reachable.
+/// Returns true if the address appears to be globally reachable as specified by the IANA IPv6
+/// Special-Purpose Address Registry. Whether or not an address is practically reachable will
+/// depend on your network configuration.
+///
+/// Most IPv6 addresses are globally reachable; unless they are specifically defined as not
+/// globally reachable.
 ///
 /// Non-exhaustive list of notable addresses that are not globally reachable:
 ///
@@ -493,7 +497,8 @@ fn is_global_ipv4(addr: &Ipv4Addr) -> bool {
 ///     Addresses reserved for documentation (is_documentation)
 ///     Unique local addresses (is_unique_local)
 ///     Unicast addresses with link-local scope (is_unicast_link_local)
-// TODO: replace with [`Ipv6Addr::is_global`] once [Ip](https://github.com/rust-lang/rust/issues/27709) is stable.
+// TODO: replace with [`Ipv6Addr::is_global`] once
+//       [Ip](https://github.com/rust-lang/rust/issues/27709) is stable.
 pub const fn is_global_ipv6(addr: &Ipv6Addr) -> bool {
     const fn is_documentation(addr: &Ipv6Addr) -> bool {
         (addr.segments()[0] == 0x2001) && (addr.segments()[1] == 0xdb8)

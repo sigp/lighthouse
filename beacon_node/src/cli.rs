@@ -71,7 +71,11 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("listen-address")
                 .long("listen-address")
                 .value_name("ADDRESS")
-                .help("The address lighthouse will listen for UDP and TCP connections.")
+                .help("The address lighthouse will listen for UDP and TCP connections. To listen \
+                      over IpV4 and IpV6 set this flag twice with the different values.")
+                // TODO: need a native english speaker to give a less lame description.
+                .multiple(true)
+                .max_values(2)
                 .default_value("0.0.0.0")
                 .takes_value(true)
         )
@@ -84,10 +88,28 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true),
         )
         .arg(
+            Arg::with_name("port6")
+                .long("port6")
+                .value_name("PORT")
+                .help("The TCP/UDP port to listen on over IpV6 if using dual stack support. The \
+                      UDP port can be modified by the --discovery-port6 flag.")
+                .default_value("9090")
+                .takes_value(true),
+        )
+        .arg(
             Arg::with_name("discovery-port")
                 .long("discovery-port")
                 .value_name("PORT")
                 .help("The UDP port that discovery will listen on. Defaults to `port`")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("discovery-port6")
+                .long("discovery-port6")
+                .value_name("PORT")
+                .help("The UDP port that discovery will listen on over IpV6 if using dual stack \
+                      support. Defaults to `port6`")
+                .hidden(true) // TODO: implement dual stack via two sockets in discv5.
                 .takes_value(true),
         )
         .arg(
@@ -130,27 +152,49 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("enr-udp-port")
                 .long("enr-udp-port")
                 .value_name("PORT")
-                .help("The UDP port of the local ENR. Set this only if you are sure other nodes can connect to your local node on this port.")
+                .help("The UDP4 port of the local ENR. Set this only if you are sure other nodes \
+                      can connect to your local node on this port over IpV4.")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("enr-udp6-port")
+                .long("enr-udp6-port")
+                .value_name("PORT")
+                .help("The UDP6 port of the local ENR. Set this only if you are sure other nodes \
+                      can connect to your local node on this port over IpV6.")
                 .takes_value(true),
         )
         .arg(
             Arg::with_name("enr-tcp-port")
                 .long("enr-tcp-port")
                 .value_name("PORT")
-                .help("The TCP port of the local ENR. Set this only if you are sure other nodes can connect to your local node on this port.\
-                    The --port flag is used if this is not set.")
+                .help("The TCP4 port of the local ENR. Set this only if you are sure other nodes \
+                      can connect to your local node on this port over IpV4. The --port flag is \
+                      used if this is not set.")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("enr-tcp6-port")
+                .long("enr-tcp6-port")
+                .value_name("PORT")
+                .help("The TCP6 port of the local ENR. Set this only if you are sure other nodes \
+                      can connect to your local node on this port over IpV6. The --port6 flag is \
+                      used if this is not set.")
                 .takes_value(true),
         )
         .arg(
             Arg::with_name("enr-address")
                 .long("enr-address")
                 .value_name("ADDRESS")
-                .help("The IP address/ DNS address to broadcast to other peers on how to reach this node. \
-                If a DNS address is provided, the enr-address is set to the IP address it resolves to and \
-                does not auto-update based on PONG responses in discovery. \
-                Set this only if you are sure other nodes can connect to your local node on this address. \
-                Discovery will automatically find your external address, if possible.")
+                .help("The IP address/ DNS address to broadcast to other peers on how to reach \
+                      this node. If a DNS address is provided, the enr-address is set to the IP \
+                      address it resolves to and does not auto-update based on PONG responses in \
+                      discovery. Set this only if you are sure other nodes can connect to your \
+                      local node on this address. This will update the `ip4` or `ip6` ENR fields \
+                      accordingly. To update both, set this flag twice with the different values.")
                 .requires("enr-udp-port")
+                .multiple(true)
+                .max_values(2)
                 .takes_value(true),
         )
         .arg(
@@ -158,7 +202,8 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .short("e")
                 .long("enr-match")
                 .help("Sets the local ENR IP address and port to match those set for lighthouse. \
-                Specifically, the IP address will be the value of --listen-address and the UDP port will be --discovery-port.")
+                      Specifically, the IP address will be the value of --listen-address and the \
+                      UDP port will be --discovery-port.")
         )
         .arg(
             Arg::with_name("disable-enr-auto-update")

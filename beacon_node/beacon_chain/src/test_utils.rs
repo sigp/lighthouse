@@ -403,7 +403,7 @@ where
 
     pub fn mock_execution_layer_with_builder(mut self, beacon_url: SensitiveUrl) -> Self {
         // Get a random unused port
-        let port = unused_port::unused_tcp_port().unwrap();
+        let port = unused_port::unused_tcp4_port().unwrap();
         let builder_url = SensitiveUrl::parse(format!("http://127.0.0.1:{port}").as_str()).unwrap();
 
         let spec = self.spec.clone().expect("cannot build without spec");
