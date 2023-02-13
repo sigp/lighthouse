@@ -24,8 +24,8 @@ jobs:
         uses: arduino/setup-protoc@e52d9eb8f7b63115df1ac544a1376fdbf5a39612
         with:
             repo-token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Install ganache
-        run: npm install ganache@latest --global
+      - name: Install anvil
+        run: cargo install --git https://github.com/foundry-rs/foundry --locked anvil
 
       # https://github.com/actions/cache/blob/main/examples.md#rust---cargo
       - uses: actions/cache@v3
