@@ -221,8 +221,7 @@ where
             finalized_checkpoint: self.finalized_checkpoint,
             justified_checkpoint: self.justified_checkpoint,
             justified_balances: self.justified_balances.effective_balances.clone(),
-            // TODO(paul): consider a database migration here.
-            best_justified_checkpoint: JUNK_CHECKPOINT,
+            best_justified_checkpoint: JUNK_BEST_JUSTIFIED_CHECKPOINT,
             unrealized_justified_checkpoint: self.unrealized_justified_checkpoint,
             unrealized_finalized_checkpoint: self.unrealized_finalized_checkpoint,
             proposer_boost_root: self.proposer_boost_root,
