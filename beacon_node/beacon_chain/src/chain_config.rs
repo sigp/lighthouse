@@ -67,7 +67,7 @@ pub struct ChainConfig {
     pub prepare_payload_lookahead: Duration,
     /// Use EL-free optimistic sync for the finalized part of the chain.
     pub optimistic_finalized_sync: bool,
-    /// Whether backfill sync rate-limiting is enabled.
+    /// Whether backfill sync processing should be rate-limited.
     pub enable_backfill_rate_limiting: bool,
 }
 
