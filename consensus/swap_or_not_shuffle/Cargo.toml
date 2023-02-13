@@ -13,7 +13,7 @@ criterion = "0.3.3"
 
 [dependencies]
 eth2_hashing = "0.3.0"
-ethereum-types = "0.12.1"
+ethereum-types = "0.14.1"
 
 [features]
 arbitrary = ["ethereum-types/arbitrary"]

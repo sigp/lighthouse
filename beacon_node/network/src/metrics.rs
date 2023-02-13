@@ -1,5 +1,7 @@
 use beacon_chain::{
     attestation_verification::Error as AttnError,
+    light_client_finality_update_verification::Error as LightClientFinalityUpdateError,
+    light_client_optimistic_update_verification::Error as LightClientOptimisticUpdateError,
     sync_committee_verification::Error as SyncCommitteeError,
 };
 use fnv::FnvHashMap;
@@ -252,6 +254,19 @@ lazy_static! {
             "Gossipsub sync_committee errors per error type",
             &["type"]
         );
+    pub static ref GOSSIP_FINALITY_UPDATE_ERRORS_PER_TYPE: Result<IntCounterVec> =
+        try_create_int_counter_vec(
+            "gossipsub_light_client_finality_update_errors_per_type",
+            "Gossipsub light_client_finality_update errors per error type",
+            &["type"]
+        );
+    pub static ref GOSSIP_OPTIMISTIC_UPDATE_ERRORS_PER_TYPE: Result<IntCounterVec> =
+        try_create_int_counter_vec(
+            "gossipsub_light_client_optimistic_update_errors_per_type",
+            "Gossipsub light_client_optimistic_update errors per error type",
+            &["type"]
+        );
+
 
     /*
      * Network queue metrics
@@ -320,10 +335,18 @@ lazy_static! {
     pub static ref BEACON_BLOCK_GOSSIP_SLOT_START_DELAY_TIME: Result<Histogram> = try_create_histogram_with_buckets(
         "beacon_block_gossip_slot_start_delay_time",
         "Duration between when the block is received and the start of the slot it belongs to.",
+        // Create a custom bucket list for greater granularity in block delay
+        Ok(vec![0.1, 0.2, 0.3,0.4,0.5,0.75,1.0,1.25,1.5,1.75,2.0,2.5,3.0,3.5,4.0,5.0,6.0,7.0,8.0,9.0,10.0,15.0,20.0])
+        // NOTE: Previous values, which we may want to switch back to.
         // [0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 50]
-        decimal_buckets(-1,2)
+        //decimal_buckets(-1,2)
 
     );
+    pub static ref BEACON_BLOCK_LAST_DELAY: Result<IntGauge> = try_create_int_gauge(
+        "beacon_block_last_delay",
+        "Keeps track of the last block's delay from the start of the slot"
+    );
+
     pub static ref BEACON_BLOCK_GOSSIP_ARRIVED_LATE_TOTAL: Result<IntCounter> = try_create_int_counter(
         "beacon_block_gossip_arrived_late_total",
         "Count of times when a gossip block arrived from the network later than the attestation deadline.",
@@ -347,6 +370,21 @@ lazy_static! {
         "Number of queued attestations where as matching block has been imported."
     );
 
+    /*
+     * Light client update reprocessing queue metrics.
+     */
+    pub static ref BEACON_PROCESSOR_REPROCESSING_QUEUE_EXPIRED_OPTIMISTIC_UPDATES: Result<IntCounter> = try_create_int_counter(
+        "beacon_processor_reprocessing_queue_expired_optimistic_updates",
+        "Number of queued light client optimistic updates which have expired before a matching block has been found."
+    );
+    pub static ref BEACON_PROCESSOR_REPROCESSING_QUEUE_MATCHED_OPTIMISTIC_UPDATES: Result<IntCounter> = try_create_int_counter(
+        "beacon_processor_reprocessing_queue_matched_optimistic_updates",
+        "Number of queued light client optimistic updates where as matching block has been imported."
+    );
+    pub static ref BEACON_PROCESSOR_REPROCESSING_QUEUE_SENT_OPTIMISTIC_UPDATES: Result<IntCounter> = try_create_int_counter(
+        "beacon_processor_reprocessing_queue_sent_optimistic_updates",
+        "Number of queued light client optimistic updates where as matching block has been imported."
+    );
 }
 
 pub fn update_bandwidth_metrics(bandwidth: Arc<BandwidthSinks>) {
@@ -356,6 +394,14 @@ pub fn update_bandwidth_metrics(bandwidth: Arc<BandwidthSinks>) {
         &TOTAL_LIBP2P_BANDWIDTH,
         (bandwidth.total_inbound() + bandwidth.total_outbound()) as i64,
     );
+}
+
+pub fn register_finality_update_error(error: &LightClientFinalityUpdateError) {
+    inc_counter_vec(&GOSSIP_FINALITY_UPDATE_ERRORS_PER_TYPE, &[error.as_ref()]);
+}
+
+pub fn register_optimistic_update_error(error: &LightClientOptimisticUpdateError) {
+    inc_counter_vec(&GOSSIP_OPTIMISTIC_UPDATE_ERRORS_PER_TYPE, &[error.as_ref()]);
 }
 
 pub fn register_attestation_error(error: &AttnError) {

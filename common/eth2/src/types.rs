@@ -270,9 +270,18 @@ pub struct FinalityCheckpointsData {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(try_from = "&str")]
 pub enum ValidatorId {
     PublicKey(PublicKeyBytes),
     Index(u64),
+}
+
+impl TryFrom<&str> for ValidatorId {
+    type Error = String;
+
+    fn try_from(s: &str) -> Result<Self, Self::Error> {
+        Self::from_str(s)
+    }
 }
 
 impl FromStr for ValidatorId {
@@ -456,6 +465,11 @@ pub struct SyncCommitteesQuery {
 }
 
 #[derive(Serialize, Deserialize)]
+pub struct RandaoQuery {
+    pub epoch: Option<Epoch>,
+}
+
+#[derive(Serialize, Deserialize)]
 pub struct AttestationPoolQuery {
     pub slot: Option<Slot>,
     pub committee_index: Option<u64>,
@@ -484,6 +498,11 @@ pub struct SyncCommitteeByValidatorIndices {
     #[serde(with = "eth2_serde_utils::quoted_u64_vec")]
     pub validators: Vec<u64>,
     pub validator_aggregates: Vec<SyncSubcommittee>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RandaoMix {
+    pub randao: Hash256,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

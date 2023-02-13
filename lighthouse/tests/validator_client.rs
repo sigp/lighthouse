@@ -389,6 +389,24 @@ fn no_doppelganger_protection_flag() {
         .with_config(|config| assert!(!config.enable_doppelganger_protection));
 }
 #[test]
+fn block_delay_ms() {
+    CommandLineTest::new()
+        .flag("block-delay-ms", Some("2000"))
+        .run()
+        .with_config(|config| {
+            assert_eq!(
+                config.block_delay,
+                Some(std::time::Duration::from_millis(2000))
+            )
+        });
+}
+#[test]
+fn no_block_delay_ms() {
+    CommandLineTest::new()
+        .run()
+        .with_config(|config| assert_eq!(config.block_delay, None));
+}
+#[test]
 fn no_gas_limit_flag() {
     CommandLineTest::new()
         .run()
@@ -440,5 +458,21 @@ fn monitoring_endpoint() {
             let api_conf = config.monitoring_api.as_ref().unwrap();
             assert_eq!(api_conf.monitoring_endpoint.as_str(), "http://example:8000");
             assert_eq!(api_conf.update_period_secs, Some(30));
+        });
+}
+#[test]
+fn disable_run_on_all_default() {
+    CommandLineTest::new().run().with_config(|config| {
+        assert!(!config.disable_run_on_all);
+    });
+}
+
+#[test]
+fn disable_run_on_all() {
+    CommandLineTest::new()
+        .flag("disable-run-on-all", None)
+        .run()
+        .with_config(|config| {
+            assert!(config.disable_run_on_all);
         });
 }

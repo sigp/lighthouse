@@ -1,9 +1,12 @@
-use crate::error::Error;
-use crate::proto_array::CountUnrealizedFull;
-use crate::proto_array::{
-    calculate_proposer_boost, InvalidationOperation, Iter, ProposerBoost, ProtoArray, ProtoNode,
+use crate::{
+    error::Error,
+    proto_array::{
+        calculate_committee_fraction, CountUnrealizedFull, InvalidationOperation, Iter,
+        ProposerBoost, ProtoArray, ProtoNode,
+    },
+    ssz_container::SszContainer,
+    JustifiedBalances,
 };
-use crate::ssz_container::SszContainer;
 use serde_derive::{Deserialize, Serialize};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
@@ -170,11 +173,128 @@ where
     }
 }
 
+/// Information about the proposer head used for opportunistic re-orgs.
+#[derive(Clone)]
+pub struct ProposerHeadInfo {
+    /// Information about the *current* head block, which may be re-orged.
+    pub head_node: ProtoNode,
+    /// Information about the parent of the current head, which should be selected as the parent
+    /// for a new proposal *if* a re-org is decided on.
+    pub parent_node: ProtoNode,
+    /// The computed fraction of the active committee balance below which we can re-org.
+    pub re_org_weight_threshold: u64,
+    /// The current slot from fork choice's point of view, may lead the wall-clock slot by upto
+    /// 500ms.
+    pub current_slot: Slot,
+}
+
+/// Error type to enable short-circuiting checks in `get_proposer_head`.
+///
+/// This type intentionally does not implement `Debug` so that callers are forced to handle the
+/// enum.
+#[derive(Clone, PartialEq)]
+pub enum ProposerHeadError<E> {
+    DoNotReOrg(DoNotReOrg),
+    Error(E),
+}
+
+impl<E> From<DoNotReOrg> for ProposerHeadError<E> {
+    fn from(e: DoNotReOrg) -> ProposerHeadError<E> {
+        Self::DoNotReOrg(e)
+    }
+}
+
+impl From<Error> for ProposerHeadError<Error> {
+    fn from(e: Error) -> Self {
+        Self::Error(e)
+    }
+}
+
+impl<E1> ProposerHeadError<E1> {
+    pub fn convert_inner_error<E2>(self) -> ProposerHeadError<E2>
+    where
+        E2: From<E1>,
+    {
+        self.map_inner_error(E2::from)
+    }
+
+    pub fn map_inner_error<E2>(self, f: impl FnOnce(E1) -> E2) -> ProposerHeadError<E2> {
+        match self {
+            ProposerHeadError::DoNotReOrg(reason) => ProposerHeadError::DoNotReOrg(reason),
+            ProposerHeadError::Error(error) => ProposerHeadError::Error(f(error)),
+        }
+    }
+}
+
+/// Reasons why a re-org should not be attempted.
+///
+/// This type intentionally does not implement `Debug` so that the `Display` impl must be used.
+#[derive(Clone, PartialEq)]
+pub enum DoNotReOrg {
+    MissingHeadOrParentNode,
+    MissingHeadFinalizedCheckpoint,
+    ParentDistance,
+    HeadDistance,
+    ShufflingUnstable,
+    JustificationAndFinalizationNotCompetitive,
+    ChainNotFinalizing {
+        epochs_since_finalization: u64,
+    },
+    HeadNotWeak {
+        head_weight: u64,
+        re_org_weight_threshold: u64,
+    },
+    HeadNotLate,
+    NotProposing,
+    ReOrgsDisabled,
+}
+
+impl std::fmt::Display for DoNotReOrg {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            Self::MissingHeadOrParentNode => write!(f, "unknown head or parent"),
+            Self::MissingHeadFinalizedCheckpoint => write!(f, "finalized checkpoint missing"),
+            Self::ParentDistance => write!(f, "parent too far from head"),
+            Self::HeadDistance => write!(f, "head too far from current slot"),
+            Self::ShufflingUnstable => write!(f, "shuffling unstable at epoch boundary"),
+            Self::JustificationAndFinalizationNotCompetitive => {
+                write!(f, "justification or finalization not competitive")
+            }
+            Self::ChainNotFinalizing {
+                epochs_since_finalization,
+            } => write!(
+                f,
+                "chain not finalizing ({epochs_since_finalization} epochs since finalization)"
+            ),
+            Self::HeadNotWeak {
+                head_weight,
+                re_org_weight_threshold,
+            } => {
+                write!(f, "head not weak ({head_weight}/{re_org_weight_threshold})")
+            }
+            Self::HeadNotLate => {
+                write!(f, "head arrived on time")
+            }
+            Self::NotProposing => {
+                write!(f, "not proposing at next slot")
+            }
+            Self::ReOrgsDisabled => {
+                write!(f, "re-orgs disabled in config")
+            }
+        }
+    }
+}
+
+/// New-type for the re-org threshold percentage.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct ReOrgThreshold(pub u64);
+
 #[derive(PartialEq)]
 pub struct ProtoArrayForkChoice {
     pub(crate) proto_array: ProtoArray,
     pub(crate) votes: ElasticList<VoteTracker>,
-    pub(crate) balances: Vec<u64>,
+    pub(crate) balances: JustifiedBalances,
 }
 
 impl ProtoArrayForkChoice {
@@ -223,7 +343,7 @@ impl ProtoArrayForkChoice {
         Ok(Self {
             proto_array,
             votes: ElasticList::default(),
-            balances: vec![],
+            balances: JustifiedBalances::default(),
         })
     }
 
@@ -238,12 +358,12 @@ impl ProtoArrayForkChoice {
     }
 
     /// See `ProtoArray::propagate_execution_payload_invalidation` for documentation.
-    pub fn process_execution_payload_invalidation(
+    pub fn process_execution_payload_invalidation<E: EthSpec>(
         &mut self,
         op: &InvalidationOperation,
     ) -> Result<(), String> {
         self.proto_array
-            .propagate_execution_payload_invalidation(op)
+            .propagate_execution_payload_invalidation::<E>(op)
             .map_err(|e| format!("Failed to process invalid payload: {:?}", e))
     }
 
@@ -282,21 +402,20 @@ impl ProtoArrayForkChoice {
         &mut self,
         justified_checkpoint: Checkpoint,
         finalized_checkpoint: Checkpoint,
-        justified_state_balances: &[u64],
+        justified_state_balances: &JustifiedBalances,
         proposer_boost_root: Hash256,
         equivocating_indices: &BTreeSet<u64>,
         current_slot: Slot,
         spec: &ChainSpec,
     ) -> Result<Hash256, String> {
         let old_balances = &mut self.balances;
-
         let new_balances = justified_state_balances;
 
         let deltas = compute_deltas(
             &self.proto_array.indices,
             &mut self.votes,
-            old_balances,
-            new_balances,
+            &old_balances.effective_balances,
+            &new_balances.effective_balances,
             equivocating_indices,
         )
         .map_err(|e| format!("find_head compute_deltas failed: {:?}", e))?;
@@ -313,11 +432,127 @@ impl ProtoArrayForkChoice {
             )
             .map_err(|e| format!("find_head apply_score_changes failed: {:?}", e))?;
 
-        *old_balances = new_balances.to_vec();
+        *old_balances = new_balances.clone();
 
         self.proto_array
             .find_head::<E>(&justified_checkpoint.root, current_slot)
             .map_err(|e| format!("find_head failed: {:?}", e))
+    }
+
+    /// Get the block to propose on during `current_slot`.
+    ///
+    /// This function returns a *definitive* result which should be acted on.
+    pub fn get_proposer_head<E: EthSpec>(
+        &self,
+        current_slot: Slot,
+        canonical_head: Hash256,
+        justified_balances: &JustifiedBalances,
+        re_org_threshold: ReOrgThreshold,
+        max_epochs_since_finalization: Epoch,
+    ) -> Result<ProposerHeadInfo, ProposerHeadError<Error>> {
+        let info = self.get_proposer_head_info::<E>(
+            current_slot,
+            canonical_head,
+            justified_balances,
+            re_org_threshold,
+            max_epochs_since_finalization,
+        )?;
+
+        // Only re-org a single slot. This prevents cascading failures during asynchrony.
+        let head_slot_ok = info.head_node.slot + 1 == current_slot;
+        if !head_slot_ok {
+            return Err(DoNotReOrg::HeadDistance.into());
+        }
+
+        // Only re-org if the head's weight is less than the configured committee fraction.
+        let head_weight = info.head_node.weight;
+        let re_org_weight_threshold = info.re_org_weight_threshold;
+        let weak_head = head_weight < re_org_weight_threshold;
+        if !weak_head {
+            return Err(DoNotReOrg::HeadNotWeak {
+                head_weight,
+                re_org_weight_threshold,
+            }
+            .into());
+        }
+
+        // All checks have passed, build upon the parent to re-org the head.
+        Ok(info)
+    }
+
+    /// Get information about the block to propose on during `current_slot`.
+    ///
+    /// This function returns a *partial* result which must be processed further.
+    pub fn get_proposer_head_info<E: EthSpec>(
+        &self,
+        current_slot: Slot,
+        canonical_head: Hash256,
+        justified_balances: &JustifiedBalances,
+        re_org_threshold: ReOrgThreshold,
+        max_epochs_since_finalization: Epoch,
+    ) -> Result<ProposerHeadInfo, ProposerHeadError<Error>> {
+        let mut nodes = self
+            .proto_array
+            .iter_nodes(&canonical_head)
+            .take(2)
+            .cloned()
+            .collect::<Vec<_>>();
+
+        let parent_node = nodes.pop().ok_or(DoNotReOrg::MissingHeadOrParentNode)?;
+        let head_node = nodes.pop().ok_or(DoNotReOrg::MissingHeadOrParentNode)?;
+
+        let parent_slot = parent_node.slot;
+        let head_slot = head_node.slot;
+        let re_org_block_slot = head_slot + 1;
+
+        // Check finalization distance.
+        let proposal_epoch = re_org_block_slot.epoch(E::slots_per_epoch());
+        let finalized_epoch = head_node
+            .unrealized_finalized_checkpoint
+            .ok_or(DoNotReOrg::MissingHeadFinalizedCheckpoint)?
+            .epoch;
+        let epochs_since_finalization = proposal_epoch.saturating_sub(finalized_epoch).as_u64();
+        if epochs_since_finalization > max_epochs_since_finalization.as_u64() {
+            return Err(DoNotReOrg::ChainNotFinalizing {
+                epochs_since_finalization,
+            }
+            .into());
+        }
+
+        // Check parent distance from head.
+        // Do not check head distance from current slot, as that condition needs to be
+        // late-evaluated and is elided when `current_slot == head_slot`.
+        let parent_slot_ok = parent_slot + 1 == head_slot;
+        if !parent_slot_ok {
+            return Err(DoNotReOrg::ParentDistance.into());
+        }
+
+        // Check shuffling stability.
+        let shuffling_stable = re_org_block_slot % E::slots_per_epoch() != 0;
+        if !shuffling_stable {
+            return Err(DoNotReOrg::ShufflingUnstable.into());
+        }
+
+        // Check FFG.
+        let ffg_competitive = parent_node.unrealized_justified_checkpoint
+            == head_node.unrealized_justified_checkpoint
+            && parent_node.unrealized_finalized_checkpoint
+                == head_node.unrealized_finalized_checkpoint;
+        if !ffg_competitive {
+            return Err(DoNotReOrg::JustificationAndFinalizationNotCompetitive.into());
+        }
+
+        // Compute re-org weight threshold.
+        let re_org_weight_threshold =
+            calculate_committee_fraction::<E>(justified_balances, re_org_threshold.0)
+                .ok_or(Error::ReOrgThresholdOverflow)?;
+
+        Ok(ProposerHeadInfo {
+            head_node,
+            parent_node,
+            re_org_weight_threshold,
+            current_slot,
+        })
     }
 
     /// Returns `true` if there are any blocks in `self` with an `INVALID` execution payload status.
@@ -368,7 +603,7 @@ impl ProtoArrayForkChoice {
                             if vote.current_root == node.root {
                                 // Any voting validator that does not have a balance should be
                                 // ignored. This is consistent with `compute_deltas`.
-                                self.balances.get(validator_index)
+                                self.balances.effective_balances.get(validator_index)
                             } else {
                                 None
                             }
@@ -382,9 +617,11 @@ impl ProtoArrayForkChoice {
                             // Compute the score based upon the current balances. We can't rely on
                             // the `previous_proposr_boost.score` since it is set to zero with an
                             // invalid node.
-                            let proposer_score =
-                                calculate_proposer_boost::<E>(&self.balances, proposer_score_boost)
-                                    .ok_or("Failed to compute proposer boost")?;
+                            let proposer_score = calculate_committee_fraction::<E>(
+                                &self.balances,
+                                proposer_score_boost,
+                            )
+                            .ok_or("Failed to compute proposer boost")?;
                             // Store the score we've applied here so it can be removed in
                             // a later call to `apply_score_changes`.
                             self.proto_array.previous_proposer_boost.score = proposer_score;
@@ -511,6 +748,15 @@ impl ProtoArrayForkChoice {
             .is_descendant(ancestor_root, descendant_root)
     }
 
+    /// See `ProtoArray` documentation.
+    pub fn is_finalized_checkpoint_or_descendant<E: EthSpec>(
+        &self,
+        descendant_root: Hash256,
+    ) -> bool {
+        self.proto_array
+            .is_finalized_checkpoint_or_descendant::<E>(descendant_root)
+    }
+
     pub fn latest_message(&self, validator_index: usize) -> Option<(Hash256, Epoch)> {
         if validator_index < self.votes.0.len() {
             let vote = &self.votes.0[validator_index];
@@ -538,10 +784,11 @@ impl ProtoArrayForkChoice {
         bytes: &[u8],
         count_unrealized_full: CountUnrealizedFull,
     ) -> Result<Self, String> {
-        SszContainer::from_ssz_bytes(bytes)
-            .map(|container| (container, count_unrealized_full))
-            .map(Into::into)
-            .map_err(|e| format!("Failed to decode ProtoArrayForkChoice: {:?}", e))
+        let container = SszContainer::from_ssz_bytes(bytes)
+            .map_err(|e| format!("Failed to decode ProtoArrayForkChoice: {:?}", e))?;
+        (container, count_unrealized_full)
+            .try_into()
+            .map_err(|e| format!("Failed to initialize ProtoArrayForkChoice: {e:?}"))
     }
 
     /// Returns a read-lock to core `ProtoArray` struct.
@@ -690,6 +937,10 @@ mod test_compute_deltas {
             epoch: genesis_epoch,
             root: finalized_root,
         };
+        let junk_checkpoint = Checkpoint {
+            epoch: Epoch::new(42),
+            root: Hash256::repeat_byte(42),
+        };
 
         let mut fc = ProtoArrayForkChoice::new::<MainnetEthSpec>(
             genesis_slot,
@@ -735,8 +986,10 @@ mod test_compute_deltas {
                     target_root: finalized_root,
                     current_epoch_shuffling_id: junk_shuffling_id.clone(),
                     next_epoch_shuffling_id: junk_shuffling_id,
-                    justified_checkpoint: genesis_checkpoint,
-                    finalized_checkpoint: genesis_checkpoint,
+                    // Use the junk checkpoint for the next to values to prevent
+                    // the loop-shortcutting mechanism from triggering.
+                    justified_checkpoint: junk_checkpoint,
+                    finalized_checkpoint: junk_checkpoint,
                     execution_status,
                     unrealized_justified_checkpoint: None,
                     unrealized_finalized_checkpoint: None,
@@ -755,6 +1008,11 @@ mod test_compute_deltas {
         assert!(!fc.is_descendant(finalized_root, not_finalized_desc));
         assert!(!fc.is_descendant(finalized_root, unknown));
 
+        assert!(fc.is_finalized_checkpoint_or_descendant::<MainnetEthSpec>(finalized_root));
+        assert!(fc.is_finalized_checkpoint_or_descendant::<MainnetEthSpec>(finalized_desc));
+        assert!(!fc.is_finalized_checkpoint_or_descendant::<MainnetEthSpec>(not_finalized_desc));
+        assert!(!fc.is_finalized_checkpoint_or_descendant::<MainnetEthSpec>(unknown));
+
         assert!(!fc.is_descendant(finalized_desc, not_finalized_desc));
         assert!(fc.is_descendant(finalized_desc, finalized_desc));
         assert!(!fc.is_descendant(finalized_desc, finalized_root));
@@ -764,6 +1022,171 @@ mod test_compute_deltas {
         assert!(!fc.is_descendant(not_finalized_desc, finalized_desc));
         assert!(!fc.is_descendant(not_finalized_desc, finalized_root));
         assert!(!fc.is_descendant(not_finalized_desc, unknown));
+    }
+
+    /// This test covers an interesting case where a block can be a descendant
+    /// of the finalized *block*, but not a descenant of the finalized
+    /// *checkpoint*.
+    ///
+    /// ## Example
+    ///
+    /// Consider this block tree which has three blocks (`A`, `B` and `C`):
+    ///
+    /// ```ignore
+    /// [A] <--- [-] <--- [B]
+    ///       |
+    ///       |--[C]
+    /// ```
+    ///
+    /// - `A` (slot 31) is the common descendant.
+    /// - `B` (slot 33) descends from `A`, but there is a single skip slot
+    ///     between it and `A`.
+    /// - `C` (slot 32) descends from `A` and conflicts with `B`.
+    ///
+    /// Imagine that the `B` chain is finalized at epoch 1. This means that the
+    /// finalized checkpoint points to the skipped slot at 32. The root of the
+    /// finalized checkpoint is `A`.
+    ///
+    /// In this scenario, the block `C` has the finalized root (`A`) as an
+    /// ancestor whilst simultaneously conflicting with the finalized
+    /// checkpoint.
+    ///
+    /// This means that to ensure a block does not conflict with finality we
+    /// must check to ensure that it's an ancestor of the finalized
+    /// *checkpoint*, not just the finalized *block*.
+    #[test]
+    fn finalized_descendant_edge_case() {
+        let get_block_root = Hash256::from_low_u64_be;
+        let genesis_slot = Slot::new(0);
+        let junk_state_root = Hash256::zero();
+        let junk_shuffling_id =
+            AttestationShufflingId::from_components(Epoch::new(0), Hash256::zero());
+        let execution_status = ExecutionStatus::irrelevant();
+
+        let genesis_checkpoint = Checkpoint {
+            epoch: Epoch::new(0),
+            root: get_block_root(0),
+        };
+
+        let mut fc = ProtoArrayForkChoice::new::<MainnetEthSpec>(
+            genesis_slot,
+            junk_state_root,
+            genesis_checkpoint,
+            genesis_checkpoint,
+            junk_shuffling_id.clone(),
+            junk_shuffling_id.clone(),
+            execution_status,
+            CountUnrealizedFull::default(),
+        )
+        .unwrap();
+
+        struct TestBlock {
+            slot: u64,
+            root: u64,
+            parent_root: u64,
+        }
+
+        let insert_block = |fc: &mut ProtoArrayForkChoice, block: TestBlock| {
+            fc.proto_array
+                .on_block::<MainnetEthSpec>(
+                    Block {
+                        slot: Slot::from(block.slot),
+                        root: get_block_root(block.root),
+                        parent_root: Some(get_block_root(block.parent_root)),
+                        state_root: Hash256::zero(),
+                        target_root: Hash256::zero(),
+                        current_epoch_shuffling_id: junk_shuffling_id.clone(),
+                        next_epoch_shuffling_id: junk_shuffling_id.clone(),
+                        justified_checkpoint: Checkpoint {
+                            epoch: Epoch::new(0),
+                            root: get_block_root(0),
+                        },
+                        finalized_checkpoint: genesis_checkpoint,
+                        execution_status,
+                        unrealized_justified_checkpoint: Some(genesis_checkpoint),
+                        unrealized_finalized_checkpoint: Some(genesis_checkpoint),
+                    },
+                    Slot::from(block.slot),
+                )
+                .unwrap();
+        };
+
+        /*
+         * Start of interesting part of tests.
+         */
+
+        // Produce the 0th epoch of blocks. They should all form a chain from
+        // the genesis block.
+        for i in 1..MainnetEthSpec::slots_per_epoch() {
+            insert_block(
+                &mut fc,
+                TestBlock {
+                    slot: i,
+                    root: i,
+                    parent_root: i - 1,
+                },
+            )
+        }
+
+        let last_slot_of_epoch_0 = MainnetEthSpec::slots_per_epoch() - 1;
+
+        // Produce a block that descends from the last block of epoch -.
+        //
+        // This block will be non-canonical.
+        let non_canonical_slot = last_slot_of_epoch_0 + 1;
+        insert_block(
+            &mut fc,
+            TestBlock {
+                slot: non_canonical_slot,
+                root: non_canonical_slot,
+                parent_root: non_canonical_slot - 1,
+            },
+        );
+
+        // Produce a block that descends from the last block of the 0th epoch,
+        // that skips the 1st slot of the 1st epoch.
+        //
+        // This block will be canonical.
+        let canonical_slot = last_slot_of_epoch_0 + 2;
+        insert_block(
+            &mut fc,
+            TestBlock {
+                slot: canonical_slot,
+                root: canonical_slot,
+                parent_root: non_canonical_slot - 1,
+            },
+        );
+
+        let finalized_root = get_block_root(last_slot_of_epoch_0);
+
+        // Set the finalized checkpoint to finalize the first slot of epoch 1 on
+        // the canonical chain.
+        fc.proto_array.finalized_checkpoint = Checkpoint {
+            root: finalized_root,
+            epoch: Epoch::new(1),
+        };
+
+        assert!(
+            fc.proto_array
+                .is_finalized_checkpoint_or_descendant::<MainnetEthSpec>(finalized_root),
+            "the finalized checkpoint is the finalized checkpoint"
+        );
+
+        assert!(
+            fc.proto_array
+                .is_finalized_checkpoint_or_descendant::<MainnetEthSpec>(get_block_root(
+                    canonical_slot
+                )),
+            "the canonical block is a descendant of the finalized checkpoint"
+        );
+        assert!(
+            !fc.proto_array
+                .is_finalized_checkpoint_or_descendant::<MainnetEthSpec>(get_block_root(
+                    non_canonical_slot
+                )),
+            "although the non-canonical block is a descendant of the finalized block, \
+            it's not a descendant of the finalized checkpoint"
+        );
     }
 
     #[test]

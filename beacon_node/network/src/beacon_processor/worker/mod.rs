@@ -38,7 +38,7 @@ impl<T: BeaconChainTypes> Worker<T> {
     /// Creates a log if there is an internal error.
     fn send_network_message(&self, message: NetworkMessage<T::EthSpec>) {
         self.network_tx.send(message).unwrap_or_else(|e| {
-            debug!(self.log, "Could not send message to the network service, likely shutdown";
+            debug!(self.log, "Could not send message to the network service. Likely shutdown";
                 "error" => %e)
         });
     }

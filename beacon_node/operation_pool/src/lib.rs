@@ -8,7 +8,7 @@ mod persistence;
 mod reward_cache;
 mod sync_aggregate_id;
 
-pub use attestation::AttMaxCover;
+pub use attestation::{earliest_attestation_validators, AttMaxCover};
 pub use attestation_storage::{AttestationRef, SplitAttestation};
 pub use max_cover::MaxCover;
 pub use persistence::{
@@ -267,7 +267,7 @@ impl<T: EthSpec> OperationPool<T> {
                 &prev_epoch_key,
                 &*all_attestations,
                 state,
-                &*reward_cache,
+                &reward_cache,
                 total_active_balance,
                 prev_epoch_validity_filter,
                 spec,
@@ -278,7 +278,7 @@ impl<T: EthSpec> OperationPool<T> {
                 &curr_epoch_key,
                 &*all_attestations,
                 state,
-                &*reward_cache,
+                &reward_cache,
                 total_active_balance,
                 curr_epoch_validity_filter,
                 spec,

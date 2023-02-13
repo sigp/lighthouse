@@ -8,7 +8,10 @@ use std::process::{Child, Command, Output};
 use tempfile::TempDir;
 use unused_port::unused_tcp_port;
 
-const NETHERMIND_BRANCH: &str = "master";
+/// We've pinned the Nethermind version since our method of using the `master` branch to
+/// find the latest tag isn't working. It appears Nethermind don't always tag on `master`.
+/// We should fix this so we always pull the latest version of Nethermind.
+const NETHERMIND_BRANCH: &str = "release/1.14.6";
 const NETHERMIND_REPO_URL: &str = "https://github.com/NethermindEth/nethermind";
 
 fn build_result(repo_dir: &Path) -> Output {
@@ -73,7 +76,7 @@ impl GenericExecutionEngine for NethermindEngine {
     fn init_datadir() -> TempDir {
         let datadir = TempDir::new().unwrap();
         let genesis_json_path = datadir.path().join("genesis.json");
-        let mut file = File::create(&genesis_json_path).unwrap();
+        let mut file = File::create(genesis_json_path).unwrap();
         let json = nethermind_genesis_json();
         serde_json::to_writer(&mut file, &json).unwrap();
         datadir

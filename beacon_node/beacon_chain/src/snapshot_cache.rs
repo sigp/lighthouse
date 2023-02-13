@@ -13,7 +13,10 @@ pub const DEFAULT_SNAPSHOT_CACHE_SIZE: usize = 4;
 
 /// The minimum block delay to clone the state in the cache instead of removing it.
 /// This helps keep block processing fast during re-orgs from late blocks.
-const MINIMUM_BLOCK_DELAY_FOR_CLONE: Duration = Duration::from_secs(6);
+fn minimum_block_delay_for_clone(seconds_per_slot: u64) -> Duration {
+    // If the block arrived at the attestation deadline or later, it might get re-orged.
+    Duration::from_secs(seconds_per_slot) / 3
+}
 
 /// This snapshot is to be used for verifying a child of `self.beacon_block`.
 #[derive(Debug)]
@@ -256,7 +259,7 @@ impl<T: EthSpec> SnapshotCache<T> {
                 if let Some(cache) = self.snapshots.get(i) {
                     // Avoid cloning the block during sync (when the `block_delay` is `None`).
                     if let Some(delay) = block_delay {
-                        if delay >= MINIMUM_BLOCK_DELAY_FOR_CLONE
+                        if delay >= minimum_block_delay_for_clone(spec.seconds_per_slot)
                             && delay <= Duration::from_secs(spec.seconds_per_slot) * 4
                             || block_slot > cache.beacon_block.slot() + 1
                         {

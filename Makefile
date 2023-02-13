@@ -14,8 +14,22 @@ BUILD_PATH_AARCH64 = "target/$(AARCH64_TAG)/release"
 PINNED_NIGHTLY ?= nightly
 CLIPPY_PINNED_NIGHTLY=nightly-2022-05-19
 
+# List of features to use when building natively. Can be overriden via the environment.
+# No jemalloc on Windows
+ifeq ($(OS),Windows_NT)
+    FEATURES?=
+else
+    FEATURES?=jemalloc
+endif
+
 # List of features to use when cross-compiling. Can be overridden via the environment.
-CROSS_FEATURES ?= gnosis,slasher-lmdb,slasher-mdbx
+CROSS_FEATURES ?= gnosis,slasher-lmdb,slasher-mdbx,jemalloc
+
+# Cargo profile for Cross builds. Default is for local builds, CI uses an override.
+CROSS_PROFILE ?= release
+
+# Cargo profile for regular builds.
+PROFILE ?= release
 
 # List of all hard forks. This list is used to set env variables for several tests so that
 # they run for different forks.
@@ -25,11 +39,11 @@ FORKS=phase0 altair merge
 #
 # Binaries will most likely be found in `./target/release`
 install:
-	cargo install --path lighthouse --force --locked --features "$(FEATURES)"
+	cargo install --path lighthouse --force --locked --features "$(FEATURES)" --profile "$(PROFILE)"
 
 # Builds the lcli binary in release (optimized).
 install-lcli:
-	cargo install --path lcli --force --locked --features "$(FEATURES)"
+	cargo install --path lcli --force --locked --features "$(FEATURES)" --profile "$(PROFILE)"
 
 # The following commands use `cross` to build a cross-compile.
 #
@@ -45,13 +59,13 @@ install-lcli:
 # optimized CPU functions that may not be available on some systems. This
 # results in a more portable binary with ~20% slower BLS verification.
 build-x86_64:
-	cross build --release --bin lighthouse --target x86_64-unknown-linux-gnu --features "modern,$(CROSS_FEATURES)"
+	cross build --bin lighthouse --target x86_64-unknown-linux-gnu --features "modern,$(CROSS_FEATURES)" --profile "$(CROSS_PROFILE)"
 build-x86_64-portable:
-	cross build --release --bin lighthouse --target x86_64-unknown-linux-gnu --features "portable,$(CROSS_FEATURES)"
+	cross build --bin lighthouse --target x86_64-unknown-linux-gnu --features "portable,$(CROSS_FEATURES)" --profile "$(CROSS_PROFILE)"
 build-aarch64:
-	cross build --release --bin lighthouse --target aarch64-unknown-linux-gnu --features "$(CROSS_FEATURES)"
+	cross build --bin lighthouse --target aarch64-unknown-linux-gnu --features "$(CROSS_FEATURES)" --profile "$(CROSS_PROFILE)"
 build-aarch64-portable:
-	cross build --release --bin lighthouse --target aarch64-unknown-linux-gnu --features "portable,$(CROSS_FEATURES)"
+	cross build --bin lighthouse --target aarch64-unknown-linux-gnu --features "portable,$(CROSS_FEATURES)" --profile "$(CROSS_PROFILE)"
 
 # Create a `.tar.gz` containing a binary for a specific target.
 define tarball_release_binary
@@ -94,10 +108,6 @@ cargo-fmt:
 # Typechecks benchmark code
 check-benches:
 	cargo check --workspace --benches
-
-# Typechecks consensus code *without* allowing deprecated legacy arithmetic or metrics.
-check-consensus:
-	cargo check -p state_processing --no-default-features
 
 # Runs only the ef-test vectors.
 run-ef-tests:
@@ -153,7 +163,9 @@ lint:
 		-A clippy::derive_partial_eq_without_eq \
 		-A clippy::from-over-into \
 		-A clippy::upper-case-acronyms \
-		-A clippy::vec-init-then-push
+		-A clippy::vec-init-then-push \
+		-A clippy::question-mark \
+		-A clippy::uninlined-format-args
 
 nightly-lint:
 	cp .github/custom/clippy.toml .
@@ -178,7 +190,7 @@ arbitrary-fuzz:
 # Runs cargo audit (Audit Cargo.lock files for crates with security vulnerabilities reported to the RustSec Advisory Database)
 audit:
 	cargo install --force cargo-audit
-	cargo audit --ignore RUSTSEC-2020-0071 --ignore RUSTSEC-2020-0159 --ignore RUSTSEC-2022-0040
+	cargo audit --ignore RUSTSEC-2020-0071
 
 # Runs `cargo vendor` to make sure dependencies can be vendored for packaging, reproducibility and archival purpose.
 vendor:

@@ -12,9 +12,11 @@ use eth2_network_config::Eth2NetworkConfig;
 use futures::channel::mpsc::{channel, Receiver, Sender};
 use futures::{future, StreamExt};
 
+use serde_derive::{Deserialize, Serialize};
 use slog::{error, info, o, warn, Drain, Duplicate, Level, Logger};
 use sloggers::{file::FileLoggerBuilder, types::Format, types::Severity, Build};
 use std::fs::create_dir_all;
+use std::io::{Result as IOResult, Write};
 use std::path::PathBuf;
 use std::sync::Arc;
 use task_executor::{ShutdownReason, TaskExecutor};
@@ -42,15 +44,36 @@ const MAXIMUM_SHUTDOWN_TIME: u64 = 15;
 /// - `path` == None,
 /// - `max_log_size` == 0,
 /// - `max_log_number` == 0,
-pub struct LoggerConfig<'a> {
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LoggerConfig {
     pub path: Option<PathBuf>,
-    pub debug_level: &'a str,
-    pub logfile_debug_level: &'a str,
-    pub log_format: Option<&'a str>,
+    pub debug_level: String,
+    pub logfile_debug_level: String,
+    pub log_format: Option<String>,
+    pub logfile_format: Option<String>,
     pub log_color: bool,
+    pub disable_log_timestamp: bool,
     pub max_log_size: u64,
     pub max_log_number: usize,
     pub compression: bool,
+    pub is_restricted: bool,
+}
+impl Default for LoggerConfig {
+    fn default() -> Self {
+        LoggerConfig {
+            path: None,
+            debug_level: String::from("info"),
+            logfile_debug_level: String::from("debug"),
+            log_format: None,
+            logfile_format: None,
+            log_color: false,
+            disable_log_timestamp: false,
+            max_log_size: 200,
+            max_log_number: 5,
+            compression: false,
+            is_restricted: true,
+        }
+    }
 }
 
 /// Builds an `Environment`.
@@ -121,6 +144,10 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
         Ok(self)
     }
 
+    fn log_nothing(_: &mut dyn Write) -> IOResult<()> {
+        Ok(())
+    }
+
     /// Initializes the logger using the specified configuration.
     /// The logger is "async" because it has a dedicated thread that accepts logs and then
     /// asynchronously flushes them to stdout/files/etc. This means the thread that raised the log
@@ -129,7 +156,7 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
     /// Note that background file logging will spawn a new thread.
     pub fn initialize_logger(mut self, config: LoggerConfig) -> Result<Self, String> {
         // Setting up the initial logger format and build it.
-        let stdout_drain = if let Some(format) = config.log_format {
+        let stdout_drain = if let Some(ref format) = config.log_format {
             match format.to_uppercase().as_str() {
                 "JSON" => {
                     let stdout_drain = slog_json::Json::default(std::io::stdout()).fuse();
@@ -149,13 +176,20 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
             .build();
             let stdout_decorator =
                 logging::AlignedTermDecorator::new(stdout_decorator, logging::MAX_MESSAGE_WIDTH);
-            let stdout_drain = slog_term::FullFormat::new(stdout_decorator).build().fuse();
+            let stdout_drain = slog_term::FullFormat::new(stdout_decorator);
+            let stdout_drain = if config.disable_log_timestamp {
+                stdout_drain.use_custom_timestamp(Self::log_nothing)
+            } else {
+                stdout_drain
+            }
+            .build()
+            .fuse();
             slog_async::Async::new(stdout_drain)
                 .chan_size(LOG_CHANNEL_SIZE)
                 .build()
         };
 
-        let stdout_drain = match config.debug_level {
+        let stdout_drain = match config.debug_level.as_str() {
             "info" => stdout_drain.filter_level(Level::Info),
             "debug" => stdout_drain.filter_level(Level::Debug),
             "trace" => stdout_drain.filter_level(Level::Trace),
@@ -207,7 +241,7 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
             }
         }
 
-        let logfile_level = match config.logfile_debug_level {
+        let logfile_level = match config.logfile_debug_level.as_str() {
             "info" => Severity::Info,
             "debug" => Severity::Debug,
             "trace" => Severity::Trace,
@@ -220,14 +254,14 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
         let file_logger = FileLoggerBuilder::new(&path)
             .level(logfile_level)
             .channel_size(LOG_CHANNEL_SIZE)
-            .format(match config.log_format {
+            .format(match config.logfile_format.as_deref() {
                 Some("JSON") => Format::Json,
                 _ => Format::default(),
             })
             .rotate_size(config.max_log_size)
             .rotate_keep(config.max_log_number)
             .rotate_compress(config.compression)
-            .restrict_permissions(true)
+            .restrict_permissions(config.is_restricted)
             .build()
             .map_err(|e| format!("Unable to build file logger: {}", e))?;
 
@@ -350,7 +384,7 @@ impl<E: EthSpec> Environment<E> {
     }
 
     /// Returns a `Context` where no "service" has been added to the logger output.
-    pub fn core_context(&mut self) -> RuntimeContext<E> {
+    pub fn core_context(&self) -> RuntimeContext<E> {
         RuntimeContext {
             executor: TaskExecutor::new(
                 Arc::downgrade(self.runtime()),
@@ -365,7 +399,7 @@ impl<E: EthSpec> Environment<E> {
     }
 
     /// Returns a `Context` where the `service_name` is added to the logger output.
-    pub fn service_context(&mut self, service_name: String) -> RuntimeContext<E> {
+    pub fn service_context(&self, service_name: String) -> RuntimeContext<E> {
         RuntimeContext {
             executor: TaskExecutor::new(
                 Arc::downgrade(self.runtime()),

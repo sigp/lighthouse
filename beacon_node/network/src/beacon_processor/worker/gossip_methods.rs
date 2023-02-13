@@ -3,11 +3,13 @@ use crate::{metrics, service::NetworkMessage, sync::SyncMessage};
 use beacon_chain::store::Error;
 use beacon_chain::{
     attestation_verification::{self, Error as AttnError, VerifiedAttestation},
+    light_client_finality_update_verification::Error as LightClientFinalityUpdateError,
+    light_client_optimistic_update_verification::Error as LightClientOptimisticUpdateError,
     observed_operations::ObservationOutcome,
     sync_committee_verification::{self, Error as SyncCommitteeError},
     validator_monitor::get_block_delay_ms,
     BeaconChainError, BeaconChainTypes, BlockError, CountUnrealized, ForkChoiceError,
-    GossipVerifiedBlock,
+    GossipVerifiedBlock, NotifyExecutionLayer,
 };
 use lighthouse_network::{Client, MessageAcceptance, MessageId, PeerAction, PeerId, ReportSource};
 use slog::{crit, debug, error, info, trace, warn};
@@ -18,14 +20,16 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use store::hot_cold_store::HotColdDBError;
 use tokio::sync::mpsc;
 use types::{
-    Attestation, AttesterSlashing, EthSpec, Hash256, IndexedAttestation, ProposerSlashing,
-    SignedAggregateAndProof, SignedBeaconBlock, SignedContributionAndProof, SignedVoluntaryExit,
-    Slot, SubnetId, SyncCommitteeMessage, SyncSubnetId,
+    Attestation, AttesterSlashing, EthSpec, Hash256, IndexedAttestation, LightClientFinalityUpdate,
+    LightClientOptimisticUpdate, ProposerSlashing, SignedAggregateAndProof, SignedBeaconBlock,
+    SignedContributionAndProof, SignedVoluntaryExit, Slot, SubnetId, SyncCommitteeMessage,
+    SyncSubnetId,
 };
 
 use super::{
     super::work_reprocessing_queue::{
-        QueuedAggregate, QueuedGossipBlock, QueuedUnaggregate, ReprocessQueueMessage,
+        QueuedAggregate, QueuedGossipBlock, QueuedLightClientUpdate, QueuedUnaggregate,
+        ReprocessQueueMessage,
     },
     Worker,
 };
@@ -712,17 +716,33 @@ impl<T: BeaconChainTypes> Worker<T> {
             &metrics::BEACON_BLOCK_GOSSIP_SLOT_START_DELAY_TIME,
             block_delay,
         );
+        metrics::set_gauge(
+            &metrics::BEACON_BLOCK_LAST_DELAY,
+            block_delay.as_millis() as i64,
+        );
+
+        let verification_result = self
+            .chain
+            .clone()
+            .verify_block_for_gossip(block.clone())
+            .await;
+
+        let block_root = if let Ok(verified_block) = &verification_result {
+            verified_block.block_root
+        } else {
+            block.canonical_root()
+        };
 
         // Write the time the block was observed into delay cache.
         self.chain.block_times_cache.write().set_time_observed(
-            block.canonical_root(),
+            block_root,
             block.slot(),
             seen_duration,
             Some(peer_id.to_string()),
             Some(peer_client.to_string()),
         );
 
-        let verified_block = match self.chain.clone().verify_block_for_gossip(block).await {
+        let verified_block = match verification_result {
             Ok(verified_block) => {
                 if block_delay >= self.chain.slot_clock.unagg_attestation_production_delay() {
                     metrics::inc_counter(&metrics::BEACON_BLOCK_GOSSIP_ARRIVED_LATE_TOTAL);
@@ -762,9 +782,9 @@ impl<T: BeaconChainTypes> Worker<T> {
                 debug!(
                     self.log,
                     "Unknown parent for gossip block";
-                    "root" => ?block.canonical_root()
+                    "root" => ?block_root
                 );
-                self.send_sync_message(SyncMessage::UnknownBlock(peer_id, block));
+                self.send_sync_message(SyncMessage::UnknownBlock(peer_id, block, block_root));
                 return None;
             }
             Err(e @ BlockError::BeaconChainError(_)) => {
@@ -781,7 +801,7 @@ impl<T: BeaconChainTypes> Worker<T> {
             | Err(e @ BlockError::BlockIsAlreadyKnown)
             | Err(e @ BlockError::RepeatProposal { .. })
             | Err(e @ BlockError::NotFinalizedDescendant { .. }) => {
-                debug!(self.log, "Could not verify block for gossip, ignoring the block";
+                debug!(self.log, "Could not verify block for gossip. Ignoring the block";
                             "error" => %e);
                 // Prevent recurring behaviour by penalizing the peer slightly.
                 self.gossip_penalize_peer(
@@ -793,7 +813,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                 return None;
             }
             Err(ref e @ BlockError::ExecutionPayloadError(ref epe)) if !epe.penalize_peer() => {
-                debug!(self.log, "Could not verify block for gossip, ignoring the block";
+                debug!(self.log, "Could not verify block for gossip. Ignoring the block";
                             "error" => %e);
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
                 return None;
@@ -815,7 +835,7 @@ impl<T: BeaconChainTypes> Worker<T> {
             // TODO(merge): reconsider peer scoring for this event.
             | Err(e @ BlockError::ParentExecutionPayloadInvalid { .. })
             | Err(e @ BlockError::GenesisBlock) => {
-                warn!(self.log, "Could not verify block for gossip, rejecting the block";
+                warn!(self.log, "Could not verify block for gossip. Rejecting the block";
                             "error" => %e);
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
                 self.gossip_penalize_peer(
@@ -918,17 +938,26 @@ impl<T: BeaconChainTypes> Worker<T> {
         _seen_duration: Duration,
     ) {
         let block: Arc<_> = verified_block.block.clone();
+        let block_root = verified_block.block_root;
 
         match self
             .chain
-            .process_block(verified_block, CountUnrealized::True)
+            .process_block(
+                block_root,
+                verified_block,
+                CountUnrealized::True,
+                NotifyExecutionLayer::Yes,
+            )
             .await
         {
             Ok(block_root) => {
                 metrics::inc_counter(&metrics::BEACON_PROCESSOR_GOSSIP_BLOCK_IMPORTED_TOTAL);
 
                 if reprocess_tx
-                    .try_send(ReprocessQueueMessage::BlockImported(block_root))
+                    .try_send(ReprocessQueueMessage::BlockImported {
+                        block_root,
+                        parent_root: block.message().parent_root(),
+                    })
                     .is_err()
                 {
                     error!(
@@ -956,7 +985,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     "Block with unknown parent attempted to be processed";
                     "peer_id" => %peer_id
                 );
-                self.send_sync_message(SyncMessage::UnknownBlock(peer_id, block));
+                self.send_sync_message(SyncMessage::UnknownBlock(peer_id, block, block_root));
             }
             Err(ref e @ BlockError::ExecutionPayloadError(ref epe)) if !epe.penalize_peer() => {
                 debug!(
@@ -970,7 +999,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     self.log,
                     "Invalid gossip beacon block";
                     "outcome" => ?other,
-                    "block root" => ?block.canonical_root(),
+                    "block root" => ?block_root,
                     "block slot" => block.slot()
                 );
                 self.gossip_penalize_peer(
@@ -1283,6 +1312,202 @@ impl<T: BeaconChainTypes> Worker<T> {
             )
         }
         metrics::inc_counter(&metrics::BEACON_PROCESSOR_SYNC_CONTRIBUTION_IMPORTED_TOTAL);
+    }
+
+    pub fn process_gossip_finality_update(
+        self,
+        message_id: MessageId,
+        peer_id: PeerId,
+        light_client_finality_update: LightClientFinalityUpdate<T::EthSpec>,
+        seen_timestamp: Duration,
+    ) {
+        match self
+            .chain
+            .verify_finality_update_for_gossip(light_client_finality_update, seen_timestamp)
+        {
+            Ok(_verified_light_client_finality_update) => {
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
+            }
+            Err(e) => {
+                metrics::register_finality_update_error(&e);
+                match e {
+                    LightClientFinalityUpdateError::InvalidLightClientFinalityUpdate => {
+                        debug!(
+                            self.log,
+                            "Light client invalid finality update";
+                            "peer" => %peer_id,
+                            "error" => ?e,
+                        );
+
+                        self.gossip_penalize_peer(
+                            peer_id,
+                            PeerAction::LowToleranceError,
+                            "light_client_gossip_error",
+                        );
+                    }
+                    LightClientFinalityUpdateError::TooEarly => {
+                        debug!(
+                            self.log,
+                            "Light client finality update too early";
+                            "peer" => %peer_id,
+                            "error" => ?e,
+                        );
+
+                        self.gossip_penalize_peer(
+                            peer_id,
+                            PeerAction::HighToleranceError,
+                            "light_client_gossip_error",
+                        );
+                    }
+                    LightClientFinalityUpdateError::FinalityUpdateAlreadySeen => debug!(
+                        self.log,
+                        "Light client finality update already seen";
+                        "peer" => %peer_id,
+                        "error" => ?e,
+                    ),
+                    LightClientFinalityUpdateError::BeaconChainError(_)
+                    | LightClientFinalityUpdateError::LightClientUpdateError(_)
+                    | LightClientFinalityUpdateError::SigSlotStartIsNone
+                    | LightClientFinalityUpdateError::FailedConstructingUpdate => debug!(
+                        self.log,
+                        "Light client error constructing finality update";
+                        "peer" => %peer_id,
+                        "error" => ?e,
+                    ),
+                }
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+            }
+        };
+    }
+
+    pub fn process_gossip_optimistic_update(
+        self,
+        message_id: MessageId,
+        peer_id: PeerId,
+        light_client_optimistic_update: LightClientOptimisticUpdate<T::EthSpec>,
+        reprocess_tx: Option<mpsc::Sender<ReprocessQueueMessage<T>>>,
+        seen_timestamp: Duration,
+    ) {
+        match self.chain.verify_optimistic_update_for_gossip(
+            light_client_optimistic_update.clone(),
+            seen_timestamp,
+        ) {
+            Ok(verified_light_client_optimistic_update) => {
+                debug!(
+                    self.log,
+                    "Light client successful optimistic update";
+                    "peer" => %peer_id,
+                    "parent_root" => %verified_light_client_optimistic_update.parent_root,
+                );
+
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
+            }
+            Err(e) => {
+                match e {
+                    LightClientOptimisticUpdateError::UnknownBlockParentRoot(parent_root) => {
+                        metrics::inc_counter(
+                            &metrics::BEACON_PROCESSOR_REPROCESSING_QUEUE_SENT_OPTIMISTIC_UPDATES,
+                        );
+                        debug!(
+                            self.log,
+                            "Optimistic update for unknown block";
+                            "peer_id" => %peer_id,
+                            "parent_root" => ?parent_root
+                        );
+
+                        if let Some(sender) = reprocess_tx {
+                            let msg = ReprocessQueueMessage::UnknownLightClientOptimisticUpdate(
+                                QueuedLightClientUpdate {
+                                    peer_id,
+                                    message_id,
+                                    light_client_optimistic_update: Box::new(
+                                        light_client_optimistic_update,
+                                    ),
+                                    parent_root,
+                                    seen_timestamp,
+                                },
+                            );
+
+                            if sender.try_send(msg).is_err() {
+                                error!(
+                                    self.log,
+                                    "Failed to send optimistic update for re-processing";
+                                )
+                            }
+                        } else {
+                            debug!(
+                                self.log,
+                                "Not sending light client update because it had been reprocessed";
+                                "peer_id" => %peer_id,
+                                "parent_root" => ?parent_root
+                            );
+
+                            self.propagate_validation_result(
+                                message_id,
+                                peer_id,
+                                MessageAcceptance::Ignore,
+                            );
+                        }
+                        return;
+                    }
+                    LightClientOptimisticUpdateError::InvalidLightClientOptimisticUpdate => {
+                        metrics::register_optimistic_update_error(&e);
+
+                        debug!(
+                            self.log,
+                            "Light client invalid optimistic update";
+                            "peer" => %peer_id,
+                            "error" => ?e,
+                        );
+
+                        self.gossip_penalize_peer(
+                            peer_id,
+                            PeerAction::HighToleranceError,
+                            "light_client_gossip_error",
+                        )
+                    }
+                    LightClientOptimisticUpdateError::TooEarly => {
+                        metrics::register_optimistic_update_error(&e);
+                        debug!(
+                            self.log,
+                            "Light client optimistic update too early";
+                            "peer" => %peer_id,
+                            "error" => ?e,
+                        );
+
+                        self.gossip_penalize_peer(
+                            peer_id,
+                            PeerAction::HighToleranceError,
+                            "light_client_gossip_error",
+                        );
+                    }
+                    LightClientOptimisticUpdateError::OptimisticUpdateAlreadySeen => {
+                        metrics::register_optimistic_update_error(&e);
+
+                        debug!(
+                            self.log,
+                            "Light client optimistic update already seen";
+                            "peer" => %peer_id,
+                            "error" => ?e,
+                        )
+                    }
+                    LightClientOptimisticUpdateError::BeaconChainError(_)
+                    | LightClientOptimisticUpdateError::LightClientUpdateError(_)
+                    | LightClientOptimisticUpdateError::SigSlotStartIsNone
+                    | LightClientOptimisticUpdateError::FailedConstructingUpdate => {
+                        metrics::register_optimistic_update_error(&e);
+
+                        debug!(
+                            self.log,
+                            "Light client error constructing optimistic update";
+                            "peer" => %peer_id,
+                            "error" => ?e,
+                        )
+                    }
+                }
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+            }
+        };
     }
 
     /// Handle an error whilst verifying an `Attestation` or `SignedAggregateAndProof` from the

@@ -31,6 +31,14 @@ fn bls_library_name() -> &'static str {
     }
 }
 
+fn allocator_name() -> &'static str {
+    if cfg!(feature = "jemalloc") {
+        "jemalloc"
+    } else {
+        "system"
+    }
+}
+
 fn main() {
     // Enable backtraces unless a RUST_BACKTRACE value has already been explicitly provided.
     if std::env::var("RUST_BACKTRACE").is_err() {
@@ -51,10 +59,12 @@ fn main() {
                 "{}\n\
                  BLS library: {}\n\
                  SHA256 hardware acceleration: {}\n\
+                 Allocator: {}\n\
                  Specs: mainnet (true), minimal ({}), gnosis ({})",
                  VERSION.replace("Lighthouse/", ""),
                  bls_library_name(),
                  have_sha_extensions(),
+                 allocator_name(),
                  cfg!(feature = "spec-minimal"),
                  cfg!(feature = "gnosis"),
             ).as_str()
@@ -100,6 +110,15 @@ fn main() {
                 .global(true),
         )
         .arg(
+            Arg::with_name("logfile-format")
+                .long("logfile-format")
+                .value_name("FORMAT")
+                .help("Specifies the log format used when emitting logs to the logfile.")
+                .possible_values(&["DEFAULT", "JSON"])
+                .takes_value(true)
+                .global(true)
+        )
+        .arg(
             Arg::with_name("logfile-max-size")
                 .long("logfile-max-size")
                 .value_name("SIZE")
@@ -130,6 +149,15 @@ fn main() {
                 .global(true),
         )
         .arg(
+            Arg::with_name("logfile-no-restricted-perms")
+                .long("logfile-no-restricted-perms")
+                .help(
+                    "If present, log files will be generated as world-readable meaning they can be read by \
+                    any user on the machine. Note that logs can often contain sensitive information \
+                    about your validator and so this flag should be used with caution.")
+                .global(true),
+        )
+        .arg(
             Arg::with_name("log-format")
                 .long("log-format")
                 .value_name("FORMAT")
@@ -144,6 +172,12 @@ fn main() {
                 .alias("log-colour")
                 .help("Force outputting colors when emitting logs to the terminal.")
                 .global(true),
+        )
+        .arg(
+            Arg::with_name("disable-log-timestamp")
+            .long("disable-log-timestamp")
+            .help("If present, do not include timestamps in logging output.")
+            .global(true),
         )
         .arg(
             Arg::with_name("debug-level")
@@ -381,9 +415,16 @@ fn run<E: EthSpec>(
 
     let log_color = matches.is_present("log-color");
 
+    let disable_log_timestamp = matches.is_present("disable-log-timestamp");
+
     let logfile_debug_level = matches
         .value_of("logfile-debug-level")
         .ok_or("Expected --logfile-debug-level flag")?;
+
+    let logfile_format = matches
+        .value_of("logfile-format")
+        // Ensure that `logfile-format` defaults to the value of `log-format`.
+        .or_else(|| matches.value_of("log-format"));
 
     let logfile_max_size: u64 = matches
         .value_of("logfile-max-size")
@@ -398,6 +439,8 @@ fn run<E: EthSpec>(
         .map_err(|e| format!("Failed to parse `logfile-max-number`: {:?}", e))?;
 
     let logfile_compress = matches.is_present("logfile-compress");
+
+    let logfile_restricted = !matches.is_present("logfile-no-restricted-perms");
 
     // Construct the path to the log file.
     let mut log_path: Option<PathBuf> = clap_utils::parse_optional(matches, "logfile")?;
@@ -430,16 +473,19 @@ fn run<E: EthSpec>(
 
     let logger_config = LoggerConfig {
         path: log_path,
-        debug_level,
-        logfile_debug_level,
-        log_format,
+        debug_level: String::from(debug_level),
+        logfile_debug_level: String::from(logfile_debug_level),
+        log_format: log_format.map(String::from),
+        logfile_format: logfile_format.map(String::from),
         log_color,
+        disable_log_timestamp,
         max_log_size: logfile_max_size * 1_024 * 1_024,
         max_log_number: logfile_max_number,
         compression: logfile_compress,
+        is_restricted: logfile_restricted,
     };
 
-    let builder = environment_builder.initialize_logger(logger_config)?;
+    let builder = environment_builder.initialize_logger(logger_config.clone())?;
 
     let mut environment = builder
         .multi_threaded_tokio_runtime()?
@@ -519,7 +565,8 @@ fn run<E: EthSpec>(
             let context = environment.core_context();
             let log = context.log().clone();
             let executor = context.executor.clone();
-            let config = beacon_node::get_config::<E>(matches, &context)?;
+            let mut config = beacon_node::get_config::<E>(matches, &context)?;
+            config.logger_config = logger_config;
             let shutdown_flag = matches.is_present("immediate-shutdown");
             // Dump configs if `dump-config` or `dump-chain-config` flags are set
             clap_utils::check_dump_configs::<_, E>(matches, &config, &context.eth2_config.spec)?;

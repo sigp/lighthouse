@@ -11,7 +11,7 @@ use std::convert::TryFrom;
 use std::marker::PhantomData;
 
 macro_rules! define_mod {
-    ($int: ty, $visit_fn: ident) => {
+    ($int: ty) => {
         /// Serde support for deserializing quoted integers.
         ///
         /// Configurable so that quotes are either required or optional.
@@ -140,19 +140,25 @@ macro_rules! define_mod {
 pub mod quoted_u8 {
     use super::*;
 
-    define_mod!(u8, visit_u8);
+    define_mod!(u8);
 }
 
 pub mod quoted_u32 {
     use super::*;
 
-    define_mod!(u32, visit_u32);
+    define_mod!(u32);
 }
 
 pub mod quoted_u64 {
     use super::*;
 
-    define_mod!(u64, visit_u64);
+    define_mod!(u64);
+}
+
+pub mod quoted_i64 {
+    use super::*;
+
+    define_mod!(i64);
 }
 
 pub mod quoted_u256 {
@@ -215,5 +221,27 @@ mod test {
     #[test]
     fn u256_without_quotes() {
         serde_json::from_str::<WrappedU256>("1").unwrap_err();
+    }
+
+    #[derive(Debug, PartialEq, Serialize, Deserialize)]
+    #[serde(transparent)]
+    struct WrappedI64(#[serde(with = "quoted_i64")] i64);
+
+    #[test]
+    fn negative_i64_with_quotes() {
+        assert_eq!(
+            serde_json::from_str::<WrappedI64>("\"-200\"").unwrap().0,
+            -200
+        );
+        assert_eq!(
+            serde_json::to_string(&WrappedI64(-12_500)).unwrap(),
+            "\"-12500\""
+        );
+    }
+
+    // It would be OK if this worked, but we don't need it to (i64s should always be quoted).
+    #[test]
+    fn negative_i64_without_quotes() {
+        serde_json::from_str::<WrappedI64>("-200").unwrap_err();
     }
 }

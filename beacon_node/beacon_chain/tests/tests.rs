@@ -6,7 +6,7 @@ use beacon_chain::{
         AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
         OP_POOL_DB_KEY,
     },
-    BeaconChain, StateSkipConfig, WhenSlotSkipped,
+    BeaconChain, NotifyExecutionLayer, StateSkipConfig, WhenSlotSkipped,
 };
 use fork_choice::CountUnrealized;
 use lazy_static::lazy_static;
@@ -685,8 +685,10 @@ async fn run_skip_slot_test(skip_slots: u64) {
         harness_b
             .chain
             .process_block(
+                harness_a.chain.head_snapshot().beacon_block_root,
                 harness_a.chain.head_snapshot().beacon_block.clone(),
-                CountUnrealized::True
+                CountUnrealized::True,
+                NotifyExecutionLayer::Yes,
             )
             .await
             .unwrap(),

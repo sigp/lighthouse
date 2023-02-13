@@ -259,7 +259,7 @@ fn test_single_block_lookup_becomes_parent_request() {
     assert_eq!(bl.single_block_lookups.len(), 0);
     rig.expect_parent_request();
     rig.expect_empty_network();
-    assert_eq!(bl.parent_queue.len(), 1);
+    assert_eq!(bl.parent_lookups.len(), 1);
 }
 
 #[test]
@@ -272,7 +272,7 @@ fn test_parent_lookup_happy_path() {
     let peer_id = PeerId::random();
 
     // Trigger the request
-    bl.search_parent(Arc::new(block), peer_id, &mut cx);
+    bl.search_parent(chain_hash, Arc::new(block), peer_id, &mut cx);
     let id = rig.expect_parent_request();
 
     // Peer sends the right block, it should be sent for processing. Peer should not be penalized.
@@ -287,7 +287,7 @@ fn test_parent_lookup_happy_path() {
         was_non_empty: true,
     };
     bl.parent_chain_processed(chain_hash, process_result, &mut cx);
-    assert_eq!(bl.parent_queue.len(), 0);
+    assert_eq!(bl.parent_lookups.len(), 0);
 }
 
 #[test]
@@ -300,7 +300,7 @@ fn test_parent_lookup_wrong_response() {
     let peer_id = PeerId::random();
 
     // Trigger the request
-    bl.search_parent(Arc::new(block), peer_id, &mut cx);
+    bl.search_parent(chain_hash, Arc::new(block), peer_id, &mut cx);
     let id1 = rig.expect_parent_request();
 
     // Peer sends the wrong block, peer should be penalized and the block re-requested.
@@ -324,7 +324,7 @@ fn test_parent_lookup_wrong_response() {
         was_non_empty: true,
     };
     bl.parent_chain_processed(chain_hash, process_result, &mut cx);
-    assert_eq!(bl.parent_queue.len(), 0);
+    assert_eq!(bl.parent_lookups.len(), 0);
 }
 
 #[test]
@@ -337,7 +337,7 @@ fn test_parent_lookup_empty_response() {
     let peer_id = PeerId::random();
 
     // Trigger the request
-    bl.search_parent(Arc::new(block), peer_id, &mut cx);
+    bl.search_parent(chain_hash, Arc::new(block), peer_id, &mut cx);
     let id1 = rig.expect_parent_request();
 
     // Peer sends an empty response, peer should be penalized and the block re-requested.
@@ -356,7 +356,7 @@ fn test_parent_lookup_empty_response() {
         was_non_empty: true,
     };
     bl.parent_chain_processed(chain_hash, process_result, &mut cx);
-    assert_eq!(bl.parent_queue.len(), 0);
+    assert_eq!(bl.parent_lookups.len(), 0);
 }
 
 #[test]
@@ -369,7 +369,7 @@ fn test_parent_lookup_rpc_failure() {
     let peer_id = PeerId::random();
 
     // Trigger the request
-    bl.search_parent(Arc::new(block), peer_id, &mut cx);
+    bl.search_parent(chain_hash, Arc::new(block), peer_id, &mut cx);
     let id1 = rig.expect_parent_request();
 
     // The request fails. It should be tried again.
@@ -387,7 +387,7 @@ fn test_parent_lookup_rpc_failure() {
         was_non_empty: true,
     };
     bl.parent_chain_processed(chain_hash, process_result, &mut cx);
-    assert_eq!(bl.parent_queue.len(), 0);
+    assert_eq!(bl.parent_lookups.len(), 0);
 }
 
 #[test]
@@ -396,10 +396,11 @@ fn test_parent_lookup_too_many_attempts() {
 
     let parent = rig.rand_block();
     let block = rig.block_with_parent(parent.canonical_root());
+    let chain_hash = block.canonical_root();
     let peer_id = PeerId::random();
 
     // Trigger the request
-    bl.search_parent(Arc::new(block), peer_id, &mut cx);
+    bl.search_parent(chain_hash, Arc::new(block), peer_id, &mut cx);
     for i in 1..=parent_lookup::PARENT_FAIL_TOLERANCE {
         let id = rig.expect_parent_request();
         match i % 2 {
@@ -418,11 +419,11 @@ fn test_parent_lookup_too_many_attempts() {
             }
         }
         if i < parent_lookup::PARENT_FAIL_TOLERANCE {
-            assert_eq!(bl.parent_queue[0].failed_attempts(), dbg!(i));
+            assert_eq!(bl.parent_lookups[0].failed_attempts(), dbg!(i));
         }
     }
 
-    assert_eq!(bl.parent_queue.len(), 0);
+    assert_eq!(bl.parent_lookups.len(), 0);
 }
 
 #[test]
@@ -435,7 +436,7 @@ fn test_parent_lookup_too_many_download_attempts_no_blacklist() {
     let peer_id = PeerId::random();
 
     // Trigger the request
-    bl.search_parent(Arc::new(block), peer_id, &mut cx);
+    bl.search_parent(block_hash, Arc::new(block), peer_id, &mut cx);
     for i in 1..=parent_lookup::PARENT_FAIL_TOLERANCE {
         assert!(!bl.failed_chains.contains(&block_hash));
         let id = rig.expect_parent_request();
@@ -449,11 +450,11 @@ fn test_parent_lookup_too_many_download_attempts_no_blacklist() {
             rig.expect_penalty();
         }
         if i < parent_lookup::PARENT_FAIL_TOLERANCE {
-            assert_eq!(bl.parent_queue[0].failed_attempts(), dbg!(i));
+            assert_eq!(bl.parent_lookups[0].failed_attempts(), dbg!(i));
         }
     }
 
-    assert_eq!(bl.parent_queue.len(), 0);
+    assert_eq!(bl.parent_lookups.len(), 0);
     assert!(!bl.failed_chains.contains(&block_hash));
     assert!(!bl.failed_chains.contains(&parent.canonical_root()));
 }
@@ -469,7 +470,7 @@ fn test_parent_lookup_too_many_processing_attempts_must_blacklist() {
     let peer_id = PeerId::random();
 
     // Trigger the request
-    bl.search_parent(Arc::new(block), peer_id, &mut cx);
+    bl.search_parent(block_hash, Arc::new(block), peer_id, &mut cx);
 
     // Fail downloading the block
     for _ in 0..(parent_lookup::PARENT_FAIL_TOLERANCE - PROCESSING_FAILURES) {
@@ -490,7 +491,7 @@ fn test_parent_lookup_too_many_processing_attempts_must_blacklist() {
     }
 
     assert!(bl.failed_chains.contains(&block_hash));
-    assert_eq!(bl.parent_queue.len(), 0);
+    assert_eq!(bl.parent_lookups.len(), 0);
 }
 
 #[test]
@@ -510,7 +511,7 @@ fn test_parent_lookup_too_deep() {
     let peer_id = PeerId::random();
     let trigger_block = blocks.pop().unwrap();
     let chain_hash = trigger_block.canonical_root();
-    bl.search_parent(Arc::new(trigger_block), peer_id, &mut cx);
+    bl.search_parent(chain_hash, Arc::new(trigger_block), peer_id, &mut cx);
 
     for block in blocks.into_iter().rev() {
         let id = rig.expect_parent_request();
@@ -537,9 +538,14 @@ fn test_parent_lookup_disconnection() {
     let (mut bl, mut cx, mut rig) = TestRig::test_setup(None);
     let peer_id = PeerId::random();
     let trigger_block = rig.rand_block();
-    bl.search_parent(Arc::new(trigger_block), peer_id, &mut cx);
+    bl.search_parent(
+        trigger_block.canonical_root(),
+        Arc::new(trigger_block),
+        peer_id,
+        &mut cx,
+    );
     bl.peer_disconnected(&peer_id, &mut cx);
-    assert!(bl.parent_queue.is_empty());
+    assert!(bl.parent_lookups.is_empty());
 }
 
 #[test]
@@ -581,7 +587,7 @@ fn test_parent_lookup_ignored_response() {
     let peer_id = PeerId::random();
 
     // Trigger the request
-    bl.search_parent(Arc::new(block), peer_id, &mut cx);
+    bl.search_parent(chain_hash, Arc::new(block), peer_id, &mut cx);
     let id = rig.expect_parent_request();
 
     // Peer sends the right block, it should be sent for processing. Peer should not be penalized.
@@ -592,5 +598,78 @@ fn test_parent_lookup_ignored_response() {
     // Return an Ignored result. The request should be dropped
     bl.parent_block_processed(chain_hash, BlockProcessResult::Ignored, &mut cx);
     rig.expect_empty_network();
-    assert_eq!(bl.parent_queue.len(), 0);
+    assert_eq!(bl.parent_lookups.len(), 0);
+}
+
+/// This is a regression test.
+#[test]
+fn test_same_chain_race_condition() {
+    let (mut bl, mut cx, mut rig) = TestRig::test_setup(Some(Level::Debug));
+
+    #[track_caller]
+    fn parent_lookups_consistency(bl: &BlockLookups<T>) {
+        let hashes: Vec<_> = bl
+            .parent_lookups
+            .iter()
+            .map(|req| req.chain_hash())
+            .collect();
+        let expected = hashes.len();
+        assert_eq!(
+            expected,
+            hashes
+                .into_iter()
+                .collect::<std::collections::HashSet<_>>()
+                .len(),
+            "duplicated chain hashes in parent queue"
+        )
+    }
+    // if we use one or two blocks it will match on the hash or the parent hash, so make a longer
+    // chain.
+    let depth = 4;
+    let mut blocks = Vec::<Arc<SignedBeaconBlock<E>>>::with_capacity(depth);
+    while blocks.len() < depth {
+        let parent = blocks
+            .last()
+            .map(|b| b.canonical_root())
+            .unwrap_or_else(Hash256::random);
+        let block = Arc::new(rig.block_with_parent(parent));
+        blocks.push(block);
+    }
+
+    let peer_id = PeerId::random();
+    let trigger_block = blocks.pop().unwrap();
+    let chain_hash = trigger_block.canonical_root();
+    bl.search_parent(chain_hash, trigger_block.clone(), peer_id, &mut cx);
+
+    for (i, block) in blocks.into_iter().rev().enumerate() {
+        let id = rig.expect_parent_request();
+        // the block
+        bl.parent_lookup_response(id, peer_id, Some(block.clone()), D, &mut cx);
+        // the stream termination
+        bl.parent_lookup_response(id, peer_id, None, D, &mut cx);
+        // the processing request
+        rig.expect_block_process();
+        // the processing result
+        if i + 2 == depth {
+            // one block was removed
+            bl.parent_block_processed(chain_hash, BlockError::BlockIsAlreadyKnown.into(), &mut cx)
+        } else {
+            bl.parent_block_processed(chain_hash, BlockError::ParentUnknown(block).into(), &mut cx)
+        }
+        parent_lookups_consistency(&bl)
+    }
+
+    // Processing succeeds, now the rest of the chain should be sent for processing.
+    rig.expect_parent_chain_process();
+
+    // Try to get this block again while the chain is being processed. We should not request it again.
+    let peer_id = PeerId::random();
+    bl.search_parent(chain_hash, trigger_block, peer_id, &mut cx);
+    parent_lookups_consistency(&bl);
+
+    let process_result = BatchProcessResult::Success {
+        was_non_empty: true,
+    };
+    bl.parent_chain_processed(chain_hash, process_result, &mut cx);
+    assert_eq!(bl.parent_lookups.len(), 0);
 }

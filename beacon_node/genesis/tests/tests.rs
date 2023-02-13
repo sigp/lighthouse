@@ -24,7 +24,7 @@ pub fn new_env() -> Environment<MinimalEthSpec> {
 
 #[test]
 fn basic() {
-    let mut env = new_env();
+    let env = new_env();
     let log = env.core_context().log().clone();
     let mut spec = env.eth2_config().spec.clone();
 
@@ -43,10 +43,9 @@ fn basic() {
 
         let service = Eth1GenesisService::new(
             Eth1Config {
-                endpoints: Eth1Endpoint::NoAuth(vec![SensitiveUrl::parse(
-                    eth1.endpoint().as_str(),
-                )
-                .unwrap()]),
+                endpoint: Eth1Endpoint::NoAuth(
+                    SensitiveUrl::parse(eth1.endpoint().as_str()).unwrap(),
+                ),
                 deposit_contract_address: deposit_contract.address(),
                 deposit_contract_deploy_block: now,
                 lowest_cached_block_number: now,
@@ -56,7 +55,8 @@ fn basic() {
             },
             log,
             spec.clone(),
-        );
+        )
+        .unwrap();
 
         // NOTE: this test is sensitive to the response speed of the external web3 server. If
         // you're experiencing failures, try increasing the update_interval.

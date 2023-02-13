@@ -1,6 +1,6 @@
 use crate::{metrics, BeaconChainError};
-use crossbeam_channel::{bounded, Receiver, Sender, TryRecvError};
 use lru::LruCache;
+use oneshot_broadcast::{oneshot, Receiver, Sender};
 use std::sync::Arc;
 use types::{beacon_state::CommitteeCache, AttestationShufflingId, Epoch, Hash256};
 
@@ -40,7 +40,7 @@ impl CacheItem {
             CacheItem::Committee(cache) => Ok(cache),
             CacheItem::Promise(receiver) => receiver
                 .recv()
-                .map_err(BeaconChainError::CommitteeCacheWait),
+                .map_err(BeaconChainError::CommitteePromiseFailed),
         }
     }
 }
@@ -72,7 +72,7 @@ impl ShufflingCache {
             item @ Some(CacheItem::Promise(receiver)) => match receiver.try_recv() {
                 // The promise has already been resolved. Replace the entry in the cache with a
                 // `Committee` entry and then return the committee.
-                Ok(committee) => {
+                Ok(Some(committee)) => {
                     metrics::inc_counter(&metrics::SHUFFLING_CACHE_PROMISE_HITS);
                     metrics::inc_counter(&metrics::SHUFFLING_CACHE_HITS);
                     let ready = CacheItem::Committee(committee);
@@ -81,7 +81,7 @@ impl ShufflingCache {
                 }
                 // The promise has not yet been resolved. Return the promise so the caller can await
                 // it.
-                Err(TryRecvError::Empty) => {
+                Ok(None) => {
                     metrics::inc_counter(&metrics::SHUFFLING_CACHE_PROMISE_HITS);
                     metrics::inc_counter(&metrics::SHUFFLING_CACHE_HITS);
                     item.cloned()
@@ -96,7 +96,7 @@ impl ShufflingCache {
                 // memory and the nature of the LRU cache means that future, relevant entries will
                 // still be added to the cache. We expect that *all* promises should be resolved,
                 // unless there is a programming or database error.
-                Err(TryRecvError::Disconnected) => {
+                Err(oneshot_broadcast::Error::SenderDropped) => {
                     metrics::inc_counter(&metrics::SHUFFLING_CACHE_PROMISE_FAILS);
                     metrics::inc_counter(&metrics::SHUFFLING_CACHE_MISSES);
                     self.cache.pop(key);
@@ -147,7 +147,7 @@ impl ShufflingCache {
             return Err(BeaconChainError::MaxCommitteePromises(num_active_promises));
         }
 
-        let (sender, receiver) = bounded(1);
+        let (sender, receiver) = oneshot();
         self.cache.put(key, CacheItem::Promise(receiver));
         Ok(sender)
     }
@@ -262,7 +262,7 @@ mod test {
         );
 
         // Resolve the promise.
-        sender.send(committee_a.clone()).unwrap();
+        sender.send(committee_a.clone());
 
         // Ensure the promise has been resolved.
         let item = cache.get(&id_a).unwrap();
@@ -324,7 +324,7 @@ mod test {
         );
 
         // Resolve promise A.
-        sender_a.send(committee_a.clone()).unwrap();
+        sender_a.send(committee_a.clone());
         // Ensure promise A has been resolved.
         let item = cache.get(&id_a).unwrap();
         assert!(
@@ -333,7 +333,7 @@ mod test {
         );
 
         // Resolve promise B.
-        sender_b.send(committee_b.clone()).unwrap();
+        sender_b.send(committee_b.clone());
         // Ensure promise B has been resolved.
         let item = cache.get(&id_b).unwrap();
         assert!(

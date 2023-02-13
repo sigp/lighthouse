@@ -1,12 +1,18 @@
 //! This module contains endpoints that are non-standard and only available on Lighthouse servers.
 
 mod attestation_performance;
+pub mod attestation_rewards;
 mod block_packing_efficiency;
 mod block_rewards;
+mod standard_block_rewards;
+mod sync_committee_rewards;
 
 use crate::{
     ok_or_error,
-    types::{BeaconState, ChainSpec, Epoch, EthSpec, GenericResponse, ValidatorId},
+    types::{
+        BeaconState, ChainSpec, DepositTreeSnapshot, Epoch, EthSpec, FinalizedExecutionBlock,
+        GenericResponse, ValidatorId,
+    },
     BeaconNodeHttpClient, DepositData, Error, Eth1Data, Hash256, StateId, StatusCode,
 };
 use proto_array::core::ProtoArray;
@@ -19,11 +25,14 @@ use store::{AnchorInfo, Split, StoreConfig};
 pub use attestation_performance::{
     AttestationPerformance, AttestationPerformanceQuery, AttestationPerformanceStatistics,
 };
+pub use attestation_rewards::StandardAttestationRewards;
 pub use block_packing_efficiency::{
     BlockPackingEfficiency, BlockPackingEfficiencyQuery, ProposerInfo, UniqueAttestation,
 };
 pub use block_rewards::{AttestationRewards, BlockReward, BlockRewardMeta, BlockRewardsQuery};
 pub use lighthouse_network::{types::SyncState, PeerInfo};
+pub use standard_block_rewards::StandardBlockReward;
+pub use sync_committee_rewards::SyncCommitteeReward;
 
 // Define "legacy" implementations of `Option<T>` which use four bytes for encoding the union
 // selector.
@@ -328,6 +337,19 @@ impl Eth1Block {
             deposit_count: self.deposit_count?,
             block_hash: self.hash,
         })
+    }
+}
+
+impl From<Eth1Block> for FinalizedExecutionBlock {
+    fn from(eth1_block: Eth1Block) -> Self {
+        Self {
+            deposit_count: eth1_block.deposit_count.unwrap_or(0),
+            deposit_root: eth1_block
+                .deposit_root
+                .unwrap_or_else(|| DepositTreeSnapshot::default().deposit_root),
+            block_hash: eth1_block.hash,
+            block_height: eth1_block.number,
+        }
     }
 }
 

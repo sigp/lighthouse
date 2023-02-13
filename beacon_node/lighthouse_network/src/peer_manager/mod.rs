@@ -1,17 +1,18 @@
 //! Implementation of Lighthouse's peer management system.
 
-use crate::behaviour::TARGET_SUBNET_PEERS;
 use crate::rpc::{GoodbyeReason, MetaData, Protocol, RPCError, RPCResponseErrorCode};
+use crate::service::TARGET_SUBNET_PEERS;
 use crate::{error, metrics, Gossipsub};
 use crate::{NetworkGlobals, PeerId};
 use crate::{Subnet, SubnetDiscovery};
 use delay_map::HashSetDelay;
 use discv5::Enr;
-use libp2p::identify::IdentifyInfo;
+use libp2p::identify::Info as IdentifyInfo;
 use peerdb::{client::ClientKind, BanOperation, BanResult, ScoreUpdateResult};
 use rand::seq::SliceRandom;
 use slog::{debug, error, trace, warn};
 use smallvec::SmallVec;
+use std::collections::VecDeque;
 use std::{
     sync::Arc,
     time::{Duration, Instant},
@@ -71,6 +72,8 @@ pub struct PeerManager<TSpec: EthSpec> {
     status_peers: HashSetDelay<PeerId>,
     /// The target number of peers we would like to connect to.
     target_peers: usize,
+    /// Peers queued to be dialed.
+    peers_to_dial: VecDeque<(PeerId, Option<Enr>)>,
     /// A collection of sync committee subnets that we need to stay subscribed to.
     /// Sync committee subnets are longer term (256 epochs). Hence, we need to re-run
     /// discovery queries for subnet peers if we disconnect from existing sync
@@ -115,7 +118,7 @@ pub enum PeerManagerEvent {
 
 impl<TSpec: EthSpec> PeerManager<TSpec> {
     // NOTE: Must be run inside a tokio executor.
-    pub async fn new(
+    pub fn new(
         cfg: config::Config,
         network_globals: Arc<NetworkGlobals<TSpec>>,
         log: &slog::Logger,
@@ -135,6 +138,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         Ok(PeerManager {
             network_globals,
             events: SmallVec::new(),
+            peers_to_dial: Default::default(),
             inbound_ping_peers: HashSetDelay::new(Duration::from_secs(ping_interval_inbound)),
             outbound_ping_peers: HashSetDelay::new(Duration::from_secs(ping_interval_outbound)),
             status_peers: HashSetDelay::new(Duration::from_secs(status_interval)),
@@ -360,8 +364,8 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     /* Notifications from the Swarm */
 
     // A peer is being dialed.
-    pub fn inject_dialing(&mut self, peer_id: &PeerId, enr: Option<Enr>) {
-        self.inject_peer_connection(peer_id, ConnectingType::Dialing, enr);
+    pub fn dial_peer(&mut self, peer_id: &PeerId, enr: Option<Enr>) {
+        self.peers_to_dial.push_back((*peer_id, enr));
     }
 
     /// Reports if a peer is banned or not.
@@ -401,7 +405,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                 debug!(self.log, "Identified Peer"; "peer" => %peer_id,
                     "protocol_version" => &info.protocol_version,
                     "agent_version" => &info.agent_version,
-                    "listening_ addresses" => ?info.listen_addrs,
+                    "listening_addresses" => ?info.listen_addrs,
                     "observed_address" => ?info.observed_addr,
                     "protocols" => ?info.protocols
                 );
@@ -497,6 +501,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                     Protocol::Ping => PeerAction::MidToleranceError,
                     Protocol::BlocksByRange => PeerAction::MidToleranceError,
                     Protocol::BlocksByRoot => PeerAction::MidToleranceError,
+                    Protocol::LightClientBootstrap => PeerAction::LowToleranceError,
                     Protocol::Goodbye => PeerAction::LowToleranceError,
                     Protocol::MetaData => PeerAction::LowToleranceError,
                     Protocol::Status => PeerAction::LowToleranceError,
@@ -513,6 +518,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                     Protocol::BlocksByRange => return,
                     Protocol::BlocksByRoot => return,
                     Protocol::Goodbye => return,
+                    Protocol::LightClientBootstrap => return,
                     Protocol::MetaData => PeerAction::LowToleranceError,
                     Protocol::Status => PeerAction::LowToleranceError,
                 }
@@ -527,6 +533,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                     Protocol::Ping => PeerAction::LowToleranceError,
                     Protocol::BlocksByRange => PeerAction::MidToleranceError,
                     Protocol::BlocksByRoot => PeerAction::MidToleranceError,
+                    Protocol::LightClientBootstrap => return,
                     Protocol::Goodbye => return,
                     Protocol::MetaData => return,
                     Protocol::Status => return,
@@ -1247,9 +1254,7 @@ mod tests {
         };
         let log = build_log(slog::Level::Debug, false);
         let globals = NetworkGlobals::new_test_globals(&log);
-        PeerManager::new(config, Arc::new(globals), &log)
-            .await
-            .unwrap()
+        PeerManager::new(config, Arc::new(globals), &log).unwrap()
     }
 
     #[tokio::test]

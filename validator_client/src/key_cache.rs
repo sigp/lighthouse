@@ -104,7 +104,7 @@ impl KeyCache {
         let file = File::options()
             .read(true)
             .create_new(false)
-            .open(&cache_path)
+            .open(cache_path)
             .map_err(Error::UnableToOpenFile)?;
         serde_json::from_reader(file).map_err(Error::UnableToParseFile)
     }

@@ -1,8 +1,13 @@
+use beacon_chain::chain_config::{
+    ReOrgThreshold, DEFAULT_PREPARE_PAYLOAD_LOOKAHEAD_FACTOR,
+    DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION, DEFAULT_RE_ORG_THRESHOLD,
+};
 use clap::ArgMatches;
 use clap_utils::flags::DISABLE_MALLOC_TUNING_FLAG;
 use client::{ClientConfig, ClientGenesis};
 use directory::{DEFAULT_BEACON_NODE_DIR, DEFAULT_NETWORK_DIR, DEFAULT_ROOT_DIR};
 use environment::RuntimeContext;
+use execution_layer::DEFAULT_JWT_FILE;
 use genesis::Eth1Endpoint;
 use http_api::TlsConfig;
 use lighthouse_network::{multiaddr::Protocol, Enr, Multiaddr, NetworkConfig, PeerIdSerialized};
@@ -13,9 +18,11 @@ use std::cmp::max;
 use std::fmt::Debug;
 use std::fmt::Write;
 use std::fs;
+use std::net::Ipv6Addr;
 use std::net::{IpAddr, Ipv4Addr, ToSocketAddrs};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
+use std::time::Duration;
 use types::{Checkpoint, Epoch, EthSpec, Hash256, PublicKeyBytes, GRAFFITI_BYTES_LEN};
 use unused_port::{unused_tcp_port, unused_udp_port};
 
@@ -33,13 +40,13 @@ pub fn get_config<E: EthSpec>(
     let spec = &context.eth2_config.spec;
     let log = context.log();
 
-    let mut client_config = ClientConfig {
-        data_dir: get_data_dir(cli_args),
-        ..Default::default()
-    };
+    let mut client_config = ClientConfig::default();
+
+    // Update the client's data directory
+    client_config.set_data_dir(get_data_dir(cli_args));
 
     // If necessary, remove any existing database and configuration
-    if client_config.data_dir.exists() && cli_args.is_present("purge-db") {
+    if client_config.data_dir().exists() && cli_args.is_present("purge-db") {
         // Remove the chain_db.
         let chain_db = client_config.get_db_path();
         if chain_db.exists() {
@@ -56,11 +63,11 @@ pub fn get_config<E: EthSpec>(
     }
 
     // Create `datadir` and any non-existing parent directories.
-    fs::create_dir_all(&client_config.data_dir)
+    fs::create_dir_all(client_config.data_dir())
         .map_err(|e| format!("Failed to create data dir: {}", e))?;
 
     // logs the chosen data directory
-    let mut log_dir = client_config.data_dir.clone();
+    let mut log_dir = client_config.data_dir().clone();
     // remove /beacon from the end
     log_dir.pop();
     info!(log, "Data directory initialised"; "datadir" => log_dir.into_os_string().into_string().expect("Datadir should be a valid os string"));
@@ -68,10 +75,13 @@ pub fn get_config<E: EthSpec>(
     /*
      * Networking
      */
+
+    let data_dir_ref = client_config.data_dir().clone();
+
     set_network_config(
         &mut client_config.network,
         cli_args,
-        &client_config.data_dir,
+        &data_dir_ref,
         log,
         false,
     )?;
@@ -230,17 +240,14 @@ pub fn get_config<E: EthSpec>(
         );
         client_config.sync_eth1_chain = true;
 
-        let endpoints = vec![SensitiveUrl::parse(endpoint)
-            .map_err(|e| format!("eth1-endpoint was an invalid URL: {:?}", e))?];
-        client_config.eth1.endpoints = Eth1Endpoint::NoAuth(endpoints);
-    } else if let Some(endpoints) = cli_args.value_of("eth1-endpoints") {
+        let endpoint = SensitiveUrl::parse(endpoint)
+            .map_err(|e| format!("eth1-endpoint was an invalid URL: {:?}", e))?;
+        client_config.eth1.endpoint = Eth1Endpoint::NoAuth(endpoint);
+    } else if let Some(endpoint) = cli_args.value_of("eth1-endpoints") {
         client_config.sync_eth1_chain = true;
-        let endpoints = endpoints
-            .split(',')
-            .map(SensitiveUrl::parse)
-            .collect::<Result<_, _>>()
+        let endpoint = SensitiveUrl::parse(endpoint)
             .map_err(|e| format!("eth1-endpoints contains an invalid URL {:?}", e))?;
-        client_config.eth1.endpoints = Eth1Endpoint::NoAuth(endpoints);
+        client_config.eth1.endpoint = Eth1Endpoint::NoAuth(endpoint);
     }
 
     if let Some(val) = cli_args.value_of("eth1-blocks-per-log-query") {
@@ -291,12 +298,34 @@ pub fn get_config<E: EthSpec>(
         let execution_endpoint =
             parse_only_one_value(endpoints, SensitiveUrl::parse, "--execution-endpoint", log)?;
 
-        // Parse a single JWT secret, logging warnings if multiple are supplied.
-        //
-        // JWTs are required if `--execution-endpoint` is supplied.
-        let secret_files: String = clap_utils::parse_required(cli_args, "execution-jwt")?;
-        let secret_file =
-            parse_only_one_value(&secret_files, PathBuf::from_str, "--execution-jwt", log)?;
+        // JWTs are required if `--execution-endpoint` is supplied. They can be either passed via
+        // file_path or directly as string.
+
+        let secret_file: PathBuf;
+        // Parse a single JWT secret from a given file_path, logging warnings if multiple are supplied.
+        if let Some(secret_files) = cli_args.value_of("execution-jwt") {
+            secret_file =
+                parse_only_one_value(secret_files, PathBuf::from_str, "--execution-jwt", log)?;
+
+        // Check if the JWT secret key is passed directly via cli flag and persist it to the default
+        // file location.
+        } else if let Some(jwt_secret_key) = cli_args.value_of("execution-jwt-secret-key") {
+            use std::fs::File;
+            use std::io::Write;
+            secret_file = client_config.data_dir().join(DEFAULT_JWT_FILE);
+            let mut jwt_secret_key_file = File::create(secret_file.clone())
+                .map_err(|e| format!("Error while creating jwt_secret_key file: {:?}", e))?;
+            jwt_secret_key_file
+                .write_all(jwt_secret_key.as_bytes())
+                .map_err(|e| {
+                    format!(
+                        "Error occured while writing to jwt_secret_key file: {:?}",
+                        e
+                    )
+                })?;
+        } else {
+            return Err("Error! Please set either --execution-jwt file_path or --execution-jwt-secret-key directly via cli when using --execution-endpoint".to_string());
+        }
 
         // Parse and set the payload builder, if any.
         if let Some(endpoint) = cli_args.value_of("builder") {
@@ -312,9 +341,12 @@ pub fn get_config<E: EthSpec>(
             clap_utils::parse_optional(cli_args, "suggested-fee-recipient")?;
         el_config.jwt_id = clap_utils::parse_optional(cli_args, "execution-jwt-id")?;
         el_config.jwt_version = clap_utils::parse_optional(cli_args, "execution-jwt-version")?;
-        el_config.default_datadir = client_config.data_dir.clone();
+        el_config.default_datadir = client_config.data_dir().clone();
         el_config.builder_profit_threshold =
             clap_utils::parse_required(cli_args, "builder-profit-threshold")?;
+        let execution_timeout_multiplier =
+            clap_utils::parse_required(cli_args, "execution-timeout-multiplier")?;
+        el_config.execution_timeout_multiplier = Some(execution_timeout_multiplier);
 
         // If `--execution-endpoint` is provided, we should ignore any `--eth1-endpoints` values and
         // use `--execution-endpoint` instead. Also, log a deprecation warning.
@@ -326,7 +358,7 @@ pub fn get_config<E: EthSpec>(
                     --eth1-endpoints has been deprecated for post-merge configurations"
             );
         }
-        client_config.eth1.endpoints = Eth1Endpoint::Auth {
+        client_config.eth1.endpoint = Eth1Endpoint::Auth {
             endpoint: execution_endpoint,
             jwt_path: secret_file,
             jwt_id: el_config.jwt_id.clone(),
@@ -418,6 +450,8 @@ pub fn get_config<E: EthSpec>(
                 .extend_from_slice(boot_nodes)
         }
     }
+    client_config.chain.checkpoint_sync_url_timeout =
+        clap_utils::parse_required::<u64>(cli_args, "checkpoint-sync-url-timeout")?;
 
     client_config.genesis = if let Some(genesis_state_bytes) =
         eth2_network_config.genesis_state_bytes.clone()
@@ -548,7 +582,7 @@ pub fn get_config<E: EthSpec>(
         let slasher_dir = if let Some(slasher_dir) = cli_args.value_of("slasher-dir") {
             PathBuf::from(slasher_dir)
         } else {
-            client_config.data_dir.join("slasher_db")
+            client_config.data_dir().join("slasher_db")
         };
 
         let mut slasher_config = slasher::Config::new(slasher_dir);
@@ -641,9 +675,41 @@ pub fn get_config<E: EthSpec>(
             .extend_from_slice(&pubkeys);
     }
 
+    if let Some(count) =
+        clap_utils::parse_optional(cli_args, "validator-monitor-individual-tracking-threshold")?
+    {
+        client_config.validator_monitor_individual_tracking_threshold = count;
+    }
+
     if cli_args.is_present("disable-lock-timeouts") {
         client_config.chain.enable_lock_timeouts = false;
     }
+
+    if cli_args.is_present("disable-proposer-reorgs") {
+        client_config.chain.re_org_threshold = None;
+    } else {
+        client_config.chain.re_org_threshold = Some(
+            clap_utils::parse_optional(cli_args, "proposer-reorg-threshold")?
+                .map(ReOrgThreshold)
+                .unwrap_or(DEFAULT_RE_ORG_THRESHOLD),
+        );
+        client_config.chain.re_org_max_epochs_since_finalization =
+            clap_utils::parse_optional(cli_args, "proposer-reorg-epochs-since-finalization")?
+                .unwrap_or(DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION);
+    }
+
+    // Note: This overrides any previous flags that enable this option.
+    if cli_args.is_present("disable-deposit-contract-sync") {
+        client_config.sync_eth1_chain = false;
+    }
+
+    client_config.chain.prepare_payload_lookahead =
+        clap_utils::parse_optional(cli_args, "prepare-payload-lookahead")?
+            .map(Duration::from_millis)
+            .unwrap_or_else(|| {
+                Duration::from_secs(spec.seconds_per_slot)
+                    / DEFAULT_PREPARE_PAYLOAD_LOOKAHEAD_FACTOR
+            });
 
     if let Some(timeout) =
         clap_utils::parse_optional(cli_args, "fork-choice-before-proposal-timeout")?
@@ -674,6 +740,16 @@ pub fn get_config<E: EthSpec>(
         clap_utils::parse_required(cli_args, "builder-fallback-epochs-since-finalization")?;
     client_config.chain.builder_fallback_disable_checks =
         cli_args.is_present("builder-fallback-disable-checks");
+
+    // Graphical user interface config.
+    if cli_args.is_present("gui") {
+        client_config.http_api.enabled = true;
+        client_config.validator_monitor_auto = true;
+    }
+
+    // Optimistic finalized sync.
+    client_config.chain.optimistic_finalized_sync =
+        !cli_args.is_present("disable-optimistic-finalized-sync");
 
     Ok(client_config)
 }
@@ -804,9 +880,11 @@ pub fn set_network_config(
     }
 
     if cli_args.is_present("enr-match") {
-        // set the enr address to localhost if the address is 0.0.0.0
-        if config.listen_address == "0.0.0.0".parse::<IpAddr>().expect("valid ip addr") {
-            config.enr_address = Some("127.0.0.1".parse::<IpAddr>().expect("valid ip addr"));
+        // set the enr address to localhost if the address is unspecified
+        if config.listen_address == IpAddr::V4(Ipv4Addr::UNSPECIFIED) {
+            config.enr_address = Some(IpAddr::V4(Ipv4Addr::LOCALHOST));
+        } else if config.listen_address == IpAddr::V6(Ipv6Addr::UNSPECIFIED) {
+            config.enr_address = Some(IpAddr::V6(Ipv6Addr::LOCALHOST));
         } else {
             config.enr_address = Some(config.listen_address);
         }
@@ -884,6 +962,16 @@ pub fn set_network_config(
 
     if cli_args.is_present("enable-private-discovery") {
         config.discv5_config.table_filter = |_| true;
+    }
+
+    // Light client server config.
+    config.enable_light_client_server = cli_args.is_present("light-client-server");
+
+    // This flag can be used both with or without a value. Try to parse it first with a value, if
+    // no value is defined but the flag is present, use the default params.
+    config.outbound_rate_limiter_config = clap_utils::parse_optional(cli_args, "self-limiter")?;
+    if cli_args.is_present("self-limiter") && config.outbound_rate_limiter_config.is_none() {
+        config.outbound_rate_limiter_config = Some(Default::default());
     }
 
     Ok(())

@@ -59,7 +59,7 @@ TCP and UDP ports (9000 by default).
 Lighthouse has a number of CLI parameters for constructing and modifying the
 local Ethereum Node Record (ENR). Examples are `--enr-address`,
 `--enr-udp-port`, `--enr-tcp-port` and `--disable-enr-auto-update`. These
-settings allow you construct your initial ENR. Their primary intention is for
+settings allow you to construct your initial ENR. Their primary intention is for
 setting up boot-like nodes and having a contactable ENR on boot. On normal
 operation of a Lighthouse node, none of these flags need to be set. Setting
 these flags incorrectly can lead to your node being incorrectly added to the

@@ -301,7 +301,7 @@ impl<E: EthSpec> SlasherDB<E> {
     pub fn store_schema_version(&self, txn: &mut RwTransaction<'_>) -> Result<(), Error> {
         txn.put(
             &self.databases.metadata_db,
-            &METADATA_VERSION_KEY,
+            METADATA_VERSION_KEY,
             &bincode::serialize(&CURRENT_SCHEMA_VERSION)?,
         )?;
         Ok(())
@@ -323,7 +323,7 @@ impl<E: EthSpec> SlasherDB<E> {
     pub fn store_config(&self, config: &Config, txn: &mut RwTransaction<'_>) -> Result<(), Error> {
         txn.put(
             &self.databases.metadata_db,
-            &METADATA_CONFIG_KEY,
+            METADATA_CONFIG_KEY,
             &bincode::serialize(config)?,
         )?;
         Ok(())
@@ -367,7 +367,7 @@ impl<E: EthSpec> SlasherDB<E> {
                 txn.put(
                     &self.databases.attesters_db,
                     &AttesterKey::new(validator_index, target_epoch, &self.config),
-                    &CompactAttesterRecord::null().as_bytes(),
+                    CompactAttesterRecord::null().as_bytes(),
                 )?;
             }
         }
@@ -423,7 +423,7 @@ impl<E: EthSpec> SlasherDB<E> {
         key: &IndexedAttestationIdKey,
         value: IndexedAttestationId,
     ) -> Result<(), Error> {
-        txn.put(&self.databases.indexed_attestation_id_db, key, &value)?;
+        txn.put(&self.databases.indexed_attestation_id_db, key, value)?;
         Ok(())
     }
 
@@ -579,7 +579,7 @@ impl<E: EthSpec> SlasherDB<E> {
             txn.put(
                 &self.databases.attesters_db,
                 &AttesterKey::new(validator_index, target_epoch, &self.config),
-                &indexed_attestation_id,
+                indexed_attestation_id,
             )?;
 
             Ok(AttesterSlashingStatus::NotSlashable)

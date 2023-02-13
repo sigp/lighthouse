@@ -48,7 +48,7 @@ impl<E: EthSpec> LocalBeaconNode<E> {
             .tempdir()
             .expect("should create temp directory for client datadir");
 
-        client_config.data_dir = datadir.path().into();
+        client_config.set_data_dir(datadir.path().into());
         client_config.network.network_dir = PathBuf::from(datadir.path()).join("network");
 
         ProductionBeaconNode::new(context, client_config)
@@ -231,7 +231,7 @@ impl<E: EthSpec> LocalExecutionNode<E> {
             .tempdir()
             .expect("should create temp directory for client datadir");
         let jwt_file_path = datadir.path().join("jwt.hex");
-        if let Err(e) = std::fs::write(&jwt_file_path, config.jwt_key.hex_string()) {
+        if let Err(e) = std::fs::write(jwt_file_path, config.jwt_key.hex_string()) {
             panic!("Failed to write jwt file {}", e);
         }
         Self {

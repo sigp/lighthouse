@@ -1,21 +1,24 @@
 use crate::metrics;
 use beacon_chain::validator_monitor::{get_block_delay_ms, timestamp_now};
-use beacon_chain::{BeaconChain, BeaconChainTypes, BlockError, CountUnrealized};
+use beacon_chain::{
+    BeaconChain, BeaconChainTypes, BlockError, CountUnrealized, NotifyExecutionLayer,
+};
 use lighthouse_network::PubsubMessage;
 use network::NetworkMessage;
-use slog::{crit, error, info, warn, Logger};
+use slog::{error, info, warn, Logger};
 use slot_clock::SlotClock;
 use std::sync::Arc;
 use tokio::sync::mpsc::UnboundedSender;
 use tree_hash::TreeHash;
 use types::{
-    BlindedPayload, ExecPayload, ExecutionBlockHash, ExecutionPayload, FullPayload,
+    BlindedPayload, ExecPayload, ExecutionBlockHash, ExecutionPayload, FullPayload, Hash256,
     SignedBeaconBlock,
 };
 use warp::Rejection;
 
 /// Handles a request from the HTTP API for full blocks.
 pub async fn publish_block<T: BeaconChainTypes>(
+    block_root: Option<Hash256>,
     block: Arc<SignedBeaconBlock<T::EthSpec>>,
     chain: Arc<BeaconChain<T>>,
     network_tx: &UnboundedSender<NetworkMessage<T::EthSpec>>,
@@ -31,8 +34,15 @@ pub async fn publish_block<T: BeaconChainTypes>(
     let delay = get_block_delay_ms(seen_timestamp, block.message(), &chain.slot_clock);
     metrics::observe_duration(&metrics::HTTP_API_BLOCK_BROADCAST_DELAY_TIMES, delay);
 
+    let block_root = block_root.unwrap_or_else(|| block.canonical_root());
+
     match chain
-        .process_block(block.clone(), CountUnrealized::True)
+        .process_block(
+            block_root,
+            block.clone(),
+            CountUnrealized::True,
+            NotifyExecutionLayer::Yes,
+        )
         .await
     {
         Ok(root) => {
@@ -62,10 +72,10 @@ pub async fn publish_block<T: BeaconChainTypes>(
             //
             // Check to see the thresholds are non-zero to avoid logging errors with small
             // slot times (e.g., during testing)
-            let crit_threshold = chain.slot_clock.unagg_attestation_production_delay();
-            let error_threshold = crit_threshold / 2;
-            if delay >= crit_threshold {
-                crit!(
+            let too_late_threshold = chain.slot_clock.unagg_attestation_production_delay();
+            let delayed_threshold = too_late_threshold / 2;
+            if delay >= too_late_threshold {
+                error!(
                     log,
                     "Block was broadcast too late";
                     "msg" => "system may be overloaded, block likely to be orphaned",
@@ -73,7 +83,7 @@ pub async fn publish_block<T: BeaconChainTypes>(
                     "slot" => block.slot(),
                     "root" => ?root,
                 )
-            } else if delay >= error_threshold {
+            } else if delay >= delayed_threshold {
                 error!(
                     log,
                     "Block broadcast was delayed";
@@ -127,8 +137,16 @@ pub async fn publish_blinded_block<T: BeaconChainTypes>(
     network_tx: &UnboundedSender<NetworkMessage<T::EthSpec>>,
     log: Logger,
 ) -> Result<(), Rejection> {
-    let full_block = reconstruct_block(chain.clone(), block, log.clone()).await?;
-    publish_block::<T>(Arc::new(full_block), chain, network_tx, log).await
+    let block_root = block.canonical_root();
+    let full_block = reconstruct_block(chain.clone(), block_root, block, log.clone()).await?;
+    publish_block::<T>(
+        Some(block_root),
+        Arc::new(full_block),
+        chain,
+        network_tx,
+        log,
+    )
+    .await
 }
 
 /// Deconstruct the given blinded block, and construct a full block. This attempts to use the
@@ -136,6 +154,7 @@ pub async fn publish_blinded_block<T: BeaconChainTypes>(
 /// the full payload.
 async fn reconstruct_block<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
+    block_root: Hash256,
     block: SignedBeaconBlock<T::EthSpec, BlindedPayload<T::EthSpec>>,
     log: Logger,
 ) -> Result<SignedBeaconBlock<T::EthSpec, FullPayload<T::EthSpec>>, Rejection> {
@@ -155,12 +174,15 @@ async fn reconstruct_block<T: BeaconChainTypes>(
             cached_payload
             // Otherwise, this means we are attempting a blind block proposal.
         } else {
-            let full_payload = el.propose_blinded_beacon_block(&block).await.map_err(|e| {
-                warp_utils::reject::custom_server_error(format!(
-                    "Blind block proposal failed: {:?}",
-                    e
-                ))
-            })?;
+            let full_payload = el
+                .propose_blinded_beacon_block(block_root, &block)
+                .await
+                .map_err(|e| {
+                    warp_utils::reject::custom_server_error(format!(
+                        "Blind block proposal failed: {:?}",
+                        e
+                    ))
+                })?;
             info!(log, "Successfully published a block to the builder network"; "block_hash" => ?full_payload.block_hash);
             full_payload
         };

@@ -1,3 +1,4 @@
+#![recursion_limit = "256"]
 //! This crate contains a HTTP server which serves the endpoints listed here:
 //!
 //! https://github.com/ethereum/beacon-APIs
@@ -14,8 +15,11 @@ mod database;
 mod metrics;
 mod proposer_duties;
 mod publish_blocks;
+mod standard_block_rewards;
 mod state_id;
+mod sync_committee_rewards;
 mod sync_committees;
+mod ui;
 mod validator_inclusion;
 mod version;
 
@@ -25,12 +29,14 @@ use beacon_chain::{
     BeaconChainTypes, ProduceBlockVerification, WhenSlotSkipped,
 };
 pub use block_id::BlockId;
+use directory::DEFAULT_ROOT_DIR;
 use eth2::types::{
     self as api_types, EndpointVersion, SkipRandaoVerification, ValidatorId, ValidatorStatus,
 };
 use lighthouse_network::{types::SyncState, EnrExt, NetworkGlobals, PeerId, PubsubMessage};
 use lighthouse_version::version_with_platform;
 use network::{NetworkMessage, NetworkSenders, ValidatorSubscriptionMessage};
+use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use slog::{crit, debug, error, info, warn, Logger};
 use slot_clock::SlotClock;
@@ -42,6 +48,8 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::Arc;
+use sysinfo::{System, SystemExt};
+use system_health::observe_system_health_bn;
 use tokio::sync::mpsc::{Sender, UnboundedSender};
 use tokio_stream::{wrappers::BroadcastStream, StreamExt};
 use types::{
@@ -109,6 +117,7 @@ pub struct Config {
     pub tls_config: Option<TlsConfig>,
     pub allow_sync_stalled: bool,
     pub spec_fork_name: Option<ForkName>,
+    pub data_dir: PathBuf,
 }
 
 impl Default for Config {
@@ -121,6 +130,7 @@ impl Default for Config {
             tls_config: None,
             allow_sync_stalled: false,
             spec_fork_name: None,
+            data_dir: PathBuf::from(DEFAULT_ROOT_DIR),
         }
     }
 }
@@ -322,6 +332,10 @@ pub fn serve<T: BeaconChainTypes>(
             }
         });
 
+    // Create a `warp` filter for the data_dir.
+    let inner_data_dir = ctx.config.data_dir.clone();
+    let data_dir_filter = warp::any().map(move || inner_data_dir.clone());
+
     // Create a `warp` filter that provides access to the beacon chain.
     let inner_ctx = ctx.clone();
     let chain_filter =
@@ -429,6 +443,37 @@ pub fn serve<T: BeaconChainTypes>(
     // Create a `warp` filter that provides access to the logger.
     let inner_ctx = ctx.clone();
     let log_filter = warp::any().map(move || inner_ctx.log.clone());
+
+    // Create a `warp` filter that provides access to local system information.
+    let system_info = Arc::new(RwLock::new(sysinfo::System::new()));
+    {
+        // grab write access for initialisation
+        let mut system_info = system_info.write();
+        system_info.refresh_disks_list();
+        system_info.refresh_networks_list();
+        system_info.refresh_cpu_specifics(sysinfo::CpuRefreshKind::everything());
+        system_info.refresh_cpu();
+    } // end lock
+
+    let system_info_filter =
+        warp::any()
+            .map(move || system_info.clone())
+            .map(|sysinfo: Arc<RwLock<System>>| {
+                {
+                    // refresh stats
+                    let mut sysinfo_lock = sysinfo.write();
+                    sysinfo_lock.refresh_memory();
+                    sysinfo_lock.refresh_cpu_specifics(sysinfo::CpuRefreshKind::everything());
+                    sysinfo_lock.refresh_cpu();
+                    sysinfo_lock.refresh_system();
+                    sysinfo_lock.refresh_networks();
+                    sysinfo_lock.refresh_disks();
+                } // end lock
+                sysinfo
+            });
+
+    let app_start = std::time::Instant::now();
+    let app_start_filter = warp::any().map(move || app_start);
 
     /*
      *
@@ -890,6 +935,37 @@ pub fn serve<T: BeaconChainTypes>(
             },
         );
 
+    // GET beacon/states/{state_id}/randao?epoch
+    let get_beacon_state_randao = beacon_states_path
+        .clone()
+        .and(warp::path("randao"))
+        .and(warp::query::<api_types::RandaoQuery>())
+        .and(warp::path::end())
+        .and_then(
+            |state_id: StateId, chain: Arc<BeaconChain<T>>, query: api_types::RandaoQuery| {
+                blocking_json_task(move || {
+                    let (randao, execution_optimistic) = state_id
+                        .map_state_and_execution_optimistic(
+                            &chain,
+                            |state, execution_optimistic| {
+                                let epoch = query.epoch.unwrap_or_else(|| state.current_epoch());
+                                let randao = *state.get_randao_mix(epoch).map_err(|e| {
+                                    warp_utils::reject::custom_bad_request(format!(
+                                        "epoch out of range: {e:?}"
+                                    ))
+                                })?;
+                                Ok((randao, execution_optimistic))
+                            },
+                        )?;
+
+                    Ok(
+                        api_types::GenericResponse::from(api_types::RandaoMix { randao })
+                            .add_execution_optimistic(execution_optimistic),
+                    )
+                })
+            },
+        );
+
     // GET beacon/headers
     //
     // Note: this endpoint only returns information about blocks in the canonical chain. Given that
@@ -1046,7 +1122,7 @@ pub fn serve<T: BeaconChainTypes>(
              chain: Arc<BeaconChain<T>>,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
              log: Logger| async move {
-                publish_blocks::publish_block(block, chain, &network_tx, log)
+                publish_blocks::publish_block(None, block, chain, &network_tx, log)
                     .await
                     .map(|()| warp::reply())
             },
@@ -1165,6 +1241,51 @@ pub fn serve<T: BeaconChainTypes>(
                 )
             })
         });
+
+    // GET beacon/blinded_blocks/{block_id}
+    let get_beacon_blinded_block = eth_v1
+        .and(warp::path("beacon"))
+        .and(warp::path("blinded_blocks"))
+        .and(block_id_or_err)
+        .and(chain_filter.clone())
+        .and(warp::path::end())
+        .and(warp::header::optional::<api_types::Accept>("accept"))
+        .and_then(
+            |block_id: BlockId,
+             chain: Arc<BeaconChain<T>>,
+             accept_header: Option<api_types::Accept>| {
+                blocking_task(move || {
+                    let (block, execution_optimistic) = block_id.blinded_block(&chain)?;
+                    let fork_name = block
+                        .fork_name(&chain.spec)
+                        .map_err(inconsistent_fork_rejection)?;
+
+                    match accept_header {
+                        Some(api_types::Accept::Ssz) => Response::builder()
+                            .status(200)
+                            .header("Content-Type", "application/octet-stream")
+                            .body(block.as_ssz_bytes().into())
+                            .map_err(|e| {
+                                warp_utils::reject::custom_server_error(format!(
+                                    "failed to create response: {}",
+                                    e
+                                ))
+                            }),
+                        _ => {
+                            // Post as a V2 endpoint so we return the fork version.
+                            execution_optimistic_fork_versioned_response(
+                                V2,
+                                fork_name,
+                                execution_optimistic,
+                                block,
+                            )
+                            .map(|res| warp::reply::json(&res).into_response())
+                        }
+                    }
+                    .map(|resp| add_consensus_version_header(resp, fork_name))
+                })
+            },
+        );
 
     /*
      * beacon/pool
@@ -1529,6 +1650,161 @@ pub fn serve<T: BeaconChainTypes>(
                         signatures, network_tx, &chain, log,
                     )?;
                     Ok(api_types::GenericResponse::from(()))
+                })
+            },
+        );
+
+    // GET beacon/deposit_snapshot
+    let get_beacon_deposit_snapshot = eth_v1
+        .and(warp::path("beacon"))
+        .and(warp::path("deposit_snapshot"))
+        .and(warp::path::end())
+        .and(warp::header::optional::<api_types::Accept>("accept"))
+        .and(eth1_service_filter.clone())
+        .and_then(
+            |accept_header: Option<api_types::Accept>, eth1_service: eth1::Service| {
+                blocking_task(move || match accept_header {
+                    Some(api_types::Accept::Json) | None => {
+                        let snapshot = eth1_service.get_deposit_snapshot();
+                        Ok(
+                            warp::reply::json(&api_types::GenericResponse::from(snapshot))
+                                .into_response(),
+                        )
+                    }
+                    _ => eth1_service
+                        .get_deposit_snapshot()
+                        .map(|snapshot| {
+                            Response::builder()
+                                .status(200)
+                                .header("Content-Type", "application/octet-stream")
+                                .body(snapshot.as_ssz_bytes().into())
+                                .map_err(|e| {
+                                    warp_utils::reject::custom_server_error(format!(
+                                        "failed to create response: {}",
+                                        e
+                                    ))
+                                })
+                        })
+                        .unwrap_or_else(|| {
+                            Response::builder()
+                                .status(503)
+                                .header("Content-Type", "application/octet-stream")
+                                .body(Vec::new().into())
+                                .map_err(|e| {
+                                    warp_utils::reject::custom_server_error(format!(
+                                        "failed to create response: {}",
+                                        e
+                                    ))
+                                })
+                        }),
+                })
+            },
+        );
+
+    let beacon_rewards_path = eth_v1
+        .and(warp::path("beacon"))
+        .and(warp::path("rewards"))
+        .and(chain_filter.clone());
+
+    // GET beacon/rewards/blocks/{block_id}
+    let get_beacon_rewards_blocks = beacon_rewards_path
+        .clone()
+        .and(warp::path("blocks"))
+        .and(block_id_or_err)
+        .and(warp::path::end())
+        .and_then(|chain: Arc<BeaconChain<T>>, block_id: BlockId| {
+            blocking_json_task(move || {
+                let (rewards, execution_optimistic) =
+                    standard_block_rewards::compute_beacon_block_rewards(chain, block_id)?;
+                Ok(rewards)
+                    .map(api_types::GenericResponse::from)
+                    .map(|resp| resp.add_execution_optimistic(execution_optimistic))
+            })
+        });
+
+    /*
+     * beacon/rewards
+     */
+
+    let beacon_rewards_path = eth_v1
+        .and(warp::path("beacon"))
+        .and(warp::path("rewards"))
+        .and(chain_filter.clone());
+
+    // POST beacon/rewards/attestations/{epoch}
+    let post_beacon_rewards_attestations = beacon_rewards_path
+        .clone()
+        .and(warp::path("attestations"))
+        .and(warp::path::param::<Epoch>())
+        .and(warp::path::end())
+        .and(warp::body::json())
+        .and(log_filter.clone())
+        .and_then(
+            |chain: Arc<BeaconChain<T>>,
+             epoch: Epoch,
+             validators: Vec<ValidatorId>,
+             log: Logger| {
+                blocking_json_task(move || {
+                    let attestation_rewards = chain
+                        .compute_attestation_rewards(epoch, validators, log)
+                        .map_err(|e| match e {
+                            BeaconChainError::MissingBeaconState(root) => {
+                                warp_utils::reject::custom_not_found(format!(
+                                    "missing state {root:?}",
+                                ))
+                            }
+                            BeaconChainError::NoStateForSlot(slot) => {
+                                warp_utils::reject::custom_not_found(format!(
+                                    "missing state at slot {slot}"
+                                ))
+                            }
+                            BeaconChainError::BeaconStateError(
+                                BeaconStateError::UnknownValidator(validator_index),
+                            ) => warp_utils::reject::custom_bad_request(format!(
+                                "validator is unknown: {validator_index}"
+                            )),
+                            BeaconChainError::ValidatorPubkeyUnknown(pubkey) => {
+                                warp_utils::reject::custom_bad_request(format!(
+                                    "validator pubkey is unknown: {pubkey:?}"
+                                ))
+                            }
+                            e => warp_utils::reject::custom_server_error(format!(
+                                "unexpected error: {:?}",
+                                e
+                            )),
+                        })?;
+                    let execution_optimistic =
+                        chain.is_optimistic_or_invalid_head().unwrap_or_default();
+
+                    Ok(attestation_rewards)
+                        .map(api_types::GenericResponse::from)
+                        .map(|resp| resp.add_execution_optimistic(execution_optimistic))
+                })
+            },
+        );
+
+    // POST beacon/rewards/sync_committee/{block_id}
+    let post_beacon_rewards_sync_committee = beacon_rewards_path
+        .clone()
+        .and(warp::path("sync_committee"))
+        .and(block_id_or_err)
+        .and(warp::path::end())
+        .and(warp::body::json())
+        .and(log_filter.clone())
+        .and_then(
+            |chain: Arc<BeaconChain<T>>,
+             block_id: BlockId,
+             validators: Vec<ValidatorId>,
+             log: Logger| {
+                blocking_json_task(move || {
+                    let (rewards, execution_optimistic) =
+                        sync_committee_rewards::compute_sync_committee_rewards(
+                            chain, block_id, validators, log,
+                        )?;
+
+                    Ok(rewards)
+                        .map(api_types::GenericResponse::from)
+                        .map(|resp| resp.add_execution_optimistic(execution_optimistic))
                 })
             },
         );
@@ -2531,7 +2807,7 @@ pub fn serve<T: BeaconChainTypes>(
                                         || matches!(validator_status, ValidatorStatus::Active);
 
                                 // Filter out validators who are not 'active' or 'pending'.
-                                is_active_or_pending.then(|| {
+                                is_active_or_pending.then_some({
                                     (
                                         ProposerPreparationData {
                                             validator_index: validator_index as u64,
@@ -2579,7 +2855,12 @@ pub fn serve<T: BeaconChainTypes>(
                     .await
                     .map(|resp| warp::reply::json(&resp))
                     .map_err(|e| {
-                        error!(log, "Error from connected relay"; "error" => ?e);
+                        warn!(
+                            log,
+                            "Relay error when registering validator(s)";
+                            "num_registrations" => filtered_registration_data.len(),
+                            "error" => ?e
+                        );
                         // Forward the HTTP status code if we are able to, otherwise fall back
                         // to a server error.
                         if let eth2::Error::ServerMessage(message) = e {
@@ -2669,7 +2950,7 @@ pub fn serve<T: BeaconChainTypes>(
                             let is_live =
                                 chain.validator_seen_at_epoch(index as usize, request_data.epoch);
                             api_types::LivenessResponseData {
-                                index: index as u64,
+                                index,
                                 epoch: request_data.epoch,
                                 is_live,
                             }
@@ -2692,6 +2973,57 @@ pub fn serve<T: BeaconChainTypes>(
                     .map_err(warp_utils::reject::custom_bad_request)
             })
         });
+
+    // GET lighthouse/ui/health
+    let get_lighthouse_ui_health = warp::path("lighthouse")
+        .and(warp::path("ui"))
+        .and(warp::path("health"))
+        .and(warp::path::end())
+        .and(system_info_filter)
+        .and(app_start_filter)
+        .and(data_dir_filter)
+        .and(network_globals.clone())
+        .and_then(
+            |sysinfo, app_start: std::time::Instant, data_dir, network_globals| {
+                blocking_json_task(move || {
+                    let app_uptime = app_start.elapsed().as_secs();
+                    Ok(api_types::GenericResponse::from(observe_system_health_bn(
+                        sysinfo,
+                        data_dir,
+                        app_uptime,
+                        network_globals,
+                    )))
+                })
+            },
+        );
+
+    // GET lighthouse/ui/validator_count
+    let get_lighthouse_ui_validator_count = warp::path("lighthouse")
+        .and(warp::path("ui"))
+        .and(warp::path("validator_count"))
+        .and(warp::path::end())
+        .and(chain_filter.clone())
+        .and_then(|chain: Arc<BeaconChain<T>>| {
+            blocking_json_task(move || {
+                ui::get_validator_count(chain).map(api_types::GenericResponse::from)
+            })
+        });
+
+    // POST lighthouse/ui/validator_metrics
+    let post_lighthouse_ui_validator_metrics = warp::path("lighthouse")
+        .and(warp::path("ui"))
+        .and(warp::path("validator_metrics"))
+        .and(warp::path::end())
+        .and(warp::body::json())
+        .and(chain_filter.clone())
+        .and_then(
+            |request_data: ui::ValidatorMetricsRequestData, chain: Arc<BeaconChain<T>>| {
+                blocking_json_task(move || {
+                    ui::post_validator_monitor_metrics(request_data, chain)
+                        .map(api_types::GenericResponse::from)
+                })
+            },
+        );
 
     // GET lighthouse/syncing
     let get_lighthouse_syncing = warp::path("lighthouse")
@@ -3111,15 +3443,19 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(get_beacon_state_validators.boxed())
                 .or(get_beacon_state_committees.boxed())
                 .or(get_beacon_state_sync_committees.boxed())
+                .or(get_beacon_state_randao.boxed())
                 .or(get_beacon_headers.boxed())
                 .or(get_beacon_headers_block_id.boxed())
                 .or(get_beacon_block.boxed())
                 .or(get_beacon_block_attestations.boxed())
+                .or(get_beacon_blinded_block.boxed())
                 .or(get_beacon_block_root.boxed())
                 .or(get_beacon_pool_attestations.boxed())
                 .or(get_beacon_pool_attester_slashings.boxed())
                 .or(get_beacon_pool_proposer_slashings.boxed())
                 .or(get_beacon_pool_voluntary_exits.boxed())
+                .or(get_beacon_deposit_snapshot.boxed())
+                .or(get_beacon_rewards_blocks.boxed())
                 .or(get_config_fork_schedule.boxed())
                 .or(get_config_spec.boxed())
                 .or(get_config_deposit_contract.boxed())
@@ -3139,6 +3475,8 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(get_validator_aggregate_attestation.boxed())
                 .or(get_validator_sync_committee_contribution.boxed())
                 .or(get_lighthouse_health.boxed())
+                .or(get_lighthouse_ui_health.boxed())
+                .or(get_lighthouse_ui_validator_count.boxed())
                 .or(get_lighthouse_syncing.boxed())
                 .or(get_lighthouse_nat.boxed())
                 .or(get_lighthouse_peers.boxed())
@@ -3156,8 +3494,10 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(get_lighthouse_attestation_performance.boxed())
                 .or(get_lighthouse_block_packing_efficiency.boxed())
                 .or(get_lighthouse_merge_readiness.boxed())
-                .or(get_events.boxed()),
+                .or(get_events.boxed())
+                .recover(warp_utils::reject::handle_rejection),
         )
+        .boxed()
         .or(warp::post().and(
             post_beacon_blocks
                 .boxed()
@@ -3167,6 +3507,8 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(post_beacon_pool_proposer_slashings.boxed())
                 .or(post_beacon_pool_voluntary_exits.boxed())
                 .or(post_beacon_pool_sync_committees.boxed())
+                .or(post_beacon_rewards_attestations.boxed())
+                .or(post_beacon_rewards_sync_committee.boxed())
                 .or(post_validator_duties_attester.boxed())
                 .or(post_validator_duties_sync.boxed())
                 .or(post_validator_aggregate_and_proofs.boxed())
@@ -3178,7 +3520,9 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(post_lighthouse_liveness.boxed())
                 .or(post_lighthouse_database_reconstruct.boxed())
                 .or(post_lighthouse_database_historical_blocks.boxed())
-                .or(post_lighthouse_block_rewards.boxed()),
+                .or(post_lighthouse_block_rewards.boxed())
+                .or(post_lighthouse_ui_validator_metrics.boxed())
+                .recover(warp_utils::reject::handle_rejection),
         ))
         .recover(warp_utils::reject::handle_rejection)
         .with(slog_logging(log.clone()))
