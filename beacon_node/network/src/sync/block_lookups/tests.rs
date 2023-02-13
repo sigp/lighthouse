@@ -10,7 +10,7 @@ use beacon_chain::{
     builder::Witness,
     eth1_chain::CachingEth1Backend,
     test_utils::{
-        build_log, BeaconChainHarness, EphemeralTestingSlotClockHarnessType as HarnessType,
+        build_log, BeaconChainHarness, EphemeralSystemTimeSlotClockHarnessType as HarnessType,
     },
 };
 pub use genesis::{interop_genesis_state, DEFAULT_ETH1_BLOCK_HASH};
