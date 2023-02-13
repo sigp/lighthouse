@@ -4,7 +4,7 @@ mod tests {
     use crate::persisted_dht::load_dht;
     use crate::{NetworkConfig, NetworkService};
     use beacon_chain::test_utils::{
-        BeaconChainHarness, EphemeralSystemTimeSlotClockHarnessType as HarnessType,
+        BeaconChainHarness, EphemeralTestingSlotClockHarnessType as HarnessType,
     };
     use lighthouse_network::Enr;
     use slog::{o, Drain, Level, Logger};

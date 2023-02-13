@@ -382,7 +382,7 @@ mod tests {
         eth1_chain::CachingEth1Backend,
         parking_lot::RwLock,
         test_utils::{
-            build_log, BeaconChainHarness, EphemeralSystemTimeSlotClockHarnessType as HarnessType,
+            build_log, BeaconChainHarness, EphemeralTestingSlotClockHarnessType as HarnessType,
         },
         EngineState,
     };
