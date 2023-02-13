@@ -60,8 +60,16 @@ fn get_store_with_spec(
     let config = StoreConfig::default();
     let log = test_logger();
 
-    HotColdDB::open(&hot_path, &cold_path, None, |_, _, _| Ok(()), config, spec, log)
-        .expect("disk store should initialize")
+    HotColdDB::open(
+        &hot_path,
+        &cold_path,
+        None,
+        |_, _, _| Ok(()),
+        config,
+        spec,
+        log,
+    )
+    .expect("disk store should initialize")
 }
 
 fn get_harness(

@@ -41,14 +41,12 @@ use tokio::{
 };
 use tokio_stream::wrappers::WatchStream;
 use types::consts::eip4844::BLOB_TX_TYPE;
+use types::transaction::{AccessTuple, BlobTransaction, EcdsaSignature, SignedBlobTransaction};
 use types::{
     blobs_sidecar::{Blobs, KzgCommitments},
     ExecutionPayload, ExecutionPayloadCapella, ExecutionPayloadEip4844, ExecutionPayloadMerge,
 };
-use types::transaction::{AccessTuple, BlobTransaction, EcdsaSignature, SignedBlobTransaction};
-use types::{
-    AbstractExecPayload, BeaconStateError, ExecPayload, VersionedHash,
-};
+use types::{AbstractExecPayload, BeaconStateError, ExecPayload, VersionedHash};
 use types::{
     BlindedPayload, BlockType, ChainSpec, Epoch, ExecutionBlockHash, ForkName,
     ProposerPreparationData, PublicKeyBytes, Signature, SignedBeaconBlock, Slot, Transaction,

@@ -32,8 +32,16 @@ fn get_store(db_path: &TempDir) -> Arc<HotColdDB> {
     let cold_path = db_path.path().join("cold_db");
     let config = StoreConfig::default();
     let log = NullLoggerBuilder.build().expect("logger should build");
-    HotColdDB::open(&hot_path, &cold_path,None, |_, _, _| Ok(()), config, spec, log)
-        .expect("disk store should initialize")
+    HotColdDB::open(
+        &hot_path,
+        &cold_path,
+        None,
+        |_, _, _| Ok(()),
+        config,
+        spec,
+        log,
+    )
+    .expect("disk store should initialize")
 }
 
 fn get_harness(store: Arc<HotColdDB>, validator_count: usize) -> TestHarness {
