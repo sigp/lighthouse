@@ -898,7 +898,7 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                         *event_time_from_slot_start > duration_from_slot_start.as_secs()
                     })
                     .map(|next_event_time_secs| {
-                        if duration_from_slot_start.as_secs() > next_event_time_secs {
+                        if duration_from_slot_start.as_secs() >= next_event_time_secs {
                             // event is in next slot, add duration to next slot
                             let duration_to_next_slot = slot_duration - duration_from_slot_start;
                             duration_to_next_slot + Duration::from_secs(next_event_time_secs)
