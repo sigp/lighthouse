@@ -610,6 +610,7 @@ dependencies = [
  "task_executor",
  "tempfile",
  "tokio",
+ "tokio-stream",
  "tree_hash",
  "types",
  "unused_port",

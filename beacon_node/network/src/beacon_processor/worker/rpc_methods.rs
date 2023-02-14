@@ -9,8 +9,8 @@ use lighthouse_network::rpc::*;
 use lighthouse_network::{PeerId, PeerRequestId, ReportSource, Response, SyncInfo};
 use slog::{debug, error, warn};
 use slot_clock::SlotClock;
-use std::sync::Arc;
 use task_executor::TaskExecutor;
+use tokio_stream::StreamExt;
 use types::{light_client_bootstrap::LightClientBootstrap, Epoch, EthSpec, Hash256, Slot};
 
 use super::Worker;
@@ -131,17 +131,17 @@ impl<T: BeaconChainTypes> Worker<T> {
         request_id: PeerRequestId,
         request: BlocksByRootRequest,
     ) {
+        let requested_blocks = request.block_roots.len();
+        let mut block_stream = self
+            .chain
+            .get_blocks_checking_early_attester_cache(request.block_roots.into(), &executor);
         // Fetching blocks is async because it may have to hit the execution layer for payloads.
         executor.spawn(
             async move {
                 let mut send_block_count = 0;
                 let mut send_response = true;
-                for root in request.block_roots.iter() {
-                    match self
-                        .chain
-                        .get_block_checking_early_attester_cache(root)
-                        .await
-                    {
+                while let Some((root, result)) = block_stream.next().await {
+                    match result {
                         Ok(Some(block)) => {
                             self.send_response(
                                 peer_id,
@@ -190,7 +190,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     self.log,
                     "Received BlocksByRoot Request";
                     "peer" => %peer_id,
-                    "requested" => request.block_roots.len(),
+                    "requested" => requested_blocks,
                     "returned" => %send_block_count
                 );
 
@@ -343,6 +343,7 @@ impl<T: BeaconChainTypes> Worker<T> {
 
         // remove all skip slots
         let block_roots = block_roots.into_iter().flatten().collect::<Vec<_>>();
+        let mut block_stream = self.chain.get_blocks(block_roots, &executor);
 
         // Fetching blocks is async because it may have to hit the execution layer for payloads.
         executor.spawn(
@@ -350,8 +351,8 @@ impl<T: BeaconChainTypes> Worker<T> {
                 let mut blocks_sent = 0;
                 let mut send_response = true;
 
-                for root in block_roots {
-                    match self.chain.get_block(&root).await {
+                while let Some((root, result)) = block_stream.next().await {
+                    match result {
                         Ok(Some(block)) => {
                             // Due to skip slots, blocks could be out of the range, we ensure they
                             // are in the range before sending
@@ -361,7 +362,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                                 blocks_sent += 1;
                                 self.send_network_message(NetworkMessage::SendResponse {
                                     peer_id,
-                                    response: Response::BlocksByRange(Some(Arc::new(block))),
+                                    response: Response::BlocksByRange(Some(block)),
                                     id: request_id,
                                 });
                             }
