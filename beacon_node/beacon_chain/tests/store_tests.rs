@@ -18,7 +18,6 @@ use lazy_static::lazy_static;
 use logging::test_logger;
 use maplit::hashset;
 use rand::Rng;
-use slot_clock::TestingSlotClock;
 use state_processing::BlockReplayer;
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -45,7 +44,7 @@ lazy_static! {
 }
 
 type E = MinimalEthSpec;
-type TestHarness = BeaconChainHarness<DiskHarnessType<E, TestingSlotClock>>;
+type TestHarness = BeaconChainHarness<DiskHarnessType<E>>;
 
 fn get_store(db_path: &TempDir) -> Arc<HotColdDB<E, LevelDB<E>, LevelDB<E>>> {
     get_store_with_spec(db_path, test_spec::<E>())
@@ -2118,7 +2117,7 @@ async fn weak_subjectivity_sync() {
 
     // Initialise a new beacon chain from the finalized checkpoint
     let beacon_chain = Arc::new(
-        BeaconChainBuilder::<DiskHarnessType<E, TestingSlotClock>>::new(MinimalEthSpec)
+        BeaconChainBuilder::<DiskHarnessType<E>>::new(MinimalEthSpec)
             .store(store.clone())
             .custom_spec(test_spec::<E>())
             .task_executor(harness.chain.task_executor.clone())
@@ -2315,13 +2314,12 @@ async fn finalizes_after_resuming_from_db() {
 
     let original_chain = harness.chain;
 
-    let resumed_harness =
-        BeaconChainHarness::<DiskHarnessType<E, TestingSlotClock>>::builder(MinimalEthSpec)
-            .default_spec()
-            .keypairs(KEYPAIRS[0..validator_count].to_vec())
-            .resumed_disk_store(store)
-            .mock_execution_layer()
-            .build();
+    let resumed_harness = BeaconChainHarness::<DiskHarnessType<E>>::builder(MinimalEthSpec)
+        .default_spec()
+        .keypairs(KEYPAIRS[0..validator_count].to_vec())
+        .resumed_disk_store(store)
+        .mock_execution_layer()
+        .build();
 
     assert_chains_pretty_much_the_same(&original_chain, &resumed_harness.chain);
 

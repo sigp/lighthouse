@@ -22,7 +22,6 @@ use logging::test_logger;
 use network::{NetworkReceivers, NetworkSenders};
 use sensitive_url::SensitiveUrl;
 use slog::Logger;
-use slot_clock::TestingSlotClock;
 use std::future::Future;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
@@ -56,9 +55,9 @@ pub struct ApiServer<E: EthSpec, SFut: Future<Output = ()>> {
     pub external_peer_id: PeerId,
 }
 
-type HarnessBuilder<E> = Builder<EphemeralHarnessType<E>, TestingSlotClock>;
+type HarnessBuilder<E> = Builder<EphemeralHarnessType<E>>;
 type Initializer<E> = Box<dyn FnOnce(HarnessBuilder<E>) -> HarnessBuilder<E>>;
-type Mutator<E> = BoxedMutator<E, MemoryStore<E>, MemoryStore<E>, TestingSlotClock>;
+type Mutator<E> = BoxedMutator<E, MemoryStore<E>, MemoryStore<E>>;
 
 impl<E: EthSpec> InteractiveTester<E> {
     pub async fn new(spec: Option<ChainSpec>, validator_count: usize) -> Self {
