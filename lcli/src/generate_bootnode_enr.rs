@@ -1,7 +1,7 @@
 use clap::ArgMatches;
 use lighthouse_network::{
     discovery::{build_enr, CombinedKey, CombinedKeyExt, Keypair, ENR_FILENAME},
-    NetworkConfig, NETWORK_KEY_FILENAME,
+    ListenAddr, ListenAddress, NetworkConfig, NETWORK_KEY_FILENAME,
 };
 use std::fs;
 use std::fs::File;
@@ -25,10 +25,21 @@ pub fn run<T: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
         ));
     }
 
+    // TODO: allow using dual stack.
+    let listen_addresses = match ip {
+        IpAddr::V4(addr) => ListenAddress::V4(ListenAddr {
+            addr,
+            udp_port,
+            tcp_port,
+        }),
+        IpAddr::V6(addr) => ListenAddress::V6(ListenAddr {
+            addr,
+            udp_port,
+            tcp_port,
+        }),
+    };
     let config = NetworkConfig {
-        enr_address: Some(ip),
-        enr_udp_port: Some(udp_port),
-        enr_tcp_port: Some(tcp_port),
+        listen_addresses,
         ..Default::default()
     };
 
