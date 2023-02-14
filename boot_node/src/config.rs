@@ -57,7 +57,7 @@ impl<T: EthSpec> BootNodeConfig<T> {
 
         let logger = slog_scope::logger();
 
-        set_network_config(&mut network_config, matches, &data_dir, &logger, true)?;
+        set_network_config(&mut network_config, matches, &data_dir, &logger)?;
 
         // Set the enr-udp-port to the default listening port if it was not specified.
         if !matches.is_present("enr-udp-port") {

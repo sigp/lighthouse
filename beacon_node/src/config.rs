@@ -79,13 +79,7 @@ pub fn get_config<E: EthSpec>(
 
     let data_dir_ref = client_config.data_dir().clone();
 
-    set_network_config(
-        &mut client_config.network,
-        cli_args,
-        &data_dir_ref,
-        log,
-        false,
-    )?;
+    set_network_config(&mut client_config.network, cli_args, &data_dir_ref, log)?;
 
     /*
      * Staking flag
@@ -923,7 +917,6 @@ pub fn set_network_config(
     cli_args: &ArgMatches,
     data_dir: &Path,
     log: &Logger,
-    use_listening_port_as_enr_port_by_default: bool,
 ) -> Result<(), String> {
     // If a network dir has been specified, override the `datadir` definition.
     if let Some(dir) = cli_args.value_of("network-dir") {
@@ -1016,6 +1009,22 @@ pub fn set_network_config(
 
     if let Some(enr_tcp_port_str) = cli_args.value_of("enr-tcp-port") {
         config.enr_tcp4_port = Some(
+            enr_tcp_port_str
+                .parse::<u16>()
+                .map_err(|_| format!("Invalid ENR TCP port: {}", enr_tcp_port_str))?,
+        );
+    }
+
+    if let Some(enr_udp_port_str) = cli_args.value_of("enr-udp6-port") {
+        config.enr_udp6_port = Some(
+            enr_udp_port_str
+                .parse::<u16>()
+                .map_err(|_| format!("Invalid discovery port: {}", enr_udp_port_str))?,
+        );
+    }
+
+    if let Some(enr_tcp_port_str) = cli_args.value_of("enr-tcp6-port") {
+        config.enr_tcp6_port = Some(
             enr_tcp_port_str
                 .parse::<u16>()
                 .map_err(|_| format!("Invalid ENR TCP port: {}", enr_tcp_port_str))?,
