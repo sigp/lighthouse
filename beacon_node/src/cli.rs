@@ -72,8 +72,13 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .long("listen-address")
                 .value_name("ADDRESS")
                 .help("The address lighthouse will listen for UDP and TCP connections. To listen \
-                      over IpV4 and IpV6 set this flag twice with the different values.")
-                // TODO: need a native english speaker to give a less lame description.
+                      over IpV4 and IpV6 set this flag twice with the different values.\n\
+                      Examples:\n\
+                      - --listen-address '0.0.0.0' will listen over Ipv4.\n\
+                      - --listen-address '::' will listen over Ipv6.\n\
+                      - --listen-address '0.0.0.0' --listen-address '::' will listen over both \
+                      Ipv4 and Ipv6. The order of the given addresses is not relevant. However, \
+                      multiple Ipv4, or multiple Ipv6 addresses will not be accepted.")
                 .multiple(true)
                 .max_values(2)
                 .default_value("0.0.0.0")
@@ -83,7 +88,10 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("port")
                 .long("port")
                 .value_name("PORT")
-                .help("The TCP/UDP port to listen on. The UDP port can be modified by the --discovery-port flag.")
+                .help("The TCP/UDP port to listen on. The UDP port can be modified by the \
+                      --discovery-port flag. If listening over both Ipv4 and Ipv6 the --port flag \
+                      will apply to the Ipv4 address and --port6 to the Ipv6 address. Same \
+                      applies for --discovery-port and --discovery-port6.")
                 .default_value("9000")
                 .takes_value(true),
         )
@@ -91,9 +99,9 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("port6")
                 .long("port6")
                 .value_name("PORT")
-                .help("The TCP/UDP port to listen on over IpV6 if using dual stack support. The \
-                      UDP port can be modified by the --discovery-port6 flag.")
-                .default_value("9090")
+                .help("The TCP/UDP port to listen on over IpV6. This flag is required when \
+                      listening over both Ipv4 and IpV6. The UDP port can be modified by the \
+                      --discovery-port6 flag. Defaults to 9090 when required.")
                 .takes_value(true),
         )
         .arg(
@@ -107,8 +115,8 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("discovery-port6")
                 .long("discovery-port6")
                 .value_name("PORT")
-                .help("The UDP port that discovery will listen on over IpV6 if using dual stack \
-                      support. Defaults to `port6`")
+                .help("The UDP port that discovery will listen on over IpV6 if listening over \
+                      both Ipv4 and IpV6. Defaults to `port6`")
                 .hidden(true) // TODO: implement dual stack via two sockets in discv5.
                 .takes_value(true),
         )
