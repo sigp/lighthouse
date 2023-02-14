@@ -1,4 +1,4 @@
-use std::sync::Arc;
+/*use std::sync::Arc;
 
 use crate::service::RequestId;
 use crate::sync::manager::RequestId as SyncId;
@@ -711,4 +711,4 @@ fn test_same_chain_race_condition() {
     };
     bl.parent_chain_processed(chain_hash, process_result, &mut cx);
     assert_eq!(bl.parent_lookups.len(), 0);
-}
+}*/

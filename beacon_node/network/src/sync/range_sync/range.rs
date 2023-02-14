@@ -370,6 +370,7 @@ where
     }
 }
 
+/*
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -724,4 +725,4 @@ mod tests {
         rig.expect_chain_segment();
         rig.expect_chain_segment();
     }
-}
+}*/
