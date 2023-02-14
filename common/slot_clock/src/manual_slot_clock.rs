@@ -91,7 +91,7 @@ impl SlotClock for ManualSlotClock {
 
         Self {
             genesis_slot,
-            current_time: Arc::from(RwLock::new(genesis_duration)),
+            current_time: Arc::new(RwLock::new(genesis_duration)),
             genesis_duration,
             slot_duration,
         }
