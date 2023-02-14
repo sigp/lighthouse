@@ -1079,6 +1079,19 @@ fn http_port_flag() {
         .with_config(|config| assert_eq!(config.http_api.listen_port, port1));
 }
 #[test]
+fn empty_self_limiter_flag() {
+    // Test that empty rate limiter is accepted using the default rate limiting configurations.
+    CommandLineTest::new()
+        .flag("self-limiter", None)
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config.network.outbound_rate_limiter_config,
+                Some(lighthouse_network::rpc::config::OutboundRateLimiterConfig::default())
+            )
+        });
+}
+#[test]
 fn http_allow_origin_flag() {
     CommandLineTest::new()
         .flag("http-allow-origin", Some("127.0.0.99"))
@@ -1662,7 +1675,24 @@ fn logfile_no_restricted_perms_flag() {
             assert!(config.logger_config.is_restricted == false);
         });
 }
-
+#[test]
+fn logfile_format_default() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| assert_eq!(config.logger_config.logfile_format, None));
+}
+#[test]
+fn logfile_format_flag() {
+    CommandLineTest::new()
+        .flag("logfile-format", Some("JSON"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config.logger_config.logfile_format,
+                Some("JSON".to_string())
+            )
+        });
+}
 #[test]
 fn sync_eth1_chain_default() {
     CommandLineTest::new()
