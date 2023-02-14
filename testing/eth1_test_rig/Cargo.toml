@@ -6,9 +6,9 @@ edition = "2021"
 
 [dependencies]
 tokio = { version = "1.14.0", features = ["time"] }
-ethers-core = "0.17.0"
-ethers-providers = "0.17.0"
-ethers-contract = "0.17.0"
+ethers-core = "1.0.2"
+ethers-providers = "1.0.2"
+ethers-contract = "1.0.2"
 types = { path = "../../consensus/types"}
 serde_json = "1.0.58"
 deposit_contract = { path = "../../common/deposit_contract"}
