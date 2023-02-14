@@ -381,9 +381,7 @@ mod tests {
         builder::Witness,
         eth1_chain::CachingEth1Backend,
         parking_lot::RwLock,
-        test_utils::{
-            build_log, BeaconChainHarness, EphemeralSystemTimeSlotClockHarnessType as HarnessType,
-        },
+        test_utils::{build_log, BeaconChainHarness, EphemeralHarnessType},
         EngineState,
     };
     use lighthouse_network::{
@@ -586,7 +584,7 @@ mod tests {
     fn range(log_enabled: bool) -> (TestRig, RangeSync<TestBeaconChainType, FakeStorage>) {
         let log = build_log(slog::Level::Trace, log_enabled);
         // Initialise a new beacon chain
-        let harness = BeaconChainHarness::<HarnessType<E>>::builder(E::default())
+        let harness = BeaconChainHarness::<EphemeralHarnessType<E>>::builder(E::default())
             .default_spec()
             .logger(log.clone())
             .deterministic_keypairs(1)

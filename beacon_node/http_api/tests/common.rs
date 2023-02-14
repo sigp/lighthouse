@@ -1,8 +1,5 @@
 use beacon_chain::{
-    test_utils::{
-        BeaconChainHarness, BoxedMutator, Builder,
-        EphemeralTestingSlotClockHarnessType as HarnessType,
-    },
+    test_utils::{BeaconChainHarness, BoxedMutator, Builder, EphemeralHarnessType},
     BeaconChain, BeaconChainTypes,
 };
 use directory::DEFAULT_ROOT_DIR;
@@ -41,7 +38,7 @@ pub const EXTERNAL_ADDR: &str = "/ip4/0.0.0.0/tcp/9000";
 
 /// HTTP API tester that allows interaction with the underlying beacon chain harness.
 pub struct InteractiveTester<E: EthSpec> {
-    pub harness: BeaconChainHarness<HarnessType<E>>,
+    pub harness: BeaconChainHarness<EphemeralHarnessType<E>>,
     pub client: BeaconNodeHttpClient,
     pub network_rx: NetworkReceivers<E>,
     _server_shutdown: oneshot::Sender<()>,
@@ -59,7 +56,7 @@ pub struct ApiServer<E: EthSpec, SFut: Future<Output = ()>> {
     pub external_peer_id: PeerId,
 }
 
-type HarnessBuilder<E> = Builder<HarnessType<E>, TestingSlotClock>;
+type HarnessBuilder<E> = Builder<EphemeralHarnessType<E>, TestingSlotClock>;
 type Initializer<E> = Box<dyn FnOnce(HarnessBuilder<E>) -> HarnessBuilder<E>>;
 type Mutator<E> = BoxedMutator<E, MemoryStore<E>, MemoryStore<E>, TestingSlotClock>;
 

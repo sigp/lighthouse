@@ -1,10 +1,10 @@
-use beacon_chain::test_utils::{BeaconChainHarness, EphemeralTestingSlotClockHarnessType};
+use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
 use types::{BeaconState, EthSpec, MainnetEthSpec};
 
 const TREE_HASH_LOOPS: usize = 1_000;
 const VALIDATOR_COUNT: usize = 1_000;
 
-fn get_harness<T: EthSpec>() -> BeaconChainHarness<EphemeralTestingSlotClockHarnessType<T>> {
+fn get_harness<T: EthSpec>() -> BeaconChainHarness<EphemeralHarnessType<T>> {
     let harness = BeaconChainHarness::builder(T::default())
         .default_spec()
         .deterministic_keypairs(VALIDATOR_COUNT)

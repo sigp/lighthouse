@@ -768,7 +768,7 @@ mod release_tests {
     use super::attestation::earliest_attestation_validators;
     use super::*;
     use beacon_chain::test_utils::{
-        test_spec, BeaconChainHarness, EphemeralTestingSlotClockHarnessType, RelativeSyncCommittee,
+        test_spec, BeaconChainHarness, EphemeralHarnessType, RelativeSyncCommittee,
     };
     use lazy_static::lazy_static;
     use maplit::hashset;
@@ -787,7 +787,7 @@ mod release_tests {
     fn get_harness<E: EthSpec>(
         validator_count: usize,
         spec: Option<ChainSpec>,
-    ) -> BeaconChainHarness<EphemeralTestingSlotClockHarnessType<E>> {
+    ) -> BeaconChainHarness<EphemeralHarnessType<E>> {
         let harness = BeaconChainHarness::builder(E::default())
             .spec_or_default(spec)
             .keypairs(KEYPAIRS[0..validator_count].to_vec())
@@ -803,10 +803,7 @@ mod release_tests {
     /// Test state for attestation-related tests.
     fn attestation_test_state<E: EthSpec>(
         num_committees: usize,
-    ) -> (
-        BeaconChainHarness<EphemeralTestingSlotClockHarnessType<E>>,
-        ChainSpec,
-    ) {
+    ) -> (BeaconChainHarness<EphemeralHarnessType<E>>, ChainSpec) {
         let spec = test_spec::<E>();
 
         let num_validators =
@@ -819,10 +816,7 @@ mod release_tests {
     /// Test state for sync contribution-related tests.
     async fn sync_contribution_test_state<E: EthSpec>(
         num_committees: usize,
-    ) -> (
-        BeaconChainHarness<EphemeralTestingSlotClockHarnessType<E>>,
-        ChainSpec,
-    ) {
+    ) -> (BeaconChainHarness<EphemeralHarnessType<E>>, ChainSpec) {
         let mut spec = E::default_spec();
         spec.altair_fork_epoch = Some(Epoch::new(0));
 
@@ -1792,10 +1786,8 @@ mod release_tests {
         );
     }
 
-    fn cross_fork_harness<E: EthSpec>() -> (
-        BeaconChainHarness<EphemeralTestingSlotClockHarnessType<E>>,
-        ChainSpec,
-    ) {
+    fn cross_fork_harness<E: EthSpec>() -> (BeaconChainHarness<EphemeralHarnessType<E>>, ChainSpec)
+    {
         let mut spec = E::default_spec();
 
         // Give some room to sign surround slashings.

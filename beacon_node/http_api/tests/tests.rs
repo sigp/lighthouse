@@ -1,10 +1,7 @@
 use crate::common::{create_api_server, create_api_server_on_port, ApiServer};
 use beacon_chain::test_utils::RelativeSyncCommittee;
 use beacon_chain::{
-    test_utils::{
-        AttestationStrategy, BeaconChainHarness, BlockStrategy,
-        EphemeralTestingSlotClockHarnessType,
-    },
+    test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType},
     BeaconChain, StateSkipConfig, WhenSlotSkipped, MAXIMUM_GOSSIP_CLOCK_DISPARITY,
 };
 use environment::null_logger;
@@ -60,8 +57,8 @@ const SKIPPED_SLOTS: &[u64] = &[
 ];
 
 struct ApiTester {
-    harness: Arc<BeaconChainHarness<EphemeralTestingSlotClockHarnessType<E>>>,
-    chain: Arc<BeaconChain<EphemeralTestingSlotClockHarnessType<E>>>,
+    harness: Arc<BeaconChainHarness<EphemeralHarnessType<E>>>,
+    chain: Arc<BeaconChain<EphemeralHarnessType<E>>>,
     client: BeaconNodeHttpClient,
     next_block: SignedBeaconBlock<E>,
     reorg_block: SignedBeaconBlock<E>,

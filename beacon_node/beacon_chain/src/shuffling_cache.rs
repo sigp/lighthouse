@@ -208,11 +208,11 @@ impl BlockShufflingIds {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::test_utils::EphemeralTestingSlotClockHarnessType;
+    use crate::test_utils::EphemeralHarnessType;
     use types::*;
 
     type BeaconChainHarness =
-        crate::test_utils::BeaconChainHarness<EphemeralTestingSlotClockHarnessType<MinimalEthSpec>>;
+        crate::test_utils::BeaconChainHarness<EphemeralHarnessType<MinimalEthSpec>>;
 
     /// Returns two different committee caches for testing.
     fn committee_caches() -> (Arc<CommitteeCache>, Arc<CommitteeCache>) {

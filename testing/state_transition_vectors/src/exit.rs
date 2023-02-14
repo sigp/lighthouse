@@ -1,5 +1,5 @@
 use super::*;
-use beacon_chain::test_utils::{BeaconChainHarness, EphemeralTestingSlotClockHarnessType};
+use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
 use state_processing::{
     per_block_processing, per_block_processing::errors::ExitInvalid, BlockProcessingError,
     BlockSignatureStrategy, ConsensusContext, VerifyBlockRoot,
@@ -18,12 +18,8 @@ struct ExitTest {
     #[allow(clippy::type_complexity)]
     state_modifier: Box<dyn FnOnce(&mut BeaconState<E>)>,
     #[allow(clippy::type_complexity)]
-    block_modifier: Box<
-        dyn FnOnce(
-            &BeaconChainHarness<EphemeralTestingSlotClockHarnessType<E>>,
-            &mut BeaconBlock<E>,
-        ),
-    >,
+    block_modifier:
+        Box<dyn FnOnce(&BeaconChainHarness<EphemeralHarnessType<E>>, &mut BeaconBlock<E>)>,
     #[allow(dead_code)]
     expected: Result<(), BlockProcessingError>,
 }

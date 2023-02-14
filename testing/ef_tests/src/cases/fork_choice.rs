@@ -6,7 +6,7 @@ use beacon_chain::{
     attestation_verification::{
         obtain_indexed_attestation_and_committees_per_slot, VerifiedAttestation,
     },
-    test_utils::{BeaconChainHarness, EphemeralTestingSlotClockHarnessType},
+    test_utils::{BeaconChainHarness, EphemeralHarnessType},
     BeaconChainTypes, CachedHead, CountUnrealized, NotifyExecutionLayer,
 };
 use execution_layer::{json_structures::JsonPayloadStatusV1Status, PayloadStatusV1};
@@ -286,7 +286,7 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
 
 /// A testing rig used to execute a test case.
 struct Tester<E: EthSpec> {
-    harness: BeaconChainHarness<EphemeralTestingSlotClockHarnessType<E>>,
+    harness: BeaconChainHarness<EphemeralHarnessType<E>>,
     spec: ChainSpec,
 }
 
@@ -306,15 +306,14 @@ impl<E: EthSpec> Tester<E> {
             ));
         }
 
-        let harness =
-            BeaconChainHarness::<EphemeralTestingSlotClockHarnessType<E>>::builder(E::default())
-                .spec(spec.clone())
-                .keypairs(vec![])
-                .genesis_state_ephemeral_store(case.anchor_state.clone())
-                .mock_execution_layer()
-                .recalculate_fork_times_with_genesis(0)
-                .mock_execution_layer_all_payloads_valid()
-                .build();
+        let harness = BeaconChainHarness::<EphemeralHarnessType<E>>::builder(E::default())
+            .spec(spec.clone())
+            .keypairs(vec![])
+            .genesis_state_ephemeral_store(case.anchor_state.clone())
+            .mock_execution_layer()
+            .recalculate_fork_times_with_genesis(0)
+            .mock_execution_layer_all_payloads_valid()
+            .build();
 
         if harness.chain.genesis_block_root != case.anchor_block.canonical_root() {
             // This check will need to be removed if/when the fork-choice tests use a non-genesis
@@ -470,12 +469,11 @@ impl<E: EthSpec> Tester<E> {
                 .map_err(|e| {
                     Error::InternalError(format!("attestation indexing failed with {:?}", e))
                 })?;
-        let verified_attestation: ManuallyVerifiedAttestation<
-            EphemeralTestingSlotClockHarnessType<E>,
-        > = ManuallyVerifiedAttestation {
-            attestation,
-            indexed_attestation,
-        };
+        let verified_attestation: ManuallyVerifiedAttestation<EphemeralHarnessType<E>> =
+            ManuallyVerifiedAttestation {
+                attestation,
+                indexed_attestation,
+            };
 
         self.harness
             .chain

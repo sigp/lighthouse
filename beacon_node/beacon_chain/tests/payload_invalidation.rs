@@ -6,7 +6,7 @@ use beacon_chain::otb_verification_service::{
 };
 use beacon_chain::{
     canonical_head::{CachedHead, CanonicalHead},
-    test_utils::{BeaconChainHarness, EphemeralTestingSlotClockHarnessType},
+    test_utils::{BeaconChainHarness, EphemeralHarnessType},
     BeaconChainError, BlockError, ExecutionPayloadError, NotifyExecutionLayer,
     OverrideForkchoiceUpdate, StateSkipConfig, WhenSlotSkipped,
     INVALID_FINALIZED_MERGE_TRANSITION_BLOCK_SHUTDOWN_REASON,
@@ -45,7 +45,7 @@ enum Payload {
 }
 
 struct InvalidPayloadRig {
-    harness: BeaconChainHarness<EphemeralTestingSlotClockHarnessType<E>>,
+    harness: BeaconChainHarness<EphemeralHarnessType<E>>,
     enable_attestations: bool,
 }
 
@@ -116,7 +116,7 @@ impl InvalidPayloadRig {
         self.harness.chain.canonical_head.cached_head()
     }
 
-    fn canonical_head(&self) -> &CanonicalHead<EphemeralTestingSlotClockHarnessType<E>> {
+    fn canonical_head(&self) -> &CanonicalHead<EphemeralHarnessType<E>> {
         &self.harness.chain.canonical_head
     }
 

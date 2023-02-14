@@ -1017,7 +1017,7 @@ fn descriptive_db_error(item: &str, error: &StoreError) -> String {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::test_utils::EphemeralTestingSlotClockHarnessType;
+    use crate::test_utils::EphemeralHarnessType;
     use crate::validator_monitor::DEFAULT_INDIVIDUAL_TRACKING_THRESHOLD;
     use eth2_hashing::hash;
     use genesis::{
@@ -1032,7 +1032,7 @@ mod test {
     use types::{EthSpec, MinimalEthSpec, Slot};
 
     type TestEthSpec = MinimalEthSpec;
-    type Builder = BeaconChainBuilder<EphemeralTestingSlotClockHarnessType<TestEthSpec>>;
+    type Builder = BeaconChainBuilder<EphemeralHarnessType<TestEthSpec>>;
 
     fn get_logger() -> Logger {
         let builder = NullLoggerBuilder;

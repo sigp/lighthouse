@@ -1,8 +1,6 @@
 #![cfg(test)]
 use crate::test_utils::*;
-use beacon_chain::test_utils::{
-    BeaconChainHarness, EphemeralTestingSlotClockHarnessType as HarnessType,
-};
+use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
 use beacon_chain::types::*;
 use swap_or_not_shuffle::shuffle_list;
 
@@ -13,7 +11,7 @@ lazy_static! {
     static ref KEYPAIRS: Vec<Keypair> = generate_deterministic_keypairs(VALIDATOR_COUNT);
 }
 
-fn get_harness<E: EthSpec>(validator_count: usize) -> BeaconChainHarness<HarnessType<E>> {
+fn get_harness<E: EthSpec>(validator_count: usize) -> BeaconChainHarness<EphemeralHarnessType<E>> {
     let harness = BeaconChainHarness::builder(E::default())
         .default_spec()
         .keypairs(KEYPAIRS[0..validator_count].to_vec())

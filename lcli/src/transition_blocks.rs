@@ -62,7 +62,7 @@
 //!     --exclude-post-block-thc
 //! ```
 use beacon_chain::{
-    test_utils::EphemeralTestingSlotClockHarnessType, validator_pubkey_cache::ValidatorPubkeyCache,
+    test_utils::EphemeralHarnessType, validator_pubkey_cache::ValidatorPubkeyCache,
 };
 use clap::ArgMatches;
 use clap_utils::{parse_optional, parse_required};
@@ -297,7 +297,7 @@ fn do_transition<T: EthSpec>(
     block: SignedBeaconBlock<T>,
     mut state_root_opt: Option<Hash256>,
     config: &Config,
-    validator_pubkey_cache: &ValidatorPubkeyCache<EphemeralTestingSlotClockHarnessType<T>>,
+    validator_pubkey_cache: &ValidatorPubkeyCache<EphemeralHarnessType<T>>,
     spec: &ChainSpec,
 ) -> Result<BeaconState<T>, String> {
     if !config.exclude_cache_builds {

@@ -3,9 +3,7 @@
 mod tests {
     use crate::persisted_dht::load_dht;
     use crate::{NetworkConfig, NetworkService};
-    use beacon_chain::test_utils::{
-        BeaconChainHarness, EphemeralSystemTimeSlotClockHarnessType as HarnessType,
-    };
+    use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
     use lighthouse_network::Enr;
     use slog::{o, Drain, Level, Logger};
     use sloggers::{null::NullLoggerBuilder, Build};
@@ -36,7 +34,7 @@ mod tests {
     fn test_dht_persistence() {
         let log = get_logger(false);
 
-        let beacon_chain = BeaconChainHarness::<HarnessType<E>>::builder(E)
+        let beacon_chain = BeaconChainHarness::EphemeralHarnessType::<E>::builder(E)
             .default_spec()
             .deterministic_keypairs(8)
             .fresh_ephemeral_store()

@@ -2,10 +2,7 @@
 
 use beacon_chain::{
     blob_verification::{AsBlock, BlockWrapper},
-    test_utils::{
-        AttestationStrategy, BeaconChainHarness, BlockStrategy,
-        EphemeralTestingSlotClockHarnessType,
-    },
+    test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType},
 };
 use beacon_chain::{BeaconSnapshot, BlockError, ChainSegmentResult, NotifyExecutionLayer};
 use fork_choice::CountUnrealized;
@@ -68,9 +65,7 @@ async fn get_chain_segment() -> Vec<BeaconSnapshot<E>> {
     segment
 }
 
-fn get_harness(
-    validator_count: usize,
-) -> BeaconChainHarness<EphemeralTestingSlotClockHarnessType<E>> {
+fn get_harness(validator_count: usize) -> BeaconChainHarness<EphemeralHarnessType<E>> {
     let harness = BeaconChainHarness::builder(MainnetEthSpec)
         .default_spec()
         .keypairs(KEYPAIRS[0..validator_count].to_vec())
@@ -104,7 +99,7 @@ fn junk_aggregate_signature() -> AggregateSignature {
 
 fn update_proposal_signatures(
     snapshots: &mut [BeaconSnapshot<E>],
-    harness: &BeaconChainHarness<EphemeralTestingSlotClockHarnessType<E>>,
+    harness: &BeaconChainHarness<EphemeralHarnessType<E>>,
 ) {
     for snapshot in snapshots {
         let spec = &harness.chain.spec;
@@ -335,7 +330,7 @@ async fn chain_segment_non_linear_slots() {
 
 async fn assert_invalid_signature(
     chain_segment: &[BeaconSnapshot<E>],
-    harness: &BeaconChainHarness<EphemeralTestingSlotClockHarnessType<E>>,
+    harness: &BeaconChainHarness<EphemeralHarnessType<E>>,
     block_index: usize,
     snapshots: &[BeaconSnapshot<E>],
     item: &str,
@@ -406,7 +401,7 @@ async fn assert_invalid_signature(
 
 async fn get_invalid_sigs_harness(
     chain_segment: &[BeaconSnapshot<E>],
-) -> BeaconChainHarness<EphemeralTestingSlotClockHarnessType<E>> {
+) -> BeaconChainHarness<EphemeralHarnessType<E>> {
     let harness = get_harness(VALIDATOR_COUNT);
     harness
         .chain

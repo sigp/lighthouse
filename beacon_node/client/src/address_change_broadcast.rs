@@ -153,9 +153,7 @@ pub async fn broadcast_address_changes<T: BeaconChainTypes>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use beacon_chain::test_utils::{
-        BeaconChainHarness, EphemeralTestingSlotClockHarnessType as HarnessType,
-    };
+    use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
     use operation_pool::ReceivedPreCapella;
     use state_processing::{SigVerifiedOp, VerifyOperation};
     use std::collections::HashSet;
@@ -168,7 +166,7 @@ mod tests {
     pub const EXECUTION_ADDRESS: Address = Address::repeat_byte(42);
 
     struct Tester {
-        harness: BeaconChainHarness<HarnessType<E>>,
+        harness: BeaconChainHarness<EphemeralHarnessType<E>>,
         /// Changes which should be broadcast at the Capella fork.
         received_pre_capella_changes: Vec<SigVerifiedOp<SignedBlsToExecutionChange, E>>,
         /// Changes which should *not* be broadcast at the Capella fork.

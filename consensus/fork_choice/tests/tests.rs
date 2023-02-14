@@ -5,7 +5,7 @@ use std::sync::Mutex;
 use std::time::Duration;
 
 use beacon_chain::test_utils::{
-    AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralTestingSlotClockHarnessType,
+    AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
 };
 use beacon_chain::{
     BeaconChain, BeaconChainError, BeaconForkChoiceStore, ChainConfig, ForkChoiceError,
@@ -35,7 +35,7 @@ pub enum MutationDelay {
 
 /// A helper struct to make testing fork choice more ergonomic and less repetitive.
 struct ForkChoiceTest {
-    harness: BeaconChainHarness<EphemeralTestingSlotClockHarnessType<E>>,
+    harness: BeaconChainHarness<EphemeralHarnessType<E>>,
 }
 
 /// Allows us to use `unwrap` in some cases.
@@ -397,7 +397,7 @@ impl ForkChoiceTest {
         mut comparison_func: G,
     ) -> Self
     where
-        F: FnMut(&mut IndexedAttestation<E>, &BeaconChain<EphemeralTestingSlotClockHarnessType<E>>),
+        F: FnMut(&mut IndexedAttestation<E>, &BeaconChain<EphemeralHarnessType<E>>),
         G: FnMut(Result<(), BeaconChainError>),
     {
         let head = self.harness.chain.head_snapshot();

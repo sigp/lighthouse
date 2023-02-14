@@ -365,13 +365,13 @@ impl<T: EthSpec> SnapshotCache<T> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::test_utils::{BeaconChainHarness, EphemeralTestingSlotClockHarnessType};
+    use crate::test_utils::{BeaconChainHarness, EphemeralHarnessType};
     use types::{
         test_utils::generate_deterministic_keypair, BeaconBlock, Epoch, MainnetEthSpec,
         SignedBeaconBlock, Slot,
     };
 
-    fn get_harness() -> BeaconChainHarness<EphemeralTestingSlotClockHarnessType<MainnetEthSpec>> {
+    fn get_harness() -> BeaconChainHarness<EphemeralHarnessType<MainnetEthSpec>> {
         let harness = BeaconChainHarness::builder(MainnetEthSpec)
             .default_spec()
             .deterministic_keypairs(1)

@@ -3,8 +3,7 @@
 use beacon_chain::{
     attestation_verification::Error as AttnError,
     test_utils::{
-        test_spec, AttestationStrategy, BeaconChainHarness, BlockStrategy,
-        EphemeralTestingSlotClockHarnessType,
+        test_spec, AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
     },
     BeaconChain, BeaconChainError, BeaconChainTypes, WhenSlotSkipped,
 };
@@ -32,9 +31,7 @@ lazy_static! {
 }
 
 /// Returns a beacon chain harness.
-fn get_harness(
-    validator_count: usize,
-) -> BeaconChainHarness<EphemeralTestingSlotClockHarnessType<E>> {
+fn get_harness(validator_count: usize) -> BeaconChainHarness<EphemeralHarnessType<E>> {
     let mut spec = test_spec::<E>();
 
     // A kind-of arbitrary number that ensures that _some_ validators are aggregators, but
@@ -192,7 +189,7 @@ fn get_non_aggregator<T: BeaconChainTypes>(
 }
 
 struct GossipTester {
-    harness: BeaconChainHarness<EphemeralTestingSlotClockHarnessType<E>>,
+    harness: BeaconChainHarness<EphemeralHarnessType<E>>,
     /*
      * Valid unaggregated attestation
      */

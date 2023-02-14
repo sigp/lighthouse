@@ -9,9 +9,7 @@ use super::*;
 use beacon_chain::{
     builder::Witness,
     eth1_chain::CachingEth1Backend,
-    test_utils::{
-        build_log, BeaconChainHarness, EphemeralSystemTimeSlotClockHarnessType as HarnessType,
-    },
+    test_utils::{build_log, BeaconChainHarness, EphemeralHarnessType},
 };
 pub use genesis::{interop_genesis_state, DEFAULT_ETH1_BLOCK_HASH};
 use lighthouse_network::{NetworkGlobals, Request};
@@ -39,7 +37,7 @@ impl TestRig {
         let log = build_log(slog::Level::Debug, enable_log);
 
         // Initialise a new beacon chain
-        let harness = BeaconChainHarness::<HarnessType<E>>::builder(E::default())
+        let harness = BeaconChainHarness::<EphemeralHarnessType<E>>::builder(E::default())
             .default_spec()
             .logger(log.clone())
             .deterministic_keypairs(1)
