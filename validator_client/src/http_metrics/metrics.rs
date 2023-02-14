@@ -177,6 +177,12 @@ lazy_static::lazy_static! {
         "Duration to obtain a signature",
         &["type"]
     );
+
+    pub static ref ATTESTATION_DUTY: Result<IntGaugeVec> = try_create_int_gauge_vec(
+        "vc_attestation_duty_slot",
+        "Attestation duty slot for all managed validators",
+        &["validator"]
+    );
 }
 
 pub fn gather_prometheus_metrics<T: EthSpec>(

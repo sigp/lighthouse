@@ -47,7 +47,7 @@ pub fn compute_sync_committee_rewards<T: BeaconChainTypes>(
     Ok((data, execution_optimistic))
 }
 
-fn get_state_before_applying_block<T: BeaconChainTypes>(
+pub fn get_state_before_applying_block<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
     block: &SignedBlindedBeaconBlock<T::EthSpec>,
 ) -> Result<BeaconState<T::EthSpec>, warp::reject::Rejection> {

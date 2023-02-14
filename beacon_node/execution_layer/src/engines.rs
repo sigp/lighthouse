@@ -364,7 +364,7 @@ impl Engine {
                 Ok(result)
             }
             Err(error) => {
-                error!(
+                warn!(
                     self.log,
                     "Execution engine call failed";
                     "error" => ?error,
