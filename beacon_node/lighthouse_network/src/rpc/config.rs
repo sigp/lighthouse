@@ -129,6 +129,8 @@ impl FromStr for OutboundRateLimiterConfig {
         let mut goodbye_quota = None;
         let mut blocks_by_range_quota = None;
         let mut blocks_by_root_quota = None;
+        // TODO(eip4844): use this blob quota
+        let mut blobs_by_range_quota = None;
         for proto_def in s.split(';') {
             let ProtocolQuota { protocol, quota } = proto_def.parse()?;
             let quota = Some(quota);
@@ -139,6 +141,7 @@ impl FromStr for OutboundRateLimiterConfig {
                 Protocol::BlocksByRoot => blocks_by_root_quota = blocks_by_root_quota.or(quota),
                 Protocol::Ping => ping_quota = ping_quota.or(quota),
                 Protocol::MetaData => meta_data_quota = meta_data_quota.or(quota),
+                Protocol::BlobsByRange => blobs_by_range_quota = blobs_by_range_quota.or(quota),
                 Protocol::LightClientBootstrap => return Err("Lighthouse does not send LightClientBootstrap requests. Quota should not be set."),
             }
         }
