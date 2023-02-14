@@ -1,8 +1,10 @@
 //! This module contains endpoints that are non-standard and only available on Lighthouse servers.
 
 mod attestation_performance;
+pub mod attestation_rewards;
 mod block_packing_efficiency;
 mod block_rewards;
+mod standard_block_rewards;
 mod sync_committee_rewards;
 
 use crate::{
@@ -23,11 +25,13 @@ use store::{AnchorInfo, Split, StoreConfig};
 pub use attestation_performance::{
     AttestationPerformance, AttestationPerformanceQuery, AttestationPerformanceStatistics,
 };
+pub use attestation_rewards::StandardAttestationRewards;
 pub use block_packing_efficiency::{
     BlockPackingEfficiency, BlockPackingEfficiencyQuery, ProposerInfo, UniqueAttestation,
 };
 pub use block_rewards::{AttestationRewards, BlockReward, BlockRewardMeta, BlockRewardsQuery};
 pub use lighthouse_network::{types::SyncState, PeerInfo};
+pub use standard_block_rewards::StandardBlockReward;
 pub use sync_committee_rewards::SyncCommitteeReward;
 
 // Define "legacy" implementations of `Option<T>` which use four bytes for encoding the union

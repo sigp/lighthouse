@@ -255,9 +255,18 @@ pub struct FinalityCheckpointsData {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(try_from = "&str")]
 pub enum ValidatorId {
     PublicKey(PublicKeyBytes),
     Index(u64),
+}
+
+impl TryFrom<&str> for ValidatorId {
+    type Error = String;
+
+    fn try_from(s: &str) -> Result<Self, Self::Error> {
+        Self::from_str(s)
+    }
 }
 
 impl FromStr for ValidatorId {

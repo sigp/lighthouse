@@ -53,6 +53,11 @@ pub struct Config {
     /// If true, enable functionality that monitors the network for attestations or proposals from
     /// any of the validators managed by this client before starting up.
     pub enable_doppelganger_protection: bool,
+    /// If true, then we publish validator specific metrics (e.g next attestation duty slot)
+    /// for all our managed validators.
+    /// Note: We publish validator specific metrics for low validator counts without this flag
+    /// (<= 64 validators)
+    pub enable_high_validator_count_metrics: bool,
     /// Enable use of the blinded block endpoints during proposals.
     pub builder_proposals: bool,
     /// Overrides the timestamp field in builder api ValidatorRegistrationV1
@@ -99,6 +104,7 @@ impl Default for Config {
             http_metrics: <_>::default(),
             monitoring_api: None,
             enable_doppelganger_protection: false,
+            enable_high_validator_count_metrics: false,
             beacon_nodes_tls_certs: None,
             block_delay: None,
             builder_proposals: false,
@@ -271,6 +277,10 @@ impl Config {
 
         if cli_args.is_present("metrics") {
             config.http_metrics.enabled = true;
+        }
+
+        if cli_args.is_present("enable-high-validator-count-metrics") {
+            config.enable_high_validator_count_metrics = true;
         }
 
         if let Some(address) = cli_args.value_of("metrics-address") {

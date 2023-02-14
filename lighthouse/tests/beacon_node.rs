@@ -1079,6 +1079,19 @@ fn http_port_flag() {
         .with_config(|config| assert_eq!(config.http_api.listen_port, port1));
 }
 #[test]
+fn empty_self_limiter_flag() {
+    // Test that empty rate limiter is accepted using the default rate limiting configurations.
+    CommandLineTest::new()
+        .flag("self-limiter", None)
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config.network.outbound_rate_limiter_config,
+                Some(lighthouse_network::rpc::config::OutboundRateLimiterConfig::default())
+            )
+        });
+}
+#[test]
 fn http_allow_origin_flag() {
     CommandLineTest::new()
         .flag("http-allow-origin", Some("127.0.0.99"))

@@ -1,6 +1,8 @@
 #![recursion_limit = "128"] // For lazy-static
+pub mod attestation_rewards;
 pub mod attestation_verification;
 mod attester_cache;
+pub mod beacon_block_reward;
 mod beacon_chain;
 mod beacon_fork_choice_store;
 pub mod beacon_proposer_cache;

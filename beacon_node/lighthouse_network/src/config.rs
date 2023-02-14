@@ -1,3 +1,4 @@
+use crate::rpc::config::OutboundRateLimiterConfig;
 use crate::types::GossipKind;
 use crate::{Enr, PeerIdSerialized};
 use directory::{
@@ -133,6 +134,9 @@ pub struct Config {
 
     /// Whether light client protocols should be enabled.
     pub enable_light_client_server: bool,
+
+    /// Configuration for the outbound rate limiter (requests made by this node).
+    pub outbound_rate_limiter_config: Option<OutboundRateLimiterConfig>,
 }
 
 impl Default for Config {
@@ -211,6 +215,7 @@ impl Default for Config {
             topics: Vec::new(),
             metrics_enabled: false,
             enable_light_client_server: false,
+            outbound_rate_limiter_config: None,
         }
     }
 }
