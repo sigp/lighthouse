@@ -301,8 +301,10 @@ where
 
     // Capella
     #[superstruct(only(Capella, Eip4844), partial_getter(copy))]
+    #[serde(with = "eth2_serde_utils::quoted_u64")]
     pub next_withdrawal_index: u64,
     #[superstruct(only(Capella, Eip4844), partial_getter(copy))]
+    #[serde(with = "eth2_serde_utils::quoted_u64")]
     pub next_withdrawal_validator_index: u64,
     // Deep history valid from Capella onwards.
     #[superstruct(only(Capella, Eip4844))]
