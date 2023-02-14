@@ -159,40 +159,40 @@ impl<T: EthSpec> ExecutionPayloadHeaderCapella<T> {
     }
 }
 
-impl<T: EthSpec> From<ExecutionPayloadMerge<T>> for ExecutionPayloadHeaderMerge<T> {
-    fn from(payload: ExecutionPayloadMerge<T>) -> Self {
+impl<'a, T: EthSpec> From<&'a ExecutionPayloadMerge<T>> for ExecutionPayloadHeaderMerge<T> {
+    fn from(payload: &'a ExecutionPayloadMerge<T>) -> Self {
         Self {
             parent_hash: payload.parent_hash,
             fee_recipient: payload.fee_recipient,
             state_root: payload.state_root,
             receipts_root: payload.receipts_root,
-            logs_bloom: payload.logs_bloom,
+            logs_bloom: payload.logs_bloom.clone(),
             prev_randao: payload.prev_randao,
             block_number: payload.block_number,
             gas_limit: payload.gas_limit,
             gas_used: payload.gas_used,
             timestamp: payload.timestamp,
-            extra_data: payload.extra_data,
+            extra_data: payload.extra_data.clone(),
             base_fee_per_gas: payload.base_fee_per_gas,
             block_hash: payload.block_hash,
             transactions_root: payload.transactions.tree_hash_root(),
         }
     }
 }
-impl<T: EthSpec> From<ExecutionPayloadCapella<T>> for ExecutionPayloadHeaderCapella<T> {
-    fn from(payload: ExecutionPayloadCapella<T>) -> Self {
+impl<'a, T: EthSpec> From<&'a ExecutionPayloadCapella<T>> for ExecutionPayloadHeaderCapella<T> {
+    fn from(payload: &'a ExecutionPayloadCapella<T>) -> Self {
         Self {
             parent_hash: payload.parent_hash,
             fee_recipient: payload.fee_recipient,
             state_root: payload.state_root,
             receipts_root: payload.receipts_root,
-            logs_bloom: payload.logs_bloom,
+            logs_bloom: payload.logs_bloom.clone(),
             prev_randao: payload.prev_randao,
             block_number: payload.block_number,
             gas_limit: payload.gas_limit,
             gas_used: payload.gas_used,
             timestamp: payload.timestamp,
-            extra_data: payload.extra_data,
+            extra_data: payload.extra_data.clone(),
             base_fee_per_gas: payload.base_fee_per_gas,
             block_hash: payload.block_hash,
             transactions_root: payload.transactions.tree_hash_root(),
@@ -200,20 +200,21 @@ impl<T: EthSpec> From<ExecutionPayloadCapella<T>> for ExecutionPayloadHeaderCape
         }
     }
 }
-impl<T: EthSpec> From<ExecutionPayloadEip4844<T>> for ExecutionPayloadHeaderEip4844<T> {
-    fn from(payload: ExecutionPayloadEip4844<T>) -> Self {
+
+impl<'a, T: EthSpec> From<&'a ExecutionPayloadEip4844<T>> for ExecutionPayloadHeaderEip4844<T> {
+    fn from(payload: &'a ExecutionPayloadEip4844<T>) -> Self {
         Self {
             parent_hash: payload.parent_hash,
             fee_recipient: payload.fee_recipient,
             state_root: payload.state_root,
             receipts_root: payload.receipts_root,
-            logs_bloom: payload.logs_bloom,
+            logs_bloom: payload.logs_bloom.clone(),
             prev_randao: payload.prev_randao,
             block_number: payload.block_number,
             gas_limit: payload.gas_limit,
             gas_used: payload.gas_used,
             timestamp: payload.timestamp,
-            extra_data: payload.extra_data,
+            extra_data: payload.extra_data.clone(),
             base_fee_per_gas: payload.base_fee_per_gas,
             excess_data_gas: payload.excess_data_gas,
             block_hash: payload.block_hash,
@@ -223,31 +224,33 @@ impl<T: EthSpec> From<ExecutionPayloadEip4844<T>> for ExecutionPayloadHeaderEip4
     }
 }
 
-impl<T: EthSpec> From<ExecutionPayloadMerge<T>> for ExecutionPayloadHeader<T> {
-    fn from(payload: ExecutionPayloadMerge<T>) -> Self {
-        Self::Merge(ExecutionPayloadHeaderMerge::from(payload))
+// These impls are required to work around an inelegance in `to_execution_payload_header`.
+// They only clone headers so they should be relatively cheap.
+impl<'a, T: EthSpec> From<&'a Self> for ExecutionPayloadHeaderMerge<T> {
+    fn from(payload: &'a Self) -> Self {
+        payload.clone()
     }
 }
 
-impl<T: EthSpec> From<ExecutionPayloadCapella<T>> for ExecutionPayloadHeader<T> {
-    fn from(payload: ExecutionPayloadCapella<T>) -> Self {
-        Self::Capella(ExecutionPayloadHeaderCapella::from(payload))
+impl<'a, T: EthSpec> From<&'a Self> for ExecutionPayloadHeaderCapella<T> {
+    fn from(payload: &'a Self) -> Self {
+        payload.clone()
     }
 }
 
-impl<T: EthSpec> From<ExecutionPayloadEip4844<T>> for ExecutionPayloadHeader<T> {
-    fn from(payload: ExecutionPayloadEip4844<T>) -> Self {
-        Self::Eip4844(ExecutionPayloadHeaderEip4844::from(payload))
+impl<'a, T: EthSpec> From<&'a Self> for ExecutionPayloadHeaderEip4844<T> {
+    fn from(payload: &'a Self) -> Self {
+        payload.clone()
     }
 }
 
-impl<T: EthSpec> From<ExecutionPayload<T>> for ExecutionPayloadHeader<T> {
-    fn from(payload: ExecutionPayload<T>) -> Self {
-        match payload {
-            ExecutionPayload::Merge(payload) => Self::from(payload),
-            ExecutionPayload::Capella(payload) => Self::from(payload),
-            ExecutionPayload::Eip4844(payload) => Self::from(payload),
-        }
+impl<'a, T: EthSpec> From<ExecutionPayloadRef<'a, T>> for ExecutionPayloadHeader<T> {
+    fn from(payload: ExecutionPayloadRef<'a, T>) -> Self {
+        map_execution_payload_ref_into_execution_payload_header!(
+            &'a _,
+            payload,
+            |inner, cons| cons(inner.into())
+        )
     }
 }
 
