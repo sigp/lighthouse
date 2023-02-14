@@ -291,14 +291,6 @@ pub struct LightClientBootstrapRequest {
     pub root: Hash256,
 }
 
-/// Request a light_client_optimistic_update for lightclients peers.
-#[derive(Encode, Decode, Clone, Debug, PartialEq)]
-pub struct LightClientOptimisticUpdateRequest {}
-
-/// Request a light_client_finality_update for lightclients peers.
-#[derive(Encode, Decode, Clone, Debug, PartialEq)]
-pub struct LightClientFinalityUpdateRequest {}
-
 /// The code assigned to an erroneous `RPCResponse`.
 #[derive(Debug, Clone, Copy, PartialEq, IntoStaticStr)]
 #[strum(serialize_all = "snake_case")]

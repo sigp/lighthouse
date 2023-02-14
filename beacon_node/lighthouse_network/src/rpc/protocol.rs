@@ -23,7 +23,7 @@ use tokio_util::{
 use types::{
     BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockCapella, BeaconBlockMerge,
     EmptyBlock, EthSpec, ForkContext, ForkName, Hash256, MainnetEthSpec, Signature,
-    SignedBeaconBlock,
+    SignedBeaconBlock, LightClientFinalityUpdate, LightClientOptimisticUpdate,
 };
 
 lazy_static! {
@@ -326,14 +326,8 @@ impl ProtocolId {
                 <LightClientBootstrapRequest as Encode>::ssz_fixed_len(),
                 <LightClientBootstrapRequest as Encode>::ssz_fixed_len(),
             ),
-            Protocol::LightClientOptimisticUpdate => RpcLimits::new(
-                <LightClientOptimisticUpdateRequest as Encode>::ssz_fixed_len(),
-                <LightClientOptimisticUpdateRequest as Encode>::ssz_fixed_len(),
-            ),
-            Protocol::LightClientFinalityUpdate => RpcLimits::new(
-                <LightClientFinalityUpdateRequest as Encode>::ssz_fixed_len(),
-                <LightClientFinalityUpdateRequest as Encode>::ssz_fixed_len(),
-            ),
+            Protocol::LightClientOptimisticUpdate => RpcLimits::new(0, 0),
+            Protocol::LightClientFinalityUpdate => RpcLimits::new(0, 0),
             Protocol::MetaData => RpcLimits::new(0, 0), // Metadata requests are empty
         }
     }
@@ -361,12 +355,12 @@ impl ProtocolId {
                 <LightClientBootstrapRequest as Encode>::ssz_fixed_len(),
             ),
             Protocol::LightClientOptimisticUpdate => RpcLimits::new(
-                <LightClientOptimisticUpdateRequest as Encode>::ssz_fixed_len(),
-                <LightClientOptimisticUpdateRequest as Encode>::ssz_fixed_len(),
+                <LightClientOptimisticUpdate<T> as Encode>::ssz_fixed_len(),
+                <LightClientOptimisticUpdate<T> as Encode>::ssz_fixed_len(),
             ),
             Protocol::LightClientFinalityUpdate => RpcLimits::new(
-                <LightClientFinalityUpdateRequest as Encode>::ssz_fixed_len(),
-                <LightClientFinalityUpdateRequest as Encode>::ssz_fixed_len(),
+                <LightClientFinalityUpdate<T> as Encode>::ssz_fixed_len(),
+                <LightClientFinalityUpdate<T> as Encode>::ssz_fixed_len(),
             ),
         }
     }
@@ -477,8 +471,8 @@ pub enum InboundRequest<TSpec: EthSpec> {
     BlocksByRange(OldBlocksByRangeRequest),
     BlocksByRoot(BlocksByRootRequest),
     LightClientBootstrap(LightClientBootstrapRequest),
-    LightClientOptimisticUpdate(LightClientOptimisticUpdateRequest),
-    LightClientFinalityUpdate(LightClientFinalityUpdateRequest),
+    LightClientOptimisticUpdate,
+    LightClientFinalityUpdate,
     Ping(Ping),
     MetaData(PhantomData<TSpec>),
 }
@@ -497,8 +491,8 @@ impl<TSpec: EthSpec> InboundRequest<TSpec> {
             InboundRequest::Ping(_) => 1,
             InboundRequest::MetaData(_) => 1,
             InboundRequest::LightClientBootstrap(_) => 1,
-            InboundRequest::LightClientOptimisticUpdate(_) => 1,
-            InboundRequest::LightClientFinalityUpdate(_) => 1,
+            InboundRequest::LightClientOptimisticUpdate => 1,
+            InboundRequest::LightClientFinalityUpdate => 1,
         }
     }
 
@@ -512,8 +506,8 @@ impl<TSpec: EthSpec> InboundRequest<TSpec> {
             InboundRequest::Ping(_) => Protocol::Ping,
             InboundRequest::MetaData(_) => Protocol::MetaData,
             InboundRequest::LightClientBootstrap(_) => Protocol::LightClientBootstrap,
-            InboundRequest::LightClientOptimisticUpdate(_) => Protocol::LightClientOptimisticUpdate,
-            InboundRequest::LightClientFinalityUpdate(_) => Protocol::LightClientFinalityUpdate,
+            InboundRequest::LightClientOptimisticUpdate => Protocol::LightClientOptimisticUpdate,
+            InboundRequest::LightClientFinalityUpdate => Protocol::LightClientFinalityUpdate,
         }
     }
 
@@ -530,8 +524,8 @@ impl<TSpec: EthSpec> InboundRequest<TSpec> {
             InboundRequest::Ping(_) => unreachable!(),
             InboundRequest::MetaData(_) => unreachable!(),
             InboundRequest::LightClientBootstrap(_) => unreachable!(),
-            InboundRequest::LightClientFinalityUpdate(_) => unreachable!(),
-            InboundRequest::LightClientOptimisticUpdate(_) => unreachable!(),
+            InboundRequest::LightClientFinalityUpdate => unreachable!(),
+            InboundRequest::LightClientOptimisticUpdate => unreachable!(),
         }
     }
 }
@@ -638,10 +632,10 @@ impl<TSpec: EthSpec> std::fmt::Display for InboundRequest<TSpec> {
             InboundRequest::LightClientBootstrap(bootstrap) => {
                 write!(f, "LightClientBootstrap: {}", bootstrap.root)
             }
-            InboundRequest::LightClientOptimisticUpdate(_) => {
+            InboundRequest::LightClientOptimisticUpdate => {
                 write!(f, "Light client optimistic update request")
             }
-            InboundRequest::LightClientFinalityUpdate(_) => {
+            InboundRequest::LightClientFinalityUpdate => {
                 write!(f, "Light client finality update request")
             }
         }

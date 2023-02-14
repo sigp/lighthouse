@@ -39,8 +39,8 @@ pub enum OutboundRequest<TSpec: EthSpec> {
     BlocksByRange(OldBlocksByRangeRequest),
     BlocksByRoot(BlocksByRootRequest),
     LightClientBootstrap(LightClientBootstrapRequest),
-    LightClientOptimisticUpdate(LightClientOptimisticUpdateRequest),
-    LightClientFinalityUpdate(LightClientFinalityUpdateRequest),
+    LightClientOptimisticUpdate,
+    LightClientFinalityUpdate,
     Ping(Ping),
     MetaData(PhantomData<TSpec>),
 }
@@ -91,8 +91,8 @@ impl<TSpec: EthSpec> OutboundRequest<TSpec> {
             // that we generate from the beacon state.
             // We do not make light client rpc requests from the beacon node
             OutboundRequest::LightClientBootstrap(_)
-            | OutboundRequest::LightClientOptimisticUpdate(_)
-            | OutboundRequest::LightClientFinalityUpdate(_) => vec![],
+            | OutboundRequest::LightClientOptimisticUpdate
+            | OutboundRequest::LightClientFinalityUpdate => vec![],
         }
     }
     /* These functions are used in the handler for stream management */
@@ -107,8 +107,8 @@ impl<TSpec: EthSpec> OutboundRequest<TSpec> {
             OutboundRequest::Ping(_) => 1,
             OutboundRequest::MetaData(_) => 1,
             OutboundRequest::LightClientBootstrap(_) => 1,
-            OutboundRequest::LightClientOptimisticUpdate(_) => 1,
-            OutboundRequest::LightClientFinalityUpdate(_) => 1,
+            OutboundRequest::LightClientOptimisticUpdate => 1,
+            OutboundRequest::LightClientFinalityUpdate => 1,
         }
     }
 
@@ -122,10 +122,10 @@ impl<TSpec: EthSpec> OutboundRequest<TSpec> {
             OutboundRequest::Ping(_) => Protocol::Ping,
             OutboundRequest::MetaData(_) => Protocol::MetaData,
             OutboundRequest::LightClientBootstrap(_) => Protocol::LightClientBootstrap,
-            OutboundRequest::LightClientOptimisticUpdate(_) => {
+            OutboundRequest::LightClientOptimisticUpdate => {
                 Protocol::LightClientOptimisticUpdate
             }
-            OutboundRequest::LightClientFinalityUpdate(_) => Protocol::LightClientFinalityUpdate,
+            OutboundRequest::LightClientFinalityUpdate => Protocol::LightClientFinalityUpdate,
         }
     }
 
@@ -138,8 +138,8 @@ impl<TSpec: EthSpec> OutboundRequest<TSpec> {
             OutboundRequest::BlocksByRange(_) => ResponseTermination::BlocksByRange,
             OutboundRequest::BlocksByRoot(_) => ResponseTermination::BlocksByRoot,
             OutboundRequest::LightClientBootstrap(_)
-            | OutboundRequest::LightClientOptimisticUpdate(_)
-            | OutboundRequest::LightClientFinalityUpdate(_) => unreachable!(),
+            | OutboundRequest::LightClientOptimisticUpdate
+            | OutboundRequest::LightClientFinalityUpdate => unreachable!(),
             OutboundRequest::Status(_) => unreachable!(),
             OutboundRequest::Goodbye(_) => unreachable!(),
             OutboundRequest::Ping(_) => unreachable!(),
@@ -200,10 +200,10 @@ impl<TSpec: EthSpec> std::fmt::Display for OutboundRequest<TSpec> {
             OutboundRequest::LightClientBootstrap(bootstrap) => {
                 write!(f, "Lightclient Bootstrap: {}", bootstrap.root)
             }
-            OutboundRequest::LightClientOptimisticUpdate(_) => {
+            OutboundRequest::LightClientOptimisticUpdate => {
                 write!(f, "Light client optimistic update request")
             }
-            OutboundRequest::LightClientFinalityUpdate(_) => {
+            OutboundRequest::LightClientFinalityUpdate => {
                 write!(f, "Light client finality update request")
             }
         }

@@ -286,7 +286,6 @@ impl<T: BeaconChainTypes> Worker<T> {
         self,
         peer_id: PeerId,
         request_id: PeerRequestId,
-        _request: LightClientOptimisticUpdateRequest,
     ) {
         let light_client_optimistic_update =
             match self.chain.latest_seen_optimistic_update.lock().clone() {
@@ -313,7 +312,6 @@ impl<T: BeaconChainTypes> Worker<T> {
         self,
         peer_id: PeerId,
         request_id: PeerRequestId,
-        _request: LightClientFinalityUpdateRequest,
     ) {
         let light_client_finality_update =
             match self.chain.latest_seen_finality_update.lock().clone() {

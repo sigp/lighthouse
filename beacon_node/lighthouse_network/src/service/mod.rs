@@ -990,11 +990,11 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
             Request::LightClientBootstrap(_) => {
                 metrics::inc_counter_vec(&metrics::TOTAL_RPC_REQUESTS, &["light_client_bootstrap"])
             }
-            Request::LightClientOptimisticUpdate(_) => metrics::inc_counter_vec(
+            Request::LightClientOptimisticUpdate => metrics::inc_counter_vec(
                 &metrics::TOTAL_RPC_REQUESTS,
                 &["light_client_optimistic_update"],
             ),
-            Request::LightClientFinalityUpdate(_) => metrics::inc_counter_vec(
+            Request::LightClientFinalityUpdate => metrics::inc_counter_vec(
                 &metrics::TOTAL_RPC_REQUESTS,
                 &["light_client_finality_update"],
             ),
@@ -1275,19 +1275,19 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                         );
                         Some(event)
                     }
-                    InboundRequest::LightClientOptimisticUpdate(req) => {
+                    InboundRequest::LightClientOptimisticUpdate => {
                         let event = self.build_request(
                             peer_request_id,
                             peer_id,
-                            Request::LightClientOptimisticUpdate(req),
+                            Request::LightClientOptimisticUpdate,
                         );
                         Some(event)
                     }
-                    InboundRequest::LightClientFinalityUpdate(req) => {
+                    InboundRequest::LightClientFinalityUpdate => {
                         let event = self.build_request(
                             peer_request_id,
                             peer_id,
-                            Request::LightClientFinalityUpdate(req),
+                            Request::LightClientFinalityUpdate,
                         );
                         Some(event)
                     }

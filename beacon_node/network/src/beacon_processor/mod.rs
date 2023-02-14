@@ -45,10 +45,7 @@ use beacon_chain::{BeaconChain, BeaconChainTypes, GossipVerifiedBlock, NotifyExe
 use derivative::Derivative;
 use futures::stream::{Stream, StreamExt};
 use futures::task::Poll;
-use lighthouse_network::rpc::{
-    LightClientBootstrapRequest, LightClientFinalityUpdateRequest,
-    LightClientOptimisticUpdateRequest,
-};
+use lighthouse_network::rpc::LightClientBootstrapRequest;
 use lighthouse_network::{
     rpc::{BlocksByRangeRequest, BlocksByRootRequest, StatusMessage},
     Client, MessageId, NetworkGlobals, PeerId, PeerRequestId,
@@ -675,14 +672,12 @@ impl<T: BeaconChainTypes> WorkEvent<T> {
     pub fn light_client_optimistic_update_request(
         peer_id: PeerId,
         request_id: PeerRequestId,
-        request: LightClientOptimisticUpdateRequest,
     ) -> Self {
         Self {
             drop_during_sync: true,
             work: Work::LightClientOptimisticUpdateRequest {
                 peer_id,
                 request_id,
-                request,
             },
         }
     }
@@ -691,14 +686,12 @@ impl<T: BeaconChainTypes> WorkEvent<T> {
     pub fn light_client_finality_update_request(
         peer_id: PeerId,
         request_id: PeerRequestId,
-        request: LightClientFinalityUpdateRequest,
     ) -> Self {
         Self {
             drop_during_sync: true,
             work: Work::LightClientFinalityUpdateRequest {
                 peer_id,
                 request_id,
-                request,
             },
         }
     }
@@ -928,12 +921,10 @@ pub enum Work<T: BeaconChainTypes> {
     LightClientOptimisticUpdateRequest {
         peer_id: PeerId,
         request_id: PeerRequestId,
-        request: LightClientOptimisticUpdateRequest,
     },
     LightClientFinalityUpdateRequest {
         peer_id: PeerId,
         request_id: PeerRequestId,
-        request: LightClientFinalityUpdateRequest,
     },
 }
 
@@ -1972,16 +1963,14 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
             Work::LightClientOptimisticUpdateRequest {
                 peer_id,
                 request_id,
-                request,
             } => task_spawner.spawn_blocking(move || {
-                worker.handle_light_client_optimistic_update(peer_id, request_id, request)
+                worker.handle_light_client_optimistic_update(peer_id, request_id)
             }),
             Work::LightClientFinalityUpdateRequest {
                 peer_id,
                 request_id,
-                request,
             } => task_spawner.spawn_blocking(move || {
-                worker.handle_light_client_finality_update(peer_id, request_id, request)
+                worker.handle_light_client_finality_update(peer_id, request_id)
             }),
             Work::UnknownBlockAttestation {
                 message_id,

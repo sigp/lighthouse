@@ -236,8 +236,8 @@ impl<TSpec: EthSpec> Encoder<OutboundRequest<TSpec>> for SSZSnappyOutboundCodec<
             OutboundRequest::Ping(req) => req.as_ssz_bytes(),
             OutboundRequest::MetaData(_) => return Ok(()), // no metadata to encode
             OutboundRequest::LightClientBootstrap(req) => req.as_ssz_bytes(),
-            OutboundRequest::LightClientOptimisticUpdate(req) => req.as_ssz_bytes(),
-            OutboundRequest::LightClientFinalityUpdate(req) => req.as_ssz_bytes(),
+            OutboundRequest::LightClientOptimisticUpdate => return Ok(()),
+            OutboundRequest::LightClientFinalityUpdate => return Ok(()),
         };
         // SSZ encoded bytes should be within `max_packet_size`
         if bytes.len() > self.max_packet_size {
@@ -490,11 +490,11 @@ fn handle_v1_request<T: EthSpec>(
             },
         ))),
         Protocol::LightClientOptimisticUpdate => Ok(Some(
-            InboundRequest::LightClientOptimisticUpdate(LightClientOptimisticUpdateRequest {}),
+            InboundRequest::LightClientOptimisticUpdate,
         )),
-        Protocol::LightClientFinalityUpdate => Ok(Some(InboundRequest::LightClientFinalityUpdate(
-            LightClientFinalityUpdateRequest {},
-        ))),
+        Protocol::LightClientFinalityUpdate => Ok(Some(
+                InboundRequest::LightClientFinalityUpdate,
+        )),
         // MetaData requests return early from InboundUpgrade and do not reach the decoder.
         // Handle this case just for completeness.
         Protocol::MetaData => {
@@ -916,11 +916,11 @@ mod tests {
                 OutboundRequest::LightClientBootstrap(bootstrap) => {
                     assert_eq!(decoded, InboundRequest::LightClientBootstrap(bootstrap))
                 }
-                OutboundRequest::LightClientOptimisticUpdate(update) => {
-                    assert_eq!(decoded, InboundRequest::LightClientOptimisticUpdate(update))
+                OutboundRequest::LightClientOptimisticUpdate => {
+                    assert_eq!(decoded, InboundRequest::LightClientOptimisticUpdate)
                 }
-                OutboundRequest::LightClientFinalityUpdate(update) => {
-                    assert_eq!(decoded, InboundRequest::LightClientFinalityUpdate(update))
+                OutboundRequest::LightClientFinalityUpdate => {
+                    assert_eq!(decoded, InboundRequest::LightClientFinalityUpdate)
                 }
             }
         }

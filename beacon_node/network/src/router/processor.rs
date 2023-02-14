@@ -178,10 +178,9 @@ impl<T: BeaconChainTypes> Processor<T> {
         &mut self,
         peer_id: PeerId,
         request_id: PeerRequestId,
-        request: LightClientOptimisticUpdateRequest,
     ) {
         self.send_beacon_processor_work(BeaconWorkEvent::light_client_optimistic_update_request(
-            peer_id, request_id, request,
+            peer_id, request_id,
         ))
     }
 
@@ -190,10 +189,9 @@ impl<T: BeaconChainTypes> Processor<T> {
         &mut self,
         peer_id: PeerId,
         request_id: PeerRequestId,
-        request: LightClientFinalityUpdateRequest,
     ) {
         self.send_beacon_processor_work(BeaconWorkEvent::light_client_finality_update_request(
-            peer_id, request_id, request,
+            peer_id, request_id,
         ))
     }
 

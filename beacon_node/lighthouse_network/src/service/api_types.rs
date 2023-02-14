@@ -9,7 +9,6 @@ use types::{
 use crate::rpc::{
     methods::{
         BlocksByRangeRequest, BlocksByRootRequest, LightClientBootstrapRequest,
-        LightClientFinalityUpdateRequest, LightClientOptimisticUpdateRequest,
         OldBlocksByRangeRequest, RPCCodedResponse, RPCResponse, ResponseTermination, StatusMessage,
     },
     OutboundRequest, SubstreamId,
@@ -41,9 +40,9 @@ pub enum Request {
     // light client bootstrap request
     LightClientBootstrap(LightClientBootstrapRequest),
     // light client optimistic update request
-    LightClientOptimisticUpdate(LightClientOptimisticUpdateRequest),
+    LightClientOptimisticUpdate,
     // light client finality update request
-    LightClientFinalityUpdate(LightClientFinalityUpdateRequest),
+    LightClientFinalityUpdate,
 }
 
 impl<TSpec: EthSpec> std::convert::From<Request> for OutboundRequest<TSpec> {
@@ -58,11 +57,11 @@ impl<TSpec: EthSpec> std::convert::From<Request> for OutboundRequest<TSpec> {
                 })
             }
             Request::LightClientBootstrap(b) => OutboundRequest::LightClientBootstrap(b),
-            Request::LightClientOptimisticUpdate(update) => {
-                OutboundRequest::LightClientOptimisticUpdate(update)
+            Request::LightClientOptimisticUpdate => {
+                OutboundRequest::LightClientOptimisticUpdate
             }
-            Request::LightClientFinalityUpdate(update) => {
-                OutboundRequest::LightClientFinalityUpdate(update)
+            Request::LightClientFinalityUpdate => {
+                OutboundRequest::LightClientFinalityUpdate
             }
             Request::Status(s) => OutboundRequest::Status(s),
         }
