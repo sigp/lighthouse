@@ -14,7 +14,6 @@ use parking_lot::RwLock;
 use state_processing::state_advance::{partial_state_advance, Error as StateAdvanceError};
 use std::collections::HashMap;
 use std::ops::Range;
-use store::signed_beacon_block::BlobReconstructionError;
 use types::{
     beacon_state::{
         compute_committee_index_in_epoch, compute_committee_range_in_epoch, epoch_committee_count,
@@ -43,7 +42,6 @@ pub enum Error {
     // Boxed to avoid an infinite-size recursion issue.
     BeaconChain(Box<BeaconChainError>),
     MissingBeaconState(Hash256),
-    MissingBlobs(BlobReconstructionError),
     FailedToTransitionState(StateAdvanceError),
     CannotAttestToFutureState {
         state_slot: Slot,
@@ -72,12 +70,6 @@ impl From<BeaconStateError> for Error {
 impl From<BeaconChainError> for Error {
     fn from(e: BeaconChainError) -> Self {
         Error::BeaconChain(Box::new(e))
-    }
-}
-
-impl From<BlobReconstructionError> for Error {
-    fn from(e: BlobReconstructionError) -> Self {
-        Error::MissingBlobs(e)
     }
 }
 
