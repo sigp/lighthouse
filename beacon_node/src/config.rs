@@ -10,6 +10,7 @@ use environment::RuntimeContext;
 use execution_layer::DEFAULT_JWT_FILE;
 use genesis::Eth1Endpoint;
 use http_api::TlsConfig;
+use lighthouse_network::ListenAddress;
 use lighthouse_network::{multiaddr::Protocol, Enr, Multiaddr, NetworkConfig, PeerIdSerialized};
 use sensitive_url::SensitiveUrl;
 use slog::{info, warn, Logger};
@@ -754,6 +755,171 @@ pub fn get_config<E: EthSpec>(
     Ok(client_config)
 }
 
+/// Gets the listening_addresses for lighthouse based on the cli options
+pub fn parse_listening_addresses(
+    cli_args: &ArgMatches,
+    log: &Logger,
+) -> Result<ListenAddress, String> {
+    let listen_addresses_str = cli_args
+        .values_of("listen-address")
+        .expect("--listen_addresses has a default value");
+
+    let use_zero_ports = cli_args.is_present("zero-ports");
+
+    // parse the possible ips
+    let mut maybe_ipv4 = None;
+    let mut maybe_ipv6 = None;
+    for addr_str in listen_addresses_str {
+        let addr = addr_str.parse::<IpAddr>().map_err(|parse_error| {
+            format!("Failed to parse listen-address ({addr_str}) as an Ip address: {parse_error}")
+        })?;
+
+        match addr {
+            IpAddr::V4(v4_addr) => match &maybe_ipv4 {
+                Some(first_ipv4_addr) => {
+                    return Err(format!(
+                                "When setting the --listen-address option twice, use an IpV4 address and an Ipv6 address. \
+                                Got two IpV4 addresses {first_ipv4_addr} and {v4_addr}"
+                            ));
+                }
+                None => maybe_ipv4 = Some(v4_addr),
+            },
+            IpAddr::V6(v6_addr) => match &maybe_ipv6 {
+                Some(first_ipv6_addr) => {
+                    return Err(format!(
+                                "When setting the --listen-address option twice, use an IpV4 address and an Ipv6 address. \
+                                Got two IpV6 addresses {first_ipv6_addr} and {v6_addr}"
+                            ));
+                }
+                None => maybe_ipv6 = Some(v6_addr),
+            },
+        }
+    }
+
+    // parse the possible tcp ports
+    let mut port = cli_args
+        .value_of("port")
+        .expect("--port has a default value")
+        .parse::<u16>()
+        .map_err(|parse_error| format!("Failed to parse --port as an integer: {parse_error}"))?;
+    let mut maybe_port6 = cli_args
+        .value_of("port6")
+        .map(str::parse::<u16>)
+        .transpose()
+        .map_err(|parse_error| format!("Failed to parse --port6 as an integer: {parse_error}"))?;
+
+    // parse the possible udp ports
+    let mut maybe_udp_port = cli_args
+        .value_of("discovery-port")
+        .map(str::parse::<u16>)
+        .transpose()
+        .map_err(|parse_error| {
+            format!("Failed to parse --discovery-port as an integer: {parse_error}")
+        })?;
+    let mut maybe_udp6_port = cli_args
+        .value_of("discovery-port6")
+        .map(str::parse::<u16>)
+        .transpose()
+        .map_err(|parse_error| {
+            format!("Failed to parse --discovery-port6 as an integer: {parse_error}")
+        })?;
+
+    // Now put everything together
+    let listening_addresses = match (maybe_ipv4, maybe_ipv6) {
+        (None, None) => {
+            // This should never happen unless clap is broken
+            return Err("No listening addresses provided".into());
+        }
+        (None, Some(ipv6)) => {
+            // A single ipv6 address was provided. Set the ports
+
+            if maybe_port6.is_some() {
+                warn!(log, "When listening only over IpV6, use the --port flag. The value of --port6 will be ignored.")
+            }
+            // use zero ports if required. If not, use the given port.
+            let tcp_port = use_zero_ports
+                .then(|| unused_port::unused_tcp6_port())
+                .transpose()?
+                .unwrap_or(port);
+
+            if maybe_udp6_port.is_some() {
+                warn!(log, "When listening only over IpV6, use the --discovery-port flag. The value of --discovery-port6 will be ignored.")
+            }
+            // use zero ports if required. If not, use the specific udp port. If none given, use
+            // the tcp port.
+            let udp_port = use_zero_ports
+                .then(|| unused_port::unused_udp6_port())
+                .transpose()?
+                .or(maybe_udp_port)
+                .unwrap_or(port);
+
+            ListenAddress::V6(lighthouse_network::ListenAddr {
+                addr: ipv6,
+                udp_port,
+                tcp_port,
+            })
+        }
+        (Some(ipv4), None) => {
+            // A single ipv4 address was provided. Set the ports
+
+            // use zero ports if required. If not, use the given port.
+            let tcp_port = use_zero_ports
+                .then(|| unused_tcp4_port())
+                .transpose()?
+                .unwrap_or(port);
+            // use zero ports if required. If not, use the specific udp port. If none given, use
+            // the tcp port.
+            let udp_port = use_zero_ports
+                .then(|| unused_port::unused_udp4_port())
+                .transpose()?
+                .or(maybe_udp_port)
+                .unwrap_or(port);
+            ListenAddress::V4(lighthouse_network::ListenAddr {
+                addr: ipv4,
+                udp_port,
+                tcp_port,
+            })
+        }
+        (Some(ipv4), Some(ipv6)) => {
+            let ipv4_tcp_port = use_zero_ports
+                .then(|| unused_port::unused_tcp4_port())
+                .transpose()?
+                .unwrap_or(port);
+            let ipv4_udp_port = use_zero_ports
+                .then(|| unused_port::unused_udp4_port())
+                .transpose()?
+                .or(maybe_udp6_port)
+                .unwrap_or(ipv4_tcp_port);
+
+            // Defaults to 9090 when required
+            let ipv6_tcp_port = use_zero_ports
+                .then(|| unused_port::unused_tcp6_port())
+                .transpose()?
+                .or(maybe_port6)
+                .unwrap_or(9090); // TODO: move to a constant or something
+            let ipv6_udp_port = use_zero_ports
+                .then(|| unused_port::unused_udp6_port())
+                .transpose()?
+                .or(maybe_udp6_port)
+                .unwrap_or(ipv6_tcp_port);
+            ListenAddress::DualStack(
+                lighthouse_network::ListenAddr {
+                    addr: ipv4,
+                    udp_port: ipv4_udp_port,
+                    tcp_port: ipv4_tcp_port,
+                },
+                lighthouse_network::ListenAddr {
+                    addr: ipv6,
+                    udp_port: ipv6_udp_port,
+                    tcp_port: ipv4_tcp_port,
+                },
+            )
+        }
+    };
+
+    Ok(listening_addresses)
+}
+
 /// Sets the network config from the command line arguments
 pub fn set_network_config(
     config: &mut NetworkConfig,
@@ -781,17 +947,56 @@ pub fn set_network_config(
         config.shutdown_after_sync = true;
     }
 
-    if let Some(listen_address_str) = cli_args.value_of("listen-address") {
-        let listen_address = listen_address_str
-            .parse()
-            .map_err(|_| format!("Invalid listen address: {:?}", listen_address_str))?;
-        config.listen_addresses = listen_address;
-    }
+    if let Some(listen_addresses_str) = cli_args.values_of("listen-address") {
+        let listen_address = {
+            let mut ipv4 = None;
+            let mut ipv6 = None;
+            for addr_str in listen_addresses_str {
+                let addr = addr_str.parse::<IpAddr>()
+                .map_err(|parse_error| {
+                    format!("Failed to parse listen-address ({addr_str}) as an Ip address: {parse_error}")
+                })?;
 
-    if let Some(target_peers_str) = cli_args.value_of("target-peers") {
-        config.target_peers = target_peers_str
-            .parse::<usize>()
-            .map_err(|_| format!("Invalid number of target peers: {}", target_peers_str))?;
+                match addr {
+                    IpAddr::V4(v4_addr) => match &ipv4 {
+                        Some(first_ipv4_addr) => {
+                            return Err(format!(
+                                "When setting the --listen-address option twice, use an IpV4 address and an Ipv6 address. \
+                                Got two IpV4 addresses {first_ipv4_addr} and {v4_addr}"
+                            ));
+                        }
+                        None => ipv4 = Some(v4_addr),
+                    },
+                    IpAddr::V6(v6_addr) => match &ipv6 {
+                        Some(first_ipv6_addr) => {
+                            return Err(format!(
+                                "When setting the --listen-address option twice, use an IpV4 address and an Ipv6 address. \
+                                Got two IpV6 addresses {first_ipv6_addr} and {v6_addr}"
+                            ));
+                        }
+                        None => ipv4 = Some(v4_addr),
+                    },
+                }
+            }
+
+            // The ip, tcp port and udp port to use over IpV4
+            let mut ipv4_listen_addr = None;
+            // The ip, tcp port and udp port to use over IpV6
+            let mut ipv6_listen_addr = None;
+            match (ipv4_listen_addr, ipv6_listen_addr) {
+                (None, None) => {
+                    // Vaues is not marked as required but has a default. Also clap claims the
+                    // flag has value. This should be unreachable
+                    return Err("No listen-address from cli".into());
+                }
+                (None, Some(ipv6_addr)) => lighthouse_network::ListenAddress::V6(ipv6_addr),
+                (Some(ipv4_addr), None) => lighthouse_network::ListenAddress::V4(ipv4_addr),
+                (Some(ipv4_addr), Some(ipv6_addr)) => {
+                    lighthouse_network::ListenAddress::DualStack(ipv4_addr, ipv6_addr)
+                }
+            }
+        };
+        config.listen_addresses = listen_address;
     }
 
     if let Some(port_str) = cli_args.value_of("port") {
@@ -807,6 +1012,12 @@ pub fn set_network_config(
             .parse::<u16>()
             .map_err(|_| format!("Invalid port: {}", port_str))?;
         config.discovery_port = port;
+    }
+
+    if let Some(target_peers_str) = cli_args.value_of("target-peers") {
+        config.target_peers = target_peers_str
+            .parse::<usize>()
+            .map_err(|_| format!("Invalid number of target peers: {}", target_peers_str))?;
     }
 
     if let Some(value) = cli_args.value_of("network-load") {
