@@ -10,6 +10,12 @@ pub type MaxVersionedHashesListSize = U16777216;
 pub type MaxAccessListStorageKeys = U16777216;
 
 #[derive(Debug, Clone, PartialEq, Encode, Decode)]
+pub struct SignedBlobTransaction {
+    pub message: BlobTransaction,
+    pub signature: EcdsaSignature,
+}
+
+#[derive(Debug, Clone, PartialEq, Encode, Decode)]
 pub struct BlobTransaction {
     pub chain_id: Uint256,
     pub nonce: u64,
@@ -28,4 +34,11 @@ pub struct BlobTransaction {
 pub struct AccessTuple {
     pub address: Address,
     pub storage_keys: VariableList<Hash256, MaxAccessListStorageKeys>,
+}
+
+#[derive(Debug, Clone, PartialEq, Encode, Decode)]
+pub struct EcdsaSignature {
+    pub y_parity: bool,
+    pub r: Uint256,
+    pub s: Uint256,
 }

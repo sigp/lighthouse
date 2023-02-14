@@ -31,7 +31,7 @@ where
                 "Garbage collecting {} temporary states",
                 delete_ops.len() / 2
             );
-            self.do_atomically(delete_ops)?;
+            self.do_atomically_with_block_and_blobs_cache(delete_ops)?;
         }
 
         Ok(())

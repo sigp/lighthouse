@@ -560,14 +560,16 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
 
     /// Check whether a batch for this epoch (and only this epoch) should request just blocks or
     /// blocks and blobs.
-    pub fn batch_type(&self, _epoch: types::Epoch) -> ByRangeRequestType {
-        if super::backfill_sync::BACKFILL_EPOCHS_PER_BATCH * super::range_sync::EPOCHS_PER_BATCH
-            != 1
-        {
-            panic!(
-                "To deal with alignment with 4844 boundaries, batches need to be of just one epoch"
-            );
-        }
+    #[allow(unused)]
+    pub fn batch_type(&self, epoch: types::Epoch) -> ByRangeRequestType {
+        // Induces a compile time panic if this doesn't hold true.
+        #[allow(clippy::assertions_on_constants)]
+        const _: () = assert!(
+            super::backfill_sync::BACKFILL_EPOCHS_PER_BATCH == 1
+                && super::range_sync::EPOCHS_PER_BATCH == 1,
+            "To deal with alignment with 4844 boundaries, batches need to be of just one epoch"
+        );
+
         #[cfg(test)]
         {
             // Keep tests only for blocks.
@@ -576,7 +578,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         #[cfg(not(test))]
         {
             if let Some(data_availability_boundary) = self.chain.data_availability_boundary() {
-                if _epoch >= data_availability_boundary {
+                if epoch >= data_availability_boundary {
                     ByRangeRequestType::BlocksAndBlobs
                 } else {
                     ByRangeRequestType::Blocks

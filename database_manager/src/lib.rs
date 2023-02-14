@@ -104,6 +104,13 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true)
                 .default_value("0"),
         )
+        .arg(
+            Arg::with_name("blobs-dir")
+                .long("blobs-dir")
+                .value_name("DIR")
+                .help("Data directory for the blobs database.")
+                .takes_value(true),
+        )
         .subcommand(migrate_cli_app())
         .subcommand(version_cli_app())
         .subcommand(inspect_cli_app())
@@ -121,6 +128,10 @@ fn parse_client_config<E: EthSpec>(
 
     if let Some(freezer_dir) = clap_utils::parse_optional(cli_args, "freezer-dir")? {
         client_config.freezer_db_path = Some(freezer_dir);
+    }
+
+    if let Some(blobs_db_dir) = clap_utils::parse_optional(cli_args, "blobs-dir")? {
+        client_config.blobs_db_path = Some(blobs_db_dir);
     }
 
     let (sprp, sprp_explicit) = get_slots_per_restore_point::<E>(cli_args)?;
@@ -144,11 +155,13 @@ pub fn display_db_version<E: EthSpec>(
     let spec = runtime_context.eth2_config.spec.clone();
     let hot_path = client_config.get_db_path();
     let cold_path = client_config.get_freezer_db_path();
+    let blobs_path = client_config.get_blobs_db_path();
 
     let mut version = CURRENT_SCHEMA_VERSION;
     HotColdDB::<E, LevelDB<E>, LevelDB<E>>::open(
         &hot_path,
         &cold_path,
+        blobs_path,
         |_, from, _| {
             version = from;
             Ok(())
@@ -200,10 +213,12 @@ pub fn inspect_db<E: EthSpec>(
     let spec = runtime_context.eth2_config.spec.clone();
     let hot_path = client_config.get_db_path();
     let cold_path = client_config.get_freezer_db_path();
+    let blobs_path = client_config.get_blobs_db_path();
 
     let db = HotColdDB::<E, LevelDB<E>, LevelDB<E>>::open(
         &hot_path,
         &cold_path,
+        blobs_path,
         |_, _, _| Ok(()),
         client_config.store,
         spec,
@@ -254,12 +269,14 @@ pub fn migrate_db<E: EthSpec>(
     let spec = &runtime_context.eth2_config.spec;
     let hot_path = client_config.get_db_path();
     let cold_path = client_config.get_freezer_db_path();
+    let blobs_path = client_config.get_blobs_db_path();
 
     let mut from = CURRENT_SCHEMA_VERSION;
     let to = migrate_config.to;
     let db = HotColdDB::<E, LevelDB<E>, LevelDB<E>>::open(
         &hot_path,
         &cold_path,
+        blobs_path,
         |_, db_initial_version, _| {
             from = db_initial_version;
             Ok(())
@@ -294,10 +311,12 @@ pub fn prune_payloads<E: EthSpec>(
     let spec = &runtime_context.eth2_config.spec;
     let hot_path = client_config.get_db_path();
     let cold_path = client_config.get_freezer_db_path();
+    let blobs_path = client_config.get_blobs_db_path();
 
     let db = HotColdDB::<E, LevelDB<E>, LevelDB<E>>::open(
         &hot_path,
         &cold_path,
+        blobs_path,
         |_, _, _| Ok(()),
         client_config.store,
         spec.clone(),
@@ -318,10 +337,12 @@ pub fn prune_blobs<E: EthSpec>(
     let spec = &runtime_context.eth2_config.spec;
     let hot_path = client_config.get_db_path();
     let cold_path = client_config.get_freezer_db_path();
+    let blobs_path = client_config.get_blobs_db_path();
 
     let db = HotColdDB::<E, LevelDB<E>, LevelDB<E>>::open(
         &hot_path,
         &cold_path,
+        blobs_path,
         |_, _, _| Ok(()),
         client_config.store,
         spec.clone(),

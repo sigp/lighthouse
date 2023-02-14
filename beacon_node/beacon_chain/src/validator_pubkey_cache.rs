@@ -38,7 +38,7 @@ impl<T: BeaconChainTypes> ValidatorPubkeyCache<T> {
         };
 
         let store_ops = cache.import_new_pubkeys(state)?;
-        store.do_atomically(store_ops)?;
+        store.do_atomically_with_block_and_blobs_cache(store_ops)?;
 
         Ok(cache)
     }
@@ -299,7 +299,7 @@ mod test {
         let ops = cache
             .import_new_pubkeys(&state)
             .expect("should import pubkeys");
-        store.do_atomically(ops).unwrap();
+        store.do_atomically_with_block_and_blobs_cache(ops).unwrap();
         check_cache_get(&cache, &keypairs[..]);
         drop(cache);
 
