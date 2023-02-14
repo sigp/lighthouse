@@ -2,7 +2,7 @@ use crate::engines::ForkchoiceState;
 use crate::http::{
     ENGINE_EXCHANGE_TRANSITION_CONFIGURATION_V1, ENGINE_FORKCHOICE_UPDATED_V1,
     ENGINE_FORKCHOICE_UPDATED_V2, ENGINE_GET_PAYLOAD_V1, ENGINE_GET_PAYLOAD_V2,
-    ENGINE_NEW_PAYLOAD_V1, ENGINE_NEW_PAYLOAD_V2,
+    ENGINE_GET_PAYLOAD_V3, ENGINE_NEW_PAYLOAD_V1, ENGINE_NEW_PAYLOAD_V2, ENGINE_NEW_PAYLOAD_V3,
 };
 use crate::BlobTxConversionError;
 pub use ethers_core::types::Transaction;
@@ -414,6 +414,9 @@ impl EngineCapabilities {
         if self.new_payload_v2 {
             response.push(ENGINE_NEW_PAYLOAD_V2);
         }
+        if self.new_payload_v3 {
+            response.push(ENGINE_NEW_PAYLOAD_V3);
+        }
         if self.forkchoice_updated_v1 {
             response.push(ENGINE_FORKCHOICE_UPDATED_V1);
         }
@@ -425,6 +428,9 @@ impl EngineCapabilities {
         }
         if self.get_payload_v2 {
             response.push(ENGINE_GET_PAYLOAD_V2);
+        }
+        if self.get_payload_v3 {
+            response.push(ENGINE_GET_PAYLOAD_V3);
         }
         if self.exchange_transition_configuration_v1 {
             response.push(ENGINE_EXCHANGE_TRANSITION_CONFIGURATION_V1);

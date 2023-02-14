@@ -152,7 +152,7 @@ pub async fn handle_rpc<T: EthSpec>(
                 ForkName::Eip4844 => {
                     if method == ENGINE_NEW_PAYLOAD_V1 || method == ENGINE_NEW_PAYLOAD_V2 {
                         return Err((
-                            format!("{} called after capella fork!", method),
+                            format!("{} called after eip4844 fork!", method),
                             GENERIC_ERROR_CODE,
                         ));
                     }
