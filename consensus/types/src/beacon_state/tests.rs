@@ -344,12 +344,7 @@ mod committees {
 
         let cache_epoch = cache_epoch.into_epoch(state_epoch);
 
-        execute_committee_consistency_test(
-            new_head_state,
-            cache_epoch,
-            validator_count as usize,
-            spec,
-        );
+        execute_committee_consistency_test(new_head_state, cache_epoch, validator_count, spec);
     }
 
     async fn committee_consistency_test_suite<T: EthSpec>(cached_epoch: RelativeEpoch) {
@@ -361,18 +356,13 @@ mod committees {
             .mul(spec.target_committee_size)
             .add(1);
 
-        committee_consistency_test::<T>(validator_count as usize, Epoch::new(0), cached_epoch)
+        committee_consistency_test::<T>(validator_count, Epoch::new(0), cached_epoch).await;
+
+        committee_consistency_test::<T>(validator_count, T::genesis_epoch() + 4, cached_epoch)
             .await;
 
         committee_consistency_test::<T>(
-            validator_count as usize,
-            T::genesis_epoch() + 4,
-            cached_epoch,
-        )
-        .await;
-
-        committee_consistency_test::<T>(
-            validator_count as usize,
+            validator_count,
             T::genesis_epoch()
                 + (T::slots_per_historical_root() as u64)
                     .mul(T::slots_per_epoch())

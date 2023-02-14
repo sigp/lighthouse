@@ -40,8 +40,10 @@ use types::{
     ProposerPreparationData, PublicKeyBytes, Signature, SignedBeaconBlock, Slot, Uint256,
 };
 
+mod block_hash;
 mod engine_api;
 mod engines;
+mod keccak;
 mod metrics;
 pub mod payload_cache;
 mod payload_status;
@@ -90,6 +92,11 @@ pub enum Error {
     ShuttingDown,
     FeeRecipientUnspecified,
     MissingLatestValidHash,
+    BlockHashMismatch {
+        computed: ExecutionBlockHash,
+        payload: ExecutionBlockHash,
+        transactions_root: Hash256,
+    },
     InvalidJWTSecret(String),
 }
 
@@ -1568,10 +1575,10 @@ impl<T: EthSpec> ExecutionLayer<T> {
                         &metrics::EXECUTION_LAYER_BUILDER_REVEAL_PAYLOAD_OUTCOME,
                         &[metrics::FAILURE],
                     );
-                    error!(
+                    warn!(
                         self.log(),
                         "Builder failed to reveal payload";
-                        "info" => "this relay failure may cause a missed proposal",
+                        "info" => "this is common behaviour for some builders and may not indicate an issue",
                         "error" => ?e,
                         "relay_response_ms" => duration.as_millis(),
                         "block_root" => ?block_root,

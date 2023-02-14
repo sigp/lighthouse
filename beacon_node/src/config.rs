@@ -675,6 +675,12 @@ pub fn get_config<E: EthSpec>(
             .extend_from_slice(&pubkeys);
     }
 
+    if let Some(count) =
+        clap_utils::parse_optional(cli_args, "validator-monitor-individual-tracking-threshold")?
+    {
+        client_config.validator_monitor_individual_tracking_threshold = count;
+    }
+
     if cli_args.is_present("disable-lock-timeouts") {
         client_config.chain.enable_lock_timeouts = false;
     }
@@ -740,6 +746,10 @@ pub fn get_config<E: EthSpec>(
         client_config.http_api.enabled = true;
         client_config.validator_monitor_auto = true;
     }
+
+    // Optimistic finalized sync.
+    client_config.chain.optimistic_finalized_sync =
+        !cli_args.is_present("disable-optimistic-finalized-sync");
 
     Ok(client_config)
 }
@@ -956,6 +966,13 @@ pub fn set_network_config(
 
     // Light client server config.
     config.enable_light_client_server = cli_args.is_present("light-client-server");
+
+    // This flag can be used both with or without a value. Try to parse it first with a value, if
+    // no value is defined but the flag is present, use the default params.
+    config.outbound_rate_limiter_config = clap_utils::parse_optional(cli_args, "self-limiter")?;
+    if cli_args.is_present("self-limiter") && config.outbound_rate_limiter_config.is_none() {
+        config.outbound_rate_limiter_config = Some(Default::default());
+    }
 
     Ok(())
 }

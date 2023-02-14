@@ -15,7 +15,9 @@ mod database;
 mod metrics;
 mod proposer_duties;
 mod publish_blocks;
+mod standard_block_rewards;
 mod state_id;
+mod sync_committee_rewards;
 mod sync_committees;
 mod ui;
 mod validator_inclusion;
@@ -1699,6 +1701,114 @@ pub fn serve<T: BeaconChainTypes>(
             },
         );
 
+    let beacon_rewards_path = eth_v1
+        .and(warp::path("beacon"))
+        .and(warp::path("rewards"))
+        .and(chain_filter.clone());
+
+    // GET beacon/rewards/blocks/{block_id}
+    let get_beacon_rewards_blocks = beacon_rewards_path
+        .clone()
+        .and(warp::path("blocks"))
+        .and(block_id_or_err)
+        .and(warp::path::end())
+        .and_then(|chain: Arc<BeaconChain<T>>, block_id: BlockId| {
+            blocking_json_task(move || {
+                let (rewards, execution_optimistic) =
+                    standard_block_rewards::compute_beacon_block_rewards(chain, block_id)?;
+                Ok(rewards)
+                    .map(api_types::GenericResponse::from)
+                    .map(|resp| resp.add_execution_optimistic(execution_optimistic))
+            })
+        });
+
+    /*
+     * beacon/rewards
+     */
+
+    let beacon_rewards_path = eth_v1
+        .and(warp::path("beacon"))
+        .and(warp::path("rewards"))
+        .and(chain_filter.clone());
+
+    // POST beacon/rewards/attestations/{epoch}
+    let post_beacon_rewards_attestations = beacon_rewards_path
+        .clone()
+        .and(warp::path("attestations"))
+        .and(warp::path::param::<Epoch>())
+        .and(warp::path::end())
+        .and(warp::body::json())
+        .and(log_filter.clone())
+        .and_then(
+            |chain: Arc<BeaconChain<T>>,
+             epoch: Epoch,
+             validators: Vec<ValidatorId>,
+             log: Logger| {
+                blocking_json_task(move || {
+                    let attestation_rewards = chain
+                        .compute_attestation_rewards(epoch, validators, log)
+                        .map_err(|e| match e {
+                            BeaconChainError::MissingBeaconState(root) => {
+                                warp_utils::reject::custom_not_found(format!(
+                                    "missing state {root:?}",
+                                ))
+                            }
+                            BeaconChainError::NoStateForSlot(slot) => {
+                                warp_utils::reject::custom_not_found(format!(
+                                    "missing state at slot {slot}"
+                                ))
+                            }
+                            BeaconChainError::BeaconStateError(
+                                BeaconStateError::UnknownValidator(validator_index),
+                            ) => warp_utils::reject::custom_bad_request(format!(
+                                "validator is unknown: {validator_index}"
+                            )),
+                            BeaconChainError::ValidatorPubkeyUnknown(pubkey) => {
+                                warp_utils::reject::custom_bad_request(format!(
+                                    "validator pubkey is unknown: {pubkey:?}"
+                                ))
+                            }
+                            e => warp_utils::reject::custom_server_error(format!(
+                                "unexpected error: {:?}",
+                                e
+                            )),
+                        })?;
+                    let execution_optimistic =
+                        chain.is_optimistic_or_invalid_head().unwrap_or_default();
+
+                    Ok(attestation_rewards)
+                        .map(api_types::GenericResponse::from)
+                        .map(|resp| resp.add_execution_optimistic(execution_optimistic))
+                })
+            },
+        );
+
+    // POST beacon/rewards/sync_committee/{block_id}
+    let post_beacon_rewards_sync_committee = beacon_rewards_path
+        .clone()
+        .and(warp::path("sync_committee"))
+        .and(block_id_or_err)
+        .and(warp::path::end())
+        .and(warp::body::json())
+        .and(log_filter.clone())
+        .and_then(
+            |chain: Arc<BeaconChain<T>>,
+             block_id: BlockId,
+             validators: Vec<ValidatorId>,
+             log: Logger| {
+                blocking_json_task(move || {
+                    let (rewards, execution_optimistic) =
+                        sync_committee_rewards::compute_sync_committee_rewards(
+                            chain, block_id, validators, log,
+                        )?;
+
+                    Ok(rewards)
+                        .map(api_types::GenericResponse::from)
+                        .map(|resp| resp.add_execution_optimistic(execution_optimistic))
+                })
+            },
+        );
+
     /*
      * config
      */
@@ -2745,7 +2855,7 @@ pub fn serve<T: BeaconChainTypes>(
                     .await
                     .map(|resp| warp::reply::json(&resp))
                     .map_err(|e| {
-                        error!(
+                        warn!(
                             log,
                             "Relay error when registering validator(s)";
                             "num_registrations" => filtered_registration_data.len(),
@@ -2840,7 +2950,7 @@ pub fn serve<T: BeaconChainTypes>(
                             let is_live =
                                 chain.validator_seen_at_epoch(index as usize, request_data.epoch);
                             api_types::LivenessResponseData {
-                                index: index as u64,
+                                index,
                                 epoch: request_data.epoch,
                                 is_live,
                             }
@@ -2876,7 +2986,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and_then(
             |sysinfo, app_start: std::time::Instant, data_dir, network_globals| {
                 blocking_json_task(move || {
-                    let app_uptime = app_start.elapsed().as_secs() as u64;
+                    let app_uptime = app_start.elapsed().as_secs();
                     Ok(api_types::GenericResponse::from(observe_system_health_bn(
                         sysinfo,
                         data_dir,
@@ -3345,6 +3455,7 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(get_beacon_pool_proposer_slashings.boxed())
                 .or(get_beacon_pool_voluntary_exits.boxed())
                 .or(get_beacon_deposit_snapshot.boxed())
+                .or(get_beacon_rewards_blocks.boxed())
                 .or(get_config_fork_schedule.boxed())
                 .or(get_config_spec.boxed())
                 .or(get_config_deposit_contract.boxed())
@@ -3383,7 +3494,8 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(get_lighthouse_attestation_performance.boxed())
                 .or(get_lighthouse_block_packing_efficiency.boxed())
                 .or(get_lighthouse_merge_readiness.boxed())
-                .or(get_events.boxed()),
+                .or(get_events.boxed())
+                .recover(warp_utils::reject::handle_rejection),
         )
         .boxed()
         .or(warp::post().and(
@@ -3395,6 +3507,8 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(post_beacon_pool_proposer_slashings.boxed())
                 .or(post_beacon_pool_voluntary_exits.boxed())
                 .or(post_beacon_pool_sync_committees.boxed())
+                .or(post_beacon_rewards_attestations.boxed())
+                .or(post_beacon_rewards_sync_committee.boxed())
                 .or(post_validator_duties_attester.boxed())
                 .or(post_validator_duties_sync.boxed())
                 .or(post_validator_aggregate_and_proofs.boxed())
@@ -3407,7 +3521,8 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(post_lighthouse_database_reconstruct.boxed())
                 .or(post_lighthouse_database_historical_blocks.boxed())
                 .or(post_lighthouse_block_rewards.boxed())
-                .or(post_lighthouse_ui_validator_metrics.boxed()),
+                .or(post_lighthouse_ui_validator_metrics.boxed())
+                .recover(warp_utils::reject::handle_rejection),
         ))
         .recover(warp_utils::reject::handle_rejection)
         .with(slog_logging(log.clone()))

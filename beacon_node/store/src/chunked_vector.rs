@@ -801,7 +801,7 @@ mod test {
 
     fn needs_genesis_value_test_randao<F: Field<TestSpec>>(_: F) {
         let spec = &TestSpec::default_spec();
-        let max = TestSpec::slots_per_epoch() as u64 * (F::Length::to_u64() - 1);
+        let max = TestSpec::slots_per_epoch() * (F::Length::to_u64() - 1);
         for i in 0..max {
             assert!(
                 F::slot_needs_genesis_value(Slot::new(i), spec),

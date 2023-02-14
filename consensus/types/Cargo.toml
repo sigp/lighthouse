@@ -14,7 +14,7 @@ bls = { path = "../../crypto/bls" }
 compare_fields = { path = "../../common/compare_fields" }
 compare_fields_derive = { path = "../../common/compare_fields_derive" }
 eth2_interop_keypairs = { path = "../../common/eth2_interop_keypairs" }
-ethereum-types = "0.12.1"
+ethereum-types = "0.14.1"
 eth2_hashing = "0.3.0"
 hex = "0.4.2"
 int_to_bytes = { path = "../int_to_bytes" }
@@ -45,6 +45,7 @@ lazy_static = "1.4.0"
 parking_lot = "0.12.0"
 itertools = "0.10.0"
 superstruct = "0.5.0"
+metastruct = "0.1.0"
 serde_json = "1.0.74"
 smallvec = "1.8.0"
 serde_with = "1.13.0"
