@@ -405,13 +405,10 @@ pub fn get_config<E: EthSpec>(
      * Discovery address is set to localhost by default.
      */
     if cli_args.is_present("zero-ports") {
+        // TODO: why is this here? what's this got to do with zero ports?
         if client_config.network.enr_address == Some(Ipv4Addr::UNSPECIFIED) {
-            client_config.network.enr_address = None
+            client_config.network.enr_address = None;
         }
-        client_config.network.libp2p_port =
-            unused_tcp4_port().map_err(|e| format!("Failed to get port for libp2p: {}", e))?;
-        client_config.network.discovery_port =
-            unused_udp4_port().map_err(|e| format!("Failed to get port for discovery: {}", e))?;
         client_config.http_api.listen_port = 0;
         client_config.http_metrics.listen_port = 0;
     }
@@ -755,7 +752,7 @@ pub fn get_config<E: EthSpec>(
     Ok(client_config)
 }
 
-/// Gets the listening_addresses for lighthouse based on the cli options
+/// Gets the listening_addresses for lighthouse based on the cli options.
 pub fn parse_listening_addresses(
     cli_args: &ArgMatches,
     log: &Logger,
@@ -947,72 +944,7 @@ pub fn set_network_config(
         config.shutdown_after_sync = true;
     }
 
-    if let Some(listen_addresses_str) = cli_args.values_of("listen-address") {
-        let listen_address = {
-            let mut ipv4 = None;
-            let mut ipv6 = None;
-            for addr_str in listen_addresses_str {
-                let addr = addr_str.parse::<IpAddr>()
-                .map_err(|parse_error| {
-                    format!("Failed to parse listen-address ({addr_str}) as an Ip address: {parse_error}")
-                })?;
-
-                match addr {
-                    IpAddr::V4(v4_addr) => match &ipv4 {
-                        Some(first_ipv4_addr) => {
-                            return Err(format!(
-                                "When setting the --listen-address option twice, use an IpV4 address and an Ipv6 address. \
-                                Got two IpV4 addresses {first_ipv4_addr} and {v4_addr}"
-                            ));
-                        }
-                        None => ipv4 = Some(v4_addr),
-                    },
-                    IpAddr::V6(v6_addr) => match &ipv6 {
-                        Some(first_ipv6_addr) => {
-                            return Err(format!(
-                                "When setting the --listen-address option twice, use an IpV4 address and an Ipv6 address. \
-                                Got two IpV6 addresses {first_ipv6_addr} and {v6_addr}"
-                            ));
-                        }
-                        None => ipv4 = Some(v4_addr),
-                    },
-                }
-            }
-
-            // The ip, tcp port and udp port to use over IpV4
-            let mut ipv4_listen_addr = None;
-            // The ip, tcp port and udp port to use over IpV6
-            let mut ipv6_listen_addr = None;
-            match (ipv4_listen_addr, ipv6_listen_addr) {
-                (None, None) => {
-                    // Vaues is not marked as required but has a default. Also clap claims the
-                    // flag has value. This should be unreachable
-                    return Err("No listen-address from cli".into());
-                }
-                (None, Some(ipv6_addr)) => lighthouse_network::ListenAddress::V6(ipv6_addr),
-                (Some(ipv4_addr), None) => lighthouse_network::ListenAddress::V4(ipv4_addr),
-                (Some(ipv4_addr), Some(ipv6_addr)) => {
-                    lighthouse_network::ListenAddress::DualStack(ipv4_addr, ipv6_addr)
-                }
-            }
-        };
-        config.listen_addresses = listen_address;
-    }
-
-    if let Some(port_str) = cli_args.value_of("port") {
-        let port = port_str
-            .parse::<u16>()
-            .map_err(|_| format!("Invalid port: {}", port_str))?;
-        config.libp2p_port = port;
-        config.discovery_port = port;
-    }
-
-    if let Some(port_str) = cli_args.value_of("discovery-port") {
-        let port = port_str
-            .parse::<u16>()
-            .map_err(|_| format!("Invalid port: {}", port_str))?;
-        config.discovery_port = port;
-    }
+    config.listen_addresses = parse_listening_addresses(cli_args, log)?;
 
     if let Some(target_peers_str) = cli_args.value_of("target-peers") {
         config.target_peers = target_peers_str
@@ -1091,15 +1023,24 @@ pub fn set_network_config(
     }
 
     if cli_args.is_present("enr-match") {
+        // Match the Ip and UDP port in the enr.
+
         // set the enr address to localhost if the address is unspecified
-        if config.listen_addresses == IpAddr::V4(Ipv4Addr::UNSPECIFIED) {
-            config.enr_address = Some(IpAddr::V4(Ipv4Addr::LOCALHOST));
-        } else if config.listen_addresses == IpAddr::V6(Ipv6Addr::UNSPECIFIED) {
-            config.enr_address = Some(IpAddr::V6(Ipv6Addr::LOCALHOST));
-        } else {
-            config.enr_address = Some(config.listen_addresses);
+        if let Some(ipv4_addr) = config.listen_addresses.v4() {
+            let ipv4_enr_addr = (ipv4_addr.addr == Ipv4Addr::UNSPECIFIED)
+                .then_some(Ipv4Addr::LOCALHOST)
+                .unwrap_or(ipv4_addr.addr);
+            config.enr_address.0 = Some(ipv4_enr_addr);
+            config.enr_udp4_port = Some(ipv4_addr.udp_port);
         }
-        config.enr_udp4_port = Some(config.discovery_port);
+
+        if let Some(ipv6_addr) = config.listen_addresses.v6() {
+            let ipv6_enr_addr = (ipv6_addr.addr == Ipv6Addr::UNSPECIFIED)
+                .then_some(Ipv6Addr::LOCALHOST)
+                .unwrap_or(ipv6_addr.addr);
+            config.enr_address.1 = Some(ipv6_enr_addr);
+            config.enr_udp6_port = Some(ipv6_addr.udp_port);
+        }
     }
 
     if let Some(enr_address) = cli_args.value_of("enr-address") {
