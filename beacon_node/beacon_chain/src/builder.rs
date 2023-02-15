@@ -27,7 +27,7 @@ use parking_lot::RwLock;
 use proto_array::ReOrgThreshold;
 use slasher::Slasher;
 use slog::{crit, error, info, Logger};
-use slot_clock::SlotClock;
+use slot_clock::{SlotClock, TestingSlotClock};
 use std::marker::PhantomData;
 use std::sync::Arc;
 use std::time::Duration;
@@ -954,14 +954,13 @@ where
     }
 }
 
-impl<TEth1Backend, TEthSpec, THotStore, TColdStore, TSlotClock>
-    BeaconChainBuilder<Witness<TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>>
+impl<TEth1Backend, TEthSpec, THotStore, TColdStore>
+    BeaconChainBuilder<Witness<TestingSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>>
 where
     THotStore: ItemStore<TEthSpec> + 'static,
     TColdStore: ItemStore<TEthSpec> + 'static,
     TEth1Backend: Eth1ChainBackend<TEthSpec> + 'static,
     TEthSpec: EthSpec + 'static,
-    TSlotClock: SlotClock + 'static,
 {
     /// Sets the `BeaconChain` slot clock to `TestingSlotClock`.
     ///
@@ -971,7 +970,7 @@ where
             .genesis_time
             .ok_or("testing_slot_clock requires an initialized state")?;
 
-        let slot_clock = TSlotClock::new(
+        let slot_clock = TestingSlotClock::new(
             Slot::new(0),
             Duration::from_secs(genesis_time),
             slot_duration,
