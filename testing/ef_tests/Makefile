@@ -10,7 +10,7 @@ TARBALLS = $(patsubst %,%-$(TESTS_TAG).tar.gz,$(TESTS))
 #
 # These files can be obtained from:
 # https://github.com/adiasg/consensus-specs/pull/18#issuecomment-1411070772
-CUSTOM_FC_TESTS_TAG = 8e46b6f
+CUSTOM_FC_TESTS_TAG = fea20be
 CUSTOM_FC_TESTS_MAINNET_ARCHIVE = $(CUSTOM_FC_TESTS_TAG)-mainnet.tar.gz
 CUSTOM_FC_TESTS_MINIMAL_ARCHIVE = $(CUSTOM_FC_TESTS_TAG)-minimal.tar.gz
 CUSTOM_FC_TESTS_REPO_NAME := custom-fc-tests
@@ -51,6 +51,9 @@ custom-fc-tests:
 	mkdir $(CUSTOM_FC_TESTS_OUTPUT_DIR)
 	tar -xzf $(CUSTOM_FC_TESTS_MAINNET_ARCHIVE) -C $(CUSTOM_FC_TESTS_OUTPUT_DIR);
 	tar -xzf $(CUSTOM_FC_TESTS_MINIMAL_ARCHIVE) -C $(CUSTOM_FC_TESTS_OUTPUT_DIR);
+
+clean-custom-fc-tests:
+	rm -rf $(CUSTOM_FC_TESTS_OUTPUT_DIR)
 
 clean-test-files:
 	rm -rf $(OUTPUT_DIR) $(BLS_OUTPUT_DIR)
