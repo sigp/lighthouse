@@ -17,7 +17,6 @@ use slog::{info, warn, Logger};
 use std::cmp;
 use std::cmp::max;
 use std::fmt::Debug;
-use std::fmt::Write;
 use std::fs;
 use std::net::Ipv6Addr;
 use std::net::{IpAddr, Ipv4Addr, ToSocketAddrs};
@@ -784,26 +783,26 @@ pub fn parse_listening_addresses(
     }
 
     // parse the possible tcp ports
-    let mut port = cli_args
+    let port = cli_args
         .value_of("port")
         .expect("--port has a default value")
         .parse::<u16>()
         .map_err(|parse_error| format!("Failed to parse --port as an integer: {parse_error}"))?;
-    let mut maybe_port6 = cli_args
+    let maybe_port6 = cli_args
         .value_of("port6")
         .map(str::parse::<u16>)
         .transpose()
         .map_err(|parse_error| format!("Failed to parse --port6 as an integer: {parse_error}"))?;
 
     // parse the possible udp ports
-    let mut maybe_udp_port = cli_args
+    let maybe_udp_port = cli_args
         .value_of("discovery-port")
         .map(str::parse::<u16>)
         .transpose()
         .map_err(|parse_error| {
             format!("Failed to parse --discovery-port as an integer: {parse_error}")
         })?;
-    let mut maybe_udp6_port = cli_args
+    let maybe_udp6_port = cli_args
         .value_of("discovery-port6")
         .map(str::parse::<u16>)
         .transpose()
@@ -1079,7 +1078,7 @@ pub fn set_network_config(
                     let port = match &config.listen_addresses {
                         ListenAddress::V4(v4_addr) => v4_addr.udp_port,
                         ListenAddress::V6(v6_addr) => v6_addr.udp_port,
-                        ListenAddress::DualStack(v4_addr, v6_addr) => {
+                        ListenAddress::DualStack(v4_addr, _v6_addr) => {
                             // NOTE: slight preference for ipv4 that I don't think is of importance.
                             v4_addr.udp_port
                         }
