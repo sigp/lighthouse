@@ -479,7 +479,7 @@ pub fn decode_list_of_variable_length_items<T: Decode, Container: TryFromIter<T>
 ) -> Result<Container, DecodeError> {
     if bytes.is_empty() {
         return Container::try_from_iter(iter::empty()).map_err(|e| {
-            DecodeError::BytesInvalid(format!("Error trying to collect empty list: {:?}", e))
+            DecodeError::BytesInvalid(format!("Error trying to collect empty list: {e:?}"))
         });
     }
 
@@ -494,8 +494,7 @@ pub fn decode_list_of_variable_length_items<T: Decode, Container: TryFromIter<T>
 
     if max_len.map_or(false, |max| num_items > max) {
         return Err(DecodeError::BytesInvalid(format!(
-            "Variable length list of {} items exceeds maximum of {:?}",
-            num_items, max_len
+            "Variable length list of {num_items} items exceeds maximum of {max_len:?}",
         )));
     }
 
@@ -519,7 +518,7 @@ pub fn decode_list_of_variable_length_items<T: Decode, Container: TryFromIter<T>
         }),
         |iter| iter.try_collect(),
     )?
-    .map_err(|e| DecodeError::BytesInvalid(format!("Error collecting into container: {:?}", e)))
+    .map_err(|e| DecodeError::BytesInvalid(format!("Error collecting into container: {e:?}")))
 }
 
 #[cfg(test)]

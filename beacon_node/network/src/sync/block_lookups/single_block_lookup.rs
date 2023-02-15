@@ -204,8 +204,10 @@ impl<const MAX_ATTEMPTS: u8> slog::Value for SingleBlockRequest<MAX_ATTEMPTS> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use types::test_utils::{SeedableRng, TestRandom, XorShiftRng};
-    use types::{MinimalEthSpec as E, SignedBeaconBlock};
+    use types::{
+        test_utils::{SeedableRng, TestRandom, XorShiftRng},
+        MinimalEthSpec as E, SignedBeaconBlock,
+    };
 
     fn rand_block() -> SignedBeaconBlock<E> {
         let mut rng = XorShiftRng::from_seed([42; 16]);

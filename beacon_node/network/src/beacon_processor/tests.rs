@@ -243,7 +243,7 @@ impl TestRig {
     pub fn enqueue_rpc_block(&self) {
         let event = WorkEvent::rpc_beacon_block(
             self.next_block.canonical_root(),
-            self.next_block.clone(),
+            self.next_block.clone().into(),
             std::time::Duration::default(),
             BlockProcessType::ParentLookup {
                 chain_hash: Hash256::random(),
@@ -255,7 +255,7 @@ impl TestRig {
     pub fn enqueue_single_lookup_rpc_block(&self) {
         let event = WorkEvent::rpc_beacon_block(
             self.next_block.canonical_root(),
-            self.next_block.clone(),
+            self.next_block.clone().into(),
             std::time::Duration::default(),
             BlockProcessType::SingleBlock { id: 1 },
         );

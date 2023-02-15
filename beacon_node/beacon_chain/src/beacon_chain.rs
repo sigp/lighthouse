@@ -4579,7 +4579,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 let (payload, _, _) = block_contents
                     .ok_or(BlockProductionError::MissingExecutionPayload)?
                     .deconstruct();
-
                 (
                     BeaconBlock::Capella(BeaconBlockCapella {
                         slot,
@@ -4610,7 +4609,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 let (payload, kzg_commitments, blobs) = block_contents
                     .ok_or(BlockProductionError::MissingExecutionPayload)?
                     .deconstruct();
-
                 (
                     BeaconBlock::Eip4844(BeaconBlockEip4844 {
                         slot,
@@ -4694,8 +4692,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .as_ref()
                 .ok_or(BlockProductionError::TrustedSetupNotInitialized)?;
             let kzg_aggregated_proof =
-                kzg_utils::compute_aggregate_kzg_proof::<T::EthSpec>(&kzg, &blobs)
-                    .map_err(|e| BlockProductionError::KzgError(e))?;
+                kzg_utils::compute_aggregate_kzg_proof::<T::EthSpec>(kzg, &blobs)
+                    .map_err(BlockProductionError::KzgError)?;
             let beacon_block_root = block.canonical_root();
             let expected_kzg_commitments = block.body().blob_kzg_commitments().map_err(|_| {
                 BlockProductionError::InvalidBlockVariant(
@@ -4709,7 +4707,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 kzg_aggregated_proof,
             };
             kzg_utils::validate_blobs_sidecar(
-                &kzg,
+                kzg,
                 slot,
                 beacon_block_root,
                 expected_kzg_commitments,
@@ -5941,17 +5939,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// The epoch at which we require a data availability check in block processing.
     /// `None` if the `Eip4844` fork is disabled.
     pub fn data_availability_boundary(&self) -> Option<Epoch> {
-        self.spec
-            .eip4844_fork_epoch
-            .map(|fork_epoch| {
-                self.epoch().ok().map(|current_epoch| {
-                    std::cmp::max(
-                        fork_epoch,
-                        current_epoch.saturating_sub(*MIN_EPOCHS_FOR_BLOBS_SIDECARS_REQUESTS),
-                    )
-                })
+        self.spec.eip4844_fork_epoch.and_then(|fork_epoch| {
+            self.epoch().ok().map(|current_epoch| {
+                std::cmp::max(
+                    fork_epoch,
+                    current_epoch.saturating_sub(*MIN_EPOCHS_FOR_BLOBS_SIDECARS_REQUESTS),
+                )
             })
-            .flatten()
+        })
     }
 
     /// The epoch that is a data availability boundary, or the latest finalized epoch.

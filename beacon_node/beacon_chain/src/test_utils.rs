@@ -34,7 +34,9 @@ use rand::Rng;
 use rand::SeedableRng;
 use rayon::prelude::*;
 use sensitive_url::SensitiveUrl;
-use slog::Logger;
+use slog::{o, Drain, Logger};
+use slog_async::Async;
+use slog_term::{FullFormat, TermDecorator};
 use slot_clock::{SlotClock, TestingSlotClock};
 use state_processing::per_block_processing::compute_timestamp_at_slot;
 use state_processing::{
@@ -1924,8 +1926,9 @@ where
         chain_dump
             .iter()
             .cloned()
-            .map(|checkpoint| checkpoint.beacon_state.finalized_checkpoint().root.into())
-            .filter(|block_hash| *block_hash != Hash256::zero().into())
+            .map(|checkpoint| checkpoint.beacon_state.finalized_checkpoint().root)
+            .filter(|block_hash| *block_hash != Hash256::zero())
+            .map(|hash| hash.into())
             .collect()
     }
 
@@ -2123,5 +2126,17 @@ where
 impl<T: BeaconChainTypes> fmt::Debug for BeaconChainHarness<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "BeaconChainHarness")
+    }
+}
+
+pub fn build_log(level: slog::Level, enabled: bool) -> Logger {
+    let decorator = TermDecorator::new().build();
+    let drain = FullFormat::new(decorator).build().fuse();
+    let drain = Async::new(drain).build().fuse();
+
+    if enabled {
+        Logger::root(drain.filter_level(level).fuse(), o!())
+    } else {
+        Logger::root(drain.filter(|_| false).fuse(), o!())
     }
 }

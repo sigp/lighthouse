@@ -265,7 +265,7 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> SignedBeaconBlock<E, Payload> 
             .map_err(|_| BlobReconstructionError::InconsistentFork)?;
         if kzg_commitments.is_empty() {
             Ok(BlobsSidecar::empty_from_parts(
-                block_root_opt.unwrap_or(self.canonical_root()),
+                block_root_opt.unwrap_or_else(|| self.canonical_root()),
                 self.slot(),
             ))
         } else {

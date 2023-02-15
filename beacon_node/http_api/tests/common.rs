@@ -1,7 +1,5 @@
 use beacon_chain::{
-    test_utils::{
-        BeaconChainHarness, BoxedMutator, Builder as HarnessBuilder, EphemeralHarnessType,
-    },
+    test_utils::{BeaconChainHarness, BoxedMutator, Builder, EphemeralHarnessType},
     BeaconChain, BeaconChainTypes,
 };
 use directory::DEFAULT_ROOT_DIR;
@@ -57,9 +55,8 @@ pub struct ApiServer<E: EthSpec, SFut: Future<Output = ()>> {
     pub external_peer_id: PeerId,
 }
 
-type Initializer<E> = Box<
-    dyn FnOnce(HarnessBuilder<EphemeralHarnessType<E>>) -> HarnessBuilder<EphemeralHarnessType<E>>,
->;
+type HarnessBuilder<E> = Builder<EphemeralHarnessType<E>>;
+type Initializer<E> = Box<dyn FnOnce(HarnessBuilder<E>) -> HarnessBuilder<E>>;
 type Mutator<E> = BoxedMutator<E, MemoryStore<E>, MemoryStore<E>>;
 
 impl<E: EthSpec> InteractiveTester<E> {

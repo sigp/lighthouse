@@ -372,26 +372,27 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::service::RequestId;
-    use crate::sync::range_sync::ByRangeRequestType;
-    use crate::NetworkMessage;
-
     use super::*;
-    use crate::beacon_processor::WorkEvent as BeaconWorkEvent;
-    use beacon_chain::builder::Witness;
-    use beacon_chain::eth1_chain::CachingEth1Backend;
-    use beacon_chain::parking_lot::RwLock;
-    use beacon_chain::EngineState;
-    use lighthouse_network::rpc::BlocksByRangeRequest;
-    use lighthouse_network::Request;
-    use lighthouse_network::{rpc::StatusMessage, NetworkGlobals};
-    use slog::{o, Drain};
-    use tokio::sync::mpsc;
 
-    use slot_clock::SystemTimeSlotClock;
-    use std::collections::HashSet;
-    use std::sync::Arc;
+    use crate::beacon_processor::WorkEvent as BeaconWorkEvent;
+    use crate::service::RequestId;
+    use crate::NetworkMessage;
+    use beacon_chain::{
+        builder::Witness,
+        eth1_chain::CachingEth1Backend,
+        parking_lot::RwLock,
+        test_utils::{build_log, BeaconChainHarness, EphemeralHarnessType},
+        EngineState,
+    };
+    use lighthouse_network::{
+        rpc::{BlocksByRangeRequest, StatusMessage},
+        NetworkGlobals, Request,
+    };
+    use slog::o;
+    use slot_clock::TestingSlotClock;
+    use std::{collections::HashSet, sync::Arc};
     use store::MemoryStore;
+    use tokio::sync::mpsc;
     use types::{Hash256, MinimalEthSpec as E};
 
     #[derive(Debug)]
@@ -439,19 +440,7 @@ mod tests {
     }
 
     type TestBeaconChainType =
-        Witness<SystemTimeSlotClock, CachingEth1Backend<E>, E, MemoryStore<E>, MemoryStore<E>>;
-
-    fn build_log(level: slog::Level, enabled: bool) -> slog::Logger {
-        let decorator = slog_term::TermDecorator::new().build();
-        let drain = slog_term::FullFormat::new(decorator).build().fuse();
-        let drain = slog_async::Async::new(drain).build().fuse();
-
-        if enabled {
-            slog::Logger::root(drain.filter_level(level).fuse(), o!())
-        } else {
-            slog::Logger::root(drain.filter(|_| false).fuse(), o!())
-        }
-    }
+        Witness<TestingSlotClock, CachingEth1Backend<E>, E, MemoryStore<E>, MemoryStore<E>>;
 
     #[allow(unused)]
     struct TestRig {
@@ -593,11 +582,20 @@ mod tests {
     }
 
     fn range(log_enabled: bool) -> (TestRig, RangeSync<TestBeaconChainType, FakeStorage>) {
-        let chain = Arc::new(FakeStorage::default());
         let log = build_log(slog::Level::Trace, log_enabled);
+        // Initialise a new beacon chain
+        let harness = BeaconChainHarness::<EphemeralHarnessType<E>>::builder(E::default())
+            .default_spec()
+            .logger(log.clone())
+            .deterministic_keypairs(1)
+            .fresh_ephemeral_store()
+            .build();
+        let chain = harness.chain;
+
+        let fake_store = Arc::new(FakeStorage::default());
         let (beacon_processor_tx, beacon_processor_rx) = mpsc::channel(10);
         let range_sync = RangeSync::<TestBeaconChainType, FakeStorage>::new(
-            chain.clone(),
+            fake_store.clone(),
             log.new(o!("component" => "range")),
         );
         let (network_tx, network_rx) = mpsc::unbounded_channel();
@@ -612,7 +610,7 @@ mod tests {
         let test_rig = TestRig {
             log,
             beacon_processor_rx,
-            chain,
+            chain: fake_store,
             cx,
             network_rx,
             globals,
@@ -687,7 +685,7 @@ mod tests {
         range.add_peer(&mut rig.cx, local_info, peer1, head_info);
         let ((chain1, batch1), id1) = match rig.grab_request(&peer1).0 {
             RequestId::Sync(crate::sync::manager::RequestId::RangeBlocks { id }) => {
-                (rig.cx.range_sync_response(id, true).unwrap(), id)
+                (rig.cx.range_sync_block_response(id, true).unwrap(), id)
             }
             other => panic!("unexpected request {:?}", other),
         };
@@ -706,7 +704,7 @@ mod tests {
         range.add_peer(&mut rig.cx, local_info, peer2, finalized_info);
         let ((chain2, batch2), id2) = match rig.grab_request(&peer2).0 {
             RequestId::Sync(crate::sync::manager::RequestId::RangeBlocks { id }) => {
-                (rig.cx.range_sync_response(id, true).unwrap(), id)
+                (rig.cx.range_sync_block_response(id, true).unwrap(), id)
             }
             other => panic!("unexpected request {:?}", other),
         };

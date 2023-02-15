@@ -36,7 +36,7 @@ PROFILE ?= release
 
 # List of all hard forks. This list is used to set env variables for several tests so that
 # they run for different forks.
-FORKS=phase0 altair merge capella
+FORKS=phase0 altair merge capella eip4844
 
 # Builds the Lighthouse binary in release (optimized).
 #
@@ -163,6 +163,7 @@ lint:
 	cargo clippy --workspace --tests -- \
 		-D clippy::fn_to_numeric_cast_any \
 		-D warnings \
+		-A clippy::uninlined-format-args \
 		-A clippy::derive_partial_eq_without_eq \
 		-A clippy::from-over-into \
 		-A clippy::upper-case-acronyms \
@@ -193,7 +194,7 @@ arbitrary-fuzz:
 # Runs cargo audit (Audit Cargo.lock files for crates with security vulnerabilities reported to the RustSec Advisory Database)
 audit:
 	cargo install --force cargo-audit
-	cargo audit --ignore RUSTSEC-2020-0071 --ignore RUSTSEC-2020-0159
+	cargo audit --ignore RUSTSEC-2020-0071
 
 # Runs `cargo vendor` to make sure dependencies can be vendored for packaging, reproducibility and archival purpose.
 vendor:

@@ -1,6 +1,6 @@
 # Extends the mainnet preset
 PRESET_BASE: 'mainnet'
-CONFIG_NAME: testnet # needs to exist because of Prysm. Otherwise it conflicts with mainnet genesis
+CONFIG_NAME: 'eip4844' # needs to exist because of Prysm. Otherwise it conflicts with mainnet genesis and needs to match configuration in common_eth2_config/src/lib.rs to pass lh ci.
 
 # Genesis
 # ---------------------------------------------------------------

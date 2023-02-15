@@ -1120,7 +1120,7 @@ impl<T: BeaconChainTypes> IntoExecutionPendingBlock<T> for SignatureVerifiedBloc
     }
 
     fn block(&self) -> &SignedBeaconBlock<T::EthSpec> {
-        &self.block.as_block()
+        self.block.as_block()
     }
 }
 

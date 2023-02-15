@@ -165,8 +165,7 @@ impl<E: EthSpec> EarlyAttesterCache<E> {
             .read()
             .as_ref()
             .filter(|item| item.beacon_block_root == block_root)
-            .map(|item| item.blobs.clone())
-            .flatten()
+            .and_then(|item| item.blobs.clone())
     }
 
     /// Returns the proto-array block, if `block_root` matches the cached item.

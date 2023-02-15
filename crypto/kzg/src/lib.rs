@@ -72,7 +72,7 @@ impl Kzg {
             ));
         }
         let commitments = expected_kzg_commitments
-            .into_iter()
+            .iter()
             .map(|comm| comm.0.into())
             .collect::<Vec<c_kzg::KZGCommitment>>();
         let proof: c_kzg::KZGProof = kzg_aggregated_proof.0.into();

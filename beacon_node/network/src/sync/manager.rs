@@ -803,15 +803,15 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         peer_id: PeerId,
         block_or_blob: BlockOrBlobs<T::EthSpec>,
     ) {
-        if let Some((chain_id, batch_id, block_responses)) = self
+        if let Some((chain_id, resp)) = self
             .network
             .range_sync_block_and_blob_response(id, block_or_blob)
         {
-            match block_responses {
+            match resp.responses {
                 Ok(blocks) => {
                     for block in blocks
                         .into_iter()
-                        .map(|block| Some(block))
+                        .map(Some)
                         // chain the stream terminator
                         .chain(vec![None])
                     {
@@ -819,7 +819,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                             &mut self.network,
                             peer_id,
                             chain_id,
-                            batch_id,
+                            resp.batch_id,
                             id,
                             block,
                         );
@@ -831,7 +831,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     // With time we will want to downgrade this log
                     warn!(
                     self.log, "Blocks and blobs request for range received invalid data";
-                    "peer_id" => %peer_id, "batch_id" => batch_id, "error" => e
+                    "peer_id" => %peer_id, "batch_id" => resp.batch_id, "error" => e
                     );
                     // TODO: penalize the peer for being a bad boy
                     let id = RequestId::RangeBlobs { id };
@@ -849,21 +849,21 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         peer_id: PeerId,
         block_or_blob: BlockOrBlobs<T::EthSpec>,
     ) {
-        if let Some((batch_id, block_responses)) = self
+        if let Some(resp) = self
             .network
             .backfill_sync_block_and_blob_response(id, block_or_blob)
         {
-            match block_responses {
+            match resp.responses {
                 Ok(blocks) => {
                     for block in blocks
                         .into_iter()
-                        .map(|block| Some(block))
+                        .map(Some)
                         // chain the stream terminator
                         .chain(vec![None])
                     {
                         match self.backfill_sync.on_block_response(
                             &mut self.network,
-                            batch_id,
+                            resp.batch_id,
                             &peer_id,
                             id,
                             block,
@@ -883,7 +883,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     // With time we will want to downgrade this log
                     warn!(
                         self.log, "Blocks and blobs request for backfill received invalid data";
-                        "peer_id" => %peer_id, "batch_id" => batch_id, "error" => e
+                        "peer_id" => %peer_id, "batch_id" => resp.batch_id, "error" => e
                     );
                     // TODO: penalize the peer for being a bad boy
                     let id = RequestId::BackFillBlobs { id };

@@ -43,15 +43,14 @@ use tokio_stream::wrappers::WatchStream;
 use types::consts::eip4844::BLOB_TX_TYPE;
 use types::transaction::{AccessTuple, BlobTransaction, EcdsaSignature, SignedBlobTransaction};
 use types::{
-    AbstractExecPayload, BeaconStateError, Blob, ExecPayload, KzgCommitment, VersionedHash,
+    blobs_sidecar::{Blobs, KzgCommitments},
+    ExecutionPayload, ExecutionPayloadCapella, ExecutionPayloadEip4844, ExecutionPayloadMerge,
 };
+use types::{AbstractExecPayload, BeaconStateError, ExecPayload, VersionedHash};
 use types::{
     BlindedPayload, BlockType, ChainSpec, Epoch, ExecutionBlockHash, ForkName,
     ProposerPreparationData, PublicKeyBytes, Signature, SignedBeaconBlock, Slot, Transaction,
     Uint256,
-};
-use types::{
-    ExecutionPayload, ExecutionPayloadCapella, ExecutionPayloadEip4844, ExecutionPayloadMerge,
 };
 
 mod block_hash;
@@ -135,19 +134,13 @@ pub enum BlockProposalContents<T: EthSpec, Payload: AbstractExecPayload<T>> {
     PayloadAndBlobs {
         payload: Payload,
         block_value: Uint256,
-        kzg_commitments: VariableList<KzgCommitment, T::MaxBlobsPerBlock>,
-        blobs: VariableList<Blob<T>, T::MaxBlobsPerBlock>,
+        kzg_commitments: KzgCommitments<T>,
+        blobs: Blobs<T>,
     },
 }
 
 impl<T: EthSpec, Payload: AbstractExecPayload<T>> BlockProposalContents<T, Payload> {
-    pub fn deconstruct(
-        self,
-    ) -> (
-        Payload,
-        Option<VariableList<KzgCommitment, T::MaxBlobsPerBlock>>,
-        Option<VariableList<Blob<T>, T::MaxBlobsPerBlock>>,
-    ) {
+    pub fn deconstruct(self) -> (Payload, Option<KzgCommitments<T>>, Option<Blobs<T>>) {
         match self {
             Self::Payload {
                 payload,
@@ -2167,7 +2160,7 @@ fn ethers_tx_to_bytes<T: EthSpec>(
             .ok_or(BlobTxConversionError::BlobVersionedHashesMissing)?
             .as_array()
             .ok_or(BlobTxConversionError::BlobVersionedHashesMissing)?
-            .into_iter()
+            .iter()
             .map(|versioned_hash| {
                 let hash_bytes = eth2_serde_utils::hex::decode(
                     versioned_hash

@@ -462,12 +462,12 @@ impl<E: EthSpec> AvailableBlock<E> {
                         let blobs_sidecar = beacon_block
                             .reconstruct_empty_blobs(Some(block_root))
                             .map(Arc::new)?;
-                        return Ok(AvailableBlock(AvailableBlockInner::BlockAndBlob(
+                        Ok(AvailableBlock(AvailableBlockInner::BlockAndBlob(
                             SignedBeaconBlockAndBlobsSidecar {
                                 beacon_block,
                                 blobs_sidecar,
                             },
-                        )));
+                        )))
                     }
                     DataAvailabilityCheckRequired::No => {
                         Ok(AvailableBlock(AvailableBlockInner::Block(beacon_block)))
@@ -561,6 +561,7 @@ pub trait AsBlock<E: EthSpec> {
     fn message(&self) -> BeaconBlockRef<E>;
     fn as_block(&self) -> &SignedBeaconBlock<E>;
     fn block_cloned(&self) -> Arc<SignedBeaconBlock<E>>;
+    fn canonical_root(&self) -> Hash256;
 }
 
 impl<E: EthSpec> AsBlock<E> for BlockWrapper<E> {
@@ -602,14 +603,20 @@ impl<E: EthSpec> AsBlock<E> for BlockWrapper<E> {
     }
     fn as_block(&self) -> &SignedBeaconBlock<E> {
         match &self {
-            BlockWrapper::Block(block) => &block,
-            BlockWrapper::BlockAndBlob(block, _) => &block,
+            BlockWrapper::Block(block) => block,
+            BlockWrapper::BlockAndBlob(block, _) => block,
         }
     }
     fn block_cloned(&self) -> Arc<SignedBeaconBlock<E>> {
         match &self {
             BlockWrapper::Block(block) => block.clone(),
             BlockWrapper::BlockAndBlob(block, _) => block.clone(),
+        }
+    }
+    fn canonical_root(&self) -> Hash256 {
+        match &self {
+            BlockWrapper::Block(block) => block.canonical_root(),
+            BlockWrapper::BlockAndBlob(block, _) => block.canonical_root(),
         }
     }
 }
@@ -653,14 +660,20 @@ impl<E: EthSpec> AsBlock<E> for &BlockWrapper<E> {
     }
     fn as_block(&self) -> &SignedBeaconBlock<E> {
         match &self {
-            BlockWrapper::Block(block) => &block,
-            BlockWrapper::BlockAndBlob(block, _) => &block,
+            BlockWrapper::Block(block) => block,
+            BlockWrapper::BlockAndBlob(block, _) => block,
         }
     }
     fn block_cloned(&self) -> Arc<SignedBeaconBlock<E>> {
         match &self {
             BlockWrapper::Block(block) => block.clone(),
             BlockWrapper::BlockAndBlob(block, _) => block.clone(),
+        }
+    }
+    fn canonical_root(&self) -> Hash256 {
+        match &self {
+            BlockWrapper::Block(block) => block.canonical_root(),
+            BlockWrapper::BlockAndBlob(block, _) => block.canonical_root(),
         }
     }
 }
@@ -716,7 +729,7 @@ impl<E: EthSpec> AsBlock<E> for AvailableBlock<E> {
     }
     fn as_block(&self) -> &SignedBeaconBlock<E> {
         match &self.0 {
-            AvailableBlockInner::Block(block) => &block,
+            AvailableBlockInner::Block(block) => block,
             AvailableBlockInner::BlockAndBlob(block_sidecar_pair) => {
                 &block_sidecar_pair.beacon_block
             }
@@ -727,6 +740,14 @@ impl<E: EthSpec> AsBlock<E> for AvailableBlock<E> {
             AvailableBlockInner::Block(block) => block.clone(),
             AvailableBlockInner::BlockAndBlob(block_sidecar_pair) => {
                 block_sidecar_pair.beacon_block.clone()
+            }
+        }
+    }
+    fn canonical_root(&self) -> Hash256 {
+        match &self.0 {
+            AvailableBlockInner::Block(block) => block.canonical_root(),
+            AvailableBlockInner::BlockAndBlob(block_sidecar_pair) => {
+                block_sidecar_pair.beacon_block.canonical_root()
             }
         }
     }
