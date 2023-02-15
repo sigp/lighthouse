@@ -25,7 +25,7 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::time::Duration;
 use types::{Checkpoint, Epoch, EthSpec, Hash256, PublicKeyBytes, GRAFFITI_BYTES_LEN};
-use unused_port::{unused_tcp4_port, unused_udp4_port};
+use unused_port;
 
 /// Gets the fully-initialized global client.
 ///
@@ -399,10 +399,6 @@ pub fn get_config<E: EthSpec>(
      * Discovery address is set to localhost by default.
      */
     if cli_args.is_present("zero-ports") {
-        // TODO: why is this here? what's this got to do with zero ports?
-        if client_config.network.enr_address == Some(Ipv4Addr::UNSPECIFIED) {
-            client_config.network.enr_address = None;
-        }
         client_config.http_api.listen_port = 0;
         client_config.http_metrics.listen_port = 0;
     }
@@ -855,7 +851,7 @@ pub fn parse_listening_addresses(
 
             // use zero ports if required. If not, use the given port.
             let tcp_port = use_zero_ports
-                .then(|| unused_tcp4_port())
+                .then(|| unused_port::unused_tcp4_port())
                 .transpose()?
                 .unwrap_or(port);
             // use zero ports if required. If not, use the specific udp port. If none given, use
@@ -911,7 +907,7 @@ pub fn parse_listening_addresses(
     Ok(listening_addresses)
 }
 
-/// Sets the network config from the command line arguments
+/// Sets the network config from the command line arguments.
 pub fn set_network_config(
     config: &mut NetworkConfig,
     cli_args: &ArgMatches,
@@ -1052,47 +1048,82 @@ pub fn set_network_config(
         }
     }
 
-    if let Some(enr_address) = cli_args.value_of("enr-address") {
-        let resolved_addr = match enr_address.parse::<IpAddr>() {
-            Ok(addr) => addr, // // Input is an IpAddr
-            Err(_) => {
-                let mut addr = enr_address.to_string();
-                // Appending enr-port to the dns hostname to appease `to_socket_addrs()` parsing.
-                // Since enr-update is disabled with a dns address, not setting the enr-udp-port
-                // will make the node undiscoverable.
-                if let Some(enr_udp_port) =
-                    config
-                        .enr_udp4_port
-                        .or(if use_listening_port_as_enr_port_by_default {
-                            Some(config.discovery_port)
-                        } else {
-                            None
-                        })
-                {
-                    write!(addr, ":{}", enr_udp_port)
-                        .map_err(|e| format!("Failed to write enr address {}", e))?;
-                } else {
-                    return Err(
-                        "enr-udp-port must be set for node to be discoverable with dns address"
-                            .into(),
-                    );
+    if let Some(enr_addresses) = cli_args.values_of("enr-address") {
+        let mut enr_ip4 = None;
+        let mut enr_ip6 = None;
+        let mut resolved_enr_ip4 = None;
+        let mut resolved_enr_ip6 = None;
+
+        for addr in enr_addresses {
+            match addr.parse::<IpAddr>() {
+                Ok(IpAddr::V4(v4_addr)) => {
+                    if let Some(used) = enr_ip4.as_ref() {
+                        warn!(log, "More than one Ipv4 ENR address provided"; "used" => %used, "ignored" => %v4_addr)
+                    } else {
+                        enr_ip4 = Some(v4_addr)
+                    }
                 }
-                // `to_socket_addr()` does the dns resolution
-                // Note: `to_socket_addrs()` is a blocking call
-                let resolved_addr = if let Ok(mut resolved_addrs) = addr.to_socket_addrs() {
-                    // Pick the first ip from the list of resolved addresses
-                    resolved_addrs
-                        .next()
-                        .map(|a| a.ip())
-                        .ok_or("Resolved dns addr contains no entries")?
-                } else {
-                    return Err(format!("Failed to parse enr-address: {}", enr_address));
-                };
-                config.discv5_config.enr_update = false;
-                resolved_addr
+                Ok(IpAddr::V6(v6_addr)) => {
+                    if let Some(used) = enr_ip6.as_ref() {
+                        warn!(log, "More than one Ipv6 ENR address provided"; "used" => %used, "ignored" => %v6_addr)
+                    } else {
+                        enr_ip6 = Some(v6_addr)
+                    }
+                }
+                Err(_) => {
+                    // Try to resolve the address
+
+                    // NOTE: From checking the `to_socket_addrs` code I don't think the port
+                    // actually matters. Just use the udp port.
+
+                    let port = match &config.listen_addresses {
+                        ListenAddress::V4(v4_addr) => v4_addr.udp_port,
+                        ListenAddress::V6(v6_addr) => v6_addr.udp_port,
+                        ListenAddress::DualStack(v4_addr, v6_addr) => {
+                            // NOTE: slight preference for ipv4 that I don't think is of importance.
+                            v4_addr.udp_port
+                        }
+                    };
+
+                    let addr_str = format!("{addr}:{port}");
+                    match addr_str.to_socket_addrs() {
+                        Err(_e) => {
+                            return Err(format!("Failed to parse or resolve address {addr}."))
+                        }
+                        Ok(resolved_addresses) => {
+                            for socket_addr in resolved_addresses {
+                                // Use the first ipv4 and first ipv6 addresses present.
+
+                                // NOTE: this means that if two dns addresses are provided, we
+                                // might end up using the ipv4 and ipv6 resolved addresses of just
+                                // the first.
+                                match socket_addr.ip() {
+                                    IpAddr::V4(v4_addr) => {
+                                        if resolved_enr_ip4.is_none() {
+                                            resolved_enr_ip4 = Some(v4_addr)
+                                        }
+                                    }
+                                    IpAddr::V6(v6_addr) => {
+                                        if resolved_enr_ip6.is_none() {
+                                            resolved_enr_ip6 = Some(v6_addr)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
-        };
-        config.enr_address = Some(resolved_addr);
+        }
+
+        // The ENR addresses given as ips should take preference over any resolved address
+        let used_host_resolution = resolved_enr_ip4.is_some() || resolved_enr_ip6.is_some();
+        let ip4 = enr_ip4.or(resolved_enr_ip4);
+        let ip6 = enr_ip6.or(resolved_enr_ip6);
+        config.enr_address = (ip4, ip6);
+        if used_host_resolution {
+            config.discv5_config.enr_update = false;
+        }
     }
 
     if cli_args.is_present("disable-enr-auto-update") {
