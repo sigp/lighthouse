@@ -124,6 +124,7 @@ pub use crate::beacon_block_body::{
 pub use crate::beacon_block_header::BeaconBlockHeader;
 pub use crate::beacon_committee::{BeaconCommittee, OwnedBeaconCommittee};
 pub use crate::beacon_state::{BeaconTreeHashCache, Error as BeaconStateError, *};
+pub use crate::blob_sidecar::BlindedBlobSidecar;
 pub use crate::blob_sidecar::BlobSidecar;
 pub use crate::blobs_sidecar::BlobsSidecar;
 pub use crate::bls_to_execution_change::BlsToExecutionChange;

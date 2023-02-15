@@ -1,4 +1,4 @@
-use crate::{AbstractExecPayload, BeaconBlock, BlobSidecar, EthSpec};
+use crate::{AbstractExecPayload, BeaconBlock, BlindedBlobSidecar, EthSpec};
 use derivative::Derivative;
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::Encode;
@@ -10,7 +10,7 @@ use tree_hash_derive::TreeHash;
 #[serde(bound = "T: EthSpec, Payload: AbstractExecPayload<T>")]
 pub struct BeaconBlockAndBlindedBlobSidecars<T: EthSpec, Payload: AbstractExecPayload<T>> {
     pub block: BeaconBlock<T, Payload>,
-    pub blinded_block_sidecars: VariableList<BlobSidecar<T>, T::MaxBlobsPerBlock>,
+    pub blinded_block_sidecars: VariableList<BlindedBlobSidecar, T::MaxBlobsPerBlock>,
 }
 
 /// A wrapper over a [`BeaconBlock`] or a [`BeaconBlockAndBlindedBlobSidecars`].
