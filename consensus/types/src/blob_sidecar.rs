@@ -6,6 +6,7 @@ use serde_derive::{Deserialize, Serialize};
 use ssz::Encode;
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
+use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 
 #[derive(
@@ -66,4 +67,19 @@ pub struct BlindedBlobSidecar {
     pub blob_root: Hash256,
     pub kzg_commitment: KzgCommitment,
     pub kzg_proof: KzgProof,
+}
+
+impl<T: EthSpec> From<BlobSidecar<T>> for BlindedBlobSidecar {
+    fn from(value: BlobSidecar<T>) -> Self {
+        Self {
+            block_root: value.block_root,
+            index: value.index,
+            slot: value.slot,
+            block_parent_root: value.block_parent_root,
+            proposer_index: value.proposer_index,
+            blob_root: value.blob.tree_hash_root(),
+            kzg_commitment: value.kzg_commitment,
+            kzg_proof: value.kzg_proof,
+        }
+    }
 }
