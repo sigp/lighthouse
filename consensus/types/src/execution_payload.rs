@@ -35,7 +35,9 @@ pub type Withdrawals<T> = VariableList<Withdrawal, <T as EthSpec>::MaxWithdrawal
         arbitrary(bound = "T: EthSpec")
     ),
     cast_error(ty = "Error", expr = "BeaconStateError::IncorrectStateVariant"),
-    partial_getter_error(ty = "Error", expr = "BeaconStateError::IncorrectStateVariant")
+    partial_getter_error(ty = "Error", expr = "BeaconStateError::IncorrectStateVariant"),
+    map_into(FullPayload, BlindedPayload),
+    map_ref_into(ExecutionPayloadHeader)
 )]
 #[derive(
     Debug, Clone, Serialize, Encode, Deserialize, TreeHash, Derivative, arbitrary::Arbitrary,

@@ -37,10 +37,9 @@ pub fn verify_bls_to_execution_change<T: EthSpec>(
         Invalid::NonBlsWithdrawalCredentials
     );
 
+    // Re-hashing the pubkey isn't necessary during block replay, so we may want to skip that in
+    // future.
     let pubkey_hash = hash(address_change.from_bls_pubkey.as_serialized());
-
-    // FIXME: Should this check be put inside the verify_signatures.is_true() condition?
-    //        I believe that's used for fuzzing so this is a Mehdi question..
     verify!(
         validator.withdrawal_credentials.as_bytes().get(1..) == pubkey_hash.get(1..),
         Invalid::WithdrawalCredentialsMismatch

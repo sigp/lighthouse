@@ -985,11 +985,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             })?
             .ok_or(Error::BlockHashMissingFromExecutionLayer(exec_block_hash))?;
 
-        //FIXME(sean) avoid the clone by comparing refs to headers (`as_execution_payload_header` method ?)
-        let full_payload: FullPayload<T::EthSpec> = execution_payload.clone().into();
-
         // Verify payload integrity.
-        let header_from_payload = full_payload.to_execution_payload_header();
+        let header_from_payload = ExecutionPayloadHeader::from(execution_payload.to_ref());
         if header_from_payload != execution_payload_header {
             for txn in execution_payload.transactions() {
                 debug!(
