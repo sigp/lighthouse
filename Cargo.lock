@@ -570,6 +570,7 @@ dependencies = [
  "eth1",
  "eth2",
  "eth2_hashing",
+ "eth2_network_config",
  "eth2_ssz",
  "eth2_ssz_derive",
  "eth2_ssz_types",
@@ -581,6 +582,7 @@ dependencies = [
  "hex",
  "int_to_bytes",
  "itertools",
+ "kzg",
  "lazy_static",
  "lighthouse_metrics",
  "logging",
@@ -600,6 +602,8 @@ dependencies = [
  "serde_json",
  "slasher",
  "slog",
+ "slog-async",
+ "slog-term",
  "sloggers",
  "slot_clock",
  "smallvec",
@@ -640,6 +644,7 @@ dependencies = [
  "node_test_rig",
  "sensitive_url",
  "serde",
+ "serde_json",
  "slasher",
  "slog",
  "store",
@@ -894,6 +899,15 @@ dependencies = [
  "cc",
  "libc",
  "pkg-config",
+]
+
+[[package]]
+name = "c-kzg"
+version = "0.1.0"
+source = "git+https://github.com/ethereum/c-kzg-4844?rev=69f6155d7524247be9d3f54ab3bfbe33a0345622#69f6155d7524247be9d3f54ab3bfbe33a0345622"
+dependencies = [
+ "hex",
+ "libc",
 ]
 
 [[package]]
@@ -1829,7 +1843,7 @@ dependencies = [
  "enr",
  "fnv",
  "futures",
- "hashlink",
+ "hashlink 0.7.0",
  "hex",
  "hkdf",
  "lazy_static",
@@ -2205,6 +2219,8 @@ dependencies = [
  "enr",
  "eth2_config",
  "eth2_ssz",
+ "kzg",
+ "serde_json",
  "serde_yaml",
  "tempfile",
  "types",
@@ -3049,6 +3065,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "hashlink"
+version = "0.8.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "69fe1fcf8b4278d860ad0548329f892a3631fb63f82574df68275f34cdbe0ffa"
+dependencies = [
+ "hashbrown 0.12.3",
+]
+
+[[package]]
 name = "headers"
 version = "0.3.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3711,6 +3736,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "kzg"
+version = "0.1.0"
+dependencies = [
+ "arbitrary",
+ "c-kzg",
+ "derivative",
+ "eth2_hashing",
+ "eth2_serde_utils",
+ "eth2_ssz",
+ "eth2_ssz_derive",
+ "hex",
+ "serde",
+ "serde_derive",
+ "tree_hash",
+]
+
+[[package]]
 name = "lazy_static"
 version = "1.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3740,11 +3782,13 @@ dependencies = [
  "environment",
  "eth1_test_rig",
  "eth2",
+ "eth2_hashing",
  "eth2_network_config",
  "eth2_ssz",
  "eth2_wallet",
  "genesis",
  "int_to_bytes",
+ "kzg",
  "lighthouse_network",
  "lighthouse_version",
  "log",
@@ -4309,9 +4353,9 @@ dependencies = [
 
 [[package]]
 name = "libsqlite3-sys"
-version = "0.22.2"
+version = "0.25.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "290b64917f8b0cb885d9de0f9959fe1f775d7fa12f1da2db9001c1c8ab60f89d"
+checksum = "29f835d03d717946d28b1d1ed632eb6f0e24a299388ee623d0c23118d3e8a7fa"
 dependencies = [
  "cc",
  "pkg-config",
@@ -6058,9 +6102,9 @@ dependencies = [
 
 [[package]]
 name = "r2d2_sqlite"
-version = "0.18.0"
+version = "0.21.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9d24607049214c5e42d3df53ac1d8a23c34cc6a5eefe3122acb2c72174719959"
+checksum = "b4f5d0337e99cd5cacd91ffc326c6cc9d8078def459df560c4f9bf9ba4a51034"
 dependencies = [
  "r2d2",
  "rusqlite",
@@ -6419,16 +6463,15 @@ dependencies = [
 
 [[package]]
 name = "rusqlite"
-version = "0.25.4"
+version = "0.28.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5c4b1eaf239b47034fb450ee9cdedd7d0226571689d8823030c4b6c2cb407152"
+checksum = "01e213bc3ecb39ac32e81e51ebe31fd888a940515173e3a18a35f8c6e896422a"
 dependencies = [
  "bitflags",
  "fallible-iterator",
  "fallible-streaming-iterator",
- "hashlink",
+ "hashlink 0.8.1",
  "libsqlite3-sys",
- "memchr",
  "smallvec",
 ]
 
@@ -6789,16 +6832,6 @@ version = "1.0.152"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bb7d1f0d3021d347a83e556fc4683dea2ea09d87bccdf88ff5c12545d89d5efb"
 dependencies = [
- "serde_derive",
-]
-
-[[package]]
-name = "serde-big-array"
-version = "0.3.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "18b20e7752957bbe9661cff4e0bb04d183d0948cdab2ea58cdb9df36a61dfe62"
-dependencies = [
- "serde",
  "serde_derive",
 ]
 
@@ -8295,6 +8328,7 @@ dependencies = [
  "hex",
  "int_to_bytes",
  "itertools",
+ "kzg",
  "lazy_static",
  "log",
  "maplit",
@@ -8308,7 +8342,6 @@ dependencies = [
  "rusqlite",
  "safe_arith",
  "serde",
- "serde-big-array",
  "serde_derive",
  "serde_json",
  "serde_with",

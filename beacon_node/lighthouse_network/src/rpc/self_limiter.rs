@@ -61,6 +61,7 @@ impl<Id: ReqId, TSpec: EthSpec> SelfRateLimiter<Id, TSpec> {
             blocks_by_range_quota,
             blocks_by_root_quota,
             blobs_by_range_quota,
+            blobs_by_root_quota,
         } = config;
 
         let limiter = RateLimiter::builder()
@@ -71,6 +72,7 @@ impl<Id: ReqId, TSpec: EthSpec> SelfRateLimiter<Id, TSpec> {
             .set_quota(Protocol::BlocksByRange, blocks_by_range_quota)
             .set_quota(Protocol::BlocksByRoot, blocks_by_root_quota)
             .set_quota(Protocol::BlobsByRange, blobs_by_range_quota)
+            .set_quota(Protocol::BlobsByRoot, blobs_by_root_quota)
             // Manually set the LightClientBootstrap quota, since we use the same rate limiter for
             // inbound and outbound requests, and the LightClientBootstrap is an only inbound
             // protocol.

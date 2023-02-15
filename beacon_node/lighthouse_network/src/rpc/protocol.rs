@@ -183,8 +183,10 @@ pub enum Protocol {
     #[strum(serialize = "beacon_blocks_by_root")]
     BlocksByRoot,
     /// The `BlobsByRange` protocol name.
+    #[strum(serialize = "blobs_sidecars_by_range")]
     BlobsByRange,
     /// The `BlobsByRoot` protocol name.
+    #[strum(serialize = "beacon_block_and_blobs_sidecar_by_root")]
     BlobsByRoot,
     /// The `Ping` protocol name.
     Ping,
