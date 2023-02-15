@@ -494,6 +494,36 @@ impl From<ForkchoiceUpdatedResponse> for JsonForkchoiceUpdatedV1Response {
     }
 }
 
+#[derive(Clone, Debug, Deserialize)]
+pub struct JsonExecutionPayloadBodyV1 {
+    pub transactions: Vec<ethers_core::types::Transaction>,
+    pub withdrawals: Option<Vec<JsonWithdrawal>>,
+}
+
+impl<E: EthSpec> TryFrom<JsonExecutionPayloadBodyV1> for ExecutionPayloadBodyV1<E> {
+    type Error = ssz_types::Error;
+
+    fn try_from(value: JsonExecutionPayloadBodyV1) -> Result<Self, Self::Error> {
+        Ok(Self {
+            transactions: Transactions::<E>::new(
+                value
+                    .transactions
+                    .iter()
+                    .map(|tx| Transaction::<E::MaxBytesPerTransaction>::new(tx.rlp().to_vec()))
+                    .collect::<Result<Vec<_>, _>>()?,
+            )?,
+            withdrawals: value
+                .withdrawals
+                .map(|withdrawals| {
+                    Withdrawals::<E>::new(
+                        withdrawals.into_iter().map(Into::into).collect::<Vec<_>>(),
+                    )
+                })
+                .transpose()?,
+        })
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TransitionConfigurationV1 {

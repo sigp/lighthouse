@@ -103,7 +103,7 @@ use store::{
     DatabaseBlock, Error as DBError, HotColdDB, KeyValueStore, KeyValueStoreOp, StoreItem, StoreOp,
 };
 use task_executor::{ShutdownReason, TaskExecutor};
-use tokio_stream::Stream;
+use tokio_stream::{wrappers::UnboundedReceiverStream, Stream};
 use tree_hash::TreeHash;
 use types::beacon_state::CloneConfig;
 use types::consts::merge::INTERVALS_PER_SLOT;
@@ -940,54 +940,77 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// ## Errors
     ///
     /// May return a database error.
-    pub async fn get_block_checking_early_attester_cache(
-        &self,
-        block_root: &Hash256,
-    ) -> Result<Option<Arc<SignedBeaconBlock<T::EthSpec>>>, Error> {
-        if let Some(block) = self.early_attester_cache.get_block(*block_root) {
-            return Ok(Some(block));
-        }
-        Ok(self.get_block(block_root).await?.map(Arc::new))
-    }
-
     pub fn get_blocks_checking_early_attester_cache(
-        &self,
+        self: &Arc<Self>,
         block_roots: Vec<Hash256>,
         executor: &TaskExecutor,
-    ) -> impl Stream<
-        Item = (
-            Hash256,
-            Result<Option<Arc<SignedBeaconBlock<T::EthSpec>>>, Error>,
-        ),
+    ) -> Result<
+        impl Stream<
+            Item = (
+                Hash256,
+                Arc<Result<Option<Arc<SignedBeaconBlock<T::EthSpec>>>, Error>>,
+            ),
+        >,
+        Error,
     > {
-        BeaconBlockStreamer::<T>::new(
-            self.execution_layer.clone(),
+        let execution_layer = self
+            .execution_layer
+            .as_ref()
+            .ok_or(Error::ExecutionLayerMissing)?
+            .clone();
+
+        let finalized_slot = self
+            .canonical_head
+            .fork_choice_read_lock()
+            .get_finalized_block()
+            .map_err(Error::ForkChoiceError)?
+            .slot;
+
+        Ok(BeaconBlockStreamer::<T>::new(
+            execution_layer,
+            finalized_slot,
             self.store.clone(),
             Some(self.early_attester_cache.clone()),
             self.spec.clone(),
             self.log.clone(),
         )
-        .stream(block_roots, executor)
+        .stream(block_roots, executor, self))
     }
 
     pub fn get_blocks(
-        &self,
+        self: &Arc<Self>,
         block_roots: Vec<Hash256>,
         executor: &TaskExecutor,
-    ) -> impl Stream<
-        Item = (
-            Hash256,
-            Result<Option<Arc<SignedBeaconBlock<T::EthSpec>>>, Error>,
-        ),
+    ) -> Result<
+        impl Stream<
+            Item = (
+                Hash256,
+                Arc<Result<Option<Arc<SignedBeaconBlock<T::EthSpec>>>, Error>>,
+            ),
+        >,
+        Error,
     > {
-        BeaconBlockStreamer::<T>::new(
-            self.execution_layer.clone(),
+        let finalized_slot = self
+            .canonical_head
+            .fork_choice_read_lock()
+            .get_finalized_block()
+            .map_err(Error::ForkChoiceError)?
+            .slot;
+        let execution_layer = self
+            .execution_layer
+            .as_ref()
+            .ok_or(Error::ExecutionLayerMissing)?
+            .clone();
+
+        Ok(BeaconBlockStreamer::<T>::new(
+            execution_layer,
+            finalized_slot,
             self.store.clone(),
             None,
             self.spec.clone(),
             self.log.clone(),
         )
-        .stream(block_roots, executor)
+        .stream(block_roots, executor, self))
     }
 
     /// Returns the block at the given root, if any.
