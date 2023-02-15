@@ -141,6 +141,47 @@ pub struct Config {
     pub outbound_rate_limiter_config: Option<OutboundRateLimiterConfig>,
 }
 
+impl Config {
+    pub fn set_ipv4_listening_address(&mut self, addr: Ipv4Addr, tcp_port: u16, udp_port: u16) {
+        self.listen_addresses = ListenAddress::V4(ListenAddr {
+            addr,
+            udp_port,
+            tcp_port,
+        });
+    }
+
+    pub fn set_ipv6_listening_address(&mut self, addr: Ipv6Addr, tcp_port: u16, udp_port: u16) {
+        self.listen_addresses = ListenAddress::V6(ListenAddr {
+            addr,
+            udp_port,
+            tcp_port,
+        });
+    }
+
+    pub fn set_ipv4_ipv6_listening_addresses(
+        &mut self,
+        v4_addr: Ipv4Addr,
+        tcp4_port: u16,
+        udp4_port: u16,
+        v6_addr: Ipv6Addr,
+        tcp6_port: u16,
+        udp6_port: u16,
+    ) {
+        self.listen_addresses = ListenAddress::DualStack(
+            ListenAddr {
+                addr: v4_addr,
+                udp_port: udp4_port,
+                tcp_port: tcp4_port,
+            },
+            ListenAddr {
+                addr: v6_addr,
+                udp_port: udp6_port,
+                tcp_port: tcp6_port,
+            },
+        );
+    }
+}
+
 impl Default for Config {
     /// Generate a default network configuration.
     fn default() -> Self {
