@@ -266,6 +266,7 @@ pub enum BlockProductionError {
         blob_block_hash: ExecutionBlockHash,
         payload_block_hash: ExecutionBlockHash,
     },
+    NoBlobsCached,
     FailedToReadFinalizedBlock(store::Error),
     MissingFinalizedBlock(Hash256),
     BlockTooLarge(usize),

@@ -11,6 +11,7 @@ mod attester_duties;
 mod block_id;
 mod block_packing_efficiency;
 mod block_rewards;
+mod build_block_contents;
 mod database;
 mod metrics;
 mod proposer_duties;
@@ -2421,7 +2422,10 @@ pub fn serve<T: BeaconChainTypes>(
                     .fork_name(&chain.spec)
                     .map_err(inconsistent_fork_rejection)?;
 
-                fork_versioned_response(endpoint_version, fork_name, block)
+                let block_contents =
+                    build_block_contents::build_block_contents(fork_name, chain, block);
+
+                fork_versioned_response(endpoint_version, fork_name, block_contents?)
                     .map(|response| warp::reply::json(&response))
             },
         );

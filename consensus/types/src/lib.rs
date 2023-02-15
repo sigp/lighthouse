@@ -99,8 +99,10 @@ pub mod slot_data;
 #[cfg(feature = "sqlite")]
 pub mod sqlite;
 
+pub mod beacon_block_and_blob_sidecars;
 pub mod blob_sidecar;
 pub mod blobs_sidecar;
+pub mod block_contents;
 pub mod signed_blob;
 pub mod signed_block_and_blobs;
 pub mod transaction;
@@ -116,6 +118,7 @@ pub use crate::beacon_block::{
     BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockCapella, BeaconBlockEip4844,
     BeaconBlockMerge, BeaconBlockRef, BeaconBlockRefMut, BlindedBeaconBlock, EmptyBlock,
 };
+pub use crate::beacon_block_and_blob_sidecars::BeaconBlockAndBlobSidecars;
 pub use crate::beacon_block_body::{
     BeaconBlockBody, BeaconBlockBodyAltair, BeaconBlockBodyBase, BeaconBlockBodyCapella,
     BeaconBlockBodyEip4844, BeaconBlockBodyMerge, BeaconBlockBodyRef, BeaconBlockBodyRefMut,
@@ -123,8 +126,9 @@ pub use crate::beacon_block_body::{
 pub use crate::beacon_block_header::BeaconBlockHeader;
 pub use crate::beacon_committee::{BeaconCommittee, OwnedBeaconCommittee};
 pub use crate::beacon_state::{BeaconTreeHashCache, Error as BeaconStateError, *};
-pub use crate::blob_sidecar::BlobSidecar;
+pub use crate::blob_sidecar::{BlobSidecar, BlobSidecars};
 pub use crate::blobs_sidecar::{Blobs, BlobsSidecar};
+pub use crate::block_contents::BlockContents;
 pub use crate::bls_to_execution_change::BlsToExecutionChange;
 pub use crate::chain_spec::{ChainSpec, Config, Domain};
 pub use crate::checkpoint::Checkpoint;
