@@ -10,7 +10,7 @@ use crate::blob_cache::BlobCache;
 use crate::blob_verification::{AsBlock, AvailableBlock, BlockWrapper};
 use crate::block_times_cache::BlockTimesCache;
 use crate::block_verification::{
-    check_block_is_finalized_descendant, check_block_relevancy, get_block_root,
+    check_block_is_finalized_checkpoint_or_descendant, check_block_relevancy, get_block_root,
     signature_verify_chain_segment, BlockError, ExecutionPendingBlock, GossipVerifiedBlock,
     IntoExecutionPendingBlock, PayloadVerificationOutcome, POS_PANDA_BANNER,
 };
@@ -1025,11 +1025,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             })?
             .ok_or(Error::BlockHashMissingFromExecutionLayer(exec_block_hash))?;
 
-        //FIXME(sean) avoid the clone by comparing refs to headers (`as_execution_payload_header` method ?)
-        let full_payload: FullPayload<T::EthSpec> = execution_payload.clone().into();
-
         // Verify payload integrity.
-        let header_from_payload = full_payload.to_execution_payload_header();
+        let header_from_payload = ExecutionPayloadHeader::from(execution_payload.to_ref());
         if header_from_payload != execution_payload_header {
             for txn in execution_payload.transactions() {
                 debug!(
@@ -2900,7 +2897,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let mut fork_choice = self.canonical_head.fork_choice_write_lock();
 
         // Do not import a block that doesn't descend from the finalized root.
-        let signed_block = check_block_is_finalized_descendant(self, &fork_choice, signed_block)?;
+        let signed_block = check_block_is_finalized_checkpoint_or_descendant(self, &fork_choice, signed_block)?;
         let block = signed_block.message();
 
         // Register the new block with the fork choice service.

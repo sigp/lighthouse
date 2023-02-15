@@ -1004,6 +1004,13 @@ pub fn set_network_config(
     // Light client server config.
     config.enable_light_client_server = cli_args.is_present("light-client-server");
 
+    // This flag can be used both with or without a value. Try to parse it first with a value, if
+    // no value is defined but the flag is present, use the default params.
+    config.outbound_rate_limiter_config = clap_utils::parse_optional(cli_args, "self-limiter")?;
+    if cli_args.is_present("self-limiter") && config.outbound_rate_limiter_config.is_none() {
+        config.outbound_rate_limiter_config = Some(Default::default());
+    }
+
     Ok(())
 }
 

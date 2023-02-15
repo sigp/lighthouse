@@ -46,6 +46,7 @@ derivative = "2.2.0"
 delay_map = "0.1.1"
 ethereum-types = { version = "0.14.1", optional = true }
 operation_pool =  { path = "../operation_pool" }
+execution_layer =  { path = "../execution_layer" }
 
 [features]
 deterministic_long_lived_attnets = [ "ethereum-types" ]

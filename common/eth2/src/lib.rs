@@ -14,9 +14,8 @@ pub mod lighthouse_vc;
 pub mod mixin;
 pub mod types;
 
-use self::mixin::{RequestAccept, ResponseForkName, ResponseOptional};
+use self::mixin::{RequestAccept, ResponseOptional};
 use self::types::{Error as ResponseError, *};
-use ::types::map_fork_name_with;
 use futures::Stream;
 use futures_util::StreamExt;
 use lighthouse_network::PeerId;
@@ -696,35 +695,7 @@ impl BeaconNodeHttpClient {
             None => return Ok(None),
         };
 
-        // If present, use the fork provided in the headers to decode the block. Gracefully handle
-        // missing and malformed fork names by falling back to regular deserialisation.
-        let (block, version, execution_optimistic) = match response.fork_name_from_header() {
-            Ok(Some(fork_name)) => {
-                let (data, (version, execution_optimistic)) =
-                    map_fork_name_with!(fork_name, SignedBeaconBlock, {
-                        let ExecutionOptimisticForkVersionedResponse {
-                            version,
-                            execution_optimistic,
-                            data,
-                        } = response.json().await?;
-                        (data, (version, execution_optimistic))
-                    });
-                (data, version, execution_optimistic)
-            }
-            Ok(None) | Err(_) => {
-                let ExecutionOptimisticForkVersionedResponse {
-                    version,
-                    execution_optimistic,
-                    data,
-                } = response.json().await?;
-                (data, version, execution_optimistic)
-            }
-        };
-        Ok(Some(ExecutionOptimisticForkVersionedResponse {
-            version,
-            execution_optimistic,
-            data: block,
-        }))
+        Ok(Some(response.json().await?))
     }
 
     /// `GET lighthouse/beacon/blobs_sidecars/{block_id}`
@@ -758,35 +729,7 @@ impl BeaconNodeHttpClient {
             None => return Ok(None),
         };
 
-        // If present, use the fork provided in the headers to decode the block. Gracefully handle
-        // missing and malformed fork names by falling back to regular deserialisation.
-        let (block, version, execution_optimistic) = match response.fork_name_from_header() {
-            Ok(Some(fork_name)) => {
-                let (data, (version, execution_optimistic)) =
-                    map_fork_name_with!(fork_name, SignedBlindedBeaconBlock, {
-                        let ExecutionOptimisticForkVersionedResponse {
-                            version,
-                            execution_optimistic,
-                            data,
-                        } = response.json().await?;
-                        (data, (version, execution_optimistic))
-                    });
-                (data, version, execution_optimistic)
-            }
-            Ok(None) | Err(_) => {
-                let ExecutionOptimisticForkVersionedResponse {
-                    version,
-                    execution_optimistic,
-                    data,
-                } = response.json().await?;
-                (data, version, execution_optimistic)
-            }
-        };
-        Ok(Some(ExecutionOptimisticForkVersionedResponse {
-            version,
-            execution_optimistic,
-            data: block,
-        }))
+        Ok(Some(response.json().await?))
     }
 
     /// `GET v1/beacon/blocks` (LEGACY)
@@ -1088,6 +1031,40 @@ impl BeaconNodeHttpClient {
             .push("sync_committee");
 
         self.post(path, &rewards).await?;
+
+        Ok(())
+    }
+
+    /// `GET beacon/rewards/blocks`
+    pub async fn get_beacon_rewards_blocks(&self, epoch: Epoch) -> Result<(), Error> {
+        let mut path = self.eth_path(V1)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("beacon")
+            .push("rewards")
+            .push("blocks");
+
+        path.query_pairs_mut()
+            .append_pair("epoch", &epoch.to_string());
+
+        self.get(path).await
+    }
+
+    /// `POST beacon/rewards/attestations`
+    pub async fn post_beacon_rewards_attestations(
+        &self,
+        attestations: &[ValidatorId],
+    ) -> Result<(), Error> {
+        let mut path = self.eth_path(V1)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("beacon")
+            .push("rewards")
+            .push("attestations");
+
+        self.post(path, &attestations).await?;
 
         Ok(())
     }

@@ -4,6 +4,7 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
+use std::borrow::Cow;
 use std::convert::TryFrom;
 use std::fmt::Debug;
 use std::hash::Hash;
@@ -90,15 +91,15 @@ pub trait AbstractExecPayload<T: EthSpec>:
 
     type Merge: OwnedExecPayload<T>
         + Into<Self>
-        + From<ExecutionPayloadMerge<T>>
+        + for<'a> From<Cow<'a, ExecutionPayloadMerge<T>>>
         + TryFrom<ExecutionPayloadHeaderMerge<T>>;
     type Capella: OwnedExecPayload<T>
         + Into<Self>
-        + From<ExecutionPayloadCapella<T>>
+        + for<'a> From<Cow<'a, ExecutionPayloadCapella<T>>>
         + TryFrom<ExecutionPayloadHeaderCapella<T>>;
     type Eip4844: OwnedExecPayload<T>
         + Into<Self>
-        + From<ExecutionPayloadEip4844<T>>
+        + for<'a> From<Cow<'a, ExecutionPayloadEip4844<T>>>
         + TryFrom<ExecutionPayloadHeaderEip4844<T>>;
 
     fn default_at_fork(fork_name: ForkName) -> Result<Self, Error>;
@@ -150,31 +151,21 @@ pub struct FullPayload<T: EthSpec> {
 
 impl<T: EthSpec> From<FullPayload<T>> for ExecutionPayload<T> {
     fn from(full_payload: FullPayload<T>) -> Self {
-        match full_payload {
-            FullPayload::Merge(payload) => ExecutionPayload::Merge(payload.execution_payload),
-            FullPayload::Capella(payload) => ExecutionPayload::Capella(payload.execution_payload),
-            FullPayload::Eip4844(payload) => ExecutionPayload::Eip4844(payload.execution_payload),
-        }
+        map_full_payload_into_execution_payload!(full_payload, move |payload, cons| {
+            cons(payload.execution_payload)
+        })
     }
 }
 
 impl<'a, T: EthSpec> From<FullPayloadRef<'a, T>> for ExecutionPayload<T> {
     fn from(full_payload_ref: FullPayloadRef<'a, T>) -> Self {
-        match full_payload_ref {
-            FullPayloadRef::Merge(payload) => {
-                ExecutionPayload::Merge(payload.execution_payload.clone())
-            }
-            FullPayloadRef::Capella(payload) => {
-                ExecutionPayload::Capella(payload.execution_payload.clone())
-            }
-            FullPayloadRef::Eip4844(payload) => {
-                ExecutionPayload::Eip4844(payload.execution_payload.clone())
-            }
-        }
+        map_full_payload_ref!(&'a _, full_payload_ref, move |payload, cons| {
+            cons(payload);
+            payload.execution_payload.clone().into()
+        })
     }
 }
 
-// FIXME: can this be implemented as Deref or Clone somehow?
 impl<'a, T: EthSpec> From<FullPayloadRef<'a, T>> for FullPayload<T> {
     fn from(full_payload_ref: FullPayloadRef<'a, T>) -> Self {
         map_full_payload_ref!(&'a _, full_payload_ref, move |payload, cons| {
@@ -189,11 +180,12 @@ impl<T: EthSpec> ExecPayload<T> for FullPayload<T> {
         BlockType::Full
     }
 
-    fn to_execution_payload_header(&self) -> ExecutionPayloadHeader<T> {
-        let payload = map_full_payload_into_execution_payload!(self.clone(), |inner, cons| {
-            cons(inner.execution_payload)
-        });
-        ExecutionPayloadHeader::from(payload)
+    fn to_execution_payload_header<'a>(&'a self) -> ExecutionPayloadHeader<T> {
+        map_full_payload_ref!(&'a _, self.to_ref(), move |inner, cons| {
+            cons(inner);
+            let exec_payload_ref: ExecutionPayloadRef<'a, T> = From::from(&inner.execution_payload);
+            ExecutionPayloadHeader::from(exec_payload_ref)
+        })
     }
 
     fn parent_hash<'a>(&'a self) -> ExecutionBlockHash {
@@ -404,17 +396,9 @@ impl<T: EthSpec> AbstractExecPayload<T> for FullPayload<T> {
 
 impl<T: EthSpec> From<ExecutionPayload<T>> for FullPayload<T> {
     fn from(execution_payload: ExecutionPayload<T>) -> Self {
-        match execution_payload {
-            ExecutionPayload::Merge(execution_payload) => {
-                Self::Merge(FullPayloadMerge { execution_payload })
-            }
-            ExecutionPayload::Capella(execution_payload) => {
-                Self::Capella(FullPayloadCapella { execution_payload })
-            }
-            ExecutionPayload::Eip4844(execution_payload) => {
-                Self::Eip4844(FullPayloadEip4844 { execution_payload })
-            }
-        }
+        map_execution_payload_into_full_payload!(execution_payload, |inner, cons| {
+            cons(inner.into())
+        })
     }
 }
 
@@ -666,6 +650,7 @@ macro_rules! impl_exec_payload_common {
      $wrapped_field:ident,          // execution_payload_header     |   execution_payload
      $fork_variant:ident,           // Merge                        |   Merge
      $block_type_variant:ident,     // Blinded                      |   Full
+     $is_default_with_empty_roots:block,
      $f:block,
      $g:block) => {
         impl<T: EthSpec> ExecPayload<T> for $wrapper_type<T> {
@@ -675,7 +660,7 @@ macro_rules! impl_exec_payload_common {
 
             fn to_execution_payload_header(&self) -> ExecutionPayloadHeader<T> {
                 ExecutionPayloadHeader::$fork_variant($wrapped_type_header::from(
-                    self.$wrapped_field.clone(),
+                    &self.$wrapped_field,
                 ))
             }
 
@@ -712,15 +697,8 @@ macro_rules! impl_exec_payload_common {
             }
 
             fn is_default_with_empty_roots(&self) -> bool {
-                // FIXME: is there a better way than ignoring this lint?
-                // This is necessary because the first invocation of this macro might expand to:
-                //     self.execution_payload_header == ExecutionPayloadHeaderMerge::from(ExecutionPayloadMerge::default())
-                // but the second invocation might expand to:
-                //     self.execution_payload == ExecutionPayloadMerge::from(ExecutionPayloadMerge::default())
-                #[allow(clippy::cmp_owned)]
-                {
-                    self.$wrapped_field == $wrapped_type::from($wrapped_type_full::default())
-                }
+                let f = $is_default_with_empty_roots;
+                f(self)
             }
 
             fn transactions(&self) -> Option<&Transactions<T>> {
@@ -755,6 +733,12 @@ macro_rules! impl_exec_payload_for_fork {
             execution_payload_header,
             $fork_variant, // Merge
             Blinded,
+            {
+                |wrapper: &$wrapper_type_header<T>| {
+                    wrapper.execution_payload_header
+                        == $wrapped_type_header::from(&$wrapped_type_full::default())
+                }
+            },
             { |_| { None } },
             {
                 let c: for<'a> fn(&'a $wrapper_type_header<T>) -> Result<Hash256, Error> =
@@ -788,7 +772,7 @@ macro_rules! impl_exec_payload_for_fork {
             fn default() -> Self {
                 Self {
                     execution_payload_header: $wrapped_type_header::from(
-                        $wrapped_type_full::default(),
+                        &$wrapped_type_full::default(),
                     ),
                 }
             }
@@ -806,11 +790,11 @@ macro_rules! impl_exec_payload_for_fork {
             }
         }
 
-        // FIXME(sproul): consider adding references to these From impls
-        impl<T: EthSpec> From<$wrapped_type_full<T>> for $wrapper_type_header<T> {
-            fn from(execution_payload: $wrapped_type_full<T>) -> Self {
+        // BlindedPayload* from CoW reference to ExecutionPayload* (hopefully just a reference).
+        impl<'a, T: EthSpec> From<Cow<'a, $wrapped_type_full<T>>> for $wrapper_type_header<T> {
+            fn from(execution_payload: Cow<'a, $wrapped_type_full<T>>) -> Self {
                 Self {
-                    execution_payload_header: $wrapped_type_header::from(execution_payload),
+                    execution_payload_header: $wrapped_type_header::from(&*execution_payload),
                 }
             }
         }
@@ -825,6 +809,11 @@ macro_rules! impl_exec_payload_for_fork {
             execution_payload,
             $fork_variant, // Merge
             Full,
+            {
+                |wrapper: &$wrapper_type_full<T>| {
+                    wrapper.execution_payload == $wrapped_type_full::default()
+                }
+            },
             {
                 let c: for<'a> fn(&'a $wrapper_type_full<T>) -> Option<&'a Transactions<T>> =
                     |payload: &$wrapper_type_full<T>| Some(&payload.execution_payload.transactions);
@@ -844,6 +833,15 @@ macro_rules! impl_exec_payload_for_fork {
             fn default() -> Self {
                 Self {
                     execution_payload: $wrapped_type_full::default(),
+                }
+            }
+        }
+
+        // FullPayload * from CoW reference to ExecutionPayload* (hopefully already owned).
+        impl<'a, T: EthSpec> From<Cow<'a, $wrapped_type_full<T>>> for $wrapper_type_full<T> {
+            fn from(execution_payload: Cow<'a, $wrapped_type_full<T>>) -> Self {
+                Self {
+                    execution_payload: $wrapped_type_full::from(execution_payload.into_owned()),
                 }
             }
         }
@@ -915,11 +913,12 @@ impl<T: EthSpec> AbstractExecPayload<T> for BlindedPayload<T> {
 
 impl<T: EthSpec> From<ExecutionPayload<T>> for BlindedPayload<T> {
     fn from(payload: ExecutionPayload<T>) -> Self {
-        match payload {
-            ExecutionPayload::Merge(payload) => BlindedPayload::Merge(payload.into()),
-            ExecutionPayload::Capella(payload) => BlindedPayload::Capella(payload.into()),
-            ExecutionPayload::Eip4844(payload) => BlindedPayload::Eip4844(payload.into()),
-        }
+        // This implementation is a bit wasteful in that it discards the payload body.
+        // Required by the top-level constraint on AbstractExecPayload but could maybe be loosened
+        // in future.
+        map_execution_payload_into_blinded_payload!(payload, |inner, cons| cons(From::from(
+            Cow::Owned(inner)
+        )))
     }
 }
 

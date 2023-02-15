@@ -10,7 +10,7 @@ use lighthouse_network::rpc::methods::{
 use lighthouse_network::rpc::StatusMessage;
 use lighthouse_network::rpc::*;
 use lighthouse_network::{PeerId, PeerRequestId, ReportSource, Response, SyncInfo};
-use slog::{debug, error};
+use slog::{debug, error, warn};
 use slot_clock::SlotClock;
 use std::sync::Arc;
 use task_executor::TaskExecutor;
@@ -576,14 +576,26 @@ impl<T: BeaconChainTypes> Worker<T> {
                             break;
                         }
                         Err(e) => {
-                            error!(
-                                self.log,
-                                "Error fetching block for peer";
-                                "request" => ?req,
-                                "peer" => %peer_id,
-                                "block_root" => ?root,
-                                "error" => ?e
-                            );
+                            if matches!(
+                                e,
+                                BeaconChainError::ExecutionLayerErrorPayloadReconstruction(_block_hash, ref boxed_error)
+                                if matches!(**boxed_error, execution_layer::Error::EngineError(_))
+                            ) {
+                                warn!(
+                                    self.log,
+                                    "Error rebuilding payload for peer";
+                                    "info" => "this may occur occasionally when the EE is busy",
+                                    "block_root" => ?root,
+                                    "error" => ?e,
+                                );
+                            } else {
+                                error!(
+                                    self.log,
+                                    "Error fetching block for peer";
+                                    "block_root" => ?root,
+                                    "error" => ?e
+                                );
+                            }
 
                             // send the stream terminator
                             self.send_error_response(

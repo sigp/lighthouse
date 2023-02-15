@@ -348,8 +348,7 @@ where
         &mut self,
         block: &'a SignedBeaconBlock<T, Payload>,
     ) -> Result<()> {
-        // FIXME(capella): to improve performance we might want to decompress the withdrawal pubkeys
-        // in parallel.
+        // To improve performance we might want to decompress the withdrawal pubkeys in parallel.
         if let Ok(bls_to_execution_changes) = block.message().body().bls_to_execution_changes() {
             for bls_to_execution_change in bls_to_execution_changes {
                 self.sets.push(bls_execution_change_signature_set(

@@ -35,7 +35,9 @@ pub type Withdrawals<T> = VariableList<Withdrawal, <T as EthSpec>::MaxWithdrawal
         arbitrary(bound = "T: EthSpec")
     ),
     cast_error(ty = "Error", expr = "BeaconStateError::IncorrectStateVariant"),
-    partial_getter_error(ty = "Error", expr = "BeaconStateError::IncorrectStateVariant")
+    partial_getter_error(ty = "Error", expr = "BeaconStateError::IncorrectStateVariant"),
+    map_into(FullPayload, BlindedPayload),
+    map_ref_into(ExecutionPayloadHeader)
 )]
 #[derive(
     Debug, Clone, Serialize, Encode, Deserialize, TreeHash, Derivative, arbitrary::Arbitrary,
@@ -144,5 +146,28 @@ impl<T: EthSpec> ExecutionPayload<T> {
             + (T::max_transactions_per_payload() * (ssz::BYTES_PER_LENGTH_OFFSET + T::max_bytes_per_transaction()))
             // Max size of variable length `withdrawals` field
             + (T::max_withdrawals_per_payload() * <Withdrawal as Encode>::ssz_fixed_len())
+    }
+}
+
+impl<T: EthSpec> ForkVersionDeserialize for ExecutionPayload<T> {
+    fn deserialize_by_fork<'de, D: serde::Deserializer<'de>>(
+        value: serde_json::value::Value,
+        fork_name: ForkName,
+    ) -> Result<Self, D::Error> {
+        let convert_err = |e| {
+            serde::de::Error::custom(format!("ExecutionPayload failed to deserialize: {:?}", e))
+        };
+
+        Ok(match fork_name {
+            ForkName::Merge => Self::Merge(serde_json::from_value(value).map_err(convert_err)?),
+            ForkName::Capella => Self::Capella(serde_json::from_value(value).map_err(convert_err)?),
+            ForkName::Eip4844 => Self::Eip4844(serde_json::from_value(value).map_err(convert_err)?),
+            ForkName::Base | ForkName::Altair => {
+                return Err(serde::de::Error::custom(format!(
+                    "ExecutionPayload failed to deserialize: unsupported fork '{}'",
+                    fork_name
+                )));
+            }
+        })
     }
 }
