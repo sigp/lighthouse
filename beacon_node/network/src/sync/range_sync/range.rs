@@ -370,7 +370,6 @@ where
     }
 }
 
-/*
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -390,7 +389,7 @@ mod tests {
         NetworkGlobals, Request,
     };
     use slog::o;
-    use slot_clock::SystemTimeSlotClock;
+    use slot_clock::TestingSlotClock;
     use std::{collections::HashSet, sync::Arc};
     use store::MemoryStore;
     use tokio::sync::mpsc;
@@ -441,7 +440,7 @@ mod tests {
     }
 
     type TestBeaconChainType =
-        Witness<SystemTimeSlotClock, CachingEth1Backend<E>, E, MemoryStore<E>, MemoryStore<E>>;
+        Witness<TestingSlotClock, CachingEth1Backend<E>, E, MemoryStore<E>, MemoryStore<E>>;
 
     #[allow(unused)]
     struct TestRig {
@@ -725,4 +724,4 @@ mod tests {
         rig.expect_chain_segment();
         rig.expect_chain_segment();
     }
-}*/
+}

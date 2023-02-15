@@ -185,10 +185,10 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
         None
     }
 
-    /*#[cfg(test)]
+    #[cfg(test)]
     pub fn failed_attempts(&self) -> u8 {
         self.current_parent_request.failed_attempts()
-    }*/
+    }
 
     pub fn add_peer(&mut self, block_root: &Hash256, peer_id: &PeerId) -> bool {
         self.current_parent_request.add_peer(block_root, peer_id)

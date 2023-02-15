@@ -1,4 +1,4 @@
-/*use std::sync::Arc;
+use std::sync::Arc;
 
 use crate::service::RequestId;
 use crate::sync::manager::RequestId as SyncId;
@@ -13,7 +13,7 @@ use beacon_chain::{
 };
 pub use genesis::{interop_genesis_state, DEFAULT_ETH1_BLOCK_HASH};
 use lighthouse_network::{NetworkGlobals, Request};
-use slot_clock::SystemTimeSlotClock;
+use slot_clock::TestingSlotClock;
 use std::time::Duration;
 use store::MemoryStore;
 use tokio::sync::mpsc;
@@ -22,7 +22,7 @@ use types::{
     MinimalEthSpec as E, SignedBeaconBlock,
 };
 
-type T = Witness<SystemTimeSlotClock, CachingEth1Backend<E>, E, MemoryStore<E>, MemoryStore<E>>;
+type T = Witness<TestingSlotClock, CachingEth1Backend<E>, E, MemoryStore<E>, MemoryStore<E>>;
 
 struct TestRig {
     beacon_processor_rx: mpsc::Receiver<WorkEvent<T>>,
@@ -711,4 +711,4 @@ fn test_same_chain_race_condition() {
     };
     bl.parent_chain_processed(chain_hash, process_result, &mut cx);
     assert_eq!(bl.parent_lookups.len(), 0);
-}*/
+}
