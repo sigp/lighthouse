@@ -69,7 +69,7 @@ pub struct BlindedBlobSidecar {
     pub kzg_proof: KzgProof,
 }
 
-impl<T: EthSpec> TryFrom<&BlobSidecar<T>> for BlindedBlobSidecar {
+impl<T: EthSpec> TryFrom<BlobSidecar<T>> for BlindedBlobSidecar {
     type Error = String;
 
     fn try_from(value: BlobSidecar<T>) -> Result<Self, Self::Error> {
