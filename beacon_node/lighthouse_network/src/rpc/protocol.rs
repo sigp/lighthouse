@@ -329,10 +329,13 @@ impl ProtocolId {
     /// beginning of the stream, else returns `false`.
     pub fn has_context_bytes(&self) -> bool {
         match self.message_name {
-            Protocol::BlocksByRange | Protocol::BlocksByRoot => {
-                !matches!(self.version, Version::V1)
-            }
-            Protocol::LightClientBootstrap => true,
+            Protocol::BlocksByRange | Protocol::BlocksByRoot => match self.version {
+                Version::V2 => true,
+                Version::V1 => false,
+            },
+            Protocol::LightClientBootstrap => match self.version {
+                Version::V2 | Version::V1 => true,
+            },
             Protocol::Goodbye | Protocol::Ping | Protocol::Status | Protocol::MetaData => false,
         }
     }
