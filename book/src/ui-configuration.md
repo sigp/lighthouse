@@ -4,7 +4,7 @@ The Lighthouse UI requires a connection to both a Lighthouse Validator Client
 and a Lighthouse Beacon Node. Upon running you will first be greeted by the
 following configuration screen.
 
-![ui-configuration][./imgs/ui-configuration.png]
+![ui-configuration](./imgs/ui-configuration.png)
 
 
 
