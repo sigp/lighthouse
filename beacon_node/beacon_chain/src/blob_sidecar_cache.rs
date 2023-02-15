@@ -37,4 +37,12 @@ impl<T: EthSpec> BlobSidecarsCache<T> {
     pub fn pop(&self, root: &Hash256) -> Option<Vec<BlobSidecar<T>>> {
         self.blobs.lock().pop(&BlobCacheId(*root))
     }
+
+    pub fn peek<'a>(&self, root: &Hash256) -> Option<Vec<BlobSidecar<T>>> {
+        // FIXME(jimmy) temporary hack to make it compile - this file will be replaced by the real impl.
+        self.blobs
+            .lock()
+            .peek(&BlobCacheId(*root))
+            .map(|blob_sidecars| blob_sidecars.clone())
+    }
 }

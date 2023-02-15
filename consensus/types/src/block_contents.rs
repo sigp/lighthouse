@@ -17,6 +17,7 @@ pub struct BeaconBlockAndBlindedBlobSidecars<T: EthSpec, Payload: AbstractExecPa
 #[derive(Clone, Debug, Derivative, Serialize, Deserialize)]
 #[derivative(PartialEq, Hash(bound = "T: EthSpec"))]
 #[serde(untagged)]
+#[serde(bound = "T: EthSpec")]
 pub enum BlockContents<T: EthSpec, Payload: AbstractExecPayload<T>> {
     BlockAndBlobSidecars(BeaconBlockAndBlindedBlobSidecars<T, Payload>),
     Block(BeaconBlock<T, Payload>),

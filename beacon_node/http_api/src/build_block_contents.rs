@@ -23,7 +23,7 @@ pub fn build_block_contents<T: BeaconChainTypes, Payload: AbstractExecPayload<T:
     if matches!(fork_name, ForkName::Eip4844) {
         let block_root = &block.canonical_root();
 
-        if let Some(blob_sidecars) = mock_blob_cache.pop(block_root) {
+        if let Some(blob_sidecars) = mock_blob_cache.peek(block_root) {
             let blinded_block_sidecars: Vec<BlindedBlobSidecar> = blob_sidecars
                 .into_iter()
                 .map(|sidecar| sidecar.into())
