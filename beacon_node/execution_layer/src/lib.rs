@@ -41,13 +41,13 @@ use tokio::{
 };
 use tokio_stream::wrappers::WatchStream;
 use tree_hash::TreeHash;
-use types::{Withdrawals};
 use types::consts::eip4844::BLOB_TX_TYPE;
 use types::transaction::{AccessTuple, BlobTransaction, EcdsaSignature, SignedBlobTransaction};
+use types::Withdrawals;
 use types::{
+    blobs_sidecar::{Blobs, KzgCommitments},
     BlindedPayload, BlockType, ChainSpec, Epoch, ExecutionBlockHash, ExecutionPayload,
     ExecutionPayloadCapella, ExecutionPayloadEip4844, ExecutionPayloadMerge, ForkName,
-    blobs_sidecar::{Blobs, KzgCommitments},
 };
 use types::{AbstractExecPayload, BeaconStateError, ExecPayload, VersionedHash};
 use types::{
