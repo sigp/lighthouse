@@ -48,7 +48,6 @@ use types::{
     BlindedPayload, BlockType, ChainSpec, Epoch, ExecutionBlockHash, ExecutionPayload,
     ExecutionPayloadCapella, ExecutionPayloadEip4844, ExecutionPayloadMerge, ForkName,
     blobs_sidecar::{Blobs, KzgCommitments},
-    ExecutionPayload, ExecutionPayloadCapella, ExecutionPayloadEip4844, ExecutionPayloadMerge,
 };
 use types::{AbstractExecPayload, BeaconStateError, ExecPayload, VersionedHash};
 use types::{
