@@ -101,6 +101,7 @@ pub mod sqlite;
 
 pub mod blob_sidecar;
 pub mod blobs_sidecar;
+pub mod block_contents;
 pub mod signed_blob_sidecar;
 pub mod signed_block_and_blobs;
 pub mod transaction;

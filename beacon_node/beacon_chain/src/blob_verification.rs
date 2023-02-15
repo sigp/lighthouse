@@ -227,7 +227,7 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
         }
     };
 
-    let blob_proposer_index = blob_sidecar.message.proposer_index;
+    let blob_proposer_index = blob_sidecar.message.proposer_index as usize;
     if proposer_index != blob_proposer_index {
         return Err(BlobError::ProposerIndexMismatch {
             sidecar: blob_proposer_index,

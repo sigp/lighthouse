@@ -27,10 +27,13 @@ use tree_hash_derive::TreeHash;
 pub struct BlobSidecar<T: EthSpec> {
     pub block_root: Hash256,
     // TODO: fix the type, should fit in u8 as well
+    #[serde(with = "eth2_serde_utils::quoted_u64")]
     pub index: u64,
     pub slot: Slot,
     pub block_parent_root: Hash256,
-    pub proposer_index: usize,
+    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    pub proposer_index: u64,
+    #[serde(with = "ssz_types::serde_utils::hex_fixed_vec")]
     pub blob: Blob<T>,
     pub kzg_commitment: KzgCommitment,
     pub kzg_proof: KzgProof,
