@@ -9,6 +9,7 @@
 mod sync;
 
 use crate::beacon_node_fallback::{BeaconNodeFallback, OfflineOnFailure, RequireSynced};
+use crate::http_metrics::metrics::{get_int_gauge, set_int_gauge, ATTESTATION_DUTY};
 use crate::{
     block_service::BlockServiceNotification,
     http_metrics::metrics,
@@ -38,6 +39,11 @@ const SUBSCRIPTION_BUFFER_SLOTS: u64 = 2;
 
 /// Only retain `HISTORICAL_DUTIES_EPOCHS` duties prior to the current epoch.
 const HISTORICAL_DUTIES_EPOCHS: u64 = 2;
+
+/// Minimum number of validators for which we auto-enable per-validator metrics.
+/// For validators greater than this value, we need to manually set the `enable-per-validator-metrics`
+/// flag in the cli to enable collection of per validator metrics.
+const VALIDATOR_METRICS_MIN_COUNT: usize = 64;
 
 #[derive(Debug)]
 pub enum Error {
@@ -121,6 +127,7 @@ pub struct DutiesService<T, E: EthSpec> {
     /// This functionality is a little redundant since most BNs will likely reject duties when they
     /// aren't synced, but we keep it around for an emergency.
     pub require_synced: RequireSynced,
+    pub enable_high_validator_count_metrics: bool,
     pub context: RuntimeContext<E>,
     pub spec: ChainSpec,
 }
@@ -219,6 +226,12 @@ impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
             })
             .cloned()
             .collect()
+    }
+
+    /// Returns `true` if we should collect per validator metrics and `false` otherwise.
+    pub fn per_validator_metrics(&self) -> bool {
+        self.enable_high_validator_count_metrics
+            || self.total_validator_count() <= VALIDATOR_METRICS_MIN_COUNT
     }
 }
 
@@ -501,6 +514,7 @@ async fn poll_beacon_attesters<T: SlotClock + 'static, E: EthSpec>(
         current_epoch,
         &local_indices,
         &local_pubkeys,
+        current_slot,
     )
     .await
     {
@@ -520,9 +534,14 @@ async fn poll_beacon_attesters<T: SlotClock + 'static, E: EthSpec>(
     );
 
     // Download the duties and update the duties for the next epoch.
-    if let Err(e) =
-        poll_beacon_attesters_for_epoch(duties_service, next_epoch, &local_indices, &local_pubkeys)
-            .await
+    if let Err(e) = poll_beacon_attesters_for_epoch(
+        duties_service,
+        next_epoch,
+        &local_indices,
+        &local_pubkeys,
+        current_slot,
+    )
+    .await
     {
         error!(
             log,
@@ -619,6 +638,7 @@ async fn poll_beacon_attesters_for_epoch<T: SlotClock + 'static, E: EthSpec>(
     epoch: Epoch,
     local_indices: &[u64],
     local_pubkeys: &HashSet<PublicKeyBytes>,
+    current_slot: Slot,
 ) -> Result<(), Error> {
     let log = duties_service.context.log();
 
@@ -671,6 +691,35 @@ async fn poll_beacon_attesters_for_epoch<T: SlotClock + 'static, E: EthSpec>(
             .data
             .into_iter()
             .filter(|duty| {
+                if duties_service.per_validator_metrics() {
+                    let validator_index = duty.validator_index;
+                    let duty_slot = duty.slot;
+                    if let Some(existing_slot_gauge) =
+                        get_int_gauge(&ATTESTATION_DUTY, &[&validator_index.to_string()])
+                    {
+                        let existing_slot = Slot::new(existing_slot_gauge.get() as u64);
+                        let existing_epoch = existing_slot.epoch(E::slots_per_epoch());
+
+                        // First condition ensures that we switch to the next epoch duty slot
+                        // once the current epoch duty slot passes.
+                        // Second condition is to ensure that next epoch duties don't override
+                        // current epoch duties.
+                        if existing_slot < current_slot
+                            || (duty_slot.epoch(E::slots_per_epoch()) <= existing_epoch
+                                && duty_slot > current_slot
+                                && duty_slot != existing_slot)
+                        {
+                            existing_slot_gauge.set(duty_slot.as_u64() as i64);
+                        }
+                    } else {
+                        set_int_gauge(
+                            &ATTESTATION_DUTY,
+                            &[&validator_index.to_string()],
+                            duty_slot.as_u64() as i64,
+                        );
+                    }
+                }
+
                 local_pubkeys.contains(&duty.pubkey) && {
                     // Only update the duties if either is true:
                     //

@@ -358,12 +358,12 @@ impl ProtoArrayForkChoice {
     }
 
     /// See `ProtoArray::propagate_execution_payload_invalidation` for documentation.
-    pub fn process_execution_payload_invalidation(
+    pub fn process_execution_payload_invalidation<E: EthSpec>(
         &mut self,
         op: &InvalidationOperation,
     ) -> Result<(), String> {
         self.proto_array
-            .propagate_execution_payload_invalidation(op)
+            .propagate_execution_payload_invalidation::<E>(op)
             .map_err(|e| format!("Failed to process invalid payload: {:?}", e))
     }
 
@@ -748,6 +748,15 @@ impl ProtoArrayForkChoice {
             .is_descendant(ancestor_root, descendant_root)
     }
 
+    /// See `ProtoArray` documentation.
+    pub fn is_finalized_checkpoint_or_descendant<E: EthSpec>(
+        &self,
+        descendant_root: Hash256,
+    ) -> bool {
+        self.proto_array
+            .is_finalized_checkpoint_or_descendant::<E>(descendant_root)
+    }
+
     pub fn latest_message(&self, validator_index: usize) -> Option<(Hash256, Epoch)> {
         if validator_index < self.votes.0.len() {
             let vote = &self.votes.0[validator_index];
@@ -928,6 +937,10 @@ mod test_compute_deltas {
             epoch: genesis_epoch,
             root: finalized_root,
         };
+        let junk_checkpoint = Checkpoint {
+            epoch: Epoch::new(42),
+            root: Hash256::repeat_byte(42),
+        };
 
         let mut fc = ProtoArrayForkChoice::new::<MainnetEthSpec>(
             genesis_slot,
@@ -973,8 +986,10 @@ mod test_compute_deltas {
                     target_root: finalized_root,
                     current_epoch_shuffling_id: junk_shuffling_id.clone(),
                     next_epoch_shuffling_id: junk_shuffling_id,
-                    justified_checkpoint: genesis_checkpoint,
-                    finalized_checkpoint: genesis_checkpoint,
+                    // Use the junk checkpoint for the next to values to prevent
+                    // the loop-shortcutting mechanism from triggering.
+                    justified_checkpoint: junk_checkpoint,
+                    finalized_checkpoint: junk_checkpoint,
                     execution_status,
                     unrealized_justified_checkpoint: None,
                     unrealized_finalized_checkpoint: None,
@@ -993,6 +1008,11 @@ mod test_compute_deltas {
         assert!(!fc.is_descendant(finalized_root, not_finalized_desc));
         assert!(!fc.is_descendant(finalized_root, unknown));
 
+        assert!(fc.is_finalized_checkpoint_or_descendant::<MainnetEthSpec>(finalized_root));
+        assert!(fc.is_finalized_checkpoint_or_descendant::<MainnetEthSpec>(finalized_desc));
+        assert!(!fc.is_finalized_checkpoint_or_descendant::<MainnetEthSpec>(not_finalized_desc));
+        assert!(!fc.is_finalized_checkpoint_or_descendant::<MainnetEthSpec>(unknown));
+
         assert!(!fc.is_descendant(finalized_desc, not_finalized_desc));
         assert!(fc.is_descendant(finalized_desc, finalized_desc));
         assert!(!fc.is_descendant(finalized_desc, finalized_root));
@@ -1002,6 +1022,171 @@ mod test_compute_deltas {
         assert!(!fc.is_descendant(not_finalized_desc, finalized_desc));
         assert!(!fc.is_descendant(not_finalized_desc, finalized_root));
         assert!(!fc.is_descendant(not_finalized_desc, unknown));
+    }
+
+    /// This test covers an interesting case where a block can be a descendant
+    /// of the finalized *block*, but not a descenant of the finalized
+    /// *checkpoint*.
+    ///
+    /// ## Example
+    ///
+    /// Consider this block tree which has three blocks (`A`, `B` and `C`):
+    ///
+    /// ```ignore
+    /// [A] <--- [-] <--- [B]
+    ///       |
+    ///       |--[C]
+    /// ```
+    ///
+    /// - `A` (slot 31) is the common descendant.
+    /// - `B` (slot 33) descends from `A`, but there is a single skip slot
+    ///     between it and `A`.
+    /// - `C` (slot 32) descends from `A` and conflicts with `B`.
+    ///
+    /// Imagine that the `B` chain is finalized at epoch 1. This means that the
+    /// finalized checkpoint points to the skipped slot at 32. The root of the
+    /// finalized checkpoint is `A`.
+    ///
+    /// In this scenario, the block `C` has the finalized root (`A`) as an
+    /// ancestor whilst simultaneously conflicting with the finalized
+    /// checkpoint.
+    ///
+    /// This means that to ensure a block does not conflict with finality we
+    /// must check to ensure that it's an ancestor of the finalized
+    /// *checkpoint*, not just the finalized *block*.
+    #[test]
+    fn finalized_descendant_edge_case() {
+        let get_block_root = Hash256::from_low_u64_be;
+        let genesis_slot = Slot::new(0);
+        let junk_state_root = Hash256::zero();
+        let junk_shuffling_id =
+            AttestationShufflingId::from_components(Epoch::new(0), Hash256::zero());
+        let execution_status = ExecutionStatus::irrelevant();
+
+        let genesis_checkpoint = Checkpoint {
+            epoch: Epoch::new(0),
+            root: get_block_root(0),
+        };
+
+        let mut fc = ProtoArrayForkChoice::new::<MainnetEthSpec>(
+            genesis_slot,
+            junk_state_root,
+            genesis_checkpoint,
+            genesis_checkpoint,
+            junk_shuffling_id.clone(),
+            junk_shuffling_id.clone(),
+            execution_status,
+            CountUnrealizedFull::default(),
+        )
+        .unwrap();
+
+        struct TestBlock {
+            slot: u64,
+            root: u64,
+            parent_root: u64,
+        }
+
+        let insert_block = |fc: &mut ProtoArrayForkChoice, block: TestBlock| {
+            fc.proto_array
+                .on_block::<MainnetEthSpec>(
+                    Block {
+                        slot: Slot::from(block.slot),
+                        root: get_block_root(block.root),
+                        parent_root: Some(get_block_root(block.parent_root)),
+                        state_root: Hash256::zero(),
+                        target_root: Hash256::zero(),
+                        current_epoch_shuffling_id: junk_shuffling_id.clone(),
+                        next_epoch_shuffling_id: junk_shuffling_id.clone(),
+                        justified_checkpoint: Checkpoint {
+                            epoch: Epoch::new(0),
+                            root: get_block_root(0),
+                        },
+                        finalized_checkpoint: genesis_checkpoint,
+                        execution_status,
+                        unrealized_justified_checkpoint: Some(genesis_checkpoint),
+                        unrealized_finalized_checkpoint: Some(genesis_checkpoint),
+                    },
+                    Slot::from(block.slot),
+                )
+                .unwrap();
+        };
+
+        /*
+         * Start of interesting part of tests.
+         */
+
+        // Produce the 0th epoch of blocks. They should all form a chain from
+        // the genesis block.
+        for i in 1..MainnetEthSpec::slots_per_epoch() {
+            insert_block(
+                &mut fc,
+                TestBlock {
+                    slot: i,
+                    root: i,
+                    parent_root: i - 1,
+                },
+            )
+        }
+
+        let last_slot_of_epoch_0 = MainnetEthSpec::slots_per_epoch() - 1;
+
+        // Produce a block that descends from the last block of epoch -.
+        //
+        // This block will be non-canonical.
+        let non_canonical_slot = last_slot_of_epoch_0 + 1;
+        insert_block(
+            &mut fc,
+            TestBlock {
+                slot: non_canonical_slot,
+                root: non_canonical_slot,
+                parent_root: non_canonical_slot - 1,
+            },
+        );
+
+        // Produce a block that descends from the last block of the 0th epoch,
+        // that skips the 1st slot of the 1st epoch.
+        //
+        // This block will be canonical.
+        let canonical_slot = last_slot_of_epoch_0 + 2;
+        insert_block(
+            &mut fc,
+            TestBlock {
+                slot: canonical_slot,
+                root: canonical_slot,
+                parent_root: non_canonical_slot - 1,
+            },
+        );
+
+        let finalized_root = get_block_root(last_slot_of_epoch_0);
+
+        // Set the finalized checkpoint to finalize the first slot of epoch 1 on
+        // the canonical chain.
+        fc.proto_array.finalized_checkpoint = Checkpoint {
+            root: finalized_root,
+            epoch: Epoch::new(1),
+        };
+
+        assert!(
+            fc.proto_array
+                .is_finalized_checkpoint_or_descendant::<MainnetEthSpec>(finalized_root),
+            "the finalized checkpoint is the finalized checkpoint"
+        );
+
+        assert!(
+            fc.proto_array
+                .is_finalized_checkpoint_or_descendant::<MainnetEthSpec>(get_block_root(
+                    canonical_slot
+                )),
+            "the canonical block is a descendant of the finalized checkpoint"
+        );
+        assert!(
+            !fc.proto_array
+                .is_finalized_checkpoint_or_descendant::<MainnetEthSpec>(get_block_root(
+                    non_canonical_slot
+                )),
+            "although the non-canonical block is a descendant of the finalized block, \
+            it's not a descendant of the finalized checkpoint"
+        );
     }
 
     #[test]

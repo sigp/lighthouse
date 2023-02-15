@@ -52,8 +52,8 @@ jobs:
                          x86_64,
                          x86_64-portable]
                 features: [
-                    {version_suffix: "", env: ""},
-                    {version_suffix: "-dev", env: "spec-minimal"}
+                    {version_suffix: "", env: "gnosis,slasher-lmdb,slasher-mdbx,jemalloc"},
+                    {version_suffix: "-dev", env: "jemalloc,spec-minimal"}
                 ]
                 include:
                     - profile: maxperf
@@ -65,7 +65,6 @@ jobs:
             VERSION: ${{ needs.extract-version.outputs.VERSION }}
             VERSION_SUFFIX: ${{ needs.extract-version.outputs.VERSION_SUFFIX }}
             FEATURE_SUFFIX: ${{ matrix.features.version_suffix }}
-            FEATURES: ${{ matrix.features.env }}
         steps:
             - uses: actions/checkout@v3
             - name: Update Rust
@@ -76,7 +75,7 @@ jobs:
             - name: Cross build Lighthouse binary
               run: |
                   cargo install cross
-                  env CROSS_PROFILE=${{ matrix.profile }} make build-${{ matrix.binary }}
+                  env CROSS_PROFILE=${{ matrix.profile }} CROSS_FEATURES=${{ matrix.features.env }} make build-${{ matrix.binary }}
             - name: Move cross-built binary into Docker scope (if ARM)
               if: startsWith(matrix.binary, 'aarch64')
               run: |
@@ -105,7 +104,6 @@ jobs:
                       --platform=linux/${SHORT_ARCH} \
                       --file ./Dockerfile.cross . \
                       --tag ${IMAGE_NAME}:${VERSION}-${SHORT_ARCH}${VERSION_SUFFIX}${MODERNITY_SUFFIX}${FEATURE_SUFFIX} \
-                      --build-arg FEATURES=${FEATURES} \
                       --provenance=false \
                       --push
     build-docker-multiarch:
