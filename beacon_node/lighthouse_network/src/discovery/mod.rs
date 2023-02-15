@@ -206,9 +206,9 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
             crate::config::ListenAddress::V4(v4_addr) => v4_addr.tcp_socket_addr(),
             crate::config::ListenAddress::V6(v6_addr) => v6_addr.tcp_socket_addr(),
             crate::config::ListenAddress::DualStack(v4_addr, _v6_addr) => {
-                // TODO: add two ports to discovery for maximum compatibility.
+                // TODO: Add two ports to discovery for maximum compatibility.
                 // If that takes too long, change this to use the v6 address with mapped addresses
-                // enabled and
+                // enabled.
                 v4_addr.tcp_socket_addr()
             }
         };

@@ -226,7 +226,7 @@ impl Default for Config {
             .filter_rate_limiter(filter_rate_limiter)
             .filter_max_bans_per_ip(Some(5))
             .filter_max_nodes_per_ip(Some(10))
-            // TODO eh what to do here
+            // TODO decide based on listenins address the discv5 table filter
             .table_filter(|enr| enr.ip4().map_or(false, |ip| is_global_ipv4(&ip))) // Filter non-global IPs
             .ban_duration(Some(Duration::from_secs(3600)))
             .ping_interval(Duration::from_secs(300))
@@ -408,6 +408,7 @@ pub fn gossipsub_config(network_load: u8, fork_context: Arc<ForkContext>) -> Gos
         .expect("valid gossipsub configuration")
 }
 
+/// A listening address composed by an Ip, an UDP port and a TCP port.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ListenAddr<Ip> {
     pub addr: Ip,
@@ -417,11 +418,11 @@ pub struct ListenAddr<Ip> {
 
 impl<Ip: Into<std::net::IpAddr> + Clone> ListenAddr<Ip> {
     pub fn udp_socket_addr(&self) -> std::net::SocketAddr {
-        std::net::SocketAddr::new(self.addr.clone().into(), self.udp_port)
+        (self.addr.clone().into(), self.udp_port).into()
     }
 
     pub fn tcp_socket_addr(&self) -> std::net::SocketAddr {
-        std::net::SocketAddr::new(self.addr.clone().into(), self.tcp_port)
+        (self.addr.clone().into(), self.tcp_port).into()
     }
 }
 
@@ -431,7 +432,9 @@ pub enum ListenAddress {
     V6(ListenAddr<Ipv6Addr>),
     DualStack(ListenAddr<Ipv4Addr>, ListenAddr<Ipv6Addr>),
 }
+
 impl ListenAddress {
+    /// Return the listening address over IpV4 if any.
     pub fn v4(&self) -> Option<&ListenAddr<Ipv4Addr>> {
         match self {
             ListenAddress::V4(v4_addr) | ListenAddress::DualStack(v4_addr, _) => Some(v4_addr),
@@ -439,6 +442,7 @@ impl ListenAddress {
         }
     }
 
+    /// Return the listening address over IpV6 if any.
     pub fn v6(&self) -> Option<&ListenAddr<Ipv6Addr>> {
         match self {
             ListenAddress::V6(v6_addr) | ListenAddress::DualStack(_, v6_addr) => Some(v6_addr),
@@ -446,6 +450,7 @@ impl ListenAddress {
         }
     }
 
+    /// Returns the TCP addresses. 
     pub fn tcp_addresses(&self) -> impl Iterator<Item = Multiaddr> + '_ {
         let v4_multiaddr = self
             .v4()

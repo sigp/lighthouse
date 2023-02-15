@@ -164,7 +164,7 @@ pub fn create_enr_builder_from_config<T: EnrKey>(
     }
 
     if enable_tcp {
-        // if the enr port is not set, and we are listening over that ip version, use the listening port instead.
+        // If the ENR port is not set, and we are listening over that ip version, use the listening port instead.
         let tcp4_port = config
             .enr_tcp4_port
             .or_else(|| config.listen_addresses.v4().map(|v4_addr| v4_addr.tcp_port));
