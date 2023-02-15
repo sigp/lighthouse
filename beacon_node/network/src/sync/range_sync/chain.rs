@@ -615,6 +615,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     ///
     /// If a previous batch has been validated and it had been re-processed, penalize the original
     /// peer.
+    #[allow(clippy::modulo_one)]
     fn advance_chain(&mut self, network: &mut SyncNetworkContext<T>, validating_epoch: Epoch) {
         // make sure this epoch produces an advancement
         if validating_epoch <= self.start_epoch {

@@ -362,11 +362,12 @@ mod tests {
         let base_dir = temp_dir.path().join("my_testnet");
         let deposit_contract_deploy_block = 42;
 
-        let testnet: Eth2NetworkConfig = Eth2NetworkConfig {
+        let testnet = Eth2NetworkConfig {
             deposit_contract_deploy_block,
             boot_enr,
             genesis_state_bytes: genesis_state.as_ref().map(Encode::as_ssz_bytes),
             config,
+            kzg_trusted_setup: None,
         };
 
         testnet

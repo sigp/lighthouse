@@ -299,7 +299,7 @@ mod test {
         let ops = cache
             .import_new_pubkeys(&state)
             .expect("should import pubkeys");
-        store.do_atomically(ops).unwrap();
+        store.do_atomically_with_block_and_blobs_cache(ops).unwrap();
         check_cache_get(&cache, &keypairs[..]);
         drop(cache);
 

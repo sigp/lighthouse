@@ -49,7 +49,7 @@ pub fn verify_kzg_commitments_against_transactions<T: EthSpec>(
             .flatten()
             // Need to use `itertools::zip_longest` here because just zipping hides if one iter is shorter
             // and `itertools::zip_eq` panics.
-            .zip_longest(kzg_commitments.into_iter())
+            .zip_longest(kzg_commitments.iter())
             .enumerate()
             .map(|(index, next)| match next {
                 EitherOrBoth::Both(hash, commitment) => Ok((hash?, commitment)),

@@ -9,6 +9,7 @@ perf.data*
 /bin
 genesis.ssz
 /clippy.toml
+/.cargo
 
 # IntelliJ
 /*.iml

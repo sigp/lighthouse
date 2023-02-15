@@ -227,7 +227,7 @@ impl BlockId {
                 "Blob with block root {} is not in the store",
                 root
             ))),
-            Err(e) => Err(warp_utils::reject::beacon_chain_error(e.into())),
+            Err(e) => Err(warp_utils::reject::beacon_chain_error(e)),
         }
     }
 }

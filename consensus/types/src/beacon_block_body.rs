@@ -1,5 +1,5 @@
-use crate::test_utils::TestRandom;
 use crate::*;
+use crate::{blobs_sidecar::KzgCommitments, test_utils::TestRandom};
 use derivative::Derivative;
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
@@ -69,7 +69,7 @@ pub struct BeaconBlockBody<T: EthSpec, Payload: AbstractExecPayload<T> = FullPay
     pub bls_to_execution_changes:
         VariableList<SignedBlsToExecutionChange, T::MaxBlsToExecutionChanges>,
     #[superstruct(only(Eip4844))]
-    pub blob_kzg_commitments: VariableList<KzgCommitment, T::MaxBlobsPerBlock>,
+    pub blob_kzg_commitments: KzgCommitments<T>,
     #[superstruct(only(Base, Altair))]
     #[ssz(skip_serializing, skip_deserializing)]
     #[tree_hash(skip_hashing)]
