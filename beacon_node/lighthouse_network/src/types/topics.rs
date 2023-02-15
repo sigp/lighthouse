@@ -11,9 +11,9 @@ use crate::Subnet;
 pub const TOPIC_PREFIX: &str = "eth2";
 pub const SSZ_SNAPPY_ENCODING_POSTFIX: &str = "ssz_snappy";
 pub const BEACON_BLOCK_TOPIC: &str = "beacon_block";
-pub const BEACON_BLOCK_AND_BLOBS_SIDECAR_TOPIC: &str = "beacon_block_and_blobs_sidecar";
 pub const BEACON_AGGREGATE_AND_PROOF_TOPIC: &str = "beacon_aggregate_and_proof";
 pub const BEACON_ATTESTATION_PREFIX: &str = "beacon_attestation_";
+pub const BLOB_SIDECAR_PREFIX: &str = "blob_sidecar_";
 pub const VOLUNTARY_EXIT_TOPIC: &str = "voluntary_exit";
 pub const PROPOSER_SLASHING_TOPIC: &str = "proposer_slashing";
 pub const ATTESTER_SLASHING_TOPIC: &str = "attester_slashing";
@@ -23,9 +23,8 @@ pub const BLS_TO_EXECUTION_CHANGE_TOPIC: &str = "bls_to_execution_change";
 pub const LIGHT_CLIENT_FINALITY_UPDATE: &str = "light_client_finality_update";
 pub const LIGHT_CLIENT_OPTIMISTIC_UPDATE: &str = "light_client_optimistic_update";
 
-pub const CORE_TOPICS: [GossipKind; 8] = [
+pub const CORE_TOPICS: [GossipKind; 7] = [
     GossipKind::BeaconBlock,
-    GossipKind::BeaconBlocksAndBlobsSidecar,
     GossipKind::BeaconAggregateAndProof,
     GossipKind::VoluntaryExit,
     GossipKind::ProposerSlashing,
@@ -58,10 +57,10 @@ pub struct GossipTopic {
 pub enum GossipKind {
     /// Topic for publishing beacon blocks.
     BeaconBlock,
-    /// Topic for publishing beacon block coupled with blob sidecars.
-    BeaconBlocksAndBlobsSidecar,
     /// Topic for publishing aggregate attestations and proofs.
     BeaconAggregateAndProof,
+    /// Topic for publishing BlobSidecars.
+    BlobSidecar(u64),
     /// Topic for publishing raw attestations on a particular subnet.
     #[strum(serialize = "beacon_attestation")]
     Attestation(SubnetId),
@@ -91,6 +90,7 @@ impl std::fmt::Display for GossipKind {
             GossipKind::SyncCommitteeMessage(subnet_id) => {
                 write!(f, "sync_committee_{}", **subnet_id)
             }
+            GossipKind::BlobSidecar(blob_index) => write!(f, "blob_sidecar_{}", blob_index),
             x => f.write_str(x.as_ref()),
         }
     }
@@ -151,7 +151,6 @@ impl GossipTopic {
             let kind = match topic_parts[3] {
                 BEACON_BLOCK_TOPIC => GossipKind::BeaconBlock,
                 BEACON_AGGREGATE_AND_PROOF_TOPIC => GossipKind::BeaconAggregateAndProof,
-                BEACON_BLOCK_AND_BLOBS_SIDECAR_TOPIC => GossipKind::BeaconBlocksAndBlobsSidecar,
                 SIGNED_CONTRIBUTION_AND_PROOF_TOPIC => GossipKind::SignedContributionAndProof,
                 VOLUNTARY_EXIT_TOPIC => GossipKind::VoluntaryExit,
                 PROPOSER_SLASHING_TOPIC => GossipKind::ProposerSlashing,
@@ -159,11 +158,8 @@ impl GossipTopic {
                 BLS_TO_EXECUTION_CHANGE_TOPIC => GossipKind::BlsToExecutionChange,
                 LIGHT_CLIENT_FINALITY_UPDATE => GossipKind::LightClientFinalityUpdate,
                 LIGHT_CLIENT_OPTIMISTIC_UPDATE => GossipKind::LightClientOptimisticUpdate,
-                topic => match committee_topic_index(topic) {
-                    Some(subnet) => match subnet {
-                        Subnet::Attestation(s) => GossipKind::Attestation(s),
-                        Subnet::SyncCommittee(s) => GossipKind::SyncCommitteeMessage(s),
-                    },
+                topic => match subnet_topic_index(topic) {
+                    Some(kind) => kind,
                     None => return Err(format!("Unknown topic: {}", topic)),
                 },
             };
@@ -208,7 +204,6 @@ impl std::fmt::Display for GossipTopic {
 
         let kind = match self.kind {
             GossipKind::BeaconBlock => BEACON_BLOCK_TOPIC.into(),
-            GossipKind::BeaconBlocksAndBlobsSidecar => BEACON_BLOCK_AND_BLOBS_SIDECAR_TOPIC.into(),
             GossipKind::BeaconAggregateAndProof => BEACON_AGGREGATE_AND_PROOF_TOPIC.into(),
             GossipKind::VoluntaryExit => VOLUNTARY_EXIT_TOPIC.into(),
             GossipKind::ProposerSlashing => PROPOSER_SLASHING_TOPIC.into(),
@@ -217,6 +212,9 @@ impl std::fmt::Display for GossipTopic {
             GossipKind::SignedContributionAndProof => SIGNED_CONTRIBUTION_AND_PROOF_TOPIC.into(),
             GossipKind::SyncCommitteeMessage(index) => {
                 format!("{}{}", SYNC_COMMITTEE_PREFIX_TOPIC, *index)
+            }
+            GossipKind::BlobSidecar(blob_index) => {
+                format!("{}{}", BLOB_SIDECAR_PREFIX, blob_index)
             }
             GossipKind::BlsToExecutionChange => BLS_TO_EXECUTION_CHANGE_TOPIC.into(),
             GossipKind::LightClientFinalityUpdate => LIGHT_CLIENT_FINALITY_UPDATE.into(),
@@ -249,22 +247,29 @@ pub fn subnet_from_topic_hash(topic_hash: &TopicHash) -> Option<Subnet> {
     GossipTopic::decode(topic_hash.as_str()).ok()?.subnet_id()
 }
 
-// Determines if a string is an attestation or sync committee topic.
-fn committee_topic_index(topic: &str) -> Option<Subnet> {
+// Determines if a string is an attestation, sync committee or blob sidecar topic.
+fn subnet_topic_index(topic: &str) -> Option<GossipKind> {
     if topic.starts_with(BEACON_ATTESTATION_PREFIX) {
-        return Some(Subnet::Attestation(SubnetId::new(
+        return Some(GossipKind::Attestation(SubnetId::new(
             topic
                 .trim_start_matches(BEACON_ATTESTATION_PREFIX)
                 .parse::<u64>()
                 .ok()?,
         )));
     } else if topic.starts_with(SYNC_COMMITTEE_PREFIX_TOPIC) {
-        return Some(Subnet::SyncCommittee(SyncSubnetId::new(
+        return Some(GossipKind::SyncCommitteeMessage(SyncSubnetId::new(
             topic
                 .trim_start_matches(SYNC_COMMITTEE_PREFIX_TOPIC)
                 .parse::<u64>()
                 .ok()?,
         )));
+    } else if topic.starts_with(BLOB_SIDECAR_PREFIX) {
+        return Some(GossipKind::BlobSidecar(
+            topic
+                .trim_start_matches(BLOB_SIDECAR_PREFIX)
+                .parse::<u64>()
+                .ok()?,
+        ));
     }
     None
 }

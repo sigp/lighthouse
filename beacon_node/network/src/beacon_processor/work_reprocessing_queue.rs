@@ -31,7 +31,8 @@ use tokio::sync::mpsc::{self, Receiver, Sender};
 use tokio::time::error::Error as TimeError;
 use tokio_util::time::delay_queue::{DelayQueue, Key as DelayKey};
 use types::{
-    Attestation, EthSpec, Hash256, LightClientOptimisticUpdate, SignedAggregateAndProof, SubnetId,
+    Attestation, EthSpec, Hash256, LightClientOptimisticUpdate, SignedAggregateAndProof,
+    SignedBlobSidecar, SubnetId,
 };
 
 const TASK_NAME: &str = "beacon_processor_reprocess_queue";
@@ -47,6 +48,10 @@ const ADDITIONAL_QUEUED_BLOCK_DELAY: Duration = Duration::from_millis(5);
 /// For how long to queue aggregated and unaggregated attestations for re-processing.
 pub const QUEUED_ATTESTATION_DELAY: Duration = Duration::from_secs(12);
 
+/// For how long to queue blob sidecars for re-processing.
+/// TODO: rethink duration
+pub const QUEUED_BLOB_SIDECAR_DELAY: Duration = Duration::from_secs(12);
+
 /// For how long to queue light client updates for re-processing.
 pub const QUEUED_LIGHT_CLIENT_UPDATE_DELAY: Duration = Duration::from_secs(12);
 
@@ -60,6 +65,10 @@ const MAXIMUM_QUEUED_BLOCKS: usize = 16;
 
 /// How many attestations we keep before new ones get dropped.
 const MAXIMUM_QUEUED_ATTESTATIONS: usize = 16_384;
+
+/// TODO: fix number
+/// How many blobs we keep before new ones get dropped.
+const MAXIMUM_QUEUED_BLOB_SIDECARS: usize = 16_384;
 
 /// How many light client updates we keep before new ones get dropped.
 const MAXIMUM_QUEUED_LIGHT_CLIENT_UPDATES: usize = 128;
@@ -81,6 +90,8 @@ pub enum ReprocessQueueMessage<T: BeaconChainTypes> {
     UnknownBlockUnaggregate(QueuedUnaggregate<T::EthSpec>),
     /// An aggregated attestation that references an unknown block.
     UnknownBlockAggregate(QueuedAggregate<T::EthSpec>),
+    /// A blob sidecar that references an unknown block.
+    UnknownBlobSidecar(QueuedBlobSidecar<T::EthSpec>),
     /// A light client optimistic update that references a parent root that has not been seen as a parent.
     UnknownLightClientOptimisticUpdate(QueuedLightClientUpdate<T::EthSpec>),
 }
@@ -91,6 +102,7 @@ pub enum ReadyWork<T: BeaconChainTypes> {
     RpcBlock(QueuedRpcBlock<T::EthSpec>),
     Unaggregate(QueuedUnaggregate<T::EthSpec>),
     Aggregate(QueuedAggregate<T::EthSpec>),
+    BlobSidecar(QueuedBlobSidecar<T::EthSpec>),
     LightClientUpdate(QueuedLightClientUpdate<T::EthSpec>),
 }
 
@@ -111,6 +123,16 @@ pub struct QueuedAggregate<T: EthSpec> {
     pub peer_id: PeerId,
     pub message_id: MessageId,
     pub attestation: Box<SignedAggregateAndProof<T>>,
+    pub seen_timestamp: Duration,
+}
+
+/// A blob sidecar for which the corresponding block was not seen while processing, queued for
+/// later.
+pub struct QueuedBlobSidecar<T: EthSpec> {
+    pub peer_id: PeerId,
+    pub message_id: MessageId,
+    pub blob_sidecar: Box<SignedBlobSidecar<T>>,
+    pub subnet: u64,
     pub seen_timestamp: Duration,
 }
 
@@ -152,6 +174,8 @@ enum InboundEvent<T: BeaconChainTypes> {
     ReadyRpcBlock(QueuedRpcBlock<T::EthSpec>),
     /// An aggregated or unaggregated attestation is ready for re-processing.
     ReadyAttestation(QueuedAttestationId),
+    /// A blob sidecar is ready for re-processing.
+    ReadyBlobSidecar(QueuedBlobSidecarId),
     /// A light client update that is ready for re-processing.
     ReadyLightClientUpdate(QueuedLightClientUpdateId),
     /// A `DelayQueue` returned an error.
@@ -174,6 +198,7 @@ struct ReprocessQueue<T: BeaconChainTypes> {
     rpc_block_delay_queue: DelayQueue<QueuedRpcBlock<T::EthSpec>>,
     /// Queue to manage scheduled attestations.
     attestations_delay_queue: DelayQueue<QueuedAttestationId>,
+    blob_sidecar_delay_queue: DelayQueue<QueuedBlobSidecarId>,
     /// Queue to manage scheduled light client updates.
     lc_updates_delay_queue: DelayQueue<QueuedLightClientUpdateId>,
 
@@ -186,6 +211,8 @@ struct ReprocessQueue<T: BeaconChainTypes> {
     queued_unaggregates: FnvHashMap<usize, (QueuedUnaggregate<T::EthSpec>, DelayKey)>,
     /// Attestations (aggregated and unaggregated) per root.
     awaiting_attestations_per_root: HashMap<Hash256, Vec<QueuedAttestationId>>,
+    queued_blob_sidecars: FnvHashMap<usize, (QueuedBlobSidecar<T::EthSpec>, DelayKey)>,
+    awaiting_blob_sidecars_per_root: HashMap<Hash256, Vec<QueuedBlobSidecarId>>,
     /// Queued Light Client Updates.
     queued_lc_updates: FnvHashMap<usize, (QueuedLightClientUpdate<T::EthSpec>, DelayKey)>,
     /// Light Client Updates per parent_root.
@@ -195,13 +222,18 @@ struct ReprocessQueue<T: BeaconChainTypes> {
     /// Next attestation id, used for both aggregated and unaggregated attestations
     next_attestation: usize,
     next_lc_update: usize,
+    next_sidecar: usize,
     early_block_debounce: TimeLatch,
     rpc_block_debounce: TimeLatch,
     attestation_delay_debounce: TimeLatch,
     lc_update_delay_debounce: TimeLatch,
+    blob_sidecar_debounce: TimeLatch,
 }
 
 pub type QueuedLightClientUpdateId = usize;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct QueuedBlobSidecarId(usize);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum QueuedAttestationId {
@@ -272,6 +304,21 @@ impl<T: BeaconChainTypes> Stream for ReprocessQueue<T> {
             Poll::Ready(None) | Poll::Pending => (),
         }
 
+        match self.blob_sidecar_delay_queue.poll_expired(cx) {
+            Poll::Ready(Some(Ok(id))) => {
+                return Poll::Ready(Some(InboundEvent::ReadyBlobSidecar(id.into_inner())));
+            }
+            Poll::Ready(Some(Err(e))) => {
+                return Poll::Ready(Some(InboundEvent::DelayQueueError(
+                    e,
+                    "blobs_sidecar_queue",
+                )));
+            }
+            // `Poll::Ready(None)` means that there are no more entries in the delay queue and we
+            // will continue to get this result until something else is added into the queue.
+            Poll::Ready(None) | Poll::Pending => (),
+        }
+
         match self.lc_updates_delay_queue.poll_expired(cx) {
             Poll::Ready(Some(Ok(lc_id))) => {
                 return Poll::Ready(Some(InboundEvent::ReadyLightClientUpdate(
@@ -313,21 +360,26 @@ pub fn spawn_reprocess_scheduler<T: BeaconChainTypes>(
         work_reprocessing_rx,
         ready_work_tx,
         gossip_block_delay_queue: DelayQueue::new(),
+        blob_sidecar_delay_queue: DelayQueue::new(),
         rpc_block_delay_queue: DelayQueue::new(),
         attestations_delay_queue: DelayQueue::new(),
         lc_updates_delay_queue: DelayQueue::new(),
         queued_gossip_block_roots: HashSet::new(),
         queued_lc_updates: FnvHashMap::default(),
+        queued_blob_sidecars: FnvHashMap::default(),
         queued_aggregates: FnvHashMap::default(),
         queued_unaggregates: FnvHashMap::default(),
         awaiting_attestations_per_root: HashMap::new(),
+        awaiting_blob_sidecars_per_root: HashMap::new(),
         awaiting_lc_updates_per_parent_root: HashMap::new(),
         next_attestation: 0,
+        next_sidecar: 0,
         next_lc_update: 0,
         early_block_debounce: TimeLatch::default(),
         rpc_block_debounce: TimeLatch::default(),
         attestation_delay_debounce: TimeLatch::default(),
         lc_update_delay_debounce: TimeLatch::default(),
+        blob_sidecar_debounce: TimeLatch::default(),
     };
 
     executor.spawn(
@@ -529,6 +581,39 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
 
                 self.next_attestation += 1;
             }
+            InboundEvent::Msg(UnknownBlobSidecar(queued_blob_sidecar)) => {
+                if self.blob_sidecar_delay_queue.len() >= MAXIMUM_QUEUED_BLOB_SIDECARS {
+                    if self.blob_sidecar_debounce.elapsed() {
+                        error!(
+                            log,
+                            "Blob sidecar queue is full";
+                            "queue_size" => MAXIMUM_QUEUED_BLOB_SIDECARS,
+                            "msg" => "check system clock"
+                        );
+                    }
+                    // Drop the blob.
+                    return;
+                }
+
+                let id = QueuedBlobSidecarId(self.next_sidecar);
+
+                // Register the delay.
+                let delay_key = self
+                    .blob_sidecar_delay_queue
+                    .insert(id, QUEUED_BLOB_SIDECAR_DELAY);
+
+                // Register this sidecar for the corresponding root.
+                self.awaiting_blob_sidecars_per_root
+                    .entry(queued_blob_sidecar.blob_sidecar.message.block_root)
+                    .or_default()
+                    .push(id);
+
+                // Store the blob sidecar and its info.
+                self.queued_blob_sidecars
+                    .insert(self.next_sidecar, (queued_blob_sidecar, delay_key));
+
+                self.next_sidecar += 1;
+            }
             InboundEvent::Msg(UnknownLightClientOptimisticUpdate(
                 queued_light_client_optimistic_update,
             )) => {
@@ -609,6 +694,43 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                                 "Unknown queued attestation for block root";
                                 "block_root" => ?block_root,
                                 "att_id" => ?id,
+                            );
+                        }
+                    }
+                }
+                // Unqueue the blob sidecars we have for this root, if any.
+                // TODO: merge the 2 data structures.
+                if let Some(queued_ids) = self.awaiting_blob_sidecars_per_root.remove(&block_root) {
+                    for id in queued_ids {
+                        // metrics::inc_counter(
+                        //     &metrics::BEACON_PROCESSOR_REPROCESSING_QUEUE_MATCHED_ATTESTATIONS,
+                        // );
+
+                        if let Some((work, delay_key)) = self
+                            .queued_blob_sidecars
+                            .remove(&id.0)
+                            .map(|(blobs_sidecar, delay_key)| {
+                                (ReadyWork::BlobSidecar(blobs_sidecar), delay_key)
+                            })
+                        {
+                            // Remove the delay.
+                            self.blob_sidecar_delay_queue.remove(&delay_key);
+
+                            // Send the work.
+                            if self.ready_work_tx.try_send(work).is_err() {
+                                error!(
+                                    log,
+                                    "Failed to send scheduled blob sidecar";
+                                );
+                            }
+                        } else {
+                            // There is a mismatch between the blob sidecar ids registered for this
+                            // root and the queued blob sidecars. This should never happen.
+                            error!(
+                                log,
+                                "Unknown queued blob sidecar for block root";
+                                "block_root" => ?block_root,
+                                "id" => ?id,
                             );
                         }
                     }
@@ -733,6 +855,40 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                     if let Some(queued_atts) = self.awaiting_attestations_per_root.get_mut(&root) {
                         if let Some(index) = queued_atts.iter().position(|&id| id == queued_id) {
                             queued_atts.swap_remove(index);
+                        }
+                    }
+                }
+            }
+            InboundEvent::ReadyBlobSidecar(queued_blobs_sidecar_id) => {
+                // metrics::inc_counter(
+                //     &metrics::BEACON_PROCESSOR_REPROCESSING_QUEUE_EXPIRED_ATTESTATIONS,
+                // );
+
+                if let Some((root, work)) = self
+                    .queued_blob_sidecars
+                    .remove(&queued_blobs_sidecar_id.0)
+                    .map(|(blobs_sidecar, _delay_key)| {
+                        (
+                            blobs_sidecar.blob_sidecar.message.block_root,
+                            ReadyWork::BlobSidecar(blobs_sidecar),
+                        )
+                    })
+                {
+                    if self.ready_work_tx.try_send(work).is_err() {
+                        error!(
+                            log,
+                            "Failed to send scheduled attestation";
+                        );
+                    }
+
+                    if let Some(queued_blob_sidecars) =
+                        self.awaiting_blob_sidecars_per_root.get_mut(&root)
+                    {
+                        if let Some(index) = queued_blob_sidecars
+                            .iter()
+                            .position(|&id| id == queued_blobs_sidecar_id)
+                        {
+                            queued_blob_sidecars.swap_remove(index);
                         }
                     }
                 }
