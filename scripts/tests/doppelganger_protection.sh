@@ -2,6 +2,8 @@
 
 # Requires `lighthouse`, ``lcli`, `ganache`, `curl`, `jq`
 
+set -Eeuo pipefail
+
 BEHAVIOR=$1
 
 if [[ "$BEHAVIOR" != "success" ]] && [[ "$BEHAVIOR" != "failure" ]]; then
