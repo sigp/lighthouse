@@ -2463,6 +2463,7 @@ dependencies = [
  "fork_choice",
  "futures",
  "hex",
+ "logging",
  "reqwest",
  "sensitive_url",
  "serde_json",
