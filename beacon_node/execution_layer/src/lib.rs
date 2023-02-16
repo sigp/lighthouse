@@ -1348,16 +1348,11 @@ impl<T: EthSpec> ExecutionLayer<T> {
             .set_latest_forkchoice_state(forkchoice_state)
             .await;
 
-        let payload_attributes_ref = &payload_attributes;
         let result = self
             .engine()
             .request(|engine| async move {
                 engine
-                    .notify_forkchoice_updated(
-                        forkchoice_state,
-                        payload_attributes_ref.clone(),
-                        self.log(),
-                    )
+                    .notify_forkchoice_updated(forkchoice_state, payload_attributes, self.log())
                     .await
             })
             .await;
