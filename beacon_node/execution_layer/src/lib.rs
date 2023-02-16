@@ -1718,7 +1718,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                     capella_block
                         .withdrawals
                         .into_iter()
-                        .map(|w| w.into())
+                        .map(Into::into)
                         .collect(),
                 )
                 .map_err(ApiError::DeserializeWithdrawals)?;
@@ -1745,7 +1745,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                     eip4844_block
                         .withdrawals
                         .into_iter()
-                        .map(|w| w.into())
+                        .map(Into::into)
                         .collect(),
                 )
                 .map_err(ApiError::DeserializeWithdrawals)?;
