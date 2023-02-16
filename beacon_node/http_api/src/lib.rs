@@ -853,7 +853,7 @@ pub fn serve<T: BeaconChainTypes>(
                                                 },
                                             )?;
 
-                                        let owned_cache = possibly_built_cache.into_owned();
+                                        let owned_cache = Arc::new(possibly_built_cache.into_owned());
                                         // Attempt to write to the beacon cache
                                         if let Some(mut cache_write) = chain
                                             .shuffling_cache
@@ -862,7 +862,7 @@ pub fn serve<T: BeaconChainTypes>(
                                             cache_write
                                                 .insert_committee_cache(shuffling_id, &owned_cache);
                                         }
-                                        Arc::new(owned_cache)
+                                        owned_cache
                                     }
                                 };
 
