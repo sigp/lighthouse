@@ -2,47 +2,60 @@ use lru::LruCache;
 use parking_lot::Mutex;
 use types::{BlobSidecar, EthSpec, Hash256};
 
-// FIXME(jimmy): Remove this placeholder cache once `blob_cache` is implemented for decoupled `BlobSidecar`
-
 pub const DEFAULT_BLOB_CACHE_SIZE: usize = 10;
 
 /// A cache blobs by beacon block root.
 pub struct BlobSidecarsCache<T: EthSpec> {
-    pub blobs: Mutex<LruCache<BlobCacheId, Vec<BlobSidecar<T>>>>,
+    pub blobs: Mutex<LruCache<BlobCacheId, BlobSidecar<T>>>,
 }
 
 #[derive(Hash, PartialEq, Eq)]
-pub struct BlobCacheId(Hash256);
+pub struct BlobCacheId {
+    block_root: Hash256,
+    blob_index: u64,
+}
 
 impl<T: EthSpec> Default for BlobSidecarsCache<T> {
     fn default() -> Self {
         BlobSidecarsCache {
-            blobs: Mutex::new(LruCache::new(DEFAULT_BLOB_CACHE_SIZE)),
+            blobs: Mutex::new(LruCache::new(
+                DEFAULT_BLOB_CACHE_SIZE * T::max_blobs_per_block(),
+            )),
         }
     }
 }
 
 impl<T: EthSpec> BlobSidecarsCache<T> {
-    pub fn put(&self, beacon_block: Hash256, blob: BlobSidecar<T>) -> Option<Vec<BlobSidecar<T>>> {
-        let mut cache = self.blobs.lock();
-        match cache.get_mut(&BlobCacheId(beacon_block)) {
-            Some(existing_blob_sidecars) => {
-                existing_blob_sidecars.push(blob);
-                None
-            }
-            None => cache.put(BlobCacheId(beacon_block), vec![blob]),
-        }
+    pub fn put(
+        &self,
+        block_root: Hash256,
+        blob: BlobSidecar<T>,
+        blob_index: u64,
+    ) -> Option<BlobSidecar<T>> {
+        self.blobs.lock().put(
+            BlobCacheId {
+                block_root,
+                blob_index,
+            },
+            blob,
+        )
     }
 
-    pub fn pop(&self, root: &Hash256) -> Option<Vec<BlobSidecar<T>>> {
-        self.blobs.lock().pop(&BlobCacheId(*root))
+    pub fn pop(&self, block_root: &Hash256, blob_index: u64) -> Option<BlobSidecar<T>> {
+        self.blobs.lock().pop(&BlobCacheId {
+            block_root: *block_root,
+            blob_index,
+        })
     }
 
-    pub fn peek<'a>(&self, root: &Hash256) -> Option<Vec<BlobSidecar<T>>> {
-        // FIXME(jimmy) temporary hack to make it compile - this file will be replaced by the real impl.
+    pub fn peek<'a>(&self, block_root: &Hash256, blob_index: u64) -> Option<&'a BlobSidecar<T>> {
+        // FIXME(jimmy) we should avoid cloning the blob - temporary hack to make it compile
         self.blobs
             .lock()
-            .peek(&BlobCacheId(*root))
-            .map(|blob_sidecars| blob_sidecars.clone())
+            .peek(&BlobCacheId {
+                block_root: *block_root,
+                blob_index,
+            })
+            .map(|(_, blob)| blob.clone())
     }
 }

@@ -628,6 +628,24 @@ impl BeaconNodeHttpClient {
         Ok(())
     }
 
+    /// `POST beacon/blob_sidecar`
+    pub async fn post_blob<T: EthSpec>(
+        &self,
+        blob_sidecar: &SignedBlindedBlobSidecar,
+    ) -> Result<(), Error> {
+        let mut path = self.eth_path(V1)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("beacon")
+            .push("blob_sidecar");
+
+        self.post_with_timeout(path, blob_sidecar, self.timeouts.proposal)
+            .await?;
+
+        Ok(())
+    }
+
     /// `POST beacon/blinded_blocks`
     ///
     /// Returns `Ok(None)` on a 404 error.

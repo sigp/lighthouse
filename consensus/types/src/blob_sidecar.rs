@@ -1,5 +1,6 @@
 use crate::test_utils::TestRandom;
 use crate::{Blob, EthSpec, Hash256, SignedRoot, Slot};
+use bls::Signature;
 use derivative::Derivative;
 use kzg::{KzgCommitment, KzgProof};
 use serde_derive::{Deserialize, Serialize};
@@ -82,4 +83,11 @@ impl<T: EthSpec> From<BlobSidecar<T>> for BlindedBlobSidecar {
             kzg_proof: value.kzg_proof,
         }
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Encode, TreeHash, Derivative)]
+#[derivative(PartialEq, Hash)]
+pub struct SignedBlindedBlobSidecar {
+    pub message: BlindedBlobSidecar,
+    pub signature: Signature,
 }
