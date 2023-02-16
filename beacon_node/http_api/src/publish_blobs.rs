@@ -14,7 +14,6 @@ pub async fn publish_blob<T: BeaconChainTypes>(
     network_tx: &UnboundedSender<NetworkMessage<T::EthSpec>>,
     log: Logger,
 ) -> Result<(), Rejection> {
-    // TODO check for fork
     let (block_root, blob_index) = (
         &blinded_blob_sidecar.message.blob_root,
         blinded_blob_sidecar.message.index,
