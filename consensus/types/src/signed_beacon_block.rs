@@ -1,11 +1,9 @@
-use crate::signed_block_and_blobs::BlockWrapper;
 use crate::*;
 use bls::Signature;
 use derivative::Derivative;
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use std::fmt;
-use std::sync::Arc;
 use superstruct::superstruct;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
@@ -267,7 +265,7 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> SignedBeaconBlock<E, Payload> 
             .map_err(|_| BlobReconstructionError::InconsistentFork)?;
         if kzg_commitments.is_empty() {
             Ok(BlobsSidecar::empty_from_parts(
-                block_root_opt.unwrap_or(self.canonical_root()),
+                block_root_opt.unwrap_or_else(|| self.canonical_root()),
                 self.slot(),
             ))
         } else {
@@ -467,25 +465,6 @@ impl<E: EthSpec> SignedBeaconBlockEip4844<E, BlindedPayload<E>> {
 }
 
 impl<E: EthSpec> SignedBeaconBlock<E, BlindedPayload<E>> {
-    pub fn try_into_full_block_wrapper(
-        self,
-        execution_payload: Option<ExecutionPayload<E>>,
-        blobs_sidecar: Option<BlobsSidecar<E>>,
-    ) -> Option<BlockWrapper<E>> {
-        let maybe_full_block = self.try_into_full_block(execution_payload);
-
-        maybe_full_block.map(|full_block| match full_block {
-            SignedBeaconBlock::Base(_)
-            | SignedBeaconBlock::Altair(_)
-            | SignedBeaconBlock::Merge(_)
-            | SignedBeaconBlock::Capella(_) => BlockWrapper::new(Arc::new(full_block)),
-            SignedBeaconBlock::Eip4844(_) => BlockWrapper::new_with_blobs(
-                Arc::new(full_block),
-                Arc::new(blobs_sidecar.unwrap_or_default()),
-            ),
-        })
-    }
-
     pub fn try_into_full_block(
         self,
         execution_payload: Option<ExecutionPayload<E>>,
@@ -540,6 +519,24 @@ impl<E: EthSpec> From<SignedBeaconBlock<E>> for SignedBlindedBeaconBlock<E> {
 impl<E: EthSpec> SignedBeaconBlock<E> {
     pub fn clone_as_blinded(&self) -> SignedBlindedBeaconBlock<E> {
         SignedBeaconBlock::from_block(self.message().into(), self.signature().clone())
+    }
+}
+
+impl<E: EthSpec, Payload: AbstractExecPayload<E>> ForkVersionDeserialize
+    for SignedBeaconBlock<E, Payload>
+{
+    fn deserialize_by_fork<'de, D: serde::Deserializer<'de>>(
+        value: serde_json::value::Value,
+        fork_name: ForkName,
+    ) -> Result<Self, D::Error> {
+        Ok(map_fork_name!(
+            fork_name,
+            Self,
+            serde_json::from_value(value).map_err(|e| serde::de::Error::custom(format!(
+                "SignedBeaconBlock failed to deserialize: {:?}",
+                e
+            )))?
+        ))
     }
 }
 

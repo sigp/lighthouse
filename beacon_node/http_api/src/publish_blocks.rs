@@ -12,8 +12,9 @@ use tokio::sync::mpsc::UnboundedSender;
 use tree_hash::TreeHash;
 use types::execution_payload::PayloadWrapper;
 use types::{
-    AbstractExecPayload, BlindedPayload, EthSpec, ExecPayload, ExecutionBlockHash, FullPayload,
-    Hash256, SignedBeaconBlock, SignedBeaconBlockAndBlobsSidecar,
+    AbstractExecPayload, BeaconBlock, BlindedPayload, BlobsSidecar, EthSpec, ExecPayload,
+    ExecutionBlockHash, ExecutionPayload, FullPayload, Hash256, SignedBeaconBlock,
+    SignedBeaconBlockAndBlobsSidecar,
 };
 use warp::Rejection;
 
@@ -60,9 +61,9 @@ pub async fn publish_block<T: BeaconChainTypes>(
                 }
                 None => {
                     //FIXME(sean): This should probably return a specific no-blob-cached error code, beacon API coordination required
-                    return Err(warp_utils::reject::broadcast_without_import(format!(
-                        "no blob cached for block"
-                    )));
+                    return Err(warp_utils::reject::broadcast_without_import(
+                        "no blob cached for block".into(),
+                    ));
                 }
             }
         } else {
@@ -224,7 +225,7 @@ async fn reconstruct_block<T: BeaconChainTypes>(
             ))
         })?
         .into();
-        block.try_into_full_block_wrapper(Some(payload), None)
+        try_into_full_block_wrapper(block, Some(payload), None)
         // If we already have an execution payload with this transactions root cached, use it.
     } else if let Some(cached_payload) = el.get_payload_by_root(&payload_header.tree_hash_root()) {
         info!(log, "Reconstructing a full block using a local payload"; "block_hash" => ?cached_payload.block_hash());
@@ -253,10 +254,29 @@ async fn reconstruct_block<T: BeaconChainTypes>(
         };
 
         info!(log, "Successfully published a block to the builder network"; "block_hash" => ?full_payload.block_hash());
-        block.try_into_full_block_wrapper(Some(full_payload), maybe_blobs)
+        try_into_full_block_wrapper(block, Some(full_payload), maybe_blobs)
     };
 
     block_wrapper.ok_or_else(|| {
         warp_utils::reject::custom_server_error("Unable to add payload to block".to_string())
+    })
+}
+
+fn try_into_full_block_wrapper<E: EthSpec>(
+    beacon_block: SignedBeaconBlock<E, BlindedPayload<E>>,
+    execution_payload: Option<ExecutionPayload<E>>,
+    blobs_sidecar: Option<BlobsSidecar<E>>,
+) -> Option<BlockWrapper<E>> {
+    let maybe_full_block = beacon_block.try_into_full_block(execution_payload);
+
+    maybe_full_block.map(|full_block| match full_block {
+        SignedBeaconBlock::Base(_)
+        | SignedBeaconBlock::Altair(_)
+        | SignedBeaconBlock::Merge(_)
+        | SignedBeaconBlock::Capella(_) => BlockWra(Arc::new(full_block)),
+        SignedBeaconBlock::Eip4844(_) => BlockWrapper::new_with_blobs(
+            Arc::new(full_block),
+            Arc::new(blobs_sidecar.unwrap_or_default()),
+        ),
     })
 }

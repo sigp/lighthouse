@@ -28,6 +28,13 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .help("Data directory for the freezer database.")
                 .takes_value(true)
         )
+        .arg(
+            Arg::with_name("blobs-dir")
+                .long("blobs-dir")
+                .value_name("DIR")
+                .help("Data directory for the blobs database.")
+                .takes_value(true)
+        )
         /*
          * Network parameters.
          */
@@ -193,6 +200,21 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .long("enable-private-discovery")
                 .help("Lighthouse by default does not discover private IP addresses. Set this flag to enable connection attempts to local addresses.")
                 .takes_value(false),
+        )
+        .arg(
+            Arg::with_name("self-limiter")
+            .long("self-limiter")
+            .help(
+                "Enables the outbound rate limiter (requests made by this node).\
+                \
+                Rate limit quotas per protocol can be set in the form of \
+                <protocol_name>:<tokens>/<time_in_seconds>. To set quotas for multiple protocols, \
+                separate them by ';'. If the self rate limiter is enabled and a protocol is not \
+                present in the configuration, the quotas used for the inbound rate limiter will be \
+                used."
+            )
+            .min_values(0)
+            .hidden(true)
         )
         /* REST API related arguments */
         .arg(
@@ -550,6 +572,31 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                        reconstructed and sent to syncing peers.")
                 .takes_value(true)
                 .default_value("true")
+        )
+        .arg(
+            Arg::with_name("prune-blobs")
+                .long("prune-blobs")
+                .help("Prune blobs from Lighthouse's database when they are older than the data \
+                       data availability boundary relative to the current epoch.")
+                .takes_value(true)
+                .default_value("true")
+        )
+        .arg(
+            Arg::with_name("epochs-per-blob-prune")
+                .long("epochs-per-blob-prune")
+                .help("The epoch interval with which to prune blobs from Lighthouse's \
+                       database when they are older than the data availability boundary \
+                       relative to the current epoch.")
+                .takes_value(true)
+                .default_value("1")
+        )
+        .arg(
+            Arg::with_name("blob-prune-margin-epochs")
+                .long("blob-prune-margin-epochs")
+                .help("The margin for blob pruning in epochs. The oldest blobs are pruned \
+                       up until data_availability_boundary - blob_prune_margin_epochs.")
+                .takes_value(true)
+                .default_value("0")
         )
 
         /*

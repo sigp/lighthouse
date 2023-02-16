@@ -914,6 +914,11 @@ where
             );
         }
 
+        // Prune blobs sidecars older than the blob data availability boundary in the background.
+        beacon_chain
+            .store_migrator
+            .process_prune_blobs(beacon_chain.data_availability_boundary());
+
         Ok(beacon_chain)
     }
 }
@@ -1011,6 +1016,7 @@ fn descriptive_db_error(item: &str, error: &StoreError) -> String {
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::test_utils::EphemeralHarnessType;
     use crate::validator_monitor::DEFAULT_INDIVIDUAL_TRACKING_THRESHOLD;
     use eth2_hashing::hash;
     use genesis::{
@@ -1025,6 +1031,7 @@ mod test {
     use types::{EthSpec, MinimalEthSpec, Slot};
 
     type TestEthSpec = MinimalEthSpec;
+    type Builder = BeaconChainBuilder<EphemeralHarnessType<TestEthSpec>>;
 
     fn get_logger() -> Logger {
         let builder = NullLoggerBuilder;
@@ -1057,7 +1064,7 @@ mod test {
         let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
         let runtime = TestRuntime::default();
 
-        let chain = BeaconChainBuilder::new(MinimalEthSpec)
+        let chain = Builder::new(MinimalEthSpec)
             .logger(log.clone())
             .store(Arc::new(store))
             .task_executor(runtime.task_executor.clone())

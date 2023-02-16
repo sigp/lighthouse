@@ -301,8 +301,10 @@ where
 
     // Capella
     #[superstruct(only(Capella, Eip4844), partial_getter(copy))]
+    #[serde(with = "eth2_serde_utils::quoted_u64")]
     pub next_withdrawal_index: u64,
     #[superstruct(only(Capella, Eip4844), partial_getter(copy))]
+    #[serde(with = "eth2_serde_utils::quoted_u64")]
     pub next_withdrawal_validator_index: u64,
     // Deep history valid from Capella onwards.
     #[superstruct(only(Capella, Eip4844))]
@@ -1851,5 +1853,21 @@ impl<T: EthSpec> CompareFields for BeaconState<T> {
             (BeaconState::Eip4844(x), BeaconState::Eip4844(y)) => x.compare_fields(y),
             _ => panic!("compare_fields: mismatched state variants",),
         }
+    }
+}
+
+impl<T: EthSpec> ForkVersionDeserialize for BeaconState<T> {
+    fn deserialize_by_fork<'de, D: serde::Deserializer<'de>>(
+        value: serde_json::value::Value,
+        fork_name: ForkName,
+    ) -> Result<Self, D::Error> {
+        Ok(map_fork_name!(
+            fork_name,
+            Self,
+            serde_json::from_value(value).map_err(|e| serde::de::Error::custom(format!(
+                "BeaconState failed to deserialize: {:?}",
+                e
+            )))?
+        ))
     }
 }

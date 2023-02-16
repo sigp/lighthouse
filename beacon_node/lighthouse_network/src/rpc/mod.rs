@@ -12,7 +12,7 @@ use libp2p::swarm::{
     PollParameters, SubstreamProtocol,
 };
 use libp2p::PeerId;
-use rate_limiter::{RPCRateLimiter as RateLimiter, RPCRateLimiterBuilder, RateLimitedErr};
+use rate_limiter::{RPCRateLimiter as RateLimiter, RateLimitedErr};
 use slog::{crit, debug, o};
 use std::marker::PhantomData;
 use std::sync::Arc;
@@ -33,12 +33,17 @@ pub use methods::{
 pub(crate) use outbound::OutboundRequest;
 pub use protocol::{max_rpc_size, Protocol, RPCError};
 
+use self::config::OutboundRateLimiterConfig;
+use self::self_limiter::SelfRateLimiter;
+
 pub(crate) mod codec;
+pub mod config;
 mod handler;
 pub mod methods;
 mod outbound;
 mod protocol;
 mod rate_limiter;
+mod self_limiter;
 
 /// Composite trait for a request id.
 pub trait ReqId: Send + 'static + std::fmt::Debug + Copy + Clone {}
@@ -101,13 +106,18 @@ pub struct RPCMessage<Id, TSpec: EthSpec> {
     pub event: HandlerEvent<Id, TSpec>,
 }
 
+type BehaviourAction<Id, TSpec> =
+    NetworkBehaviourAction<RPCMessage<Id, TSpec>, RPCHandler<Id, TSpec>>;
+
 /// Implements the libp2p `NetworkBehaviour` trait and therefore manages network-level
 /// logic.
 pub struct RPC<Id: ReqId, TSpec: EthSpec> {
     /// Rate limiter
     limiter: RateLimiter,
+    /// Rate limiter for our own requests.
+    self_limiter: Option<SelfRateLimiter<Id, TSpec>>,
     /// Queue of events to be processed.
-    events: Vec<NetworkBehaviourAction<RPCMessage<Id, TSpec>, RPCHandler<Id, TSpec>>>,
+    events: Vec<BehaviourAction<Id, TSpec>>,
     fork_context: Arc<ForkContext>,
     enable_light_client_server: bool,
     /// Slog logger for RPC behaviour.
@@ -118,10 +128,12 @@ impl<Id: ReqId, TSpec: EthSpec> RPC<Id, TSpec> {
     pub fn new(
         fork_context: Arc<ForkContext>,
         enable_light_client_server: bool,
+        outbound_rate_limiter_config: Option<OutboundRateLimiterConfig>,
         log: slog::Logger,
     ) -> Self {
         let log = log.new(o!("service" => "libp2p_rpc"));
-        let limiter = RPCRateLimiterBuilder::new()
+
+        let limiter = RateLimiter::builder()
             .n_every(Protocol::MetaData, 2, Duration::from_secs(5))
             .n_every(Protocol::Ping, 2, Duration::from_secs(10))
             .n_every(Protocol::Status, 5, Duration::from_secs(15))
@@ -141,8 +153,14 @@ impl<Id: ReqId, TSpec: EthSpec> RPC<Id, TSpec> {
             )
             .build()
             .expect("Configuration parameters are valid");
+
+        let self_limiter = outbound_rate_limiter_config.map(|config| {
+            SelfRateLimiter::new(config, log.clone()).expect("Configuration parameters are valid")
+        });
+
         RPC {
             limiter,
+            self_limiter,
             events: Vec::new(),
             fork_context,
             enable_light_client_server,
@@ -169,12 +187,24 @@ impl<Id: ReqId, TSpec: EthSpec> RPC<Id, TSpec> {
     /// Submits an RPC request.
     ///
     /// The peer must be connected for this to succeed.
-    pub fn send_request(&mut self, peer_id: PeerId, request_id: Id, event: OutboundRequest<TSpec>) {
-        self.events.push(NetworkBehaviourAction::NotifyHandler {
-            peer_id,
-            handler: NotifyHandler::Any,
-            event: RPCSend::Request(request_id, event),
-        });
+    pub fn send_request(&mut self, peer_id: PeerId, request_id: Id, req: OutboundRequest<TSpec>) {
+        let event = if let Some(self_limiter) = self.self_limiter.as_mut() {
+            match self_limiter.allows(peer_id, request_id, req) {
+                Ok(event) => event,
+                Err(_e) => {
+                    // Request is logged and queued internally in the self rate limiter.
+                    return;
+                }
+            }
+        } else {
+            NetworkBehaviourAction::NotifyHandler {
+                peer_id,
+                handler: NotifyHandler::Any,
+                event: RPCSend::Request(request_id, req),
+            }
+        };
+
+        self.events.push(event);
     }
 
     /// Lighthouse wishes to disconnect from this peer by sending a Goodbye message. This
@@ -279,11 +309,19 @@ where
         cx: &mut Context,
         _: &mut impl PollParameters,
     ) -> Poll<NetworkBehaviourAction<Self::OutEvent, Self::ConnectionHandler>> {
-        // let the rate limiter prune
+        // let the rate limiter prune.
         let _ = self.limiter.poll_unpin(cx);
+
+        if let Some(self_limiter) = self.self_limiter.as_mut() {
+            if let Poll::Ready(event) = self_limiter.poll_ready(cx) {
+                self.events.push(event)
+            }
+        }
+
         if !self.events.is_empty() {
             return Poll::Ready(self.events.remove(0));
         }
+
         Poll::Pending
     }
 }

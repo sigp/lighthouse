@@ -343,10 +343,10 @@ pub fn get_new_eth1_data<T: EthSpec>(
 /// Contains a partial set of checks from the `process_execution_payload` function:
 ///
 /// https://github.com/ethereum/consensus-specs/blob/v1.1.5/specs/merge/beacon-chain.md#process_execution_payload
-pub fn partially_verify_execution_payload<'payload, T: EthSpec, Payload: AbstractExecPayload<T>>(
+pub fn partially_verify_execution_payload<T: EthSpec, Payload: AbstractExecPayload<T>>(
     state: &BeaconState<T>,
     block_slot: Slot,
-    payload: Payload::Ref<'payload>,
+    payload: Payload::Ref<'_>,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
     if is_merge_transition_complete(state) {
@@ -385,9 +385,9 @@ pub fn partially_verify_execution_payload<'payload, T: EthSpec, Payload: Abstrac
 /// Partially equivalent to the `process_execution_payload` function:
 ///
 /// https://github.com/ethereum/consensus-specs/blob/v1.1.5/specs/merge/beacon-chain.md#process_execution_payload
-pub fn process_execution_payload<'payload, T: EthSpec, Payload: AbstractExecPayload<T>>(
+pub fn process_execution_payload<T: EthSpec, Payload: AbstractExecPayload<T>>(
     state: &mut BeaconState<T>,
-    payload: Payload::Ref<'payload>,
+    payload: Payload::Ref<'_>,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
     partially_verify_execution_payload::<T, Payload>(state, state.slot(), payload, spec)?;
@@ -516,9 +516,9 @@ pub fn get_expected_withdrawals<T: EthSpec>(
 }
 
 /// Apply withdrawals to the state.
-pub fn process_withdrawals<'payload, T: EthSpec, Payload: AbstractExecPayload<T>>(
+pub fn process_withdrawals<T: EthSpec, Payload: AbstractExecPayload<T>>(
     state: &mut BeaconState<T>,
-    payload: Payload::Ref<'payload>,
+    payload: Payload::Ref<'_>,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
     match state {

@@ -751,6 +751,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Drop the old cache head nice and early to try and free the memory as soon as possible.
         drop(old_cached_head);
 
+        // Prune blobs in the background.
+        self.store_migrator
+            .process_prune_blobs(self.data_availability_boundary());
+
         // If the finalized checkpoint changed, perform some updates.
         //
         // The `after_finalization` function will take a write-lock on `fork_choice`, therefore it

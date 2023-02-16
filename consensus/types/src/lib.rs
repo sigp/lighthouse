@@ -46,6 +46,7 @@ pub mod execution_payload_header;
 pub mod fork;
 pub mod fork_data;
 pub mod fork_name;
+pub mod fork_versioned_response;
 pub mod free_attestation;
 pub mod graffiti;
 pub mod historical_batch;
@@ -101,6 +102,7 @@ pub mod sqlite;
 
 pub mod blobs_sidecar;
 pub mod signed_block_and_blobs;
+pub mod transaction;
 
 use ethereum_types::{H160, H256};
 
@@ -120,7 +122,7 @@ pub use crate::beacon_block_body::{
 pub use crate::beacon_block_header::BeaconBlockHeader;
 pub use crate::beacon_committee::{BeaconCommittee, OwnedBeaconCommittee};
 pub use crate::beacon_state::{BeaconTreeHashCache, Error as BeaconStateError, *};
-pub use crate::blobs_sidecar::BlobsSidecar;
+pub use crate::blobs_sidecar::{Blobs, BlobsSidecar, KzgCommitments};
 pub use crate::bls_to_execution_change::BlsToExecutionChange;
 pub use crate::chain_spec::{ChainSpec, Config, Domain};
 pub use crate::checkpoint::Checkpoint;
@@ -149,6 +151,9 @@ pub use crate::fork::Fork;
 pub use crate::fork_context::ForkContext;
 pub use crate::fork_data::ForkData;
 pub use crate::fork_name::{ForkName, InconsistentFork};
+pub use crate::fork_versioned_response::{
+    ExecutionOptimisticForkVersionedResponse, ForkVersionDeserialize, ForkVersionedResponse,
+};
 pub use crate::free_attestation::FreeAttestation;
 pub use crate::graffiti::{Graffiti, GRAFFITI_BYTES_LEN};
 pub use crate::historical_batch::HistoricalBatch;

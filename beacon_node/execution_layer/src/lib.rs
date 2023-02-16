@@ -7,12 +7,16 @@
 use crate::payload_cache::PayloadCache;
 use auth::{strip_prefix, Auth, JwtKey};
 use builder_client::BuilderHttpClient;
+pub use engine_api::EngineCapabilities;
 use engine_api::Error as ApiError;
 pub use engine_api::*;
 pub use engine_api::{http, http::deposit_methods, http::HttpJsonRpc};
 use engines::{Engine, EngineError};
 pub use engines::{EngineState, ForkchoiceState};
 use eth2::types::{builder_bid::SignedBuilderBid, ForkVersionedResponse};
+use ethers_core::abi::ethereum_types::FromStrRadixErr;
+use ethers_core::types::transaction::eip2930::AccessListItem;
+use ethers_core::types::{Transaction as EthersTransaction, U64};
 use fork_choice::ForkchoiceUpdateParameters;
 use lru::LruCache;
 use payload_status::process_payload_status;
@@ -21,6 +25,7 @@ use sensitive_url::SensitiveUrl;
 use serde::{Deserialize, Serialize};
 use slog::{crit, debug, error, info, trace, warn, Logger};
 use slot_clock::SlotClock;
+use ssz::Encode;
 use std::collections::HashMap;
 use std::fmt;
 use std::future::Future;
@@ -35,14 +40,22 @@ use tokio::{
     time::sleep,
 };
 use tokio_stream::wrappers::WatchStream;
+use tree_hash::TreeHash;
+use types::consts::eip4844::BLOB_TX_TYPE;
 use types::execution_payload::{ExecutionPayloadAndBlobsSidecar, PayloadWrapper};
-use types::{AbstractExecPayload, BeaconStateError, Blob, ExecPayload, KzgCommitment};
+use types::transaction::{AccessTuple, BlobTransaction, EcdsaSignature, SignedBlobTransaction};
+use types::Withdrawals;
 use types::{
-    BlindedPayload, BlockType, ChainSpec, Epoch, ExecutionBlockHash, ForkName,
-    ProposerPreparationData, PublicKeyBytes, Signature, SignedBeaconBlock, Slot, Uint256,
+    blobs_sidecar::{Blobs, KzgCommitments},
+    BlindedPayload, BlockType, ChainSpec, Epoch, ExecutionBlockHash, ExecutionPayload,
+    ExecutionPayloadCapella, ExecutionPayloadEip4844, ExecutionPayloadMerge, ForkName,
 };
 use types::{
-    ExecutionPayload, ExecutionPayloadCapella, ExecutionPayloadEip4844, ExecutionPayloadMerge,
+    AbstractExecPayload, BeaconStateError, Blob, ExecPayload, KzgCommitment, VersionedHash,
+};
+use types::{
+    ProposerPreparationData, PublicKeyBytes, Signature, SignedBeaconBlock, Slot, Transaction,
+    Uint256,
 };
 
 mod block_hash;
@@ -119,26 +132,28 @@ impl From<ApiError> for Error {
 }
 
 pub enum BlockProposalContents<T: EthSpec, Payload: AbstractExecPayload<T>> {
-    Payload(Payload),
+    Payload {
+        payload: Payload,
+        block_value: Uint256,
+    },
     PayloadAndBlobs {
         payload: Payload,
-        kzg_commitments: VariableList<KzgCommitment, T::MaxBlobsPerBlock>,
-        blobs: VariableList<Blob<T>, T::MaxBlobsPerBlock>,
+        block_value: Uint256,
+        kzg_commitments: KzgCommitments<T>,
+        blobs: Blobs<T>,
     },
 }
 
 impl<T: EthSpec, Payload: AbstractExecPayload<T>> BlockProposalContents<T, Payload> {
-    pub fn deconstruct(
-        self,
-    ) -> (
-        Payload,
-        Option<VariableList<KzgCommitment, T::MaxBlobsPerBlock>>,
-        Option<VariableList<Blob<T>, T::MaxBlobsPerBlock>>,
-    ) {
+    pub fn deconstruct(self) -> (Payload, Option<KzgCommitments<T>>, Option<Blobs<T>>) {
         match self {
-            Self::Payload(payload) => (payload, None, None),
+            Self::Payload {
+                payload,
+                block_value: _,
+            } => (payload, None, None),
             Self::PayloadAndBlobs {
                 payload,
+                block_value: _,
                 kzg_commitments,
                 blobs,
             } => (payload, Some(kzg_commitments), Some(blobs)),
@@ -147,9 +162,13 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> BlockProposalContents<T, Paylo
 
     pub fn payload(&self) -> &Payload {
         match self {
-            Self::Payload(payload) => payload,
+            Self::Payload {
+                payload,
+                block_value: _,
+            } => payload,
             Self::PayloadAndBlobs {
                 payload,
+                block_value: _,
                 kzg_commitments: _,
                 blobs: _,
             } => payload,
@@ -157,21 +176,43 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> BlockProposalContents<T, Paylo
     }
     pub fn to_payload(self) -> Payload {
         match self {
-            Self::Payload(payload) => payload,
+            Self::Payload {
+                payload,
+                block_value: _,
+            } => payload,
             Self::PayloadAndBlobs {
                 payload,
+                block_value: _,
                 kzg_commitments: _,
                 blobs: _,
             } => payload,
         }
     }
+    pub fn block_value(&self) -> &Uint256 {
+        match self {
+            Self::Payload {
+                payload: _,
+                block_value,
+            } => block_value,
+            Self::PayloadAndBlobs {
+                payload: _,
+                block_value,
+                kzg_commitments: _,
+                blobs: _,
+            } => block_value,
+        }
+    }
     pub fn default_at_fork(fork_name: ForkName) -> Result<Self, BeaconStateError> {
         Ok(match fork_name {
             ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {
-                BlockProposalContents::Payload(Payload::default_at_fork(fork_name)?)
+                BlockProposalContents::Payload {
+                    payload: Payload::default_at_fork(fork_name)?,
+                    block_value: Uint256::zero(),
+                }
             }
             ForkName::Eip4844 => BlockProposalContents::PayloadAndBlobs {
                 payload: Payload::default_at_fork(fork_name)?,
+                block_value: Uint256::zero(),
                 blobs: VariableList::default(),
                 kzg_commitments: VariableList::default(),
             },
@@ -263,12 +304,7 @@ pub struct ExecutionLayer<T: EthSpec> {
 
 impl<T: EthSpec> ExecutionLayer<T> {
     /// Instantiate `Self` with an Execution engine specified in `Config`, using JSON-RPC via HTTP.
-    pub fn from_config(
-        config: Config,
-        executor: TaskExecutor,
-        log: Logger,
-        spec: &ChainSpec,
-    ) -> Result<Self, Error> {
+    pub fn from_config(config: Config, executor: TaskExecutor, log: Logger) -> Result<Self, Error> {
         let Config {
             execution_endpoints: urls,
             builder_url,
@@ -323,13 +359,8 @@ impl<T: EthSpec> ExecutionLayer<T> {
         let engine: Engine = {
             let auth = Auth::new(jwt_key, jwt_id, jwt_version);
             debug!(log, "Loaded execution endpoint"; "endpoint" => %execution_url, "jwt_path" => ?secret_file.as_path());
-            let api = HttpJsonRpc::new_with_auth(
-                execution_url,
-                auth,
-                execution_timeout_multiplier,
-                &spec,
-            )
-            .map_err(Error::ApiError)?;
+            let api = HttpJsonRpc::new_with_auth(execution_url, auth, execution_timeout_multiplier)
+                .map_err(Error::ApiError)?;
             Engine::new(api, executor.clone(), &log)
         };
 
@@ -373,12 +404,12 @@ impl<T: EthSpec> ExecutionLayer<T> {
         &self.inner.builder
     }
 
-    /// Cache a full payload, keyed on the `tree_hash_root` of its `transactions` field.
-    fn cache_payload(&self, payload: &ExecutionPayload<T>) -> Option<ExecutionPayload<T>> {
-        self.inner.payload_cache.put(payload.clone())
+    /// Cache a full payload, keyed on the `tree_hash_root` of the payload
+    fn cache_payload(&self, payload: ExecutionPayloadRef<T>) -> Option<ExecutionPayload<T>> {
+        self.inner.payload_cache.put(payload.clone_from_ref())
     }
 
-    /// Attempt to retrieve a full payload from the payload cache by the `transactions_root`.
+    /// Attempt to retrieve a full payload from the payload cache by the payload root
     pub fn get_payload_by_root(&self, root: &Hash256) -> Option<ExecutionPayload<T>> {
         self.inner.payload_cache.pop(root)
     }
@@ -815,13 +846,25 @@ impl<T: EthSpec> ExecutionLayer<T> {
                                 "parent_hash" => ?parent_hash,
                             );
 
+                            let relay_value = relay.data.message.value;
+                            let local_value = *local.block_value();
+                            if local_value >= relay_value {
+                                info!(
+                                    self.log(),
+                                    "Local block is more profitable than relay block";
+                                    "local_block_value" => %local_value,
+                                    "relay_value" => %relay_value
+                                );
+                                return Ok(ProvenancedPayload::Local(local));
+                            }
+
                             match verify_builder_bid(
                                 &relay,
                                 parent_hash,
-                                payload_attributes.prev_randao(),
-                                payload_attributes.timestamp(),
+                                payload_attributes,
                                 Some(local.payload().block_number()),
                                 self.inner.builder_profit_threshold,
+                                current_fork,
                                 spec,
                             ) {
                                 Ok(()) => {
@@ -829,12 +872,14 @@ impl<T: EthSpec> ExecutionLayer<T> {
                                         ForkName::Base
                                         | ForkName::Altair
                                         | ForkName::Merge
-                                        | ForkName::Capella => {
-                                            BlockProposalContents::Payload(header)
-                                        }
+                                        | ForkName::Capella => BlockProposalContents::Payload {
+                                            payload: relay.data.message.header,
+                                            block_value: relay.data.message.value,
+                                        },
                                         ForkName::Eip4844 => {
                                             BlockProposalContents::PayloadAndBlobs {
-                                                payload: header,
+                                                payload: relay.data.message.header,
+                                                block_value: relay.data.message.value,
                                                 blobs: VariableList::default(),
                                                 kzg_commitments: relay
                                                     .data
@@ -888,10 +933,10 @@ impl<T: EthSpec> ExecutionLayer<T> {
                             match verify_builder_bid(
                                 &relay,
                                 parent_hash,
-                                payload_attributes.prev_randao(),
-                                payload_attributes.timestamp(),
+                                payload_attributes,
                                 None,
                                 self.inner.builder_profit_threshold,
+                                current_fork,
                                 spec,
                             ) {
                                 Ok(()) => {
@@ -899,12 +944,14 @@ impl<T: EthSpec> ExecutionLayer<T> {
                                         ForkName::Base
                                         | ForkName::Altair
                                         | ForkName::Merge
-                                        | ForkName::Capella => {
-                                            BlockProposalContents::Payload(header)
-                                        }
+                                        | ForkName::Capella => BlockProposalContents::Payload {
+                                            payload: relay.data.message.header,
+                                            block_value: relay.data.message.value,
+                                        },
                                         ForkName::Eip4844 => {
                                             BlockProposalContents::PayloadAndBlobs {
-                                                payload: header,
+                                                payload: relay.data.message.header,
+                                                block_value: relay.data.message.value,
                                                 blobs: VariableList::default(),
                                                 kzg_commitments: relay
                                                     .data
@@ -923,12 +970,14 @@ impl<T: EthSpec> ExecutionLayer<T> {
                                         ForkName::Base
                                         | ForkName::Altair
                                         | ForkName::Merge
-                                        | ForkName::Capella => {
-                                            BlockProposalContents::Payload(header)
-                                        }
+                                        | ForkName::Capella => BlockProposalContents::Payload {
+                                            payload: relay.data.message.header,
+                                            block_value: relay.data.message.value,
+                                        },
                                         ForkName::Eip4844 => {
                                             BlockProposalContents::PayloadAndBlobs {
-                                                payload: header,
+                                                payload: relay.data.message.header,
+                                                block_value: relay.data.message.value,
                                                 blobs: VariableList::default(),
                                                 kzg_commitments: relay
                                                     .data
@@ -1052,7 +1101,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
         payload_attributes: &PayloadAttributes,
         forkchoice_update_params: ForkchoiceUpdateParameters,
         current_fork: ForkName,
-        f: fn(&ExecutionLayer<T>, &ExecutionPayload<T>) -> Option<ExecutionPayload<T>>,
+        f: fn(&ExecutionLayer<T>, ExecutionPayloadRef<T>) -> Option<ExecutionPayload<T>>,
     ) -> Result<BlockProposalContents<T, Payload>, Error> {
         self.engine()
             .request(move |engine| async move {
@@ -1135,9 +1184,9 @@ impl<T: EthSpec> ExecutionLayer<T> {
                     );
                     engine.api.get_payload::<T>(current_fork, payload_id).await
                 };
-                let (blob, payload) = tokio::join!(blob_fut, payload_fut);
-                let payload = payload.map(|full_payload| {
-                    if full_payload.fee_recipient() != payload_attributes.suggested_fee_recipient() {
+                let (blob, payload_response) = tokio::join!(blob_fut, payload_fut);
+                let (execution_payload, block_value) = payload_response.map(|payload_response| {
+                    if payload_response.execution_payload_ref().fee_recipient() != payload_attributes.suggested_fee_recipient() {
                         error!(
                             self.log(),
                             "Inconsistent fee recipient";
@@ -1146,28 +1195,32 @@ impl<T: EthSpec> ExecutionLayer<T> {
                             indicate that fees are being diverted to another address. Please \
                             ensure that the value of suggested_fee_recipient is set correctly and \
                             that the Execution Engine is trusted.",
-                            "fee_recipient" => ?full_payload.fee_recipient(),
+                            "fee_recipient" => ?payload_response.execution_payload_ref().fee_recipient(),
                             "suggested_fee_recipient" => ?payload_attributes.suggested_fee_recipient(),
                         );
                     }
-                    if f(self, &full_payload).is_some() {
+                    if f(self, payload_response.execution_payload_ref()).is_some() {
                         warn!(
                             self.log(),
                             "Duplicate payload cached, this might indicate redundant proposal \
                                  attempts."
                         );
                     }
-                    full_payload.into()
+                    payload_response.into()
                 })?;
                 if let Some(blob) = blob.transpose()? {
                     // FIXME(sean) cache blobs
                     Ok(BlockProposalContents::PayloadAndBlobs {
-                        payload,
+                        payload: execution_payload.into(),
+                        block_value,
                         blobs: blob.blobs,
                         kzg_commitments: blob.kzgs,
                     })
                 } else {
-                    Ok(BlockProposalContents::Payload(payload))
+                    Ok(BlockProposalContents::Payload {
+                        payload: execution_payload.into(),
+                        block_value,
+                    })
                 }
             })
             .await
@@ -1426,6 +1479,26 @@ impl<T: EthSpec> ExecutionLayer<T> {
         }
     }
 
+    /// Returns the execution engine capabilities resulting from a call to
+    /// engine_exchangeCapabilities. If the capabilities cache is not populated,
+    /// or if it is populated with a cached result of age >= `age_limit`, this
+    /// method will fetch the result from the execution engine and populate the
+    /// cache before returning it. Otherwise it will return a cached result from
+    /// a previous call.
+    ///
+    /// Set `age_limit` to `None` to always return the cached result
+    /// Set `age_limit` to `Some(Duration::ZERO)` to force fetching from EE
+    pub async fn get_engine_capabilities(
+        &self,
+        age_limit: Option<Duration>,
+    ) -> Result<EngineCapabilities, Error> {
+        self.engine()
+            .request(|engine| engine.get_engine_capabilities(age_limit))
+            .await
+            .map_err(Box::new)
+            .map_err(Error::EngineError)
+    }
+
     /// Used during block production to determine if the merge has been triggered.
     ///
     /// ## Specification
@@ -1670,15 +1743,15 @@ impl<T: EthSpec> ExecutionLayer<T> {
             return Ok(None);
         };
 
-        let transactions = VariableList::new(
-            block
-                .transactions()
-                .iter()
-                .map(|transaction| VariableList::new(transaction.rlp().to_vec()))
-                .collect::<Result<_, _>>()
-                .map_err(ApiError::DeserializeTransaction)?,
-        )
-        .map_err(ApiError::DeserializeTransactions)?;
+        let convert_transactions = |transactions: Vec<EthersTransaction>| {
+            VariableList::new(
+                transactions
+                    .into_iter()
+                    .map(ethers_tx_to_bytes::<T>)
+                    .collect::<Result<Vec<_>, BlobTxConversionError>>()?,
+            )
+            .map_err(BlobTxConversionError::SszError)
+        };
 
         let payload = match block {
             ExecutionBlockWithTransactions::Merge(merge_block) => {
@@ -1696,7 +1769,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                     extra_data: merge_block.extra_data,
                     base_fee_per_gas: merge_block.base_fee_per_gas,
                     block_hash: merge_block.block_hash,
-                    transactions,
+                    transactions: convert_transactions(merge_block.transactions)?,
                 })
             }
             ExecutionBlockWithTransactions::Capella(capella_block) => {
@@ -1722,7 +1795,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                     extra_data: capella_block.extra_data,
                     base_fee_per_gas: capella_block.base_fee_per_gas,
                     block_hash: capella_block.block_hash,
-                    transactions,
+                    transactions: convert_transactions(capella_block.transactions)?,
                     withdrawals,
                 })
             }
@@ -1750,7 +1823,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                     base_fee_per_gas: eip4844_block.base_fee_per_gas,
                     excess_data_gas: eip4844_block.excess_data_gas,
                     block_hash: eip4844_block.block_hash,
-                    transactions,
+                    transactions: convert_transactions(eip4844_block.transactions)?,
                     withdrawals,
                 })
             }
@@ -1805,10 +1878,10 @@ impl<T: EthSpec> ExecutionLayer<T> {
                         &metrics::EXECUTION_LAYER_BUILDER_REVEAL_PAYLOAD_OUTCOME,
                         &[metrics::FAILURE],
                     );
-                    error!(
+                    warn!(
                         self.log(),
                         "Builder failed to reveal payload";
-                        "info" => "this relay failure may cause a missed proposal",
+                        "info" => "this is common behaviour for some builders and may not indicate an issue",
                         "error" => ?e,
                         "relay_response_ms" => duration.as_millis(),
                         "block_root" => ?block_root,
@@ -1880,6 +1953,10 @@ enum InvalidBuilderPayload {
         signature: Signature,
         pubkey: PublicKeyBytes,
     },
+    WithdrawalsRoot {
+        payload: Option<Hash256>,
+        expected: Option<Hash256>,
+    },
 }
 
 impl InvalidBuilderPayload {
@@ -1894,6 +1971,7 @@ impl InvalidBuilderPayload {
             InvalidBuilderPayload::BlockNumber { .. } => true,
             InvalidBuilderPayload::Fork { .. } => true,
             InvalidBuilderPayload::Signature { .. } => true,
+            InvalidBuilderPayload::WithdrawalsRoot { .. } => true,
         }
     }
 }
@@ -1929,6 +2007,19 @@ impl fmt::Display for InvalidBuilderPayload {
                 "invalid payload signature {} for pubkey {}",
                 signature, pubkey
             ),
+            InvalidBuilderPayload::WithdrawalsRoot { payload, expected } => {
+                let opt_string = |opt_hash: &Option<Hash256>| {
+                    opt_hash
+                        .map(|hash| hash.to_string())
+                        .unwrap_or_else(|| "None".to_string())
+                };
+                write!(
+                    f,
+                    "payload withdrawals root was {} not {}",
+                    opt_string(payload),
+                    opt_string(expected)
+                )
+            }
         }
     }
 }
@@ -1937,10 +2028,10 @@ impl fmt::Display for InvalidBuilderPayload {
 fn verify_builder_bid<T: EthSpec, Payload: AbstractExecPayload<T>>(
     bid: &ForkVersionedResponse<SignedBuilderBid<T, Payload>>,
     parent_hash: ExecutionBlockHash,
-    prev_randao: Hash256,
-    timestamp: u64,
+    payload_attributes: &PayloadAttributes,
     block_number: Option<u64>,
     profit_threshold: Uint256,
+    current_fork: ForkName,
     spec: &ChainSpec,
 ) -> Result<(), Box<InvalidBuilderPayload>> {
     let is_signature_valid = bid.data.verify_signature(spec);
@@ -1957,6 +2048,13 @@ fn verify_builder_bid<T: EthSpec, Payload: AbstractExecPayload<T>>(
         );
     }
 
+    let expected_withdrawals_root = payload_attributes
+        .withdrawals()
+        .ok()
+        .cloned()
+        .map(|withdrawals| Withdrawals::<T>::from(withdrawals).tree_hash_root());
+    let payload_withdrawals_root = header.withdrawals_root().ok();
+
     if payload_value < profit_threshold {
         Err(Box::new(InvalidBuilderPayload::LowValue {
             profit_threshold,
@@ -1967,34 +2065,35 @@ fn verify_builder_bid<T: EthSpec, Payload: AbstractExecPayload<T>>(
             payload: header.parent_hash(),
             expected: parent_hash,
         }))
-    } else if header.prev_randao() != prev_randao {
+    } else if header.prev_randao() != payload_attributes.prev_randao() {
         Err(Box::new(InvalidBuilderPayload::PrevRandao {
             payload: header.prev_randao(),
-            expected: prev_randao,
+            expected: payload_attributes.prev_randao(),
         }))
-    } else if header.timestamp() != timestamp {
+    } else if header.timestamp() != payload_attributes.timestamp() {
         Err(Box::new(InvalidBuilderPayload::Timestamp {
             payload: header.timestamp(),
-            expected: timestamp,
+            expected: payload_attributes.timestamp(),
         }))
     } else if block_number.map_or(false, |n| n != header.block_number()) {
         Err(Box::new(InvalidBuilderPayload::BlockNumber {
             payload: header.block_number(),
             expected: block_number,
         }))
-    } else if !matches!(bid.version, Some(ForkName::Merge)) {
-        // Once fork information is added to the payload, we will need to
-        // check that the local and relay payloads match. At this point, if
-        // we are requesting a payload at all, we have to assume this is
-        // the Bellatrix fork.
+    } else if bid.version != Some(current_fork) {
         Err(Box::new(InvalidBuilderPayload::Fork {
             payload: bid.version,
-            expected: ForkName::Merge,
+            expected: current_fork,
         }))
     } else if !is_signature_valid {
         Err(Box::new(InvalidBuilderPayload::Signature {
             signature: bid.data.signature.clone(),
             pubkey: *bid.data.message.pubkey(),
+        }))
+    } else if payload_withdrawals_root != expected_withdrawals_root {
+        Err(Box::new(InvalidBuilderPayload::WithdrawalsRoot {
+            payload: payload_withdrawals_root,
+            expected: expected_withdrawals_root,
         }))
     } else {
         Ok(())
@@ -2008,6 +2107,214 @@ async fn timed_future<F: Future<Output = T>, T>(metric: &str, future: F) -> (T, 
     let duration = start.elapsed();
     metrics::observe_timer_vec(&metrics::EXECUTION_LAYER_REQUEST_TIMES, &[metric], duration);
     (result, duration)
+}
+
+#[derive(Debug)]
+pub enum BlobTxConversionError {
+    /// The transaction type was not set.
+    NoTransactionType,
+    /// The transaction chain ID was not set.
+    NoChainId,
+    /// The transaction nonce was too large to fit in a `u64`.
+    NonceTooLarge,
+    /// The transaction gas was too large to fit in a `u64`.
+    GasTooHigh,
+    /// Missing the `max_fee_per_gas` field.
+    MaxFeePerGasMissing,
+    /// Missing the `max_priority_fee_per_gas` field.
+    MaxPriorityFeePerGasMissing,
+    /// Missing the `access_list` field.
+    AccessListMissing,
+    /// Missing the `max_fee_per_data_gas` field.
+    MaxFeePerDataGasMissing,
+    /// Missing the `blob_versioned_hashes` field.
+    BlobVersionedHashesMissing,
+    /// `y_parity` field was greater than one.
+    InvalidYParity,
+    /// There was an error converting the transaction to SSZ.
+    SszError(ssz_types::Error),
+    /// There was an error converting the transaction from JSON.
+    SerdeJson(serde_json::Error),
+    /// There was an error converting the transaction from hex.
+    FromHex(String),
+    /// There was an error converting the transaction from hex.
+    FromStrRadix(FromStrRadixErr),
+    /// A `versioned_hash` did not contain 32 bytes.
+    InvalidVersionedHashBytesLen,
+}
+
+impl From<ssz_types::Error> for BlobTxConversionError {
+    fn from(value: ssz_types::Error) -> Self {
+        Self::SszError(value)
+    }
+}
+
+impl From<serde_json::Error> for BlobTxConversionError {
+    fn from(value: serde_json::Error) -> Self {
+        Self::SerdeJson(value)
+    }
+}
+
+/// A utility function to convert a `ethers-rs` `Transaction` into the correct bytes encoding based
+/// on transaction type. That means RLP encoding if this is a transaction other than a
+/// `BLOB_TX_TYPE` transaction in which case, SSZ encoding will be used.
+fn ethers_tx_to_bytes<T: EthSpec>(
+    transaction: EthersTransaction,
+) -> Result<Transaction<T::MaxBytesPerTransaction>, BlobTxConversionError> {
+    let tx_type = transaction
+        .transaction_type
+        .ok_or(BlobTxConversionError::NoTransactionType)?
+        .as_u64();
+
+    let tx = if BLOB_TX_TYPE as u64 == tx_type {
+        let EthersTransaction {
+            hash: _,
+            nonce,
+            block_hash: _,
+            block_number: _,
+            transaction_index: _,
+            from: _,
+            to,
+            value,
+            gas_price: _,
+            gas,
+            input,
+            v,
+            r,
+            s,
+            transaction_type: _,
+            access_list,
+            max_priority_fee_per_gas,
+            max_fee_per_gas,
+            chain_id,
+            other,
+        } = transaction;
+
+        // ******************** BlobTransaction fields ********************
+
+        // chainId
+        let chain_id = chain_id.ok_or(BlobTxConversionError::NoChainId)?;
+
+        // nonce
+        let nonce = if nonce > Uint256::from(u64::MAX) {
+            return Err(BlobTxConversionError::NonceTooLarge);
+        } else {
+            nonce.as_u64()
+        };
+
+        // maxPriorityFeePerGas
+        let max_priority_fee_per_gas =
+            max_priority_fee_per_gas.ok_or(BlobTxConversionError::MaxPriorityFeePerGasMissing)?;
+
+        // maxFeePerGas
+        let max_fee_per_gas = max_fee_per_gas.ok_or(BlobTxConversionError::MaxFeePerGasMissing)?;
+
+        // gas
+        let gas = if gas > Uint256::from(u64::MAX) {
+            return Err(BlobTxConversionError::GasTooHigh);
+        } else {
+            gas.as_u64()
+        };
+
+        // data (a.k.a input)
+        let data = VariableList::new(input.to_vec())?;
+
+        // accessList
+        let access_list = VariableList::new(
+            access_list
+                .ok_or(BlobTxConversionError::AccessListMissing)?
+                .0
+                .into_iter()
+                .map(|access_tuple| {
+                    let AccessListItem {
+                        address,
+                        storage_keys,
+                    } = access_tuple;
+                    Ok(AccessTuple {
+                        address,
+                        storage_keys: VariableList::new(storage_keys)?,
+                    })
+                })
+                .collect::<Result<Vec<AccessTuple>, BlobTxConversionError>>()?,
+        )?;
+
+        // ******************** BlobTransaction `other` fields ********************
+        //
+        // Here we use the `other` field in the `ethers-rs` `Transaction` type because
+        // `ethers-rs` does not yet support SSZ and therefore the blobs transaction type.
+
+        // maxFeePerDataGas
+        let max_fee_per_data_gas = Uint256::from_str_radix(
+            other
+                .get("maxFeePerDataGas")
+                .ok_or(BlobTxConversionError::MaxFeePerDataGasMissing)?
+                .as_str()
+                .ok_or(BlobTxConversionError::MaxFeePerDataGasMissing)?,
+            16,
+        )
+        .map_err(BlobTxConversionError::FromStrRadix)?;
+
+        // blobVersionedHashes
+        let blob_versioned_hashes = other
+            .get("blobVersionedHashes")
+            .ok_or(BlobTxConversionError::BlobVersionedHashesMissing)?
+            .as_array()
+            .ok_or(BlobTxConversionError::BlobVersionedHashesMissing)?
+            .iter()
+            .map(|versioned_hash| {
+                let hash_bytes = eth2_serde_utils::hex::decode(
+                    versioned_hash
+                        .as_str()
+                        .ok_or(BlobTxConversionError::BlobVersionedHashesMissing)?,
+                )
+                .map_err(BlobTxConversionError::FromHex)?;
+                if hash_bytes.len() != Hash256::ssz_fixed_len() {
+                    Err(BlobTxConversionError::InvalidVersionedHashBytesLen)
+                } else {
+                    Ok(Hash256::from_slice(&hash_bytes))
+                }
+            })
+            .collect::<Result<Vec<VersionedHash>, BlobTxConversionError>>()?;
+        let message = BlobTransaction {
+            chain_id,
+            nonce,
+            max_priority_fee_per_gas,
+            max_fee_per_gas,
+            gas,
+            to,
+            value,
+            data,
+            access_list,
+            max_fee_per_data_gas,
+            blob_versioned_hashes: VariableList::new(blob_versioned_hashes)?,
+        };
+
+        // ******************** EcdsaSignature fields ********************
+
+        let y_parity = if v == U64::zero() {
+            false
+        } else if v == U64::one() {
+            true
+        } else {
+            return Err(BlobTxConversionError::InvalidYParity);
+        };
+        let signature = EcdsaSignature { y_parity, r, s };
+
+        // The `BLOB_TX_TYPE` should prepend the SSZ encoded `SignedBlobTransaction`.
+        let mut signed_tx = SignedBlobTransaction { message, signature }.as_ssz_bytes();
+        signed_tx.insert(0, BLOB_TX_TYPE);
+        signed_tx
+    } else {
+        transaction.rlp().to_vec()
+    };
+    VariableList::new(tx).map_err(Into::into)
+}
+
+fn noop<T: EthSpec>(
+    _: &ExecutionLayer<T>,
+    _: ExecutionPayloadRef<T>,
+) -> Option<ExecutionPayload<T>> {
+    None
 }
 
 #[cfg(test)]
@@ -2155,10 +2462,6 @@ mod test {
             })
             .await;
     }
-}
-
-fn noop<T: EthSpec>(_: &ExecutionLayer<T>, _: &ExecutionPayload<T>) -> Option<ExecutionPayload<T>> {
-    None
 }
 
 #[cfg(test)]

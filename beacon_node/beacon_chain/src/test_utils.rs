@@ -34,7 +34,9 @@ use rand::Rng;
 use rand::SeedableRng;
 use rayon::prelude::*;
 use sensitive_url::SensitiveUrl;
-use slog::Logger;
+use slog::{o, Drain, Logger};
+use slog_async::Async;
+use slog_term::{FullFormat, TermDecorator};
 use slot_clock::{SlotClock, TestingSlotClock};
 use state_processing::per_block_processing::compute_timestamp_at_slot;
 use state_processing::{
@@ -316,6 +318,21 @@ where
         self
     }
 
+    /// Initializes the BLS withdrawal keypairs for `num_keypairs` validators to
+    /// the "determistic" values, regardless of wether or not the validator has
+    /// a BLS or execution address in the genesis deposits.
+    ///
+    /// This aligns with the withdrawal commitments used in the "interop"
+    /// genesis states.
+    pub fn deterministic_withdrawal_keypairs(self, num_keypairs: usize) -> Self {
+        self.withdrawal_keypairs(
+            types::test_utils::generate_deterministic_keypairs(num_keypairs)
+                .into_iter()
+                .map(Option::Some)
+                .collect(),
+        )
+    }
+
     pub fn default_spec(self) -> Self {
         self.spec_or_default(None)
     }
@@ -376,7 +393,6 @@ where
             .collect::<Result<_, _>>()
             .unwrap();
 
-        let spec = MainnetEthSpec::default_spec();
         let config = execution_layer::Config {
             execution_endpoints: urls,
             secret_files: vec![],
@@ -387,7 +403,6 @@ where
             config,
             self.runtime.task_executor.clone(),
             self.log.clone(),
-            &spec,
         )
         .unwrap();
 
@@ -429,6 +444,7 @@ where
             DEFAULT_TERMINAL_BLOCK,
             shanghai_time,
             eip4844_time,
+            None,
             Some(JwtKey::from_slice(&DEFAULT_JWT_SECRET).unwrap()),
             spec,
             None,
@@ -438,7 +454,11 @@ where
         self
     }
 
-    pub fn mock_execution_layer_with_builder(mut self, beacon_url: SensitiveUrl) -> Self {
+    pub fn mock_execution_layer_with_builder(
+        mut self,
+        beacon_url: SensitiveUrl,
+        builder_threshold: Option<u128>,
+    ) -> Self {
         // Get a random unused port
         let port = unused_port::unused_tcp_port().unwrap();
         let builder_url = SensitiveUrl::parse(format!("http://127.0.0.1:{port}").as_str()).unwrap();
@@ -455,6 +475,7 @@ where
             DEFAULT_TERMINAL_BLOCK,
             shanghai_time,
             eip4844_time,
+            builder_threshold,
             Some(JwtKey::from_slice(&DEFAULT_JWT_SECRET).unwrap()),
             spec.clone(),
             Some(builder_url.clone()),
@@ -1905,8 +1926,9 @@ where
         chain_dump
             .iter()
             .cloned()
-            .map(|checkpoint| checkpoint.beacon_state.finalized_checkpoint().root.into())
-            .filter(|block_hash| *block_hash != Hash256::zero().into())
+            .map(|checkpoint| checkpoint.beacon_state.finalized_checkpoint().root)
+            .filter(|block_hash| *block_hash != Hash256::zero())
+            .map(|hash| hash.into())
             .collect()
     }
 
@@ -2104,5 +2126,17 @@ where
 impl<T: BeaconChainTypes> fmt::Debug for BeaconChainHarness<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "BeaconChainHarness")
+    }
+}
+
+pub fn build_log(level: slog::Level, enabled: bool) -> Logger {
+    let decorator = TermDecorator::new().build();
+    let drain = FullFormat::new(decorator).build().fuse();
+    let drain = Async::new(drain).build().fuse();
+
+    if enabled {
+        Logger::root(drain.filter_level(level).fuse(), o!())
+    } else {
+        Logger::root(drain.filter(|_| false).fuse(), o!())
     }
 }

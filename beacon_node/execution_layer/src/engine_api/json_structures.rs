@@ -2,12 +2,11 @@ use super::*;
 use serde::{Deserialize, Serialize};
 use strum::EnumString;
 use superstruct::superstruct;
+use types::blobs_sidecar::KzgCommitments;
 use types::{
-    Blob, EthSpec, ExecutionBlockHash, FixedVector, KzgCommitment, Transaction, Unsigned,
+    Blobs, EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadCapella,
+    ExecutionPayloadEip4844, ExecutionPayloadMerge, FixedVector, Transaction, Unsigned,
     VariableList, Withdrawal,
-};
-use types::{
-    ExecutionPayload, ExecutionPayloadCapella, ExecutionPayloadEip4844, ExecutionPayloadMerge,
 };
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
@@ -418,9 +417,9 @@ impl From<JsonPayloadAttributes> for PayloadAttributes {
 #[serde(bound = "T: EthSpec", rename_all = "camelCase")]
 pub struct JsonBlobsBundle<T: EthSpec> {
     pub block_hash: ExecutionBlockHash,
-    pub kzgs: VariableList<KzgCommitment, T::MaxBlobsPerBlock>,
+    pub kzgs: KzgCommitments<T>,
     #[serde(with = "ssz_types::serde_utils::list_of_hex_fixed_vec")]
-    pub blobs: VariableList<Blob<T>, T::MaxBlobsPerBlock>,
+    pub blobs: Blobs<T>,
 }
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]

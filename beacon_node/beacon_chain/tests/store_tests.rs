@@ -11,7 +11,9 @@ use beacon_chain::{
     BeaconChainError, BeaconChainTypes, BeaconSnapshot, ChainConfig, NotifyExecutionLayer,
     ServerSentEventHandler, WhenSlotSkipped,
 };
+use eth2_network_config::TRUSTED_SETUP;
 use fork_choice::CountUnrealized;
+use kzg::TrustedSetup;
 use lazy_static::lazy_static;
 use logging::test_logger;
 use maplit::hashset;
@@ -57,15 +59,23 @@ fn get_store_with_spec(
     let config = StoreConfig::default();
     let log = test_logger();
 
-    HotColdDB::open(&hot_path, &cold_path, |_, _, _| Ok(()), config, spec, log)
-        .expect("disk store should initialize")
+    HotColdDB::open(
+        &hot_path,
+        &cold_path,
+        None,
+        |_, _, _| Ok(()),
+        config,
+        spec,
+        log,
+    )
+    .expect("disk store should initialize")
 }
 
 fn get_harness(
     store: Arc<HotColdDB<E, LevelDB<E>, LevelDB<E>>>,
     validator_count: usize,
 ) -> TestHarness {
-    let harness = BeaconChainHarness::builder(MinimalEthSpec)
+    let harness = TestHarness::builder(MinimalEthSpec)
         .default_spec()
         .keypairs(KEYPAIRS[0..validator_count].to_vec())
         .fresh_disk_store(store)
@@ -565,7 +575,7 @@ async fn delete_blocks_and_states() {
     let store = get_store(&db_path);
     let validators_keypairs =
         types::test_utils::generate_deterministic_keypairs(LOW_VALIDATOR_COUNT);
-    let harness = BeaconChainHarness::builder(MinimalEthSpec)
+    let harness = TestHarness::builder(MinimalEthSpec)
         .default_spec()
         .keypairs(validators_keypairs)
         .fresh_disk_store(store.clone())
@@ -695,7 +705,7 @@ async fn multi_epoch_fork_valid_blocks_test(
     let store = get_store(&db_path);
     let validators_keypairs =
         types::test_utils::generate_deterministic_keypairs(LOW_VALIDATOR_COUNT);
-    let harness = BeaconChainHarness::builder(MinimalEthSpec)
+    let harness = TestHarness::builder(MinimalEthSpec)
         .default_spec()
         .keypairs(validators_keypairs)
         .fresh_disk_store(store)
@@ -2101,10 +2111,13 @@ async fn weak_subjectivity_sync() {
     let store = get_store(&temp2);
     let spec = test_spec::<E>();
     let seconds_per_slot = spec.seconds_per_slot;
+    let trusted_setup: TrustedSetup = serde_json::from_reader(TRUSTED_SETUP)
+        .map_err(|e| println!("Unable to read trusted setup file: {}", e))
+        .unwrap();
 
     // Initialise a new beacon chain from the finalized checkpoint
     let beacon_chain = Arc::new(
-        BeaconChainBuilder::new(MinimalEthSpec)
+        BeaconChainBuilder::<DiskHarnessType<E>>::new(MinimalEthSpec)
             .store(store.clone())
             .custom_spec(test_spec::<E>())
             .task_executor(harness.chain.task_executor.clone())
@@ -2123,6 +2136,7 @@ async fn weak_subjectivity_sync() {
                 1,
             )))
             .monitor_validators(true, vec![], DEFAULT_INDIVIDUAL_TRACKING_THRESHOLD, log)
+            .trusted_setup(trusted_setup)
             .build()
             .expect("should build"),
     );
@@ -2300,7 +2314,7 @@ async fn finalizes_after_resuming_from_db() {
 
     let original_chain = harness.chain;
 
-    let resumed_harness = BeaconChainHarness::builder(MinimalEthSpec)
+    let resumed_harness = BeaconChainHarness::<DiskHarnessType<E>>::builder(MinimalEthSpec)
         .default_spec()
         .keypairs(KEYPAIRS[0..validator_count].to_vec())
         .resumed_disk_store(store)
@@ -2476,7 +2490,7 @@ async fn revert_minority_fork_on_resume() {
     drop(harness1);
     let resume_store = get_store_with_spec(&db_path1, spec2.clone());
 
-    let resumed_harness = BeaconChainHarness::builder(MinimalEthSpec)
+    let resumed_harness = TestHarness::builder(MinimalEthSpec)
         .spec(spec2)
         .keypairs(KEYPAIRS[0..validator_count].to_vec())
         .resumed_disk_store(resume_store)

@@ -1,3 +1,4 @@
+use crate::address_change_broadcast::broadcast_address_changes_at_capella;
 use crate::config::{ClientGenesis, Config as ClientConfig};
 use crate::notifier::spawn_notifier;
 use crate::Client;
@@ -67,6 +68,7 @@ pub struct ClientBuilder<T: BeaconChainTypes> {
     gossipsub_registry: Option<Registry>,
     db_path: Option<PathBuf>,
     freezer_db_path: Option<PathBuf>,
+    blobs_db_path: Option<PathBuf>,
     http_api_config: http_api::Config,
     http_metrics_config: http_metrics::Config,
     slasher: Option<Arc<Slasher<T::EthSpec>>>,
@@ -99,6 +101,7 @@ where
             gossipsub_registry: None,
             db_path: None,
             freezer_db_path: None,
+            blobs_db_path: None,
             http_api_config: <_>::default(),
             http_metrics_config: <_>::default(),
             slasher: None,
@@ -154,7 +157,6 @@ where
                 config,
                 context.executor.clone(),
                 context.log().clone(),
-                &spec,
             )
             .map_err(|e| format!("unable to start execution layer endpoints: {:?}", e))?;
             Some(execution_layer)
@@ -809,6 +811,25 @@ where
                     // Spawns a routine that polls the `exchange_transition_configuration` endpoint.
                     execution_layer.spawn_transition_configuration_poll(beacon_chain.spec.clone());
                 }
+
+                // Spawn a service to publish BLS to execution changes at the Capella fork.
+                if let Some(network_senders) = self.network_senders {
+                    let inner_chain = beacon_chain.clone();
+                    let broadcast_context =
+                        runtime_context.service_context("addr_bcast".to_string());
+                    let log = broadcast_context.log().clone();
+                    broadcast_context.executor.spawn(
+                        async move {
+                            broadcast_address_changes_at_capella(
+                                &inner_chain,
+                                network_senders.network_send(),
+                                &log,
+                            )
+                            .await
+                        },
+                        "addr_broadcast",
+                    );
+                }
             }
 
             start_proposer_prep_service(runtime_context.executor.clone(), beacon_chain.clone());
@@ -873,6 +894,7 @@ where
         mut self,
         hot_path: &Path,
         cold_path: &Path,
+        blobs_path: Option<PathBuf>,
         config: StoreConfig,
         log: Logger,
     ) -> Result<Self, String> {
@@ -888,6 +910,7 @@ where
 
         self.db_path = Some(hot_path.into());
         self.freezer_db_path = Some(cold_path.into());
+        self.blobs_db_path = blobs_path.clone();
 
         let inner_spec = spec.clone();
         let deposit_contract_deploy_block = context
@@ -910,6 +933,7 @@ where
         let store = HotColdDB::open(
             hot_path,
             cold_path,
+            blobs_path,
             schema_upgrade,
             config,
             spec,

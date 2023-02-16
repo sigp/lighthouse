@@ -1,10 +1,19 @@
 use state_processing::SigVerifiedOp;
-use std::collections::{hash_map::Entry, HashMap};
+use std::collections::{hash_map::Entry, HashMap, HashSet};
 use std::sync::Arc;
 use types::{
     AbstractExecPayload, BeaconState, ChainSpec, EthSpec, SignedBeaconBlock,
     SignedBlsToExecutionChange,
 };
+
+/// Indicates if a `BlsToExecutionChange` was received before or after the
+/// Capella fork. This is used to know which messages we should broadcast at the
+/// Capella fork epoch.
+#[derive(Copy, Clone)]
+pub enum ReceivedPreCapella {
+    Yes,
+    No,
+}
 
 /// Pool of BLS to execution changes that maintains a LIFO queue and an index by validator.
 ///
@@ -16,6 +25,9 @@ pub struct BlsToExecutionChanges<T: EthSpec> {
     by_validator_index: HashMap<u64, Arc<SigVerifiedOp<SignedBlsToExecutionChange, T>>>,
     /// Last-in-first-out (LIFO) queue of verified messages.
     queue: Vec<Arc<SigVerifiedOp<SignedBlsToExecutionChange, T>>>,
+    /// Contains a set of validator indices which need to have their changes
+    /// broadcast at the capella epoch.
+    received_pre_capella_indices: HashSet<u64>,
 }
 
 impl<T: EthSpec> BlsToExecutionChanges<T> {
@@ -31,16 +43,18 @@ impl<T: EthSpec> BlsToExecutionChanges<T> {
     pub fn insert(
         &mut self,
         verified_change: SigVerifiedOp<SignedBlsToExecutionChange, T>,
+        received_pre_capella: ReceivedPreCapella,
     ) -> bool {
+        let validator_index = verified_change.as_inner().message.validator_index;
         // Wrap in an `Arc` once on insert.
         let verified_change = Arc::new(verified_change);
-        match self
-            .by_validator_index
-            .entry(verified_change.as_inner().message.validator_index)
-        {
+        match self.by_validator_index.entry(validator_index) {
             Entry::Vacant(entry) => {
                 self.queue.push(verified_change.clone());
                 entry.insert(verified_change);
+                if matches!(received_pre_capella, ReceivedPreCapella::Yes) {
+                    self.received_pre_capella_indices.insert(validator_index);
+                }
                 true
             }
             Entry::Occupied(_) => false,
@@ -59,6 +73,24 @@ impl<T: EthSpec> BlsToExecutionChanges<T> {
         &self,
     ) -> impl Iterator<Item = &Arc<SigVerifiedOp<SignedBlsToExecutionChange, T>>> {
         self.queue.iter().rev()
+    }
+
+    /// Returns only those which are flagged for broadcasting at the Capella
+    /// fork. Uses FIFO ordering, although we expect this list to be shuffled by
+    /// the caller.
+    pub fn iter_received_pre_capella(
+        &self,
+    ) -> impl Iterator<Item = &Arc<SigVerifiedOp<SignedBlsToExecutionChange, T>>> {
+        self.queue.iter().filter(|address_change| {
+            self.received_pre_capella_indices
+                .contains(&address_change.as_inner().message.validator_index)
+        })
+    }
+
+    /// Returns the set of indicies which should have their address changes
+    /// broadcast at the Capella fork.
+    pub fn iter_pre_capella_indices(&self) -> impl Iterator<Item = &u64> {
+        self.received_pre_capella_indices.iter()
     }
 
     /// Prune BLS to execution changes that have been applied to the state more than 1 block ago.
@@ -101,5 +133,15 @@ impl<T: EthSpec> BlsToExecutionChanges<T> {
         for validator_index in validator_indices_pruned {
             self.by_validator_index.remove(&validator_index);
         }
+    }
+
+    /// Removes `broadcasted` validators from the set of validators that should
+    /// have their BLS changes broadcast at the Capella fork boundary.
+    pub fn register_indices_broadcasted_at_capella(&mut self, broadcasted: &HashSet<u64>) {
+        self.received_pre_capella_indices = self
+            .received_pre_capella_indices
+            .difference(broadcasted)
+            .copied()
+            .collect();
     }
 }

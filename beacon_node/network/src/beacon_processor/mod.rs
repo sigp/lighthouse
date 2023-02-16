@@ -1513,14 +1513,14 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                             Work::UnknownBlockAggregate { .. } => {
                                 unknown_block_aggregate_queue.push(work)
                             }
-                            Work::UnknownLightClientOptimisticUpdate { .. } => {
-                                unknown_light_client_update_queue.push(work, work_id, &self.log)
-                            }
                             Work::GossipBlsToExecutionChange { .. } => {
                                 gossip_bls_to_execution_change_queue.push(work, work_id, &self.log)
                             }
                             Work::BlobsByRootsRequest { .. } => {
                                 blbroots_queue.push(work, work_id, &self.log)
+                            }
+                            Work::UnknownLightClientOptimisticUpdate { .. } => {
+                                unknown_light_client_update_queue.push(work, work_id, &self.log)
                             }
                         }
                     }

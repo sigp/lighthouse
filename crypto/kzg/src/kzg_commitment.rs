@@ -99,7 +99,7 @@ impl FromStr for KzgCommitment {
 
 impl Debug for KzgCommitment {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", eth2_serde_utils::hex::encode(&self.0))
+        write!(f, "{}", eth2_serde_utils::hex::encode(self.0))
     }
 }
 

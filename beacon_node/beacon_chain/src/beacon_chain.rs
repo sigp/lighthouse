@@ -10,7 +10,7 @@ use crate::blob_cache::BlobCache;
 use crate::blob_verification::{AsBlock, AvailableBlock, BlockWrapper};
 use crate::block_times_cache::BlockTimesCache;
 use crate::block_verification::{
-    check_block_is_finalized_descendant, check_block_relevancy, get_block_root,
+    check_block_is_finalized_checkpoint_or_descendant, check_block_relevancy, get_block_root,
     signature_verify_chain_segment, BlockError, ExecutionPendingBlock, GossipVerifiedBlock,
     IntoExecutionPendingBlock, PayloadVerificationOutcome, POS_PANDA_BANNER,
 };
@@ -73,7 +73,7 @@ use fork_choice::{
 use futures::channel::mpsc::Sender;
 use itertools::process_results;
 use itertools::Itertools;
-use operation_pool::{AttestationRef, OperationPool, PersistedOperationPool};
+use operation_pool::{AttestationRef, OperationPool, PersistedOperationPool, ReceivedPreCapella};
 use parking_lot::{Mutex, RwLock};
 use proto_array::{CountUnrealizedFull, DoNotReOrg, ProposerHeadError};
 use safe_arith::SafeArith;
@@ -611,10 +611,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 start_slot,
                 end_slot,
                 || {
-                    (
+                    Ok((
                         head.beacon_state.clone_with_only_committee_caches(),
                         head.beacon_block_root,
-                    )
+                    ))
                 },
                 &self.spec,
             )?;
@@ -708,10 +708,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 start_slot,
                 end_slot,
                 || {
-                    (
+                    Ok((
                         head.beacon_state.clone_with_only_committee_caches(),
                         head.beacon_state_root(),
-                    )
+                    ))
                 },
                 &self.spec,
             )?;
@@ -1020,34 +1020,28 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .ok_or(Error::ExecutionLayerMissing)?
             .get_payload_by_block_hash(exec_block_hash, fork)
             .await
-            .map_err(|e| Error::ExecutionLayerErrorPayloadReconstruction(exec_block_hash, e))?
+            .map_err(|e| {
+                Error::ExecutionLayerErrorPayloadReconstruction(exec_block_hash, Box::new(e))
+            })?
             .ok_or(Error::BlockHashMissingFromExecutionLayer(exec_block_hash))?;
 
-        //FIXME(sean) avoid the clone by comparing refs to headers (`as_execution_payload_header` method ?)
-        let full_payload: FullPayload<T::EthSpec> = execution_payload.clone().into();
-
-        //FIXME(sean) we're not decoding blobs txs correctly yet
-        if !matches!(execution_payload, ExecutionPayload::Eip4844(_)) {
-            // Verify payload integrity.
-            let header_from_payload = full_payload.to_execution_payload_header();
-            if header_from_payload != execution_payload_header {
-                for txn in execution_payload.transactions() {
-                    debug!(
-                        self.log,
-                        "Reconstructed txn";
-                        "bytes" => format!("0x{}", hex::encode(&**txn)),
-                    );
-                }
-
-                return Err(Error::InconsistentPayloadReconstructed {
-                    slot: blinded_block.slot(),
-                    exec_block_hash,
-                    canonical_payload_root: execution_payload_header.tree_hash_root(),
-                    reconstructed_payload_root: header_from_payload.tree_hash_root(),
-                    canonical_transactions_root: execution_payload_header.transactions_root(),
-                    reconstructed_transactions_root: header_from_payload.transactions_root(),
-                });
+        // Verify payload integrity.
+        let header_from_payload = ExecutionPayloadHeader::from(execution_payload.to_ref());
+        if header_from_payload != execution_payload_header {
+            for txn in execution_payload.transactions() {
+                debug!(
+                    self.log,
+                    "Reconstructed txn";
+                    "bytes" => format!("0x{}", hex::encode(&**txn)),
+                );
             }
+
+            return Err(Error::InconsistentPayloadReconstructed {
+                slot: blinded_block.slot(),
+                exec_block_hash,
+                canonical_transactions_root: execution_payload_header.transactions_root(),
+                reconstructed_transactions_root: header_from_payload.transactions_root(),
+            });
         }
 
         // Add the payload to the block to form a full block.
@@ -2378,10 +2372,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn import_bls_to_execution_change(
         &self,
         bls_to_execution_change: SigVerifiedOp<SignedBlsToExecutionChange, T::EthSpec>,
+        received_pre_capella: ReceivedPreCapella,
     ) -> bool {
         if self.eth1_chain.is_some() {
             self.op_pool
-                .insert_bls_to_execution_change(bls_to_execution_change)
+                .insert_bls_to_execution_change(bls_to_execution_change, received_pre_capella)
         } else {
             false
         }
@@ -2880,7 +2875,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // is so we don't have to think about lock ordering with respect to the fork choice lock.
         // There are a bunch of places where we lock both fork choice and the pubkey cache and it
         // would be difficult to check that they all lock fork choice first.
-        let mut kv_store_ops = self
+        let mut ops = self
             .validator_pubkey_cache
             .try_write_for(VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT)
             .ok_or(Error::ValidatorPubkeyCacheLockTimeout)?
@@ -2902,7 +2897,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let mut fork_choice = self.canonical_head.fork_choice_write_lock();
 
         // Do not import a block that doesn't descend from the finalized root.
-        let signed_block = check_block_is_finalized_descendant(self, &fork_choice, signed_block)?;
+        let signed_block =
+            check_block_is_finalized_checkpoint_or_descendant(self, &fork_choice, signed_block)?;
         let block = signed_block.message();
 
         // Register the new block with the fork choice service.
@@ -2983,9 +2979,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // ---------------------------- BLOCK PROBABLY ATTESTABLE ----------------------------------
         // Most blocks are now capable of being attested to thanks to the `early_attester_cache`
         // cache above. Resume non-essential processing.
+        //
+        // It is important NOT to return errors here before the database commit, because the block
+        // has already been added to fork choice and the database would be left in an inconsistent
+        // state if we returned early without committing. In other words, an error here would
+        // corrupt the node's database permanently.
         // -----------------------------------------------------------------------------------------
 
-        self.import_block_update_shuffling_cache(block_root, &mut state)?;
+        self.import_block_update_shuffling_cache(block_root, &mut state);
         self.import_block_observe_attestations(
             block,
             &state,
@@ -3010,25 +3011,38 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // See https://github.com/sigp/lighthouse/issues/2028
         let (signed_block, blobs) = signed_block.deconstruct();
         let block = signed_block.message();
-        let mut ops: Vec<_> = confirmed_state_roots
-            .into_iter()
-            .map(StoreOp::DeleteStateTemporaryFlag)
-            .collect();
+        ops.extend(
+            confirmed_state_roots
+                .into_iter()
+                .map(StoreOp::DeleteStateTemporaryFlag),
+        );
         ops.push(StoreOp::PutBlock(block_root, signed_block.clone()));
         ops.push(StoreOp::PutState(block.state_root(), &state));
 
-        if let Some(blobs) = blobs {
-            if blobs.blobs.len() > 0 {
-                //FIXME(sean) using this for debugging for now
-                info!(self.log, "Writing blobs to store"; "block_root" => ?block_root);
-                ops.push(StoreOp::PutBlobs(block_root, blobs));
+        // Only consider blobs if the eip4844 fork is enabled.
+        if let Some(data_availability_boundary) = self.data_availability_boundary() {
+            let block_epoch = block.slot().epoch(T::EthSpec::slots_per_epoch());
+            let margin_epochs = self.store.get_config().blob_prune_margin_epochs;
+            let import_boundary = data_availability_boundary - margin_epochs;
+
+            // Only store blobs at the data availability boundary, minus any configured epochs
+            // margin, or younger (of higher epoch number).
+            if block_epoch >= import_boundary {
+                if let Some(blobs) = blobs {
+                    if !blobs.blobs.is_empty() {
+                        //FIXME(sean) using this for debugging for now
+                        info!(
+                            self.log, "Writing blobs to store";
+                            "block_root" => ?block_root
+                        );
+                        ops.push(StoreOp::PutBlobs(block_root, blobs));
+                    }
+                }
             }
-        };
+        }
         let txn_lock = self.store.hot_db.begin_rw_transaction();
 
-        kv_store_ops.extend(self.store.convert_to_kv_batch(ops)?);
-
-        if let Err(e) = self.store.hot_db.do_atomically(kv_store_ops) {
+        if let Err(e) = self.store.do_atomically_with_block_and_blobs_cache(ops) {
             error!(
                 self.log,
                 "Database write failed!";
@@ -3457,13 +3471,27 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
     }
 
+    // For the current and next epoch of this state, ensure we have the shuffling from this
+    // block in our cache.
     fn import_block_update_shuffling_cache(
         &self,
         block_root: Hash256,
         state: &mut BeaconState<T::EthSpec>,
+    ) {
+        if let Err(e) = self.import_block_update_shuffling_cache_fallible(block_root, state) {
+            warn!(
+                self.log,
+                "Failed to prime shuffling cache";
+                "error" => ?e
+            );
+        }
+    }
+
+    fn import_block_update_shuffling_cache_fallible(
+        &self,
+        block_root: Hash256,
+        state: &mut BeaconState<T::EthSpec>,
     ) -> Result<(), BlockError<T::EthSpec>> {
-        // For the current and next epoch of this state, ensure we have the shuffling from this
-        // block in our cache.
         for relative_epoch in [RelativeEpoch::Current, RelativeEpoch::Next] {
             let shuffling_id = AttestationShufflingId::new(block_root, state, relative_epoch)?;
 
@@ -4549,7 +4577,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 let (payload, _, _) = block_contents
                     .ok_or(BlockProductionError::MissingExecutionPayload)?
                     .deconstruct();
-
                 (
                     BeaconBlock::Capella(BeaconBlockCapella {
                         slot,
@@ -4580,7 +4607,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 let (payload, kzg_commitments, blobs) = block_contents
                     .ok_or(BlockProductionError::MissingExecutionPayload)?
                     .deconstruct();
-
                 (
                     BeaconBlock::Eip4844(BeaconBlockEip4844 {
                         slot,
@@ -4664,8 +4690,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .as_ref()
                 .ok_or(BlockProductionError::TrustedSetupNotInitialized)?;
             let kzg_aggregated_proof =
-                kzg_utils::compute_aggregate_kzg_proof::<T::EthSpec>(&kzg, &blobs)
-                    .map_err(|e| BlockProductionError::KzgError(e))?;
+                kzg_utils::compute_aggregate_kzg_proof::<T::EthSpec>(kzg, &blobs)
+                    .map_err(BlockProductionError::KzgError)?;
             let beacon_block_root = block.canonical_root();
             let expected_kzg_commitments = block.body().blob_kzg_commitments().map_err(|_| {
                 BlockProductionError::InvalidBlockVariant(
@@ -4679,7 +4705,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 kzg_aggregated_proof,
             };
             kzg_utils::validate_blobs_sidecar(
-                &kzg,
+                kzg,
                 slot,
                 beacon_block_root,
                 expected_kzg_commitments,
@@ -5911,17 +5937,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// The epoch at which we require a data availability check in block processing.
     /// `None` if the `Eip4844` fork is disabled.
     pub fn data_availability_boundary(&self) -> Option<Epoch> {
-        self.spec
-            .eip4844_fork_epoch
-            .map(|fork_epoch| {
-                self.epoch().ok().map(|current_epoch| {
-                    std::cmp::max(
-                        fork_epoch,
-                        current_epoch.saturating_sub(*MIN_EPOCHS_FOR_BLOBS_SIDECARS_REQUESTS),
-                    )
-                })
+        self.spec.eip4844_fork_epoch.and_then(|fork_epoch| {
+            self.epoch().ok().map(|current_epoch| {
+                std::cmp::max(
+                    fork_epoch,
+                    current_epoch.saturating_sub(*MIN_EPOCHS_FOR_BLOBS_SIDECARS_REQUESTS),
+                )
             })
-            .flatten()
+        })
     }
 
     /// The epoch that is a data availability boundary, or the latest finalized epoch.

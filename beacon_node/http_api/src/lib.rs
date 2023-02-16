@@ -15,6 +15,7 @@ mod database;
 mod metrics;
 mod proposer_duties;
 mod publish_blocks;
+mod standard_block_rewards;
 mod state_id;
 mod sync_committee_rewards;
 mod sync_committees;
@@ -35,6 +36,7 @@ use eth2::types::{
 use lighthouse_network::{types::SyncState, EnrExt, NetworkGlobals, PeerId, PubsubMessage};
 use lighthouse_version::version_with_platform;
 use network::{NetworkMessage, NetworkSenders, ValidatorSubscriptionMessage};
+use operation_pool::ReceivedPreCapella;
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use slog::{crit, debug, error, info, warn, Logger};
@@ -1692,8 +1694,12 @@ pub fn serve<T: BeaconChainTypes>(
                                     .to_execution_address;
 
                                 // New to P2P *and* op pool, gossip immediately if post-Capella.
-                                let publish = chain.current_slot_is_post_capella().unwrap_or(false);
-                                if publish {
+                                let received_pre_capella = if chain.current_slot_is_post_capella().unwrap_or(false) {
+                                    ReceivedPreCapella::No
+                                } else {
+                                    ReceivedPreCapella::Yes
+                                };
+                                if matches!(received_pre_capella, ReceivedPreCapella::No) {
                                     publish_pubsub_message(
                                         &network_tx,
                                         PubsubMessage::BlsToExecutionChange(Box::new(
@@ -1704,14 +1710,14 @@ pub fn serve<T: BeaconChainTypes>(
 
                                 // Import to op pool (may return `false` if there's a race).
                                 let imported =
-                                    chain.import_bls_to_execution_change(verified_address_change);
+                                    chain.import_bls_to_execution_change(verified_address_change, received_pre_capella);
 
                                 info!(
                                     log,
                                     "Processed BLS to execution change";
                                     "validator_index" => validator_index,
                                     "address" => ?address,
-                                    "published" => publish,
+                                    "published" => matches!(received_pre_capella, ReceivedPreCapella::No),
                                     "imported" => imported,
                                 );
                             }
@@ -1797,6 +1803,27 @@ pub fn serve<T: BeaconChainTypes>(
             },
         );
 
+    let beacon_rewards_path = eth_v1
+        .and(warp::path("beacon"))
+        .and(warp::path("rewards"))
+        .and(chain_filter.clone());
+
+    // GET beacon/rewards/blocks/{block_id}
+    let get_beacon_rewards_blocks = beacon_rewards_path
+        .clone()
+        .and(warp::path("blocks"))
+        .and(block_id_or_err)
+        .and(warp::path::end())
+        .and_then(|chain: Arc<BeaconChain<T>>, block_id: BlockId| {
+            blocking_json_task(move || {
+                let (rewards, execution_optimistic) =
+                    standard_block_rewards::compute_beacon_block_rewards(chain, block_id)?;
+                Ok(rewards)
+                    .map(api_types::GenericResponse::from)
+                    .map(|resp| resp.add_execution_optimistic(execution_optimistic))
+            })
+        });
+
     /*
      * beacon/rewards
      */
@@ -1805,6 +1832,58 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path("beacon"))
         .and(warp::path("rewards"))
         .and(chain_filter.clone());
+
+    // POST beacon/rewards/attestations/{epoch}
+    let post_beacon_rewards_attestations = beacon_rewards_path
+        .clone()
+        .and(warp::path("attestations"))
+        .and(warp::path::param::<Epoch>())
+        .and(warp::path::end())
+        .and(warp::body::json())
+        .and(log_filter.clone())
+        .and_then(
+            |chain: Arc<BeaconChain<T>>,
+             epoch: Epoch,
+             validators: Vec<ValidatorId>,
+             log: Logger| {
+                blocking_json_task(move || {
+                    let attestation_rewards = chain
+                        .compute_attestation_rewards(epoch, validators, log)
+                        .map_err(|e| match e {
+                            BeaconChainError::MissingBeaconState(root) => {
+                                warp_utils::reject::custom_not_found(format!(
+                                    "missing state {root:?}",
+                                ))
+                            }
+                            BeaconChainError::NoStateForSlot(slot) => {
+                                warp_utils::reject::custom_not_found(format!(
+                                    "missing state at slot {slot}"
+                                ))
+                            }
+                            BeaconChainError::BeaconStateError(
+                                BeaconStateError::UnknownValidator(validator_index),
+                            ) => warp_utils::reject::custom_bad_request(format!(
+                                "validator is unknown: {validator_index}"
+                            )),
+                            BeaconChainError::ValidatorPubkeyUnknown(pubkey) => {
+                                warp_utils::reject::custom_bad_request(format!(
+                                    "validator pubkey is unknown: {pubkey:?}"
+                                ))
+                            }
+                            e => warp_utils::reject::custom_server_error(format!(
+                                "unexpected error: {:?}",
+                                e
+                            )),
+                        })?;
+                    let execution_optimistic =
+                        chain.is_optimistic_or_invalid_head().unwrap_or_default();
+
+                    Ok(attestation_rewards)
+                        .map(api_types::GenericResponse::from)
+                        .map(|resp| resp.add_execution_optimistic(execution_optimistic))
+                })
+            },
+        );
 
     // POST beacon/rewards/sync_committee/{block_id}
     let post_beacon_rewards_sync_committee = beacon_rewards_path
@@ -2878,7 +2957,7 @@ pub fn serve<T: BeaconChainTypes>(
                     .await
                     .map(|resp| warp::reply::json(&resp))
                     .map_err(|e| {
-                        error!(
+                        warn!(
                             log,
                             "Relay error when registering validator(s)";
                             "num_registrations" => filtered_registration_data.len(),
@@ -3514,6 +3593,7 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(get_beacon_pool_voluntary_exits.boxed())
                 .or(get_beacon_pool_bls_to_execution_changes.boxed())
                 .or(get_beacon_deposit_snapshot.boxed())
+                .or(get_beacon_rewards_blocks.boxed())
                 .or(get_config_fork_schedule.boxed())
                 .or(get_config_spec.boxed())
                 .or(get_config_deposit_contract.boxed())
@@ -3566,8 +3646,9 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(post_beacon_pool_proposer_slashings.boxed())
                 .or(post_beacon_pool_voluntary_exits.boxed())
                 .or(post_beacon_pool_sync_committees.boxed())
-                .or(post_beacon_rewards_sync_committee.boxed())
                 .or(post_beacon_pool_bls_to_execution_changes.boxed())
+                .or(post_beacon_rewards_attestations.boxed())
+                .or(post_beacon_rewards_sync_committee.boxed())
                 .or(post_validator_duties_attester.boxed())
                 .or(post_validator_duties_sync.boxed())
                 .or(post_validator_aggregate_and_proofs.boxed())

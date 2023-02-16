@@ -6,6 +6,7 @@ use beacon_chain::{
 };
 use eth2::types::{IndexedErrorMessage, StateId, SyncSubcommittee};
 use genesis::{bls_withdrawal_credentials, interop_genesis_state_with_withdrawal_credentials};
+use std::collections::HashSet;
 use types::{
     test_utils::{generate_deterministic_keypair, generate_deterministic_keypairs},
     Address, ChainSpec, Epoch, EthSpec, Hash256, MinimalEthSpec, Slot,
@@ -438,6 +439,8 @@ async fn bls_to_execution_changes_update_all_around_capella_fork() {
         .await
         .unwrap();
 
+    let expected_received_pre_capella_messages = valid_address_changes[..num_pre_capella].to_vec();
+
     // Conflicting changes for the same validators should all fail.
     let error = client
         .post_beacon_pool_bls_to_execution_changes(&conflicting_address_changes[..num_pre_capella])
@@ -463,6 +466,20 @@ async fn bls_to_execution_changes_update_all_around_capella_fork() {
     let capella_slot = fork_epoch.start_slot(E::slots_per_epoch());
     harness.extend_to_slot(capella_slot - 1).await;
     assert_eq!(harness.head_slot(), capella_slot - 1);
+
+    assert_eq!(
+        harness
+            .chain
+            .op_pool
+            .get_bls_to_execution_changes_received_pre_capella(
+                &harness.chain.head_snapshot().beacon_state,
+                &spec,
+            )
+            .into_iter()
+            .collect::<HashSet<_>>(),
+        HashSet::from_iter(expected_received_pre_capella_messages.into_iter()),
+        "all pre-capella messages should be queued for capella broadcast"
+    );
 
     // Add Capella blocks which should be full of BLS to execution changes.
     for i in 0..validator_count / max_bls_to_execution_changes {

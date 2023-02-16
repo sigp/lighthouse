@@ -35,6 +35,7 @@ pub use self::hot_cold_store::{HotColdDB, HotStateSummary, Split};
 pub use self::leveldb_store::LevelDB;
 pub use self::memory_store::MemoryStore;
 pub use self::partial_beacon_state::PartialBeaconState;
+pub use crate::metadata::BlobInfo;
 pub use errors::Error;
 pub use impls::beacon_state::StorageContainer as BeaconStateStorageContainer;
 pub use metadata::AnchorInfo;
@@ -100,6 +101,7 @@ pub fn get_key_for_col(column: &str, key: &[u8]) -> Vec<u8> {
 }
 
 #[must_use]
+#[derive(Clone)]
 pub enum KeyValueStoreOp {
     PutKeyValue(Vec<u8>, Vec<u8>),
     DeleteKey(Vec<u8>),
@@ -153,16 +155,20 @@ pub trait ItemStore<E: EthSpec>: KeyValueStore<E> + Sync + Send + Sized + 'stati
 
 /// Reified key-value storage operation.  Helps in modifying the storage atomically.
 /// See also https://github.com/sigp/lighthouse/issues/692
+#[derive(Clone)]
 pub enum StoreOp<'a, E: EthSpec> {
     PutBlock(Hash256, Arc<SignedBeaconBlock<E>>),
     PutState(Hash256, &'a BeaconState<E>),
     PutBlobs(Hash256, Arc<BlobsSidecar<E>>),
+    PutOrphanedBlobsKey(Hash256),
     PutStateSummary(Hash256, HotStateSummary),
     PutStateTemporaryFlag(Hash256),
     DeleteStateTemporaryFlag(Hash256),
     DeleteBlock(Hash256),
+    DeleteBlobs(Hash256),
     DeleteState(Hash256, Option<Slot>),
     DeleteExecutionPayload(Hash256),
+    KeyValueOp(KeyValueStoreOp),
 }
 
 /// A unique column identifier.
@@ -175,6 +181,9 @@ pub enum DBColumn {
     BeaconBlock,
     #[strum(serialize = "blb")]
     BeaconBlob,
+    /// Block roots of orphaned beacon blobs.
+    #[strum(serialize = "blo")]
+    BeaconBlobOrphan,
     /// For full `BeaconState`s in the hot database (finalized or fork-boundary states).
     #[strum(serialize = "ste")]
     BeaconState,

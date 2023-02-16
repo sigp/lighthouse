@@ -390,6 +390,10 @@ pub fn get_config<E: EthSpec>(
         client_config.freezer_db_path = Some(PathBuf::from(freezer_dir));
     }
 
+    if let Some(blobs_db_dir) = cli_args.value_of("blobs-dir") {
+        client_config.blobs_db_path = Some(PathBuf::from(blobs_db_dir));
+    }
+
     let (sprp, sprp_explicit) = get_slots_per_restore_point::<E>(cli_args)?;
     client_config.store.slots_per_restore_point = sprp;
     client_config.store.slots_per_restore_point_set_explicitly = sprp_explicit;
@@ -409,6 +413,22 @@ pub fn get_config<E: EthSpec>(
 
     if let Some(prune_payloads) = clap_utils::parse_optional(cli_args, "prune-payloads")? {
         client_config.store.prune_payloads = prune_payloads;
+    }
+
+    if let Some(prune_blobs) = clap_utils::parse_optional(cli_args, "prune-blobs")? {
+        client_config.store.prune_blobs = prune_blobs;
+    }
+
+    if let Some(epochs_per_blob_prune) =
+        clap_utils::parse_optional(cli_args, "epochs-per-blob-prune")?
+    {
+        client_config.store.epochs_per_blob_prune = epochs_per_blob_prune;
+    }
+
+    if let Some(blob_prune_margin_epochs) =
+        clap_utils::parse_optional(cli_args, "blob-prune-margin-epochs")?
+    {
+        client_config.store.blob_prune_margin_epochs = blob_prune_margin_epochs;
     }
 
     /*
@@ -983,6 +1003,13 @@ pub fn set_network_config(
 
     // Light client server config.
     config.enable_light_client_server = cli_args.is_present("light-client-server");
+
+    // This flag can be used both with or without a value. Try to parse it first with a value, if
+    // no value is defined but the flag is present, use the default params.
+    config.outbound_rate_limiter_config = clap_utils::parse_optional(cli_args, "self-limiter")?;
+    if cli_args.is_present("self-limiter") && config.outbound_rate_limiter_config.is_none() {
+        config.outbound_rate_limiter_config = Some(Default::default());
+    }
 
     Ok(())
 }

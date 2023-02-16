@@ -1,5 +1,5 @@
-use crate::test_utils::TestRandom;
 use crate::*;
+use crate::{blobs_sidecar::KzgCommitments, test_utils::TestRandom};
 use derivative::Derivative;
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
@@ -69,7 +69,7 @@ pub struct BeaconBlockBody<T: EthSpec, Payload: AbstractExecPayload<T> = FullPay
     pub bls_to_execution_changes:
         VariableList<SignedBlsToExecutionChange, T::MaxBlsToExecutionChanges>,
     #[superstruct(only(Eip4844))]
-    pub blob_kzg_commitments: VariableList<KzgCommitment, T::MaxBlobsPerBlock>,
+    pub blob_kzg_commitments: KzgCommitments<T>,
     #[superstruct(only(Base, Altair))]
     #[ssz(skip_serializing, skip_deserializing)]
     #[tree_hash(skip_hashing)]
@@ -278,7 +278,7 @@ impl<E: EthSpec> From<BeaconBlockBodyMerge<E, FullPayload<E>>>
                 voluntary_exits,
                 sync_aggregate,
                 execution_payload: BlindedPayloadMerge {
-                    execution_payload_header: From::from(execution_payload.clone()),
+                    execution_payload_header: From::from(&execution_payload),
                 },
             },
             Some(execution_payload),
@@ -319,7 +319,7 @@ impl<E: EthSpec> From<BeaconBlockBodyCapella<E, FullPayload<E>>>
                 voluntary_exits,
                 sync_aggregate,
                 execution_payload: BlindedPayloadCapella {
-                    execution_payload_header: From::from(execution_payload.clone()),
+                    execution_payload_header: From::from(&execution_payload),
                 },
                 bls_to_execution_changes,
             },
@@ -362,7 +362,7 @@ impl<E: EthSpec> From<BeaconBlockBodyEip4844<E, FullPayload<E>>>
                 voluntary_exits,
                 sync_aggregate,
                 execution_payload: BlindedPayloadEip4844 {
-                    execution_payload_header: From::from(execution_payload.clone()),
+                    execution_payload_header: From::from(&execution_payload),
                 },
                 bls_to_execution_changes,
                 blob_kzg_commitments,
@@ -413,7 +413,7 @@ impl<E: EthSpec> BeaconBlockBodyMerge<E, FullPayload<E>> {
             voluntary_exits: voluntary_exits.clone(),
             sync_aggregate: sync_aggregate.clone(),
             execution_payload: BlindedPayloadMerge {
-                execution_payload_header: From::from(execution_payload.clone()),
+                execution_payload_header: execution_payload.into(),
             },
         }
     }
@@ -446,7 +446,7 @@ impl<E: EthSpec> BeaconBlockBodyCapella<E, FullPayload<E>> {
             voluntary_exits: voluntary_exits.clone(),
             sync_aggregate: sync_aggregate.clone(),
             execution_payload: BlindedPayloadCapella {
-                execution_payload_header: From::from(execution_payload.clone()),
+                execution_payload_header: execution_payload.into(),
             },
             bls_to_execution_changes: bls_to_execution_changes.clone(),
         }
@@ -481,7 +481,7 @@ impl<E: EthSpec> BeaconBlockBodyEip4844<E, FullPayload<E>> {
             voluntary_exits: voluntary_exits.clone(),
             sync_aggregate: sync_aggregate.clone(),
             execution_payload: BlindedPayloadEip4844 {
-                execution_payload_header: From::from(execution_payload.clone()),
+                execution_payload_header: execution_payload.into(),
             },
             bls_to_execution_changes: bls_to_execution_changes.clone(),
             blob_kzg_commitments: blob_kzg_commitments.clone(),

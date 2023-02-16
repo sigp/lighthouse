@@ -40,7 +40,7 @@ pub fn compute_aggregate_kzg_proof<T: EthSpec>(
     blobs: &[Blob<T>],
 ) -> Result<KzgProof, KzgError> {
     let blobs = blobs
-        .into_iter()
+        .iter()
         .map(|blob| ssz_blob_to_crypto_blob::<T>(blob.clone())) // TODO(pawan): avoid this clone
         .collect::<Vec<_>>();
 
