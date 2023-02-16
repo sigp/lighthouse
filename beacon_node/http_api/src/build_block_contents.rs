@@ -1,4 +1,4 @@
-use beacon_chain::blob_sidecar_cache::BlobSidecarsCache;
+use beacon_chain::blob_cache::BlobCache;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use std::sync::Arc;
 use types::block_contents::{BeaconBlockAndBlindedBlobSidecars, BlockContents};
@@ -12,7 +12,7 @@ pub fn build_block_contents<T: BeaconChainTypes, Payload: AbstractExecPayload<T:
     block: BeaconBlock<T::EthSpec, Payload>,
 ) -> Result<BlockContents<T::EthSpec, Payload>, Error> {
     // FIXME(jimmy): to be replaced with `chain.blob_cache`
-    let mock_blob_cache = BlobSidecarsCache::<T::EthSpec>::default();
+    let mock_blob_cache = BlobCache::<T::EthSpec>::default();
 
     if matches!(fork_name, ForkName::Eip4844) {
         let block_root = &block.canonical_root();

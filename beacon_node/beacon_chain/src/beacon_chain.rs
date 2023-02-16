@@ -4700,21 +4700,23 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     "EIP4844 block does not contain kzg commitments".to_string(),
                 )
             })?;
-            let blobs_sidecar = BlobsSidecar {
-                beacon_block_slot: slot,
-                beacon_block_root,
-                blobs,
-                kzg_aggregated_proof,
-            };
-            kzg_utils::validate_blobs_sidecar(
-                kzg,
-                slot,
-                beacon_block_root,
-                expected_kzg_commitments,
-                &blobs_sidecar,
-            )
-            .map_err(BlockProductionError::KzgError)?;
-            self.blob_cache.put(beacon_block_root, blobs_sidecar);
+
+            for (blob_index, blob) in blobs.iter().enumerate() {
+                let blob_sidecar = BlobSidecar {
+                    block_root: beacon_block_root,
+                    index: blob_index as u64,
+                    slot,
+                    block_parent_root: block.parent_root(),
+                    proposer_index,
+                    blob: blob.clone(), // FIXME: remove clone
+                    kzg_commitment: expected_kzg_commitments[blob_index].clone(),
+                    // TODO: compute KZG proof
+                    kzg_proof: Default::default(),
+                };
+                // FIXME: Validate blobs
+                self.blob_cache
+                    .put(beacon_block_root, blob_sidecar, blob_index as u64);
+            }
         }
 
         metrics::inc_counter(&metrics::BLOCK_PRODUCTION_SUCCESSES);
