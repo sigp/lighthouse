@@ -60,16 +60,16 @@ impl<T: EthSpec> BlobSidecarsCache<T> {
         let guard = self.blobs.lock();
         let blob_sidecars: Vec<BlobSidecar<T>> = (0..T::max_blobs_per_block())
             .map(|blob_index| {
+                // FIXME(jimmy) we should avoid cloning the blob - temporary hack to make it compile
                 guard
                     .peek(&BlobCacheId {
                         block_root: *block_root,
                         blob_index: blob_index as u64,
                     })
-                    // FIXME(jimmy) we should avoid cloning the blob - temporary hack to make it compile
-                    .map(|blob| blob.clone())
+                    .cloned()
             })
             .into_iter()
-            .filter_map(|blob| blob)
+            .flatten()
             .collect();
 
         if blob_sidecars.len() != expected_blobs_count {
