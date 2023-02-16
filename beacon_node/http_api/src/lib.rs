@@ -53,8 +53,8 @@ use system_health::observe_system_health_bn;
 use tokio::sync::mpsc::{Sender, UnboundedSender};
 use tokio_stream::{wrappers::BroadcastStream, StreamExt};
 use types::{
-    Attestation, AttestationData, AttesterSlashing, BeaconStateError, BlindedPayload,
-    CommitteeCache, ConfigAndPreset, Epoch, EthSpec, ForkName, FullPayload,
+    Attestation, AttestationData, AttestationShufflingId, AttesterSlashing, BeaconStateError,
+    BlindedPayload, CommitteeCache, ConfigAndPreset, Epoch, EthSpec, ForkName, FullPayload,
     ProposerPreparationData, ProposerSlashing, RelativeEpoch, SignedAggregateAndProof,
     SignedBeaconBlock, SignedBlindedBeaconBlock, SignedContributionAndProof,
     SignedValidatorRegistrationData, SignedVoluntaryExit, Slot, SyncCommitteeMessage,
@@ -782,39 +782,89 @@ pub fn serve<T: BeaconChainTypes>(
                                 let current_epoch = state.current_epoch();
                                 let epoch = query.epoch.unwrap_or(current_epoch);
 
-                                let committee_cache =
-                                    match RelativeEpoch::from_epoch(current_epoch, epoch) {
-                                        Ok(relative_epoch)
-                                            if state
-                                                .committee_cache_is_initialized(relative_epoch) =>
-                                        {
-                                            state.committee_cache(relative_epoch).map(Cow::Borrowed)
-                                        }
-                                        _ => CommitteeCache::initialized(state, epoch, &chain.spec)
-                                            .map(Cow::Owned),
-                                    }
-                                    .map_err(|e| match e {
-                                        BeaconStateError::EpochOutOfBounds => {
-                                            let max_sprp =
-                                                T::EthSpec::slots_per_historical_root() as u64;
-                                            let first_subsequent_restore_point_slot = ((epoch
-                                                .start_slot(T::EthSpec::slots_per_epoch())
-                                                / max_sprp)
-                                                + 1)
-                                                * max_sprp;
-                                            if epoch < current_epoch {
-                                                warp_utils::reject::custom_bad_request(format!(
+                                // Attempt to obtain the committee_cache from the beacon chain
+                                let decision_slot = (epoch.saturating_sub(2u64))
+                                    .end_slot(T::EthSpec::slots_per_epoch());
+                                let shuffling_decision_block = chain
+                                    .block_root_at_slot(decision_slot, WhenSlotSkipped::Prev)
+                                    .expect("First failure")
+                                    .expect("Second Failure");
+                                let shuffling_id = AttestationShufflingId {
+                                    shuffling_epoch: epoch,
+                                    shuffling_decision_block,
+                                };
+
+                                // Attempt to read from the chain cache
+                                let maybe_cached_shuffling = chain
+                                    .shuffling_cache
+                                    .try_write_for(std::time::Duration::from_secs(1))
+                                    .and_then(|mut cache_write| cache_write.get(&shuffling_id))
+                                    .and_then(|cache_item| cache_item.wait().ok());
+
+                                let committee_cache = match maybe_cached_shuffling {
+                                    Some(shuffling) => shuffling,
+                                    None => {
+                                        let possibly_built_cache =
+                                            match RelativeEpoch::from_epoch(current_epoch, epoch) {
+                                                Ok(relative_epoch)
+                                                    if state.committee_cache_is_initialized(
+                                                        relative_epoch,
+                                                    ) =>
+                                                {
+                                                    state
+                                                        .committee_cache(relative_epoch)
+                                                        .map(Cow::Borrowed)
+                                                }
+                                                _ => CommitteeCache::initialized(
+                                                    state,
+                                                    epoch,
+                                                    &chain.spec,
+                                                )
+                                                .map(Cow::Owned),
+                                            }
+                                            .map_err(
+                                                |e| match e {
+                                                    BeaconStateError::EpochOutOfBounds => {
+                                                        let max_sprp =
+                                                            T::EthSpec::slots_per_historical_root()
+                                                                as u64;
+                                                        let first_subsequent_restore_point_slot =
+                                                            ((epoch.start_slot(
+                                                                T::EthSpec::slots_per_epoch(),
+                                                            ) / max_sprp)
+                                                                + 1)
+                                                                * max_sprp;
+                                                        if epoch < current_epoch {
+                                                            warp_utils::reject::custom_bad_request(
+                                                                format!(
                                                     "epoch out of bounds, try state at slot {}",
                                                     first_subsequent_restore_point_slot,
-                                                ))
-                                            } else {
-                                                warp_utils::reject::custom_bad_request(
+                                                ),
+                                                            )
+                                                        } else {
+                                                            warp_utils::reject::custom_bad_request(
                                                     "epoch out of bounds, too far in future".into(),
                                                 )
-                                            }
+                                                        }
+                                                    }
+                                                    _ => warp_utils::reject::beacon_chain_error(
+                                                        e.into(),
+                                                    ),
+                                                },
+                                            )?;
+
+                                        let owned_cache = possibly_built_cache.into_owned();
+                                        // Attempt to write to the beacon cache
+                                        if let Some(mut cache_write) = chain
+                                            .shuffling_cache
+                                            .try_write_for(std::time::Duration::from_secs(1))
+                                        {
+                                            cache_write
+                                                .insert_committee_cache(shuffling_id, &owned_cache);
                                         }
-                                        _ => warp_utils::reject::beacon_chain_error(e.into()),
-                                    })?;
+                                        Arc::new(owned_cache)
+                                    }
+                                };
 
                                 // Use either the supplied slot or all slots in the epoch.
                                 let slots =

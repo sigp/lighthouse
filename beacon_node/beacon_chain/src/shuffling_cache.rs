@@ -9,7 +9,7 @@ use types::{beacon_state::CommitteeCache, AttestationShufflingId, Epoch, Hash256
 /// Each entry should be `8 + 800,000 = 800,008` bytes in size with 100k validators. (8-byte hash +
 /// 100k indices). Therefore, this cache should be approx `16 * 800,008 = 12.8 MB`. (Note: this
 /// ignores a few extra bytes in the caches that should be insignificant compared to the indices).
-const CACHE_SIZE: usize = 16;
+const CACHE_SIZE: usize = 8000;
 
 /// The maximum number of concurrent committee cache "promises" that can be issued. In effect, this
 /// limits the number of concurrent states that can be loaded into memory for the committee cache.
@@ -20,7 +20,7 @@ const CACHE_SIZE: usize = 16;
 /// always be inserted during block import. Unstable networks with a high degree of forking might
 /// see some attestations dropped due to this concurrency limit, however I propose that this is
 /// better than low-resource nodes going OOM.
-const MAX_CONCURRENT_PROMISES: usize = 2;
+const MAX_CONCURRENT_PROMISES: usize = 20;
 
 #[derive(Clone)]
 pub enum CacheItem {
