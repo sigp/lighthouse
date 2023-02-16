@@ -11,7 +11,7 @@ use warp::Rejection;
 /// Handles a request from the HTTP API for blobs.
 pub async fn publish_blob<T: BeaconChainTypes>(
     blinded_blob_sidecar: SignedBlindedBlobSidecar,
-    chain: Arc<BeaconChain<T>>,
+    _chain: Arc<BeaconChain<T>>,
     network_tx: &UnboundedSender<NetworkMessage<T::EthSpec>>,
     log: Logger,
 ) -> Result<(), Rejection> {
@@ -34,7 +34,7 @@ pub async fn publish_blob<T: BeaconChainTypes>(
             log,
             "Publishing signed blob sidecar";
             "block_root" => format!("{}", block_root),
-            "blob_index" => index,
+            "blob_index" => blob_index,
         );
 
         crate::publish_pubsub_message(

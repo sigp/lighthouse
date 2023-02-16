@@ -10,7 +10,7 @@ use tree_hash_derive::TreeHash;
 #[serde(bound = "T: EthSpec, Payload: AbstractExecPayload<T>")]
 pub struct BeaconBlockAndBlindedBlobSidecars<T: EthSpec, Payload: AbstractExecPayload<T>> {
     pub block: BeaconBlock<T, Payload>,
-    pub blinded_block_sidecars: VariableList<BlindedBlobSidecar, T::MaxBlobsPerBlock>,
+    pub blinded_blob_sidecars: VariableList<BlindedBlobSidecar, T::MaxBlobsPerBlock>,
 }
 
 /// A wrapper over a [`BeaconBlock`] or a [`BeaconBlockAndBlindedBlobSidecars`].

@@ -16,8 +16,15 @@ pub fn build_block_contents<T: BeaconChainTypes, Payload: AbstractExecPayload<T:
 
     if matches!(fork_name, ForkName::Eip4844) {
         let block_root = &block.canonical_root();
+        let kzg_commitments = block.body().blob_kzg_commitments().map_err(|_| {
+            return warp_utils::reject::broadcast_without_import(format!(
+                "EIP4844 block does not contain kzg commitments"
+            ));
+        })?;
 
-        if let Some(blob_sidecars) = mock_blob_cache.peek(block_root) {
+        if let Ok(blob_sidecars) =
+            mock_blob_cache.peek_blobs_for_block(block_root, kzg_commitments.len())
+        {
             let blinded_block_sidecars: Vec<BlindedBlobSidecar> = blob_sidecars
                 .into_iter()
                 .map(|sidecar| sidecar.into())
@@ -25,7 +32,7 @@ pub fn build_block_contents<T: BeaconChainTypes, Payload: AbstractExecPayload<T:
 
             let block_and_blobs = BeaconBlockAndBlindedBlobSidecars {
                 block,
-                blinded_block_sidecars: VariableList::from(blinded_block_sidecars),
+                blinded_blob_sidecars: VariableList::from(blinded_block_sidecars),
             };
 
             Ok(BlockContents::BlockAndBlobSidecars(block_and_blobs))

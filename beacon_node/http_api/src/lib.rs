@@ -56,7 +56,7 @@ use system_health::observe_system_health_bn;
 use tokio::sync::mpsc::{Sender, UnboundedSender};
 use tokio_stream::{wrappers::BroadcastStream, StreamExt};
 use types::{
-    Attestation, AttestationData, AttesterSlashing, BeaconStateError, BlindedPayload, BlobSidecar,
+    Attestation, AttestationData, AttesterSlashing, BeaconStateError, BlindedPayload,
     CommitteeCache, ConfigAndPreset, Epoch, EthSpec, ForkName, FullPayload,
     ProposerPreparationData, ProposerSlashing, RelativeEpoch, SignedAggregateAndProof,
     SignedBeaconBlock, SignedBlindedBeaconBlock, SignedBlindedBlobSidecar,
@@ -1132,7 +1132,7 @@ pub fn serve<T: BeaconChainTypes>(
         );
 
     // POST beacon/blob_sidecar
-    let post_beacon_blocks = eth_v1
+    let post_beacon_blobs_sidecar = eth_v1
         .and(warp::path("beacon"))
         .and(warp::path("blob_sidecar"))
         .and(warp::path::end())
@@ -3588,6 +3588,7 @@ pub fn serve<T: BeaconChainTypes>(
             post_beacon_blocks
                 .boxed()
                 .or(post_beacon_blinded_blocks.boxed())
+                .or(post_beacon_blobs_sidecar.boxed())
                 .or(post_beacon_pool_attestations.boxed())
                 .or(post_beacon_pool_attester_slashings.boxed())
                 .or(post_beacon_pool_proposer_slashings.boxed())
