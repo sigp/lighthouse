@@ -85,7 +85,7 @@ if [[ "$BEHAVIOR" == "failure" ]]; then
 
     # We expect to find a doppelganger, exit with success error code if doppelganger was found
     # and failure if no doppelganger was found.
-    if [[ $DOPPELGANGER_EXIT -eq 124 ]]; then
+    if [[ $DOPPELGANGER_EXIT -eq 1 ]]; then
         exit 0
     else
         exit 1
