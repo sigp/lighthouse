@@ -17,8 +17,7 @@ use types::ExecutionBlockHash;
 
 /// The number of payload IDs that will be stored for each `Engine`.
 ///
-/// Since the size of each value is small (~100 bytes) a large number is used for safety.
-/// FIXME: check this assumption now that the key includes entire payload attributes which now includes withdrawals
+/// Since the size of each value is small (~800 bytes) a large number is used for safety.
 const PAYLOAD_ID_LRU_CACHE_SIZE: usize = 512;
 const CACHED_ENGINE_CAPABILITIES_AGE_LIMIT: Duration = Duration::from_secs(900); // 15 minutes
 
@@ -276,7 +275,7 @@ impl Engine {
 
                 let mut state = self.state.write().await;
                 state.update(EngineStateInternal::AuthFailed);
-                (**state, CapabilitiesCacheAction::None)
+                (**state, CapabilitiesCacheAction::Clear)
             }
             Err(e) => {
                 error!(

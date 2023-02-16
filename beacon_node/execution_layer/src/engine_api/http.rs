@@ -570,8 +570,8 @@ impl CapabilitiesCacheEntry {
         }
     }
 
-    pub fn engine_capabilities(&self) -> &EngineCapabilities {
-        &self.engine_capabilities
+    pub fn engine_capabilities(&self) -> EngineCapabilities {
+        self.engine_capabilities
     }
 
     pub fn age(&self) -> Duration {
@@ -817,7 +817,9 @@ impl HttpJsonRpc {
 
         Ok(GetPayloadResponse::Merge(GetPayloadResponseMerge {
             execution_payload: payload_v1.into(),
-            // Have to guess zero here as we don't know the value
+            // Set the V1 payload values from the EE to be zero. This simulates
+            // the pre-block-value functionality of always choosing the builder
+            // block.
             block_value: Uint256::zero(),
         }))
     }
@@ -984,16 +986,12 @@ impl HttpJsonRpc {
     ) -> Result<EngineCapabilities, Error> {
         let mut lock = self.engine_capabilities_cache.lock().await;
 
-        if lock
-            .as_ref()
-            .map_or(true, |entry| entry.older_than(age_limit))
-        {
+        if let Some(lock) = lock.as_ref().filter(|entry| !entry.older_than(age_limit)) {
+            Ok(lock.engine_capabilities())
+        } else {
             let engine_capabilities = self.exchange_capabilities().await?;
             *lock = Some(CapabilitiesCacheEntry::new(engine_capabilities));
             Ok(engine_capabilities)
-        } else {
-            // here entry is guaranteed to exist so unwrap() is safe
-            Ok(*lock.as_ref().unwrap().engine_capabilities())
         }
     }
 
