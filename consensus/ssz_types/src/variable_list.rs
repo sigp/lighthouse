@@ -176,6 +176,15 @@ impl<'a, T, N: Unsigned> IntoIterator for &'a VariableList<T, N> {
     }
 }
 
+impl<T, N: Unsigned> IntoIterator for VariableList<T, N> {
+    type Item = T;
+    type IntoIter = std::vec::IntoIter<T>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.vec.into_iter()
+    }
+}
+
 impl<T, N: Unsigned> tree_hash::TreeHash for VariableList<T, N>
 where
     T: tree_hash::TreeHash,
