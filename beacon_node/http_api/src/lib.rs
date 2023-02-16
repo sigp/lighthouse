@@ -1131,10 +1131,10 @@ pub fn serve<T: BeaconChainTypes>(
             },
         );
 
-    // POST beacon/blob_sidecar
-    let post_beacon_blobs_sidecar = eth_v1
+    // POST beacon/blinded_blob_sidecar
+    let post_beacon_blinded_blob_sidecars = eth_v1
         .and(warp::path("beacon"))
-        .and(warp::path("blob_sidecar"))
+        .and(warp::path("blinded_blob_sidecar"))
         .and(warp::path::end())
         .and(warp::body::json())
         .and(chain_filter.clone())
@@ -3588,7 +3588,7 @@ pub fn serve<T: BeaconChainTypes>(
             post_beacon_blocks
                 .boxed()
                 .or(post_beacon_blinded_blocks.boxed())
-                .or(post_beacon_blobs_sidecar.boxed())
+                .or(post_beacon_blinded_blob_sidecars.boxed())
                 .or(post_beacon_pool_attestations.boxed())
                 .or(post_beacon_pool_attester_slashings.boxed())
                 .or(post_beacon_pool_proposer_slashings.boxed())
