@@ -1,12 +1,13 @@
 use lru::LruCache;
 use parking_lot::Mutex;
+use std::sync::Arc;
 use types::{BlobSidecar, EthSpec, Hash256};
 
 pub const DEFAULT_BLOB_CACHE_SIZE: usize = 10;
 
 /// A cache blobs by beacon block root.
 pub struct BlobCache<T: EthSpec> {
-    pub blobs: Mutex<LruCache<BlobCacheId, BlobSidecar<T>>>,
+    pub blobs: Mutex<LruCache<BlobCacheId, Arc<BlobSidecar<T>>>>,
 }
 
 #[derive(Hash, PartialEq, Eq)]
@@ -35,17 +36,17 @@ impl<T: EthSpec> BlobCache<T> {
         block_root: Hash256,
         blob: BlobSidecar<T>,
         blob_index: u64,
-    ) -> Option<BlobSidecar<T>> {
+    ) -> Option<Arc<BlobSidecar<T>>> {
         self.blobs.lock().put(
             BlobCacheId {
                 block_root,
                 blob_index,
             },
-            blob,
+            Arc::new(blob),
         )
     }
 
-    pub fn pop(&self, block_root: &Hash256, blob_index: u64) -> Option<BlobSidecar<T>> {
+    pub fn pop(&self, block_root: &Hash256, blob_index: u64) -> Option<Arc<BlobSidecar<T>>> {
         self.blobs.lock().pop(&BlobCacheId {
             block_root: *block_root,
             blob_index,
@@ -56,11 +57,10 @@ impl<T: EthSpec> BlobCache<T> {
         &self,
         block_root: &Hash256,
         expected_blobs_count: usize,
-    ) -> Result<Vec<BlobSidecar<T>>, BlobCacheError> {
+    ) -> Result<Vec<Arc<BlobSidecar<T>>>, BlobCacheError> {
         let guard = self.blobs.lock();
-        let blob_sidecars: Vec<BlobSidecar<T>> = (0..T::max_blobs_per_block())
+        let blob_sidecars: Vec<Arc<BlobSidecar<T>>> = (0..T::max_blobs_per_block())
             .map(|blob_index| {
-                // FIXME(jimmy) remove clone if possible
                 guard
                     .peek(&BlobCacheId {
                         block_root: *block_root,

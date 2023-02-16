@@ -6,6 +6,7 @@ use kzg::{KzgCommitment, KzgProof};
 use serde_derive::{Deserialize, Serialize};
 use ssz::Encode;
 use ssz_derive::{Decode, Encode};
+use std::sync::Arc;
 use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
@@ -70,8 +71,8 @@ pub struct BlindedBlobSidecar {
     pub kzg_proof: KzgProof,
 }
 
-impl<T: EthSpec> From<BlobSidecar<T>> for BlindedBlobSidecar {
-    fn from(value: BlobSidecar<T>) -> Self {
+impl<T: EthSpec> From<Arc<BlobSidecar<T>>> for BlindedBlobSidecar {
+    fn from(value: Arc<BlobSidecar<T>>) -> Self {
         Self {
             block_root: value.block_root,
             index: value.index,
@@ -79,7 +80,7 @@ impl<T: EthSpec> From<BlobSidecar<T>> for BlindedBlobSidecar {
             block_parent_root: value.block_parent_root,
             proposer_index: value.proposer_index,
             blob_root: value.blob.tree_hash_root(),
-            kzg_commitment: value.kzg_commitment,
+            kzg_commitment: value.kzg_commitment.clone(),
             kzg_proof: value.kzg_proof,
         }
     }

@@ -3,6 +3,7 @@ use crate::{BlobSidecar, ChainSpec, EthSpec, Fork, Hash256, PublicKey, Signature
 use derivative::Derivative;
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
+use std::sync::Arc;
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
@@ -22,7 +23,7 @@ use tree_hash_derive::TreeHash;
 #[arbitrary(bound = "T: EthSpec")]
 #[derivative(PartialEq, Hash(bound = "T: EthSpec"))]
 pub struct SignedBlobSidecar<T: EthSpec> {
-    pub message: BlobSidecar<T>,
+    pub message: Arc<BlobSidecar<T>>,
     pub signature: Signature,
 }
 
