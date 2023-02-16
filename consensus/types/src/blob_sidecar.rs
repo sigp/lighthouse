@@ -69,11 +69,9 @@ pub struct BlindedBlobSidecar {
     pub kzg_proof: KzgProof,
 }
 
-impl<T: EthSpec> TryFrom<BlobSidecar<T>> for BlindedBlobSidecar {
-    type Error = String;
-
-    fn try_from(value: BlobSidecar<T>) -> Result<Self, Self::Error> {
-        Ok(Self {
+impl<T: EthSpec> From<BlobSidecar<T>> for BlindedBlobSidecar {
+    fn from(value: BlobSidecar<T>) -> Self {
+        Self {
             block_root: value.block_root,
             index: value.index,
             slot: value.slot,
@@ -82,6 +80,6 @@ impl<T: EthSpec> TryFrom<BlobSidecar<T>> for BlindedBlobSidecar {
             blob_root: value.blob.tree_hash_root(),
             kzg_commitment: value.kzg_commitment,
             kzg_proof: value.kzg_proof,
-        })
+        }
     }
 }

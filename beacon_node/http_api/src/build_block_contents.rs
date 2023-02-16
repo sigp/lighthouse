@@ -1,14 +1,8 @@
-use beacon_chain::blob_sidecar_cache::{BlobSidecarsCache, DEFAULT_BLOB_CACHE_SIZE};
+use beacon_chain::blob_sidecar_cache::BlobSidecarsCache;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
-use lru::LruCache;
-use parking_lot::Mutex;
 use std::sync::Arc;
-use tokio_stream::StreamExt;
 use types::block_contents::{BeaconBlockAndBlindedBlobSidecars, BlockContents};
-use types::{
-    AbstractExecPayload, BeaconBlock, BlindedBlobSidecar, EthSpec, ForkName, MainnetEthSpec,
-    VariableList,
-};
+use types::{AbstractExecPayload, BeaconBlock, BlindedBlobSidecar, ForkName, VariableList};
 
 type Error = warp::reject::Rejection;
 
