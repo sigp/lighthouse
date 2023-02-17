@@ -23,11 +23,13 @@ pub enum BlockContents<T: EthSpec, Payload: AbstractExecPayload<T>> {
     Block(BeaconBlock<T, Payload>),
 }
 
+type BlindedBlobSidecars<N> = VariableList<BlindedBlobSidecar, N>;
+
 impl<T: EthSpec, Payload: AbstractExecPayload<T>> BlockContents<T, Payload> {
     pub fn block(&self) -> &BeaconBlock<T, Payload> {
         match self {
             BlockContents::BlockAndBlobSidecars(block_and_sidecars) => &block_and_sidecars.block,
-            BlockContents::Block(block) => &block,
+            BlockContents::Block(block) => block,
         }
     }
 
@@ -35,7 +37,7 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> BlockContents<T, Payload> {
         self,
     ) -> (
         BeaconBlock<T, Payload>,
-        Option<VariableList<BlindedBlobSidecar, T::MaxBlobsPerBlock>>,
+        Option<BlindedBlobSidecars<T::MaxBlobsPerBlock>>,
     ) {
         match self {
             BlockContents::BlockAndBlobSidecars(block_and_sidecars) => (
