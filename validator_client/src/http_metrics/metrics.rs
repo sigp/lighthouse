@@ -116,6 +116,11 @@ lazy_static::lazy_static! {
         "Duration to perform beacon block service tasks",
         &["task"]
     );
+    pub static ref BLOB_SIDECAR_SERVICE_TIMES: Result<HistogramVec> = try_create_histogram_vec(
+        "vc_beacon_blob_sidecar_service_task_times_seconds",
+        "Duration to perform beacon blob_sidecar service tasks",
+        &["task"]
+    );
     pub static ref PROPOSER_COUNT: Result<IntGaugeVec> = try_create_int_gauge_vec(
         "vc_beacon_block_proposer_count",
         "Number of beacon block proposers on this host",

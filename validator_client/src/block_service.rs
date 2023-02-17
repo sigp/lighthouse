@@ -409,86 +409,132 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
             .await?;
 
         let (block, maybe_blob_sidecars) = block_contents.deconstruct();
-        let signed_block = self_ref
-            .validator_store
-            .sign_block::<Payload>(*validator_pubkey_ref, block, current_slot)
-            .await
-            .map_err(|e| BlockError::Recoverable(format!("Unable to sign block: {:?}", e)))?;
 
-        // TODO(jimmy): publish blob sidecars
-        let _maybe_signed_blob_sidecar = if let Some(blob_sidecars) = maybe_blob_sidecars {
-            Some(
-                self_ref
+        let block_publish_future = async {
+            let signed_block = self_ref
+                .validator_store
+                .sign_block::<Payload>(*validator_pubkey_ref, block, current_slot)
+                .await
+                .map_err(|e| BlockError::Recoverable(format!("Unable to sign block: {:?}", e)))?;
+
+            info!(
+                log,
+                "Publishing signed block";
+                "slot" => slot.as_u64(),
+            );
+
+            // Publish block with first available beacon node.
+            self.beacon_nodes
+                .first_success(
+                    RequireSynced::No,
+                    OfflineOnFailure::Yes,
+                    |beacon_node| async {
+                        match Payload::block_type() {
+                            BlockType::Full => {
+                                let _post_timer = metrics::start_timer_vec(
+                                    &metrics::BLOCK_SERVICE_TIMES,
+                                    &[metrics::BEACON_BLOCK_HTTP_POST],
+                                );
+                                beacon_node
+                                    .post_beacon_blocks(&signed_block)
+                                    .await
+                                    .map_err(|e| {
+                                        BlockError::Irrecoverable(format!(
+                                            "Error from beacon node when publishing block: {:?}",
+                                            e
+                                        ))
+                                    })?
+                            }
+                            BlockType::Blinded => {
+                                let _post_timer = metrics::start_timer_vec(
+                                    &metrics::BLOCK_SERVICE_TIMES,
+                                    &[metrics::BLINDED_BEACON_BLOCK_HTTP_POST],
+                                );
+                                beacon_node
+                                    .post_beacon_blinded_blocks(&signed_block)
+                                    .await
+                                    .map_err(|e| {
+                                        BlockError::Irrecoverable(format!(
+                                            "Error from beacon node when publishing block: {:?}",
+                                            e
+                                        ))
+                                    })?
+                            }
+                        }
+                        Ok::<_, BlockError>(())
+                    },
+                )
+                .await?;
+
+            info!(
+                log,
+                "Successfully published block";
+                "block_type" => ?Payload::block_type(),
+                "deposits" => signed_block.message().body().deposits().len(),
+                "attestations" => signed_block.message().body().attestations().len(),
+                "graffiti" => ?graffiti.map(|g| g.as_utf8_lossy()),
+                "slot" => signed_block.slot().as_u64(),
+            );
+
+            Ok::<_, BlockError>(())
+        };
+
+        let blob_publish_future = async {
+            if let Some(blob_sidecars) = maybe_blob_sidecars {
+                let signed_blob_sidecars = self_ref
                     .validator_store
                     .sign_blobs(*validator_pubkey_ref, blob_sidecars, current_slot)
                     .await
                     .map_err(|e| {
                         BlockError::Recoverable(format!("Unable to sign blob: {:?}", e))
-                    })?,
-            )
-        } else {
-            None
-        };
+                    })?;
 
-        info!(
-            log,
-            "Publishing signed block";
-            "slot" => slot.as_u64(),
-        );
+                info!(
+                    log,
+                    "Publishing signed blobs";
+                    "slot" => slot.as_u64(),
+                );
 
-        // Publish block with first available beacon node.
-        self.beacon_nodes
-            .first_success(
-                RequireSynced::No,
-                OfflineOnFailure::Yes,
-                |beacon_node| async {
-                    match Payload::block_type() {
-                        BlockType::Full => {
+                // Publish blobs with first available beacon node.
+                self.beacon_nodes
+                    .first_success(
+                        RequireSynced::No,
+                        OfflineOnFailure::Yes,
+                        |beacon_node| async {
                             let _post_timer = metrics::start_timer_vec(
-                                &metrics::BLOCK_SERVICE_TIMES,
+                                &metrics::BLOB_SIDECAR_SERVICE_TIMES,
                                 &[metrics::BEACON_BLOCK_HTTP_POST],
                             );
                             beacon_node
-                                .post_beacon_blocks(&signed_block)
+                                .post_blinded_blob_sidecars::<E>(&signed_blob_sidecars)
                                 .await
                                 .map_err(|e| {
                                     BlockError::Irrecoverable(format!(
-                                        "Error from beacon node when publishing block: {:?}",
+                                        "Error from beacon node when publishing blobs: {:?}",
                                         e
                                     ))
-                                })?
-                        }
-                        BlockType::Blinded => {
-                            let _post_timer = metrics::start_timer_vec(
-                                &metrics::BLOCK_SERVICE_TIMES,
-                                &[metrics::BLINDED_BEACON_BLOCK_HTTP_POST],
-                            );
-                            beacon_node
-                                .post_beacon_blinded_blocks(&signed_block)
-                                .await
-                                .map_err(|e| {
-                                    BlockError::Irrecoverable(format!(
-                                        "Error from beacon node when publishing block: {:?}",
-                                        e
-                                    ))
-                                })?
-                        }
-                    }
-                    Ok::<_, BlockError>(())
-                },
-            )
-            .await?;
+                                })?;
+                            Ok::<_, BlockError>(())
+                        },
+                    )
+                    .await?;
 
-        info!(
-            log,
-            "Successfully published block";
-            "block_type" => ?Payload::block_type(),
-            "deposits" => signed_block.message().body().deposits().len(),
-            "attestations" => signed_block.message().body().attestations().len(),
-            "graffiti" => ?graffiti.map(|g| g.as_utf8_lossy()),
-            "slot" => signed_block.slot().as_u64(),
-        );
+                info!(
+                    log,
+                    "Successfully published blobs";
+                    "slot" => slot.as_u64(),
+                );
 
+                Ok::<_, BlockError>(())
+            } else {
+                Ok::<_, BlockError>(())
+            }
+        };
+
+        let (res_block, res_blob) = tokio::join!(block_publish_future, blob_publish_future);
+
+        res_block?;
+        res_blob?;
         Ok(())
     }
 }

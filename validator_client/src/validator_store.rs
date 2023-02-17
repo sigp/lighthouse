@@ -7,7 +7,6 @@ use crate::{
 };
 use account_utils::{validator_definitions::ValidatorDefinition, ZeroizeString};
 use eth2::types::VariableList;
-use futures::TryFutureExt;
 use parking_lot::{Mutex, RwLock};
 use slashing_protection::{
     interchange::Interchange, InterchangeError, NotSafe, Safe, SlashingDatabase,

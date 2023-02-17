@@ -629,10 +629,11 @@ impl BeaconNodeHttpClient {
     }
 
     /// `POST beacon/blinded_blob_sidecar`
-    pub async fn post_blinded_blob_sidecar<T: EthSpec>(
+    pub async fn post_blinded_blob_sidecars<T: EthSpec>(
         &self,
-        blob_sidecar: &SignedBlindedBlobSidecar,
+        blob_sidecars: &VariableList<SignedBlindedBlobSidecar, T::MaxBlobsPerBlock>,
     ) -> Result<(), Error> {
+        // TODO(jimmy): separate or combined request?
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
@@ -640,10 +641,12 @@ impl BeaconNodeHttpClient {
             .push("beacon")
             .push("blinded_blob_sidecar");
 
-        self.post_with_timeout(path, blob_sidecar, self.timeouts.proposal)
-            .await?;
-
-        Ok(())
+        futures::future::join_all(blob_sidecars.into_iter().map(|blob_sidecar| {
+            self.post_with_timeout(path.clone(), blob_sidecar, self.timeouts.proposal)
+        }))
+        .await
+        .into_iter()
+        .collect()
     }
 
     /// `POST beacon/blinded_blocks`
