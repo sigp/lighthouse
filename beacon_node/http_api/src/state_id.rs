@@ -120,9 +120,9 @@ impl StateId {
     pub fn fork_and_execution_optimistic<T: BeaconChainTypes>(
         &self,
         chain: &BeaconChain<T>,
-    ) -> Result<(Fork, bool, bool), warp::Rejection> {
-        self.map_state_and_execution_optimistic(chain, |state, execution_optimistic, finalized| {
-            Ok((state.fork(), execution_optimistic, finalized))
+    ) -> Result<(Fork, bool), warp::Rejection> {
+        self.map_state_and_execution_optimistic(chain, |state, execution_optimistic, _finalized| {
+            Ok((state.fork(), execution_optimistic))
         })
     }
 
@@ -133,8 +133,9 @@ impl StateId {
         &self,
         chain: &BeaconChain<T>,
     ) -> Result<(Fork, bool, bool), warp::Rejection> {
-        let (state, execution_optimistic, finalized) = self.state(chain)?;
-        Ok((state.fork(), execution_optimistic, finalized))
+        self.map_state_and_execution_optimistic(chain, |state, execution_optimistic, finalized| {
+            Ok((state.fork(), execution_optimistic, finalized))
+        })
     }
 
     /// Convenience function to compute `fork` when `execution_optimistic` isn't desired.
@@ -143,7 +144,7 @@ impl StateId {
         chain: &BeaconChain<T>,
     ) -> Result<Fork, warp::Rejection> {
         self.fork_and_execution_optimistic(chain)
-            .map(|(fork, _, _)| fork)
+            .map(|(fork, _)| fork)
     }
 
     /// Return the `BeaconState` identified by `self`.
