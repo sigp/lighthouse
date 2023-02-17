@@ -466,13 +466,14 @@ async fn capella_readiness_logging<T: BeaconChainTypes>(
             error!(
                 log,
                 "Not ready for Capella";
+                "hint" => "the execution endpoint may be offline",
                 "info" => %readiness,
-                "hint" => "try updating Lighthouse and/or the execution layer",
             )
         }
         readiness => warn!(
             log,
             "Not ready for Capella";
+            "hint" => "try updating the execution endpoint",
             "info" => %readiness,
         ),
     }
