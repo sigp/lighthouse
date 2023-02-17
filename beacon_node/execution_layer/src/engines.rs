@@ -341,7 +341,7 @@ impl Engine {
     /// deadlock.
     pub async fn request<'a, F, G, H>(self: &'a Arc<Self>, func: F) -> Result<H, EngineError>
     where
-        F: Fn(&'a Engine) -> G,
+        F: FnOnce(&'a Engine) -> G,
         G: Future<Output = Result<H, EngineApiError>>,
     {
         match func(self).await {

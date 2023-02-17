@@ -10,7 +10,7 @@ use serde_json::json;
 use std::collections::HashSet;
 use tokio::sync::Mutex;
 
-use std::time::{Duration, SystemTime};
+use std::time::{Duration, Instant};
 use types::EthSpec;
 
 pub use deposit_log::{DepositLog, Log};
@@ -559,14 +559,14 @@ pub mod deposit_methods {
 #[derive(Clone, Debug)]
 pub struct CapabilitiesCacheEntry {
     engine_capabilities: EngineCapabilities,
-    fetch_time: SystemTime,
+    fetch_time: Instant,
 }
 
 impl CapabilitiesCacheEntry {
     pub fn new(engine_capabilities: EngineCapabilities) -> Self {
         Self {
             engine_capabilities,
-            fetch_time: SystemTime::now(),
+            fetch_time: Instant::now(),
         }
     }
 
@@ -575,15 +575,7 @@ impl CapabilitiesCacheEntry {
     }
 
     pub fn age(&self) -> Duration {
-        // duration_since() may fail because measurements taken earlier
-        // are not guaranteed to always be before later measurements
-        // due to anomalies such as the system clock being adjusted
-        // either forwards or backwards
-        //
-        // In such cases, we'll just say the age is zero
-        SystemTime::now()
-            .duration_since(self.fetch_time)
-            .unwrap_or(Duration::ZERO)
+        Instant::now().duration_since(self.fetch_time)
     }
 
     /// returns `true` if the entry's age is >= age_limit

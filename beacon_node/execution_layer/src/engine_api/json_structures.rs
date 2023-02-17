@@ -145,7 +145,6 @@ impl<T: EthSpec> From<ExecutionPayloadCapella<T>> for JsonExecutionPayloadV2<T> 
             withdrawals: payload
                 .withdrawals
                 .into_iter()
-                .cloned()
                 .map(Into::into)
                 .collect::<Vec<_>>()
                 .into(),
@@ -173,7 +172,6 @@ impl<T: EthSpec> From<ExecutionPayloadEip4844<T>> for JsonExecutionPayloadV3<T> 
             withdrawals: payload
                 .withdrawals
                 .into_iter()
-                .cloned()
                 .map(Into::into)
                 .collect::<Vec<_>>()
                 .into(),
@@ -231,7 +229,6 @@ impl<T: EthSpec> From<JsonExecutionPayloadV2<T>> for ExecutionPayloadCapella<T> 
             withdrawals: payload
                 .withdrawals
                 .into_iter()
-                .cloned()
                 .map(Into::into)
                 .collect::<Vec<_>>()
                 .into(),
@@ -259,7 +256,6 @@ impl<T: EthSpec> From<JsonExecutionPayloadV3<T>> for ExecutionPayloadEip4844<T> 
             withdrawals: payload
                 .withdrawals
                 .into_iter()
-                .cloned()
                 .map(Into::into)
                 .collect::<Vec<_>>()
                 .into(),
