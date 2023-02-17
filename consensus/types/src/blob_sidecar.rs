@@ -86,6 +86,8 @@ impl<T: EthSpec> From<Arc<BlobSidecar<T>>> for BlindedBlobSidecar {
     }
 }
 
+impl SignedRoot for BlindedBlobSidecar {}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Encode, TreeHash, Derivative)]
 #[derivative(PartialEq, Hash)]
 pub struct SignedBlindedBlobSidecar {

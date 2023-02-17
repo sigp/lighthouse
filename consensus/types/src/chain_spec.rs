@@ -14,7 +14,7 @@ pub enum Domain {
     BlsToExecutionChange,
     BeaconProposer,
     BeaconAttester,
-    BlobsSideCar,
+    BlobSidecar,
     Randao,
     Deposit,
     VoluntaryExit,
@@ -366,7 +366,7 @@ impl ChainSpec {
         match domain {
             Domain::BeaconProposer => self.domain_beacon_proposer,
             Domain::BeaconAttester => self.domain_beacon_attester,
-            Domain::BlobsSideCar => self.domain_blobs_sidecar,
+            Domain::BlobSidecar => self.domain_blobs_sidecar,
             Domain::Randao => self.domain_randao,
             Domain::Deposit => self.domain_deposit,
             Domain::VoluntaryExit => self.domain_voluntary_exit,

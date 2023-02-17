@@ -6,6 +6,8 @@ use crate::{
     Config,
 };
 use account_utils::{validator_definitions::ValidatorDefinition, ZeroizeString};
+use eth2::types::VariableList;
+use futures::TryFutureExt;
 use parking_lot::{Mutex, RwLock};
 use slashing_protection::{
     interchange::Interchange, InterchangeError, NotSafe, Safe, SlashingDatabase,
@@ -19,9 +21,10 @@ use std::sync::Arc;
 use task_executor::TaskExecutor;
 use types::{
     attestation::Error as AttestationError, graffiti::GraffitiString, AbstractExecPayload, Address,
-    AggregateAndProof, Attestation, BeaconBlock, BlindedPayload, ChainSpec, ContributionAndProof,
-    Domain, Epoch, EthSpec, Fork, Graffiti, Hash256, Keypair, PublicKeyBytes, SelectionProof,
-    Signature, SignedAggregateAndProof, SignedBeaconBlock, SignedContributionAndProof, SignedRoot,
+    AggregateAndProof, Attestation, BeaconBlock, BlindedBlobSidecar, BlindedPayload, ChainSpec,
+    ContributionAndProof, Domain, Epoch, EthSpec, Fork, Graffiti, Hash256, Keypair, PublicKeyBytes,
+    SelectionProof, Signature, SignedAggregateAndProof, SignedBeaconBlock,
+    SignedBlindedBlobSidecar, SignedContributionAndProof, SignedRoot,
     SignedValidatorRegistrationData, Slot, SyncAggregatorSelectionData, SyncCommitteeContribution,
     SyncCommitteeMessage, SyncSelectionProof, SyncSubnetId, ValidatorRegistrationData,
 };
@@ -529,6 +532,54 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
                 Err(Error::Slashable(e))
             }
         }
+    }
+
+    pub async fn sign_blobs(
+        &self,
+        validator_pubkey: PublicKeyBytes,
+        blob_sidecars: VariableList<BlindedBlobSidecar, E::MaxBlobsPerBlock>,
+        current_slot: Slot,
+    ) -> Result<VariableList<SignedBlindedBlobSidecar, E::MaxBlobsPerBlock>, Error> {
+        let mut signed_blob_sidecars = Vec::new();
+
+        for blob_sidecar in blob_sidecars.into_iter() {
+            let slot = blob_sidecar.slot;
+
+            // Make sure the blob slot is not higher than the current slot to avoid potential attacks.
+            if slot > current_slot {
+                warn!(
+                    self.log,
+                    "Not signing blob with slot greater than current slot";
+                    "blob_slot" => slot.as_u64(),
+                    "current_slot" => current_slot.as_u64()
+                );
+                return Err(Error::GreaterThanCurrentSlot { slot, current_slot });
+            }
+
+            let signing_epoch = slot.epoch(E::slots_per_epoch());
+            let signing_context = self.signing_context(Domain::BlobSidecar, signing_epoch);
+
+            metrics::inc_counter_vec(&metrics::SIGNED_BLOBS_TOTAL, &[metrics::SUCCESS]);
+
+            let signing_method = self.doppelganger_checked_signing_method(validator_pubkey)?;
+
+            // TODO(jimmy): if multiple requests to web3signer, maybe consider sending in parallel
+            let signature = signing_method
+                .get_signature::<E, BlindedPayload<E>>(
+                    SignableMessage::BlobSidecar(&blob_sidecar),
+                    signing_context,
+                    &self.spec,
+                    &self.task_executor,
+                )
+                .await?;
+
+            signed_blob_sidecars.push(SignedBlindedBlobSidecar {
+                message: blob_sidecar.clone(), // FIXME: avoid clone
+                signature,
+            });
+        }
+
+        Ok(VariableList::from(signed_blob_sidecars))
     }
 
     pub async fn sign_attestation(

@@ -15,8 +15,8 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio::time::sleep;
 use types::{
-    AbstractExecPayload, BeaconBlock, BlindedPayload, BlockType, EthSpec, FullPayload, Graffiti,
-    PublicKeyBytes, Slot,
+    AbstractExecPayload, BlindedPayload, BlockType, EthSpec, FullPayload, Graffiti, PublicKeyBytes,
+    Slot,
 };
 
 #[derive(Debug)]
@@ -341,13 +341,13 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
             "slot" => slot.as_u64(),
         );
         // Request block from first responsive beacon node.
-        let block = self
+        let block_contents = self
             .beacon_nodes
             .first_success(
                 RequireSynced::No,
                 OfflineOnFailure::Yes,
                 |beacon_node| async move {
-                    let block: BeaconBlock<E, Payload> = match Payload::block_type() {
+                    let block_contents = match Payload::block_type() {
                         BlockType::Full => {
                             let _get_timer = metrics::start_timer_vec(
                                 &metrics::BLOCK_SERVICE_TIMES,
@@ -367,7 +367,6 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                                     ))
                                 })?
                                 .data
-                                .into()
                         }
                         BlockType::Blinded => {
                             let _get_timer = metrics::start_timer_vec(
@@ -388,7 +387,6 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                                     ))
                                 })?
                                 .data
-                                .into()
                         }
                     };
 
@@ -397,29 +395,47 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                         "Received unsigned block";
                         "slot" => slot.as_u64(),
                     );
-                    if proposer_index != Some(block.proposer_index()) {
+
+                    if proposer_index != Some(block_contents.block().proposer_index()) {
                         return Err(BlockError::Recoverable(
                             "Proposer index does not match block proposer. Beacon chain re-orged"
                                 .to_string(),
                         ));
                     }
 
-                    Ok::<_, BlockError>(block)
+                    Ok::<_, BlockError>(block_contents)
                 },
             )
             .await?;
 
+        let (block, maybe_blob_sidecars) = block_contents.deconstruct();
         let signed_block = self_ref
             .validator_store
             .sign_block::<Payload>(*validator_pubkey_ref, block, current_slot)
             .await
             .map_err(|e| BlockError::Recoverable(format!("Unable to sign block: {:?}", e)))?;
 
+        // TODO(jimmy): publish blob sidecars
+        let _maybe_signed_blob_sidecar = if let Some(blob_sidecars) = maybe_blob_sidecars {
+            Some(
+                self_ref
+                    .validator_store
+                    .sign_blobs(*validator_pubkey_ref, blob_sidecars, current_slot)
+                    .await
+                    .map_err(|e| {
+                        BlockError::Recoverable(format!("Unable to sign blob: {:?}", e))
+                    })?,
+            )
+        } else {
+            None
+        };
+
         info!(
             log,
             "Publishing signed block";
             "slot" => slot.as_u64(),
         );
+
         // Publish block with first available beacon node.
         self.beacon_nodes
             .first_success(
