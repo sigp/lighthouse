@@ -4713,7 +4713,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     // TODO: compute KZG proof
                     kzg_proof: Default::default(),
                 };
-                // FIXME: Validate blobs
+                // TODO: Validate blobs
                 self.blob_cache
                     .put(beacon_block_root, blob_sidecar, blob_index as u64);
             }

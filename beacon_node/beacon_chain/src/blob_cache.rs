@@ -7,11 +7,11 @@ pub const DEFAULT_BLOB_CACHE_SIZE: usize = 10;
 
 /// A cache blobs by beacon block root.
 pub struct BlobCache<T: EthSpec> {
-    pub blobs: Mutex<LruCache<BlobCacheId, Arc<BlobSidecar<T>>>>,
+    blobs: Mutex<LruCache<BlobCacheId, Arc<BlobSidecar<T>>>>,
 }
 
 #[derive(Hash, PartialEq, Eq)]
-pub struct BlobCacheId {
+struct BlobCacheId {
     block_root: Hash256,
     blob_index: u64,
 }
