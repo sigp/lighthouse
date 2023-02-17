@@ -12,11 +12,11 @@ use std::ops::Deref;
 use std::sync::Arc;
 use strum::IntoStaticStr;
 use superstruct::superstruct;
-use types::SignedBeaconBlockAndBlobsSidecar;
 use types::{
     blobs_sidecar::BlobsSidecar, light_client_bootstrap::LightClientBootstrap, Epoch, EthSpec,
     Hash256, SignedBeaconBlock, Slot,
 };
+use types::{Blob, SignedBeaconBlockAndBlobsSidecar};
 
 /// Maximum number of blocks in a single request.
 pub type MaxRequestBlocks = U1024;
@@ -277,11 +277,11 @@ pub enum RPCResponse<T: EthSpec> {
     /// A response to a get BLOBS_BY_RANGE request
     BlobsByRange(Arc<BlobsSidecar<T>>),
 
+    /// A response to a get BLOBS_BY_ROOT request.
+    BlobsByRoot(Blob<T>),
+
     /// A response to a get LIGHTCLIENT_BOOTSTRAP request.
     LightClientBootstrap(LightClientBootstrap<T>),
-
-    /// A response to a get BLOBS_BY_ROOT request.
-    BlockAndBlobsByRoot(SignedBeaconBlockAndBlobsSidecar<T>),
 
     /// A PONG response to a PING request.
     Pong(Ping),
@@ -374,7 +374,7 @@ impl<T: EthSpec> RPCCodedResponse<T> {
                 RPCResponse::BlocksByRange(_) => true,
                 RPCResponse::BlocksByRoot(_) => true,
                 RPCResponse::BlobsByRange(_) => true,
-                RPCResponse::BlockAndBlobsByRoot(_) => true,
+                RPCResponse::BlobsByRoot(_) => true,
                 RPCResponse::Pong(_) => false,
                 RPCResponse::MetaData(_) => false,
                 RPCResponse::LightClientBootstrap(_) => false,
@@ -412,7 +412,7 @@ impl<T: EthSpec> RPCResponse<T> {
             RPCResponse::BlocksByRange(_) => Protocol::BlocksByRange,
             RPCResponse::BlocksByRoot(_) => Protocol::BlocksByRoot,
             RPCResponse::BlobsByRange(_) => Protocol::BlobsByRange,
-            RPCResponse::BlockAndBlobsByRoot(_) => Protocol::BlobsByRoot,
+            RPCResponse::BlobsByRoot(_) => Protocol::BlobsByRoot,
             RPCResponse::Pong(_) => Protocol::Ping,
             RPCResponse::MetaData(_) => Protocol::MetaData,
             RPCResponse::LightClientBootstrap(_) => Protocol::LightClientBootstrap,
@@ -453,7 +453,7 @@ impl<T: EthSpec> std::fmt::Display for RPCResponse<T> {
             RPCResponse::BlobsByRange(blob) => {
                 write!(f, "BlobsByRange: Blob slot: {}", blob.beacon_block_slot)
             }
-            RPCResponse::BlockAndBlobsByRoot(blob) => {
+            RPCResponse::BlobsByRoot(blob) => {
                 write!(
                     f,
                     "BlobsByRoot: Blob slot: {}",

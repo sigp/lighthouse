@@ -1,4 +1,4 @@
-use super::methods::*;
+// use super::methods::*;
 use crate::rpc::{
     codec::{base::BaseInboundCodec, ssz_snappy::SSZSnappyInboundCodec, InboundCodec},
     methods::{MaxErrorLen, ResponseTermination, MAX_ERROR_LEN},
