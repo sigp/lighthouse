@@ -59,7 +59,7 @@ jobs:
                          x86_64-portable]
                 features: [
                     {version_suffix: "", env: "gnosis,slasher-lmdb,slasher-mdbx,jemalloc"},
-                    {version_suffix: "-dev", env: "gnosis,slasher-lmdb,slasher-mdbx,jemalloc,spec-minimal"}
+                    {version_suffix: "-dev", env: "jemalloc,spec-minimal"}
                 ]
                 include:
                     - profile: maxperf
@@ -71,8 +71,6 @@ jobs:
             VERSION: ${{ needs.extract-version.outputs.VERSION }}
             VERSION_SUFFIX: ${{ needs.extract-version.outputs.VERSION_SUFFIX }}
             FEATURE_SUFFIX: ${{ matrix.features.version_suffix }}
-            FEATURES: ${{ matrix.features.env }}
-            CROSS_FEATURES: ${{ matrix.features.env }}
         steps:
             - uses: actions/checkout@v3
             - name: Update Rust
@@ -112,7 +110,6 @@ jobs:
                       --platform=linux/${SHORT_ARCH} \
                       --file ./Dockerfile.cross . \
                       --tag ${IMAGE_NAME}:${VERSION}-${SHORT_ARCH}${VERSION_SUFFIX}${MODERNITY_SUFFIX}${FEATURE_SUFFIX} \
-                      --build-arg FEATURES=${FEATURES} \
                       --provenance=false \
                       --push
     build-docker-multiarch:
