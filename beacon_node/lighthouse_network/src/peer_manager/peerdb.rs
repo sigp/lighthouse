@@ -844,8 +844,12 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
                             .collect::<Vec<_>>();
                         return Some(BanOperation::ReadyToBan(banned_ips));
                     }
-                    PeerConnectionStatus::Disconnecting { .. }
-                    | PeerConnectionStatus::Unknown
+                    PeerConnectionStatus::Disconnecting { .. } => {
+                        // The peer has been disconnected but not banned. Inform the peer manager
+                        // that this peer could be eligible for a temporary ban.
+                        return Some(BanOperation::TemporaryBan);
+                    }
+                    PeerConnectionStatus::Unknown
                     | PeerConnectionStatus::Connected { .. }
                     | PeerConnectionStatus::Dialing { .. } => {
                         self.disconnected_peers += 1;
@@ -1177,6 +1181,9 @@ impl From<Option<BanOperation>> for ScoreUpdateResult {
 
 /// When attempting to ban a peer provides the peer manager with the operation that must be taken.
 pub enum BanOperation {
+    /// Optionally temporarily ban this peer to prevent instantaneous reconnection.
+    /// The peer manager will decide if temporary banning is required.
+    TemporaryBan,
     // The peer is currently connected. Perform a graceful disconnect before banning at the swarm
     // level.
     DisconnectThePeer,

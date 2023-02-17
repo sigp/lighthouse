@@ -8,6 +8,7 @@ use crate::{Subnet, SubnetDiscovery};
 use delay_map::HashSetDelay;
 use discv5::Enr;
 use libp2p::identify::Info as IdentifyInfo;
+use lru_cache::LRUTimeCache;
 use peerdb::{client::ClientKind, BanOperation, BanResult, ScoreUpdateResult};
 use rand::seq::SliceRandom;
 use slog::{debug, error, trace, warn};
@@ -39,6 +40,9 @@ mod network_behaviour;
 /// requests. This defines the interval in seconds.
 const HEARTBEAT_INTERVAL: u64 = 30;
 
+/// The minimum amount of time we allow peers to reconnect to us after a disconnect when we are
+/// saturated with peers. This effectively looks like a swarm BAN for this amount of time.
+pub const PEER_RECONNECTION_TIMEOUT: Duration = Duration::from_secs(600);
 /// This is used in the pruning logic. We avoid pruning peers on sync-committees if doing so would
 /// lower our peer count below this number. Instead we favour a non-uniform distribution of subnet
 /// peers.
@@ -74,6 +78,20 @@ pub struct PeerManager<TSpec: EthSpec> {
     target_peers: usize,
     /// Peers queued to be dialed.
     peers_to_dial: VecDeque<(PeerId, Option<Enr>)>,
+    /// The number of temporarily banned peers. This is used to prevent instantaneous
+    /// reconnection.
+    // NOTE: This just prevents re-connections. The state of the peer is otherwise unaffected. A
+    // peer can be in a disconnected state and new connections will be refused and logged as if the
+    // peer is banned without it being reflected in the peer's state.
+    // Also the banned state can out-last the peer's reference in the peer db. So peers that are
+    // unknown to us can still be temporarily banned. This is fundamentally a relationship with
+    // the swarm. Regardless of our knowledge of the peer in the db, it will be temporarily banned
+    // at the swarm layer.
+    // NOTE: An LRUTimeCache is used compared to a structure that needs to be polled to avoid very
+    // frequent polling to unban peers. Instead, this cache piggy-backs the PeerManager heartbeat
+    // to update and clear the cache. Therefore the PEER_RECONNECTION_TIMEOUT only has a resolution
+    // of the HEARTBEAT_INTERVAL.
+    temporary_banned_peers: LRUTimeCache<PeerId>,
     /// A collection of sync committee subnets that we need to stay subscribed to.
     /// Sync committee subnets are longer term (256 epochs). Hence, we need to re-run
     /// discovery queries for subnet peers if we disconnect from existing sync
@@ -143,6 +161,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             outbound_ping_peers: HashSetDelay::new(Duration::from_secs(ping_interval_outbound)),
             status_peers: HashSetDelay::new(Duration::from_secs(status_interval)),
             target_peers: target_peer_count,
+            temporary_banned_peers: LRUTimeCache::new(PEER_RECONNECTION_TIMEOUT),
             sync_committee_subnets: Default::default(),
             heartbeat,
             discovery_enabled,
@@ -243,6 +262,15 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         reason: Option<GoodbyeReason>,
     ) {
         match ban_operation {
+            BanOperation::TemporaryBan => {
+                // The peer could be temporarily banned. We only do this in the case that
+                // we have currently reached our peer target limit.
+                if self.network_globals.connected_peers() >= self.target_peers {
+                    // We have enough peers, prevent this reconnection.
+                    self.temporary_banned_peers.raw_insert(*peer_id);
+                    self.events.push(PeerManagerEvent::Banned(*peer_id, vec![]));
+                }
+            }
             BanOperation::DisconnectThePeer => {
                 // The peer was currently connected, so we start a disconnection.
                 // Once the peer has disconnected, its connection state will transition to a
@@ -259,6 +287,11 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             BanOperation::ReadyToBan(banned_ips) => {
                 // The peer is not currently connected, we can safely ban it at the swarm
                 // level.
+
+                // If a peer is being banned, this trumps any temporary ban the peer might be
+                // under. We no longer track it in the temporary ban list.
+                self.temporary_banned_peers.raw_remove(peer_id);
+
                 // Inform the Swarm to ban the peer
                 self.events
                     .push(PeerManagerEvent::Banned(*peer_id, banned_ips));
@@ -1112,6 +1145,14 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         }
     }
 
+    /// Unbans any temporarily banned peers that have served their timeout.
+    fn unban_temporary_banned_peers(&mut self) {
+        for peer_id in self.temporary_banned_peers.remove_expired() {
+            self.events
+                .push(PeerManagerEvent::UnBanned(peer_id, Vec::new()));
+        }
+    }
+
     /// The Peer manager's heartbeat maintains the peer count and maintains peer reputations.
     ///
     /// It will request discovery queries if the peer count has not reached the desired number of
@@ -1144,6 +1185,9 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         // Prune any excess peers back to our target in such a way that incentivises good scores and
         // a uniform distribution of subnets.
         self.prune_excess_peers();
+
+        // Unban any peers that have served their temporary ban timeout
+        self.unban_temporary_banned_peers();
     }
 
     // Update metrics related to peer scoring.
