@@ -710,7 +710,6 @@ impl<T: EthSpec> BeaconState<T> {
             .ok_or(Error::ShuffleIndexOutOfBounds(index))
     }
 
-    // TODO: check this implementation
     /// Convenience accessor for the `execution_payload_header` as an `ExecutionPayloadHeaderRef`.
     pub fn latest_execution_payload_header(&self) -> Result<ExecutionPayloadHeaderRef<T>, Error> {
         match self {
