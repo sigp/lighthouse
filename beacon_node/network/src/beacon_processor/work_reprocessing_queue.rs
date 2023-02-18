@@ -238,7 +238,7 @@ struct ReprocessQueue<T: BeaconChainTypes> {
     rpc_block_debounce: TimeLatch,
     attestation_delay_debounce: TimeLatch,
     lc_update_delay_debounce: TimeLatch,
-    next_backfill_batch_event: Pin<Box<tokio::time::Sleep>>,
+    next_backfill_batch_event: Option<Pin<Box<tokio::time::Sleep>>>,
     slot_clock: Pin<Box<T::SlotClock>>,
 }
 
@@ -327,16 +327,18 @@ impl<T: BeaconChainTypes> Stream for ReprocessQueue<T> {
             Poll::Ready(None) | Poll::Pending => (),
         }
 
-        match self.next_backfill_batch_event.as_mut().poll(cx) {
-            Poll::Ready(_) => {
-                self.next_backfill_batch_event = Box::pin(tokio::time::sleep(
-                    ReprocessQueue::<T>::duration_until_next_backfill_batch_event(&self.slot_clock),
-                ));
-                if let Some(batch) = self.queued_backfill_batches.pop() {
-                    return Poll::Ready(Some(InboundEvent::ReadyBackfillSync(batch)));
+        if let Some(next_backfill_batch_event) = self.next_backfill_batch_event.as_mut() {
+            match next_backfill_batch_event.as_mut().poll(cx) {
+                Poll::Ready(_) => {
+                    let maybe_batch = self.queued_backfill_batches.pop();
+                    self.recompute_next_backfill_batch_event();
+
+                    if let Some(batch) = maybe_batch {
+                        return Poll::Ready(Some(InboundEvent::ReadyBackfillSync(batch)));
+                    }
                 }
+                Poll::Pending => (),
             }
-            Poll::Pending => (),
         }
 
         // Last empty the messages channel.
@@ -382,9 +384,7 @@ pub fn spawn_reprocess_scheduler<T: BeaconChainTypes>(
         rpc_block_debounce: TimeLatch::default(),
         attestation_delay_debounce: TimeLatch::default(),
         lc_update_delay_debounce: TimeLatch::default(),
-        next_backfill_batch_event: Box::pin(tokio::time::sleep(
-            ReprocessQueue::<T>::duration_until_next_backfill_batch_event(&slot_clock),
-        )),
+        next_backfill_batch_event: None,
         slot_clock: Box::pin(slot_clock.clone()),
     };
 
@@ -725,6 +725,10 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
             InboundEvent::Msg(BackfillSync(queued_backfill_batch)) => {
                 self.queued_backfill_batches
                     .insert(0, queued_backfill_batch);
+                // only recompute if there is no `next_backfill_batch_event` already scheduled
+                if self.next_backfill_batch_event.is_none() {
+                    self.recompute_next_backfill_batch_event();
+                }
             }
             // A block that was queued for later processing is now ready to be processed.
             InboundEvent::ReadyGossipBlock(ready_block) => {
@@ -879,6 +883,17 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
             &[LIGHT_CLIENT_UPDATES],
             self.lc_updates_delay_queue.len() as i64,
         );
+    }
+
+    fn recompute_next_backfill_batch_event(&mut self) {
+        // only recompute the `next_backfill_batch_event` if there are backfill batches in the queue
+        if !self.queued_backfill_batches.is_empty() {
+            self.next_backfill_batch_event = Some(Box::pin(tokio::time::sleep(
+                ReprocessQueue::<T>::duration_until_next_backfill_batch_event(&self.slot_clock),
+            )));
+        } else {
+            self.next_backfill_batch_event = None
+        }
     }
 
     /// Returns duration until the next scheduled processing time. The schedule ensure that backfill
