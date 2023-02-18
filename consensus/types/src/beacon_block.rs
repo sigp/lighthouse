@@ -753,18 +753,64 @@ mod tests {
     }
 
     #[test]
+    fn roundtrip_capella_block() {
+        let rng = &mut XorShiftRng::from_seed([42; 16]);
+        let spec = &ForkName::Capella.make_genesis_spec(MainnetEthSpec::default_spec());
+
+        let inner_block = BeaconBlockCapella {
+            slot: Slot::random_for_test(rng),
+            proposer_index: u64::random_for_test(rng),
+            parent_root: Hash256::random_for_test(rng),
+            state_root: Hash256::random_for_test(rng),
+            body: BeaconBlockBodyCapella::random_for_test(rng),
+        };
+        let block = BeaconBlock::Capella(inner_block.clone());
+
+        test_ssz_tree_hash_pair_with(&block, &inner_block, |bytes| {
+            BeaconBlock::from_ssz_bytes(bytes, spec)
+        });
+    }
+
+    #[test]
+    fn roundtrip_4844_block() {
+        let rng = &mut XorShiftRng::from_seed([42; 16]);
+        let spec = &ForkName::Eip4844.make_genesis_spec(MainnetEthSpec::default_spec());
+
+        let inner_block = BeaconBlockEip4844 {
+            slot: Slot::random_for_test(rng),
+            proposer_index: u64::random_for_test(rng),
+            parent_root: Hash256::random_for_test(rng),
+            state_root: Hash256::random_for_test(rng),
+            body: BeaconBlockBodyEip4844::random_for_test(rng),
+        };
+        let block = BeaconBlock::Eip4844(inner_block.clone());
+
+        test_ssz_tree_hash_pair_with(&block, &inner_block, |bytes| {
+            BeaconBlock::from_ssz_bytes(bytes, spec)
+        });
+    }
+
+    #[test]
     fn decode_base_and_altair() {
         type E = MainnetEthSpec;
-        let spec = E::default_spec();
+        let mut spec = E::default_spec();
 
         let rng = &mut XorShiftRng::from_seed([42; 16]);
 
-        let fork_epoch = spec.altair_fork_epoch.unwrap();
+        let altair_fork_epoch = spec.altair_fork_epoch.unwrap();
 
-        let base_epoch = fork_epoch.saturating_sub(1_u64);
+        let base_epoch = altair_fork_epoch.saturating_sub(1_u64);
         let base_slot = base_epoch.end_slot(E::slots_per_epoch());
-        let altair_epoch = fork_epoch;
+        let altair_epoch = altair_fork_epoch;
         let altair_slot = altair_epoch.start_slot(E::slots_per_epoch());
+        let capella_epoch = altair_fork_epoch + 1;
+        let capella_slot = capella_epoch.start_slot(E::slots_per_epoch());
+        let eip4844_epoch = capella_epoch + 1;
+        let eip4844_slot = eip4844_epoch.start_slot(E::slots_per_epoch());
+
+        spec.altair_fork_epoch = Some(altair_epoch);
+        spec.capella_fork_epoch = Some(capella_epoch);
+        spec.eip4844_fork_epoch = Some(eip4844_epoch);
 
         // BeaconBlockBase
         {
@@ -808,6 +854,50 @@ mod tests {
             );
             BeaconBlock::from_ssz_bytes(&bad_altair_block.as_ssz_bytes(), &spec)
                 .expect_err("bad altair block cannot be decoded");
+        }
+
+        // BeaconBlockCapella
+        {
+            let good_block = BeaconBlock::Capella(BeaconBlockCapella {
+                slot: capella_slot,
+                ..<_>::random_for_test(rng)
+            });
+            // It's invalid to have an Capella block with a epoch lower than the fork epoch.
+            let bad_block = {
+                let mut bad = good_block.clone();
+                *bad.slot_mut() = altair_slot;
+                bad
+            };
+
+            assert_eq!(
+                BeaconBlock::from_ssz_bytes(&good_block.as_ssz_bytes(), &spec)
+                    .expect("good capella block can be decoded"),
+                good_block
+            );
+            BeaconBlock::from_ssz_bytes(&bad_block.as_ssz_bytes(), &spec)
+                .expect_err("bad capella block cannot be decoded");
+        }
+
+        // BeaconBlockEip4844
+        {
+            let good_block = BeaconBlock::Eip4844(BeaconBlockEip4844 {
+                slot: eip4844_slot,
+                ..<_>::random_for_test(rng)
+            });
+            // It's invalid to have an Capella block with a epoch lower than the fork epoch.
+            let bad_block = {
+                let mut bad = good_block.clone();
+                *bad.slot_mut() = capella_slot;
+                bad
+            };
+
+            assert_eq!(
+                BeaconBlock::from_ssz_bytes(&good_block.as_ssz_bytes(), &spec)
+                    .expect("good eip4844 block can be decoded"),
+                good_block
+            );
+            BeaconBlock::from_ssz_bytes(&bad_block.as_ssz_bytes(), &spec)
+                .expect_err("bad eip4844 block cannot be decoded");
         }
     }
 }
