@@ -61,6 +61,7 @@ use std::time::Duration;
 use std::{cmp, collections::HashSet};
 use task_executor::TaskExecutor;
 use tokio::sync::mpsc;
+use tokio::sync::mpsc::error::TrySendError;
 use types::{
     Attestation, AttesterSlashing, Hash256, LightClientFinalityUpdate, LightClientOptimisticUpdate,
     ProposerSlashing, SignedAggregateAndProof, SignedBeaconBlock, SignedContributionAndProof,
@@ -1064,27 +1065,36 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                         None
                     }
                     Some(InboundEvent::WorkEvent(event)) if enable_backfill_rate_limiting => {
-                        if let Some(backfill_batch) =
-                            QueuedBackfillBatch::try_from_work_event(&event)
-                        {
-                            match work_reprocessing_tx
-                                .try_send(ReprocessQueueMessage::BackfillSync(backfill_batch))
-                            {
-                                Err(e) => {
-                                    warn!(
-                                        self.log,
-                                        "Unable to queue backfill work event. Will try to process now.";
-                                        "error" => %e
-                                    );
-                                    Some(event)
-                                }
-                                Ok(..) => {
-                                    // backfill work sent to "reprocessing" queue. Process the next event.
-                                    continue;
+                        match QueuedBackfillBatch::try_from(event) {
+                            Ok(backfill_batch) => {
+                                match work_reprocessing_tx
+                                    .try_send(ReprocessQueueMessage::BackfillSync(backfill_batch))
+                                {
+                                    Err(e) => {
+                                        warn!(
+                                            self.log,
+                                            "Unable to queue backfill work event. Will try to process now.";
+                                            "error" => %e
+                                        );
+                                        match e {
+                                            TrySendError::Full(reprocess_queue_message)
+                                            | TrySendError::Closed(reprocess_queue_message) => {
+                                                match reprocess_queue_message {
+                                                    ReprocessQueueMessage::BackfillSync(
+                                                        backfill_batch,
+                                                    ) => Some(backfill_batch.into()),
+                                                    _ => unreachable!(),
+                                                }
+                                            }
+                                        }
+                                    }
+                                    Ok(..) => {
+                                        // backfill work sent to "reprocessing" queue. Process the next event.
+                                        continue;
+                                    }
                                 }
                             }
-                        } else {
-                            Some(event)
+                            Err(event) => Some(event),
                         }
                     }
                     Some(InboundEvent::WorkEvent(event))

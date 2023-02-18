@@ -161,20 +161,26 @@ pub struct QueuedBackfillBatch<E: EthSpec> {
     pub blocks: Vec<Arc<SignedBeaconBlock<E>>>,
 }
 
-impl<E: EthSpec> QueuedBackfillBatch<E> {
-    pub fn try_from_work_event<T: BeaconChainTypes<EthSpec = E>>(
-        event: &WorkEvent<T>,
-    ) -> Option<QueuedBackfillBatch<E>> {
+impl<T: BeaconChainTypes> TryFrom<WorkEvent<T>> for QueuedBackfillBatch<T::EthSpec> {
+    type Error = WorkEvent<T>;
+
+    fn try_from(event: WorkEvent<T>) -> Result<Self, WorkEvent<T>> {
         match event {
             WorkEvent {
                 work: Work::ChainSegment { process_id, blocks },
                 ..
-            } => Some(QueuedBackfillBatch {
-                process_id: process_id.clone(),
-                blocks: blocks.clone(),
-            }),
-            _ => None,
+            } => Ok(QueuedBackfillBatch { process_id, blocks }),
+            _ => Err(event),
         }
+    }
+}
+
+impl<T: BeaconChainTypes> From<QueuedBackfillBatch<T::EthSpec>> for WorkEvent<T> {
+    fn from(queued_backfill_batch: QueuedBackfillBatch<T::EthSpec>) -> WorkEvent<T> {
+        WorkEvent::chain_segment(
+            queued_backfill_batch.process_id,
+            queued_backfill_batch.blocks,
+        )
     }
 }
 
