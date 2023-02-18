@@ -847,6 +847,10 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
                     PeerConnectionStatus::Disconnecting { .. } => {
                         // The peer has been disconnected but not banned. Inform the peer manager
                         // that this peer could be eligible for a temporary ban.
+                        self.disconnected_peers += 1;
+                        info.set_connection_status(PeerConnectionStatus::Disconnected {
+                            since: Instant::now(),
+                        });
                         return Some(BanOperation::TemporaryBan);
                     }
                     PeerConnectionStatus::Unknown
