@@ -1204,7 +1204,7 @@ pub struct ForkChoice {
     pub fork_choice_nodes: Vec<ForkChoiceNode>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ForkChoiceNode {
     pub slot: Slot,
     pub block_root: Hash256,
