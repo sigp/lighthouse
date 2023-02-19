@@ -10,7 +10,6 @@ use std::convert::TryFrom;
 use std::fmt;
 use std::str::{from_utf8, FromStr};
 use std::time::Duration;
-use proto_array::ExecutionStatus;
 pub use types::*;
 
 #[cfg(feature = "lighthouse")]
@@ -1209,12 +1208,13 @@ pub struct ForkChoice {
 pub struct ForkChoiceNode {
     pub slot: Slot,
     pub block_root: Hash256,
-    pub parent_root: Option<usize>,
+    pub parent_root: Option<Hash256>,
     pub justified_epoch: Option<Epoch>,
     pub finalized_epoch: Option<Epoch>,
+    #[serde(with = "eth2_serde_utils::quoted_u64")]
     pub weight: u64,
-    pub validity: Option<ExecutionStatus>,
-    pub execution_block_hash: Option<ExecutionBlockHash>,
+    pub validity: Option<String>,
+    pub execution_block_hash: Option<Hash256>,
 }
 
 #[cfg(test)]

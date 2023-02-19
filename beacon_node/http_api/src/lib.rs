@@ -29,7 +29,10 @@ use beacon_chain::{
 };
 pub use block_id::BlockId;
 use directory::DEFAULT_ROOT_DIR;
-use eth2::types::{self as api_types, EndpointVersion, ForkChoice, ForkChoiceNode, SkipRandaoVerification, ValidatorId, ValidatorStatus};
+use eth2::types::{
+    self as api_types, EndpointVersion, ForkChoice, ForkChoiceNode, SkipRandaoVerification,
+    ValidatorId, ValidatorStatus,
+};
 use lighthouse_network::{types::SyncState, EnrExt, NetworkGlobals, PeerId, PubsubMessage};
 use lighthouse_version::version_with_platform;
 use network::{NetworkMessage, NetworkSenders, ValidatorSubscriptionMessage};
@@ -2152,46 +2155,51 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path("fork_choice"))
         .and(warp::path::end())
         .and(chain_filter.clone())
-        .and_then(
-            |chain: Arc<BeaconChain<T>>| {
-                blocking_json_task(move || {
-                    let beacon_fork_choice = chain
-                        .canonical_head
-                        .fork_choice_read_lock();
+        .and_then(|chain: Arc<BeaconChain<T>>| {
+            blocking_json_task(move || {
+                let beacon_fork_choice = chain.canonical_head.fork_choice_read_lock();
 
-                    let proto_array = beacon_fork_choice
-                        .proto_array()
-                        .core_proto_array();
+                let proto_array = beacon_fork_choice.proto_array().core_proto_array();
 
-                    let fork_choice_nodes = proto_array
-                        .nodes
-                        .iter()
-                        .map(|node| {
-                            let execution_status = if node.execution_status.is_execution_enabled() {
-                                Some(node.execution_status)
-                            } else {
-                                None
-                            };
-                            ForkChoiceNode {
-                                slot: node.slot,
-                                block_root: node.root,
-                                parent_root: node.parent,
-                                justified_epoch: node.justified_checkpoint.map(|checkpoint| checkpoint.epoch),
-                                finalized_epoch: node.finalized_checkpoint.map(|checkpoint| checkpoint.epoch),
-                                weight: node.weight,
-                                validity: execution_status,
-                                execution_block_hash: node.execution_status.block_hash(),
-                            }
+                let fork_choice_nodes = proto_array
+                    .nodes
+                    .iter()
+                    .map(|node| {
+                        let execution_status = if node.execution_status.is_execution_enabled() {
+                            Some(node.execution_status.to_string())
+                        } else {
+                            None
+                        };
+
+                        Ok(ForkChoiceNode {
+                            slot: node.slot,
+                            block_root: node.root,
+                            parent_root: node
+                                .parent
+                                .and_then(|index| proto_array.nodes.get(index))
+                                .map(|parent| parent.root),
+                            justified_epoch: node
+                                .justified_checkpoint
+                                .map(|checkpoint| checkpoint.epoch),
+                            finalized_epoch: node
+                                .finalized_checkpoint
+                                .map(|checkpoint| checkpoint.epoch),
+                            weight: node.weight,
+                            validity: execution_status,
+                            execution_block_hash: node
+                                .execution_status
+                                .block_hash()
+                                .map(|block_hash| block_hash.into_root()),
                         })
-                        .collect();
-                    Ok(api_types::GenericResponse::from(ForkChoice {
-                        justified_checkpoint: proto_array.justified_checkpoint,
-                        finalized_checkpoint: proto_array.finalized_checkpoint,
-                        fork_choice_nodes,
-                    }))
+                    })
+                    .collect::<Result<Vec<_>, warp::Rejection>>();
+                Ok(ForkChoice {
+                    justified_checkpoint: proto_array.justified_checkpoint,
+                    finalized_checkpoint: proto_array.finalized_checkpoint,
+                    fork_choice_nodes: fork_choice_nodes?,
                 })
-            },
-        );
+            })
+        });
 
     /*
      * node

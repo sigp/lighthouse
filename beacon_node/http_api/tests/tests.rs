@@ -1679,6 +1679,29 @@ impl ApiTester {
         self
     }
 
+    pub async fn test_get_debug_fork_choice(self) -> Self {
+        let result = self
+            .client
+            .get_debug_fork_choice()
+            .await
+            .unwrap();
+
+        let beacon_fork_choice = self
+            .chain
+            .canonical_head
+            .fork_choice_read_lock();
+
+        let expected = beacon_fork_choice
+            .proto_array()
+            .core_proto_array();
+
+        assert_eq!(result.justified_checkpoint, expected.justified_checkpoint);
+        assert_eq!(result.finalized_checkpoint, expected.finalized_checkpoint);
+
+        drop(beacon_fork_choice);
+        self
+    }
+
     fn validator_count(&self) -> usize {
         self.chain.head_snapshot().beacon_state.validators().len()
     }
@@ -4148,6 +4171,8 @@ async fn debug_get() {
         .test_get_debug_beacon_states()
         .await
         .test_get_debug_beacon_heads()
+        .await
+        .test_get_debug_fork_choice()
         .await;
 }
 
