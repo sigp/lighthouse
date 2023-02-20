@@ -20,7 +20,7 @@ pub const DEFAULT_CACHE_SIZE: usize = 16;
 /// always be inserted during block import. Unstable networks with a high degree of forking might
 /// see some attestations dropped due to this concurrency limit, however I propose that this is
 /// better than low-resource nodes going OOM.
-const MAX_CONCURRENT_PROMISES: usize = 20;
+const MAX_CONCURRENT_PROMISES: usize = 2;
 
 #[derive(Clone)]
 pub enum CacheItem {
