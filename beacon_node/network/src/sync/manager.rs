@@ -56,9 +56,7 @@ use std::ops::Sub;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
-use types::{
-    BlobsSidecar, EthSpec, Hash256, SignedBeaconBlock, SignedBeaconBlockAndBlobsSidecar, Slot,
-};
+use types::{BlobsSidecar, EthSpec, Hash256, SignedBeaconBlock, Slot};
 
 /// The number of slots ahead of us that is allowed before requesting a long-range (batch)  Sync
 /// from a peer. If a peer is within this tolerance (forwards or backwards), it is treated as a
@@ -107,14 +105,6 @@ pub enum SyncMessage<T: EthSpec> {
         request_id: RequestId,
         peer_id: PeerId,
         blob_sidecar: Option<Arc<BlobsSidecar<T>>>,
-        seen_timestamp: Duration,
-    },
-
-    /// A block and blobs have been received from the RPC.
-    RpcBlockAndBlobs {
-        request_id: RequestId,
-        peer_id: PeerId,
-        block_and_blobs: Option<SignedBeaconBlockAndBlobsSidecar<T>>,
         seen_timestamp: Duration,
     },
 
@@ -654,17 +644,6 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 blob_sidecar,
                 seen_timestamp,
             } => self.rpc_blobs_received(request_id, peer_id, blob_sidecar, seen_timestamp),
-            SyncMessage::RpcBlockAndBlobs {
-                request_id,
-                peer_id,
-                block_and_blobs,
-                seen_timestamp,
-            } => self.rpc_block_block_and_blobs_received(
-                request_id,
-                peer_id,
-                block_and_blobs,
-                seen_timestamp,
-            ),
         }
     }
 
@@ -902,7 +881,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     ) {
         match request_id {
             RequestId::SingleBlock { .. } | RequestId::ParentLookup { .. } => {
-                unreachable!("There is no such thing as a singular 'by root' glob request that is not accompanied by the block")
+                unimplemented!("Deal with this")
             }
             RequestId::BackFillBlocks { .. } => {
                 unreachable!("An only blocks request does not receive sidecars")
@@ -916,37 +895,6 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             RequestId::RangeBlobs { id } => {
                 self.blobs_range_response(id, peer_id, maybe_sidecar.into())
             }
-        }
-    }
-
-    fn rpc_block_block_and_blobs_received(
-        &mut self,
-        request_id: RequestId,
-        peer_id: PeerId,
-        block_sidecar_pair: Option<SignedBeaconBlockAndBlobsSidecar<T::EthSpec>>,
-        seen_timestamp: Duration,
-    ) {
-        match request_id {
-            RequestId::SingleBlock { id } => self.block_lookups.single_block_lookup_response(
-                id,
-                peer_id,
-                block_sidecar_pair.map(|block_sidecar_pair| block_sidecar_pair.into()),
-                seen_timestamp,
-                &mut self.network,
-            ),
-            RequestId::ParentLookup { id } => self.block_lookups.parent_lookup_response(
-                id,
-                peer_id,
-                block_sidecar_pair.map(|block_sidecar_pair| block_sidecar_pair.into()),
-                seen_timestamp,
-                &mut self.network,
-            ),
-            RequestId::BackFillBlocks { .. }
-            | RequestId::BackFillBlobs { .. }
-            | RequestId::RangeBlocks { .. }
-            | RequestId::RangeBlobs { .. } => unreachable!(
-                "since range requests are not block-glob coupled, this should never be reachable"
-            ),
         }
     }
 }

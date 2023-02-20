@@ -310,7 +310,7 @@ impl<T: BeaconChainTypes> Processor<T> {
         &mut self,
         peer_id: PeerId,
         request_id: RequestId,
-        block_and_blobs: Option<SignedBeaconBlockAndBlobsSidecar<T::EthSpec>>,
+        blob_sidecar: Option<Arc<BlobsSidecar<T::EthSpec>>>,
     ) {
         let request_id = match request_id {
             RequestId::Sync(sync_id) => match sync_id {
@@ -327,13 +327,13 @@ impl<T: BeaconChainTypes> Processor<T> {
 
         trace!(
             self.log,
-            "Received BlockAndBlobssByRoot Response";
+            "Received BlobsByRoot Response";
             "peer" => %peer_id,
         );
-        self.send_to_sync(SyncMessage::RpcBlockAndBlobs {
-            peer_id,
+        self.send_to_sync(SyncMessage::RpcBlobs {
             request_id,
-            block_and_blobs,
+            peer_id,
+            blob_sidecar,
             seen_timestamp: timestamp_now(),
         });
     }

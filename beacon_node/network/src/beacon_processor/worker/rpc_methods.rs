@@ -224,6 +224,7 @@ impl<T: BeaconChainTypes> Worker<T> {
             async move {
                 let mut send_block_count = 0;
                 let mut send_response = true;
+                // TODO: retrieve just sidecars here.
                 for root in request.block_roots.iter() {
                     match self
                         .chain
@@ -233,7 +234,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                         Ok(Some(block_and_blobs)) => {
                             self.send_response(
                                 peer_id,
-                                Response::BlobsByRoot(Some(block_and_blobs)),
+                                Response::BlobsByRoot(Some(block_and_blobs.blobs_sidecar)),
                                 request_id,
                             );
                             send_block_count += 1;

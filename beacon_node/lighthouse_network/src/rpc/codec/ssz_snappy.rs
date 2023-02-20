@@ -9,17 +9,16 @@ use snap::read::FrameDecoder;
 use snap::write::FrameEncoder;
 use ssz::{Decode, Encode};
 use ssz_types::VariableList;
-use std::io::Cursor;
 use std::io::ErrorKind;
 use std::io::{Read, Write};
 use std::marker::PhantomData;
-use std::sync::Arc;
+use std::{io::Cursor, sync::Arc};
 use tokio_util::codec::{Decoder, Encoder};
-use types::{light_client_bootstrap::LightClientBootstrap, Blob};
+use types::light_client_bootstrap::LightClientBootstrap;
 use types::{
     BlobsSidecar, EthSpec, ForkContext, ForkName, Hash256, SignedBeaconBlock,
-    SignedBeaconBlockAltair, SignedBeaconBlockAndBlobsSidecar, SignedBeaconBlockBase,
-    SignedBeaconBlockCapella, SignedBeaconBlockEip4844, SignedBeaconBlockMerge,
+    SignedBeaconBlockAltair, SignedBeaconBlockBase, SignedBeaconBlockCapella,
+    SignedBeaconBlockEip4844, SignedBeaconBlockMerge,
 };
 use unsigned_varint::codec::Uvi;
 
@@ -597,9 +596,9 @@ fn handle_v1_response<T: EthSpec>(
                 )
             })?;
             match fork_name {
-                ForkName::Eip4844 => Ok(Some(RPCResponse::BlobsByRoot(Blob::from_ssz_bytes(
-                    decoded_buffer,
-                )?))),
+                ForkName::Eip4844 => Ok(Some(RPCResponse::BlobsByRoot(Arc::new(
+                    BlobsSidecar::from_ssz_bytes(decoded_buffer)?,
+                )))),
                 _ => Err(RPCError::ErrorResponse(
                     RPCResponseErrorCode::InvalidRequest,
                     "Invalid fork name for block and blobs by root".to_string(),

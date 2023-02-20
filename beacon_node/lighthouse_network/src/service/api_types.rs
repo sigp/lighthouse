@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use libp2p::core::connection::ConnectionId;
 use types::light_client_bootstrap::LightClientBootstrap;
-use types::{Blob, BlobsSidecar, EthSpec, SignedBeaconBlock};
+use types::{BlobsSidecar, EthSpec, SignedBeaconBlock};
 
 use crate::rpc::methods::{BlobsByRangeRequest, BlobsByRootRequest};
 use crate::rpc::{
@@ -12,7 +12,6 @@ use crate::rpc::{
     },
     OutboundRequest, SubstreamId,
 };
-use types::SignedBeaconBlockAndBlobsSidecar;
 
 /// Identifier of requests sent by a peer.
 pub type PeerRequestId = (ConnectionId, SubstreamId);
@@ -83,7 +82,7 @@ pub enum Response<TSpec: EthSpec> {
     /// A response to a LightClientUpdate request.
     LightClientBootstrap(LightClientBootstrap<TSpec>),
     /// A response to a get BLOBS_BY_ROOT request.
-    BlobsByRoot(Option<Blob<TSpec>>),
+    BlobsByRoot(Option<Arc<BlobsSidecar<TSpec>>>),
 }
 
 impl<TSpec: EthSpec> std::convert::From<Response<TSpec>> for RPCCodedResponse<TSpec> {
