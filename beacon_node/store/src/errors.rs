@@ -42,9 +42,8 @@ pub enum Error {
     },
     BlockReplayError(BlockReplayError),
     AddPayloadLogicError,
-    ResyncRequiredForExecutionPayloadSeparation,
     SlotClockUnavailableForMigration,
-    V9MigrationFailure(Hash256),
+    UnableToDowngrade,
     InconsistentFork(InconsistentFork),
 }
 
