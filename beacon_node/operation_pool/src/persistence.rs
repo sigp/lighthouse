@@ -242,6 +242,20 @@ impl<T: EthSpec> StoreItem for PersistedOperationPoolV14<T> {
     }
 }
 
+impl<T: EthSpec> StoreItem for PersistedOperationPoolV15<T> {
+    fn db_column() -> DBColumn {
+        DBColumn::OpPool
+    }
+
+    fn as_store_bytes(&self) -> Vec<u8> {
+        self.as_ssz_bytes()
+    }
+
+    fn from_store_bytes(bytes: &[u8]) -> Result<Self, StoreError> {
+        PersistedOperationPoolV15::from_ssz_bytes(bytes).map_err(Into::into)
+    }
+}
+
 /// Deserialization for `PersistedOperationPool` defaults to `PersistedOperationPool::V12`.
 impl<T: EthSpec> StoreItem for PersistedOperationPool<T> {
     fn db_column() -> DBColumn {
