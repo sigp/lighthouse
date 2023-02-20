@@ -1335,9 +1335,7 @@ impl BeaconNodeHttpClient {
     }
 
     /// `GET v1/debug/fork_choice`
-    pub async fn get_debug_fork_choice(
-        &self,
-    ) -> Result<ForkChoice, Error> {
+    pub async fn get_debug_fork_choice(&self) -> Result<ForkChoice, Error> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
