@@ -155,6 +155,12 @@ pub fn get_config<E: EthSpec>(
         client_config.http_api.allow_sync_stalled = true;
     }
 
+    if let Some(cache_size) = cli_args.value_of("shuffling-cache-size") {
+        client_config.chain.shuffling_cache_size = cache_size
+            .parse::<usize>()
+            .map_err(|_| "cache size is not a valid u64")?;
+    }
+
     /*
      * Prometheus metrics HTTP server
      */

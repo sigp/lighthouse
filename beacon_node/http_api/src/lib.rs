@@ -785,21 +785,27 @@ pub fn serve<T: BeaconChainTypes>(
                                 // Attempt to obtain the committee_cache from the beacon chain
                                 let decision_slot = (epoch.saturating_sub(2u64))
                                     .end_slot(T::EthSpec::slots_per_epoch());
-                                let shuffling_decision_block = chain
-                                    .block_root_at_slot(decision_slot, WhenSlotSkipped::Prev)
-                                    .expect("First failure")
-                                    .expect("Second Failure");
-                                let shuffling_id = AttestationShufflingId {
-                                    shuffling_epoch: epoch,
-                                    shuffling_decision_block,
-                                };
+                                // Find the decision block and skip to another method on any kind
+                                // of failure
+                                let shuffling_id = if let Ok(Some(shuffling_decision_block)) = chain
+                                    .block_root_at_slot(decision_slot, WhenSlotSkipped::Prev) {
+                                    Some(AttestationShufflingId {
+                                        shuffling_epoch: epoch,
+                                        shuffling_decision_block,
+                                    })
+                                    } else {
+                                        None
+                                    };
 
-                                // Attempt to read from the chain cache
-                                let maybe_cached_shuffling = chain
-                                    .shuffling_cache
-                                    .try_write_for(std::time::Duration::from_secs(1))
-                                    .and_then(|mut cache_write| cache_write.get(&shuffling_id))
-                                    .and_then(|cache_item| cache_item.wait().ok());
+                                    // Attempt to read from the chain cache if there exists a
+                                    // shuffling_id
+                                    let maybe_cached_shuffling = if let Some(shuffling_id) = shuffling_id.as_ref() {
+                                    chain
+                                        .shuffling_cache
+                                        .try_write_for(std::time::Duration::from_secs(1))
+                                        .and_then(|mut cache_write| cache_write.get(&shuffling_id))
+                                        .and_then(|cache_item| cache_item.wait().ok())
+                                    } else { None };
 
                                 let committee_cache = match maybe_cached_shuffling {
                                     Some(shuffling) => shuffling,
@@ -854,13 +860,19 @@ pub fn serve<T: BeaconChainTypes>(
                                             )?;
 
                                         let owned_cache = Arc::new(possibly_built_cache.into_owned());
-                                        // Attempt to write to the beacon cache
-                                        if let Some(mut cache_write) = chain
-                                            .shuffling_cache
-                                            .try_write_for(std::time::Duration::from_secs(1))
-                                        {
-                                            cache_write
-                                                .insert_committee_cache(shuffling_id, &owned_cache);
+
+                                        // Attempt to write to the beacon cache (only if the cache
+                                        // size is not the default value
+                                        if chain.config.shuffling_cache_size != beacon_chain::shuffling_cache::DEFAULT_CACHE_SIZE {
+                                            if let Some(shuffling_id) = shuffling_id {
+                                                if let Some(mut cache_write) = chain
+                                                    .shuffling_cache
+                                                    .try_write_for(std::time::Duration::from_secs(1))
+                                                {
+                                                    cache_write
+                                                        .insert_committee_cache(shuffling_id, &owned_cache);
+                                                }
+                                            }
                                         }
                                         owned_cache
                                     }

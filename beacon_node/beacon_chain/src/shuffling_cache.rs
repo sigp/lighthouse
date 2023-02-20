@@ -9,7 +9,7 @@ use types::{beacon_state::CommitteeCache, AttestationShufflingId, Epoch, Hash256
 /// Each entry should be `8 + 800,000 = 800,008` bytes in size with 100k validators. (8-byte hash +
 /// 100k indices). Therefore, this cache should be approx `16 * 800,008 = 12.8 MB`. (Note: this
 /// ignores a few extra bytes in the caches that should be insignificant compared to the indices).
-const CACHE_SIZE: usize = 8000;
+pub const DEFAULT_CACHE_SIZE: usize = 16;
 
 /// The maximum number of concurrent committee cache "promises" that can be issued. In effect, this
 /// limits the number of concurrent states that can be loaded into memory for the committee cache.
@@ -54,9 +54,9 @@ pub struct ShufflingCache {
 }
 
 impl ShufflingCache {
-    pub fn new() -> Self {
+    pub fn new(cache_size: usize) -> Self {
         Self {
-            cache: LruCache::new(CACHE_SIZE),
+            cache: LruCache::new(cache_size),
         }
     }
 
@@ -172,7 +172,7 @@ impl ToArcCommitteeCache for Arc<CommitteeCache> {
 
 impl Default for ShufflingCache {
     fn default() -> Self {
-        Self::new()
+        Self::new(DEFAULT_CACHE_SIZE)
     }
 }
 
