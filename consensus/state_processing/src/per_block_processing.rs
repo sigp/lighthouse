@@ -180,7 +180,11 @@ pub fn per_block_processing<T: EthSpec, Payload: AbstractExecPayload<T>>(
         )?;
     }
 
-    process_blob_kzg_commitments(block.body())?;
+    // Eip4844 specifications are not yet released so additional care is taken
+    // to ensure the code does not run in production.
+    if matches!(block, BeaconBlockRef::Eip4844(_)) {
+        process_blob_kzg_commitments(block.body())?;
+    }
 
     Ok(())
 }
