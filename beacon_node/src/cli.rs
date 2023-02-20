@@ -323,7 +323,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             .long("shuffling-cache-size")
             .help("Some HTTP API requests can be optimised by caching the shufflings at each epoch. \
             This flag allows the user to set the shuffling cache size in epochs. \
-            Shufflings are dependent on validator count and setting this value to a large number can consume are large amount of memory.")
+            Shufflings are dependent on validator count and setting this value to a large number can consume a large amount of memory.")
             .takes_value(true)
         ) 
 
