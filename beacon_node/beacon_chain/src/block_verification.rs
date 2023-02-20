@@ -684,7 +684,7 @@ pub struct ExecutionPendingBlock<
 /// Used to allow functions to accept blocks at various stages of verification.
 pub trait IntoExecutionPendingBlock<
     T: BeaconChainTypes,
-    B: IntoAvailableBlock = AvailableBlock<T::EthSpec>,
+    B: IntoAvailableBlock<T> = AvailableBlock<T::EthSpec>,
 >: Sized
 {
     fn into_execution_pending_block(

@@ -160,7 +160,6 @@ fn verify_data_availability<T: BeaconChainTypes>(
 pub enum BlockWrapper<E: EthSpec> {
     Block(Arc<SignedBeaconBlock<E>>),
     BlockAndBlobs(Arc<SignedBeaconBlock<E>>, Arc<BlobsSidecar<E>>),
-    BlockAndBlobsFuture(Arc<SignedBeaconBlock<E>>, DataAvailabilityHandle<E>),
 }
 
 impl<E: EthSpec> BlockWrapper<E> {
@@ -263,8 +262,7 @@ pub trait IntoAvailableBlock<T: BeaconChainTypes> {
 
 /// A wrapper over a [`SignedBeaconBlock`] or a [`SignedBeaconBlockAndBlobsSidecar`].  An
 /// `AvailableBlock` has passed any required data availability checks and should be used in
-/// consensus. This newtype wraps `AvailableBlockInner` to ensure data availability checks
-/// cannot be circumvented on construction.
+/// consensus.
 #[derive(Clone, Debug, Derivative)]
 #[derivative(PartialEq, Hash(bound = "E: EthSpec"))]
 pub struct AvailabilityPendingBlock<E: EthSpec> {
@@ -282,6 +280,26 @@ pub struct AvailableBlock<E: EthSpec> {
     blobs: Blobs<E>,
 }
 
+impl <E: EthSpec> AvailableBlock<E> {
+    pub fn blobs(&self) -> Option<Arc<BlobsSidecar<E>>> {
+        match &self.blobs {
+            Blobs::NotRequired | Blobs::None => None,
+            Blobs::Available(block_sidecar) => {
+                Some(block_sidecar.clone())
+            }
+        }
+    }
+
+    pub fn deconstruct(self) -> (Arc<SignedBeaconBlock<E>>, Option<Arc<BlobsSidecar<E>>>) {
+        match self.blobs {
+            Blobs::NotRequired | Blobs::None => (self.block, None),
+            Blobs::Available(blob_sidecars) => {
+                (self.block, Some(blob_sidecars))
+            }
+        }
+    }
+}
+
 pub enum Blobs<E: EthSpec> {
     /// These blobs are available.
     Available(Arc<BlobsSidecar<E>>),
@@ -290,14 +308,6 @@ pub enum Blobs<E: EthSpec> {
     NotRequired,
     /// The block doesn't have any blob transactions.
     None,
-}
-
-/// A wrapper over a [`SignedBeaconBlock`] or a [`SignedBeaconBlockAndBlobsSidecar`].
-#[derive(Clone, Debug, Derivative)]
-#[derivative(PartialEq, Hash(bound = "E: EthSpec"))]
-enum AvailableBlockInner<E: EthSpec> {
-    Block(Arc<SignedBeaconBlock<E>>),
-    BlockAndBlob(SignedBeaconBlockAndBlobsSidecar<E>),
 }
 
 impl<E: EthSpec> AvailabilityPendingBlock<E> {
@@ -351,12 +361,11 @@ impl<E: EthSpec> AvailabilityPendingBlock<E> {
             | SignedBeaconBlock::Merge(_) => Err(BlobError::InconsistentFork),
             SignedBeaconBlock::Eip4844(_) => {
                 match da_check_required {
-                    DataAvailabilityCheckRequired::Yes => Ok(AvailableBlock(
-                        AvailableBlockInner::BlockAndBlob(SignedBeaconBlockAndBlobsSidecar {
-                            beacon_block,
-                            blobs_sidecar,
-                        }),
-                    )),
+                    DataAvailabilityCheckRequired::Yes => Ok(AvailableBlock{
+                            block: beacon_block,
+                            blobs: Blobs::Available(blobs_sidecar),
+                        }
+                    ),
                     DataAvailabilityCheckRequired::No => {
                         // Blobs were not verified so we drop them, we'll instead just pass around
                         // an available `Eip4844` block without blobs.
@@ -367,27 +376,6 @@ impl<E: EthSpec> AvailabilityPendingBlock<E> {
         }
     }
 
-    pub fn blobs(&self) -> Option<Arc<BlobsSidecar<E>>> {
-        match &self.0 {
-            AvailableBlockInner::Block(_) => None,
-            AvailableBlockInner::BlockAndBlob(block_sidecar_pair) => {
-                Some(block_sidecar_pair.blobs_sidecar.clone())
-            }
-        }
-    }
-
-    pub fn deconstruct(self) -> (Arc<SignedBeaconBlock<E>>, Option<Arc<BlobsSidecar<E>>>) {
-        match self.0 {
-            AvailableBlockInner::Block(block) => (block, None),
-            AvailableBlockInner::BlockAndBlob(block_sidecar_pair) => {
-                let SignedBeaconBlockAndBlobsSidecar {
-                    beacon_block,
-                    blobs_sidecar,
-                } = block_sidecar_pair;
-                (beacon_block, Some(blobs_sidecar))
-            }
-        }
-    }
 }
 
 pub trait IntoBlockWrapper<E: EthSpec>: AsBlock<E> {

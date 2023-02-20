@@ -2685,7 +2685,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// Returns an `Err` if the given block was invalid, or an error was encountered during
     /// verification.
-    pub async fn process_block<A: IntoAvailableBlock, B: IntoExecutionPendingBlock<T, A>>(
+    pub async fn process_block<A: IntoAvailableBlock<T>, B: IntoExecutionPendingBlock<T, A>>(
         self: &Arc<Self>,
         block_root: Hash256,
         unverified_block: B,
@@ -2764,7 +2764,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// An error is returned if the block was unable to be imported. It may be partially imported
     /// (i.e., this function is not atomic).
-    async fn import_execution_pending_block<B: IntoAvailableBlock>(
+    async fn import_execution_pending_block<B: IntoAvailableBlock<T>>(
         self: Arc<Self>,
         execution_pending_block: ExecutionPendingBlock<T, B>,
         count_unrealized: CountUnrealized,
