@@ -89,6 +89,7 @@ use state_processing::{
     state_advance::{complete_state_advance, partial_state_advance},
     BlockSignatureStrategy, ConsensusContext, SigVerifiedOp, VerifyBlockRoot, VerifyOperation,
 };
+use std::borrow::Cow;
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -3878,6 +3879,62 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }))
     }
 
+    pub fn get_expected_withdrawals(
+        &self,
+        forkchoice_update_params: &ForkchoiceUpdateParameters,
+        proposal_slot: Slot,
+    ) -> Result<Withdrawals<T::EthSpec>, Error> {
+        let cached_head = self.canonical_head.cached_head();
+        let head_state = &cached_head.snapshot.beacon_state;
+
+        let parent_block_root = forkchoice_update_params.head_root;
+
+        let unadvanced_state = if cached_head.head_block_root() == parent_block_root {
+            Cow::Borrowed(head_state)
+        } else if let Some(snapshot) = self
+            .snapshot_cache
+            .try_read_for(BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT)
+            .ok_or(Error::SnapshotCacheLockTimeout)?
+            .get_cloned(parent_block_root, CloneConfig::none())
+        {
+            Cow::Owned(snapshot.beacon_state)
+        } else {
+            info!(
+                self.log,
+                "Missed snapshot cache during withdrawal calculation";
+                "slot" => proposal_slot,
+                "parent_block_root" => ?parent_block_root
+            );
+            let block = self
+                .get_blinded_block(&parent_block_root)?
+                .ok_or(Error::MissingBeaconBlock(parent_block_root))?;
+            let state = self
+                .get_state(&block.state_root(), Some(block.slot()))?
+                .ok_or(Error::MissingBeaconState(block.state_root()))?;
+            Cow::Owned(state)
+        };
+
+        // Parent state epoch is the same as the proposal, we don't need to advance because the
+        // list of expected withdrawals can only change after an epoch advance or a
+        // block application.
+        let proposal_epoch = proposal_slot.epoch(T::EthSpec::slots_per_epoch());
+        if head_state.current_epoch() == proposal_epoch {
+            return get_expected_withdrawals(&unadvanced_state, &self.spec)
+                .map_err(Error::PrepareProposerFailed);
+        }
+
+        // Advance the state using the partial method.
+        // FIXME(sproul): consider using actual state root (shouldn't matter though).
+        let mut advanced_state = unadvanced_state.into_owned();
+        partial_state_advance(
+            &mut advanced_state,
+            Some(Hash256::zero()),
+            proposal_epoch.start_slot(T::EthSpec::slots_per_epoch()),
+            &self.spec,
+        )?;
+        get_expected_withdrawals(&advanced_state, &self.spec).map_err(Error::PrepareProposerFailed)
+    }
+
     /// Determine whether a fork choice update to the execution layer should be overridden.
     ///
     /// This is *only* necessary when proposer re-orgs are enabled, because we have to prevent the
@@ -4694,7 +4751,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Nothing to do if there are no proposers registered with the EL, exit early to avoid
         // wasting cycles.
-        if !execution_layer.has_any_proposer_preparation_data().await {
+        if !self.config.always_prepare_payload
+            && !execution_layer.has_any_proposer_preparation_data().await
+        {
             return Ok(());
         }
 
@@ -4751,9 +4810,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // If the execution layer doesn't have any proposer data for this validator then we assume
         // it's not connected to this BN and no action is required.
         let proposer = pre_payload_attributes.proposer_index;
-        if !execution_layer
-            .has_proposer_preparation_data(proposer)
-            .await
+        if !self.config.always_prepare_payload
+            && !execution_layer
+                .has_proposer_preparation_data(proposer)
+                .await
         {
             return Ok(());
         }
@@ -4761,26 +4821,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let withdrawals = match self.spec.fork_name_at_slot::<T::EthSpec>(prepare_slot) {
             ForkName::Base | ForkName::Altair | ForkName::Merge => None,
             ForkName::Capella | ForkName::Eip4844 => {
-                // We must use the advanced state because balances can change at epoch boundaries
-                // and balances affect withdrawals.
-                // FIXME(mark)
-                //   Might implement caching here in the future..
-                let prepare_state = self
-                    .state_at_slot(prepare_slot, StateSkipConfig::WithoutStateRoots)
-                    .map_err(|e| {
-                        error!(self.log, "State advance for withdrawals failed"; "error" => ?e);
-                        e
-                    })?;
-                Some(get_expected_withdrawals(&prepare_state, &self.spec))
+                let chain = self.clone();
+                self.spawn_blocking_handle(
+                    move || chain.get_expected_withdrawals(&forkchoice_update_params, prepare_slot),
+                    "prepare_beacon_proposer_withdrawals",
+                )
+                .await?
+                .map(Some)?
             }
-        }
-        .transpose()
-        .map_err(|e| {
-            error!(self.log, "Error preparing beacon proposer"; "error" => ?e);
-            e
-        })
-        .map(|withdrawals_opt| withdrawals_opt.map(|w| w.into()))
-        .map_err(Error::PrepareProposerFailed)?;
+        };
 
         let head_root = forkchoice_update_params.head_root;
         let payload_attributes = PayloadAttributes::new(
@@ -4790,7 +4839,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .as_secs(),
             pre_payload_attributes.prev_randao,
             execution_layer.get_suggested_fee_recipient(proposer).await,
-            withdrawals,
+            withdrawals.map(Into::into),
         );
 
         debug!(
@@ -4838,7 +4887,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // If we are close enough to the proposal slot, send an fcU, which will have payload
         // attributes filled in by the execution layer cache we just primed.
-        if till_prepare_slot <= self.config.prepare_payload_lookahead {
+        if self.config.always_prepare_payload
+            || till_prepare_slot <= self.config.prepare_payload_lookahead
+        {
             debug!(
                 self.log,
                 "Sending forkchoiceUpdate for proposer prep";
