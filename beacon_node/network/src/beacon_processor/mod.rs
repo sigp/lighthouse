@@ -166,8 +166,6 @@ const MAX_STATUS_QUEUE_LEN: usize = 1_024;
 /// will be stored before we start dropping them.
 const MAX_BLOCKS_BY_RANGE_QUEUE_LEN: usize = 1_024;
 
-const MAX_BLOBS_BY_RANGE_QUEUE_LEN: usize = 1_024;
-
 /// The maximum number of queued `BlocksByRootRequest` objects received from the network RPC that
 /// will be stored before we start dropping them.
 const MAX_BLOCKS_BY_ROOTS_QUEUE_LEN: usize = 1_024;
@@ -210,7 +208,6 @@ pub const GOSSIP_ATTESTATION_BATCH: &str = "gossip_attestation_batch";
 pub const GOSSIP_AGGREGATE: &str = "gossip_aggregate";
 pub const GOSSIP_AGGREGATE_BATCH: &str = "gossip_aggregate_batch";
 pub const GOSSIP_BLOCK: &str = "gossip_block";
-pub const GOSSIP_BLOCK_AND_BLOBS_SIDECAR: &str = "gossip_block_and_blobs_sidecar";
 pub const DELAYED_IMPORT_BLOCK: &str = "delayed_import_block";
 pub const GOSSIP_VOLUNTARY_EXIT: &str = "gossip_voluntary_exit";
 pub const GOSSIP_PROPOSER_SLASHING: &str = "gossip_proposer_slashing";
@@ -224,7 +221,6 @@ pub const CHAIN_SEGMENT: &str = "chain_segment";
 pub const STATUS_PROCESSING: &str = "status_processing";
 pub const BLOCKS_BY_RANGE_REQUEST: &str = "blocks_by_range_request";
 pub const BLOCKS_BY_ROOTS_REQUEST: &str = "blocks_by_roots_request";
-pub const BLOBS_BY_RANGE_REQUEST: &str = "blobs_by_range_request";
 pub const LIGHT_CLIENT_BOOTSTRAP_REQUEST: &str = "light_client_bootstrap";
 pub const UNKNOWN_BLOCK_ATTESTATION: &str = "unknown_block_attestation";
 pub const UNKNOWN_BLOCK_AGGREGATE: &str = "unknown_block_aggregate";
@@ -1048,14 +1044,11 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
         let mut chain_segment_queue = FifoQueue::new(MAX_CHAIN_SEGMENT_QUEUE_LEN);
         let mut backfill_chain_segment = FifoQueue::new(MAX_CHAIN_SEGMENT_QUEUE_LEN);
         let mut gossip_block_queue = FifoQueue::new(MAX_GOSSIP_BLOCK_QUEUE_LEN);
-        let mut gossip_block_and_blobs_sidecar_queue =
-            FifoQueue::new(MAX_GOSSIP_BLOCK_AND_BLOB_QUEUE_LEN);
         let mut delayed_block_queue = FifoQueue::new(MAX_DELAYED_BLOCK_QUEUE_LEN);
 
         let mut status_queue = FifoQueue::new(MAX_STATUS_QUEUE_LEN);
         let mut bbrange_queue = FifoQueue::new(MAX_BLOCKS_BY_RANGE_QUEUE_LEN);
         let mut bbroots_queue = FifoQueue::new(MAX_BLOCKS_BY_ROOTS_QUEUE_LEN);
-        let mut blbrange_queue = FifoQueue::new(MAX_BLOBS_BY_RANGE_QUEUE_LEN);
 
         let mut gossip_bls_to_execution_change_queue =
             FifoQueue::new(MAX_BLS_TO_EXECUTION_CHANGE_QUEUE_LEN);
@@ -1161,8 +1154,6 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                         // Check gossip blocks before gossip attestations, since a block might be
                         // required to verify some attestations.
                         } else if let Some(item) = gossip_block_queue.pop() {
-                            self.spawn_worker(item, toolbox);
-                        } else if let Some(item) = gossip_block_and_blobs_sidecar_queue.pop() {
                             self.spawn_worker(item, toolbox);
                         // Check the aggregates, *then* the unaggregates since we assume that
                         // aggregates are more valuable to local validators and effectively give us
@@ -1456,7 +1447,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                     gossip_block_queue.len() as i64,
                 );
                 metrics::set_gauge(
-                    &metrics::BEACON_PROCESSOR_RPC_BLOB_QUEUE_TOTAL,
+                    &metrics::BEACON_PROCESSOR_RPC_BLOCK_QUEUE_TOTAL,
                     rpc_block_queue.len() as i64,
                 );
                 metrics::set_gauge(
