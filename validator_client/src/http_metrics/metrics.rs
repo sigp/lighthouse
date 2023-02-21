@@ -57,11 +57,6 @@ lazy_static::lazy_static! {
         "Total count of attempted block signings",
         &["status"]
     );
-    pub static ref SIGNED_BLOBS_TOTAL: Result<IntCounterVec> = try_create_int_counter_vec(
-        "vc_signed_beacon_blobs_total",
-        "Total count of attempted blob signings",
-        &["status"]
-    );
     pub static ref SIGNED_ATTESTATIONS_TOTAL: Result<IntCounterVec> = try_create_int_counter_vec(
         "vc_signed_attestations_total",
         "Total count of attempted Attestation signings",
