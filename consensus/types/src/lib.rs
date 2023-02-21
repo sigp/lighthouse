@@ -99,9 +99,6 @@ pub mod slot_data;
 #[cfg(feature = "sqlite")]
 pub mod sqlite;
 
-pub mod kzg_commitment;
-pub mod kzg_proof;
-
 use ethereum_types::{H160, H256};
 
 pub use crate::aggregate_and_proof::AggregateAndProof;
@@ -154,8 +151,6 @@ pub use crate::fork_versioned_response::{
 pub use crate::graffiti::{Graffiti, GRAFFITI_BYTES_LEN};
 pub use crate::historical_batch::HistoricalBatch;
 pub use crate::indexed_attestation::IndexedAttestation;
-pub use crate::kzg_commitment::KzgCommitment;
-pub use crate::kzg_proof::KzgProof;
 pub use crate::light_client_finality_update::LightClientFinalityUpdate;
 pub use crate::light_client_optimistic_update::LightClientOptimisticUpdate;
 pub use crate::participation_flags::ParticipationFlags;
@@ -198,7 +193,6 @@ pub use crate::validator_registration_data::*;
 pub use crate::validator_subscription::ValidatorSubscription;
 pub use crate::voluntary_exit::VoluntaryExit;
 pub use crate::withdrawal::Withdrawal;
-use serde_big_array::BigArray;
 
 pub type CommitteeIndex = u64;
 pub type Hash256 = H256;
