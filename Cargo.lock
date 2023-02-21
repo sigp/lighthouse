@@ -3209,6 +3209,7 @@ dependencies = [
  "environment",
  "eth1",
  "eth2",
+ "eth2_serde_utils",
  "eth2_ssz",
  "execution_layer",
  "futures",

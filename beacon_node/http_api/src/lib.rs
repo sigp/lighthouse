@@ -3025,6 +3025,22 @@ pub fn serve<T: BeaconChainTypes>(
             },
         );
 
+    // POST lighthouse/ui/validator_info
+    let post_lighthouse_ui_validator_info = warp::path("lighthouse")
+        .and(warp::path("ui"))
+        .and(warp::path("validator_info"))
+        .and(warp::path::end())
+        .and(warp::body::json())
+        .and(chain_filter.clone())
+        .and_then(
+            |request_data: ui::ValidatorInfoRequestData, chain: Arc<BeaconChain<T>>| {
+                blocking_json_task(move || {
+                    ui::get_validator_info(request_data, chain)
+                        .map(api_types::GenericResponse::from)
+                })
+            },
+        );
+
     // GET lighthouse/syncing
     let get_lighthouse_syncing = warp::path("lighthouse")
         .and(warp::path("syncing"))
@@ -3522,6 +3538,7 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(post_lighthouse_database_historical_blocks.boxed())
                 .or(post_lighthouse_block_rewards.boxed())
                 .or(post_lighthouse_ui_validator_metrics.boxed())
+                .or(post_lighthouse_ui_validator_info.boxed())
                 .recover(warp_utils::reject::handle_rejection),
         ))
         .recover(warp_utils::reject::handle_rejection)
