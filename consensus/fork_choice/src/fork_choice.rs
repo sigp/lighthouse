@@ -414,8 +414,8 @@ where
                 .map_err(Error::BeaconStateError)?;
 
         let execution_status = anchor_block.message().execution_payload().map_or_else(
-            // If the block doens't have an execution payload then it can't
-            // have execution enabled.
+            // If the block doesn't have an execution payload then it can't have
+            // execution enabled.
             |_| ExecutionStatus::irrelevant(),
             |execution_payload| {
                 if execution_payload == &<_>::default() {
