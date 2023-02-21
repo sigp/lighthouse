@@ -1517,7 +1517,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                     gossip_block_queue.len() as i64,
                 );
                 metrics::set_gauge(
-                    &metrics::BEACON_PROCESSOR_RPC_BLOB_QUEUE_TOTAL,
+                    &metrics::BEACON_PROCESSOR_RPC_BLOCK_QUEUE_TOTAL,
                     rpc_block_queue.len() as i64,
                 );
                 metrics::set_gauge(
