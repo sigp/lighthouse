@@ -998,9 +998,6 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
             Request::BlocksByRoot { .. } => {
                 metrics::inc_counter_vec(&metrics::TOTAL_RPC_REQUESTS, &["blocks_by_root"])
             }
-            Request::BlobsByRange { .. } => {
-                metrics::inc_counter_vec(&metrics::TOTAL_RPC_REQUESTS, &["blobs_by_range"])
-            }
         }
         NetworkEvent::RequestReceived {
             peer_id,
@@ -1264,14 +1261,6 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                         );
                         Some(event)
                     }
-                    InboundRequest::BlobsByRange(req) => {
-                        let event = self.build_request(
-                            peer_request_id,
-                            peer_id,
-                            Request::BlobsByRange(req),
-                        );
-                        Some(event)
-                    }
                     InboundRequest::LightClientBootstrap(req) => {
                         let event = self.build_request(
                             peer_request_id,
@@ -1304,9 +1293,6 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                     RPCResponse::BlocksByRange(resp) => {
                         self.build_response(id, peer_id, Response::BlocksByRange(Some(resp)))
                     }
-                    RPCResponse::BlobsByRange(resp) => {
-                        self.build_response(id, peer_id, Response::BlobsByRange(Some(resp)))
-                    }
                     RPCResponse::BlocksByRoot(resp) => {
                         self.build_response(id, peer_id, Response::BlocksByRoot(Some(resp)))
                     }
@@ -1320,7 +1306,6 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                 let response = match termination {
                     ResponseTermination::BlocksByRange => Response::BlocksByRange(None),
                     ResponseTermination::BlocksByRoot => Response::BlocksByRoot(None),
-                    ResponseTermination::BlobsByRange => Response::BlobsByRange(None),
                 };
                 self.build_response(id, peer_id, response)
             }

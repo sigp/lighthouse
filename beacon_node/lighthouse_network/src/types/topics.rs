@@ -11,7 +11,6 @@ use crate::Subnet;
 pub const TOPIC_PREFIX: &str = "eth2";
 pub const SSZ_SNAPPY_ENCODING_POSTFIX: &str = "ssz_snappy";
 pub const BEACON_BLOCK_TOPIC: &str = "beacon_block";
-pub const BEACON_BLOCK_AND_BLOBS_SIDECAR_TOPIC: &str = "beacon_block_and_blobs_sidecar";
 pub const BEACON_AGGREGATE_AND_PROOF_TOPIC: &str = "beacon_aggregate_and_proof";
 pub const BEACON_ATTESTATION_PREFIX: &str = "beacon_attestation_";
 pub const VOLUNTARY_EXIT_TOPIC: &str = "voluntary_exit";
@@ -23,9 +22,8 @@ pub const BLS_TO_EXECUTION_CHANGE_TOPIC: &str = "bls_to_execution_change";
 pub const LIGHT_CLIENT_FINALITY_UPDATE: &str = "light_client_finality_update";
 pub const LIGHT_CLIENT_OPTIMISTIC_UPDATE: &str = "light_client_optimistic_update";
 
-pub const CORE_TOPICS: [GossipKind; 8] = [
+pub const CORE_TOPICS: [GossipKind; 7] = [
     GossipKind::BeaconBlock,
-    GossipKind::BeaconBlocksAndBlobsSidecar,
     GossipKind::BeaconAggregateAndProof,
     GossipKind::VoluntaryExit,
     GossipKind::ProposerSlashing,
@@ -58,8 +56,6 @@ pub struct GossipTopic {
 pub enum GossipKind {
     /// Topic for publishing beacon blocks.
     BeaconBlock,
-    /// Topic for publishing beacon block coupled with blob sidecars.
-    BeaconBlocksAndBlobsSidecar,
     /// Topic for publishing aggregate attestations and proofs.
     BeaconAggregateAndProof,
     /// Topic for publishing raw attestations on a particular subnet.
@@ -151,7 +147,6 @@ impl GossipTopic {
             let kind = match topic_parts[3] {
                 BEACON_BLOCK_TOPIC => GossipKind::BeaconBlock,
                 BEACON_AGGREGATE_AND_PROOF_TOPIC => GossipKind::BeaconAggregateAndProof,
-                BEACON_BLOCK_AND_BLOBS_SIDECAR_TOPIC => GossipKind::BeaconBlocksAndBlobsSidecar,
                 SIGNED_CONTRIBUTION_AND_PROOF_TOPIC => GossipKind::SignedContributionAndProof,
                 VOLUNTARY_EXIT_TOPIC => GossipKind::VoluntaryExit,
                 PROPOSER_SLASHING_TOPIC => GossipKind::ProposerSlashing,
@@ -208,7 +203,6 @@ impl std::fmt::Display for GossipTopic {
 
         let kind = match self.kind {
             GossipKind::BeaconBlock => BEACON_BLOCK_TOPIC.into(),
-            GossipKind::BeaconBlocksAndBlobsSidecar => BEACON_BLOCK_AND_BLOBS_SIDECAR_TOPIC.into(),
             GossipKind::BeaconAggregateAndProof => BEACON_AGGREGATE_AND_PROOF_TOPIC.into(),
             GossipKind::VoluntaryExit => VOLUNTARY_EXIT_TOPIC.into(),
             GossipKind::ProposerSlashing => PROPOSER_SLASHING_TOPIC.into(),
@@ -293,7 +287,6 @@ mod tests {
                 VoluntaryExit,
                 ProposerSlashing,
                 AttesterSlashing,
-                BeaconBlocksAndBlobsSidecar,
             ]
             .iter()
             {
