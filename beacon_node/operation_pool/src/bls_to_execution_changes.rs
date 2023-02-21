@@ -106,16 +106,6 @@ impl<T: EthSpec> BlsToExecutionChanges<T> {
         spec: &ChainSpec,
     ) {
         let mut validator_indices_pruned = vec![];
-        let recently_changed_indices: HashSet<u64> = head_block
-            .message()
-            .body()
-            .bls_to_execution_changes()
-            .map_or(HashSet::default(), |recent_changes| {
-                recent_changes
-                    .iter()
-                    .map(|c| c.message.validator_index)
-                    .collect()
-            });
 
         self.queue.retain(|address_change| {
             let validator_index = address_change.as_inner().message.validator_index;
@@ -124,7 +114,15 @@ impl<T: EthSpec> BlsToExecutionChanges<T> {
                 .get(validator_index as usize)
                 .map_or(true, |validator| {
                     let prune = validator.has_eth1_withdrawal_credential(spec)
-                        && !recently_changed_indices.contains(&validator_index);
+                        && head_block
+                            .message()
+                            .body()
+                            .bls_to_execution_changes()
+                            .map_or(true, |recent_changes| {
+                                !recent_changes
+                                    .iter()
+                                    .any(|c| c.message.validator_index == validator_index)
+                            });
                     if prune {
                         validator_indices_pruned.push(validator_index);
                     }
