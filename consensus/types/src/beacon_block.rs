@@ -485,6 +485,52 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> EmptyBlock for BeaconBlockMerg
     }
 }
 
+impl<T: EthSpec, Payload: AbstractExecPayload<T>> BeaconBlockCapella<T, Payload> {
+    /// Return a Capella block where the block has maximum size.
+    pub fn full(spec: &ChainSpec) -> Self {
+        let base_block: BeaconBlockBase<_, Payload> = BeaconBlockBase::full(spec);
+        let bls_to_execution_changes = vec![
+            SignedBlsToExecutionChange {
+                message: BlsToExecutionChange {
+                    validator_index: 0,
+                    from_bls_pubkey: PublicKeyBytes::empty(),
+                    to_execution_address: Address::zero(),
+                },
+                signature: Signature::empty()
+            };
+            T::max_bls_to_execution_changes()
+        ]
+        .into();
+        let sync_aggregate = SyncAggregate {
+            sync_committee_signature: AggregateSignature::empty(),
+            sync_committee_bits: BitVector::default(),
+        };
+        BeaconBlockCapella {
+            slot: spec.genesis_slot,
+            proposer_index: 0,
+            parent_root: Hash256::zero(),
+            state_root: Hash256::zero(),
+            body: BeaconBlockBodyCapella {
+                proposer_slashings: base_block.body.proposer_slashings,
+                attester_slashings: base_block.body.attester_slashings,
+                attestations: base_block.body.attestations,
+                deposits: base_block.body.deposits,
+                voluntary_exits: base_block.body.voluntary_exits,
+                bls_to_execution_changes,
+                sync_aggregate,
+                randao_reveal: Signature::empty(),
+                eth1_data: Eth1Data {
+                    deposit_root: Hash256::zero(),
+                    block_hash: Hash256::zero(),
+                    deposit_count: 0,
+                },
+                graffiti: Graffiti::default(),
+                execution_payload: Payload::Capella::default(),
+            },
+        }
+    }
+}
+
 impl<T: EthSpec, Payload: AbstractExecPayload<T>> EmptyBlock for BeaconBlockCapella<T, Payload> {
     /// Returns an empty Capella block to be used during genesis.
     fn empty(spec: &ChainSpec) -> Self {
