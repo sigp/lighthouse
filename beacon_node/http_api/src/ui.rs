@@ -1,4 +1,6 @@
-use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes};
+use beacon_chain::{
+    validator_monitor::HISTORIC_EPOCHS, BeaconChain, BeaconChainError, BeaconChainTypes,
+};
 use eth2::types::{Epoch, ValidatorStatus};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -73,12 +75,15 @@ pub fn get_validator_count<T: BeaconChainTypes>(
 
 #[derive(PartialEq, Serialize, Deserialize)]
 pub struct ValidatorInfoRequestData {
+    #[serde(with = "eth2_serde_utils::quoted_u64_vec")]
     indices: Vec<u64>,
 }
 
 #[derive(PartialEq, Serialize, Deserialize)]
 pub struct ValidatorInfoValues {
+    #[serde(with = "eth2_serde_utils::quoted_u64")]
     epoch: u64,
+    #[serde(with = "eth2_serde_utils::quoted_u64")]
     total_balance: u64,
 }
 
@@ -98,7 +103,7 @@ pub fn get_validator_info<T: BeaconChainTypes>(
 ) -> Result<ValidatorInfoResponse, warp::Rejection> {
     let current_epoch = chain.epoch().map_err(beacon_chain_error)?;
 
-    let epochs = current_epoch.saturating_sub(10_u64).as_u64()..=current_epoch.as_u64();
+    let epochs = current_epoch.saturating_sub(HISTORIC_EPOCHS).as_u64()..=current_epoch.as_u64();
 
     let validator_ids = chain
         .validator_monitor

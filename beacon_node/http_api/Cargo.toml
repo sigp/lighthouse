@@ -36,6 +36,7 @@ tree_hash = "0.4.1"
 sysinfo = "0.26.5"
 system_health = { path = "../../common/system_health" }
 directory = { path = "../../common/directory" }
+eth2_serde_utils = "0.1.1"
 
 [dev-dependencies]
 store = { path = "../store" }
