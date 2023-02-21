@@ -413,21 +413,25 @@ where
             AttestationShufflingId::new(anchor_block_root, anchor_state, RelativeEpoch::Next)
                 .map_err(Error::BeaconStateError)?;
 
-        // Default any non-merge execution block hashes to 0x000..000.
-        let execution_status = anchor_block.message_merge().map_or_else(
-            |()| ExecutionStatus::irrelevant(),
-            |message| {
-                let execution_payload = &message.body.execution_payload;
-                if execution_payload == &<_>::default() {
-                    // A default payload does not have execution enabled.
-                    ExecutionStatus::irrelevant()
-                } else {
-                    // Assume that this payload is valid, since the anchor should be a trusted block and
-                    // state.
-                    ExecutionStatus::Valid(message.body.execution_payload.block_hash())
-                }
-            },
-        );
+        let execution_status = anchor_block
+            .message()
+            .body()
+            .execution_payload()
+            .map_or_else(
+                // If the block doens't have an execution payload then it can't
+                // have execution enabled.
+                |_| ExecutionStatus::irrelevant(),
+                |execution_payload| {
+                    if execution_payload == &<_>::default() {
+                        // A default payload does not have execution enabled.
+                        ExecutionStatus::irrelevant()
+                    } else {
+                        // Assume that this payload is valid, since the anchor should be a trusted block and
+                        // state.
+                        ExecutionStatus::Valid(execution_payload.block_hash())
+                    }
+                },
+            );
 
         // If the current slot is not provided, use the value that was last provided to the store.
         let current_slot = current_slot.unwrap_or_else(|| fc_store.get_current_slot());
