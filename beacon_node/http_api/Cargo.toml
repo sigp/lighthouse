@@ -37,6 +37,7 @@ sysinfo = "0.26.5"
 system_health = { path = "../../common/system_health" }
 directory = { path = "../../common/directory" }
 eth2_serde_utils = "0.1.1"
+operation_pool = { path = "../operation_pool" }
 
 [dev-dependencies]
 store = { path = "../store" }
@@ -46,6 +47,7 @@ logging = { path = "../../common/logging" }
 serde_json = "1.0.58"
 proto_array = { path = "../../consensus/proto_array" }
 unused_port = {path = "../../common/unused_port"}
+genesis = { path = "../genesis" }
 
 [[test]]
 name = "bn_http_api_tests"

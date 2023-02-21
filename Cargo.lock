@@ -211,9 +211,8 @@ checksum = "224afbd727c3d6e4b90103ece64b8d1b67fbb1973b1046c2281eed3f3803f800"
 
 [[package]]
 name = "arbitrary"
-version = "1.2.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3e90af4de65aa7b293ef2d09daff88501eb254f58edde2e1ac02c82d873eadad"
+version = "1.2.2"
+source = "git+https://github.com/michaelsproul/arbitrary?rev=a572fd8743012a4f1ada5ee5968b1b3619c427ba#a572fd8743012a4f1ada5ee5968b1b3619c427ba"
 dependencies = [
  "derive_arbitrary",
 ]
@@ -545,7 +544,7 @@ checksum = "b645a089122eccb6111b4f81cbc1a49f5900ac4666bb93ac027feaecf15607bf"
 [[package]]
 name = "beacon-api-client"
 version = "0.1.0"
-source = "git+https://github.com/ralexstokes/beacon-api-client?rev=7d5d8dad1648f771573f42585ad8080a45b05689#7d5d8dad1648f771573f42585ad8080a45b05689"
+source = "git+https://github.com/ralexstokes/beacon-api-client#53690a711e33614d59d4d44fb09762b4699e2a4e"
 dependencies = [
  "ethereum-consensus",
  "http",
@@ -607,7 +606,7 @@ dependencies = [
  "state_processing",
  "store",
  "strum",
- "superstruct",
+ "superstruct 0.5.0",
  "task_executor",
  "tempfile",
  "tokio",
@@ -1057,8 +1056,10 @@ dependencies = [
  "lazy_static",
  "lighthouse_metrics",
  "lighthouse_network",
+ "logging",
  "monitoring_api",
  "network",
+ "operation_pool",
  "parking_lot 0.12.1",
  "sensitive_url",
  "serde",
@@ -1068,6 +1069,7 @@ dependencies = [
  "slasher_service",
  "slog",
  "slot_clock",
+ "state_processing",
  "store",
  "task_executor",
  "time 0.3.17",
@@ -1678,10 +1680,10 @@ dependencies = [
 
 [[package]]
 name = "derive_arbitrary"
-version = "1.2.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8beee4701e2e229e8098bbdecdca12449bc3e322f137d269182fa1291e20bd00"
+version = "1.2.2"
+source = "git+https://github.com/michaelsproul/arbitrary?rev=a572fd8743012a4f1ada5ee5968b1b3619c427ba#a572fd8743012a4f1ada5ee5968b1b3619c427ba"
 dependencies = [
+ "darling 0.14.3",
  "proc-macro2",
  "quote",
  "syn",
@@ -2066,7 +2068,7 @@ dependencies = [
  "slog",
  "sloggers",
  "state_processing",
- "superstruct",
+ "superstruct 0.5.0",
  "task_executor",
  "tokio",
  "tree_hash",
@@ -2219,9 +2221,10 @@ dependencies = [
 
 [[package]]
 name = "eth2_ssz_derive"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "darling 0.13.4",
+ "eth2_ssz",
  "proc-macro2",
  "quote",
  "syn",
@@ -2332,7 +2335,7 @@ dependencies = [
 [[package]]
 name = "ethereum-consensus"
 version = "0.1.1"
-source = "git+https://github.com/ralexstokes/ethereum-consensus?rev=a8110af76d97bf2bf27fb987a671808fcbdf1834#a8110af76d97bf2bf27fb987a671808fcbdf1834"
+source = "git+https://github.com/ralexstokes//ethereum-consensus?rev=9b0ee0a8a45b968c8df5e7e64ea1c094e16f053d#9b0ee0a8a45b968c8df5e7e64ea1c094e16f053d"
 dependencies = [
  "async-stream",
  "blst",
@@ -2341,6 +2344,7 @@ dependencies = [
  "hex",
  "integer-sqrt",
  "multiaddr 0.14.0",
+ "multihash",
  "rand 0.8.5",
  "serde",
  "serde_json",
@@ -2499,7 +2503,7 @@ dependencies = [
  "lazy_static",
  "lighthouse_metrics",
  "lru 0.7.8",
- "mev-build-rs",
+ "mev-rs",
  "parking_lot 0.12.1",
  "rand 0.8.5",
  "reqwest",
@@ -2511,6 +2515,7 @@ dependencies = [
  "ssz-rs",
  "state_processing",
  "strum",
+ "superstruct 0.6.0",
  "task_executor",
  "tempfile",
  "tokio",
@@ -3213,6 +3218,7 @@ dependencies = [
  "eth2_ssz",
  "execution_layer",
  "futures",
+ "genesis",
  "hex",
  "lazy_static",
  "lighthouse_metrics",
@@ -3221,6 +3227,7 @@ dependencies = [
  "logging",
  "lru 0.7.8",
  "network",
+ "operation_pool",
  "parking_lot 0.12.1",
  "proto_array",
  "safe_arith",
@@ -4399,13 +4406,15 @@ dependencies = [
  "smallvec",
  "snap",
  "strum",
- "superstruct",
+ "superstruct 0.5.0",
  "task_executor",
  "tempfile",
  "tiny-keccak",
  "tokio",
  "tokio-io-timeout",
  "tokio-util 0.6.10",
+ "tree_hash",
+ "tree_hash_derive",
  "types",
  "unsigned-varint 0.6.0",
  "unused_port",
@@ -4663,18 +4672,19 @@ dependencies = [
 ]
 
 [[package]]
-name = "mev-build-rs"
+name = "mev-rs"
 version = "0.2.1"
-source = "git+https://github.com/ralexstokes/mev-rs?rev=6c99b0fbdc0427b1625469d2e575303ce08de5b8#6c99b0fbdc0427b1625469d2e575303ce08de5b8"
+source = "git+https://github.com/ralexstokes//mev-rs?rev=7813d4a4a564e0754e9aaab2d95520ba437c3889#7813d4a4a564e0754e9aaab2d95520ba437c3889"
 dependencies = [
  "async-trait",
  "axum",
  "beacon-api-client",
  "ethereum-consensus",
+ "hyper",
  "serde",
- "serde_json",
  "ssz-rs",
  "thiserror",
+ "tokio",
  "tracing",
 ]
 
@@ -4997,6 +5007,7 @@ dependencies = [
  "lru_cache",
  "matches",
  "num_cpus",
+ "operation_pool",
  "rand 0.8.5",
  "rlp",
  "slog",
@@ -5332,6 +5343,7 @@ dependencies = [
  "lighthouse_metrics",
  "maplit",
  "parking_lot 0.12.1",
+ "rand 0.8.5",
  "rayon",
  "serde",
  "serde_derive",
@@ -6773,6 +6785,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "serde-big-array"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "18b20e7752957bbe9661cff4e0bb04d183d0948cdab2ea58cdb9df36a61dfe62"
+dependencies = [
+ "serde",
+ "serde_derive",
+]
+
+[[package]]
 name = "serde_array_query"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7277,11 +7299,10 @@ dependencies = [
 [[package]]
 name = "ssz-rs"
 version = "0.8.0"
-source = "git+https://github.com/ralexstokes/ssz-rs?rev=cb08f1#cb08f18ca919cc1b685b861d0fa9e2daabe89737"
+source = "git+https://github.com/ralexstokes//ssz-rs?rev=adf1a0b14cef90b9536f28ef89da1fab316465e1#adf1a0b14cef90b9536f28ef89da1fab316465e1"
 dependencies = [
  "bitvec 1.0.1",
  "hex",
- "lazy_static",
  "num-bigint",
  "serde",
  "sha2 0.9.9",
@@ -7292,7 +7313,7 @@ dependencies = [
 [[package]]
 name = "ssz-rs-derive"
 version = "0.8.0"
-source = "git+https://github.com/ralexstokes/ssz-rs?rev=cb08f1#cb08f18ca919cc1b685b861d0fa9e2daabe89737"
+source = "git+https://github.com/ralexstokes//ssz-rs?rev=adf1a0b14cef90b9536f28ef89da1fab316465e1#adf1a0b14cef90b9536f28ef89da1fab316465e1"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -7442,6 +7463,20 @@ name = "superstruct"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "95a99807a055ff4ff5d249bb84c80d9eabb55ca3c452187daae43fd5b51ef695"
+dependencies = [
+ "darling 0.13.4",
+ "itertools",
+ "proc-macro2",
+ "quote",
+ "smallvec",
+ "syn",
+]
+
+[[package]]
+name = "superstruct"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "75b9e5728aa1a87141cefd4e7509903fc01fa0dcb108022b1e841a67c5159fc5"
 dependencies = [
  "darling 0.13.4",
  "itertools",
@@ -8266,6 +8301,7 @@ dependencies = [
  "rusqlite",
  "safe_arith",
  "serde",
+ "serde-big-array",
  "serde_derive",
  "serde_json",
  "serde_with",
@@ -8273,7 +8309,7 @@ dependencies = [
  "slog",
  "smallvec",
  "state_processing",
- "superstruct",
+ "superstruct 0.6.0",
  "swap_or_not_shuffle",
  "tempfile",
  "test_random_derive",

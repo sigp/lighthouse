@@ -38,6 +38,7 @@ pub enum OutboundRequest<TSpec: EthSpec> {
     Goodbye(GoodbyeReason),
     BlocksByRange(OldBlocksByRangeRequest),
     BlocksByRoot(BlocksByRootRequest),
+    BlobsByRange(BlobsByRangeRequest),
     LightClientBootstrap(LightClientBootstrapRequest),
     Ping(Ping),
     MetaData(PhantomData<TSpec>),
@@ -76,6 +77,11 @@ impl<TSpec: EthSpec> OutboundRequest<TSpec> {
                 ProtocolId::new(Protocol::BlocksByRoot, Version::V2, Encoding::SSZSnappy),
                 ProtocolId::new(Protocol::BlocksByRoot, Version::V1, Encoding::SSZSnappy),
             ],
+            OutboundRequest::BlobsByRange(_) => vec![ProtocolId::new(
+                Protocol::BlobsByRange,
+                Version::V1,
+                Encoding::SSZSnappy,
+            )],
             OutboundRequest::Ping(_) => vec![ProtocolId::new(
                 Protocol::Ping,
                 Version::V1,
@@ -100,6 +106,7 @@ impl<TSpec: EthSpec> OutboundRequest<TSpec> {
             OutboundRequest::Goodbye(_) => 0,
             OutboundRequest::BlocksByRange(req) => req.count,
             OutboundRequest::BlocksByRoot(req) => req.block_roots.len() as u64,
+            OutboundRequest::BlobsByRange(req) => req.count,
             OutboundRequest::Ping(_) => 1,
             OutboundRequest::MetaData(_) => 1,
             OutboundRequest::LightClientBootstrap(_) => 1,
@@ -113,6 +120,7 @@ impl<TSpec: EthSpec> OutboundRequest<TSpec> {
             OutboundRequest::Goodbye(_) => Protocol::Goodbye,
             OutboundRequest::BlocksByRange(_) => Protocol::BlocksByRange,
             OutboundRequest::BlocksByRoot(_) => Protocol::BlocksByRoot,
+            OutboundRequest::BlobsByRange(_) => Protocol::BlobsByRange,
             OutboundRequest::Ping(_) => Protocol::Ping,
             OutboundRequest::MetaData(_) => Protocol::MetaData,
             OutboundRequest::LightClientBootstrap(_) => Protocol::LightClientBootstrap,
@@ -127,6 +135,7 @@ impl<TSpec: EthSpec> OutboundRequest<TSpec> {
             // variants that have `multiple_responses()` can have values.
             OutboundRequest::BlocksByRange(_) => ResponseTermination::BlocksByRange,
             OutboundRequest::BlocksByRoot(_) => ResponseTermination::BlocksByRoot,
+            OutboundRequest::BlobsByRange(_) => ResponseTermination::BlobsByRange,
             OutboundRequest::LightClientBootstrap(_) => unreachable!(),
             OutboundRequest::Status(_) => unreachable!(),
             OutboundRequest::Goodbye(_) => unreachable!(),
@@ -183,6 +192,7 @@ impl<TSpec: EthSpec> std::fmt::Display for OutboundRequest<TSpec> {
             OutboundRequest::Goodbye(reason) => write!(f, "Goodbye: {}", reason),
             OutboundRequest::BlocksByRange(req) => write!(f, "Blocks by range: {}", req),
             OutboundRequest::BlocksByRoot(req) => write!(f, "Blocks by root: {:?}", req),
+            OutboundRequest::BlobsByRange(req) => write!(f, "Blobs by range: {:?}", req),
             OutboundRequest::Ping(ping) => write!(f, "Ping: {}", ping.data),
             OutboundRequest::MetaData(_) => write!(f, "MetaData request"),
             OutboundRequest::LightClientBootstrap(bootstrap) => {

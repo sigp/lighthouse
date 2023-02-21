@@ -3,7 +3,7 @@ use beacon_chain::validator_monitor::{get_block_delay_ms, timestamp_now};
 use beacon_chain::{
     BeaconChain, BeaconChainTypes, BlockError, CountUnrealized, NotifyExecutionLayer,
 };
-use lighthouse_network::PubsubMessage;
+use lighthouse_network::{PubsubMessage, SignedBeaconBlockAndBlobsSidecar};
 use network::NetworkMessage;
 use slog::{error, info, warn, Logger};
 use slot_clock::SlotClock;
@@ -11,8 +11,8 @@ use std::sync::Arc;
 use tokio::sync::mpsc::UnboundedSender;
 use tree_hash::TreeHash;
 use types::{
-    BlindedPayload, ExecPayload, ExecutionBlockHash, ExecutionPayload, FullPayload, Hash256,
-    SignedBeaconBlock,
+    AbstractExecPayload, BlindedPayload, BlobsSidecar, EthSpec, ExecPayload, ExecutionBlockHash,
+    FullPayload, Hash256, SignedBeaconBlock,
 };
 use warp::Rejection;
 
@@ -20,6 +20,7 @@ use warp::Rejection;
 pub async fn publish_block<T: BeaconChainTypes>(
     block_root: Option<Hash256>,
     block: Arc<SignedBeaconBlock<T::EthSpec>>,
+    blobs_sidecar: Option<Arc<BlobsSidecar<T::EthSpec>>>,
     chain: Arc<BeaconChain<T>>,
     network_tx: &UnboundedSender<NetworkMessage<T::EthSpec>>,
     log: Logger,
@@ -28,7 +29,24 @@ pub async fn publish_block<T: BeaconChainTypes>(
 
     // Send the block, regardless of whether or not it is valid. The API
     // specification is very clear that this is the desired behaviour.
-    crate::publish_pubsub_message(network_tx, PubsubMessage::BeaconBlock(block.clone()))?;
+
+    let message = match &*block {
+        SignedBeaconBlock::Eip4844(block) => {
+            if let Some(sidecar) = blobs_sidecar {
+                PubsubMessage::BeaconBlockAndBlobsSidecars(Arc::new(
+                    SignedBeaconBlockAndBlobsSidecar {
+                        beacon_block: block.clone(),
+                        blobs_sidecar: (*sidecar).clone(),
+                    },
+                ))
+            } else {
+                //TODO(pawan): return an empty sidecar instead
+                return Err(warp_utils::reject::broadcast_without_import(String::new()));
+            }
+        }
+        _ => PubsubMessage::BeaconBlock(block.clone()),
+    };
+    crate::publish_pubsub_message(network_tx, message)?;
 
     // Determine the delay after the start of the slot, register it with metrics.
     let delay = get_block_delay_ms(seen_timestamp, block.message(), &chain.slot_clock);
@@ -142,6 +160,7 @@ pub async fn publish_blinded_block<T: BeaconChainTypes>(
     publish_block::<T>(
         Some(block_root),
         Arc::new(full_block),
+        None,
         chain,
         network_tx,
         log,
@@ -165,12 +184,22 @@ async fn reconstruct_block<T: BeaconChainTypes>(
 
         // If the execution block hash is zero, use an empty payload.
         let full_payload = if payload_header.block_hash() == ExecutionBlockHash::zero() {
-            ExecutionPayload::default()
+            FullPayload::default_at_fork(
+                chain
+                    .spec
+                    .fork_name_at_epoch(block.slot().epoch(T::EthSpec::slots_per_epoch())),
+            )
+            .map_err(|e| {
+                warp_utils::reject::custom_server_error(format!(
+                    "Default payload construction error: {e:?}"
+                ))
+            })?
+            .into()
             // If we already have an execution payload with this transactions root cached, use it.
         } else if let Some(cached_payload) =
             el.get_payload_by_root(&payload_header.tree_hash_root())
         {
-            info!(log, "Reconstructing a full block using a local payload"; "block_hash" => ?cached_payload.block_hash);
+            info!(log, "Reconstructing a full block using a local payload"; "block_hash" => ?cached_payload.block_hash());
             cached_payload
             // Otherwise, this means we are attempting a blind block proposal.
         } else {
@@ -183,7 +212,7 @@ async fn reconstruct_block<T: BeaconChainTypes>(
                         e
                     ))
                 })?;
-            info!(log, "Successfully published a block to the builder network"; "block_hash" => ?full_payload.block_hash);
+            info!(log, "Successfully published a block to the builder network"; "block_hash" => ?full_payload.block_hash());
             full_payload
         };
 
