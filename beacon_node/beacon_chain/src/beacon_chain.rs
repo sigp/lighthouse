@@ -3897,11 +3897,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .ok_or(Error::SnapshotCacheLockTimeout)?
             .get_cloned(parent_block_root, CloneConfig::none())
         {
+            debug!(
+                self.log,
+                "Hit snapshot cache during withdrawals calculation";
+                "slot" => proposal_slot,
+                "parent_block_root" => ?parent_block_root,
+            );
             Cow::Owned(snapshot.beacon_state)
         } else {
             info!(
                 self.log,
-                "Missed snapshot cache during withdrawal calculation";
+                "Missed snapshot cache during withdrawals calculation";
                 "slot" => proposal_slot,
                 "parent_block_root" => ?parent_block_root
             );
@@ -3924,6 +3930,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         // Advance the state using the partial method.
+        debug!(
+            self.log,
+            "Advancing state for withdrawals calculation";
+            "proposal_slot" => proposal_slot,
+            "parent_block_root" => ?parent_block_root,
+        );
         // FIXME(sproul): consider using actual state root (shouldn't matter though).
         let mut advanced_state = unadvanced_state.into_owned();
         partial_state_advance(

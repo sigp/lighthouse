@@ -97,8 +97,7 @@ impl Default for ChainConfig {
             prepare_payload_lookahead: Duration::from_secs(4),
             // This value isn't actually read except in tests.
             optimistic_finalized_sync: true,
-            // FIXME(sproul): config
-            always_prepare_payload: true,
+            always_prepare_payload: false,
         }
     }
 }

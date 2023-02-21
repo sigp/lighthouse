@@ -711,6 +711,8 @@ pub fn get_config<E: EthSpec>(
                     / DEFAULT_PREPARE_PAYLOAD_LOOKAHEAD_FACTOR
             });
 
+    client_config.chain.always_prepare_payload = cli_args.is_present("always-prepare-payload");
+
     if let Some(timeout) =
         clap_utils::parse_optional(cli_args, "fork-choice-before-proposal-timeout")?
     {
