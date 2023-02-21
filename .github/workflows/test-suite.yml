@@ -10,7 +10,8 @@ on:
   pull_request:
 env:
   # Deny warnings in CI
-  RUSTFLAGS: "-D warnings"
+  # Disable debug info (see https://github.com/sigp/lighthouse/issues/4005)
+  RUSTFLAGS: "-D warnings -C debuginfo=0"
   # The Nightly version used for cargo-udeps, might need updating from time to time.
   PINNED_NIGHTLY: nightly-2022-12-15
   # Prevent Github API rate limiting.
