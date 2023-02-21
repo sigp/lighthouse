@@ -10,8 +10,8 @@ fn error(reason: Invalid) -> BlockOperationError<Invalid> {
     BlockOperationError::invalid(reason)
 }
 
-/// Indicates if a `BlsToExecutionChange` is valid to be included in a block in the current epoch of the given
-/// state.
+/// Indicates if a `BlsToExecutionChange` is valid to be included in a block,
+/// where the block is being applied to the given `state`.
 ///
 /// Returns `Ok(())` if the `SignedBlsToExecutionChange` is valid, otherwise indicates the reason for invalidity.
 pub fn verify_bls_to_execution_change<T: EthSpec>(

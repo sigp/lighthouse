@@ -857,8 +857,8 @@ where
                     (parent_justified, parent_finalized)
                 } else {
                     let justification_and_finalization_state = match block {
-                        // FIXME: verify this is correct for Capella/Eip4844 because
-                        //        epoch processing changes in Capella..
+                        // TODO(eip4844): Ensure that the final specification
+                        // does not substantially modify per epoch processing.
                         BeaconBlockRef::Eip4844(_)
                         | BeaconBlockRef::Capella(_)
                         | BeaconBlockRef::Merge(_)
