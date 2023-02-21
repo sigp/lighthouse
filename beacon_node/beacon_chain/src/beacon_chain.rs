@@ -4106,9 +4106,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             None
         };
 
-        //FIXME(sean) waiting for the BN<>EE api for this to stabilize
-        let kzg_commitments = vec![];
-
         // Part 3/3 (blocking)
         //
         // Perform the final steps of combining all the parts and computing the state root.
@@ -4119,7 +4116,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     chain.complete_partial_beacon_block(
                         partial_beacon_block,
                         block_contents,
-                        kzg_commitments,
                         verification,
                     )
                 },
@@ -4373,7 +4369,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         partial_beacon_block: PartialBeaconBlock<T::EthSpec, Payload>,
         block_contents: Option<BlockProposalContents<T::EthSpec, Payload>>,
-        kzg_commitments: Vec<KzgCommitment>,
         verification: ProduceBlockVerification,
     ) -> Result<BeaconBlockAndState<T::EthSpec, Payload>, BlockProductionError> {
         let PartialBeaconBlock {
