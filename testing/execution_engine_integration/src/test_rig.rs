@@ -100,7 +100,7 @@ async fn import_and_unlock(http_url: SensitiveUrl, priv_keys: &[&str], password:
 
 impl<E: GenericExecutionEngine> TestRig<E> {
     pub fn new(generic_engine: E) -> Self {
-        let log = environment::null_logger().unwrap();
+        let log = logging::test_logger();
         let runtime = Arc::new(
             tokio::runtime::Builder::new_multi_thread()
                 .enable_all()
@@ -281,7 +281,9 @@ impl<E: GenericExecutionEngine> TestRig<E> {
                 PayloadAttributes {
                     timestamp,
                     prev_randao,
-                    suggested_fee_recipient: Address::zero(),
+                    // To save sending proposer preparation data, just set the fee recipient
+                    // to the fee recipient configured for EE A.
+                    suggested_fee_recipient: Address::repeat_byte(42),
                 },
             )
             .await;
@@ -330,6 +332,7 @@ impl<E: GenericExecutionEngine> TestRig<E> {
             .await
             .unwrap()
             .execution_payload;
+        assert_eq!(valid_payload.transactions.len(), pending_txs.len());
 
         /*
          * Execution Engine A:
@@ -394,7 +397,6 @@ impl<E: GenericExecutionEngine> TestRig<E> {
             .await
             .unwrap();
         assert_eq!(status, PayloadStatus::Valid);
-        assert_eq!(valid_payload.transactions.len(), pending_txs.len());
 
         // Verify that all submitted txs were successful
         for pending_tx in pending_txs {
@@ -479,7 +481,9 @@ impl<E: GenericExecutionEngine> TestRig<E> {
         let payload_attributes = PayloadAttributes {
             timestamp: second_payload.timestamp + 1,
             prev_randao: Hash256::zero(),
-            suggested_fee_recipient: Address::zero(),
+            // To save sending proposer preparation data, just set the fee recipient
+            // to the fee recipient configured for EE A.
+            suggested_fee_recipient: Address::repeat_byte(42),
         };
         let slot = Slot::new(42);
         let head_block_root = Hash256::repeat_byte(100);

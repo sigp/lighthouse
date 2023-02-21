@@ -67,7 +67,8 @@ use types::{
     SignedVoluntaryExit, SubnetId, SyncCommitteeMessage, SyncSubnetId,
 };
 use work_reprocessing_queue::{
-    spawn_reprocess_scheduler, QueuedAggregate, QueuedRpcBlock, QueuedUnaggregate, ReadyWork,
+    spawn_reprocess_scheduler, QueuedAggregate, QueuedLightClientUpdate, QueuedRpcBlock,
+    QueuedUnaggregate, ReadyWork,
 };
 
 use worker::{Toolbox, Worker};
@@ -136,6 +137,10 @@ const MAX_GOSSIP_FINALITY_UPDATE_QUEUE_LEN: usize = 1_024;
 /// The maximum number of queued `LightClientOptimisticUpdate` objects received on gossip that will be stored
 /// before we start dropping them.
 const MAX_GOSSIP_OPTIMISTIC_UPDATE_QUEUE_LEN: usize = 1_024;
+
+/// The maximum number of queued `LightClientOptimisticUpdate` objects received on gossip that will be stored
+/// for reprocessing before we start dropping them.
+const MAX_GOSSIP_OPTIMISTIC_UPDATE_REPROCESS_QUEUE_LEN: usize = 128;
 
 /// The maximum number of queued `SyncCommitteeMessage` objects that will be stored before we start dropping
 /// them.
@@ -213,6 +218,7 @@ pub const BLOCKS_BY_ROOTS_REQUEST: &str = "blocks_by_roots_request";
 pub const LIGHT_CLIENT_BOOTSTRAP_REQUEST: &str = "light_client_bootstrap";
 pub const UNKNOWN_BLOCK_ATTESTATION: &str = "unknown_block_attestation";
 pub const UNKNOWN_BLOCK_AGGREGATE: &str = "unknown_block_aggregate";
+pub const UNKNOWN_LIGHT_CLIENT_UPDATE: &str = "unknown_light_client_update";
 
 /// A simple first-in-first-out queue with a maximum length.
 struct FifoQueue<T> {
@@ -694,6 +700,21 @@ impl<T: BeaconChainTypes> std::convert::From<ReadyWork<T>> for WorkEvent<T> {
                     seen_timestamp,
                 },
             },
+            ReadyWork::LightClientUpdate(QueuedLightClientUpdate {
+                peer_id,
+                message_id,
+                light_client_optimistic_update,
+                seen_timestamp,
+                ..
+            }) => Self {
+                drop_during_sync: true,
+                work: Work::UnknownLightClientOptimisticUpdate {
+                    message_id,
+                    peer_id,
+                    light_client_optimistic_update,
+                    seen_timestamp,
+                },
+            },
         }
     }
 }
@@ -731,6 +752,12 @@ pub enum Work<T: BeaconChainTypes> {
         message_id: MessageId,
         peer_id: PeerId,
         aggregate: Box<SignedAggregateAndProof<T::EthSpec>>,
+        seen_timestamp: Duration,
+    },
+    UnknownLightClientOptimisticUpdate {
+        message_id: MessageId,
+        peer_id: PeerId,
+        light_client_optimistic_update: Box<LightClientOptimisticUpdate<T::EthSpec>>,
         seen_timestamp: Duration,
     },
     GossipAggregateBatch {
@@ -845,6 +872,7 @@ impl<T: BeaconChainTypes> Work<T> {
             Work::LightClientBootstrapRequest { .. } => LIGHT_CLIENT_BOOTSTRAP_REQUEST,
             Work::UnknownBlockAttestation { .. } => UNKNOWN_BLOCK_ATTESTATION,
             Work::UnknownBlockAggregate { .. } => UNKNOWN_BLOCK_AGGREGATE,
+            Work::UnknownLightClientOptimisticUpdate { .. } => UNKNOWN_LIGHT_CLIENT_UPDATE,
         }
     }
 }
@@ -979,6 +1007,8 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
         // Using a FIFO queue for light client updates to maintain sequence order.
         let mut finality_update_queue = FifoQueue::new(MAX_GOSSIP_FINALITY_UPDATE_QUEUE_LEN);
         let mut optimistic_update_queue = FifoQueue::new(MAX_GOSSIP_OPTIMISTIC_UPDATE_QUEUE_LEN);
+        let mut unknown_light_client_update_queue =
+            FifoQueue::new(MAX_GOSSIP_OPTIMISTIC_UPDATE_REPROCESS_QUEUE_LEN);
 
         // Using a FIFO queue since blocks need to be imported sequentially.
         let mut rpc_block_queue = FifoQueue::new(MAX_RPC_BLOCK_QUEUE_LEN);
@@ -1346,6 +1376,9 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                             Work::UnknownBlockAggregate { .. } => {
                                 unknown_block_aggregate_queue.push(work)
                             }
+                            Work::UnknownLightClientOptimisticUpdate { .. } => {
+                                unknown_light_client_update_queue.push(work, work_id, &self.log)
+                            }
                         }
                     }
                 }
@@ -1665,6 +1698,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                     message_id,
                     peer_id,
                     *light_client_optimistic_update,
+                    Some(work_reprocessing_tx),
                     seen_timestamp,
                 )
             }),
@@ -1783,6 +1817,20 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                     message_id,
                     peer_id,
                     aggregate,
+                    None,
+                    seen_timestamp,
+                )
+            }),
+            Work::UnknownLightClientOptimisticUpdate {
+                message_id,
+                peer_id,
+                light_client_optimistic_update,
+                seen_timestamp,
+            } => task_spawner.spawn_blocking(move || {
+                worker.process_gossip_optimistic_update(
+                    message_id,
+                    peer_id,
+                    *light_client_optimistic_update,
                     None,
                     seen_timestamp,
                 )
