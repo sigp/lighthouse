@@ -63,7 +63,7 @@ lazy_static! {
     .as_ssz_bytes()
     .len();
 
-    pub static ref SIGNED_BEACON_BLOCK_CAPELLA_MAX: usize = SignedBeaconBlock::<MainnetEthSpec>::from_block(
+    pub static ref SIGNED_BEACON_BLOCK_CAPELLA_MAX_WITHOUT_PAYLOAD: usize = SignedBeaconBlock::<MainnetEthSpec>::from_block(
         BeaconBlock::Capella(BeaconBlockCapella::full(&MainnetEthSpec::default_spec())),
         Signature::empty(),
     )
@@ -80,7 +80,11 @@ lazy_static! {
     + types::ExecutionPayload::<MainnetEthSpec>::max_execution_payload_merge_size() // adding max size of execution payload (~16gb)
     + ssz::BYTES_PER_LENGTH_OFFSET; // Adding the additional ssz offset for the `ExecutionPayload` field
 
-    pub static ref SIGNED_BEACON_BLOCK_EIP4844_MAX: usize = *SIGNED_BEACON_BLOCK_CAPELLA_MAX
+    pub static ref SIGNED_BEACON_BLOCK_CAPELLA_MAX: usize = *SIGNED_BEACON_BLOCK_CAPELLA_MAX_WITHOUT_PAYLOAD
+    + types::ExecutionPayload::<MainnetEthSpec>::max_execution_payload_capella_size() // adding max size of execution payload (~16gb)
+    + ssz::BYTES_PER_LENGTH_OFFSET; // Adding the additional ssz offset for the `ExecutionPayload` field
+
+    pub static ref SIGNED_BEACON_BLOCK_EIP4844_MAX: usize = *SIGNED_BEACON_BLOCK_CAPELLA_MAX_WITHOUT_PAYLOAD
     + types::ExecutionPayload::<MainnetEthSpec>::max_execution_payload_eip4844_size() // adding max size of execution payload (~16gb)
     + ssz::BYTES_PER_LENGTH_OFFSET // Adding the additional offsets for the `ExecutionPayload`
     + (<types::KzgCommitment as Encode>::ssz_fixed_len() * <MainnetEthSpec>::max_blobs_per_block())
