@@ -902,7 +902,7 @@ async fn test_backfill_sync_processing() {
         rig.assert_no_events_for(Duration::from_millis(100)).await;
         // A new batch should be processed within a slot.
         rig.assert_event_journal_with_timeout(
-            &[CHAIN_SEGMENT, WORKER_FREED, NOTHING_TO_DO],
+            &[CHAIN_SEGMENT_BACKFILL, WORKER_FREED, NOTHING_TO_DO],
             rig.chain.slot_clock.slot_duration(),
         )
         .await;
@@ -924,7 +924,11 @@ async fn test_backfill_sync_processing_rate_limiting_disabled() {
 
     // ensure all batches are processed
     rig.assert_event_journal_with_timeout(
-        &[CHAIN_SEGMENT, CHAIN_SEGMENT, CHAIN_SEGMENT],
+        &[
+            CHAIN_SEGMENT_BACKFILL,
+            CHAIN_SEGMENT_BACKFILL,
+            CHAIN_SEGMENT_BACKFILL,
+        ],
         Duration::from_millis(100),
     )
     .await;
