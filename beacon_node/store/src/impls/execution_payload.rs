@@ -38,6 +38,7 @@ impl<E: EthSpec> StoreItem for ExecutionPayload<E> {
     fn from_store_bytes(bytes: &[u8]) -> Result<Self, Error> {
         ExecutionPayloadCapella::from_ssz_bytes(bytes)
             .map(Self::Capella)
+            .or_else(|_| ExecutionPayloadMerge::from_ssz_bytes(bytes).map(Self::Merge))
             .map_err(Into::into)
     }
 }
