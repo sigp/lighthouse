@@ -904,11 +904,11 @@ impl HttpJsonRpc {
             )
             .await?;
 
-        Ok(response
+        response
             .into_iter()
             .map(|opt_json| opt_json.map(TryInto::try_into).transpose())
             .collect::<Result<Vec<_>, _>>()
-            .map_err(Error::DeserializeTransaction)?)
+            .map_err(Error::DeserializeTransaction)
     }
 
     pub async fn get_payload_bodies_by_range_v1<E: EthSpec>(
@@ -929,11 +929,11 @@ impl HttpJsonRpc {
             )
             .await?;
 
-        Ok(response
+        response
             .into_iter()
             .map(|opt_json| opt_json.map(TryInto::try_into).transpose())
             .collect::<Result<Vec<_>, _>>()
-            .map_err(Error::DeserializeTransaction)?)
+            .map_err(Error::DeserializeTransaction)
     }
 
     pub async fn exchange_transition_configuration_v1(

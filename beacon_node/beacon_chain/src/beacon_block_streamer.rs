@@ -1,7 +1,6 @@
-use crate::early_attester_cache::EarlyAttesterCache;
-use crate::{BeaconChain, BeaconChainError, BeaconChainTypes, BeaconStore};
+use crate::{BeaconChain, BeaconChainError, BeaconChainTypes};
 use execution_layer::{ExecutionLayer, ExecutionPayloadBodyV1};
-use slog::{crit, debug, Logger};
+use slog::{crit, Logger};
 use std::collections::HashMap;
 use std::sync::Arc;
 use store::DatabaseBlock;
@@ -12,13 +11,19 @@ use tokio::sync::{
 };
 use tokio_stream::{wrappers::UnboundedReceiverStream, Stream};
 use types::{
-    ChainSpec, EthSpec, ExecPayload, ExecutionBlockHash, ExecutionPayloadHeader, Hash256,
-    SignedBeaconBlock, SignedBlindedBeaconBlock, Slot,
+    EthSpec, ExecPayload, ExecutionBlockHash, ExecutionPayloadHeader, Hash256, SignedBeaconBlock,
+    SignedBlindedBeaconBlock, Slot,
 };
+
+#[derive(PartialEq)]
+pub enum CheckEarlyAttesterCache {
+    Yes,
+    No,
+}
 
 #[derive(Debug)]
 pub enum Error {
-    PayloadReconstructionError(Box<String>),
+    PayloadReconstruction(String),
     BlocksByRangeFailure(Box<execution_layer::Error>),
     BlocksByHashFailure(Box<execution_layer::Error>),
     BlockNotFound,
@@ -29,13 +34,13 @@ pub enum Error {
 // unnecessary clone
 enum LoadedBeaconBlock<E: EthSpec> {
     Full(Arc<SignedBeaconBlock<E>>),
-    Blinded(SignedBlindedBeaconBlock<E>),
+    Blinded(Box<SignedBlindedBeaconBlock<E>>),
 }
 type LoadResult<E> = Result<Option<LoadedBeaconBlock<E>>, BeaconChainError>;
 type BlockResult<E> = Result<Option<Arc<SignedBeaconBlock<E>>>, BeaconChainError>;
 
 enum RequestState<E: EthSpec> {
-    UnSent(Vec<(SignedBlindedBeaconBlock<E>, ExecutionPayloadHeader<E>)>),
+    UnSent(Vec<BlockParts<E>>),
     Sent(HashMap<Hash256, Arc<BlockResult<E>>>),
 }
 
@@ -49,31 +54,53 @@ struct BodiesByRange<E: EthSpec> {
     state: RequestState<E>,
 }
 
+// stores the components of a block for future re-construction in a small form
+struct BlockParts<E: EthSpec> {
+    blinded_block: Box<SignedBlindedBeaconBlock<E>>,
+    header: Box<ExecutionPayloadHeader<E>>,
+    body: Option<Box<ExecutionPayloadBodyV1<E>>>,
+}
+
+impl<E: EthSpec> BlockParts<E> {
+    pub fn new(
+        blinded: Box<SignedBlindedBeaconBlock<E>>,
+        header: ExecutionPayloadHeader<E>,
+    ) -> Self {
+        Self {
+            blinded_block: blinded,
+            header: Box::new(header),
+            body: None,
+        }
+    }
+
+    pub fn root(&self) -> Hash256 {
+        self.blinded_block.canonical_root()
+    }
+
+    pub fn slot(&self) -> Slot {
+        self.blinded_block.message().slot()
+    }
+
+    pub fn block_hash(&self) -> ExecutionBlockHash {
+        self.header.block_hash()
+    }
+}
+
 fn reconstruct_bocks<E: EthSpec>(
     block_map: &mut HashMap<Hash256, Arc<BlockResult<E>>>,
-    parts: Vec<(
-        SignedBlindedBeaconBlock<E>,
-        ExecutionPayloadHeader<E>,
-        Option<ExecutionPayloadBodyV1<E>>,
-    )>,
+    block_parts_with_bodies: HashMap<Hash256, BlockParts<E>>,
 ) {
-    for (blinded, header, maybe_payload_body) in parts {
-        let root = blinded.canonical_root();
-
-        if block_map.contains_key(&root) {
-            // it's possible the same block is requested twice
-            continue;
-        }
-
-        if let Some(payload_body) = maybe_payload_body {
-            match payload_body.to_payload(header.clone()) {
+    for (root, block_parts) in block_parts_with_bodies {
+        if let Some(payload_body) = block_parts.body {
+            match payload_body.to_payload(block_parts.header.as_ref().clone()) {
                 Ok(payload) => {
                     let header_from_payload = ExecutionPayloadHeader::from(payload.to_ref());
-                    if header_from_payload == header {
+                    if header_from_payload == *block_parts.header {
                         block_map.insert(
                             root,
                             Arc::new(
-                                blinded
+                                block_parts
+                                    .blinded_block
                                     .try_into_full_block(Some(payload))
                                     .ok_or(BeaconChainError::AddPayloadLogicError)
                                     .map(Arc::new)
@@ -84,9 +111,9 @@ fn reconstruct_bocks<E: EthSpec>(
                         block_map.insert(
                             root,
                             Arc::new(Err(BeaconChainError::InconsistentPayloadReconstructed {
-                                slot: blinded.slot(),
-                                exec_block_hash: header.block_hash(),
-                                canonical_transactions_root: header.transactions_root(),
+                                slot: block_parts.blinded_block.slot(),
+                                exec_block_hash: block_parts.header.block_hash(),
+                                canonical_transactions_root: block_parts.header.transactions_root(),
                                 reconstructed_transactions_root: header_from_payload
                                     .transactions_root(),
                             })),
@@ -96,9 +123,7 @@ fn reconstruct_bocks<E: EthSpec>(
                 Err(string) => {
                     block_map.insert(
                         root,
-                        Arc::new(Err(
-                            Error::PayloadReconstructionError(Box::new(string)).into()
-                        )),
+                        Arc::new(Err(Error::PayloadReconstruction(string).into())),
                     );
                 }
             }
@@ -106,7 +131,7 @@ fn reconstruct_bocks<E: EthSpec>(
             block_map.insert(
                 root,
                 Arc::new(Err(BeaconChainError::BlockHashMissingFromExecutionLayer(
-                    header.block_hash(),
+                    block_parts.block_hash(),
                 ))),
             );
         }
@@ -114,13 +139,11 @@ fn reconstruct_bocks<E: EthSpec>(
 }
 
 impl<E: EthSpec> BodiesByHash<E> {
-    pub fn new(
-        maybe_block_header: Option<(SignedBlindedBeaconBlock<E>, ExecutionPayloadHeader<E>)>,
-    ) -> Self {
-        if let Some((blinded_block, header)) = maybe_block_header {
+    pub fn new(maybe_block_parts: Option<BlockParts<E>>) -> Self {
+        if let Some(block_parts) = maybe_block_parts {
             Self {
-                hashes: Some(vec![header.block_hash()]),
-                state: RequestState::UnSent(vec![(blinded_block, header)]),
+                hashes: Some(vec![block_parts.block_hash()]),
+                state: RequestState::UnSent(vec![block_parts]),
             }
         } else {
             Self {
@@ -130,24 +153,22 @@ impl<E: EthSpec> BodiesByHash<E> {
         }
     }
 
-    pub fn push_block(
-        &mut self,
-        blinded_block: SignedBlindedBeaconBlock<E>,
-        header: ExecutionPayloadHeader<E>,
-    ) -> Result<(), (SignedBlindedBeaconBlock<E>, ExecutionPayloadHeader<E>)> {
+    pub fn push_block_parts(&mut self, block_parts: BlockParts<E>) -> Result<(), BlockParts<E>> {
         if self
             .hashes
             .as_ref()
             .map_or(false, |hashes| hashes.len() == 32)
         {
             // this request is full
-            return Err((blinded_block, header));
+            return Err(block_parts);
         }
         match &mut self.state {
-            RequestState::Sent(_) => Err((blinded_block, header)),
-            RequestState::UnSent(blocks_and_headers) => {
-                self.hashes.get_or_insert(vec![]).push(header.block_hash());
-                blocks_and_headers.push((blinded_block, header));
+            RequestState::Sent(_) => Err(block_parts),
+            RequestState::UnSent(blocks_parts_vec) => {
+                self.hashes
+                    .get_or_insert(vec![])
+                    .push(block_parts.block_hash());
+                blocks_parts_vec.push(block_parts);
 
                 Ok(())
             }
@@ -155,9 +176,9 @@ impl<E: EthSpec> BodiesByHash<E> {
     }
 
     async fn execute(&mut self, execution_layer: &ExecutionLayer<E>) {
-        if let RequestState::UnSent(blocks_and_headers_ref) = &mut self.state {
+        if let RequestState::UnSent(block_parts_ref) = &mut self.state {
             if let Some(hashes) = self.hashes.take() {
-                let blocks_and_headers = std::mem::take(blocks_and_headers_ref);
+                let block_parts_vec = std::mem::take(block_parts_ref);
                 let mut block_map = HashMap::new();
                 match execution_layer
                     .get_payload_bodies_by_hash(hashes.clone())
@@ -169,28 +190,29 @@ impl<E: EthSpec> BodiesByHash<E> {
                             .zip(bodies.into_iter().chain(std::iter::repeat(None)))
                             .collect::<HashMap<_, _>>();
 
-                        let mut parts = vec![];
-                        for (blinded_block, header) in blocks_and_headers {
-                            if block_map.contains_key(&blinded_block.canonical_root()) {
-                                // it's possible the same block is requested twice
-                                continue;
-                            }
+                        let mut with_bodies = HashMap::new();
+                        for mut block_parts in block_parts_vec {
+                            with_bodies
+                                // it's possible the same block is requested twice, using
+                                // or_insert_with() skips duplicates
+                                .entry(block_parts.root())
+                                .or_insert_with(|| {
+                                    block_parts.body = body_map
+                                        .remove(&block_parts.block_hash())
+                                        .flatten()
+                                        .map(Box::new);
 
-                            let block_hash = header.block_hash();
-                            parts.push((
-                                blinded_block,
-                                header,
-                                body_map.remove(&block_hash).flatten(),
-                            ));
+                                    block_parts
+                                });
                         }
 
-                        reconstruct_bocks(&mut block_map, parts);
+                        reconstruct_bocks(&mut block_map, with_bodies);
                     }
                     Err(e) => {
                         let block_result =
                             Arc::new(Err(Error::BlocksByHashFailure(Box::new(e)).into()));
-                        for (blinded_block, _) in blocks_and_headers {
-                            block_map.insert(blinded_block.canonical_root(), block_result.clone());
+                        for block_parts in block_parts_vec {
+                            block_map.insert(block_parts.root(), block_result.clone());
                         }
                     }
                 }
@@ -206,7 +228,7 @@ impl<E: EthSpec> BodiesByHash<E> {
     ) -> Option<Arc<BlockResult<E>>> {
         self.execute(execution_layer).await;
         if let RequestState::Sent(map) = &self.state {
-            return map.get(root).map(|result| result.clone());
+            return map.get(root).cloned();
         }
         // Shouldn't reach this point
         None
@@ -214,14 +236,12 @@ impl<E: EthSpec> BodiesByHash<E> {
 }
 
 impl<E: EthSpec> BodiesByRange<E> {
-    pub fn new(
-        maybe_block_header: Option<(SignedBlindedBeaconBlock<E>, ExecutionPayloadHeader<E>)>,
-    ) -> Self {
-        if let Some((blinded_block, header)) = maybe_block_header {
+    pub fn new(maybe_block_parts: Option<BlockParts<E>>) -> Self {
+        if let Some(block_parts) = maybe_block_parts {
             Self {
-                start: header.block_number(),
+                start: block_parts.header.block_number(),
                 count: 1,
-                state: RequestState::UnSent(vec![(blinded_block, header)]),
+                state: RequestState::UnSent(vec![block_parts]),
             }
         } else {
             Self {
@@ -232,31 +252,27 @@ impl<E: EthSpec> BodiesByRange<E> {
         }
     }
 
-    pub fn push_block(
-        &mut self,
-        blinded_block: SignedBlindedBeaconBlock<E>,
-        header: ExecutionPayloadHeader<E>,
-    ) -> Result<(), (SignedBlindedBeaconBlock<E>, ExecutionPayloadHeader<E>)> {
+    pub fn push_block_parts(&mut self, block_parts: BlockParts<E>) -> Result<(), BlockParts<E>> {
         if self.count == 32 {
-            return Err((blinded_block, header));
+            return Err(block_parts);
         }
 
         match &mut self.state {
-            RequestState::Sent(_) => return Err((blinded_block, header)),
-            RequestState::UnSent(blocks_and_headers) => {
-                let block_number = header.block_number();
+            RequestState::Sent(_) => Err(block_parts),
+            RequestState::UnSent(blocks_parts_vec) => {
+                let block_number = block_parts.header.block_number();
                 if self.count == 0 {
                     self.start = block_number;
                     self.count = 1;
-                    blocks_and_headers.push((blinded_block, header));
+                    blocks_parts_vec.push(block_parts);
                     Ok(())
                 } else {
                     // need to figure out if this block fits in the request
                     if block_number < self.start || self.start + 31 < block_number {
-                        return Err((blinded_block, header));
+                        return Err(block_parts);
                     }
 
-                    blocks_and_headers.push((blinded_block, header));
+                    blocks_parts_vec.push(block_parts);
                     if self.start + self.count <= block_number {
                         self.count = block_number - self.start + 1;
                     }
@@ -268,8 +284,8 @@ impl<E: EthSpec> BodiesByRange<E> {
     }
 
     async fn execute(&mut self, execution_layer: &ExecutionLayer<E>) {
-        if let RequestState::UnSent(blocks_and_headers_ref) = &mut self.state {
-            let blocks_and_headers = std::mem::take(blocks_and_headers_ref);
+        if let RequestState::UnSent(blocks_parts_ref) = &mut self.state {
+            let block_parts_vec = std::mem::take(blocks_parts_ref);
 
             let mut block_map = HashMap::new();
             match execution_layer
@@ -282,27 +298,28 @@ impl<E: EthSpec> BodiesByRange<E> {
                         .zip(bodies.into_iter().chain(std::iter::repeat(None)))
                         .collect::<HashMap<_, _>>();
 
-                    let mut parts = vec![];
-                    for (blinded_block, header) in blocks_and_headers {
-                        if block_map.contains_key(&blinded_block.canonical_root()) {
-                            // it's possible the same block is requested twice
-                            continue;
-                        }
+                    let mut with_bodies = HashMap::new();
+                    for mut block_parts in block_parts_vec {
+                        with_bodies
+                            // it's possible the same block is requested twice, using
+                            // or_insert_with() skips duplicates
+                            .entry(block_parts.root())
+                            .or_insert_with(|| {
+                                let block_number = block_parts.header.block_number();
+                                block_parts.body =
+                                    range_map.remove(&block_number).flatten().map(Box::new);
 
-                        let block_number = header.block_number();
-                        parts.push((
-                            blinded_block,
-                            header,
-                            range_map.remove(&block_number).flatten(),
-                        ));
+                                block_parts
+                            });
                     }
-                    reconstruct_bocks(&mut block_map, parts);
+
+                    reconstruct_bocks(&mut block_map, with_bodies);
                 }
                 Err(e) => {
                     let block_result =
                         Arc::new(Err(Error::BlocksByRangeFailure(Box::new(e)).into()));
-                    for (blinded_block, _) in blocks_and_headers {
-                        block_map.insert(blinded_block.canonical_root(), block_result.clone());
+                    for block_parts in block_parts_vec {
+                        block_map.insert(block_parts.root(), block_result.clone());
                     }
                 }
             }
@@ -317,7 +334,7 @@ impl<E: EthSpec> BodiesByRange<E> {
     ) -> Option<Arc<BlockResult<E>>> {
         self.execute(execution_layer).await;
         if let RequestState::Sent(map) = &self.state {
-            return map.get(root).map(|result| result.clone());
+            return map.get(root).cloned();
         }
         // Shouldn't reach this point
         None
@@ -343,30 +360,23 @@ impl<E: EthSpec> EngineRequest<E> {
         Self::NoRequest(Arc::new(RwLock::new(HashMap::new())))
     }
 
-    pub async fn push_blinded_block(
-        &mut self,
-        blinded_block: SignedBlindedBeaconBlock<E>,
-        header: ExecutionPayloadHeader<E>,
-        log: &Logger,
-    ) {
+    pub async fn push_block_parts(&mut self, block_parts: BlockParts<E>, log: &Logger) {
         match self {
             Self::ByHash(bodies_by_hash) => {
                 let mut write_guard = bodies_by_hash.write().await;
 
-                if let Err((blinded_block, header)) = write_guard.push_block(blinded_block, header)
-                {
+                if let Err(block_parts) = write_guard.push_block_parts(block_parts) {
                     drop(write_guard);
-                    let new_by_hash = BodiesByHash::new(Some((blinded_block, header)));
+                    let new_by_hash = BodiesByHash::new(Some(block_parts));
                     *self = Self::ByHash(Arc::new(RwLock::new(new_by_hash)));
                 }
             }
             Self::ByRange(bodies_by_range) => {
                 let mut write_guard = bodies_by_range.write().await;
 
-                if let Err((blinded_block, header)) = write_guard.push_block(blinded_block, header)
-                {
+                if let Err(block_parts) = write_guard.push_block_parts(block_parts) {
                     drop(write_guard);
-                    let new_by_range = BodiesByRange::new(Some((blinded_block, header)));
+                    let new_by_range = BodiesByRange::new(Some(block_parts));
                     *self = Self::ByRange(Arc::new(RwLock::new(new_by_range)));
                 }
             }
@@ -374,7 +384,7 @@ impl<E: EthSpec> EngineRequest<E> {
                 // this should _never_ happen
                 crit!(
                     log,
-                    "Please notify the devs: beacon_block_streamer: push_blinded_block called on NoRequest variant"
+                    "Please notify the devs: beacon_block_streamer: push_block_parts called on NoRequest variant"
                 );
             }
         }
@@ -429,7 +439,7 @@ impl<E: EthSpec> EngineRequest<E> {
                     .get_block_result(root, execution_layer)
                     .await
             }
-            Self::NoRequest(map) => map.read().await.get(root).map(|block| block.clone()),
+            Self::NoRequest(map) => map.read().await.get(root).cloned(),
         }.unwrap_or_else(|| {
             crit!(
                 log,
@@ -444,28 +454,44 @@ impl<E: EthSpec> EngineRequest<E> {
 pub struct BeaconBlockStreamer<T: BeaconChainTypes> {
     execution_layer: ExecutionLayer<T::EthSpec>,
     finalized_slot: Slot,
-    early_attester_cache: Option<EarlyAttesterCache<T::EthSpec>>,
-    store: BeaconStore<T>,
-    spec: ChainSpec,
-    log: Logger,
+    check_early_attester_cache: CheckEarlyAttesterCache,
+    beacon_chain: Arc<BeaconChain<T>>,
 }
 
 impl<T: BeaconChainTypes> BeaconBlockStreamer<T> {
     pub fn new(
-        execution_layer: ExecutionLayer<T::EthSpec>,
-        finalized_slot: Slot,
-        store: BeaconStore<T>,
-        early_attester_cache: Option<EarlyAttesterCache<T::EthSpec>>,
-        spec: ChainSpec,
-        log: Logger,
-    ) -> Self {
-        Self {
+        beacon_chain: &Arc<BeaconChain<T>>,
+        check_early_attester_cache: CheckEarlyAttesterCache,
+    ) -> Result<Self, BeaconChainError> {
+        let execution_layer = beacon_chain
+            .execution_layer
+            .as_ref()
+            .ok_or(BeaconChainError::ExecutionLayerMissing)?
+            .clone();
+
+        let finalized_slot = beacon_chain
+            .canonical_head
+            .fork_choice_read_lock()
+            .get_finalized_block()
+            .map_err(BeaconChainError::ForkChoiceError)?
+            .slot;
+
+        Ok(Self {
             execution_layer,
             finalized_slot,
-            store,
-            early_attester_cache,
-            spec,
-            log,
+            check_early_attester_cache,
+            beacon_chain: beacon_chain.clone(),
+        })
+    }
+
+    fn check_early_attester_cache(
+        &self,
+        root: Hash256,
+    ) -> Option<Arc<SignedBeaconBlock<T::EthSpec>>> {
+        if self.check_early_attester_cache == CheckEarlyAttesterCache::Yes {
+            self.beacon_chain.early_attester_cache.get_block(root)
+        } else {
+            None
         }
     }
 
@@ -473,22 +499,23 @@ impl<T: BeaconChainTypes> BeaconBlockStreamer<T> {
         let mut db_blocks = Vec::new();
 
         for root in block_roots {
-            if let Some(block) = self
-                .early_attester_cache
-                .as_ref()
-                .and_then(|cache| cache.get_block(root))
+            if let Some(cached_block) = self
+                .check_early_attester_cache(root)
+                .map(LoadedBeaconBlock::Full)
             {
-                db_blocks.push((root, Ok(Some(LoadedBeaconBlock::Full(block)))));
+                db_blocks.push((root, Ok(Some(cached_block))));
                 continue;
             }
 
-            match self.store.try_get_full_block(&root) {
+            match self.beacon_chain.store.try_get_full_block(&root) {
                 Err(e) => db_blocks.push((root, Err(e.into()))),
                 Ok(opt_block) => db_blocks.push((
                     root,
                     Ok(opt_block.map(|db_block| match db_block {
                         DatabaseBlock::Full(block) => LoadedBeaconBlock::Full(Arc::new(block)),
-                        DatabaseBlock::Blinded(block) => LoadedBeaconBlock::Blinded(block),
+                        DatabaseBlock::Blinded(block) => {
+                            LoadedBeaconBlock::Blinded(Box::new(block))
+                        }
                     })),
                 )),
             }
@@ -500,21 +527,17 @@ impl<T: BeaconChainTypes> BeaconBlockStreamer<T> {
     // Pre-process the loaded blocks into execution engine requests, preserving the order of the blocks.
     async fn get_requests(
         &self,
-        loaded: Vec<(Hash256, LoadResult<T::EthSpec>)>,
+        payloads: Vec<(Hash256, LoadResult<T::EthSpec>)>,
     ) -> (Vec<Hash256>, HashMap<Hash256, EngineRequest<T::EthSpec>>) {
         let mut ordered_block_roots = Vec::new();
         let mut requests = HashMap::new();
 
         // separate off the by_range blocks so they can be sorted and then processed
-        let mut by_range_blocks: Vec<(
-            Hash256,
-            SignedBlindedBeaconBlock<T::EthSpec>,
-            ExecutionPayloadHeader<T::EthSpec>,
-        )> = vec![];
+        let mut by_range_blocks: Vec<BlockParts<T::EthSpec>> = vec![];
         let mut by_hash = EngineRequest::new_by_hash();
         let mut no_request = EngineRequest::new_no_request();
 
-        for (root, load_result) in loaded {
+        for (root, load_result) in payloads {
             // preserve the order of the requested blocks
             ordered_block_roots.push(root);
 
@@ -526,13 +549,14 @@ impl<T: BeaconChainTypes> BeaconBlockStreamer<T> {
                         .map(|payload| payload.to_execution_payload_header())
                     {
                         Ok(header) => {
-                            if blinded_block.message().slot() <= self.finalized_slot {
+                            let block_parts = BlockParts::new(blinded_block, header);
+                            if block_parts.slot() <= self.finalized_slot {
                                 // this is a by_range request
-                                by_range_blocks.push((root, blinded_block, header));
+                                by_range_blocks.push(block_parts);
                             } else {
                                 // this is a by_hash request
                                 by_hash
-                                    .push_blinded_block(blinded_block, header, &self.log)
+                                    .push_block_parts(block_parts, &self.beacon_chain.log)
                                     .await;
                                 requests.insert(root, by_hash.clone());
                             }
@@ -542,7 +566,7 @@ impl<T: BeaconChainTypes> BeaconBlockStreamer<T> {
                                 .push_block_result(
                                     root,
                                     Err(BeaconChainError::BlockVariantLacksExecutionPayload(root)),
-                                    &self.log,
+                                    &self.beacon_chain.log,
                                 )
                                 .await;
                             requests.insert(root, no_request.clone());
@@ -559,7 +583,7 @@ impl<T: BeaconChainTypes> BeaconBlockStreamer<T> {
                         Ok(Some(LoadedBeaconBlock::Blinded(_))) => unreachable!(),
                     };
                     no_request
-                        .push_block_result(root, block_result, &self.log)
+                        .push_block_result(root, block_result, &self.beacon_chain.log)
                         .await;
                     requests.insert(root, no_request.clone());
                 }
@@ -568,22 +592,45 @@ impl<T: BeaconChainTypes> BeaconBlockStreamer<T> {
 
         // Now deal with the by_range requests. Sort them in order of increasing slot
         let mut by_range = EngineRequest::<T::EthSpec>::new_by_range();
-        by_range_blocks.sort_by(|(_, blinded_block_a, _), (_, blinded_block_b, _)| {
+        by_range_blocks.sort_by(|block_parts_a, block_parts_b| {
             // this unwrap shouldn't occur as slot is never u64::NAN
-            blinded_block_a
-                .message()
+            block_parts_a
                 .slot()
-                .partial_cmp(&blinded_block_b.message().slot())
+                .partial_cmp(&block_parts_b.slot())
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
-        for (root, blinded_block, header) in by_range_blocks {
+        for block_parts in by_range_blocks {
+            let root = block_parts.root();
             by_range
-                .push_blinded_block(blinded_block, header, &self.log)
+                .push_block_parts(block_parts, &self.beacon_chain.log)
                 .await;
             requests.insert(root, by_range.clone());
         }
 
         (ordered_block_roots, requests)
+    }
+
+    // used when the execution engine doesn't support the payload bodies methods
+    async fn stream_blocks_fallback(
+        &self,
+        block_roots: Vec<Hash256>,
+        sender: UnboundedSender<(Hash256, Arc<BlockResult<T::EthSpec>>)>,
+    ) {
+        for root in block_roots {
+            let cached_block = self.check_early_attester_cache(root);
+            let block_result = if cached_block.is_some() {
+                Ok(cached_block)
+            } else {
+                self.beacon_chain
+                    .get_block(&root)
+                    .await
+                    .map(|opt_block| opt_block.map(Arc::new))
+            };
+
+            if sender.send((root, Arc::new(block_result))).is_err() {
+                break;
+            }
+        }
     }
 
     async fn stream_blocks(
@@ -597,18 +644,18 @@ impl<T: BeaconChainTypes> BeaconBlockStreamer<T> {
         for root in roots {
             let result = if let Some(request) = request_map.get(&root) {
                 request
-                    .get_block_result(&root, &self.execution_layer, &self.log)
+                    .get_block_result(&root, &self.execution_layer, &self.beacon_chain.log)
                     .await
             } else {
                 crit!(
-                    self.log,
+                    self.beacon_chain.log,
                     "Please notify the devs: beacon_block_streamer: request not found for block {:?}",
                     root
                 );
                 Arc::new(Err(Error::BlockNotFound.into()))
             };
 
-            if let Err(_) = sender.send((root, result)) {
+            if sender.send((root, result)).is_err() {
                 break;
             }
         }
@@ -618,10 +665,8 @@ impl<T: BeaconChainTypes> BeaconBlockStreamer<T> {
         self,
         block_roots: Vec<Hash256>,
         executor: &TaskExecutor,
-        chain: &Arc<BeaconChain<T>>,
     ) -> impl Stream<Item = (Hash256, Arc<BlockResult<T::EthSpec>>)> {
         let (block_tx, block_rx) = mpsc::unbounded_channel();
-        let chain = chain.clone();
 
         executor.spawn(
             async move {
@@ -632,39 +677,18 @@ impl<T: BeaconChainTypes> BeaconBlockStreamer<T> {
                     .map_err(Box::new)
                     .map_err(BeaconChainError::EngineGetCapabilititesFailed)
                 {
-                    Ok(capabilities) => {
+                    Ok(engine_capabilities) => {
                         // use the fallback method
-                        if capabilities.get_payload_bodies_by_hash_v1
-                            && capabilities.get_payload_bodies_by_range_v1
+                        if engine_capabilities.get_payload_bodies_by_hash_v1
+                            && engine_capabilities.get_payload_bodies_by_range_v1
                         {
                             self.stream_blocks(block_roots, block_tx).await;
                         } else {
-                            for root in block_roots {
-                                let block_result = if let Some(block) = self
-                                    .early_attester_cache
-                                    .as_ref()
-                                    .and_then(|cache| cache.get_block(root))
-                                {
-                                    Ok(Some(block))
-                                } else {
-                                    chain
-                                        .get_block(&root)
-                                        .await
-                                        .map(|opt_block| opt_block.map(Arc::new))
-                                };
-                                if let Err(_) = block_tx.send((root, Arc::new(block_result))) {
-                                    break;
-                                }
-                            }
+                            self.stream_blocks_fallback(block_roots, block_tx).await;
                         }
                     }
                     Err(e) => {
-                        let result = Arc::new(Err(e));
-                        for root in block_roots {
-                            if let Err(_) = block_tx.send((root, result.clone())) {
-                                break;
-                            }
-                        }
+                        send_errors(block_roots, block_tx, e).await;
                     }
                 }
             },
@@ -672,6 +696,19 @@ impl<T: BeaconChainTypes> BeaconBlockStreamer<T> {
         );
 
         UnboundedReceiverStream::new(block_rx)
+    }
+}
+
+async fn send_errors<E: EthSpec>(
+    block_roots: Vec<Hash256>,
+    sender: UnboundedSender<(Hash256, Arc<BlockResult<E>>)>,
+    beacon_chain_error: BeaconChainError,
+) {
+    let result = Arc::new(Err(beacon_chain_error));
+    for root in block_roots {
+        if sender.send((root, result.clone())).is_err() {
+            break;
+        }
     }
 }
 

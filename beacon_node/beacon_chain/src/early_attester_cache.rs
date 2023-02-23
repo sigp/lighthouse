@@ -32,9 +32,9 @@ pub struct CacheItem<E: EthSpec> {
 /// - Verify that a block root exists (i.e., will be imported in the future) during attestation
 ///     verification.
 /// - Provide a block which can be sent to peers via RPC.
-#[derive(Clone, Default)]
+#[derive(Default)]
 pub struct EarlyAttesterCache<E: EthSpec> {
-    item: Arc<RwLock<Option<CacheItem<E>>>>,
+    item: RwLock<Option<CacheItem<E>>>,
 }
 
 impl<E: EthSpec> EarlyAttesterCache<E> {

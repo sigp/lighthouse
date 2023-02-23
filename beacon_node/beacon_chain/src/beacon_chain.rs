@@ -4,7 +4,7 @@ use crate::attestation_verification::{
     VerifiedUnaggregatedAttestation,
 };
 use crate::attester_cache::{AttesterCache, AttesterCacheKey};
-use crate::beacon_block_streamer::BeaconBlockStreamer;
+use crate::beacon_block_streamer::{BeaconBlockStreamer, CheckEarlyAttesterCache};
 use crate::beacon_proposer_cache::compute_proposer_duties_from_head;
 use crate::beacon_proposer_cache::BeaconProposerCache;
 use crate::block_times_cache::BlockTimesCache;
@@ -103,7 +103,7 @@ use store::{
     DatabaseBlock, Error as DBError, HotColdDB, KeyValueStore, KeyValueStoreOp, StoreItem, StoreOp,
 };
 use task_executor::{ShutdownReason, TaskExecutor};
-use tokio_stream::{wrappers::UnboundedReceiverStream, Stream};
+use tokio_stream::Stream;
 use tree_hash::TreeHash;
 use types::beacon_state::CloneConfig;
 use types::consts::merge::INTERVALS_PER_SLOT;
@@ -953,28 +953,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         >,
         Error,
     > {
-        let execution_layer = self
-            .execution_layer
-            .as_ref()
-            .ok_or(Error::ExecutionLayerMissing)?
-            .clone();
-
-        let finalized_slot = self
-            .canonical_head
-            .fork_choice_read_lock()
-            .get_finalized_block()
-            .map_err(Error::ForkChoiceError)?
-            .slot;
-
-        Ok(BeaconBlockStreamer::<T>::new(
-            execution_layer,
-            finalized_slot,
-            self.store.clone(),
-            Some(self.early_attester_cache.clone()),
-            self.spec.clone(),
-            self.log.clone(),
+        Ok(
+            BeaconBlockStreamer::<T>::new(self, CheckEarlyAttesterCache::Yes)?
+                .stream(block_roots, executor),
         )
-        .stream(block_roots, executor, self))
     }
 
     pub fn get_blocks(
@@ -990,27 +972,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         >,
         Error,
     > {
-        let finalized_slot = self
-            .canonical_head
-            .fork_choice_read_lock()
-            .get_finalized_block()
-            .map_err(Error::ForkChoiceError)?
-            .slot;
-        let execution_layer = self
-            .execution_layer
-            .as_ref()
-            .ok_or(Error::ExecutionLayerMissing)?
-            .clone();
-
-        Ok(BeaconBlockStreamer::<T>::new(
-            execution_layer,
-            finalized_slot,
-            self.store.clone(),
-            None,
-            self.spec.clone(),
-            self.log.clone(),
+        Ok(
+            BeaconBlockStreamer::<T>::new(self, CheckEarlyAttesterCache::No)?
+                .stream(block_roots, executor),
         )
-        .stream(block_roots, executor, self))
     }
 
     /// Returns the block at the given root, if any.
