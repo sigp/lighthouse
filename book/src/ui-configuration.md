@@ -1,71 +1,47 @@
 # Configuration
 
-The Lighthouse UI requires a connection to both a Lighthouse Validator Client
+Siren requires a connection to both a Lighthouse Validator Client
 and a Lighthouse Beacon Node. Upon running you will first be greeted by the
 following configuration screen.
 
 ![ui-configuration](./imgs/ui-configuration.png)
 
 
+## Connecting to the Clients
+
+This allows you to enter the address and ports of the associated Lighthouse
+Beacon node and Lighthouse Validator client.
+
+> The Beacon Node must be run with the `--gui` flag set. To allow the browser
+> to access the node beyond your local computer you also need to allow CORS in
+> the http API. This can be done via `--http-allow-origin "*"`.
+
+A green tick will appear once Siren is able to connect to both clients. You
+can specify different ports for each client by clicking on the advanced tab.
 
 
+## API Token
 
-## Pre-Built Electron Packages
+The API Token is a secret key that allows you to connect to the validator
+client. The validator client's HTTP API is guarded by this key because it
+contains sensitive validator information and the ability to modify
+validators. Please see [`Validator Authorization`](./api-vc-auth-header.md)
+for further details. 
 
-There are pre-compiled electron packages for each operating systems which can
-be downloaded and executed. These can be found on the
-[releases](https://github.com/sigp/lighthouse-ui/releases) page of the
-Lighthouse UI repository.
+Siren requires this token in order to connect to the Validator client.
+The token is located in the default data directory of the validator
+client. The default path is
+`~/.lighthouse/<network>/validators/api-token.txt`.
 
-Simply download the package specific to your operating system and run it.
+The contents of this file for the desired valdiator client needs to be
+entered.
 
-## Building From Source
+## Name
 
-### Requirements
+This is your name, it can be modified and is solely used to aesthetics. 
 
-Building from source requires `Node v16.16.0` and `yarn`. 
+## Device
 
-### Building From Source
-
-The electron app can be built from source by first cloning the repository:
-
-```
-$ git clone https://github.com/sigp/lighthouse-ui.git
-```
-
-Once cloned, the required packages need to be downloaded:
-
-```
-$ cd lighthouse-ui
-$ yarn
-```
-
-Once completed successfully the electron app can be built and executed via:
-
-```
-$ yarn dev
-```
-
-#### Running In The Browser
-
-A development server can also be built which will expose a local port 3000 via:
-```
-$ yarn start
-```
-
-Once executed, you can direct your web browser to the following URL to interact
-with the app:
-```
-http://localhost:3000
-```
-
-A production version of the app can be built via
-```
-$ yarn build
-```
-and then further hosted via a production web server.
-
-### Known Issues
-
-If you experience any issues in running the UI please create an issue on the
-[Lighthouse UI](https://github.com/sigp/lighthouse-ui) repository.
+This is a name that can be associated with the validator client/beacon
+node pair. Multiple such pairs can be remembered for quick swapping between
+them.

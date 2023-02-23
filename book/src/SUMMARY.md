@@ -33,7 +33,7 @@
         * [Authorization Header](./api-vc-auth-header.md)
         * [Signature Header](./api-vc-sig-header.md)
     * [Prometheus Metrics](./advanced_metrics.md)
-* [Lighthouse UI](./lighthouse-ui.md)
+* [Lighthouse UI (Siren)](./lighthouse-ui.md)
 	* [Installation](./ui-installation.md)
 	* [Configuration](./ui-configuration.md)
 	* [Usage](./ui-usage.md)
