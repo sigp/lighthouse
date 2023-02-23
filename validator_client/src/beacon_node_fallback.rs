@@ -27,8 +27,11 @@ use types::{ChainSpec, Config, EthSpec};
 /// having the correct nodes up and running prior to the start of the slot.
 const SLOT_LOOKAHEAD: Duration = Duration::from_secs(1);
 
+/// Indicates a measurement of latency between the VC and a BN.
 pub struct LatencyMeasurement {
+    /// An identifier for the beacon node (e.g. the URL).
     pub beacon_node_id: String,
+    /// The round-trip latency, if the BN responded successfully.
     pub latency: Option<Duration>,
 }
 
