@@ -57,7 +57,7 @@ use crate::validator_monitor::{
 };
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use crate::{metrics, BeaconChainError, BeaconForkChoiceStore, BeaconSnapshot, CachedHead};
-use eth2::types::{EventKind, SseBlock, SyncDuty};
+use eth2::types::{EventKind, SseBlock, SseExtendedPayloadAttributes, SyncDuty};
 use execution_layer::{
     BlockProposalContents, BuilderParams, ChainHealth, ExecutionLayer, FailedCondition,
     PayloadAttributes, PayloadStatus,
@@ -4830,46 +4830,52 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Ok(());
         }
 
-        let withdrawals = match self.spec.fork_name_at_slot::<T::EthSpec>(prepare_slot) {
-            ForkName::Base | ForkName::Altair | ForkName::Merge => None,
-            ForkName::Capella | ForkName::Eip4844 => {
-                let chain = self.clone();
-                self.spawn_blocking_handle(
-                    move || chain.get_expected_withdrawals(&forkchoice_update_params, prepare_slot),
-                    "prepare_beacon_proposer_withdrawals",
-                )
-                .await?
-                .map(Some)?
-            }
-        };
-
+        // Fetch payoad attributes from the execution layer's cache, or compute them from scratch
+        // if no matching entry is found. This saves recomputing the withdrawals which can take
+        // considerable time to compute if a state load is required.
         let head_root = forkchoice_update_params.head_root;
-        let payload_attributes = PayloadAttributes::new(
-            self.slot_clock
-                .start_of(prepare_slot)
-                .ok_or(Error::InvalidSlot(prepare_slot))?
-                .as_secs(),
-            pre_payload_attributes.prev_randao,
-            execution_layer.get_suggested_fee_recipient(proposer).await,
-            withdrawals.map(Into::into),
-        );
+        let payload_attributes = if let Some(payload_attributes) = execution_layer
+            .payload_attributes(prepare_slot, head_root)
+            .await
+        {
+            payload_attributes
+        } else {
+            let withdrawals = match self.spec.fork_name_at_slot::<T::EthSpec>(prepare_slot) {
+                ForkName::Base | ForkName::Altair | ForkName::Merge => None,
+                ForkName::Capella | ForkName::Eip4844 => {
+                    let chain = self.clone();
+                    self.spawn_blocking_handle(
+                        move || {
+                            chain.get_expected_withdrawals(&forkchoice_update_params, prepare_slot)
+                        },
+                        "prepare_beacon_proposer_withdrawals",
+                    )
+                    .await?
+                    .map(Some)?
+                }
+            };
 
-        debug!(
-            self.log,
-            "Preparing beacon proposer";
-            "payload_attributes" => ?payload_attributes,
-            "prepare_slot" => prepare_slot,
-            "validator" => proposer,
-            "parent_root" => ?head_root,
-        );
+            let payload_attributes = PayloadAttributes::new(
+                self.slot_clock
+                    .start_of(prepare_slot)
+                    .ok_or(Error::InvalidSlot(prepare_slot))?
+                    .as_secs(),
+                pre_payload_attributes.prev_randao,
+                execution_layer.get_suggested_fee_recipient(proposer).await,
+                withdrawals.map(Into::into),
+            );
 
-        let already_known = execution_layer
-            .insert_proposer(prepare_slot, head_root, proposer, payload_attributes)
-            .await;
+            execution_layer
+                .insert_proposer(
+                    prepare_slot,
+                    head_root,
+                    proposer,
+                    payload_attributes.clone(),
+                )
+                .await;
 
-        // Only push a log to the user if this is the first time we've seen this proposer for this
-        // slot.
-        if !already_known {
+            // Only push a log to the user if this is the first time we've seen this proposer for
+            // this slot.
             info!(
                 self.log,
                 "Prepared beacon proposer";
@@ -4877,6 +4883,23 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 "validator" => proposer,
                 "parent_root" => ?head_root,
             );
+            payload_attributes
+        };
+
+        // Push a server-sent event (probably to a block builder or relay).
+        if let Some(event_handler) = &self.event_handler {
+            if event_handler.has_payload_attributes_subscribers() {
+                event_handler.register(EventKind::PayloadAttributes(
+                    SseExtendedPayloadAttributes {
+                        proposal_slot: prepare_slot,
+                        proposer_index: proposer,
+                        parent_block_root: head_root,
+                        parent_block_hash: forkchoice_update_params.head_hash.unwrap_or_default(),
+                        payload_attributes: payload_attributes.into(),
+                        version: self.spec.fork_name_at_slot::<T::EthSpec>(prepare_slot),
+                    },
+                ));
+            }
         }
 
         let till_prepare_slot =

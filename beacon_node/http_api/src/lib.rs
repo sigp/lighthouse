@@ -3514,6 +3514,9 @@ pub fn serve<T: BeaconChainTypes>(
                                 api_types::EventTopic::ContributionAndProof => {
                                     event_handler.subscribe_contributions()
                                 }
+                                api_types::EventTopic::PayloadAttributes => {
+                                    event_handler.subscribe_payload_attributes()
+                                }
                                 api_types::EventTopic::LateHead => {
                                     event_handler.subscribe_late_head()
                                 }
