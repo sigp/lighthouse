@@ -167,7 +167,11 @@ impl<T: BeaconChainTypes> TryFrom<WorkEvent<T>> for QueuedBackfillBatch<T::EthSp
     fn try_from(event: WorkEvent<T>) -> Result<Self, WorkEvent<T>> {
         match event {
             WorkEvent {
-                work: Work::ChainSegment { process_id, blocks },
+                work:
+                    Work::ChainSegment {
+                        process_id: process_id @ ChainSegmentProcessId::BackSyncBatchId(_),
+                        blocks,
+                    },
                 ..
             } => Ok(QueuedBackfillBatch { process_id, blocks }),
             _ => Err(event),
