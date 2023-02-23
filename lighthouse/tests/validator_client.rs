@@ -479,6 +479,9 @@ fn disable_run_on_all() {
 
 #[test]
 fn enable_latency_service() {
+    CommandLineTest::new().run().with_config(|config| {
+        assert!(config.enable_latency_service);
+    });
     CommandLineTest::new()
         .flag("enable-latency-service", None)
         .run()
