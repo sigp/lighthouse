@@ -476,3 +476,25 @@ fn disable_run_on_all() {
             assert!(config.disable_run_on_all);
         });
 }
+
+#[test]
+fn enable_latency_service() {
+    CommandLineTest::new()
+        .flag("enable-latency-service", None)
+        .run()
+        .with_config(|config| {
+            assert!(config.enable_latency_service);
+        });
+    CommandLineTest::new()
+        .flag("enable-latency-service", Some("true"))
+        .run()
+        .with_config(|config| {
+            assert!(config.enable_latency_service);
+        });
+    CommandLineTest::new()
+        .flag("enable-latency-service", Some("false"))
+        .run()
+        .with_config(|config| {
+            assert!(!config.enable_latency_service);
+        });
+}
