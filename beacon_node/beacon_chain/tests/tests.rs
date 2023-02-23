@@ -19,7 +19,7 @@ use types::{
 };
 
 // Should ideally be divisible by 3.
-pub const VALIDATOR_COUNT: usize = 24;
+pub const VALIDATOR_COUNT: usize = 48;
 
 lazy_static! {
     /// A cached set of keys.

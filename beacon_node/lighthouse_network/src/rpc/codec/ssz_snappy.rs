@@ -15,9 +15,11 @@ use std::io::{Read, Write};
 use std::marker::PhantomData;
 use std::sync::Arc;
 use tokio_util::codec::{Decoder, Encoder};
+use types::light_client_bootstrap::LightClientBootstrap;
 use types::{
-    light_client_bootstrap::LightClientBootstrap, EthSpec, ForkContext, ForkName, Hash256,
-    SignedBeaconBlock, SignedBeaconBlockAltair, SignedBeaconBlockBase, SignedBeaconBlockMerge,
+    BlobsSidecar, EthSpec, ForkContext, ForkName, Hash256, SignedBeaconBlock,
+    SignedBeaconBlockAltair, SignedBeaconBlockBase, SignedBeaconBlockCapella,
+    SignedBeaconBlockEip4844, SignedBeaconBlockMerge,
 };
 use unsigned_varint::codec::Uvi;
 
@@ -70,6 +72,7 @@ impl<TSpec: EthSpec> Encoder<RPCCodedResponse<TSpec>> for SSZSnappyInboundCodec<
                 RPCResponse::Status(res) => res.as_ssz_bytes(),
                 RPCResponse::BlocksByRange(res) => res.as_ssz_bytes(),
                 RPCResponse::BlocksByRoot(res) => res.as_ssz_bytes(),
+                RPCResponse::BlobsByRange(res) => res.as_ssz_bytes(),
                 RPCResponse::LightClientBootstrap(res) => res.as_ssz_bytes(),
                 RPCResponse::Pong(res) => res.data.as_ssz_bytes(),
                 RPCResponse::MetaData(res) =>
@@ -229,6 +232,7 @@ impl<TSpec: EthSpec> Encoder<OutboundRequest<TSpec>> for SSZSnappyOutboundCodec<
             OutboundRequest::Goodbye(req) => req.as_ssz_bytes(),
             OutboundRequest::BlocksByRange(req) => req.as_ssz_bytes(),
             OutboundRequest::BlocksByRoot(req) => req.block_roots.as_ssz_bytes(),
+            OutboundRequest::BlobsByRange(req) => req.as_ssz_bytes(),
             OutboundRequest::Ping(req) => req.as_ssz_bytes(),
             OutboundRequest::MetaData(_) => return Ok(()), // no metadata to encode
             OutboundRequest::LightClientBootstrap(req) => req.as_ssz_bytes(),
@@ -409,6 +413,14 @@ fn context_bytes<T: EthSpec>(
                 return match **ref_box_block {
                     // NOTE: If you are adding another fork type here, be sure to modify the
                     //       `fork_context.to_context_bytes()` function to support it as well!
+                    SignedBeaconBlock::Eip4844 { .. } => {
+                        // Eip4844 context being `None` implies that "merge never happened".
+                        fork_context.to_context_bytes(ForkName::Eip4844)
+                    }
+                    SignedBeaconBlock::Capella { .. } => {
+                        // Capella context being `None` implies that "merge never happened".
+                        fork_context.to_context_bytes(ForkName::Capella)
+                    }
                     SignedBeaconBlock::Merge { .. } => {
                         // Merge context being `None` implies that "merge never happened".
                         fork_context.to_context_bytes(ForkName::Merge)
@@ -471,6 +483,9 @@ fn handle_v1_request<T: EthSpec>(
         Protocol::BlocksByRoot => Ok(Some(InboundRequest::BlocksByRoot(BlocksByRootRequest {
             block_roots: VariableList::from_ssz_bytes(decoded_buffer)?,
         }))),
+        Protocol::BlobsByRange => Ok(Some(InboundRequest::BlobsByRange(
+            BlobsByRangeRequest::from_ssz_bytes(decoded_buffer)?,
+        ))),
         Protocol::Ping => Ok(Some(InboundRequest::Ping(Ping {
             data: u64::from_ssz_bytes(decoded_buffer)?,
         }))),
@@ -507,6 +522,9 @@ fn handle_v2_request<T: EthSpec>(
         Protocol::BlocksByRoot => Ok(Some(InboundRequest::BlocksByRoot(BlocksByRootRequest {
             block_roots: VariableList::from_ssz_bytes(decoded_buffer)?,
         }))),
+        Protocol::BlobsByRange => Ok(Some(InboundRequest::BlobsByRange(
+            BlobsByRangeRequest::from_ssz_bytes(decoded_buffer)?,
+        ))),
         // MetaData requests return early from InboundUpgrade and do not reach the decoder.
         // Handle this case just for completeness.
         Protocol::MetaData => {
@@ -544,6 +562,7 @@ fn handle_v1_response<T: EthSpec>(
         Protocol::BlocksByRoot => Ok(Some(RPCResponse::BlocksByRoot(Arc::new(
             SignedBeaconBlock::Base(SignedBeaconBlockBase::from_ssz_bytes(decoded_buffer)?),
         )))),
+        Protocol::BlobsByRange => Err(RPCError::InvalidData("blobs by range via v1".to_string())),
         Protocol::Ping => Ok(Some(RPCResponse::Pong(Ping {
             data: u64::from_ssz_bytes(decoded_buffer)?,
         }))),
@@ -595,6 +614,16 @@ fn handle_v2_response<T: EthSpec>(
                         decoded_buffer,
                     )?),
                 )))),
+                ForkName::Capella => Ok(Some(RPCResponse::BlocksByRange(Arc::new(
+                    SignedBeaconBlock::Capella(SignedBeaconBlockCapella::from_ssz_bytes(
+                        decoded_buffer,
+                    )?),
+                )))),
+                ForkName::Eip4844 => Ok(Some(RPCResponse::BlocksByRange(Arc::new(
+                    SignedBeaconBlock::Eip4844(SignedBeaconBlockEip4844::from_ssz_bytes(
+                        decoded_buffer,
+                    )?),
+                )))),
             },
             Protocol::BlocksByRoot => match fork_name {
                 ForkName::Altair => Ok(Some(RPCResponse::BlocksByRoot(Arc::new(
@@ -610,6 +639,25 @@ fn handle_v2_response<T: EthSpec>(
                         decoded_buffer,
                     )?),
                 )))),
+                ForkName::Capella => Ok(Some(RPCResponse::BlocksByRoot(Arc::new(
+                    SignedBeaconBlock::Capella(SignedBeaconBlockCapella::from_ssz_bytes(
+                        decoded_buffer,
+                    )?),
+                )))),
+                ForkName::Eip4844 => Ok(Some(RPCResponse::BlocksByRoot(Arc::new(
+                    SignedBeaconBlock::Eip4844(SignedBeaconBlockEip4844::from_ssz_bytes(
+                        decoded_buffer,
+                    )?),
+                )))),
+            },
+            Protocol::BlobsByRange => match fork_name {
+                ForkName::Eip4844 => Ok(Some(RPCResponse::BlobsByRange(Arc::new(
+                    BlobsSidecar::from_ssz_bytes(decoded_buffer)?,
+                )))),
+                _ => Err(RPCError::ErrorResponse(
+                    RPCResponseErrorCode::InvalidRequest,
+                    "Invalid forkname for blobsbyrange".to_string(),
+                )),
             },
             _ => Err(RPCError::ErrorResponse(
                 RPCResponseErrorCode::InvalidRequest,
@@ -645,8 +693,8 @@ mod tests {
     };
     use std::sync::Arc;
     use types::{
-        BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockMerge, Epoch, ForkContext,
-        FullPayload, Hash256, Signature, SignedBeaconBlock, Slot,
+        BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockMerge, EmptyBlock, Epoch,
+        ForkContext, FullPayload, Hash256, Signature, SignedBeaconBlock, Slot,
     };
 
     use snap::write::FrameEncoder;
@@ -659,14 +707,20 @@ mod tests {
         let mut chain_spec = Spec::default_spec();
         let altair_fork_epoch = Epoch::new(1);
         let merge_fork_epoch = Epoch::new(2);
+        let capella_fork_epoch = Epoch::new(3);
+        let eip4844_fork_epoch = Epoch::new(4);
 
         chain_spec.altair_fork_epoch = Some(altair_fork_epoch);
         chain_spec.bellatrix_fork_epoch = Some(merge_fork_epoch);
+        chain_spec.capella_fork_epoch = Some(capella_fork_epoch);
+        chain_spec.eip4844_fork_epoch = Some(eip4844_fork_epoch);
 
         let current_slot = match fork_name {
             ForkName::Base => Slot::new(0),
             ForkName::Altair => altair_fork_epoch.start_slot(Spec::slots_per_epoch()),
             ForkName::Merge => merge_fork_epoch.start_slot(Spec::slots_per_epoch()),
+            ForkName::Capella => capella_fork_epoch.start_slot(Spec::slots_per_epoch()),
+            ForkName::Eip4844 => eip4844_fork_epoch.start_slot(Spec::slots_per_epoch()),
         };
         ForkContext::new::<Spec>(current_slot, Hash256::zero(), &chain_spec)
     }
@@ -869,6 +923,9 @@ mod tests {
                 }
                 OutboundRequest::BlocksByRoot(bbroot) => {
                     assert_eq!(decoded, InboundRequest::BlocksByRoot(bbroot))
+                }
+                OutboundRequest::BlobsByRange(blbrange) => {
+                    assert_eq!(decoded, InboundRequest::BlobsByRange(blbrange))
                 }
                 OutboundRequest::Ping(ping) => {
                     assert_eq!(decoded, InboundRequest::Ping(ping))

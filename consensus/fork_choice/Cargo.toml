@@ -11,7 +11,7 @@ types = { path = "../types" }
 state_processing = { path = "../state_processing" }
 proto_array = { path = "../proto_array" }
 eth2_ssz = "0.4.1"
-eth2_ssz_derive = "0.3.0"
+eth2_ssz_derive = "0.3.1"
 slog = { version = "2.5.2", features = ["max_level_trace", "release_max_level_trace"] }
 
 [dev-dependencies]
