@@ -48,7 +48,9 @@ impl fmt::Display for EthSpecId {
     }
 }
 
-pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq + Eq {
+pub trait EthSpec:
+    'static + Default + Sync + Send + Clone + Debug + PartialEq + Eq + for<'a> arbitrary::Arbitrary<'a>
+{
     /*
      * Constants
      */
@@ -95,6 +97,16 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq +
     type GasLimitDenominator: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type MinGasLimit: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type MaxExtraDataBytes: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+    /*
+     * New in Capella
+     */
+    type MaxBlsToExecutionChanges: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+    type MaxWithdrawalsPerPayload: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+    /*
+     * New in Eip4844
+     */
+    type MaxBlobsPerBlock: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+    type FieldElementsPerBlob: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     /*
      * Derived values (set these CAREFULLY)
      */
@@ -222,6 +234,21 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq +
     fn bytes_per_logs_bloom() -> usize {
         Self::BytesPerLogsBloom::to_usize()
     }
+
+    /// Returns the `MAX_BLS_TO_EXECUTION_CHANGES` constant for this specification.
+    fn max_bls_to_execution_changes() -> usize {
+        Self::MaxBlsToExecutionChanges::to_usize()
+    }
+
+    /// Returns the `MAX_WITHDRAWALS_PER_PAYLOAD` constant for this specification.
+    fn max_withdrawals_per_payload() -> usize {
+        Self::MaxWithdrawalsPerPayload::to_usize()
+    }
+
+    /// Returns the `MAX_BLOBS_PER_BLOCK` constant for this specification.
+    fn max_blobs_per_block() -> usize {
+        Self::MaxBlobsPerBlock::to_usize()
+    }
 }
 
 /// Macro to inherit some type values from another EthSpec.
@@ -233,8 +260,7 @@ macro_rules! params_from_eth_spec {
 }
 
 /// Ethereum Foundation specifications.
-#[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
-#[derive(Clone, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Debug, Default, Serialize, Deserialize, arbitrary::Arbitrary)]
 pub struct MainnetEthSpec;
 
 impl EthSpec for MainnetEthSpec {
@@ -262,9 +288,13 @@ impl EthSpec for MainnetEthSpec {
     type GasLimitDenominator = U1024;
     type MinGasLimit = U5000;
     type MaxExtraDataBytes = U32;
+    type MaxBlobsPerBlock = U16; // 2**4 = 16
+    type FieldElementsPerBlob = U4096;
     type SyncSubcommitteeSize = U128; // 512 committee size / 4 sync committee subnet count
     type MaxPendingAttestations = U4096; // 128 max attestations * 32 slots per epoch
     type SlotsPerEth1VotingPeriod = U2048; // 64 epochs * 32 slots per epoch
+    type MaxBlsToExecutionChanges = U16;
+    type MaxWithdrawalsPerPayload = U16;
 
     fn default_spec() -> ChainSpec {
         ChainSpec::mainnet()
@@ -276,8 +306,7 @@ impl EthSpec for MainnetEthSpec {
 }
 
 /// Ethereum Foundation minimal spec, as defined in the eth2.0-specs repo.
-#[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
-#[derive(Clone, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Debug, Default, Serialize, Deserialize, arbitrary::Arbitrary)]
 pub struct MinimalEthSpec;
 
 impl EthSpec for MinimalEthSpec {
@@ -290,6 +319,7 @@ impl EthSpec for MinimalEthSpec {
     type SyncSubcommitteeSize = U8; // 32 committee size / 4 sync committee subnet count
     type MaxPendingAttestations = U1024; // 128 max attestations * 8 slots per epoch
     type SlotsPerEth1VotingPeriod = U32; // 4 epochs * 8 slots per epoch
+    type MaxWithdrawalsPerPayload = U4;
 
     params_from_eth_spec!(MainnetEthSpec {
         JustificationBitsLength,
@@ -309,7 +339,10 @@ impl EthSpec for MinimalEthSpec {
         BytesPerLogsBloom,
         GasLimitDenominator,
         MinGasLimit,
-        MaxExtraDataBytes
+        MaxExtraDataBytes,
+        MaxBlsToExecutionChanges,
+        MaxBlobsPerBlock,
+        FieldElementsPerBlob
     });
 
     fn default_spec() -> ChainSpec {
@@ -322,8 +355,7 @@ impl EthSpec for MinimalEthSpec {
 }
 
 /// Gnosis Beacon Chain specifications.
-#[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
-#[derive(Clone, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Debug, Default, Serialize, Deserialize, arbitrary::Arbitrary)]
 pub struct GnosisEthSpec;
 
 impl EthSpec for GnosisEthSpec {
@@ -354,6 +386,10 @@ impl EthSpec for GnosisEthSpec {
     type SyncSubcommitteeSize = U128; // 512 committee size / 4 sync committee subnet count
     type MaxPendingAttestations = U2048; // 128 max attestations * 16 slots per epoch
     type SlotsPerEth1VotingPeriod = U1024; // 64 epochs * 16 slots per epoch
+    type MaxBlsToExecutionChanges = U16;
+    type MaxWithdrawalsPerPayload = U16;
+    type MaxBlobsPerBlock = U16; // 2**4 = 16
+    type FieldElementsPerBlob = U4096;
 
     fn default_spec() -> ChainSpec {
         ChainSpec::gnosis()

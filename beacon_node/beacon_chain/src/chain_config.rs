@@ -91,6 +91,7 @@ impl Default for ChainConfig {
             count_unrealized_full: CountUnrealizedFull::default(),
             checkpoint_sync_url_timeout: 60,
             prepare_payload_lookahead: Duration::from_secs(4),
+            // This value isn't actually read except in tests.
             optimistic_finalized_sync: true,
         }
     }

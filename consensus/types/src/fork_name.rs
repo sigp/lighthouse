@@ -11,11 +11,19 @@ pub enum ForkName {
     Base,
     Altair,
     Merge,
+    Capella,
+    Eip4844,
 }
 
 impl ForkName {
     pub fn list_all() -> Vec<ForkName> {
-        vec![ForkName::Base, ForkName::Altair, ForkName::Merge]
+        vec![
+            ForkName::Base,
+            ForkName::Altair,
+            ForkName::Merge,
+            ForkName::Capella,
+            ForkName::Eip4844,
+        ]
     }
 
     /// Set the activation slots in the given `ChainSpec` so that the fork named by `self`
@@ -26,16 +34,36 @@ impl ForkName {
             ForkName::Base => {
                 spec.altair_fork_epoch = None;
                 spec.bellatrix_fork_epoch = None;
+                spec.capella_fork_epoch = None;
+                spec.eip4844_fork_epoch = None;
                 spec
             }
             ForkName::Altair => {
                 spec.altair_fork_epoch = Some(Epoch::new(0));
                 spec.bellatrix_fork_epoch = None;
+                spec.capella_fork_epoch = None;
+                spec.eip4844_fork_epoch = None;
                 spec
             }
             ForkName::Merge => {
                 spec.altair_fork_epoch = Some(Epoch::new(0));
                 spec.bellatrix_fork_epoch = Some(Epoch::new(0));
+                spec.capella_fork_epoch = None;
+                spec.eip4844_fork_epoch = None;
+                spec
+            }
+            ForkName::Capella => {
+                spec.altair_fork_epoch = Some(Epoch::new(0));
+                spec.bellatrix_fork_epoch = Some(Epoch::new(0));
+                spec.capella_fork_epoch = Some(Epoch::new(0));
+                spec.eip4844_fork_epoch = None;
+                spec
+            }
+            ForkName::Eip4844 => {
+                spec.altair_fork_epoch = Some(Epoch::new(0));
+                spec.bellatrix_fork_epoch = Some(Epoch::new(0));
+                spec.capella_fork_epoch = Some(Epoch::new(0));
+                spec.eip4844_fork_epoch = Some(Epoch::new(0));
                 spec
             }
         }
@@ -49,6 +77,8 @@ impl ForkName {
             ForkName::Base => None,
             ForkName::Altair => Some(ForkName::Base),
             ForkName::Merge => Some(ForkName::Altair),
+            ForkName::Capella => Some(ForkName::Merge),
+            ForkName::Eip4844 => Some(ForkName::Capella),
         }
     }
 
@@ -59,7 +89,9 @@ impl ForkName {
         match self {
             ForkName::Base => Some(ForkName::Altair),
             ForkName::Altair => Some(ForkName::Merge),
-            ForkName::Merge => None,
+            ForkName::Merge => Some(ForkName::Capella),
+            ForkName::Capella => Some(ForkName::Eip4844),
+            ForkName::Eip4844 => None,
         }
     }
 }
@@ -101,6 +133,14 @@ macro_rules! map_fork_name_with {
                 let (value, extra_data) = $body;
                 ($t::Merge(value), extra_data)
             }
+            ForkName::Capella => {
+                let (value, extra_data) = $body;
+                ($t::Capella(value), extra_data)
+            }
+            ForkName::Eip4844 => {
+                let (value, extra_data) = $body;
+                ($t::Eip4844(value), extra_data)
+            }
         }
     };
 }
@@ -113,6 +153,8 @@ impl FromStr for ForkName {
             "phase0" | "base" => ForkName::Base,
             "altair" => ForkName::Altair,
             "bellatrix" | "merge" => ForkName::Merge,
+            "capella" => ForkName::Capella,
+            "eip4844" => ForkName::Eip4844,
             _ => return Err(format!("unknown fork name: {}", fork_name)),
         })
     }
@@ -124,6 +166,8 @@ impl Display for ForkName {
             ForkName::Base => "phase0".fmt(f),
             ForkName::Altair => "altair".fmt(f),
             ForkName::Merge => "bellatrix".fmt(f),
+            ForkName::Capella => "capella".fmt(f),
+            ForkName::Eip4844 => "eip4844".fmt(f),
         }
     }
 }
@@ -155,7 +199,7 @@ mod test {
 
     #[test]
     fn previous_and_next_fork_consistent() {
-        assert_eq!(ForkName::Merge.next_fork(), None);
+        assert_eq!(ForkName::Eip4844.next_fork(), None);
         assert_eq!(ForkName::Base.previous_fork(), None);
 
         for (prev_fork, fork) in ForkName::list_all().into_iter().tuple_windows() {

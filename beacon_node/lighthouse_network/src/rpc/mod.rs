@@ -24,6 +24,7 @@ pub(crate) use handler::HandlerErr;
 pub(crate) use methods::{MetaData, MetaDataV1, MetaDataV2, Ping, RPCCodedResponse, RPCResponse};
 pub(crate) use protocol::{InboundRequest, RPCProtocol};
 
+use crate::rpc::methods::MAX_REQUEST_BLOBS_SIDECARS;
 pub use handler::SubstreamId;
 pub use methods::{
     BlocksByRangeRequest, BlocksByRootRequest, GoodbyeReason, LightClientBootstrapRequest,
@@ -144,6 +145,11 @@ impl<Id: ReqId, TSpec: EthSpec> RPC<Id, TSpec> {
                 Duration::from_secs(10),
             )
             .n_every(Protocol::BlocksByRoot, 128, Duration::from_secs(10))
+            .n_every(
+                Protocol::BlobsByRange,
+                MAX_REQUEST_BLOBS_SIDECARS,
+                Duration::from_secs(10),
+            )
             .build()
             .expect("Configuration parameters are valid");
 
@@ -339,6 +345,7 @@ where
                     match end {
                         ResponseTermination::BlocksByRange => Protocol::BlocksByRange,
                         ResponseTermination::BlocksByRoot => Protocol::BlocksByRoot,
+                        ResponseTermination::BlobsByRange => Protocol::BlobsByRange,
                     },
                 ),
             },

@@ -697,6 +697,7 @@ mod fast {
             let web3 = eth1.web3();
 
             let now = get_block_number(&web3).await;
+            let spec = MainnetEthSpec::default_spec();
             let service = Service::new(
                 Config {
                     endpoint: Eth1Endpoint::NoAuth(
@@ -710,7 +711,7 @@ mod fast {
                     ..Config::default()
                 },
                 log,
-                MainnetEthSpec::default_spec(),
+                spec.clone(),
             )
             .unwrap();
             let client =
