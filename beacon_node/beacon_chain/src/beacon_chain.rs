@@ -4889,16 +4889,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Push a server-sent event (probably to a block builder or relay).
         if let Some(event_handler) = &self.event_handler {
             if event_handler.has_payload_attributes_subscribers() {
-                event_handler.register(EventKind::PayloadAttributes(
-                    SseExtendedPayloadAttributes {
+                event_handler.register(EventKind::PayloadAttributes(ForkVersionedResponse {
+                    data: SseExtendedPayloadAttributes {
                         proposal_slot: prepare_slot,
                         proposer_index: proposer,
                         parent_block_root: head_root,
                         parent_block_hash: forkchoice_update_params.head_hash.unwrap_or_default(),
                         payload_attributes: payload_attributes.into(),
-                        version: self.spec.fork_name_at_slot::<T::EthSpec>(prepare_slot),
                     },
-                ));
+                    version: Some(self.spec.fork_name_at_slot::<T::EthSpec>(prepare_slot)),
+                }));
             }
         }
 

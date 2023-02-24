@@ -915,16 +915,18 @@ pub struct SsePayloadAttributes {
     pub withdrawals: Vec<Withdrawal>,
 }
 
-#[derive(PartialEq, Debug, Serialize, Clone)]
-pub struct SseExtendedPayloadAttributes {
+#[derive(PartialEq, Debug, Deserialize, Serialize, Clone)]
+pub struct SseExtendedPayloadAttributesGeneric<T> {
     pub proposal_slot: Slot,
     #[serde(with = "eth2_serde_utils::quoted_u64")]
     pub proposer_index: u64,
     pub parent_block_root: Hash256,
     pub parent_block_hash: ExecutionBlockHash,
-    pub payload_attributes: SsePayloadAttributes,
-    pub version: ForkName,
+    pub payload_attributes: T,
 }
+
+pub type SseExtendedPayloadAttributes = SseExtendedPayloadAttributesGeneric<SsePayloadAttributes>;
+pub type VersionedSsePayloadAttributes = ForkVersionedResponse<SseExtendedPayloadAttributes>;
 
 impl ForkVersionDeserialize for SsePayloadAttributes {
     fn deserialize_by_fork<'de, D: serde::Deserializer<'de>>(
@@ -946,22 +948,13 @@ impl ForkVersionDeserialize for SsePayloadAttributes {
     }
 }
 
-impl<'de> serde::Deserialize<'de> for SseExtendedPayloadAttributes {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        #[derive(Deserialize)]
-        struct Helper {
-            proposal_slot: Slot,
-            #[serde(with = "eth2_serde_utils::quoted_u64")]
-            proposer_index: u64,
-            parent_block_root: Hash256,
-            parent_block_hash: ExecutionBlockHash,
-            payload_attributes: serde_json::Value,
-            version: ForkName,
-        }
-        let helper = Helper::deserialize(deserializer)?;
+impl ForkVersionDeserialize for SseExtendedPayloadAttributes {
+    fn deserialize_by_fork<'de, D: serde::Deserializer<'de>>(
+        value: serde_json::value::Value,
+        fork_name: ForkName,
+    ) -> Result<Self, D::Error> {
+        let helper: SseExtendedPayloadAttributesGeneric<serde_json::Value> =
+            serde_json::from_value(value).map_err(serde::de::Error::custom)?;
         Ok(Self {
             proposal_slot: helper.proposal_slot,
             proposer_index: helper.proposer_index,
@@ -969,9 +962,8 @@ impl<'de> serde::Deserialize<'de> for SseExtendedPayloadAttributes {
             parent_block_hash: helper.parent_block_hash,
             payload_attributes: SsePayloadAttributes::deserialize_by_fork::<D>(
                 helper.payload_attributes,
-                helper.version,
+                fork_name,
             )?,
-            version: helper.version,
         })
     }
 }
@@ -989,7 +981,7 @@ pub enum EventKind<T: EthSpec> {
     LateHead(SseLateHead),
     #[cfg(feature = "lighthouse")]
     BlockReward(BlockReward),
-    PayloadAttributes(SseExtendedPayloadAttributes),
+    PayloadAttributes(VersionedSsePayloadAttributes),
 }
 
 impl<T: EthSpec> EventKind<T> {
