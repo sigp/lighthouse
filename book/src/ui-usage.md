@@ -1,8 +1,8 @@
 # Usage
 
-## Dashboard
+# Dashboard
 
-Siren's dashboard provides a summary of all performance and key validator metrics. Sync statuses, uptimes, accumulated rewards, hardware and network metrics and more are all consolidated on the dashboard for evaluation.
+Siren's dashboard view provides a summary of all performance and key validator metrics. Sync statuses, uptimes, accumulated rewards, hardware and network metrics and more are all consolidated on the dashboard for evaluation.
 
 ![](imgs/ui-dashboard.png)
 
@@ -32,10 +32,25 @@ By clicking on the chart component you can filter selected validators in the ren
 
 <img src="imgs/ui-validator-balance2.png" width="48%"/>
 
+#
+
 ## Hardware Usage and Device Diagnostics
 
-The hardware usage component gathers information about the device the Beacon Node is currently running. It displays the Disk Space, CPU frequency and RAM allocations of the Beacon Node device. The device diagnostics component provided the sync status of the execution client and beacon node.
+The hardware usage component gathers information about the device the Beacon Node is currently running. It displays the Disk Space, CPU frequency and RAM allocations of the Beacon Node device. The device diagnostics component provides the sync status of the execution client and beacon node.
 
 <img height="350" src="imgs/ui-hardware.png" style="display: inline; float: left; margin-right: 25px"/>
 
-<img height="350" src="imgs/ui-device.png" style="display: inline; float: left;"/>
+<img height="350" src="imgs/ui-device.png"/>
+
+
+# Validator Management
+
+Siren's validator management view provides a detailed overview of all validators with options to deposit to and or add new validators. Each validator table row displays the validator name, index, balance, rewards, status and all available actions per validator.
+
+![](imgs/ui-validator-management.png)
+
+## Validator Modal
+
+Clicking the validator icon activates a detailed validator modal component. This component also allows users to trigger validator actions and as well to view and update validator graffiti. Each modal contains the validator total income with hourly, daily and weekly earnings estimates.
+
+<img height="450" src="imgs/ui-validator-modal.png"/>
