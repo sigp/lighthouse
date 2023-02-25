@@ -5,37 +5,33 @@
 //! syncing-related responses to the Sync manager.
 #![allow(clippy::unit_arg)]
 
+use crate::beacon_processor::{
+    BeaconProcessor, WorkEvent as BeaconWorkEvent, MAX_WORK_EVENT_QUEUE_LEN,
+};
 use crate::error;
 use crate::service::{NetworkMessage, RequestId};
+use crate::status::status_message;
+use crate::sync::manager::RequestId as SyncId;
+use crate::sync::SyncMessage;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use futures::prelude::*;
+use lighthouse_network::rpc::*;
 use lighthouse_network::{
     MessageId, NetworkGlobals, PeerId, PeerRequestId, PubsubMessage, Request, Response,
 };
 use slog::{debug, o, trace};
+use slog::{error, warn};
+use std::cmp;
 use std::sync::Arc;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use types::EthSpec;
-// imports from processor
-use crate::beacon_processor::{
-    BeaconProcessor, WorkEvent as BeaconWorkEvent, MAX_WORK_EVENT_QUEUE_LEN,
-};
-use crate::status::status_message;
-use crate::sync::manager::RequestId as SyncId;
-use crate::sync::SyncMessage;
-use lighthouse_network::rpc::*;
-use slog::{error, warn};
-use std::cmp;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use types::SignedBeaconBlock;
 
-/// Handles messages received from the network and client and organises syncing. This
-/// functionality of this struct is to validate an decode messages from the network before
-/// passing them to the internal message processor. The message processor spawns a syncing thread
-/// which manages which blocks need to be requested and processed.
+/// Handles messages from the network and routes them to the appropriate service to be handled.
 pub struct Router<T: BeaconChainTypes> {
-    /// Access to the peer db.
+    /// Access to the peer db and network information.
     network_globals: Arc<NetworkGlobals<T::EthSpec>>,
     /// A reference to the underlying beacon chain.
     chain: Arc<BeaconChain<T>>,
@@ -45,17 +41,13 @@ pub struct Router<T: BeaconChainTypes> {
     network: HandlerNetworkContext<T::EthSpec>,
     /// A multi-threaded, non-blocking processor for applying messages to the beacon chain.
     beacon_processor_send: mpsc::Sender<BeaconWorkEvent<T>>,
-    /// The `RPCHandler` logger.
-    processor_log: slog::Logger,
     /// The `Router` logger.
     log: slog::Logger,
 }
 
-/// Types of messages the handler can receive.
+/// Types of messages the router can receive.
 #[derive(Debug)]
 pub enum RouterMessage<T: EthSpec> {
-    /// We have initiated a connection to a new peer.
-    PeerDialed(PeerId),
     /// Peer has disconnected,
     PeerDisconnected(PeerId),
     /// An RPC request has been received.
@@ -97,9 +89,10 @@ impl<T: BeaconChainTypes> Router<T> {
 
         let (handler_send, handler_recv) = mpsc::unbounded_channel();
 
-        let sync_logger = log.new(o!("service"=> "sync"));
         let (beacon_processor_send, beacon_processor_receive) =
             mpsc::channel(MAX_WORK_EVENT_QUEUE_LEN);
+
+        let sync_logger = log.new(o!("service"=> "sync"));
 
         // spawn the sync thread
         let sync_send = crate::sync::manager::spawn(
@@ -131,7 +124,6 @@ impl<T: BeaconChainTypes> Router<T> {
             sync_send,
             network: HandlerNetworkContext::new(network_send, log.clone()),
             beacon_processor_send,
-            processor_log: log.new(o!("service" => "router")),
             log: message_handler_log,
         };
 
@@ -154,11 +146,8 @@ impl<T: BeaconChainTypes> Router<T> {
         match message {
             // we have initiated a connection to a peer or the peer manager has requested a
             // re-status
-            RouterMessage::PeerDialed(peer_id) | RouterMessage::StatusPeer(peer_id) => {
-                let status_message = status_message(&self.chain);
-                debug!(self.processor_log, "Sending Status Request"; "peer" => %peer_id, &status_message);
-                self.network
-                    .send_processor_request(peer_id, Request::Status(status_message));
+            RouterMessage::StatusPeer(peer_id) => {
+                self.send_status(peer_id);
             }
             // A peer has disconnected
             RouterMessage::PeerDisconnected(peer_id) => {
@@ -215,17 +204,15 @@ impl<T: BeaconChainTypes> Router<T> {
     }
 
     /// An RPC response has been received from the network.
-    // we match on id and ignore responses past the timeout.
     fn handle_rpc_response(
         &mut self,
         peer_id: PeerId,
         request_id: RequestId,
         response: Response<T::EthSpec>,
     ) {
-        // an error could have occurred.
         match response {
             Response::Status(status_message) => {
-                debug!(self.processor_log, "Received Status Response"; "peer_id" => %peer_id, &status_message);
+                debug!(self.log, "Received Status Response"; "peer_id" => %peer_id, &status_message);
                 self.send_beacon_processor_work(BeaconWorkEvent::status_message(
                     peer_id,
                     status_message,
@@ -253,7 +240,6 @@ impl<T: BeaconChainTypes> Router<T> {
         should_process: bool,
     ) {
         match gossip_message {
-            // Attestations should never reach the router.
             PubsubMessage::AggregateAndProofAttestation(aggregate_and_proof) => self
                 .send_beacon_processor_work(BeaconWorkEvent::aggregated_attestation(
                     message_id,
@@ -370,10 +356,17 @@ impl<T: BeaconChainTypes> Router<T> {
         }
     }
 
+    fn send_status(&mut self, peer_id: PeerId) {
+        let status_message = status_message(&self.chain);
+        debug!(self.log, "Sending Status Request"; "peer" => %peer_id, &status_message);
+        self.network
+            .send_processor_request(peer_id, Request::Status(status_message));
+    }
+
     fn send_to_sync(&mut self, message: SyncMessage<T::EthSpec>) {
         self.sync_send.send(message).unwrap_or_else(|e| {
             warn!(
-                self.processor_log,
+                self.log,
                 "Could not send message to the sync service";
                 "error" => %e,
             )
@@ -401,7 +394,7 @@ impl<T: BeaconChainTypes> Router<T> {
         request_id: PeerRequestId,
         status: StatusMessage,
     ) {
-        debug!(self.processor_log, "Received Status Request"; "peer_id" => %peer_id, &status);
+        debug!(self.log, "Received Status Request"; "peer_id" => %peer_id, &status);
 
         // Say status back.
         self.network.send_response(
@@ -432,7 +425,7 @@ impl<T: BeaconChainTypes> Router<T> {
         };
 
         trace!(
-            self.processor_log,
+            self.log,
             "Received BlocksByRange Response";
             "peer" => %peer_id,
         );
@@ -463,7 +456,7 @@ impl<T: BeaconChainTypes> Router<T> {
         };
 
         trace!(
-            self.processor_log,
+            self.log,
             "Received BlocksByRoot Response";
             "peer" => %peer_id,
         );
@@ -483,7 +476,7 @@ impl<T: BeaconChainTypes> Router<T> {
                     mpsc::error::TrySendError::Closed(work)
                     | mpsc::error::TrySendError::Full(work) => work.work_type(),
                 };
-                error!(&self.processor_log, "Unable to send message to the beacon processor";
+                error!(&self.log, "Unable to send message to the beacon processor";
                     "error" => %e, "type" => work_type)
             })
     }
