@@ -432,7 +432,7 @@ mod tests {
         all_topics.extend(ALTAIR_CORE_TOPICS);
         all_topics.extend(BASE_CORE_TOPICS);
 
-        let latest_fork = ForkName::list_all().last().unwrap().clone();
+        let latest_fork = *ForkName::list_all().last().unwrap();
         assert_eq!(core_topics_to_subscribe(latest_fork), all_topics);
     }
 }
