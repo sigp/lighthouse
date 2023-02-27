@@ -201,26 +201,13 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
         info!(log, "ENR Initialised"; "enr" => local_enr.to_base64(), "seq" => local_enr.seq(), "id"=> %local_enr.node_id(),
               "ip4" => ?local_enr.ip4(), "udp4"=> ?local_enr.udp4(), "tcp4" => ?local_enr.tcp6()
         );
-        let mut discv5_config = config.discv5_config.clone();
-        let (listen_socket, ip_mode) = match config.listen_addrs() {
-            crate::listen_addr::ListenAddress::V4(v4_addr) => {
-                (v4_addr.tcp_socket_addr(), discv5::IpMode::Ip4)
+        let listen_socket = match config.listen_addrs() {
+            crate::listen_addr::ListenAddress::V4(v4_addr) => v4_addr.udp_socket_addr(),
+            crate::listen_addr::ListenAddress::V6(v6_addr) => v6_addr.udp_socket_addr(),
+            crate::listen_addr::ListenAddress::DualStack(_v4_addr, v6_addr) => {
+                v6_addr.udp_socket_addr()
             }
-            crate::listen_addr::ListenAddress::V6(v6_addr) => (
-                v6_addr.tcp_socket_addr(),
-                discv5::IpMode::Ip6 {
-                    enable_mapped_addresses: false,
-                },
-            ),
-            crate::listen_addr::ListenAddress::DualStack(_v4_addr, v6_addr) => (
-                v6_addr.tcp_socket_addr(),
-                discv5::IpMode::Ip6 {
-                    enable_mapped_addresses: true,
-                },
-            ),
         };
-
-        discv5_config.ip_mode = ip_mode;
 
         // convert the keypair into an ENR key
         let enr_key: CombinedKey = CombinedKey::from_libp2p(local_key)?;
