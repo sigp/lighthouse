@@ -1,4 +1,4 @@
-#[cfg(not(debug_assertions))]
+// #[cfg(not(debug_assertions))]
 #[cfg(test)]
 mod tests {
     use crate::persisted_dht::load_dht;
@@ -60,9 +60,8 @@ mod tests {
 
         let mut config = NetworkConfig::default();
         config.discv5_config.table_filter = |_| true; // Do not ignore local IPs
-        config.libp2p_port = 21212;
+        config.set_ipv4_listening_address(std::net::Ipv4Addr::UNSPECIFIED, 21212, 21212);
         config.upnp_enabled = false;
-        config.discovery_port = 21212;
         config.boot_nodes_enr = enrs.clone();
         runtime.block_on(async move {
             // Create a new network service which implicitly gets dropped at the
