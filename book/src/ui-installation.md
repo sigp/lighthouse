@@ -16,7 +16,7 @@ Simply download the package specific to your operating system and run it.
 
 ### Requirements
 
-Building from source requires `Node v16.16.0` and `yarn`. 
+Building from source requires `Node v18` and `yarn`. 
 
 ### Building From Source
 
