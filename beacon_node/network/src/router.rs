@@ -48,7 +48,7 @@ pub struct Router<T: BeaconChainTypes> {
 /// Types of messages the router can receive.
 #[derive(Debug)]
 pub enum RouterMessage<T: EthSpec> {
-    /// Peer has disconnected,
+    /// Peer has disconnected.
     PeerDisconnected(PeerId),
     /// An RPC request has been received.
     RPCRequestReceived {
