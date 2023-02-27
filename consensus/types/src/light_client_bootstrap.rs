@@ -8,9 +8,19 @@ use tree_hash::TreeHash;
 
 /// A LightClientBootstrap is the initializer we send over to lightclient nodes
 /// that are trying to generate their basic storage when booting up.
-#[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TestRandom)]
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Serialize,
+    Deserialize,
+    Encode,
+    Decode,
+    TestRandom,
+    arbitrary::Arbitrary,
+)]
 #[serde(bound = "T: EthSpec")]
+#[arbitrary(bound = "T: EthSpec")]
 pub struct LightClientBootstrap<T: EthSpec> {
     /// Requested beacon block header.
     pub header: BeaconBlockHeader,

@@ -93,6 +93,8 @@ pub struct RPCRateLimiter {
     bbrange_rl: Limiter<PeerId>,
     /// BlocksByRoot rate limiter.
     bbroots_rl: Limiter<PeerId>,
+    /// BlobsByRange rate limiter.
+    blbrange_rl: Limiter<PeerId>,
     /// LightClientBootstrap rate limiter.
     lcbootstrap_rl: Limiter<PeerId>,
 }
@@ -121,6 +123,8 @@ pub struct RPCRateLimiterBuilder {
     bbrange_quota: Option<Quota>,
     /// Quota for the BlocksByRoot protocol.
     bbroots_quota: Option<Quota>,
+    /// Quota for the BlobsByRange protocol.
+    blbrange_quota: Option<Quota>,
     /// Quota for the LightClientBootstrap protocol.
     lcbootstrap_quota: Option<Quota>,
 }
@@ -136,6 +140,7 @@ impl RPCRateLimiterBuilder {
             Protocol::Goodbye => self.goodbye_quota = q,
             Protocol::BlocksByRange => self.bbrange_quota = q,
             Protocol::BlocksByRoot => self.bbroots_quota = q,
+            Protocol::BlobsByRange => self.blbrange_quota = q,
             Protocol::LightClientBootstrap => self.lcbootstrap_quota = q,
         }
         self
@@ -180,6 +185,10 @@ impl RPCRateLimiterBuilder {
             .lcbootstrap_quota
             .ok_or("LightClientBootstrap quota not specified")?;
 
+        let blbrange_quota = self
+            .blbrange_quota
+            .ok_or("BlobsByRange quota not specified")?;
+
         // create the rate limiters
         let ping_rl = Limiter::from_quota(ping_quota)?;
         let metadata_rl = Limiter::from_quota(metadata_quota)?;
@@ -187,6 +196,7 @@ impl RPCRateLimiterBuilder {
         let goodbye_rl = Limiter::from_quota(goodbye_quota)?;
         let bbroots_rl = Limiter::from_quota(bbroots_quota)?;
         let bbrange_rl = Limiter::from_quota(bbrange_quota)?;
+        let blbrange_rl = Limiter::from_quota(blbrange_quota)?;
         let lcbootstrap_rl = Limiter::from_quota(lcbootstrap_quote)?;
 
         // check for peers to prune every 30 seconds, starting in 30 seconds
@@ -201,6 +211,7 @@ impl RPCRateLimiterBuilder {
             goodbye_rl,
             bbroots_rl,
             bbrange_rl,
+            blbrange_rl,
             lcbootstrap_rl,
             init_time: Instant::now(),
         })
@@ -254,6 +265,7 @@ impl RPCRateLimiter {
             Protocol::Goodbye => &mut self.goodbye_rl,
             Protocol::BlocksByRange => &mut self.bbrange_rl,
             Protocol::BlocksByRoot => &mut self.bbroots_rl,
+            Protocol::BlobsByRange => &mut self.blbrange_rl,
             Protocol::LightClientBootstrap => &mut self.lcbootstrap_rl,
         };
         check(limiter)
@@ -267,6 +279,7 @@ impl RPCRateLimiter {
         self.goodbye_rl.prune(time_since_start);
         self.bbrange_rl.prune(time_since_start);
         self.bbroots_rl.prune(time_since_start);
+        self.blbrange_rl.prune(time_since_start);
     }
 }
 

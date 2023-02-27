@@ -18,9 +18,9 @@ use std::path::Path;
 use std::sync::Arc;
 use task_executor::TaskExecutor;
 use types::{
-    attestation::Error as AttestationError, graffiti::GraffitiString, Address, AggregateAndProof,
-    Attestation, BeaconBlock, BlindedPayload, ChainSpec, ContributionAndProof, Domain, Epoch,
-    EthSpec, ExecPayload, Fork, Graffiti, Hash256, Keypair, PublicKeyBytes, SelectionProof,
+    attestation::Error as AttestationError, graffiti::GraffitiString, AbstractExecPayload, Address,
+    AggregateAndProof, Attestation, BeaconBlock, BlindedPayload, ChainSpec, ContributionAndProof,
+    Domain, Epoch, EthSpec, Fork, Graffiti, Hash256, Keypair, PublicKeyBytes, SelectionProof,
     Signature, SignedAggregateAndProof, SignedBeaconBlock, SignedContributionAndProof, SignedRoot,
     SignedValidatorRegistrationData, Slot, SyncAggregatorSelectionData, SyncCommitteeContribution,
     SyncCommitteeMessage, SyncSelectionProof, SyncSubnetId, ValidatorRegistrationData,
@@ -454,7 +454,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             .unwrap_or(self.builder_proposals)
     }
 
-    pub async fn sign_block<Payload: ExecPayload<E>>(
+    pub async fn sign_block<Payload: AbstractExecPayload<E>>(
         &self,
         validator_pubkey: PublicKeyBytes,
         block: BeaconBlock<E, Payload>,

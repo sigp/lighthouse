@@ -1,7 +1,147 @@
 #![recursion_limit = "256"]
 //! Provides procedural derive macros for the `Encode` and `Decode` traits of the `eth2_ssz` crate.
 //!
-//! Supports field attributes, see each derive macro for more information.
+//! ## Attributes
+//!
+//! The following struct/enum attributes are available:
+//!
+//! - `#[ssz(enum_behaviour = "union")]`: encodes and decodes an `enum` with a one-byte variant selector.
+//! - `#[ssz(enum_behaviour = "transparent")]`: allows encoding an `enum` by serializing only the
+//!     value whilst ignoring outermost the `enum`.
+//! - `#[ssz(struct_behaviour = "container")]`: encodes and decodes the `struct` as an SSZ
+//!     "container".
+//! - `#[ssz(struct_behaviour = "transparent")]`: encodes and decodes a `struct` with exactly one
+//!     non-skipped field as if the outermost `struct` does not exist.
+//!
+//! The following field attributes are available:
+//!
+//! - `#[ssz(with = "module")]`: uses the methods in `module` to implement `ssz::Encode` and
+//!     `ssz::Decode`. This is useful when it's not possible to create an `impl` for that type
+//!     (e.g. the type is defined in another crate).
+//! - `#[ssz(skip_serializing)]`: this field will not be included in the serialized SSZ vector.
+//! - `#[ssz(skip_deserializing)]`: this field will not be expected in the serialized
+//!   SSZ vector and it will be initialized from a `Default` implementation.
+//!
+//! ## Examples
+//!
+//! ### Structs
+//!
+//! ```rust
+//! use ssz::{Encode, Decode};
+//! use ssz_derive::{Encode, Decode};
+//!
+//! /// Represented as an SSZ "list" wrapped in an SSZ "container".
+//! #[derive(Debug, PartialEq, Encode, Decode)]
+//! #[ssz(struct_behaviour = "container")]   // "container" is the default behaviour
+//! struct TypicalStruct {
+//!     foo: Vec<u8>
+//! }
+//!
+//! assert_eq!(
+//!     TypicalStruct { foo: vec![42] }.as_ssz_bytes(),
+//!     vec![4, 0, 0, 0, 42]
+//! );
+//!
+//! assert_eq!(
+//!     TypicalStruct::from_ssz_bytes(&[4, 0, 0, 0, 42]).unwrap(),
+//!     TypicalStruct { foo: vec![42] },
+//! );
+//!
+//! /// Represented as an SSZ "list" *without* an SSZ "container".
+//! #[derive(Encode, Decode)]
+//! #[ssz(struct_behaviour = "transparent")]
+//! struct WrapperStruct {
+//!     foo: Vec<u8>
+//! }
+//!
+//! assert_eq!(
+//!     WrapperStruct { foo: vec![42] }.as_ssz_bytes(),
+//!     vec![42]
+//! );
+//!
+//! /// Represented as an SSZ "list" *without* an SSZ "container". The `bar` byte is ignored.
+//! #[derive(Debug, PartialEq, Encode, Decode)]
+//! #[ssz(struct_behaviour = "transparent")]
+//! struct WrapperStructSkippedField {
+//!     foo: Vec<u8>,
+//!     #[ssz(skip_serializing, skip_deserializing)]
+//!     bar: u8,
+//! }
+//!
+//! assert_eq!(
+//!     WrapperStructSkippedField { foo: vec![42], bar: 99 }.as_ssz_bytes(),
+//!     vec![42]
+//! );
+//! assert_eq!(
+//!     WrapperStructSkippedField::from_ssz_bytes(&[42]).unwrap(),
+//!     WrapperStructSkippedField { foo: vec![42], bar: 0 }
+//! );
+//!
+//! /// Represented as an SSZ "list" *without* an SSZ "container".
+//! #[derive(Encode, Decode)]
+//! #[ssz(struct_behaviour = "transparent")]
+//! struct NewType(Vec<u8>);
+//!
+//! assert_eq!(
+//!     NewType(vec![42]).as_ssz_bytes(),
+//!     vec![42]
+//! );
+//!
+//! /// Represented as an SSZ "list" *without* an SSZ "container". The `bar` byte is ignored.
+//! #[derive(Debug, PartialEq, Encode, Decode)]
+//! #[ssz(struct_behaviour = "transparent")]
+//! struct NewTypeSkippedField(Vec<u8>, #[ssz(skip_serializing, skip_deserializing)] u8);
+//!
+//! assert_eq!(
+//!     NewTypeSkippedField(vec![42], 99).as_ssz_bytes(),
+//!     vec![42]
+//! );
+//! assert_eq!(
+//!     NewTypeSkippedField::from_ssz_bytes(&[42]).unwrap(),
+//!     NewTypeSkippedField(vec![42], 0)
+//! );
+//! ```
+//!
+//! ### Enums
+//!
+//! ```rust
+//! use ssz::{Encode, Decode};
+//! use ssz_derive::{Encode, Decode};
+//!
+//! /// Represented as an SSZ "union".
+//! #[derive(Debug, PartialEq, Encode, Decode)]
+//! #[ssz(enum_behaviour = "union")]
+//! enum UnionEnum {
+//!     Foo(u8),
+//!     Bar(Vec<u8>),
+//! }
+//!
+//! assert_eq!(
+//!     UnionEnum::Foo(42).as_ssz_bytes(),
+//!     vec![0, 42]
+//! );
+//! assert_eq!(
+//!     UnionEnum::from_ssz_bytes(&[1, 42, 42]).unwrap(),
+//!     UnionEnum::Bar(vec![42, 42]),
+//! );
+//!
+//! /// Represented as only the value in the enum variant.
+//! #[derive(Debug, PartialEq, Encode)]
+//! #[ssz(enum_behaviour = "transparent")]
+//! enum TransparentEnum {
+//!     Foo(u8),
+//!     Bar(Vec<u8>),
+//! }
+//!
+//! assert_eq!(
+//!     TransparentEnum::Foo(42).as_ssz_bytes(),
+//!     vec![42]
+//! );
+//! assert_eq!(
+//!     TransparentEnum::Bar(vec![42, 42]).as_ssz_bytes(),
+//!     vec![42, 42]
+//! );
+//! ```
 
 use darling::{FromDeriveInput, FromMeta};
 use proc_macro::TokenStream;
@@ -13,11 +153,18 @@ use syn::{parse_macro_input, DataEnum, DataStruct, DeriveInput, Ident};
 /// extensions).
 const MAX_UNION_SELECTOR: u8 = 127;
 
+const ENUM_TRANSPARENT: &str = "transparent";
+const ENUM_UNION: &str = "union";
+const NO_ENUM_BEHAVIOUR_ERROR: &str = "enums require an \"enum_behaviour\" attribute with \
+    a \"transparent\" or \"union\" value, e.g., #[ssz(enum_behaviour = \"transparent\")]";
+
 #[derive(Debug, FromDeriveInput)]
 #[darling(attributes(ssz))]
 struct StructOpts {
     #[darling(default)]
     enum_behaviour: Option<String>,
+    #[darling(default)]
+    struct_behaviour: Option<String>,
 }
 
 /// Field-level configuration.
@@ -31,40 +178,87 @@ struct FieldOpts {
     skip_deserializing: bool,
 }
 
-const ENUM_TRANSPARENT: &str = "transparent";
-const ENUM_UNION: &str = "union";
-const ENUM_VARIANTS: &[&str] = &[ENUM_TRANSPARENT, ENUM_UNION];
-const NO_ENUM_BEHAVIOUR_ERROR: &str = "enums require an \"enum_behaviour\" attribute, \
-    e.g., #[ssz(enum_behaviour = \"transparent\")]";
-
-enum EnumBehaviour {
-    Transparent,
-    Union,
+enum Procedure<'a> {
+    Struct {
+        data: &'a syn::DataStruct,
+        behaviour: StructBehaviour,
+    },
+    Enum {
+        data: &'a syn::DataEnum,
+        behaviour: EnumBehaviour,
+    },
 }
 
-impl EnumBehaviour {
-    pub fn new(s: Option<String>) -> Option<Self> {
-        s.map(|s| match s.as_ref() {
-            ENUM_TRANSPARENT => EnumBehaviour::Transparent,
-            ENUM_UNION => EnumBehaviour::Union,
-            other => panic!(
-                "{} is an invalid enum_behaviour, use either {:?}",
-                other, ENUM_VARIANTS
-            ),
-        })
+enum StructBehaviour {
+    Container,
+    Transparent,
+}
+
+enum EnumBehaviour {
+    Union,
+    Transparent,
+}
+
+impl<'a> Procedure<'a> {
+    fn read(item: &'a DeriveInput) -> Self {
+        let opts = StructOpts::from_derive_input(item).unwrap();
+
+        match &item.data {
+            syn::Data::Struct(data) => {
+                if opts.enum_behaviour.is_some() {
+                    panic!("cannot use \"enum_behaviour\" for a struct");
+                }
+
+                match opts.struct_behaviour.as_deref() {
+                    Some("container") | None => Procedure::Struct {
+                        data,
+                        behaviour: StructBehaviour::Container,
+                    },
+                    Some("transparent") => Procedure::Struct {
+                        data,
+                        behaviour: StructBehaviour::Transparent,
+                    },
+                    Some(other) => panic!(
+                        "{} is not a valid struct behaviour, use \"container\" or \"transparent\"",
+                        other
+                    ),
+                }
+            }
+            syn::Data::Enum(data) => {
+                if opts.struct_behaviour.is_some() {
+                    panic!("cannot use \"struct_behaviour\" for an enum");
+                }
+
+                match opts.enum_behaviour.as_deref() {
+                    Some("union") => Procedure::Enum {
+                        data,
+                        behaviour: EnumBehaviour::Union,
+                    },
+                    Some("transparent") => Procedure::Enum {
+                        data,
+                        behaviour: EnumBehaviour::Transparent,
+                    },
+                    Some(other) => panic!(
+                        "{} is not a valid enum behaviour, use \"container\" or \"transparent\"",
+                        other
+                    ),
+                    None => panic!("{}", NO_ENUM_BEHAVIOUR_ERROR),
+                }
+            }
+            _ => panic!("ssz_derive only supports structs and enums"),
+        }
     }
 }
 
-fn parse_ssz_fields(struct_data: &syn::DataStruct) -> Vec<(&syn::Type, &syn::Ident, FieldOpts)> {
+fn parse_ssz_fields(
+    struct_data: &syn::DataStruct,
+) -> Vec<(&syn::Type, Option<&syn::Ident>, FieldOpts)> {
     struct_data
         .fields
         .iter()
         .map(|field| {
             let ty = &field.ty;
-            let ident = match &field.ident {
-                Some(ref ident) => ident,
-                _ => panic!("ssz_derive only supports named struct fields."),
-            };
+            let ident = field.ident.as_ref();
 
             let field_opts_candidates = field
                 .attrs
@@ -93,21 +287,17 @@ fn parse_ssz_fields(struct_data: &syn::DataStruct) -> Vec<(&syn::Type, &syn::Ide
 #[proc_macro_derive(Encode, attributes(ssz))]
 pub fn ssz_encode_derive(input: TokenStream) -> TokenStream {
     let item = parse_macro_input!(input as DeriveInput);
-    let opts = StructOpts::from_derive_input(&item).unwrap();
-    let enum_opt = EnumBehaviour::new(opts.enum_behaviour);
+    let procedure = Procedure::read(&item);
 
-    match &item.data {
-        syn::Data::Struct(s) => {
-            if enum_opt.is_some() {
-                panic!("enum_behaviour is invalid for structs");
-            }
-            ssz_encode_derive_struct(&item, s)
-        }
-        syn::Data::Enum(s) => match enum_opt.expect(NO_ENUM_BEHAVIOUR_ERROR) {
-            EnumBehaviour::Transparent => ssz_encode_derive_enum_transparent(&item, s),
-            EnumBehaviour::Union => ssz_encode_derive_enum_union(&item, s),
+    match procedure {
+        Procedure::Struct { data, behaviour } => match behaviour {
+            StructBehaviour::Transparent => ssz_encode_derive_struct_transparent(&item, data),
+            StructBehaviour::Container => ssz_encode_derive_struct(&item, data),
         },
-        _ => panic!("ssz_derive only supports structs and enums"),
+        Procedure::Enum { data, behaviour } => match behaviour {
+            EnumBehaviour::Transparent => ssz_encode_derive_enum_transparent(&item, data),
+            EnumBehaviour::Union => ssz_encode_derive_enum_union(&item, data),
+        },
     }
 }
 
@@ -131,6 +321,13 @@ fn ssz_encode_derive_struct(derive_input: &DeriveInput, struct_data: &DataStruct
         if field_opts.skip_serializing {
             continue;
         }
+
+        let ident = match ident {
+            Some(ref ident) => ident,
+            _ => panic!(
+                "#[ssz(struct_behaviour = \"container\")] only supports named struct fields."
+            ),
+        };
 
         if let Some(module) = field_opts.with {
             let module = quote! { #module::encode };
@@ -216,6 +413,82 @@ fn ssz_encode_derive_struct(derive_input: &DeriveInput, struct_data: &DataStruct
             }
         }
     };
+    output.into()
+}
+
+/// Derive `ssz::Encode` "transparently" for a struct which has exactly one non-skipped field.
+///
+/// The single field is encoded directly, making the outermost `struct` transparent.
+///
+/// ## Field attributes
+///
+/// - `#[ssz(skip_serializing)]`: the field will not be serialized.
+fn ssz_encode_derive_struct_transparent(
+    derive_input: &DeriveInput,
+    struct_data: &DataStruct,
+) -> TokenStream {
+    let name = &derive_input.ident;
+    let (impl_generics, ty_generics, where_clause) = &derive_input.generics.split_for_impl();
+    let ssz_fields = parse_ssz_fields(struct_data);
+    let num_fields = ssz_fields
+        .iter()
+        .filter(|(_, _, field_opts)| !field_opts.skip_deserializing)
+        .count();
+
+    if num_fields != 1 {
+        panic!(
+            "A \"transparent\" struct must have exactly one non-skipped field ({} fields found)",
+            num_fields
+        );
+    }
+
+    let (ty, ident, _field_opts) = ssz_fields
+        .iter()
+        .find(|(_, _, field_opts)| !field_opts.skip_deserializing)
+        .expect("\"transparent\" struct must have at least one non-skipped field");
+
+    let output = if let Some(field_name) = ident {
+        quote! {
+            impl #impl_generics ssz::Encode for #name #ty_generics #where_clause {
+                fn is_ssz_fixed_len() -> bool {
+                    <#ty as ssz::Encode>::is_ssz_fixed_len()
+                }
+
+                fn ssz_fixed_len() -> usize {
+                    <#ty as ssz::Encode>::ssz_fixed_len()
+                }
+
+                fn ssz_bytes_len(&self) -> usize {
+                    self.#field_name.ssz_bytes_len()
+                }
+
+                fn ssz_append(&self, buf: &mut Vec<u8>) {
+                    self.#field_name.ssz_append(buf)
+                }
+            }
+        }
+    } else {
+        quote! {
+            impl #impl_generics ssz::Encode for #name #ty_generics #where_clause {
+                fn is_ssz_fixed_len() -> bool {
+                    <#ty as ssz::Encode>::is_ssz_fixed_len()
+                }
+
+                fn ssz_fixed_len() -> usize {
+                    <#ty as ssz::Encode>::ssz_fixed_len()
+                }
+
+                fn ssz_bytes_len(&self) -> usize {
+                    self.0.ssz_bytes_len()
+                }
+
+                fn ssz_append(&self, buf: &mut Vec<u8>) {
+                    self.0.ssz_append(buf)
+                }
+            }
+        }
+    };
+
     output.into()
 }
 
@@ -367,24 +640,20 @@ fn ssz_encode_derive_enum_union(derive_input: &DeriveInput, enum_data: &DataEnum
 #[proc_macro_derive(Decode, attributes(ssz))]
 pub fn ssz_decode_derive(input: TokenStream) -> TokenStream {
     let item = parse_macro_input!(input as DeriveInput);
-    let opts = StructOpts::from_derive_input(&item).unwrap();
-    let enum_opt = EnumBehaviour::new(opts.enum_behaviour);
+    let procedure = Procedure::read(&item);
 
-    match &item.data {
-        syn::Data::Struct(s) => {
-            if enum_opt.is_some() {
-                panic!("enum_behaviour is invalid for structs");
-            }
-            ssz_decode_derive_struct(&item, s)
-        }
-        syn::Data::Enum(s) => match enum_opt.expect(NO_ENUM_BEHAVIOUR_ERROR) {
+    match procedure {
+        Procedure::Struct { data, behaviour } => match behaviour {
+            StructBehaviour::Transparent => ssz_decode_derive_struct_transparent(&item, data),
+            StructBehaviour::Container => ssz_decode_derive_struct(&item, data),
+        },
+        Procedure::Enum { data, behaviour } => match behaviour {
+            EnumBehaviour::Union => ssz_decode_derive_enum_union(&item, data),
             EnumBehaviour::Transparent => panic!(
                 "Decode cannot be derived for enum_behaviour \"{}\", only \"{}\" is valid.",
                 ENUM_TRANSPARENT, ENUM_UNION
             ),
-            EnumBehaviour::Union => ssz_decode_derive_enum_union(&item, s),
         },
-        _ => panic!("ssz_derive only supports structs and enums"),
     }
 }
 
@@ -409,6 +678,13 @@ fn ssz_decode_derive_struct(item: &DeriveInput, struct_data: &DataStruct) -> Tok
     let mut fixed_lens = vec![];
 
     for (ty, ident, field_opts) in parse_ssz_fields(struct_data) {
+        let ident = match ident {
+            Some(ref ident) => ident,
+            _ => panic!(
+                "#[ssz(struct_behaviour = \"container\")] only supports named struct fields."
+            ),
+        };
+
         field_names.push(quote! {
             #ident
         });
@@ -539,6 +815,90 @@ fn ssz_decode_derive_struct(item: &DeriveInput, struct_data: &DataStruct) -> Tok
                         )*
                     })
                 }
+            }
+        }
+    };
+    output.into()
+}
+
+/// Implements `ssz::Decode` "transparently" for a `struct` with exactly one non-skipped field.
+///
+/// The bytes will be decoded as if they are the inner field, without the outermost struct. The
+/// outermost struct will then be applied artificially.
+///
+/// ## Field attributes
+///
+/// - `#[ssz(skip_deserializing)]`: during de-serialization the field will be instantiated from a
+/// `Default` implementation. The decoder will assume that the field was not serialized at all
+/// (e.g., if it has been serialized, an error will be raised instead of `Default` overriding it).
+fn ssz_decode_derive_struct_transparent(
+    item: &DeriveInput,
+    struct_data: &DataStruct,
+) -> TokenStream {
+    let name = &item.ident;
+    let (impl_generics, ty_generics, where_clause) = &item.generics.split_for_impl();
+    let ssz_fields = parse_ssz_fields(struct_data);
+    let num_fields = ssz_fields
+        .iter()
+        .filter(|(_, _, field_opts)| !field_opts.skip_deserializing)
+        .count();
+
+    if num_fields != 1 {
+        panic!(
+            "A \"transparent\" struct must have exactly one non-skipped field ({} fields found)",
+            num_fields
+        );
+    }
+
+    let mut fields = vec![];
+    let mut wrapped_type = None;
+
+    for (i, (ty, ident, field_opts)) in ssz_fields.into_iter().enumerate() {
+        if let Some(name) = ident {
+            if field_opts.skip_deserializing {
+                fields.push(quote! {
+                    #name: <_>::default(),
+                });
+            } else {
+                fields.push(quote! {
+                    #name: <_>::from_ssz_bytes(bytes)?,
+                });
+                wrapped_type = Some(ty);
+            }
+        } else {
+            let index = syn::Index::from(i);
+            if field_opts.skip_deserializing {
+                fields.push(quote! {
+                    #index:<_>::default(),
+                });
+            } else {
+                fields.push(quote! {
+                    #index:<_>::from_ssz_bytes(bytes)?,
+                });
+                wrapped_type = Some(ty);
+            }
+        }
+    }
+
+    let ty = wrapped_type.unwrap();
+
+    let output = quote! {
+        impl #impl_generics ssz::Decode for #name #ty_generics #where_clause {
+            fn is_ssz_fixed_len() -> bool {
+                <#ty as ssz::Decode>::is_ssz_fixed_len()
+            }
+
+            fn ssz_fixed_len() -> usize {
+                <#ty as ssz::Decode>::ssz_fixed_len()
+            }
+
+            fn from_ssz_bytes(bytes: &[u8]) -> std::result::Result<Self, ssz::DecodeError> {
+                Ok(Self {
+                    #(
+                        #fields
+                    )*
+
+                })
             }
         }
     };
