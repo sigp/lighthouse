@@ -8,7 +8,7 @@ use eth1::Eth1Endpoint;
 use lighthouse_network::PeerId;
 use std::fs::File;
 use std::io::{Read, Write};
-use std::net::IpAddr;
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::path::PathBuf;
 use std::process::Command;
 use std::str::FromStr;
@@ -16,7 +16,7 @@ use std::string::ToString;
 use std::time::Duration;
 use tempfile::TempDir;
 use types::{Address, Checkpoint, Epoch, ExecutionBlockHash, ForkName, Hash256, MainnetEthSpec};
-use unused_port::{unused_tcp_port, unused_udp_port};
+use unused_port::{unused_tcp4_port, unused_udp4_port};
 
 const DEFAULT_ETH1_ENDPOINT: &str = "http://localhost:8545/";
 
@@ -822,34 +822,51 @@ fn network_shutdown_after_sync_disabled_flag() {
 }
 #[test]
 fn network_listen_address_flag() {
-    let addr = "127.0.0.2".parse::<IpAddr>().unwrap();
+    let addr = "127.0.0.2".parse::<Ipv4Addr>().unwrap();
     CommandLineTest::new()
         .flag("listen-address", Some("127.0.0.2"))
         .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.network.listen_address, addr));
+        .with_config(|config| {
+            assert_eq!(
+                config.network.listen_addrs().v4().map(|addr| addr.addr),
+                Some(addr)
+            )
+        });
 }
 #[test]
 fn network_port_flag() {
-    let port = unused_tcp_port().expect("Unable to find unused port.");
+    let port = unused_tcp4_port().expect("Unable to find unused port.");
     CommandLineTest::new()
         .flag("port", Some(port.to_string().as_str()))
         .run()
         .with_config(|config| {
-            assert_eq!(config.network.libp2p_port, port);
-            assert_eq!(config.network.discovery_port, port);
+            assert_eq!(
+                config
+                    .network
+                    .listen_addrs()
+                    .v4()
+                    .map(|listen_addr| (listen_addr.udp_port, listen_addr.tcp_port)),
+                Some((port, port))
+            );
         });
 }
 #[test]
 fn network_port_and_discovery_port_flags() {
-    let port1 = unused_tcp_port().expect("Unable to find unused port.");
-    let port2 = unused_udp_port().expect("Unable to find unused port.");
+    let port1 = unused_tcp4_port().expect("Unable to find unused port.");
+    let port2 = unused_udp4_port().expect("Unable to find unused port.");
     CommandLineTest::new()
         .flag("port", Some(port1.to_string().as_str()))
         .flag("discovery-port", Some(port2.to_string().as_str()))
         .run()
         .with_config(|config| {
-            assert_eq!(config.network.libp2p_port, port1);
-            assert_eq!(config.network.discovery_port, port2);
+            assert_eq!(
+                config
+                    .network
+                    .listen_addrs()
+                    .v4()
+                    .map(|listen_addr| (listen_addr.tcp_port, listen_addr.udp_port)),
+                Some((port1, port2))
+            );
         });
 }
 #[test]
@@ -956,7 +973,6 @@ fn zero_ports_flag() {
     CommandLineTest::new()
         .run_with_zero_port()
         .with_config(|config| {
-            assert_eq!(config.network.enr_address, None);
             assert_eq!(config.http_api.listen_port, 0);
             assert_eq!(config.http_metrics.listen_port, 0);
         });
@@ -974,25 +990,25 @@ fn network_load_flag() {
 // Tests for ENR flags.
 #[test]
 fn enr_udp_port_flags() {
-    let port = unused_udp_port().expect("Unable to find unused port.");
+    let port = unused_udp4_port().expect("Unable to find unused port.");
     CommandLineTest::new()
         .flag("enr-udp-port", Some(port.to_string().as_str()))
         .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.network.enr_udp_port, Some(port)));
+        .with_config(|config| assert_eq!(config.network.enr_udp4_port, Some(port)));
 }
 #[test]
 fn enr_tcp_port_flags() {
-    let port = unused_tcp_port().expect("Unable to find unused port.");
+    let port = unused_tcp4_port().expect("Unable to find unused port.");
     CommandLineTest::new()
         .flag("enr-tcp-port", Some(port.to_string().as_str()))
         .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.network.enr_tcp_port, Some(port)));
+        .with_config(|config| assert_eq!(config.network.enr_tcp4_port, Some(port)));
 }
 #[test]
 fn enr_match_flag() {
-    let addr = "127.0.0.2".parse::<IpAddr>().unwrap();
-    let port1 = unused_udp_port().expect("Unable to find unused port.");
-    let port2 = unused_udp_port().expect("Unable to find unused port.");
+    let addr = "127.0.0.2".parse::<Ipv4Addr>().unwrap();
+    let port1 = unused_udp4_port().expect("Unable to find unused port.");
+    let port2 = unused_tcp4_port().expect("Unable to find unused port.");
     CommandLineTest::new()
         .flag("enr-match", None)
         .flag("listen-address", Some("127.0.0.2"))
@@ -1000,40 +1016,46 @@ fn enr_match_flag() {
         .flag("port", Some(port2.to_string().as_str()))
         .run()
         .with_config(|config| {
-            assert_eq!(config.network.listen_address, addr);
-            assert_eq!(config.network.enr_address, Some(addr));
-            assert_eq!(config.network.discovery_port, port1);
-            assert_eq!(config.network.enr_udp_port, Some(port1));
+            assert_eq!(
+                config.network.listen_addrs().v4().map(|listen_addr| (
+                    listen_addr.addr,
+                    listen_addr.udp_port,
+                    listen_addr.tcp_port
+                )),
+                Some((addr, port1, port2))
+            );
+            assert_eq!(config.network.enr_address, (Some(addr), None));
+            assert_eq!(config.network.enr_udp4_port, Some(port1));
         });
 }
 #[test]
 fn enr_address_flag() {
-    let addr = "192.167.1.1".parse::<IpAddr>().unwrap();
-    let port = unused_udp_port().expect("Unable to find unused port.");
+    let addr = "192.167.1.1".parse::<Ipv4Addr>().unwrap();
+    let port = unused_udp4_port().expect("Unable to find unused port.");
     CommandLineTest::new()
         .flag("enr-address", Some("192.167.1.1"))
         .flag("enr-udp-port", Some(port.to_string().as_str()))
         .run_with_zero_port()
         .with_config(|config| {
-            assert_eq!(config.network.enr_address, Some(addr));
-            assert_eq!(config.network.enr_udp_port, Some(port));
+            assert_eq!(config.network.enr_address, (Some(addr), None));
+            assert_eq!(config.network.enr_udp4_port, Some(port));
         });
 }
 #[test]
 fn enr_address_dns_flag() {
-    let addr = "127.0.0.1".parse::<IpAddr>().unwrap();
-    let ipv6addr = "::1".parse::<IpAddr>().unwrap();
-    let port = unused_udp_port().expect("Unable to find unused port.");
+    let addr = Ipv4Addr::LOCALHOST;
+    let ipv6addr = Ipv6Addr::LOCALHOST;
+    let port = unused_udp4_port().expect("Unable to find unused port.");
     CommandLineTest::new()
         .flag("enr-address", Some("localhost"))
         .flag("enr-udp-port", Some(port.to_string().as_str()))
         .run_with_zero_port()
         .with_config(|config| {
             assert!(
-                config.network.enr_address == Some(addr)
-                    || config.network.enr_address == Some(ipv6addr)
+                config.network.enr_address.0 == Some(addr)
+                    || config.network.enr_address.1 == Some(ipv6addr)
             );
-            assert_eq!(config.network.enr_udp_port, Some(port));
+            assert_eq!(config.network.enr_udp4_port, Some(port));
         });
 }
 #[test]
@@ -1070,8 +1092,8 @@ fn http_address_ipv6_flag() {
 }
 #[test]
 fn http_port_flag() {
-    let port1 = unused_tcp_port().expect("Unable to find unused port.");
-    let port2 = unused_tcp_port().expect("Unable to find unused port.");
+    let port1 = unused_tcp4_port().expect("Unable to find unused port.");
+    let port2 = unused_tcp4_port().expect("Unable to find unused port.");
     CommandLineTest::new()
         .flag("http-port", Some(port1.to_string().as_str()))
         .flag("port", Some(port2.to_string().as_str()))
@@ -1185,8 +1207,8 @@ fn metrics_address_ipv6_flag() {
 }
 #[test]
 fn metrics_port_flag() {
-    let port1 = unused_tcp_port().expect("Unable to find unused port.");
-    let port2 = unused_tcp_port().expect("Unable to find unused port.");
+    let port1 = unused_tcp4_port().expect("Unable to find unused port.");
+    let port2 = unused_tcp4_port().expect("Unable to find unused port.");
     CommandLineTest::new()
         .flag("metrics", None)
         .flag("metrics-port", Some(port1.to_string().as_str()))
