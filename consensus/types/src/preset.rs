@@ -184,6 +184,27 @@ impl BellatrixPreset {
     }
 }
 
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "UPPERCASE")]
+pub struct CapellaPreset {
+    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    pub max_bls_to_execution_changes: u64,
+    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    pub max_withdrawals_per_payload: u64,
+    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    pub max_validators_per_withdrawals_sweep: u64,
+}
+
+impl CapellaPreset {
+    pub fn from_chain_spec<T: EthSpec>(spec: &ChainSpec) -> Self {
+        Self {
+            max_bls_to_execution_changes: T::max_bls_to_execution_changes() as u64,
+            max_withdrawals_per_payload: T::max_withdrawals_per_payload() as u64,
+            max_validators_per_withdrawals_sweep: spec.max_validators_per_withdrawals_sweep,
+        }
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -202,7 +223,7 @@ mod test {
     }
 
     fn preset_from_file<T: DeserializeOwned>(preset_name: &str, filename: &str) -> T {
-        let f = File::open(&presets_base_path().join(preset_name).join(filename))
+        let f = File::open(presets_base_path().join(preset_name).join(filename))
             .expect("preset file exists");
         serde_yaml::from_reader(f).unwrap()
     }
@@ -219,6 +240,9 @@ mod test {
 
         let bellatrix: BellatrixPreset = preset_from_file(&preset_name, "bellatrix.yaml");
         assert_eq!(bellatrix, BellatrixPreset::from_chain_spec::<E>(&spec));
+
+        let capella: CapellaPreset = preset_from_file(&preset_name, "capella.yaml");
+        assert_eq!(capella, CapellaPreset::from_chain_spec::<E>(&spec));
     }
 
     #[test]

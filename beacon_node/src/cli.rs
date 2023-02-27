@@ -194,6 +194,21 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .help("Lighthouse by default does not discover private IP addresses. Set this flag to enable connection attempts to local addresses.")
                 .takes_value(false),
         )
+        .arg(
+            Arg::with_name("self-limiter")
+            .long("self-limiter")
+            .help(
+                "Enables the outbound rate limiter (requests made by this node).\
+                \
+                Rate limit quotas per protocol can be set in the form of \
+                <protocol_name>:<tokens>/<time_in_seconds>. To set quotas for multiple protocols, \
+                separate them by ';'. If the self rate limiter is enabled and a protocol is not \
+                present in the configuration, the quotas used for the inbound rate limiter will be \
+                used."
+            )
+            .min_values(0)
+            .hidden(true)
+        )
         /* REST API related arguments */
         .arg(
             Arg::with_name("http")
@@ -754,12 +769,55 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true)
         )
         .arg(
+            Arg::with_name("validator-monitor-individual-tracking-threshold")
+                .long("validator-monitor-individual-tracking-threshold")
+                .help("Once the validator monitor reaches this number of local validators \
+                    it will stop collecting per-validator Prometheus metrics and issuing \
+                    per-validator logs. Instead, it will provide aggregate metrics and logs. \
+                    This avoids infeasibly high cardinality in the Prometheus database and \
+                    high log volume when using many validators. Defaults to 64.")
+                .value_name("INTEGER")
+                .takes_value(true)
+        )
+        .arg(
             Arg::with_name("disable-lock-timeouts")
                 .long("disable-lock-timeouts")
                 .help("Disable the timeouts applied to some internal locks by default. This can \
                        lead to less spurious failures on slow hardware but is considered \
                        experimental as it may obscure performance issues.")
                 .takes_value(false)
+        )
+        .arg(
+            Arg::with_name("disable-proposer-reorgs")
+                .long("disable-proposer-reorgs")
+                .help("Do not attempt to reorg late blocks from other validators when proposing.")
+                .takes_value(false)
+        )
+        .arg(
+            Arg::with_name("proposer-reorg-threshold")
+                .long("proposer-reorg-threshold")
+                .value_name("PERCENT")
+                .help("Percentage of vote weight below which to attempt a proposer reorg. \
+                       Default: 20%")
+                .conflicts_with("disable-proposer-reorgs")
+        )
+        .arg(
+            Arg::with_name("proposer-reorg-epochs-since-finalization")
+                .long("proposer-reorg-epochs-since-finalization")
+                .value_name("EPOCHS")
+                .help("Maximum number of epochs since finalization at which proposer reorgs are \
+                       allowed. Default: 2")
+                .conflicts_with("disable-proposer-reorgs")
+        )
+        .arg(
+            Arg::with_name("prepare-payload-lookahead")
+                .long("prepare-payload-lookahead")
+                .value_name("MILLISECONDS")
+                .help("The time before the start of a proposal slot at which payload attributes \
+                       should be sent. Low values are useful for execution nodes which don't \
+                       improve their payload after the first call, and high values are useful \
+                       for ensuring the EL is given ample notice. Default: 1/3 of a slot.")
+                .takes_value(true)
         )
         .arg(
             Arg::with_name("fork-choice-before-proposal-timeout")
@@ -869,10 +927,25 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(false)
         )
         .arg(
+            Arg::with_name("disable-optimistic-finalized-sync")
+                .long("disable-optimistic-finalized-sync")
+                .help("Force Lighthouse to verify every execution block hash with the execution \
+                       client during finalized sync. By default block hashes will be checked in \
+                       Lighthouse and only passed to the EL if initial verification fails.")
+        )
+        .arg(
             Arg::with_name("light-client-server")
                 .long("light-client-server")
                 .help("Act as a full node supporting light clients on the p2p network \
                        [experimental]")
+                .takes_value(false)
+        )
+        .arg(
+            Arg::with_name("gui")
+                .long("gui")
+                .hidden(true)
+                .help("Enable the graphical user interface and all its requirements. \
+                      This is equivalent to --http and --validator-monitor-auto.")
                 .takes_value(false)
         )
 }

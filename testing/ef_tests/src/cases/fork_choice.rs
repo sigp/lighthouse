@@ -7,7 +7,7 @@ use beacon_chain::{
         obtain_indexed_attestation_and_committees_per_slot, VerifiedAttestation,
     },
     test_utils::{BeaconChainHarness, EphemeralHarnessType},
-    BeaconChainTypes, CachedHead, CountUnrealized,
+    BeaconChainTypes, CachedHead, CountUnrealized, NotifyExecutionLayer,
 };
 use execution_layer::{json_structures::JsonPayloadStatusV1Status, PayloadStatusV1};
 use serde::Deserialize;
@@ -311,6 +311,7 @@ impl<E: EthSpec> Tester<E> {
             .keypairs(vec![])
             .genesis_state_ephemeral_store(case.anchor_state.clone())
             .mock_execution_layer()
+            .recalculate_fork_times_with_genesis(0)
             .mock_execution_layer_all_payloads_valid()
             .build();
 
@@ -388,6 +389,7 @@ impl<E: EthSpec> Tester<E> {
             block_root,
             block.clone(),
             CountUnrealized::False,
+            NotifyExecutionLayer::Yes,
         ))?;
         if result.is_ok() != valid {
             return Err(Error::DidntFail(format!(

@@ -1,3 +1,7 @@
+use beacon_chain::chain_config::{
+    ReOrgThreshold, DEFAULT_PREPARE_PAYLOAD_LOOKAHEAD_FACTOR,
+    DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION, DEFAULT_RE_ORG_THRESHOLD,
+};
 use clap::ArgMatches;
 use clap_utils::flags::DISABLE_MALLOC_TUNING_FLAG;
 use client::{ClientConfig, ClientGenesis};
@@ -14,9 +18,11 @@ use std::cmp::max;
 use std::fmt::Debug;
 use std::fmt::Write;
 use std::fs;
+use std::net::Ipv6Addr;
 use std::net::{IpAddr, Ipv4Addr, ToSocketAddrs};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
+use std::time::Duration;
 use types::{Checkpoint, Epoch, EthSpec, Hash256, PublicKeyBytes, GRAFFITI_BYTES_LEN};
 use unused_port::{unused_tcp_port, unused_udp_port};
 
@@ -669,14 +675,41 @@ pub fn get_config<E: EthSpec>(
             .extend_from_slice(&pubkeys);
     }
 
+    if let Some(count) =
+        clap_utils::parse_optional(cli_args, "validator-monitor-individual-tracking-threshold")?
+    {
+        client_config.validator_monitor_individual_tracking_threshold = count;
+    }
+
     if cli_args.is_present("disable-lock-timeouts") {
         client_config.chain.enable_lock_timeouts = false;
+    }
+
+    if cli_args.is_present("disable-proposer-reorgs") {
+        client_config.chain.re_org_threshold = None;
+    } else {
+        client_config.chain.re_org_threshold = Some(
+            clap_utils::parse_optional(cli_args, "proposer-reorg-threshold")?
+                .map(ReOrgThreshold)
+                .unwrap_or(DEFAULT_RE_ORG_THRESHOLD),
+        );
+        client_config.chain.re_org_max_epochs_since_finalization =
+            clap_utils::parse_optional(cli_args, "proposer-reorg-epochs-since-finalization")?
+                .unwrap_or(DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION);
     }
 
     // Note: This overrides any previous flags that enable this option.
     if cli_args.is_present("disable-deposit-contract-sync") {
         client_config.sync_eth1_chain = false;
     }
+
+    client_config.chain.prepare_payload_lookahead =
+        clap_utils::parse_optional(cli_args, "prepare-payload-lookahead")?
+            .map(Duration::from_millis)
+            .unwrap_or_else(|| {
+                Duration::from_secs(spec.seconds_per_slot)
+                    / DEFAULT_PREPARE_PAYLOAD_LOOKAHEAD_FACTOR
+            });
 
     if let Some(timeout) =
         clap_utils::parse_optional(cli_args, "fork-choice-before-proposal-timeout")?
@@ -708,8 +741,15 @@ pub fn get_config<E: EthSpec>(
     client_config.chain.builder_fallback_disable_checks =
         cli_args.is_present("builder-fallback-disable-checks");
 
-    // Light client server config.
-    client_config.chain.enable_light_client_server = cli_args.is_present("light-client-server");
+    // Graphical user interface config.
+    if cli_args.is_present("gui") {
+        client_config.http_api.enabled = true;
+        client_config.validator_monitor_auto = true;
+    }
+
+    // Optimistic finalized sync.
+    client_config.chain.optimistic_finalized_sync =
+        !cli_args.is_present("disable-optimistic-finalized-sync");
 
     Ok(client_config)
 }
@@ -840,9 +880,11 @@ pub fn set_network_config(
     }
 
     if cli_args.is_present("enr-match") {
-        // set the enr address to localhost if the address is 0.0.0.0
-        if config.listen_address == "0.0.0.0".parse::<IpAddr>().expect("valid ip addr") {
-            config.enr_address = Some("127.0.0.1".parse::<IpAddr>().expect("valid ip addr"));
+        // set the enr address to localhost if the address is unspecified
+        if config.listen_address == IpAddr::V4(Ipv4Addr::UNSPECIFIED) {
+            config.enr_address = Some(IpAddr::V4(Ipv4Addr::LOCALHOST));
+        } else if config.listen_address == IpAddr::V6(Ipv6Addr::UNSPECIFIED) {
+            config.enr_address = Some(IpAddr::V6(Ipv6Addr::LOCALHOST));
         } else {
             config.enr_address = Some(config.listen_address);
         }
@@ -920,6 +962,16 @@ pub fn set_network_config(
 
     if cli_args.is_present("enable-private-discovery") {
         config.discv5_config.table_filter = |_| true;
+    }
+
+    // Light client server config.
+    config.enable_light_client_server = cli_args.is_present("light-client-server");
+
+    // This flag can be used both with or without a value. Try to parse it first with a value, if
+    // no value is defined but the flag is present, use the default params.
+    config.outbound_rate_limiter_config = clap_utils::parse_optional(cli_args, "self-limiter")?;
+    if cli_args.is_present("self-limiter") && config.outbound_rate_limiter_config.is_none() {
+        config.outbound_rate_limiter_config = Some(Default::default());
     }
 
     Ok(())

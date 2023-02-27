@@ -1,6 +1,6 @@
 use super::{BeaconBlockHeader, EthSpec, Slot, SyncAggregate};
 use crate::{
-    light_client_update::Error, test_utils::TestRandom, BeaconBlock, BeaconState, ChainSpec,
+    light_client_update::Error, test_utils::TestRandom, BeaconState, ChainSpec, SignedBeaconBlock,
 };
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
@@ -9,9 +9,19 @@ use tree_hash::TreeHash;
 
 /// A LightClientOptimisticUpdate is the update we send on each slot,
 /// it is based off the current unfinalized epoch is verified only against BLS signature.
-#[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TestRandom)]
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Serialize,
+    Deserialize,
+    Encode,
+    Decode,
+    TestRandom,
+    arbitrary::Arbitrary,
+)]
 #[serde(bound = "T: EthSpec")]
+#[arbitrary(bound = "T: EthSpec")]
 pub struct LightClientOptimisticUpdate<T: EthSpec> {
     /// The last `BeaconBlockHeader` from the last attested block by the sync committee.
     pub attested_header: BeaconBlockHeader,
@@ -23,9 +33,9 @@ pub struct LightClientOptimisticUpdate<T: EthSpec> {
 
 impl<T: EthSpec> LightClientOptimisticUpdate<T> {
     pub fn new(
-        chain_spec: ChainSpec,
-        block: BeaconBlock<T>,
-        attested_state: BeaconState<T>,
+        chain_spec: &ChainSpec,
+        block: &SignedBeaconBlock<T>,
+        attested_state: &BeaconState<T>,
     ) -> Result<Self, Error> {
         let altair_fork_epoch = chain_spec
             .altair_fork_epoch
@@ -34,7 +44,7 @@ impl<T: EthSpec> LightClientOptimisticUpdate<T> {
             return Err(Error::AltairForkNotActive);
         }
 
-        let sync_aggregate = block.body().sync_aggregate()?;
+        let sync_aggregate = block.message().body().sync_aggregate()?;
         if sync_aggregate.num_set_bits() < chain_spec.min_sync_committee_participants as usize {
             return Err(Error::NotEnoughSyncCommitteeParticipants);
         }

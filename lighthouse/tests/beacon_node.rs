@@ -1,6 +1,9 @@
 use beacon_node::{beacon_chain::CountUnrealizedFull, ClientConfig as Config};
 
 use crate::exec::{CommandLineTestExec, CompletedTest};
+use beacon_node::beacon_chain::chain_config::{
+    DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION, DEFAULT_RE_ORG_THRESHOLD,
+};
 use eth1::Eth1Endpoint;
 use lighthouse_network::PeerId;
 use std::fs::File;
@@ -10,6 +13,7 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::str::FromStr;
 use std::string::ToString;
+use std::time::Duration;
 use tempfile::TempDir;
 use types::{Address, Checkpoint, Epoch, ExecutionBlockHash, ForkName, Hash256, MainnetEthSpec};
 use unused_port::{unused_tcp_port, unused_udp_port};
@@ -150,6 +154,31 @@ fn checkpoint_sync_url_timeout_default() {
         .run_with_zero_port()
         .with_config(|config| {
             assert_eq!(config.chain.checkpoint_sync_url_timeout, 60);
+        });
+}
+
+#[test]
+fn prepare_payload_lookahead_default() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config.chain.prepare_payload_lookahead,
+                Duration::from_secs(4),
+            )
+        });
+}
+
+#[test]
+fn prepare_payload_lookahead_shorter() {
+    CommandLineTest::new()
+        .flag("prepare-payload-lookahead", Some("1500"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config.chain.prepare_payload_lookahead,
+                Duration::from_millis(1500)
+            )
         });
 }
 
@@ -1050,6 +1079,19 @@ fn http_port_flag() {
         .with_config(|config| assert_eq!(config.http_api.listen_port, port1));
 }
 #[test]
+fn empty_self_limiter_flag() {
+    // Test that empty rate limiter is accepted using the default rate limiting configurations.
+    CommandLineTest::new()
+        .flag("self-limiter", None)
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config.network.outbound_rate_limiter_config,
+                Some(lighthouse_network::rpc::config::OutboundRateLimiterConfig::default())
+            )
+        });
+}
+#[test]
 fn http_allow_origin_flag() {
     CommandLineTest::new()
         .flag("http-allow-origin", Some("127.0.0.99"))
@@ -1208,6 +1250,31 @@ fn validator_monitor_file_flag() {
             assert_eq!(config.validator_monitor_pubkeys[1].to_string(), "0xbeefdeadbeefdeaddeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef");
         });
 }
+#[test]
+fn validator_monitor_metrics_threshold_default() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config.validator_monitor_individual_tracking_threshold,
+                // If this value changes make sure to update the help text for
+                // the CLI command.
+                64
+            )
+        });
+}
+#[test]
+fn validator_monitor_metrics_threshold_custom() {
+    CommandLineTest::new()
+        .flag(
+            "validator-monitor-individual-tracking-threshold",
+            Some("42"),
+        )
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(config.validator_monitor_individual_tracking_threshold, 42)
+        });
+}
 
 // Tests for Store flags.
 #[test]
@@ -1351,7 +1418,7 @@ fn slasher_slot_offset_flag() {
     CommandLineTest::new()
         .flag("slasher", None)
         .flag("slasher-slot-offset", Some("11.25"))
-        .run()
+        .run_with_zero_port()
         .with_config(|config| {
             let slasher_config = config.slasher.as_ref().unwrap();
             assert_eq!(slasher_config.slot_offset, 11.25);
@@ -1363,7 +1430,7 @@ fn slasher_slot_offset_nan_flag() {
     CommandLineTest::new()
         .flag("slasher", None)
         .flag("slasher-slot-offset", Some("NaN"))
-        .run();
+        .run_with_zero_port();
 }
 #[test]
 fn slasher_history_length_flag() {
@@ -1398,7 +1465,7 @@ fn slasher_attestation_cache_size_flag() {
     CommandLineTest::new()
         .flag("slasher", None)
         .flag("slasher-att-cache-size", Some("10000"))
-        .run()
+        .run_with_zero_port()
         .with_config(|config| {
             let slasher_config = config
                 .slasher
@@ -1501,6 +1568,51 @@ fn ensure_panic_on_failed_launch() {
 }
 
 #[test]
+fn enable_proposer_re_orgs_default() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config.chain.re_org_threshold,
+                Some(DEFAULT_RE_ORG_THRESHOLD)
+            );
+            assert_eq!(
+                config.chain.re_org_max_epochs_since_finalization,
+                DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION,
+            );
+        });
+}
+
+#[test]
+fn disable_proposer_re_orgs() {
+    CommandLineTest::new()
+        .flag("disable-proposer-reorgs", None)
+        .run_with_zero_port()
+        .with_config(|config| assert_eq!(config.chain.re_org_threshold, None));
+}
+
+#[test]
+fn proposer_re_org_threshold() {
+    CommandLineTest::new()
+        .flag("proposer-reorg-threshold", Some("90"))
+        .run_with_zero_port()
+        .with_config(|config| assert_eq!(config.chain.re_org_threshold.unwrap().0, 90));
+}
+
+#[test]
+fn proposer_re_org_max_epochs_since_finalization() {
+    CommandLineTest::new()
+        .flag("proposer-reorg-epochs-since-finalization", Some("8"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config.chain.re_org_max_epochs_since_finalization.as_u64(),
+                8
+            )
+        });
+}
+
+#[test]
 fn monitoring_endpoint() {
     CommandLineTest::new()
         .flag("monitoring-endpoint", Some("http://example:8000"))
@@ -1548,7 +1660,41 @@ fn enabled_disable_log_timestamp_flag() {
             assert!(config.logger_config.disable_log_timestamp);
         });
 }
-
+#[test]
+fn logfile_restricted_perms_default() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert!(config.logger_config.is_restricted);
+        });
+}
+#[test]
+fn logfile_no_restricted_perms_flag() {
+    CommandLineTest::new()
+        .flag("logfile-no-restricted-perms", None)
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert!(config.logger_config.is_restricted == false);
+        });
+}
+#[test]
+fn logfile_format_default() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| assert_eq!(config.logger_config.logfile_format, None));
+}
+#[test]
+fn logfile_format_flag() {
+    CommandLineTest::new()
+        .flag("logfile-format", Some("JSON"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config.logger_config.logfile_format,
+                Some("JSON".to_string())
+            )
+        });
+}
 #[test]
 fn sync_eth1_chain_default() {
     CommandLineTest::new()
@@ -1587,7 +1733,7 @@ fn sync_eth1_chain_disable_deposit_contract_sync_flag() {
 fn light_client_server_default() {
     CommandLineTest::new()
         .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.chain.enable_light_client_server, false));
+        .with_config(|config| assert_eq!(config.network.enable_light_client_server, false));
 }
 
 #[test]
@@ -1595,5 +1741,35 @@ fn light_client_server_enabled() {
     CommandLineTest::new()
         .flag("light-client-server", None)
         .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.chain.enable_light_client_server, true));
+        .with_config(|config| assert_eq!(config.network.enable_light_client_server, true));
+}
+
+#[test]
+fn gui_flag() {
+    CommandLineTest::new()
+        .flag("gui", None)
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert!(config.http_api.enabled);
+            assert!(config.validator_monitor_auto);
+        });
+}
+
+#[test]
+fn optimistic_finalized_sync_default() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert!(config.chain.optimistic_finalized_sync);
+        });
+}
+
+#[test]
+fn disable_optimistic_finalized_sync() {
+    CommandLineTest::new()
+        .flag("disable-optimistic-finalized-sync", None)
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert!(!config.chain.optimistic_finalized_sync);
+        });
 }

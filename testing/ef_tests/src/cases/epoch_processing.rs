@@ -5,6 +5,7 @@ use crate::decode::{ssz_decode_state, yaml_decode_file};
 use crate::type_name;
 use crate::type_name::TypeName;
 use serde_derive::Deserialize;
+use state_processing::per_epoch_processing::capella::process_historical_summaries_update;
 use state_processing::per_epoch_processing::{
     altair, base,
     effective_balance_updates::process_effective_balance_updates,
@@ -57,6 +58,8 @@ pub struct RandaoMixesReset;
 #[derive(Debug)]
 pub struct HistoricalRootsUpdate;
 #[derive(Debug)]
+pub struct HistoricalSummariesUpdate;
+#[derive(Debug)]
 pub struct ParticipationRecordUpdates;
 #[derive(Debug)]
 pub struct SyncCommitteeUpdates;
@@ -77,6 +80,7 @@ type_name!(EffectiveBalanceUpdates, "effective_balance_updates");
 type_name!(SlashingsReset, "slashings_reset");
 type_name!(RandaoMixesReset, "randao_mixes_reset");
 type_name!(HistoricalRootsUpdate, "historical_roots_update");
+type_name!(HistoricalSummariesUpdate, "historical_summaries_update");
 type_name!(ParticipationRecordUpdates, "participation_record_updates");
 type_name!(SyncCommitteeUpdates, "sync_committee_updates");
 type_name!(InactivityUpdates, "inactivity_updates");
@@ -97,7 +101,10 @@ impl<E: EthSpec> EpochTransition<E> for JustificationAndFinalization {
                 justification_and_finalization_state.apply_changes_to_state(state);
                 Ok(())
             }
-            BeaconState::Altair(_) | BeaconState::Merge(_) => {
+            BeaconState::Altair(_)
+            | BeaconState::Merge(_)
+            | BeaconState::Capella(_)
+            | BeaconState::Eip4844(_) => {
                 let justification_and_finalization_state =
                     altair::process_justification_and_finalization(
                         state,
@@ -118,13 +125,14 @@ impl<E: EthSpec> EpochTransition<E> for RewardsAndPenalties {
                 validator_statuses.process_attestations(state)?;
                 base::process_rewards_and_penalties(state, &mut validator_statuses, spec)
             }
-            BeaconState::Altair(_) | BeaconState::Merge(_) => {
-                altair::process_rewards_and_penalties(
-                    state,
-                    &altair::ParticipationCache::new(state, spec).unwrap(),
-                    spec,
-                )
-            }
+            BeaconState::Altair(_)
+            | BeaconState::Merge(_)
+            | BeaconState::Capella(_)
+            | BeaconState::Eip4844(_) => altair::process_rewards_and_penalties(
+                state,
+                &altair::ParticipationCache::new(state, spec).unwrap(),
+                spec,
+            ),
         }
     }
 }
@@ -147,7 +155,10 @@ impl<E: EthSpec> EpochTransition<E> for Slashings {
                     spec,
                 )?;
             }
-            BeaconState::Altair(_) | BeaconState::Merge(_) => {
+            BeaconState::Altair(_)
+            | BeaconState::Merge(_)
+            | BeaconState::Capella(_)
+            | BeaconState::Eip4844(_) => {
                 process_slashings(
                     state,
                     altair::ParticipationCache::new(state, spec)
@@ -187,7 +198,23 @@ impl<E: EthSpec> EpochTransition<E> for RandaoMixesReset {
 
 impl<E: EthSpec> EpochTransition<E> for HistoricalRootsUpdate {
     fn run(state: &mut BeaconState<E>, _spec: &ChainSpec) -> Result<(), EpochProcessingError> {
-        process_historical_roots_update(state)
+        match state {
+            BeaconState::Base(_) | BeaconState::Altair(_) | BeaconState::Merge(_) => {
+                process_historical_roots_update(state)
+            }
+            _ => Ok(()),
+        }
+    }
+}
+
+impl<E: EthSpec> EpochTransition<E> for HistoricalSummariesUpdate {
+    fn run(state: &mut BeaconState<E>, _spec: &ChainSpec) -> Result<(), EpochProcessingError> {
+        match state {
+            BeaconState::Capella(_) | BeaconState::Eip4844(_) => {
+                process_historical_summaries_update(state)
+            }
+            _ => Ok(()),
+        }
     }
 }
 
@@ -205,9 +232,10 @@ impl<E: EthSpec> EpochTransition<E> for SyncCommitteeUpdates {
     fn run(state: &mut BeaconState<E>, spec: &ChainSpec) -> Result<(), EpochProcessingError> {
         match state {
             BeaconState::Base(_) => Ok(()),
-            BeaconState::Altair(_) | BeaconState::Merge(_) => {
-                altair::process_sync_committee_updates(state, spec)
-            }
+            BeaconState::Altair(_)
+            | BeaconState::Merge(_)
+            | BeaconState::Capella(_)
+            | BeaconState::Eip4844(_) => altair::process_sync_committee_updates(state, spec),
         }
     }
 }
@@ -216,7 +244,10 @@ impl<E: EthSpec> EpochTransition<E> for InactivityUpdates {
     fn run(state: &mut BeaconState<E>, spec: &ChainSpec) -> Result<(), EpochProcessingError> {
         match state {
             BeaconState::Base(_) => Ok(()),
-            BeaconState::Altair(_) | BeaconState::Merge(_) => altair::process_inactivity_updates(
+            BeaconState::Altair(_)
+            | BeaconState::Merge(_)
+            | BeaconState::Capella(_)
+            | BeaconState::Eip4844(_) => altair::process_inactivity_updates(
                 state,
                 &altair::ParticipationCache::new(state, spec).unwrap(),
                 spec,
@@ -229,9 +260,10 @@ impl<E: EthSpec> EpochTransition<E> for ParticipationFlagUpdates {
     fn run(state: &mut BeaconState<E>, _: &ChainSpec) -> Result<(), EpochProcessingError> {
         match state {
             BeaconState::Base(_) => Ok(()),
-            BeaconState::Altair(_) | BeaconState::Merge(_) => {
-                altair::process_participation_flag_updates(state)
-            }
+            BeaconState::Altair(_)
+            | BeaconState::Merge(_)
+            | BeaconState::Capella(_)
+            | BeaconState::Eip4844(_) => altair::process_participation_flag_updates(state),
         }
     }
 }
@@ -275,9 +307,18 @@ impl<E: EthSpec, T: EpochTransition<E>> Case for EpochProcessing<E, T> {
                 T::name() != "sync_committee_updates"
                     && T::name() != "inactivity_updates"
                     && T::name() != "participation_flag_updates"
+                    && T::name() != "historical_summaries_update"
             }
             // No phase0 tests for Altair and later.
-            ForkName::Altair | ForkName::Merge => T::name() != "participation_record_updates",
+            ForkName::Altair | ForkName::Merge => {
+                T::name() != "participation_record_updates"
+                    && T::name() != "historical_summaries_update"
+            }
+            ForkName::Capella => {
+                T::name() != "participation_record_updates"
+                    && T::name() != "historical_roots_update"
+            }
+            ForkName::Eip4844 => false, // TODO: revisit when tests are out
         }
     }
 

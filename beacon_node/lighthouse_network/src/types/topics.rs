@@ -11,6 +11,7 @@ use crate::Subnet;
 pub const TOPIC_PREFIX: &str = "eth2";
 pub const SSZ_SNAPPY_ENCODING_POSTFIX: &str = "ssz_snappy";
 pub const BEACON_BLOCK_TOPIC: &str = "beacon_block";
+pub const BEACON_BLOCK_AND_BLOBS_SIDECAR_TOPIC: &str = "beacon_block_and_blobs_sidecar";
 pub const BEACON_AGGREGATE_AND_PROOF_TOPIC: &str = "beacon_aggregate_and_proof";
 pub const BEACON_ATTESTATION_PREFIX: &str = "beacon_attestation_";
 pub const VOLUNTARY_EXIT_TOPIC: &str = "voluntary_exit";
@@ -18,14 +19,23 @@ pub const PROPOSER_SLASHING_TOPIC: &str = "proposer_slashing";
 pub const ATTESTER_SLASHING_TOPIC: &str = "attester_slashing";
 pub const SIGNED_CONTRIBUTION_AND_PROOF_TOPIC: &str = "sync_committee_contribution_and_proof";
 pub const SYNC_COMMITTEE_PREFIX_TOPIC: &str = "sync_committee_";
+pub const BLS_TO_EXECUTION_CHANGE_TOPIC: &str = "bls_to_execution_change";
+pub const LIGHT_CLIENT_FINALITY_UPDATE: &str = "light_client_finality_update";
+pub const LIGHT_CLIENT_OPTIMISTIC_UPDATE: &str = "light_client_optimistic_update";
 
-pub const CORE_TOPICS: [GossipKind; 6] = [
+pub const CORE_TOPICS: [GossipKind; 7] = [
     GossipKind::BeaconBlock,
     GossipKind::BeaconAggregateAndProof,
     GossipKind::VoluntaryExit,
     GossipKind::ProposerSlashing,
     GossipKind::AttesterSlashing,
     GossipKind::SignedContributionAndProof,
+    GossipKind::BlsToExecutionChange,
+];
+
+pub const LIGHT_CLIENT_GOSSIP_TOPICS: [GossipKind; 2] = [
+    GossipKind::LightClientFinalityUpdate,
+    GossipKind::LightClientOptimisticUpdate,
 ];
 
 /// A gossipsub topic which encapsulates the type of messages that should be sent and received over
@@ -47,6 +57,8 @@ pub struct GossipTopic {
 pub enum GossipKind {
     /// Topic for publishing beacon blocks.
     BeaconBlock,
+    /// Topic for publishing beacon block coupled with blob sidecars.
+    BeaconBlocksAndBlobsSidecar,
     /// Topic for publishing aggregate attestations and proofs.
     BeaconAggregateAndProof,
     /// Topic for publishing raw attestations on a particular subnet.
@@ -63,6 +75,12 @@ pub enum GossipKind {
     /// Topic for publishing unaggregated sync committee signatures on a particular subnet.
     #[strum(serialize = "sync_committee")]
     SyncCommitteeMessage(SyncSubnetId),
+    /// Topic for validator messages which change their withdrawal address.
+    BlsToExecutionChange,
+    /// Topic for publishing finality updates for light clients.
+    LightClientFinalityUpdate,
+    /// Topic for publishing optimistic updates for light clients.
+    LightClientOptimisticUpdate,
 }
 
 impl std::fmt::Display for GossipKind {
@@ -132,10 +150,14 @@ impl GossipTopic {
             let kind = match topic_parts[3] {
                 BEACON_BLOCK_TOPIC => GossipKind::BeaconBlock,
                 BEACON_AGGREGATE_AND_PROOF_TOPIC => GossipKind::BeaconAggregateAndProof,
+                BEACON_BLOCK_AND_BLOBS_SIDECAR_TOPIC => GossipKind::BeaconBlocksAndBlobsSidecar,
                 SIGNED_CONTRIBUTION_AND_PROOF_TOPIC => GossipKind::SignedContributionAndProof,
                 VOLUNTARY_EXIT_TOPIC => GossipKind::VoluntaryExit,
                 PROPOSER_SLASHING_TOPIC => GossipKind::ProposerSlashing,
                 ATTESTER_SLASHING_TOPIC => GossipKind::AttesterSlashing,
+                BLS_TO_EXECUTION_CHANGE_TOPIC => GossipKind::BlsToExecutionChange,
+                LIGHT_CLIENT_FINALITY_UPDATE => GossipKind::LightClientFinalityUpdate,
+                LIGHT_CLIENT_OPTIMISTIC_UPDATE => GossipKind::LightClientOptimisticUpdate,
                 topic => match committee_topic_index(topic) {
                     Some(subnet) => match subnet {
                         Subnet::Attestation(s) => GossipKind::Attestation(s),
@@ -185,6 +207,7 @@ impl std::fmt::Display for GossipTopic {
 
         let kind = match self.kind {
             GossipKind::BeaconBlock => BEACON_BLOCK_TOPIC.into(),
+            GossipKind::BeaconBlocksAndBlobsSidecar => BEACON_BLOCK_AND_BLOBS_SIDECAR_TOPIC.into(),
             GossipKind::BeaconAggregateAndProof => BEACON_AGGREGATE_AND_PROOF_TOPIC.into(),
             GossipKind::VoluntaryExit => VOLUNTARY_EXIT_TOPIC.into(),
             GossipKind::ProposerSlashing => PROPOSER_SLASHING_TOPIC.into(),
@@ -194,6 +217,9 @@ impl std::fmt::Display for GossipTopic {
             GossipKind::SyncCommitteeMessage(index) => {
                 format!("{}{}", SYNC_COMMITTEE_PREFIX_TOPIC, *index)
             }
+            GossipKind::BlsToExecutionChange => BLS_TO_EXECUTION_CHANGE_TOPIC.into(),
+            GossipKind::LightClientFinalityUpdate => LIGHT_CLIENT_FINALITY_UPDATE.into(),
+            GossipKind::LightClientOptimisticUpdate => LIGHT_CLIENT_OPTIMISTIC_UPDATE.into(),
         };
         write!(
             f,
@@ -266,6 +292,7 @@ mod tests {
                 VoluntaryExit,
                 ProposerSlashing,
                 AttesterSlashing,
+                BeaconBlocksAndBlobsSidecar,
             ]
             .iter()
             {

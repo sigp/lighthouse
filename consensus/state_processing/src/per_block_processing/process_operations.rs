@@ -9,9 +9,9 @@ use crate::VerifySignatures;
 use safe_arith::SafeArith;
 use types::consts::altair::{PARTICIPATION_FLAG_WEIGHTS, PROPOSER_WEIGHT, WEIGHT_DENOMINATOR};
 
-pub fn process_operations<'a, T: EthSpec, Payload: ExecPayload<T>>(
+pub fn process_operations<T: EthSpec, Payload: AbstractExecPayload<T>>(
     state: &mut BeaconState<T>,
-    block_body: BeaconBlockBodyRef<'a, T, Payload>,
+    block_body: BeaconBlockBodyRef<T, Payload>,
     verify_signatures: VerifySignatures,
     ctxt: &mut ConsensusContext<T>,
     spec: &ChainSpec,
@@ -33,6 +33,11 @@ pub fn process_operations<'a, T: EthSpec, Payload: ExecPayload<T>>(
     process_attestations(state, block_body, verify_signatures, ctxt, spec)?;
     process_deposits(state, block_body.deposits(), spec)?;
     process_exits(state, block_body.voluntary_exits(), verify_signatures, spec)?;
+
+    if let Ok(bls_to_execution_changes) = block_body.bls_to_execution_changes() {
+        process_bls_to_execution_changes(state, bls_to_execution_changes, verify_signatures, spec)?;
+    }
+
     Ok(())
 }
 
@@ -57,8 +62,14 @@ pub mod base {
 
         // Verify and apply each attestation.
         for (i, attestation) in attestations.iter().enumerate() {
-            verify_attestation_for_block_inclusion(state, attestation, verify_signatures, spec)
-                .map_err(|e| e.into_with_index(i))?;
+            verify_attestation_for_block_inclusion(
+                state,
+                attestation,
+                ctxt,
+                verify_signatures,
+                spec,
+            )
+            .map_err(|e| e.into_with_index(i))?;
 
             let pending_attestation = PendingAttestation {
                 aggregation_bits: attestation.aggregation_bits.clone(),
@@ -94,19 +105,11 @@ pub mod altair {
         ctxt: &mut ConsensusContext<T>,
         spec: &ChainSpec,
     ) -> Result<(), BlockProcessingError> {
-        let proposer_index = ctxt.get_proposer_index(state, spec)?;
         attestations
             .iter()
             .enumerate()
             .try_for_each(|(i, attestation)| {
-                process_attestation(
-                    state,
-                    attestation,
-                    i,
-                    proposer_index,
-                    verify_signatures,
-                    spec,
-                )
+                process_attestation(state, attestation, i, ctxt, verify_signatures, spec)
             })
     }
 
@@ -114,16 +117,24 @@ pub mod altair {
         state: &mut BeaconState<T>,
         attestation: &Attestation<T>,
         att_index: usize,
-        proposer_index: u64,
+        ctxt: &mut ConsensusContext<T>,
         verify_signatures: VerifySignatures,
         spec: &ChainSpec,
     ) -> Result<(), BlockProcessingError> {
         state.build_committee_cache(RelativeEpoch::Previous, spec)?;
         state.build_committee_cache(RelativeEpoch::Current, spec)?;
 
-        let indexed_attestation =
-            verify_attestation_for_block_inclusion(state, attestation, verify_signatures, spec)
-                .map_err(|e| e.into_with_index(att_index))?;
+        let proposer_index = ctxt.get_proposer_index(state, spec)?;
+
+        let attesting_indices = &verify_attestation_for_block_inclusion(
+            state,
+            attestation,
+            ctxt,
+            verify_signatures,
+            spec,
+        )
+        .map_err(|e| e.into_with_index(att_index))?
+        .attesting_indices;
 
         // Matching roots, participation flag indices
         let data = &attestation.data;
@@ -135,7 +146,7 @@ pub mod altair {
         let total_active_balance = state.get_total_active_balance()?;
         let base_reward_per_increment = BaseRewardPerIncrement::new(total_active_balance, spec)?;
         let mut proposer_reward_numerator = 0;
-        for index in &indexed_attestation.attesting_indices {
+        for index in attesting_indices {
             let index = *index as usize;
 
             for (flag_index, &weight) in PARTICIPATION_FLAG_WEIGHTS.iter().enumerate() {
@@ -226,9 +237,9 @@ pub fn process_attester_slashings<T: EthSpec>(
 }
 /// Wrapper function to handle calling the correct version of `process_attestations` based on
 /// the fork.
-pub fn process_attestations<'a, T: EthSpec, Payload: ExecPayload<T>>(
+pub fn process_attestations<T: EthSpec, Payload: AbstractExecPayload<T>>(
     state: &mut BeaconState<T>,
-    block_body: BeaconBlockBodyRef<'a, T, Payload>,
+    block_body: BeaconBlockBodyRef<T, Payload>,
     verify_signatures: VerifySignatures,
     ctxt: &mut ConsensusContext<T>,
     spec: &ChainSpec,
@@ -243,7 +254,10 @@ pub fn process_attestations<'a, T: EthSpec, Payload: ExecPayload<T>>(
                 spec,
             )?;
         }
-        BeaconBlockBodyRef::Altair(_) | BeaconBlockBodyRef::Merge(_) => {
+        BeaconBlockBodyRef::Altair(_)
+        | BeaconBlockBodyRef::Merge(_)
+        | BeaconBlockBodyRef::Capella(_)
+        | BeaconBlockBodyRef::Eip4844(_) => {
             altair::process_attestations(
                 state,
                 block_body.attestations(),
@@ -273,6 +287,31 @@ pub fn process_exits<T: EthSpec>(
 
         initiate_validator_exit(state, exit.message.validator_index as usize, spec)?;
     }
+    Ok(())
+}
+
+/// Validates each `bls_to_execution_change` and updates the state
+///
+/// Returns `Ok(())` if the validation and state updates completed successfully. Otherwise returns
+/// an `Err` describing the invalid object or cause of failure.
+pub fn process_bls_to_execution_changes<T: EthSpec>(
+    state: &mut BeaconState<T>,
+    bls_to_execution_changes: &[SignedBlsToExecutionChange],
+    verify_signatures: VerifySignatures,
+    spec: &ChainSpec,
+) -> Result<(), BlockProcessingError> {
+    for (i, signed_address_change) in bls_to_execution_changes.iter().enumerate() {
+        verify_bls_to_execution_change(state, signed_address_change, verify_signatures, spec)
+            .map_err(|e| e.into_with_index(i))?;
+
+        state
+            .get_validator_mut(signed_address_change.message.validator_index as usize)?
+            .change_withdrawal_credentials(
+                &signed_address_change.message.to_execution_address,
+                spec,
+            );
+    }
+
     Ok(())
 }
 

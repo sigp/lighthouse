@@ -1,3 +1,5 @@
+use self::behaviour::Behaviour;
+use self::gossip_cache::GossipCache;
 use crate::config::{gossipsub_config, NetworkLoad};
 use crate::discovery::{
     subnet_predicate, DiscoveredPeers, Discovery, FIND_NODE_QUERY_CLOSEST_PEERS,
@@ -7,15 +9,16 @@ use crate::peer_manager::{
     ConnectionDirection, PeerManager, PeerManagerEvent,
 };
 use crate::peer_manager::{MIN_OUTBOUND_ONLY_FACTOR, PEER_EXCESS_FACTOR, PRIORITY_PEER_EXCESS};
+use crate::rpc::*;
 use crate::service::behaviour::BehaviourEvent;
 pub use crate::service::behaviour::Gossipsub;
 use crate::types::{
     subnet_from_topic_hash, GossipEncoding, GossipKind, GossipTopic, SnappyTransform, Subnet,
     SubnetDiscovery,
 };
+use crate::EnrExt;
 use crate::Eth2Enr;
 use crate::{error, metrics, Enr, NetworkGlobals, PubsubMessage, TopicHash};
-use crate::{rpc::*, EnrExt};
 use api_types::{PeerRequestId, Request, RequestId, Response};
 use futures::stream::StreamExt;
 use gossipsub_scoring_parameters::{lighthouse_gossip_thresholds, PeerScoreSettings};
@@ -26,24 +29,22 @@ use libp2p::gossipsub::subscription_filter::MaxCountSubscriptionFilter;
 use libp2p::gossipsub::{
     GossipsubEvent, IdentTopic as Topic, MessageAcceptance, MessageAuthenticity, MessageId,
 };
-use libp2p::identify::{Identify, IdentifyConfig, IdentifyEvent};
+use libp2p::identify::{Behaviour as Identify, Config as IdentifyConfig, Event as IdentifyEvent};
 use libp2p::multiaddr::{Multiaddr, Protocol as MProtocol};
 use libp2p::swarm::{ConnectionLimits, Swarm, SwarmBuilder, SwarmEvent};
 use libp2p::PeerId;
 use slog::{crit, debug, info, o, trace, warn};
-
-use std::marker::PhantomData;
 use std::path::PathBuf;
 use std::pin::Pin;
-use std::sync::Arc;
-use std::task::{Context, Poll};
+use std::{
+    marker::PhantomData,
+    sync::Arc,
+    task::{Context, Poll},
+};
 use types::{
     consts::altair::SYNC_COMMITTEE_SUBNET_COUNT, EnrForkId, EthSpec, ForkContext, Slot, SubnetId,
 };
 use utils::{build_transport, strip_peer_id, Context as ServiceContext, MAX_CONNECTIONS_PER_PEER};
-
-use self::behaviour::Behaviour;
-use self::gossip_cache::GossipCache;
 
 pub mod api_types;
 mod behaviour;
@@ -197,6 +198,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                 .attester_slashing_timeout(half_epoch * 2)
                 // .signed_contribution_and_proof_timeout(timeout) // Do not retry
                 // .sync_committee_message_timeout(timeout) // Do not retry
+                .bls_to_execution_change_timeout(half_epoch * 2)
                 .build()
         };
 
@@ -259,7 +261,12 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
             (gossipsub, update_gossipsub_scores)
         };
 
-        let eth2_rpc = RPC::new(ctx.fork_context.clone(), log.clone());
+        let eth2_rpc = RPC::new(
+            ctx.fork_context.clone(),
+            config.enable_light_client_server,
+            config.outbound_rate_limiter_config.clone(),
+            log.clone(),
+        );
 
         let discovery = {
             // Build and start the discovery sub-behaviour
@@ -312,7 +319,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
 
             // use the executor for libp2p
             struct Executor(task_executor::TaskExecutor);
-            impl libp2p::core::Executor for Executor {
+            impl libp2p::swarm::Executor for Executor {
                 fn exec(&self, f: Pin<Box<dyn futures::Future<Output = ()> + Send>>) {
                     self.0.spawn(f, "libp2p");
                 }
@@ -337,12 +344,16 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                 .with_max_established_per_peer(Some(MAX_CONNECTIONS_PER_PEER));
 
             (
-                SwarmBuilder::new(transport, behaviour, local_peer_id)
-                    .notify_handler_buffer_size(std::num::NonZeroUsize::new(7).expect("Not zero"))
-                    .connection_event_buffer_size(64)
-                    .connection_limits(limits)
-                    .executor(Box::new(Executor(executor)))
-                    .build(),
+                SwarmBuilder::with_executor(
+                    transport,
+                    behaviour,
+                    local_peer_id,
+                    Executor(executor),
+                )
+                .notify_handler_buffer_size(std::num::NonZeroUsize::new(7).expect("Not zero"))
+                .connection_event_buffer_size(64)
+                .connection_limits(limits)
+                .build(),
                 bandwidth,
             )
         };
@@ -978,11 +989,17 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
             Request::Status(_) => {
                 metrics::inc_counter_vec(&metrics::TOTAL_RPC_REQUESTS, &["status"])
             }
+            Request::LightClientBootstrap(_) => {
+                metrics::inc_counter_vec(&metrics::TOTAL_RPC_REQUESTS, &["light_client_bootstrap"])
+            }
             Request::BlocksByRange { .. } => {
                 metrics::inc_counter_vec(&metrics::TOTAL_RPC_REQUESTS, &["blocks_by_range"])
             }
             Request::BlocksByRoot { .. } => {
                 metrics::inc_counter_vec(&metrics::TOTAL_RPC_REQUESTS, &["blocks_by_root"])
+            }
+            Request::BlobsByRange { .. } => {
+                metrics::inc_counter_vec(&metrics::TOTAL_RPC_REQUESTS, &["blobs_by_range"])
             }
         }
         NetworkEvent::RequestReceived {
@@ -1247,6 +1264,22 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                         );
                         Some(event)
                     }
+                    InboundRequest::BlobsByRange(req) => {
+                        let event = self.build_request(
+                            peer_request_id,
+                            peer_id,
+                            Request::BlobsByRange(req),
+                        );
+                        Some(event)
+                    }
+                    InboundRequest::LightClientBootstrap(req) => {
+                        let event = self.build_request(
+                            peer_request_id,
+                            peer_id,
+                            Request::LightClientBootstrap(req),
+                        );
+                        Some(event)
+                    }
                 }
             }
             Ok(RPCReceived::Response(id, resp)) => {
@@ -1271,8 +1304,15 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                     RPCResponse::BlocksByRange(resp) => {
                         self.build_response(id, peer_id, Response::BlocksByRange(Some(resp)))
                     }
+                    RPCResponse::BlobsByRange(resp) => {
+                        self.build_response(id, peer_id, Response::BlobsByRange(Some(resp)))
+                    }
                     RPCResponse::BlocksByRoot(resp) => {
                         self.build_response(id, peer_id, Response::BlocksByRoot(Some(resp)))
+                    }
+                    // Should never be reached
+                    RPCResponse::LightClientBootstrap(bootstrap) => {
+                        self.build_response(id, peer_id, Response::LightClientBootstrap(bootstrap))
                     }
                 }
             }
@@ -1280,6 +1320,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                 let response = match termination {
                     ResponseTermination::BlocksByRange => Response::BlocksByRange(None),
                     ResponseTermination::BlocksByRoot => Response::BlocksByRoot(None),
+                    ResponseTermination::BlobsByRange => Response::BlobsByRange(None),
                 };
                 self.build_response(id, peer_id, response)
             }

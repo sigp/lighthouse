@@ -5,6 +5,7 @@ on:
         branches:
             - unstable
             - stable
+            - capella
         tags:
             - v*
 
@@ -34,6 +35,11 @@ jobs:
               run: |
                     echo "VERSION=latest" >> $GITHUB_ENV
                     echo "VERSION_SUFFIX=-unstable" >> $GITHUB_ENV
+            - name: Extract version (if capella)
+              if: github.event.ref == 'refs/heads/capella'
+              run: |
+                    echo "VERSION=capella" >> $GITHUB_ENV
+                    echo "VERSION_SUFFIX=" >> $GITHUB_ENV
             - name: Extract version (if tagged release)
               if: startsWith(github.event.ref, 'refs/tags')
               run: |
@@ -43,7 +49,7 @@ jobs:
             VERSION: ${{ env.VERSION }}
             VERSION_SUFFIX: ${{ env.VERSION_SUFFIX }}
     build-docker-single-arch:
-        name: build-docker-${{ matrix.binary }}
+        name: build-docker-${{ matrix.binary }}${{ matrix.features.version_suffix }}
         runs-on: ubuntu-22.04
         strategy:
             matrix:
@@ -51,6 +57,10 @@ jobs:
                          aarch64-portable,
                          x86_64,
                          x86_64-portable]
+                features: [
+                    {version_suffix: "", env: "gnosis,slasher-lmdb,slasher-mdbx,jemalloc"},
+                    {version_suffix: "-dev", env: "jemalloc,spec-minimal"}
+                ]
                 include:
                     - profile: maxperf
 
@@ -60,6 +70,7 @@ jobs:
             DOCKER_CLI_EXPERIMENTAL: enabled
             VERSION: ${{ needs.extract-version.outputs.VERSION }}
             VERSION_SUFFIX: ${{ needs.extract-version.outputs.VERSION_SUFFIX }}
+            FEATURE_SUFFIX: ${{ matrix.features.version_suffix }}
         steps:
             - uses: actions/checkout@v3
             - name: Update Rust
@@ -70,7 +81,7 @@ jobs:
             - name: Cross build Lighthouse binary
               run: |
                   cargo install cross
-                  env CROSS_PROFILE=${{ matrix.profile }} make build-${{ matrix.binary }}
+                  env CROSS_PROFILE=${{ matrix.profile }} CROSS_FEATURES=${{ matrix.features.env }} make build-${{ matrix.binary }}
             - name: Move cross-built binary into Docker scope (if ARM)
               if: startsWith(matrix.binary, 'aarch64')
               run: |
@@ -98,7 +109,8 @@ jobs:
                   docker buildx build \
                       --platform=linux/${SHORT_ARCH} \
                       --file ./Dockerfile.cross . \
-                      --tag ${IMAGE_NAME}:${VERSION}-${SHORT_ARCH}${VERSION_SUFFIX}${MODERNITY_SUFFIX} \
+                      --tag ${IMAGE_NAME}:${VERSION}-${SHORT_ARCH}${VERSION_SUFFIX}${MODERNITY_SUFFIX}${FEATURE_SUFFIX} \
+                      --provenance=false \
                       --push
     build-docker-multiarch:
         name: build-docker-multiarch${{ matrix.modernity }}

@@ -1,7 +1,7 @@
 use std::mem;
 use types::{
     BeaconState, BeaconStateError as Error, BeaconStateMerge, ChainSpec, EthSpec,
-    ExecutionPayloadHeader, Fork,
+    ExecutionPayloadHeaderMerge, Fork,
 };
 
 /// Transform a `Altair` state into an `Merge` state.
@@ -57,7 +57,7 @@ pub fn upgrade_to_bellatrix<E: EthSpec>(
         current_sync_committee: pre.current_sync_committee.clone(),
         next_sync_committee: pre.next_sync_committee.clone(),
         // Execution
-        latest_execution_payload_header: <ExecutionPayloadHeader<E>>::default(),
+        latest_execution_payload_header: <ExecutionPayloadHeaderMerge<E>>::default(),
         // Caches
         total_active_balance: pre.total_active_balance,
         committee_caches: mem::take(&mut pre.committee_caches),

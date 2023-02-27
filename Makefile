@@ -14,18 +14,29 @@ BUILD_PATH_AARCH64 = "target/$(AARCH64_TAG)/release"
 PINNED_NIGHTLY ?= nightly
 CLIPPY_PINNED_NIGHTLY=nightly-2022-05-19
 
+# List of features to use when building natively. Can be overriden via the environment.
+# No jemalloc on Windows
+ifeq ($(OS),Windows_NT)
+    FEATURES?=
+else
+    FEATURES?=jemalloc
+endif
+
 # List of features to use when cross-compiling. Can be overridden via the environment.
-CROSS_FEATURES ?= gnosis,slasher-lmdb,slasher-mdbx
+CROSS_FEATURES ?= gnosis,slasher-lmdb,slasher-mdbx,jemalloc
 
 # Cargo profile for Cross builds. Default is for local builds, CI uses an override.
 CROSS_PROFILE ?= release
+
+# List of features to use when running EF tests.
+EF_TEST_FEATURES ?=
 
 # Cargo profile for regular builds.
 PROFILE ?= release
 
 # List of all hard forks. This list is used to set env variables for several tests so that
 # they run for different forks.
-FORKS=phase0 altair merge
+FORKS=phase0 altair merge capella
 
 # Builds the Lighthouse binary in release (optimized).
 #
@@ -101,16 +112,12 @@ cargo-fmt:
 check-benches:
 	cargo check --workspace --benches
 
-# Typechecks consensus code *without* allowing deprecated legacy arithmetic or metrics.
-check-consensus:
-	cargo check -p state_processing --no-default-features
-
 # Runs only the ef-test vectors.
 run-ef-tests:
 	rm -rf $(EF_TESTS)/.accessed_file_log.txt
-	cargo test --release -p ef_tests --features "ef_tests"
-	cargo test --release -p ef_tests --features "ef_tests,fake_crypto"
-	cargo test --release -p ef_tests --features "ef_tests,milagro"
+	cargo test --release -p ef_tests --features "ef_tests,$(EF_TEST_FEATURES)"
+	cargo test --release -p ef_tests --features "ef_tests,$(EF_TEST_FEATURES),fake_crypto"
+	cargo test --release -p ef_tests --features "ef_tests,$(EF_TEST_FEATURES),milagro"
 	./$(EF_TESTS)/check_all_files_accessed.py $(EF_TESTS)/.accessed_file_log.txt $(EF_TESTS)/consensus-spec-tests
 
 # Run the tests in the `beacon_chain` crate for all known forks.
@@ -160,7 +167,8 @@ lint:
 		-A clippy::from-over-into \
 		-A clippy::upper-case-acronyms \
 		-A clippy::vec-init-then-push \
-	    -A clippy::question-mark
+		-A clippy::question-mark \
+		-A clippy::uninlined-format-args
 
 nightly-lint:
 	cp .github/custom/clippy.toml .
@@ -185,7 +193,7 @@ arbitrary-fuzz:
 # Runs cargo audit (Audit Cargo.lock files for crates with security vulnerabilities reported to the RustSec Advisory Database)
 audit:
 	cargo install --force cargo-audit
-	cargo audit --ignore RUSTSEC-2020-0071 --ignore RUSTSEC-2020-0159
+	cargo audit --ignore RUSTSEC-2020-0071
 
 # Runs `cargo vendor` to make sure dependencies can be vendored for packaging, reproducibility and archival purpose.
 vendor:

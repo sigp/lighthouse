@@ -1,3 +1,4 @@
+use crate::rpc::config::OutboundRateLimiterConfig;
 use crate::types::GossipKind;
 use crate::{Enr, PeerIdSerialized};
 use directory::{
@@ -130,6 +131,12 @@ pub struct Config {
 
     /// Whether metrics are enabled.
     pub metrics_enabled: bool,
+
+    /// Whether light client protocols should be enabled.
+    pub enable_light_client_server: bool,
+
+    /// Configuration for the outbound rate limiter (requests made by this node).
+    pub outbound_rate_limiter_config: Option<OutboundRateLimiterConfig>,
 }
 
 impl Default for Config {
@@ -207,6 +214,8 @@ impl Default for Config {
             shutdown_after_sync: false,
             topics: Vec::new(),
             metrics_enabled: false,
+            enable_light_client_server: false,
+            outbound_rate_limiter_config: None,
         }
     }
 }
@@ -284,9 +293,11 @@ impl From<u8> for NetworkLoad {
 /// Return a Lighthouse specific `GossipsubConfig` where the `message_id_fn` depends on the current fork.
 pub fn gossipsub_config(network_load: u8, fork_context: Arc<ForkContext>) -> GossipsubConfig {
     // The function used to generate a gossipsub message id
-    // We use the first 8 bytes of SHA256(data) for content addressing
-    let fast_gossip_message_id =
-        |message: &RawGossipsubMessage| FastMessageId::from(&Sha256::digest(&message.data)[..8]);
+    // We use the first 8 bytes of SHA256(topic, data) for content addressing
+    let fast_gossip_message_id = |message: &RawGossipsubMessage| {
+        let data = [message.topic.as_str().as_bytes(), &message.data].concat();
+        FastMessageId::from(&Sha256::digest(data)[..8])
+    };
     fn prefix(
         prefix: [u8; 4],
         message: &GossipsubMessage,
@@ -295,8 +306,8 @@ pub fn gossipsub_config(network_load: u8, fork_context: Arc<ForkContext>) -> Gos
         let topic_bytes = message.topic.as_str().as_bytes();
         match fork_context.current_fork() {
             // according to: https://github.com/ethereum/consensus-specs/blob/dev/specs/merge/p2p-interface.md#the-gossip-domain-gossipsub
-            // the derivation of the message-id remains the same in the merge
-            ForkName::Altair | ForkName::Merge => {
+            // the derivation of the message-id remains the same in the merge and for eip 4844.
+            ForkName::Altair | ForkName::Merge | ForkName::Capella | ForkName::Eip4844 => {
                 let topic_len_bytes = topic_bytes.len().to_le_bytes();
                 let mut vec = Vec::with_capacity(
                     prefix.len() + topic_len_bytes.len() + topic_bytes.len() + message.data.len(),
