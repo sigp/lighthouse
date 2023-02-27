@@ -27,7 +27,9 @@ pub fn build(execution_clients_dir: &Path) {
     }
 
     // Get the latest tag on the branch
-    let last_release = build_utils::get_latest_release(&repo_dir, GETH_BRANCH).unwrap();
+    // TODO: Update when version is corrected
+    // let last_release = build_utils::get_latest_release(&repo_dir, GETH_BRANCH).unwrap();
+    let last_release = "v1.11.1";
     build_utils::checkout(&repo_dir, dbg!(&last_release)).unwrap();
 
     // Build geth
