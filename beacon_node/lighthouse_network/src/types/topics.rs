@@ -55,11 +55,12 @@ pub fn fork_core_topics(fork_name: &ForkName) -> Vec<GossipKind> {
 
 /// Returns all the topics that we need to subscribe to for a given fork
 /// including topics from older forks and new topics for the current fork.
-pub fn core_topics_to_subscribe(current_fork: ForkName) -> Vec<GossipKind> {
+pub fn core_topics_to_subscribe(mut current_fork: ForkName) -> Vec<GossipKind> {
     let mut topics = fork_core_topics(&current_fork);
     while let Some(previous_fork) = current_fork.previous_fork() {
-        let mut previous_fork_topics = fork_core_topics(&previous_fork);
-        topics.append(&mut previous_fork_topics);
+        let previous_fork_topics = fork_core_topics(&previous_fork);
+        topics.extend(previous_fork_topics);
+        current_fork = previous_fork;
     }
     topics
 }
@@ -421,5 +422,17 @@ mod tests {
         assert_eq!("voluntary_exit", VoluntaryExit.as_ref());
         assert_eq!("proposer_slashing", ProposerSlashing.as_ref());
         assert_eq!("attester_slashing", AttesterSlashing.as_ref());
+    }
+
+    #[test]
+    fn test_core_topics_to_subscribe() {
+        let mut all_topics = Vec::new();
+        all_topics.extend(EIP4844_CORE_TOPICS);
+        all_topics.extend(CAPELLA_CORE_TOPICS);
+        all_topics.extend(ALTAIR_CORE_TOPICS);
+        all_topics.extend(BASE_CORE_TOPICS);
+
+        let latest_fork = ForkName::list_all().last().unwrap().clone();
+        assert_eq!(core_topics_to_subscribe(latest_fork), all_topics);
     }
 }
