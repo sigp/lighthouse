@@ -42,7 +42,7 @@ pub const LIGHT_CLIENT_GOSSIP_TOPICS: [GossipKind; 2] = [
     GossipKind::LightClientOptimisticUpdate,
 ];
 
-/// Returns the core topics associated with each fork
+/// Returns the core topics associated with each fork that are new to the previous fork
 pub fn fork_core_topics(fork_name: &ForkName) -> Vec<GossipKind> {
     match fork_name {
         ForkName::Base => BASE_CORE_TOPICS.to_vec(),
