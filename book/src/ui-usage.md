@@ -32,7 +32,6 @@ By clicking on the chart component you can filter selected validators in the ren
 
 <img src="imgs/ui-validator-balance2.png" width="48%"/>
 
-#
 
 ## Hardware Usage and Device Diagnostics
 
