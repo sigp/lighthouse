@@ -524,7 +524,16 @@ impl<T: BeaconChainTypes> BeaconBlockStreamer<T> {
         db_blocks
     }
 
-    // Pre-process the loaded blocks into execution engine requests, preserving the order of the blocks.
+    /// Pre-process the loaded blocks into execution engine requests.
+    ///
+    /// The purpose of this function is to separate the blocks into 3 categories:
+    /// 1) no_request - when we already have the full block or there's an error
+    /// 2) blocks_by_range - used for finalized blinded blocks
+    /// 3) blocks_by_root - used for unfinalized blinded blocks
+    ///
+    /// The function returns a mapping of (block_root -> request) as well as a vector
+    /// of block roots so that we can return the blocks in the same order they were
+    /// requested
     async fn get_requests(
         &self,
         payloads: Vec<(Hash256, LoadResult<T::EthSpec>)>,
@@ -532,7 +541,9 @@ impl<T: BeaconChainTypes> BeaconBlockStreamer<T> {
         let mut ordered_block_roots = Vec::new();
         let mut requests = HashMap::new();
 
-        // separate off the by_range blocks so they can be sorted and then processed
+        // we sort the by range blocks by slot before adding them to the
+        // request as it should *better* optimize the number of blocks that
+        // can fit in the same request
         let mut by_range_blocks: Vec<BlockParts<T::EthSpec>> = vec![];
         let mut by_hash = EngineRequest::new_by_hash();
         let mut no_request = EngineRequest::new_no_request();
