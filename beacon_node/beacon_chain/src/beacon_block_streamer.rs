@@ -592,13 +592,7 @@ impl<T: BeaconChainTypes> BeaconBlockStreamer<T> {
 
         // Now deal with the by_range requests. Sort them in order of increasing slot
         let mut by_range = EngineRequest::<T::EthSpec>::new_by_range();
-        by_range_blocks.sort_by(|block_parts_a, block_parts_b| {
-            // this unwrap shouldn't occur as slot is never u64::NAN
-            block_parts_a
-                .slot()
-                .partial_cmp(&block_parts_b.slot())
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
+        by_range_blocks.sort_by_key(|block_parts| block_parts.slot());
         for block_parts in by_range_blocks {
             let root = block_parts.root();
             by_range
