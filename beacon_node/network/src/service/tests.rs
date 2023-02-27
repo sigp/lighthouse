@@ -1,4 +1,4 @@
-// #[cfg(not(debug_assertions))]
+#[cfg(not(debug_assertions))]
 #[cfg(test)]
 mod tests {
     use crate::persisted_dht::load_dht;
