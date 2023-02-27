@@ -10,4 +10,4 @@ If you recieve a red notification with a BEACON or VALIDATOR NODE NETWORK ERROR 
 Once you have successfully arrived to the main dashboard, use the sidebar to access the settings view. In the top right hand corner there is a `Configurtion` action button that will redirect you back to the configuration screen where you can make appropriate changes.
 
 ## 4. Why doesn't my validator balance graph show any data?
-If your graph is not showing data, it usually means your validator node is still caching data. The application must wait at least 3 epochs before it can render any graphical visualizations. This could take up to approximately ~20min.
+If your graph is not showing data, it usually means your validator node is still caching data. The application must wait at least 3 epochs before it can render any graphical visualizations. This could take up to 20min.
