@@ -24,7 +24,6 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::time::Duration;
 use types::{Checkpoint, Epoch, EthSpec, Hash256, PublicKeyBytes, GRAFFITI_BYTES_LEN};
-use unused_port;
 
 /// Gets the fully-initialized global client.
 ///
@@ -824,7 +823,7 @@ pub fn parse_listening_addresses(
             }
             // use zero ports if required. If not, use the given port.
             let tcp_port = use_zero_ports
-                .then(|| unused_port::unused_tcp6_port())
+                .then(unused_port::unused_tcp6_port)
                 .transpose()?
                 .unwrap_or(port);
 
@@ -834,7 +833,7 @@ pub fn parse_listening_addresses(
             // use zero ports if required. If not, use the specific udp port. If none given, use
             // the tcp port.
             let udp_port = use_zero_ports
-                .then(|| unused_port::unused_udp6_port())
+                .then(unused_port::unused_udp6_port)
                 .transpose()?
                 .or(maybe_udp_port)
                 .unwrap_or(port);
@@ -850,13 +849,13 @@ pub fn parse_listening_addresses(
 
             // use zero ports if required. If not, use the given port.
             let tcp_port = use_zero_ports
-                .then(|| unused_port::unused_tcp4_port())
+                .then(unused_port::unused_tcp4_port)
                 .transpose()?
                 .unwrap_or(port);
             // use zero ports if required. If not, use the specific udp port. If none given, use
             // the tcp port.
             let udp_port = use_zero_ports
-                .then(|| unused_port::unused_udp4_port())
+                .then(unused_port::unused_udp4_port)
                 .transpose()?
                 .or(maybe_udp_port)
                 .unwrap_or(port);
@@ -868,23 +867,23 @@ pub fn parse_listening_addresses(
         }
         (Some(ipv4), Some(ipv6)) => {
             let ipv4_tcp_port = use_zero_ports
-                .then(|| unused_port::unused_tcp4_port())
+                .then(unused_port::unused_tcp4_port)
                 .transpose()?
                 .unwrap_or(port);
             let ipv4_udp_port = use_zero_ports
-                .then(|| unused_port::unused_udp4_port())
+                .then(unused_port::unused_udp4_port)
                 .transpose()?
                 .or(maybe_udp6_port)
                 .unwrap_or(ipv4_tcp_port);
 
             // Defaults to 9090 when required
             let ipv6_tcp_port = use_zero_ports
-                .then(|| unused_port::unused_tcp6_port())
+                .then(unused_port::unused_tcp6_port)
                 .transpose()?
                 .or(maybe_port6)
                 .unwrap_or(9090); // TODO: move to a constant or something
             let ipv6_udp_port = use_zero_ports
-                .then(|| unused_port::unused_udp6_port())
+                .then(unused_port::unused_udp6_port)
                 .transpose()?
                 .or(maybe_udp6_port)
                 .unwrap_or(ipv6_tcp_port);
@@ -1031,17 +1030,21 @@ pub fn set_network_config(
 
         // set the enr address to localhost if the address is unspecified
         if let Some(ipv4_addr) = config.listen_addrs().v4().cloned() {
-            let ipv4_enr_addr = (ipv4_addr.addr == Ipv4Addr::UNSPECIFIED)
-                .then_some(Ipv4Addr::LOCALHOST)
-                .unwrap_or(ipv4_addr.addr);
+            let ipv4_enr_addr = if ipv4_addr.addr == Ipv4Addr::UNSPECIFIED {
+                Ipv4Addr::LOCALHOST
+            } else {
+                ipv4_addr.addr
+            };
             config.enr_address.0 = Some(ipv4_enr_addr);
             config.enr_udp4_port = Some(ipv4_addr.udp_port);
         }
 
         if let Some(ipv6_addr) = config.listen_addrs().v6().cloned() {
-            let ipv6_enr_addr = (ipv6_addr.addr == Ipv6Addr::UNSPECIFIED)
-                .then_some(Ipv6Addr::LOCALHOST)
-                .unwrap_or(ipv6_addr.addr);
+            let ipv6_enr_addr = if ipv6_addr.addr == Ipv6Addr::UNSPECIFIED {
+                Ipv6Addr::LOCALHOST
+            } else {
+                ipv6_addr.addr
+            };
             config.enr_address.1 = Some(ipv6_enr_addr);
             config.enr_udp6_port = Some(ipv6_addr.udp_port);
         }
