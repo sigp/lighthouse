@@ -38,7 +38,7 @@ entered.
 
 ## Name
 
-This is your name, it can be modified and is solely used to aesthetics. 
+This is your name, it can be modified and is solely used for aesthetics. 
 
 ## Device
 
