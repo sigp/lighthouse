@@ -25,8 +25,7 @@ pub fn run<T: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
         ));
     }
 
-    // TODO: allow using dual stack.
-    let listen_addresses = match ip {
+    let listen_addr = match ip {
         IpAddr::V4(addr) => ListenAddress::V4(ListenAddr {
             addr,
             udp_port,
@@ -38,10 +37,8 @@ pub fn run<T: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
             tcp_port,
         }),
     };
-    let config = NetworkConfig {
-        listen_addresses,
-        ..Default::default()
-    };
+    let mut config = NetworkConfig::default();
+    config.set_listening_addr(listen_addr);
 
     let local_keypair = Keypair::generate_secp256k1();
     let enr_key = CombinedKey::from_libp2p(&local_keypair)?;

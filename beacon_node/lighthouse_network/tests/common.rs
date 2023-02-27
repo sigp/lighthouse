@@ -78,12 +78,7 @@ pub fn build_config(port: u16, mut boot_nodes: Vec<Enr>) -> NetworkConfig {
         .tempdir()
         .unwrap();
 
-    config.listen_addresses =
-        lighthouse_network::ListenAddress::V4(lighthouse_network::ListenAddr {
-            addr: std::net::Ipv4Addr::UNSPECIFIED,
-            udp_port: port,
-            tcp_port: port,
-        });
+    config.set_ipv4_listening_address(std::net::Ipv4Addr::UNSPECIFIED, port, port);
     config.enr_udp4_port = Some(port);
     config.enr_address = (Some(std::net::Ipv4Addr::LOCALHOST), None);
     config.boot_nodes_enr.append(&mut boot_nodes);

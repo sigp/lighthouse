@@ -932,7 +932,7 @@ pub fn set_network_config(
         config.shutdown_after_sync = true;
     }
 
-    config.listen_addresses = parse_listening_addresses(cli_args, log)?;
+    config.set_listening_addr(parse_listening_addresses(cli_args, log)?);
 
     if let Some(target_peers_str) = cli_args.value_of("target-peers") {
         config.target_peers = target_peers_str
@@ -1030,7 +1030,7 @@ pub fn set_network_config(
         // Match the Ip and UDP port in the enr.
 
         // set the enr address to localhost if the address is unspecified
-        if let Some(ipv4_addr) = config.listen_addresses.v4() {
+        if let Some(ipv4_addr) = config.listen_addrs().v4().cloned() {
             let ipv4_enr_addr = (ipv4_addr.addr == Ipv4Addr::UNSPECIFIED)
                 .then_some(Ipv4Addr::LOCALHOST)
                 .unwrap_or(ipv4_addr.addr);
@@ -1038,7 +1038,7 @@ pub fn set_network_config(
             config.enr_udp4_port = Some(ipv4_addr.udp_port);
         }
 
-        if let Some(ipv6_addr) = config.listen_addresses.v6() {
+        if let Some(ipv6_addr) = config.listen_addrs().v6().cloned() {
             let ipv6_enr_addr = (ipv6_addr.addr == Ipv6Addr::UNSPECIFIED)
                 .then_some(Ipv6Addr::LOCALHOST)
                 .unwrap_or(ipv6_addr.addr);
@@ -1075,7 +1075,7 @@ pub fn set_network_config(
                     // NOTE: From checking the `to_socket_addrs` code I don't think the port
                     // actually matters. Just use the udp port.
 
-                    let port = match &config.listen_addresses {
+                    let port = match config.listen_addrs() {
                         ListenAddress::V4(v4_addr) => v4_addr.udp_port,
                         ListenAddress::V6(v6_addr) => v6_addr.udp_port,
                         ListenAddress::DualStack(v4_addr, _v6_addr) => {

@@ -167,14 +167,14 @@ pub fn create_enr_builder_from_config<T: EnrKey>(
         // If the ENR port is not set, and we are listening over that ip version, use the listening port instead.
         let tcp4_port = config
             .enr_tcp4_port
-            .or_else(|| config.listen_addresses.v4().map(|v4_addr| v4_addr.tcp_port));
+            .or_else(|| config.listen_addrs().v4().map(|v4_addr| v4_addr.tcp_port));
         if let Some(tcp_port) = tcp4_port {
             builder.tcp4(tcp_port);
         }
 
         let tcp6_port = config
             .enr_tcp6_port
-            .or_else(|| config.listen_addresses.v6().map(|v6_addr| v6_addr.tcp_port));
+            .or_else(|| config.listen_addrs().v6().map(|v6_addr| v6_addr.tcp_port));
         if let Some(tcp_port) = tcp6_port {
             builder.tcp6(tcp_port);
         }

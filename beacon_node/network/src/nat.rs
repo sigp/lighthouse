@@ -22,8 +22,7 @@ pub struct UPnPConfig {
 
 impl UPnPConfig {
     pub fn from_config(config: &NetworkConfig) -> Option<Self> {
-        // TODO: need to read more on UPnP over ipv6
-        config.listen_addresses.v4().map(|v4_addr| UPnPConfig {
+        config.listen_addrs().v4().map(|v4_addr| UPnPConfig {
             tcp_port: v4_addr.tcp_port,
             udp_port: v4_addr.udp_port,
             disable_discovery: config.disable_discovery,

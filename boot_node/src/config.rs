@@ -60,7 +60,7 @@ impl<T: EthSpec> BootNodeConfig<T> {
         set_network_config(&mut network_config, matches, &data_dir, &logger)?;
 
         // Set the Enr UDP ports to the listening ports if not present.
-        if let Some(listening_addr_v4) = network_config.listen_addresses.v4() {
+        if let Some(listening_addr_v4) = network_config.listen_addrs().v4() {
             network_config.enr_udp4_port = Some(
                 network_config
                     .enr_udp4_port
@@ -68,7 +68,7 @@ impl<T: EthSpec> BootNodeConfig<T> {
             )
         };
 
-        if let Some(listening_addr_v6) = network_config.listen_addresses.v6() {
+        if let Some(listening_addr_v6) = network_config.listen_addrs().v6() {
             network_config.enr_udp6_port = Some(
                 network_config
                     .enr_udp6_port
@@ -82,7 +82,7 @@ impl<T: EthSpec> BootNodeConfig<T> {
         }
 
         // the address to listen on
-        let listen_socket = match &network_config.listen_addresses {
+        let listen_socket = match network_config.listen_addrs().clone() {
             lighthouse_network::ListenAddress::V4(v4_addr) => {
                 // Set explicitly as ipv4 otherwise
                 network_config.discv5_config.ip_mode = IpMode::Ip4;
