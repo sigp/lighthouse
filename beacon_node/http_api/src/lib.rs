@@ -551,7 +551,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and_then(|state_id: StateId, chain: Arc<BeaconChain<T>>| {
             blocking_json_task(move || {
                 let ((data, finalized), execution_optimistic) = state_id
-                    .map_state_and_execution_optimistic(
+                    .map_state_and_execution_optimistic_and_finalized(
                         &chain,
                         |state, execution_optimistic, finalized| {
                             Ok((
@@ -589,7 +589,7 @@ pub fn serve<T: BeaconChainTypes>(
                 blocking_json_task(move || {
                     let query = query_res?;
                     let ((data, finalized), execution_optimistic) = state_id
-                        .map_state_and_execution_optimistic(
+                        .map_state_and_execution_optimistic_and_finalized(
                             &chain,
                             |state, execution_optimistic, finalized| {
                                 Ok((
@@ -648,7 +648,7 @@ pub fn serve<T: BeaconChainTypes>(
                 blocking_json_task(move || {
                     let query = query_res?;
                     let ((data, finalized), execution_optimistic) = state_id
-                        .map_state_and_execution_optimistic(
+                        .map_state_and_execution_optimistic_and_finalized(
                             &chain,
                             |state, execution_optimistic, finalized| {
                                 let epoch = state.current_epoch();
@@ -734,7 +734,7 @@ pub fn serve<T: BeaconChainTypes>(
             |state_id: StateId, chain: Arc<BeaconChain<T>>, validator_id: ValidatorId| {
                 blocking_json_task(move || {
                     let ((data, finalized), execution_optimistic) = state_id
-                        .map_state_and_execution_optimistic(
+                        .map_state_and_execution_optimistic_and_finalized(
                             &chain,
                             |state, execution_optimistic, finalized| {
                                 let index_opt = match &validator_id {
@@ -797,7 +797,7 @@ pub fn serve<T: BeaconChainTypes>(
             |state_id: StateId, chain: Arc<BeaconChain<T>>, query: api_types::CommitteesQuery| {
                 blocking_json_task(move || {
                     let ((data, finalized), execution_optimistic) = state_id
-                        .map_state_and_execution_optimistic(
+                        .map_state_and_execution_optimistic_and_finalized(
                             &chain,
                             |state, execution_optimistic, finalized| {
                                 let current_epoch = state.current_epoch();
@@ -906,7 +906,7 @@ pub fn serve<T: BeaconChainTypes>(
              query: api_types::SyncCommitteesQuery| {
                 blocking_json_task(move || {
                     let ((sync_committee, finalized), execution_optimistic) = state_id
-                        .map_state_and_execution_optimistic(
+                        .map_state_and_execution_optimistic_and_finalized(
                             &chain,
                             |state, execution_optimistic, finalized| {
                                 let current_epoch = state.current_epoch();
@@ -972,7 +972,7 @@ pub fn serve<T: BeaconChainTypes>(
             |state_id: StateId, chain: Arc<BeaconChain<T>>, query: api_types::RandaoQuery| {
                 blocking_json_task(move || {
                     let ((randao, finalized), execution_optimistic) = state_id
-                        .map_state_and_execution_optimistic(
+                        .map_state_and_execution_optimistic_and_finalized(
                             &chain,
                             |state, execution_optimistic, finalized| {
                                 let epoch = query.epoch.unwrap_or_else(|| state.current_epoch());
@@ -1832,7 +1832,7 @@ pub fn serve<T: BeaconChainTypes>(
                                 ))
                             })
                     }
-                    _ => state_id.map_state_and_execution_optimistic(
+                    _ => state_id.map_state_and_execution_optimistic_and_finalized(
                         &chain,
                         |state, execution_optimistic, _finalized| {
                             let fork_name = state
