@@ -73,12 +73,12 @@ impl<TSpec: EthSpec> NetworkGlobals<TSpec> {
 
     /// Returns the libp2p TCP port that this node has been configured to listen on.
     pub fn listen_port_tcp4(&self) -> Option<u16> {
-        self.listen_port_tcp4.clone()
+        self.listen_port_tcp4
     }
 
     /// Returns the UDP discovery port that this node has been configured to listen on.
     pub fn listen_port_tcp6(&self) -> Option<u16> {
-        self.listen_port_tcp6.clone()
+        self.listen_port_tcp6
     }
 
     /// Returns the number of libp2p connected peers.

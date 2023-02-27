@@ -501,13 +501,13 @@ fn is_global_ipv4(addr: &Ipv4Addr) -> bool {
 ///
 /// Non-exhaustive list of notable addresses that are not globally reachable:
 ///
-///     The unspecified address (is_unspecified)
-///     The loopback address (is_loopback)
-///     IPv4-mapped addresses
-///     Addresses reserved for benchmarking
-///     Addresses reserved for documentation (is_documentation)
-///     Unique local addresses (is_unique_local)
-///     Unicast addresses with link-local scope (is_unicast_link_local)
+/// - The unspecified address (is_unspecified)
+/// - The loopback address (is_loopback)
+/// - IPv4-mapped addresses
+/// - Addresses reserved for benchmarking
+/// - Addresses reserved for documentation (is_documentation)
+/// - Unique local addresses (is_unique_local)
+/// - Unicast addresses with link-local scope (is_unicast_link_local)
 // TODO: replace with [`Ipv6Addr::is_global`] once
 //       [Ip](https://github.com/rust-lang/rust/issues/27709) is stable.
 pub const fn is_global_ipv6(addr: &Ipv6Addr) -> bool {
