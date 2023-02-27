@@ -58,8 +58,9 @@ pub struct StateDiffValue<T: EthSpec> {
 )]
 #[derivative(PartialEq, Hash(bound = "T: EthSpec"))]
 #[serde(bound = "T: EthSpec")]
+#[serde(rename_all = "camelCase")]
 pub struct SuffixStateDiff<T: EthSpec> {
-    #[serde(with = "eth2_serde_utils::quoted_u8")]
+    //#[serde(with = "eth2_serde_utils::quoted_u8")]
     suffix: u8,
     // `None` means not currently present.
     current_value: Option<StateDiffValue<T>>,
@@ -72,6 +73,7 @@ pub struct SuffixStateDiff<T: EthSpec> {
 )]
 #[derivative(PartialEq, Hash(bound = "T: EthSpec"))]
 #[serde(bound = "T: EthSpec")]
+#[serde(rename_all = "camelCase")]
 pub struct StemStateDiff<T: EthSpec> {
     stem: Stem<T>,
     suffix_diffs: VariableList<SuffixStateDiff<T>, T::MaxVerkleWidth>,
@@ -93,9 +95,10 @@ pub struct StateDiff<T: EthSpec> {
 )]
 #[derivative(PartialEq, Hash(bound = "T: EthSpec"))]
 #[serde(bound = "T: EthSpec")]
+#[serde(rename_all = "camelCase")]
 pub struct IpaProof<T: EthSpec> {
-    c_l: FixedVector<BandersnatchGroupElement<T>, T::IpaProofDepth>,
-    c_r: FixedVector<BandersnatchGroupElement<T>, T::IpaProofDepth>,
+    cl: FixedVector<BandersnatchGroupElement<T>, T::IpaProofDepth>,
+    cr: FixedVector<BandersnatchGroupElement<T>, T::IpaProofDepth>,
     final_evaluation: BandersnatchFieldElement<T>,
 }
 
@@ -116,6 +119,7 @@ pub struct StemValue<T: EthSpec> {
 )]
 #[derivative(PartialEq, Hash(bound = "T: EthSpec"))]
 #[serde(bound = "T: EthSpec")]
+#[serde(rename_all = "camelCase")]
 pub struct VerkleProof<T: EthSpec> {
     other_stems: VariableList<StemValue<T>, T::MaxStems>,
     #[serde(with = "ssz_types::serde_utils::hex_var_list")]
@@ -131,6 +135,7 @@ pub struct VerkleProof<T: EthSpec> {
 )]
 #[derivative(PartialEq, Hash(bound = "T: EthSpec"))]
 #[serde(bound = "T: EthSpec")]
+#[serde(rename_all = "camelCase")]
 pub struct ExecutionWitness<T: EthSpec> {
     state_diff: StateDiff<T>,
     verkle_proof: VerkleProof<T>,

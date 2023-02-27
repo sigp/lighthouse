@@ -41,7 +41,6 @@ pub struct ExecutionPayload<T: EthSpec> {
     pub block_hash: ExecutionBlockHash,
     #[serde(with = "ssz_types::serde_utils::list_of_hex_var_list")]
     pub transactions: Transactions<T>,
-    // Fields for Verkle testing.
     pub execution_witness: ExecutionWitness<T>,
 }
 
