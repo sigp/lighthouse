@@ -12,22 +12,22 @@ pub enum IpVersion {
     Ipv6,
 }
 
-/// A convenience warpper over [`zero_port`].
+/// A convenience wrapper over [`zero_port`].
 pub fn unused_tcp4_port() -> Result<u16, String> {
     zero_port(Transport::Tcp, IpVersion::Ipv4)
 }
 
-/// A convenience warpper over [`zero_port`].
+/// A convenience wrapper over [`zero_port`].
 pub fn unused_udp4_port() -> Result<u16, String> {
     zero_port(Transport::Udp, IpVersion::Ipv4)
 }
 
-/// A convenience warpper over [`zero_port`].
+/// A convenience wrapper over [`zero_port`].
 pub fn unused_tcp6_port() -> Result<u16, String> {
     zero_port(Transport::Tcp, IpVersion::Ipv6)
 }
 
-/// A convenience warpper over [`zero_port`].
+/// A convenience wrapper over [`zero_port`].
 pub fn unused_udp6_port() -> Result<u16, String> {
     zero_port(Transport::Udp, IpVersion::Ipv6)
 }
