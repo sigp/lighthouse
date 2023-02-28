@@ -1,7 +1,14 @@
 use super::*;
 use serde::{Deserialize, Serialize};
 use strum::EnumString;
-use types::{EthSpec, ExecutionBlockHash, FixedVector, Transaction, Unsigned, VariableList};
+use superstruct::superstruct;
+use types::{
+    Blob, EthSpec, ExecutionBlockHash, FixedVector, KzgCommitment, Transaction, Unsigned,
+    VariableList, Withdrawal,
+};
+use types::{
+    ExecutionPayload, ExecutionPayloadCapella, ExecutionPayloadEip4844, ExecutionPayloadMerge,
+};
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -56,9 +63,18 @@ pub struct JsonPayloadIdResponse {
     pub payload_id: PayloadId,
 }
 
-#[derive(Debug, PartialEq, Default, Serialize, Deserialize)]
-#[serde(bound = "T: EthSpec", rename_all = "camelCase")]
-pub struct JsonExecutionPayloadHeaderV1<T: EthSpec> {
+#[superstruct(
+    variants(V1, V2, V3),
+    variant_attributes(
+        derive(Debug, PartialEq, Default, Serialize, Deserialize,),
+        serde(bound = "T: EthSpec", rename_all = "camelCase"),
+    ),
+    cast_error(ty = "Error", expr = "Error::IncorrectStateVariant"),
+    partial_getter_error(ty = "Error", expr = "Error::IncorrectStateVariant")
+)]
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[serde(bound = "T: EthSpec", rename_all = "camelCase", untagged)]
+pub struct JsonExecutionPayload<T: EthSpec> {
     pub parent_hash: ExecutionBlockHash,
     pub fee_recipient: Address,
     pub state_root: Hash256,
@@ -78,210 +94,342 @@ pub struct JsonExecutionPayloadHeaderV1<T: EthSpec> {
     pub extra_data: VariableList<u8, T::MaxExtraDataBytes>,
     #[serde(with = "eth2_serde_utils::u256_hex_be")]
     pub base_fee_per_gas: Uint256,
-    pub block_hash: ExecutionBlockHash,
-    pub transactions_root: Hash256,
-}
-
-impl<T: EthSpec> From<JsonExecutionPayloadHeaderV1<T>> for ExecutionPayloadHeader<T> {
-    fn from(e: JsonExecutionPayloadHeaderV1<T>) -> Self {
-        // Use this verbose deconstruction pattern to ensure no field is left unused.
-        let JsonExecutionPayloadHeaderV1 {
-            parent_hash,
-            fee_recipient,
-            state_root,
-            receipts_root,
-            logs_bloom,
-            prev_randao,
-            block_number,
-            gas_limit,
-            gas_used,
-            timestamp,
-            extra_data,
-            base_fee_per_gas,
-            block_hash,
-            transactions_root,
-        } = e;
-
-        Self {
-            parent_hash,
-            fee_recipient,
-            state_root,
-            receipts_root,
-            logs_bloom,
-            prev_randao,
-            block_number,
-            gas_limit,
-            gas_used,
-            timestamp,
-            extra_data,
-            base_fee_per_gas,
-            block_hash,
-            transactions_root,
-        }
-    }
-}
-
-#[derive(Debug, PartialEq, Default, Serialize, Deserialize)]
-#[serde(bound = "T: EthSpec", rename_all = "camelCase")]
-pub struct JsonExecutionPayloadV1<T: EthSpec> {
-    pub parent_hash: ExecutionBlockHash,
-    pub fee_recipient: Address,
-    pub state_root: Hash256,
-    pub receipts_root: Hash256,
-    #[serde(with = "serde_logs_bloom")]
-    pub logs_bloom: FixedVector<u8, T::BytesPerLogsBloom>,
-    pub prev_randao: Hash256,
-    #[serde(with = "eth2_serde_utils::u64_hex_be")]
-    pub block_number: u64,
-    #[serde(with = "eth2_serde_utils::u64_hex_be")]
-    pub gas_limit: u64,
-    #[serde(with = "eth2_serde_utils::u64_hex_be")]
-    pub gas_used: u64,
-    #[serde(with = "eth2_serde_utils::u64_hex_be")]
-    pub timestamp: u64,
-    #[serde(with = "ssz_types::serde_utils::hex_var_list")]
-    pub extra_data: VariableList<u8, T::MaxExtraDataBytes>,
+    #[superstruct(only(V3))]
     #[serde(with = "eth2_serde_utils::u256_hex_be")]
-    pub base_fee_per_gas: Uint256,
+    pub excess_data_gas: Uint256,
     pub block_hash: ExecutionBlockHash,
     #[serde(with = "ssz_types::serde_utils::list_of_hex_var_list")]
     pub transactions:
         VariableList<Transaction<T::MaxBytesPerTransaction>, T::MaxTransactionsPerPayload>,
+    #[superstruct(only(V2, V3))]
+    pub withdrawals: VariableList<JsonWithdrawal, T::MaxWithdrawalsPerPayload>,
 }
 
-impl<T: EthSpec> From<ExecutionPayload<T>> for JsonExecutionPayloadV1<T> {
-    fn from(e: ExecutionPayload<T>) -> Self {
-        // Use this verbose deconstruction pattern to ensure no field is left unused.
-        let ExecutionPayload {
-            parent_hash,
-            fee_recipient,
-            state_root,
-            receipts_root,
-            logs_bloom,
-            prev_randao,
-            block_number,
-            gas_limit,
-            gas_used,
-            timestamp,
-            extra_data,
-            base_fee_per_gas,
-            block_hash,
-            transactions,
-        } = e;
-
-        Self {
-            parent_hash,
-            fee_recipient,
-            state_root,
-            receipts_root,
-            logs_bloom,
-            prev_randao,
-            block_number,
-            gas_limit,
-            gas_used,
-            timestamp,
-            extra_data,
-            base_fee_per_gas,
-            block_hash,
-            transactions,
+impl<T: EthSpec> From<ExecutionPayloadMerge<T>> for JsonExecutionPayloadV1<T> {
+    fn from(payload: ExecutionPayloadMerge<T>) -> Self {
+        JsonExecutionPayloadV1 {
+            parent_hash: payload.parent_hash,
+            fee_recipient: payload.fee_recipient,
+            state_root: payload.state_root,
+            receipts_root: payload.receipts_root,
+            logs_bloom: payload.logs_bloom,
+            prev_randao: payload.prev_randao,
+            block_number: payload.block_number,
+            gas_limit: payload.gas_limit,
+            gas_used: payload.gas_used,
+            timestamp: payload.timestamp,
+            extra_data: payload.extra_data,
+            base_fee_per_gas: payload.base_fee_per_gas,
+            block_hash: payload.block_hash,
+            transactions: payload.transactions,
+        }
+    }
+}
+impl<T: EthSpec> From<ExecutionPayloadCapella<T>> for JsonExecutionPayloadV2<T> {
+    fn from(payload: ExecutionPayloadCapella<T>) -> Self {
+        JsonExecutionPayloadV2 {
+            parent_hash: payload.parent_hash,
+            fee_recipient: payload.fee_recipient,
+            state_root: payload.state_root,
+            receipts_root: payload.receipts_root,
+            logs_bloom: payload.logs_bloom,
+            prev_randao: payload.prev_randao,
+            block_number: payload.block_number,
+            gas_limit: payload.gas_limit,
+            gas_used: payload.gas_used,
+            timestamp: payload.timestamp,
+            extra_data: payload.extra_data,
+            base_fee_per_gas: payload.base_fee_per_gas,
+            block_hash: payload.block_hash,
+            transactions: payload.transactions,
+            withdrawals: payload
+                .withdrawals
+                .into_iter()
+                .map(Into::into)
+                .collect::<Vec<_>>()
+                .into(),
+        }
+    }
+}
+impl<T: EthSpec> From<ExecutionPayloadEip4844<T>> for JsonExecutionPayloadV3<T> {
+    fn from(payload: ExecutionPayloadEip4844<T>) -> Self {
+        JsonExecutionPayloadV3 {
+            parent_hash: payload.parent_hash,
+            fee_recipient: payload.fee_recipient,
+            state_root: payload.state_root,
+            receipts_root: payload.receipts_root,
+            logs_bloom: payload.logs_bloom,
+            prev_randao: payload.prev_randao,
+            block_number: payload.block_number,
+            gas_limit: payload.gas_limit,
+            gas_used: payload.gas_used,
+            timestamp: payload.timestamp,
+            extra_data: payload.extra_data,
+            base_fee_per_gas: payload.base_fee_per_gas,
+            excess_data_gas: payload.excess_data_gas,
+            block_hash: payload.block_hash,
+            transactions: payload.transactions,
+            withdrawals: payload
+                .withdrawals
+                .into_iter()
+                .map(Into::into)
+                .collect::<Vec<_>>()
+                .into(),
         }
     }
 }
 
-impl<T: EthSpec> From<JsonExecutionPayloadV1<T>> for ExecutionPayload<T> {
-    fn from(e: JsonExecutionPayloadV1<T>) -> Self {
-        // Use this verbose deconstruction pattern to ensure no field is left unused.
-        let JsonExecutionPayloadV1 {
-            parent_hash,
-            fee_recipient,
-            state_root,
-            receipts_root,
-            logs_bloom,
-            prev_randao,
-            block_number,
-            gas_limit,
-            gas_used,
-            timestamp,
-            extra_data,
-            base_fee_per_gas,
-            block_hash,
-            transactions,
-        } = e;
+impl<T: EthSpec> From<ExecutionPayload<T>> for JsonExecutionPayload<T> {
+    fn from(execution_payload: ExecutionPayload<T>) -> Self {
+        match execution_payload {
+            ExecutionPayload::Merge(payload) => JsonExecutionPayload::V1(payload.into()),
+            ExecutionPayload::Capella(payload) => JsonExecutionPayload::V2(payload.into()),
+            ExecutionPayload::Eip4844(payload) => JsonExecutionPayload::V3(payload.into()),
+        }
+    }
+}
 
-        Self {
-            parent_hash,
-            fee_recipient,
-            state_root,
-            receipts_root,
-            logs_bloom,
-            prev_randao,
-            block_number,
-            gas_limit,
-            gas_used,
-            timestamp,
-            extra_data,
-            base_fee_per_gas,
-            block_hash,
-            transactions,
+impl<T: EthSpec> From<JsonExecutionPayloadV1<T>> for ExecutionPayloadMerge<T> {
+    fn from(payload: JsonExecutionPayloadV1<T>) -> Self {
+        ExecutionPayloadMerge {
+            parent_hash: payload.parent_hash,
+            fee_recipient: payload.fee_recipient,
+            state_root: payload.state_root,
+            receipts_root: payload.receipts_root,
+            logs_bloom: payload.logs_bloom,
+            prev_randao: payload.prev_randao,
+            block_number: payload.block_number,
+            gas_limit: payload.gas_limit,
+            gas_used: payload.gas_used,
+            timestamp: payload.timestamp,
+            extra_data: payload.extra_data,
+            base_fee_per_gas: payload.base_fee_per_gas,
+            block_hash: payload.block_hash,
+            transactions: payload.transactions,
+        }
+    }
+}
+impl<T: EthSpec> From<JsonExecutionPayloadV2<T>> for ExecutionPayloadCapella<T> {
+    fn from(payload: JsonExecutionPayloadV2<T>) -> Self {
+        ExecutionPayloadCapella {
+            parent_hash: payload.parent_hash,
+            fee_recipient: payload.fee_recipient,
+            state_root: payload.state_root,
+            receipts_root: payload.receipts_root,
+            logs_bloom: payload.logs_bloom,
+            prev_randao: payload.prev_randao,
+            block_number: payload.block_number,
+            gas_limit: payload.gas_limit,
+            gas_used: payload.gas_used,
+            timestamp: payload.timestamp,
+            extra_data: payload.extra_data,
+            base_fee_per_gas: payload.base_fee_per_gas,
+            block_hash: payload.block_hash,
+            transactions: payload.transactions,
+            withdrawals: payload
+                .withdrawals
+                .into_iter()
+                .map(Into::into)
+                .collect::<Vec<_>>()
+                .into(),
+        }
+    }
+}
+impl<T: EthSpec> From<JsonExecutionPayloadV3<T>> for ExecutionPayloadEip4844<T> {
+    fn from(payload: JsonExecutionPayloadV3<T>) -> Self {
+        ExecutionPayloadEip4844 {
+            parent_hash: payload.parent_hash,
+            fee_recipient: payload.fee_recipient,
+            state_root: payload.state_root,
+            receipts_root: payload.receipts_root,
+            logs_bloom: payload.logs_bloom,
+            prev_randao: payload.prev_randao,
+            block_number: payload.block_number,
+            gas_limit: payload.gas_limit,
+            gas_used: payload.gas_used,
+            timestamp: payload.timestamp,
+            extra_data: payload.extra_data,
+            base_fee_per_gas: payload.base_fee_per_gas,
+            excess_data_gas: payload.excess_data_gas,
+            block_hash: payload.block_hash,
+            transactions: payload.transactions,
+            withdrawals: payload
+                .withdrawals
+                .into_iter()
+                .map(Into::into)
+                .collect::<Vec<_>>()
+                .into(),
+        }
+    }
+}
+
+impl<T: EthSpec> From<JsonExecutionPayload<T>> for ExecutionPayload<T> {
+    fn from(json_execution_payload: JsonExecutionPayload<T>) -> Self {
+        match json_execution_payload {
+            JsonExecutionPayload::V1(payload) => ExecutionPayload::Merge(payload.into()),
+            JsonExecutionPayload::V2(payload) => ExecutionPayload::Capella(payload.into()),
+            JsonExecutionPayload::V3(payload) => ExecutionPayload::Eip4844(payload.into()),
+        }
+    }
+}
+
+#[superstruct(
+    variants(V1, V2, V3),
+    variant_attributes(
+        derive(Debug, PartialEq, Serialize, Deserialize),
+        serde(bound = "T: EthSpec", rename_all = "camelCase")
+    ),
+    cast_error(ty = "Error", expr = "Error::IncorrectStateVariant"),
+    partial_getter_error(ty = "Error", expr = "Error::IncorrectStateVariant")
+)]
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub struct JsonGetPayloadResponse<T: EthSpec> {
+    #[superstruct(only(V1), partial_getter(rename = "execution_payload_v1"))]
+    pub execution_payload: JsonExecutionPayloadV1<T>,
+    #[superstruct(only(V2), partial_getter(rename = "execution_payload_v2"))]
+    pub execution_payload: JsonExecutionPayloadV2<T>,
+    #[superstruct(only(V3), partial_getter(rename = "execution_payload_v3"))]
+    pub execution_payload: JsonExecutionPayloadV3<T>,
+    #[serde(with = "eth2_serde_utils::u256_hex_be")]
+    pub block_value: Uint256,
+}
+
+impl<T: EthSpec> From<JsonGetPayloadResponse<T>> for GetPayloadResponse<T> {
+    fn from(json_get_payload_response: JsonGetPayloadResponse<T>) -> Self {
+        match json_get_payload_response {
+            JsonGetPayloadResponse::V1(response) => {
+                GetPayloadResponse::Merge(GetPayloadResponseMerge {
+                    execution_payload: response.execution_payload.into(),
+                    block_value: response.block_value,
+                })
+            }
+            JsonGetPayloadResponse::V2(response) => {
+                GetPayloadResponse::Capella(GetPayloadResponseCapella {
+                    execution_payload: response.execution_payload.into(),
+                    block_value: response.block_value,
+                })
+            }
+            JsonGetPayloadResponse::V3(response) => {
+                GetPayloadResponse::Eip4844(GetPayloadResponseEip4844 {
+                    execution_payload: response.execution_payload.into(),
+                    block_value: response.block_value,
+                })
+            }
         }
     }
 }
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct JsonPayloadAttributesV1 {
+pub struct JsonWithdrawal {
+    #[serde(with = "eth2_serde_utils::u64_hex_be")]
+    pub index: u64,
+    #[serde(with = "eth2_serde_utils::u64_hex_be")]
+    pub validator_index: u64,
+    pub address: Address,
+    #[serde(with = "eth2_serde_utils::u64_hex_be")]
+    pub amount: u64,
+}
+
+impl From<Withdrawal> for JsonWithdrawal {
+    fn from(withdrawal: Withdrawal) -> Self {
+        Self {
+            index: withdrawal.index,
+            validator_index: withdrawal.validator_index,
+            address: withdrawal.address,
+            amount: withdrawal.amount,
+        }
+    }
+}
+
+impl From<JsonWithdrawal> for Withdrawal {
+    fn from(jw: JsonWithdrawal) -> Self {
+        Self {
+            index: jw.index,
+            validator_index: jw.validator_index,
+            address: jw.address,
+            amount: jw.amount,
+        }
+    }
+}
+
+#[superstruct(
+    variants(V1, V2),
+    variant_attributes(
+        derive(Debug, Clone, PartialEq, Serialize, Deserialize),
+        serde(rename_all = "camelCase")
+    ),
+    cast_error(ty = "Error", expr = "Error::IncorrectStateVariant"),
+    partial_getter_error(ty = "Error", expr = "Error::IncorrectStateVariant")
+)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub struct JsonPayloadAttributes {
     #[serde(with = "eth2_serde_utils::u64_hex_be")]
     pub timestamp: u64,
     pub prev_randao: Hash256,
     pub suggested_fee_recipient: Address,
+    #[superstruct(only(V2))]
+    pub withdrawals: Vec<JsonWithdrawal>,
 }
 
-impl From<PayloadAttributes> for JsonPayloadAttributesV1 {
-    fn from(p: PayloadAttributes) -> Self {
-        // Use this verbose deconstruction pattern to ensure no field is left unused.
-        let PayloadAttributes {
-            timestamp,
-            prev_randao,
-            suggested_fee_recipient,
-        } = p;
-
-        Self {
-            timestamp,
-            prev_randao,
-            suggested_fee_recipient,
+impl From<PayloadAttributes> for JsonPayloadAttributes {
+    fn from(payload_atributes: PayloadAttributes) -> Self {
+        match payload_atributes {
+            PayloadAttributes::V1(pa) => Self::V1(JsonPayloadAttributesV1 {
+                timestamp: pa.timestamp,
+                prev_randao: pa.prev_randao,
+                suggested_fee_recipient: pa.suggested_fee_recipient,
+            }),
+            PayloadAttributes::V2(pa) => Self::V2(JsonPayloadAttributesV2 {
+                timestamp: pa.timestamp,
+                prev_randao: pa.prev_randao,
+                suggested_fee_recipient: pa.suggested_fee_recipient,
+                withdrawals: pa.withdrawals.into_iter().map(Into::into).collect(),
+            }),
         }
     }
 }
 
-impl From<JsonPayloadAttributesV1> for PayloadAttributes {
-    fn from(j: JsonPayloadAttributesV1) -> Self {
-        // Use this verbose deconstruction pattern to ensure no field is left unused.
-        let JsonPayloadAttributesV1 {
-            timestamp,
-            prev_randao,
-            suggested_fee_recipient,
-        } = j;
-
-        Self {
-            timestamp,
-            prev_randao,
-            suggested_fee_recipient,
+impl From<JsonPayloadAttributes> for PayloadAttributes {
+    fn from(json_payload_attributes: JsonPayloadAttributes) -> Self {
+        match json_payload_attributes {
+            JsonPayloadAttributes::V1(jpa) => Self::V1(PayloadAttributesV1 {
+                timestamp: jpa.timestamp,
+                prev_randao: jpa.prev_randao,
+                suggested_fee_recipient: jpa.suggested_fee_recipient,
+            }),
+            JsonPayloadAttributes::V2(jpa) => Self::V2(PayloadAttributesV2 {
+                timestamp: jpa.timestamp,
+                prev_randao: jpa.prev_randao,
+                suggested_fee_recipient: jpa.suggested_fee_recipient,
+                withdrawals: jpa.withdrawals.into_iter().map(Into::into).collect(),
+            }),
         }
     }
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[serde(bound = "T: EthSpec", rename_all = "camelCase")]
+pub struct JsonBlobBundles<T: EthSpec> {
+    pub block_hash: ExecutionBlockHash,
+    pub kzgs: Vec<KzgCommitment>,
+    pub blobs: Vec<Blob<T>>,
 }
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct JsonForkChoiceStateV1 {
+pub struct JsonForkchoiceStateV1 {
     pub head_block_hash: ExecutionBlockHash,
     pub safe_block_hash: ExecutionBlockHash,
     pub finalized_block_hash: ExecutionBlockHash,
 }
 
-impl From<ForkChoiceState> for JsonForkChoiceStateV1 {
-    fn from(f: ForkChoiceState) -> Self {
+impl From<ForkchoiceState> for JsonForkchoiceStateV1 {
+    fn from(f: ForkchoiceState) -> Self {
         // Use this verbose deconstruction pattern to ensure no field is left unused.
-        let ForkChoiceState {
+        let ForkchoiceState {
             head_block_hash,
             safe_block_hash,
             finalized_block_hash,
@@ -295,10 +443,10 @@ impl From<ForkChoiceState> for JsonForkChoiceStateV1 {
     }
 }
 
-impl From<JsonForkChoiceStateV1> for ForkChoiceState {
-    fn from(j: JsonForkChoiceStateV1) -> Self {
+impl From<JsonForkchoiceStateV1> for ForkchoiceState {
+    fn from(j: JsonForkchoiceStateV1) -> Self {
         // Use this verbose deconstruction pattern to ensure no field is left unused.
-        let JsonForkChoiceStateV1 {
+        let JsonForkchoiceStateV1 {
             head_block_hash,
             safe_block_hash,
             finalized_block_hash,

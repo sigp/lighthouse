@@ -6,6 +6,10 @@ edition = "2021"
 
 [dev-dependencies]
 serde_yaml = "0.8.13"
+logging = { path = "../../common/logging" }
+state_processing = { path = "../../consensus/state_processing" }
+operation_pool = { path = "../operation_pool" }
+tokio = "1.14.0"
 
 [dependencies]
 beacon_chain = { path = "../beacon_chain" }

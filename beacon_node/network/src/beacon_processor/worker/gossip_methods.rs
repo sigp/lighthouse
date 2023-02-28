@@ -12,6 +12,7 @@ use beacon_chain::{
     GossipVerifiedBlock, NotifyExecutionLayer,
 };
 use lighthouse_network::{Client, MessageAcceptance, MessageId, PeerAction, PeerId, ReportSource};
+use operation_pool::ReceivedPreCapella;
 use slog::{crit, debug, error, info, trace, warn};
 use slot_clock::SlotClock;
 use ssz::Encode;
@@ -22,8 +23,8 @@ use tokio::sync::mpsc;
 use types::{
     Attestation, AttesterSlashing, EthSpec, Hash256, IndexedAttestation, LightClientFinalityUpdate,
     LightClientOptimisticUpdate, ProposerSlashing, SignedAggregateAndProof, SignedBeaconBlock,
-    SignedContributionAndProof, SignedVoluntaryExit, Slot, SubnetId, SyncCommitteeMessage,
-    SyncSubnetId,
+    SignedBlsToExecutionChange, SignedContributionAndProof, SignedVoluntaryExit, Slot, SubnetId,
+    SyncCommitteeMessage, SyncSubnetId,
 };
 
 use super::{
@@ -676,6 +677,7 @@ impl<T: BeaconChainTypes> Worker<T> {
             .await
         {
             let block_root = gossip_verified_block.block_root;
+
             if let Some(handle) = duplicate_cache.check_and_insert(block_root) {
                 self.process_gossip_verified_block(
                     peer_id,
@@ -1188,6 +1190,83 @@ impl<T: BeaconChainTypes> Worker<T> {
         self.chain.import_attester_slashing(slashing);
         debug!(self.log, "Successfully imported attester slashing");
         metrics::inc_counter(&metrics::BEACON_PROCESSOR_ATTESTER_SLASHING_IMPORTED_TOTAL);
+    }
+
+    pub fn process_gossip_bls_to_execution_change(
+        self,
+        message_id: MessageId,
+        peer_id: PeerId,
+        bls_to_execution_change: SignedBlsToExecutionChange,
+    ) {
+        let validator_index = bls_to_execution_change.message.validator_index;
+        let address = bls_to_execution_change.message.to_execution_address;
+
+        let change = match self
+            .chain
+            .verify_bls_to_execution_change_for_gossip(bls_to_execution_change)
+        {
+            Ok(ObservationOutcome::New(change)) => change,
+            Ok(ObservationOutcome::AlreadyKnown) => {
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+                debug!(
+                    self.log,
+                    "Dropping BLS to execution change";
+                    "validator_index" => validator_index,
+                    "peer" => %peer_id
+                );
+                return;
+            }
+            Err(e) => {
+                debug!(
+                    self.log,
+                    "Dropping invalid BLS to execution change";
+                    "validator_index" => validator_index,
+                    "peer" => %peer_id,
+                    "error" => ?e
+                );
+                // We ignore pre-capella messages without penalizing peers.
+                if matches!(e, BeaconChainError::BlsToExecutionPriorToCapella) {
+                    self.propagate_validation_result(
+                        message_id,
+                        peer_id,
+                        MessageAcceptance::Ignore,
+                    );
+                } else {
+                    // We penalize the peer slightly to prevent overuse of invalids.
+                    self.propagate_validation_result(
+                        message_id,
+                        peer_id,
+                        MessageAcceptance::Reject,
+                    );
+                    self.gossip_penalize_peer(
+                        peer_id,
+                        PeerAction::HighToleranceError,
+                        "invalid_bls_to_execution_change",
+                    );
+                }
+                return;
+            }
+        };
+
+        metrics::inc_counter(&metrics::BEACON_PROCESSOR_BLS_TO_EXECUTION_CHANGE_VERIFIED_TOTAL);
+
+        self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
+
+        // Address change messages from gossip are only processed *after* the
+        // Capella fork epoch.
+        let received_pre_capella = ReceivedPreCapella::No;
+
+        self.chain
+            .import_bls_to_execution_change(change, received_pre_capella);
+
+        debug!(
+            self.log,
+            "Successfully imported BLS to execution change";
+            "validator_index" => validator_index,
+            "address" => ?address,
+        );
+
+        metrics::inc_counter(&metrics::BEACON_PROCESSOR_BLS_TO_EXECUTION_CHANGE_IMPORTED_TOTAL);
     }
 
     /// Process the sync committee signature received from the gossip network and:

@@ -13,9 +13,10 @@ use std::collections::BTreeSet;
 use std::marker::PhantomData;
 use std::time::Duration;
 use types::{
-    consts::merge::INTERVALS_PER_SLOT, AttestationShufflingId, AttesterSlashing, BeaconBlockRef,
-    BeaconState, BeaconStateError, ChainSpec, Checkpoint, Epoch, EthSpec, ExecPayload,
-    ExecutionBlockHash, Hash256, IndexedAttestation, RelativeEpoch, SignedBeaconBlock, Slot,
+    consts::merge::INTERVALS_PER_SLOT, AbstractExecPayload, AttestationShufflingId,
+    AttesterSlashing, BeaconBlockRef, BeaconState, BeaconStateError, ChainSpec, Checkpoint, Epoch,
+    EthSpec, ExecPayload, ExecutionBlockHash, Hash256, IndexedAttestation, RelativeEpoch,
+    SignedBeaconBlock, Slot,
 };
 
 #[derive(Debug)]
@@ -412,18 +413,18 @@ where
             AttestationShufflingId::new(anchor_block_root, anchor_state, RelativeEpoch::Next)
                 .map_err(Error::BeaconStateError)?;
 
-        // Default any non-merge execution block hashes to 0x000..000.
-        let execution_status = anchor_block.message_merge().map_or_else(
-            |()| ExecutionStatus::irrelevant(),
-            |message| {
-                let execution_payload = &message.body.execution_payload;
-                if execution_payload == &<_>::default() {
+        let execution_status = anchor_block.message().execution_payload().map_or_else(
+            // If the block doesn't have an execution payload then it can't have
+            // execution enabled.
+            |_| ExecutionStatus::irrelevant(),
+            |execution_payload| {
+                if execution_payload.is_default_with_empty_roots() {
                     // A default payload does not have execution enabled.
                     ExecutionStatus::irrelevant()
                 } else {
                     // Assume that this payload is valid, since the anchor should be a trusted block and
                     // state.
-                    ExecutionStatus::Valid(message.body.execution_payload.block_hash())
+                    ExecutionStatus::Valid(execution_payload.block_hash())
                 }
             },
         );
@@ -744,7 +745,7 @@ where
     /// The supplied block **must** pass the `state_transition` function as it will not be run
     /// here.
     #[allow(clippy::too_many_arguments)]
-    pub fn on_block<Payload: ExecPayload<E>>(
+    pub fn on_block<Payload: AbstractExecPayload<E>>(
         &mut self,
         system_time_current_slot: Slot,
         block: BeaconBlockRef<E, Payload>,
@@ -856,7 +857,12 @@ where
                     (parent_justified, parent_finalized)
                 } else {
                     let justification_and_finalization_state = match block {
-                        BeaconBlockRef::Merge(_) | BeaconBlockRef::Altair(_) => {
+                        // TODO(eip4844): Ensure that the final specification
+                        // does not substantially modify per epoch processing.
+                        BeaconBlockRef::Eip4844(_)
+                        | BeaconBlockRef::Capella(_)
+                        | BeaconBlockRef::Merge(_)
+                        | BeaconBlockRef::Altair(_) => {
                             let participation_cache =
                                 per_epoch_processing::altair::ParticipationCache::new(state, spec)
                                     .map_err(Error::ParticipationCacheBuild)?;
