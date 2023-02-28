@@ -447,6 +447,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             .validator_store(validator_store.clone())
             .beacon_nodes(beacon_nodes.clone())
             .runtime_context(context.service_context("attestation".into()))
+            .num_attestation_threads(config.num_attestation_threads)
             .build()?;
 
         let preparation_service = PreparationServiceBuilder::new()

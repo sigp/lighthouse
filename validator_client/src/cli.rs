@@ -36,6 +36,15 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                        api calls only go out to the first available and synced beacon node")
                 .takes_value(false)
         )
+        .arg(
+            Arg::with_name("num-attestation-threads")
+                .long("num-attestation-threads")
+                .value_name("N")
+                .help("Number of concurrent tasks to use when signing attestations. Defaults to \
+                       the number of CPU cores if not set. Setting this value higher may cause CPU \
+                       contention during signing.")
+                .takes_value(false)
+        )
         // This argument is deprecated, use `--beacon-nodes` instead.
         .arg(
             Arg::with_name("server")

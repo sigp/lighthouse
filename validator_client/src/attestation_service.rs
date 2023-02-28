@@ -19,8 +19,6 @@ use types::{
     Slot,
 };
 
-pub const ATTESTATION_SIGNING_PARALLELISM: usize = 8;
-
 /// Builds an `AttestationService`.
 pub struct AttestationServiceBuilder<T: SlotClock + 'static, E: EthSpec> {
     duties_service: Option<Arc<DutiesService<T, E>>>,
@@ -28,6 +26,7 @@ pub struct AttestationServiceBuilder<T: SlotClock + 'static, E: EthSpec> {
     slot_clock: Option<T>,
     beacon_nodes: Option<Arc<BeaconNodeFallback<T, E>>>,
     context: Option<RuntimeContext<E>>,
+    num_attestation_threads: Option<usize>,
 }
 
 impl<T: SlotClock + 'static, E: EthSpec> AttestationServiceBuilder<T, E> {
@@ -38,6 +37,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationServiceBuilder<T, E> {
             slot_clock: None,
             beacon_nodes: None,
             context: None,
+            num_attestation_threads: None,
         }
     }
 
@@ -66,6 +66,11 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationServiceBuilder<T, E> {
         self
     }
 
+    pub fn num_attestation_threads(mut self, num_attestation_threads: Option<usize>) -> Self {
+        self.num_attestation_threads = num_attestation_threads;
+        self
+    }
+
     pub fn build(self) -> Result<AttestationService<T, E>, String> {
         Ok(AttestationService {
             inner: Arc::new(Inner {
@@ -84,6 +89,9 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationServiceBuilder<T, E> {
                 context: self
                     .context
                     .ok_or("Cannot build AttestationService without runtime_context")?,
+                num_attestation_threads: self
+                    .num_attestation_threads
+                    .unwrap_or_else(|| num_cpus::get()),
             }),
         })
     }
@@ -96,6 +104,7 @@ pub struct Inner<T, E: EthSpec> {
     slot_clock: T,
     beacon_nodes: Arc<BeaconNodeFallback<T, E>>,
     context: RuntimeContext<E>,
+    num_attestation_threads: usize,
 }
 
 /// Attempts to produce attestations for all known validators 1/3rd of the way through each slot.
@@ -209,7 +218,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             async move {
                 stream::iter(duties_by_committee_index.into_iter())
                     .for_each_concurrent(
-                        ATTESTATION_SIGNING_PARALLELISM,
+                        subservice.num_attestation_threads,
                         |(committee_index, validator_duties)| {
                             let subsubservice = subservice.clone();
                             async move {
