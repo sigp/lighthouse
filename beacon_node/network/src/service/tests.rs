@@ -59,8 +59,8 @@ mod tests {
         );
 
         let mut config = NetworkConfig::default();
-        config.discv5_config.table_filter = |_| true; // Do not ignore local IPs
         config.set_ipv4_listening_address(std::net::Ipv4Addr::UNSPECIFIED, 21212, 21212);
+        config.discv5_config.table_filter = |_| true; // Do not ignore local IPs
         config.upnp_enabled = false;
         config.boot_nodes_enr = enrs.clone();
         runtime.block_on(async move {
