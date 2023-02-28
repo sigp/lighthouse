@@ -1,17 +1,16 @@
 use clap::ArgMatches;
 use lighthouse_network::{
     discovery::{build_enr, CombinedKey, CombinedKeyExt, Keypair, ENR_FILENAME},
-    ListenAddr, ListenAddress, NetworkConfig, NETWORK_KEY_FILENAME,
+    NetworkConfig, NETWORK_KEY_FILENAME,
 };
-use std::fs;
 use std::fs::File;
 use std::io::Write;
-use std::net::IpAddr;
 use std::path::PathBuf;
+use std::{fs, net::Ipv4Addr};
 use types::{ChainSpec, EnrForkId, Epoch, EthSpec, Hash256};
 
 pub fn run<T: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
-    let ip: IpAddr = clap_utils::parse_required(matches, "ip")?;
+    let ip: Ipv4Addr = clap_utils::parse_required(matches, "ip")?;
     let udp_port: u16 = clap_utils::parse_required(matches, "udp-port")?;
     let tcp_port: u16 = clap_utils::parse_required(matches, "tcp-port")?;
     let output_dir: PathBuf = clap_utils::parse_required(matches, "output-dir")?;
@@ -25,20 +24,10 @@ pub fn run<T: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
         ));
     }
 
-    let listen_addr = match ip {
-        IpAddr::V4(addr) => ListenAddress::V4(ListenAddr {
-            addr,
-            udp_port,
-            tcp_port,
-        }),
-        IpAddr::V6(addr) => ListenAddress::V6(ListenAddr {
-            addr,
-            udp_port,
-            tcp_port,
-        }),
-    };
     let mut config = NetworkConfig::default();
-    config.set_listening_addr(listen_addr);
+    config.enr_address = (Some(ip), None);
+    config.enr_udp4_port = Some(udp_port);
+    config.enr_tcp6_port = Some(tcp_port);
 
     let local_keypair = Keypair::generate_secp256k1();
     let enr_key = CombinedKey::from_libp2p(&local_keypair)?;
