@@ -34,7 +34,7 @@ pub struct ExecutionPayloadHeader<T: EthSpec> {
     pub base_fee_per_gas: Uint256,
     pub block_hash: ExecutionBlockHash,
     pub transactions_root: Hash256,
-    pub execution_witness: ExecutionWitness<T>,
+    pub execution_witness_root: Hash256,//ExecutionWitness<T>,
 }
 
 impl<T: EthSpec> ExecutionPayloadHeader<T> {
@@ -60,7 +60,7 @@ impl<'a, T: EthSpec> From<&'a ExecutionPayload<T>> for ExecutionPayloadHeader<T>
             base_fee_per_gas: payload.base_fee_per_gas,
             block_hash: payload.block_hash,
             transactions_root: payload.transactions.tree_hash_root(),
-            execution_witness: payload.execution_witness.clone(),
+            execution_witness_root: payload.execution_witness.tree_hash_root(),
         }
     }
 }

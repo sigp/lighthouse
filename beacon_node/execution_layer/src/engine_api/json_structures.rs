@@ -82,7 +82,7 @@ pub struct JsonExecutionPayloadHeaderV1<T: EthSpec> {
     pub base_fee_per_gas: Uint256,
     pub block_hash: ExecutionBlockHash,
     pub transactions_root: Hash256,
-    pub execution_witness: ExecutionWitness<T>,
+    pub execution_witness_root: Hash256,
 }
 
 impl<T: EthSpec> From<JsonExecutionPayloadHeaderV1<T>> for ExecutionPayloadHeader<T> {
@@ -103,7 +103,7 @@ impl<T: EthSpec> From<JsonExecutionPayloadHeaderV1<T>> for ExecutionPayloadHeade
             base_fee_per_gas,
             block_hash,
             transactions_root,
-            execution_witness,
+            execution_witness_root,
         } = e;
 
         Self {
@@ -121,7 +121,7 @@ impl<T: EthSpec> From<JsonExecutionPayloadHeaderV1<T>> for ExecutionPayloadHeade
             base_fee_per_gas,
             block_hash,
             transactions_root,
-            execution_witness,
+            execution_witness_root,
         }
     }
 }
