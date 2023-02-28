@@ -407,6 +407,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
             )
             .await?;
 
+        let signing_timer = std::time::Instant::now();
         let signed_block = self_ref
             .validator_store
             .sign_block::<Payload>(*validator_pubkey_ref, block, current_slot)
@@ -417,6 +418,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
             log,
             "Publishing signed block";
             "slot" => slot.as_u64(),
+            "signing_time_ms" => signing_timer.elapsed().as_millis(),
         );
         // Publish block with first available beacon node.
         self.beacon_nodes

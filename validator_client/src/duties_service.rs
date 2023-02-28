@@ -17,7 +17,7 @@ use crate::{
 };
 use environment::RuntimeContext;
 use eth2::types::{AttesterData, BeaconCommitteeSubscription, ProposerData, StateId, ValidatorId};
-use futures::future::join_all;
+use futures::{stream, StreamExt};
 use parking_lot::RwLock;
 use safe_arith::ArithError;
 use slog::{debug, error, info, warn, Logger};
@@ -827,16 +827,29 @@ async fn fill_in_selection_proofs<T: SlotClock + 'static, E: EthSpec>(
 
             let batch_size = relevant_duties.values().map(Vec::len).sum::<usize>();
 
+            if batch_size == 0 {
+                continue;
+            }
+
             let timer = std::time::Instant::now();
-            let duty_and_proof_results =
-                join_all(relevant_duties.into_values().flatten().map(|duty| {
+            let duty_and_proof_results = stream::iter(relevant_duties.into_values().flatten())
+                .then(|duty| async {
                     DutyAndProof::new_with_selection_proof(
                         duty,
                         &duties_service.validator_store,
                         &duties_service.spec,
                     )
-                }))
+                    .await
+                })
+                .collect::<Vec<_>>()
                 .await;
+            debug!(
+                log,
+                "Computed selection proofs";
+                "batch_size" => batch_size,
+                "signing_time_ms" => timer.elapsed().as_millis(),
+            );
+            let timer = std::time::Instant::now();
 
             // Add to attesters store.
             let mut attesters = duties_service.attesters.write();
@@ -888,7 +901,7 @@ async fn fill_in_selection_proofs<T: SlotClock + 'static, E: EthSpec>(
             drop(attesters);
             debug!(
                 log,
-                "Computed attestation selection proofs";
+                "Updated attestation selection proofs";
                 "batch_size" => batch_size,
                 "until_slot" => lookahead_slot,
                 "time_taken_ms" => timer.elapsed().as_millis()
