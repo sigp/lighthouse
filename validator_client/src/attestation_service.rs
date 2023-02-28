@@ -6,7 +6,7 @@ use crate::{
     OfflineOnFailure,
 };
 use environment::RuntimeContext;
-use futures::future::join_all;
+use futures::{future::join_all, stream, StreamExt};
 use slog::{crit, error, info, trace};
 use slot_clock::SlotClock;
 use std::collections::HashMap;
@@ -18,6 +18,8 @@ use types::{
     AggregateSignature, Attestation, AttestationData, BitList, ChainSpec, CommitteeIndex, EthSpec,
     Slot,
 };
+
+pub const ATTESTATION_SIGNING_PARALLELISM: usize = 8;
 
 /// Builds an `AttestationService`.
 pub struct AttestationServiceBuilder<T: SlotClock + 'static, E: EthSpec> {
@@ -202,20 +204,31 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
         //
         // - Create and publish an `Attestation` for all required validators.
         // - Create and publish `SignedAggregateAndProof` for all aggregating validators.
-        duties_by_committee_index
-            .into_iter()
-            .for_each(|(committee_index, validator_duties)| {
-                // Spawn a separate task for each attestation.
-                self.inner.context.executor.spawn_ignoring_error(
-                    self.clone().publish_attestations_and_aggregates(
-                        slot,
-                        committee_index,
-                        validator_duties,
-                        aggregate_production_instant,
-                    ),
-                    "attestation publish",
-                );
-            });
+        let subservice = self.clone();
+        self.inner.context.executor.spawn(
+            async move {
+                stream::iter(duties_by_committee_index.into_iter())
+                    .for_each_concurrent(
+                        ATTESTATION_SIGNING_PARALLELISM,
+                        |(committee_index, validator_duties)| {
+                            let subsubservice = subservice.clone();
+                            async move {
+                                if let Err(()) = subsubservice
+                                    .publish_attestations_and_aggregates(
+                                        slot,
+                                        committee_index,
+                                        validator_duties,
+                                        aggregate_production_instant,
+                                    )
+                                    .await
+                                {}
+                            }
+                        },
+                    )
+                    .await;
+            },
+            "attestation_publish",
+        );
 
         // Schedule pruning of the slashing protection database once all unaggregated
         // attestations have (hopefully) been signed, i.e. at the same time as aggregate
@@ -358,63 +371,63 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
 
         // Create futures to produce signed `Attestation` objects.
         let attestation_data_ref = &attestation_data;
-        let signing_futures = validator_duties.iter().map(|duty_and_proof| async move {
-            let duty = &duty_and_proof.duty;
-            let attestation_data = attestation_data_ref;
+        let signing_futures =
+            stream::iter(validator_duties.iter()).filter_map(|duty_and_proof| async move {
+                let duty = &duty_and_proof.duty;
+                let attestation_data = attestation_data_ref;
 
-            // Ensure that the attestation matches the duties.
-            #[allow(clippy::suspicious_operation_groupings)]
-            if duty.slot != attestation_data.slot || duty.committee_index != attestation_data.index
-            {
-                crit!(
-                    log,
-                    "Inconsistent validator duties during signing";
-                    "validator" => ?duty.pubkey,
-                    "duty_slot" => duty.slot,
-                    "attestation_slot" => attestation_data.slot,
-                    "duty_index" => duty.committee_index,
-                    "attestation_index" => attestation_data.index,
-                );
-                return None;
-            }
-
-            let mut attestation = Attestation {
-                aggregation_bits: BitList::with_capacity(duty.committee_length as usize).unwrap(),
-                data: attestation_data.clone(),
-                signature: AggregateSignature::infinity(),
-            };
-
-            match self
-                .validator_store
-                .sign_attestation(
-                    duty.pubkey,
-                    duty.validator_committee_index as usize,
-                    &mut attestation,
-                    current_epoch,
-                )
-                .await
-            {
-                Ok(()) => Some((attestation, duty.validator_index)),
-                Err(e) => {
+                // Ensure that the attestation matches the duties.
+                #[allow(clippy::suspicious_operation_groupings)]
+                if duty.slot != attestation_data.slot
+                    || duty.committee_index != attestation_data.index
+                {
                     crit!(
                         log,
-                        "Failed to sign attestation";
-                        "error" => ?e,
+                        "Inconsistent validator duties during signing";
                         "validator" => ?duty.pubkey,
-                        "committee_index" => committee_index,
-                        "slot" => slot.as_u64(),
+                        "duty_slot" => duty.slot,
+                        "attestation_slot" => attestation_data.slot,
+                        "duty_index" => duty.committee_index,
+                        "attestation_index" => attestation_data.index,
                     );
-                    None
+                    return None;
                 }
-            }
-        });
 
-        // Execute all the futures in parallel, collecting any successful results.
-        let (ref attestations, ref validator_indices): (Vec<_>, Vec<_>) = join_all(signing_futures)
-            .await
-            .into_iter()
-            .flatten()
-            .unzip();
+                let mut attestation = Attestation {
+                    aggregation_bits: BitList::with_capacity(duty.committee_length as usize)
+                        .unwrap(),
+                    data: attestation_data.clone(),
+                    signature: AggregateSignature::infinity(),
+                };
+
+                match self
+                    .validator_store
+                    .sign_attestation(
+                        duty.pubkey,
+                        duty.validator_committee_index as usize,
+                        &mut attestation,
+                        current_epoch,
+                    )
+                    .await
+                {
+                    Ok(()) => Some((attestation, duty.validator_index)),
+                    Err(e) => {
+                        crit!(
+                            log,
+                            "Failed to sign attestation";
+                            "error" => ?e,
+                            "validator" => ?duty.pubkey,
+                            "committee_index" => committee_index,
+                            "slot" => slot.as_u64(),
+                        );
+                        None
+                    }
+                }
+            });
+
+        // Execute all the futures, collecting any successful results.
+        let (ref attestations, ref validator_indices): (Vec<_>, Vec<_>) =
+            signing_futures.unzip().await;
 
         // Post the attestations to the BN.
         match self
