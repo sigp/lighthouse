@@ -38,15 +38,24 @@ PROFILE ?= release
 # they run for different forks.
 FORKS=phase0 altair merge capella
 
+# Extra flags for Cargo
+CARGO_INSTALL_EXTRA_FLAGS?=
+
 # Builds the Lighthouse binary in release (optimized).
 #
 # Binaries will most likely be found in `./target/release`
 install:
-	cargo install --path lighthouse --force --locked --features "$(FEATURES)" --profile "$(PROFILE)"
+	cargo install --path lighthouse --force --locked \
+		--features "$(FEATURES)" \
+		--profile "$(PROFILE)" \
+		$(CARGO_INSTALL_EXTRA_FLAGS)
 
 # Builds the lcli binary in release (optimized).
 install-lcli:
-	cargo install --path lcli --force --locked --features "$(FEATURES)" --profile "$(PROFILE)"
+	cargo install --path lcli --force --locked \
+		--features "$(FEATURES)" \
+		--profile "$(PROFILE)" \
+		$(CARGO_INSTALL_EXTRA_FLAGS)
 
 # The following commands use `cross` to build a cross-compile.
 #
@@ -124,7 +133,7 @@ run-ef-tests:
 test-beacon-chain: $(patsubst %,test-beacon-chain-%,$(FORKS))
 
 test-beacon-chain-%:
-	env FORK_NAME=$* cargo test --release --features fork_from_env -p beacon_chain
+	env FORK_NAME=$* cargo test --release --features fork_from_env,slasher/lmdb -p beacon_chain
 
 # Run the tests in the `operation_pool` crate for all known forks.
 test-op-pool: $(patsubst %,test-op-pool-%,$(FORKS))
