@@ -10,6 +10,8 @@ use types::ExecutionBlockHash;
 pub enum PayloadStatus {
     Valid,
     Invalid {
+        /// The EE will provide a `None` LVH when it is unable to determine the
+        /// latest valid ancestor.
         latest_valid_hash: Option<ExecutionBlockHash>,
         validation_error: Option<String>,
     },

@@ -173,7 +173,7 @@ async fn notify_new_payload<'a, T: BeaconChainTypes>(
                 );
 
                 // Only trigger payload invalidation in fork choice if the
-                // `latest_valid_hash` is `Some` or if is non-zero.
+                // `latest_valid_hash` is `Some` and non-zero.
                 //
                 // A `None` latest valid hash indicates that the EE was unable
                 // to determine the most recent valid ancestor. Since `block`
