@@ -5,7 +5,7 @@ use beacon_chain::{
 };
 use lighthouse_network::{PubsubMessage, SignedBeaconBlockAndBlobsSidecar};
 use network::NetworkMessage;
-use slog::{error, info, warn, Logger};
+use slog::{debug, error, info, warn, Logger};
 use slot_clock::SlotClock;
 use std::sync::Arc;
 use tokio::sync::mpsc::UnboundedSender;
@@ -26,6 +26,12 @@ pub async fn publish_block<T: BeaconChainTypes>(
     log: Logger,
 ) -> Result<(), Rejection> {
     let seen_timestamp = timestamp_now();
+
+    debug!(
+        log,
+        "Signed block published to HTTP API";
+        "slot" => block.slot()
+    );
 
     // Send the block, regardless of whether or not it is valid. The API
     // specification is very clear that this is the desired behaviour.
