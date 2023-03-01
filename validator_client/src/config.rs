@@ -73,10 +73,6 @@ pub struct Config {
     pub block_delay: Option<Duration>,
     /// Disables publishing http api requests to all beacon nodes for select api calls.
     pub disable_run_on_all: bool,
-    /// Number of concurrent attestation tasks.
-    ///
-    /// A `None` value indicates that the number of CPUs should be used.
-    pub num_attestation_threads: Option<usize>,
 }
 
 impl Default for Config {
@@ -115,7 +111,6 @@ impl Default for Config {
             builder_registration_timestamp_override: None,
             gas_limit: None,
             disable_run_on_all: false,
-            num_attestation_threads: None,
         }
     }
 }
@@ -201,8 +196,6 @@ impl Config {
         config.disable_auto_discover = cli_args.is_present("disable-auto-discover");
         config.init_slashing_protection = cli_args.is_present("init-slashing-protection");
         config.use_long_timeouts = cli_args.is_present("use-long-timeouts");
-
-        config.num_attestation_threads = parse_optional(cli_args, "num-attestation-threads")?;
 
         if let Some(graffiti_file_path) = cli_args.value_of("graffiti-file") {
             let mut graffiti_file = GraffitiFile::new(graffiti_file_path.into());

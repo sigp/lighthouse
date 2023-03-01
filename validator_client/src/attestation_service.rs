@@ -26,7 +26,6 @@ pub struct AttestationServiceBuilder<T: SlotClock + 'static, E: EthSpec> {
     slot_clock: Option<T>,
     beacon_nodes: Option<Arc<BeaconNodeFallback<T, E>>>,
     context: Option<RuntimeContext<E>>,
-    num_attestation_threads: Option<usize>,
 }
 
 impl<T: SlotClock + 'static, E: EthSpec> AttestationServiceBuilder<T, E> {
@@ -37,7 +36,6 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationServiceBuilder<T, E> {
             slot_clock: None,
             beacon_nodes: None,
             context: None,
-            num_attestation_threads: None,
         }
     }
 
@@ -66,11 +64,6 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationServiceBuilder<T, E> {
         self
     }
 
-    pub fn num_attestation_threads(mut self, num_attestation_threads: Option<usize>) -> Self {
-        self.num_attestation_threads = num_attestation_threads;
-        self
-    }
-
     pub fn build(self) -> Result<AttestationService<T, E>, String> {
         Ok(AttestationService {
             inner: Arc::new(Inner {
@@ -89,7 +82,6 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationServiceBuilder<T, E> {
                 context: self
                     .context
                     .ok_or("Cannot build AttestationService without runtime_context")?,
-                num_attestation_threads: self.num_attestation_threads.unwrap_or_else(num_cpus::get),
             }),
         })
     }
@@ -102,7 +94,6 @@ pub struct Inner<T, E: EthSpec> {
     slot_clock: T,
     beacon_nodes: Arc<BeaconNodeFallback<T, E>>,
     context: RuntimeContext<E>,
-    num_attestation_threads: usize,
 }
 
 /// Attempts to produce attestations for all known validators 1/3rd of the way through each slot.
@@ -211,30 +202,20 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
         //
         // - Create and publish an `Attestation` for all required validators.
         // - Create and publish `SignedAggregateAndProof` for all aggregating validators.
-        let subservice = self.clone();
-        self.inner.context.executor.spawn(
-            async move {
-                stream::iter(duties_by_committee_index.into_iter())
-                    .for_each_concurrent(
-                        subservice.num_attestation_threads,
-                        |(committee_index, validator_duties)| {
-                            let subservice = subservice.clone();
-                            async move {
-                                let _: Result<(), ()> = subservice
-                                    .publish_attestations_and_aggregates(
-                                        slot,
-                                        committee_index,
-                                        validator_duties,
-                                        aggregate_production_instant,
-                                    )
-                                    .await;
-                            }
-                        },
-                    )
-                    .await;
-            },
-            "attestation_publish",
-        );
+        duties_by_committee_index
+            .into_iter()
+            .for_each(|(committee_index, validator_duties)| {
+                // Spawn a separate task for each attestation.
+                self.inner.context.executor.spawn_ignoring_error(
+                    self.clone().publish_attestations_and_aggregates(
+                        slot,
+                        committee_index,
+                        validator_duties,
+                        aggregate_production_instant,
+                    ),
+                    "attestation publish",
+                );
+            });
 
         // Schedule pruning of the slashing protection database once all unaggregated
         // attestations have (hopefully) been signed, i.e. at the same time as aggregate
