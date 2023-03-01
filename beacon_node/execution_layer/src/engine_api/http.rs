@@ -38,9 +38,6 @@ pub const ENGINE_GET_PAYLOAD_V1: &str = "engine_getPayloadV1";
 pub const ENGINE_GET_PAYLOAD_V2: &str = "engine_getPayloadV2";
 pub const ENGINE_GET_PAYLOAD_TIMEOUT: Duration = Duration::from_secs(2);
 
-pub const ENGINE_GET_BLOBS_BUNDLE_V1: &str = "engine_getBlobsBundleV1";
-pub const ENGINE_GET_BLOBS_BUNDLE_TIMEOUT: Duration = Duration::from_secs(2);
-
 pub const ENGINE_FORKCHOICE_UPDATED_V1: &str = "engine_forkchoiceUpdatedV1";
 pub const ENGINE_FORKCHOICE_UPDATED_V2: &str = "engine_forkchoiceUpdatedV2";
 pub const ENGINE_FORKCHOICE_UPDATED_TIMEOUT: Duration = Duration::from_secs(8);
@@ -742,14 +739,6 @@ impl HttpJsonRpc {
                 )
                 .await?,
             ),
-            ForkName::Eip4844 => ExecutionBlockWithTransactions::Eip4844(
-                self.rpc_request(
-                    ETH_GET_BLOCK_BY_HASH,
-                    params,
-                    ETH_GET_BLOCK_BY_HASH_TIMEOUT * self.execution_timeout_multiplier,
-                )
-                .await?,
-            ),
             ForkName::Base | ForkName::Altair => {
                 return Err(Error::UnsupportedForkVariant(format!(
                     "called get_block_by_hash_with_txns with fork {:?}",
@@ -844,27 +833,11 @@ impl HttpJsonRpc {
                     .await?;
                 Ok(JsonGetPayloadResponse::V2(response).into())
             }
-            ForkName::Base | ForkName::Altair | ForkName::Eip4844 => Err(
-                Error::UnsupportedForkVariant(format!("called get_payload_v2 with {}", fork_name)),
-            ),
+            ForkName::Base | ForkName::Altair => Err(Error::UnsupportedForkVariant(format!(
+                "called get_payload_v2 with {}",
+                fork_name
+            ))),
         }
-    }
-
-    pub async fn get_blobs_bundle_v1<T: EthSpec>(
-        &self,
-        payload_id: PayloadId,
-    ) -> Result<JsonBlobBundles<T>, Error> {
-        let params = json!([JsonPayloadIdRequest::from(payload_id)]);
-
-        let response: JsonBlobBundles<T> = self
-            .rpc_request(
-                ENGINE_GET_BLOBS_BUNDLE_V1,
-                params,
-                ENGINE_GET_BLOBS_BUNDLE_TIMEOUT,
-            )
-            .await?;
-
-        Ok(response)
     }
 
     pub async fn forkchoice_updated_v1(

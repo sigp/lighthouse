@@ -39,7 +39,7 @@ time = "0.3.5"
 directory = {path = "../../common/directory"}
 http_api = { path = "../http_api" }
 http_metrics = { path = "../http_metrics" }
-slasher = { path = "../../slasher" }
+slasher = { path = "../../slasher", default-features = false }
 slasher_service = { path = "../../slasher/service" }
 monitoring_api = {path = "../../common/monitoring_api"}
 execution_layer = { path = "../execution_layer" }

@@ -103,11 +103,6 @@ pub trait EthSpec:
     type MaxBlsToExecutionChanges: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type MaxWithdrawalsPerPayload: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     /*
-     * New in Eip4844
-     */
-    type MaxBlobsPerBlock: Unsigned + Clone + Sync + Send + Debug + PartialEq;
-    type FieldElementsPerBlob: Unsigned + Clone + Sync + Send + Debug + PartialEq;
-    /*
      * Derived values (set these CAREFULLY)
      */
     /// The length of the `{previous,current}_epoch_attestations` lists.
@@ -244,11 +239,6 @@ pub trait EthSpec:
     fn max_withdrawals_per_payload() -> usize {
         Self::MaxWithdrawalsPerPayload::to_usize()
     }
-
-    /// Returns the `MAX_BLOBS_PER_BLOCK` constant for this specification.
-    fn max_blobs_per_block() -> usize {
-        Self::MaxBlobsPerBlock::to_usize()
-    }
 }
 
 /// Macro to inherit some type values from another EthSpec.
@@ -288,8 +278,6 @@ impl EthSpec for MainnetEthSpec {
     type GasLimitDenominator = U1024;
     type MinGasLimit = U5000;
     type MaxExtraDataBytes = U32;
-    type MaxBlobsPerBlock = U16; // 2**4 = 16
-    type FieldElementsPerBlob = U4096;
     type SyncSubcommitteeSize = U128; // 512 committee size / 4 sync committee subnet count
     type MaxPendingAttestations = U4096; // 128 max attestations * 32 slots per epoch
     type SlotsPerEth1VotingPeriod = U2048; // 64 epochs * 32 slots per epoch
@@ -340,9 +328,7 @@ impl EthSpec for MinimalEthSpec {
         GasLimitDenominator,
         MinGasLimit,
         MaxExtraDataBytes,
-        MaxBlsToExecutionChanges,
-        MaxBlobsPerBlock,
-        FieldElementsPerBlob
+        MaxBlsToExecutionChanges
     });
 
     fn default_spec() -> ChainSpec {
@@ -388,8 +374,6 @@ impl EthSpec for GnosisEthSpec {
     type SlotsPerEth1VotingPeriod = U1024; // 64 epochs * 16 slots per epoch
     type MaxBlsToExecutionChanges = U16;
     type MaxWithdrawalsPerPayload = U16;
-    type MaxBlobsPerBlock = U16; // 2**4 = 16
-    type FieldElementsPerBlob = U4096;
 
     fn default_spec() -> ChainSpec {
         ChainSpec::gnosis()

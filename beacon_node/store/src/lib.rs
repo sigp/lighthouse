@@ -155,7 +155,6 @@ pub trait ItemStore<E: EthSpec>: KeyValueStore<E> + Sync + Send + Sized + 'stati
 pub enum StoreOp<'a, E: EthSpec> {
     PutBlock(Hash256, Arc<SignedBeaconBlock<E>>),
     PutState(Hash256, &'a BeaconState<E>),
-    PutBlobs(Hash256, Arc<BlobsSidecar<E>>),
     PutStateSummary(Hash256, HotStateSummary),
     PutStateTemporaryFlag(Hash256),
     DeleteStateTemporaryFlag(Hash256),
@@ -173,8 +172,6 @@ pub enum DBColumn {
     BeaconMeta,
     #[strum(serialize = "blk")]
     BeaconBlock,
-    #[strum(serialize = "blb")]
-    BeaconBlob,
     /// For full `BeaconState`s in the hot database (finalized or fork-boundary states).
     #[strum(serialize = "ste")]
     BeaconState,

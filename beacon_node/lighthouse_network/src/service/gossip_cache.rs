@@ -20,8 +20,6 @@ pub struct GossipCache {
     topic_msgs: HashMap<GossipTopic, HashMap<Vec<u8>, Key>>,
     /// Timeout for blocks.
     beacon_block: Option<Duration>,
-    /// Timeout for blobs.
-    beacon_block_and_blobs_sidecar: Option<Duration>,
     /// Timeout for aggregate attestations.
     aggregates: Option<Duration>,
     /// Timeout for attestations.
@@ -49,8 +47,6 @@ pub struct GossipCacheBuilder {
     default_timeout: Option<Duration>,
     /// Timeout for blocks.
     beacon_block: Option<Duration>,
-    /// Timeout for blob sidecars.
-    beacon_block_and_blobs_sidecar: Option<Duration>,
     /// Timeout for aggregate attestations.
     aggregates: Option<Duration>,
     /// Timeout for attestations.
@@ -151,7 +147,6 @@ impl GossipCacheBuilder {
         let GossipCacheBuilder {
             default_timeout,
             beacon_block,
-            beacon_block_and_blobs_sidecar,
             aggregates,
             attestation,
             voluntary_exit,
@@ -167,7 +162,6 @@ impl GossipCacheBuilder {
             expirations: DelayQueue::default(),
             topic_msgs: HashMap::default(),
             beacon_block: beacon_block.or(default_timeout),
-            beacon_block_and_blobs_sidecar: beacon_block_and_blobs_sidecar.or(default_timeout),
             aggregates: aggregates.or(default_timeout),
             attestation: attestation.or(default_timeout),
             voluntary_exit: voluntary_exit.or(default_timeout),
@@ -193,7 +187,6 @@ impl GossipCache {
     pub fn insert(&mut self, topic: GossipTopic, data: Vec<u8>) {
         let expire_timeout = match topic.kind() {
             GossipKind::BeaconBlock => self.beacon_block,
-            GossipKind::BeaconBlocksAndBlobsSidecar => self.beacon_block_and_blobs_sidecar,
             GossipKind::BeaconAggregateAndProof => self.aggregates,
             GossipKind::Attestation(_) => self.attestation,
             GossipKind::VoluntaryExit => self.voluntary_exit,

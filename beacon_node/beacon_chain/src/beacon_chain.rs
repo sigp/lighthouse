@@ -4106,9 +4106,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             None
         };
 
-        //FIXME(sean) waiting for the BN<>EE api for this to stabilize
-        let kzg_commitments = vec![];
-
         // Part 3/3 (blocking)
         //
         // Perform the final steps of combining all the parts and computing the state root.
@@ -4119,7 +4116,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     chain.complete_partial_beacon_block(
                         partial_beacon_block,
                         block_contents,
-                        kzg_commitments,
                         verification,
                     )
                 },
@@ -4190,7 +4186,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // allows it to run concurrently with things like attestation packing.
         let prepare_payload_handle = match &state {
             BeaconState::Base(_) | BeaconState::Altair(_) => None,
-            BeaconState::Merge(_) | BeaconState::Capella(_) | BeaconState::Eip4844(_) => {
+            BeaconState::Merge(_) | BeaconState::Capella(_) => {
                 let prepare_payload_handle =
                     get_execution_payload(self.clone(), &state, proposer_index, builder_params)?;
                 Some(prepare_payload_handle)
@@ -4373,7 +4369,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         partial_beacon_block: PartialBeaconBlock<T::EthSpec, Payload>,
         block_contents: Option<BlockProposalContents<T::EthSpec, Payload>>,
-        kzg_commitments: Vec<KzgCommitment>,
         verification: ProduceBlockVerification,
     ) -> Result<BeaconBlockAndState<T::EthSpec, Payload>, BlockProductionError> {
         let PartialBeaconBlock {
@@ -4479,31 +4474,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         .try_into()
                         .map_err(|_| BlockProductionError::InvalidPayloadFork)?,
                     bls_to_execution_changes: bls_to_execution_changes.into(),
-                },
-            }),
-            BeaconState::Eip4844(_) => BeaconBlock::Eip4844(BeaconBlockEip4844 {
-                slot,
-                proposer_index,
-                parent_root,
-                state_root: Hash256::zero(),
-                body: BeaconBlockBodyEip4844 {
-                    randao_reveal,
-                    eth1_data,
-                    graffiti,
-                    proposer_slashings: proposer_slashings.into(),
-                    attester_slashings: attester_slashings.into(),
-                    attestations: attestations.into(),
-                    deposits: deposits.into(),
-                    voluntary_exits: voluntary_exits.into(),
-                    sync_aggregate: sync_aggregate
-                        .ok_or(BlockProductionError::MissingSyncAggregate)?,
-                    execution_payload: block_contents
-                        .ok_or(BlockProductionError::MissingExecutionPayload)?
-                        .to_payload()
-                        .try_into()
-                        .map_err(|_| BlockProductionError::InvalidPayloadFork)?,
-                    bls_to_execution_changes: bls_to_execution_changes.into(),
-                    blob_kzg_commitments: VariableList::from(kzg_commitments),
                 },
             }),
         };
@@ -4760,7 +4730,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let withdrawals = match self.spec.fork_name_at_slot::<T::EthSpec>(prepare_slot) {
             ForkName::Base | ForkName::Altair | ForkName::Merge => None,
-            ForkName::Capella | ForkName::Eip4844 => {
+            ForkName::Capella => {
                 // We must use the advanced state because balances can change at epoch boundaries
                 // and balances affect withdrawals.
                 // FIXME(mark)
