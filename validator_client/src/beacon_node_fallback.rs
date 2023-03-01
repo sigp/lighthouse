@@ -409,6 +409,7 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
     where
         F: Fn(&'a BeaconNodeHttpClient) -> R,
         R: Future<Output = Result<O, Err>>,
+        Err: Debug,
     {
         let mut errors = vec![];
         let mut to_retry = vec![];
@@ -430,8 +431,9 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
                     Err(e) => {
                         debug!(
                             log,
-                            "Request failed for candidate beacon node {}. BN candidate may not be ready.",
-                            $candidate.beacon_node.to_string(),
+                            "Request to beacon node failed";
+                            "node" => $candidate.beacon_node.to_string(),
+                            "error" => ?e,
                         );
                         // If we have an error on this function, make the client as not-ready.
                         //
@@ -632,6 +634,7 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
     where
         F: Fn(&'a BeaconNodeHttpClient) -> R,
         R: Future<Output = Result<(), Err>>,
+        Err: Debug,
     {
         if self.disable_run_on_all {
             self.first_success(require_synced, offline_on_failure, func)
