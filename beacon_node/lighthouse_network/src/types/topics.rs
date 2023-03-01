@@ -1,7 +1,7 @@
 use libp2p::gossipsub::{IdentTopic as Topic, TopicHash};
 use serde_derive::{Deserialize, Serialize};
 use strum::AsRefStr;
-use types::{SubnetId, SyncSubnetId};
+use types::{ForkName, SubnetId, SyncSubnetId};
 
 use crate::Subnet;
 
@@ -22,20 +22,44 @@ pub const BLS_TO_EXECUTION_CHANGE_TOPIC: &str = "bls_to_execution_change";
 pub const LIGHT_CLIENT_FINALITY_UPDATE: &str = "light_client_finality_update";
 pub const LIGHT_CLIENT_OPTIMISTIC_UPDATE: &str = "light_client_optimistic_update";
 
-pub const CORE_TOPICS: [GossipKind; 7] = [
+pub const BASE_CORE_TOPICS: [GossipKind; 5] = [
     GossipKind::BeaconBlock,
     GossipKind::BeaconAggregateAndProof,
     GossipKind::VoluntaryExit,
     GossipKind::ProposerSlashing,
     GossipKind::AttesterSlashing,
-    GossipKind::SignedContributionAndProof,
-    GossipKind::BlsToExecutionChange,
 ];
+
+pub const ALTAIR_CORE_TOPICS: [GossipKind; 1] = [GossipKind::SignedContributionAndProof];
+
+pub const CAPELLA_CORE_TOPICS: [GossipKind; 1] = [GossipKind::BlsToExecutionChange];
 
 pub const LIGHT_CLIENT_GOSSIP_TOPICS: [GossipKind; 2] = [
     GossipKind::LightClientFinalityUpdate,
     GossipKind::LightClientOptimisticUpdate,
 ];
+
+/// Returns the core topics associated with each fork that are new to the previous fork
+pub fn fork_core_topics(fork_name: &ForkName) -> Vec<GossipKind> {
+    match fork_name {
+        ForkName::Base => BASE_CORE_TOPICS.to_vec(),
+        ForkName::Altair => ALTAIR_CORE_TOPICS.to_vec(),
+        ForkName::Merge => vec![],
+        ForkName::Capella => CAPELLA_CORE_TOPICS.to_vec(),
+    }
+}
+
+/// Returns all the topics that we need to subscribe to for a given fork
+/// including topics from older forks and new topics for the current fork.
+pub fn core_topics_to_subscribe(mut current_fork: ForkName) -> Vec<GossipKind> {
+    let mut topics = fork_core_topics(&current_fork);
+    while let Some(previous_fork) = current_fork.previous_fork() {
+        let previous_fork_topics = fork_core_topics(&previous_fork);
+        topics.extend(previous_fork_topics);
+        current_fork = previous_fork;
+    }
+    topics
+}
 
 /// A gossipsub topic which encapsulates the type of messages that should be sent and received over
 /// the pubsub protocol and the way the messages should be encoded.
@@ -389,5 +413,16 @@ mod tests {
         assert_eq!("voluntary_exit", VoluntaryExit.as_ref());
         assert_eq!("proposer_slashing", ProposerSlashing.as_ref());
         assert_eq!("attester_slashing", AttesterSlashing.as_ref());
+    }
+
+    #[test]
+    fn test_core_topics_to_subscribe() {
+        let mut all_topics = Vec::new();
+        all_topics.extend(CAPELLA_CORE_TOPICS);
+        all_topics.extend(ALTAIR_CORE_TOPICS);
+        all_topics.extend(BASE_CORE_TOPICS);
+
+        let latest_fork = *ForkName::list_all().last().unwrap();
+        assert_eq!(core_topics_to_subscribe(latest_fork), all_topics);
     }
 }
