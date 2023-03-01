@@ -1,3 +1,4 @@
+use crate::rpc::config::OutboundRateLimiterConfig;
 use crate::types::GossipKind;
 use crate::{Enr, PeerIdSerialized};
 use directory::{
@@ -133,6 +134,9 @@ pub struct Config {
 
     /// Whether light client protocols should be enabled.
     pub enable_light_client_server: bool,
+
+    /// Configuration for the outbound rate limiter (requests made by this node).
+    pub outbound_rate_limiter_config: Option<OutboundRateLimiterConfig>,
 }
 
 impl Default for Config {
@@ -211,6 +215,7 @@ impl Default for Config {
             topics: Vec::new(),
             metrics_enabled: false,
             enable_light_client_server: false,
+            outbound_rate_limiter_config: None,
         }
     }
 }
@@ -301,8 +306,8 @@ pub fn gossipsub_config(network_load: u8, fork_context: Arc<ForkContext>) -> Gos
         let topic_bytes = message.topic.as_str().as_bytes();
         match fork_context.current_fork() {
             // according to: https://github.com/ethereum/consensus-specs/blob/dev/specs/merge/p2p-interface.md#the-gossip-domain-gossipsub
-            // the derivation of the message-id remains the same in the merge
-            ForkName::Altair | ForkName::Merge => {
+            // the derivation of the message-id remains the same in the merge and for eip 4844.
+            ForkName::Altair | ForkName::Merge | ForkName::Capella | ForkName::Eip4844 => {
                 let topic_len_bytes = topic_bytes.len().to_le_bytes();
                 let mut vec = Vec::with_capacity(
                     prefix.len() + topic_len_bytes.len() + topic_bytes.len() + message.data.len(),

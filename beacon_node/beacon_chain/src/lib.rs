@@ -2,15 +2,18 @@
 pub mod attestation_rewards;
 pub mod attestation_verification;
 mod attester_cache;
+pub mod beacon_block_reward;
 mod beacon_chain;
 mod beacon_fork_choice_store;
 pub mod beacon_proposer_cache;
 mod beacon_snapshot;
+pub mod blob_verification;
 pub mod block_reward;
 mod block_times_cache;
 mod block_verification;
 pub mod builder;
 pub mod canonical_head;
+pub mod capella_readiness;
 pub mod chain_config;
 mod early_attester_cache;
 mod errors;

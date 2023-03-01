@@ -1,4 +1,5 @@
 //! Mapping from types to canonical string identifiers used in testing.
+use types::historical_summary::HistoricalSummary;
 use types::*;
 
 pub trait TypeName {
@@ -45,6 +46,8 @@ type_name_generic!(BeaconBlockBody);
 type_name_generic!(BeaconBlockBodyBase, "BeaconBlockBody");
 type_name_generic!(BeaconBlockBodyAltair, "BeaconBlockBody");
 type_name_generic!(BeaconBlockBodyMerge, "BeaconBlockBody");
+type_name_generic!(BeaconBlockBodyCapella, "BeaconBlockBody");
+type_name_generic!(BeaconBlockBodyEip4844, "BeaconBlockBody");
 type_name!(BeaconBlockHeader);
 type_name_generic!(BeaconState);
 type_name!(Checkpoint);
@@ -54,8 +57,14 @@ type_name!(DepositData);
 type_name!(DepositMessage);
 type_name!(Eth1Data);
 type_name_generic!(ExecutionPayload);
+type_name_generic!(ExecutionPayloadMerge, "ExecutionPayload");
+type_name_generic!(ExecutionPayloadCapella, "ExecutionPayload");
+type_name_generic!(ExecutionPayloadEip4844, "ExecutionPayload");
 type_name_generic!(FullPayload, "ExecutionPayload");
 type_name_generic!(ExecutionPayloadHeader);
+type_name_generic!(ExecutionPayloadHeaderMerge, "ExecutionPayloadHeader");
+type_name_generic!(ExecutionPayloadHeaderCapella, "ExecutionPayloadHeader");
+type_name_generic!(ExecutionPayloadHeaderEip4844, "ExecutionPayloadHeader");
 type_name_generic!(BlindedPayload, "ExecutionPayloadHeader");
 type_name!(Fork);
 type_name!(ForkData);
@@ -76,3 +85,7 @@ type_name_generic!(SyncAggregate);
 type_name_generic!(SyncCommittee);
 type_name!(Validator);
 type_name!(VoluntaryExit);
+type_name!(Withdrawal);
+type_name!(BlsToExecutionChange, "BLSToExecutionChange");
+type_name!(SignedBlsToExecutionChange, "SignedBLSToExecutionChange");
+type_name!(HistoricalSummary);

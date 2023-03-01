@@ -9,7 +9,19 @@ use tree_hash_derive::TreeHash;
 /// An attestation that has been included in the state but not yet fully processed.
 ///
 /// Spec v0.12.1
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom)]
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Serialize,
+    Deserialize,
+    Encode,
+    Decode,
+    TreeHash,
+    TestRandom,
+    arbitrary::Arbitrary,
+)]
+#[arbitrary(bound = "T: EthSpec")]
 pub struct PendingAttestation<T: EthSpec> {
     pub aggregation_bits: BitList<T::MaxValidatorsPerCommittee>,
     pub data: AttestationData,
@@ -17,18 +29,6 @@ pub struct PendingAttestation<T: EthSpec> {
     pub inclusion_delay: u64,
     #[serde(with = "eth2_serde_utils::quoted_u64")]
     pub proposer_index: u64,
-}
-
-#[cfg(feature = "arbitrary-fuzz")]
-impl<T: EthSpec> arbitrary::Arbitrary<'_> for PendingAttestation<T> {
-    fn arbitrary(u: &mut arbitrary::Unstructured<'_>) -> arbitrary::Result<Self> {
-        Ok(Self {
-            aggregation_bits: <BitList<T::MaxValidatorsPerCommittee>>::arbitrary(u)?,
-            data: AttestationData::arbitrary(u)?,
-            inclusion_delay: u64::arbitrary(u)?,
-            proposer_index: u64::arbitrary(u)?,
-        })
-    }
 }
 
 #[cfg(test)]

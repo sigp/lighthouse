@@ -1079,6 +1079,19 @@ fn http_port_flag() {
         .with_config(|config| assert_eq!(config.http_api.listen_port, port1));
 }
 #[test]
+fn empty_self_limiter_flag() {
+    // Test that empty rate limiter is accepted using the default rate limiting configurations.
+    CommandLineTest::new()
+        .flag("self-limiter", None)
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config.network.outbound_rate_limiter_config,
+                Some(lighthouse_network::rpc::config::OutboundRateLimiterConfig::default())
+            )
+        });
+}
+#[test]
 fn http_allow_origin_flag() {
     CommandLineTest::new()
         .flag("http-allow-origin", Some("127.0.0.99"))
@@ -1405,7 +1418,7 @@ fn slasher_slot_offset_flag() {
     CommandLineTest::new()
         .flag("slasher", None)
         .flag("slasher-slot-offset", Some("11.25"))
-        .run()
+        .run_with_zero_port()
         .with_config(|config| {
             let slasher_config = config.slasher.as_ref().unwrap();
             assert_eq!(slasher_config.slot_offset, 11.25);
@@ -1417,7 +1430,7 @@ fn slasher_slot_offset_nan_flag() {
     CommandLineTest::new()
         .flag("slasher", None)
         .flag("slasher-slot-offset", Some("NaN"))
-        .run();
+        .run_with_zero_port();
 }
 #[test]
 fn slasher_history_length_flag() {
@@ -1452,7 +1465,7 @@ fn slasher_attestation_cache_size_flag() {
     CommandLineTest::new()
         .flag("slasher", None)
         .flag("slasher-att-cache-size", Some("10000"))
-        .run()
+        .run_with_zero_port()
         .with_config(|config| {
             let slasher_config = config
                 .slasher
@@ -1556,23 +1569,25 @@ fn ensure_panic_on_failed_launch() {
 
 #[test]
 fn enable_proposer_re_orgs_default() {
-    CommandLineTest::new().run().with_config(|config| {
-        assert_eq!(
-            config.chain.re_org_threshold,
-            Some(DEFAULT_RE_ORG_THRESHOLD)
-        );
-        assert_eq!(
-            config.chain.re_org_max_epochs_since_finalization,
-            DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION,
-        );
-    });
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config.chain.re_org_threshold,
+                Some(DEFAULT_RE_ORG_THRESHOLD)
+            );
+            assert_eq!(
+                config.chain.re_org_max_epochs_since_finalization,
+                DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION,
+            );
+        });
 }
 
 #[test]
 fn disable_proposer_re_orgs() {
     CommandLineTest::new()
         .flag("disable-proposer-reorgs", None)
-        .run()
+        .run_with_zero_port()
         .with_config(|config| assert_eq!(config.chain.re_org_threshold, None));
 }
 
@@ -1580,7 +1595,7 @@ fn disable_proposer_re_orgs() {
 fn proposer_re_org_threshold() {
     CommandLineTest::new()
         .flag("proposer-reorg-threshold", Some("90"))
-        .run()
+        .run_with_zero_port()
         .with_config(|config| assert_eq!(config.chain.re_org_threshold.unwrap().0, 90));
 }
 
@@ -1588,7 +1603,7 @@ fn proposer_re_org_threshold() {
 fn proposer_re_org_max_epochs_since_finalization() {
     CommandLineTest::new()
         .flag("proposer-reorg-epochs-since-finalization", Some("8"))
-        .run()
+        .run_with_zero_port()
         .with_config(|config| {
             assert_eq!(
                 config.chain.re_org_max_epochs_since_finalization.as_u64(),

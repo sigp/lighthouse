@@ -57,7 +57,7 @@ $ docker pull sigp/lighthouse:latest-modern
 Image tags follow this format:
 
 ```
-${version}${arch}${stability}${modernity}
+${version}${arch}${stability}${modernity}${features}
 ```
 
 The `version` is:
@@ -80,6 +80,12 @@ The `modernity` is:
 
 * `-modern` for optimized builds
 * empty for a `portable` unoptimized build
+
+The `features` is:
+
+* `-dev` for a development build with `minimal-spec` preset enabled.
+* empty for a standard build with no custom feature enabled.
+
 
 Examples:
 

@@ -28,8 +28,10 @@ pub struct TotalAttestationRewards {
     #[serde(with = "eth2_serde_utils::quoted_u64")]
     pub head: u64,
     // attester's reward for target vote in gwei
+    #[serde(with = "eth2_serde_utils::quoted_i64")]
     pub target: i64,
     // attester's reward for source vote in gwei
+    #[serde(with = "eth2_serde_utils::quoted_i64")]
     pub source: i64,
     // TBD attester's inclusion_delay reward in gwei (phase0 only)
     // pub inclusion_delay: u64,

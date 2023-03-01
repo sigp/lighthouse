@@ -1,6 +1,7 @@
 use beacon_chain::test_utils::EphemeralHarnessType;
 use environment::null_logger;
 use http_metrics::Config;
+use reqwest::header::HeaderValue;
 use reqwest::StatusCode;
 use std::net::{IpAddr, Ipv4Addr};
 use std::sync::Arc;
@@ -45,7 +46,13 @@ async fn returns_200_ok() {
             listening_socket.port()
         );
 
-        assert_eq!(reqwest::get(&url).await.unwrap().status(), StatusCode::OK);
+        let response = reqwest::get(&url).await.unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response.headers().get("Content-Type").unwrap(),
+            &HeaderValue::from_str("text/plain").unwrap()
+        );
     }
     .await
 }

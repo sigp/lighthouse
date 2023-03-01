@@ -15,6 +15,7 @@ mod database;
 mod metrics;
 mod proposer_duties;
 mod publish_blocks;
+mod standard_block_rewards;
 mod state_id;
 mod sync_committee_rewards;
 mod sync_committees;
@@ -35,6 +36,7 @@ use eth2::types::{
 use lighthouse_network::{types::SyncState, EnrExt, NetworkGlobals, PeerId, PubsubMessage};
 use lighthouse_version::version_with_platform;
 use network::{NetworkMessage, NetworkSenders, ValidatorSubscriptionMessage};
+use operation_pool::ReceivedPreCapella;
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use slog::{crit, debug, error, info, warn, Logger};
@@ -55,9 +57,9 @@ use types::{
     Attestation, AttestationData, AttesterSlashing, BeaconStateError, BlindedPayload,
     CommitteeCache, ConfigAndPreset, Epoch, EthSpec, ForkName, FullPayload,
     ProposerPreparationData, ProposerSlashing, RelativeEpoch, SignedAggregateAndProof,
-    SignedBeaconBlock, SignedBlindedBeaconBlock, SignedContributionAndProof,
-    SignedValidatorRegistrationData, SignedVoluntaryExit, Slot, SyncCommitteeMessage,
-    SyncContributionData,
+    SignedBeaconBlock, SignedBlindedBeaconBlock, SignedBlsToExecutionChange,
+    SignedContributionAndProof, SignedValidatorRegistrationData, SignedVoluntaryExit, Slot,
+    SyncCommitteeMessage, SyncContributionData,
 };
 use version::{
     add_consensus_version_header, execution_optimistic_fork_versioned_response,
@@ -1121,7 +1123,9 @@ pub fn serve<T: BeaconChainTypes>(
              chain: Arc<BeaconChain<T>>,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
              log: Logger| async move {
-                publish_blocks::publish_block(None, block, chain, &network_tx, log)
+                // need to have cached the blob sidecar somewhere in the beacon chain
+                // to publish
+                publish_blocks::publish_block(None, block, None, chain, &network_tx, log)
                     .await
                     .map(|()| warp::reply())
             },
@@ -1653,6 +1657,109 @@ pub fn serve<T: BeaconChainTypes>(
             },
         );
 
+    // GET beacon/pool/bls_to_execution_changes
+    let get_beacon_pool_bls_to_execution_changes = beacon_pool_path
+        .clone()
+        .and(warp::path("bls_to_execution_changes"))
+        .and(warp::path::end())
+        .and_then(|chain: Arc<BeaconChain<T>>| {
+            blocking_json_task(move || {
+                let address_changes = chain.op_pool.get_all_bls_to_execution_changes();
+                Ok(api_types::GenericResponse::from(address_changes))
+            })
+        });
+
+    // POST beacon/pool/bls_to_execution_changes
+    let post_beacon_pool_bls_to_execution_changes = beacon_pool_path
+        .clone()
+        .and(warp::path("bls_to_execution_changes"))
+        .and(warp::path::end())
+        .and(warp::body::json())
+        .and(network_tx_filter.clone())
+        .and(log_filter.clone())
+        .and_then(
+            |chain: Arc<BeaconChain<T>>,
+             address_changes: Vec<SignedBlsToExecutionChange>,
+             network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
+             log: Logger| {
+                blocking_json_task(move || {
+                    let mut failures = vec![];
+
+                    for (index, address_change) in address_changes.into_iter().enumerate() {
+                        let validator_index = address_change.message.validator_index;
+
+                        match chain.verify_bls_to_execution_change_for_http_api(address_change) {
+                            Ok(ObservationOutcome::New(verified_address_change)) => {
+                                let validator_index =
+                                    verified_address_change.as_inner().message.validator_index;
+                                let address = verified_address_change
+                                    .as_inner()
+                                    .message
+                                    .to_execution_address;
+
+                                // New to P2P *and* op pool, gossip immediately if post-Capella.
+                                let received_pre_capella = if chain.current_slot_is_post_capella().unwrap_or(false) {
+                                    ReceivedPreCapella::No
+                                } else {
+                                    ReceivedPreCapella::Yes
+                                };
+                                if matches!(received_pre_capella, ReceivedPreCapella::No) {
+                                    publish_pubsub_message(
+                                        &network_tx,
+                                        PubsubMessage::BlsToExecutionChange(Box::new(
+                                            verified_address_change.as_inner().clone(),
+                                        )),
+                                    )?;
+                                }
+
+                                // Import to op pool (may return `false` if there's a race).
+                                let imported =
+                                    chain.import_bls_to_execution_change(verified_address_change, received_pre_capella);
+
+                                info!(
+                                    log,
+                                    "Processed BLS to execution change";
+                                    "validator_index" => validator_index,
+                                    "address" => ?address,
+                                    "published" => matches!(received_pre_capella, ReceivedPreCapella::No),
+                                    "imported" => imported,
+                                );
+                            }
+                            Ok(ObservationOutcome::AlreadyKnown) => {
+                                debug!(
+                                    log,
+                                    "BLS to execution change already known";
+                                    "validator_index" => validator_index,
+                                );
+                            }
+                            Err(e) => {
+                                warn!(
+                                    log,
+                                    "Invalid BLS to execution change";
+                                    "validator_index" => validator_index,
+                                    "reason" => ?e,
+                                    "source" => "HTTP",
+                                );
+                                failures.push(api_types::Failure::new(
+                                    index,
+                                    format!("invalid: {e:?}"),
+                                ));
+                            }
+                        }
+                    }
+
+                    if failures.is_empty() {
+                        Ok(())
+                    } else {
+                        Err(warp_utils::reject::indexed_bad_request(
+                            "some BLS to execution changes failed to verify".into(),
+                            failures,
+                        ))
+                    }
+                })
+            },
+        );
+
     // GET beacon/deposit_snapshot
     let get_beacon_deposit_snapshot = eth_v1
         .and(warp::path("beacon"))
@@ -1699,6 +1806,27 @@ pub fn serve<T: BeaconChainTypes>(
                 })
             },
         );
+
+    let beacon_rewards_path = eth_v1
+        .and(warp::path("beacon"))
+        .and(warp::path("rewards"))
+        .and(chain_filter.clone());
+
+    // GET beacon/rewards/blocks/{block_id}
+    let get_beacon_rewards_blocks = beacon_rewards_path
+        .clone()
+        .and(warp::path("blocks"))
+        .and(block_id_or_err)
+        .and(warp::path::end())
+        .and_then(|chain: Arc<BeaconChain<T>>, block_id: BlockId| {
+            blocking_json_task(move || {
+                let (rewards, execution_optimistic) =
+                    standard_block_rewards::compute_beacon_block_rewards(chain, block_id)?;
+                Ok(rewards)
+                    .map(api_types::GenericResponse::from)
+                    .map(|resp| resp.add_execution_optimistic(execution_optimistic))
+            })
+        });
 
     /*
      * beacon/rewards
@@ -2252,11 +2380,19 @@ pub fn serve<T: BeaconChainTypes>(
         .and(not_while_syncing_filter.clone())
         .and(warp::query::<api_types::ValidatorBlocksQuery>())
         .and(chain_filter.clone())
+        .and(log_filter.clone())
         .and_then(
             |endpoint_version: EndpointVersion,
              slot: Slot,
              query: api_types::ValidatorBlocksQuery,
-             chain: Arc<BeaconChain<T>>| async move {
+             chain: Arc<BeaconChain<T>>,
+             log: Logger| async move {
+                debug!(
+                    log,
+                    "Block production request from HTTP API";
+                    "slot" => slot
+                );
+
                 let randao_reveal = query.randao_reveal.decompress().map_err(|e| {
                     warp_utils::reject::custom_bad_request(format!(
                         "randao reveal is not a valid BLS signature: {:?}",
@@ -2833,7 +2969,7 @@ pub fn serve<T: BeaconChainTypes>(
                     .await
                     .map(|resp| warp::reply::json(&resp))
                     .map_err(|e| {
-                        error!(
+                        warn!(
                             log,
                             "Relay error when registering validator(s)";
                             "num_registrations" => filtered_registration_data.len(),
@@ -2998,6 +3134,22 @@ pub fn serve<T: BeaconChainTypes>(
             |request_data: ui::ValidatorMetricsRequestData, chain: Arc<BeaconChain<T>>| {
                 blocking_json_task(move || {
                     ui::post_validator_monitor_metrics(request_data, chain)
+                        .map(api_types::GenericResponse::from)
+                })
+            },
+        );
+
+    // POST lighthouse/ui/validator_info
+    let post_lighthouse_ui_validator_info = warp::path("lighthouse")
+        .and(warp::path("ui"))
+        .and(warp::path("validator_info"))
+        .and(warp::path::end())
+        .and(warp::body::json())
+        .and(chain_filter.clone())
+        .and_then(
+            |request_data: ui::ValidatorInfoRequestData, chain: Arc<BeaconChain<T>>| {
+                blocking_json_task(move || {
+                    ui::get_validator_info(request_data, chain)
                         .map(api_types::GenericResponse::from)
                 })
             },
@@ -3432,7 +3584,9 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(get_beacon_pool_attester_slashings.boxed())
                 .or(get_beacon_pool_proposer_slashings.boxed())
                 .or(get_beacon_pool_voluntary_exits.boxed())
+                .or(get_beacon_pool_bls_to_execution_changes.boxed())
                 .or(get_beacon_deposit_snapshot.boxed())
+                .or(get_beacon_rewards_blocks.boxed())
                 .or(get_config_fork_schedule.boxed())
                 .or(get_config_spec.boxed())
                 .or(get_config_deposit_contract.boxed())
@@ -3484,6 +3638,7 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(post_beacon_pool_proposer_slashings.boxed())
                 .or(post_beacon_pool_voluntary_exits.boxed())
                 .or(post_beacon_pool_sync_committees.boxed())
+                .or(post_beacon_pool_bls_to_execution_changes.boxed())
                 .or(post_beacon_rewards_attestations.boxed())
                 .or(post_beacon_rewards_sync_committee.boxed())
                 .or(post_validator_duties_attester.boxed())
@@ -3499,6 +3654,7 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(post_lighthouse_database_historical_blocks.boxed())
                 .or(post_lighthouse_block_rewards.boxed())
                 .or(post_lighthouse_ui_validator_metrics.boxed())
+                .or(post_lighthouse_ui_validator_info.boxed())
                 .recover(warp_utils::reject::handle_rejection),
         ))
         .recover(warp_utils::reject::handle_rejection)
