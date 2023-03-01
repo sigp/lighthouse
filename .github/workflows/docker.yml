@@ -5,6 +5,7 @@ on:
         branches:
             - unstable
             - stable
+            - capella
         tags:
             - v*
 
@@ -34,6 +35,11 @@ jobs:
               run: |
                     echo "VERSION=latest" >> $GITHUB_ENV
                     echo "VERSION_SUFFIX=-unstable" >> $GITHUB_ENV
+            - name: Extract version (if capella)
+              if: github.event.ref == 'refs/heads/capella'
+              run: |
+                    echo "VERSION=capella" >> $GITHUB_ENV
+                    echo "VERSION_SUFFIX=" >> $GITHUB_ENV
             - name: Extract version (if tagged release)
               if: startsWith(github.event.ref, 'refs/tags')
               run: |

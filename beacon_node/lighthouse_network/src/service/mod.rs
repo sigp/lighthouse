@@ -1,3 +1,5 @@
+use self::behaviour::Behaviour;
+use self::gossip_cache::GossipCache;
 use crate::config::{gossipsub_config, NetworkLoad};
 use crate::discovery::{
     subnet_predicate, DiscoveredPeers, Discovery, FIND_NODE_QUERY_CLOSEST_PEERS,
@@ -7,15 +9,16 @@ use crate::peer_manager::{
     ConnectionDirection, PeerManager, PeerManagerEvent,
 };
 use crate::peer_manager::{MIN_OUTBOUND_ONLY_FACTOR, PEER_EXCESS_FACTOR, PRIORITY_PEER_EXCESS};
+use crate::rpc::*;
 use crate::service::behaviour::BehaviourEvent;
 pub use crate::service::behaviour::Gossipsub;
 use crate::types::{
-    subnet_from_topic_hash, GossipEncoding, GossipKind, GossipTopic, SnappyTransform, Subnet,
-    SubnetDiscovery,
+    fork_core_topics, subnet_from_topic_hash, GossipEncoding, GossipKind, GossipTopic,
+    SnappyTransform, Subnet, SubnetDiscovery,
 };
+use crate::EnrExt;
 use crate::Eth2Enr;
 use crate::{error, metrics, Enr, NetworkGlobals, PubsubMessage, TopicHash};
-use crate::{rpc::*, EnrExt};
 use api_types::{PeerRequestId, Request, RequestId, Response};
 use futures::stream::StreamExt;
 use gossipsub_scoring_parameters::{lighthouse_gossip_thresholds, PeerScoreSettings};
@@ -31,19 +34,18 @@ use libp2p::multiaddr::{Multiaddr, Protocol as MProtocol};
 use libp2p::swarm::{ConnectionLimits, Swarm, SwarmBuilder, SwarmEvent};
 use libp2p::PeerId;
 use slog::{crit, debug, info, o, trace, warn};
-
-use std::marker::PhantomData;
 use std::path::PathBuf;
 use std::pin::Pin;
-use std::sync::Arc;
-use std::task::{Context, Poll};
+use std::{
+    marker::PhantomData,
+    sync::Arc,
+    task::{Context, Poll},
+};
+use types::ForkName;
 use types::{
     consts::altair::SYNC_COMMITTEE_SUBNET_COUNT, EnrForkId, EthSpec, ForkContext, Slot, SubnetId,
 };
 use utils::{build_transport, strip_peer_id, Context as ServiceContext, MAX_CONNECTIONS_PER_PEER};
-
-use self::behaviour::Behaviour;
-use self::gossip_cache::GossipCache;
 
 pub mod api_types;
 mod behaviour;
@@ -197,6 +199,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                 .attester_slashing_timeout(half_epoch * 2)
                 // .signed_contribution_and_proof_timeout(timeout) // Do not retry
                 // .sync_committee_message_timeout(timeout) // Do not retry
+                .bls_to_execution_change_timeout(half_epoch * 2)
                 .build()
         };
 
@@ -557,11 +560,18 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
         self.unsubscribe(gossip_topic)
     }
 
-    /// Subscribe to all currently subscribed topics with the new fork digest.
-    pub fn subscribe_new_fork_topics(&mut self, new_fork_digest: [u8; 4]) {
+    /// Subscribe to all required topics for the `new_fork` with the given `new_fork_digest`.
+    pub fn subscribe_new_fork_topics(&mut self, new_fork: ForkName, new_fork_digest: [u8; 4]) {
+        // Subscribe to existing topics with new fork digest
         let subscriptions = self.network_globals.gossipsub_subscriptions.read().clone();
         for mut topic in subscriptions.into_iter() {
             topic.fork_digest = new_fork_digest;
+            self.subscribe(topic);
+        }
+
+        // Subscribe to core topics for the new fork
+        for kind in fork_core_topics(&new_fork) {
+            let topic = GossipTopic::new(kind, GossipEncoding::default(), new_fork_digest);
             self.subscribe(topic);
         }
     }
