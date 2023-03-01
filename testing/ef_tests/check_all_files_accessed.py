@@ -41,8 +41,8 @@ excluded_paths = [
     "tests/.*/.*/ssz_static/LightClientFinalityUpdate",
     # LightClientHeader
     "tests/.*/.*/ssz_static/LightClientHeader",
-    # Eip4844 tests are disabled for now.
-    "tests/.*/eip4844",
+    # Deneb (previously known as eip4844) tests are disabled for now.
+    "tests/.*/deneb",
     # One of the EF researchers likes to pack the tarballs on a Mac
     ".*\.DS_Store.*",
     # More Mac weirdness.
@@ -55,8 +55,10 @@ excluded_paths = [
     "bls12-381-tests/hash_to_G2"
 ]
 
+
 def normalize_path(path):
     return path.split("consensus-spec-tests/")[1]
+
 
 # Determine the list of filenames which were accessed during tests.
 passed = set()
@@ -90,4 +92,5 @@ for root, dirs, files in os.walk(tests_dir_filename):
 # Exit with an error if there were any files missed.
 assert len(missed) == 0, "{} missed files".format(len(missed))
 
-print("Accessed {} files ({} intentionally excluded)".format(accessed_files, excluded_files))
+print("Accessed {} files ({} intentionally excluded)".format(
+    accessed_files, excluded_files))
