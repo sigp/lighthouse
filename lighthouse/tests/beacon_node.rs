@@ -821,7 +821,7 @@ fn network_shutdown_after_sync_disabled_flag() {
         .with_config(|config| assert!(!config.network.shutdown_after_sync));
 }
 #[test]
-fn network_listen_address_flag() {
+fn network_listen_address_flag_v4() {
     let addr = "127.0.0.2".parse::<Ipv4Addr>().unwrap();
     CommandLineTest::new()
         .flag("listen-address", Some("127.0.0.2"))
@@ -832,6 +832,67 @@ fn network_listen_address_flag() {
                 Some(addr)
             )
         });
+}
+#[test]
+fn network_listen_address_flag_v6() {
+    const ADDR: &str = "::2";
+    let addr = ADDR.parse::<Ipv6Addr>().unwrap();
+    CommandLineTest::new()
+        .flag("listen-address", Some(ADDR))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config.network.listen_addrs().v6().map(|addr| addr.addr),
+                Some(addr)
+            )
+        });
+}
+#[test]
+fn network_listen_address_flag_dual_stack() {
+    const V4_ADDR: &str = "127.0.0.3";
+    const V6_ADDR: &str = "::2";
+    let ipv6_addr = V6_ADDR.parse::<Ipv6Addr>().unwrap();
+    let ipv4_addr = V4_ADDR.parse::<Ipv4Addr>().unwrap();
+    CommandLineTest::new()
+        .flag("listen-address", Some(V6_ADDR))
+        .flag("listen-address", Some(V4_ADDR))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config.network.listen_addrs().v6().map(|addr| addr.addr),
+                Some(ipv6_addr)
+            );
+            assert_eq!(
+                config.network.listen_addrs().v4().map(|addr| addr.addr),
+                Some(ipv4_addr)
+            )
+        });
+}
+#[test]
+#[should_panic]
+fn network_listen_address_flag_wrong_double_v4_value_config() {
+    // It's actually possible to listen over multiple sockets in libp2p over the same ip version.
+    // However this is not compatible with the single contactable address over each version in ENR.
+    // Because of this, it's important to test this is disallowed.
+    const V4_ADDR1: &str = "127.0.0.3";
+    const V4_ADDR2: &str = "0.0.0.0";
+    CommandLineTest::new()
+        .flag("listen-address", Some(V4_ADDR1))
+        .flag("listen-address", Some(V4_ADDR2))
+        .run_with_zero_port();
+}
+#[test]
+#[should_panic]
+fn network_listen_address_flag_wrong_double_v6_value_config() {
+    // It's actually possible to listen over multiple sockets in libp2p over the same ip version.
+    // However this is not compatible with the single contactable address over each version in ENR.
+    // Because of this, it's important to test this is disallowed.
+    const V6_ADDR1: &str = "::3";
+    const V6_ADDR2: &str = "::1";
+    CommandLineTest::new()
+        .flag("listen-address", Some(V6_ADDR1))
+        .flag("listen-address", Some(V6_ADDR2))
+        .run_with_zero_port();
 }
 #[test]
 fn network_port_flag() {
