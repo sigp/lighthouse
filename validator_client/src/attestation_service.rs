@@ -89,9 +89,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationServiceBuilder<T, E> {
                 context: self
                     .context
                     .ok_or("Cannot build AttestationService without runtime_context")?,
-                num_attestation_threads: self
-                    .num_attestation_threads
-                    .unwrap_or_else(|| num_cpus::get()),
+                num_attestation_threads: self.num_attestation_threads.unwrap_or_else(num_cpus::get),
             }),
         })
     }
