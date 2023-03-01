@@ -252,6 +252,7 @@ pub(crate) fn create_whitelist_filter(
         add(ProposerSlashing);
         add(AttesterSlashing);
         add(SignedContributionAndProof);
+        add(BlsToExecutionChange);
         add(LightClientFinalityUpdate);
         add(LightClientOptimisticUpdate);
         for id in 0..attestation_subnet_count {

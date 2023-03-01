@@ -72,6 +72,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 BaseRewardPerIncrement::new(total_active_balance, spec)?;
 
             for effective_balance_eth in 0..=32 {
+                let effective_balance =
+                    effective_balance_eth.safe_mul(spec.effective_balance_increment)?;
                 let base_reward =
                     effective_balance_eth.safe_mul(base_reward_per_increment.as_u64())?;
 
@@ -86,9 +88,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     .safe_div(WEIGHT_DENOMINATOR)?;
                 if !state.is_in_inactivity_leak(previous_epoch, spec) {
                     ideal_rewards_hashmap
-                        .insert((flag_index, effective_balance_eth), (ideal_reward, penalty));
+                        .insert((flag_index, effective_balance), (ideal_reward, penalty));
                 } else {
-                    ideal_rewards_hashmap.insert((flag_index, effective_balance_eth), (0, penalty));
+                    ideal_rewards_hashmap.insert((flag_index, effective_balance), (0, penalty));
                 }
             }
         }
@@ -119,12 +121,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             if eligible {
                 let effective_balance = state.get_effective_balance(*validator_index)?;
 
-                let effective_balance_eth =
-                    effective_balance.safe_div(spec.effective_balance_increment)?;
-
                 for flag_index in 0..PARTICIPATION_FLAG_WEIGHTS.len() {
                     let (ideal_reward, penalty) = ideal_rewards_hashmap
-                        .get(&(flag_index, effective_balance_eth))
+                        .get(&(flag_index, effective_balance))
                         .ok_or(BeaconChainError::AttestationRewardsError)?;
                     let voted_correctly = participation_cache
                         .get_unslashed_participating_indices(flag_index, previous_epoch)
@@ -160,21 +159,21 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let mut ideal_rewards: Vec<IdealAttestationRewards> = ideal_rewards_hashmap
             .iter()
             .map(
-                |((flag_index, effective_balance_eth), (ideal_reward, _penalty))| {
-                    (flag_index, effective_balance_eth, ideal_reward)
+                |((flag_index, effective_balance), (ideal_reward, _penalty))| {
+                    (flag_index, effective_balance, ideal_reward)
                 },
             )
             .fold(
                 HashMap::new(),
-                |mut acc, (flag_index, effective_balance_eth, ideal_reward)| {
-                    let entry = acc.entry(*effective_balance_eth as u32).or_insert(
-                        IdealAttestationRewards {
-                            effective_balance: *effective_balance_eth,
+                |mut acc, (flag_index, &effective_balance, ideal_reward)| {
+                    let entry = acc
+                        .entry(effective_balance)
+                        .or_insert(IdealAttestationRewards {
+                            effective_balance,
                             head: 0,
                             target: 0,
                             source: 0,
-                        },
-                    );
+                        });
                     match *flag_index {
                         TIMELY_SOURCE_FLAG_INDEX => entry.source += ideal_reward,
                         TIMELY_TARGET_FLAG_INDEX => entry.target += ideal_reward,

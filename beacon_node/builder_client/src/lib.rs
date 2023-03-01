@@ -1,6 +1,6 @@
 use eth2::types::builder_bid::SignedBuilderBid;
 use eth2::types::{
-    BlindedPayload, EthSpec, ExecPayload, ExecutionBlockHash, ExecutionPayload,
+    AbstractExecPayload, BlindedPayload, EthSpec, ExecutionBlockHash, ExecutionPayload,
     ForkVersionedResponse, PublicKeyBytes, SignedBeaconBlock, SignedValidatorRegistrationData,
     Slot,
 };
@@ -160,7 +160,7 @@ impl BuilderHttpClient {
     }
 
     /// `GET /eth/v1/builder/header`
-    pub async fn get_builder_header<E: EthSpec, Payload: ExecPayload<E>>(
+    pub async fn get_builder_header<E: EthSpec, Payload: AbstractExecPayload<E>>(
         &self,
         slot: Slot,
         parent_hash: ExecutionBlockHash,

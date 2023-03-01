@@ -7,8 +7,10 @@ use reqwest::header::CONTENT_TYPE;
 use sensitive_url::SensitiveUrl;
 use serde::de::DeserializeOwned;
 use serde_json::json;
+use std::collections::HashSet;
+use tokio::sync::Mutex;
 
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use types::EthSpec;
 
 pub use deposit_log::{DepositLog, Log};
@@ -29,22 +31,57 @@ pub const ETH_SYNCING: &str = "eth_syncing";
 pub const ETH_SYNCING_TIMEOUT: Duration = Duration::from_secs(1);
 
 pub const ENGINE_NEW_PAYLOAD_V1: &str = "engine_newPayloadV1";
+pub const ENGINE_NEW_PAYLOAD_V2: &str = "engine_newPayloadV2";
 pub const ENGINE_NEW_PAYLOAD_TIMEOUT: Duration = Duration::from_secs(8);
 
 pub const ENGINE_GET_PAYLOAD_V1: &str = "engine_getPayloadV1";
+pub const ENGINE_GET_PAYLOAD_V2: &str = "engine_getPayloadV2";
 pub const ENGINE_GET_PAYLOAD_TIMEOUT: Duration = Duration::from_secs(2);
 
+pub const ENGINE_GET_BLOBS_BUNDLE_V1: &str = "engine_getBlobsBundleV1";
+pub const ENGINE_GET_BLOBS_BUNDLE_TIMEOUT: Duration = Duration::from_secs(2);
+
 pub const ENGINE_FORKCHOICE_UPDATED_V1: &str = "engine_forkchoiceUpdatedV1";
+pub const ENGINE_FORKCHOICE_UPDATED_V2: &str = "engine_forkchoiceUpdatedV2";
 pub const ENGINE_FORKCHOICE_UPDATED_TIMEOUT: Duration = Duration::from_secs(8);
 
 pub const ENGINE_EXCHANGE_TRANSITION_CONFIGURATION_V1: &str =
     "engine_exchangeTransitionConfigurationV1";
 pub const ENGINE_EXCHANGE_TRANSITION_CONFIGURATION_V1_TIMEOUT: Duration = Duration::from_secs(1);
 
+pub const ENGINE_EXCHANGE_CAPABILITIES: &str = "engine_exchangeCapabilities";
+pub const ENGINE_EXCHANGE_CAPABILITIES_TIMEOUT: Duration = Duration::from_secs(1);
+
 /// This error is returned during a `chainId` call by Geth.
 pub const EIP155_ERROR_STR: &str = "chain not synced beyond EIP-155 replay-protection fork block";
+/// This code is returned by all clients when a method is not supported
+/// (verified geth, nethermind, erigon, besu)
+pub const METHOD_NOT_FOUND_CODE: i64 = -32601;
 
-/// Contains methods to convert arbitary bytes to an ETH2 deposit contract object.
+pub static LIGHTHOUSE_CAPABILITIES: &[&str] = &[
+    ENGINE_NEW_PAYLOAD_V1,
+    ENGINE_NEW_PAYLOAD_V2,
+    ENGINE_GET_PAYLOAD_V1,
+    ENGINE_GET_PAYLOAD_V2,
+    ENGINE_FORKCHOICE_UPDATED_V1,
+    ENGINE_FORKCHOICE_UPDATED_V2,
+    ENGINE_EXCHANGE_TRANSITION_CONFIGURATION_V1,
+];
+
+/// This is necessary because a user might run a capella-enabled version of
+/// lighthouse before they update to a capella-enabled execution engine.
+// TODO (mark): rip this out once we are post-capella on mainnet
+pub static PRE_CAPELLA_ENGINE_CAPABILITIES: EngineCapabilities = EngineCapabilities {
+    new_payload_v1: true,
+    new_payload_v2: false,
+    forkchoice_updated_v1: true,
+    forkchoice_updated_v2: false,
+    get_payload_v1: true,
+    get_payload_v2: false,
+    exchange_transition_configuration_v1: true,
+};
+
+/// Contains methods to convert arbitrary bytes to an ETH2 deposit contract object.
 pub mod deposit_log {
     use ssz::Decode;
     use state_processing::per_block_processing::signature_sets::deposit_pubkey_signature_message;
@@ -519,10 +556,39 @@ pub mod deposit_methods {
     }
 }
 
+#[derive(Clone, Debug)]
+pub struct CapabilitiesCacheEntry {
+    engine_capabilities: EngineCapabilities,
+    fetch_time: Instant,
+}
+
+impl CapabilitiesCacheEntry {
+    pub fn new(engine_capabilities: EngineCapabilities) -> Self {
+        Self {
+            engine_capabilities,
+            fetch_time: Instant::now(),
+        }
+    }
+
+    pub fn engine_capabilities(&self) -> EngineCapabilities {
+        self.engine_capabilities
+    }
+
+    pub fn age(&self) -> Duration {
+        Instant::now().duration_since(self.fetch_time)
+    }
+
+    /// returns `true` if the entry's age is >= age_limit
+    pub fn older_than(&self, age_limit: Option<Duration>) -> bool {
+        age_limit.map_or(false, |limit| self.age() >= limit)
+    }
+}
+
 pub struct HttpJsonRpc {
     pub client: Client,
     pub url: SensitiveUrl,
     pub execution_timeout_multiplier: u32,
+    pub engine_capabilities_cache: Mutex<Option<CapabilitiesCacheEntry>>,
     auth: Option<Auth>,
 }
 
@@ -535,6 +601,7 @@ impl HttpJsonRpc {
             client: Client::builder().build()?,
             url,
             execution_timeout_multiplier: execution_timeout_multiplier.unwrap_or(1),
+            engine_capabilities_cache: Mutex::new(None),
             auth: None,
         })
     }
@@ -548,6 +615,7 @@ impl HttpJsonRpc {
             client: Client::builder().build()?,
             url,
             execution_timeout_multiplier: execution_timeout_multiplier.unwrap_or(1),
+            engine_capabilities_cache: Mutex::new(None),
             auth: Some(auth),
         })
     }
@@ -654,21 +722,48 @@ impl HttpJsonRpc {
     pub async fn get_block_by_hash_with_txns<T: EthSpec>(
         &self,
         block_hash: ExecutionBlockHash,
+        fork: ForkName,
     ) -> Result<Option<ExecutionBlockWithTransactions<T>>, Error> {
         let params = json!([block_hash, true]);
-        self.rpc_request(
-            ETH_GET_BLOCK_BY_HASH,
-            params,
-            ETH_GET_BLOCK_BY_HASH_TIMEOUT * self.execution_timeout_multiplier,
-        )
-        .await
+        Ok(Some(match fork {
+            ForkName::Merge => ExecutionBlockWithTransactions::Merge(
+                self.rpc_request(
+                    ETH_GET_BLOCK_BY_HASH,
+                    params,
+                    ETH_GET_BLOCK_BY_HASH_TIMEOUT * self.execution_timeout_multiplier,
+                )
+                .await?,
+            ),
+            ForkName::Capella => ExecutionBlockWithTransactions::Capella(
+                self.rpc_request(
+                    ETH_GET_BLOCK_BY_HASH,
+                    params,
+                    ETH_GET_BLOCK_BY_HASH_TIMEOUT * self.execution_timeout_multiplier,
+                )
+                .await?,
+            ),
+            ForkName::Eip4844 => ExecutionBlockWithTransactions::Eip4844(
+                self.rpc_request(
+                    ETH_GET_BLOCK_BY_HASH,
+                    params,
+                    ETH_GET_BLOCK_BY_HASH_TIMEOUT * self.execution_timeout_multiplier,
+                )
+                .await?,
+            ),
+            ForkName::Base | ForkName::Altair => {
+                return Err(Error::UnsupportedForkVariant(format!(
+                    "called get_block_by_hash_with_txns with fork {:?}",
+                    fork
+                )))
+            }
+        }))
     }
 
     pub async fn new_payload_v1<T: EthSpec>(
         &self,
         execution_payload: ExecutionPayload<T>,
     ) -> Result<PayloadStatusV1, Error> {
-        let params = json!([JsonExecutionPayloadV1::from(execution_payload)]);
+        let params = json!([JsonExecutionPayload::from(execution_payload)]);
 
         let response: JsonPayloadStatusV1 = self
             .rpc_request(
@@ -681,13 +776,30 @@ impl HttpJsonRpc {
         Ok(response.into())
     }
 
+    pub async fn new_payload_v2<T: EthSpec>(
+        &self,
+        execution_payload: ExecutionPayload<T>,
+    ) -> Result<PayloadStatusV1, Error> {
+        let params = json!([JsonExecutionPayload::from(execution_payload)]);
+
+        let response: JsonPayloadStatusV1 = self
+            .rpc_request(
+                ENGINE_NEW_PAYLOAD_V2,
+                params,
+                ENGINE_NEW_PAYLOAD_TIMEOUT * self.execution_timeout_multiplier,
+            )
+            .await?;
+
+        Ok(response.into())
+    }
+
     pub async fn get_payload_v1<T: EthSpec>(
         &self,
         payload_id: PayloadId,
-    ) -> Result<ExecutionPayload<T>, Error> {
+    ) -> Result<GetPayloadResponse<T>, Error> {
         let params = json!([JsonPayloadIdRequest::from(payload_id)]);
 
-        let response: JsonExecutionPayloadV1<T> = self
+        let payload_v1: JsonExecutionPayloadV1<T> = self
             .rpc_request(
                 ENGINE_GET_PAYLOAD_V1,
                 params,
@@ -695,22 +807,100 @@ impl HttpJsonRpc {
             )
             .await?;
 
-        Ok(response.into())
+        Ok(GetPayloadResponse::Merge(GetPayloadResponseMerge {
+            execution_payload: payload_v1.into(),
+            // Set the V1 payload values from the EE to be zero. This simulates
+            // the pre-block-value functionality of always choosing the builder
+            // block.
+            block_value: Uint256::zero(),
+        }))
+    }
+
+    pub async fn get_payload_v2<T: EthSpec>(
+        &self,
+        fork_name: ForkName,
+        payload_id: PayloadId,
+    ) -> Result<GetPayloadResponse<T>, Error> {
+        let params = json!([JsonPayloadIdRequest::from(payload_id)]);
+
+        match fork_name {
+            ForkName::Merge => {
+                let response: JsonGetPayloadResponseV1<T> = self
+                    .rpc_request(
+                        ENGINE_GET_PAYLOAD_V2,
+                        params,
+                        ENGINE_GET_PAYLOAD_TIMEOUT * self.execution_timeout_multiplier,
+                    )
+                    .await?;
+                Ok(JsonGetPayloadResponse::V1(response).into())
+            }
+            ForkName::Capella => {
+                let response: JsonGetPayloadResponseV2<T> = self
+                    .rpc_request(
+                        ENGINE_GET_PAYLOAD_V2,
+                        params,
+                        ENGINE_GET_PAYLOAD_TIMEOUT * self.execution_timeout_multiplier,
+                    )
+                    .await?;
+                Ok(JsonGetPayloadResponse::V2(response).into())
+            }
+            ForkName::Base | ForkName::Altair | ForkName::Eip4844 => Err(
+                Error::UnsupportedForkVariant(format!("called get_payload_v2 with {}", fork_name)),
+            ),
+        }
+    }
+
+    pub async fn get_blobs_bundle_v1<T: EthSpec>(
+        &self,
+        payload_id: PayloadId,
+    ) -> Result<JsonBlobBundles<T>, Error> {
+        let params = json!([JsonPayloadIdRequest::from(payload_id)]);
+
+        let response: JsonBlobBundles<T> = self
+            .rpc_request(
+                ENGINE_GET_BLOBS_BUNDLE_V1,
+                params,
+                ENGINE_GET_BLOBS_BUNDLE_TIMEOUT,
+            )
+            .await?;
+
+        Ok(response)
     }
 
     pub async fn forkchoice_updated_v1(
         &self,
-        forkchoice_state: ForkChoiceState,
+        forkchoice_state: ForkchoiceState,
         payload_attributes: Option<PayloadAttributes>,
     ) -> Result<ForkchoiceUpdatedResponse, Error> {
         let params = json!([
-            JsonForkChoiceStateV1::from(forkchoice_state),
-            payload_attributes.map(JsonPayloadAttributesV1::from)
+            JsonForkchoiceStateV1::from(forkchoice_state),
+            payload_attributes.map(JsonPayloadAttributes::from)
         ]);
 
         let response: JsonForkchoiceUpdatedV1Response = self
             .rpc_request(
                 ENGINE_FORKCHOICE_UPDATED_V1,
+                params,
+                ENGINE_FORKCHOICE_UPDATED_TIMEOUT * self.execution_timeout_multiplier,
+            )
+            .await?;
+
+        Ok(response.into())
+    }
+
+    pub async fn forkchoice_updated_v2(
+        &self,
+        forkchoice_state: ForkchoiceState,
+        payload_attributes: Option<PayloadAttributes>,
+    ) -> Result<ForkchoiceUpdatedResponse, Error> {
+        let params = json!([
+            JsonForkchoiceStateV1::from(forkchoice_state),
+            payload_attributes.map(JsonPayloadAttributes::from)
+        ]);
+
+        let response: JsonForkchoiceUpdatedV1Response = self
+            .rpc_request(
+                ENGINE_FORKCHOICE_UPDATED_V2,
                 params,
                 ENGINE_FORKCHOICE_UPDATED_TIMEOUT * self.execution_timeout_multiplier,
             )
@@ -736,6 +926,118 @@ impl HttpJsonRpc {
 
         Ok(response)
     }
+
+    pub async fn exchange_capabilities(&self) -> Result<EngineCapabilities, Error> {
+        let params = json!([LIGHTHOUSE_CAPABILITIES]);
+
+        let response: Result<HashSet<String>, _> = self
+            .rpc_request(
+                ENGINE_EXCHANGE_CAPABILITIES,
+                params,
+                ENGINE_EXCHANGE_CAPABILITIES_TIMEOUT * self.execution_timeout_multiplier,
+            )
+            .await;
+
+        match response {
+            // TODO (mark): rip this out once we are post capella on mainnet
+            Err(error) => match error {
+                Error::ServerMessage { code, message: _ } if code == METHOD_NOT_FOUND_CODE => {
+                    Ok(PRE_CAPELLA_ENGINE_CAPABILITIES)
+                }
+                _ => Err(error),
+            },
+            Ok(capabilities) => Ok(EngineCapabilities {
+                new_payload_v1: capabilities.contains(ENGINE_NEW_PAYLOAD_V1),
+                new_payload_v2: capabilities.contains(ENGINE_NEW_PAYLOAD_V2),
+                forkchoice_updated_v1: capabilities.contains(ENGINE_FORKCHOICE_UPDATED_V1),
+                forkchoice_updated_v2: capabilities.contains(ENGINE_FORKCHOICE_UPDATED_V2),
+                get_payload_v1: capabilities.contains(ENGINE_GET_PAYLOAD_V1),
+                get_payload_v2: capabilities.contains(ENGINE_GET_PAYLOAD_V2),
+                exchange_transition_configuration_v1: capabilities
+                    .contains(ENGINE_EXCHANGE_TRANSITION_CONFIGURATION_V1),
+            }),
+        }
+    }
+
+    pub async fn clear_exchange_capabilties_cache(&self) {
+        *self.engine_capabilities_cache.lock().await = None;
+    }
+
+    /// Returns the execution engine capabilities resulting from a call to
+    /// engine_exchangeCapabilities. If the capabilities cache is not populated,
+    /// or if it is populated with a cached result of age >= `age_limit`, this
+    /// method will fetch the result from the execution engine and populate the
+    /// cache before returning it. Otherwise it will return a cached result from
+    /// a previous call.
+    ///
+    /// Set `age_limit` to `None` to always return the cached result
+    /// Set `age_limit` to `Some(Duration::ZERO)` to force fetching from EE
+    pub async fn get_engine_capabilities(
+        &self,
+        age_limit: Option<Duration>,
+    ) -> Result<EngineCapabilities, Error> {
+        let mut lock = self.engine_capabilities_cache.lock().await;
+
+        if let Some(lock) = lock.as_ref().filter(|entry| !entry.older_than(age_limit)) {
+            Ok(lock.engine_capabilities())
+        } else {
+            let engine_capabilities = self.exchange_capabilities().await?;
+            *lock = Some(CapabilitiesCacheEntry::new(engine_capabilities));
+            Ok(engine_capabilities)
+        }
+    }
+
+    // automatically selects the latest version of
+    // new_payload that the execution engine supports
+    pub async fn new_payload<T: EthSpec>(
+        &self,
+        execution_payload: ExecutionPayload<T>,
+    ) -> Result<PayloadStatusV1, Error> {
+        let engine_capabilities = self.get_engine_capabilities(None).await?;
+        if engine_capabilities.new_payload_v2 {
+            self.new_payload_v2(execution_payload).await
+        } else if engine_capabilities.new_payload_v1 {
+            self.new_payload_v1(execution_payload).await
+        } else {
+            Err(Error::RequiredMethodUnsupported("engine_newPayload"))
+        }
+    }
+
+    // automatically selects the latest version of
+    // get_payload that the execution engine supports
+    pub async fn get_payload<T: EthSpec>(
+        &self,
+        fork_name: ForkName,
+        payload_id: PayloadId,
+    ) -> Result<GetPayloadResponse<T>, Error> {
+        let engine_capabilities = self.get_engine_capabilities(None).await?;
+        if engine_capabilities.get_payload_v2 {
+            self.get_payload_v2(fork_name, payload_id).await
+        } else if engine_capabilities.new_payload_v1 {
+            self.get_payload_v1(payload_id).await
+        } else {
+            Err(Error::RequiredMethodUnsupported("engine_getPayload"))
+        }
+    }
+
+    // automatically selects the latest version of
+    // forkchoice_updated that the execution engine supports
+    pub async fn forkchoice_updated(
+        &self,
+        forkchoice_state: ForkchoiceState,
+        payload_attributes: Option<PayloadAttributes>,
+    ) -> Result<ForkchoiceUpdatedResponse, Error> {
+        let engine_capabilities = self.get_engine_capabilities(None).await?;
+        if engine_capabilities.forkchoice_updated_v2 {
+            self.forkchoice_updated_v2(forkchoice_state, payload_attributes)
+                .await
+        } else if engine_capabilities.forkchoice_updated_v1 {
+            self.forkchoice_updated_v1(forkchoice_state, payload_attributes)
+                .await
+        } else {
+            Err(Error::RequiredMethodUnsupported("engine_forkchoiceUpdated"))
+        }
+    }
 }
 
 #[cfg(test)]
@@ -746,7 +1048,7 @@ mod test {
     use std::future::Future;
     use std::str::FromStr;
     use std::sync::Arc;
-    use types::{MainnetEthSpec, Transactions, Unsigned, VariableList};
+    use types::{ExecutionPayloadMerge, MainnetEthSpec, Transactions, Unsigned, VariableList};
 
     struct Tester {
         server: MockServer<MainnetEthSpec>,
@@ -852,10 +1154,10 @@ mod test {
     fn encode_transactions<E: EthSpec>(
         transactions: Transactions<E>,
     ) -> Result<serde_json::Value, serde_json::Error> {
-        let ep: JsonExecutionPayloadV1<E> = JsonExecutionPayloadV1 {
+        let ep: JsonExecutionPayload<E> = JsonExecutionPayload::V1(JsonExecutionPayloadV1 {
             transactions,
             ..<_>::default()
-        };
+        });
         let json = serde_json::to_value(&ep)?;
         Ok(json.get("transactions").unwrap().clone())
     }
@@ -882,8 +1184,8 @@ mod test {
         json.as_object_mut()
             .unwrap()
             .insert("transactions".into(), transactions);
-        let ep: JsonExecutionPayloadV1<E> = serde_json::from_value(json)?;
-        Ok(ep.transactions)
+        let ep: JsonExecutionPayload<E> = serde_json::from_value(json)?;
+        Ok(ep.transactions().clone())
     }
 
     fn assert_transactions_serde<E: EthSpec>(
@@ -1029,16 +1331,16 @@ mod test {
                 |client| async move {
                     let _ = client
                         .forkchoice_updated_v1(
-                            ForkChoiceState {
+                            ForkchoiceState {
                                 head_block_hash: ExecutionBlockHash::repeat_byte(1),
                                 safe_block_hash: ExecutionBlockHash::repeat_byte(1),
                                 finalized_block_hash: ExecutionBlockHash::zero(),
                             },
-                            Some(PayloadAttributes {
+                            Some(PayloadAttributes::V1(PayloadAttributesV1 {
                                 timestamp: 5,
                                 prev_randao: Hash256::zero(),
                                 suggested_fee_recipient: Address::repeat_byte(0),
-                            }),
+                            })),
                         )
                         .await;
                 },
@@ -1064,16 +1366,16 @@ mod test {
             .assert_auth_failure(|client| async move {
                 client
                     .forkchoice_updated_v1(
-                        ForkChoiceState {
+                        ForkchoiceState {
                             head_block_hash: ExecutionBlockHash::repeat_byte(1),
                             safe_block_hash: ExecutionBlockHash::repeat_byte(1),
                             finalized_block_hash: ExecutionBlockHash::zero(),
                         },
-                        Some(PayloadAttributes {
+                        Some(PayloadAttributes::V1(PayloadAttributesV1 {
                             timestamp: 5,
                             prev_randao: Hash256::zero(),
                             suggested_fee_recipient: Address::repeat_byte(0),
-                        }),
+                        })),
                     )
                     .await
             })
@@ -1109,22 +1411,24 @@ mod test {
             .assert_request_equals(
                 |client| async move {
                     let _ = client
-                        .new_payload_v1::<MainnetEthSpec>(ExecutionPayload {
-                            parent_hash: ExecutionBlockHash::repeat_byte(0),
-                            fee_recipient: Address::repeat_byte(1),
-                            state_root: Hash256::repeat_byte(1),
-                            receipts_root: Hash256::repeat_byte(0),
-                            logs_bloom: vec![1; 256].into(),
-                            prev_randao: Hash256::repeat_byte(1),
-                            block_number: 0,
-                            gas_limit: 1,
-                            gas_used: 2,
-                            timestamp: 42,
-                            extra_data: vec![].into(),
-                            base_fee_per_gas: Uint256::from(1),
-                            block_hash: ExecutionBlockHash::repeat_byte(1),
-                            transactions: vec![].into(),
-                        })
+                        .new_payload_v1::<MainnetEthSpec>(ExecutionPayload::Merge(
+                            ExecutionPayloadMerge {
+                                parent_hash: ExecutionBlockHash::repeat_byte(0),
+                                fee_recipient: Address::repeat_byte(1),
+                                state_root: Hash256::repeat_byte(1),
+                                receipts_root: Hash256::repeat_byte(0),
+                                logs_bloom: vec![1; 256].into(),
+                                prev_randao: Hash256::repeat_byte(1),
+                                block_number: 0,
+                                gas_limit: 1,
+                                gas_used: 2,
+                                timestamp: 42,
+                                extra_data: vec![].into(),
+                                base_fee_per_gas: Uint256::from(1),
+                                block_hash: ExecutionBlockHash::repeat_byte(1),
+                                transactions: vec![].into(),
+                            },
+                        ))
                         .await;
                 },
                 json!({
@@ -1154,22 +1458,24 @@ mod test {
         Tester::new(false)
             .assert_auth_failure(|client| async move {
                 client
-                    .new_payload_v1::<MainnetEthSpec>(ExecutionPayload {
-                        parent_hash: ExecutionBlockHash::repeat_byte(0),
-                        fee_recipient: Address::repeat_byte(1),
-                        state_root: Hash256::repeat_byte(1),
-                        receipts_root: Hash256::repeat_byte(0),
-                        logs_bloom: vec![1; 256].into(),
-                        prev_randao: Hash256::repeat_byte(1),
-                        block_number: 0,
-                        gas_limit: 1,
-                        gas_used: 2,
-                        timestamp: 42,
-                        extra_data: vec![].into(),
-                        base_fee_per_gas: Uint256::from(1),
-                        block_hash: ExecutionBlockHash::repeat_byte(1),
-                        transactions: vec![].into(),
-                    })
+                    .new_payload_v1::<MainnetEthSpec>(ExecutionPayload::Merge(
+                        ExecutionPayloadMerge {
+                            parent_hash: ExecutionBlockHash::repeat_byte(0),
+                            fee_recipient: Address::repeat_byte(1),
+                            state_root: Hash256::repeat_byte(1),
+                            receipts_root: Hash256::repeat_byte(0),
+                            logs_bloom: vec![1; 256].into(),
+                            prev_randao: Hash256::repeat_byte(1),
+                            block_number: 0,
+                            gas_limit: 1,
+                            gas_used: 2,
+                            timestamp: 42,
+                            extra_data: vec![].into(),
+                            base_fee_per_gas: Uint256::from(1),
+                            block_hash: ExecutionBlockHash::repeat_byte(1),
+                            transactions: vec![].into(),
+                        },
+                    ))
                     .await
             })
             .await;
@@ -1182,7 +1488,7 @@ mod test {
                 |client| async move {
                     let _ = client
                         .forkchoice_updated_v1(
-                            ForkChoiceState {
+                            ForkchoiceState {
                                 head_block_hash: ExecutionBlockHash::repeat_byte(0),
                                 safe_block_hash: ExecutionBlockHash::repeat_byte(0),
                                 finalized_block_hash: ExecutionBlockHash::repeat_byte(1),
@@ -1208,7 +1514,7 @@ mod test {
             .assert_auth_failure(|client| async move {
                 client
                     .forkchoice_updated_v1(
-                        ForkChoiceState {
+                        ForkchoiceState {
                             head_block_hash: ExecutionBlockHash::repeat_byte(0),
                             safe_block_hash: ExecutionBlockHash::repeat_byte(0),
                             finalized_block_hash: ExecutionBlockHash::repeat_byte(1),
@@ -1247,16 +1553,16 @@ mod test {
                 |client| async move {
                     let _ = client
                         .forkchoice_updated_v1(
-                            ForkChoiceState {
+                            ForkchoiceState {
                                 head_block_hash: ExecutionBlockHash::from_str("0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a").unwrap(),
                                 safe_block_hash: ExecutionBlockHash::from_str("0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a").unwrap(),
                                 finalized_block_hash: ExecutionBlockHash::zero(),
                             },
-                            Some(PayloadAttributes {
+                            Some(PayloadAttributes::V1(PayloadAttributesV1 {
                                 timestamp: 5,
                                 prev_randao: Hash256::zero(),
                                 suggested_fee_recipient: Address::from_str("0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b").unwrap(),
-                            })
+                            }))
                         )
                         .await;
                 },
@@ -1294,16 +1600,16 @@ mod test {
                 |client| async move {
                     let response = client
                         .forkchoice_updated_v1(
-                            ForkChoiceState {
+                            ForkchoiceState {
                                 head_block_hash: ExecutionBlockHash::from_str("0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a").unwrap(),
                                 safe_block_hash: ExecutionBlockHash::from_str("0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a").unwrap(),
                                 finalized_block_hash: ExecutionBlockHash::zero(),
                             },
-                            Some(PayloadAttributes {
+                            Some(PayloadAttributes::V1(PayloadAttributesV1 {
                                 timestamp: 5,
                                 prev_randao: Hash256::zero(),
                                 suggested_fee_recipient: Address::from_str("0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b").unwrap(),
-                            })
+                            }))
                         )
                         .await
                         .unwrap();
@@ -1357,12 +1663,13 @@ mod test {
                     }
                 })],
                 |client| async move {
-                    let payload = client
+                    let payload: ExecutionPayload<_> = client
                         .get_payload_v1::<MainnetEthSpec>(str_to_payload_id("0xa247243752eb10b4"))
                         .await
-                        .unwrap();
+                        .unwrap()
+                        .into();
 
-                    let expected = ExecutionPayload {
+                    let expected = ExecutionPayload::Merge(ExecutionPayloadMerge {
                             parent_hash: ExecutionBlockHash::from_str("0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a").unwrap(),
                             fee_recipient: Address::from_str("0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b").unwrap(),
                             state_root: Hash256::from_str("0xca3149fa9e37db08d1cd49c9061db1002ef1cd58db2210f2115c8c989b2bdf45").unwrap(),
@@ -1377,7 +1684,7 @@ mod test {
                             base_fee_per_gas: Uint256::from(7),
                             block_hash: ExecutionBlockHash::from_str("0x6359b8381a370e2f54072a5784ddd78b6ed024991558c511d4452eb4f6ac898c").unwrap(),
                         transactions: vec![].into(),
-                        };
+                        });
 
                     assert_eq!(payload, expected);
                 },
@@ -1387,7 +1694,7 @@ mod test {
                 // engine_newPayloadV1 REQUEST validation
                 |client| async move {
                     let _ = client
-                        .new_payload_v1::<MainnetEthSpec>(ExecutionPayload {
+                        .new_payload_v1::<MainnetEthSpec>(ExecutionPayload::Merge(ExecutionPayloadMerge{
                             parent_hash: ExecutionBlockHash::from_str("0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a").unwrap(),
                             fee_recipient: Address::from_str("0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b").unwrap(),
                             state_root: Hash256::from_str("0xca3149fa9e37db08d1cd49c9061db1002ef1cd58db2210f2115c8c989b2bdf45").unwrap(),
@@ -1402,7 +1709,7 @@ mod test {
                             base_fee_per_gas: Uint256::from(7),
                             block_hash: ExecutionBlockHash::from_str("0x3559e851470f6e7bbed1db474980683e8c315bfce99b2a6ef47c057c04de7858").unwrap(),
                             transactions: vec![].into(),
-                        })
+                        }))
                         .await;
                 },
                 json!({
@@ -1441,7 +1748,7 @@ mod test {
                 })],
                 |client| async move {
                     let response = client
-                        .new_payload_v1::<MainnetEthSpec>(ExecutionPayload::default())
+                        .new_payload_v1::<MainnetEthSpec>(ExecutionPayload::Merge(ExecutionPayloadMerge::default()))
                         .await
                         .unwrap();
 
@@ -1460,7 +1767,7 @@ mod test {
                 |client| async move {
                     let _ = client
                         .forkchoice_updated_v1(
-                            ForkChoiceState {
+                            ForkchoiceState {
                                 head_block_hash: ExecutionBlockHash::from_str("0x3559e851470f6e7bbed1db474980683e8c315bfce99b2a6ef47c057c04de7858").unwrap(),
                                 safe_block_hash: ExecutionBlockHash::from_str("0x3559e851470f6e7bbed1db474980683e8c315bfce99b2a6ef47c057c04de7858").unwrap(),
                                 finalized_block_hash: ExecutionBlockHash::from_str("0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a").unwrap(),
@@ -1499,7 +1806,7 @@ mod test {
                 |client| async move {
                     let response = client
                         .forkchoice_updated_v1(
-                            ForkChoiceState {
+                            ForkchoiceState {
                                 head_block_hash: ExecutionBlockHash::from_str("0x3559e851470f6e7bbed1db474980683e8c315bfce99b2a6ef47c057c04de7858").unwrap(),
                                 safe_block_hash: ExecutionBlockHash::from_str("0x3559e851470f6e7bbed1db474980683e8c315bfce99b2a6ef47c057c04de7858").unwrap(),
                                 finalized_block_hash: ExecutionBlockHash::from_str("0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a").unwrap(),

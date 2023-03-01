@@ -1,5 +1,6 @@
 use crate::{
-    consts::altair, AltairPreset, BasePreset, BellatrixPreset, ChainSpec, Config, EthSpec, ForkName,
+    consts::altair, AltairPreset, BasePreset, BellatrixPreset, CapellaPreset, ChainSpec, Config,
+    EthSpec, ForkName,
 };
 use maplit::hashmap;
 use serde_derive::{Deserialize, Serialize};
@@ -11,7 +12,7 @@ use superstruct::superstruct;
 ///
 /// Mostly useful for the API.
 #[superstruct(
-    variants(Altair, Bellatrix),
+    variants(Bellatrix, Capella),
     variant_attributes(derive(Serialize, Deserialize, Debug, PartialEq, Clone))
 )]
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
@@ -24,9 +25,11 @@ pub struct ConfigAndPreset {
     pub base_preset: BasePreset,
     #[serde(flatten)]
     pub altair_preset: AltairPreset,
-    #[superstruct(only(Bellatrix))]
     #[serde(flatten)]
     pub bellatrix_preset: BellatrixPreset,
+    #[superstruct(only(Capella))]
+    #[serde(flatten)]
+    pub capella_preset: CapellaPreset,
     /// The `extra_fields` map allows us to gracefully decode fields intended for future hard forks.
     #[serde(flatten)]
     pub extra_fields: HashMap<String, Value>,
@@ -37,26 +40,29 @@ impl ConfigAndPreset {
         let config = Config::from_chain_spec::<T>(spec);
         let base_preset = BasePreset::from_chain_spec::<T>(spec);
         let altair_preset = AltairPreset::from_chain_spec::<T>(spec);
+        let bellatrix_preset = BellatrixPreset::from_chain_spec::<T>(spec);
         let extra_fields = get_extra_fields(spec);
 
-        if spec.bellatrix_fork_epoch.is_some()
+        if spec.capella_fork_epoch.is_some()
             || fork_name.is_none()
-            || fork_name == Some(ForkName::Merge)
+            || fork_name == Some(ForkName::Capella)
         {
-            let bellatrix_preset = BellatrixPreset::from_chain_spec::<T>(spec);
+            let capella_preset = CapellaPreset::from_chain_spec::<T>(spec);
 
+            ConfigAndPreset::Capella(ConfigAndPresetCapella {
+                config,
+                base_preset,
+                altair_preset,
+                bellatrix_preset,
+                capella_preset,
+                extra_fields,
+            })
+        } else {
             ConfigAndPreset::Bellatrix(ConfigAndPresetBellatrix {
                 config,
                 base_preset,
                 altair_preset,
                 bellatrix_preset,
-                extra_fields,
-            })
-        } else {
-            ConfigAndPreset::Altair(ConfigAndPresetAltair {
-                config,
-                base_preset,
-                altair_preset,
                 extra_fields,
             })
         }
@@ -72,6 +78,7 @@ pub fn get_extra_fields(spec: &ChainSpec) -> HashMap<String, Value> {
         "bls_withdrawal_prefix".to_uppercase() => u8_hex(spec.bls_withdrawal_prefix_byte),
         "domain_beacon_proposer".to_uppercase() => u32_hex(spec.domain_beacon_proposer),
         "domain_beacon_attester".to_uppercase() => u32_hex(spec.domain_beacon_attester),
+        "domain_blobs_sidecar".to_uppercase() => u32_hex(spec.domain_blobs_sidecar),
         "domain_randao".to_uppercase()=> u32_hex(spec.domain_randao),
         "domain_deposit".to_uppercase()=> u32_hex(spec.domain_deposit),
         "domain_voluntary_exit".to_uppercase() => u32_hex(spec.domain_voluntary_exit),
@@ -130,8 +137,8 @@ mod test {
             .write(false)
             .open(tmp_file.as_ref())
             .expect("error while opening the file");
-        let from: ConfigAndPresetBellatrix =
+        let from: ConfigAndPresetCapella =
             serde_yaml::from_reader(reader).expect("error while deserializing");
-        assert_eq!(ConfigAndPreset::Bellatrix(from), yamlconfig);
+        assert_eq!(ConfigAndPreset::Capella(from), yamlconfig);
     }
 }

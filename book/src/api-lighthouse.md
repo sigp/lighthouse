@@ -141,7 +141,7 @@ curl -X POST "http://localhost:5052/lighthouse/ui/validator_metrics" -d '{"indic
         "attestation_head_hit_percentage": 100,
         "attestation_target_hits": 5,
         "attestation_target_misses": 5,
-        "attestation_target_hit_percentage": 50 
+        "attestation_target_hit_percentage": 50
       }
     }
   }
