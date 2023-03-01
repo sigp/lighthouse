@@ -17,7 +17,7 @@ pub use types::{
     Address, EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadHeader,
     ExecutionPayloadRef, FixedVector, ForkName, Hash256, Uint256, VariableList, Withdrawal,
 };
-use types::{ExecutionPayloadCapella, ExecutionPayloadEip4844, ExecutionPayloadMerge};
+use types::{ExecutionPayloadCapella, ExecutionPayloadMerge};
 
 pub mod auth;
 pub mod http;
@@ -134,7 +134,7 @@ pub struct ExecutionBlock {
 
 /// Representation of an execution block with enough detail to reconstruct a payload.
 #[superstruct(
-    variants(Merge, Capella, Eip4844),
+    variants(Merge, Capella),
     variant_attributes(
         derive(Clone, Debug, PartialEq, Serialize, Deserialize,),
         serde(bound = "T: EthSpec", rename_all = "camelCase"),
@@ -165,13 +165,10 @@ pub struct ExecutionBlockWithTransactions<T: EthSpec> {
     #[serde(with = "ssz_types::serde_utils::hex_var_list")]
     pub extra_data: VariableList<u8, T::MaxExtraDataBytes>,
     pub base_fee_per_gas: Uint256,
-    #[superstruct(only(Eip4844))]
-    #[serde(with = "eth2_serde_utils::u256_hex_be")]
-    pub excess_data_gas: Uint256,
     #[serde(rename = "hash")]
     pub block_hash: ExecutionBlockHash,
     pub transactions: Vec<Transaction>,
-    #[superstruct(only(Capella, Eip4844))]
+    #[superstruct(only(Capella))]
     pub withdrawals: Vec<JsonWithdrawal>,
 }
 
@@ -214,33 +211,6 @@ impl<T: EthSpec> TryFrom<ExecutionPayload<T>> for ExecutionBlockWithTransactions
                     timestamp: block.timestamp,
                     extra_data: block.extra_data,
                     base_fee_per_gas: block.base_fee_per_gas,
-                    block_hash: block.block_hash,
-                    transactions: block
-                        .transactions
-                        .iter()
-                        .map(|tx| Transaction::decode(&Rlp::new(tx)))
-                        .collect::<Result<Vec<_>, _>>()?,
-                    withdrawals: Vec::from(block.withdrawals)
-                        .into_iter()
-                        .map(|withdrawal| withdrawal.into())
-                        .collect(),
-                })
-            }
-            ExecutionPayload::Eip4844(block) => {
-                Self::Eip4844(ExecutionBlockWithTransactionsEip4844 {
-                    parent_hash: block.parent_hash,
-                    fee_recipient: block.fee_recipient,
-                    state_root: block.state_root,
-                    receipts_root: block.receipts_root,
-                    logs_bloom: block.logs_bloom,
-                    prev_randao: block.prev_randao,
-                    block_number: block.block_number,
-                    gas_limit: block.gas_limit,
-                    gas_used: block.gas_used,
-                    timestamp: block.timestamp,
-                    extra_data: block.extra_data,
-                    base_fee_per_gas: block.base_fee_per_gas,
-                    excess_data_gas: block.excess_data_gas,
                     block_hash: block.block_hash,
                     transactions: block
                         .transactions
@@ -320,7 +290,7 @@ pub struct ProposeBlindedBlockResponse {
 }
 
 #[superstruct(
-    variants(Merge, Capella, Eip4844),
+    variants(Merge, Capella),
     variant_attributes(derive(Clone, Debug, PartialEq),),
     map_into(ExecutionPayload),
     map_ref_into(ExecutionPayloadRef),
@@ -333,8 +303,6 @@ pub struct GetPayloadResponse<T: EthSpec> {
     pub execution_payload: ExecutionPayloadMerge<T>,
     #[superstruct(only(Capella), partial_getter(rename = "execution_payload_capella"))]
     pub execution_payload: ExecutionPayloadCapella<T>,
-    #[superstruct(only(Eip4844), partial_getter(rename = "execution_payload_eip4844"))]
-    pub execution_payload: ExecutionPayloadEip4844<T>,
     pub block_value: Uint256,
 }
 
@@ -363,10 +331,6 @@ impl<T: EthSpec> From<GetPayloadResponse<T>> for (ExecutionPayload<T>, Uint256) 
             ),
             GetPayloadResponse::Capella(inner) => (
                 ExecutionPayload::Capella(inner.execution_payload),
-                inner.block_value,
-            ),
-            GetPayloadResponse::Eip4844(inner) => (
-                ExecutionPayload::Eip4844(inner.execution_payload),
                 inner.block_value,
             ),
         }

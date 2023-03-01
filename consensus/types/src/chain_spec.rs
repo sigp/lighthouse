@@ -14,7 +14,6 @@ pub enum Domain {
     BlsToExecutionChange,
     BeaconProposer,
     BeaconAttester,
-    BlobsSideCar,
     Randao,
     Deposit,
     VoluntaryExit,
@@ -100,7 +99,6 @@ pub struct ChainSpec {
      */
     pub(crate) domain_beacon_proposer: u32,
     pub(crate) domain_beacon_attester: u32,
-    pub(crate) domain_blobs_sidecar: u32,
     pub(crate) domain_randao: u32,
     pub(crate) domain_deposit: u32,
     pub(crate) domain_voluntary_exit: u32,
@@ -160,12 +158,6 @@ pub struct ChainSpec {
     /// The Capella fork epoch is optional, with `None` representing "Capella never happens".
     pub capella_fork_epoch: Option<Epoch>,
     pub max_validators_per_withdrawals_sweep: u64,
-
-    /*
-     * Eip4844 hard fork params
-     */
-    pub eip4844_fork_version: [u8; 4],
-    pub eip4844_fork_epoch: Option<Epoch>,
 
     /*
      * Networking
@@ -255,16 +247,13 @@ impl ChainSpec {
 
     /// Returns the name of the fork which is active at `epoch`.
     pub fn fork_name_at_epoch(&self, epoch: Epoch) -> ForkName {
-        match self.eip4844_fork_epoch {
-            Some(fork_epoch) if epoch >= fork_epoch => ForkName::Eip4844,
-            _ => match self.capella_fork_epoch {
-                Some(fork_epoch) if epoch >= fork_epoch => ForkName::Capella,
-                _ => match self.bellatrix_fork_epoch {
-                    Some(fork_epoch) if epoch >= fork_epoch => ForkName::Merge,
-                    _ => match self.altair_fork_epoch {
-                        Some(fork_epoch) if epoch >= fork_epoch => ForkName::Altair,
-                        _ => ForkName::Base,
-                    },
+        match self.capella_fork_epoch {
+            Some(fork_epoch) if epoch >= fork_epoch => ForkName::Capella,
+            _ => match self.bellatrix_fork_epoch {
+                Some(fork_epoch) if epoch >= fork_epoch => ForkName::Merge,
+                _ => match self.altair_fork_epoch {
+                    Some(fork_epoch) if epoch >= fork_epoch => ForkName::Altair,
+                    _ => ForkName::Base,
                 },
             },
         }
@@ -277,7 +266,6 @@ impl ChainSpec {
             ForkName::Altair => self.altair_fork_version,
             ForkName::Merge => self.bellatrix_fork_version,
             ForkName::Capella => self.capella_fork_version,
-            ForkName::Eip4844 => self.eip4844_fork_version,
         }
     }
 
@@ -288,7 +276,6 @@ impl ChainSpec {
             ForkName::Altair => self.altair_fork_epoch,
             ForkName::Merge => self.bellatrix_fork_epoch,
             ForkName::Capella => self.capella_fork_epoch,
-            ForkName::Eip4844 => self.eip4844_fork_epoch,
         }
     }
 
@@ -299,7 +286,6 @@ impl ChainSpec {
             BeaconState::Altair(_) => self.inactivity_penalty_quotient_altair,
             BeaconState::Merge(_) => self.inactivity_penalty_quotient_bellatrix,
             BeaconState::Capella(_) => self.inactivity_penalty_quotient_bellatrix,
-            BeaconState::Eip4844(_) => self.inactivity_penalty_quotient_bellatrix,
         }
     }
 
@@ -313,7 +299,6 @@ impl ChainSpec {
             BeaconState::Altair(_) => self.proportional_slashing_multiplier_altair,
             BeaconState::Merge(_) => self.proportional_slashing_multiplier_bellatrix,
             BeaconState::Capella(_) => self.proportional_slashing_multiplier_bellatrix,
-            BeaconState::Eip4844(_) => self.proportional_slashing_multiplier_bellatrix,
         }
     }
 
@@ -327,7 +312,6 @@ impl ChainSpec {
             BeaconState::Altair(_) => self.min_slashing_penalty_quotient_altair,
             BeaconState::Merge(_) => self.min_slashing_penalty_quotient_bellatrix,
             BeaconState::Capella(_) => self.min_slashing_penalty_quotient_bellatrix,
-            BeaconState::Eip4844(_) => self.min_slashing_penalty_quotient_bellatrix,
         }
     }
 
@@ -366,7 +350,6 @@ impl ChainSpec {
         match domain {
             Domain::BeaconProposer => self.domain_beacon_proposer,
             Domain::BeaconAttester => self.domain_beacon_attester,
-            Domain::BlobsSideCar => self.domain_blobs_sidecar,
             Domain::Randao => self.domain_randao,
             Domain::Deposit => self.domain_deposit,
             Domain::VoluntaryExit => self.domain_voluntary_exit,
@@ -574,7 +557,6 @@ impl ChainSpec {
             domain_voluntary_exit: 4,
             domain_selection_proof: 5,
             domain_aggregate_and_proof: 6,
-            domain_blobs_sidecar: 10, // 0x0a000000
 
             /*
              * Fork choice
@@ -635,12 +617,6 @@ impl ChainSpec {
             capella_fork_version: [0x03, 00, 00, 00],
             capella_fork_epoch: None,
             max_validators_per_withdrawals_sweep: 16384,
-
-            /*
-             * Eip4844 hard fork params
-             */
-            eip4844_fork_version: [0x04, 0x00, 0x00, 0x00],
-            eip4844_fork_epoch: None,
 
             /*
              * Network specific
@@ -709,9 +685,6 @@ impl ChainSpec {
             capella_fork_version: [0x03, 0x00, 0x00, 0x01],
             capella_fork_epoch: None,
             max_validators_per_withdrawals_sweep: 16,
-            // Eip4844
-            eip4844_fork_version: [0x04, 0x00, 0x00, 0x01],
-            eip4844_fork_epoch: None,
             // Other
             network_id: 2, // lighthouse testnet network id
             deposit_chain_id: 5,
@@ -809,7 +782,6 @@ impl ChainSpec {
             domain_voluntary_exit: 4,
             domain_selection_proof: 5,
             domain_aggregate_and_proof: 6,
-            domain_blobs_sidecar: 10,
 
             /*
              * Fork choice
@@ -872,12 +844,6 @@ impl ChainSpec {
             capella_fork_version: [0x03, 0x00, 0x00, 0x64],
             capella_fork_epoch: None,
             max_validators_per_withdrawals_sweep: 16384,
-
-            /*
-             * Eip4844 hard fork params
-             */
-            eip4844_fork_version: [0x04, 0x00, 0x00, 0x64],
-            eip4844_fork_epoch: None,
 
             /*
              * Network specific
@@ -970,14 +936,6 @@ pub struct Config {
     #[serde(deserialize_with = "deserialize_fork_epoch")]
     pub capella_fork_epoch: Option<MaybeQuoted<Epoch>>,
 
-    #[serde(default = "default_eip4844_fork_version")]
-    #[serde(with = "eth2_serde_utils::bytes_4_hex")]
-    eip4844_fork_version: [u8; 4],
-    #[serde(default)]
-    #[serde(serialize_with = "serialize_fork_epoch")]
-    #[serde(deserialize_with = "deserialize_fork_epoch")]
-    pub eip4844_fork_epoch: Option<MaybeQuoted<Epoch>>,
-
     #[serde(with = "eth2_serde_utils::quoted_u64")]
     seconds_per_slot: u64,
     #[serde(with = "eth2_serde_utils::quoted_u64")]
@@ -1017,11 +975,6 @@ fn default_bellatrix_fork_version() -> [u8; 4] {
 
 fn default_capella_fork_version() -> [u8; 4] {
     // TODO: determine if the bellatrix example should be copied like this
-    [0xff, 0xff, 0xff, 0xff]
-}
-
-fn default_eip4844_fork_version() -> [u8; 4] {
-    // This value shouldn't be used.
     [0xff, 0xff, 0xff, 0xff]
 }
 
@@ -1125,10 +1078,6 @@ impl Config {
             capella_fork_epoch: spec
                 .capella_fork_epoch
                 .map(|epoch| MaybeQuoted { value: epoch }),
-            eip4844_fork_version: spec.eip4844_fork_version,
-            eip4844_fork_epoch: spec
-                .eip4844_fork_epoch
-                .map(|epoch| MaybeQuoted { value: epoch }),
 
             seconds_per_slot: spec.seconds_per_slot,
             seconds_per_eth1_block: spec.seconds_per_eth1_block,
@@ -1176,8 +1125,6 @@ impl Config {
             bellatrix_fork_version,
             capella_fork_epoch,
             capella_fork_version,
-            eip4844_fork_epoch,
-            eip4844_fork_version,
             seconds_per_slot,
             seconds_per_eth1_block,
             min_validator_withdrawability_delay,
@@ -1210,8 +1157,6 @@ impl Config {
             bellatrix_fork_version,
             capella_fork_epoch: capella_fork_epoch.map(|q| q.value),
             capella_fork_version,
-            eip4844_fork_epoch: eip4844_fork_epoch.map(|q| q.value),
-            eip4844_fork_version,
             seconds_per_slot,
             seconds_per_eth1_block,
             min_validator_withdrawability_delay,
@@ -1285,7 +1230,6 @@ mod tests {
 
         test_domain(Domain::BeaconProposer, spec.domain_beacon_proposer, &spec);
         test_domain(Domain::BeaconAttester, spec.domain_beacon_attester, &spec);
-        test_domain(Domain::BlobsSideCar, spec.domain_blobs_sidecar, &spec);
         test_domain(Domain::Randao, spec.domain_randao, &spec);
         test_domain(Domain::Deposit, spec.domain_deposit, &spec);
         test_domain(Domain::VoluntaryExit, spec.domain_voluntary_exit, &spec);
@@ -1310,8 +1254,6 @@ mod tests {
             spec.domain_bls_to_execution_change,
             &spec,
         );
-
-        test_domain(Domain::BlobsSideCar, spec.domain_blobs_sidecar, &spec);
     }
 
     fn apply_bit_mask(domain_bytes: [u8; 4], spec: &ChainSpec) -> u32 {
