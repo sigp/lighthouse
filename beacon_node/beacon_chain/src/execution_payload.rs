@@ -180,10 +180,11 @@ async fn notify_new_payload<'a, T: BeaconChainTypes>(
                 // has not yet been applied to fork choice, there's nothing to
                 // invalidate.
                 //
-                // An all-zeros payload indicates that the terminal block has is
-                // invalid therefore we don't need to run fork choice.
-                //
-                // TODO(paul): why is that previous statement correct?
+                // An all-zeros payload indicates that an EIP-3675 check has
+                // failed regarding the validity of the terminal block. Rather
+                // than iterating back in the chain to find the terminal block
+                // and invalidating that, we simply reject this block without
+                // invalidating anything else.
                 if let Some(latest_valid_hash) =
                     latest_valid_hash.filter(|hash| *hash != ExecutionBlockHash::zero())
                 {
