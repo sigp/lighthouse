@@ -32,6 +32,7 @@ pub const PROPOSER_DUTIES_HTTP_GET: &str = "proposer_duties_http_get";
 pub const VALIDATOR_ID_HTTP_GET: &str = "validator_id_http_get";
 pub const SUBSCRIPTIONS_HTTP_POST: &str = "subscriptions_http_post";
 pub const UPDATE_PROPOSERS: &str = "update_proposers";
+pub const ATTESTATION_SELECTION_PROOFS: &str = "attestation_selection_proofs";
 pub const SUBSCRIPTIONS: &str = "subscriptions";
 pub const LOCAL_KEYSTORE: &str = "local_keystore";
 pub const WEB3SIGNER: &str = "web3signer";
@@ -176,6 +177,10 @@ lazy_static::lazy_static! {
         "vc_signing_times_seconds",
         "Duration to obtain a signature",
         &["type"]
+    );
+    pub static ref BLOCK_SIGNING_TIMES: Result<Histogram> = try_create_histogram(
+        "vc_block_signing_times_seconds",
+        "Duration to obtain a signature for a block",
     );
 
     pub static ref ATTESTATION_DUTY: Result<IntGaugeVec> = try_create_int_gauge_vec(

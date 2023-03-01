@@ -220,17 +220,16 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                     .for_each_concurrent(
                         subservice.num_attestation_threads,
                         |(committee_index, validator_duties)| {
-                            let subsubservice = subservice.clone();
+                            let subservice = subservice.clone();
                             async move {
-                                if let Err(()) = subsubservice
+                                let _: Result<(), ()> = subservice
                                     .publish_attestations_and_aggregates(
                                         slot,
                                         committee_index,
                                         validator_duties,
                                         aggregate_production_instant,
                                     )
-                                    .await
-                                {}
+                                    .await;
                             }
                         },
                     )
@@ -434,7 +433,9 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                 }
             });
 
-        // Execute all the futures, collecting any successful results.
+        // Execute all the futures *serially*, collecting any successful results.
+        // Parallelism is implemented one level above this function, so we avoid spawning more tasks
+        // which could overburden the core executor.
         let (ref attestations, ref validator_indices): (Vec<_>, Vec<_>) =
             signing_futures.unzip().await;
 

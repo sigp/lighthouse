@@ -22,9 +22,9 @@ use parking_lot::RwLock;
 use safe_arith::ArithError;
 use slog::{debug, error, info, warn, Logger};
 use slot_clock::SlotClock;
-use std::collections::BTreeMap;
-use std::collections::{hash_map, HashMap, HashSet};
+use std::collections::{hash_map, BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
+use std::time::Duration;
 use sync::poll_sync_committee_duties;
 use sync::SyncDutiesMap;
 use tokio::{sync::mpsc::Sender, time::sleep};
@@ -41,8 +41,13 @@ const SUBSCRIPTION_BUFFER_SLOTS: u64 = 2;
 /// Only retain `HISTORICAL_DUTIES_EPOCHS` duties prior to the current epoch.
 const HISTORICAL_DUTIES_EPOCHS: u64 = 2;
 
-/// The minimum number of slots before an attestation duty at which to compute the selection proof.
+/// Compute attestation selection proofs this many slots before they are required.
+///
+/// At start-up selection proofs will be computed with less lookahead out of necessity.
 const SELECTION_PROOF_SLOT_LOOKAHEAD: u64 = 8;
+
+/// Fraction of a slot at which selection proof signing should happen (2 means half way).
+const SELECTION_PROOF_SCHEDULE_DENOM: u32 = 2;
 
 /// Minimum number of validators for which we auto-enable per-validator metrics.
 /// For validators greater than this value, we need to manually set the `enable-per-validator-metrics`
@@ -104,6 +109,7 @@ impl DutyAndProof {
         })
     }
 
+    /// Create a new `DutyAndProof` with the selection proof waiting to be filled in.
     pub fn new_without_selection_proof(duty: AttesterData) -> Self {
         Self {
             duty,
@@ -793,6 +799,10 @@ async fn poll_beacon_attesters_for_epoch<T: SlotClock + 'static, E: EthSpec>(
     Ok(())
 }
 
+/// Compute the attestation selection proofs for the `duties` and add them to the `attesters` map.
+///
+/// Duties are computed in batches each slot. If a re-org is detected then the process will
+/// terminate early as it is assumed the selection proofs from `duties` are no longer relevant.
 async fn fill_in_selection_proofs<T: SlotClock + 'static, E: EthSpec>(
     duties_service: Arc<DutiesService<T, E>>,
     duties: Vec<AttesterData>,
@@ -810,7 +820,7 @@ async fn fill_in_selection_proofs<T: SlotClock + 'static, E: EthSpec>(
     // At halfway through each slot when nothing else is likely to be getting signed, sign a batch
     // of selection proofs and insert them into the duties service `attesters` map.
     let slot_clock = &duties_service.slot_clock;
-    let slot_offset = duties_service.slot_clock.slot_duration() / 2;
+    let slot_offset = duties_service.slot_clock.slot_duration() / SELECTION_PROOF_SCHEDULE_DENOM;
 
     while !duties_by_slot.is_empty() {
         if let Some(duration) = slot_clock.duration_to_next_slot() {
@@ -831,7 +841,12 @@ async fn fill_in_selection_proofs<T: SlotClock + 'static, E: EthSpec>(
                 continue;
             }
 
-            let timer = std::time::Instant::now();
+            let timer = metrics::start_timer_vec(
+                &metrics::DUTIES_SERVICE_TIMES,
+                &[metrics::ATTESTATION_SELECTION_PROOFS],
+            );
+
+            // Sign selection proofs (serially).
             let duty_and_proof_results = stream::iter(relevant_duties.into_values().flatten())
                 .then(|duty| async {
                     DutyAndProof::new_with_selection_proof(
@@ -843,13 +858,6 @@ async fn fill_in_selection_proofs<T: SlotClock + 'static, E: EthSpec>(
                 })
                 .collect::<Vec<_>>()
                 .await;
-            debug!(
-                log,
-                "Computed selection proofs";
-                "batch_size" => batch_size,
-                "signing_time_ms" => timer.elapsed().as_millis(),
-            );
-            let timer = std::time::Instant::now();
 
             // Add to attesters store.
             let mut attesters = duties_service.attesters.write();
@@ -899,12 +907,15 @@ async fn fill_in_selection_proofs<T: SlotClock + 'static, E: EthSpec>(
                 }
             }
             drop(attesters);
+
+            let time_taken_ms =
+                Duration::from_secs_f64(timer.map_or(0.0, |t| t.stop_and_record())).as_millis();
             debug!(
                 log,
-                "Updated attestation selection proofs";
+                "Computed attestation selection proofs";
                 "batch_size" => batch_size,
-                "until_slot" => lookahead_slot,
-                "time_taken_ms" => timer.elapsed().as_millis()
+                "lookahead_slot" => lookahead_slot,
+                "time_taken_ms" => time_taken_ms
             );
         } else {
             // Just sleep for one slot if we are unable to read the system clock, this gives
