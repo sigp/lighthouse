@@ -479,60 +479,40 @@ fn finality() {
     FinalityHandler::<MainnetEthSpec>::default().run();
 }
 
-#[allow(unused_macros)] // TODO(paul): remove `allow` once we have EF test release.
-macro_rules! fork_choice_tests {
-    ($tests_dir: ident) => {
-        #[test]
-        fn fork_choice_get_head() {
-            ForkChoiceHandler::<MinimalEthSpec>::new($tests_dir, "get_head").run();
-            ForkChoiceHandler::<MainnetEthSpec>::new($tests_dir, "get_head").run();
-        }
-
-        #[test]
-        fn fork_choice_on_block() {
-            ForkChoiceHandler::<MinimalEthSpec>::new($tests_dir, "on_block").run();
-            ForkChoiceHandler::<MainnetEthSpec>::new($tests_dir, "on_block").run();
-        }
-
-        #[test]
-        fn fork_choice_on_merge_block() {
-            ForkChoiceHandler::<MinimalEthSpec>::new($tests_dir, "on_merge_block").run();
-            ForkChoiceHandler::<MainnetEthSpec>::new($tests_dir, "on_merge_block").run();
-        }
-
-        #[test]
-        fn fork_choice_ex_ante() {
-            ForkChoiceHandler::<MinimalEthSpec>::new($tests_dir, "ex_ante").run();
-            ForkChoiceHandler::<MainnetEthSpec>::new($tests_dir, "ex_ante").run();
-        }
-    };
+#[test]
+fn fork_choice_get_head() {
+    ForkChoiceHandler::<MinimalEthSpec>::new("get_head").run();
+    ForkChoiceHandler::<MainnetEthSpec>::new("get_head").run();
 }
 
-// TODO(paul): The typical fork choice tests from the latest release will not
-// pass due to the changes in PR #18. This must be resolved before we merge into
-// `unstable`, but we are waiting on new test vectors from the EF.
-//
-// fork_choice_tests!("consensus_spec_tests");
+#[test]
+fn fork_choice_on_block() {
+    ForkChoiceHandler::<MinimalEthSpec>::new("on_block").run();
+    ForkChoiceHandler::<MainnetEthSpec>::new("on_block").run();
+}
 
-#[cfg(feature = "fork_choice_custom")]
-mod fork_choice_custom {
-    use super::*;
+#[test]
+fn fork_choice_on_merge_block() {
+    ForkChoiceHandler::<MinimalEthSpec>::new("on_merge_block").run();
+    ForkChoiceHandler::<MainnetEthSpec>::new("on_merge_block").run();
+}
 
-    const CUSTOM_FC_TESTS: &str = "custom-fc-tests";
+#[test]
+fn fork_choice_ex_ante() {
+    ForkChoiceHandler::<MinimalEthSpec>::new("ex_ante").run();
+    ForkChoiceHandler::<MainnetEthSpec>::new("ex_ante").run();
+}
 
-    fork_choice_tests!(CUSTOM_FC_TESTS);
+#[test]
+fn fork_choice_reorg() {
+    ForkChoiceHandler::<MinimalEthSpec>::new("reorg").run();
+    ForkChoiceHandler::<MainnetEthSpec>::new("reorg").run();
+}
 
-    #[test]
-    fn fork_choice_custom_reorg() {
-        ForkChoiceHandler::<MinimalEthSpec>::new(CUSTOM_FC_TESTS, "reorg").run();
-        ForkChoiceHandler::<MainnetEthSpec>::new(CUSTOM_FC_TESTS, "reorg").run();
-    }
-
-    #[test]
-    fn fork_choice_custom_withholding() {
-        ForkChoiceHandler::<MinimalEthSpec>::new(CUSTOM_FC_TESTS, "withholding").run();
-        ForkChoiceHandler::<MainnetEthSpec>::new(CUSTOM_FC_TESTS, "withholding").run();
-    }
+#[test]
+fn fork_choice_withholding() {
+    ForkChoiceHandler::<MinimalEthSpec>::new("withholding").run();
+    ForkChoiceHandler::<MainnetEthSpec>::new("withholding").run();
 }
 
 #[test]
