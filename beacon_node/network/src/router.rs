@@ -26,8 +26,7 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::UnboundedReceiverStream;
-use types::EthSpec;
-use types::SignedBeaconBlock;
+use types::{EthSpec, SignedBeaconBlock};
 
 /// Handles messages from the network and routes them to the appropriate service to be handled.
 pub struct Router<T: BeaconChainTypes> {
@@ -353,6 +352,12 @@ impl<T: BeaconChainTypes> Router<T> {
                     ),
                 )
             }
+            PubsubMessage::BlsToExecutionChange(bls_to_execution_change) => self
+                .send_beacon_processor_work(BeaconWorkEvent::gossip_bls_to_execution_change(
+                    message_id,
+                    peer_id,
+                    bls_to_execution_change,
+                )),
         }
     }
 
