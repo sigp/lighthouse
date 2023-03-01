@@ -34,8 +34,6 @@ pub const ALTAIR_CORE_TOPICS: [GossipKind; 1] = [GossipKind::SignedContributionA
 
 pub const CAPELLA_CORE_TOPICS: [GossipKind; 1] = [GossipKind::BlsToExecutionChange];
 
-pub const EIP4844_CORE_TOPICS: [GossipKind; 1] = [GossipKind::BeaconBlocksAndBlobsSidecar];
-
 pub const LIGHT_CLIENT_GOSSIP_TOPICS: [GossipKind; 2] = [
     GossipKind::LightClientFinalityUpdate,
     GossipKind::LightClientOptimisticUpdate,
@@ -48,7 +46,6 @@ pub fn fork_core_topics(fork_name: &ForkName) -> Vec<GossipKind> {
         ForkName::Altair => ALTAIR_CORE_TOPICS.to_vec(),
         ForkName::Merge => vec![],
         ForkName::Capella => CAPELLA_CORE_TOPICS.to_vec(),
-        ForkName::Eip4844 => EIP4844_CORE_TOPICS.to_vec(),
     }
 }
 
@@ -421,7 +418,6 @@ mod tests {
     #[test]
     fn test_core_topics_to_subscribe() {
         let mut all_topics = Vec::new();
-        all_topics.extend(EIP4844_CORE_TOPICS);
         all_topics.extend(CAPELLA_CORE_TOPICS);
         all_topics.extend(ALTAIR_CORE_TOPICS);
         all_topics.extend(BASE_CORE_TOPICS);
