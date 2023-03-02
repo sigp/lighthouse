@@ -787,10 +787,10 @@ pub fn parse_listening_addresses(
         .expect("--port has a default value")
         .parse::<u16>()
         .map_err(|parse_error| format!("Failed to parse --port as an integer: {parse_error}"))?;
-    let maybe_port6 = cli_args
+    let port6 = cli_args
         .value_of("port6")
-        .map(str::parse::<u16>)
-        .transpose()
+        .expect("--port6 has a default value")
+        .parse::<u16>()
         .map_err(|parse_error| format!("Failed to parse --port6 as an integer: {parse_error}"))?;
 
     // parse the possible udp ports
@@ -818,7 +818,7 @@ pub fn parse_listening_addresses(
         (None, Some(ipv6)) => {
             // A single ipv6 address was provided. Set the ports
 
-            if maybe_port6.is_some() {
+            if cli_args.is_present("port6") {
                 warn!(log, "When listening only over IpV6, use the --port flag. The value of --port6 will be ignored.")
             }
             // use zero ports if required. If not, use the given port.
@@ -880,8 +880,7 @@ pub fn parse_listening_addresses(
             let ipv6_tcp_port = use_zero_ports
                 .then(unused_port::unused_tcp6_port)
                 .transpose()?
-                .or(maybe_port6)
-                .unwrap_or(9090); // TODO: move to a constant or something
+                .unwrap_or(port6);
             let ipv6_udp_port = use_zero_ports
                 .then(unused_port::unused_udp6_port)
                 .transpose()?
@@ -1048,6 +1047,7 @@ pub fn set_network_config(
             config.enr_address.1 = Some(ipv6_enr_addr);
             config.enr_udp6_port = Some(ipv6_addr.udp_port);
         }
+
     }
 
     if let Some(enr_addresses) = cli_args.values_of("enr-address") {

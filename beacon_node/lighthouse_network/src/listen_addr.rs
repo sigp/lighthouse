@@ -87,7 +87,7 @@ impl slog::KV for ListenAddress {
             serializer.emit_u16("udp4_port", v4_addr.udp_port)?;
             serializer.emit_u16("tcp4_port", v4_addr.tcp_port)?;
         }
-        if let Some(v6_addr) = self.v4() {
+        if let Some(v6_addr) = self.v6() {
             serializer.emit_arguments("ip6_address", &format_args!("{}", v6_addr.addr))?;
             serializer.emit_u16("udp6_port", v6_addr.udp_port)?;
             serializer.emit_u16("tcp6_port", v6_addr.tcp_port)?;

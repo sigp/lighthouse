@@ -90,8 +90,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .value_name("PORT")
                 .help("The TCP/UDP port to listen on. The UDP port can be modified by the \
                       --discovery-port flag. If listening over both Ipv4 and Ipv6 the --port flag \
-                      will apply to the Ipv4 address and --port6 to the Ipv6 address. Same \
-                      applies for --discovery-port and --discovery-port6.")
+                      will apply to the Ipv4 address and --port6 to the Ipv6 address.")
                 .default_value("9000")
                 .takes_value(true),
         )
@@ -99,9 +98,9 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("port6")
                 .long("port6")
                 .value_name("PORT")
-                .help("The TCP/UDP port to listen on over IpV6. This flag is required when \
-                      listening over both Ipv4 and IpV6. The UDP port can be modified by the \
-                      --discovery-port6 flag. Defaults to 9090 when required.")
+                .help("The TCP/UDP port to listen on over IpV6 when listening over both Ipv4 and \
+                      Ipv6. Defaults to 9090 when required.")
+                .default_value("9090")
                 .takes_value(true),
         )
         .arg(
