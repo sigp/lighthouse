@@ -307,6 +307,5 @@ define_hardcoded_nets!(
         // Set to `true` if the genesis state can be found in the `built_in_network_configs`
         // directory.
         GENESIS_STATE_IS_KNOWN
-    ),
-    (eip4844, "eip4844", GENESIS_STATE_IS_KNOWN)
+    )
 );

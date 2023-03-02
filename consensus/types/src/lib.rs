@@ -47,7 +47,6 @@ pub mod fork;
 pub mod fork_data;
 pub mod fork_name;
 pub mod fork_versioned_response;
-pub mod free_attestation;
 pub mod graffiti;
 pub mod historical_batch;
 pub mod historical_summary;
@@ -154,7 +153,6 @@ pub use crate::fork_name::{ForkName, InconsistentFork};
 pub use crate::fork_versioned_response::{
     ExecutionOptimisticForkVersionedResponse, ForkVersionDeserialize, ForkVersionedResponse,
 };
-pub use crate::free_attestation::FreeAttestation;
 pub use crate::graffiti::{Graffiti, GRAFFITI_BYTES_LEN};
 pub use crate::historical_batch::HistoricalBatch;
 pub use crate::indexed_attestation::IndexedAttestation;

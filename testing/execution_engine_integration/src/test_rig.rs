@@ -100,7 +100,7 @@ async fn import_and_unlock(http_url: SensitiveUrl, priv_keys: &[&str], password:
 
 impl<E: GenericExecutionEngine> TestRig<E> {
     pub fn new(generic_engine: E) -> Self {
-        let log = environment::null_logger().unwrap();
+        let log = logging::test_logger();
         let runtime = Arc::new(
             tokio::runtime::Builder::new_multi_thread()
                 .enable_all()
@@ -270,6 +270,8 @@ impl<E: GenericExecutionEngine> TestRig<E> {
         };
         let proposer_index = 0;
 
+        // To save sending proposer preparation data, just set the fee recipient
+        // to the fee recipient configured for EE A.
         let prepared = self
             .ee_a
             .execution_layer
@@ -278,7 +280,7 @@ impl<E: GenericExecutionEngine> TestRig<E> {
                 head_root,
                 proposer_index,
                 // TODO: think about how to test different forks
-                PayloadAttributes::new(timestamp, prev_randao, Address::zero(), None),
+                PayloadAttributes::new(timestamp, prev_randao, Address::repeat_byte(42), None),
             )
             .await;
 
@@ -334,6 +336,7 @@ impl<E: GenericExecutionEngine> TestRig<E> {
             .unwrap()
             .to_payload()
             .execution_payload();
+        assert_eq!(valid_payload.transactions().len(), pending_txs.len());
 
         /*
          * Execution Engine A:
@@ -398,7 +401,6 @@ impl<E: GenericExecutionEngine> TestRig<E> {
             .await
             .unwrap();
         assert_eq!(status, PayloadStatus::Valid);
-        assert_eq!(valid_payload.transactions().len(), pending_txs.len());
 
         // Verify that all submitted txs were successful
         for pending_tx in pending_txs {
@@ -489,8 +491,10 @@ impl<E: GenericExecutionEngine> TestRig<E> {
         let head_block_hash = valid_payload.block_hash();
         let finalized_block_hash = ExecutionBlockHash::zero();
         // TODO: think about how to handle different forks
+        // To save sending proposer preparation data, just set the fee recipient
+        // to the fee recipient configured for EE A.
         let payload_attributes =
-            PayloadAttributes::new(timestamp, prev_randao, Address::zero(), None);
+            PayloadAttributes::new(timestamp, prev_randao, Address::repeat_byte(42), None);
         let slot = Slot::new(42);
         let head_block_root = Hash256::repeat_byte(100);
         let validator_index = 0;

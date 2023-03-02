@@ -1340,6 +1340,11 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         &self.spec
     }
 
+    /// Get a reference to the `Logger` used by the database.
+    pub fn logger(&self) -> &Logger {
+        &self.log
+    }
+
     /// Fetch a copy of the current split slot from memory.
     pub fn get_split_slot(&self) -> Slot {
         self.split.read_recursive().slot

@@ -27,6 +27,7 @@ lighthouse_metrics = { path = "../../common/lighthouse_metrics" }
 smallvec = "1.6.1"
 tokio-io-timeout = "1.1.1"
 lru = "0.7.1"
+lru_cache = { path = "../../common/lru_cache" }
 parking_lot = "0.12.0"
 sha2 = "0.10"
 snap = "1.0.1"

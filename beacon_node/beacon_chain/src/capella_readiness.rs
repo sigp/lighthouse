@@ -21,8 +21,6 @@ pub const ENGINE_CAPABILITIES_REFRESH_INTERVAL: u64 = 300;
 pub enum CapellaReadiness {
     /// The execution engine is capella-enabled (as far as we can tell)
     Ready,
-    /// The EL can be reached and has the correct configuration, however it's not yet synced.
-    NotSynced,
     /// We are connected to an execution engine which doesn't support the V2 engine api methods
     V2MethodsNotSupported { error: String },
     /// The transition configuration with the EL failed, there might be a problem with
@@ -44,11 +42,6 @@ impl fmt::Display for CapellaReadiness {
                     execution endpoint: {}",
                 error
             ),
-            CapellaReadiness::NotSynced => write!(
-                f,
-                "The execution endpoint is connected and configured, \
-                    however it is not yet synced"
-            ),
             CapellaReadiness::NoExecutionEndpoint => write!(
                 f,
                 "The --execution-endpoint flag is not specified, this is a \
@@ -56,8 +49,7 @@ impl fmt::Display for CapellaReadiness {
             ),
             CapellaReadiness::V2MethodsNotSupported { error } => write!(
                 f,
-                "The execution endpoint does not appear to support \
-                    the required engine api methods for Capella: {}",
+                "Execution endpoint does not support Capella methods: {}",
                 error
             ),
         }
@@ -115,12 +107,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     }
 
                     if all_good {
-                        if !el.is_synced_for_notifier().await {
-                            // The EL is not synced.
-                            CapellaReadiness::NotSynced
-                        } else {
-                            CapellaReadiness::Ready
-                        }
+                        CapellaReadiness::Ready
                     } else {
                         CapellaReadiness::V2MethodsNotSupported {
                             error: missing_methods,

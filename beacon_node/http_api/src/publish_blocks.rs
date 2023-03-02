@@ -5,7 +5,7 @@ use beacon_chain::NotifyExecutionLayer;
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockError, CountUnrealized};
 use lighthouse_network::PubsubMessage;
 use network::NetworkMessage;
-use slog::{error, info, warn, Logger};
+use slog::{debug, error, info, warn, Logger};
 use slot_clock::SlotClock;
 use std::sync::Arc;
 use tokio::sync::mpsc::UnboundedSender;
@@ -29,6 +29,11 @@ pub async fn publish_block<T: BeaconChainTypes>(
     //FIXME(sean) have to move this to prior to publishing because it's included in the blobs sidecar message.
     //this may skew metrics
     let block_root = block_root.unwrap_or_else(|| block.canonical_root());
+    debug!(
+        log,
+        "Signed block published to HTTP API";
+        "slot" => block.slot()
+    );
 
     // Send the block, regardless of whether or not it is valid. The API
     // specification is very clear that this is the desired behaviour.

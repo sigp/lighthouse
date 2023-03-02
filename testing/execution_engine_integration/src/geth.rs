@@ -7,7 +7,7 @@ use std::{env, fs::File};
 use tempfile::TempDir;
 use unused_port::unused_tcp_port;
 
-const GETH_BRANCH: &str = "master";
+// const GETH_BRANCH: &str = "master";
 const GETH_REPO_URL: &str = "https://github.com/ethereum/go-ethereum";
 
 pub fn build_result(repo_dir: &Path) -> Output {
@@ -27,7 +27,9 @@ pub fn build(execution_clients_dir: &Path) {
     }
 
     // Get the latest tag on the branch
-    let last_release = build_utils::get_latest_release(&repo_dir, GETH_BRANCH).unwrap();
+    // TODO: Update when version is corrected
+    // let last_release = build_utils::get_latest_release(&repo_dir, GETH_BRANCH).unwrap();
+    let last_release = "v1.11.1";
     build_utils::checkout(&repo_dir, dbg!(&last_release)).unwrap();
 
     // Build geth

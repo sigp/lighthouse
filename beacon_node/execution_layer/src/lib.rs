@@ -1345,16 +1345,11 @@ impl<T: EthSpec> ExecutionLayer<T> {
             .set_latest_forkchoice_state(forkchoice_state)
             .await;
 
-        let payload_attributes_ref = &payload_attributes;
         let result = self
             .engine()
             .request(|engine| async move {
                 engine
-                    .notify_forkchoice_updated(
-                        forkchoice_state,
-                        payload_attributes_ref.clone(),
-                        self.log(),
-                    )
+                    .notify_forkchoice_updated(forkchoice_state, payload_attributes, self.log())
                     .await
             })
             .await;
@@ -1720,7 +1715,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                     capella_block
                         .withdrawals
                         .into_iter()
-                        .map(|w| w.into())
+                        .map(Into::into)
                         .collect(),
                 )
                 .map_err(ApiError::DeserializeWithdrawals)?;
@@ -1747,7 +1742,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                     eip4844_block
                         .withdrawals
                         .into_iter()
-                        .map(|w| w.into())
+                        .map(Into::into)
                         .collect(),
                 )
                 .map_err(ApiError::DeserializeWithdrawals)?;

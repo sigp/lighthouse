@@ -10,7 +10,7 @@ use serde_json::json;
 use std::collections::HashSet;
 use tokio::sync::Mutex;
 
-use std::time::{Duration, SystemTime};
+use std::time::{Duration, Instant};
 use types::EthSpec;
 
 pub use deposit_log::{DepositLog, Log};
@@ -566,31 +566,23 @@ pub mod deposit_methods {
 #[derive(Clone, Debug)]
 pub struct CapabilitiesCacheEntry {
     engine_capabilities: EngineCapabilities,
-    fetch_time: SystemTime,
+    fetch_time: Instant,
 }
 
 impl CapabilitiesCacheEntry {
     pub fn new(engine_capabilities: EngineCapabilities) -> Self {
         Self {
             engine_capabilities,
-            fetch_time: SystemTime::now(),
+            fetch_time: Instant::now(),
         }
     }
 
-    pub fn engine_capabilities(&self) -> &EngineCapabilities {
-        &self.engine_capabilities
+    pub fn engine_capabilities(&self) -> EngineCapabilities {
+        self.engine_capabilities
     }
 
     pub fn age(&self) -> Duration {
-        // duration_since() may fail because measurements taken earlier
-        // are not guaranteed to always be before later measurements
-        // due to anomalies such as the system clock being adjusted
-        // either forwards or backwards
-        //
-        // In such cases, we'll just say the age is zero
-        SystemTime::now()
-            .duration_since(self.fetch_time)
-            .unwrap_or(Duration::ZERO)
+        Instant::now().duration_since(self.fetch_time)
     }
 
     /// returns `true` if the entry's age is >= age_limit
@@ -841,7 +833,9 @@ impl HttpJsonRpc {
 
         Ok(GetPayloadResponse::Merge(GetPayloadResponseMerge {
             execution_payload: payload_v1.into(),
-            // Have to guess zero here as we don't know the value
+            // Set the V1 payload values from the EE to be zero. This simulates
+            // the pre-block-value functionality of always choosing the builder
+            // block.
             block_value: Uint256::zero(),
         }))
     }
@@ -1055,16 +1049,12 @@ impl HttpJsonRpc {
     ) -> Result<EngineCapabilities, Error> {
         let mut lock = self.engine_capabilities_cache.lock().await;
 
-        if lock
-            .as_ref()
-            .map_or(true, |entry| entry.older_than(age_limit))
-        {
+        if let Some(lock) = lock.as_ref().filter(|entry| !entry.older_than(age_limit)) {
+            Ok(lock.engine_capabilities())
+        } else {
             let engine_capabilities = self.exchange_capabilities().await?;
             *lock = Some(CapabilitiesCacheEntry::new(engine_capabilities));
             Ok(engine_capabilities)
-        } else {
-            // here entry is guaranteed to exist so unwrap() is safe
-            Ok(*lock.as_ref().unwrap().engine_capabilities())
         }
     }
 
