@@ -82,18 +82,6 @@ pub enum BlockProcessingError {
         expected: Hash256,
         found: Hash256,
     },
-    BlobVersionHashMismatch,
-    /// The number of commitments in blob transactions in the payload does not match the number
-    /// of commitments in the block.
-    BlobNumCommitmentsMismatch {
-        commitments_processed_in_block: usize,
-        /// This number depic
-        commitments_processed_in_transactions: usize,
-    },
-    BlobVersionHashIndexOutOfBounds {
-        index: usize,
-        length: usize,
-    },
     WithdrawalCredentialsInvalid,
 }
 

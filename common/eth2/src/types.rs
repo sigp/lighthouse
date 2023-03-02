@@ -933,7 +933,6 @@ impl ForkVersionDeserialize for SsePayloadAttributes {
         value: serde_json::value::Value,
         fork_name: ForkName,
     ) -> Result<Self, D::Error> {
-        // TODO(eip4844): add V3 here
         match fork_name {
             ForkName::Merge => serde_json::from_value(value)
                 .map(Self::V1)
@@ -941,9 +940,9 @@ impl ForkVersionDeserialize for SsePayloadAttributes {
             ForkName::Capella => serde_json::from_value(value)
                 .map(Self::V2)
                 .map_err(serde::de::Error::custom),
-            ForkName::Base | ForkName::Altair | ForkName::Eip4844 => Err(serde::de::Error::custom(
-                format!("SsePayloadAttributes deserialization for {fork_name} not implemented"),
-            )),
+            ForkName::Base | ForkName::Altair => Err(serde::de::Error::custom(format!(
+                "SsePayloadAttributes deserialization for {fork_name} not implemented"
+            ))),
         }
     }
 }
@@ -1193,38 +1192,6 @@ pub struct LivenessResponseData {
     pub index: u64,
     pub epoch: Epoch,
     pub is_live: bool,
-}
-
-#[derive(PartialEq, Debug, Serialize, Deserialize)]
-#[serde(bound = "T: EthSpec, Payload: AbstractExecPayload<T>")]
-pub struct BlocksAndBlobs<T: EthSpec, Payload: AbstractExecPayload<T>> {
-    pub block: BeaconBlock<T, Payload>,
-    pub blobs: Vec<Blob<T>>,
-    pub kzg_aggregate_proof: KzgProof,
-}
-
-impl<T: EthSpec, Payload: AbstractExecPayload<T>> ForkVersionDeserialize
-    for BlocksAndBlobs<T, Payload>
-{
-    fn deserialize_by_fork<'de, D: serde::Deserializer<'de>>(
-        value: serde_json::value::Value,
-        fork_name: ForkName,
-    ) -> Result<Self, D::Error> {
-        #[derive(Deserialize)]
-        #[serde(bound = "T: EthSpec")]
-        struct Helper<T: EthSpec> {
-            block: serde_json::Value,
-            blobs: Vec<Blob<T>>,
-            kzg_aggregate_proof: KzgProof,
-        }
-        let helper: Helper<T> = serde_json::from_value(value).map_err(serde::de::Error::custom)?;
-
-        Ok(Self {
-            block: BeaconBlock::deserialize_by_fork::<'de, D>(helper.block, fork_name)?,
-            blobs: helper.blobs,
-            kzg_aggregate_proof: helper.kzg_aggregate_proof,
-        })
-    }
 }
 
 #[cfg(test)]

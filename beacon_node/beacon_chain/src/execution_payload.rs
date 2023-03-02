@@ -406,9 +406,7 @@ pub fn get_execution_payload<
     let latest_execution_payload_header_block_hash =
         state.latest_execution_payload_header()?.block_hash();
     let withdrawals = match state {
-        &BeaconState::Capella(_) | &BeaconState::Eip4844(_) => {
-            Some(get_expected_withdrawals(state, spec)?.into())
-        }
+        &BeaconState::Capella(_) => Some(get_expected_withdrawals(state, spec)?.into()),
         &BeaconState::Merge(_) => None,
         // These shouldn't happen but they're here to make the pattern irrefutable
         &BeaconState::Base(_) | &BeaconState::Altair(_) => None,

@@ -13,10 +13,10 @@ pub type EnrSyncCommitteeBitfield<T> = BitVector<<T as EthSpec>::SyncCommitteeSu
 pub type Enr = discv5::enr::Enr<discv5::enr::CombinedKey>;
 
 pub use globals::NetworkGlobals;
-pub use pubsub::{PubsubMessage, SignedBeaconBlockAndBlobsSidecar, SnappyTransform};
+pub use pubsub::{PubsubMessage, SnappyTransform};
 pub use subnet::{Subnet, SubnetDiscovery};
 pub use sync_state::{BackFillState, SyncState};
 pub use topics::{
-    subnet_from_topic_hash, GossipEncoding, GossipKind, GossipTopic, CORE_TOPICS,
-    LIGHT_CLIENT_GOSSIP_TOPICS,
+    core_topics_to_subscribe, fork_core_topics, subnet_from_topic_hash, GossipEncoding, GossipKind,
+    GossipTopic, LIGHT_CLIENT_GOSSIP_TOPICS,
 };

@@ -55,7 +55,7 @@ malloc_utils = { path = "../common/malloc_utils" }
 directory = { path = "../common/directory" }
 unused_port = { path = "../common/unused_port" }
 database_manager = { path = "../database_manager" }
-slasher = { path = "../slasher" }
+slasher = { path = "../slasher", default-features = false }
 
 [dev-dependencies]
 tempfile = "3.1.0"

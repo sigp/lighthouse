@@ -67,7 +67,6 @@ pub struct OutboundRateLimiterConfig {
     pub(super) goodbye_quota: Quota,
     pub(super) blocks_by_range_quota: Quota,
     pub(super) blocks_by_root_quota: Quota,
-    pub(super) blobs_by_range_quota: Quota,
 }
 
 impl OutboundRateLimiterConfig {
@@ -78,8 +77,6 @@ impl OutboundRateLimiterConfig {
     pub const DEFAULT_BLOCKS_BY_RANGE_QUOTA: Quota =
         Quota::n_every(methods::MAX_REQUEST_BLOCKS, 10);
     pub const DEFAULT_BLOCKS_BY_ROOT_QUOTA: Quota = Quota::n_every(128, 10);
-    pub const DEFAULT_BLOBS_BY_RANGE_QUOTA: Quota =
-        Quota::n_every(methods::MAX_REQUEST_BLOBS_SIDECARS, 10);
 }
 
 impl Default for OutboundRateLimiterConfig {
@@ -91,7 +88,6 @@ impl Default for OutboundRateLimiterConfig {
             goodbye_quota: Self::DEFAULT_GOODBYE_QUOTA,
             blocks_by_range_quota: Self::DEFAULT_BLOCKS_BY_RANGE_QUOTA,
             blocks_by_root_quota: Self::DEFAULT_BLOCKS_BY_ROOT_QUOTA,
-            blobs_by_range_quota: Self::DEFAULT_BLOBS_BY_RANGE_QUOTA,
         }
     }
 }
@@ -115,7 +111,6 @@ impl Debug for OutboundRateLimiterConfig {
             .field("goodbye", fmt_q!(&self.goodbye_quota))
             .field("blocks_by_range", fmt_q!(&self.blocks_by_range_quota))
             .field("blocks_by_root", fmt_q!(&self.blocks_by_root_quota))
-            .field("blobs_by_range", fmt_q!(&self.blobs_by_range_quota))
             .finish()
     }
 }
@@ -134,7 +129,6 @@ impl FromStr for OutboundRateLimiterConfig {
         let mut goodbye_quota = None;
         let mut blocks_by_range_quota = None;
         let mut blocks_by_root_quota = None;
-        let mut blobs_by_range_quota = None;
         for proto_def in s.split(';') {
             let ProtocolQuota { protocol, quota } = proto_def.parse()?;
             let quota = Some(quota);
@@ -145,7 +139,6 @@ impl FromStr for OutboundRateLimiterConfig {
                 Protocol::BlocksByRoot => blocks_by_root_quota = blocks_by_root_quota.or(quota),
                 Protocol::Ping => ping_quota = ping_quota.or(quota),
                 Protocol::MetaData => meta_data_quota = meta_data_quota.or(quota),
-                Protocol::BlobsByRange => blobs_by_range_quota = blobs_by_range_quota.or(quota),
                 Protocol::LightClientBootstrap => return Err("Lighthouse does not send LightClientBootstrap requests. Quota should not be set."),
             }
         }
@@ -158,8 +151,6 @@ impl FromStr for OutboundRateLimiterConfig {
                 .unwrap_or(Self::DEFAULT_BLOCKS_BY_RANGE_QUOTA),
             blocks_by_root_quota: blocks_by_root_quota
                 .unwrap_or(Self::DEFAULT_BLOCKS_BY_ROOT_QUOTA),
-            blobs_by_range_quota: blobs_by_range_quota
-                .unwrap_or(Self::DEFAULT_BLOBS_BY_RANGE_QUOTA),
         })
     }
 }

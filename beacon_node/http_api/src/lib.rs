@@ -1123,9 +1123,7 @@ pub fn serve<T: BeaconChainTypes>(
              chain: Arc<BeaconChain<T>>,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
              log: Logger| async move {
-                // need to have cached the blob sidecar somewhere in the beacon chain
-                // to publish
-                publish_blocks::publish_block(None, block, None, chain, &network_tx, log)
+                publish_blocks::publish_block(None, block, chain, &network_tx, log)
                     .await
                     .map(|()| warp::reply())
             },
@@ -2380,11 +2378,19 @@ pub fn serve<T: BeaconChainTypes>(
         .and(not_while_syncing_filter.clone())
         .and(warp::query::<api_types::ValidatorBlocksQuery>())
         .and(chain_filter.clone())
+        .and(log_filter.clone())
         .and_then(
             |endpoint_version: EndpointVersion,
              slot: Slot,
              query: api_types::ValidatorBlocksQuery,
-             chain: Arc<BeaconChain<T>>| async move {
+             chain: Arc<BeaconChain<T>>,
+             log: Logger| async move {
+                debug!(
+                    log,
+                    "Block production request from HTTP API";
+                    "slot" => slot
+                );
+
                 let randao_reveal = query.randao_reveal.decompress().map_err(|e| {
                     warp_utils::reject::custom_bad_request(format!(
                         "randao reveal is not a valid BLS signature: {:?}",

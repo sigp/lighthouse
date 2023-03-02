@@ -78,7 +78,6 @@ pub fn get_extra_fields(spec: &ChainSpec) -> HashMap<String, Value> {
         "bls_withdrawal_prefix".to_uppercase() => u8_hex(spec.bls_withdrawal_prefix_byte),
         "domain_beacon_proposer".to_uppercase() => u32_hex(spec.domain_beacon_proposer),
         "domain_beacon_attester".to_uppercase() => u32_hex(spec.domain_beacon_attester),
-        "domain_blobs_sidecar".to_uppercase() => u32_hex(spec.domain_blobs_sidecar),
         "domain_randao".to_uppercase()=> u32_hex(spec.domain_randao),
         "domain_deposit".to_uppercase()=> u32_hex(spec.domain_deposit),
         "domain_voluntary_exit".to_uppercase() => u32_hex(spec.domain_voluntary_exit),

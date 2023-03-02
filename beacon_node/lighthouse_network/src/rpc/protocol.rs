@@ -20,9 +20,8 @@ use tokio_util::{
     codec::Framed,
     compat::{Compat, FuturesAsyncReadCompatExt},
 };
-use types::BlobsSidecar;
 use types::{
-    BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockCapella, BeaconBlockMerge, Blob,
+    BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockCapella, BeaconBlockMerge,
     EmptyBlock, EthSpec, ForkContext, ForkName, Hash256, MainnetEthSpec, Signature,
     SignedBeaconBlock,
 };
@@ -84,12 +83,6 @@ lazy_static! {
     + types::ExecutionPayload::<MainnetEthSpec>::max_execution_payload_capella_size() // adding max size of execution payload (~16gb)
     + ssz::BYTES_PER_LENGTH_OFFSET; // Adding the additional ssz offset for the `ExecutionPayload` field
 
-    pub static ref SIGNED_BEACON_BLOCK_EIP4844_MAX: usize = *SIGNED_BEACON_BLOCK_CAPELLA_MAX_WITHOUT_PAYLOAD
-    + types::ExecutionPayload::<MainnetEthSpec>::max_execution_payload_eip4844_size() // adding max size of execution payload (~16gb)
-    + ssz::BYTES_PER_LENGTH_OFFSET // Adding the additional offsets for the `ExecutionPayload`
-    + (<types::KzgCommitment as Encode>::ssz_fixed_len() * <MainnetEthSpec>::max_blobs_per_block())
-    + ssz::BYTES_PER_LENGTH_OFFSET; // Length offset for the blob commitments field.
-
     pub static ref BLOCKS_BY_ROOT_REQUEST_MIN: usize =
         VariableList::<Hash256, MaxRequestBlocks>::from(Vec::<Hash256>::new())
     .as_ssz_bytes()
@@ -114,13 +107,6 @@ lazy_static! {
         ])
     .as_ssz_bytes()
     .len();
-
-    pub static ref BLOBS_SIDECAR_MIN: usize = BlobsSidecar::<MainnetEthSpec>::empty()
-    .as_ssz_bytes()
-    .len();
-
-    pub static ref BLOBS_SIDECAR_MAX: usize = *BLOBS_SIDECAR_MIN // Max size of variable length `blobs` field
-            + (MainnetEthSpec::max_blobs_per_block() * <Blob<MainnetEthSpec> as Encode>::ssz_fixed_len());
 }
 
 /// The maximum bytes that can be sent across the RPC pre-merge.
@@ -128,8 +114,6 @@ pub(crate) const MAX_RPC_SIZE: usize = 1_048_576; // 1M
 /// The maximum bytes that can be sent across the RPC post-merge.
 pub(crate) const MAX_RPC_SIZE_POST_MERGE: usize = 10 * 1_048_576; // 10M
 pub(crate) const MAX_RPC_SIZE_POST_CAPELLA: usize = 10 * 1_048_576; // 10M
-                                                                    // FIXME(sean) should this be increased to account for blobs?
-pub(crate) const MAX_RPC_SIZE_POST_EIP4844: usize = 10 * 1_048_576; // 10M
 /// The protocol prefix the RPC protocol id.
 const PROTOCOL_PREFIX: &str = "/eth2/beacon_chain/req";
 /// Time allowed for the first byte of a request to arrive before we time out (Time To First Byte).
@@ -144,7 +128,6 @@ pub fn max_rpc_size(fork_context: &ForkContext) -> usize {
         ForkName::Altair | ForkName::Base => MAX_RPC_SIZE,
         ForkName::Merge => MAX_RPC_SIZE_POST_MERGE,
         ForkName::Capella => MAX_RPC_SIZE_POST_CAPELLA,
-        ForkName::Eip4844 => MAX_RPC_SIZE_POST_EIP4844,
     }
 }
 
@@ -169,10 +152,6 @@ pub fn rpc_block_limits_by_fork(current_fork: ForkName) -> RpcLimits {
             *SIGNED_BEACON_BLOCK_BASE_MIN, // Base block is smaller than altair and merge blocks
             *SIGNED_BEACON_BLOCK_CAPELLA_MAX, // Capella block is larger than base, altair and merge blocks
         ),
-        ForkName::Eip4844 => RpcLimits::new(
-            *SIGNED_BEACON_BLOCK_BASE_MIN, // Base block is smaller than altair and merge blocks
-            *SIGNED_BEACON_BLOCK_EIP4844_MAX, // EIP 4844 block is larger than all prior fork blocks
-        ),
     }
 }
 
@@ -190,8 +169,6 @@ pub enum Protocol {
     /// The `BlocksByRoot` protocol name.
     #[strum(serialize = "beacon_blocks_by_root")]
     BlocksByRoot,
-    /// The `BlobsByRange` protocol name.
-    BlobsByRange,
     /// The `Ping` protocol name.
     Ping,
     /// The `MetaData` protocol name.
@@ -327,10 +304,6 @@ impl ProtocolId {
             Protocol::BlocksByRoot => {
                 RpcLimits::new(*BLOCKS_BY_ROOT_REQUEST_MIN, *BLOCKS_BY_ROOT_REQUEST_MAX)
             }
-            Protocol::BlobsByRange => RpcLimits::new(
-                <BlobsByRangeRequest as Encode>::ssz_fixed_len(),
-                <BlobsByRangeRequest as Encode>::ssz_fixed_len(),
-            ),
             Protocol::Ping => RpcLimits::new(
                 <Ping as Encode>::ssz_fixed_len(),
                 <Ping as Encode>::ssz_fixed_len(),
@@ -353,7 +326,6 @@ impl ProtocolId {
             Protocol::Goodbye => RpcLimits::new(0, 0), // Goodbye request has no response
             Protocol::BlocksByRange => rpc_block_limits_by_fork(fork_context.current_fork()),
             Protocol::BlocksByRoot => rpc_block_limits_by_fork(fork_context.current_fork()),
-            Protocol::BlobsByRange => RpcLimits::new(*BLOBS_SIDECAR_MIN, *BLOBS_SIDECAR_MAX),
             Protocol::Ping => RpcLimits::new(
                 <Ping as Encode>::ssz_fixed_len(),
                 <Ping as Encode>::ssz_fixed_len(),
@@ -471,7 +443,6 @@ pub enum InboundRequest<TSpec: EthSpec> {
     Goodbye(GoodbyeReason),
     BlocksByRange(OldBlocksByRangeRequest),
     BlocksByRoot(BlocksByRootRequest),
-    BlobsByRange(BlobsByRangeRequest),
     LightClientBootstrap(LightClientBootstrapRequest),
     Ping(Ping),
     MetaData(PhantomData<TSpec>),
@@ -488,7 +459,6 @@ impl<TSpec: EthSpec> InboundRequest<TSpec> {
             InboundRequest::Goodbye(_) => 0,
             InboundRequest::BlocksByRange(req) => req.count,
             InboundRequest::BlocksByRoot(req) => req.block_roots.len() as u64,
-            InboundRequest::BlobsByRange(req) => req.count,
             InboundRequest::Ping(_) => 1,
             InboundRequest::MetaData(_) => 1,
             InboundRequest::LightClientBootstrap(_) => 1,
@@ -502,7 +472,6 @@ impl<TSpec: EthSpec> InboundRequest<TSpec> {
             InboundRequest::Goodbye(_) => Protocol::Goodbye,
             InboundRequest::BlocksByRange(_) => Protocol::BlocksByRange,
             InboundRequest::BlocksByRoot(_) => Protocol::BlocksByRoot,
-            InboundRequest::BlobsByRange(_) => Protocol::BlobsByRange,
             InboundRequest::Ping(_) => Protocol::Ping,
             InboundRequest::MetaData(_) => Protocol::MetaData,
             InboundRequest::LightClientBootstrap(_) => Protocol::LightClientBootstrap,
@@ -517,7 +486,6 @@ impl<TSpec: EthSpec> InboundRequest<TSpec> {
             // variants that have `multiple_responses()` can have values.
             InboundRequest::BlocksByRange(_) => ResponseTermination::BlocksByRange,
             InboundRequest::BlocksByRoot(_) => ResponseTermination::BlocksByRoot,
-            InboundRequest::BlobsByRange(_) => ResponseTermination::BlobsByRange,
             InboundRequest::Status(_) => unreachable!(),
             InboundRequest::Goodbye(_) => unreachable!(),
             InboundRequest::Ping(_) => unreachable!(),
@@ -624,7 +592,6 @@ impl<TSpec: EthSpec> std::fmt::Display for InboundRequest<TSpec> {
             InboundRequest::Goodbye(reason) => write!(f, "Goodbye: {}", reason),
             InboundRequest::BlocksByRange(req) => write!(f, "Blocks by range: {}", req),
             InboundRequest::BlocksByRoot(req) => write!(f, "Blocks by root: {:?}", req),
-            InboundRequest::BlobsByRange(req) => write!(f, "Blobs by range: {:?}", req),
             InboundRequest::Ping(ping) => write!(f, "Ping: {}", ping.data),
             InboundRequest::MetaData(_) => write!(f, "MetaData request"),
             InboundRequest::LightClientBootstrap(bootstrap) => {
