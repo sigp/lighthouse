@@ -7,7 +7,7 @@ use crate::http_metrics::metrics::{inc_counter_vec, ENDPOINT_ERRORS, ENDPOINT_RE
 use environment::RuntimeContext;
 use eth2::BeaconNodeHttpClient;
 use futures::future;
-use slog::{error, info, warn, Logger};
+use slog::{debug, error, info, warn, Logger};
 use slot_clock::SlotClock;
 use std::fmt;
 use std::fmt::Debug;
@@ -409,10 +409,12 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
     where
         F: Fn(&'a BeaconNodeHttpClient) -> R,
         R: Future<Output = Result<O, Err>>,
+        Err: Debug,
     {
         let mut errors = vec![];
         let mut to_retry = vec![];
         let mut retry_unsynced = vec![];
+        let log = &self.log.clone();
 
         // Run `func` using a `candidate`, returning the value or capturing errors.
         //
@@ -427,6 +429,12 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
                 match func(&$candidate.beacon_node).await {
                     Ok(val) => return Ok(val),
                     Err(e) => {
+                        debug!(
+                            log,
+                            "Request to beacon node failed";
+                            "node" => $candidate.beacon_node.to_string(),
+                            "error" => ?e,
+                        );
                         // If we have an error on this function, make the client as not-ready.
                         //
                         // There exists a race condition where the candidate may have been marked
@@ -626,6 +634,7 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
     where
         F: Fn(&'a BeaconNodeHttpClient) -> R,
         R: Future<Output = Result<(), Err>>,
+        Err: Debug,
     {
         if self.disable_run_on_all {
             self.first_success(require_synced, offline_on_failure, func)
