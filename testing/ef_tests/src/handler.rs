@@ -552,6 +552,12 @@ impl<E: EthSpec + TypeName> Handler for ForkChoiceHandler<E> {
             return false;
         }
 
+        // Withholding tests were introduced shortly before the Capella fork and
+        // have not been generated for prior forks.
+        if self.handler_name == "withholding" && fork_name == ForkName::Base {
+            return false;
+        }
+
         // These tests check block validity (which may include signatures) and there is no need to
         // run them with fake crypto.
         cfg!(not(feature = "fake_crypto"))

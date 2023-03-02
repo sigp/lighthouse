@@ -506,13 +506,13 @@ fn fork_choice_ex_ante() {
 #[test]
 fn fork_choice_reorg() {
     ForkChoiceHandler::<MinimalEthSpec>::new("reorg").run();
-    ForkChoiceHandler::<MainnetEthSpec>::new("reorg").run();
+    // There is no mainnet variant for this test.
 }
 
 #[test]
 fn fork_choice_withholding() {
     ForkChoiceHandler::<MinimalEthSpec>::new("withholding").run();
-    ForkChoiceHandler::<MainnetEthSpec>::new("withholding").run();
+    // There is no mainnet variant for this test.
 }
 
 #[test]
