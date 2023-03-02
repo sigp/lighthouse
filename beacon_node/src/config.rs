@@ -873,7 +873,7 @@ pub fn parse_listening_addresses(
             let ipv4_udp_port = use_zero_ports
                 .then(unused_port::unused_udp4_port)
                 .transpose()?
-                .or(maybe_udp6_port)
+                .or(maybe_udp_port)
                 .unwrap_or(ipv4_tcp_port);
 
             // Defaults to 9090 when required
@@ -896,7 +896,7 @@ pub fn parse_listening_addresses(
                 lighthouse_network::ListenAddr {
                     addr: ipv6,
                     udp_port: ipv6_udp_port,
-                    tcp_port: ipv4_tcp_port,
+                    tcp_port: ipv6_tcp_port,
                 },
             )
         }
