@@ -24,8 +24,9 @@ pub fn validate_blobs_sidecar<T: EthSpec>(
 
     let blobs = blobs_sidecar
         .blobs
+        .clone() // TODO(pawan): avoid this clone
         .into_iter()
-        .map(|blob| ssz_blob_to_crypto_blob::<T>(blob.clone())) // TODO(pawan): avoid this clone
+        .map(|blob| ssz_blob_to_crypto_blob::<T>(blob))
         .collect::<Vec<_>>();
 
     kzg.verify_aggregate_kzg_proof(
