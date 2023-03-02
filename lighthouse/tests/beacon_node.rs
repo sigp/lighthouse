@@ -1248,7 +1248,20 @@ fn enr_match_flag_over_ipv4_and_ipv6() {
         });
 }
 #[test]
-fn enr_address_flag() {
+fn enr_address_flag_with_ipv4() {
+    let addr = "192.167.1.1".parse::<Ipv4Addr>().unwrap();
+    let port = unused_udp4_port().expect("Unable to find unused port.");
+    CommandLineTest::new()
+        .flag("enr-address", Some("192.167.1.1"))
+        .flag("enr-udp-port", Some(port.to_string().as_str()))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(config.network.enr_address, (Some(addr), None));
+            assert_eq!(config.network.enr_udp4_port, Some(port));
+        });
+}
+#[test]
+fn enr_address_flag_with_ipv6() {
     let addr = "192.167.1.1".parse::<Ipv4Addr>().unwrap();
     let port = unused_udp4_port().expect("Unable to find unused port.");
     CommandLineTest::new()

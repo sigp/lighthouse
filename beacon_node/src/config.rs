@@ -789,9 +789,10 @@ pub fn parse_listening_addresses(
         .map_err(|parse_error| format!("Failed to parse --port as an integer: {parse_error}"))?;
     let port6 = cli_args
         .value_of("port6")
-        .expect("--port6 has a default value")
-        .parse::<u16>()
-        .map_err(|parse_error| format!("Failed to parse --port6 as an integer: {parse_error}"))?;
+        .map(str::parse::<u16>)
+        .transpose()
+        .map_err(|parse_error| format!("Failed to parse --port6 as an integer: {parse_error}"))?
+        .unwrap_or(9090);
 
     // parse the possible udp ports
     let maybe_udp_port = cli_args
@@ -1047,7 +1048,6 @@ pub fn set_network_config(
             config.enr_address.1 = Some(ipv6_enr_addr);
             config.enr_udp6_port = Some(ipv6_addr.udp_port);
         }
-
     }
 
     if let Some(enr_addresses) = cli_args.values_of("enr-address") {
