@@ -1179,6 +1179,75 @@ fn enr_match_flag_over_ipv4() {
         });
 }
 #[test]
+fn enr_match_flag_over_ipv6() {
+    const ADDR: &str = "::1";
+    let addr = ADDR.parse::<Ipv6Addr>().unwrap();
+    let udp6_port = unused_udp6_port().expect("Unable to find unused port.");
+    let tcp6_port = unused_tcp6_port().expect("Unable to find unused port.");
+    CommandLineTest::new()
+        .flag("enr-match", None)
+        .flag("listen-address", Some(ADDR))
+        .flag("discovery-port", Some(udp6_port.to_string().as_str()))
+        .flag("port", Some(tcp6_port.to_string().as_str()))
+        .run()
+        .with_config(|config| {
+            assert_eq!(
+                config.network.listen_addrs().v6().map(|listen_addr| (
+                    listen_addr.addr,
+                    listen_addr.udp_port,
+                    listen_addr.tcp_port
+                )),
+                Some((addr, udp6_port, tcp6_port))
+            );
+            assert_eq!(config.network.enr_address, (None, Some(addr)));
+            assert_eq!(config.network.enr_udp6_port, Some(udp6_port));
+        });
+}
+#[test]
+fn enr_match_flag_over_ipv4_and_ipv6() {
+    const IPV6_ADDR: &str = "::1";
+    let ipv6_addr = IPV6_ADDR.parse::<Ipv6Addr>().unwrap();
+    let udp6_port = unused_udp6_port().expect("Unable to find unused port.");
+    let tcp6_port = unused_tcp6_port().expect("Unable to find unused port.");
+    const IPV4_ADDR: &str = "127.0.0.1";
+    let ipv4_addr = IPV4_ADDR.parse::<Ipv4Addr>().unwrap();
+    let udp4_port = unused_udp4_port().expect("Unable to find unused port.");
+    let tcp4_port = unused_tcp4_port().expect("Unable to find unused port.");
+    CommandLineTest::new()
+        .flag("enr-match", None)
+        .flag("listen-address", Some(IPV4_ADDR))
+        .flag("discovery-port", Some(udp4_port.to_string().as_str()))
+        .flag("port", Some(tcp4_port.to_string().as_str()))
+        .flag("listen-address", Some(IPV6_ADDR))
+        .flag("discovery-port6", Some(udp6_port.to_string().as_str()))
+        .flag("port6", Some(tcp6_port.to_string().as_str()))
+        .run()
+        .with_config(|config| {
+            assert_eq!(
+                config.network.listen_addrs().v6().map(|listen_addr| (
+                    listen_addr.addr,
+                    listen_addr.udp_port,
+                    listen_addr.tcp_port
+                )),
+                Some((ipv6_addr, udp6_port, tcp6_port))
+            );
+            assert_eq!(
+                config.network.listen_addrs().v4().map(|listen_addr| (
+                    listen_addr.addr,
+                    listen_addr.udp_port,
+                    listen_addr.tcp_port
+                )),
+                Some((ipv4_addr, udp4_port, tcp4_port))
+            );
+            assert_eq!(
+                config.network.enr_address,
+                (Some(ipv4_addr), Some(ipv6_addr))
+            );
+            assert_eq!(config.network.enr_udp6_port, Some(udp6_port));
+            assert_eq!(config.network.enr_udp4_port, Some(udp4_port));
+        });
+}
+#[test]
 fn enr_address_flag_with_ipv4() {
     let addr = "192.167.1.1".parse::<Ipv4Addr>().unwrap();
     let port = unused_udp4_port().expect("Unable to find unused port.");
