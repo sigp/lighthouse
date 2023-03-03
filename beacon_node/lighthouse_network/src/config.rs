@@ -12,6 +12,7 @@ use libp2p::gossipsub::{
 use libp2p::Multiaddr;
 use serde_derive::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use std::net::Ipv4Addr;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -183,7 +184,7 @@ impl Default for Config {
             .filter_rate_limiter(filter_rate_limiter)
             .filter_max_bans_per_ip(Some(5))
             .filter_max_nodes_per_ip(Some(10))
-            .table_filter(|enr| enr.ip4().map_or(false, |ip| is_global(&ip))) // Filter non-global IPs
+            .table_filter(|enr| enr.ip4().map_or(false, |ip| is_global_ipv4(&ip))) // Filter non-global IPs
             .ban_duration(Some(Duration::from_secs(3600)))
             .ping_interval(Duration::from_secs(300))
             .build();
@@ -361,7 +362,7 @@ pub fn gossipsub_config(network_load: u8, fork_context: Arc<ForkContext>) -> Gos
 /// Helper function to determine if the IpAddr is a global address or not. The `is_global()`
 /// function is not yet stable on IpAddr.
 #[allow(clippy::nonminimal_bool)]
-fn is_global(addr: &std::net::Ipv4Addr) -> bool {
+fn is_global_ipv4(addr: &Ipv4Addr) -> bool {
     // check if this address is 192.0.0.9 or 192.0.0.10. These addresses are the only two
     // globally routable addresses in the 192.0.0.0/24 range.
     if u32::from_be_bytes(addr.octets()) == 0xc0000009
