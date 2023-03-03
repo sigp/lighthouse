@@ -5016,26 +5016,43 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         "status" => ?status
                     );
 
-                    // This implies that the terminal block was invalid. We are being explicit in
-                    // invalidating only the head block in this case.
-                    if latest_valid_hash == ExecutionBlockHash::zero() {
-                        self.process_invalid_execution_payload(
-                            &InvalidationOperation::InvalidateOne {
-                                block_root: head_block_root,
-                            },
-                        )
-                        .await?;
-                    } else {
+                    match latest_valid_hash {
+                        // The `latest_valid_hash` is set to `None` when the EE
+                        // "cannot determine the ancestor of the invalid
+                        // payload". In such a scenario we should only
+                        // invalidate the head block and nothing else.
+                        None => {
+                            self.process_invalid_execution_payload(
+                                &InvalidationOperation::InvalidateOne {
+                                    block_root: head_block_root,
+                                },
+                            )
+                            .await?;
+                        }
+                        // An all-zeros execution block hash implies that
+                        // the terminal block was invalid. We are being
+                        // explicit in invalidating only the head block in
+                        // this case.
+                        Some(hash) if hash == ExecutionBlockHash::zero() => {
+                            self.process_invalid_execution_payload(
+                                &InvalidationOperation::InvalidateOne {
+                                    block_root: head_block_root,
+                                },
+                            )
+                            .await?;
+                        }
                         // The execution engine has stated that all blocks between the
                         // `head_execution_block_hash` and `latest_valid_hash` are invalid.
-                        self.process_invalid_execution_payload(
-                            &InvalidationOperation::InvalidateMany {
-                                head_block_root,
-                                always_invalidate_head: true,
-                                latest_valid_ancestor: latest_valid_hash,
-                            },
-                        )
-                        .await?;
+                        Some(latest_valid_hash) => {
+                            self.process_invalid_execution_payload(
+                                &InvalidationOperation::InvalidateMany {
+                                    head_block_root,
+                                    always_invalidate_head: true,
+                                    latest_valid_ancestor: latest_valid_hash,
+                                },
+                            )
+                            .await?;
+                        }
                     }
 
                     Err(BeaconChainError::ExecutionForkChoiceUpdateInvalid { status })
