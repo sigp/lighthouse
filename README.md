@@ -23,12 +23,9 @@ Lighthouse is:
 - Ready for use on Ethereum consensus mainnet.
 - Fully open-source, licensed under Apache 2.0.
 - Security-focused. Fuzzing techniques have been continuously applied and several external security reviews have been performed.
-- Built in [Rust](https://www.rust-lang.org), a modern language providing unique safety guarantees and
-	excellent performance (comparable to C++).
-- Funded by various organisations, including Sigma Prime, the
-	Ethereum Foundation, ConsenSys, the Decentralization Foundation and private individuals.
-- Actively involved in the specification and security analysis of the
-	Ethereum proof-of-stake consensus specification.
+- Built in [Rust](https://www.rust-lang.org), a modern language providing unique safety guarantees and excellent performance (comparable to C++). For an in-depth explanation we recommend that you read this article: https://www.technologyreview.com/2023/02/14/1067869/rust-worlds-fastest-growing-programming-language/
+- Funded by various organisations, including Sigma Prime, the Ethereum Foundation, ConsenSys, the Decentralization Foundation and private individuals.
+- Actively involved in the specification and security analysis of the Ethereum proof-of-stake consensus specification.
 
 ## Staking Deposit Contract
 
