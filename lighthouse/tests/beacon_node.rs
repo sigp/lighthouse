@@ -1139,6 +1139,22 @@ fn enr_tcp_port_flag() {
         .with_config(|config| assert_eq!(config.network.enr_tcp4_port, Some(port)));
 }
 #[test]
+fn enr_udp6_port_flag() {
+    let port = unused_udp6_port().expect("Unable to find unused port.");
+    CommandLineTest::new()
+        .flag("enr-udp6-port", Some(port.to_string().as_str()))
+        .run_with_zero_port()
+        .with_config(|config| assert_eq!(config.network.enr_udp6_port, Some(port)));
+}
+#[test]
+fn enr_tcp6_port_flag() {
+    let port = unused_tcp6_port().expect("Unable to find unused port.");
+    CommandLineTest::new()
+        .flag("enr-tcp6-port", Some(port.to_string().as_str()))
+        .run_with_zero_port()
+        .with_config(|config| assert_eq!(config.network.enr_tcp6_port, Some(port)));
+}
+#[test]
 fn enr_match_flag_over_ipv4() {
     let addr = "127.0.0.2".parse::<Ipv4Addr>().unwrap();
     let udp4_port = unused_udp4_port().expect("Unable to find unused port.");
