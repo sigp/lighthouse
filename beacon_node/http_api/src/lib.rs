@@ -1123,7 +1123,9 @@ pub fn serve<T: BeaconChainTypes>(
              chain: Arc<BeaconChain<T>>,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
              log: Logger| async move {
-                publish_blocks::publish_block(None, block, chain, &network_tx, log)
+                // need to have cached the blob sidecar somewhere in the beacon chain
+                // to publish
+                publish_blocks::publish_block(None, block, None, chain, &network_tx, log)
                     .await
                     .map(|()| warp::reply())
             },

@@ -9,7 +9,7 @@ use tree_hash_derive::TreeHash;
 use BeaconStateError;
 
 #[superstruct(
-    variants(Merge, Capella),
+    variants(Merge, Capella, Eip4844),
     variant_attributes(
         derive(
             Default,
@@ -70,11 +70,15 @@ pub struct ExecutionPayloadHeader<T: EthSpec> {
     #[serde(with = "eth2_serde_utils::quoted_u256")]
     #[superstruct(getter(copy))]
     pub base_fee_per_gas: Uint256,
+    #[superstruct(only(Eip4844))]
+    #[serde(with = "eth2_serde_utils::quoted_u256")]
+    #[superstruct(getter(copy))]
+    pub excess_data_gas: Uint256,
     #[superstruct(getter(copy))]
     pub block_hash: ExecutionBlockHash,
     #[superstruct(getter(copy))]
     pub transactions_root: Hash256,
-    #[superstruct(only(Capella))]
+    #[superstruct(only(Capella, Eip4844))]
     #[superstruct(getter(copy))]
     pub withdrawals_root: Hash256,
 }
@@ -92,6 +96,9 @@ impl<T: EthSpec> ExecutionPayloadHeader<T> {
             ForkName::Merge => ExecutionPayloadHeaderMerge::from_ssz_bytes(bytes).map(Self::Merge),
             ForkName::Capella => {
                 ExecutionPayloadHeaderCapella::from_ssz_bytes(bytes).map(Self::Capella)
+            }
+            ForkName::Eip4844 => {
+                ExecutionPayloadHeaderEip4844::from_ssz_bytes(bytes).map(Self::Eip4844)
             }
         }
     }
@@ -124,6 +131,30 @@ impl<T: EthSpec> ExecutionPayloadHeaderMerge<T> {
             block_hash: self.block_hash,
             transactions_root: self.transactions_root,
             withdrawals_root: Hash256::zero(),
+        }
+    }
+}
+
+impl<T: EthSpec> ExecutionPayloadHeaderCapella<T> {
+    pub fn upgrade_to_eip4844(&self) -> ExecutionPayloadHeaderEip4844<T> {
+        ExecutionPayloadHeaderEip4844 {
+            parent_hash: self.parent_hash,
+            fee_recipient: self.fee_recipient,
+            state_root: self.state_root,
+            receipts_root: self.receipts_root,
+            logs_bloom: self.logs_bloom.clone(),
+            prev_randao: self.prev_randao,
+            block_number: self.block_number,
+            gas_limit: self.gas_limit,
+            gas_used: self.gas_used,
+            timestamp: self.timestamp,
+            extra_data: self.extra_data.clone(),
+            base_fee_per_gas: self.base_fee_per_gas,
+            // TODO: verify if this is correct
+            excess_data_gas: Uint256::zero(),
+            block_hash: self.block_hash,
+            transactions_root: self.transactions_root,
+            withdrawals_root: self.withdrawals_root,
         }
     }
 }
@@ -170,6 +201,29 @@ impl<'a, T: EthSpec> From<&'a ExecutionPayloadCapella<T>> for ExecutionPayloadHe
     }
 }
 
+impl<'a, T: EthSpec> From<&'a ExecutionPayloadEip4844<T>> for ExecutionPayloadHeaderEip4844<T> {
+    fn from(payload: &'a ExecutionPayloadEip4844<T>) -> Self {
+        Self {
+            parent_hash: payload.parent_hash,
+            fee_recipient: payload.fee_recipient,
+            state_root: payload.state_root,
+            receipts_root: payload.receipts_root,
+            logs_bloom: payload.logs_bloom.clone(),
+            prev_randao: payload.prev_randao,
+            block_number: payload.block_number,
+            gas_limit: payload.gas_limit,
+            gas_used: payload.gas_used,
+            timestamp: payload.timestamp,
+            extra_data: payload.extra_data.clone(),
+            base_fee_per_gas: payload.base_fee_per_gas,
+            excess_data_gas: payload.excess_data_gas,
+            block_hash: payload.block_hash,
+            transactions_root: payload.transactions.tree_hash_root(),
+            withdrawals_root: payload.withdrawals.tree_hash_root(),
+        }
+    }
+}
+
 // These impls are required to work around an inelegance in `to_execution_payload_header`.
 // They only clone headers so they should be relatively cheap.
 impl<'a, T: EthSpec> From<&'a Self> for ExecutionPayloadHeaderMerge<T> {
@@ -179,6 +233,12 @@ impl<'a, T: EthSpec> From<&'a Self> for ExecutionPayloadHeaderMerge<T> {
 }
 
 impl<'a, T: EthSpec> From<&'a Self> for ExecutionPayloadHeaderCapella<T> {
+    fn from(payload: &'a Self) -> Self {
+        payload.clone()
+    }
+}
+
+impl<'a, T: EthSpec> From<&'a Self> for ExecutionPayloadHeaderEip4844<T> {
     fn from(payload: &'a Self) -> Self {
         payload.clone()
     }
@@ -214,6 +274,17 @@ impl<T: EthSpec> TryFrom<ExecutionPayloadHeader<T>> for ExecutionPayloadHeaderCa
         }
     }
 }
+impl<T: EthSpec> TryFrom<ExecutionPayloadHeader<T>> for ExecutionPayloadHeaderEip4844<T> {
+    type Error = BeaconStateError;
+    fn try_from(header: ExecutionPayloadHeader<T>) -> Result<Self, Self::Error> {
+        match header {
+            ExecutionPayloadHeader::Eip4844(execution_payload_header) => {
+                Ok(execution_payload_header)
+            }
+            _ => Err(BeaconStateError::IncorrectStateVariant),
+        }
+    }
+}
 
 impl<T: EthSpec> ForkVersionDeserialize for ExecutionPayloadHeader<T> {
     fn deserialize_by_fork<'de, D: serde::Deserializer<'de>>(
@@ -230,6 +301,7 @@ impl<T: EthSpec> ForkVersionDeserialize for ExecutionPayloadHeader<T> {
         Ok(match fork_name {
             ForkName::Merge => Self::Merge(serde_json::from_value(value).map_err(convert_err)?),
             ForkName::Capella => Self::Capella(serde_json::from_value(value).map_err(convert_err)?),
+            ForkName::Eip4844 => Self::Eip4844(serde_json::from_value(value).map_err(convert_err)?),
             ForkName::Base | ForkName::Altair => {
                 return Err(serde::de::Error::custom(format!(
                     "ExecutionPayloadHeader failed to deserialize: unsupported fork '{}'",

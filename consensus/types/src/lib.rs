@@ -99,6 +99,10 @@ pub mod slot_data;
 #[cfg(feature = "sqlite")]
 pub mod sqlite;
 
+pub mod blobs_sidecar;
+pub mod kzg_commitment;
+pub mod kzg_proof;
+
 use ethereum_types::{H160, H256};
 
 pub use crate::aggregate_and_proof::AggregateAndProof;
@@ -107,16 +111,17 @@ pub use crate::attestation_data::AttestationData;
 pub use crate::attestation_duty::AttestationDuty;
 pub use crate::attester_slashing::AttesterSlashing;
 pub use crate::beacon_block::{
-    BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockCapella, BeaconBlockMerge,
-    BeaconBlockRef, BeaconBlockRefMut, BlindedBeaconBlock, EmptyBlock,
+    BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockCapella, BeaconBlockEip4844,
+    BeaconBlockMerge, BeaconBlockRef, BeaconBlockRefMut, BlindedBeaconBlock, EmptyBlock,
 };
 pub use crate::beacon_block_body::{
     BeaconBlockBody, BeaconBlockBodyAltair, BeaconBlockBodyBase, BeaconBlockBodyCapella,
-    BeaconBlockBodyMerge, BeaconBlockBodyRef, BeaconBlockBodyRefMut,
+    BeaconBlockBodyEip4844, BeaconBlockBodyMerge, BeaconBlockBodyRef, BeaconBlockBodyRefMut,
 };
 pub use crate::beacon_block_header::BeaconBlockHeader;
 pub use crate::beacon_committee::{BeaconCommittee, OwnedBeaconCommittee};
 pub use crate::beacon_state::{BeaconTreeHashCache, Error as BeaconStateError, *};
+pub use crate::blobs_sidecar::BlobsSidecar;
 pub use crate::bls_to_execution_change::BlsToExecutionChange;
 pub use crate::chain_spec::{ChainSpec, Config, Domain};
 pub use crate::checkpoint::Checkpoint;
@@ -134,12 +139,12 @@ pub use crate::eth_spec::EthSpecId;
 pub use crate::execution_block_hash::ExecutionBlockHash;
 pub use crate::execution_block_header::ExecutionBlockHeader;
 pub use crate::execution_payload::{
-    ExecutionPayload, ExecutionPayloadCapella, ExecutionPayloadMerge, ExecutionPayloadRef,
-    Transaction, Transactions, Withdrawals,
+    ExecutionPayload, ExecutionPayloadCapella, ExecutionPayloadEip4844, ExecutionPayloadMerge,
+    ExecutionPayloadRef, Transaction, Transactions, Withdrawals,
 };
 pub use crate::execution_payload_header::{
-    ExecutionPayloadHeader, ExecutionPayloadHeaderCapella, ExecutionPayloadHeaderMerge,
-    ExecutionPayloadHeaderRef, ExecutionPayloadHeaderRefMut,
+    ExecutionPayloadHeader, ExecutionPayloadHeaderCapella, ExecutionPayloadHeaderEip4844,
+    ExecutionPayloadHeaderMerge, ExecutionPayloadHeaderRef, ExecutionPayloadHeaderRefMut,
 };
 pub use crate::fork::Fork;
 pub use crate::fork_context::ForkContext;
@@ -151,14 +156,16 @@ pub use crate::fork_versioned_response::{
 pub use crate::graffiti::{Graffiti, GRAFFITI_BYTES_LEN};
 pub use crate::historical_batch::HistoricalBatch;
 pub use crate::indexed_attestation::IndexedAttestation;
+pub use crate::kzg_commitment::KzgCommitment;
+pub use crate::kzg_proof::KzgProof;
 pub use crate::light_client_finality_update::LightClientFinalityUpdate;
 pub use crate::light_client_optimistic_update::LightClientOptimisticUpdate;
 pub use crate::participation_flags::ParticipationFlags;
 pub use crate::participation_list::ParticipationList;
 pub use crate::payload::{
-    AbstractExecPayload, BlindedPayload, BlindedPayloadCapella, BlindedPayloadMerge,
-    BlindedPayloadRef, BlockType, ExecPayload, FullPayload, FullPayloadCapella, FullPayloadMerge,
-    FullPayloadRef, OwnedExecPayload,
+    AbstractExecPayload, BlindedPayload, BlindedPayloadCapella, BlindedPayloadEip4844,
+    BlindedPayloadMerge, BlindedPayloadRef, BlockType, ExecPayload, FullPayload,
+    FullPayloadCapella, FullPayloadEip4844, FullPayloadMerge, FullPayloadRef, OwnedExecPayload,
 };
 pub use crate::pending_attestation::PendingAttestation;
 pub use crate::preset::{AltairPreset, BasePreset, BellatrixPreset, CapellaPreset};
@@ -170,7 +177,8 @@ pub use crate::shuffling_id::AttestationShufflingId;
 pub use crate::signed_aggregate_and_proof::SignedAggregateAndProof;
 pub use crate::signed_beacon_block::{
     SignedBeaconBlock, SignedBeaconBlockAltair, SignedBeaconBlockBase, SignedBeaconBlockCapella,
-    SignedBeaconBlockHash, SignedBeaconBlockMerge, SignedBlindedBeaconBlock,
+    SignedBeaconBlockEip4844, SignedBeaconBlockHash, SignedBeaconBlockMerge,
+    SignedBlindedBeaconBlock,
 };
 pub use crate::signed_beacon_block_header::SignedBeaconBlockHeader;
 pub use crate::signed_bls_to_execution_change::SignedBlsToExecutionChange;
@@ -193,6 +201,7 @@ pub use crate::validator_registration_data::*;
 pub use crate::validator_subscription::ValidatorSubscription;
 pub use crate::voluntary_exit::VoluntaryExit;
 pub use crate::withdrawal::Withdrawal;
+use serde_big_array::BigArray;
 
 pub type CommitteeIndex = u64;
 pub type Hash256 = H256;
@@ -200,6 +209,7 @@ pub type Uint256 = ethereum_types::U256;
 pub type Address = H160;
 pub type ForkVersion = [u8; 4];
 pub type BLSFieldElement = Uint256;
+pub type Blob<T> = FixedVector<BLSFieldElement, <T as EthSpec>::FieldElementsPerBlob>;
 pub type VersionedHash = Hash256;
 pub type Hash64 = ethereum_types::H64;
 

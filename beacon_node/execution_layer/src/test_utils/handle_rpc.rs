@@ -223,6 +223,7 @@ pub async fn handle_rpc<T: EthSpec>(
                         })
                         .unwrap()
                     }
+                    _ => unreachable!(),
                 }),
                 _ => unreachable!(),
             }
