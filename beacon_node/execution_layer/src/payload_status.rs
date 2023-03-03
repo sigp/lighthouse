@@ -59,7 +59,7 @@ pub fn process_payload_status(
             }
             PayloadStatusV1Status::Invalid => Ok(PayloadStatus::Invalid {
                 latest_valid_hash: response.latest_valid_hash,
-                validation_error: response.validation_error.clone(),
+                validation_error: response.validation_error,
             }),
             PayloadStatusV1Status::InvalidBlockHash => {
                 // In the interests of being liberal with what we accept, only raise a
