@@ -1087,7 +1087,7 @@ mod tests {
     use enr::EnrBuilder;
     use slog::{o, Drain};
     use types::{BitVector, MinimalEthSpec, SubnetId};
-    use unused_port::unused_udp_port;
+    use unused_port::unused_udp4_port;
 
     type E = MinimalEthSpec;
 
@@ -1106,7 +1106,7 @@ mod tests {
     async fn build_discovery() -> Discovery<E> {
         let keypair = libp2p::identity::Keypair::generate_secp256k1();
         let config = NetworkConfig {
-            discovery_port: unused_udp_port().unwrap(),
+            discovery_port: unused_udp4_port().unwrap(),
             ..Default::default()
         };
         let enr_key: CombinedKey = CombinedKey::from_libp2p(&keypair).unwrap();

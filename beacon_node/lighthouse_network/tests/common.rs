@@ -13,7 +13,7 @@ use tokio::runtime::Runtime;
 use types::{
     ChainSpec, EnrForkId, Epoch, EthSpec, ForkContext, ForkName, Hash256, MinimalEthSpec, Slot,
 };
-use unused_port::unused_tcp_port;
+use unused_port::unused_tcp4_port;
 
 type E = MinimalEthSpec;
 type ReqId = usize;
@@ -97,7 +97,7 @@ pub async fn build_libp2p_instance(
     log: slog::Logger,
     fork_name: ForkName,
 ) -> Libp2pInstance {
-    let port = unused_tcp_port().unwrap();
+    let port = unused_tcp4_port().unwrap();
     let config = build_config(port, boot_nodes);
     // launch libp2p service
 
