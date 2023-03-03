@@ -163,8 +163,8 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
             let meta_data = utils::load_or_build_metadata(&config.network_dir, &log);
             let globals = NetworkGlobals::new(
                 enr,
-                config.libp2p_port,
-                config.discovery_port,
+                Some(config.libp2p_port),
+                None,
                 meta_data,
                 config
                     .trusted_peers
