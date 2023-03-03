@@ -16,7 +16,7 @@ use std::string::ToString;
 use std::time::Duration;
 use tempfile::TempDir;
 use types::{Address, Checkpoint, Epoch, ExecutionBlockHash, ForkName, Hash256, MainnetEthSpec};
-use unused_port::{unused_tcp4_port, unused_tcp6_port, unused_udp4_port, unused_udp6_port};
+use unused_port::{unused_tcp4_port, unused_udp4_port};
 
 const DEFAULT_ETH1_ENDPOINT: &str = "http://localhost:8545/";
 
@@ -829,6 +829,20 @@ fn network_listen_address_flag_v4() {
         .with_config(|config| {
             assert_eq!(
                 config.network.listen_addrs().v4().map(|addr| addr.addr),
+                Some(addr)
+            )
+        });
+}
+#[test]
+fn network_listen_address_flag_v6() {
+    const ADDR: &str = "::1";
+    let addr = ADDR.parse::<Ipv6Addr>().unwrap();
+    CommandLineTest::new()
+        .flag("listen-address", Some(ADDR))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config.network.listen_addrs().v6().map(|addr| addr.addr),
                 Some(addr)
             )
         });
