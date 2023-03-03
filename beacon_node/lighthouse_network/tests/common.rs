@@ -75,11 +75,9 @@ pub fn build_config(port: u16, mut boot_nodes: Vec<Enr>) -> NetworkConfig {
         .tempdir()
         .unwrap();
 
-    config.libp2p_port = port; // tcp port
-    config.discovery_port = port; // udp port
-    config.enr_tcp_port = Some(port);
-    config.enr_udp_port = Some(port);
-    config.enr_address = Some("127.0.0.1".parse().unwrap());
+    config.set_ipv4_listening_address(std::net::Ipv4Addr::UNSPECIFIED, port, port);
+    config.enr_udp4_port = Some(port);
+    config.enr_address = (Some(std::net::Ipv4Addr::LOCALHOST), None);
     config.boot_nodes_enr.append(&mut boot_nodes);
     config.network_dir = path.into_path();
     // Reduce gossipsub heartbeat parameters

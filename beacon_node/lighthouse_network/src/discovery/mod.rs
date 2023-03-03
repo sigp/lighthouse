@@ -201,8 +201,13 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
         info!(log, "ENR Initialised"; "enr" => local_enr.to_base64(), "seq" => local_enr.seq(), "id"=> %local_enr.node_id(),
               "ip4" => ?local_enr.ip4(), "udp4"=> ?local_enr.udp4(), "tcp4" => ?local_enr.tcp6()
         );
-
-        let listen_socket = SocketAddr::new(config.listen_address, config.discovery_port);
+        let listen_socket = match config.listen_addrs() {
+            crate::listen_addr::ListenAddress::V4(v4_addr) => v4_addr.udp_socket_addr(),
+            crate::listen_addr::ListenAddress::V6(v6_addr) => v6_addr.udp_socket_addr(),
+            crate::listen_addr::ListenAddress::DualStack(_v4_addr, v6_addr) => {
+                v6_addr.udp_socket_addr()
+            }
+        };
 
         // convert the keypair into an ENR key
         let enr_key: CombinedKey = CombinedKey::from_libp2p(local_key)?;
@@ -1100,7 +1105,6 @@ mod tests {
     use enr::EnrBuilder;
     use slog::{o, Drain};
     use types::{BitVector, MinimalEthSpec, SubnetId};
-    use unused_port::unused_udp4_port;
 
     type E = MinimalEthSpec;
 
@@ -1118,10 +1122,8 @@ mod tests {
 
     async fn build_discovery() -> Discovery<E> {
         let keypair = libp2p::identity::Keypair::generate_secp256k1();
-        let config = NetworkConfig {
-            discovery_port: unused_udp4_port().unwrap(),
-            ..Default::default()
-        };
+        let mut config = NetworkConfig::default();
+        config.set_listening_addr(crate::ListenAddress::unused_v4_ports());
         let enr_key: CombinedKey = CombinedKey::from_libp2p(&keypair).unwrap();
         let enr: Enr = build_enr::<E>(&enr_key, &config, &EnrForkId::default()).unwrap();
         let log = build_log(slog::Level::Debug, false);
