@@ -427,7 +427,16 @@ impl<E: GenericExecutionEngine> TestRig<E> {
             .notify_new_payload(&invalid_payload)
             .await
             .unwrap();
-        assert!(matches!(status, PayloadStatus::InvalidBlockHash { .. }));
+        assert!(matches!(
+            status,
+            PayloadStatus::InvalidBlockHash { .. }
+                // Geth is returning `INVALID` with a `null` LVH to indicate it
+                // does not know the invalid ancestor.
+                | PayloadStatus::Invalid {
+                    latest_valid_hash: None,
+                    ..
+                }
+        ));
 
         /*
          * Execution Engine A:

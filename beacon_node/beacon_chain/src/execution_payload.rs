@@ -172,21 +172,34 @@ async fn notify_new_payload<'a, T: BeaconChainTypes>(
                     "method" => "new_payload",
                 );
 
-                // latest_valid_hash == 0 implies that this was the terminal block
-                // Hence, we don't need to run `BeaconChain::process_invalid_execution_payload`.
-                if latest_valid_hash == ExecutionBlockHash::zero() {
-                    return Err(ExecutionPayloadError::RejectedByExecutionEngine { status }.into());
+                // Only trigger payload invalidation in fork choice if the
+                // `latest_valid_hash` is `Some` and non-zero.
+                //
+                // A `None` latest valid hash indicates that the EE was unable
+                // to determine the most recent valid ancestor. Since `block`
+                // has not yet been applied to fork choice, there's nothing to
+                // invalidate.
+                //
+                // An all-zeros payload indicates that an EIP-3675 check has
+                // failed regarding the validity of the terminal block. Rather
+                // than iterating back in the chain to find the terminal block
+                // and invalidating that, we simply reject this block without
+                // invalidating anything else.
+                if let Some(latest_valid_hash) =
+                    latest_valid_hash.filter(|hash| *hash != ExecutionBlockHash::zero())
+                {
+                    // This block has not yet been applied to fork choice, so the latest block that was
+                    // imported to fork choice was the parent.
+                    let latest_root = block.parent_root();
+
+                    chain
+                        .process_invalid_execution_payload(&InvalidationOperation::InvalidateMany {
+                            head_block_root: latest_root,
+                            always_invalidate_head: false,
+                            latest_valid_ancestor: latest_valid_hash,
+                        })
+                        .await?;
                 }
-                // This block has not yet been applied to fork choice, so the latest block that was
-                // imported to fork choice was the parent.
-                let latest_root = block.parent_root();
-                chain
-                    .process_invalid_execution_payload(&InvalidationOperation::InvalidateMany {
-                        head_block_root: latest_root,
-                        always_invalidate_head: false,
-                        latest_valid_ancestor: latest_valid_hash,
-                    })
-                    .await?;
 
                 Err(ExecutionPayloadError::RejectedByExecutionEngine { status }.into())
             }
