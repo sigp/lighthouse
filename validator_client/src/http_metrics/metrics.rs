@@ -189,7 +189,7 @@ lazy_static::lazy_static! {
     pub static ref VC_BEACON_NODE_LATENCY: Result<HistogramVec> = try_create_histogram_vec(
         "vc_beacon_node_latency",
         "Round-trip latency for a simple API endpoint on each BN",
-        &["node"]
+        &["endpoint"]
     );
 }
 
