@@ -3889,36 +3889,38 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let parent_block_root = forkchoice_update_params.head_root;
 
-        let unadvanced_state = if cached_head.head_block_root() == parent_block_root {
-            Cow::Borrowed(head_state)
-        } else if let Some(snapshot) = self
-            .snapshot_cache
-            .try_read_for(BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT)
-            .ok_or(Error::SnapshotCacheLockTimeout)?
-            .get_cloned(parent_block_root, CloneConfig::none())
-        {
-            debug!(
-                self.log,
-                "Hit snapshot cache during withdrawals calculation";
-                "slot" => proposal_slot,
-                "parent_block_root" => ?parent_block_root,
-            );
-            Cow::Owned(snapshot.beacon_state)
-        } else {
-            info!(
-                self.log,
-                "Missed snapshot cache during withdrawals calculation";
-                "slot" => proposal_slot,
-                "parent_block_root" => ?parent_block_root
-            );
-            let block = self
-                .get_blinded_block(&parent_block_root)?
-                .ok_or(Error::MissingBeaconBlock(parent_block_root))?;
-            let state = self
-                .get_state(&block.state_root(), Some(block.slot()))?
-                .ok_or(Error::MissingBeaconState(block.state_root()))?;
-            Cow::Owned(state)
-        };
+        let (unadvanced_state, unadvanced_state_root) =
+            if cached_head.head_block_root() == parent_block_root {
+                (Cow::Borrowed(head_state), cached_head.head_state_root())
+            } else if let Some(snapshot) = self
+                .snapshot_cache
+                .try_read_for(BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT)
+                .ok_or(Error::SnapshotCacheLockTimeout)?
+                .get_cloned(parent_block_root, CloneConfig::none())
+            {
+                debug!(
+                    self.log,
+                    "Hit snapshot cache during withdrawals calculation";
+                    "slot" => proposal_slot,
+                    "parent_block_root" => ?parent_block_root,
+                );
+                let state_root = snapshot.beacon_state_root();
+                (Cow::Owned(snapshot.beacon_state), state_root)
+            } else {
+                info!(
+                    self.log,
+                    "Missed snapshot cache during withdrawals calculation";
+                    "slot" => proposal_slot,
+                    "parent_block_root" => ?parent_block_root
+                );
+                let block = self
+                    .get_blinded_block(&parent_block_root)?
+                    .ok_or(Error::MissingBeaconBlock(parent_block_root))?;
+                let state = self
+                    .get_state(&block.state_root(), Some(block.slot()))?
+                    .ok_or(Error::MissingBeaconState(block.state_root()))?;
+                (Cow::Owned(state), block.state_root())
+            };
 
         // Parent state epoch is the same as the proposal, we don't need to advance because the
         // list of expected withdrawals can only change after an epoch advance or a
@@ -3936,11 +3938,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             "proposal_slot" => proposal_slot,
             "parent_block_root" => ?parent_block_root,
         );
-        // FIXME(sproul): consider using actual state root (shouldn't matter though).
         let mut advanced_state = unadvanced_state.into_owned();
         partial_state_advance(
             &mut advanced_state,
-            Some(Hash256::zero()),
+            Some(unadvanced_state_root),
             proposal_epoch.start_slot(T::EthSpec::slots_per_epoch()),
             &self.spec,
         )?;
