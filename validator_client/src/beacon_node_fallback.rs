@@ -438,10 +438,7 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
             .map(|(beacon_node_id, response_instant)| LatencyMeasurement {
                 beacon_node_id,
                 latency: response_instant
-                    // This `filter` avoids a panic-y behaviour in
-                    // `duration_since`.
-                    .filter(|response| *response > request_instant)
-                    .map(|repsonse| repsonse.duration_since(request_instant)),
+                    .and_then(|response| response.checked_duration_since(request_instant)),
             })
             .collect()
     }
