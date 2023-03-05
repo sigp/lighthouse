@@ -430,7 +430,7 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
         let request_instant = Instant::now();
 
         // Send the request to all BNs at the same time. This might involve some
-        // queueing on the sending host, however I hope it will avoid and bias
+        // queueing on the sending host, however I hope it will avoid bias
         // caused by sending requests at different times.
         future::join_all(futures)
             .await
@@ -438,7 +438,8 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
             .map(|(beacon_node_id, response_instant)| LatencyMeasurement {
                 beacon_node_id,
                 latency: response_instant
-                    // Checking ordering avoids a panic in `duration_since`.
+                    // This `filter` avoids a panic-y behaviour in
+                    // `duration_since`.
                     .filter(|response| *response > request_instant)
                     .map(|repsonse| repsonse.duration_since(request_instant)),
             })

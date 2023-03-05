@@ -319,8 +319,8 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .requires("builder-proposals"),
         )
         .arg(
-            Arg::with_name("enable-latency-measurement")
-                .long("enable-latency-measurement")
+            Arg::with_name("latency-measurement-service")
+                .long("latency-measurement-service")
                 .value_name("BOOLEAN")
                 .help("Set to 'true' to enable a service that periodically attempts to measure latency to BNs. \
                     Set to 'false' to disable.")

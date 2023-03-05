@@ -564,7 +564,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             None
         };
 
-        if self.config.enable_latency_service {
+        if self.config.enable_latency_measurement_service {
             latency::start_latency_service(
                 self.context.clone(),
                 self.duties_service.slot_clock.clone(),
