@@ -897,6 +897,76 @@ pub struct SseLateHead {
     pub execution_optimistic: bool,
 }
 
+#[superstruct(
+    variants(V1, V2),
+    variant_attributes(derive(Clone, Debug, Eq, Hash, PartialEq, Serialize, Deserialize))
+)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize, Serialize)]
+#[serde(untagged)]
+pub struct SsePayloadAttributes {
+    #[superstruct(getter(copy))]
+    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    pub timestamp: u64,
+    #[superstruct(getter(copy))]
+    pub prev_randao: Hash256,
+    #[superstruct(getter(copy))]
+    pub suggested_fee_recipient: Address,
+    #[superstruct(only(V2))]
+    pub withdrawals: Vec<Withdrawal>,
+}
+
+#[derive(PartialEq, Debug, Deserialize, Serialize, Clone)]
+pub struct SseExtendedPayloadAttributesGeneric<T> {
+    pub proposal_slot: Slot,
+    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    pub proposer_index: u64,
+    pub parent_block_root: Hash256,
+    pub parent_block_hash: ExecutionBlockHash,
+    pub payload_attributes: T,
+}
+
+pub type SseExtendedPayloadAttributes = SseExtendedPayloadAttributesGeneric<SsePayloadAttributes>;
+pub type VersionedSsePayloadAttributes = ForkVersionedResponse<SseExtendedPayloadAttributes>;
+
+impl ForkVersionDeserialize for SsePayloadAttributes {
+    fn deserialize_by_fork<'de, D: serde::Deserializer<'de>>(
+        value: serde_json::value::Value,
+        fork_name: ForkName,
+    ) -> Result<Self, D::Error> {
+        match fork_name {
+            ForkName::Merge => serde_json::from_value(value)
+                .map(Self::V1)
+                .map_err(serde::de::Error::custom),
+            ForkName::Capella => serde_json::from_value(value)
+                .map(Self::V2)
+                .map_err(serde::de::Error::custom),
+            ForkName::Base | ForkName::Altair => Err(serde::de::Error::custom(format!(
+                "SsePayloadAttributes deserialization for {fork_name} not implemented"
+            ))),
+        }
+    }
+}
+
+impl ForkVersionDeserialize for SseExtendedPayloadAttributes {
+    fn deserialize_by_fork<'de, D: serde::Deserializer<'de>>(
+        value: serde_json::value::Value,
+        fork_name: ForkName,
+    ) -> Result<Self, D::Error> {
+        let helper: SseExtendedPayloadAttributesGeneric<serde_json::Value> =
+            serde_json::from_value(value).map_err(serde::de::Error::custom)?;
+        Ok(Self {
+            proposal_slot: helper.proposal_slot,
+            proposer_index: helper.proposer_index,
+            parent_block_root: helper.parent_block_root,
+            parent_block_hash: helper.parent_block_hash,
+            payload_attributes: SsePayloadAttributes::deserialize_by_fork::<D>(
+                helper.payload_attributes,
+                fork_name,
+            )?,
+        })
+    }
+}
+
 #[derive(PartialEq, Debug, Serialize, Clone)]
 #[serde(bound = "T: EthSpec", untagged)]
 pub enum EventKind<T: EthSpec> {
@@ -910,6 +980,7 @@ pub enum EventKind<T: EthSpec> {
     LateHead(SseLateHead),
     #[cfg(feature = "lighthouse")]
     BlockReward(BlockReward),
+    PayloadAttributes(VersionedSsePayloadAttributes),
 }
 
 impl<T: EthSpec> EventKind<T> {
@@ -922,6 +993,7 @@ impl<T: EthSpec> EventKind<T> {
             EventKind::FinalizedCheckpoint(_) => "finalized_checkpoint",
             EventKind::ChainReorg(_) => "chain_reorg",
             EventKind::ContributionAndProof(_) => "contribution_and_proof",
+            EventKind::PayloadAttributes(_) => "payload_attributes",
             EventKind::LateHead(_) => "late_head",
             #[cfg(feature = "lighthouse")]
             EventKind::BlockReward(_) => "block_reward",
@@ -977,6 +1049,11 @@ impl<T: EthSpec> EventKind<T> {
                     ServerError::InvalidServerSentEvent(format!("Contribution and Proof: {:?}", e))
                 })?,
             ))),
+            "payload_attributes" => Ok(EventKind::PayloadAttributes(
+                serde_json::from_str(data).map_err(|e| {
+                    ServerError::InvalidServerSentEvent(format!("Payload Attributes: {:?}", e))
+                })?,
+            )),
             #[cfg(feature = "lighthouse")]
             "block_reward" => Ok(EventKind::BlockReward(serde_json::from_str(data).map_err(
                 |e| ServerError::InvalidServerSentEvent(format!("Block Reward: {:?}", e)),
@@ -1006,6 +1083,7 @@ pub enum EventTopic {
     ChainReorg,
     ContributionAndProof,
     LateHead,
+    PayloadAttributes,
     #[cfg(feature = "lighthouse")]
     BlockReward,
 }
@@ -1022,6 +1100,7 @@ impl FromStr for EventTopic {
             "finalized_checkpoint" => Ok(EventTopic::FinalizedCheckpoint),
             "chain_reorg" => Ok(EventTopic::ChainReorg),
             "contribution_and_proof" => Ok(EventTopic::ContributionAndProof),
+            "payload_attributes" => Ok(EventTopic::PayloadAttributes),
             "late_head" => Ok(EventTopic::LateHead),
             #[cfg(feature = "lighthouse")]
             "block_reward" => Ok(EventTopic::BlockReward),
@@ -1040,6 +1119,7 @@ impl fmt::Display for EventTopic {
             EventTopic::FinalizedCheckpoint => write!(f, "finalized_checkpoint"),
             EventTopic::ChainReorg => write!(f, "chain_reorg"),
             EventTopic::ContributionAndProof => write!(f, "contribution_and_proof"),
+            EventTopic::PayloadAttributes => write!(f, "payload_attributes"),
             EventTopic::LateHead => write!(f, "late_head"),
             #[cfg(feature = "lighthouse")]
             EventTopic::BlockReward => write!(f, "block_reward"),
