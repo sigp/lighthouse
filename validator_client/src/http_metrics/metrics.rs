@@ -191,6 +191,10 @@ lazy_static::lazy_static! {
         "Round-trip latency for a simple API endpoint on each BN",
         &["endpoint"]
     );
+    pub static ref VC_BEACON_NODE_LATENCY_PRIMARY_ENDPOINT: Result<Histogram> = try_create_histogram(
+        "vc_beacon_node_latency_primary_endpoint",
+        "Round-trip latency for the primary BN endpoint",
+    );
 }
 
 pub fn gather_prometheus_metrics<T: EthSpec>(

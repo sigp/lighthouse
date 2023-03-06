@@ -36,7 +36,7 @@ pub fn start_latency_service<T: SlotClock + 'static, E: EthSpec>(
             // Sleep until it's time to perform the measurement.
             sleep(sleep_time).await;
 
-            for measurement in beacon_nodes.measure_latency().await {
+            for (i, measurement) in beacon_nodes.measure_latency().await.iter().enumerate() {
                 if let Some(latency) = measurement.latency {
                     debug!(
                         log,
@@ -48,7 +48,13 @@ pub fn start_latency_service<T: SlotClock + 'static, E: EthSpec>(
                         &metrics::VC_BEACON_NODE_LATENCY,
                         &[&measurement.beacon_node_id],
                         latency,
-                    )
+                    );
+                    if i == 0 {
+                        metrics::observe_duration(
+                            &metrics::VC_BEACON_NODE_LATENCY_PRIMARY_ENDPOINT,
+                            latency,
+                        );
+                    }
                 }
             }
         }
