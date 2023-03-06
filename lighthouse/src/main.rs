@@ -316,8 +316,6 @@ fn main() {
             Arg::with_name("always-prefer-builder-payload")
             .long("always-prefer-builder-payload")
             .help("If set, the beacon node always uses the payload from the builder instead of the local payload.")
-            .value_name("BOOL")
-            .takes_value(true)
             .global(false)
         )
         .subcommand(beacon_node::cli_app())
