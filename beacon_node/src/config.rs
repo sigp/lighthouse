@@ -753,6 +753,17 @@ pub fn get_config<E: EthSpec>(
     client_config.chain.optimistic_finalized_sync =
         !cli_args.is_present("disable-optimistic-finalized-sync");
 
+    // Payload selection configs
+    if cli_args.is_present("always-prefer-builder-payload") {
+        client_config.always_prefer_builder_payload = true;
+    }
+
+    if let Some(margin) = cli_args.value_of("builder-profit-margin") {
+        client_config.builder_profit_margin = margin
+            .parse::<i128>()
+            .map_err(|_| "builder-profit-margin is not a valid i128")?;
+    }
+
     Ok(client_config)
 }
 

@@ -340,6 +340,14 @@ fn trusted_peers_flag() {
         });
 }
 
+#[test]
+fn always_prefer_builder_payload_flag() {
+    CommandLineTest::new()
+        .flag("always_prefer_builder_payload", None)
+        .run_with_zero_port()
+        .with_config(|config| assert!(config.always_prefer_builder_payload));
+}
+
 // Tests for Eth1 flags.
 #[test]
 fn dummy_eth1_flag() {
