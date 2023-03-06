@@ -955,7 +955,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     > {
         Ok(
             BeaconBlockStreamer::<T>::new(self, CheckEarlyAttesterCache::Yes)?
-                .stream(block_roots, executor),
+                .launch_stream(block_roots, executor),
         )
     }
 
@@ -974,7 +974,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     > {
         Ok(
             BeaconBlockStreamer::<T>::new(self, CheckEarlyAttesterCache::No)?
-                .stream(block_roots, executor),
+                .launch_stream(block_roots, executor),
         )
     }
 

@@ -494,7 +494,7 @@ impl From<ForkchoiceUpdatedResponse> for JsonForkchoiceUpdatedV1Response {
     }
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct JsonExecutionPayloadBodyV1 {
     pub transactions: Vec<ethers_core::types::Transaction>,
     pub withdrawals: Option<Vec<JsonWithdrawal>>,
