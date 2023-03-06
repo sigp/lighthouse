@@ -435,33 +435,6 @@ impl<E: EthSpec> ExecutionPayloadBodyV1<E> {
                     ))
                 }
             }
-            ExecutionPayloadHeader::Eip4844(header) => {
-                if let Some(withdrawals) = self.withdrawals {
-                    Ok(ExecutionPayload::Eip4844(ExecutionPayloadEip4844 {
-                        parent_hash: header.parent_hash,
-                        fee_recipient: header.fee_recipient,
-                        state_root: header.state_root,
-                        receipts_root: header.receipts_root,
-                        logs_bloom: header.logs_bloom,
-                        prev_randao: header.prev_randao,
-                        block_number: header.block_number,
-                        gas_limit: header.gas_limit,
-                        gas_used: header.gas_used,
-                        timestamp: header.timestamp,
-                        extra_data: header.extra_data,
-                        base_fee_per_gas: header.base_fee_per_gas,
-                        excess_data_gas: header.excess_data_gas,
-                        block_hash: header.block_hash,
-                        transactions: self.transactions,
-                        withdrawals,
-                    }))
-                } else {
-                    Err(format!(
-                        "block {} is eip4844 but payload body doesn't have withdrawals",
-                        header.block_hash
-                    ))
-                }
-            }
         }
     }
 }

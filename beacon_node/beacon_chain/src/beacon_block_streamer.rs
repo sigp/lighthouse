@@ -15,8 +15,7 @@ use types::{
     SignedBlindedBeaconBlock, Slot,
 };
 use types::{
-    ExecutionPayload, ExecutionPayloadCapella, ExecutionPayloadEip4844, ExecutionPayloadHeader,
-    ExecutionPayloadMerge,
+    ExecutionPayload, ExecutionPayloadCapella, ExecutionPayloadHeader, ExecutionPayloadMerge,
 };
 
 #[derive(PartialEq)]
@@ -102,7 +101,6 @@ fn reconstruct_default_header_block<E: EthSpec>(
     let payload: ExecutionPayload<E> = match fork {
         ForkName::Merge => ExecutionPayloadMerge::default().into(),
         ForkName::Capella => ExecutionPayloadCapella::default().into(),
-        ForkName::Eip4844 => ExecutionPayloadEip4844::default().into(),
         ForkName::Base | ForkName::Altair => {
             return Err(Error::PayloadReconstruction(format!(
                 "Block with fork variant {} has execution payload",
