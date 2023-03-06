@@ -18,6 +18,9 @@ use std::time::{Duration, Instant};
 use tokio::{sync::RwLock, time::sleep};
 use types::{ChainSpec, Config, EthSpec};
 
+/// Message emitted when the VC detects the BN is using a different spec.
+const UPDATE_REQUIRED_LOG_HINT: &str = "this VC or the remote BN may need updating";
+
 /// The number of seconds *prior* to slot start that we will try and update the state of fallback
 /// nodes.
 ///
@@ -270,6 +273,7 @@ impl<E: EthSpec> CandidateBeaconNode<E> {
                 "Beacon node has mismatched Altair fork epoch";
                 "endpoint" => %self.beacon_node,
                 "endpoint_altair_fork_epoch" => ?beacon_node_spec.altair_fork_epoch,
+                "hint" => UPDATE_REQUIRED_LOG_HINT,
             );
         } else if beacon_node_spec.bellatrix_fork_epoch != spec.bellatrix_fork_epoch {
             warn!(
@@ -277,6 +281,15 @@ impl<E: EthSpec> CandidateBeaconNode<E> {
                 "Beacon node has mismatched Bellatrix fork epoch";
                 "endpoint" => %self.beacon_node,
                 "endpoint_bellatrix_fork_epoch" => ?beacon_node_spec.bellatrix_fork_epoch,
+                "hint" => UPDATE_REQUIRED_LOG_HINT,
+            );
+        } else if beacon_node_spec.capella_fork_epoch != spec.capella_fork_epoch {
+            warn!(
+                log,
+                "Beacon node has mismatched Capella fork epoch";
+                "endpoint" => %self.beacon_node,
+                "endpoint_capella_fork_epoch" => ?beacon_node_spec.capella_fork_epoch,
+                "hint" => UPDATE_REQUIRED_LOG_HINT,
             );
         }
 
