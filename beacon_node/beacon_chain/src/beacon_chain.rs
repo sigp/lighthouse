@@ -7,7 +7,7 @@ use crate::attester_cache::{AttesterCache, AttesterCacheKey};
 use crate::beacon_proposer_cache::compute_proposer_duties_from_head;
 use crate::beacon_proposer_cache::BeaconProposerCache;
 use crate::blob_cache::BlobCache;
-use crate::blob_verification::{AsBlock, AvailabilityPendingBlock, AvailableBlock, BlockWrapper, IntoAvailableBlock};
+use crate::blob_verification::{AsBlock, AvailabilityPendingBlock, AvailableBlock, BlobError, BlockWrapper, IntoAvailableBlock};
 use crate::block_times_cache::BlockTimesCache;
 use crate::block_verification::{
     check_block_is_finalized_checkpoint_or_descendant, check_block_relevancy, get_block_root,
@@ -97,10 +97,13 @@ use std::borrow::Cow;
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::future::Future;
 use std::io::prelude::*;
 use std::marker::PhantomData;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use tokio::task::JoinHandle;
+use state_processing::per_block_processing::eip4844::eip4844::verify_kzg_commitments_against_transactions;
 use store::iter::{BlockRootsIterator, ParentRootBlockIterator, StateRootsIterator};
 use store::{
     DatabaseBlock, Error as DBError, HotColdDB, KeyValueStore, KeyValueStoreOp, StoreItem, StoreOp,
@@ -431,6 +434,7 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub slasher: Option<Arc<Slasher<T::EthSpec>>>,
     /// Provides monitoring of a set of explicitly defined validators.
     pub validator_monitor: RwLock<ValidatorMonitor<T::EthSpec>>,
+    pub blob_cache: BlobCache<T::EthSpec>,
     pub blob_cache: BlobCache<T::EthSpec>,
     pub kzg: Option<Arc<kzg::Kzg>>,
 }
@@ -6142,6 +6146,48 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .eip4844_fork_epoch
             .map(|fork_epoch| fork_epoch <= current_epoch)
             .unwrap_or(false))
+    }
+
+    pub async fn check_data_availability(&self, block: Arc<SignedBeaconBlock<T::EthSpec>>) -> Result<AvailableBlock<T>, Error> {
+            let kzg_commitments = block
+                .message()
+                .body()
+                .blob_kzg_commitments()
+                .map_err(|_| BlobError::KzgCommitmentMissing)?;
+            let transactions = block
+                .message()
+                .body()
+                .execution_payload_eip4844()
+                .map(|payload| payload.transactions())
+                .map_err(|_| BlobError::TransactionsMissing)?
+                .ok_or(BlobError::TransactionsMissing)?;
+
+        if verify_kzg_commitments_against_transactions::<T::EthSpec>(transactions, kzg_commitments)
+            .is_err()
+        {
+            return Err(BlobError::TransactionCommitmentMismatch);
+        }
+
+        self.blob_cache
+
+        // Validatate that the kzg proof is valid against the commitments and blobs
+        let kzg = self
+            .kzg
+            .as_ref()
+            .ok_or(BlobError::TrustedSetupNotInitialized)?;
+
+        if !kzg_utils::validate_blobs_sidecar(
+            kzg,
+            block_slot,
+            block_root,
+            kzg_commitments,
+            blob_sidecar,
+        )
+            .map_err(BlobError::KzgError)?
+        {
+            return Err(BlobError::InvalidKzgProof);
+        }
+        Ok(())
     }
 }
 

@@ -2,18 +2,19 @@ use derivative::Derivative;
 use slot_clock::SlotClock;
 use std::sync::Arc;
 use tokio::task::JoinHandle;
+use ssz_types::VariableList;
 
 use crate::beacon_chain::{BeaconChain, BeaconChainTypes, MAXIMUM_GOSSIP_CLOCK_DISPARITY};
 use crate::block_verification::PayloadVerificationOutcome;
 use crate::{kzg_utils, BeaconChainError, BlockError};
 use state_processing::per_block_processing::eip4844::eip4844::verify_kzg_commitments_against_transactions;
-use types::signed_beacon_block::BlobReconstructionError;
 use types::{
     BeaconBlockRef, BeaconStateError, BlobsSidecar, EthSpec, Hash256, KzgCommitment,
-    SignedBeaconBlock, SignedBeaconBlockAndBlobsSidecar, SignedBeaconBlockHeader, Slot,
+    SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
     Transactions,
 };
 use types::{Epoch, ExecPayload};
+use types::blob_sidecar::BlobSidecar;
 
 #[derive(Debug)]
 pub enum BlobError {
@@ -66,15 +67,6 @@ pub enum BlobError {
     InconsistentFork,
 }
 
-impl From<BlobReconstructionError> for BlobError {
-    fn from(e: BlobReconstructionError) -> Self {
-        match e {
-            BlobReconstructionError::UnavailableBlobs => BlobError::UnavailableBlobs,
-            BlobReconstructionError::InconsistentFork => BlobError::InconsistentFork,
-        }
-    }
-}
-
 impl From<BeaconChainError> for BlobError {
     fn from(e: BeaconChainError) -> Self {
         BlobError::BeaconChainError(e)
@@ -117,7 +109,7 @@ pub fn validate_blob_for_gossip<T: BeaconChainTypes>(
     block_wrapper.into_availablilty_pending_block(block_root, chain)
 }
 
-fn verify_data_availability<T: BeaconChainTypes>(
+pub fn verify_data_availability<T: BeaconChainTypes>(
     blob_sidecar: &BlobsSidecar<T::EthSpec>,
     kzg_commitments: &[KzgCommitment],
     transactions: &Transactions<T::EthSpec>,
@@ -152,51 +144,6 @@ fn verify_data_availability<T: BeaconChainTypes>(
     // Ok(())
 }
 
-/// A wrapper over a [`SignedBeaconBlock`] or a [`SignedBeaconBlockAndBlobsSidecar`]. This makes no
-/// claims about data availability and should not be used in consensus. This struct is useful in
-/// networking when we want to send blocks around without consensus checks.
-#[derive(Clone, Debug, Derivative)]
-#[derivative(PartialEq, Hash(bound = "E: EthSpec"))]
-pub enum BlockWrapper<E: EthSpec> {
-    Block(Arc<SignedBeaconBlock<E>>),
-    BlockAndBlobs(Arc<SignedBeaconBlock<E>>, Arc<BlobsSidecar<E>>),
-}
-
-impl<E: EthSpec> BlockWrapper<E> {
-    pub fn new(
-        block: Arc<SignedBeaconBlock<E>>,
-        blobs_sidecar: Option<Arc<BlobsSidecar<E>>>,
-    ) -> Self {
-        if let Some(blobs_sidecar) = blobs_sidecar {
-            BlockWrapper::BlockAndBlobs(block, blobs_sidecar)
-        } else {
-            BlockWrapper::Block(block)
-        }
-    }
-}
-
-impl<E: EthSpec> From<SignedBeaconBlock<E>> for BlockWrapper<E> {
-    fn from(block: SignedBeaconBlock<E>) -> Self {
-        BlockWrapper::Block(Arc::new(block))
-    }
-}
-
-impl<E: EthSpec> From<SignedBeaconBlockAndBlobsSidecar<E>> for BlockWrapper<E> {
-    fn from(block: SignedBeaconBlockAndBlobsSidecar<E>) -> Self {
-        let SignedBeaconBlockAndBlobsSidecar {
-            beacon_block,
-            blobs_sidecar,
-        } = block;
-        BlockWrapper::BlockAndBlobs(beacon_block, blobs_sidecar)
-    }
-}
-
-impl<E: EthSpec> From<Arc<SignedBeaconBlock<E>>> for BlockWrapper<E> {
-    fn from(block: Arc<SignedBeaconBlock<E>>) -> Self {
-        BlockWrapper::Block(block)
-    }
-}
-
 #[derive(Copy, Clone)]
 pub enum DataAvailabilityCheckRequired {
     Yes,
@@ -209,42 +156,12 @@ impl<T: BeaconChainTypes> BlockWrapper<T::EthSpec> {
         block_root: Hash256,
         chain: &BeaconChain<T>,
     ) -> Result<AvailabilityPendingBlock<T::EthSpec>, BlobError> {
-        let data_availability_boundary = chain.data_availability_boundary();
-        let da_check_required =
-            data_availability_boundary.map_or(DataAvailabilityCheckRequired::No, |boundary| {
-                if self.slot().epoch(T::EthSpec::slots_per_epoch()) >= boundary {
-                    DataAvailabilityCheckRequired::Yes
-                } else {
-                    DataAvailabilityCheckRequired::No
-                }
-            });
         match self {
             BlockWrapper::Block(block) => {
                 AvailabilityPendingBlock::new(block, block_root, da_check_required)
             }
             BlockWrapper::BlockAndBlobs(block, blobs_sidecar) => {
-                if matches!(da_check_required, DataAvailabilityCheckRequired::Yes) {
-                    let kzg_commitments = block
-                        .message()
-                        .body()
-                        .blob_kzg_commitments()
-                        .map_err(|_| BlobError::KzgCommitmentMissing)?;
-                    let transactions = block
-                        .message()
-                        .body()
-                        .execution_payload_eip4844()
-                        .map(|payload| payload.transactions())
-                        .map_err(|_| BlobError::TransactionsMissing)?
-                        .ok_or(BlobError::TransactionsMissing)?;
-                    verify_data_availability(
-                        &blobs_sidecar,
-                        kzg_commitments,
-                        transactions,
-                        block.slot(),
-                        block_root,
-                        chain,
-                    )?;
-                }
+
 
                 AvailabilityPendingBlock::new_with_blobs(block, blobs_sidecar, da_check_required)
             }
@@ -264,24 +181,24 @@ pub trait IntoAvailableBlock<T: BeaconChainTypes> {
 /// `AvailableBlock` has passed any required data availability checks and should be used in
 /// consensus.
 #[derive(Clone, Debug, Derivative)]
-#[derivative(PartialEq, Hash(bound = "E: EthSpec"))]
-pub struct AvailabilityPendingBlock<E: EthSpec> {
-    block: Arc<SignedBeaconBlock<E>>,
-    data_availability_handle: DataAvailabilityHandle<E>,
+#[derivative(PartialEq, Hash(bound = "T: BeaconChainTypes"))]
+pub struct AvailabilityPendingBlock<T: BeaconChainTypes> {
+    block: Arc<SignedBeaconBlock<T::EthSpec>>,
+    data_availability_handle: DataAvailabilityHandle<T::EthSpec>,
 }
 
 /// Used to await the result of data availability check.
-type DataAvailabilityHandle<E> = JoinHandle<Result<Option<Arc<BlobsSidecar<E>>>, BlobError>>;
+type DataAvailabilityHandle<E> = JoinHandle<Result<Option<Blobs<E>>, BlobError>>;
 
 #[derive(Clone, Debug, Derivative)]
-#[derivative(PartialEq, Hash(bound = "E: EthSpec"))]
-pub struct AvailableBlock<E: EthSpec> {
-    block: Arc<SignedBeaconBlock<E>>,
-    blobs: Blobs<E>,
+#[derivative(PartialEq, Hash(bound = "T: BeaconChainTypes"))]
+pub struct AvailableBlock<T: BeaconChainTypes> {
+    block: Arc<SignedBeaconBlock<T::EthSpec>>,
+    blobs: Blobs<T::EthSpec>,
 }
 
-impl <E: EthSpec> AvailableBlock<E> {
-    pub fn blobs(&self) -> Option<Arc<BlobsSidecar<E>>> {
+impl <T: BeaconChainTypes> AvailableBlock<T> {
+    pub fn blobs(&self) -> Option<Arc<BlobsSidecar<T>>> {
         match &self.blobs {
             Blobs::NotRequired | Blobs::None => None,
             Blobs::Available(block_sidecar) => {
@@ -290,7 +207,7 @@ impl <E: EthSpec> AvailableBlock<E> {
         }
     }
 
-    pub fn deconstruct(self) -> (Arc<SignedBeaconBlock<E>>, Option<Arc<BlobsSidecar<E>>>) {
+    pub fn deconstruct(self) -> (Arc<SignedBeaconBlock<T::EthSpec>>, Option<Arc<BlobsSidecar<T::EthSpec>>>) {
         match self.blobs {
             Blobs::NotRequired | Blobs::None => (self.block, None),
             Blobs::Available(blob_sidecars) => {
@@ -302,7 +219,7 @@ impl <E: EthSpec> AvailableBlock<E> {
 
 pub enum Blobs<E: EthSpec> {
     /// These blobs are available.
-    Available(Arc<BlobsSidecar<E>>),
+    Available(VariableList<Arc<BlobSidecar<E>>, E::MaxBlobsPerBlock>),
     /// This block is from outside the data availability boundary or the block is from prior
     /// to the eip4844 fork.
     NotRequired,
@@ -310,19 +227,33 @@ pub enum Blobs<E: EthSpec> {
     None,
 }
 
-impl<E: EthSpec> AvailabilityPendingBlock<E> {
+//TODO(sean) add block root to the availability pending block?
+impl<T: BeaconChainTypes> AvailabilityPendingBlock<T> {
     pub fn new(
-        beacon_block: Arc<SignedBeaconBlock<E>>,
+        beacon_block: Arc<SignedBeaconBlock<T::EthSpec>>,
         block_root: Hash256,
-        da_check_required: DataAvailabilityCheckRequired,
+        chain: &BeaconChain<T>,
     ) -> Result<Self, BlobError> {
+        let data_availability_boundary = chain.data_availability_boundary();
+        let da_check_required =
+            data_availability_boundary.map_or(DataAvailabilityCheckRequired::No, |boundary| {
+                if chain.epoch()? >= boundary {
+                    DataAvailabilityCheckRequired::Yes
+                } else {
+                    DataAvailabilityCheckRequired::No
+                }
+            });
+
         match beacon_block.as_ref() {
             // No data availability check required prior to Eip4844.
             SignedBeaconBlock::Base(_)
             | SignedBeaconBlock::Altair(_)
             | SignedBeaconBlock::Capella(_)
             | SignedBeaconBlock::Merge(_) => {
-                Ok(AvailableBlock(AvailableBlockInner::Block(beacon_block)))
+                Ok(AvailabilityPendingBlock {
+                    block: beacon_block ,
+                    data_availability_handle: async{ Ok(Some(Blobs::NotRequired))}
+                })
             }
             SignedBeaconBlock::Eip4844(_) => {
                 match da_check_required {
@@ -339,7 +270,10 @@ impl<E: EthSpec> AvailabilityPendingBlock<E> {
                         )))
                     }
                     DataAvailabilityCheckRequired::No => {
-                        Ok(AvailableBlock(AvailableBlockInner::Block(beacon_block)))
+                        AvailabilityPendingBlock {
+                            block: beacon_block,
+                            data_availability_handle: async{ Ok(Some(Blobs::NotRequired))}
+                        }
                     }
                 }
             }
@@ -348,11 +282,21 @@ impl<E: EthSpec> AvailabilityPendingBlock<E> {
 
     /// This function is private because an `AvailableBlock` should be
     /// constructed via the `into_available_block` method.
+    //TODO(sean) do we want this to optionally cricumvent the beacon cache?
     fn new_with_blobs(
-        beacon_block: Arc<SignedBeaconBlock<E>>,
-        blobs_sidecar: Arc<BlobsSidecar<E>>,
-        da_check_required: DataAvailabilityCheckRequired,
+        beacon_block: Arc<SignedBeaconBlock<T::EthSpec>>,
+        blobs_sidecar: Arc<BlobsSidecar<T::EthSpec>>,
+        chain: &BeaconChain<T>,
     ) -> Result<Self, BlobError> {
+        let data_availability_boundary = chain.data_availability_boundary();
+        let da_check_required =
+            data_availability_boundary.map_or(DataAvailabilityCheckRequired::No, |boundary| {
+                if chain.epoch()? >= boundary {
+                    DataAvailabilityCheckRequired::Yes
+                } else {
+                    DataAvailabilityCheckRequired::No
+                }
+            });
         match beacon_block.as_ref() {
             // This method shouldn't be called with a pre-Eip4844 block.
             SignedBeaconBlock::Base(_)
@@ -369,7 +313,10 @@ impl<E: EthSpec> AvailabilityPendingBlock<E> {
                     DataAvailabilityCheckRequired::No => {
                         // Blobs were not verified so we drop them, we'll instead just pass around
                         // an available `Eip4844` block without blobs.
-                        Ok(AvailableBlock(AvailableBlockInner::Block(beacon_block)))
+                        Ok(AvailableBlock{
+                           block: beacon_block,
+                            blobs: Blobs::NotRequired
+                        })
                     }
                 }
             }

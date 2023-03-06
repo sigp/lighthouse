@@ -93,7 +93,6 @@ use std::time::Duration;
 use store::{Error as DBError, HotStateSummary, KeyValueStore, StoreOp};
 use task_executor::JoinHandle;
 use tree_hash::TreeHash;
-use types::signed_beacon_block::BlobReconstructionError;
 use types::ExecPayload;
 use types::{
     BeaconBlockRef, BeaconState, BeaconStateError, BlindedPayload, ChainSpec, CloneConfig, Epoch,
@@ -491,12 +490,6 @@ impl<T: EthSpec> From<ArithError> for BlockError<T> {
     }
 }
 
-impl<T: EthSpec> From<BlobReconstructionError> for BlockError<T> {
-    fn from(e: BlobReconstructionError) -> Self {
-        BlockError::BlobValidation(BlobError::from(e))
-    }
-}
-
 /// Stores information about verifying a payload against an execution engine.
 pub struct PayloadVerificationOutcome {
     pub payload_verification_status: PayloadVerificationStatus,
@@ -634,7 +627,7 @@ pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
 #[derive(Derivative)]
 #[derivative(Debug(bound = "T: BeaconChainTypes"))]
 pub struct GossipVerifiedBlock<T: BeaconChainTypes> {
-    pub block: AvailabilityPendingBlock<T::EthSpec>,
+    pub block: AvailabilityPendingBlock<T>,
     pub block_root: Hash256,
     parent: Option<PreProcessingSnapshot<T::EthSpec>>,
     consensus_context: ConsensusContext<T::EthSpec>,
