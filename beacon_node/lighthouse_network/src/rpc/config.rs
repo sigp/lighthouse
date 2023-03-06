@@ -80,7 +80,7 @@ impl OutboundRateLimiterConfig {
         Quota::n_every(methods::MAX_REQUEST_BLOCKS, 10);
     pub const DEFAULT_BLOCKS_BY_ROOT_QUOTA: Quota = Quota::n_every(128, 10);
     pub const DEFAULT_BLOBS_BY_RANGE_QUOTA: Quota =
-        Quota::n_every(methods::MAX_REQUEST_BLOBS_SIDECARS, 10);
+        Quota::n_every(methods::MAX_REQUEST_BLOB_SIDECARS, 10);
     pub const DEFAULT_BLOBS_BY_ROOT_QUOTA: Quota = Quota::n_every(128, 10);
 }
 

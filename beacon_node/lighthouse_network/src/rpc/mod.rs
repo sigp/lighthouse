@@ -24,7 +24,7 @@ pub(crate) use handler::HandlerErr;
 pub(crate) use methods::{MetaData, MetaDataV1, MetaDataV2, Ping, RPCCodedResponse, RPCResponse};
 pub(crate) use protocol::{InboundRequest, RPCProtocol};
 
-use crate::rpc::methods::MAX_REQUEST_BLOBS_SIDECARS;
+use crate::rpc::methods::MAX_REQUEST_BLOB_SIDECARS;
 pub use handler::SubstreamId;
 pub use methods::{
     BlocksByRangeRequest, BlocksByRootRequest, GoodbyeReason, LightClientBootstrapRequest,
@@ -148,7 +148,7 @@ impl<Id: ReqId, TSpec: EthSpec> RPC<Id, TSpec> {
             .n_every(Protocol::BlobsByRoot, 128, Duration::from_secs(10))
             .n_every(
                 Protocol::BlobsByRange,
-                MAX_REQUEST_BLOBS_SIDECARS,
+                MAX_REQUEST_BLOB_SIDECARS,
                 Duration::from_secs(10),
             )
             .build()
