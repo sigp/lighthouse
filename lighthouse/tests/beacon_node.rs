@@ -348,6 +348,13 @@ fn always_prefer_builder_payload_flag() {
         .with_config(|config| assert!(config.always_prefer_builder_payload));
 }
 
+#[test]
+fn no_flag_sets_always_prefer_builder_payload_to_false() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| assert!(!config.always_prefer_builder_payload));
+}
+
 // Tests for Eth1 flags.
 #[test]
 fn dummy_eth1_flag() {
