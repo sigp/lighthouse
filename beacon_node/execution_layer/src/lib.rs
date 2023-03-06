@@ -220,7 +220,6 @@ struct Inner<E: EthSpec> {
     builder_profit_threshold: Uint256,
     log: Logger,
     always_prefer_builder_payload: bool,
-    builder_profit_margin: i128,
 }
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
@@ -244,9 +243,6 @@ pub struct Config {
     pub builder_profit_threshold: u128,
     pub execution_timeout_multiplier: Option<u32>,
     pub always_prefer_builder_payload: bool,
-    /// Ammount of ETH the local builder's value has to be greater than the builder's profit for the beacon
-    /// node to use the payload from the local builder instead of the builder's payload.
-    pub builder_profit_margin: i128,
 }
 
 /// Provides access to one execution engine and provides a neat interface for consumption by the
@@ -269,7 +265,6 @@ impl<T: EthSpec> ExecutionLayer<T> {
             default_datadir,
             builder_profit_threshold,
             execution_timeout_multiplier,
-            builder_profit_margin,
             always_prefer_builder_payload,
         } = config;
 
@@ -331,9 +326,6 @@ impl<T: EthSpec> ExecutionLayer<T> {
             })
             .transpose()?;
 
-        let always_prefer_builder_payload =
-            always_prefer_builder_payload || builder_profit_margin == i128::MIN;
-
         let inner = Inner {
             engine: Arc::new(engine),
             builder,
@@ -347,7 +339,6 @@ impl<T: EthSpec> ExecutionLayer<T> {
             builder_profit_threshold: Uint256::from(builder_profit_threshold),
             log,
             always_prefer_builder_payload,
-            builder_profit_margin,
         };
 
         Ok(Self {
@@ -810,7 +801,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                             let relay_value = relay.data.message.value;
                             let local_value = *local.block_value();
                             if !self.inner.always_prefer_builder_payload
-                                && relay_value < local_value + self.inner.builder_profit_margin
+                                && local_value >= relay_value
                             {
                                 info!(
                                     self.log(),

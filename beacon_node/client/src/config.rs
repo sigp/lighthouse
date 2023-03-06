@@ -80,9 +80,6 @@ pub struct Config {
     pub slasher: Option<slasher::Config>,
     pub logger_config: LoggerConfig,
     pub always_prefer_builder_payload: bool,
-    /// Ammount of ETH the local builder's value has to be greater than the builder's profit for the beacon
-    /// node to use the payload from the local builder instead of the builder's payload.
-    pub builder_profit_margin: i128,
 }
 
 impl Default for Config {
@@ -110,9 +107,6 @@ impl Default for Config {
             validator_monitor_individual_tracking_threshold: DEFAULT_INDIVIDUAL_TRACKING_THRESHOLD,
             logger_config: LoggerConfig::default(),
             always_prefer_builder_payload: false,
-            // Default value is 0 because the payload is decided by adding this value to the local
-            // builder value.
-            builder_profit_margin: 0,
         }
     }
 }

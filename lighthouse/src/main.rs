@@ -313,16 +313,6 @@ fn main() {
                 .global(true)
         )
         .arg(
-            Arg::with_name("builder-profit-margin")
-            .long("builder-profit-margin")
-            .value_name("INTEGER")
-            .help("Used to set the ammount of ETH the local builder's value has to be greater than the builder's \
-            value for the beacon node to use the payload from the local builder instead of the \
-            builder's payload.")
-            .takes_value(true)
-            .global(true)
-        )
-        .arg(
             Arg::with_name("always-prefer-builder-payload")
             .long("always-prefer-builder-payload")
             .help("If set, the beacon node always uses the payload from the builder instead of the local payload.")
