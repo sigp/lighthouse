@@ -524,7 +524,7 @@ impl<TSpec: EthSpec> InboundRequest<TSpec> {
             InboundRequest::BlocksByRange(req) => req.count,
             InboundRequest::BlocksByRoot(req) => req.block_roots.len() as u64,
             InboundRequest::BlobsByRange(req) => req.count,
-            InboundRequest::BlobsByRoot(req) => req.block_roots.len() as u64,
+            InboundRequest::BlobsByRoot(req) => req.blob_ids.len() as u64,
             InboundRequest::Ping(_) => 1,
             InboundRequest::MetaData(_) => 1,
             InboundRequest::LightClientBootstrap(_) => 1,

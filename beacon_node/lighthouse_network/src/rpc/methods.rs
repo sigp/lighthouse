@@ -30,7 +30,7 @@ pub const MAX_REQUEST_BLOCKS_DENEB: u64 = 128;
 
 // TODO: this is calculated as MAX_REQUEST_BLOCKS_DENEB * MAX_BLOBS_PER_BLOCK.
 // MAX_BLOBS_PER_BLOCK is a spec constant.
-pub type MaxRequestBlobsSidecars = U512;
+pub type MaxRequestBlobSidecars = U512;
 pub const MAX_REQUEST_BLOB_SIDECARS: u64 = 512;
 
 /// Wrapper over SSZ List to represent error message in rpc responses.
@@ -249,18 +249,18 @@ pub struct BlocksByRootRequest {
     pub block_roots: VariableList<Hash256, MaxRequestBlocks>,
 }
 
+/// Container of the data that identifies an individual blob.
+#[derive(Clone, Debug, PartialEq)]
+pub struct BlobIdentifier {
+    block_root: Hash256,
+    index: u64,
+}
+
 /// Request a number of beacon blocks and blobs from a peer.
 #[derive(Clone, Debug, PartialEq)]
 pub struct BlobsByRootRequest {
     /// The list of beacon block roots being requested.
-    pub block_roots: VariableList<Hash256, MaxRequestBlocks>,
-}
-
-impl From<BlocksByRootRequest> for BlobsByRootRequest {
-    fn from(r: BlocksByRootRequest) -> Self {
-        let BlocksByRootRequest { block_roots } = r;
-        Self { block_roots }
-    }
+    pub blob_ids: VariableList<Hash256, MaxRequestBlobSidecars>,
 }
 
 /* RPC Handling and Grouping */
@@ -520,7 +520,7 @@ impl std::fmt::Display for BlobsByRootRequest {
         write!(
             f,
             "Request: BlobsByRoot: Number of Requested Roots: {}",
-            self.block_roots.len()
+            self.blob_ids.len()
         )
     }
 }

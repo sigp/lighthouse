@@ -224,7 +224,7 @@ impl<T: BeaconChainTypes> Worker<T> {
             async move {
                 let mut send_block_count = 0;
                 let mut send_response = true;
-                for root in request.block_roots.iter() {
+                for root in request.blob_ids.iter() {
                     match self
                         .chain
                         .get_block_and_blobs_checking_early_attester_cache(root)
@@ -329,7 +329,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     self.log,
                     "Received BlobsByRoot Request";
                     "peer" => %peer_id,
-                    "requested" => request.block_roots.len(),
+                    "requested" => request.blob_ids.len(),
                     "returned" => send_block_count
                 );
 

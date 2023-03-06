@@ -234,7 +234,7 @@ impl<TSpec: EthSpec> Encoder<OutboundRequest<TSpec>> for SSZSnappyOutboundCodec<
             OutboundRequest::BlocksByRange(req) => req.as_ssz_bytes(),
             OutboundRequest::BlocksByRoot(req) => req.block_roots.as_ssz_bytes(),
             OutboundRequest::BlobsByRange(req) => req.as_ssz_bytes(),
-            OutboundRequest::BlobsByRoot(req) => req.block_roots.as_ssz_bytes(),
+            OutboundRequest::BlobsByRoot(req) => req.blob_ids.as_ssz_bytes(),
             OutboundRequest::Ping(req) => req.as_ssz_bytes(),
             OutboundRequest::MetaData(_) => return Ok(()), // no metadata to encode
             OutboundRequest::LightClientBootstrap(req) => req.as_ssz_bytes(),
@@ -497,7 +497,7 @@ fn handle_v1_request<T: EthSpec>(
             BlobsByRangeRequest::from_ssz_bytes(decoded_buffer)?,
         ))),
         Protocol::BlobsByRoot => Ok(Some(InboundRequest::BlobsByRoot(BlobsByRootRequest {
-            block_roots: VariableList::from_ssz_bytes(decoded_buffer)?,
+            blob_ids: VariableList::from_ssz_bytes(decoded_buffer)?,
         }))),
         Protocol::Ping => Ok(Some(InboundRequest::Ping(Ping {
             data: u64::from_ssz_bytes(decoded_buffer)?,
@@ -846,7 +846,7 @@ mod tests {
 
     fn blbroot_request() -> BlobsByRootRequest {
         BlobsByRootRequest {
-            block_roots: VariableList::from(vec![Hash256::zero()]),
+            blob_ids: VariableList::from(vec![Hash256::zero()]),
         }
     }
 
