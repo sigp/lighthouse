@@ -5,7 +5,7 @@ use regex::bytes::Regex;
 use serde::Serialize;
 use ssz_derive::{Decode, Encode};
 use ssz_types::{
-    typenum::{U1024, U256},
+    typenum::{U1024, U256, U512},
     VariableList,
 };
 use std::ops::Deref;
@@ -26,8 +26,12 @@ pub const MAX_REQUEST_BLOCKS: u64 = 1024;
 pub type MaxErrorLen = U256;
 pub const MAX_ERROR_LEN: u64 = 256;
 
-pub type MaxRequestBlobsSidecars = U1024;
-pub const MAX_REQUEST_BLOBS_SIDECARS: u64 = 1024;
+// TODO: this is calculated as MAX_REQUEST_BLOCKS_DENEB * MAX_BLOBS_PER_BLOCK and
+// MAX_BLOBS_PER_BLOCK comes from the spec.
+// MAX_REQUEST_BLOCKS_DENEB = 128
+// MAX_BLOBS_PER_BLOCK = 4
+pub type MaxRequestBlobSidecars = U512;
+pub const MAX_REQUEST_BLOB_SIDECARS: u64 = 512;
 
 /// Wrapper over SSZ List to represent error message in rpc responses.
 #[derive(Debug, Clone)]

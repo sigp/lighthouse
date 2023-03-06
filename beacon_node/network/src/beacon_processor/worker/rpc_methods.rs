@@ -5,7 +5,7 @@ use crate::sync::SyncMessage;
 use beacon_chain::{BeaconChainError, BeaconChainTypes, HistoricalBlockError, WhenSlotSkipped};
 use itertools::process_results;
 use lighthouse_network::rpc::methods::{
-    BlobsByRangeRequest, BlobsByRootRequest, MAX_REQUEST_BLOBS_SIDECARS,
+    BlobsByRangeRequest, BlobsByRootRequest, MAX_REQUEST_BLOB_SIDECARS,
 };
 use lighthouse_network::rpc::StatusMessage;
 use lighthouse_network::rpc::*;
@@ -669,7 +669,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         );
 
         // Should not send more than max request blocks
-        if req.count > MAX_REQUEST_BLOBS_SIDECARS {
+        if req.count > MAX_REQUEST_BLOB_SIDECARS {
             return self.send_error_response(
                 peer_id,
                 RPCResponseErrorCode::InvalidRequest,
