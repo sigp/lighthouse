@@ -312,12 +312,6 @@ fn main() {
                 .takes_value(true)
                 .global(true)
         )
-        .arg(
-            Arg::with_name("always-prefer-builder-payload")
-            .long("always-prefer-builder-payload")
-            .help("If set, the beacon node always uses the payload from the builder instead of the local payload.")
-            .global(true)
-        )
         .subcommand(beacon_node::cli_app())
         .subcommand(boot_node::cli_app())
         .subcommand(validator_client::cli_app())
