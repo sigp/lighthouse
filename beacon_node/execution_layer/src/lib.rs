@@ -332,11 +332,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
             .transpose()?;
 
         let always_prefer_builder_payload =
-            if always_prefer_builder_payload || builder_profit_margin == i128::MIN {
-                true
-            } else {
-                false
-            };
+            always_prefer_builder_payload || builder_profit_margin == i128::MIN;
 
         let inner = Inner {
             engine: Arc::new(engine),
@@ -814,7 +810,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                             let relay_value = relay.data.message.value;
                             let local_value = *local.block_value();
                             if !self.inner.always_prefer_builder_payload
-                                && !(relay_value >= local_value + self.inner.builder_profit_margin)
+                                && relay_value < local_value + self.inner.builder_profit_margin
                             {
                                 info!(
                                     self.log(),
