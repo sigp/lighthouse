@@ -8,6 +8,13 @@ use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
+/// Container of the data that identifies an individual blob.
+#[derive(Encode, Decode, Clone, Debug, PartialEq)]
+pub struct BlobIdentifier {
+    pub block_root: Hash256,
+    pub index: u64,
+}
+
 #[derive(
     Debug,
     Clone,

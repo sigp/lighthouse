@@ -12,6 +12,7 @@ use std::ops::Deref;
 use std::sync::Arc;
 use strum::IntoStaticStr;
 use superstruct::superstruct;
+use types::blob_sidecar::BlobIdentifier;
 use types::{
     blob_sidecar::BlobSidecar, light_client_bootstrap::LightClientBootstrap, Epoch, EthSpec,
     Hash256, SignedBeaconBlock, Slot,
@@ -248,13 +249,6 @@ pub struct OldBlocksByRangeRequest {
 pub struct BlocksByRootRequest {
     /// The list of beacon block bodies being requested.
     pub block_roots: VariableList<Hash256, MaxRequestBlocks>,
-}
-
-/// Container of the data that identifies an individual blob. This is a P2P spec type.
-#[derive(Encode, Decode, Clone, Debug, PartialEq)]
-pub struct BlobIdentifier {
-    pub block_root: Hash256,
-    pub index: u64,
 }
 
 /// Request a number of beacon blocks and blobs from a peer.
