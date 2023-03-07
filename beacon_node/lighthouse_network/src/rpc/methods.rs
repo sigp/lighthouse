@@ -243,14 +243,14 @@ pub struct OldBlocksByRangeRequest {
 }
 
 /// Request a number of beacon block bodies from a peer.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Encode, Decode, Clone, Debug, PartialEq)]
 pub struct BlocksByRootRequest {
     /// The list of beacon block bodies being requested.
     pub block_roots: VariableList<Hash256, MaxRequestBlocks>,
 }
 
-/// Container of the data that identifies an individual blob.
-#[derive(Clone, Debug, PartialEq)]
+/// Container of the data that identifies an individual blob. This is a P2P spec type.
+#[derive(Encode, Decode, Clone, Debug, PartialEq)]
 pub struct BlobIdentifier {
     block_root: Hash256,
     index: u64,
@@ -260,7 +260,7 @@ pub struct BlobIdentifier {
 #[derive(Clone, Debug, PartialEq)]
 pub struct BlobsByRootRequest {
     /// The list of beacon block roots being requested.
-    pub blob_ids: VariableList<Hash256, MaxRequestBlobSidecars>,
+    pub blob_ids: VariableList<BlobIdentifier, MaxRequestBlobSidecars>,
 }
 
 /* RPC Handling and Grouping */
@@ -285,7 +285,7 @@ pub enum RPCResponse<T: EthSpec> {
     LightClientBootstrap(LightClientBootstrap<T>),
 
     /// A response to a get BLOBS_BY_ROOT request.
-    BlockAndBlobsByRoot(SignedBeaconBlockAndBlobsSidecar<T>),
+    SidecarByRoot(SignedBeaconBlockAndBlobsSidecar<T>),
 
     /// A PONG response to a PING request.
     Pong(Ping),
@@ -378,7 +378,7 @@ impl<T: EthSpec> RPCCodedResponse<T> {
                 RPCResponse::BlocksByRange(_) => true,
                 RPCResponse::BlocksByRoot(_) => true,
                 RPCResponse::BlobsByRange(_) => true,
-                RPCResponse::BlockAndBlobsByRoot(_) => true,
+                RPCResponse::SidecarByRoot(_) => true,
                 RPCResponse::Pong(_) => false,
                 RPCResponse::MetaData(_) => false,
                 RPCResponse::LightClientBootstrap(_) => false,
@@ -416,7 +416,7 @@ impl<T: EthSpec> RPCResponse<T> {
             RPCResponse::BlocksByRange(_) => Protocol::BlocksByRange,
             RPCResponse::BlocksByRoot(_) => Protocol::BlocksByRoot,
             RPCResponse::BlobsByRange(_) => Protocol::BlobsByRange,
-            RPCResponse::BlockAndBlobsByRoot(_) => Protocol::BlobsByRoot,
+            RPCResponse::SidecarByRoot(_) => Protocol::BlobsByRoot,
             RPCResponse::Pong(_) => Protocol::Ping,
             RPCResponse::MetaData(_) => Protocol::MetaData,
             RPCResponse::LightClientBootstrap(_) => Protocol::LightClientBootstrap,
@@ -457,7 +457,7 @@ impl<T: EthSpec> std::fmt::Display for RPCResponse<T> {
             RPCResponse::BlobsByRange(blob) => {
                 write!(f, "BlobsByRange: Blob slot: {}", blob.beacon_block_slot)
             }
-            RPCResponse::BlockAndBlobsByRoot(blob) => {
+            RPCResponse::SidecarByRoot(blob) => {
                 write!(
                     f,
                     "BlobsByRoot: Blob slot: {}",
