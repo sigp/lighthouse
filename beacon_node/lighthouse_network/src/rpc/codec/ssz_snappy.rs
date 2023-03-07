@@ -15,11 +15,11 @@ use std::io::{Read, Write};
 use std::marker::PhantomData;
 use std::sync::Arc;
 use tokio_util::codec::{Decoder, Encoder};
-use types::light_client_bootstrap::LightClientBootstrap;
+use types::{light_client_bootstrap::LightClientBootstrap, BlobSidecar};
 use types::{
-    BlobsSidecar, EthSpec, ForkContext, ForkName, Hash256, SignedBeaconBlock,
-    SignedBeaconBlockAltair, SignedBeaconBlockAndBlobsSidecar, SignedBeaconBlockBase,
-    SignedBeaconBlockCapella, SignedBeaconBlockEip4844, SignedBeaconBlockMerge,
+    EthSpec, ForkContext, ForkName, Hash256, SignedBeaconBlock, SignedBeaconBlockAltair,
+    SignedBeaconBlockBase, SignedBeaconBlockCapella, SignedBeaconBlockEip4844,
+    SignedBeaconBlockMerge,
 };
 use unsigned_varint::codec::Uvi;
 
@@ -73,7 +73,7 @@ impl<TSpec: EthSpec> Encoder<RPCCodedResponse<TSpec>> for SSZSnappyInboundCodec<
                 RPCResponse::BlocksByRange(res) => res.as_ssz_bytes(),
                 RPCResponse::BlocksByRoot(res) => res.as_ssz_bytes(),
                 RPCResponse::BlobsByRange(res) => res.as_ssz_bytes(),
-                RPCResponse::BlockAndBlobsByRoot(res) => res.as_ssz_bytes(),
+                RPCResponse::SidecarByRoot(res) => res.as_ssz_bytes(),
                 RPCResponse::LightClientBootstrap(res) => res.as_ssz_bytes(),
                 RPCResponse::Pong(res) => res.data.as_ssz_bytes(),
                 RPCResponse::MetaData(res) =>
@@ -234,7 +234,7 @@ impl<TSpec: EthSpec> Encoder<OutboundRequest<TSpec>> for SSZSnappyOutboundCodec<
             OutboundRequest::BlocksByRange(req) => req.as_ssz_bytes(),
             OutboundRequest::BlocksByRoot(req) => req.block_roots.as_ssz_bytes(),
             OutboundRequest::BlobsByRange(req) => req.as_ssz_bytes(),
-            OutboundRequest::BlobsByRoot(req) => req.block_roots.as_ssz_bytes(),
+            OutboundRequest::BlobsByRoot(req) => req.blob_ids.as_ssz_bytes(),
             OutboundRequest::Ping(req) => req.as_ssz_bytes(),
             OutboundRequest::MetaData(_) => return Ok(()), // no metadata to encode
             OutboundRequest::LightClientBootstrap(req) => req.as_ssz_bytes(),
@@ -439,8 +439,7 @@ fn context_bytes<T: EthSpec>(
                     SignedBeaconBlock::Base { .. } => Some(fork_context.genesis_context_bytes()),
                 };
             }
-            if let RPCResponse::BlobsByRange(_) | RPCResponse::BlockAndBlobsByRoot(_) = rpc_variant
-            {
+            if let RPCResponse::BlobsByRange(_) | RPCResponse::SidecarByRoot(_) = rpc_variant {
                 return fork_context.to_context_bytes(ForkName::Eip4844);
             }
         }
@@ -497,7 +496,7 @@ fn handle_v1_request<T: EthSpec>(
             BlobsByRangeRequest::from_ssz_bytes(decoded_buffer)?,
         ))),
         Protocol::BlobsByRoot => Ok(Some(InboundRequest::BlobsByRoot(BlobsByRootRequest {
-            block_roots: VariableList::from_ssz_bytes(decoded_buffer)?,
+            blob_ids: VariableList::from_ssz_bytes(decoded_buffer)?,
         }))),
         Protocol::Ping => Ok(Some(InboundRequest::Ping(Ping {
             data: u64::from_ssz_bytes(decoded_buffer)?,
@@ -582,7 +581,7 @@ fn handle_v1_response<T: EthSpec>(
             })?;
             match fork_name {
                 ForkName::Eip4844 => Ok(Some(RPCResponse::BlobsByRange(Arc::new(
-                    BlobsSidecar::from_ssz_bytes(decoded_buffer)?,
+                    BlobSidecar::from_ssz_bytes(decoded_buffer)?,
                 )))),
                 _ => Err(RPCError::ErrorResponse(
                     RPCResponseErrorCode::InvalidRequest,
@@ -598,8 +597,8 @@ fn handle_v1_response<T: EthSpec>(
                 )
             })?;
             match fork_name {
-                ForkName::Eip4844 => Ok(Some(RPCResponse::BlockAndBlobsByRoot(
-                    SignedBeaconBlockAndBlobsSidecar::from_ssz_bytes(decoded_buffer)?,
+                ForkName::Eip4844 => Ok(Some(RPCResponse::SidecarByRoot(
+                    BlobSidecar::from_ssz_bytes(decoded_buffer)?,
                 ))),
                 _ => Err(RPCError::ErrorResponse(
                     RPCResponseErrorCode::InvalidRequest,
@@ -738,8 +737,9 @@ mod tests {
     };
     use std::sync::Arc;
     use types::{
-        BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockMerge, EmptyBlock, Epoch,
-        ForkContext, FullPayload, Hash256, Signature, SignedBeaconBlock, Slot,
+        blob_sidecar::BlobIdentifier, BeaconBlock, BeaconBlockAltair, BeaconBlockBase,
+        BeaconBlockMerge, EmptyBlock, Epoch, ForkContext, FullPayload, Hash256, Signature,
+        SignedBeaconBlock, Slot,
     };
 
     use snap::write::FrameEncoder;
@@ -846,7 +846,10 @@ mod tests {
 
     fn blbroot_request() -> BlobsByRootRequest {
         BlobsByRootRequest {
-            block_roots: VariableList::from(vec![Hash256::zero()]),
+            blob_ids: VariableList::from(vec![BlobIdentifier {
+                block_root: Hash256::zero(),
+                index: 0,
+            }]),
         }
     }
 

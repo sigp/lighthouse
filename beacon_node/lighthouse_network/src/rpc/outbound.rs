@@ -113,7 +113,7 @@ impl<TSpec: EthSpec> OutboundRequest<TSpec> {
             OutboundRequest::BlocksByRange(req) => req.count,
             OutboundRequest::BlocksByRoot(req) => req.block_roots.len() as u64,
             OutboundRequest::BlobsByRange(req) => req.count,
-            OutboundRequest::BlobsByRoot(req) => req.block_roots.len() as u64,
+            OutboundRequest::BlobsByRoot(req) => req.blob_ids.len() as u64,
             OutboundRequest::Ping(_) => 1,
             OutboundRequest::MetaData(_) => 1,
             OutboundRequest::LightClientBootstrap(_) => 1,

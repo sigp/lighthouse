@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use libp2p::core::connection::ConnectionId;
 use types::light_client_bootstrap::LightClientBootstrap;
-use types::{BlobsSidecar, EthSpec, SignedBeaconBlock};
+use types::{BlobSidecar, EthSpec, SignedBeaconBlock};
 
 use crate::rpc::methods::{BlobsByRangeRequest, BlobsByRootRequest};
 use crate::rpc::{
@@ -12,7 +12,6 @@ use crate::rpc::{
     },
     OutboundRequest, SubstreamId,
 };
-use types::SignedBeaconBlockAndBlobsSidecar;
 
 /// Identifier of requests sent by a peer.
 pub type PeerRequestId = (ConnectionId, SubstreamId);
@@ -77,13 +76,13 @@ pub enum Response<TSpec: EthSpec> {
     /// A response to a get BLOCKS_BY_RANGE request. A None response signals the end of the batch.
     BlocksByRange(Option<Arc<SignedBeaconBlock<TSpec>>>),
     /// A response to a get BLOBS_BY_RANGE request. A None response signals the end of the batch.
-    BlobsByRange(Option<Arc<BlobsSidecar<TSpec>>>),
+    BlobsByRange(Option<Arc<BlobSidecar<TSpec>>>),
     /// A response to a get BLOCKS_BY_ROOT request.
     BlocksByRoot(Option<Arc<SignedBeaconBlock<TSpec>>>),
     /// A response to a LightClientUpdate request.
     LightClientBootstrap(LightClientBootstrap<TSpec>),
     /// A response to a get BLOBS_BY_ROOT request.
-    BlobsByRoot(Option<SignedBeaconBlockAndBlobsSidecar<TSpec>>),
+    BlobsByRoot(Option<BlobSidecar<TSpec>>),
 }
 
 impl<TSpec: EthSpec> std::convert::From<Response<TSpec>> for RPCCodedResponse<TSpec> {
@@ -98,7 +97,7 @@ impl<TSpec: EthSpec> std::convert::From<Response<TSpec>> for RPCCodedResponse<TS
                 None => RPCCodedResponse::StreamTermination(ResponseTermination::BlocksByRange),
             },
             Response::BlobsByRoot(r) => match r {
-                Some(b) => RPCCodedResponse::Success(RPCResponse::BlockAndBlobsByRoot(b)),
+                Some(b) => RPCCodedResponse::Success(RPCResponse::SidecarByRoot(b)),
                 None => RPCCodedResponse::StreamTermination(ResponseTermination::BlobsByRoot),
             },
             Response::BlobsByRange(r) => match r {

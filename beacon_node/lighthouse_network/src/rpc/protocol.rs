@@ -194,7 +194,7 @@ pub enum Protocol {
     #[strum(serialize = "blobs_sidecars_by_range")]
     BlobsByRange,
     /// The `BlobsByRoot` protocol name.
-    #[strum(serialize = "beacon_block_and_blobs_sidecar_by_root")]
+    #[strum(serialize = "blob_sidecars_by_root")]
     BlobsByRoot,
     /// The `Ping` protocol name.
     Ping,
@@ -360,6 +360,7 @@ impl ProtocolId {
                 <BlobsByRangeRequest as Encode>::ssz_fixed_len(),
             ),
             Protocol::BlobsByRoot => {
+                // TODO: This looks wrong to me
                 RpcLimits::new(*BLOCKS_BY_ROOT_REQUEST_MIN, *BLOCKS_BY_ROOT_REQUEST_MAX)
             }
             Protocol::Ping => RpcLimits::new(
@@ -386,6 +387,7 @@ impl ProtocolId {
             Protocol::BlocksByRoot => rpc_block_limits_by_fork(fork_context.current_fork()),
             Protocol::BlobsByRange => RpcLimits::new(*BLOBS_SIDECAR_MIN, *BLOBS_SIDECAR_MAX),
             Protocol::BlobsByRoot => {
+                // TODO: wrong too
                 RpcLimits::new(*SIGNED_BLOCK_AND_BLOBS_MIN, *SIGNED_BLOCK_AND_BLOBS_MAX)
             }
             Protocol::Ping => RpcLimits::new(
@@ -524,7 +526,7 @@ impl<TSpec: EthSpec> InboundRequest<TSpec> {
             InboundRequest::BlocksByRange(req) => req.count,
             InboundRequest::BlocksByRoot(req) => req.block_roots.len() as u64,
             InboundRequest::BlobsByRange(req) => req.count,
-            InboundRequest::BlobsByRoot(req) => req.block_roots.len() as u64,
+            InboundRequest::BlobsByRoot(req) => req.blob_ids.len() as u64,
             InboundRequest::Ping(_) => 1,
             InboundRequest::MetaData(_) => 1,
             InboundRequest::LightClientBootstrap(_) => 1,
