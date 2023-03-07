@@ -60,7 +60,7 @@ pub const QUEUED_RPC_BLOCK_DELAY: Duration = Duration::from_secs(3);
 const MAXIMUM_QUEUED_BLOCKS: usize = 16;
 
 /// How many attestations we keep before new ones get dropped.
-const MAXIMUM_QUEUED_ATTESTATIONS: usize = 16_384;
+const MAXIMUM_QUEUED_ATTESTATIONS: usize = 32_768;
 
 /// How many light client updates we keep before new ones get dropped.
 const MAXIMUM_QUEUED_LIGHT_CLIENT_UPDATES: usize = 128;

@@ -83,7 +83,7 @@ pub use worker::{ChainSegmentProcessId, GossipAggregatePackage, GossipAttestatio
 /// The maximum size of the channel for work events to the `BeaconProcessor`.
 ///
 /// Setting this too low will cause consensus messages to be dropped.
-pub const MAX_WORK_EVENT_QUEUE_LEN: usize = 16_384;
+pub const MAX_WORK_EVENT_QUEUE_LEN: usize = 32_768;
 
 /// The maximum size of the channel for idle events to the `BeaconProcessor`.
 ///
@@ -92,15 +92,15 @@ pub const MAX_WORK_EVENT_QUEUE_LEN: usize = 16_384;
 const MAX_IDLE_QUEUE_LEN: usize = 16_384;
 
 /// The maximum size of the channel for re-processing work events.
-const MAX_SCHEDULED_WORK_QUEUE_LEN: usize = 3 * MAX_WORK_EVENT_QUEUE_LEN / 4;
+const MAX_SCHEDULED_WORK_QUEUE_LEN: usize = MAX_WORK_EVENT_QUEUE_LEN;
 
 /// The maximum number of queued `Attestation` objects that will be stored before we start dropping
 /// them.
-const MAX_UNAGGREGATED_ATTESTATION_QUEUE_LEN: usize = 16_384;
+const MAX_UNAGGREGATED_ATTESTATION_QUEUE_LEN: usize = 32_768;
 
-/// The maximum number of queued `Attestation` objects that will be stored before we start dropping
-/// them.
-const MAX_UNAGGREGATED_ATTESTATION_REPROCESS_QUEUE_LEN: usize = 8_192;
+/// The maximum number of queued `Attestation` objects that reference an unknown
+/// block that will be stored before we start dropping them.
+const MAX_UNAGGREGATED_ATTESTATION_REPROCESS_QUEUE_LEN: usize = 32_768;
 
 /// The maximum number of queued `SignedAggregateAndProof` objects that will be stored before we
 /// start dropping them.

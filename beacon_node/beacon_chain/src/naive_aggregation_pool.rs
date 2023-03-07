@@ -19,7 +19,7 @@ const SLOTS_RETAINED: usize = 3;
 /// The maximum number of distinct `AttestationData` that will be stored in each slot.
 ///
 /// This is a DoS protection measure.
-const MAX_ATTESTATIONS_PER_SLOT: usize = 16_384;
+const MAX_ATTESTATIONS_PER_SLOT: usize = 32_768;
 
 /// Returned upon successfully inserting an item into the pool.
 #[derive(Debug, PartialEq)]
