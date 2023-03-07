@@ -12,9 +12,8 @@ use std::ops::Deref;
 use std::sync::Arc;
 use strum::IntoStaticStr;
 use superstruct::superstruct;
-use types::SignedBeaconBlockAndBlobsSidecar;
 use types::{
-    blobs_sidecar::BlobsSidecar, light_client_bootstrap::LightClientBootstrap, Epoch, EthSpec,
+    blob_sidecar::BlobSidecar, light_client_bootstrap::LightClientBootstrap, Epoch, EthSpec,
     Hash256, SignedBeaconBlock, Slot,
 };
 
@@ -28,8 +27,10 @@ pub const MAX_ERROR_LEN: u64 = 256;
 
 pub const MAX_REQUEST_BLOCKS_DENEB: u64 = 128;
 
-// TODO: this is calculated as MAX_REQUEST_BLOCKS_DENEB * MAX_BLOBS_PER_BLOCK.
-// MAX_BLOBS_PER_BLOCK is a spec constant.
+// TODO: this is calculated as MAX_REQUEST_BLOCKS_DENEB * MAX_BLOBS_PER_BLOCK and
+// MAX_BLOBS_PER_BLOCK comes from the spec.
+// MAX_REQUEST_BLOCKS_DENEB = 128
+// MAX_BLOBS_PER_BLOCK = 4
 pub type MaxRequestBlobSidecars = U512;
 pub const MAX_REQUEST_BLOB_SIDECARS: u64 = 512;
 
@@ -252,8 +253,8 @@ pub struct BlocksByRootRequest {
 /// Container of the data that identifies an individual blob. This is a P2P spec type.
 #[derive(Encode, Decode, Clone, Debug, PartialEq)]
 pub struct BlobIdentifier {
-    block_root: Hash256,
-    index: u64,
+    pub block_root: Hash256,
+    pub index: u64,
 }
 
 /// Request a number of beacon blocks and blobs from a peer.
@@ -279,13 +280,13 @@ pub enum RPCResponse<T: EthSpec> {
     BlocksByRoot(Arc<SignedBeaconBlock<T>>),
 
     /// A response to a get BLOBS_BY_RANGE request
-    BlobsByRange(Arc<BlobsSidecar<T>>),
+    BlobsByRange(Arc<BlobSidecar<T>>),
 
     /// A response to a get LIGHTCLIENT_BOOTSTRAP request.
     LightClientBootstrap(LightClientBootstrap<T>),
 
     /// A response to a get BLOBS_BY_ROOT request.
-    SidecarByRoot(SignedBeaconBlockAndBlobsSidecar<T>),
+    SidecarByRoot(BlobSidecar<T>),
 
     /// A PONG response to a PING request.
     Pong(Ping),
@@ -455,14 +456,10 @@ impl<T: EthSpec> std::fmt::Display for RPCResponse<T> {
                 write!(f, "BlocksByRoot: Block slot: {}", block.slot())
             }
             RPCResponse::BlobsByRange(blob) => {
-                write!(f, "BlobsByRange: Blob slot: {}", blob.beacon_block_slot)
+                write!(f, "BlobsByRange: Blob slot: {}", blob.slot)
             }
-            RPCResponse::SidecarByRoot(blob) => {
-                write!(
-                    f,
-                    "BlobsByRoot: Blob slot: {}",
-                    blob.blobs_sidecar.beacon_block_slot
-                )
+            RPCResponse::SidecarByRoot(sidecar) => {
+                write!(f, "BlobsByRoot: Blob slot: {}", sidecar.slot)
             }
             RPCResponse::Pong(ping) => write!(f, "Pong: {}", ping.data),
             RPCResponse::MetaData(metadata) => write!(f, "Metadata: {}", metadata.seq_number()),

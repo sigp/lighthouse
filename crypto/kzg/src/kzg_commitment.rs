@@ -20,6 +20,12 @@ impl Display for KzgCommitment {
     }
 }
 
+impl Default for KzgCommitment {
+    fn default() -> Self {
+        KzgCommitment([0; KZG_COMMITMENT_BYTES_LEN])
+    }
+}
+
 impl TreeHash for KzgCommitment {
     fn tree_hash_type() -> tree_hash::TreeHashType {
         <[u8; KZG_COMMITMENT_BYTES_LEN] as TreeHash>::tree_hash_type()
