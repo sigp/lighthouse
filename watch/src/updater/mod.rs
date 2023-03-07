@@ -40,7 +40,6 @@ impl WatchSpec<MainnetEthSpec> {
         Self {
             network,
             spec: PhantomData,
-            //spec: MainnetEthSpec,
         }
     }
 }
@@ -50,7 +49,6 @@ impl WatchSpec<GnosisEthSpec> {
         Self {
             network,
             spec: PhantomData,
-            //spec: GnosisEthSpec,
         }
     }
 }
@@ -72,7 +70,7 @@ pub async fn run_updater(config: FullConfig) -> Result<(), Error> {
     match config_map
         .get("PRESET_BASE")
         .ok_or_else(|| {
-            Error::BeaconNodeNotCompatible("Not field PRESET_BASE on beacon node spec".to_string())
+            Error::BeaconNodeNotCompatible("No field PRESET_BASE on beacon node spec".to_string())
         })?
         .to_lowercase()
         .as_str()
@@ -85,7 +83,7 @@ pub async fn run_updater(config: FullConfig) -> Result<(), Error> {
             let spec = WatchSpec::gnosis(config_name);
             run_once(bn, spec, config).await
         }
-        _ => unimplemented!(),
+        _ => unimplemented!("unsupported PRESET_BASE"),
     }
 }
 

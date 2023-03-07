@@ -15,6 +15,7 @@ diesel::table! {
         parent_root -> Bytea,
         attestation_count -> Int4,
         transaction_count -> Nullable<Int4>,
+        withdrawal_count -> Nullable<Int4>,
     }
 }
 

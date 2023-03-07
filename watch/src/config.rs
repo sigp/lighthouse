@@ -42,7 +42,7 @@ impl Default for Config {
 impl Config {
     pub fn load_from_file(path_to_file: String) -> Result<Config, String> {
         let file =
-            File::open(&path_to_file).map_err(|e| format!("Error reading config file: {:?}", e))?;
+            File::open(path_to_file).map_err(|e| format!("Error reading config file: {:?}", e))?;
         let config: Config = serde_yaml::from_reader(file)
             .map_err(|e| format!("Error parsing config file: {:?}", e))?;
         Ok(config)

@@ -25,6 +25,7 @@ pub struct WatchBeaconBlock {
     pub parent_root: WatchHash,
     pub attestation_count: i32,
     pub transaction_count: Option<i32>,
+    pub withdrawal_count: Option<i32>,
 }
 
 #[derive(Clone, Debug, Queryable, Insertable, Serialize, Deserialize)]

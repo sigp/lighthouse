@@ -25,4 +25,6 @@ async fn main() {
 }
 
 #[cfg(windows)]
-fn main() {}
+fn main() {
+    eprintln!("Windows is not supported. Exiting.");
+}

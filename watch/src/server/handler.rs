@@ -207,11 +207,18 @@ pub async fn get_validator_latest_proposal(
     let mut conn = database::get_connection(&pool).map_err(Error::Database)?;
     if validator_query.starts_with("0x") {
         let pubkey = WatchPK::from_str(&validator_query).map_err(|_| Error::BadRequest)?;
-        let validator = database::get_validator_by_public_key(&mut conn, pubkey)?.ok_or(Error::NotFound)?;
-        Ok(Json(database::get_validators_latest_proposer_info(&mut conn, vec![validator.index])?))
+        let validator =
+            database::get_validator_by_public_key(&mut conn, pubkey)?.ok_or(Error::NotFound)?;
+        Ok(Json(database::get_validators_latest_proposer_info(
+            &mut conn,
+            vec![validator.index],
+        )?))
     } else {
         let index = i32::from_str(&validator_query).map_err(|_| Error::BadRequest)?;
-        Ok(Json(database::get_validators_latest_proposer_info(&mut conn, vec![index])?))
+        Ok(Json(database::get_validators_latest_proposer_info(
+            &mut conn,
+            vec![index],
+        )?))
     }
 }
 

@@ -138,10 +138,22 @@ pub fn insert_beacon_block<T: EthSpec>(
     let proposer_index = block_message.proposer_index() as i32;
     let graffiti = block_message.body().graffiti().as_utf8_lossy();
     let attestation_count = block_message.body().attestations().len() as i32;
-    let transaction_count = block_message
-        .execution_payload()
-        .ok()
-        .map(|payload| payload.execution_payload.transactions.len() as i32);
+
+    let full_payload = block_message.execution_payload().ok();
+
+    let transaction_count: Option<i32> = if let Some(bellatrix_payload) =
+        full_payload.and_then(|payload| payload.execution_payload_merge().ok())
+    {
+        Some(bellatrix_payload.transactions.len() as i32)
+    } else {
+        full_payload
+            .and_then(|payload| payload.execution_payload_capella().ok())
+            .map(|payload| payload.transactions.len() as i32)
+    };
+
+    let withdrawal_count: Option<i32> = full_payload
+        .and_then(|payload| payload.execution_payload_capella().ok())
+        .map(|payload| payload.withdrawals.len() as i32);
 
     let block_to_add = WatchBeaconBlock {
         slot,
@@ -149,7 +161,9 @@ pub fn insert_beacon_block<T: EthSpec>(
         parent_root,
         attestation_count,
         transaction_count,
+        withdrawal_count,
     };
+
     let proposer_info_to_add = WatchProposerInfo {
         slot,
         proposer_index,

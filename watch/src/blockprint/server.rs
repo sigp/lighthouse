@@ -28,5 +28,4 @@ pub async fn get_blockprint(
 
 pub fn blockprint_routes() -> Router {
     Router::new().route("/v1/blocks/:block/blockprint", get(get_blockprint))
-    //.route("/v1/blockprint/test/:slot", get(get_all_validators))
 }

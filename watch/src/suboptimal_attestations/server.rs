@@ -138,8 +138,8 @@ pub async fn get_validators_missed_vote_graffiti(
     .await?;
 
     let graffitis = get_validators_latest_proposer_info(&mut conn, indices)?
-        .iter()
-        .map(|(_, info)| info.graffiti.clone())
+        .values()
+        .map(|info| info.graffiti.clone())
         .collect::<Vec<String>>();
 
     let mut result = HashMap::new();
@@ -235,13 +235,17 @@ pub async fn get_clients_missed_vote_percentages(
 
     let mut result = HashMap::new();
     for (client, count) in clients_counts.iter() {
-        let percentage: f64 = *count as f64
-            / *totals
-                .get(client)
-                .ok_or_else(|| Error::Other("An unexpected error occurred".to_string()))?
-                as f64
-            * 100.0;
-        result.insert(client.to_string(), percentage);
+        let client_total: f64 = *totals
+            .get(client)
+            .ok_or_else(|| Error::Other("Client type mismatch".to_string()))?
+            as f64;
+        // `client_total` should never be `0`, but if it is, return `0` instead of `inf`.
+        if client_total == 0.0 {
+            result.insert(client.to_string(), 0.0);
+        } else {
+            let percentage: f64 = *count as f64 / client_total * 100.0;
+            result.insert(client.to_string(), percentage);
+        }
     }
 
     Ok(Json(result))
@@ -261,13 +265,18 @@ pub async fn get_clients_missed_vote_percentages_relative(
 
     let mut total: u64 = 0;
     for (_, count) in clients_counts.iter() {
-        total += *count as u64
+        total += *count
     }
 
     let mut result = HashMap::new();
     for (client, count) in clients_counts.iter() {
-        let percentage: f64 = *count as f64 / total as f64 * 100.0;
-        result.insert(client.to_string(), percentage);
+        // `total` should never be 0, but if it is, return `-` instead of `inf`.
+        if total == 0 {
+            result.insert(client.to_string(), 0.0);
+        } else {
+            let percentage: f64 = *count as f64 / total as f64 * 100.0;
+            result.insert(client.to_string(), percentage);
+        }
     }
 
     Ok(Json(result))
