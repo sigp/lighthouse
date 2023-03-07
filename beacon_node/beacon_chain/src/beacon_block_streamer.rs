@@ -127,9 +127,10 @@ fn reconstruct_default_header_block<E: EthSpec>(
     }
 }
 
-fn reconstruct_bocks<E: EthSpec>(
+fn reconstruct_blocks<E: EthSpec>(
     block_map: &mut HashMap<Hash256, Arc<BlockResult<E>>>,
     block_parts_with_bodies: HashMap<Hash256, BlockParts<E>>,
+    log: &Logger,
 ) {
     for (root, block_parts) in block_parts_with_bodies {
         if let Some(payload_body) = block_parts.body {
@@ -149,16 +150,15 @@ fn reconstruct_bocks<E: EthSpec>(
                             ),
                         );
                     } else {
-                        block_map.insert(
-                            root,
-                            Arc::new(Err(BeaconChainError::InconsistentPayloadReconstructed {
-                                slot: block_parts.blinded_block.slot(),
-                                exec_block_hash: block_parts.header.block_hash(),
-                                canonical_transactions_root: block_parts.header.transactions_root(),
-                                reconstructed_transactions_root: header_from_payload
-                                    .transactions_root(),
-                            })),
-                        );
+                        let error = BeaconChainError::InconsistentPayloadReconstructed {
+                            slot: block_parts.blinded_block.slot(),
+                            exec_block_hash: block_parts.header.block_hash(),
+                            canonical_transactions_root: block_parts.header.transactions_root(),
+                            reconstructed_transactions_root: header_from_payload
+                                .transactions_root(),
+                        };
+                        debug!(log, "Failed to reconstruct block"; "root" => ?root, "error" => ?error);
+                        block_map.insert(root, Arc::new(Err(error)));
                     }
                 }
                 Err(string) => {
@@ -216,7 +216,7 @@ impl<E: EthSpec> BodiesByHash<E> {
         }
     }
 
-    async fn execute(&mut self, execution_layer: &ExecutionLayer<E>, _log: &Logger) {
+    async fn execute(&mut self, execution_layer: &ExecutionLayer<E>, log: &Logger) {
         if let RequestState::UnSent(block_parts_ref) = &mut self.state {
             if let Some(hashes) = self.hashes.take() {
                 let block_parts_vec = std::mem::take(block_parts_ref);
@@ -247,11 +247,12 @@ impl<E: EthSpec> BodiesByHash<E> {
                                 });
                         }
 
-                        reconstruct_bocks(&mut block_map, with_bodies);
+                        reconstruct_blocks(&mut block_map, with_bodies, log);
                     }
                     Err(e) => {
                         let block_result =
                             Arc::new(Err(Error::BlocksByHashFailure(Box::new(e)).into()));
+                        debug!(log, "Payload bodies by hash failure"; "error" => ?block_result);
                         for block_parts in block_parts_vec {
                             block_map.insert(block_parts.root(), block_result.clone());
                         }
@@ -325,7 +326,7 @@ impl<E: EthSpec> BodiesByRange<E> {
         }
     }
 
-    async fn execute(&mut self, execution_layer: &ExecutionLayer<E>, _log: &Logger) {
+    async fn execute(&mut self, execution_layer: &ExecutionLayer<E>, log: &Logger) {
         if let RequestState::UnSent(blocks_parts_ref) = &mut self.state {
             let block_parts_vec = std::mem::take(blocks_parts_ref);
 
@@ -355,11 +356,12 @@ impl<E: EthSpec> BodiesByRange<E> {
                             });
                     }
 
-                    reconstruct_bocks(&mut block_map, with_bodies);
+                    reconstruct_blocks(&mut block_map, with_bodies, log);
                 }
                 Err(e) => {
                     let block_result =
                         Arc::new(Err(Error::BlocksByRangeFailure(Box::new(e)).into()));
+                    debug!(log, "Payload bodies by range failure"; "error" => ?block_result);
                     for block_parts in block_parts_vec {
                         block_map.insert(block_parts.root(), block_result.clone());
                     }
@@ -764,7 +766,7 @@ impl<T: BeaconChainTypes> BeaconBlockStreamer<T> {
         executor: &TaskExecutor,
     ) -> impl Stream<Item = (Hash256, Arc<BlockResult<T::EthSpec>>)> {
         let (block_tx, block_rx) = mpsc::unbounded_channel();
-
+        debug!(self.beacon_chain.log, "Launching a beacon_block_streamer");
         executor.spawn(self.stream(block_roots, block_tx), "get_blocks_sender");
         UnboundedReceiverStream::new(block_rx)
     }

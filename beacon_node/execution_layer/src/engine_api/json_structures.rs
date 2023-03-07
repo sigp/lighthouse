@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use strum::EnumString;
 use superstruct::superstruct;
 use types::{
-    EthSpec, ExecutionBlockHash, FixedVector, Transaction, Unsigned, VariableList, Withdrawal,
+    EthSpec, ExecutionBlockHash, FixedVector, Transactions, Unsigned, VariableList, Withdrawal,
 };
 use types::{ExecutionPayload, ExecutionPayloadCapella, ExecutionPayloadMerge};
 
@@ -93,8 +93,7 @@ pub struct JsonExecutionPayload<T: EthSpec> {
     pub base_fee_per_gas: Uint256,
     pub block_hash: ExecutionBlockHash,
     #[serde(with = "ssz_types::serde_utils::list_of_hex_var_list")]
-    pub transactions:
-        VariableList<Transaction<T::MaxBytesPerTransaction>, T::MaxTransactionsPerPayload>,
+    pub transactions: Transactions<T>,
     #[superstruct(only(V2))]
     pub withdrawals: VariableList<JsonWithdrawal, T::MaxWithdrawalsPerPayload>,
 }
@@ -495,32 +494,26 @@ impl From<ForkchoiceUpdatedResponse> for JsonForkchoiceUpdatedV1Response {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct JsonExecutionPayloadBodyV1 {
-    pub transactions: Vec<ethers_core::types::Transaction>,
-    pub withdrawals: Option<Vec<JsonWithdrawal>>,
+#[serde(bound = "E: EthSpec")]
+pub struct JsonExecutionPayloadBodyV1<E: EthSpec> {
+    #[serde(with = "ssz_types::serde_utils::list_of_hex_var_list")]
+    pub transactions: Transactions<E>,
+    pub withdrawals: Option<VariableList<JsonWithdrawal, E::MaxWithdrawalsPerPayload>>,
 }
 
-impl<E: EthSpec> TryFrom<JsonExecutionPayloadBodyV1> for ExecutionPayloadBodyV1<E> {
-    type Error = ssz_types::Error;
-
-    fn try_from(value: JsonExecutionPayloadBodyV1) -> Result<Self, Self::Error> {
-        Ok(Self {
-            transactions: Transactions::<E>::new(
-                value
-                    .transactions
-                    .iter()
-                    .map(|tx| Transaction::<E::MaxBytesPerTransaction>::new(tx.rlp().to_vec()))
-                    .collect::<Result<Vec<_>, _>>()?,
-            )?,
-            withdrawals: value
-                .withdrawals
-                .map(|withdrawals| {
-                    Withdrawals::<E>::new(
-                        withdrawals.into_iter().map(Into::into).collect::<Vec<_>>(),
-                    )
-                })
-                .transpose()?,
-        })
+impl<E: EthSpec> From<JsonExecutionPayloadBodyV1<E>> for ExecutionPayloadBodyV1<E> {
+    fn from(value: JsonExecutionPayloadBodyV1<E>) -> Self {
+        Self {
+            transactions: value.transactions,
+            withdrawals: value.withdrawals.map(|json_withdrawals| {
+                Withdrawals::<E>::from(
+                    json_withdrawals
+                        .into_iter()
+                        .map(Into::into)
+                        .collect::<Vec<_>>(),
+                )
+            }),
+        }
     }
 }
 

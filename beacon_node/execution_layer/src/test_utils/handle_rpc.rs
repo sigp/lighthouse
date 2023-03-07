@@ -378,11 +378,38 @@ pub async fn handle_rpc<T: EthSpec>(
                     .read()
                     .execution_block_with_txs_by_number(block_num);
 
-                let payload_body = maybe_block.map(|block| JsonExecutionPayloadBodyV1 {
-                    transactions: block.transactions().clone(),
-                    withdrawals: block.withdrawals().ok().cloned(),
-                });
-                response.push(payload_body);
+                match maybe_block {
+                    Some(block) => {
+                        let transactions = Transactions::<T>::new(
+                            block
+                                .transactions()
+                                .iter()
+                                .map(|transaction| VariableList::new(transaction.rlp().to_vec()))
+                                .collect::<Result<_, _>>()
+                                .map_err(|e| {
+                                    (
+                                        format!("failed to deserialize transaction: {:?}", e),
+                                        GENERIC_ERROR_CODE,
+                                    )
+                                })?,
+                        )
+                        .map_err(|e| {
+                            (
+                                format!("failed to deserialize transactions: {:?}", e),
+                                GENERIC_ERROR_CODE,
+                            )
+                        })?;
+
+                        response.push(Some(JsonExecutionPayloadBodyV1::<T> {
+                            transactions,
+                            withdrawals: block
+                                .withdrawals()
+                                .ok()
+                                .map(|withdrawals| VariableList::from(withdrawals.clone())),
+                        }));
+                    }
+                    None => response.push(None),
+                }
             }
 
             Ok(serde_json::to_value(response).unwrap())

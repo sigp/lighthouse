@@ -896,7 +896,7 @@ impl HttpJsonRpc {
     ) -> Result<Vec<Option<ExecutionPayloadBodyV1<E>>>, Error> {
         let params = json!([block_hashes]);
 
-        let response: Vec<Option<JsonExecutionPayloadBodyV1>> = self
+        let response: Vec<Option<JsonExecutionPayloadBodyV1<E>>> = self
             .rpc_request(
                 ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1,
                 params,
@@ -904,11 +904,10 @@ impl HttpJsonRpc {
             )
             .await?;
 
-        response
+        Ok(response
             .into_iter()
-            .map(|opt_json| opt_json.map(TryInto::try_into).transpose())
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(Error::DeserializeTransaction)
+            .map(|opt_json| opt_json.map(From::from))
+            .collect())
     }
 
     pub async fn get_payload_bodies_by_range_v1<E: EthSpec>(
@@ -921,7 +920,7 @@ impl HttpJsonRpc {
         struct Quantity(#[serde(with = "eth2_serde_utils::u64_hex_be")] u64);
 
         let params = json!([Quantity(start), Quantity(count)]);
-        let response: Vec<Option<JsonExecutionPayloadBodyV1>> = self
+        let response: Vec<Option<JsonExecutionPayloadBodyV1<E>>> = self
             .rpc_request(
                 ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1,
                 params,
@@ -929,11 +928,10 @@ impl HttpJsonRpc {
             )
             .await?;
 
-        response
+        Ok(response
             .into_iter()
-            .map(|opt_json| opt_json.map(TryInto::try_into).transpose())
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(Error::DeserializeTransaction)
+            .map(|opt_json| opt_json.map(From::from))
+            .collect())
     }
 
     pub async fn exchange_transition_configuration_v1(
