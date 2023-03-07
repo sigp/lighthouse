@@ -19,6 +19,7 @@ use eth2::{
     types::{BlockId, StateId},
     BeaconNodeHttpClient, Error as ApiError, Timeouts,
 };
+use logging::SSELoggingComponents;
 use execution_layer::ExecutionLayer;
 use genesis::{interop_genesis_state, Eth1GenesisService, DEFAULT_ETH1_BLOCK_HASH};
 use lighthouse_network::{prometheus_client::registry::Registry, NetworkGlobals};
@@ -72,6 +73,8 @@ pub struct ClientBuilder<T: BeaconChainTypes> {
     http_metrics_config: http_metrics::Config,
     slasher: Option<Arc<Slasher<T::EthSpec>>>,
     eth_spec_instance: T::EthSpec,
+    sse_logging_components: Option<SSELoggingComponents>,
+
 }
 
 impl<TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>
@@ -86,7 +89,7 @@ where
     /// Instantiates a new, empty builder.
     ///
     /// The `eth_spec_instance` parameter is used to concretize `TEthSpec`.
-    pub fn new(eth_spec_instance: TEthSpec) -> Self {
+    pub fn new(eth_spec_instance: TEthSpec, sse_logging_components: Option<SSELoggingComponents>) -> Self {
         Self {
             slot_clock: None,
             store: None,
@@ -104,6 +107,7 @@ where
             http_metrics_config: <_>::default(),
             slasher: None,
             eth_spec_instance,
+            sse_logging_components,
         }
     }
 
@@ -472,6 +476,7 @@ where
                         network_globals: None,
                         eth1_service: Some(genesis_service.eth1_service.clone()),
                         log: context.log().clone(),
+                        sse_logging_components: self.sse_logging_components.take(),
                     });
 
                     // Discard the error from the oneshot.
@@ -596,6 +601,12 @@ where
         self
     }
 
+    /// Adds SSE Logging components to the builder if they exist. 
+    pub fn sse_logging_comonents(mut self, components: Option<SSELoggingComponents>) -> Self {
+        self.sse_logging_components = components;
+        self
+    }
+
     /// Provides configuration for the HTTP server that serves Prometheus metrics.
     pub fn http_metrics_config(mut self, config: http_metrics::Config) -> Self {
         self.http_metrics_config = config;
@@ -692,6 +703,7 @@ where
                 network_senders: self.network_senders.clone(),
                 network_globals: self.network_globals.clone(),
                 eth1_service: self.eth1_service.clone(),
+                sse_logging_components: self.sse_logging_components.take(),
                 log: log.clone(),
             });
 

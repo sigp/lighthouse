@@ -19,7 +19,7 @@ use std::fs::create_dir_all;
 use std::io::{Result as IOResult, Write};
 use std::path::PathBuf;
 use std::sync::Arc;
-use logging::SSELoggingComponents;
+use logging::sse_drain::{SSELoggingComponents, SSEDrain};
 use task_executor::{ShutdownReason, TaskExecutor};
 use tokio::runtime::{Builder as RuntimeBuilder, Runtime};
 use types::{EthSpec, GnosisEthSpec, MainnetEthSpec, MinimalEthSpec};
@@ -77,6 +77,42 @@ impl Default for LoggerConfig {
             is_restricted: true,
             sse_logging: false,
         }
+    }
+}
+
+/// An execution context that can be used by a service.
+///
+/// Distinct from an `Environment` because a `Context` is not able to give a mutable reference to a
+/// `Runtime`, instead it only has access to a `Runtime`.
+#[derive(Clone)]
+pub struct RuntimeContext<E: EthSpec> {
+    pub executor: TaskExecutor,
+    pub eth_spec_instance: E,
+    pub eth2_config: Eth2Config,
+    pub eth2_network_config: Option<Arc<Eth2NetworkConfig>>,
+}
+
+impl<E: EthSpec> RuntimeContext<E> {
+    /// Returns a sub-context of this context.
+    ///
+    /// The generated service will have the `service_name` in all it's logs.
+    pub fn service_context(&self, service_name: String) -> Self {
+        Self {
+            executor: self.executor.clone_with_name(service_name),
+            eth_spec_instance: self.eth_spec_instance.clone(),
+            eth2_config: self.eth2_config.clone(),
+            eth2_network_config: self.eth2_network_config.clone(),
+        }
+    }
+
+    /// Returns the `eth2_config` for this service.
+    pub fn eth2_config(&self) -> &Eth2Config {
+        &self.eth2_config
+    }
+
+    /// Returns a reference to the logger for this service.
+    pub fn log(&self) -> &slog::Logger {
+        self.executor.log()
     }
 }
 
@@ -339,43 +375,6 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
     }
 }
 
-/// An execution context that can be used by a service.
-///
-/// Distinct from an `Environment` because a `Context` is not able to give a mutable reference to a
-/// `Runtime`, instead it only has access to a `Runtime`.
-#[derive(Clone)]
-pub struct RuntimeContext<E: EthSpec> {
-    pub executor: TaskExecutor,
-    pub eth_spec_instance: E,
-    pub eth2_config: Eth2Config,
-    pub eth2_network_config: Option<Arc<Eth2NetworkConfig>>,
-    pub sse_logging_components: Option<SSEComponents>,
-}
-
-impl<E: EthSpec> RuntimeContext<E> {
-    /// Returns a sub-context of this context.
-    ///
-    /// The generated service will have the `service_name` in all it's logs.
-    pub fn service_context(&self, service_name: String) -> Self {
-        Self {
-            executor: self.executor.clone_with_name(service_name),
-            eth_spec_instance: self.eth_spec_instance.clone(),
-            eth2_config: self.eth2_config.clone(),
-            eth2_network_config: self.eth2_network_config.clone(),
-            sse_logging_components: None, // We don't clone the 
-        }
-    }
-
-    /// Returns the `eth2_config` for this service.
-    pub fn eth2_config(&self) -> &Eth2Config {
-        &self.eth2_config
-    }
-
-    /// Returns a reference to the logger for this service.
-    pub fn log(&self) -> &slog::Logger {
-        self.executor.log()
-    }
-}
 
 /// An environment where Lighthouse services can run. Used to start a production beacon node or
 /// validator client, or to run tests that involve logging and async task execution.
@@ -388,7 +387,7 @@ pub struct Environment<E: EthSpec> {
     signal: Option<exit_future::Signal>,
     exit: exit_future::Exit,
     log: Logger,
-    sse_logging_components: Option<SSEComponents>,
+    sse_logging_components: Option<SSELoggingComponents>,
     eth_spec_instance: E,
     pub eth2_config: Eth2Config,
     pub eth2_network_config: Option<Arc<Eth2NetworkConfig>>,
@@ -549,6 +548,13 @@ impl<E: EthSpec> Environment<E> {
                 "error" => ?e
             ),
         }
+    }
+
+    /// Takes the receiver of the SSE Log components if one exists.
+    /// This is used to obtain the receiver of the SSE log channel in order to pass it to the HTTP
+    /// API.
+    pub fn get_sse_log(&mut self) -> Option<SSELoggingComponents> {
+        self.sse_logging_components.take()
     }
 
     /// Fire exit signal which shuts down all spawned services

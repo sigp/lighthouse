@@ -807,6 +807,7 @@ fn run<T: EthSpec>(
             max_log_number: 0,
             compression: false,
             is_restricted: true,
+            sse_logging: false, // No SSE Logging in LCLI
         })
         .map_err(|e| format!("should start logger: {:?}", e))?
         .build()

@@ -10,6 +10,9 @@ test_logger = [] # Print log output to stderr when running tests instead of drop
 [dependencies]
 slog = "2.5.2"
 slog-term = "2.6.0"
+tokio = "1.14.0"
 lighthouse_metrics = { path = "../lighthouse_metrics" }
 lazy_static = "1.4.0"
 sloggers = { version = "2.1.1", features = ["json"] }
+slog-async = "2.7.0"
+take_mut = "0.2.2"

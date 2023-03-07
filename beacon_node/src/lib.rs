@@ -21,6 +21,7 @@ use slog::{info, warn};
 use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
 use types::EthSpec;
+use logging::SSELoggingComponents;
 
 /// A type-alias to the tighten the definition of a production-intended `Client`.
 pub type ProductionClient<E> =
@@ -45,9 +46,10 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
     pub async fn new_from_cli(
         context: RuntimeContext<E>,
         matches: ArgMatches<'static>,
+        sse_log: Option<SSELoggingComponents>,
     ) -> Result<Self, String> {
         let client_config = get_config::<E>(&matches, &context)?;
-        Self::new(context, client_config).await
+        Self::new(context, client_config, sse_log).await
     }
 
     /// Starts a new beacon node `Client` in the given `environment`.
@@ -56,6 +58,7 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
     pub async fn new(
         context: RuntimeContext<E>,
         mut client_config: ClientConfig,
+        sse_logging_components: Option<SSELoggingComponents>,
     ) -> Result<Self, String> {
         let spec = context.eth2_config().spec.clone();
         let client_genesis = client_config.genesis.clone();
@@ -80,7 +83,7 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
             TimeoutRwLock::disable_timeouts()
         }
 
-        let builder = ClientBuilder::new(context.eth_spec_instance.clone())
+        let builder = ClientBuilder::new(context.eth_spec_instance.clone(), sse_logging_components)
             .runtime_context(context)
             .chain_spec(spec)
             .http_api_config(client_config.http_api.clone())

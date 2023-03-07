@@ -6,7 +6,6 @@ edition = "2021"
 
 [dev-dependencies]
 serde_yaml = "0.8.13"
-logging = { path = "../../common/logging" }
 state_processing = { path = "../../consensus/state_processing" }
 operation_pool = { path = "../operation_pool" }
 tokio = "1.14.0"
@@ -17,6 +16,7 @@ store = { path = "../store" }
 network = { path = "../network" }
 timer = { path = "../timer" }
 lighthouse_network = { path = "../lighthouse_network" }
+logging = { path = "../../common/logging" }
 parking_lot = "0.12.0"
 types = { path = "../../consensus/types" }
 eth2_config = { path = "../../common/eth2_config" }

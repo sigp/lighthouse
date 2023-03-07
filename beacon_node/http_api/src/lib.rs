@@ -73,6 +73,7 @@ use warp_utils::{
     query::multi_key_query,
     task::{blocking_json_task, blocking_task},
 };
+use logging::SSELoggingComponents;
 
 const API_PREFIX: &str = "eth";
 
@@ -105,6 +106,7 @@ pub struct Context<T: BeaconChainTypes> {
     pub network_senders: Option<NetworkSenders<T::EthSpec>>,
     pub network_globals: Option<Arc<NetworkGlobals<T::EthSpec>>>,
     pub eth1_service: Option<eth1::Service>,
+    pub sse_logging_components: Option<SSELoggingComponents>,
     pub log: Logger,
 }
 
@@ -444,6 +446,10 @@ pub fn serve<T: BeaconChainTypes>(
     // Create a `warp` filter that provides access to the logger.
     let inner_ctx = ctx.clone();
     let log_filter = warp::any().map(move || inner_ctx.log.clone());
+
+    let inner_components = ctx.sse_logging_components.clone();
+    let sse_component_filter = warp::any().map(move || inner_components.clone());
+
 
     // Create a `warp` filter that provides access to local system information.
     let system_info = Arc::new(RwLock::new(sysinfo::System::new()));
@@ -3559,6 +3565,80 @@ pub fn serve<T: BeaconChainTypes>(
                 })
             },
         );
+
+
+    // Subscribe to logs via Server Side Events
+    // /lighthouse/logs
+    let get_events = warp::path("lighthouse") 
+        .and(warp::path("logs"))
+        .and(warp::path::end())
+        .and_then(
+            |topics_res: Result<api_types::EventQuery, warp::Rejection>,
+             chain: Arc<BeaconChain<T>>| {
+                blocking_task(move || {
+                    let topics = topics_res?;
+                    // for each topic subscribed spawn a new subscription
+                    let mut receivers = Vec::with_capacity(topics.topics.len());
+
+                    if let Some(event_handler) = chain.event_handler.as_ref() {
+                        for topic in topics.topics {
+                            let receiver = match topic {
+                                api_types::EventTopic::Head => event_handler.subscribe_head(),
+                                api_types::EventTopic::Block => event_handler.subscribe_block(),
+                                api_types::EventTopic::Attestation => {
+                                    event_handler.subscribe_attestation()
+                                }
+                                api_types::EventTopic::VoluntaryExit => {
+                                    event_handler.subscribe_exit()
+                                }
+                                api_types::EventTopic::FinalizedCheckpoint => {
+                                    event_handler.subscribe_finalized()
+                                }
+                                api_types::EventTopic::ChainReorg => {
+                                    event_handler.subscribe_reorgs()
+                                }
+                                api_types::EventTopic::ContributionAndProof => {
+                                    event_handler.subscribe_contributions()
+                                }
+                                api_types::EventTopic::LateHead => {
+                                    event_handler.subscribe_late_head()
+                                }
+                                api_types::EventTopic::BlockReward => {
+                                    event_handler.subscribe_block_reward()
+                                }
+                            };
+
+                            receivers.push(BroadcastStream::new(receiver).map(|msg| {
+                                match msg {
+                                    Ok(data) => Event::default()
+                                        .event(data.topic_name())
+                                        .json_data(data)
+                                        .map_err(|e| {
+                                            warp_utils::reject::server_sent_event_error(format!(
+                                                "{:?}",
+                                                e
+                                            ))
+                                        }),
+                                    Err(e) => Err(warp_utils::reject::server_sent_event_error(
+                                        format!("{:?}", e),
+                                    )),
+                                }
+                            }));
+                        }
+                    } else {
+                        return Err(warp_utils::reject::custom_server_error(
+                            "event handler was not initialized".to_string(),
+                        ));
+                    }
+
+                    let s = futures::stream::select_all(receivers);
+
+                    Ok::<_, warp::Rejection>(warp::sse::reply(warp::sse::keep_alive().stream(s)))
+                })
+            },
+        );
+
+
 
     // Define the ultimate set of routes that will be provided to the server.
     let routes = warp::get()

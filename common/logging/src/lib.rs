@@ -11,7 +11,9 @@ use std::time::{Duration, Instant};
 
 pub const MAX_MESSAGE_WIDTH: usize = 40;
 
-pub use mod sse_drain;
+pub mod async_record;
+pub mod sse_drain;
+pub use sse_drain::SSELoggingComponents;
 
 /// The minimum interval between log messages indicating that a queue is full.
 const LOG_DEBOUNCE_INTERVAL: Duration = Duration::from_secs(30);

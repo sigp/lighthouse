@@ -564,6 +564,7 @@ fn run<E: EthSpec>(
     match matches.subcommand() {
         ("beacon_node", Some(matches)) => {
             let context = environment.core_context();
+            let sse_log = environment.get_sse_log();
             let log = context.log().clone();
             let executor = context.executor.clone();
             let mut config = beacon_node::get_config::<E>(matches, &context)?;
@@ -573,7 +574,7 @@ fn run<E: EthSpec>(
             clap_utils::check_dump_configs::<_, E>(matches, &config, &context.eth2_config.spec)?;
             executor.clone().spawn(
                 async move {
-                    if let Err(e) = ProductionBeaconNode::new(context.clone(), config).await {
+                    if let Err(e) = ProductionBeaconNode::new(context.clone(), config, sse_log).await {
                         crit!(log, "Failed to start beacon node"; "reason" => e);
                         // Ignore the error since it always occurs during normal operation when
                         // shutting down.

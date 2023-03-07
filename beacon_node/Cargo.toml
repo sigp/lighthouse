@@ -35,6 +35,7 @@ serde = "1.0.116"
 clap_utils = { path = "../common/clap_utils" }
 hyper = "0.14.4"
 lighthouse_version = { path = "../common/lighthouse_version" }
+logging = { path = "../common/logging" }
 hex = "0.4.2"
 slasher = { path = "../slasher", default-features = false }
 monitoring_api = { path = "../common/monitoring_api" }
