@@ -160,6 +160,12 @@ where
         self.map.contains(key)
     }
 
+    /// Shrink the mappings to fit the current size.
+    pub fn shrink_to_fit(&mut self) {
+        self.map.shrink_to_fit();
+        self.list.shrink_to_fit();
+    }
+
     #[cfg(test)]
     #[track_caller]
     fn check_invariant(&self) {
