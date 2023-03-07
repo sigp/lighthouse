@@ -15,11 +15,11 @@ use std::io::{Read, Write};
 use std::marker::PhantomData;
 use std::sync::Arc;
 use tokio_util::codec::{Decoder, Encoder};
-use types::light_client_bootstrap::LightClientBootstrap;
+use types::{light_client_bootstrap::LightClientBootstrap, BlobSidecar};
 use types::{
-    BlobsSidecar, EthSpec, ForkContext, ForkName, Hash256, SignedBeaconBlock,
-    SignedBeaconBlockAltair, SignedBeaconBlockAndBlobsSidecar, SignedBeaconBlockBase,
-    SignedBeaconBlockCapella, SignedBeaconBlockEip4844, SignedBeaconBlockMerge,
+    EthSpec, ForkContext, ForkName, Hash256, SignedBeaconBlock, SignedBeaconBlockAltair,
+    SignedBeaconBlockBase, SignedBeaconBlockCapella, SignedBeaconBlockEip4844,
+    SignedBeaconBlockMerge,
 };
 use unsigned_varint::codec::Uvi;
 
@@ -439,8 +439,7 @@ fn context_bytes<T: EthSpec>(
                     SignedBeaconBlock::Base { .. } => Some(fork_context.genesis_context_bytes()),
                 };
             }
-            if let RPCResponse::BlobsByRange(_) | RPCResponse::SidecarByRoot(_) = rpc_variant
-            {
+            if let RPCResponse::BlobsByRange(_) | RPCResponse::SidecarByRoot(_) = rpc_variant {
                 return fork_context.to_context_bytes(ForkName::Eip4844);
             }
         }
@@ -582,7 +581,7 @@ fn handle_v1_response<T: EthSpec>(
             })?;
             match fork_name {
                 ForkName::Eip4844 => Ok(Some(RPCResponse::BlobsByRange(Arc::new(
-                    BlobsSidecar::from_ssz_bytes(decoded_buffer)?,
+                    BlobSidecar::from_ssz_bytes(decoded_buffer)?,
                 )))),
                 _ => Err(RPCError::ErrorResponse(
                     RPCResponseErrorCode::InvalidRequest,
@@ -599,7 +598,7 @@ fn handle_v1_response<T: EthSpec>(
             })?;
             match fork_name {
                 ForkName::Eip4844 => Ok(Some(RPCResponse::SidecarByRoot(
-                    SignedBeaconBlockAndBlobsSidecar::from_ssz_bytes(decoded_buffer)?,
+                    BlobSidecar::from_ssz_bytes(decoded_buffer)?,
                 ))),
                 _ => Err(RPCError::ErrorResponse(
                     RPCResponseErrorCode::InvalidRequest,
@@ -846,7 +845,10 @@ mod tests {
 
     fn blbroot_request() -> BlobsByRootRequest {
         BlobsByRootRequest {
-            blob_ids: VariableList::from(vec![Hash256::zero()]),
+            blob_ids: VariableList::from(vec![BlobIdentifier {
+                block_root: Hash256::zero(),
+                index: 0,
+            }]),
         }
     }
 
