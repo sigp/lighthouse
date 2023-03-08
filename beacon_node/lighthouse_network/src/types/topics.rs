@@ -288,13 +288,8 @@ fn subnet_topic_index(topic: &str) -> Option<GossipKind> {
                 .parse::<u64>()
                 .ok()?,
         )));
-    } else if topic.starts_with(BLOB_SIDECAR_PREFIX) {
-        return Some(GossipKind::BlobSidecar(
-            topic
-                .trim_start_matches(BLOB_SIDECAR_PREFIX)
-                .parse::<u64>()
-                .ok()?,
-        ));
+    } else if let Some(index) = topic.strip_prefix(BLOB_SIDECAR_PREFIX) {
+        return Some(GossipKind::BlobSidecar(index.parse::<u64>().ok()?));
     }
     None
 }
