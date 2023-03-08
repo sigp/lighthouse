@@ -590,6 +590,7 @@ pub fn random_dbname() -> String {
     format!("test_{}", s)
 }
 
+#[cfg(unix)]
 #[tokio::test]
 async fn short_chain() {
     let builder = TesterBuilder::new().await;
@@ -617,6 +618,7 @@ async fn short_chain() {
         .await;
 }
 
+#[cfg(unix)]
 #[tokio::test]
 async fn short_chain_sync_starts_on_skip_slot() {
     let builder = TesterBuilder::new().await;
@@ -654,6 +656,7 @@ async fn short_chain_sync_starts_on_skip_slot() {
         .await;
 }
 
+#[cfg(unix)]
 #[tokio::test]
 async fn short_chain_with_skip_slot() {
     let builder = TesterBuilder::new().await;
@@ -698,6 +701,7 @@ async fn short_chain_with_skip_slot() {
         .await;
 }
 
+#[cfg(unix)]
 #[tokio::test]
 async fn short_chain_with_reorg() {
     let builder = TesterBuilder::new().await;
@@ -744,6 +748,7 @@ async fn short_chain_with_reorg() {
         .await;
 }
 
+#[cfg(unix)]
 #[tokio::test]
 async fn chain_grows() {
     let builder = TesterBuilder::new().await;
@@ -807,6 +812,7 @@ async fn chain_grows() {
         .await;
 }
 
+#[cfg(unix)]
 #[tokio::test]
 async fn chain_grows_with_metadata() {
     let builder = TesterBuilder::new().await;
@@ -913,6 +919,7 @@ async fn chain_grows_with_metadata() {
         .await;
 }
 
+#[cfg(unix)]
 #[tokio::test]
 async fn chain_grows_with_metadata_and_multiple_skip_slots() {
     let builder = TesterBuilder::new().await;
@@ -1026,6 +1033,7 @@ async fn chain_grows_with_metadata_and_multiple_skip_slots() {
         .await;
 }
 
+#[cfg(unix)]
 #[tokio::test]
 async fn chain_grows_to_second_epoch() {
     let builder = TesterBuilder::new().await;
@@ -1113,6 +1121,7 @@ async fn chain_grows_to_second_epoch() {
         .await;
 }
 
+#[cfg(unix)]
 #[tokio::test]
 async fn large_chain() {
     let builder = TesterBuilder::new().await;
