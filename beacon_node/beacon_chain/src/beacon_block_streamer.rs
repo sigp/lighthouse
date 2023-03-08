@@ -29,7 +29,8 @@ pub enum Error {
     PayloadReconstruction(String),
     BlocksByRangeFailure(Box<execution_layer::Error>),
     BlocksByHashFailure(Box<execution_layer::Error>),
-    BlockNotFound,
+    RequestNotFound,
+    BlockResultNotFound,
 }
 
 // This is the same as a DatabaseBlock
@@ -194,6 +195,10 @@ impl<E: EthSpec> BodiesByHash<E> {
         }
     }
 
+    pub fn len(&self) -> usize {
+        self.hashes.as_ref().map(|vec| vec.len()).unwrap_or(0)
+    }
+
     pub fn push_block_parts(&mut self, block_parts: BlockParts<E>) -> Result<(), BlockParts<E>> {
         if self
             .hashes
@@ -293,6 +298,10 @@ impl<E: EthSpec> BodiesByRange<E> {
                 state: RequestState::UnSent(vec![]),
             }
         }
+    }
+
+    pub fn len(&self) -> usize {
+        self.count as usize
     }
 
     pub fn push_block_parts(&mut self, block_parts: BlockParts<E>) -> Result<(), BlockParts<E>> {
@@ -405,32 +414,41 @@ impl<E: EthSpec> EngineRequest<E> {
         Self::NoRequest(Arc::new(RwLock::new(HashMap::new())))
     }
 
-    pub async fn push_block_parts(&mut self, block_parts: BlockParts<E>, log: &Logger) {
+    // Returns true if this was the first block in the request
+    // Useful for recording the number of requests for metrics
+    pub async fn push_block_parts(&mut self, block_parts: BlockParts<E>, log: &Logger) -> bool {
         match self {
             Self::ByHash(bodies_by_hash) => {
-                let mut write_guard = bodies_by_hash.write().await;
-
-                if let Err(block_parts) = write_guard.push_block_parts(block_parts) {
-                    drop(write_guard);
+                let mut request = bodies_by_hash.write().await;
+                if let Err(block_parts) = request.push_block_parts(block_parts) {
+                    drop(request);
                     let new_by_hash = BodiesByHash::new(Some(block_parts));
                     *self = Self::ByHash(Arc::new(RwLock::new(new_by_hash)));
+                    true
+                } else {
+                    request.len() == 1
                 }
             }
             Self::ByRange(bodies_by_range) => {
-                let mut write_guard = bodies_by_range.write().await;
+                let mut request = bodies_by_range.write().await;
 
-                if let Err(block_parts) = write_guard.push_block_parts(block_parts) {
-                    drop(write_guard);
+                if let Err(block_parts) = request.push_block_parts(block_parts) {
+                    drop(request);
                     let new_by_range = BodiesByRange::new(Some(block_parts));
                     *self = Self::ByRange(Arc::new(RwLock::new(new_by_range)));
+                    true
+                } else {
+                    request.len() == 1
                 }
             }
             Self::NoRequest(_) => {
                 // this should _never_ happen
                 crit!(
                     log,
-                    "Please notify the devs: beacon_block_streamer: push_block_parts called on NoRequest variant"
+                    "Please notify the devs";
+                    "beacon_block_streamer" => "push_block_parts called on NoRequest Variant",
                 );
+                false
             }
         }
     }
@@ -447,14 +465,16 @@ impl<E: EthSpec> EngineRequest<E> {
                 // this should _never_ happen
                 crit!(
                     log,
-                    "Please notify the devs: beacon_block_streamer: push_block_result called on ByRange"
+                    "Please notify the devs";
+                    "beacon_block_streamer" => "push_block_result called on ByRange",
                 );
             }
             Self::ByHash(_) => {
                 // this should _never_ happen
                 crit!(
                     log,
-                    "Please notify the devs: beacon_block_streamer: push_block_result called on ByHash"
+                    "Please notify the devs";
+                    "beacon_block_streamer" => "push_block_result called on ByHash",
                 );
             }
             Self::NoRequest(results) => {
@@ -485,13 +505,15 @@ impl<E: EthSpec> EngineRequest<E> {
                     .await
             }
             Self::NoRequest(map) => map.read().await.get(root).cloned(),
-        }.unwrap_or_else(|| {
+        }
+        .unwrap_or_else(|| {
             crit!(
                 log,
-                "Please notify the devs: beacon_block_streamer: block_result not found for block {:?}",
-                root
+                "Please notify the devs";
+                "beacon_block_streamer" => "block_result not found in request",
+                "root" => ?root,
             );
-            Arc::new(Err(Error::BlockNotFound.into()))
+            Arc::new(Err(Error::BlockResultNotFound.into()))
         })
     }
 }
@@ -576,13 +598,13 @@ impl<T: BeaconChainTypes> BeaconBlockStreamer<T> {
     /// 2) blocks_by_range - used for finalized blinded blocks
     /// 3) blocks_by_root - used for unfinalized blinded blocks
     ///
-    /// The function returns a mapping of (block_root -> request) as well as a vector
-    /// of block roots so that we can return the blocks in the same order they were
-    /// requested
+    /// The function returns a vector of block roots in the same order as requested
+    /// along with the engine request that each root corresponds to. It also returns
+    /// the number of unique engine requests for metrics.
     async fn get_requests(
         &self,
         payloads: Vec<(Hash256, LoadResult<T::EthSpec>)>,
-    ) -> (Vec<Hash256>, HashMap<Hash256, EngineRequest<T::EthSpec>>) {
+    ) -> (Vec<(Hash256, EngineRequest<T::EthSpec>)>, u32) {
         let mut ordered_block_roots = Vec::new();
         let mut requests = HashMap::new();
 
@@ -592,6 +614,7 @@ impl<T: BeaconChainTypes> BeaconBlockStreamer<T> {
         let mut by_range_blocks: Vec<BlockParts<T::EthSpec>> = vec![];
         let mut by_hash = EngineRequest::new_by_hash();
         let mut no_request = EngineRequest::new_no_request();
+        let mut num_requests = 0u32; // number of requests to EE
 
         for (root, load_result) in payloads {
             // preserve the order of the requested blocks
@@ -625,9 +648,12 @@ impl<T: BeaconChainTypes> BeaconBlockStreamer<T> {
                                     by_range_blocks.push(block_parts);
                                 } else {
                                     // this is a by_hash request
-                                    by_hash
+                                    if by_hash
                                         .push_block_parts(block_parts, &self.beacon_chain.log)
-                                        .await;
+                                        .await
+                                    {
+                                        num_requests += 1;
+                                    }
                                     requests.insert(root, by_hash.clone());
                                 }
                             }
@@ -672,13 +698,38 @@ impl<T: BeaconChainTypes> BeaconBlockStreamer<T> {
         by_range_blocks.sort_by_key(|block_parts| block_parts.slot());
         for block_parts in by_range_blocks {
             let root = block_parts.root();
-            by_range
+            if by_range
                 .push_block_parts(block_parts, &self.beacon_chain.log)
-                .await;
+                .await
+            {
+                num_requests += 1;
+            }
             requests.insert(root, by_range.clone());
         }
 
-        (ordered_block_roots, requests)
+        let mut result = vec![];
+        for root in ordered_block_roots {
+            if let Some(request) = requests.get(&root) {
+                result.push((root, request.clone()))
+            } else {
+                crit!(
+                    self.beacon_chain.log,
+                    "Please notify the devs";
+                    "beacon_block_streamer" => "request not found",
+                    "root" => ?root,
+                );
+                no_request
+                    .push_block_result(
+                        root,
+                        Err(Error::RequestNotFound.into()),
+                        &self.beacon_chain.log,
+                    )
+                    .await;
+                result.push((root, no_request.clone()));
+            }
+        }
+
+        (result, num_requests)
     }
 
     // used when the execution engine doesn't support the payload bodies methods
@@ -713,27 +764,43 @@ impl<T: BeaconChainTypes> BeaconBlockStreamer<T> {
         block_roots: Vec<Hash256>,
         sender: UnboundedSender<(Hash256, Arc<BlockResult<T::EthSpec>>)>,
     ) {
-        let payloads = self.load_payloads(block_roots);
-        let (roots, request_map) = self.get_requests(payloads).await;
+        let n_roots = block_roots.len();
+        let mut n_success = 0usize;
+        let mut n_sent = 0usize;
 
-        for root in roots {
-            let result = if let Some(request) = request_map.get(&root) {
-                request
-                    .get_block_result(&root, &self.execution_layer, &self.beacon_chain.log)
-                    .await
-            } else {
-                crit!(
-                    self.beacon_chain.log,
-                    "Please notify the devs: beacon_block_streamer: request not found for block {:?}",
-                    root
-                );
-                Arc::new(Err(Error::BlockNotFound.into()))
-            };
+        let payloads = self.load_payloads(block_roots);
+        let (requests, engine_requests) = self.get_requests(payloads).await;
+
+        for (root, request) in requests {
+            let result = request
+                .get_block_result(&root, &self.execution_layer, &self.beacon_chain.log)
+                .await;
+
+            let successful = result
+                .as_ref()
+                .as_ref()
+                .map(|opt| opt.is_some())
+                .unwrap_or(false);
 
             if sender.send((root, result)).is_err() {
                 break;
+            } else {
+                n_sent += 1;
+                if successful {
+                    n_success += 1;
+                }
             }
         }
+
+        debug!(
+            self.beacon_chain.log,
+            "BeaconBlockStreamer finished";
+            "requested blocks" => n_roots,
+            "sent" => n_sent,
+            "succeeded" => n_success,
+            "failed" => (n_sent - n_success),
+            "engine requests" => engine_requests,
+        );
     }
 
     pub async fn stream(
@@ -770,7 +837,11 @@ impl<T: BeaconChainTypes> BeaconBlockStreamer<T> {
         executor: &TaskExecutor,
     ) -> impl Stream<Item = (Hash256, Arc<BlockResult<T::EthSpec>>)> {
         let (block_tx, block_rx) = mpsc::unbounded_channel();
-        debug!(self.beacon_chain.log, "Launching a beacon_block_streamer");
+        debug!(
+            self.beacon_chain.log,
+            "Launching a BeaconBlockStreamer";
+            "blocks" => block_roots.len(),
+        );
         executor.spawn(self.stream(block_roots, block_tx), "get_blocks_sender");
         UnboundedReceiverStream::new(block_rx)
     }
