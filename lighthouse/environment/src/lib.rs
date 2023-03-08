@@ -19,7 +19,7 @@ use std::fs::create_dir_all;
 use std::io::{Result as IOResult, Write};
 use std::path::PathBuf;
 use std::sync::Arc;
-use logging::sse_drain::{SSELoggingComponents, SSEDrain};
+use logging::{SSELoggingComponents, SSEDrain};
 use task_executor::{ShutdownReason, TaskExecutor};
 use tokio::runtime::{Builder as RuntimeBuilder, Runtime};
 use types::{EthSpec, GnosisEthSpec, MainnetEthSpec, MinimalEthSpec};

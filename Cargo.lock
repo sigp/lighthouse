@@ -4498,6 +4498,7 @@ dependencies = [
 name = "logging"
 version = "0.2.0"
 dependencies = [
+ "crossbeam-channel",
  "lazy_static",
  "lighthouse_metrics",
  "slog",
@@ -4505,7 +4506,6 @@ dependencies = [
  "slog-term",
  "sloggers",
  "take_mut",
- "tokio",
 ]
 
 [[package]]

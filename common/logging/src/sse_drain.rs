@@ -1,17 +1,16 @@
 //! This module provides an implementation of `slog::Drain` that optionally writes to a channel if
 //! there are subscribers to a HTTP SSE stream.
 
-use crate::async_record::AsyncRecord;
-use slog::{Drain, Level, OwnedKVList, Record, KV};
+use crossbeam_channel::{Receiver, Sender, TrySendError};
+use slog::{Drain, OwnedKVList, Record};
+use slog_async::AsyncRecord;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use tokio::sync::broadcast::{error::SendError, Receiver, Sender};
 
 /// The components required in the HTTP API task to receive logged events.
-#[derive(Clone)]
 pub struct SSELoggingComponents {
     /// The channel to receive events from.
-    pub sender: Arc<Sender<AsyncRecord>>,
+    pub receiver: Receiver<AsyncRecord>,
     /// Indicates if there are currently subscribers to the http API.
     pub subscribers: Arc<AtomicBool>,
 }
@@ -27,18 +26,17 @@ pub struct SSEDrain {
 impl SSEDrain {
     /// Create a new SSE drain.
     pub fn new(channel_size: usize) -> (Self, SSELoggingComponents) {
-        let (sender, _receiver) = tokio::sync::broadcast::channel(channel_size);
+        let (sender, receiver) = crossbeam_channel::bounded::<AsyncRecord>(channel_size);
         let subscribers = Arc::new(AtomicBool::new(false));
 
         let drain = SSEDrain {
             sender,
             subscribers: subscribers.clone(),
         };
-        let sender = Arc::new(sender);
         (
             drain,
             SSELoggingComponents {
-                sender,
+                receiver,
                 subscribers,
             },
         )

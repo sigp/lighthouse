@@ -1,11 +1,12 @@
 //! An object that can be used to pass through a channel and be cloned. It can therefore be used
 //! via the broadcast channel.
 
-use slog::{BorrowedKV, Drain, Key, Level, OwnedKVList, Record, RecordStatic, Serializer, KV};
+use slog::{
+    BorrowedKV, Drain, Key, Level, OwnedKVList, Record, RecordStatic, Serializer, SingleKV, KV,
+};
 use std::fmt;
+use std::sync::Arc;
 use take_mut::take;
-
-trait KVClone: KV + Clone + Sized {}
 
 /// Serialized record.
 #[derive(Clone)]
@@ -15,7 +16,7 @@ pub struct AsyncRecord {
     location: Box<slog::RecordLocation>,
     tag: String,
     logger_values: OwnedKVList,
-    kv: Box<dyn KVClone + Send>,
+    kv: Arc<dyn KV + Send>,
 }
 
 impl AsyncRecord {
@@ -33,7 +34,7 @@ impl AsyncRecord {
             location: Box::new(*record.location()),
             tag: String::from(record.tag()),
             logger_values: logger_values.clone(),
-            kv: ser.finish(),
+            kv: Arc::new(ser.finish()),
         }
     }
 
