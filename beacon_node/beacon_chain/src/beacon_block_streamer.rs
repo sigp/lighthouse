@@ -687,6 +687,10 @@ impl<T: BeaconChainTypes> BeaconBlockStreamer<T> {
         block_roots: Vec<Hash256>,
         sender: UnboundedSender<(Hash256, Arc<BlockResult<T::EthSpec>>)>,
     ) {
+        debug!(
+            self.beacon_chain.log,
+            "Using slower fallback method of eth_getBlockByHash()"
+        );
         for root in block_roots {
             let cached_block = self.check_early_attester_cache(root);
             let block_result = if cached_block.is_some() {
@@ -795,8 +799,10 @@ impl From<Error> for BeaconChainError {
 mod tests {
     use crate::beacon_block_streamer::{BeaconBlockStreamer, CheckEarlyAttesterCache};
     use crate::test_utils::{test_spec, BeaconChainHarness, EphemeralHarnessType};
-    use execution_layer::test_utils::Block;
+    use execution_layer::test_utils::{Block, DEFAULT_ENGINE_CAPABILITIES};
+    use execution_layer::EngineCapabilities;
     use lazy_static::lazy_static;
+    use std::time::Duration;
     use tokio::sync::mpsc;
     use types::{ChainSpec, Epoch, EthSpec, Hash256, Keypair, MinimalEthSpec, Slot};
 
@@ -826,7 +832,7 @@ mod tests {
     #[tokio::test]
     async fn check_all_blocks_from_altair_to_capella() {
         let slots_per_epoch = MinimalEthSpec::slots_per_epoch() as usize;
-        let num_epochs = 7;
+        let num_epochs = 8;
         let bellatrix_fork_epoch = 2usize;
         let capella_fork_epoch = 4usize;
         let num_blocks_produced = num_epochs * slots_per_epoch;
@@ -837,6 +843,145 @@ mod tests {
         spec.capella_fork_epoch = Some(Epoch::new(capella_fork_epoch as u64));
 
         let harness = get_harness(VALIDATOR_COUNT, spec);
+        // go to bellatrix fork
+        harness
+            .extend_slots(bellatrix_fork_epoch * slots_per_epoch)
+            .await;
+        // extend half an epoch
+        harness.extend_slots(slots_per_epoch / 2).await;
+        // trigger merge
+        harness
+            .execution_block_generator()
+            .move_to_terminal_block()
+            .expect("should move to terminal block");
+        let timestamp = harness.get_timestamp_at_slot() + harness.spec.seconds_per_slot;
+        harness
+            .execution_block_generator()
+            .modify_last_block(|block| {
+                if let Block::PoW(terminal_block) = block {
+                    terminal_block.timestamp = timestamp;
+                }
+            });
+        // finish out merge epoch
+        harness.extend_slots(slots_per_epoch / 2).await;
+        // finish rest of epochs
+        harness
+            .extend_slots((num_epochs - 1 - bellatrix_fork_epoch) * slots_per_epoch)
+            .await;
+
+        let head = harness.chain.head_snapshot();
+        let state = &head.beacon_state;
+
+        assert_eq!(
+            state.slot(),
+            Slot::new(num_blocks_produced as u64),
+            "head should be at the current slot"
+        );
+        assert_eq!(
+            state.current_epoch(),
+            num_blocks_produced as u64 / MinimalEthSpec::slots_per_epoch(),
+            "head should be at the expected epoch"
+        );
+        assert_eq!(
+            state.current_justified_checkpoint().epoch,
+            state.current_epoch() - 1,
+            "the head should be justified one behind the current epoch"
+        );
+        assert_eq!(
+            state.finalized_checkpoint().epoch,
+            state.current_epoch() - 2,
+            "the head should be finalized two behind the current epoch"
+        );
+
+        let block_roots: Vec<Hash256> = harness
+            .chain
+            .forwards_iter_block_roots(Slot::new(0))
+            .expect("should get iter")
+            .map(Result::unwrap)
+            .map(|(root, _)| root)
+            .collect();
+
+        let mut expected_blocks = vec![];
+        // get all blocks the old fashioned way
+        for root in &block_roots {
+            let block = harness
+                .chain
+                .get_block(root)
+                .await
+                .expect("should get block")
+                .expect("block should exist");
+            expected_blocks.push(block);
+        }
+
+        for epoch in 0..num_epochs {
+            let start = epoch * slots_per_epoch;
+            let mut epoch_roots = vec![Hash256::zero(); slots_per_epoch];
+            epoch_roots[..].clone_from_slice(&block_roots[start..(start + slots_per_epoch)]);
+            let streamer = BeaconBlockStreamer::new(&harness.chain, CheckEarlyAttesterCache::No)
+                .expect("should create streamer");
+            let (block_tx, mut block_rx) = mpsc::unbounded_channel();
+            streamer.stream(epoch_roots.clone(), block_tx).await;
+
+            for (i, expected_root) in epoch_roots.into_iter().enumerate() {
+                let (found_root, found_block_result) =
+                    block_rx.recv().await.expect("should get block");
+
+                assert_eq!(
+                    found_root, expected_root,
+                    "expected block root should match"
+                );
+                match found_block_result.as_ref() {
+                    Ok(maybe_block) => {
+                        let found_block = maybe_block.clone().expect("should have a block");
+                        let expected_block = expected_blocks
+                            .get(start + i)
+                            .expect("should get expected block");
+                        assert_eq!(
+                            found_block.as_ref(),
+                            expected_block,
+                            "expected block should match found block"
+                        );
+                    }
+                    Err(e) => panic!("Error retrieving block {}: {:?}", expected_root, e),
+                }
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn check_fallback_altiar_to_capella() {
+        let slots_per_epoch = MinimalEthSpec::slots_per_epoch() as usize;
+        let num_epochs = 8;
+        let bellatrix_fork_epoch = 2usize;
+        let capella_fork_epoch = 4usize;
+        let num_blocks_produced = num_epochs * slots_per_epoch;
+
+        let mut spec = test_spec::<MinimalEthSpec>();
+        spec.altair_fork_epoch = Some(Epoch::new(0));
+        spec.bellatrix_fork_epoch = Some(Epoch::new(bellatrix_fork_epoch as u64));
+        spec.capella_fork_epoch = Some(Epoch::new(capella_fork_epoch as u64));
+
+        let harness = get_harness(VALIDATOR_COUNT, spec);
+
+        // modify execution engine so it doesn't support engine_payloadBodiesBy* methods
+        let mock_execution_layer = harness.mock_execution_layer.as_ref().unwrap();
+        mock_execution_layer
+            .server
+            .set_engine_capabilities(EngineCapabilities {
+                get_payload_bodies_by_hash_v1: false,
+                get_payload_bodies_by_range_v1: false,
+                ..DEFAULT_ENGINE_CAPABILITIES
+            });
+        // refresh capabilities cache
+        harness
+            .chain
+            .execution_layer
+            .as_ref()
+            .unwrap()
+            .get_engine_capabilities(Some(Duration::ZERO))
+            .await
+            .unwrap();
+
         // go to bellatrix fork
         harness
             .extend_slots(bellatrix_fork_epoch * slots_per_epoch)
