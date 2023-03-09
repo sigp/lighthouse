@@ -280,7 +280,7 @@ fn subnet_topic_index(topic: &str) -> Option<GossipKind> {
         return Some(GossipKind::Attestation(SubnetId::new(
             index.parse::<u64>().ok()?,
         )));
-    } else if topic.strip_prefix(SYNC_COMMITTEE_PREFIX_TOPIC) {
+    } else if let Some(index) = topic.strip_prefix(SYNC_COMMITTEE_PREFIX_TOPIC) {
         return Some(GossipKind::SyncCommitteeMessage(SyncSubnetId::new(
             index.parse::<u64>().ok()?,
         )));
