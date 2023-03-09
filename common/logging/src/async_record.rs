@@ -194,16 +194,21 @@ impl Serialize for AsyncRecord {
         };
         let mut map_serializer = SerdeSerializer::new(serializer)?;
         let kv = self.kv.lock();
-        let message = format_args!("{}", self.msg);
-        let record = Record::new(&rs, &message, BorrowedKV(&(*kv)));
 
-        self.logger_values
-            .serialize(&record, &mut map_serializer)
-            .map_err(|e| serde::ser::Error::custom(e))?;
-        record
-            .kv()
-            .serialize(&record, &mut map_serializer)
-            .map_err(serde::ser::Error::custom)?;
+        // Convoluted pattern to avoid binding `format_args!` to a temporary.
+        // See: https://stackoverflow.com/questions/56304313/cannot-use-format-args-due-to-temporary-value-is-freed-at-the-end-of-this-state
+        let mut f = |msg: std::fmt::Arguments| {
+            let record = Record::new(&rs, &msg, BorrowedKV(&(*kv)));
+            self.logger_values
+                .serialize(&record, &mut map_serializer)
+                .map_err(serde::ser::Error::custom)?;
+            record
+                .kv()
+                .serialize(&record, &mut map_serializer)
+                .map_err(serde::ser::Error::custom)
+        };
+        f(format_args!("{}", self.msg))?;
+
         map_serializer.end()
     }
 }
