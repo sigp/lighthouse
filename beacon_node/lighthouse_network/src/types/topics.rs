@@ -115,7 +115,9 @@ impl std::fmt::Display for GossipKind {
             GossipKind::SyncCommitteeMessage(subnet_id) => {
                 write!(f, "sync_committee_{}", **subnet_id)
             }
-            GossipKind::BlobSidecar(blob_index) => write!(f, "blob_sidecar_{}", blob_index),
+            GossipKind::BlobSidecar(blob_index) => {
+                write!(f, "{}{}", BLOB_SIDECAR_PREFIX, blob_index)
+            }
             x => f.write_str(x.as_ref()),
         }
     }
