@@ -195,8 +195,8 @@ impl<E: EthSpec> BodiesByHash<E> {
         }
     }
 
-    pub fn len(&self) -> usize {
-        self.hashes.as_ref().map(|vec| vec.len()).unwrap_or(0)
+    pub fn is_unsent(&self) -> bool {
+        matches!(self.state, RequestState::UnSent(_))
     }
 
     pub fn push_block_parts(&mut self, block_parts: BlockParts<E>) -> Result<(), BlockParts<E>> {
@@ -300,8 +300,8 @@ impl<E: EthSpec> BodiesByRange<E> {
         }
     }
 
-    pub fn len(&self) -> usize {
-        self.count as usize
+    pub fn is_unsent(&self) -> bool {
+        matches!(self.state, RequestState::UnSent(_))
     }
 
     pub fn push_block_parts(&mut self, block_parts: BlockParts<E>) -> Result<(), BlockParts<E>> {
@@ -414,9 +414,15 @@ impl<E: EthSpec> EngineRequest<E> {
         Self::NoRequest(Arc::new(RwLock::new(HashMap::new())))
     }
 
-    // Returns true if this was the first block in the request
-    // Useful for recording the number of requests for metrics
-    pub async fn push_block_parts(&mut self, block_parts: BlockParts<E>, log: &Logger) -> bool {
+    pub async fn is_unsent(&self) -> bool {
+        match self {
+            Self::ByHash(bodies_by_hash) => bodies_by_hash.read().await.is_unsent(),
+            Self::ByRange(bodies_by_range) => bodies_by_range.read().await.is_unsent(),
+            Self::NoRequest(_) => false,
+        }
+    }
+
+    pub async fn push_block_parts(&mut self, block_parts: BlockParts<E>, log: &Logger) {
         match self {
             Self::ByHash(bodies_by_hash) => {
                 let mut request = bodies_by_hash.write().await;
@@ -424,9 +430,6 @@ impl<E: EthSpec> EngineRequest<E> {
                     drop(request);
                     let new_by_hash = BodiesByHash::new(Some(block_parts));
                     *self = Self::ByHash(Arc::new(RwLock::new(new_by_hash)));
-                    true
-                } else {
-                    request.len() == 1
                 }
             }
             Self::ByRange(bodies_by_range) => {
@@ -436,9 +439,6 @@ impl<E: EthSpec> EngineRequest<E> {
                     drop(request);
                     let new_by_range = BodiesByRange::new(Some(block_parts));
                     *self = Self::ByRange(Arc::new(RwLock::new(new_by_range)));
-                    true
-                } else {
-                    request.len() == 1
                 }
             }
             Self::NoRequest(_) => {
@@ -448,7 +448,6 @@ impl<E: EthSpec> EngineRequest<E> {
                     "Please notify the devs";
                     "beacon_block_streamer" => "push_block_parts called on NoRequest Variant",
                 );
-                false
             }
         }
     }
@@ -599,12 +598,11 @@ impl<T: BeaconChainTypes> BeaconBlockStreamer<T> {
     /// 3) blocks_by_root - used for unfinalized blinded blocks
     ///
     /// The function returns a vector of block roots in the same order as requested
-    /// along with the engine request that each root corresponds to. It also returns
-    /// the number of unique engine requests for metrics.
+    /// along with the engine request that each root corresponds to.
     async fn get_requests(
         &self,
         payloads: Vec<(Hash256, LoadResult<T::EthSpec>)>,
-    ) -> (Vec<(Hash256, EngineRequest<T::EthSpec>)>, u32) {
+    ) -> Vec<(Hash256, EngineRequest<T::EthSpec>)> {
         let mut ordered_block_roots = Vec::new();
         let mut requests = HashMap::new();
 
@@ -614,7 +612,6 @@ impl<T: BeaconChainTypes> BeaconBlockStreamer<T> {
         let mut by_range_blocks: Vec<BlockParts<T::EthSpec>> = vec![];
         let mut by_hash = EngineRequest::new_by_hash();
         let mut no_request = EngineRequest::new_no_request();
-        let mut num_requests = 0u32; // number of requests to EE
 
         for (root, load_result) in payloads {
             // preserve the order of the requested blocks
@@ -648,12 +645,9 @@ impl<T: BeaconChainTypes> BeaconBlockStreamer<T> {
                                     by_range_blocks.push(block_parts);
                                 } else {
                                     // this is a by_hash request
-                                    if by_hash
+                                    by_hash
                                         .push_block_parts(block_parts, &self.beacon_chain.log)
-                                        .await
-                                    {
-                                        num_requests += 1;
-                                    }
+                                        .await;
                                     requests.insert(root, by_hash.clone());
                                 }
                             }
@@ -698,12 +692,9 @@ impl<T: BeaconChainTypes> BeaconBlockStreamer<T> {
         by_range_blocks.sort_by_key(|block_parts| block_parts.slot());
         for block_parts in by_range_blocks {
             let root = block_parts.root();
-            if by_range
+            by_range
                 .push_block_parts(block_parts, &self.beacon_chain.log)
-                .await
-            {
-                num_requests += 1;
-            }
+                .await;
             requests.insert(root, by_range.clone());
         }
 
@@ -729,7 +720,7 @@ impl<T: BeaconChainTypes> BeaconBlockStreamer<T> {
             }
         }
 
-        (result, num_requests)
+        result
     }
 
     // used when the execution engine doesn't support the payload bodies methods
@@ -767,11 +758,16 @@ impl<T: BeaconChainTypes> BeaconBlockStreamer<T> {
         let n_roots = block_roots.len();
         let mut n_success = 0usize;
         let mut n_sent = 0usize;
+        let mut engine_requests = 0usize;
 
         let payloads = self.load_payloads(block_roots);
-        let (requests, engine_requests) = self.get_requests(payloads).await;
+        let requests = self.get_requests(payloads).await;
 
         for (root, request) in requests {
+            if request.is_unsent().await {
+                engine_requests += 1;
+            }
+
             let result = request
                 .get_block_result(&root, &self.execution_layer, &self.beacon_chain.log)
                 .await;
