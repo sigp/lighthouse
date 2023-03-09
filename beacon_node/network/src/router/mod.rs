@@ -208,9 +208,10 @@ impl<T: BeaconChainTypes> Router<T> {
                 self.processor
                     .on_blobs_by_range_response(peer_id, request_id, blob);
             }
-            Response::BlobsByRoot(beacon_blob) => {
+            Response::BlobsByRoot(blob) => {
+                // TODO: move the arc back to the lh_n crate.
                 self.processor
-                    .on_blobs_by_root_response(peer_id, request_id, beacon_blob);
+                    .on_blobs_by_root_response(peer_id, request_id, blob.map(Arc::new));
             }
             Response::LightClientBootstrap(_) => unreachable!(),
         }
@@ -250,12 +251,14 @@ impl<T: BeaconChainTypes> Router<T> {
                     block,
                 );
             }
-            PubsubMessage::BeaconBlockAndBlobsSidecars(block_and_blobs) => {
-                self.processor.on_block_and_blobs_sidecar_gossip(
+            PubsubMessage::BlobSidecar(data) => {
+                let (blob_index, signed_blob) = *data;
+                self.processor.on_blob_sidecar_gossip(
                     id,
                     peer_id,
                     self.network_globals.client(&peer_id),
-                    block_and_blobs,
+                    blob_index,
+                    Arc::new(signed_blob),
                 );
             }
             PubsubMessage::VoluntaryExit(exit) => {
