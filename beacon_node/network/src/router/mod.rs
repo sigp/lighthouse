@@ -209,9 +209,8 @@ impl<T: BeaconChainTypes> Router<T> {
                     .on_blobs_by_range_response(peer_id, request_id, blob);
             }
             Response::BlobsByRoot(blob) => {
-                // TODO: move the arc back to the lh_n crate.
                 self.processor
-                    .on_blobs_by_root_response(peer_id, request_id, blob.map(Arc::new));
+                    .on_blobs_by_root_response(peer_id, request_id, blob);
             }
             Response::LightClientBootstrap(_) => unreachable!(),
         }
