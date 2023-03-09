@@ -65,9 +65,9 @@ use task_executor::TaskExecutor;
 use tokio::sync::mpsc;
 use types::{
     Attestation, AttesterSlashing, Hash256, LightClientFinalityUpdate, LightClientOptimisticUpdate,
-    ProposerSlashing, SignedAggregateAndProof, SignedBeaconBlock, SignedBeaconBlockAndBlobsSidecar,
-    SignedBlobSidecar, SignedBlsToExecutionChange, SignedContributionAndProof, SignedVoluntaryExit,
-    SubnetId, SyncCommitteeMessage, SyncSubnetId,
+    ProposerSlashing, SignedAggregateAndProof, SignedBeaconBlock, SignedBlobSidecar,
+    SignedBlsToExecutionChange, SignedContributionAndProof, SignedVoluntaryExit, SubnetId,
+    SyncCommitteeMessage, SyncSubnetId,
 };
 use work_reprocessing_queue::{
     spawn_reprocess_scheduler, QueuedAggregate, QueuedLightClientUpdate, QueuedRpcBlock,
@@ -458,7 +458,8 @@ impl<T: BeaconChainTypes> WorkEvent<T> {
                 message_id,
                 peer_id,
                 peer_client,
-                block_and_blobs,
+                blob_index,
+                signed_blob,
                 seen_timestamp,
             },
         }
@@ -862,7 +863,8 @@ pub enum Work<T: BeaconChainTypes> {
         message_id: MessageId,
         peer_id: PeerId,
         peer_client: Client,
-        block_and_blobs: SignedBeaconBlockAndBlobsSidecar<T::EthSpec>,
+        blob_index: u64,
+        signed_blob: Arc<SignedBlobSidecar<T::EthSpec>>,
         seen_timestamp: Duration,
     },
     DelayedImportBlock {
@@ -1747,17 +1749,17 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                 message_id,
                 peer_id,
                 peer_client,
-                block_and_blobs: block_sidecar_pair,
+                blob_index,
+                signed_blob,
                 seen_timestamp,
             } => task_spawner.spawn_async(async move {
                 worker
-                    .process_gossip_block(
+                    .process_gossip_blob(
                         message_id,
                         peer_id,
                         peer_client,
-                        block_sidecar_pair.into(),
-                        work_reprocessing_tx,
-                        duplicate_cache,
+                        blob_index,
+                        signed_blob,
                         seen_timestamp,
                     )
                     .await

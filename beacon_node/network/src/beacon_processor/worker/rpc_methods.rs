@@ -14,6 +14,7 @@ use slog::{debug, error, warn};
 use slot_clock::SlotClock;
 use std::sync::Arc;
 use task_executor::TaskExecutor;
+use types::blob_sidecar::BlobIdentifier;
 use types::light_client_bootstrap::LightClientBootstrap;
 use types::{Epoch, EthSpec, Hash256, Slot};
 
@@ -219,24 +220,48 @@ impl<T: BeaconChainTypes> Worker<T> {
         request_id: PeerRequestId,
         request: BlobsByRootRequest,
     ) {
+        // TODO: this code is grossly adjusted to free the blobs. Needs love <3
         // Fetching blocks is async because it may have to hit the execution layer for payloads.
         executor.spawn(
             async move {
                 let mut send_block_count = 0;
                 let mut send_response = true;
-                for root in request.blob_ids.iter() {
+                for BlobIdentifier{ block_root: root, index } in request.blob_ids.into_iter() {
                     match self
                         .chain
-                        .get_block_and_blobs_checking_early_attester_cache(root)
+                        .get_block_and_blobs_checking_early_attester_cache(&root)
                         .await
                     {
                         Ok(Some(block_and_blobs)) => {
-                            self.send_response(
-                                peer_id,
-                                Response::BlobsByRoot(Some(block_and_blobs)),
-                                request_id,
-                            );
-                            send_block_count += 1;
+                            //
+                            // TODO: HORRIBLE NSFW CODE AHEAD
+                            //
+                            let types::SignedBeaconBlockAndBlobsSidecar {beacon_block, blobs_sidecar} = block_and_blobs;
+                            let types::BlobsSidecar{ beacon_block_root, beacon_block_slot, blobs: blob_bundle, kzg_aggregated_proof }: types::BlobsSidecar<_> = *blobs_sidecar;
+                            // TODO: this should be unreachable after this is addressed seriously,
+                            // so for now let's be ok with a panic in the expect.
+                            let block = beacon_block.message_eip4844().expect("We fucked up the block blob stuff");
+                            // Intentionally not accessing the list directly
+                            for (known_index, blob) in blob_bundle.into_iter().enumerate() {
+                                if (known_index as u64) == index {
+                                    let blob_sidecar = types::BlobSidecar{
+                                        block_root: beacon_block_root, 
+                                        index,
+                                        slot: beacon_block_slot,
+                                        block_parent_root: block.parent_root,
+                                        proposer_index: block.proposer_index,
+                                        blob,
+                                        kzg_commitment: block.body.blob_kzg_commitments[known_index], // TODO: needs to be stored in a more logical way so that this won't panic.
+                                        kzg_proof: kzg_aggregated_proof // TODO: yeah
+                                    };
+                                    self.send_response(
+                                        peer_id,
+                                        Response::BlobsByRoot(Some(Arc::new(blob_sidecar))),
+                                        request_id,
+                                    );
+                                    send_block_count += 1;
+                                }
+                            }
                         }
                         Ok(None) => {
                             debug!(
@@ -813,12 +838,28 @@ impl<T: BeaconChainTypes> Worker<T> {
         for root in block_roots {
             match self.chain.get_blobs(&root, data_availability_boundary) {
                 Ok(Some(blobs)) => {
-                    blobs_sent += 1;
-                    self.send_network_message(NetworkMessage::SendResponse {
-                        peer_id,
-                        response: Response::BlobsByRange(Some(Arc::new(blobs))),
-                        id: request_id,
-                    });
+                    // TODO: more GROSS code ahead. Reader beware
+                    let types::BlobsSidecar{ beacon_block_root, beacon_block_slot, blobs: blob_bundle, kzg_aggregated_proof }: types::BlobsSidecar<_> = blobs;
+
+                    for (blob_index, blob) in blob_bundle.into_iter().enumerate() {
+                        let blob_sidecar = types::BlobSidecar{ 
+                            block_root: beacon_block_root, 
+                            index: blob_index as u64, 
+                            slot: beacon_block_slot, 
+                            block_parent_root: Hash256::zero(), 
+                            proposer_index: 0, 
+                            blob, 
+                            kzg_commitment: types::KzgCommitment::default(), 
+                            kzg_proof: types::KzgProof::default(), 
+                        };
+
+                        blobs_sent += 1;
+                        self.send_network_message(NetworkMessage::SendResponse {
+                            peer_id,
+                            response: Response::BlobsByRange(Some(Arc::new(blob_sidecar))),
+                            id: request_id,
+                        });
+                    }
                 }
                 Ok(None) => {
                     error!(
