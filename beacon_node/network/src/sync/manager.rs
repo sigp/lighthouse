@@ -57,8 +57,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
 use types::{
-    BlobSidecar, BlobsSidecar, EthSpec, Hash256, SignedBeaconBlock,
-    SignedBeaconBlockAndBlobsSidecar, Slot,
+    BlobSidecar, EthSpec, Hash256, SignedBeaconBlock, SignedBeaconBlockAndBlobsSidecar, Slot,
 };
 
 /// The number of slots ahead of us that is allowed before requesting a long-range (batch)  Sync
@@ -898,7 +897,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         &mut self,
         request_id: RequestId,
         peer_id: PeerId,
-        maybe_sidecar: Option<Arc<BlobsSidecar<<T>::EthSpec>>>,
+        maybe_blob: Option<Arc<BlobSidecar<<T>::EthSpec>>>,
         _seen_timestamp: Duration,
     ) {
         match request_id {
@@ -908,14 +907,14 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             RequestId::BackFillBlocks { .. } => {
                 unreachable!("An only blocks request does not receive sidecars")
             }
-            RequestId::BackFillBlobs { id } => {
-                self.blobs_backfill_response(id, peer_id, maybe_sidecar.into())
+            RequestId::BackFillBlobs { .. } => {
+                unimplemented!("Adjust backfill sync");
             }
             RequestId::RangeBlocks { .. } => {
                 unreachable!("Only-blocks range requests don't receive sidecars")
             }
             RequestId::RangeBlobs { id } => {
-                self.blobs_range_response(id, peer_id, maybe_sidecar.into())
+                unimplemented!("Adjust range");
             }
         }
     }

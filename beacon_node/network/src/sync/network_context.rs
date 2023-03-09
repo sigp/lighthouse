@@ -426,7 +426,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 "count" => request.block_roots.len(),
                 "peer" => %peer_id
             );
-            Request::BlobsByRoot(request.into())
+            unimplemented!("There is no longer such thing as a single block lookup, since we nede to ask for blobs and blocks separetely");
         } else {
             trace!(
                 self.log,
@@ -467,7 +467,9 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 "count" => request.block_roots.len(),
                 "peer" => %peer_id
             );
-            Request::BlobsByRoot(request.into())
+            unimplemented!(
+                "Parent requests now need to interleave blocks and blobs or something like that."
+            )
         } else {
             trace!(
                 self.log,
