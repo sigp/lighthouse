@@ -19,7 +19,7 @@ use std::fs::create_dir_all;
 use std::io::{Result as IOResult, Write};
 use std::path::PathBuf;
 use std::sync::Arc;
-use logging::{SSELoggingComponents, SSEDrain};
+use logging::SSELoggingComponents;
 use task_executor::{ShutdownReason, TaskExecutor};
 use tokio::runtime::{Builder as RuntimeBuilder, Runtime};
 use types::{EthSpec, GnosisEthSpec, MainnetEthSpec, MinimalEthSpec};
@@ -320,8 +320,8 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
 
         // If the http API is enabled, we may need to send logs to be consumed by subscribers.
         if config.sse_logging {
-            let (sse_logger, components) =  SSEDrain::new(SSE_LOG_CHANNEL_SIZE);
-            self.sse_logging_components = Some(components);
+            let sse_logger =  SSELoggingComponents::new(SSE_LOG_CHANNEL_SIZE);
+            self.sse_logging_components = Some(sse_logger.clone());
 
             log = Logger::root(Duplicate::new(log, sse_logger).fuse(), o!());
         }
