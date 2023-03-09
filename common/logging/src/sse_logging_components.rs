@@ -2,10 +2,10 @@
 //! there are subscribers to a HTTP SSE stream.
 
 use crate::async_record::AsyncRecord;
-use slog::{Drain, Level, OwnedKVList, Record, KV};
+use slog::{Drain, OwnedKVList, Record};
 use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
-use tokio::sync::broadcast::{error::SendError, Receiver, Sender};
+use tokio::sync::broadcast::Sender;
 
 /// The components required in the HTTP API task to receive logged events.
 #[derive(Clone)]

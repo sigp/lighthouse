@@ -5,13 +5,10 @@ use parking_lot::Mutex;
 use serde::ser::SerializeMap;
 use serde::serde_if_integer128;
 use serde::Serialize;
-use slog::{
-    BorrowedKV, Drain, Key, Level, OwnedKVList, Record, RecordStatic, Serializer, SingleKV, KV,
-};
+use slog::{BorrowedKV, Key, Level, OwnedKVList, Record, RecordStatic, Serializer, SingleKV, KV};
 use std::cell::RefCell;
 use std::fmt;
 use std::fmt::Write;
-use std::io;
 use std::sync::Arc;
 use take_mut::take;
 
@@ -49,34 +46,8 @@ impl AsyncRecord {
         }
     }
 
-    /// Writes the record to a `Drain`.
-    pub fn log_to<D: Drain>(self, drain: &D) -> Result<D::Ok, D::Err> {
-        let rs = RecordStatic {
-            location: &*self.location,
-            level: self.level,
-            tag: &self.tag,
-        };
-
-        let kv = self.kv.lock();
-        drain.log(
-            &Record::new(&rs, &format_args!("{}", self.msg), BorrowedKV(&(*kv))),
-            &self.logger_values,
-        )
-    }
-
-    /// Deconstruct this `AsyncRecord` into a record and `OwnedKVList`.
-    pub fn as_record_values(&self, mut f: impl FnMut(&Record, &OwnedKVList)) {
-        let rs = RecordStatic {
-            location: &*self.location,
-            level: self.level,
-            tag: &self.tag,
-        };
-
-        let kv = self.kv.lock();
-        f(
-            &Record::new(&rs, &format_args!("{}", self.msg), BorrowedKV(&(*kv))),
-            &self.logger_values,
-        )
+    pub fn to_json_string(&self) -> Result<String, String> {
+        serde_json::to_string(&self).map_err(|e| format!("{:?}", e))
     }
 }
 

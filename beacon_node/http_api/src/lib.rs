@@ -3569,7 +3569,7 @@ pub fn serve<T: BeaconChainTypes>(
 
     // Subscribe to logs via Server Side Events
     // /lighthouse/logs
-    let get_events = warp::path("lighthouse") 
+    let lighthouse_log_events = warp::path("lighthouse") 
         .and(warp::path("logs"))
         .and(warp::path::end())
         .and(sse_component_filter)
@@ -3579,13 +3579,27 @@ pub fn serve<T: BeaconChainTypes>(
 
                     if let Some(logging_components) = sse_component {
                     // Build a JSON stream
-                    let 
-                    let s = BroadcastStream::new(sse_component.sender.subscribe()).map(|msg| {
-                        // Serialize to json
-
-
-
-                        ;
+                    let s = BroadcastStream::new(logging_components.sender.subscribe()).map(|msg| {
+                        match msg {
+                            Ok(data) => {
+                                // Serialize to json
+                                match data.to_json_string() {
+                                    // Send the json as a Server Sent Event
+                                    Ok(json) => Event::default()
+                                        .json_data(json)
+                                        .map_err(|e| {
+                                            warp_utils::reject::server_sent_event_error(format!("{:?}", e))
+                                        }),
+                                    Err(e) => Err(warp_utils::reject::server_sent_event_error(
+                                        format!("Unable to serialize to JSON {}",e),
+                                    ))
+                                }
+                            }
+                        Err(e) => Err(warp_utils::reject::server_sent_event_error(
+                            format!("Unable to serialize to JSON {}",e),
+                        ))
+                        }
+                    });
 
                     Ok::<_, warp::Rejection>(warp::sse::reply(warp::sse::keep_alive().stream(s)))
                     } else {
@@ -3665,6 +3679,7 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(get_lighthouse_block_packing_efficiency.boxed())
                 .or(get_lighthouse_merge_readiness.boxed())
                 .or(get_events.boxed())
+                .or(lighthouse_log_events.boxed())
                 .recover(warp_utils::reject::handle_rejection),
         )
         .boxed()
