@@ -224,6 +224,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         // Fetching blocks is async because it may have to hit the execution layer for payloads.
         executor.spawn(
             async move {
+                let requested_blobs = request.blob_ids.len();
                 let mut send_block_count = 0;
                 let mut send_response = true;
                 for BlobIdentifier{ block_root: root, index } in request.blob_ids.into_iter() {
@@ -237,7 +238,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                             // TODO: HORRIBLE NSFW CODE AHEAD
                             //
                             let types::SignedBeaconBlockAndBlobsSidecar {beacon_block, blobs_sidecar} = block_and_blobs;
-                            let types::BlobsSidecar{ beacon_block_root, beacon_block_slot, blobs: blob_bundle, kzg_aggregated_proof }: types::BlobsSidecar<_> = *blobs_sidecar;
+                            let types::BlobsSidecar{ beacon_block_root, beacon_block_slot, blobs: blob_bundle, kzg_aggregated_proof }: types::BlobsSidecar<_> = blobs_sidecar.as_ref().clone();
                             // TODO: this should be unreachable after this is addressed seriously,
                             // so for now let's be ok with a panic in the expect.
                             let block = beacon_block.message_eip4844().expect("We fucked up the block blob stuff");
@@ -251,7 +252,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                                         block_parent_root: block.parent_root,
                                         proposer_index: block.proposer_index,
                                         blob,
-                                        kzg_commitment: block.body.blob_kzg_commitments[known_index], // TODO: needs to be stored in a more logical way so that this won't panic.
+                                        kzg_commitment: block.body.blob_kzg_commitments[known_index].clone(), // TODO: needs to be stored in a more logical way so that this won't panic.
                                         kzg_proof: kzg_aggregated_proof // TODO: yeah
                                     };
                                     self.send_response(
@@ -275,7 +276,6 @@ impl<T: BeaconChainTypes> Worker<T> {
                             error!(
                                 self.log,
                                 "No blobs in the store for block root";
-                                "request" => ?request,
                                 "peer" => %peer_id,
                                 "block_root" => ?root
                             );
@@ -354,7 +354,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     self.log,
                     "Received BlobsByRoot Request";
                     "peer" => %peer_id,
-                    "requested" => request.blob_ids.len(),
+                    "requested" => requested_blobs,
                     "returned" => send_block_count
                 );
 
