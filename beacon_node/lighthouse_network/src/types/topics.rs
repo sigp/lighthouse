@@ -272,21 +272,15 @@ pub fn subnet_from_topic_hash(topic_hash: &TopicHash) -> Option<Subnet> {
     GossipTopic::decode(topic_hash.as_str()).ok()?.subnet_id()
 }
 
-// Determines if a string is an attestation, sync committee or blob sidecar topic.
+// Determines if the topic name is of an indexed topic.
 fn subnet_topic_index(topic: &str) -> Option<GossipKind> {
-    if topic.starts_with(BEACON_ATTESTATION_PREFIX) {
+    if let Some(index) = topic.strip_prefix(BEACON_ATTESTATION_PREFIX) {
         return Some(GossipKind::Attestation(SubnetId::new(
-            topic
-                .trim_start_matches(BEACON_ATTESTATION_PREFIX)
-                .parse::<u64>()
-                .ok()?,
+            index.parse::<u64>().ok()?,
         )));
-    } else if topic.starts_with(SYNC_COMMITTEE_PREFIX_TOPIC) {
+    } else if topic.strip_prefix(SYNC_COMMITTEE_PREFIX_TOPIC) {
         return Some(GossipKind::SyncCommitteeMessage(SyncSubnetId::new(
-            topic
-                .trim_start_matches(SYNC_COMMITTEE_PREFIX_TOPIC)
-                .parse::<u64>()
-                .ok()?,
+            index.parse::<u64>().ok()?,
         )));
     } else if let Some(index) = topic.strip_prefix(BLOB_SIDECAR_PREFIX) {
         return Some(GossipKind::BlobSidecar(index.parse::<u64>().ok()?));
