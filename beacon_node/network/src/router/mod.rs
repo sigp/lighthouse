@@ -204,9 +204,9 @@ impl<T: BeaconChainTypes> Router<T> {
                 self.processor
                     .on_blocks_by_root_response(peer_id, request_id, beacon_block);
             }
-            Response::BlobsByRange(beacon_blob) => {
+            Response::BlobsByRange(blob) => {
                 self.processor
-                    .on_blobs_by_range_response(peer_id, request_id, beacon_blob);
+                    .on_blobs_by_range_response(peer_id, request_id, blob);
             }
             Response::BlobsByRoot(beacon_blob) => {
                 self.processor

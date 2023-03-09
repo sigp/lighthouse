@@ -57,7 +57,8 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
 use types::{
-    BlobsSidecar, EthSpec, Hash256, SignedBeaconBlock, SignedBeaconBlockAndBlobsSidecar, Slot,
+    BlobsSidecar, EthSpec, Hash256, SignedBeaconBlock, SignedBeaconBlockAndBlobsSidecar,
+    SignedBlobSidecar, Slot,
 };
 
 /// The number of slots ahead of us that is allowed before requesting a long-range (batch)  Sync
@@ -106,7 +107,7 @@ pub enum SyncMessage<T: EthSpec> {
     RpcBlobs {
         request_id: RequestId,
         peer_id: PeerId,
-        blob_sidecar: Option<Arc<BlobsSidecar<T>>>,
+        blob_sidecar: Option<Arc<SignedBlobSidecar<T>>>,
         seen_timestamp: Duration,
     },
 
