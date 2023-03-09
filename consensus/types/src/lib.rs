@@ -229,6 +229,6 @@ pub use bls::{
 
 pub use kzg::{KzgCommitment, KzgProof};
 
+use crate::blob_sidecar::BlobSidecar;
 pub use ssz_types::{typenum, typenum::Unsigned, BitList, BitVector, FixedVector, VariableList};
 pub use superstruct::superstruct;
-use crate::blob_sidecar::BlobSidecar;
