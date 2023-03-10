@@ -111,6 +111,14 @@ pub enum AttestationStrategy {
     SomeValidators(Vec<usize>),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SyncCommitteeStrategy {
+    /// All sync committee validators sign.
+    AllValidators,
+    /// No validators sign.
+    NoValidators,
+}
+
 /// Indicates whether the `BeaconChainHarness` should use the `state.current_sync_committee` or
 /// `state.next_sync_committee` when creating sync messages or contributions.
 #[derive(Clone, Debug)]
@@ -1772,6 +1780,18 @@ where
         self.process_attestations(attestations);
     }
 
+    pub fn sync_committee_sign_block(
+        &self,
+        state: &BeaconState<E>,
+        block_hash: Hash256,
+        slot: Slot,
+        relative_sync_committee: RelativeSyncCommittee,
+    ) {
+        let sync_contributions =
+            self.make_sync_contributions(state, block_hash, slot, relative_sync_committee);
+        self.process_sync_contributions(sync_contributions).unwrap()
+    }
+
     pub async fn add_attested_block_at_slot(
         &self,
         slot: Slot,
@@ -1779,8 +1799,45 @@ where
         state_root: Hash256,
         validators: &[usize],
     ) -> Result<(SignedBeaconBlockHash, BeaconState<E>), BlockError<E>> {
+        self.add_attested_block_at_slot_with_sync(
+            slot,
+            state,
+            state_root,
+            validators,
+            SyncCommitteeStrategy::NoValidators,
+        )
+        .await
+    }
+
+    pub async fn add_attested_block_at_slot_with_sync(
+        &self,
+        slot: Slot,
+        state: BeaconState<E>,
+        state_root: Hash256,
+        validators: &[usize],
+        sync_committee_strategy: SyncCommitteeStrategy,
+    ) -> Result<(SignedBeaconBlockHash, BeaconState<E>), BlockError<E>> {
         let (block_hash, block, state) = self.add_block_at_slot(slot, state).await?;
         self.attest_block(&state, state_root, block_hash, &block, validators);
+
+        if sync_committee_strategy == SyncCommitteeStrategy::AllValidators
+            && state.current_sync_committee().is_ok()
+        {
+            self.sync_committee_sign_block(
+                &state,
+                block_hash.into(),
+                slot,
+                if (slot + 1).epoch(E::slots_per_epoch())
+                    % self.spec.epochs_per_sync_committee_period
+                    == 0
+                {
+                    RelativeSyncCommittee::Next
+                } else {
+                    RelativeSyncCommittee::Current
+                },
+            );
+        }
+
         Ok((block_hash, state))
     }
 
@@ -1791,9 +1848,34 @@ where
         slots: &[Slot],
         validators: &[usize],
     ) -> AddBlocksResult<E> {
+        self.add_attested_blocks_at_slots_with_sync(
+            state,
+            state_root,
+            slots,
+            validators,
+            SyncCommitteeStrategy::NoValidators,
+        )
+        .await
+    }
+
+    pub async fn add_attested_blocks_at_slots_with_sync(
+        &self,
+        state: BeaconState<E>,
+        state_root: Hash256,
+        slots: &[Slot],
+        validators: &[usize],
+        sync_committee_strategy: SyncCommitteeStrategy,
+    ) -> AddBlocksResult<E> {
         assert!(!slots.is_empty());
-        self.add_attested_blocks_at_slots_given_lbh(state, state_root, slots, validators, None)
-            .await
+        self.add_attested_blocks_at_slots_given_lbh(
+            state,
+            state_root,
+            slots,
+            validators,
+            None,
+            sync_committee_strategy,
+        )
+        .await
     }
 
     async fn add_attested_blocks_at_slots_given_lbh(
@@ -1803,6 +1885,7 @@ where
         slots: &[Slot],
         validators: &[usize],
         mut latest_block_hash: Option<SignedBeaconBlockHash>,
+        sync_committee_strategy: SyncCommitteeStrategy,
     ) -> AddBlocksResult<E> {
         assert!(
             slots.windows(2).all(|w| w[0] <= w[1]),
@@ -1812,7 +1895,13 @@ where
         let mut state_hash_from_slot: HashMap<Slot, BeaconStateHash> = HashMap::new();
         for slot in slots {
             let (block_hash, new_state) = self
-                .add_attested_block_at_slot(*slot, state, state_root, validators)
+                .add_attested_block_at_slot_with_sync(
+                    *slot,
+                    state,
+                    state_root,
+                    validators,
+                    sync_committee_strategy,
+                )
                 .await
                 .unwrap();
             state = new_state;
@@ -1894,6 +1983,7 @@ where
                         &epoch_slots,
                         &validators,
                         Some(head_block),
+                        SyncCommitteeStrategy::NoValidators, // for backwards compat
                     )
                     .await;
 
@@ -2012,6 +2102,22 @@ where
         block_strategy: BlockStrategy,
         attestation_strategy: AttestationStrategy,
     ) -> Hash256 {
+        self.extend_chain_with_sync(
+            num_blocks,
+            block_strategy,
+            attestation_strategy,
+            SyncCommitteeStrategy::NoValidators,
+        )
+        .await
+    }
+
+    pub async fn extend_chain_with_sync(
+        &self,
+        num_blocks: usize,
+        block_strategy: BlockStrategy,
+        attestation_strategy: AttestationStrategy,
+        sync_committee_strategy: SyncCommitteeStrategy,
+    ) -> Hash256 {
         let (mut state, slots) = match block_strategy {
             BlockStrategy::OnCanonicalHead => {
                 let current_slot: u64 = self.get_current_slot().into();
@@ -2042,7 +2148,13 @@ where
         };
         let state_root = state.update_tree_hash_cache().unwrap();
         let (_, _, last_produced_block_hash, _) = self
-            .add_attested_blocks_at_slots(state, state_root, &slots, &validators)
+            .add_attested_blocks_at_slots_with_sync(
+                state,
+                state_root,
+                &slots,
+                &validators,
+                sync_committee_strategy,
+            )
             .await;
         last_produced_block_hash.into()
     }

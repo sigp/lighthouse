@@ -5,6 +5,7 @@ use crate::http::{
     ENGINE_GET_PAYLOAD_V3, ENGINE_NEW_PAYLOAD_V1, ENGINE_NEW_PAYLOAD_V2, ENGINE_NEW_PAYLOAD_V3,
 };
 use crate::BlobTxConversionError;
+use eth2::types::{SsePayloadAttributes, SsePayloadAttributesV1, SsePayloadAttributesV2};
 pub use ethers_core::types::Transaction;
 use ethers_core::utils::rlp::{self, Decodable, Rlp};
 use http::deposit_methods::RpcError;
@@ -307,6 +308,33 @@ impl PayloadAttributes {
                 timestamp,
                 prev_randao,
                 suggested_fee_recipient,
+            }),
+        }
+    }
+}
+
+impl From<PayloadAttributes> for SsePayloadAttributes {
+    fn from(pa: PayloadAttributes) -> Self {
+        match pa {
+            PayloadAttributes::V1(PayloadAttributesV1 {
+                timestamp,
+                prev_randao,
+                suggested_fee_recipient,
+            }) => Self::V1(SsePayloadAttributesV1 {
+                timestamp,
+                prev_randao,
+                suggested_fee_recipient,
+            }),
+            PayloadAttributes::V2(PayloadAttributesV2 {
+                timestamp,
+                prev_randao,
+                suggested_fee_recipient,
+                withdrawals,
+            }) => Self::V2(SsePayloadAttributesV2 {
+                timestamp,
+                prev_randao,
+                suggested_fee_recipient,
+                withdrawals,
             }),
         }
     }
