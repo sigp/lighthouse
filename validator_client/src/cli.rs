@@ -231,6 +231,15 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     address of this server (e.g., http://localhost:5064).")
                 .takes_value(true),
         )
+        .arg(
+            Arg::with_name("enable-high-validator-count-metrics")
+                .long("enable-high-validator-count-metrics")
+                .help("Enable per validator metrics for > 64 validators. \
+                    Note: This flag is automatically enabled for <= 64 validators. \
+                    Enabling this metric for higher validator counts will lead to higher volume \
+                    of prometheus metrics being collected.")
+                .takes_value(false),
+        )
         /*
          * Explorer metrics
          */
@@ -308,6 +317,15 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     by this validator client. Note this will not necessarily be used if the gas limit \
                     set here moves too far from the previous block's gas limit. [default: 30,000,000]")
                 .requires("builder-proposals"),
+        )
+        .arg(
+            Arg::with_name("latency-measurement-service")
+                .long("latency-measurement-service")
+                .value_name("BOOLEAN")
+                .help("Set to 'true' to enable a service that periodically attempts to measure latency to BNs. \
+                    Set to 'false' to disable.")
+                .default_value("true")
+                .takes_value(true),
         )
         /*
          * Experimental/development options.

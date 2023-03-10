@@ -21,7 +21,7 @@ bytes = "1.0.1"
 account_utils = { path = "../../common/account_utils" }
 sensitive_url = { path = "../../common/sensitive_url" }
 eth2_ssz = "0.4.1"
-eth2_ssz_derive = "0.3.0"
+eth2_ssz_derive = "0.3.1"
 futures-util = "0.3.8"
 futures = "0.3.8"
 store = { path = "../../beacon_node/store", optional = true }

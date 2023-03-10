@@ -1,9 +1,9 @@
-use crate::api_types::{
-    EndpointVersion, ExecutionOptimisticForkVersionedResponse, ForkVersionedResponse,
-};
+use crate::api_types::EndpointVersion;
 use eth2::CONSENSUS_VERSION_HEADER;
 use serde::Serialize;
-use types::{ForkName, InconsistentFork};
+use types::{
+    ExecutionOptimisticForkVersionedResponse, ForkName, ForkVersionedResponse, InconsistentFork,
+};
 use warp::reply::{self, Reply, WithHeader};
 
 pub const V1: EndpointVersion = EndpointVersion(1);

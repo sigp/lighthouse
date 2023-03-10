@@ -2,6 +2,7 @@
 
 use beacon_chain::attestation_verification::Error as AttnError;
 use beacon_chain::builder::BeaconChainBuilder;
+use beacon_chain::schema_change::migrate_schema;
 use beacon_chain::test_utils::{
     test_spec, AttestationStrategy, BeaconChainHarness, BlockStrategy, DiskHarnessType,
 };
@@ -22,6 +23,7 @@ use std::collections::HashSet;
 use std::convert::TryInto;
 use std::sync::Arc;
 use std::time::Duration;
+use store::metadata::{SchemaVersion, CURRENT_SCHEMA_VERSION};
 use store::{
     iter::{BlockRootsIterator, StateRootsIterator},
     HotColdDB, LevelDB, StoreConfig,
@@ -68,6 +70,7 @@ fn get_harness(
     let harness = BeaconChainHarness::builder(MinimalEthSpec)
         .default_spec()
         .keypairs(KEYPAIRS[0..validator_count].to_vec())
+        .logger(store.logger().clone())
         .fresh_disk_store(store)
         .mock_execution_layer()
         .build();
@@ -1013,8 +1016,8 @@ fn check_shuffling_compatible(
 // Ensure blocks from abandoned forks are pruned from the Hot DB
 #[tokio::test]
 async fn prunes_abandoned_fork_between_two_finalized_checkpoints() {
-    const HONEST_VALIDATOR_COUNT: usize = 16 + 0;
-    const ADVERSARIAL_VALIDATOR_COUNT: usize = 8 - 0;
+    const HONEST_VALIDATOR_COUNT: usize = 32 + 0;
+    const ADVERSARIAL_VALIDATOR_COUNT: usize = 16 - 0;
     const VALIDATOR_COUNT: usize = HONEST_VALIDATOR_COUNT + ADVERSARIAL_VALIDATOR_COUNT;
     let validators_keypairs = types::test_utils::generate_deterministic_keypairs(VALIDATOR_COUNT);
     let honest_validators: Vec<usize> = (0..HONEST_VALIDATOR_COUNT).collect();
@@ -1123,8 +1126,8 @@ async fn prunes_abandoned_fork_between_two_finalized_checkpoints() {
 
 #[tokio::test]
 async fn pruning_does_not_touch_abandoned_block_shared_with_canonical_chain() {
-    const HONEST_VALIDATOR_COUNT: usize = 16 + 0;
-    const ADVERSARIAL_VALIDATOR_COUNT: usize = 8 - 0;
+    const HONEST_VALIDATOR_COUNT: usize = 32 + 0;
+    const ADVERSARIAL_VALIDATOR_COUNT: usize = 16 - 0;
     const VALIDATOR_COUNT: usize = HONEST_VALIDATOR_COUNT + ADVERSARIAL_VALIDATOR_COUNT;
     let validators_keypairs = types::test_utils::generate_deterministic_keypairs(VALIDATOR_COUNT);
     let honest_validators: Vec<usize> = (0..HONEST_VALIDATOR_COUNT).collect();
@@ -1255,8 +1258,8 @@ async fn pruning_does_not_touch_abandoned_block_shared_with_canonical_chain() {
 
 #[tokio::test]
 async fn pruning_does_not_touch_blocks_prior_to_finalization() {
-    const HONEST_VALIDATOR_COUNT: usize = 16;
-    const ADVERSARIAL_VALIDATOR_COUNT: usize = 8;
+    const HONEST_VALIDATOR_COUNT: usize = 32;
+    const ADVERSARIAL_VALIDATOR_COUNT: usize = 16;
     const VALIDATOR_COUNT: usize = HONEST_VALIDATOR_COUNT + ADVERSARIAL_VALIDATOR_COUNT;
     let validators_keypairs = types::test_utils::generate_deterministic_keypairs(VALIDATOR_COUNT);
     let honest_validators: Vec<usize> = (0..HONEST_VALIDATOR_COUNT).collect();
@@ -1350,8 +1353,8 @@ async fn pruning_does_not_touch_blocks_prior_to_finalization() {
 
 #[tokio::test]
 async fn prunes_fork_growing_past_youngest_finalized_checkpoint() {
-    const HONEST_VALIDATOR_COUNT: usize = 16 + 0;
-    const ADVERSARIAL_VALIDATOR_COUNT: usize = 8 - 0;
+    const HONEST_VALIDATOR_COUNT: usize = 32 + 0;
+    const ADVERSARIAL_VALIDATOR_COUNT: usize = 16 - 0;
     const VALIDATOR_COUNT: usize = HONEST_VALIDATOR_COUNT + ADVERSARIAL_VALIDATOR_COUNT;
     let validators_keypairs = types::test_utils::generate_deterministic_keypairs(VALIDATOR_COUNT);
     let honest_validators: Vec<usize> = (0..HONEST_VALIDATOR_COUNT).collect();
@@ -1495,8 +1498,8 @@ async fn prunes_fork_growing_past_youngest_finalized_checkpoint() {
 // This is to check if state outside of normal block processing are pruned correctly.
 #[tokio::test]
 async fn prunes_skipped_slots_states() {
-    const HONEST_VALIDATOR_COUNT: usize = 16 + 0;
-    const ADVERSARIAL_VALIDATOR_COUNT: usize = 8 - 0;
+    const HONEST_VALIDATOR_COUNT: usize = 32 + 0;
+    const ADVERSARIAL_VALIDATOR_COUNT: usize = 16 - 0;
     const VALIDATOR_COUNT: usize = HONEST_VALIDATOR_COUNT + ADVERSARIAL_VALIDATOR_COUNT;
     let validators_keypairs = types::test_utils::generate_deterministic_keypairs(VALIDATOR_COUNT);
     let honest_validators: Vec<usize> = (0..HONEST_VALIDATOR_COUNT).collect();
@@ -1624,8 +1627,8 @@ async fn prunes_skipped_slots_states() {
 // This is to check if state outside of normal block processing are pruned correctly.
 #[tokio::test]
 async fn finalizes_non_epoch_start_slot() {
-    const HONEST_VALIDATOR_COUNT: usize = 16 + 0;
-    const ADVERSARIAL_VALIDATOR_COUNT: usize = 8 - 0;
+    const HONEST_VALIDATOR_COUNT: usize = 32 + 0;
+    const ADVERSARIAL_VALIDATOR_COUNT: usize = 16 - 0;
     const VALIDATOR_COUNT: usize = HONEST_VALIDATOR_COUNT + ADVERSARIAL_VALIDATOR_COUNT;
     let validators_keypairs = types::test_utils::generate_deterministic_keypairs(VALIDATOR_COUNT);
     let honest_validators: Vec<usize> = (0..HONEST_VALIDATOR_COUNT).collect();
@@ -2527,6 +2530,91 @@ async fn revert_minority_fork_on_resume() {
     let heads = resumed_harness.chain.heads();
     assert_eq!(heads, harness2.chain.heads());
     assert_eq!(heads.len(), 1);
+}
+
+// This test checks whether the schema downgrade from the latest version to some minimum supported
+// version is correct. This is the easiest schema test to write without historic versions of
+// Lighthouse on-hand, but has the disadvantage that the min version needs to be adjusted manually
+// as old downgrades are deprecated.
+#[tokio::test]
+async fn schema_downgrade_to_min_version() {
+    let num_blocks_produced = E::slots_per_epoch() * 4;
+    let db_path = tempdir().unwrap();
+    let store = get_store(&db_path);
+    let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
+    let spec = &harness.chain.spec.clone();
+
+    harness
+        .extend_chain(
+            num_blocks_produced as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    let min_version = if harness.spec.capella_fork_epoch.is_some() {
+        // Can't downgrade beyond V14 once Capella is reached, for simplicity don't test that
+        // at all if Capella is enabled.
+        SchemaVersion(14)
+    } else {
+        SchemaVersion(11)
+    };
+
+    // Close the database to ensure everything is written to disk.
+    drop(store);
+    drop(harness);
+
+    // Re-open the store.
+    let store = get_store(&db_path);
+
+    // Downgrade.
+    let deposit_contract_deploy_block = 0;
+    migrate_schema::<DiskHarnessType<E>>(
+        store.clone(),
+        deposit_contract_deploy_block,
+        CURRENT_SCHEMA_VERSION,
+        min_version,
+        store.logger().clone(),
+        spec,
+    )
+    .expect("schema downgrade to minimum version should work");
+
+    // Upgrade back.
+    migrate_schema::<DiskHarnessType<E>>(
+        store.clone(),
+        deposit_contract_deploy_block,
+        min_version,
+        CURRENT_SCHEMA_VERSION,
+        store.logger().clone(),
+        spec,
+    )
+    .expect("schema upgrade from minimum version should work");
+
+    // Rescreate the harness.
+    let harness = BeaconChainHarness::builder(MinimalEthSpec)
+        .default_spec()
+        .keypairs(KEYPAIRS[0..LOW_VALIDATOR_COUNT].to_vec())
+        .logger(store.logger().clone())
+        .resumed_disk_store(store.clone())
+        .mock_execution_layer()
+        .build();
+
+    check_finalization(&harness, num_blocks_produced);
+    check_split_slot(&harness, store.clone());
+    check_chain_dump(&harness, num_blocks_produced + 1);
+    check_iterators(&harness);
+
+    // Check that downgrading beyond the minimum version fails (bound is *tight*).
+    let min_version_sub_1 = SchemaVersion(min_version.as_u64().checked_sub(1).unwrap());
+    migrate_schema::<DiskHarnessType<E>>(
+        store.clone(),
+        deposit_contract_deploy_block,
+        CURRENT_SCHEMA_VERSION,
+        min_version_sub_1,
+        harness.logger().clone(),
+        spec,
+    )
+    .expect_err("should not downgrade below minimum version");
 }
 
 /// Checks that two chains are the same, for the purpose of these tests.

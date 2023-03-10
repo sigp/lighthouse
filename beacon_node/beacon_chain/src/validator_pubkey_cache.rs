@@ -4,7 +4,7 @@ use ssz::{Decode, Encode};
 use std::collections::HashMap;
 use std::convert::TryInto;
 use std::marker::PhantomData;
-use store::{DBColumn, Error as StoreError, KeyValueStore, KeyValueStoreOp, StoreItem};
+use store::{DBColumn, Error as StoreError, StoreItem, StoreOp};
 use types::{BeaconState, Hash256, PublicKey, PublicKeyBytes};
 
 /// Provides a mapping of `validator_index -> validator_publickey`.
@@ -38,7 +38,7 @@ impl<T: BeaconChainTypes> ValidatorPubkeyCache<T> {
         };
 
         let store_ops = cache.import_new_pubkeys(state)?;
-        store.hot_db.do_atomically(store_ops)?;
+        store.do_atomically(store_ops)?;
 
         Ok(cache)
     }
@@ -79,7 +79,7 @@ impl<T: BeaconChainTypes> ValidatorPubkeyCache<T> {
     pub fn import_new_pubkeys(
         &mut self,
         state: &BeaconState<T::EthSpec>,
-    ) -> Result<Vec<KeyValueStoreOp>, BeaconChainError> {
+    ) -> Result<Vec<StoreOp<'static, T::EthSpec>>, BeaconChainError> {
         if state.validators().len() > self.pubkeys.len() {
             self.import(
                 state.validators()[self.pubkeys.len()..]
@@ -92,7 +92,10 @@ impl<T: BeaconChainTypes> ValidatorPubkeyCache<T> {
     }
 
     /// Adds zero or more validators to `self`.
-    fn import<I>(&mut self, validator_keys: I) -> Result<Vec<KeyValueStoreOp>, BeaconChainError>
+    fn import<I>(
+        &mut self,
+        validator_keys: I,
+    ) -> Result<Vec<StoreOp<'static, T::EthSpec>>, BeaconChainError>
     where
         I: Iterator<Item = PublicKeyBytes> + ExactSizeIterator,
     {
@@ -112,7 +115,9 @@ impl<T: BeaconChainTypes> ValidatorPubkeyCache<T> {
             // It will be committed atomically when the block that introduced it is written to disk.
             // Notably it is NOT written while the write lock on the cache is held.
             // See: https://github.com/sigp/lighthouse/issues/2327
-            store_ops.push(DatabasePubkey(pubkey).as_kv_store_op(DatabasePubkey::key_for_index(i)));
+            store_ops.push(StoreOp::KeyValueOp(
+                DatabasePubkey(pubkey).as_kv_store_op(DatabasePubkey::key_for_index(i)),
+            ));
 
             self.pubkeys.push(
                 (&pubkey)
@@ -294,7 +299,7 @@ mod test {
         let ops = cache
             .import_new_pubkeys(&state)
             .expect("should import pubkeys");
-        store.hot_db.do_atomically(ops).unwrap();
+        store.do_atomically(ops).unwrap();
         check_cache_get(&cache, &keypairs[..]);
         drop(cache);
 

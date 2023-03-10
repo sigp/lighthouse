@@ -311,6 +311,7 @@ impl<E: EthSpec> Tester<E> {
             .keypairs(vec![])
             .genesis_state_ephemeral_store(case.anchor_state.clone())
             .mock_execution_layer()
+            .recalculate_fork_times_with_genesis(0)
             .mock_execution_layer_all_payloads_valid()
             .build();
 

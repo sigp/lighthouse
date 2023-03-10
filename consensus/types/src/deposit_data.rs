@@ -10,9 +10,18 @@ use tree_hash_derive::TreeHash;
 /// The data supplied by the user to the deposit contract.
 ///
 /// Spec v0.12.1
-#[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 #[derive(
-    Debug, PartialEq, Hash, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom,
+    arbitrary::Arbitrary,
+    Debug,
+    PartialEq,
+    Hash,
+    Clone,
+    Serialize,
+    Deserialize,
+    Encode,
+    Decode,
+    TreeHash,
+    TestRandom,
 )]
 pub struct DepositData {
     pub pubkey: PublicKeyBytes,

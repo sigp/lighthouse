@@ -273,7 +273,7 @@ impl ForkChoiceTestDefinition {
                         }
                     };
                     fork_choice
-                        .process_execution_payload_invalidation(&op)
+                        .process_execution_payload_invalidation::<MainnetEthSpec>(&op)
                         .unwrap()
                 }
                 Operation::AssertWeight { block_root, weight } => assert_eq!(
