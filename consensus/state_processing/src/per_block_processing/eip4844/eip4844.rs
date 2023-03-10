@@ -106,7 +106,7 @@ fn tx_peek_blob_versioned_hashes<T: EthSpec>(
         .safe_sub(blob_versioned_hashes_offset as usize)?
         .safe_div(32)?;
 
-    Ok((0..num_hashes).into_iter().map(move |i| {
+    Ok((0..num_hashes).map(move |i| {
         let next_version_hash_index =
             (blob_versioned_hashes_offset as usize).safe_add(i.safe_mul(32)?)?;
         let bytes = opaque_tx
