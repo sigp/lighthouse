@@ -183,6 +183,21 @@ fn prepare_payload_lookahead_shorter() {
 }
 
 #[test]
+fn always_prepare_payload_default() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| assert!(!config.chain.always_prepare_payload));
+}
+
+#[test]
+fn always_prepare_payload_override() {
+    CommandLineTest::new()
+        .flag("always-prepare-payload", None)
+        .run_with_zero_port()
+        .with_config(|config| assert!(config.chain.always_prepare_payload));
+}
+
+#[test]
 fn paranoid_block_proposal_default() {
     CommandLineTest::new()
         .run_with_zero_port()
@@ -323,6 +338,21 @@ fn trusted_peers_flag() {
                 peers[1].to_bytes()
             );
         });
+}
+
+#[test]
+fn always_prefer_builder_payload_flag() {
+    CommandLineTest::new()
+        .flag("always-prefer-builder-payload", None)
+        .run_with_zero_port()
+        .with_config(|config| assert!(config.always_prefer_builder_payload));
+}
+
+#[test]
+fn no_flag_sets_always_prefer_builder_payload_to_false() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| assert!(!config.always_prefer_builder_payload));
 }
 
 // Tests for Eth1 flags.

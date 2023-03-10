@@ -407,17 +407,22 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
             )
             .await?;
 
+        let signing_timer = metrics::start_timer(&metrics::BLOCK_SIGNING_TIMES);
         let signed_block = self_ref
             .validator_store
             .sign_block::<Payload>(*validator_pubkey_ref, block, current_slot)
             .await
             .map_err(|e| BlockError::Recoverable(format!("Unable to sign block: {:?}", e)))?;
+        let signing_time_ms =
+            Duration::from_secs_f64(signing_timer.map_or(0.0, |t| t.stop_and_record())).as_millis();
 
         info!(
             log,
             "Publishing signed block";
             "slot" => slot.as_u64(),
+            "signing_time_ms" => signing_time_ms,
         );
+
         // Publish block with first available beacon node.
         self.beacon_nodes
             .first_success(
