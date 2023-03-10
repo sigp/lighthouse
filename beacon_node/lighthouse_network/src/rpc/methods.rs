@@ -280,7 +280,7 @@ pub enum RPCResponse<T: EthSpec> {
     LightClientBootstrap(LightClientBootstrap<T>),
 
     /// A response to a get BLOBS_BY_ROOT request.
-    SidecarByRoot(BlobSidecar<T>),
+    SidecarByRoot(Arc<BlobSidecar<T>>),
 
     /// A PONG response to a PING request.
     Pong(Ping),

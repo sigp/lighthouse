@@ -65,7 +65,7 @@ use task_executor::TaskExecutor;
 use tokio::sync::mpsc;
 use types::{
     Attestation, AttesterSlashing, Hash256, LightClientFinalityUpdate, LightClientOptimisticUpdate,
-    ProposerSlashing, SignedAggregateAndProof, SignedBeaconBlock, SignedBeaconBlockAndBlobsSidecar,
+    ProposerSlashing, SignedAggregateAndProof, SignedBeaconBlock, SignedBlobSidecar,
     SignedBlsToExecutionChange, SignedContributionAndProof, SignedVoluntaryExit, SubnetId,
     SyncCommitteeMessage, SyncSubnetId,
 };
@@ -444,20 +444,22 @@ impl<T: BeaconChainTypes> WorkEvent<T> {
     }
 
     /// Create a new `Work` event for some blobs sidecar.
-    pub fn gossip_block_and_blobs_sidecar(
+    pub fn gossip_signed_blob_sidecar(
         message_id: MessageId,
         peer_id: PeerId,
         peer_client: Client,
-        block_and_blobs: SignedBeaconBlockAndBlobsSidecar<T::EthSpec>,
+        blob_index: u64,
+        signed_blob: Arc<SignedBlobSidecar<T::EthSpec>>,
         seen_timestamp: Duration,
     ) -> Self {
         Self {
             drop_during_sync: false,
-            work: Work::GossipBlockAndBlobsSidecar {
+            work: Work::GossipSignedBlobSidecar {
                 message_id,
                 peer_id,
                 peer_client,
-                block_and_blobs,
+                blob_index,
+                signed_blob,
                 seen_timestamp,
             },
         }
@@ -857,11 +859,12 @@ pub enum Work<T: BeaconChainTypes> {
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
         seen_timestamp: Duration,
     },
-    GossipBlockAndBlobsSidecar {
+    GossipSignedBlobSidecar {
         message_id: MessageId,
         peer_id: PeerId,
         peer_client: Client,
-        block_and_blobs: SignedBeaconBlockAndBlobsSidecar<T::EthSpec>,
+        blob_index: u64,
+        signed_blob: Arc<SignedBlobSidecar<T::EthSpec>>,
         seen_timestamp: Duration,
     },
     DelayedImportBlock {
@@ -965,7 +968,7 @@ impl<T: BeaconChainTypes> Work<T> {
             Work::GossipAggregate { .. } => GOSSIP_AGGREGATE,
             Work::GossipAggregateBatch { .. } => GOSSIP_AGGREGATE_BATCH,
             Work::GossipBlock { .. } => GOSSIP_BLOCK,
-            Work::GossipBlockAndBlobsSidecar { .. } => GOSSIP_BLOCK_AND_BLOBS_SIDECAR,
+            Work::GossipSignedBlobSidecar { .. } => GOSSIP_BLOCK_AND_BLOBS_SIDECAR,
             Work::DelayedImportBlock { .. } => DELAYED_IMPORT_BLOCK,
             Work::GossipVoluntaryExit { .. } => GOSSIP_VOLUNTARY_EXIT,
             Work::GossipProposerSlashing { .. } => GOSSIP_PROPOSER_SLASHING,
@@ -1459,7 +1462,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                             Work::GossipBlock { .. } => {
                                 gossip_block_queue.push(work, work_id, &self.log)
                             }
-                            Work::GossipBlockAndBlobsSidecar { .. } => {
+                            Work::GossipSignedBlobSidecar { .. } => {
                                 gossip_block_and_blobs_sidecar_queue.push(work, work_id, &self.log)
                             }
                             Work::DelayedImportBlock { .. } => {
@@ -1742,21 +1745,21 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
             /*
              * Verification for blobs sidecars received on gossip.
              */
-            Work::GossipBlockAndBlobsSidecar {
+            Work::GossipSignedBlobSidecar {
                 message_id,
                 peer_id,
                 peer_client,
-                block_and_blobs: block_sidecar_pair,
+                blob_index,
+                signed_blob,
                 seen_timestamp,
             } => task_spawner.spawn_async(async move {
                 worker
-                    .process_gossip_block(
+                    .process_gossip_blob(
                         message_id,
                         peer_id,
                         peer_client,
-                        block_sidecar_pair.into(),
-                        work_reprocessing_tx,
-                        duplicate_cache,
+                        blob_index,
+                        signed_blob,
                         seen_timestamp,
                     )
                     .await

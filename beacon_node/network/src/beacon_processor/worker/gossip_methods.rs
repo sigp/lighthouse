@@ -17,12 +17,13 @@ use operation_pool::ReceivedPreCapella;
 use slog::{crit, debug, error, info, trace, warn};
 use slot_clock::SlotClock;
 use ssz::Encode;
+use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use store::hot_cold_store::HotColdDBError;
 use tokio::sync::mpsc;
 use types::{
     Attestation, AttesterSlashing, EthSpec, Hash256, IndexedAttestation, LightClientFinalityUpdate,
-    LightClientOptimisticUpdate, ProposerSlashing, SignedAggregateAndProof,
+    LightClientOptimisticUpdate, ProposerSlashing, SignedAggregateAndProof, SignedBlobSidecar,
     SignedBlsToExecutionChange, SignedContributionAndProof, SignedVoluntaryExit, Slot, SubnetId,
     SyncCommitteeMessage, SyncSubnetId,
 };
@@ -645,6 +646,27 @@ impl<T: BeaconChainTypes> Worker<T> {
                 );
             }
         }
+    }
+
+    // TODO: docs
+    #[allow(clippy::too_many_arguments)]
+    pub async fn process_gossip_blob(
+        self,
+        message_id: MessageId,
+        peer_id: PeerId,
+        peer_client: Client,
+        blob_index: u64,
+        signed_blob: Arc<SignedBlobSidecar<T::EthSpec>>,
+        seen_duration: Duration,
+    ) {
+        // TODO: gossip verification
+        crit!(self.log, "UNIMPLEMENTED gossip blob verification";
+           "peer_id" => %peer_id,
+           "client" => %peer_client,
+           "blob_topic" => blob_index,
+           "blob_index" => signed_blob.blob.index,
+           "blob_slot" => signed_blob.blob.slot
+        );
     }
 
     /// Process the beacon block received from the gossip network and:

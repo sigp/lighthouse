@@ -44,11 +44,7 @@ pub async fn publish_block<T: BeaconChainTypes>(
                     beacon_block: block,
                     blobs_sidecar: Arc::new(sidecar),
                 };
-                crate::publish_pubsub_message(
-                    network_tx,
-                    PubsubMessage::BeaconBlockAndBlobsSidecars(block_and_blobs.clone()),
-                )?;
-                block_and_blobs.into()
+                unimplemented!("Needs to be adjusted")
             } else {
                 //FIXME(sean): This should probably return a specific no-blob-cached error code, beacon API coordination required
                 return Err(warp_utils::reject::broadcast_without_import(

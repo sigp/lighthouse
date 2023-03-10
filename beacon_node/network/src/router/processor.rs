@@ -18,10 +18,10 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use store::SyncCommitteeMessage;
 use tokio::sync::mpsc;
 use types::{
-    Attestation, AttesterSlashing, BlobsSidecar, EthSpec, LightClientFinalityUpdate,
+    Attestation, AttesterSlashing, BlobSidecar, EthSpec, LightClientFinalityUpdate,
     LightClientOptimisticUpdate, ProposerSlashing, SignedAggregateAndProof, SignedBeaconBlock,
-    SignedBeaconBlockAndBlobsSidecar, SignedBlsToExecutionChange, SignedContributionAndProof,
-    SignedVoluntaryExit, SubnetId, SyncSubnetId,
+    SignedBlobSidecar, SignedBlsToExecutionChange, SignedContributionAndProof, SignedVoluntaryExit,
+    SubnetId, SyncSubnetId,
 };
 
 /// Processes validated messages from the network. It relays necessary data to the syncing thread
@@ -249,7 +249,7 @@ impl<T: BeaconChainTypes> Processor<T> {
         &mut self,
         peer_id: PeerId,
         request_id: RequestId,
-        blob_sidecar: Option<Arc<BlobsSidecar<T::EthSpec>>>,
+        blob_sidecar: Option<Arc<BlobSidecar<T::EthSpec>>>,
     ) {
         trace!(
             self.log,
@@ -310,7 +310,7 @@ impl<T: BeaconChainTypes> Processor<T> {
         &mut self,
         peer_id: PeerId,
         request_id: RequestId,
-        block_and_blobs: Option<SignedBeaconBlockAndBlobsSidecar<T::EthSpec>>,
+        blob_sidecar: Option<Arc<BlobSidecar<T::EthSpec>>>,
     ) {
         let request_id = match request_id {
             RequestId::Sync(sync_id) => match sync_id {
@@ -322,18 +322,18 @@ impl<T: BeaconChainTypes> Processor<T> {
                     unreachable!("Batch syncing does not request BBRoot requests")
                 }
             },
-            RequestId::Router => unreachable!("All BBRoot requests belong to sync"),
+            RequestId::Router => unreachable!("All BlobsByRoot requests belong to sync"),
         };
 
         trace!(
             self.log,
-            "Received BlockAndBlobssByRoot Response";
+            "Received BlobsByRoot Response";
             "peer" => %peer_id,
         );
-        self.send_to_sync(SyncMessage::RpcBlockAndBlobs {
-            peer_id,
+        self.send_to_sync(SyncMessage::RpcBlobs {
             request_id,
-            block_and_blobs,
+            peer_id,
+            blob_sidecar,
             seen_timestamp: timestamp_now(),
         });
     }
@@ -359,18 +359,20 @@ impl<T: BeaconChainTypes> Processor<T> {
         ))
     }
 
-    pub fn on_block_and_blobs_sidecar_gossip(
+    pub fn on_blob_sidecar_gossip(
         &mut self,
         message_id: MessageId,
         peer_id: PeerId,
         peer_client: Client,
-        block_and_blobs: SignedBeaconBlockAndBlobsSidecar<T::EthSpec>,
+        blob_index: u64, // TODO: add a type for the blob index
+        signed_blob: Arc<SignedBlobSidecar<T::EthSpec>>,
     ) {
-        self.send_beacon_processor_work(BeaconWorkEvent::gossip_block_and_blobs_sidecar(
+        self.send_beacon_processor_work(BeaconWorkEvent::gossip_signed_blob_sidecar(
             message_id,
             peer_id,
             peer_client,
-            block_and_blobs,
+            blob_index,
+            signed_blob,
             timestamp_now(),
         ))
     }

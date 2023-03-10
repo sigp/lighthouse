@@ -597,9 +597,9 @@ fn handle_v1_response<T: EthSpec>(
                 )
             })?;
             match fork_name {
-                ForkName::Eip4844 => Ok(Some(RPCResponse::SidecarByRoot(
+                ForkName::Eip4844 => Ok(Some(RPCResponse::SidecarByRoot(Arc::new(
                     BlobSidecar::from_ssz_bytes(decoded_buffer)?,
-                ))),
+                )))),
                 _ => Err(RPCError::ErrorResponse(
                     RPCResponseErrorCode::InvalidRequest,
                     "Invalid fork name for block and blobs by root".to_string(),
