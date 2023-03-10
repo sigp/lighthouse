@@ -67,7 +67,7 @@ impl NethermindEngine {
             .join("Nethermind.Runner")
             .join("bin")
             .join("Release")
-            .join("net6.0")
+            .join("net7.0")
             .join("Nethermind.Runner")
     }
 }
@@ -95,7 +95,7 @@ impl GenericExecutionEngine for NethermindEngine {
             .arg("--datadir")
             .arg(datadir.path().to_str().unwrap())
             .arg("--config")
-            .arg("kiln")
+            .arg("hive")
             .arg("--Init.ChainSpecPath")
             .arg(genesis_json_path.to_str().unwrap())
             .arg("--Merge.TerminalTotalDifficulty")
