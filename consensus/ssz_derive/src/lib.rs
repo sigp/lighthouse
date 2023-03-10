@@ -1,4 +1,3 @@
-#![recursion_limit = "256"]
 //! Provides procedural derive macros for the `Encode` and `Decode` traits of the `eth2_ssz` crate.
 //!
 //! ## Attributes
