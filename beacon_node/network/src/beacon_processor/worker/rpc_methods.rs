@@ -246,7 +246,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                             for (known_index, blob) in blob_bundle.into_iter().enumerate() {
                                 if (known_index as u64) == index {
                                     let blob_sidecar = types::BlobSidecar{
-                                        block_root: beacon_block_root, 
+                                        block_root: beacon_block_root,
                                         index,
                                         slot: beacon_block_slot,
                                         block_parent_root: block.parent_root,
@@ -839,18 +839,23 @@ impl<T: BeaconChainTypes> Worker<T> {
             match self.chain.get_blobs(&root, data_availability_boundary) {
                 Ok(Some(blobs)) => {
                     // TODO: more GROSS code ahead. Reader beware
-                    let types::BlobsSidecar{ beacon_block_root, beacon_block_slot, blobs: blob_bundle, kzg_aggregated_proof }: types::BlobsSidecar<_> = blobs;
+                    let types::BlobsSidecar {
+                        beacon_block_root,
+                        beacon_block_slot,
+                        blobs: blob_bundle,
+                        kzg_aggregated_proof,
+                    }: types::BlobsSidecar<_> = blobs;
 
                     for (blob_index, blob) in blob_bundle.into_iter().enumerate() {
-                        let blob_sidecar = types::BlobSidecar{ 
-                            block_root: beacon_block_root, 
-                            index: blob_index as u64, 
-                            slot: beacon_block_slot, 
-                            block_parent_root: Hash256::zero(), 
-                            proposer_index: 0, 
-                            blob, 
-                            kzg_commitment: types::KzgCommitment::default(), 
-                            kzg_proof: types::KzgProof::default(), 
+                        let blob_sidecar = types::BlobSidecar {
+                            block_root: beacon_block_root,
+                            index: blob_index as u64,
+                            slot: beacon_block_slot,
+                            block_parent_root: Hash256::zero(),
+                            proposer_index: 0,
+                            blob,
+                            kzg_commitment: types::KzgCommitment::default(),
+                            kzg_proof: types::KzgProof::default(),
                         };
 
                         blobs_sent += 1;
