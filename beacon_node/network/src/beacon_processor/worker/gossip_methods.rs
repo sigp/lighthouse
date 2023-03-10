@@ -648,13 +648,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         }
     }
 
-    /// Process the beacon block received from the gossip network and:
-    ///
-    /// - If it passes gossip propagation criteria, tell the network thread to forward it.
-    /// - Attempt to add it to the beacon chain, informing the sync thread if more blocks need to
-    ///   be downloaded.
-    ///
-    /// Raises a log if there are errors.
+    // TODO: docs
     #[allow(clippy::too_many_arguments)]
     pub async fn process_gossip_blob(
         self,
