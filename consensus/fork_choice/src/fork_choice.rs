@@ -1698,7 +1698,6 @@ mod tests {
 
     fn get_queued_attestations() -> Vec<QueuedAttestation> {
         (1..4)
-            .into_iter()
             .map(|i| QueuedAttestation {
                 slot: Slot::new(i),
                 attesting_indices: vec![],
