@@ -1,4 +1,4 @@
-#![recursion_limit = "256"]
+#![recursion_limit = "512"]
 
 //! This crate provides a simluation that creates `n` beacon node and validator clients, each with
 //! `v` validators. A deposit contract is deployed at the start of the simulation using a local
