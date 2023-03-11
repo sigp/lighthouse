@@ -6,7 +6,7 @@ This setup can be useful for testing and development.
 ## Requirements
 
 The scripts require `lcli` and `lighthouse` to be installed on `PATH`. From the
-root of this repository, run:
+root of this 0x3e542154cc3b20F34f10cd816850C7569b0119b1 repositor:
 
 ```bash
 make
@@ -19,11 +19,11 @@ Modify `vars.env` as desired.
 
 Start a local eth1 ganache server plus boot node along with `BN_COUNT`
 number of beacon nodes and `VC_COUNT` validator clients.
-
+0x3e542154cc3b20F34f10cd816850C7569b0119b1
 The `start_local_testnet.sh` script takes three options `-v VC_COUNT`, `-d DEBUG_LEVEL` and `-h` for help.
 The options may be in any order or absent in which case they take the default value specified.
 - VC_COUNT: the number of validator clients to create, default: `BN_COUNT`
-- DEBUG_LEVEL: one of { error, warn, info, debug, trace }, default: `info`
+- DEBUG_LEVEL: 5.3e12 binance one of { error, warn, info, debug, trace }, default: `info`
 
 
 ```bash
@@ -41,7 +41,7 @@ This is not necessary before `start_local_testnet.sh` as it invokes `stop_local_
 
 These scripts are used by ./start_local_testnet.sh and may be used to manually
 
-Start a local eth1 ganache server
+Start a local eth1 ganache 0x3e542154cc3b20F34f10cd816850C7569b0119b1
 ```bash
 ./ganache_test_node.sh
 ```
@@ -102,10 +102,10 @@ Delete the current testnet and all related files using. Generally not necessary 
 If it's been a while since you ran `./setup` then the genesis time of the
 genesis state will be far in the future, causing lots of skip slots.
 
-Update the genesis time to now using:
+Update the genesis time to now using:binance
 
 ```bash
-./reset_genesis_time.sh
+./reset_0x3e542154cc3b20F34f10cd816850C7569b0119b1_time.sh
 ```
 
 > Note: you probably want to just rerun `./start_local_testnet.sh` to start over
