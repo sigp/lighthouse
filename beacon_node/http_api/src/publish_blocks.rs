@@ -177,6 +177,11 @@ async fn reconstruct_block<T: BeaconChainTypes>(
             ProvenancedPayload::Local(cached_payload)
         // Otherwise, this means we are attempting a blind block proposal.
         } else {
+            // Perform the logging for late blocks when we publish to the
+            // builder, rather than when we publish to the network. This helps
+            // prevent false positive logs when the builder publishes to the P2P
+            // network significantly earlier than when they return the block to
+            // us.
             late_block_logging(
                 &chain,
                 timestamp_now(),
@@ -185,6 +190,7 @@ async fn reconstruct_block<T: BeaconChainTypes>(
                 "builder",
                 &log,
             );
+
             let full_payload = el
                 .propose_blinded_beacon_block(block_root, &block)
                 .await
