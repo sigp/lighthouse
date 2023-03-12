@@ -3,6 +3,7 @@ use beacon_chain::validator_monitor::{get_block_delay_ms, timestamp_now};
 use beacon_chain::{
     BeaconChain, BeaconChainTypes, BlockError, CountUnrealized, NotifyExecutionLayer,
 };
+use execution_layer::ProvenancedPayload;
 use lighthouse_network::PubsubMessage;
 use network::NetworkMessage;
 use slog::{debug, error, info, warn, Logger};
@@ -16,15 +17,27 @@ use types::{
 };
 use warp::Rejection;
 
+pub enum ProvenancedBlock<T: EthSpec> {
+    /// The payload was built using a local EE>
+    Local(Arc<SignedBeaconBlock<T, FullPayload<T>>>),
+    /// The payload was build using a remote builder (e.g., via a mev-boost
+    /// compatible relay).
+    Builder(Arc<SignedBeaconBlock<T, FullPayload<T>>>),
+}
+
 /// Handles a request from the HTTP API for full blocks.
 pub async fn publish_block<T: BeaconChainTypes>(
     block_root: Option<Hash256>,
-    block: Arc<SignedBeaconBlock<T::EthSpec>>,
+    provenanced_block: ProvenancedBlock<T::EthSpec>,
     chain: Arc<BeaconChain<T>>,
     network_tx: &UnboundedSender<NetworkMessage<T::EthSpec>>,
     log: Logger,
 ) -> Result<(), Rejection> {
     let seen_timestamp = timestamp_now();
+    let (block, is_locally_built_block) = match provenanced_block {
+        ProvenancedBlock::Local(block) => (block, true),
+        ProvenancedBlock::Builder(block) => (block, false),
+    };
 
     debug!(
         log,
@@ -75,31 +88,41 @@ pub async fn publish_block<T: BeaconChainTypes>(
             // head.
             chain.recompute_head_at_current_slot().await;
 
-            // Perform some logging to inform users if their blocks are being produced
-            // late.
+            // Only perform late-block logging if the block is built by the
+            // local EE.
             //
-            // Check to see the thresholds are non-zero to avoid logging errors with small
-            // slot times (e.g., during testing)
-            let too_late_threshold = chain.slot_clock.unagg_attestation_production_delay();
-            let delayed_threshold = too_late_threshold / 2;
-            if delay >= too_late_threshold {
-                error!(
-                    log,
-                    "Block was broadcast too late";
-                    "msg" => "system may be overloaded, block likely to be orphaned",
-                    "delay_ms" => delay.as_millis(),
-                    "slot" => block.slot(),
-                    "root" => ?root,
-                )
-            } else if delay >= delayed_threshold {
-                error!(
-                    log,
-                    "Block broadcast was delayed";
-                    "msg" => "system may be overloaded, block may be orphaned",
-                    "delay_ms" => delay.as_millis(),
-                    "slot" => block.slot(),
-                    "root" => ?root,
-                )
+            // When a block is produced with a builder it's common for the
+            // builder to publish the block a signficant amount of time before
+            // they return it to the proposer. Although it would be great if
+            // builders returned the block in a timely fashion, I believe it's
+            // important that we don't flood users with false-positives.
+            if is_locally_built_block {
+                // Perform some logging to inform users if their blocks are being produced
+                // late.
+                //
+                // Check to see the thresholds are non-zero to avoid logging errors with small
+                // slot times (e.g., during testing)
+                let too_late_threshold = chain.slot_clock.unagg_attestation_production_delay();
+                let delayed_threshold = too_late_threshold / 2;
+                if delay >= too_late_threshold {
+                    error!(
+                        log,
+                        "Block was broadcast too late";
+                        "msg" => "system may be overloaded, block likely to be orphaned",
+                        "delay_ms" => delay.as_millis(),
+                        "slot" => block.slot(),
+                        "root" => ?root,
+                    )
+                } else if delay >= delayed_threshold {
+                    error!(
+                        log,
+                        "Block broadcast was delayed";
+                        "msg" => "system may be overloaded, block may be orphaned",
+                        "delay_ms" => delay.as_millis(),
+                        "slot" => block.slot(),
+                        "root" => ?root,
+                    )
+                }
             }
 
             Ok(())
@@ -147,14 +170,7 @@ pub async fn publish_blinded_block<T: BeaconChainTypes>(
 ) -> Result<(), Rejection> {
     let block_root = block.canonical_root();
     let full_block = reconstruct_block(chain.clone(), block_root, block, log.clone()).await?;
-    publish_block::<T>(
-        Some(block_root),
-        Arc::new(full_block),
-        chain,
-        network_tx,
-        log,
-    )
-    .await
+    publish_block::<T>(Some(block_root), full_block, chain, network_tx, log).await
 }
 
 /// Deconstruct the given blinded block, and construct a full block. This attempts to use the
@@ -165,15 +181,15 @@ async fn reconstruct_block<T: BeaconChainTypes>(
     block_root: Hash256,
     block: SignedBeaconBlock<T::EthSpec, BlindedPayload<T::EthSpec>>,
     log: Logger,
-) -> Result<SignedBeaconBlock<T::EthSpec, FullPayload<T::EthSpec>>, Rejection> {
-    let full_payload = if let Ok(payload_header) = block.message().body().execution_payload() {
+) -> Result<ProvenancedBlock<T::EthSpec>, Rejection> {
+    let full_payload_opt = if let Ok(payload_header) = block.message().body().execution_payload() {
         let el = chain.execution_layer.as_ref().ok_or_else(|| {
             warp_utils::reject::custom_server_error("Missing execution layer".to_string())
         })?;
 
         // If the execution block hash is zero, use an empty payload.
         let full_payload = if payload_header.block_hash() == ExecutionBlockHash::zero() {
-            FullPayload::default_at_fork(
+            let payload = FullPayload::default_at_fork(
                 chain
                     .spec
                     .fork_name_at_epoch(block.slot().epoch(T::EthSpec::slots_per_epoch())),
@@ -183,14 +199,15 @@ async fn reconstruct_block<T: BeaconChainTypes>(
                     "Default payload construction error: {e:?}"
                 ))
             })?
-            .into()
-            // If we already have an execution payload with this transactions root cached, use it.
+            .into();
+            ProvenancedPayload::Local(payload)
+        // If we already have an execution payload with this transactions root cached, use it.
         } else if let Some(cached_payload) =
             el.get_payload_by_root(&payload_header.tree_hash_root())
         {
             info!(log, "Reconstructing a full block using a local payload"; "block_hash" => ?cached_payload.block_hash());
-            cached_payload
-            // Otherwise, this means we are attempting a blind block proposal.
+            ProvenancedPayload::Local(cached_payload)
+        // Otherwise, this means we are attempting a blind block proposal.
         } else {
             let full_payload = el
                 .propose_blinded_beacon_block(block_root, &block)
@@ -202,7 +219,7 @@ async fn reconstruct_block<T: BeaconChainTypes>(
                     ))
                 })?;
             info!(log, "Successfully published a block to the builder network"; "block_hash" => ?full_payload.block_hash());
-            full_payload
+            ProvenancedPayload::Builder(full_payload)
         };
 
         Some(full_payload)
@@ -210,7 +227,18 @@ async fn reconstruct_block<T: BeaconChainTypes>(
         None
     };
 
-    block.try_into_full_block(full_payload).ok_or_else(|| {
+    match full_payload_opt {
+        Some(ProvenancedPayload::Local(full_payload)) => block
+            .try_into_full_block(Some(full_payload))
+            .map(Arc::new)
+            .map(ProvenancedBlock::Local),
+        Some(ProvenancedPayload::Builder(full_payload)) => block
+            .try_into_full_block(Some(full_payload))
+            .map(Arc::new)
+            .map(ProvenancedBlock::Builder),
+        None => None,
+    }
+    .ok_or_else(|| {
         warp_utils::reject::custom_server_error("Unable to add payload to block".to_string())
     })
 }
