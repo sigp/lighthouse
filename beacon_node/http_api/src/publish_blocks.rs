@@ -39,6 +39,7 @@ pub async fn publish_block<T: BeaconChainTypes>(
         ProvenancedBlock::Local(block) => (block, true),
         ProvenancedBlock::Builder(block) => (block, false),
     };
+    let delay = get_block_delay_ms(seen_timestamp, block.message(), &chain.slot_clock);
 
     debug!(
         log,
@@ -51,10 +52,6 @@ pub async fn publish_block<T: BeaconChainTypes>(
 
     let message = PubsubMessage::BeaconBlock(block.clone());
     crate::publish_pubsub_message(network_tx, message)?;
-
-    // Determine the delay after the start of the slot, register it with metrics.
-    let delay = get_block_delay_ms(seen_timestamp, block.message(), &chain.slot_clock);
-    metrics::observe_duration(&metrics::HTTP_API_BLOCK_BROADCAST_DELAY_TIMES, delay);
 
     let block_root = block_root.unwrap_or_else(|| block.canonical_root());
 
@@ -233,6 +230,13 @@ fn late_block_logging<T: BeaconChainTypes, P: AbstractExecPayload<T::EthSpec>>(
     log: &Logger,
 ) {
     let delay = get_block_delay_ms(seen_timestamp, block, &chain.slot_clock);
+
+    metrics::observe_timer_vec(
+        &metrics::HTTP_API_BLOCK_BROADCAST_DELAY_TIMES,
+        &[provenance],
+        delay,
+    );
+
     // Perform some logging to inform users if their blocks are being produced
     // late.
     //
