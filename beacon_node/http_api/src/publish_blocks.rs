@@ -9,11 +9,12 @@ use network::NetworkMessage;
 use slog::{debug, error, info, warn, Logger};
 use slot_clock::SlotClock;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::mpsc::UnboundedSender;
 use tree_hash::TreeHash;
 use types::{
-    AbstractExecPayload, BlindedPayload, EthSpec, ExecPayload, ExecutionBlockHash, FullPayload,
-    Hash256, SignedBeaconBlock,
+    AbstractExecPayload, BeaconBlockRef, BlindedPayload, EthSpec, ExecPayload, ExecutionBlockHash,
+    FullPayload, Hash256, SignedBeaconBlock,
 };
 use warp::Rejection;
 
@@ -88,41 +89,11 @@ pub async fn publish_block<T: BeaconChainTypes>(
             // head.
             chain.recompute_head_at_current_slot().await;
 
-            // Only perform late-block logging if the block is built by the
-            // local EE.
-            //
-            // When a block is produced with a builder it's common for the
-            // builder to publish the block a signficant amount of time before
-            // they return it to the proposer. Although it would be great if
-            // builders returned the block in a timely fashion, I believe it's
-            // important that we don't flood users with false-positives.
+            // Only perform late-block logging here if the block is local. For
+            // blocks built with builders we consider the broadcast time to be
+            // when the blinded block is published to the builder.
             if is_locally_built_block {
-                // Perform some logging to inform users if their blocks are being produced
-                // late.
-                //
-                // Check to see the thresholds are non-zero to avoid logging errors with small
-                // slot times (e.g., during testing)
-                let too_late_threshold = chain.slot_clock.unagg_attestation_production_delay();
-                let delayed_threshold = too_late_threshold / 2;
-                if delay >= too_late_threshold {
-                    error!(
-                        log,
-                        "Block was broadcast too late";
-                        "msg" => "system may be overloaded, block likely to be orphaned",
-                        "delay_ms" => delay.as_millis(),
-                        "slot" => block.slot(),
-                        "root" => ?root,
-                    )
-                } else if delay >= delayed_threshold {
-                    error!(
-                        log,
-                        "Block broadcast was delayed";
-                        "msg" => "system may be overloaded, block may be orphaned",
-                        "delay_ms" => delay.as_millis(),
-                        "slot" => block.slot(),
-                        "root" => ?root,
-                    )
-                }
+                late_block_logging(&chain, seen_timestamp, block.message(), root, "local", &log)
             }
 
             Ok(())
@@ -209,6 +180,14 @@ async fn reconstruct_block<T: BeaconChainTypes>(
             ProvenancedPayload::Local(cached_payload)
         // Otherwise, this means we are attempting a blind block proposal.
         } else {
+            late_block_logging(
+                &chain,
+                timestamp_now(),
+                block.message(),
+                block_root,
+                "builder",
+                &log,
+            );
             let full_payload = el
                 .propose_blinded_beacon_block(block_root, &block)
                 .await
@@ -241,4 +220,43 @@ async fn reconstruct_block<T: BeaconChainTypes>(
     .ok_or_else(|| {
         warp_utils::reject::custom_server_error("Unable to add payload to block".to_string())
     })
+}
+
+fn late_block_logging<T: BeaconChainTypes, P: AbstractExecPayload<T::EthSpec>>(
+    chain: &BeaconChain<T>,
+    seen_timestamp: Duration,
+    block: BeaconBlockRef<T::EthSpec, P>,
+    root: Hash256,
+    provenance: &str,
+    log: &Logger,
+) {
+    let delay = get_block_delay_ms(seen_timestamp, block, &chain.slot_clock);
+    // Perform some logging to inform users if their blocks are being produced
+    // late.
+    //
+    // Check to see the thresholds are non-zero to avoid logging errors with small
+    // slot times (e.g., during testing)
+    let too_late_threshold = chain.slot_clock.unagg_attestation_production_delay();
+    let delayed_threshold = too_late_threshold / 2;
+    if delay >= too_late_threshold {
+        error!(
+            log,
+            "Block was broadcast too late";
+            "msg" => "system may be overloaded, block likely to be orphaned",
+            "provenance" => provenance,
+            "delay_ms" => delay.as_millis(),
+            "slot" => block.slot(),
+            "root" => ?root,
+        )
+    } else if delay >= delayed_threshold {
+        error!(
+            log,
+            "Block broadcast was delayed";
+            "msg" => "system may be overloaded, block may be orphaned",
+            "provenance" => provenance,
+            "delay_ms" => delay.as_millis(),
+            "slot" => block.slot(),
+            "root" => ?root,
+        )
+    }
 }
