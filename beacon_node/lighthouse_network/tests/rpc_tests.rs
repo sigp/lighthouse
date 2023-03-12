@@ -3,14 +3,16 @@ use lighthouse_network::rpc::methods::*;
 use lighthouse_network::{rpc::max_rpc_size, NetworkEvent, ReportSource, Request, Response};
 use slog::{debug, warn, Level};
 use ssz::Encode;
-use ssz_types::VariableList;
+use ssz_types::{VariableList, FixedVector};
+use types::light_client_bootstrap::LightClientBootstrap;
+use types::light_client_update::CURRENT_SYNC_COMMITTEE_PROOF_LEN;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::runtime::Runtime;
 use tokio::time::sleep;
 use types::{
     BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockMerge, EmptyBlock, Epoch, EthSpec,
-    ForkContext, ForkName, Hash256, MinimalEthSpec, Signature, SignedBeaconBlock, Slot,
+    ForkContext, ForkName, Hash256, MinimalEthSpec, Signature, SignedBeaconBlock, Slot, SyncCommittee, BeaconBlockHeader,
 };
 
 mod common;
@@ -86,6 +88,99 @@ fn test_status_rpc() {
                 match sender.next_event().await {
                     NetworkEvent::PeerConnectedOutgoing(peer_id) => {
                         // Send a STATUS message
+                        debug!(log, "Sending RPC");
+                        sender.send_request(peer_id, 10, rpc_request.clone());
+                    }
+                    NetworkEvent::ResponseReceived {
+                        peer_id: _,
+                        id: 10,
+                        response,
+                    } => {
+                        // Should receive the RPC response
+                        debug!(log, "Sender Received");
+                        assert_eq!(response, rpc_response.clone());
+                        debug!(log, "Sender Completed");
+                        return;
+                    }
+                    _ => {}
+                }
+            }
+        };
+
+        // build the receiver future
+        let receiver_future = async {
+            loop {
+                match receiver.next_event().await {
+                    NetworkEvent::RequestReceived {
+                        peer_id,
+                        id,
+                        request,
+                    } => {
+                        if request == rpc_request {
+                            // send the response
+                            debug!(log, "Receiver Received");
+                            receiver.send_response(peer_id, id, rpc_response.clone());
+                        }
+                    }
+                    _ => {} // Ignore other events
+                }
+            }
+        };
+
+        tokio::select! {
+            _ = sender_future => {}
+            _ = receiver_future => {}
+            _ = sleep(Duration::from_secs(30)) => {
+                panic!("Future timed out");
+            }
+        }
+    })
+}
+
+// Tests the LightClientBootstrap RPC message
+#[test]
+#[allow(clippy::single_match)]
+fn test_light_client_bootstrap_rpc() {
+    // set up the logging. The level and enabled logging or not
+    let log_level = Level::Debug;
+    let enable_logging = true;
+
+    let rt = Arc::new(Runtime::new().unwrap());
+
+    let log = common::build_log(log_level, enable_logging);
+
+    rt.block_on(async {
+        // get sender/receiver
+        let (mut sender, mut receiver) =
+            common::build_node_pair(Arc::downgrade(&rt), &log, ForkName::Base).await;
+
+        // Dummy LightClientBootstrap RPC request
+        let rpc_request = Request::LightClientBootstrap(LightClientBootstrapRequest {
+            root: Hash256::from_low_u64_be(0),
+        });
+
+        // Dummy LightClientBootstrap RPC response
+        let rpc_response = Response::LightClientBootstrap(LightClientBootstrap {
+            header: BeaconBlockHeader {
+                slot: Slot::new(0),
+                proposer_index: 0,
+                parent_root: Hash256::zero(),
+                state_root: Hash256::zero(),
+                body_root: Hash256::zero(),
+            },
+            current_sync_committee: Arc::new(SyncCommittee::temporary().unwrap()),
+            current_sync_committee_branch: FixedVector::new(vec![
+                Hash256::zero();
+                CURRENT_SYNC_COMMITTEE_PROOF_LEN
+            ]).unwrap(),
+        });
+
+        // build the sender future
+        let sender_future = async {
+            loop {
+                match sender.next_event().await {
+                    NetworkEvent::PeerConnectedOutgoing(peer_id) => {
+                        // Send a LightClientBootstrap message
                         debug!(log, "Sending RPC");
                         sender.send_request(peer_id, 10, rpc_request.clone());
                     }
