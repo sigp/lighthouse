@@ -12,6 +12,9 @@ where
         .unwrap_or_else(|_| Err(warp::reject::reject()))
 }
 
+/// A convenience wrapper around `blocking_task` that returns a `warp::reply::Response`.
+///
+/// Using this method consistently makes it possible to simplify types using `.unify()` or `.uor()`.
 pub async fn blocking_response_task<F, T>(func: F) -> Result<Response, warp::Rejection>
 where
     F: FnOnce() -> Result<T, warp::Rejection> + Send + 'static,
