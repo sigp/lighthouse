@@ -222,6 +222,8 @@ async fn reconstruct_block<T: BeaconChainTypes>(
     })
 }
 
+/// If the `seen_timestamp` is some time after the start of the slot for
+/// `block`, create some logs to indicate that the block was published late.
 fn late_block_logging<T: BeaconChainTypes, P: AbstractExecPayload<T::EthSpec>>(
     chain: &BeaconChain<T>,
     seen_timestamp: Duration,
