@@ -19,7 +19,7 @@ use types::{
 use warp::Rejection;
 
 pub enum ProvenancedBlock<T: EthSpec> {
-    /// The payload was built using a local EE>
+    /// The payload was built using a local EE.
     Local(Arc<SignedBeaconBlock<T, FullPayload<T>>>),
     /// The payload was build using a remote builder (e.g., via a mev-boost
     /// compatible relay).
