@@ -95,7 +95,6 @@ host** run the command to move the validators:
 ```
 lighthouse \
 	validator-manager \
-	validators \
 	move \
 	--src-vc-url http://localhost:6062 \
 	--src-vc-token ~/src-token.txt \

@@ -25,7 +25,7 @@ a live VC. The validator manager is generally superior to the account manager fo
 
 ### Create Validators
 
-The `lighthouse validator-manager validators create` command accepts a mnemonic and produces a JSON
+The `lighthouse validator-manager create` command accepts a mnemonic and produces a JSON
 file containing validator keystores that can be imported with the [Import
 Validators]() command.
 
