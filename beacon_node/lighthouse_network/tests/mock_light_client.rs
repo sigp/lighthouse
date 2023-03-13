@@ -1,4 +1,3 @@
-/* 
 #![cfg(test)]
 use std::sync::Weak;
 use tokio::runtime::Runtime;
@@ -7,9 +6,7 @@ use types::{
 };
 use slog::{o, debug, error};
 use std::time::Duration;
-use libp2p::swarm::{NetworkBehaviour, };
-use libp2p::core::connection::ConnectionId;
-use libp2p::PeerId;
+use libp2p::swarm::{NetworkBehaviour, NetworkBehaviourAction};
 
 
 use lighthouse_network::{NetworkEvent, EnrExt};
@@ -75,25 +72,20 @@ pub async fn build_node_and_light_client(
 }
 
 //pub struct MockLibP2PLightClientService {
-//    swarm: libp2p::swarm::Swarm<Behaviour>,
+//    swarm: libp2p::swarm::Swarm<RPC>,
 //}
 
-//type BehaviourAction =
-//    NetworkBehaviourAction<RPCMessage<Id, TSpec>, RPCHandler<Id, TSpec>>;
+type BehaviourAction =
+    NetworkBehaviourAction<RPCMessage<Id, TSpec>, RPCHandler<Id, TSpec>>;
 
 /// Implements the libp2p `NetworkBehaviour` trait and therefore manages network-level
 /// logic.
-//pub struct RPC {
+pub struct RPC {
     /// Queue of events to be processed.
-//    events: Vec<BehaviourAction>,
+    events: Vec<BehaviourAction>,
 //    fork_context: Arc<ForkContext>,
     /// Slog logger for RPC behaviour.
-//    log: slog::Logger,
-//}
-
-#[derive(NetworkBehaviour)]
-struct Behaviour {
-    rpc: RPC,
+    log: slog::Logger,
 }
 
-*/
+
