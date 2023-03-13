@@ -12,12 +12,21 @@ use tree_hash_derive::TreeHash;
 /// To be included in an `AttesterSlashing`.
 ///
 /// Spec v0.12.1
-#[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 #[derive(
-    Derivative, Debug, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom,
+    Derivative,
+    Debug,
+    Clone,
+    Serialize,
+    Deserialize,
+    Encode,
+    Decode,
+    TreeHash,
+    TestRandom,
+    arbitrary::Arbitrary,
 )]
 #[derivative(PartialEq, Eq)] // to satisfy Clippy's lint about `Hash`
 #[serde(bound = "T: EthSpec")]
+#[arbitrary(bound = "T: EthSpec")]
 pub struct IndexedAttestation<T: EthSpec> {
     /// Lists validator registry indices, not committee indices.
     #[serde(with = "quoted_variable_list_u64")]

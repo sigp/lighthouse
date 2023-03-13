@@ -53,7 +53,7 @@ fork_choice = { path = "../../consensus/fork_choice" }
 task_executor = { path = "../../common/task_executor" }
 derivative = "2.1.1"
 itertools = "0.10.0"
-slasher = { path = "../../slasher" }
+slasher = { path = "../../slasher", default-features = false }
 eth2 = { path = "../../common/eth2" }
 strum = { version = "0.24.0", features = ["derive"] }
 logging = { path = "../../common/logging" }

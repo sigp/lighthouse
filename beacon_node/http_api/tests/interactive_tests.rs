@@ -2,13 +2,15 @@
 use crate::common::*;
 use beacon_chain::{
     chain_config::ReOrgThreshold,
-    test_utils::{AttestationStrategy, BlockStrategy},
+    test_utils::{AttestationStrategy, BlockStrategy, SyncCommitteeStrategy},
 };
 use eth2::types::DepositContractData;
-use execution_layer::{ForkChoiceState, PayloadAttributes};
+use execution_layer::{ForkchoiceState, PayloadAttributes};
 use parking_lot::Mutex;
 use slot_clock::SlotClock;
-use state_processing::state_advance::complete_state_advance;
+use state_processing::{
+    per_block_processing::get_expected_withdrawals, state_advance::complete_state_advance,
+};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
@@ -55,7 +57,7 @@ struct ForkChoiceUpdates {
 #[derive(Debug, Clone)]
 struct ForkChoiceUpdateMetadata {
     received_at: Duration,
-    state: ForkChoiceState,
+    state: ForkchoiceState,
     payload_attributes: Option<PayloadAttributes>,
 }
 
@@ -86,7 +88,7 @@ impl ForkChoiceUpdates {
                     .payload_attributes
                     .as_ref()
                     .map_or(false, |payload_attributes| {
-                        payload_attributes.timestamp == proposal_timestamp
+                        payload_attributes.timestamp() == proposal_timestamp
                     })
             })
             .cloned()
@@ -106,13 +108,15 @@ pub struct ReOrgTest {
     percent_head_votes: usize,
     should_re_org: bool,
     misprediction: bool,
+    /// Whether to expect withdrawals to change on epoch boundaries.
+    expect_withdrawals_change_on_epoch: bool,
 }
 
 impl Default for ReOrgTest {
     /// Default config represents a regular easy re-org.
     fn default() -> Self {
         Self {
-            head_slot: Slot::new(30),
+            head_slot: Slot::new(E::slots_per_epoch() - 2),
             parent_distance: 1,
             head_distance: 1,
             re_org_threshold: 20,
@@ -122,6 +126,7 @@ impl Default for ReOrgTest {
             percent_head_votes: 0,
             should_re_org: true,
             misprediction: false,
+            expect_withdrawals_change_on_epoch: false,
         }
     }
 }
@@ -136,8 +141,35 @@ pub async fn proposer_boost_re_org_zero_weight() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 pub async fn proposer_boost_re_org_epoch_boundary() {
     proposer_boost_re_org_test(ReOrgTest {
-        head_slot: Slot::new(31),
+        head_slot: Slot::new(E::slots_per_epoch() - 1),
         should_re_org: false,
+        ..Default::default()
+    })
+    .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+pub async fn proposer_boost_re_org_epoch_boundary_skip1() {
+    // Proposing a block on a boundary after a skip will change the set of expected withdrawals
+    // sent in the payload attributes.
+    proposer_boost_re_org_test(ReOrgTest {
+        head_slot: Slot::new(2 * E::slots_per_epoch() - 2),
+        head_distance: 2,
+        should_re_org: false,
+        expect_withdrawals_change_on_epoch: true,
+        ..Default::default()
+    })
+    .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+pub async fn proposer_boost_re_org_epoch_boundary_skip32() {
+    // Propose a block at 64 after a whole epoch of skipped slots.
+    proposer_boost_re_org_test(ReOrgTest {
+        head_slot: Slot::new(E::slots_per_epoch() - 1),
+        head_distance: E::slots_per_epoch() + 1,
+        should_re_org: false,
+        expect_withdrawals_change_on_epoch: true,
         ..Default::default()
     })
     .await;
@@ -187,7 +219,7 @@ pub async fn proposer_boost_re_org_finality() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 pub async fn proposer_boost_re_org_parent_distance() {
     proposer_boost_re_org_test(ReOrgTest {
-        head_slot: Slot::new(30),
+        head_slot: Slot::new(E::slots_per_epoch() - 2),
         parent_distance: 2,
         should_re_org: false,
         ..Default::default()
@@ -198,7 +230,7 @@ pub async fn proposer_boost_re_org_parent_distance() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 pub async fn proposer_boost_re_org_head_distance() {
     proposer_boost_re_org_test(ReOrgTest {
-        head_slot: Slot::new(29),
+        head_slot: Slot::new(E::slots_per_epoch() - 3),
         head_distance: 2,
         should_re_org: false,
         ..Default::default()
@@ -209,7 +241,7 @@ pub async fn proposer_boost_re_org_head_distance() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 pub async fn proposer_boost_re_org_very_unhealthy() {
     proposer_boost_re_org_test(ReOrgTest {
-        head_slot: Slot::new(31),
+        head_slot: Slot::new(E::slots_per_epoch() - 1),
         parent_distance: 2,
         head_distance: 2,
         percent_parent_votes: 10,
@@ -225,7 +257,6 @@ pub async fn proposer_boost_re_org_very_unhealthy() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 pub async fn proposer_boost_re_org_weight_misprediction() {
     proposer_boost_re_org_test(ReOrgTest {
-        head_slot: Slot::new(30),
         percent_empty_votes: 70,
         percent_head_votes: 30,
         should_re_org: false,
@@ -254,12 +285,13 @@ pub async fn proposer_boost_re_org_test(
         percent_head_votes,
         should_re_org,
         misprediction,
+        expect_withdrawals_change_on_epoch,
     }: ReOrgTest,
 ) {
     assert!(head_slot > 0);
 
-    // We require a network with execution enabled so we can check EL message timings.
-    let mut spec = ForkName::Merge.make_genesis_spec(E::default_spec());
+    // Test using Capella so that we simulate conditions as similar to mainnet as possible.
+    let mut spec = ForkName::Capella.make_genesis_spec(E::default_spec());
     spec.terminal_total_difficulty = 1.into();
 
     // Ensure there are enough validators to have `attesters_per_slot`.
@@ -278,9 +310,10 @@ pub async fn proposer_boost_re_org_test(
     let num_empty_votes = Some(attesters_per_slot * percent_empty_votes / 100);
     let num_head_votes = Some(attesters_per_slot * percent_head_votes / 100);
 
-    let tester = InteractiveTester::<E>::new_with_mutator(
+    let tester = InteractiveTester::<E>::new_with_initializer_and_mutator(
         Some(spec),
         validator_count,
+        None,
         Some(Box::new(move |builder| {
             builder
                 .proposer_re_org_threshold(Some(ReOrgThreshold(re_org_threshold)))
@@ -322,13 +355,15 @@ pub async fn proposer_boost_re_org_test(
         )
         .await;
 
-    // Create some chain depth.
+    // Create some chain depth. Sign sync committee signatures so validator balances don't dip
+    // below 32 ETH and become ineligible for withdrawals.
     harness.advance_slot();
     harness
-        .extend_chain(
+        .extend_chain_with_sync(
             num_initial as usize,
             BlockStrategy::OnCanonicalHead,
             AttestationStrategy::AllValidators,
+            SyncCommitteeStrategy::AllValidators,
         )
         .await;
 
@@ -342,7 +377,7 @@ pub async fn proposer_boost_re_org_test(
         .lock()
         .set_forkchoice_updated_hook(Box::new(move |state, payload_attributes| {
             let received_at = chain_inner.slot_clock.now_duration().unwrap();
-            let state = ForkChoiceState::from(state);
+            let state = ForkchoiceState::from(state);
             let payload_attributes = payload_attributes.map(Into::into);
             let update = ForkChoiceUpdateMetadata {
                 received_at,
@@ -362,6 +397,16 @@ pub async fn proposer_boost_re_org_test(
     let slot_a = Slot::new(num_initial + 1);
     let slot_b = slot_a + parent_distance;
     let slot_c = slot_b + head_distance;
+
+    // We need to transition to at least epoch 2 in order to trigger
+    // `process_rewards_and_penalties`. This allows us to test withdrawals changes at epoch
+    // boundaries.
+    if expect_withdrawals_change_on_epoch {
+        assert!(
+            slot_c.epoch(E::slots_per_epoch()) >= 2,
+            "for withdrawals to change, test must end at an epoch >= 2"
+        );
+    }
 
     harness.advance_slot();
     let (block_a_root, block_a, state_a) = harness
@@ -456,6 +501,10 @@ pub async fn proposer_boost_re_org_test(
 
     // Produce block C.
     // Advance state_b so we can get the proposer.
+    assert_eq!(state_b.slot(), slot_b);
+    let pre_advance_withdrawals = get_expected_withdrawals(&state_b, &harness.chain.spec)
+        .unwrap()
+        .to_vec();
     complete_state_advance(&mut state_b, None, slot_c, &harness.chain.spec).unwrap();
 
     let proposer_index = state_b
@@ -513,6 +562,28 @@ pub async fn proposer_boost_re_org_test(
         .unwrap();
     let payload_attribs = first_update.payload_attributes.as_ref().unwrap();
 
+    // Check that withdrawals from the payload attributes match those computed from the parent's
+    // advanced state.
+    let expected_withdrawals = if should_re_org {
+        let mut state_a_advanced = state_a.clone();
+        complete_state_advance(&mut state_a_advanced, None, slot_c, &harness.chain.spec).unwrap();
+        get_expected_withdrawals(&state_a_advanced, &harness.chain.spec)
+    } else {
+        get_expected_withdrawals(&state_b, &harness.chain.spec)
+    }
+    .unwrap()
+    .to_vec();
+    let payload_attribs_withdrawals = payload_attribs.withdrawals().unwrap();
+    assert_eq!(expected_withdrawals, *payload_attribs_withdrawals);
+    assert!(!expected_withdrawals.is_empty());
+
+    if should_re_org
+        || expect_withdrawals_change_on_epoch
+            && slot_c.epoch(E::slots_per_epoch()) != slot_b.epoch(E::slots_per_epoch())
+    {
+        assert_ne!(expected_withdrawals, pre_advance_withdrawals);
+    }
+
     let lookahead = slot_clock
         .start_of(slot_c)
         .unwrap()
@@ -521,16 +592,20 @@ pub async fn proposer_boost_re_org_test(
 
     if !misprediction {
         assert_eq!(
-            lookahead, payload_lookahead,
+            lookahead,
+            payload_lookahead,
             "lookahead={lookahead:?}, timestamp={}, prev_randao={:?}",
-            payload_attribs.timestamp, payload_attribs.prev_randao,
+            payload_attribs.timestamp(),
+            payload_attribs.prev_randao(),
         );
     } else {
         // On a misprediction we issue the first fcU 500ms before creating a block!
         assert_eq!(
-            lookahead, fork_choice_lookahead,
+            lookahead,
+            fork_choice_lookahead,
             "timestamp={}, prev_randao={:?}",
-            payload_attribs.timestamp, payload_attribs.prev_randao,
+            payload_attribs.timestamp(),
+            payload_attribs.prev_randao(),
         );
     }
 }
@@ -540,7 +615,7 @@ pub async fn proposer_boost_re_org_test(
 pub async fn fork_choice_before_proposal() {
     // Validator count needs to be at least 32 or proposer boost gets set to 0 when computing
     // `validator_count // 32`.
-    let validator_count = 32;
+    let validator_count = 64;
     let all_validators = (0..validator_count).collect::<Vec<_>>();
     let num_initial: u64 = 31;
 

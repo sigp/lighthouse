@@ -800,6 +800,7 @@ where
             observed_voluntary_exits: <_>::default(),
             observed_proposer_slashings: <_>::default(),
             observed_attester_slashings: <_>::default(),
+            observed_bls_to_execution_changes: <_>::default(),
             latest_seen_finality_update: <_>::default(),
             latest_seen_optimistic_update: <_>::default(),
             eth1_chain: self.eth1_chain,

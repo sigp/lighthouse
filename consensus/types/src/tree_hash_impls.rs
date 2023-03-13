@@ -17,7 +17,7 @@ impl CachedTreeHash<TreeHashCache> for Validator {
 
     /// Efficiently tree hash a `Validator`, assuming it was updated by a valid state transition.
     ///
-    /// Specifically, we assume that the `pubkey` and `withdrawal_credentials` fields are constant.
+    /// Specifically, we assume that the `pubkey` field is constant.
     fn recalculate_tree_hash_root(
         &self,
         arena: &mut CacheArena,
@@ -29,8 +29,8 @@ impl CachedTreeHash<TreeHashCache> for Validator {
             .iter_mut(arena)?
             .enumerate()
             .flat_map(|(i, leaf)| {
-                // Fields pubkey and withdrawal_credentials are constant
-                if (i == 0 || i == 1) && cache.initialized {
+                // Pubkey field (index 0) is constant.
+                if i == 0 && cache.initialized {
                     None
                 } else if process_field_by_index(self, i, leaf, !cache.initialized) {
                     Some(i)

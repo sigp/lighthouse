@@ -7,7 +7,6 @@ use crate::{
 };
 use crate::{http_metrics::metrics, validator_store::ValidatorStore};
 use environment::RuntimeContext;
-use eth2::types::Graffiti;
 use slog::{crit, debug, error, info, trace, warn};
 use slot_clock::SlotClock;
 use std::ops::Deref;
@@ -15,7 +14,10 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio::time::sleep;
-use types::{BlindedPayload, BlockType, EthSpec, ExecPayload, FullPayload, PublicKeyBytes, Slot};
+use types::{
+    AbstractExecPayload, BlindedPayload, BlockType, EthSpec, FullPayload, Graffiti, PublicKeyBytes,
+    Slot,
+};
 
 #[derive(Debug)]
 pub enum BlockError {
@@ -295,7 +297,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
     }
 
     /// Produce a block at the given slot for validator_pubkey
-    async fn publish_block<Payload: ExecPayload<E>>(
+    async fn publish_block<Payload: AbstractExecPayload<E>>(
         self,
         slot: Slot,
         validator_pubkey: PublicKeyBytes,
@@ -333,6 +335,11 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
         let proposer_index = self.validator_store.validator_index(&validator_pubkey);
         let validator_pubkey_ref = &validator_pubkey;
 
+        info!(
+            log,
+            "Requesting unsigned block";
+            "slot" => slot.as_u64(),
+        );
         // Request block from first responsive beacon node.
         let block = self
             .beacon_nodes
@@ -383,6 +390,11 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                         }
                     };
 
+                    info!(
+                        log,
+                        "Received unsigned block";
+                        "slot" => slot.as_u64(),
+                    );
                     if proposer_index != Some(block.proposer_index()) {
                         return Err(BlockError::Recoverable(
                             "Proposer index does not match block proposer. Beacon chain re-orged"
@@ -395,11 +407,21 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
             )
             .await?;
 
+        let signing_timer = metrics::start_timer(&metrics::BLOCK_SIGNING_TIMES);
         let signed_block = self_ref
             .validator_store
             .sign_block::<Payload>(*validator_pubkey_ref, block, current_slot)
             .await
             .map_err(|e| BlockError::Recoverable(format!("Unable to sign block: {:?}", e)))?;
+        let signing_time_ms =
+            Duration::from_secs_f64(signing_timer.map_or(0.0, |t| t.stop_and_record())).as_millis();
+
+        info!(
+            log,
+            "Publishing signed block";
+            "slot" => slot.as_u64(),
+            "signing_time_ms" => signing_time_ms,
+        );
 
         // Publish block with first available beacon node.
         self.beacon_nodes
@@ -453,6 +475,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
             "graffiti" => ?graffiti.map(|g| g.as_utf8_lossy()),
             "slot" => signed_block.slot().as_u64(),
         );
+
         Ok(())
     }
 }

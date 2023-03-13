@@ -13,9 +13,10 @@ use std::collections::BTreeSet;
 use std::marker::PhantomData;
 use std::time::Duration;
 use types::{
-    consts::merge::INTERVALS_PER_SLOT, AttestationShufflingId, AttesterSlashing, BeaconBlockRef,
-    BeaconState, BeaconStateError, ChainSpec, Checkpoint, Epoch, EthSpec, ExecPayload,
-    ExecutionBlockHash, Hash256, IndexedAttestation, RelativeEpoch, SignedBeaconBlock, Slot,
+    consts::merge::INTERVALS_PER_SLOT, AbstractExecPayload, AttestationShufflingId,
+    AttesterSlashing, BeaconBlockRef, BeaconState, BeaconStateError, ChainSpec, Checkpoint, Epoch,
+    EthSpec, ExecPayload, ExecutionBlockHash, Hash256, IndexedAttestation, RelativeEpoch,
+    SignedBeaconBlock, Slot,
 };
 
 #[derive(Debug)]
@@ -412,18 +413,18 @@ where
             AttestationShufflingId::new(anchor_block_root, anchor_state, RelativeEpoch::Next)
                 .map_err(Error::BeaconStateError)?;
 
-        // Default any non-merge execution block hashes to 0x000..000.
-        let execution_status = anchor_block.message_merge().map_or_else(
-            |()| ExecutionStatus::irrelevant(),
-            |message| {
-                let execution_payload = &message.body.execution_payload;
-                if execution_payload == &<_>::default() {
+        let execution_status = anchor_block.message().execution_payload().map_or_else(
+            // If the block doesn't have an execution payload then it can't have
+            // execution enabled.
+            |_| ExecutionStatus::irrelevant(),
+            |execution_payload| {
+                if execution_payload.is_default_with_empty_roots() {
                     // A default payload does not have execution enabled.
                     ExecutionStatus::irrelevant()
                 } else {
                     // Assume that this payload is valid, since the anchor should be a trusted block and
                     // state.
-                    ExecutionStatus::Valid(message.body.execution_payload.block_hash())
+                    ExecutionStatus::Valid(execution_payload.block_hash())
                 }
             },
         );
@@ -721,7 +722,7 @@ where
         op: &InvalidationOperation,
     ) -> Result<(), Error<T::Error>> {
         self.proto_array
-            .process_execution_payload_invalidation(op)
+            .process_execution_payload_invalidation::<E>(op)
             .map_err(Error::FailedToProcessInvalidExecutionPayload)
     }
 
@@ -744,7 +745,7 @@ where
     /// The supplied block **must** pass the `state_transition` function as it will not be run
     /// here.
     #[allow(clippy::too_many_arguments)]
-    pub fn on_block<Payload: ExecPayload<E>>(
+    pub fn on_block<Payload: AbstractExecPayload<E>>(
         &mut self,
         system_time_current_slot: Slot,
         block: BeaconBlockRef<E, Payload>,
@@ -856,7 +857,9 @@ where
                     (parent_justified, parent_finalized)
                 } else {
                     let justification_and_finalization_state = match block {
-                        BeaconBlockRef::Merge(_) | BeaconBlockRef::Altair(_) => {
+                        BeaconBlockRef::Capella(_)
+                        | BeaconBlockRef::Merge(_)
+                        | BeaconBlockRef::Altair(_) => {
                             let participation_cache =
                                 per_epoch_processing::altair::ParticipationCache::new(state, spec)
                                     .map_err(Error::ParticipationCacheBuild)?;
@@ -1282,7 +1285,7 @@ where
 
         if store.best_justified_checkpoint().epoch > store.justified_checkpoint().epoch {
             let store = &self.fc_store;
-            if self.is_descendant_of_finalized(store.best_justified_checkpoint().root) {
+            if self.is_finalized_checkpoint_or_descendant(store.best_justified_checkpoint().root) {
                 let store = &mut self.fc_store;
                 store
                     .set_justified_checkpoint(*store.best_justified_checkpoint())
@@ -1323,12 +1326,13 @@ where
 
     /// Returns `true` if the block is known **and** a descendant of the finalized root.
     pub fn contains_block(&self, block_root: &Hash256) -> bool {
-        self.proto_array.contains_block(block_root) && self.is_descendant_of_finalized(*block_root)
+        self.proto_array.contains_block(block_root)
+            && self.is_finalized_checkpoint_or_descendant(*block_root)
     }
 
     /// Returns a `ProtoBlock` if the block is known **and** a descendant of the finalized root.
     pub fn get_block(&self, block_root: &Hash256) -> Option<ProtoBlock> {
-        if self.is_descendant_of_finalized(*block_root) {
+        if self.is_finalized_checkpoint_or_descendant(*block_root) {
             self.proto_array.get_block(block_root)
         } else {
             None
@@ -1337,7 +1341,7 @@ where
 
     /// Returns an `ExecutionStatus` if the block is known **and** a descendant of the finalized root.
     pub fn get_block_execution_status(&self, block_root: &Hash256) -> Option<ExecutionStatus> {
-        if self.is_descendant_of_finalized(*block_root) {
+        if self.is_finalized_checkpoint_or_descendant(*block_root) {
             self.proto_array.get_block_execution_status(block_root)
         } else {
             None
@@ -1372,10 +1376,10 @@ where
             })
     }
 
-    /// Return `true` if `block_root` is equal to the finalized root, or a known descendant of it.
-    pub fn is_descendant_of_finalized(&self, block_root: Hash256) -> bool {
+    /// Return `true` if `block_root` is equal to the finalized checkpoint, or a known descendant of it.
+    pub fn is_finalized_checkpoint_or_descendant(&self, block_root: Hash256) -> bool {
         self.proto_array
-            .is_descendant(self.fc_store.finalized_checkpoint().root, block_root)
+            .is_finalized_checkpoint_or_descendant::<E>(block_root)
     }
 
     /// Returns `Ok(true)` if `block_root` has been imported optimistically or deemed invalid.

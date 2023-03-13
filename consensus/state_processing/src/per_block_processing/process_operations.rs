@@ -9,9 +9,9 @@ use crate::VerifySignatures;
 use safe_arith::SafeArith;
 use types::consts::altair::{PARTICIPATION_FLAG_WEIGHTS, PROPOSER_WEIGHT, WEIGHT_DENOMINATOR};
 
-pub fn process_operations<'a, T: EthSpec, Payload: ExecPayload<T>>(
+pub fn process_operations<T: EthSpec, Payload: AbstractExecPayload<T>>(
     state: &mut BeaconState<T>,
-    block_body: BeaconBlockBodyRef<'a, T, Payload>,
+    block_body: BeaconBlockBodyRef<T, Payload>,
     verify_signatures: VerifySignatures,
     ctxt: &mut ConsensusContext<T>,
     spec: &ChainSpec,
@@ -33,6 +33,11 @@ pub fn process_operations<'a, T: EthSpec, Payload: ExecPayload<T>>(
     process_attestations(state, block_body, verify_signatures, ctxt, spec)?;
     process_deposits(state, block_body.deposits(), spec)?;
     process_exits(state, block_body.voluntary_exits(), verify_signatures, spec)?;
+
+    if let Ok(bls_to_execution_changes) = block_body.bls_to_execution_changes() {
+        process_bls_to_execution_changes(state, bls_to_execution_changes, verify_signatures, spec)?;
+    }
+
     Ok(())
 }
 
@@ -232,9 +237,9 @@ pub fn process_attester_slashings<T: EthSpec>(
 }
 /// Wrapper function to handle calling the correct version of `process_attestations` based on
 /// the fork.
-pub fn process_attestations<'a, T: EthSpec, Payload: ExecPayload<T>>(
+pub fn process_attestations<T: EthSpec, Payload: AbstractExecPayload<T>>(
     state: &mut BeaconState<T>,
-    block_body: BeaconBlockBodyRef<'a, T, Payload>,
+    block_body: BeaconBlockBodyRef<T, Payload>,
     verify_signatures: VerifySignatures,
     ctxt: &mut ConsensusContext<T>,
     spec: &ChainSpec,
@@ -249,7 +254,9 @@ pub fn process_attestations<'a, T: EthSpec, Payload: ExecPayload<T>>(
                 spec,
             )?;
         }
-        BeaconBlockBodyRef::Altair(_) | BeaconBlockBodyRef::Merge(_) => {
+        BeaconBlockBodyRef::Altair(_)
+        | BeaconBlockBodyRef::Merge(_)
+        | BeaconBlockBodyRef::Capella(_) => {
             altair::process_attestations(
                 state,
                 block_body.attestations(),
@@ -279,6 +286,31 @@ pub fn process_exits<T: EthSpec>(
 
         initiate_validator_exit(state, exit.message.validator_index as usize, spec)?;
     }
+    Ok(())
+}
+
+/// Validates each `bls_to_execution_change` and updates the state
+///
+/// Returns `Ok(())` if the validation and state updates completed successfully. Otherwise returns
+/// an `Err` describing the invalid object or cause of failure.
+pub fn process_bls_to_execution_changes<T: EthSpec>(
+    state: &mut BeaconState<T>,
+    bls_to_execution_changes: &[SignedBlsToExecutionChange],
+    verify_signatures: VerifySignatures,
+    spec: &ChainSpec,
+) -> Result<(), BlockProcessingError> {
+    for (i, signed_address_change) in bls_to_execution_changes.iter().enumerate() {
+        verify_bls_to_execution_change(state, signed_address_change, verify_signatures, spec)
+            .map_err(|e| e.into_with_index(i))?;
+
+        state
+            .get_validator_mut(signed_address_change.message.validator_index as usize)?
+            .change_withdrawal_credentials(
+                &signed_address_change.message.to_execution_address,
+                spec,
+            );
+    }
+
     Ok(())
 }
 

@@ -12,9 +12,9 @@ path = "tests/main.rs"
 [dependencies]
 tempfile = "3.1.0"
 types = { path = "../../consensus/types" }
-rusqlite = { version = "0.25.3", features = ["bundled"] }
+rusqlite = { version = "0.28.0", features = ["bundled"] }
 r2d2 = "0.8.9"
-r2d2_sqlite = "0.18.0"
+r2d2_sqlite = "0.21.0"
 serde = "1.0.116"
 serde_derive = "1.0.116"
 serde_json = "1.0.58"

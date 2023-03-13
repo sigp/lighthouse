@@ -81,11 +81,20 @@ members = [
     "validator_client",
     "validator_client/slashing_protection",
 ]
+resolver = "2"
 
 [patch]
 [patch.crates-io]
-fixed-hash = { git = "https://github.com/paritytech/parity-common", rev="df638ab0885293d21d656dc300d39236b69ce57d" }
 warp = { git = "https://github.com/macladson/warp", rev="7e75acc368229a46a236a8c991bf251fe7fe50ef" }
+arbitrary = { git = "https://github.com/michaelsproul/arbitrary", rev="a572fd8743012a4f1ada5ee5968b1b3619c427ba" }
+ssz_types = { git = "https://github.com/sigp/ssz_types", branch = "into-iter" }
+
+[patch."https://github.com/ralexstokes/mev-rs"]
+mev-rs = { git = "https://github.com/ralexstokes//mev-rs", rev = "7813d4a4a564e0754e9aaab2d95520ba437c3889" }
+[patch."https://github.com/ralexstokes/ethereum-consensus"]
+ethereum-consensus = { git = "https://github.com/ralexstokes//ethereum-consensus", rev = "9b0ee0a8a45b968c8df5e7e64ea1c094e16f053d" }
+[patch."https://github.com/ralexstokes/ssz-rs"]
+ssz-rs = { git = "https://github.com/ralexstokes//ssz-rs", rev = "adf1a0b14cef90b9536f28ef89da1fab316465e1" }
 
 [profile.maxperf]
 inherits = "release"

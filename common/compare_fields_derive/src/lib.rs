@@ -32,7 +32,7 @@ pub fn compare_fields_derive(input: TokenStream) -> TokenStream {
             _ => panic!("compare_fields_derive only supports named struct fields."),
         };
 
-        let field_name = format!("{:}", ident_a);
+        let field_name = ident_a.to_string();
         let ident_b = ident_a.clone();
 
         let quote = if is_slice(field) {

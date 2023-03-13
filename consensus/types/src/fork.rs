@@ -9,8 +9,8 @@ use tree_hash_derive::TreeHash;
 /// Specifies a fork of the `BeaconChain`, to prevent replay attacks.
 ///
 /// Spec v0.12.1
-#[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 #[derive(
+    arbitrary::Arbitrary,
     Debug,
     Clone,
     Copy,

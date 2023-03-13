@@ -53,6 +53,11 @@ pub struct Config {
     /// If true, enable functionality that monitors the network for attestations or proposals from
     /// any of the validators managed by this client before starting up.
     pub enable_doppelganger_protection: bool,
+    /// If true, then we publish validator specific metrics (e.g next attestation duty slot)
+    /// for all our managed validators.
+    /// Note: We publish validator specific metrics for low validator counts without this flag
+    /// (<= 64 validators)
+    pub enable_high_validator_count_metrics: bool,
     /// Enable use of the blinded block endpoints during proposals.
     pub builder_proposals: bool,
     /// Overrides the timestamp field in builder api ValidatorRegistrationV1
@@ -68,6 +73,8 @@ pub struct Config {
     pub block_delay: Option<Duration>,
     /// Disables publishing http api requests to all beacon nodes for select api calls.
     pub disable_run_on_all: bool,
+    /// Enables a service which attempts to measure latency between the VC and BNs.
+    pub enable_latency_measurement_service: bool,
 }
 
 impl Default for Config {
@@ -99,12 +106,14 @@ impl Default for Config {
             http_metrics: <_>::default(),
             monitoring_api: None,
             enable_doppelganger_protection: false,
+            enable_high_validator_count_metrics: false,
             beacon_nodes_tls_certs: None,
             block_delay: None,
             builder_proposals: false,
             builder_registration_timestamp_override: None,
             gas_limit: None,
             disable_run_on_all: false,
+            enable_latency_measurement_service: true,
         }
     }
 }
@@ -273,6 +282,10 @@ impl Config {
             config.http_metrics.enabled = true;
         }
 
+        if cli_args.is_present("enable-high-validator-count-metrics") {
+            config.enable_high_validator_count_metrics = true;
+        }
+
         if let Some(address) = cli_args.value_of("metrics-address") {
             config.http_metrics.listen_addr = address
                 .parse::<IpAddr>()
@@ -346,6 +359,9 @@ impl Config {
                 missed proposals. The flag will be ignored."
             );
         }
+
+        config.enable_latency_measurement_service =
+            parse_optional(cli_args, "latency-measurement-service")?.unwrap_or(true);
 
         /*
          * Experimental

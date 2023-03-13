@@ -8,8 +8,18 @@ use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
 /// The data upon which a `SyncCommitteeContribution` is based.
-#[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom)]
+#[derive(
+    arbitrary::Arbitrary,
+    Debug,
+    Clone,
+    PartialEq,
+    Serialize,
+    Deserialize,
+    Encode,
+    Decode,
+    TreeHash,
+    TestRandom,
+)]
 pub struct SyncCommitteeMessage {
     pub slot: Slot,
     pub beacon_block_root: Hash256,
