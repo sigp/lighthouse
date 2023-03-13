@@ -37,7 +37,7 @@ impl From<SignedBeaconBlockHash> for Hash256 {
 
 /// A `BeaconBlock` and a signature from its proposer.
 #[superstruct(
-    variants(Base, Altair, Merge, Capella, Eip4844),
+    variants(Base, Altair, Merge, Capella),
     variant_attributes(
         derive(
             Debug,
@@ -76,8 +76,6 @@ pub struct SignedBeaconBlock<E: EthSpec, Payload: AbstractExecPayload<E> = FullP
     pub message: BeaconBlockMerge<E, Payload>,
     #[superstruct(only(Capella), partial_getter(rename = "message_capella"))]
     pub message: BeaconBlockCapella<E, Payload>,
-    #[superstruct(only(Eip4844), partial_getter(rename = "message_eip4844"))]
-    pub message: BeaconBlockEip4844<E, Payload>,
     pub signature: Signature,
 }
 
@@ -137,9 +135,6 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> SignedBeaconBlock<E, Payload> 
             }
             BeaconBlock::Capella(message) => {
                 SignedBeaconBlock::Capella(SignedBeaconBlockCapella { message, signature })
-            }
-            BeaconBlock::Eip4844(message) => {
-                SignedBeaconBlock::Eip4844(SignedBeaconBlockEip4844 { message, signature })
             }
         }
     }
@@ -373,62 +368,6 @@ impl<E: EthSpec> SignedBeaconBlockCapella<E, BlindedPayload<E>> {
     }
 }
 
-impl<E: EthSpec> SignedBeaconBlockEip4844<E, BlindedPayload<E>> {
-    pub fn into_full_block(
-        self,
-        execution_payload: ExecutionPayloadEip4844<E>,
-    ) -> SignedBeaconBlockEip4844<E, FullPayload<E>> {
-        let SignedBeaconBlockEip4844 {
-            message:
-                BeaconBlockEip4844 {
-                    slot,
-                    proposer_index,
-                    parent_root,
-                    state_root,
-                    body:
-                        BeaconBlockBodyEip4844 {
-                            randao_reveal,
-                            eth1_data,
-                            graffiti,
-                            proposer_slashings,
-                            attester_slashings,
-                            attestations,
-                            deposits,
-                            voluntary_exits,
-                            sync_aggregate,
-                            execution_payload: BlindedPayloadEip4844 { .. },
-                            bls_to_execution_changes,
-                            blob_kzg_commitments,
-                        },
-                },
-            signature,
-        } = self;
-        SignedBeaconBlockEip4844 {
-            message: BeaconBlockEip4844 {
-                slot,
-                proposer_index,
-                parent_root,
-                state_root,
-                body: BeaconBlockBodyEip4844 {
-                    randao_reveal,
-                    eth1_data,
-                    graffiti,
-                    proposer_slashings,
-                    attester_slashings,
-                    attestations,
-                    deposits,
-                    voluntary_exits,
-                    sync_aggregate,
-                    execution_payload: FullPayloadEip4844 { execution_payload },
-                    bls_to_execution_changes,
-                    blob_kzg_commitments,
-                },
-            },
-            signature,
-        }
-    }
-}
-
 impl<E: EthSpec> SignedBeaconBlock<E, BlindedPayload<E>> {
     pub fn try_into_full_block(
         self,
@@ -443,14 +382,10 @@ impl<E: EthSpec> SignedBeaconBlock<E, BlindedPayload<E>> {
             (SignedBeaconBlock::Capella(block), Some(ExecutionPayload::Capella(payload))) => {
                 SignedBeaconBlock::Capella(block.into_full_block(payload))
             }
-            (SignedBeaconBlock::Eip4844(block), Some(ExecutionPayload::Eip4844(payload))) => {
-                SignedBeaconBlock::Eip4844(block.into_full_block(payload))
-            }
             // avoid wildcard matching forks so that compiler will
             // direct us here when a new fork has been added
             (SignedBeaconBlock::Merge(_), _) => return None,
             (SignedBeaconBlock::Capella(_), _) => return None,
-            (SignedBeaconBlock::Eip4844(_), _) => return None,
         };
         Some(full_block)
     }

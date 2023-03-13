@@ -133,6 +133,15 @@ Commonly used features include:
 * `slasher-lmdb`: support for the LMDB slasher backend.
 * `jemalloc`: use [`jemalloc`][jemalloc] to allocate memory. Enabled by default on Linux and macOS.
   Not supported on Windows.
+* `spec-minimal`: support for the minimal preset (useful for testing).
+
+Default features (e.g. `slasher-mdbx`) may be opted out of using the `--no-default-features`
+argument for `cargo`, which can plumbed in via the `CARGO_INSTALL_EXTRA_FLAGS` environment variable.
+E.g.
+
+```
+CARGO_INSTALL_EXTRA_FLAGS="--no-default-features" make
+```
 
 [jemalloc]: https://jemalloc.net/
 

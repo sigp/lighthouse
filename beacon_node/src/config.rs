@@ -711,6 +711,8 @@ pub fn get_config<E: EthSpec>(
                     / DEFAULT_PREPARE_PAYLOAD_LOOKAHEAD_FACTOR
             });
 
+    client_config.chain.always_prepare_payload = cli_args.is_present("always-prepare-payload");
+
     if let Some(timeout) =
         clap_utils::parse_optional(cli_args, "fork-choice-before-proposal-timeout")?
     {
@@ -750,6 +752,11 @@ pub fn get_config<E: EthSpec>(
     // Optimistic finalized sync.
     client_config.chain.optimistic_finalized_sync =
         !cli_args.is_present("disable-optimistic-finalized-sync");
+
+    // Payload selection configs
+    if cli_args.is_present("always-prefer-builder-payload") {
+        client_config.always_prefer_builder_payload = true;
+    }
 
     Ok(client_config)
 }

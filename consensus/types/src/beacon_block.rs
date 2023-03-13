@@ -1,6 +1,6 @@
 use crate::beacon_block_body::{
-    BeaconBlockBodyAltair, BeaconBlockBodyBase, BeaconBlockBodyEip4844, BeaconBlockBodyMerge,
-    BeaconBlockBodyRef, BeaconBlockBodyRefMut,
+    BeaconBlockBodyAltair, BeaconBlockBodyBase, BeaconBlockBodyMerge, BeaconBlockBodyRef,
+    BeaconBlockBodyRefMut,
 };
 use crate::test_utils::TestRandom;
 use crate::*;
@@ -17,7 +17,7 @@ use tree_hash_derive::TreeHash;
 
 /// A block of the `BeaconChain`.
 #[superstruct(
-    variants(Base, Altair, Merge, Capella, Eip4844),
+    variants(Base, Altair, Merge, Capella),
     variant_attributes(
         derive(
             Debug,
@@ -72,8 +72,6 @@ pub struct BeaconBlock<T: EthSpec, Payload: AbstractExecPayload<T> = FullPayload
     pub body: BeaconBlockBodyMerge<T, Payload>,
     #[superstruct(only(Capella), partial_getter(rename = "body_capella"))]
     pub body: BeaconBlockBodyCapella<T, Payload>,
-    #[superstruct(only(Eip4844), partial_getter(rename = "body_eip4844"))]
-    pub body: BeaconBlockBodyEip4844<T, Payload>,
 }
 
 pub type BlindedBeaconBlock<E> = BeaconBlock<E, BlindedPayload<E>>;
@@ -126,9 +124,8 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> BeaconBlock<T, Payload> {
     /// Usually it's better to prefer `from_ssz_bytes` which will decode the correct variant based
     /// on the fork slot.
     pub fn any_from_ssz_bytes(bytes: &[u8]) -> Result<Self, ssz::DecodeError> {
-        BeaconBlockEip4844::from_ssz_bytes(bytes)
-            .map(BeaconBlock::Eip4844)
-            .or_else(|_| BeaconBlockCapella::from_ssz_bytes(bytes).map(BeaconBlock::Capella))
+        BeaconBlockCapella::from_ssz_bytes(bytes)
+            .map(BeaconBlock::Capella)
             .or_else(|_| BeaconBlockMerge::from_ssz_bytes(bytes).map(BeaconBlock::Merge))
             .or_else(|_| BeaconBlockAltair::from_ssz_bytes(bytes).map(BeaconBlock::Altair))
             .or_else(|_| BeaconBlockBase::from_ssz_bytes(bytes).map(BeaconBlock::Base))
@@ -206,7 +203,6 @@ impl<'a, T: EthSpec, Payload: AbstractExecPayload<T>> BeaconBlockRef<'a, T, Payl
             BeaconBlockRef::Altair { .. } => ForkName::Altair,
             BeaconBlockRef::Merge { .. } => ForkName::Merge,
             BeaconBlockRef::Capella { .. } => ForkName::Capella,
-            BeaconBlockRef::Eip4844 { .. } => ForkName::Eip4844,
         };
 
         if fork_at_slot == object_fork {
@@ -560,36 +556,6 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> EmptyBlock for BeaconBlockCape
     }
 }
 
-impl<T: EthSpec, Payload: AbstractExecPayload<T>> EmptyBlock for BeaconBlockEip4844<T, Payload> {
-    /// Returns an empty Eip4844 block to be used during genesis.
-    fn empty(spec: &ChainSpec) -> Self {
-        BeaconBlockEip4844 {
-            slot: spec.genesis_slot,
-            proposer_index: 0,
-            parent_root: Hash256::zero(),
-            state_root: Hash256::zero(),
-            body: BeaconBlockBodyEip4844 {
-                randao_reveal: Signature::empty(),
-                eth1_data: Eth1Data {
-                    deposit_root: Hash256::zero(),
-                    block_hash: Hash256::zero(),
-                    deposit_count: 0,
-                },
-                graffiti: Graffiti::default(),
-                proposer_slashings: VariableList::empty(),
-                attester_slashings: VariableList::empty(),
-                attestations: VariableList::empty(),
-                deposits: VariableList::empty(),
-                voluntary_exits: VariableList::empty(),
-                sync_aggregate: SyncAggregate::empty(),
-                execution_payload: Payload::Eip4844::default(),
-                bls_to_execution_changes: VariableList::empty(),
-                blob_kzg_commitments: VariableList::empty(),
-            },
-        }
-    }
-}
-
 // We can convert pre-Bellatrix blocks without payloads into blocks "with" payloads.
 impl<E: EthSpec> From<BeaconBlockBase<E, BlindedPayload<E>>>
     for BeaconBlockBase<E, FullPayload<E>>
@@ -669,7 +635,6 @@ impl_from!(BeaconBlockBase, <E, FullPayload<E>>, <E, BlindedPayload<E>>, |body: 
 impl_from!(BeaconBlockAltair, <E, FullPayload<E>>, <E, BlindedPayload<E>>, |body: BeaconBlockBodyAltair<_, _>| body.into());
 impl_from!(BeaconBlockMerge, <E, FullPayload<E>>, <E, BlindedPayload<E>>, |body: BeaconBlockBodyMerge<_, _>| body.into());
 impl_from!(BeaconBlockCapella, <E, FullPayload<E>>, <E, BlindedPayload<E>>, |body: BeaconBlockBodyCapella<_, _>| body.into());
-impl_from!(BeaconBlockEip4844, <E, FullPayload<E>>, <E, BlindedPayload<E>>, |body: BeaconBlockBodyEip4844<_, _>| body.into());
 
 // We can clone blocks with payloads to blocks without payloads, without cloning the payload.
 macro_rules! impl_clone_as_blinded {
@@ -701,7 +666,6 @@ impl_clone_as_blinded!(BeaconBlockBase, <E, FullPayload<E>>, <E, BlindedPayload<
 impl_clone_as_blinded!(BeaconBlockAltair, <E, FullPayload<E>>, <E, BlindedPayload<E>>);
 impl_clone_as_blinded!(BeaconBlockMerge, <E, FullPayload<E>>, <E, BlindedPayload<E>>);
 impl_clone_as_blinded!(BeaconBlockCapella, <E, FullPayload<E>>, <E, BlindedPayload<E>>);
-impl_clone_as_blinded!(BeaconBlockEip4844, <E, FullPayload<E>>, <E, BlindedPayload<E>>);
 
 // A reference to a full beacon block can be cloned into a blinded beacon block, without cloning the
 // execution payload.
@@ -818,25 +782,6 @@ mod tests {
     }
 
     #[test]
-    fn roundtrip_4844_block() {
-        let rng = &mut XorShiftRng::from_seed([42; 16]);
-        let spec = &ForkName::Eip4844.make_genesis_spec(MainnetEthSpec::default_spec());
-
-        let inner_block = BeaconBlockEip4844 {
-            slot: Slot::random_for_test(rng),
-            proposer_index: u64::random_for_test(rng),
-            parent_root: Hash256::random_for_test(rng),
-            state_root: Hash256::random_for_test(rng),
-            body: BeaconBlockBodyEip4844::random_for_test(rng),
-        };
-        let block = BeaconBlock::Eip4844(inner_block.clone());
-
-        test_ssz_tree_hash_pair_with(&block, &inner_block, |bytes| {
-            BeaconBlock::from_ssz_bytes(bytes, spec)
-        });
-    }
-
-    #[test]
     fn decode_base_and_altair() {
         type E = MainnetEthSpec;
         let mut spec = E::default_spec();
@@ -851,12 +796,9 @@ mod tests {
         let altair_slot = altair_epoch.start_slot(E::slots_per_epoch());
         let capella_epoch = altair_fork_epoch + 1;
         let capella_slot = capella_epoch.start_slot(E::slots_per_epoch());
-        let eip4844_epoch = capella_epoch + 1;
-        let eip4844_slot = eip4844_epoch.start_slot(E::slots_per_epoch());
 
         spec.altair_fork_epoch = Some(altair_epoch);
         spec.capella_fork_epoch = Some(capella_epoch);
-        spec.eip4844_fork_epoch = Some(eip4844_epoch);
 
         // BeaconBlockBase
         {
@@ -922,28 +864,6 @@ mod tests {
             );
             BeaconBlock::from_ssz_bytes(&bad_block.as_ssz_bytes(), &spec)
                 .expect_err("bad capella block cannot be decoded");
-        }
-
-        // BeaconBlockEip4844
-        {
-            let good_block = BeaconBlock::Eip4844(BeaconBlockEip4844 {
-                slot: eip4844_slot,
-                ..<_>::random_for_test(rng)
-            });
-            // It's invalid to have an Capella block with a epoch lower than the fork epoch.
-            let bad_block = {
-                let mut bad = good_block.clone();
-                *bad.slot_mut() = capella_slot;
-                bad
-            };
-
-            assert_eq!(
-                BeaconBlock::from_ssz_bytes(&good_block.as_ssz_bytes(), &spec)
-                    .expect("good eip4844 block can be decoded"),
-                good_block
-            );
-            BeaconBlock::from_ssz_bytes(&bad_block.as_ssz_bytes(), &spec)
-                .expect_err("bad eip4844 block cannot be decoded");
         }
     }
 }

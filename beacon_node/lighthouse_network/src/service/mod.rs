@@ -13,8 +13,8 @@ use crate::rpc::*;
 use crate::service::behaviour::BehaviourEvent;
 pub use crate::service::behaviour::Gossipsub;
 use crate::types::{
-    subnet_from_topic_hash, GossipEncoding, GossipKind, GossipTopic, SnappyTransform, Subnet,
-    SubnetDiscovery,
+    fork_core_topics, subnet_from_topic_hash, GossipEncoding, GossipKind, GossipTopic,
+    SnappyTransform, Subnet, SubnetDiscovery,
 };
 use crate::EnrExt;
 use crate::Eth2Enr;
@@ -41,6 +41,7 @@ use std::{
     sync::Arc,
     task::{Context, Poll},
 };
+use types::ForkName;
 use types::{
     consts::altair::SYNC_COMMITTEE_SUBNET_COUNT, EnrForkId, EthSpec, ForkContext, Slot, SubnetId,
 };
@@ -559,11 +560,18 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
         self.unsubscribe(gossip_topic)
     }
 
-    /// Subscribe to all currently subscribed topics with the new fork digest.
-    pub fn subscribe_new_fork_topics(&mut self, new_fork_digest: [u8; 4]) {
+    /// Subscribe to all required topics for the `new_fork` with the given `new_fork_digest`.
+    pub fn subscribe_new_fork_topics(&mut self, new_fork: ForkName, new_fork_digest: [u8; 4]) {
+        // Subscribe to existing topics with new fork digest
         let subscriptions = self.network_globals.gossipsub_subscriptions.read().clone();
         for mut topic in subscriptions.into_iter() {
             topic.fork_digest = new_fork_digest;
+            self.subscribe(topic);
+        }
+
+        // Subscribe to core topics for the new fork
+        for kind in fork_core_topics(&new_fork) {
+            let topic = GossipTopic::new(kind, GossipEncoding::default(), new_fork_digest);
             self.subscribe(topic);
         }
     }
@@ -998,9 +1006,6 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
             Request::BlocksByRoot { .. } => {
                 metrics::inc_counter_vec(&metrics::TOTAL_RPC_REQUESTS, &["blocks_by_root"])
             }
-            Request::BlobsByRange { .. } => {
-                metrics::inc_counter_vec(&metrics::TOTAL_RPC_REQUESTS, &["blobs_by_range"])
-            }
         }
         NetworkEvent::RequestReceived {
             peer_id,
@@ -1264,14 +1269,6 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                         );
                         Some(event)
                     }
-                    InboundRequest::BlobsByRange(req) => {
-                        let event = self.build_request(
-                            peer_request_id,
-                            peer_id,
-                            Request::BlobsByRange(req),
-                        );
-                        Some(event)
-                    }
                     InboundRequest::LightClientBootstrap(req) => {
                         let event = self.build_request(
                             peer_request_id,
@@ -1304,9 +1301,6 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                     RPCResponse::BlocksByRange(resp) => {
                         self.build_response(id, peer_id, Response::BlocksByRange(Some(resp)))
                     }
-                    RPCResponse::BlobsByRange(resp) => {
-                        self.build_response(id, peer_id, Response::BlobsByRange(Some(resp)))
-                    }
                     RPCResponse::BlocksByRoot(resp) => {
                         self.build_response(id, peer_id, Response::BlocksByRoot(Some(resp)))
                     }
@@ -1320,7 +1314,6 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                 let response = match termination {
                     ResponseTermination::BlocksByRange => Response::BlocksByRange(None),
                     ResponseTermination::BlocksByRoot => Response::BlocksByRoot(None),
-                    ResponseTermination::BlobsByRange => Response::BlobsByRange(None),
                 };
                 self.build_response(id, peer_id, response)
             }
