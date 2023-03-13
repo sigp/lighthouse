@@ -72,7 +72,6 @@ pub struct ClientBuilder<T: BeaconChainTypes> {
     http_metrics_config: http_metrics::Config,
     slasher: Option<Arc<Slasher<T::EthSpec>>>,
     eth_spec_instance: T::EthSpec,
-
 }
 
 impl<TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>

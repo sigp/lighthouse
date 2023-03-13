@@ -35,6 +35,7 @@ use eth2::types::{
 };
 use lighthouse_network::{types::SyncState, EnrExt, NetworkGlobals, PeerId, PubsubMessage};
 use lighthouse_version::version_with_platform;
+use logging::SSELoggingComponents;
 use network::{NetworkMessage, NetworkSenders, ValidatorSubscriptionMessage};
 use operation_pool::ReceivedPreCapella;
 use parking_lot::RwLock;
@@ -73,7 +74,6 @@ use warp_utils::{
     query::multi_key_query,
     task::{blocking_json_task, blocking_task},
 };
-use logging::SSELoggingComponents;
 
 const API_PREFIX: &str = "eth";
 
@@ -449,7 +449,6 @@ pub fn serve<T: BeaconChainTypes>(
 
     let inner_components = ctx.sse_logging_components.clone();
     let sse_component_filter = warp::any().map(move || inner_components.clone());
-
 
     // Create a `warp` filter that provides access to local system information.
     let system_info = Arc::new(RwLock::new(sysinfo::System::new()));
@@ -3566,52 +3565,48 @@ pub fn serve<T: BeaconChainTypes>(
             },
         );
 
-
     // Subscribe to logs via Server Side Events
     // /lighthouse/logs
-    let lighthouse_log_events = warp::path("lighthouse") 
+    let lighthouse_log_events = warp::path("lighthouse")
         .and(warp::path("logs"))
         .and(warp::path::end())
         .and(sse_component_filter)
-        .and_then(
-            |sse_component: Option<SSELoggingComponents>| {
-                blocking_task(move || {
-
-                    if let Some(logging_components) = sse_component {
+        .and_then(|sse_component: Option<SSELoggingComponents>| {
+            blocking_task(move || {
+                if let Some(logging_components) = sse_component {
                     // Build a JSON stream
-                    let s = BroadcastStream::new(logging_components.sender.subscribe()).map(|msg| {
-                        match msg {
-                            Ok(data) => {
-                                // Serialize to json
-                                match data.to_json_string() {
-                                    // Send the json as a Server Sent Event
-                                    Ok(json) => Event::default()
-                                        .json_data(json)
-                                        .map_err(|e| {
-                                            warp_utils::reject::server_sent_event_error(format!("{:?}", e))
+                    let s =
+                        BroadcastStream::new(logging_components.sender.subscribe()).map(|msg| {
+                            match msg {
+                                Ok(data) => {
+                                    // Serialize to json
+                                    match data.to_json_string() {
+                                        // Send the json as a Server Sent Event
+                                        Ok(json) => Event::default().json_data(json).map_err(|e| {
+                                            warp_utils::reject::server_sent_event_error(format!(
+                                                "{:?}",
+                                                e
+                                            ))
                                         }),
-                                    Err(e) => Err(warp_utils::reject::server_sent_event_error(
-                                        format!("Unable to serialize to JSON {}",e),
-                                    ))
+                                        Err(e) => Err(warp_utils::reject::server_sent_event_error(
+                                            format!("Unable to serialize to JSON {}", e),
+                                        )),
+                                    }
                                 }
+                                Err(e) => Err(warp_utils::reject::server_sent_event_error(
+                                    format!("Unable to serialize to JSON {}", e),
+                                )),
                             }
-                        Err(e) => Err(warp_utils::reject::server_sent_event_error(
-                            format!("Unable to serialize to JSON {}",e),
-                        ))
-                        }
-                    });
+                        });
 
                     Ok::<_, warp::Rejection>(warp::sse::reply(warp::sse::keep_alive().stream(s)))
-                    } else {
-                        return Err(warp_utils::reject::custom_server_error(
-                            "SSE Logging is not enabled".to_string(),
-                        ));
-                    }
-                })
-
-            },
-        );
-
+                } else {
+                    return Err(warp_utils::reject::custom_server_error(
+                        "SSE Logging is not enabled".to_string(),
+                    ));
+                }
+            })
+        });
 
     // Define the ultimate set of routes that will be provided to the server.
     let routes = warp::get()

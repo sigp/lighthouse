@@ -12,6 +12,7 @@ use eth2_network_config::Eth2NetworkConfig;
 use futures::channel::mpsc::{channel, Receiver, Sender};
 use futures::{future, StreamExt};
 
+use logging::SSELoggingComponents;
 use serde_derive::{Deserialize, Serialize};
 use slog::{error, info, o, warn, Drain, Duplicate, Level, Logger};
 use sloggers::{file::FileLoggerBuilder, types::Format, types::Severity, Build};
@@ -19,7 +20,6 @@ use std::fs::create_dir_all;
 use std::io::{Result as IOResult, Write};
 use std::path::PathBuf;
 use std::sync::Arc;
-use logging::SSELoggingComponents;
 use task_executor::{ShutdownReason, TaskExecutor};
 use tokio::runtime::{Builder as RuntimeBuilder, Runtime};
 use types::{EthSpec, GnosisEthSpec, MainnetEthSpec, MinimalEthSpec};
@@ -311,7 +311,6 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
             .build()
             .map_err(|e| format!("Unable to build file logger: {}", e))?;
 
-
         let mut log = Logger::root(Duplicate::new(stdout_logger, file_logger).fuse(), o!());
 
         info!(
@@ -322,7 +321,7 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
 
         // If the http API is enabled, we may need to send logs to be consumed by subscribers.
         if config.sse_logging {
-            let sse_logger =  SSELoggingComponents::new(SSE_LOG_CHANNEL_SIZE);
+            let sse_logger = SSELoggingComponents::new(SSE_LOG_CHANNEL_SIZE);
             self.sse_logging_components = Some(sse_logger.clone());
 
             log = Logger::root(Duplicate::new(log, sse_logger).fuse(), o!());
@@ -377,7 +376,6 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
         })
     }
 }
-
 
 /// An environment where Lighthouse services can run. Used to start a production beacon node or
 /// validator client, or to run tests that involve logging and async task execution.
