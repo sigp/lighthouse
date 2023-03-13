@@ -5,7 +5,10 @@
 //! syncing.
 
 use futures::future::FutureExt;
-use handler::{HandlerEvent, RPCHandler};
+use handler::RPCHandler;
+pub use handler::{InboundInfo, HandlerEvent, HandlerState, OutboundInfo};
+pub use outbound::OutboundFramed;
+pub use codec::{OutboundCodec, BaseOutboundCodec, SSZSnappyOutboundCodec};
 use libp2p::core::connection::ConnectionId;
 use libp2p::swarm::{
     handler::ConnectionHandler, NetworkBehaviour, NetworkBehaviourAction, NotifyHandler,
@@ -30,7 +33,7 @@ pub use methods::{
     RPCResponseErrorCode, ResponseTermination, StatusMessage, MAX_REQUEST_BLOCKS,
 };
 pub(crate) use outbound::OutboundRequest;
-pub use protocol::{max_rpc_size, Protocol, RPCError};
+pub use protocol::{max_rpc_size, Protocol, ProtocolId, Version, Encoding, RPCError};
 
 use self::config::OutboundRateLimiterConfig;
 use self::self_limiter::SelfRateLimiter;

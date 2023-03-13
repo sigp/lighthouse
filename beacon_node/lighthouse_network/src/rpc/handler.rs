@@ -133,7 +133,7 @@ where
     log: slog::Logger,
 }
 
-enum HandlerState {
+pub enum HandlerState {
     /// The handler is active. All messages are sent and received.
     Active,
     /// The handler is shutting_down.
@@ -147,7 +147,7 @@ enum HandlerState {
 }
 
 /// Contains the information the handler keeps on established inbound substreams.
-struct InboundInfo<TSpec: EthSpec> {
+pub struct InboundInfo<TSpec: EthSpec> {
     /// State of the substream.
     state: InboundState<TSpec>,
     /// Responses queued for sending.
@@ -164,7 +164,7 @@ struct InboundInfo<TSpec: EthSpec> {
 }
 
 /// Contains the information the handler keeps on established outbound substreams.
-struct OutboundInfo<Id, TSpec: EthSpec> {
+pub struct OutboundInfo<Id, TSpec: EthSpec> {
     /// State of the substream.
     state: OutboundSubstreamState<TSpec>,
     /// Key to keep track of the substream's timeout via `self.outbound_substreams_delay`.
