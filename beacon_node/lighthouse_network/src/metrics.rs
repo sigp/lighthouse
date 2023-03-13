@@ -159,7 +159,7 @@ pub fn check_nat() {
     if NAT_OPEN.as_ref().map(|v| v.get()).unwrap_or(0) != 0 {
         return;
     }
-    if ADDRESS_UPDATE_COUNT.as_ref().map(|v| v.get()).unwrap_or(0) == 0
+    if ADDRESS_UPDATE_COUNT.as_ref().map(|v| v.get()).unwrap_or(0) != 0
         || NETWORK_INBOUND_PEERS.as_ref().map(|v| v.get()).unwrap_or(0) != 0_i64
     {
         inc_counter(&NAT_OPEN);
