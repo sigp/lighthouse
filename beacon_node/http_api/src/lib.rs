@@ -1,4 +1,3 @@
-#![recursion_limit = "256"]
 //! This crate contains a HTTP server which serves the endpoints listed here:
 //!
 //! https://github.com/ethereum/beacon-APIs
@@ -71,7 +70,8 @@ use warp::Reply;
 use warp::{http::Response, Filter};
 use warp_utils::{
     query::multi_key_query,
-    task::{blocking_json_task, blocking_task},
+    task::{blocking_json_task, blocking_response_task},
+    uor::UnifyingOrFilter,
 };
 
 const API_PREFIX: &str = "eth";
@@ -1125,7 +1125,7 @@ pub fn serve<T: BeaconChainTypes>(
              log: Logger| async move {
                 publish_blocks::publish_block(None, block, chain, &network_tx, log)
                     .await
-                    .map(|()| warp::reply())
+                    .map(|()| warp::reply().into_response())
             },
         );
 
@@ -1149,7 +1149,7 @@ pub fn serve<T: BeaconChainTypes>(
              log: Logger| async move {
                 publish_blocks::publish_blinded_block(block, chain, &network_tx, log)
                     .await
-                    .map(|()| warp::reply())
+                    .map(|()| warp::reply().into_response())
             },
         );
 
@@ -1255,7 +1255,7 @@ pub fn serve<T: BeaconChainTypes>(
             |block_id: BlockId,
              chain: Arc<BeaconChain<T>>,
              accept_header: Option<api_types::Accept>| {
-                blocking_task(move || {
+                blocking_response_task(move || {
                     let (block, execution_optimistic) = block_id.blinded_block(&chain)?;
                     let fork_name = block
                         .fork_name(&chain.spec)
@@ -1767,7 +1767,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(eth1_service_filter.clone())
         .and_then(
             |accept_header: Option<api_types::Accept>, eth1_service: eth1::Service| {
-                blocking_task(move || match accept_header {
+                blocking_response_task(move || match accept_header {
                     Some(api_types::Accept::Json) | None => {
                         let snapshot = eth1_service.get_deposit_snapshot();
                         Ok(
@@ -1986,7 +1986,7 @@ pub fn serve<T: BeaconChainTypes>(
              state_id: StateId,
              accept_header: Option<api_types::Accept>,
              chain: Arc<BeaconChain<T>>| {
-                blocking_task(move || match accept_header {
+                blocking_response_task(move || match accept_header {
                     Some(api_types::Accept::Ssz) => {
                         // We can ignore the optimistic status for the "fork" since it's a
                         // specification constant that doesn't change across competing heads of the
@@ -1999,7 +1999,9 @@ pub fn serve<T: BeaconChainTypes>(
                             .status(200)
                             .header("Content-Type", "application/octet-stream")
                             .body(state.as_ssz_bytes().into())
-                            .map(|resp| add_consensus_version_header(resp, fork_name))
+                            .map(|resp: warp::reply::Response| {
+                                add_consensus_version_header(resp, fork_name)
+                            })
                             .map_err(|e| {
                                 warp_utils::reject::custom_server_error(format!(
                                     "failed to create response: {}",
@@ -2162,7 +2164,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path::end())
         .and(network_globals.clone())
         .and_then(|network_globals: Arc<NetworkGlobals<T::EthSpec>>| {
-            blocking_task(move || match *network_globals.sync_state.read() {
+            blocking_response_task(move || match *network_globals.sync_state.read() {
                 SyncState::SyncingFinalized { .. }
                 | SyncState::SyncingHead { .. }
                 | SyncState::SyncTransition
@@ -2426,7 +2428,7 @@ pub fn serve<T: BeaconChainTypes>(
                     .map_err(inconsistent_fork_rejection)?;
 
                 fork_versioned_response(endpoint_version, fork_name, block)
-                    .map(|response| warp::reply::json(&response))
+                    .map(|response| warp::reply::json(&response).into_response())
             },
         );
 
@@ -2483,7 +2485,7 @@ pub fn serve<T: BeaconChainTypes>(
 
                 // Pose as a V2 endpoint so we return the fork `version`.
                 fork_versioned_response(V2, fork_name, block)
-                    .map(|response| warp::reply::json(&response))
+                    .map(|response| warp::reply::json(&response).into_response())
             },
         );
 
@@ -2856,7 +2858,7 @@ pub fn serve<T: BeaconChainTypes>(
                         ))
                     })?;
 
-                Ok::<_, warp::reject::Rejection>(warp::reply::json(&()))
+                Ok::<_, warp::reject::Rejection>(warp::reply::json(&()).into_response())
             },
         );
 
@@ -2965,7 +2967,7 @@ pub fn serve<T: BeaconChainTypes>(
                 builder
                     .post_builder_validators(&filtered_registration_data)
                     .await
-                    .map(|resp| warp::reply::json(&resp))
+                    .map(|resp| warp::reply::json(&resp).into_response())
                     .map_err(|e| {
                         warn!(
                             log,
@@ -3227,7 +3229,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path::end())
         .and(chain_filter.clone())
         .and_then(|chain: Arc<BeaconChain<T>>| {
-            blocking_task(move || {
+            blocking_response_task(move || {
                 Ok::<_, warp::Rejection>(warp::reply::json(&api_types::GenericResponseRef::from(
                     chain
                         .canonical_head
@@ -3346,7 +3348,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path::end())
         .and(chain_filter.clone())
         .and_then(|state_id: StateId, chain: Arc<BeaconChain<T>>| {
-            blocking_task(move || {
+            blocking_response_task(move || {
                 // This debug endpoint provides no indication of optimistic status.
                 let (state, _execution_optimistic) = state_id.state(&chain)?;
                 Response::builder()
@@ -3482,9 +3484,10 @@ pub fn serve<T: BeaconChainTypes>(
         .and(chain_filter.clone())
         .and_then(|chain: Arc<BeaconChain<T>>| async move {
             let merge_readiness = chain.check_merge_readiness().await;
-            Ok::<_, warp::reject::Rejection>(warp::reply::json(&api_types::GenericResponse::from(
-                merge_readiness,
-            )))
+            Ok::<_, warp::reject::Rejection>(
+                warp::reply::json(&api_types::GenericResponse::from(merge_readiness))
+                    .into_response(),
+            )
         });
 
     let get_events = eth_v1
@@ -3495,7 +3498,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and_then(
             |topics_res: Result<api_types::EventQuery, warp::Rejection>,
              chain: Arc<BeaconChain<T>>| {
-                blocking_task(move || {
+                blocking_response_task(move || {
                     let topics = topics_res?;
                     // for each topic subscribed spawn a new subscription
                     let mut receivers = Vec::with_capacity(topics.topics.len());
@@ -3562,108 +3565,110 @@ pub fn serve<T: BeaconChainTypes>(
         );
 
     // Define the ultimate set of routes that will be provided to the server.
+    // Use `uor` rather than `or` in order to simplify types (see `UnifyingOrFilter`).
     let routes = warp::get()
         .and(
             get_beacon_genesis
-                .boxed()
-                .or(get_beacon_state_root.boxed())
-                .or(get_beacon_state_fork.boxed())
-                .or(get_beacon_state_finality_checkpoints.boxed())
-                .or(get_beacon_state_validator_balances.boxed())
-                .or(get_beacon_state_validators_id.boxed())
-                .or(get_beacon_state_validators.boxed())
-                .or(get_beacon_state_committees.boxed())
-                .or(get_beacon_state_sync_committees.boxed())
-                .or(get_beacon_state_randao.boxed())
-                .or(get_beacon_headers.boxed())
-                .or(get_beacon_headers_block_id.boxed())
-                .or(get_beacon_block.boxed())
-                .or(get_beacon_block_attestations.boxed())
-                .or(get_beacon_blinded_block.boxed())
-                .or(get_beacon_block_root.boxed())
-                .or(get_beacon_pool_attestations.boxed())
-                .or(get_beacon_pool_attester_slashings.boxed())
-                .or(get_beacon_pool_proposer_slashings.boxed())
-                .or(get_beacon_pool_voluntary_exits.boxed())
-                .or(get_beacon_pool_bls_to_execution_changes.boxed())
-                .or(get_beacon_deposit_snapshot.boxed())
-                .or(get_beacon_rewards_blocks.boxed())
-                .or(get_config_fork_schedule.boxed())
-                .or(get_config_spec.boxed())
-                .or(get_config_deposit_contract.boxed())
-                .or(get_debug_beacon_states.boxed())
-                .or(get_debug_beacon_heads.boxed())
-                .or(get_node_identity.boxed())
-                .or(get_node_version.boxed())
-                .or(get_node_syncing.boxed())
-                .or(get_node_health.boxed())
-                .or(get_node_peers_by_id.boxed())
-                .or(get_node_peers.boxed())
-                .or(get_node_peer_count.boxed())
-                .or(get_validator_duties_proposer.boxed())
-                .or(get_validator_blocks.boxed())
-                .or(get_validator_blinded_blocks.boxed())
-                .or(get_validator_attestation_data.boxed())
-                .or(get_validator_aggregate_attestation.boxed())
-                .or(get_validator_sync_committee_contribution.boxed())
-                .or(get_lighthouse_health.boxed())
-                .or(get_lighthouse_ui_health.boxed())
-                .or(get_lighthouse_ui_validator_count.boxed())
-                .or(get_lighthouse_syncing.boxed())
-                .or(get_lighthouse_nat.boxed())
-                .or(get_lighthouse_peers.boxed())
-                .or(get_lighthouse_peers_connected.boxed())
-                .or(get_lighthouse_proto_array.boxed())
-                .or(get_lighthouse_validator_inclusion_global.boxed())
-                .or(get_lighthouse_validator_inclusion.boxed())
-                .or(get_lighthouse_eth1_syncing.boxed())
-                .or(get_lighthouse_eth1_block_cache.boxed())
-                .or(get_lighthouse_eth1_deposit_cache.boxed())
-                .or(get_lighthouse_beacon_states_ssz.boxed())
-                .or(get_lighthouse_staking.boxed())
-                .or(get_lighthouse_database_info.boxed())
-                .or(get_lighthouse_block_rewards.boxed())
-                .or(get_lighthouse_attestation_performance.boxed())
-                .or(get_lighthouse_block_packing_efficiency.boxed())
-                .or(get_lighthouse_merge_readiness.boxed())
-                .or(get_events.boxed())
+                .uor(get_beacon_state_root)
+                .uor(get_beacon_state_fork)
+                .uor(get_beacon_state_finality_checkpoints)
+                .uor(get_beacon_state_validator_balances)
+                .uor(get_beacon_state_validators_id)
+                .uor(get_beacon_state_validators)
+                .uor(get_beacon_state_committees)
+                .uor(get_beacon_state_sync_committees)
+                .uor(get_beacon_state_randao)
+                .uor(get_beacon_headers)
+                .uor(get_beacon_headers_block_id)
+                .uor(get_beacon_block)
+                .uor(get_beacon_block_attestations)
+                .uor(get_beacon_blinded_block)
+                .uor(get_beacon_block_root)
+                .uor(get_beacon_pool_attestations)
+                .uor(get_beacon_pool_attester_slashings)
+                .uor(get_beacon_pool_proposer_slashings)
+                .uor(get_beacon_pool_voluntary_exits)
+                .uor(get_beacon_pool_bls_to_execution_changes)
+                .uor(get_beacon_deposit_snapshot)
+                .uor(get_beacon_rewards_blocks)
+                .uor(get_config_fork_schedule)
+                .uor(get_config_spec)
+                .uor(get_config_deposit_contract)
+                .uor(get_debug_beacon_states)
+                .uor(get_debug_beacon_heads)
+                .uor(get_node_identity)
+                .uor(get_node_version)
+                .uor(get_node_syncing)
+                .uor(get_node_health)
+                .uor(get_node_peers_by_id)
+                .uor(get_node_peers)
+                .uor(get_node_peer_count)
+                .uor(get_validator_duties_proposer)
+                .uor(get_validator_blocks)
+                .uor(get_validator_blinded_blocks)
+                .uor(get_validator_attestation_data)
+                .uor(get_validator_aggregate_attestation)
+                .uor(get_validator_sync_committee_contribution)
+                .uor(get_lighthouse_health)
+                .uor(get_lighthouse_ui_health)
+                .uor(get_lighthouse_ui_validator_count)
+                .uor(get_lighthouse_syncing)
+                .uor(get_lighthouse_nat)
+                .uor(get_lighthouse_peers)
+                .uor(get_lighthouse_peers_connected)
+                .uor(get_lighthouse_proto_array)
+                .uor(get_lighthouse_validator_inclusion_global)
+                .uor(get_lighthouse_validator_inclusion)
+                .uor(get_lighthouse_eth1_syncing)
+                .uor(get_lighthouse_eth1_block_cache)
+                .uor(get_lighthouse_eth1_deposit_cache)
+                .uor(get_lighthouse_beacon_states_ssz)
+                .uor(get_lighthouse_staking)
+                .uor(get_lighthouse_database_info)
+                .uor(get_lighthouse_block_rewards)
+                .uor(get_lighthouse_attestation_performance)
+                .uor(get_lighthouse_block_packing_efficiency)
+                .uor(get_lighthouse_merge_readiness)
+                .uor(get_events)
                 .recover(warp_utils::reject::handle_rejection),
         )
         .boxed()
-        .or(warp::post().and(
-            post_beacon_blocks
-                .boxed()
-                .or(post_beacon_blinded_blocks.boxed())
-                .or(post_beacon_pool_attestations.boxed())
-                .or(post_beacon_pool_attester_slashings.boxed())
-                .or(post_beacon_pool_proposer_slashings.boxed())
-                .or(post_beacon_pool_voluntary_exits.boxed())
-                .or(post_beacon_pool_sync_committees.boxed())
-                .or(post_beacon_pool_bls_to_execution_changes.boxed())
-                .or(post_beacon_rewards_attestations.boxed())
-                .or(post_beacon_rewards_sync_committee.boxed())
-                .or(post_validator_duties_attester.boxed())
-                .or(post_validator_duties_sync.boxed())
-                .or(post_validator_aggregate_and_proofs.boxed())
-                .or(post_validator_contribution_and_proofs.boxed())
-                .or(post_validator_beacon_committee_subscriptions.boxed())
-                .or(post_validator_sync_committee_subscriptions.boxed())
-                .or(post_validator_prepare_beacon_proposer.boxed())
-                .or(post_validator_register_validator.boxed())
-                .or(post_lighthouse_liveness.boxed())
-                .or(post_lighthouse_database_reconstruct.boxed())
-                .or(post_lighthouse_database_historical_blocks.boxed())
-                .or(post_lighthouse_block_rewards.boxed())
-                .or(post_lighthouse_ui_validator_metrics.boxed())
-                .or(post_lighthouse_ui_validator_info.boxed())
-                .recover(warp_utils::reject::handle_rejection),
-        ))
+        .uor(
+            warp::post().and(
+                post_beacon_blocks
+                    .uor(post_beacon_blinded_blocks)
+                    .uor(post_beacon_pool_attestations)
+                    .uor(post_beacon_pool_attester_slashings)
+                    .uor(post_beacon_pool_proposer_slashings)
+                    .uor(post_beacon_pool_voluntary_exits)
+                    .uor(post_beacon_pool_sync_committees)
+                    .uor(post_beacon_pool_bls_to_execution_changes)
+                    .uor(post_beacon_rewards_attestations)
+                    .uor(post_beacon_rewards_sync_committee)
+                    .uor(post_validator_duties_attester)
+                    .uor(post_validator_duties_sync)
+                    .uor(post_validator_aggregate_and_proofs)
+                    .uor(post_validator_contribution_and_proofs)
+                    .uor(post_validator_beacon_committee_subscriptions)
+                    .uor(post_validator_sync_committee_subscriptions)
+                    .uor(post_validator_prepare_beacon_proposer)
+                    .uor(post_validator_register_validator)
+                    .uor(post_lighthouse_liveness)
+                    .uor(post_lighthouse_database_reconstruct)
+                    .uor(post_lighthouse_database_historical_blocks)
+                    .uor(post_lighthouse_block_rewards)
+                    .uor(post_lighthouse_ui_validator_metrics)
+                    .uor(post_lighthouse_ui_validator_info)
+                    .recover(warp_utils::reject::handle_rejection),
+            ),
+        )
         .recover(warp_utils::reject::handle_rejection)
         .with(slog_logging(log.clone()))
         .with(prometheus_metrics())
         // Add a `Server` header.
         .map(|reply| warp::reply::with_header(reply, "Server", &version_with_platform()))
-        .with(cors_builder.build());
+        .with(cors_builder.build())
+        .boxed();
 
     let http_socket: SocketAddr = SocketAddr::new(config.listen_addr, config.listen_port);
     let http_server: HttpServer = match config.tls_config {

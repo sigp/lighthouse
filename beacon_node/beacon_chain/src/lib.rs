@@ -1,4 +1,3 @@
-#![recursion_limit = "128"] // For lazy-static
 pub mod attestation_rewards;
 pub mod attestation_verification;
 mod attester_cache;
