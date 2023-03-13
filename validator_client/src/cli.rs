@@ -318,6 +318,15 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     set here moves too far from the previous block's gas limit. [default: 30,000,000]")
                 .requires("builder-proposals"),
         )
+        .arg(
+            Arg::with_name("latency-measurement-service")
+                .long("latency-measurement-service")
+                .value_name("BOOLEAN")
+                .help("Set to 'true' to enable a service that periodically attempts to measure latency to BNs. \
+                    Set to 'false' to disable.")
+                .default_value("true")
+                .takes_value(true),
+        )
         /*
          * Experimental/development options.
          */

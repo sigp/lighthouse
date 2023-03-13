@@ -17,13 +17,14 @@ use crate::{
 };
 use environment::RuntimeContext;
 use eth2::types::{AttesterData, BeaconCommitteeSubscription, ProposerData, StateId, ValidatorId};
-use futures::future::join_all;
+use futures::{stream, StreamExt};
 use parking_lot::RwLock;
 use safe_arith::ArithError;
 use slog::{debug, error, info, warn, Logger};
 use slot_clock::SlotClock;
-use std::collections::{HashMap, HashSet};
+use std::collections::{hash_map, BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
+use std::time::Duration;
 use sync::poll_sync_committee_duties;
 use sync::SyncDutiesMap;
 use tokio::{sync::mpsc::Sender, time::sleep};
@@ -39,6 +40,14 @@ const SUBSCRIPTION_BUFFER_SLOTS: u64 = 2;
 
 /// Only retain `HISTORICAL_DUTIES_EPOCHS` duties prior to the current epoch.
 const HISTORICAL_DUTIES_EPOCHS: u64 = 2;
+
+/// Compute attestation selection proofs this many slots before they are required.
+///
+/// At start-up selection proofs will be computed with less lookahead out of necessity.
+const SELECTION_PROOF_SLOT_LOOKAHEAD: u64 = 8;
+
+/// Fraction of a slot at which selection proof signing should happen (2 means half way).
+const SELECTION_PROOF_SCHEDULE_DENOM: u32 = 2;
 
 /// Minimum number of validators for which we auto-enable per-validator metrics.
 /// For validators greater than this value, we need to manually set the `enable-per-validator-metrics`
@@ -71,7 +80,7 @@ pub struct DutyAndProof {
 
 impl DutyAndProof {
     /// Instantiate `Self`, computing the selection proof as well.
-    pub async fn new<T: SlotClock + 'static, E: EthSpec>(
+    pub async fn new_with_selection_proof<T: SlotClock + 'static, E: EthSpec>(
         duty: AttesterData,
         validator_store: &ValidatorStore<T, E>,
         spec: &ChainSpec,
@@ -98,6 +107,14 @@ impl DutyAndProof {
             duty,
             selection_proof,
         })
+    }
+
+    /// Create a new `DutyAndProof` with the selection proof waiting to be filled in.
+    pub fn new_without_selection_proof(duty: AttesterData) -> Self {
+        Self {
+            duty,
+            selection_proof: None,
+        }
     }
 }
 
@@ -471,7 +488,7 @@ async fn poll_validator_indices<T: SlotClock + 'static, E: EthSpec>(
 /// 3. Push out any attestation subnet subscriptions to the BN.
 /// 4. Prune old entries from `duties_service.attesters`.
 async fn poll_beacon_attesters<T: SlotClock + 'static, E: EthSpec>(
-    duties_service: &DutiesService<T, E>,
+    duties_service: &Arc<DutiesService<T, E>>,
 ) -> Result<(), Error> {
     let current_epoch_timer = metrics::start_timer_vec(
         &metrics::DUTIES_SERVICE_TIMES,
@@ -634,7 +651,7 @@ async fn poll_beacon_attesters<T: SlotClock + 'static, E: EthSpec>(
 /// For the given `local_indices` and `local_pubkeys`, download the duties for the given `epoch` and
 /// store them in `duties_service.attesters`.
 async fn poll_beacon_attesters_for_epoch<T: SlotClock + 'static, E: EthSpec>(
-    duties_service: &DutiesService<T, E>,
+    duties_service: &Arc<DutiesService<T, E>>,
     epoch: Epoch,
     local_indices: &[u64],
     local_pubkeys: &HashSet<PublicKeyBytes>,
@@ -742,31 +759,16 @@ async fn poll_beacon_attesters_for_epoch<T: SlotClock + 'static, E: EthSpec>(
         "num_new_duties" => new_duties.len(),
     );
 
-    // Produce the `DutyAndProof` messages in parallel.
-    let duty_and_proof_results = join_all(new_duties.into_iter().map(|duty| {
-        DutyAndProof::new(duty, &duties_service.validator_store, &duties_service.spec)
-    }))
-    .await;
-
     // Update the duties service with the new `DutyAndProof` messages.
     let mut attesters = duties_service.attesters.write();
     let mut already_warned = Some(());
-    for result in duty_and_proof_results {
-        let duty_and_proof = match result {
-            Ok(duty_and_proof) => duty_and_proof,
-            Err(e) => {
-                error!(
-                    log,
-                    "Failed to produce duty and proof";
-                    "error" => ?e,
-                    "msg" => "may impair attestation duties"
-                );
-                // Do not abort the entire batch for a single failure.
-                continue;
-            }
-        };
+    for duty in &new_duties {
+        let attester_map = attesters.entry(duty.pubkey).or_default();
 
-        let attester_map = attesters.entry(duty_and_proof.duty.pubkey).or_default();
+        // Create initial entries in the map without selection proofs. We'll compute them in the
+        // background later to avoid creating a thundering herd of signing threads whenever new
+        // duties are computed.
+        let duty_and_proof = DutyAndProof::new_without_selection_proof(duty.clone());
 
         if let Some((prior_dependent_root, _)) =
             attester_map.insert(epoch, (dependent_root, duty_and_proof))
@@ -785,7 +787,142 @@ async fn poll_beacon_attesters_for_epoch<T: SlotClock + 'static, E: EthSpec>(
     }
     drop(attesters);
 
+    // Spawn the background task to compute selection proofs.
+    let subservice = duties_service.clone();
+    duties_service.context.executor.spawn(
+        async move {
+            fill_in_selection_proofs(subservice, new_duties, dependent_root).await;
+        },
+        "duties_service_selection_proofs_background",
+    );
+
     Ok(())
+}
+
+/// Compute the attestation selection proofs for the `duties` and add them to the `attesters` map.
+///
+/// Duties are computed in batches each slot. If a re-org is detected then the process will
+/// terminate early as it is assumed the selection proofs from `duties` are no longer relevant.
+async fn fill_in_selection_proofs<T: SlotClock + 'static, E: EthSpec>(
+    duties_service: Arc<DutiesService<T, E>>,
+    duties: Vec<AttesterData>,
+    dependent_root: Hash256,
+) {
+    let log = duties_service.context.log();
+
+    // Sort duties by slot in a BTreeMap.
+    let mut duties_by_slot: BTreeMap<Slot, Vec<_>> = BTreeMap::new();
+
+    for duty in duties {
+        duties_by_slot.entry(duty.slot).or_default().push(duty);
+    }
+
+    // At halfway through each slot when nothing else is likely to be getting signed, sign a batch
+    // of selection proofs and insert them into the duties service `attesters` map.
+    let slot_clock = &duties_service.slot_clock;
+    let slot_offset = duties_service.slot_clock.slot_duration() / SELECTION_PROOF_SCHEDULE_DENOM;
+
+    while !duties_by_slot.is_empty() {
+        if let Some(duration) = slot_clock.duration_to_next_slot() {
+            sleep(duration.saturating_sub(slot_offset)).await;
+
+            let Some(current_slot) = slot_clock.now() else {
+                continue;
+            };
+
+            let lookahead_slot = current_slot + SELECTION_PROOF_SLOT_LOOKAHEAD;
+
+            let mut relevant_duties = duties_by_slot.split_off(&lookahead_slot);
+            std::mem::swap(&mut relevant_duties, &mut duties_by_slot);
+
+            let batch_size = relevant_duties.values().map(Vec::len).sum::<usize>();
+
+            if batch_size == 0 {
+                continue;
+            }
+
+            let timer = metrics::start_timer_vec(
+                &metrics::DUTIES_SERVICE_TIMES,
+                &[metrics::ATTESTATION_SELECTION_PROOFS],
+            );
+
+            // Sign selection proofs (serially).
+            let duty_and_proof_results = stream::iter(relevant_duties.into_values().flatten())
+                .then(|duty| async {
+                    DutyAndProof::new_with_selection_proof(
+                        duty,
+                        &duties_service.validator_store,
+                        &duties_service.spec,
+                    )
+                    .await
+                })
+                .collect::<Vec<_>>()
+                .await;
+
+            // Add to attesters store.
+            let mut attesters = duties_service.attesters.write();
+            for result in duty_and_proof_results {
+                let duty_and_proof = match result {
+                    Ok(duty_and_proof) => duty_and_proof,
+                    Err(e) => {
+                        error!(
+                            log,
+                            "Failed to produce duty and proof";
+                            "error" => ?e,
+                            "msg" => "may impair attestation duties"
+                        );
+                        // Do not abort the entire batch for a single failure.
+                        continue;
+                    }
+                };
+
+                let attester_map = attesters.entry(duty_and_proof.duty.pubkey).or_default();
+                let epoch = duty_and_proof.duty.slot.epoch(E::slots_per_epoch());
+                match attester_map.entry(epoch) {
+                    hash_map::Entry::Occupied(mut entry) => {
+                        // No need to update duties for which no proof was computed.
+                        let Some(selection_proof) = duty_and_proof.selection_proof else {
+                            continue;
+                        };
+
+                        let (existing_dependent_root, existing_duty) = entry.get_mut();
+
+                        if *existing_dependent_root == dependent_root {
+                            // Replace existing proof.
+                            existing_duty.selection_proof = Some(selection_proof);
+                        } else {
+                            // Our selection proofs are no longer relevant due to a reorg, abandon
+                            // this entire background process.
+                            debug!(
+                                log,
+                                "Stopping selection proof background task";
+                                "reason" => "re-org"
+                            );
+                            return;
+                        }
+                    }
+                    hash_map::Entry::Vacant(entry) => {
+                        entry.insert((dependent_root, duty_and_proof));
+                    }
+                }
+            }
+            drop(attesters);
+
+            let time_taken_ms =
+                Duration::from_secs_f64(timer.map_or(0.0, |t| t.stop_and_record())).as_millis();
+            debug!(
+                log,
+                "Computed attestation selection proofs";
+                "batch_size" => batch_size,
+                "lookahead_slot" => lookahead_slot,
+                "time_taken_ms" => time_taken_ms
+            );
+        } else {
+            // Just sleep for one slot if we are unable to read the system clock, this gives
+            // us an opportunity for the clock to eventually come good.
+            sleep(duties_service.slot_clock.slot_duration()).await;
+        }
+    }
 }
 
 /// Download the proposer duties for the current epoch and store them in `duties_service.proposers`.

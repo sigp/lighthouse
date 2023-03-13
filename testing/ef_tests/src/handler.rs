@@ -24,11 +24,6 @@ pub trait Handler {
 
     fn run(&self) {
         for fork_name in ForkName::list_all() {
-            // FIXME(eip4844): enable eip4844
-            if fork_name == ForkName::Eip4844 {
-                continue;
-            }
-
             if self.is_enabled_for_fork(fork_name) {
                 self.run_for_fork(fork_name)
             }

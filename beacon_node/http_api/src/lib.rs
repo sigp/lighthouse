@@ -1128,9 +1128,7 @@ pub fn serve<T: BeaconChainTypes>(
              chain: Arc<BeaconChain<T>>,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
              log: Logger| async move {
-                // need to have cached the blob sidecar somewhere in the beacon chain
-                // to publish
-                publish_blocks::publish_block(None, block, None, chain, &network_tx, log)
+                publish_blocks::publish_block(None, block, chain, &network_tx, log)
                     .await
                     .map(|()| warp::reply())
             },
@@ -3526,6 +3524,9 @@ pub fn serve<T: BeaconChainTypes>(
                                 }
                                 api_types::EventTopic::ContributionAndProof => {
                                     event_handler.subscribe_contributions()
+                                }
+                                api_types::EventTopic::PayloadAttributes => {
+                                    event_handler.subscribe_payload_attributes()
                                 }
                                 api_types::EventTopic::LateHead => {
                                     event_handler.subscribe_late_head()

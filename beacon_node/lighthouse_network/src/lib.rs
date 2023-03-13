@@ -15,7 +15,6 @@ pub mod peer_manager;
 pub mod rpc;
 pub mod types;
 
-pub use crate::types::SignedBeaconBlockAndBlobsSidecar;
 pub use config::gossip_max_size;
 
 use serde::{de, Deserialize, Deserializer, Serialize, Serializer};

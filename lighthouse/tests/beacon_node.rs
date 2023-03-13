@@ -183,6 +183,21 @@ fn prepare_payload_lookahead_shorter() {
 }
 
 #[test]
+fn always_prepare_payload_default() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| assert!(!config.chain.always_prepare_payload));
+}
+
+#[test]
+fn always_prepare_payload_override() {
+    CommandLineTest::new()
+        .flag("always-prepare-payload", None)
+        .run_with_zero_port()
+        .with_config(|config| assert!(config.chain.always_prepare_payload));
+}
+
+#[test]
 fn paranoid_block_proposal_default() {
     CommandLineTest::new()
         .run_with_zero_port()
