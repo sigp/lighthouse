@@ -7,6 +7,11 @@ use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
 use tokio::sync::broadcast::Sender;
 
+/// Default log level for SSE Events.
+// NOTE: Made this a constant. Debug level seems to be pretty intense. Can make this
+// configurable later if needed.
+const LOG_LEVEL: slog::Level = slog::Level::Info;
+
 /// The components required in the HTTP API task to receive logged events.
 #[derive(Clone)]
 pub struct SSELoggingComponents {
@@ -29,10 +34,12 @@ impl Drain for SSELoggingComponents {
     type Err = &'static str;
 
     fn log(&self, record: &Record, logger_values: &OwnedKVList) -> Result<Self::Ok, Self::Err> {
-        // There are subscribers, attempt to send the logs
-        match self.sender.send(AsyncRecord::from(record, logger_values)) {
-            Ok(_num_sent) => {} // Everything got sent
-            Err(_err) => {}     // There are no subscribers, do nothing
+        if record.level().is_at_least(LOG_LEVEL) {
+            // There are subscribers, attempt to send the logs
+            match self.sender.send(AsyncRecord::from(record, logger_values)) {
+                Ok(_num_sent) => {} // Everything got sent
+                Err(_err) => {}     // There are no subscribers, do nothing
+            }
         }
         Ok(())
     }

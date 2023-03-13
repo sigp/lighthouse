@@ -90,6 +90,7 @@ pub struct RuntimeContext<E: EthSpec> {
     pub eth_spec_instance: E,
     pub eth2_config: Eth2Config,
     pub eth2_network_config: Option<Arc<Eth2NetworkConfig>>,
+    pub sse_logging_components: Option<SSELoggingComponents>,
 }
 
 impl<E: EthSpec> RuntimeContext<E> {
@@ -102,6 +103,7 @@ impl<E: EthSpec> RuntimeContext<E> {
             eth_spec_instance: self.eth_spec_instance.clone(),
             eth2_config: self.eth2_config.clone(),
             eth2_network_config: self.eth2_network_config.clone(),
+            sse_logging_components: self.sse_logging_components.clone(),
         }
     }
 
@@ -325,6 +327,7 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
 
             log = Logger::root(Duplicate::new(log, sse_logger).fuse(), o!());
         }
+
         self.log = Some(log);
 
         Ok(self)
@@ -414,6 +417,7 @@ impl<E: EthSpec> Environment<E> {
             eth_spec_instance: self.eth_spec_instance.clone(),
             eth2_config: self.eth2_config.clone(),
             eth2_network_config: self.eth2_network_config.clone(),
+            sse_logging_components: self.sse_logging_components.clone(),
         }
     }
 
@@ -429,6 +433,7 @@ impl<E: EthSpec> Environment<E> {
             eth_spec_instance: self.eth_spec_instance.clone(),
             eth2_config: self.eth2_config.clone(),
             eth2_network_config: self.eth2_network_config.clone(),
+            sse_logging_components: self.sse_logging_components.clone(),
         }
     }
 
@@ -548,13 +553,6 @@ impl<E: EthSpec> Environment<E> {
                 "error" => ?e
             ),
         }
-    }
-
-    /// Takes the receiver of the SSE Log components if one exists.
-    /// This is used to obtain the receiver of the SSE log channel in order to pass it to the HTTP
-    /// API.
-    pub fn get_sse_log(&mut self) -> Option<SSELoggingComponents> {
-        self.sse_logging_components.take()
     }
 
     /// Fire exit signal which shuts down all spawned services

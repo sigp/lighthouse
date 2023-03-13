@@ -471,6 +471,16 @@ fn run<E: EthSpec>(
         };
     }
 
+    let sse_logging = {
+        if let Some(bn_matches) = matches.subcommand_matches("beacon_node") {
+            bn_matches.is_present("http") || bn_matches.is_present("gui")
+        } else if let Some(vc_matches) = matches.subcommand_matches("validator_client") { 
+            vc_matches.is_present("http") 
+        } else {
+            false
+        }
+    };
+
     let logger_config = LoggerConfig {
         path: log_path,
         debug_level: String::from(debug_level),
@@ -483,7 +493,7 @@ fn run<E: EthSpec>(
         max_log_number: logfile_max_number,
         compression: logfile_compress,
         is_restricted: logfile_restricted,
-        sse_logging: matches.is_present("http"),
+        sse_logging,
     };
 
     let builder = environment_builder.initialize_logger(logger_config.clone())?;
@@ -564,7 +574,6 @@ fn run<E: EthSpec>(
     match matches.subcommand() {
         ("beacon_node", Some(matches)) => {
             let context = environment.core_context();
-            let sse_log = environment.get_sse_log();
             let log = context.log().clone();
             let executor = context.executor.clone();
             let mut config = beacon_node::get_config::<E>(matches, &context)?;
@@ -574,7 +583,7 @@ fn run<E: EthSpec>(
             clap_utils::check_dump_configs::<_, E>(matches, &config, &context.eth2_config.spec)?;
             executor.clone().spawn(
                 async move {
-                    if let Err(e) = ProductionBeaconNode::new(context.clone(), config, sse_log).await {
+                    if let Err(e) = ProductionBeaconNode::new(context.clone(), config).await {
                         crit!(log, "Failed to start beacon node"; "reason" => e);
                         // Ignore the error since it always occurs during normal operation when
                         // shutting down.

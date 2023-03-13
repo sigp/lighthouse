@@ -51,7 +51,7 @@ impl<E: EthSpec> LocalBeaconNode<E> {
         client_config.set_data_dir(datadir.path().into());
         client_config.network.network_dir = PathBuf::from(datadir.path()).join("network");
 
-        ProductionBeaconNode::new(context, client_config, None)
+        ProductionBeaconNode::new(context, client_config)
             .await
             .map(move |client| Self {
                 client: client.into_inner(),

@@ -158,17 +158,27 @@ impl Serialize for AsyncRecord {
     where
         S: serde::Serializer,
     {
+        // Get the current time
+        let dt = chrono::Local::now().format("%b %e %T").to_string();
+
         let rs = RecordStatic {
             location: &*self.location,
             level: self.level,
             tag: &self.tag,
         };
         let mut map_serializer = SerdeSerializer::new(serializer)?;
+
+        // Serialize the time and log level first
+        map_serializer.serialize_entry("time", &dt)?;
+        map_serializer.serialize_entry("level", &self.level.as_short_str())?;
+
         let kv = self.kv.lock();
 
         // Convoluted pattern to avoid binding `format_args!` to a temporary.
         // See: https://stackoverflow.com/questions/56304313/cannot-use-format-args-due-to-temporary-value-is-freed-at-the-end-of-this-state
         let mut f = |msg: std::fmt::Arguments| {
+            map_serializer.serialize_entry("msg", &msg.to_string())?;
+
             let record = Record::new(&rs, &msg, BorrowedKV(&(*kv)));
             self.logger_values
                 .serialize(&record, &mut map_serializer)
@@ -179,7 +189,6 @@ impl Serialize for AsyncRecord {
                 .map_err(serde::ser::Error::custom)
         };
         f(format_args!("{}", self.msg))?;
-
         map_serializer.end()
     }
 }
@@ -193,6 +202,14 @@ impl<S: serde::Serializer> SerdeSerializer<S> {
     fn new(ser: S) -> Result<Self, S::Error> {
         let ser_map = ser.serialize_map(None)?;
         Ok(SerdeSerializer { ser_map })
+    }
+
+    fn serialize_entry<K, V>(&mut self, key: K, value: V) -> Result<(), S::Error>
+    where
+        K: serde::Serialize,
+        V: serde::Serialize,
+    {
+        self.ser_map.serialize_entry(&key, &value)
     }
 
     /// Finish serialization, and return the serializer

@@ -636,7 +636,6 @@ dependencies = [
  "hyper",
  "lighthouse_network",
  "lighthouse_version",
- "logging",
  "monitoring_api",
  "node_test_rig",
  "sensitive_url",
@@ -4498,6 +4497,7 @@ dependencies = [
 name = "logging"
 version = "0.2.0"
 dependencies = [
+ "chrono",
  "lazy_static",
  "lighthouse_metrics",
  "parking_lot 0.12.1",
@@ -8515,6 +8515,7 @@ dependencies = [
  "task_executor",
  "tempfile",
  "tokio",
+ "tokio-stream",
  "tree_hash",
  "types",
  "url",
