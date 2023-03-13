@@ -305,9 +305,7 @@ pub fn gossipsub_config(network_load: u8, fork_context: Arc<ForkContext>) -> Gos
     ) -> Vec<u8> {
         let topic_bytes = message.topic.as_str().as_bytes();
         match fork_context.current_fork() {
-            // according to: https://github.com/ethereum/consensus-specs/blob/dev/specs/merge/p2p-interface.md#the-gossip-domain-gossipsub
-            // the derivation of the message-id remains the same in the merge
-            ForkName::Altair | ForkName::Merge => {
+            ForkName::Altair | ForkName::Merge | ForkName::Capella => {
                 let topic_len_bytes = topic_bytes.len().to_le_bytes();
                 let mut vec = Vec::with_capacity(
                     prefix.len() + topic_len_bytes.len() + topic_bytes.len() + message.data.len(),

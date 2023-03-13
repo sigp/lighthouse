@@ -23,7 +23,7 @@ serde_derive = "1.0.116"
 serde_repr = "0.1.6"
 serde_yaml = "0.8.13"
 eth2_ssz = "0.4.1"
-eth2_ssz_derive = "0.3.0"
+eth2_ssz_derive = "0.3.1"
 tree_hash = "0.4.1"
 tree_hash_derive = "0.4.0"
 cached_tree_hash = { path = "../../consensus/cached_tree_hash" }

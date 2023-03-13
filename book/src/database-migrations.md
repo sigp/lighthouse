@@ -26,9 +26,15 @@ validator client or the slasher**.
 | v3.1.0             | Sep 2022     | v12            | yes                  |
 | v3.2.0             | Oct 2022     | v12            | yes                  |
 | v3.3.0             | Nov 2022     | v13            | yes                  |
+| v3.4.0             | Jan 2023     | v13            | yes                  |
+| v3.5.0             | Feb 2023     | v15            | yes before Capella   |
 
 > **Note**: All point releases (e.g. v2.3.1) are schema-compatible with the prior minor release
 > (e.g. v2.3.0).
+
+> **Note**: Support for old schemas is gradually removed from newer versions of Lighthouse. We
+usually do this after a major version has been out for a while and everyone has upgraded. In this
+case the above table will continue to record the deprecated schema changes for reference.
 
 ## How to apply a database downgrade
 
@@ -110,7 +116,7 @@ Several conditions need to be met in order to run `lighthouse db`:
 2. The command must run as the user that owns the beacon node database. If you are using systemd then
    your beacon node might run as a user called `lighthousebeacon`.
 3. The `--datadir` flag must be set to the location of the Lighthouse data directory.
-4. The `--network` flag must be set to the correct network, e.g. `mainnet`, `prater` or `ropsten`.
+4. The `--network` flag must be set to the correct network, e.g. `mainnet`, `prater` or `sepolia`.
 
 The general form for a `lighthouse db` command is:
 

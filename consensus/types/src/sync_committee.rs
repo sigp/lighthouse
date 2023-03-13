@@ -25,9 +25,20 @@ impl From<ArithError> for Error {
     }
 }
 
-#[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom)]
+#[derive(
+    Debug,
+    PartialEq,
+    Clone,
+    Serialize,
+    Deserialize,
+    Encode,
+    Decode,
+    TreeHash,
+    TestRandom,
+    arbitrary::Arbitrary,
+)]
 #[serde(bound = "T: EthSpec")]
+#[arbitrary(bound = "T: EthSpec")]
 pub struct SyncCommittee<T: EthSpec> {
     pub pubkeys: FixedVector<PublicKeyBytes, T::SyncCommitteeSize>,
     pub aggregate_pubkey: PublicKeyBytes,

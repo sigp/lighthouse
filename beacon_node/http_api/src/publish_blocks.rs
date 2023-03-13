@@ -5,14 +5,14 @@ use beacon_chain::{
 };
 use lighthouse_network::PubsubMessage;
 use network::NetworkMessage;
-use slog::{error, info, warn, Logger};
+use slog::{debug, error, info, warn, Logger};
 use slot_clock::SlotClock;
 use std::sync::Arc;
 use tokio::sync::mpsc::UnboundedSender;
 use tree_hash::TreeHash;
 use types::{
-    BlindedPayload, ExecPayload, ExecutionBlockHash, ExecutionPayload, FullPayload, Hash256,
-    SignedBeaconBlock,
+    AbstractExecPayload, BlindedPayload, EthSpec, ExecPayload, ExecutionBlockHash, FullPayload,
+    Hash256, SignedBeaconBlock,
 };
 use warp::Rejection;
 
@@ -26,9 +26,17 @@ pub async fn publish_block<T: BeaconChainTypes>(
 ) -> Result<(), Rejection> {
     let seen_timestamp = timestamp_now();
 
+    debug!(
+        log,
+        "Signed block published to HTTP API";
+        "slot" => block.slot()
+    );
+
     // Send the block, regardless of whether or not it is valid. The API
     // specification is very clear that this is the desired behaviour.
-    crate::publish_pubsub_message(network_tx, PubsubMessage::BeaconBlock(block.clone()))?;
+
+    let message = PubsubMessage::BeaconBlock(block.clone());
+    crate::publish_pubsub_message(network_tx, message)?;
 
     // Determine the delay after the start of the slot, register it with metrics.
     let delay = get_block_delay_ms(seen_timestamp, block.message(), &chain.slot_clock);
@@ -165,12 +173,22 @@ async fn reconstruct_block<T: BeaconChainTypes>(
 
         // If the execution block hash is zero, use an empty payload.
         let full_payload = if payload_header.block_hash() == ExecutionBlockHash::zero() {
-            ExecutionPayload::default()
+            FullPayload::default_at_fork(
+                chain
+                    .spec
+                    .fork_name_at_epoch(block.slot().epoch(T::EthSpec::slots_per_epoch())),
+            )
+            .map_err(|e| {
+                warp_utils::reject::custom_server_error(format!(
+                    "Default payload construction error: {e:?}"
+                ))
+            })?
+            .into()
             // If we already have an execution payload with this transactions root cached, use it.
         } else if let Some(cached_payload) =
             el.get_payload_by_root(&payload_header.tree_hash_root())
         {
-            info!(log, "Reconstructing a full block using a local payload"; "block_hash" => ?cached_payload.block_hash);
+            info!(log, "Reconstructing a full block using a local payload"; "block_hash" => ?cached_payload.block_hash());
             cached_payload
             // Otherwise, this means we are attempting a blind block proposal.
         } else {
@@ -183,7 +201,7 @@ async fn reconstruct_block<T: BeaconChainTypes>(
                         e
                     ))
                 })?;
-            info!(log, "Successfully published a block to the builder network"; "block_hash" => ?full_payload.block_hash);
+            info!(log, "Successfully published a block to the builder network"; "block_hash" => ?full_payload.block_hash());
             full_payload
         };
 
