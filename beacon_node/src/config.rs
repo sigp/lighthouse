@@ -753,6 +753,11 @@ pub fn get_config<E: EthSpec>(
     client_config.chain.optimistic_finalized_sync =
         !cli_args.is_present("disable-optimistic-finalized-sync");
 
+    // Payload selection configs
+    if cli_args.is_present("always-prefer-builder-payload") {
+        client_config.always_prefer_builder_payload = true;
+    }
+
     Ok(client_config)
 }
 
