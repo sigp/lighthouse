@@ -45,7 +45,7 @@ const MAX_INBOUND_SUBSTREAMS: usize = 32;
 
 /// Identifier of inbound and outbound substreams from the handler's perspective.
 #[derive(Debug, Clone, Copy, Hash, Eq, PartialEq)]
-pub struct SubstreamId(usize);
+pub struct SubstreamId(pub usize);
 
 type InboundSubstream<TSpec> = InboundFramed<NegotiatedSubstream, TSpec>;
 
@@ -149,18 +149,18 @@ pub enum HandlerState {
 /// Contains the information the handler keeps on established inbound substreams.
 pub struct InboundInfo<TSpec: EthSpec> {
     /// State of the substream.
-    state: InboundState<TSpec>,
+    pub state: InboundState<TSpec>,
     /// Responses queued for sending.
-    pending_items: VecDeque<RPCCodedResponse<TSpec>>,
+    pub pending_items: VecDeque<RPCCodedResponse<TSpec>>,
     /// Protocol of the original request we received from the peer.
-    protocol: Protocol,
+    pub protocol: Protocol,
     /// Responses that the peer is still expecting from us.
-    remaining_chunks: u64,
+    pub remaining_chunks: u64,
     /// Useful to timing how long each request took to process. Currently only used by
     /// BlocksByRange.
-    request_start_time: Instant,
+    pub request_start_time: Instant,
     /// Key to keep track of the substream's timeout via `self.inbound_substreams_delay`.
-    delay_key: Option<delay_queue::Key>,
+    pub delay_key: Option<delay_queue::Key>,
 }
 
 /// Contains the information the handler keeps on established outbound substreams.
@@ -178,7 +178,7 @@ pub struct OutboundInfo<Id, TSpec: EthSpec> {
 }
 
 /// State of an inbound substream connection.
-enum InboundState<TSpec: EthSpec> {
+pub enum InboundState<TSpec: EthSpec> {
     /// The underlying substream is not being used.
     Idle(InboundSubstream<TSpec>),
     /// The underlying substream is processing responses.
