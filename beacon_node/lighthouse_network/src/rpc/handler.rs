@@ -178,7 +178,7 @@ pub struct OutboundInfo<Id, TSpec: EthSpec> {
 }
 
 /// State of an inbound substream connection.
-pub enum InboundState<TSpec: EthSpec> {
+enum InboundState<TSpec: EthSpec> {
     /// The underlying substream is not being used.
     Idle(InboundSubstream<TSpec>),
     /// The underlying substream is processing responses.

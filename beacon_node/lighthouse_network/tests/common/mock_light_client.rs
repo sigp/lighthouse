@@ -1,13 +1,10 @@
 #![cfg(test)]
 use fnv::FnvHashMap;
 use futures::future::BoxFuture;
-use futures::{prelude::*, StreamExt};
-use futures::{AsyncRead, AsyncWrite};
-use futures::{Sink, SinkExt};
+use futures::prelude::*;
 use libp2p::core::connection::ConnectionId;
 use libp2p::core::upgrade::{NegotiationError, ProtocolError};
-use libp2p::core::PeerId;
-use libp2p::core::{UpgradeError, UpgradeInfo};
+use libp2p::core::{UpgradeError, UpgradeInfo, PeerId};
 use libp2p::multiaddr::{Multiaddr, Protocol as MProtocol};
 use libp2p::swarm::handler::SubstreamProtocol;
 use libp2p::swarm::{
@@ -15,17 +12,16 @@ use libp2p::swarm::{
     NegotiatedSubstream, NetworkBehaviour, NetworkBehaviourAction,
 };
 use libp2p::swarm::{NotifyHandler, PollParameters, SwarmBuilder, SwarmEvent};
-use libp2p::{InboundUpgrade, OutboundUpgrade};
+use libp2p::OutboundUpgrade;
 use lighthouse_network::rpc::methods::RPCCodedResponse;
 use lighthouse_network::rpc::{
     max_rpc_size, BaseOutboundCodec, Encoding, GoodbyeReason,
-    HandlerErr, HandlerEvent, HandlerState, InboundRequest, 
+    HandlerErr, HandlerEvent, HandlerState,
     OutboundCodec, OutboundFramed, OutboundInfo, OutboundRequest, OutboundSubstreamState, Protocol,
     ProtocolId, RPCError, RPCMessage, RPCProtocol, RPCReceived, RPCSend,
     ReqId, SSZSnappyOutboundCodec, SubstreamId, Version,
 };
-use lighthouse_network::NetworkConfig;
-use lighthouse_network::{error, Request};
+use lighthouse_network::{error, Request, NetworkConfig};
 use slog::{crit, debug, o, trace};
 use smallvec::SmallVec;
 use std::collections::hash_map::Entry;
@@ -36,9 +32,7 @@ use std::task::{Context, Poll};
 use std::time::Duration;
 use tokio::time::sleep_until;
 use tokio::time::Instant as TInstant;
-use tokio_util::codec::Framed;
-use tokio_util::compat::FuturesAsyncReadCompatExt;
-use tokio_util::time::DelayQueue;
+use tokio_util::{codec::Framed, compat::FuturesAsyncReadCompatExt, time::DelayQueue};
 use types::{EthSpec, ForkContext};
 
 use lighthouse_network::{build_transport, Context as ServiceContext, };
@@ -227,9 +221,6 @@ where
     /// Inbound substream `DelayQueue` which keeps track of when an inbound substream will timeout.
     outbound_substreams_delay: DelayQueue<SubstreamId>,
 
-    /// Sequential ID for waiting substreams. For inbound substreams, this is also the inbound request ID.
-    current_inbound_substream_id: SubstreamId,
-
     /// Sequential ID for outbound substreams.
     current_outbound_substream_id: SubstreamId,
 
@@ -349,7 +340,6 @@ where
             dial_negotiated: 0,
             outbound_substreams: FnvHashMap::default(),
             outbound_substreams_delay: DelayQueue::new(),
-            current_inbound_substream_id: SubstreamId(0),
             current_outbound_substream_id: SubstreamId(0),
             state: HandlerState::Active,
             max_dial_negotiated: 8,
