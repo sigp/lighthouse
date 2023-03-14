@@ -352,10 +352,7 @@ impl ProtocolId {
                 <MetaDataV1<T> as Encode>::ssz_fixed_len(),
                 <MetaDataV2<T> as Encode>::ssz_fixed_len(),
             ),
-            Protocol::LightClientBootstrap => RpcLimits::new(
-                <LightClientBootstrapRequest as Encode>::ssz_fixed_len(),
-                <LightClientBootstrapRequest as Encode>::ssz_fixed_len(),
-            ),
+            Protocol::LightClientBootstrap => rpc_block_limits_by_fork(fork_context.current_fork()),
             Protocol::LightClientOptimisticUpdate => RpcLimits::new(
                 <LightClientOptimisticUpdate<T> as Encode>::ssz_fixed_len(),
                 <LightClientOptimisticUpdate<T> as Encode>::ssz_fixed_len(),
