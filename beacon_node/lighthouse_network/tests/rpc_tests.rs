@@ -1,18 +1,20 @@
 #![cfg(test)]
-use lighthouse_network::rpc::methods::*;
+use libp2p::swarm::SwarmEvent;
+use lighthouse_network::rpc::{methods::*, RPCMessage, RPCReceived};
 use lighthouse_network::{rpc::max_rpc_size, NetworkEvent, ReportSource, Request, Response};
 use slog::{debug, warn, Level};
 use ssz::Encode;
-use ssz_types::{VariableList, FixedVector};
-use types::light_client_bootstrap::LightClientBootstrap;
-use types::light_client_update::CURRENT_SYNC_COMMITTEE_PROOF_LEN;
+use ssz_types::{FixedVector, VariableList};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::runtime::Runtime;
 use tokio::time::sleep;
+use types::light_client_bootstrap::LightClientBootstrap;
+use types::light_client_update::CURRENT_SYNC_COMMITTEE_PROOF_LEN;
 use types::{
-    BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockMerge, EmptyBlock, Epoch, EthSpec,
-    ForkContext, ForkName, Hash256, MinimalEthSpec, Signature, SignedBeaconBlock, Slot, SyncCommittee, BeaconBlockHeader,
+    BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockHeader, BeaconBlockMerge,
+    EmptyBlock, Epoch, EthSpec, ForkContext, ForkName, Hash256, MinimalEthSpec, Signature,
+    SignedBeaconBlock, Slot, SyncCommittee,
 };
 
 mod common;
@@ -151,8 +153,15 @@ fn test_light_client_bootstrap_rpc() {
 
     rt.block_on(async {
         // get sender/receiver
-        let (mut sender, mut receiver) =
-            common::build_node_pair(Arc::downgrade(&rt), &log, ForkName::Base).await;
+        let (mut sender, mut receiver): (
+            common::MockLibp2pLightClientInstance,
+            common::Libp2pInstance,
+        ) = common::build_node_and_light_client(
+            Arc::downgrade(&rt),
+            &log,
+            ForkName::Base,
+        )
+        .await;
 
         // Dummy LightClientBootstrap RPC request
         let rpc_request = Request::LightClientBootstrap(LightClientBootstrapRequest {
@@ -160,6 +169,22 @@ fn test_light_client_bootstrap_rpc() {
         });
 
         // Dummy LightClientBootstrap RPC response
+        let nl_rpc_response = RPCResponse::LightClientBootstrap(LightClientBootstrap {
+            header: BeaconBlockHeader {
+                slot: Slot::new(0),
+                proposer_index: 0,
+                parent_root: Hash256::zero(),
+                state_root: Hash256::zero(),
+                body_root: Hash256::zero(),
+            },
+            current_sync_committee: Arc::new(SyncCommittee::temporary().unwrap()),
+            current_sync_committee_branch: FixedVector::new(vec![
+                Hash256::zero();
+                CURRENT_SYNC_COMMITTEE_PROOF_LEN
+            ])
+            .unwrap(),
+        });
+
         let rpc_response = Response::LightClientBootstrap(LightClientBootstrap {
             header: BeaconBlockHeader {
                 slot: Slot::new(0),
@@ -172,26 +197,30 @@ fn test_light_client_bootstrap_rpc() {
             current_sync_committee_branch: FixedVector::new(vec![
                 Hash256::zero();
                 CURRENT_SYNC_COMMITTEE_PROOF_LEN
-            ]).unwrap(),
+            ])
+            .unwrap(),
         });
 
         // build the sender future
         let sender_future = async {
             loop {
-                match sender.next_event().await {
-                    NetworkEvent::PeerConnectedOutgoing(peer_id) => {
+                match sender.0.next_event().await {
+                    Some(SwarmEvent::ConnectionEstablished { peer_id, .. }) => {
                         // Send a LightClientBootstrap message
                         debug!(log, "Sending RPC");
-                        sender.send_request(peer_id, 10, rpc_request.clone());
+                        sender.0.send_request(peer_id, 10, rpc_request.clone());
                     }
-                    NetworkEvent::ResponseReceived {
+                    Some(SwarmEvent::Behaviour(RPCMessage {
                         peer_id: _,
-                        id: 10,
-                        response,
-                    } => {
+                        conn_id: _,
+                        event: Ok(RPCReceived::Response(_, response)),
+                    })) => {
+                        if let RPCResponse::MetaData(_) | RPCResponse::Pong(_) = response {
+                            return;
+                        }
                         // Should receive the RPC response
                         debug!(log, "Sender Received");
-                        assert_eq!(response, rpc_response.clone());
+                        assert_eq!(response, nl_rpc_response.clone());
                         debug!(log, "Sender Completed");
                         return;
                     }

@@ -1,110 +1,210 @@
 #![cfg(test)]
-use std::collections::VecDeque;
-use std::marker::PhantomData;
-use std::sync::{Weak, Arc};
-use std::task::{Poll, Context};
-use std::pin::Pin;
 use fnv::FnvHashMap;
 use futures::future::BoxFuture;
-use futures::{AsyncWrite, AsyncRead};
-use libp2p::{OutboundUpgrade, InboundUpgrade};
-use libp2p::core::{UpgradeInfo, UpgradeError};
+use futures::{prelude::*, StreamExt};
+use futures::{AsyncRead, AsyncWrite};
+use futures::{Sink, SinkExt};
+use libp2p::core::connection::ConnectionId;
 use libp2p::core::upgrade::{NegotiationError, ProtocolError};
-use lighthouse_network::rpc::methods::{Ping, RPCCodedResponse};
-use lighthouse_network::rpc::{InboundRequest, ReqId, RPCMessage, SubstreamId, ProtocolId, Protocol, Version, Encoding, HandlerEvent, InboundInfo, HandlerState, StatusMessage, GoodbyeReason, LightClientBootstrapRequest, OutboundFramed, RPCError, OutboundCodec, BaseOutboundCodec, SSZSnappyOutboundCodec, RPCProtocol, RPCSend, HandlerErr, InboundState, RPCReceived, OutboundRequest};
+use libp2p::core::PeerId;
+use libp2p::core::{UpgradeError, UpgradeInfo};
+use libp2p::multiaddr::{Multiaddr, Protocol as MProtocol};
+use libp2p::swarm::handler::SubstreamProtocol;
+use libp2p::swarm::{
+    ConnectionHandler, ConnectionHandlerEvent, ConnectionHandlerUpgrErr, KeepAlive,
+    NegotiatedSubstream, NetworkBehaviour, NetworkBehaviourAction,
+};
+use libp2p::swarm::{NotifyHandler, PollParameters, SwarmBuilder, SwarmEvent};
+use libp2p::{InboundUpgrade, OutboundUpgrade};
+use lighthouse_network::rpc::methods::RPCCodedResponse;
+use lighthouse_network::rpc::{
+    max_rpc_size, send_message_to_inbound_substream, BaseOutboundCodec, Encoding, GoodbyeReason,
+    HandlerErr, HandlerEvent, HandlerState, InboundInfo, InboundRequest, InboundState,
+    OutboundCodec, OutboundFramed, OutboundInfo, OutboundRequest, OutboundSubstreamState, Protocol,
+    ProtocolId, RPCError, RPCMessage, RPCProtocol, RPCReceived, RPCResponseErrorCode, RPCSend,
+    ReqId, SSZSnappyOutboundCodec, SubstreamId, Version,
+};
+use lighthouse_network::NetworkConfig;
+use lighthouse_network::{error, Request};
+use slog::{crit, debug, o, trace, warn};
 use smallvec::SmallVec;
-use tokio::runtime::Runtime;
+use std::collections::hash_map::Entry;
+use std::collections::VecDeque;
+use std::marker::PhantomData;
+use std::pin::Pin;
+use std::sync::Arc;
+use std::task::{Context, Poll};
+use std::time::{Duration, Instant};
+use tokio::time::sleep_until;
+use tokio::time::Instant as TInstant;
 use tokio_util::codec::Framed;
 use tokio_util::compat::FuturesAsyncReadCompatExt;
-use tokio_util::time::{DelayQueue, delay_queue};
+use tokio_util::time::DelayQueue;
 use types::{EthSpec, ForkContext};
-use types::{
-    ForkName, 
-};
-use slog::{o, debug, error};
-use std::time::{Duration, Instant};
-use libp2p::swarm::{NetworkBehaviour, NetworkBehaviourAction, ConnectionHandler, NegotiatedSubstream, ConnectionHandlerUpgrErr, KeepAlive, ConnectionHandlerEvent};
-use futures::{AsyncWrite, AsyncRead};
-use libp2p::swarm::handler::{
-    SubstreamProtocol,
-};
-use futures::prelude::*;
-use futures::{Sink, SinkExt};
 
+use lighthouse_network::{build_transport, Context as ServiceContext, };
 
-use lighthouse_network::{NetworkEvent, EnrExt};
-mod common;
-use common::build_libp2p_instance;
-use common::Libp2pInstance;
+/// The time (in seconds) before a substream that is awaiting a response from the user times out.
+pub const RESPONSE_TIMEOUT: u64 = 10;
 
-pub struct MockLibp2pLightClientInstance(MockLibP2PLightClientService, exit_future::Signal);
+/// The number of times to retry an outbound upgrade in the case of IO errors.
+const IO_ERROR_RETRIES: u8 = 3;
 
-pub async fn build_mock_libp2p_light_client_instance() -> MockLibp2pLightClientInstance {
-    unimplemented!()
+/// Maximum time given to the handler to perform shutdown operations.
+const SHUTDOWN_TIMEOUT_SECS: u8 = 15;
+
+/// Maximum number of simultaneous inbound substreams we keep for this peer.
+const MAX_INBOUND_SUBSTREAMS: usize = 32;
+
+pub struct MockLibP2PLightClientService<Id: ReqId, TSpec: EthSpec> {
+    pub swarm: libp2p::swarm::Swarm<MockRPC<Id, TSpec>>,
 }
 
-#[allow(dead_code)]
-pub async fn build_node_and_light_client(
-    rt: Weak<Runtime>,
-    log: &slog::Logger,
-    fork_name: ForkName,
-) -> (MockLibp2pLightClientInstance, Libp2pInstance) {
-    let sender_log = log.new(o!("who" => "sender"));
-    let receiver_log = log.new(o!("who" => "receiver"));
+impl<Id: ReqId, TSpec: EthSpec> MockLibP2PLightClientService<Id, TSpec> {
+    pub async fn new(
+        executor: task_executor::TaskExecutor,
+        ctx: ServiceContext<'_>,
+        log: &slog::Logger,
+    ) -> error::Result<Self> {
+        let log = log.new(o!("service"=> "libp2p"));
+        let config = ctx.config.clone();
+        trace!(log, "Libp2p Service starting");
+        // initialise the node's ID
 
-    // sender is light client
-    let mut sender = build_mock_libp2p_light_client_instance().await;
-    // receiver is full node
-    let mut receiver = build_libp2p_instance(rt, vec![], receiver_log, fork_name).await;
+        let local_keypair = libp2p::identity::Keypair::generate_secp256k1();
+        let local_peer_id = PeerId::from(local_keypair.public());
 
-    let receiver_multiaddr = receiver.local_enr().multiaddr()[1].clone();
+        let rpc = MockRPC::new(ctx.fork_context.clone(), log.clone());
 
-    // let the two nodes set up listeners
-    // TODO: use a differtent NetworkEvent for sender because it is a light client
-    let sender_fut = async {
-        loop {
-            if let NetworkEvent::NewListenAddr(_) = sender.next_event().await {
-                return;
+        let (swarm, _bandwidth) = {
+            // Set up the transport - tcp/ws with noise and mplex
+            let (transport, bandwidth) = build_transport(local_keypair.clone())
+                .map_err(|e| format!("Failed to build transport: {:?}", e))?;
+
+            // use the executor for libp2p
+            struct Executor(task_executor::TaskExecutor);
+            impl libp2p::swarm::Executor for Executor {
+                fn exec(&self, f: Pin<Box<dyn futures::Future<Output = ()> + Send>>) {
+                    self.0.spawn(f, "libp2p");
+                }
             }
-        }
-    };
-    let receiver_fut = async {
-        loop {
-            if let NetworkEvent::NewListenAddr(_) = receiver.next_event().await {
-                return;
-            }
-        }
-    };
 
-    let joined = futures::future::join(sender_fut, receiver_fut);
+            (
+                SwarmBuilder::with_executor(transport, rpc, local_peer_id, Executor(executor))
+                    .notify_handler_buffer_size(std::num::NonZeroUsize::new(7).expect("Not zero"))
+                    .connection_event_buffer_size(64)
+                    .build(),
+                bandwidth,
+            )
+        };
 
-    // wait for either both nodes to listen or a timeout
-    tokio::select! {
-        _  = tokio::time::sleep(Duration::from_millis(500)) => {}
-        _ = joined => {}
+        let mut network = Self { swarm };
+
+        network.start(&config).await?;
+
+        Ok(network)
     }
 
-    // sender.dial_peer(peer_id);
-    match sender.0.swarm.dial(receiver_multiaddr.clone()) {
-        Ok(()) => {
-            debug!(log, "Sender dialed receiver"; "address" => format!("{:?}", receiver_multiaddr))
-        }
-        Err(_) => error!(log, "Dialing failed"),
-    };
-    (sender, receiver)
+    async fn start(&mut self, config: &NetworkConfig) -> error::Result<()> {
+        let listen_multiaddr = {
+            let mut m = Multiaddr::from(config.listen_address);
+            m.push(MProtocol::Tcp(config.libp2p_port));
+            m
+        };
+
+        if let Err(_) = self.swarm.listen_on(listen_multiaddr.clone()) {
+            return Err("Libp2p was unable to listen on the given listen address.".into());
+        };
+
+        Ok(())
+    }
+
+    pub async fn next_event(&mut self) -> Option<SwarmEvent<RPCMessage<Id, TSpec>, RPCError>> {
+        futures::future::poll_fn(|cx| self.swarm.poll_next_unpin(cx)).await
+    }
+
+    pub fn send_request(&mut self, peer_id: PeerId, request_id: Id, request: Request) {
+        self.swarm
+            .behaviour_mut()
+            .send_request(peer_id, request_id, request.into())
+    }
 }
 
-//pub struct MockLibP2PLightClientService {
-//    swarm: libp2p::swarm::Swarm<RPC>,
-//}
-
-
-pub struct RPC<Id: ReqId, TSpec: EthSpec> {
+pub struct MockRPC<Id: ReqId, TSpec: EthSpec> {
     /// Queue of events to be processed.
     events: Vec<NetworkBehaviourAction<RPCMessage<Id, TSpec>, MockRPCHandler<Id, TSpec>>>,
     fork_context: Arc<ForkContext>,
     /// Slog logger for RPC behaviour.
     log: slog::Logger,
+}
+
+impl<Id: ReqId, TSpec: EthSpec> MockRPC<Id, TSpec> {
+    pub fn new(fork_context: Arc<ForkContext>, log: slog::Logger) -> Self {
+        Self {
+            events: Vec::new(),
+            fork_context,
+            log,
+        }
+    }
+
+    pub fn send_request(&mut self, peer_id: PeerId, request_id: Id, req: OutboundRequest<TSpec>) {
+        self.events.push(NetworkBehaviourAction::NotifyHandler {
+            peer_id,
+            handler: NotifyHandler::Any,
+            event: RPCSend::Request(request_id, req),
+        })
+    }
+}
+
+impl<Id, TSpec> NetworkBehaviour for MockRPC<Id, TSpec>
+where
+    TSpec: EthSpec,
+    Id: ReqId,
+{
+    type ConnectionHandler = MockRPCHandler<Id, TSpec>;
+    type OutEvent = RPCMessage<Id, TSpec>;
+
+    fn new_handler(&mut self) -> Self::ConnectionHandler {
+        MockRPCHandler::new(
+            SubstreamProtocol::new(
+                RPCProtocol {
+                    fork_context: self.fork_context.clone(),
+                    max_rpc_size: max_rpc_size(&self.fork_context),
+                    enable_light_client_server: true,
+                    phantom: PhantomData,
+                },
+                (),
+            ),
+            self.fork_context.clone(),
+            &self.log,
+        )
+    }
+
+    fn inject_event(
+        &mut self,
+        peer_id: PeerId,
+        conn_id: ConnectionId,
+        event: <Self::ConnectionHandler as ConnectionHandler>::OutEvent,
+    ) {
+        self.events
+            .push(NetworkBehaviourAction::GenerateEvent(RPCMessage {
+                peer_id,
+                conn_id,
+                event,
+            }));
+    }
+
+    fn poll(
+        &mut self,
+        _: &mut Context,
+        _: &mut impl PollParameters,
+    ) -> Poll<NetworkBehaviourAction<Self::OutEvent, Self::ConnectionHandler>> {
+        if !self.events.is_empty() {
+            return Poll::Ready(self.events.remove(0));
+        }
+
+        Poll::Pending
+    }
 }
 
 // We have to reimplement the ConnectionHandler trait for a struct that allows outbound
@@ -120,7 +220,7 @@ where
     events_out: SmallVec<[HandlerEvent<Id, TSpec>; 4]>,
 
     /// Queue of outbound substreams to open.
-    dial_queue: SmallVec<[(Id, MockOutboundRequest<TSpec>); 4]>,
+    dial_queue: SmallVec<[(Id, OutboundRequest<TSpec>); 4]>,
 
     /// Current number of concurrent outbound substreams being opened.
     dial_negotiated: u32,
@@ -164,7 +264,7 @@ where
 }
 
 #[derive(Debug, Clone)]
-struct MockOutboundRequestContainer<TSpec: EthSpec> {
+pub struct MockOutboundRequestContainer<TSpec: EthSpec> {
     pub req: OutboundRequest<TSpec>,
     pub fork_context: Arc<ForkContext>,
     pub max_rpc_size: usize,
@@ -207,77 +307,7 @@ impl<TSpec: EthSpec> UpgradeInfo for MockOutboundRequestContainer<TSpec> {
     }
 }
 
-/// Implements the encoding per supported protocol for `RPCRequest`.
-impl<TSpec: EthSpec> MockOutboundRequest<TSpec> {
-    pub fn supported_protocols(&self) -> Vec<ProtocolId> {
-        match self {
-            // add more protocols when versions/encodings are supported
-            MockOutboundRequest::Status(_) => vec![ProtocolId::new(
-                Protocol::Status,
-                Version::V1,
-                Encoding::SSZSnappy,
-            )],
-            MockOutboundRequest::Goodbye(_) => vec![ProtocolId::new(
-                Protocol::Goodbye,
-                Version::V1,
-                Encoding::SSZSnappy,
-            )],
-            MockOutboundRequest::Ping(_) => vec![ProtocolId::new(
-                Protocol::Ping,
-                Version::V1,
-                Encoding::SSZSnappy,
-            )],
-            MockOutboundRequest::MetaData(_) => vec![
-                ProtocolId::new(Protocol::MetaData, Version::V2, Encoding::SSZSnappy),
-                ProtocolId::new(Protocol::MetaData, Version::V1, Encoding::SSZSnappy),
-            ],
-            MockOutboundRequest::LightClientBootstrap(_) => vec![ProtocolId::new(
-                Protocol::LightClientBootstrap,
-                Version::V1,
-                Encoding::SSZSnappy,
-            )],
-        }
-    }
-    /* These functions are used in the handler for stream management */
-
-    /// Number of responses expected for this request.
-    pub fn expected_responses(&self) -> u64 {
-        match self {
-            MockOutboundRequest::Status(_) => 1,
-            MockOutboundRequest::Goodbye(_) => 0,
-            MockOutboundRequest::Ping(_) => 1,
-            MockOutboundRequest::MetaData(_) => 1,
-            MockOutboundRequest::LightClientBootstrap(_) => 1,
-        }
-    }
-
-    /// Gives the corresponding `Protocol` to this request.
-    pub fn protocol(&self) -> Protocol {
-        match self {
-            MockOutboundRequest::Status(_) => Protocol::Status,
-            MockOutboundRequest::Goodbye(_) => Protocol::Goodbye,
-            MockOutboundRequest::Ping(_) => Protocol::Ping,
-            MockOutboundRequest::MetaData(_) => Protocol::MetaData,
-            MockOutboundRequest::LightClientBootstrap(_) => Protocol::LightClientBootstrap,
-        }
-    }
-
-    /// Returns the `ResponseTermination` type associated with the request if a stream gets
-    /// terminated.
-    pub fn stream_termination(&self) -> ResponseTermination {
-        match self {
-            // this only gets called after `multiple_responses()` returns true. Therefore, only
-            // variants that have `multiple_responses()` can have values.
-            MockOutboundRequest::LightClientBootstrap(_) => unreachable!(),
-            MockOutboundRequest::Status(_) => unreachable!(),
-            MockOutboundRequest::Goodbye(_) => unreachable!(),
-            MockOutboundRequest::Ping(_) => unreachable!(),
-            MockOutboundRequest::MetaData(_) => unreachable!(),
-        }
-    }
-}
-
-struct ResponseTermination {}
+// struct ResponseTermination {}
 
 impl<TSocket, TSpec> OutboundUpgrade<TSocket> for MockOutboundRequestContainer<TSpec>
 where
@@ -311,112 +341,6 @@ where
         }
         .boxed()
     }
-}
-
-pub struct BaseOutboundCodec<TOutboundCodec, TSpec>
-where
-    TOutboundCodec: OutboundCodec<OutboundRequest<TSpec>>,
-    TSpec: EthSpec,
-{
-    /// Inner codec for handling various encodings.
-    inner: TOutboundCodec,
-    /// Keeps track of the current response code for a chunk.
-    current_response_code: Option<u8>,
-    phantom: PhantomData<TSpec>,
-}
-
-impl<TOutboundCodec, TSpec> BaseOutboundCodec<TOutboundCodec, TSpec>
-where
-    TSpec: EthSpec,
-    TOutboundCodec: OutboundCodec<OutboundRequest<TSpec>>,
-{
-    pub fn new(codec: TOutboundCodec) -> Self {
-        BaseOutboundCodec {
-            inner: codec,
-            current_response_code: None,
-            phantom: PhantomData,
-        }
-    }
-}
-
-impl<TCodec, TSpec> Encoder<OutboundRequest<TSpec>> for BaseOutboundCodec<TCodec, TSpec>
-where
-    TSpec: EthSpec,
-    TCodec: OutboundCodec<OutboundRequest<TSpec>> + Encoder<OutboundRequest<TSpec>>,
-{
-    type Error = <TCodec as Encoder<OutboundRequest<TSpec>>>::Error;
-
-    fn encode(
-        &mut self,
-        item: OutboundRequest<TSpec>,
-        dst: &mut BytesMut,
-    ) -> Result<(), Self::Error> {
-        self.inner.encode(item, dst)
-    }
-}
-
-// This decodes RPC Responses received from external peers
-impl<TCodec, TSpec> Decoder for BaseOutboundCodec<TCodec, TSpec>
-where
-    TSpec: EthSpec,
-    TCodec: OutboundCodec<OutboundRequest<TSpec>, CodecErrorType = ErrorType>
-        + Decoder<Item = RPCResponse<TSpec>>,
-{
-    type Item = RPCCodedResponse<TSpec>;
-    type Error = <TCodec as Decoder>::Error;
-
-    fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
-        // if we have only received the response code, wait for more bytes
-        if src.len() <= 1 {
-            return Ok(None);
-        }
-        // using the response code determine which kind of payload needs to be decoded.
-        let response_code = self.current_response_code.unwrap_or_else(|| {
-            let resp_code = src.split_to(1)[0];
-            self.current_response_code = Some(resp_code);
-            resp_code
-        });
-
-        let inner_result = {
-            if RPCCodedResponse::<TSpec>::is_response(response_code) {
-                // decode an actual response and mutates the buffer if enough bytes have been read
-                // returning the result.
-                self.inner
-                    .decode(src)
-                    .map(|r| r.map(RPCCodedResponse::Success))
-            } else {
-                // decode an error
-                self.inner
-                    .decode_error(src)
-                    .map(|r| r.map(|resp| RPCCodedResponse::from_error(response_code, resp)))
-            }
-        };
-        // if the inner decoder was capable of decoding a chunk, we need to reset the current
-        // response code for the next chunk
-        if let Ok(Some(_)) = inner_result {
-            self.current_response_code = None;
-        }
-        // return the result
-        inner_result
-    }
-}
-
-/// RPC events sent from Lighthouse.
-#[derive(Debug, Clone)]
-pub enum MockRPCSend<Id, TSpec: EthSpec> {
-    /// A request sent from Lighthouse.
-    ///
-    /// The `Id` is given by the application making the request. These
-    /// go over *outbound* connections.
-    Request(Id, MockOutboundRequest<TSpec>),
-    /// A response sent from Lighthouse.
-    ///
-    /// The `SubstreamId` must correspond to the RPC-given ID of the original request received from the
-    /// peer. The second parameter is a single chunk of a response. These go over *inbound*
-    /// connections.
-    Response(SubstreamId, RPCCodedResponse<TSpec>),
-    /// Lighthouse has requested to terminate the connection with a goodbye message.
-    Shutdown(Id, GoodbyeReason),
 }
 
 impl<Id, TSpec> MockRPCHandler<Id, TSpec>
@@ -466,7 +390,7 @@ where
 
             // Queue our goodbye message.
             if let Some((id, reason)) = goodbye_reason {
-                self.dial_queue.push((id, MockOutboundRequest::Goodbye(reason)));
+                self.dial_queue.push((id, OutboundRequest::Goodbye(reason)));
             }
 
             self.state = HandlerState::ShuttingDown(Box::pin(sleep_until(
@@ -476,7 +400,7 @@ where
     }
 
     /// Opens an outbound substream with a request.
-    fn send_request(&mut self, id: Id, req: MockOutboundRequest<TSpec>) {
+    fn send_request(&mut self, id: Id, req: OutboundRequest<TSpec>) {
         match self.state {
             HandlerState::Active => {
                 self.dial_queue.push((id, req));
@@ -524,36 +448,6 @@ where
     }
 }
 
-/// Contains the information the handler keeps on established outbound substreams.
-pub struct MockOutboundInfo<Id, TSpec: EthSpec> {
-    /// State of the substream.
-    state: MockOutboundSubstreamState<TSpec>,
-    /// Key to keep track of the substream's timeout via `self.outbound_substreams_delay`.
-    delay_key: delay_queue::Key,
-    /// Info over the protocol this substream is handling.
-    proto: Protocol,
-    /// Number of chunks to be seen from the peer's response.
-    remaining_chunks: Option<u64>,
-    /// `Id` as given by the application that sent the request.
-    req_id: Id,
-}
-
-/// State of an outbound substream. Either waiting for a response, or in the process of sending.
-pub enum MockOutboundSubstreamState<TSpec: EthSpec> {
-    /// A request has been sent, and we are awaiting a response. This future is driven in the
-    /// handler because GOODBYE requests can be handled and responses dropped instantly.
-    RequestPendingResponse {
-        /// The framed negotiated substream.
-        substream: Box<OutboundFramed<NegotiatedSubstream, TSpec>>,
-        /// Keeps track of the actual request sent.
-        request: MockOutboundRequest<TSpec>,
-    },
-    /// Closing an outbound substream>
-    Closing(Box<OutboundFramed<NegotiatedSubstream, TSpec>>),
-    /// Temporary state during processing
-    Poisoned,
-}
-
 impl<Id, TSpec> ConnectionHandler for MockRPCHandler<Id, TSpec>
 where
     TSpec: EthSpec,
@@ -564,7 +458,7 @@ where
     type Error = RPCError;
     type InboundProtocol = RPCProtocol<TSpec>;
     type OutboundProtocol = MockOutboundRequestContainer<TSpec>;
-    type OutboundOpenInfo = (Id, MockOutboundRequest<TSpec>); // Keep track of the id and the request
+    type OutboundOpenInfo = (Id, OutboundRequest<TSpec>); // Keep track of the id and the request
     type InboundOpenInfo = ();
 
     fn listen_protocol(&self) -> SubstreamProtocol<Self::InboundProtocol, ()> {
@@ -597,7 +491,7 @@ where
                 self.current_outbound_substream_id,
                 Duration::from_secs(RESPONSE_TIMEOUT),
             );
-            let awaiting_stream = MockOutboundSubstreamState::RequestPendingResponse {
+            let awaiting_stream = OutboundSubstreamState::RequestPendingResponse {
                 substream: Box::new(out),
                 request,
             };
@@ -611,7 +505,7 @@ where
                 .outbound_substreams
                 .insert(
                     self.current_outbound_substream_id,
-                    MockOutboundInfo {
+                    OutboundInfo {
                         state: awaiting_stream,
                         delay_key,
                         proto,
@@ -1178,8 +1072,6 @@ where
                             // we simply terminate the stream and report a stream
                             // termination to the application
                             let termination = match protocol {
-                                Protocol::BlocksByRange => Some(ResponseTermination::BlocksByRange),
-                                Protocol::BlocksByRoot => Some(ResponseTermination::BlocksByRoot),
                                 _ => None, // all other protocols are do not have multiple responses and we do not inform the user, we simply drop the stream.
                             };
 
@@ -1208,7 +1100,7 @@ where
             self.dial_queue.shrink_to_fit();
             return Poll::Ready(ConnectionHandlerEvent::OutboundSubstreamRequest {
                 protocol: SubstreamProtocol::new(
-                    OutboundRequestContainer {
+                    MockOutboundRequestContainer {
                         req: req.clone(),
                         fork_context: self.fork_context.clone(),
                         max_rpc_size: max_rpc_size(&self.fork_context),

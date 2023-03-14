@@ -1,5 +1,6 @@
 #![cfg(test)]
 use libp2p::gossipsub::GossipsubConfigBuilder;
+use libp2p::swarm::SwarmEvent;
 use lighthouse_network::service::Network as LibP2PService;
 use lighthouse_network::Enr;
 use lighthouse_network::EnrExt;
@@ -19,6 +20,8 @@ type E = MinimalEthSpec;
 type ReqId = usize;
 
 use tempfile::Builder as TempBuilder;
+
+mod mock_light_client;
 
 /// Returns a dummy fork context
 pub fn fork_context(fork_name: ForkName) -> ForkContext {
@@ -80,6 +83,7 @@ pub fn build_config(port: u16, mut boot_nodes: Vec<Enr>) -> NetworkConfig {
     config.enr_address = (Some(std::net::Ipv4Addr::LOCALHOST), None);
     config.boot_nodes_enr.append(&mut boot_nodes);
     config.network_dir = path.into_path();
+    config.enable_light_client_server = true;
     // Reduce gossipsub heartbeat parameters
     config.gs_config = GossipsubConfigBuilder::from(config.gs_config)
         .heartbeat_initial_delay(Duration::from_millis(500))
@@ -227,4 +231,88 @@ pub async fn build_linear(
         };
     }
     nodes
+}
+
+pub struct MockLibp2pLightClientInstance(
+    pub mock_light_client::MockLibP2PLightClientService<ReqId, E>,
+    exit_future::Signal,
+);
+
+pub async fn build_mock_libp2p_light_client_instance(
+    rt: Weak<Runtime>,
+    boot_nodes: Vec<Enr>,
+    log: slog::Logger,
+    fork_name: ForkName,
+) -> MockLibp2pLightClientInstance {
+    let port = unused_tcp_port().unwrap();
+    let config = build_config(port, boot_nodes);
+
+    let (signal, exit) = exit_future::signal();
+    let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
+    let executor = task_executor::TaskExecutor::new(rt, exit, log.clone(), shutdown_tx);
+    let libp2p_context = lighthouse_network::Context {
+        config: &config,
+        enr_fork_id: EnrForkId::default(),
+        fork_context: Arc::new(fork_context(fork_name)),
+        chain_spec: &ChainSpec::minimal(),
+        gossipsub_registry: None,
+    };
+    MockLibp2pLightClientInstance(
+        mock_light_client::MockLibP2PLightClientService::new(executor, libp2p_context, &log)
+            .await
+            .expect("should build libp2p instance"),
+        signal,
+    )
+}
+
+#[allow(dead_code)]
+pub async fn build_node_and_light_client(
+    rt: Weak<Runtime>,
+    log: &slog::Logger,
+    fork_name: ForkName,
+) -> (MockLibp2pLightClientInstance, Libp2pInstance) {
+    let sender_log = log.new(o!("who" => "sender"));
+    let receiver_log = log.new(o!("who" => "receiver"));
+
+    // sender is light client
+    let mut sender =
+        build_mock_libp2p_light_client_instance(rt.clone(), vec![], sender_log, fork_name).await;
+    // receiver is full node
+    let mut receiver = build_libp2p_instance(rt, vec![], receiver_log, fork_name).await;
+
+    let receiver_multiaddr = receiver.local_enr().multiaddr()[1].clone();
+
+    // let the two nodes set up listeners
+    // TODO: use a differtent NetworkEvent for sender because it is a light client
+    let sender_fut = async {
+        loop {
+            if let Some(SwarmEvent::NewListenAddr { .. }) = sender.0.next_event().await {
+                return;
+            }
+        }
+    };
+    let receiver_fut = async {
+        loop {
+            if let NetworkEvent::NewListenAddr(_) = receiver.next_event().await {
+                return;
+            }
+        }
+    };
+
+    let joined = futures::future::join(sender_fut, receiver_fut);
+
+    // wait for either both nodes to listen or a timeout
+    tokio::select! {
+        _  = tokio::time::sleep(Duration::from_millis(500)) => {}
+        _ = joined => {}
+    }
+
+    // sender.dial_peer(peer_id);
+    match sender.0.swarm.dial(receiver_multiaddr.clone()) {
+        Ok(()) => {
+            debug!(log, "Sender dialed receiver"; "address" => format!("{:?}", receiver_multiaddr))
+        }
+        Err(_) => error!(log, "Dialing failed"),
+    };
+    (sender, receiver)
 }

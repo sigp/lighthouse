@@ -166,15 +166,15 @@ pub struct InboundInfo<TSpec: EthSpec> {
 /// Contains the information the handler keeps on established outbound substreams.
 pub struct OutboundInfo<Id, TSpec: EthSpec> {
     /// State of the substream.
-    state: OutboundSubstreamState<TSpec>,
+    pub state: OutboundSubstreamState<TSpec>,
     /// Key to keep track of the substream's timeout via `self.outbound_substreams_delay`.
-    delay_key: delay_queue::Key,
+    pub delay_key: delay_queue::Key,
     /// Info over the protocol this substream is handling.
-    proto: Protocol,
+    pub proto: Protocol,
     /// Number of chunks to be seen from the peer's response.
-    remaining_chunks: Option<u64>,
+    pub remaining_chunks: Option<u64>,
     /// `Id` as given by the application that sent the request.
-    req_id: Id,
+    pub req_id: Id,
 }
 
 /// State of an inbound substream connection.
@@ -1006,7 +1006,7 @@ impl slog::Value for SubstreamId {
 ///
 /// This function returns the given substream, along with whether it has been closed or not. Any
 /// error that occurred with sending a message is reported also.
-async fn send_message_to_inbound_substream<TSpec: EthSpec>(
+pub async fn send_message_to_inbound_substream<TSpec: EthSpec>(
     mut substream: InboundSubstream<TSpec>,
     message: RPCCodedResponse<TSpec>,
     last_chunk: bool,

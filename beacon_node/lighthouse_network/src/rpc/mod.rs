@@ -5,7 +5,6 @@
 //! syncing.
 
 use futures::future::FutureExt;
-use handler::RPCHandler;
 use libp2p::core::connection::ConnectionId;
 use libp2p::swarm::{
     handler::ConnectionHandler, NetworkBehaviour, NetworkBehaviourAction, NotifyHandler,
@@ -22,15 +21,20 @@ use types::{EthSpec, ForkContext};
 
 pub(crate) use methods::{MetaData, MetaDataV1, MetaDataV2, Ping, RPCCodedResponse, RPCResponse};
 
-pub use handler::{InboundInfo, HandlerErr, HandlerEvent, HandlerState, OutboundInfo, SubstreamId, InboundState};
-pub use outbound::OutboundFramed;
-pub use codec::{OutboundCodec, BaseOutboundCodec, SSZSnappyOutboundCodec};
+pub use codec::{BaseOutboundCodec, OutboundCodec, SSZSnappyOutboundCodec};
+pub use handler::{
+    send_message_to_inbound_substream, HandlerErr, HandlerEvent, HandlerState, InboundInfo,
+    InboundState, OutboundInfo, OutboundSubstreamState, RPCHandler, SubstreamId,
+};
 pub use methods::{
     BlocksByRangeRequest, BlocksByRootRequest, GoodbyeReason, LightClientBootstrapRequest, MaxRequestBlocks,
     RPCResponseErrorCode, ResponseTermination, StatusMessage, MAX_REQUEST_BLOCKS,
 };
+pub use outbound::OutboundFramed;
 pub use outbound::OutboundRequest;
-pub use protocol::{max_rpc_size, Protocol, ProtocolId, Version, Encoding, RPCError, RPCProtocol, InboundRequest};
+pub use protocol::{
+    max_rpc_size, Encoding, InboundRequest, Protocol, ProtocolId, RPCError, RPCProtocol, Version,
+};
 
 use self::config::OutboundRateLimiterConfig;
 use self::self_limiter::SelfRateLimiter;
