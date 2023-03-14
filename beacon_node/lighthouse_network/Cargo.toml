@@ -46,7 +46,7 @@ delay_map = "0.3.0"
 void = "1"
 
 [dependencies.libp2p]
-version = "0.50.0"
+version = "0.51.1"
 default-features = false
 features = ["websocket", "identify", "mplex", "yamux", "noise", "gossipsub", "dns", "tcp", "tokio", "plaintext", "secp256k1", "macros", "ecdsa"]
 
