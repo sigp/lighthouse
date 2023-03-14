@@ -194,6 +194,44 @@ pub enum Encoding {
     SSZSnappy,
 }
 
+/// The Encoding for all supported protocols is SSZSnappy.
+enum SupportedProtocol {
+    StatusV1,
+    GoodbyeV1,
+    BlocksByRangeV1,
+    BlocksByRangeV2,
+    BlocksByRootV1,
+    BlocksByRootV2,
+    PingV1,
+    MetaDataV1,
+    LightClientBootstrapV1,
+}
+
+impl SupportedProtocol {
+    fn currently_supported<T: EthSpec>(info: &RPCProtocol<T>) -> Vec<ProtocolId> {
+        let mut supported_protocols = vec![
+            ProtocolId::new(Protocol::Status, Version::V1, Encoding::SSZSnappy),
+            ProtocolId::new(Protocol::Goodbye, Version::V1, Encoding::SSZSnappy),
+            // V2 variants have higher preference then V1
+            ProtocolId::new(Protocol::BlocksByRange, Version::V2, Encoding::SSZSnappy),
+            ProtocolId::new(Protocol::BlocksByRange, Version::V1, Encoding::SSZSnappy),
+            ProtocolId::new(Protocol::BlocksByRoot, Version::V2, Encoding::SSZSnappy),
+            ProtocolId::new(Protocol::BlocksByRoot, Version::V1, Encoding::SSZSnappy),
+            ProtocolId::new(Protocol::Ping, Version::V1, Encoding::SSZSnappy),
+            ProtocolId::new(Protocol::MetaData, Version::V2, Encoding::SSZSnappy),
+            ProtocolId::new(Protocol::MetaData, Version::V1, Encoding::SSZSnappy),
+        ];
+        if info.enable_light_client_server {
+            supported_protocols.push(ProtocolId::new(
+                Protocol::LightClientBootstrap,
+                Version::V1,
+                Encoding::SSZSnappy,
+            ));
+        }
+        supported_protocols
+    }
+}
+
 impl std::fmt::Display for Encoding {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let repr = match self {
@@ -227,26 +265,7 @@ impl<TSpec: EthSpec> UpgradeInfo for RPCProtocol<TSpec> {
 
     /// The list of supported RPC protocols for Lighthouse.
     fn protocol_info(&self) -> Self::InfoIter {
-        let mut supported_protocols = vec![
-            ProtocolId::new(Protocol::Status, Version::V1, Encoding::SSZSnappy),
-            ProtocolId::new(Protocol::Goodbye, Version::V1, Encoding::SSZSnappy),
-            // V2 variants have higher preference then V1
-            ProtocolId::new(Protocol::BlocksByRange, Version::V2, Encoding::SSZSnappy),
-            ProtocolId::new(Protocol::BlocksByRange, Version::V1, Encoding::SSZSnappy),
-            ProtocolId::new(Protocol::BlocksByRoot, Version::V2, Encoding::SSZSnappy),
-            ProtocolId::new(Protocol::BlocksByRoot, Version::V1, Encoding::SSZSnappy),
-            ProtocolId::new(Protocol::Ping, Version::V1, Encoding::SSZSnappy),
-            ProtocolId::new(Protocol::MetaData, Version::V2, Encoding::SSZSnappy),
-            ProtocolId::new(Protocol::MetaData, Version::V1, Encoding::SSZSnappy),
-        ];
-        if self.enable_light_client_server {
-            supported_protocols.push(ProtocolId::new(
-                Protocol::LightClientBootstrap,
-                Version::V1,
-                Encoding::SSZSnappy,
-            ));
-        }
-        supported_protocols
+        SupportedProtocol::currently_supported(self)
     }
 }
 
@@ -286,6 +305,23 @@ pub struct ProtocolId {
 }
 
 impl ProtocolId {
+    fn supported_protocol(&self) -> SupportedProtocol {
+        match self.message_name {
+            Protocol::Status => SupportedProtocol::StatusV1,
+            Protocol::Goodbye => SupportedProtocol::GoodbyeV1,
+            Protocol::BlocksByRange => match self.version {
+                Version::V1 => SupportedProtocol::BlocksByRangeV1,
+                Version::V2 => SupportedProtocol::BlocksByRangeV2,
+            },
+            Protocol::BlocksByRoot => match self.version {
+                Version::V1 => SupportedProtocol::BlocksByRootV1,
+                Version::V2 => SupportedProtocol::BlocksByRootV2,
+            },
+            Protocol::Ping => SupportedProtocol::PingV1,
+            Protocol::MetaData => SupportedProtocol::MetaDataV1,
+            Protocol::LightClientBootstrap => SupportedProtocol::LightClientBootstrapV1,
+        }
+    }
     /// Returns min and max size for messages of given protocol id requests.
     pub fn rpc_request_limits(&self) -> RpcLimits {
         match self.message_name {
@@ -344,15 +380,16 @@ impl ProtocolId {
     /// Returns `true` if the given `ProtocolId` should expect `context_bytes` in the
     /// beginning of the stream, else returns `false`.
     pub fn has_context_bytes(&self) -> bool {
-        match self.message_name {
-            Protocol::BlocksByRange | Protocol::BlocksByRoot => match self.version {
-                Version::V2 => true,
-                Version::V1 => false,
-            },
-            Protocol::LightClientBootstrap => match self.version {
-                Version::V2 | Version::V1 => true,
-            },
-            Protocol::Goodbye | Protocol::Ping | Protocol::Status | Protocol::MetaData => false,
+        match self.supported_protocol() {
+            SupportedProtocol::BlocksByRangeV2
+            | SupportedProtocol::BlocksByRootV2
+            | SupportedProtocol::LightClientBootstrapV1 => true,
+            SupportedProtocol::StatusV1
+            | SupportedProtocol::BlocksByRootV1
+            | SupportedProtocol::BlocksByRangeV1
+            | SupportedProtocol::PingV1
+            | SupportedProtocol::MetaDataV1
+            | SupportedProtocol::GoodbyeV1 => false,
         }
     }
 }
