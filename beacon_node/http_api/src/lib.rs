@@ -3605,9 +3605,9 @@ pub fn serve<T: BeaconChainTypes>(
 
                     Ok::<_, warp::Rejection>(warp::sse::reply(warp::sse::keep_alive().stream(s)))
                 } else {
-                    return Err(warp_utils::reject::custom_server_error(
+                    Err(warp_utils::reject::custom_server_error(
                         "SSE Logging is not enabled".to_string(),
-                    ));
+                    ))
                 }
             })
         });

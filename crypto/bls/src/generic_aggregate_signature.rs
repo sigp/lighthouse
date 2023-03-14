@@ -266,7 +266,7 @@ where
 }
 
 /// Hashes the `self.serialize()` bytes.
-#[allow(clippy::derived_hash_with_manual_eq)]
+#[allow(clippy::derive_hash_xor_eq)]
 impl<Pub, AggPub, Sig, AggSig> Hash for GenericAggregateSignature<Pub, AggPub, Sig, AggSig>
 where
     Sig: TSignature<Pub>,

@@ -162,7 +162,7 @@ impl Serialize for AsyncRecord {
         let dt = chrono::Local::now().format("%b %e %T").to_string();
 
         let rs = RecordStatic {
-            location: &*self.location,
+            location: &self.location,
             level: self.level,
             tag: &self.tag,
         };
@@ -170,7 +170,7 @@ impl Serialize for AsyncRecord {
 
         // Serialize the time and log level first
         map_serializer.serialize_entry("time", &dt)?;
-        map_serializer.serialize_entry("level", &self.level.as_short_str())?;
+        map_serializer.serialize_entry("level", self.level.as_short_str())?;
 
         let kv = self.kv.lock();
 
