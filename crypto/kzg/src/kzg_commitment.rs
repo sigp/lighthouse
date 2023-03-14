@@ -1,3 +1,4 @@
+use c_kzg::{Bytes48, BYTES_PER_COMMITMENT};
 use derivative::Derivative;
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
@@ -7,12 +8,16 @@ use std::fmt::{Debug, Display, Formatter};
 use std::str::FromStr;
 use tree_hash::{PackedEncoding, TreeHash};
 
-const KZG_COMMITMENT_BYTES_LEN: usize = 48;
-
 #[derive(Derivative, Clone, Encode, Decode)]
 #[derivative(PartialEq, Eq, Hash)]
 #[ssz(struct_behaviour = "transparent")]
-pub struct KzgCommitment(pub [u8; KZG_COMMITMENT_BYTES_LEN]);
+pub struct KzgCommitment(pub [u8; BYTES_PER_COMMITMENT]);
+
+impl From<KzgCommitment> for Bytes48 {
+    fn from(value: KzgCommitment) -> Self {
+        value.0.into()
+    }
+}
 
 impl Display for KzgCommitment {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
@@ -22,13 +27,13 @@ impl Display for KzgCommitment {
 
 impl Default for KzgCommitment {
     fn default() -> Self {
-        KzgCommitment([0; KZG_COMMITMENT_BYTES_LEN])
+        KzgCommitment([0; BYTES_PER_COMMITMENT])
     }
 }
 
 impl TreeHash for KzgCommitment {
     fn tree_hash_type() -> tree_hash::TreeHashType {
-        <[u8; KZG_COMMITMENT_BYTES_LEN] as TreeHash>::tree_hash_type()
+        <[u8; BYTES_PER_COMMITMENT] as TreeHash>::tree_hash_type()
     }
 
     fn tree_hash_packed_encoding(&self) -> PackedEncoding {
@@ -36,7 +41,7 @@ impl TreeHash for KzgCommitment {
     }
 
     fn tree_hash_packing_factor() -> usize {
-        <[u8; KZG_COMMITMENT_BYTES_LEN] as TreeHash>::tree_hash_packing_factor()
+        <[u8; BYTES_PER_COMMITMENT] as TreeHash>::tree_hash_packing_factor()
     }
 
     fn tree_hash_root(&self) -> tree_hash::Hash256 {
@@ -86,15 +91,15 @@ impl FromStr for KzgCommitment {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         if let Some(stripped) = s.strip_prefix("0x") {
             let bytes = hex::decode(stripped).map_err(|e| e.to_string())?;
-            if bytes.len() == KZG_COMMITMENT_BYTES_LEN {
-                let mut kzg_commitment_bytes = [0; KZG_COMMITMENT_BYTES_LEN];
+            if bytes.len() == BYTES_PER_COMMITMENT {
+                let mut kzg_commitment_bytes = [0; BYTES_PER_COMMITMENT];
                 kzg_commitment_bytes[..].copy_from_slice(&bytes);
                 Ok(Self(kzg_commitment_bytes))
             } else {
                 Err(format!(
                     "InvalidByteLength: got {}, expected {}",
                     bytes.len(),
-                    KZG_COMMITMENT_BYTES_LEN
+                    BYTES_PER_COMMITMENT
                 ))
             }
         } else {
@@ -112,7 +117,7 @@ impl Debug for KzgCommitment {
 #[cfg(feature = "arbitrary")]
 impl arbitrary::Arbitrary<'_> for KzgCommitment {
     fn arbitrary(u: &mut arbitrary::Unstructured<'_>) -> arbitrary::Result<Self> {
-        let mut bytes = [0u8; KZG_COMMITMENT_BYTES_LEN];
+        let mut bytes = [0u8; BYTES_PER_COMMITMENT];
         u.fill_buffer(&mut bytes)?;
         Ok(KzgCommitment(bytes))
     }
