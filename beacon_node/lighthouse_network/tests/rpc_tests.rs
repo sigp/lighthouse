@@ -159,7 +159,7 @@ fn test_light_client_bootstrap_rpc() {
         ) = common::build_node_and_light_client(
             Arc::downgrade(&rt),
             &log,
-            ForkName::Base,
+            ForkName::Altair,
         )
         .await;
 
@@ -215,9 +215,6 @@ fn test_light_client_bootstrap_rpc() {
                         conn_id: _,
                         event: Ok(RPCReceived::Response(_, response)),
                     })) => {
-                        if let RPCResponse::MetaData(_) | RPCResponse::Pong(_) = response {
-                            return;
-                        }
                         // Should receive the RPC response
                         debug!(log, "Sender Received");
                         assert_eq!(response, nl_rpc_response.clone());
