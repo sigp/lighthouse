@@ -18,7 +18,13 @@ use slog::{debug, trace, warn};
 use std::collections::hash_map::Entry;
 use std::sync::Arc;
 use tokio::sync::mpsc;
-use types::{BlobsSidecar, EthSpec, SignedBeaconBlock};
+use types::{BlobSidecar, EthSpec, SignedBeaconBlock};
+
+// Temporary struct to handle incremental changes in the meantime.
+pub enum TempBlockWrapper<T: EthSpec> {
+    Block(Arc<SignedBeaconBlock<T>>),
+    BlockAndBlobList(Arc<SignedBeaconBlock<T>>, Vec<Arc<BlobSidecar>>),
+}
 
 pub struct BlocksAndBlobsByRangeResponse<T: EthSpec> {
     pub batch_id: BatchId,
