@@ -466,30 +466,6 @@ where
         }
     }
 
-    fn inject_fully_negotiated_inbound(
-        &mut self,
-        substream: <Self::InboundProtocol as InboundUpgrade<NegotiatedSubstream>>::Output,
-        _info: Self::InboundOpenInfo,
-    ) {
-        // only accept new peer requests when active
-        if !matches!(self.state, HandlerState::Active) {
-            return;
-        }
-
-        let (req, _) = substream;
-
-        // If we received a goodbye, shutdown the connection.
-        if let InboundRequest::Goodbye(_) = req {
-            self.shutdown(None);
-        }
-
-        self.events_out.push(Ok(RPCReceived::Request(
-            self.current_inbound_substream_id,
-            req,
-        )));
-        self.current_inbound_substream_id.0 += 1;
-    }
-
     fn inject_event(&mut self, rpc_event: Self::InEvent) {
         match rpc_event {
             RPCSend::Request(id, req) => self.send_request(id, req),
