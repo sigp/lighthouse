@@ -58,10 +58,13 @@ impl<E: EthSpec> LocalNetwork<E> {
         context: RuntimeContext<E>,
         mut beacon_config: ClientConfig,
     ) -> Result<Self, String> {
-        beacon_config.network.discovery_port = BOOTNODE_PORT;
-        beacon_config.network.libp2p_port = BOOTNODE_PORT;
-        beacon_config.network.enr_udp_port = Some(BOOTNODE_PORT);
-        beacon_config.network.enr_tcp_port = Some(BOOTNODE_PORT);
+        beacon_config.network.set_ipv4_listening_address(
+            std::net::Ipv4Addr::UNSPECIFIED,
+            BOOTNODE_PORT,
+            BOOTNODE_PORT,
+        );
+        beacon_config.network.enr_udp4_port = Some(BOOTNODE_PORT);
+        beacon_config.network.enr_tcp4_port = Some(BOOTNODE_PORT);
         beacon_config.network.discv5_config.table_filter = |_| true;
 
         let execution_node = if let Some(el_config) = &mut beacon_config.execution_layer {
@@ -132,10 +135,13 @@ impl<E: EthSpec> LocalNetwork<E> {
                     .enr()
                     .expect("bootnode must have a network"),
             );
-            beacon_config.network.discovery_port = BOOTNODE_PORT + count;
-            beacon_config.network.libp2p_port = BOOTNODE_PORT + count;
-            beacon_config.network.enr_udp_port = Some(BOOTNODE_PORT + count);
-            beacon_config.network.enr_tcp_port = Some(BOOTNODE_PORT + count);
+            beacon_config.network.set_ipv4_listening_address(
+                std::net::Ipv4Addr::UNSPECIFIED,
+                BOOTNODE_PORT + count,
+                BOOTNODE_PORT + count,
+            );
+            beacon_config.network.enr_udp4_port = Some(BOOTNODE_PORT + count);
+            beacon_config.network.enr_tcp4_port = Some(BOOTNODE_PORT + count);
             beacon_config.network.discv5_config.table_filter = |_| true;
         }
         if let Some(el_config) = &mut beacon_config.execution_layer {

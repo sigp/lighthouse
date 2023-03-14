@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Output};
 use std::{env, fs::File};
 use tempfile::TempDir;
-use unused_port::unused_tcp_port;
+use unused_port::unused_tcp4_port;
 
 const GETH_BRANCH: &str = "master";
 const GETH_REPO_URL: &str = "https://github.com/ethereum/go-ethereum";
@@ -83,7 +83,7 @@ impl GenericExecutionEngine for GethEngine {
         http_auth_port: u16,
         jwt_secret_path: PathBuf,
     ) -> Child {
-        let network_port = unused_tcp_port().unwrap();
+        let network_port = unused_tcp4_port().unwrap();
 
         Command::new(Self::binary_path())
             .arg("--datadir")

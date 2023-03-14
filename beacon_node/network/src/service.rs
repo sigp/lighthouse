@@ -228,16 +228,21 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         let (network_senders, network_recievers) = NetworkSenders::new();
 
         // try and construct UPnP port mappings if required.
-        let upnp_config = crate::nat::UPnPConfig::from(config);
-        let upnp_log = network_log.new(o!("service" => "UPnP"));
-        let upnp_network_send = network_senders.network_send();
-        if config.upnp_enabled {
-            executor.spawn_blocking(
-                move || {
-                    crate::nat::construct_upnp_mappings(upnp_config, upnp_network_send, upnp_log)
-                },
-                "UPnP",
-            );
+        if let Some(upnp_config) = crate::nat::UPnPConfig::from_config(config) {
+            let upnp_log = network_log.new(o!("service" => "UPnP"));
+            let upnp_network_send = network_senders.network_send();
+            if config.upnp_enabled {
+                executor.spawn_blocking(
+                    move || {
+                        crate::nat::construct_upnp_mappings(
+                            upnp_config,
+                            upnp_network_send,
+                            upnp_log,
+                        )
+                    },
+                    "UPnP",
+                );
+            }
         }
 
         // get a reference to the beacon chain store

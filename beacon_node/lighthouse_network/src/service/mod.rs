@@ -163,8 +163,8 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
             let meta_data = utils::load_or_build_metadata(&config.network_dir, &log);
             let globals = NetworkGlobals::new(
                 enr,
-                config.libp2p_port,
-                config.discovery_port,
+                config.listen_addrs().v4().map(|v4_addr| v4_addr.tcp_port),
+                config.listen_addrs().v6().map(|v6_addr| v6_addr.tcp_port),
                 meta_data,
                 config
                     .trusted_peers
@@ -388,36 +388,26 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
     async fn start(&mut self, config: &crate::NetworkConfig) -> error::Result<()> {
         let enr = self.network_globals.local_enr();
         info!(self.log, "Libp2p Starting"; "peer_id" => %enr.peer_id(), "bandwidth_config" => format!("{}-{}", config.network_load, NetworkLoad::from(config.network_load).name));
-        let discovery_string = if config.disable_discovery {
-            "None".into()
-        } else {
-            config.discovery_port.to_string()
-        };
+        debug!(self.log, "Attempting to open listening ports"; config.listen_addrs(), "discovery_enabled" => !config.disable_discovery);
 
-        debug!(self.log, "Attempting to open listening ports"; "address" => ?config.listen_address, "tcp_port" => config.libp2p_port, "udp_port" => discovery_string);
-
-        let listen_multiaddr = {
-            let mut m = Multiaddr::from(config.listen_address);
-            m.push(MProtocol::Tcp(config.libp2p_port));
-            m
-        };
-
-        match self.swarm.listen_on(listen_multiaddr.clone()) {
-            Ok(_) => {
-                let mut log_address = listen_multiaddr;
-                log_address.push(MProtocol::P2p(enr.peer_id().into()));
-                info!(self.log, "Listening established"; "address" => %log_address);
-            }
-            Err(err) => {
-                crit!(
-                    self.log,
-                    "Unable to listen on libp2p address";
-                    "error" => ?err,
-                    "listen_multiaddr" => %listen_multiaddr,
-                );
-                return Err("Libp2p was unable to listen on the given listen address.".into());
-            }
-        };
+        for listen_multiaddr in config.listen_addrs().tcp_addresses() {
+            match self.swarm.listen_on(listen_multiaddr.clone()) {
+                Ok(_) => {
+                    let mut log_address = listen_multiaddr;
+                    log_address.push(MProtocol::P2p(enr.peer_id().into()));
+                    info!(self.log, "Listening established"; "address" => %log_address);
+                }
+                Err(err) => {
+                    crit!(
+                        self.log,
+                        "Unable to listen on libp2p address";
+                        "error" => ?err,
+                        "listen_multiaddr" => %listen_multiaddr,
+                    );
+                    return Err("Libp2p was unable to listen on the given listen address.".into());
+                }
+            };
+        }
 
         // helper closure for dialing peers
         let mut dial = |mut multiaddr: Multiaddr| {
