@@ -51,7 +51,12 @@ impl<T: EthSpec> BlocksAndBlobsRequestInfo<T> {
             } {
                 blob_list.push(blob_iter.next().expect("iterator is not empty"));
             }
-            responses.push((block, blob_list))
+
+            if blob_list.is_empty() {
+                responses.push(TempBlockWrapper::Block(block))
+            } else {
+                responses.push(TempBlockWrapper::BlockAndBlobList(block, blob_list))
+            }
         }
 
         // if accumulated sidecars is not empty, throw an error.
