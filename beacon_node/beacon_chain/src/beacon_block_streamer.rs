@@ -47,10 +47,6 @@ enum RequestState<E: EthSpec> {
     Sent(HashMap<Hash256, Arc<BlockResult<E>>>),
 }
 
-struct BodiesByHash<E: EthSpec> {
-    hashes: Option<Vec<ExecutionBlockHash>>,
-    state: RequestState<E>,
-}
 struct BodiesByRange<E: EthSpec> {
     start: u64,
     count: u64,
@@ -179,109 +175,6 @@ fn reconstruct_blocks<E: EthSpec>(
     }
 }
 
-impl<E: EthSpec> BodiesByHash<E> {
-    pub fn new(maybe_block_parts: Option<BlockParts<E>>) -> Self {
-        if let Some(block_parts) = maybe_block_parts {
-            Self {
-                hashes: Some(vec![block_parts.block_hash()]),
-                state: RequestState::UnSent(vec![block_parts]),
-            }
-        } else {
-            Self {
-                hashes: None,
-                state: RequestState::UnSent(vec![]),
-            }
-        }
-    }
-
-    pub fn is_unsent(&self) -> bool {
-        matches!(self.state, RequestState::UnSent(_))
-    }
-
-    pub fn push_block_parts(&mut self, block_parts: BlockParts<E>) -> Result<(), BlockParts<E>> {
-        if self
-            .hashes
-            .as_ref()
-            .map_or(false, |hashes| hashes.len() == 32)
-        {
-            // this request is full
-            return Err(block_parts);
-        }
-        match &mut self.state {
-            RequestState::Sent(_) => Err(block_parts),
-            RequestState::UnSent(blocks_parts_vec) => {
-                self.hashes
-                    .get_or_insert(vec![])
-                    .push(block_parts.block_hash());
-                blocks_parts_vec.push(block_parts);
-
-                Ok(())
-            }
-        }
-    }
-
-    async fn execute(&mut self, execution_layer: &ExecutionLayer<E>, log: &Logger) {
-        if let RequestState::UnSent(block_parts_ref) = &mut self.state {
-            if let Some(hashes) = self.hashes.take() {
-                let block_parts_vec = std::mem::take(block_parts_ref);
-                let mut block_map = HashMap::new();
-                match execution_layer
-                    .get_payload_bodies_by_hash(hashes.clone())
-                    .await
-                {
-                    Ok(bodies) => {
-                        let mut body_map = hashes
-                            .into_iter()
-                            .zip(bodies.into_iter().chain(std::iter::repeat(None)))
-                            .collect::<HashMap<_, _>>();
-
-                        let mut with_bodies = HashMap::new();
-                        for mut block_parts in block_parts_vec {
-                            with_bodies
-                                // it's possible the same block is requested twice, using
-                                // or_insert_with() skips duplicates
-                                .entry(block_parts.root())
-                                .or_insert_with(|| {
-                                    block_parts.body = body_map
-                                        .remove(&block_parts.block_hash())
-                                        .flatten()
-                                        .map(Box::new);
-
-                                    block_parts
-                                });
-                        }
-
-                        reconstruct_blocks(&mut block_map, with_bodies, log);
-                    }
-                    Err(e) => {
-                        let block_result =
-                            Arc::new(Err(Error::BlocksByHashFailure(Box::new(e)).into()));
-                        debug!(log, "Payload bodies by hash failure"; "error" => ?block_result);
-                        for block_parts in block_parts_vec {
-                            block_map.insert(block_parts.root(), block_result.clone());
-                        }
-                    }
-                }
-                self.state = RequestState::Sent(block_map);
-            }
-        }
-    }
-
-    pub async fn get_block_result(
-        &mut self,
-        root: &Hash256,
-        execution_layer: &ExecutionLayer<E>,
-        log: &Logger,
-    ) -> Option<Arc<BlockResult<E>>> {
-        self.execute(execution_layer, log).await;
-        if let RequestState::Sent(map) = &self.state {
-            return map.get(root).cloned();
-        }
-        // Shouldn't reach this point
-        None
-    }
-}
-
 impl<E: EthSpec> BodiesByRange<E> {
     pub fn new(maybe_block_parts: Option<BlockParts<E>>) -> Self {
         if let Some(block_parts) = maybe_block_parts {
@@ -398,16 +291,12 @@ impl<E: EthSpec> BodiesByRange<E> {
 
 #[derive(Clone)]
 enum EngineRequest<E: EthSpec> {
-    ByHash(Arc<RwLock<BodiesByHash<E>>>),
     ByRange(Arc<RwLock<BodiesByRange<E>>>),
     // When we already have the data or there's an error
     NoRequest(Arc<RwLock<HashMap<Hash256, Arc<BlockResult<E>>>>>),
 }
 
 impl<E: EthSpec> EngineRequest<E> {
-    pub fn new_by_hash() -> Self {
-        Self::ByHash(Arc::new(RwLock::new(BodiesByHash::new(None))))
-    }
     pub fn new_by_range() -> Self {
         Self::ByRange(Arc::new(RwLock::new(BodiesByRange::new(None))))
     }
@@ -417,7 +306,6 @@ impl<E: EthSpec> EngineRequest<E> {
 
     pub async fn is_unsent(&self) -> bool {
         match self {
-            Self::ByHash(bodies_by_hash) => bodies_by_hash.read().await.is_unsent(),
             Self::ByRange(bodies_by_range) => bodies_by_range.read().await.is_unsent(),
             Self::NoRequest(_) => false,
         }
@@ -425,14 +313,6 @@ impl<E: EthSpec> EngineRequest<E> {
 
     pub async fn push_block_parts(&mut self, block_parts: BlockParts<E>, log: &Logger) {
         match self {
-            Self::ByHash(bodies_by_hash) => {
-                let mut request = bodies_by_hash.write().await;
-                if let Err(block_parts) = request.push_block_parts(block_parts) {
-                    drop(request);
-                    let new_by_hash = BodiesByHash::new(Some(block_parts));
-                    *self = Self::ByHash(Arc::new(RwLock::new(new_by_hash)));
-                }
-            }
             Self::ByRange(bodies_by_range) => {
                 let mut request = bodies_by_range.write().await;
 
@@ -469,14 +349,6 @@ impl<E: EthSpec> EngineRequest<E> {
                     "beacon_block_streamer" => "push_block_result called on ByRange",
                 );
             }
-            Self::ByHash(_) => {
-                // this should _never_ happen
-                crit!(
-                    log,
-                    "Please notify the devs";
-                    "beacon_block_streamer" => "push_block_result called on ByHash",
-                );
-            }
             Self::NoRequest(results) => {
                 results.write().await.insert(root, Arc::new(block_result));
             }
@@ -492,13 +364,6 @@ impl<E: EthSpec> EngineRequest<E> {
         match self {
             Self::ByRange(by_range) => {
                 by_range
-                    .write()
-                    .await
-                    .get_block_result(root, execution_layer, log)
-                    .await
-            }
-            Self::ByHash(by_hash) => {
-                by_hash
                     .write()
                     .await
                     .get_block_result(root, execution_layer, log)
