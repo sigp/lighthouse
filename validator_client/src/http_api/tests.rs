@@ -129,6 +129,7 @@ impl ApiTester {
                 listen_port: 0,
                 allow_origin: None,
             },
+            sse_logging_components: None,
             log,
             _phantom: PhantomData,
         });
