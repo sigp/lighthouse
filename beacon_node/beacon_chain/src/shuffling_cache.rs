@@ -249,7 +249,7 @@ mod test {
     fn resolved_promise() {
         let (committee_a, _) = committee_caches();
         let id_a = shuffling_id(1);
-        let mut cache = ShufflingCache::new();
+        let mut cache = ShufflingCache::new(16);
 
         // Create a promise.
         let sender = cache.create_promise(id_a.clone()).unwrap();
@@ -276,7 +276,7 @@ mod test {
     #[test]
     fn unresolved_promise() {
         let id_a = shuffling_id(1);
-        let mut cache = ShufflingCache::new();
+        let mut cache = ShufflingCache::new(16);
 
         // Create a promise.
         let sender = cache.create_promise(id_a.clone()).unwrap();
@@ -301,7 +301,7 @@ mod test {
     fn two_promises() {
         let (committee_a, committee_b) = committee_caches();
         let (id_a, id_b) = (shuffling_id(1), shuffling_id(2));
-        let mut cache = ShufflingCache::new();
+        let mut cache = ShufflingCache::new(16);
 
         // Create promise A.
         let sender_a = cache.create_promise(id_a.clone()).unwrap();
@@ -355,7 +355,7 @@ mod test {
 
     #[test]
     fn too_many_promises() {
-        let mut cache = ShufflingCache::new();
+        let mut cache = ShufflingCache::new(16);
 
         for i in 0..MAX_CONCURRENT_PROMISES {
             cache.create_promise(shuffling_id(i as u64)).unwrap();
