@@ -3660,6 +3660,7 @@ pub fn serve<T: BeaconChainTypes>(
                 .uor(get_lighthouse_attestation_performance)
                 .uor(get_lighthouse_block_packing_efficiency)
                 .uor(get_lighthouse_merge_readiness)
+                .uor(get_lighthouse_blobs_sidecars.boxed())
                 .uor(get_events)
                 .recover(warp_utils::reject::handle_rejection),
         )
