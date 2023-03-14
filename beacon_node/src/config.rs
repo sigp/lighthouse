@@ -712,6 +712,8 @@ pub fn get_config<E: EthSpec>(
                     / DEFAULT_PREPARE_PAYLOAD_LOOKAHEAD_FACTOR
             });
 
+    client_config.chain.always_prepare_payload = cli_args.is_present("always-prepare-payload");
+
     if let Some(timeout) =
         clap_utils::parse_optional(cli_args, "fork-choice-before-proposal-timeout")?
     {
@@ -754,6 +756,10 @@ pub fn get_config<E: EthSpec>(
 
     if cli_args.is_present("genesis-backfill") {
         client_config.chain.genesis_backfill = true;
+    }
+    // Payload selection configs
+    if cli_args.is_present("always-prefer-builder-payload") {
+        client_config.always_prefer_builder_payload = true;
     }
 
     Ok(client_config)
@@ -971,6 +977,13 @@ pub fn set_network_config(
 
     // Light client server config.
     config.enable_light_client_server = cli_args.is_present("light-client-server");
+
+    // This flag can be used both with or without a value. Try to parse it first with a value, if
+    // no value is defined but the flag is present, use the default params.
+    config.outbound_rate_limiter_config = clap_utils::parse_optional(cli_args, "self-limiter")?;
+    if cli_args.is_present("self-limiter") && config.outbound_rate_limiter_config.is_none() {
+        config.outbound_rate_limiter_config = Some(Default::default());
+    }
 
     Ok(())
 }

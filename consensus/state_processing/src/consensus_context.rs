@@ -4,8 +4,8 @@ use std::collections::{hash_map::Entry, HashMap};
 use std::marker::PhantomData;
 use tree_hash::TreeHash;
 use types::{
-    Attestation, AttestationData, BeaconState, BeaconStateError, BitList, ChainSpec, Epoch,
-    EthSpec, ExecPayload, Hash256, IndexedAttestation, SignedBeaconBlock, Slot,
+    AbstractExecPayload, Attestation, AttestationData, BeaconState, BeaconStateError, BitList,
+    ChainSpec, Epoch, EthSpec, Hash256, IndexedAttestation, SignedBeaconBlock, Slot,
 };
 
 #[derive(Debug)]
@@ -98,7 +98,7 @@ impl<T: EthSpec> ConsensusContext<T> {
         self
     }
 
-    pub fn get_current_block_root<Payload: ExecPayload<T>>(
+    pub fn get_current_block_root<Payload: AbstractExecPayload<T>>(
         &mut self,
         block: &SignedBeaconBlock<T, Payload>,
     ) -> Result<Hash256, ContextError> {

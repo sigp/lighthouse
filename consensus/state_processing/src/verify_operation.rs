@@ -1,8 +1,10 @@
 use crate::per_block_processing::{
     errors::{
-        AttesterSlashingValidationError, ExitValidationError, ProposerSlashingValidationError,
+        AttesterSlashingValidationError, BlsExecutionChangeValidationError, ExitValidationError,
+        ProposerSlashingValidationError,
     },
-    verify_attester_slashing, verify_exit, verify_proposer_slashing,
+    verify_attester_slashing, verify_bls_to_execution_change, verify_exit,
+    verify_proposer_slashing,
 };
 use crate::VerifySignatures;
 use derivative::Derivative;
@@ -12,7 +14,7 @@ use ssz_derive::{Decode, Encode};
 use std::marker::PhantomData;
 use types::{
     AttesterSlashing, BeaconState, ChainSpec, Epoch, EthSpec, Fork, ForkVersion, ProposerSlashing,
-    SignedVoluntaryExit,
+    SignedBlsToExecutionChange, SignedVoluntaryExit,
 };
 
 const MAX_FORKS_VERIFIED_AGAINST: usize = 2;
@@ -87,6 +89,7 @@ where
     }
 
     pub fn signature_is_still_valid(&self, current_fork: &Fork) -> bool {
+        // The .all() will return true if the iterator is empty.
         self.as_inner()
             .verification_epochs()
             .into_iter()
@@ -118,6 +121,8 @@ pub trait VerifyOperation<E: EthSpec>: Encode + Decode + Sized {
     /// Return the epochs at which parts of this message were verified.
     ///
     /// These need to map 1-to-1 to the `SigVerifiedOp::verified_against` for this type.
+    ///
+    /// If the message is valid across all forks it should return an empty smallvec.
     fn verification_epochs(&self) -> SmallVec<[Epoch; MAX_FORKS_VERIFIED_AGAINST]>;
 }
 
@@ -180,5 +185,23 @@ impl<E: EthSpec> VerifyOperation<E> for ProposerSlashing {
             .message
             .slot
             .epoch(E::slots_per_epoch())]
+    }
+}
+
+impl<E: EthSpec> VerifyOperation<E> for SignedBlsToExecutionChange {
+    type Error = BlsExecutionChangeValidationError;
+
+    fn validate(
+        self,
+        state: &BeaconState<E>,
+        spec: &ChainSpec,
+    ) -> Result<SigVerifiedOp<Self, E>, Self::Error> {
+        verify_bls_to_execution_change(state, &self, VerifySignatures::True, spec)?;
+        Ok(SigVerifiedOp::new(self, state))
+    }
+
+    #[allow(clippy::integer_arithmetic)]
+    fn verification_epochs(&self) -> SmallVec<[Epoch; MAX_FORKS_VERIFIED_AGAINST]> {
+        smallvec![]
     }
 }

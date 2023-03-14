@@ -1,4 +1,3 @@
-#![recursion_limit = "256"]
 use darling::FromDeriveInput;
 use proc_macro::TokenStream;
 use quote::quote;

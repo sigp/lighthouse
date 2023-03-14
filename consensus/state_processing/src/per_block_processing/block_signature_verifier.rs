@@ -7,7 +7,8 @@ use bls::{verify_signature_sets, PublicKey, PublicKeyBytes, SignatureSet};
 use rayon::prelude::*;
 use std::borrow::Cow;
 use types::{
-    BeaconState, BeaconStateError, ChainSpec, EthSpec, ExecPayload, Hash256, SignedBeaconBlock,
+    AbstractExecPayload, BeaconState, BeaconStateError, ChainSpec, EthSpec, Hash256,
+    SignedBeaconBlock,
 };
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -124,7 +125,7 @@ where
     /// contains invalid signatures on deposits._
     ///
     /// See `Self::verify` for more detail.
-    pub fn verify_entire_block<Payload: ExecPayload<T>>(
+    pub fn verify_entire_block<Payload: AbstractExecPayload<T>>(
         state: &'a BeaconState<T>,
         get_pubkey: F,
         decompressor: D,
@@ -138,7 +139,7 @@ where
     }
 
     /// Includes all signatures on the block (except the deposit signatures) for verification.
-    pub fn include_all_signatures<Payload: ExecPayload<T>>(
+    pub fn include_all_signatures<Payload: AbstractExecPayload<T>>(
         &mut self,
         block: &'a SignedBeaconBlock<T, Payload>,
         ctxt: &mut ConsensusContext<T>,
@@ -155,7 +156,7 @@ where
 
     /// Includes all signatures on the block (except the deposit signatures and the proposal
     /// signature) for verification.
-    pub fn include_all_signatures_except_proposal<Payload: ExecPayload<T>>(
+    pub fn include_all_signatures_except_proposal<Payload: AbstractExecPayload<T>>(
         &mut self,
         block: &'a SignedBeaconBlock<T, Payload>,
         ctxt: &mut ConsensusContext<T>,
@@ -169,12 +170,13 @@ where
         // Deposits are not included because they can legally have invalid signatures.
         self.include_exits(block)?;
         self.include_sync_aggregate(block)?;
+        self.include_bls_to_execution_changes(block)?;
 
         Ok(())
     }
 
     /// Includes the block signature for `self.block` for verification.
-    pub fn include_block_proposal<Payload: ExecPayload<T>>(
+    pub fn include_block_proposal<Payload: AbstractExecPayload<T>>(
         &mut self,
         block: &'a SignedBeaconBlock<T, Payload>,
         block_root: Option<Hash256>,
@@ -193,7 +195,7 @@ where
     }
 
     /// Includes the randao signature for `self.block` for verification.
-    pub fn include_randao_reveal<Payload: ExecPayload<T>>(
+    pub fn include_randao_reveal<Payload: AbstractExecPayload<T>>(
         &mut self,
         block: &'a SignedBeaconBlock<T, Payload>,
         verified_proposer_index: Option<u64>,
@@ -210,7 +212,7 @@ where
     }
 
     /// Includes all signatures in `self.block.body.proposer_slashings` for verification.
-    pub fn include_proposer_slashings<Payload: ExecPayload<T>>(
+    pub fn include_proposer_slashings<Payload: AbstractExecPayload<T>>(
         &mut self,
         block: &'a SignedBeaconBlock<T, Payload>,
     ) -> Result<()> {
@@ -239,7 +241,7 @@ where
     }
 
     /// Includes all signatures in `self.block.body.attester_slashings` for verification.
-    pub fn include_attester_slashings<Payload: ExecPayload<T>>(
+    pub fn include_attester_slashings<Payload: AbstractExecPayload<T>>(
         &mut self,
         block: &'a SignedBeaconBlock<T, Payload>,
     ) -> Result<()> {
@@ -268,7 +270,7 @@ where
     }
 
     /// Includes all signatures in `self.block.body.attestations` for verification.
-    pub fn include_attestations<Payload: ExecPayload<T>>(
+    pub fn include_attestations<Payload: AbstractExecPayload<T>>(
         &mut self,
         block: &'a SignedBeaconBlock<T, Payload>,
         ctxt: &mut ConsensusContext<T>,
@@ -298,7 +300,7 @@ where
     }
 
     /// Includes all signatures in `self.block.body.voluntary_exits` for verification.
-    pub fn include_exits<Payload: ExecPayload<T>>(
+    pub fn include_exits<Payload: AbstractExecPayload<T>>(
         &mut self,
         block: &'a SignedBeaconBlock<T, Payload>,
     ) -> Result<()> {
@@ -322,7 +324,7 @@ where
     }
 
     /// Include the signature of the block's sync aggregate (if it exists) for verification.
-    pub fn include_sync_aggregate<Payload: ExecPayload<T>>(
+    pub fn include_sync_aggregate<Payload: AbstractExecPayload<T>>(
         &mut self,
         block: &'a SignedBeaconBlock<T, Payload>,
     ) -> Result<()> {
@@ -336,6 +338,24 @@ where
                 self.spec,
             )? {
                 self.sets.push(signature_set);
+            }
+        }
+        Ok(())
+    }
+
+    /// Include the signature of the block's BLS to execution changes for verification.
+    pub fn include_bls_to_execution_changes<Payload: AbstractExecPayload<T>>(
+        &mut self,
+        block: &'a SignedBeaconBlock<T, Payload>,
+    ) -> Result<()> {
+        // To improve performance we might want to decompress the withdrawal pubkeys in parallel.
+        if let Ok(bls_to_execution_changes) = block.message().body().bls_to_execution_changes() {
+            for bls_to_execution_change in bls_to_execution_changes {
+                self.sets.push(bls_execution_change_signature_set(
+                    self.state,
+                    bls_to_execution_change,
+                    self.spec,
+                )?);
             }
         }
         Ok(())

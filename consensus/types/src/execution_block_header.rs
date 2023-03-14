@@ -17,14 +17,16 @@
 // LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
-use crate::{Address, EthSpec, ExecutionPayload, Hash256, Hash64, Uint256};
+use crate::{Address, EthSpec, ExecutionPayloadRef, Hash256, Hash64, Uint256};
 use metastruct::metastruct;
 
 /// Execution block header as used for RLP encoding and Keccak hashing.
 ///
 /// Credit to Reth for the type definition.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-#[metastruct(mappings(map_execution_block_header_fields()))]
+#[metastruct(mappings(map_execution_block_header_fields_except_withdrawals(exclude(
+    withdrawals_root
+))))]
 pub struct ExecutionBlockHeader {
     pub parent_hash: Hash256,
     pub ommers_hash: Hash256,
@@ -42,33 +44,36 @@ pub struct ExecutionBlockHeader {
     pub mix_hash: Hash256,
     pub nonce: Hash64,
     pub base_fee_per_gas: Uint256,
+    pub withdrawals_root: Option<Hash256>,
 }
 
 impl ExecutionBlockHeader {
     pub fn from_payload<E: EthSpec>(
-        payload: &ExecutionPayload<E>,
+        payload: ExecutionPayloadRef<E>,
         rlp_empty_list_root: Hash256,
         rlp_transactions_root: Hash256,
+        rlp_withdrawals_root: Option<Hash256>,
     ) -> Self {
         // Most of these field mappings are defined in EIP-3675 except for `mixHash`, which is
         // defined in EIP-4399.
         ExecutionBlockHeader {
-            parent_hash: payload.parent_hash.into_root(),
+            parent_hash: payload.parent_hash().into_root(),
             ommers_hash: rlp_empty_list_root,
-            beneficiary: payload.fee_recipient,
-            state_root: payload.state_root,
+            beneficiary: payload.fee_recipient(),
+            state_root: payload.state_root(),
             transactions_root: rlp_transactions_root,
-            receipts_root: payload.receipts_root,
-            logs_bloom: payload.logs_bloom.clone().into(),
+            receipts_root: payload.receipts_root(),
+            logs_bloom: payload.logs_bloom().clone().into(),
             difficulty: Uint256::zero(),
-            number: payload.block_number.into(),
-            gas_limit: payload.gas_limit.into(),
-            gas_used: payload.gas_used.into(),
-            timestamp: payload.timestamp,
-            extra_data: payload.extra_data.clone().into(),
-            mix_hash: payload.prev_randao,
+            number: payload.block_number().into(),
+            gas_limit: payload.gas_limit().into(),
+            gas_used: payload.gas_used().into(),
+            timestamp: payload.timestamp(),
+            extra_data: payload.extra_data().clone().into(),
+            mix_hash: payload.prev_randao(),
             nonce: Hash64::zero(),
-            base_fee_per_gas: payload.base_fee_per_gas,
+            base_fee_per_gas: payload.base_fee_per_gas(),
+            withdrawals_root: rlp_withdrawals_root,
         }
     }
 }

@@ -280,6 +280,18 @@ impl<T: BeaconChainTypes> Router<T> {
                     sync_committtee_msg.0,
                 );
             }
+            PubsubMessage::BlsToExecutionChange(bls_to_execution_change) => {
+                trace!(
+                    self.log,
+                    "Received BLS to execution change";
+                    "peer_id" => %peer_id
+                );
+                self.processor.on_bls_to_execution_change_gossip(
+                    id,
+                    peer_id,
+                    bls_to_execution_change,
+                );
+            }
             PubsubMessage::LightClientFinalityUpdate(light_client_finality_update) => {
                 trace!(
                     self.log,

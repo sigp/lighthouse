@@ -4,7 +4,7 @@ use lru::LruCache;
 use slog::{debug, warn, Logger};
 use state_processing::BlockReplayer;
 use std::sync::Arc;
-use types::BlindedBeaconBlock;
+use types::beacon_block::BlindedBeaconBlock;
 use warp_utils::reject::{
     beacon_chain_error, beacon_state_error, custom_bad_request, custom_server_error,
 };

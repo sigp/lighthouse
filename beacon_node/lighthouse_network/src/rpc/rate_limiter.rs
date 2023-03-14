@@ -1,6 +1,7 @@
-use crate::rpc::{InboundRequest, Protocol};
+use crate::rpc::Protocol;
 use fnv::FnvHashMap;
 use libp2p::PeerId;
+use serde_derive::{Deserialize, Serialize};
 use std::convert::TryInto;
 use std::future::Future;
 use std::hash::Hash;
@@ -47,12 +48,31 @@ type Nanosecs = u64;
 /// n*`replenish_all_every`/`max_tokens` units of time since their last request.
 ///
 /// To produce hard limits, set `max_tokens` to 1.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Quota {
     /// How often are `max_tokens` fully replenished.
-    replenish_all_every: Duration,
+    pub(super) replenish_all_every: Duration,
     /// Token limit. This translates on how large can an instantaneous batch of
     /// tokens be.
-    max_tokens: u64,
+    pub(super) max_tokens: u64,
+}
+
+impl Quota {
+    /// A hard limit of one token every `seconds`.
+    pub const fn one_every(seconds: u64) -> Self {
+        Quota {
+            replenish_all_every: Duration::from_secs(seconds),
+            max_tokens: 1,
+        }
+    }
+
+    /// Allow `n` tokens to be use used every `seconds`.
+    pub const fn n_every(n: u64, seconds: u64) -> Self {
+        Quota {
+            replenish_all_every: Duration::from_secs(seconds),
+            max_tokens: n,
+        }
+    }
 }
 
 /// Manages rate limiting of requests per peer, with differentiated rates per protocol.
@@ -78,6 +98,7 @@ pub struct RPCRateLimiter {
 }
 
 /// Error type for non conformant requests
+#[derive(Debug)]
 pub enum RateLimitedErr {
     /// Required tokens for this request exceed the maximum
     TooLarge,
@@ -86,7 +107,7 @@ pub enum RateLimitedErr {
 }
 
 /// User-friendly builder of a `RPCRateLimiter`
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct RPCRateLimiterBuilder {
     /// Quota for the Goodbye protocol.
     goodbye_quota: Option<Quota>,
@@ -105,13 +126,8 @@ pub struct RPCRateLimiterBuilder {
 }
 
 impl RPCRateLimiterBuilder {
-    /// Get an empty `RPCRateLimiterBuilder`.
-    pub fn new() -> Self {
-        Default::default()
-    }
-
     /// Set a quota for a protocol.
-    fn set_quota(mut self, protocol: Protocol, quota: Quota) -> Self {
+    pub fn set_quota(mut self, protocol: Protocol, quota: Quota) -> Self {
         let q = Some(quota);
         match protocol {
             Protocol::Ping => self.ping_quota = q,
@@ -191,11 +207,40 @@ impl RPCRateLimiterBuilder {
     }
 }
 
+pub trait RateLimiterItem {
+    fn protocol(&self) -> Protocol;
+    fn expected_responses(&self) -> u64;
+}
+
+impl<T: EthSpec> RateLimiterItem for super::InboundRequest<T> {
+    fn protocol(&self) -> Protocol {
+        self.protocol()
+    }
+
+    fn expected_responses(&self) -> u64 {
+        self.expected_responses()
+    }
+}
+
+impl<T: EthSpec> RateLimiterItem for super::OutboundRequest<T> {
+    fn protocol(&self) -> Protocol {
+        self.protocol()
+    }
+
+    fn expected_responses(&self) -> u64 {
+        self.expected_responses()
+    }
+}
 impl RPCRateLimiter {
-    pub fn allows<T: EthSpec>(
+    /// Get a builder instance.
+    pub fn builder() -> RPCRateLimiterBuilder {
+        RPCRateLimiterBuilder::default()
+    }
+
+    pub fn allows<Item: RateLimiterItem>(
         &mut self,
         peer_id: &PeerId,
-        request: &InboundRequest<T>,
+        request: &Item,
     ) -> Result<(), RateLimitedErr> {
         let time_since_start = self.init_time.elapsed();
         let tokens = request.expected_responses().max(1);
