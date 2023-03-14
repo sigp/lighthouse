@@ -1,3 +1,4 @@
+use c_kzg::{Bytes48, BYTES_PER_PROOF};
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
 use ssz_derive::{Decode, Encode};
@@ -6,15 +7,19 @@ use std::fmt::Debug;
 use std::str::FromStr;
 use tree_hash::{PackedEncoding, TreeHash};
 
-const KZG_PROOF_BYTES_LEN: usize = 48;
-
 #[derive(PartialEq, Hash, Clone, Copy, Encode, Decode)]
 #[ssz(struct_behaviour = "transparent")]
-pub struct KzgProof(pub [u8; KZG_PROOF_BYTES_LEN]);
+pub struct KzgProof(pub [u8; BYTES_PER_PROOF]);
+
+impl From<KzgProof> for Bytes48 {
+    fn from(value: KzgProof) -> Self {
+        value.0.into()
+    }
+}
 
 impl KzgProof {
     pub fn empty() -> Self {
-        let mut bytes = [0; KZG_PROOF_BYTES_LEN];
+        let mut bytes = [0; BYTES_PER_PROOF];
         bytes[0] = 192;
         Self(bytes)
     }
@@ -28,25 +33,25 @@ impl fmt::Display for KzgProof {
 
 impl Default for KzgProof {
     fn default() -> Self {
-        KzgProof([0; KZG_PROOF_BYTES_LEN])
+        KzgProof([0; BYTES_PER_PROOF])
     }
 }
 
-impl From<[u8; KZG_PROOF_BYTES_LEN]> for KzgProof {
-    fn from(bytes: [u8; KZG_PROOF_BYTES_LEN]) -> Self {
+impl From<[u8; BYTES_PER_PROOF]> for KzgProof {
+    fn from(bytes: [u8; BYTES_PER_PROOF]) -> Self {
         Self(bytes)
     }
 }
 
-impl Into<[u8; KZG_PROOF_BYTES_LEN]> for KzgProof {
-    fn into(self) -> [u8; KZG_PROOF_BYTES_LEN] {
+impl Into<[u8; BYTES_PER_PROOF]> for KzgProof {
+    fn into(self) -> [u8; BYTES_PER_PROOF] {
         self.0
     }
 }
 
 impl TreeHash for KzgProof {
     fn tree_hash_type() -> tree_hash::TreeHashType {
-        <[u8; KZG_PROOF_BYTES_LEN]>::tree_hash_type()
+        <[u8; BYTES_PER_PROOF]>::tree_hash_type()
     }
 
     fn tree_hash_packed_encoding(&self) -> PackedEncoding {
@@ -54,7 +59,7 @@ impl TreeHash for KzgProof {
     }
 
     fn tree_hash_packing_factor() -> usize {
-        <[u8; KZG_PROOF_BYTES_LEN]>::tree_hash_packing_factor()
+        <[u8; BYTES_PER_PROOF]>::tree_hash_packing_factor()
     }
 
     fn tree_hash_root(&self) -> tree_hash::Hash256 {
@@ -104,15 +109,15 @@ impl FromStr for KzgProof {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         if let Some(stripped) = s.strip_prefix("0x") {
             let bytes = hex::decode(stripped).map_err(|e| e.to_string())?;
-            if bytes.len() == KZG_PROOF_BYTES_LEN {
-                let mut kzg_proof_bytes = [0; KZG_PROOF_BYTES_LEN];
+            if bytes.len() == BYTES_PER_PROOF {
+                let mut kzg_proof_bytes = [0; BYTES_PER_PROOF];
                 kzg_proof_bytes[..].copy_from_slice(&bytes);
                 Ok(Self(kzg_proof_bytes))
             } else {
                 Err(format!(
                     "InvalidByteLength: got {}, expected {}",
                     bytes.len(),
-                    KZG_PROOF_BYTES_LEN
+                    BYTES_PER_PROOF
                 ))
             }
         } else {
@@ -130,7 +135,7 @@ impl Debug for KzgProof {
 #[cfg(feature = "arbitrary")]
 impl arbitrary::Arbitrary<'_> for KzgProof {
     fn arbitrary(u: &mut arbitrary::Unstructured<'_>) -> arbitrary::Result<Self> {
-        let mut bytes = [0u8; KZG_PROOF_BYTES_LEN];
+        let mut bytes = [0u8; BYTES_PER_PROOF];
         u.fill_buffer(&mut bytes)?;
         Ok(KzgProof(bytes))
     }
