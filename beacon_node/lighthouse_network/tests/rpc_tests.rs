@@ -145,7 +145,7 @@ fn test_status_rpc() {
 fn test_light_client_bootstrap_rpc() {
     // set up the logging. The level and enabled logging or not
     let log_level = Level::Debug;
-    let enable_logging = true;
+    let enable_logging = false;
 
     let rt = Arc::new(Runtime::new().unwrap());
 
