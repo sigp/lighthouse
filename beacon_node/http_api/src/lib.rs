@@ -807,7 +807,7 @@ pub fn serve<T: BeaconChainTypes>(
                                     chain
                                         .shuffling_cache
                                         .try_write_for(std::time::Duration::from_secs(1))
-                                        .and_then(|mut cache_write| cache_write.get(&shuffling_id))
+                                        .and_then(|mut cache_write| cache_write.get(shuffling_id))
                                         .and_then(|cache_item| cache_item.wait().ok())
                                 } else {
                                     None
