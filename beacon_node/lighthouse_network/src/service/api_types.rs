@@ -2,9 +2,8 @@ use std::sync::Arc;
 
 use libp2p::core::connection::ConnectionId;
 use types::light_client_bootstrap::LightClientBootstrap;
-use types::{BlobsSidecar, EthSpec, SignedBeaconBlock};
+use types::{EthSpec, SignedBeaconBlock};
 
-use crate::rpc::methods::BlobsByRangeRequest;
 use crate::rpc::{
     methods::{
         BlocksByRangeRequest, BlocksByRootRequest, LightClientBootstrapRequest,
@@ -34,8 +33,6 @@ pub enum Request {
     Status(StatusMessage),
     /// A blocks by range request.
     BlocksByRange(BlocksByRangeRequest),
-    /// A blobs by range request.
-    BlobsByRange(BlobsByRangeRequest),
     /// A request blocks root request.
     BlocksByRoot(BlocksByRootRequest),
     // light client bootstrap request
@@ -53,7 +50,6 @@ impl<TSpec: EthSpec> std::convert::From<Request> for OutboundRequest<TSpec> {
                     step: 1,
                 })
             }
-            Request::BlobsByRange(r) => OutboundRequest::BlobsByRange(r),
             Request::LightClientBootstrap(b) => OutboundRequest::LightClientBootstrap(b),
             Request::Status(s) => OutboundRequest::Status(s),
         }
@@ -72,8 +68,6 @@ pub enum Response<TSpec: EthSpec> {
     Status(StatusMessage),
     /// A response to a get BLOCKS_BY_RANGE request. A None response signals the end of the batch.
     BlocksByRange(Option<Arc<SignedBeaconBlock<TSpec>>>),
-    /// A response to a get BLOBS_BY_RANGE request. A None response signals the end of the batch.
-    BlobsByRange(Option<Arc<BlobsSidecar<TSpec>>>),
     /// A response to a get BLOCKS_BY_ROOT request.
     BlocksByRoot(Option<Arc<SignedBeaconBlock<TSpec>>>),
     /// A response to a LightClientUpdate request.
@@ -90,10 +84,6 @@ impl<TSpec: EthSpec> std::convert::From<Response<TSpec>> for RPCCodedResponse<TS
             Response::BlocksByRange(r) => match r {
                 Some(b) => RPCCodedResponse::Success(RPCResponse::BlocksByRange(b)),
                 None => RPCCodedResponse::StreamTermination(ResponseTermination::BlocksByRange),
-            },
-            Response::BlobsByRange(r) => match r {
-                Some(b) => RPCCodedResponse::Success(RPCResponse::BlobsByRange(b)),
-                None => RPCCodedResponse::StreamTermination(ResponseTermination::BlobsByRange),
             },
             Response::Status(s) => RPCCodedResponse::Success(RPCResponse::Status(s)),
             Response::LightClientBootstrap(b) => {

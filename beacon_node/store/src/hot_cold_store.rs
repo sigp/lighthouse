@@ -60,8 +60,6 @@ pub struct HotColdDB<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> {
     ///
     /// The hot database also contains all blocks.
     pub hot_db: Hot,
-    /// LRU cache of deserialized blobs. Updated whenever a blob is loaded.
-    blob_cache: Mutex<LruCache<Hash256, BlobsSidecar<E>>>,
     /// LRU cache of deserialized blocks. Updated whenever a block is loaded.
     block_cache: Mutex<LruCache<Hash256, SignedBeaconBlock<E>>>,
     /// Chain spec.
@@ -131,7 +129,6 @@ impl<E: EthSpec> HotColdDB<E, MemoryStore<E>, MemoryStore<E>> {
             cold_db: MemoryStore::open(),
             hot_db: MemoryStore::open(),
             block_cache: Mutex::new(LruCache::new(config.block_cache_size)),
-            blob_cache: Mutex::new(LruCache::new(config.blob_cache_size)),
             config,
             spec,
             log,
@@ -165,7 +162,6 @@ impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
             cold_db: LevelDB::open(cold_path)?,
             hot_db: LevelDB::open(hot_path)?,
             block_cache: Mutex::new(LruCache::new(config.block_cache_size)),
-            blob_cache: Mutex::new(LruCache::new(config.blob_cache_size)),
             config,
             spec,
             log,
@@ -488,41 +484,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             .key_delete(DBColumn::ExecPayload.into(), block_root.as_bytes())
     }
 
-    pub fn put_blobs(&self, block_root: &Hash256, blobs: BlobsSidecar<E>) -> Result<(), Error> {
-        self.hot_db.put_bytes(
-            DBColumn::BeaconBlob.into(),
-            block_root.as_bytes(),
-            &blobs.as_ssz_bytes(),
-        )?;
-        self.blob_cache.lock().push(*block_root, blobs);
-        Ok(())
-    }
-
-    pub fn get_blobs(&self, block_root: &Hash256) -> Result<Option<BlobsSidecar<E>>, Error> {
-        if let Some(blobs) = self.blob_cache.lock().get(block_root) {
-            Ok(Some(blobs.clone()))
-        } else if let Some(bytes) = self
-            .hot_db
-            .get_bytes(DBColumn::BeaconBlob.into(), block_root.as_bytes())?
-        {
-            let ret = BlobsSidecar::from_ssz_bytes(&bytes)?;
-            self.blob_cache.lock().put(*block_root, ret.clone());
-            Ok(Some(ret))
-        } else {
-            Ok(None)
-        }
-    }
-
-    pub fn blobs_as_kv_store_ops(
-        &self,
-        key: &Hash256,
-        blobs: &BlobsSidecar<E>,
-        ops: &mut Vec<KeyValueStoreOp>,
-    ) {
-        let db_key = get_key_for_col(DBColumn::BeaconBlob.into(), key.as_bytes());
-        ops.push(KeyValueStoreOp::PutKeyValue(db_key, blobs.as_ssz_bytes()));
-    }
-
     pub fn put_state_summary(
         &self,
         state_root: &Hash256,
@@ -750,10 +711,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                     self.store_hot_state(&state_root, state, &mut key_value_batch)?;
                 }
 
-                StoreOp::PutBlobs(block_root, blobs) => {
-                    self.blobs_as_kv_store_ops(&block_root, &blobs, &mut key_value_batch);
-                }
-
                 StoreOp::PutStateSummary(state_root, summary) => {
                     key_value_batch.push(summary.as_kv_store_op(state_root));
                 }
@@ -802,16 +759,11 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         // Update the block cache whilst holding a lock, to ensure that the cache updates atomically
         // with the database.
         let mut guard = self.block_cache.lock();
-        let mut guard_blob = self.blob_cache.lock();
 
         for op in &batch {
             match op {
                 StoreOp::PutBlock(block_root, block) => {
                     guard.put(*block_root, (**block).clone());
-                }
-
-                StoreOp::PutBlobs(block_root, blobs) => {
-                    guard_blob.put(*block_root, (**blobs).clone());
                 }
 
                 StoreOp::PutState(_, _) => (),

@@ -24,11 +24,6 @@ pub trait Handler {
 
     fn run(&self) {
         for fork_name in ForkName::list_all() {
-            // FIXME(eip4844): enable eip4844
-            if fork_name == ForkName::Eip4844 {
-                continue;
-            }
-
             if self.is_enabled_for_fork(fork_name) {
                 self.run_for_fork(fork_name)
             }
@@ -650,6 +645,11 @@ impl<E: EthSpec + TypeName> Handler for MerkleProofValidityHandler<E> {
 
     fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
         fork_name != ForkName::Base
+            // Test is skipped due to some changes in the Capella light client
+            // spec.
+            //
+            // https://github.com/sigp/lighthouse/issues/4022
+            && fork_name != ForkName::Capella
     }
 }
 

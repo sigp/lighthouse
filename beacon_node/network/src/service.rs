@@ -19,7 +19,7 @@ use lighthouse_network::{
     Context, PeerAction, PeerRequestId, PubsubMessage, ReportSource, Request, Response, Subnet,
 };
 use lighthouse_network::{
-    types::{GossipEncoding, GossipTopic},
+    types::{core_topics_to_subscribe, GossipEncoding, GossipTopic},
     MessageId, NetworkEvent, NetworkGlobals, PeerId,
 };
 use slog::{crit, debug, error, info, o, trace, warn};
@@ -228,16 +228,21 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         let (network_senders, network_recievers) = NetworkSenders::new();
 
         // try and construct UPnP port mappings if required.
-        let upnp_config = crate::nat::UPnPConfig::from(config);
-        let upnp_log = network_log.new(o!("service" => "UPnP"));
-        let upnp_network_send = network_senders.network_send();
-        if config.upnp_enabled {
-            executor.spawn_blocking(
-                move || {
-                    crate::nat::construct_upnp_mappings(upnp_config, upnp_network_send, upnp_log)
-                },
-                "UPnP",
-            );
+        if let Some(upnp_config) = crate::nat::UPnPConfig::from_config(config) {
+            let upnp_log = network_log.new(o!("service" => "UPnP"));
+            let upnp_network_send = network_senders.network_send();
+            if config.upnp_enabled {
+                executor.spawn_blocking(
+                    move || {
+                        crate::nat::construct_upnp_mappings(
+                            upnp_config,
+                            upnp_network_send,
+                            upnp_log,
+                        )
+                    },
+                    "UPnP",
+                );
+            }
         }
 
         // get a reference to the beacon chain store
@@ -445,7 +450,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                             let fork_version = self.beacon_chain.spec.fork_version_for_name(fork_name);
                             let fork_digest = ChainSpec::compute_fork_digest(fork_version, self.beacon_chain.genesis_validators_root);
                             info!(self.log, "Subscribing to new fork topics");
-                            self.libp2p.subscribe_new_fork_topics(fork_digest);
+                            self.libp2p.subscribe_new_fork_topics(fork_name, fork_digest);
                             self.next_fork_subscriptions = Box::pin(None.into());
                         }
                         else {
@@ -684,7 +689,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                 }
 
                 let mut subscribed_topics: Vec<GossipTopic> = vec![];
-                for topic_kind in lighthouse_network::types::CORE_TOPICS.iter() {
+                for topic_kind in core_topics_to_subscribe(self.fork_context.current_fork()) {
                     for fork_digest in self.required_gossip_fork_digests() {
                         let topic = GossipTopic::new(
                             topic_kind.clone(),

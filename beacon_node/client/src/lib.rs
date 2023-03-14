@@ -46,9 +46,18 @@ impl<T: BeaconChainTypes> Client<T> {
         self.http_metrics_listen_addr
     }
 
-    /// Returns the port of the client's libp2p stack, if it was started.
-    pub fn libp2p_listen_port(&self) -> Option<u16> {
-        self.network_globals.as_ref().map(|n| n.listen_port_tcp())
+    /// Returns the ipv4 port of the client's libp2p stack, if it was started.
+    pub fn libp2p_listen_ipv4_port(&self) -> Option<u16> {
+        self.network_globals
+            .as_ref()
+            .and_then(|n| n.listen_port_tcp4())
+    }
+
+    /// Returns the ipv6 port of the client's libp2p stack, if it was started.
+    pub fn libp2p_listen_ipv6_port(&self) -> Option<u16> {
+        self.network_globals
+            .as_ref()
+            .and_then(|n| n.listen_port_tcp6())
     }
 
     /// Returns the list of libp2p addresses the client is listening to.

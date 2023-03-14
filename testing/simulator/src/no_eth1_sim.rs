@@ -7,7 +7,7 @@ use node_test_rig::{
 };
 use rayon::prelude::*;
 use std::cmp::max;
-use std::net::{IpAddr, Ipv4Addr};
+use std::net::Ipv4Addr;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::time::sleep;
 use types::{Epoch, EthSpec, MainnetEthSpec};
@@ -91,7 +91,7 @@ pub fn run_no_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
     beacon_config.dummy_eth1_backend = true;
     beacon_config.sync_eth1_chain = true;
 
-    beacon_config.network.enr_address = Some(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)));
+    beacon_config.network.enr_address = (Some(Ipv4Addr::LOCALHOST), None);
 
     let main_future = async {
         let network = LocalNetwork::new(context.clone(), beacon_config.clone()).await?;

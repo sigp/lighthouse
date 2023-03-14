@@ -857,10 +857,7 @@ where
                     (parent_justified, parent_finalized)
                 } else {
                     let justification_and_finalization_state = match block {
-                        // TODO(eip4844): Ensure that the final specification
-                        // does not substantially modify per epoch processing.
-                        BeaconBlockRef::Eip4844(_)
-                        | BeaconBlockRef::Capella(_)
+                        BeaconBlockRef::Capella(_)
                         | BeaconBlockRef::Merge(_)
                         | BeaconBlockRef::Altair(_) => {
                             let participation_cache =
@@ -1698,7 +1695,6 @@ mod tests {
 
     fn get_queued_attestations() -> Vec<QueuedAttestation> {
         (1..4)
-            .into_iter()
             .map(|i| QueuedAttestation {
                 slot: Slot::new(i),
                 attesting_indices: vec![],
