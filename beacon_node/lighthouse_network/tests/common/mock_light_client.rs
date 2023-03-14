@@ -531,41 +531,7 @@ where
             return;
         }
 
-        let (req, substream) = substream;
-        let expected_responses = req.expected_responses();
-
-        // store requests that expect responses
-        if expected_responses > 0 {
-            if self.inbound_substreams.len() < MAX_INBOUND_SUBSTREAMS {
-                // Store the stream and tag the output.
-                let delay_key = self.inbound_substreams_delay.insert(
-                    self.current_inbound_substream_id,
-                    Duration::from_secs(RESPONSE_TIMEOUT),
-                );
-                let awaiting_stream = InboundState::Idle(substream);
-                self.inbound_substreams.insert(
-                    self.current_inbound_substream_id,
-                    InboundInfo {
-                        state: awaiting_stream,
-                        pending_items: VecDeque::with_capacity(std::cmp::min(
-                            expected_responses,
-                            128,
-                        ) as usize),
-                        delay_key: Some(delay_key),
-                        protocol: req.protocol(),
-                        request_start_time: Instant::now(),
-                        remaining_chunks: expected_responses,
-                    },
-                );
-            } else {
-                self.events_out.push(Err(HandlerErr::Inbound {
-                    id: self.current_inbound_substream_id,
-                    proto: req.protocol(),
-                    error: RPCError::HandlerRejected,
-                }));
-                return self.shutdown(None);
-            }
-        }
+        let (req, _) = substream;
 
         // If we received a goodbye, shutdown the connection.
         if let InboundRequest::Goodbye(_) = req {
