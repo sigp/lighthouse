@@ -11,7 +11,7 @@ fn ssz_blob_to_crypto_blob<T: EthSpec>(blob: Blob<T>) -> kzg::Blob {
 }
 
 /// Validate a single blob-commitment-proof triplet from a `BlobSidecar`.
-pub fn validate_blob_sidecar<T: EthSpec>(
+pub fn validate_blob<T: EthSpec>(
     kzg: &Kzg,
     blob: Blob<T>,
     kzg_commitment: KzgCommitment,
@@ -25,7 +25,7 @@ pub fn validate_blob_sidecar<T: EthSpec>(
 }
 
 /// Validate a batch of blob-commitment-proof triplets from multiple `BlobSidecars`.
-pub fn validate_blobs_sidecar<T: EthSpec>(
+pub fn validate_blobs<T: EthSpec>(
     kzg: &Kzg,
     expected_kzg_commitments: &[KzgCommitment],
     blobs: &[Blob<T>],
