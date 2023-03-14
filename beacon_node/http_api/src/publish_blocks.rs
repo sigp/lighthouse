@@ -10,21 +10,20 @@ use slot_clock::SlotClock;
 use std::sync::Arc;
 use tokio::sync::mpsc::UnboundedSender;
 use tree_hash::TreeHash;
-use types::{
-    AbstractExecPayload, BlindedPayload, EthSpec, ExecPayload, ExecutionBlockHash, FullPayload,
-    Hash256, SignedBeaconBlock,
-};
+use types::{AbstractExecPayload, BlindedPayload, EthSpec, ExecPayload, ExecutionBlockHash, FullPayload, Hash256, SignedBeaconBlock, SignedBlockContents};
 use warp::Rejection;
 
 /// Handles a request from the HTTP API for full blocks.
 pub async fn publish_block<T: BeaconChainTypes>(
     block_root: Option<Hash256>,
-    block: Arc<SignedBeaconBlock<T::EthSpec>>,
+    block_contents: SignedBlockContents<T::EthSpec>,
     chain: Arc<BeaconChain<T>>,
     network_tx: &UnboundedSender<NetworkMessage<T::EthSpec>>,
     log: Logger,
 ) -> Result<(), Rejection> {
     let seen_timestamp = timestamp_now();
+    let (block, _maybe_blobs) = block_contents.deconstruct();
+    let block = Arc::new(block);
 
     //FIXME(sean) have to move this to prior to publishing because it's included in the blobs sidecar message.
     //this may skew metrics
@@ -38,20 +37,8 @@ pub async fn publish_block<T: BeaconChainTypes>(
     // Send the block, regardless of whether or not it is valid. The API
     // specification is very clear that this is the desired behaviour.
     let wrapped_block: BlockWrapper<T::EthSpec> =
-        if matches!(block.as_ref(), &SignedBeaconBlock::Eip4844(_)) {
-            if let Some(sidecar) = chain.blob_cache.pop(&block_root) {
-                // TODO: Needs to be adjusted
-                // let block_and_blobs = SignedBeaconBlockAndBlobsSidecar {
-                //     beacon_block: block,
-                //     blobs_sidecar: Arc::new(sidecar),
-                // };
-                unimplemented!("Needs to be adjusted")
-            } else {
-                //FIXME(sean): This should probably return a specific no-blob-cached error code, beacon API coordination required
-                return Err(warp_utils::reject::broadcast_without_import(
-                    "no blob cached for block".into(),
-                ));
-            }
+        if matches!(block.as_ref(), SignedBeaconBlock::Eip4844(_)) {
+            todo!("to be implemented")
         } else {
             crate::publish_pubsub_message(network_tx, PubsubMessage::BeaconBlock(block.clone()))?;
             block.into()
@@ -180,7 +167,7 @@ pub async fn publish_blinded_block<T: BeaconChainTypes>(
     let full_block = reconstruct_block(chain.clone(), block_root, block, log.clone()).await?;
     publish_block::<T>(
         Some(block_root),
-        Arc::new(full_block),
+        SignedBlockContents::Block(full_block),
         chain,
         network_tx,
         log,
