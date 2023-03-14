@@ -28,14 +28,13 @@ pub enum CheckEarlyAttesterCache {
 pub enum Error {
     PayloadReconstruction(String),
     BlocksByRangeFailure(Box<execution_layer::Error>),
-    BlocksByHashFailure(Box<execution_layer::Error>),
     RequestNotFound,
     BlockResultNotFound,
 }
 
-// This is the same as a DatabaseBlock
-// but the Arc allows us to avoid an
-// unnecessary clone
+const BLOCKS_PER_RANGE_REQUEST: u64 = 32;
+
+// This is the same as a DatabaseBlock but the Arc allows us to avoid an unnecessary clone.
 enum LoadedBeaconBlock<E: EthSpec> {
     Full(Arc<SignedBeaconBlock<E>>),
     Blinded(Box<SignedBlindedBeaconBlock<E>>),
@@ -305,7 +304,7 @@ impl<E: EthSpec> BodiesByRange<E> {
     }
 
     pub fn push_block_parts(&mut self, block_parts: BlockParts<E>) -> Result<(), BlockParts<E>> {
-        if self.count == 32 {
+        if self.count == BLOCKS_PER_RANGE_REQUEST {
             return Err(block_parts);
         }
 
@@ -320,7 +319,9 @@ impl<E: EthSpec> BodiesByRange<E> {
                     Ok(())
                 } else {
                     // need to figure out if this block fits in the request
-                    if block_number < self.start || self.start + 31 < block_number {
+                    if block_number < self.start
+                        || self.start + BLOCKS_PER_RANGE_REQUEST <= block_number
+                    {
                         return Err(block_parts);
                     }
 
@@ -519,7 +520,6 @@ impl<E: EthSpec> EngineRequest<E> {
 
 pub struct BeaconBlockStreamer<T: BeaconChainTypes> {
     execution_layer: ExecutionLayer<T::EthSpec>,
-    finalized_slot: Slot,
     check_early_attester_cache: CheckEarlyAttesterCache,
     beacon_chain: Arc<BeaconChain<T>>,
 }
@@ -535,16 +535,8 @@ impl<T: BeaconChainTypes> BeaconBlockStreamer<T> {
             .ok_or(BeaconChainError::ExecutionLayerMissing)?
             .clone();
 
-        let finalized_slot = beacon_chain
-            .canonical_head
-            .fork_choice_read_lock()
-            .get_finalized_block()
-            .map_err(BeaconChainError::ForkChoiceError)?
-            .slot;
-
         Ok(Self {
             execution_layer,
-            finalized_slot,
             check_early_attester_cache,
             beacon_chain: beacon_chain.clone(),
         })
@@ -592,10 +584,9 @@ impl<T: BeaconChainTypes> BeaconBlockStreamer<T> {
 
     /// Pre-process the loaded blocks into execution engine requests.
     ///
-    /// The purpose of this function is to separate the blocks into 3 categories:
+    /// The purpose of this function is to separate the blocks into 2 categories:
     /// 1) no_request - when we already have the full block or there's an error
-    /// 2) blocks_by_range - used for finalized blinded blocks
-    /// 3) blocks_by_root - used for unfinalized blinded blocks
+    /// 2) blocks_by_range - used for blinded blocks
     ///
     /// The function returns a vector of block roots in the same order as requested
     /// along with the engine request that each root corresponds to.
@@ -610,14 +601,16 @@ impl<T: BeaconChainTypes> BeaconBlockStreamer<T> {
         // request as it should *better* optimize the number of blocks that
         // can fit in the same request
         let mut by_range_blocks: Vec<BlockParts<T::EthSpec>> = vec![];
-        let mut by_hash = EngineRequest::new_by_hash();
         let mut no_request = EngineRequest::new_no_request();
 
         for (root, load_result) in payloads {
             // preserve the order of the requested blocks
             ordered_block_roots.push(root);
 
-            match load_result {
+            let block_result = match load_result {
+                Err(e) => Err(e),
+                Ok(None) => Ok(None),
+                Ok(Some(LoadedBeaconBlock::Full(full_block))) => Ok(Some(full_block)),
                 Ok(Some(LoadedBeaconBlock::Blinded(blinded_block))) => {
                     match blinded_block
                         .message()
@@ -626,65 +619,27 @@ impl<T: BeaconChainTypes> BeaconBlockStreamer<T> {
                     {
                         Ok(header) => {
                             if header.block_hash() == ExecutionBlockHash::zero() {
-                                no_request
-                                    .push_block_result(
-                                        root,
-                                        reconstruct_default_header_block(
-                                            blinded_block,
-                                            header,
-                                            &self.beacon_chain.spec,
-                                        ),
-                                        &self.beacon_chain.log,
-                                    )
-                                    .await;
-                                requests.insert(root, no_request.clone());
+                                reconstruct_default_header_block(
+                                    blinded_block,
+                                    header,
+                                    &self.beacon_chain.spec,
+                                )
                             } else {
+                                // Add the block to the set requiring a by-range request.
                                 let block_parts = BlockParts::new(blinded_block, header);
-                                if block_parts.slot() <= self.finalized_slot {
-                                    // this is a by_range request
-                                    by_range_blocks.push(block_parts);
-                                } else {
-                                    // this is a by_hash request
-                                    by_hash
-                                        .push_block_parts(block_parts, &self.beacon_chain.log)
-                                        .await;
-                                    requests.insert(root, by_hash.clone());
-                                }
+                                by_range_blocks.push(block_parts);
+                                continue;
                             }
                         }
-                        Err(e) => {
-                            debug!(
-                                self.beacon_chain.log,
-                                "block {} is no_request, error getting execution_payload: {:?}",
-                                root,
-                                e
-                            );
-                            no_request
-                                .push_block_result(
-                                    root,
-                                    Err(BeaconChainError::BlockVariantLacksExecutionPayload(root)),
-                                    &self.beacon_chain.log,
-                                )
-                                .await;
-                            requests.insert(root, no_request.clone());
-                        }
+                        Err(e) => Err(BeaconChainError::BeaconStateError(e)),
                     }
                 }
-                // no request when there's an error, or the block doesn't exist, or we already have the full block
-                no_request_load_result => {
-                    let block_result = match no_request_load_result {
-                        Err(e) => Err(e),
-                        Ok(None) => Ok(None),
-                        Ok(Some(LoadedBeaconBlock::Full(full_block))) => Ok(Some(full_block)),
-                        // unreachable due to the match statement above
-                        Ok(Some(LoadedBeaconBlock::Blinded(_))) => unreachable!(),
-                    };
-                    no_request
-                        .push_block_result(root, block_result, &self.beacon_chain.log)
-                        .await;
-                    requests.insert(root, no_request.clone());
-                }
-            }
+            };
+
+            no_request
+                .push_block_result(root, block_result, &self.beacon_chain.log)
+                .await;
+            requests.insert(root, no_request.clone());
         }
 
         // Now deal with the by_range requests. Sort them in order of increasing slot
@@ -812,12 +767,10 @@ impl<T: BeaconChainTypes> BeaconBlockStreamer<T> {
             .map_err(BeaconChainError::EngineGetCapabilititesFailed)
         {
             Ok(engine_capabilities) => {
-                // use the fallback method
-                if engine_capabilities.get_payload_bodies_by_hash_v1
-                    && engine_capabilities.get_payload_bodies_by_range_v1
-                {
+                if engine_capabilities.get_payload_bodies_by_range_v1 {
                     self.stream_blocks(block_roots, sender).await;
                 } else {
+                    // use the fallback method
                     self.stream_blocks_fallback(block_roots, sender).await;
                 }
             }
@@ -1016,7 +969,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn check_fallback_altiar_to_capella() {
+    async fn check_fallback_altair_to_capella() {
         let slots_per_epoch = MinimalEthSpec::slots_per_epoch() as usize;
         let num_epochs = 8;
         let bellatrix_fork_epoch = 2usize;
