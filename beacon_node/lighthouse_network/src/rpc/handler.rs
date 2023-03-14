@@ -147,20 +147,20 @@ pub enum HandlerState {
 }
 
 /// Contains the information the handler keeps on established inbound substreams.
-pub struct InboundInfo<TSpec: EthSpec> {
+struct InboundInfo<TSpec: EthSpec> {
     /// State of the substream.
-    pub state: InboundState<TSpec>,
+    state: InboundState<TSpec>,
     /// Responses queued for sending.
-    pub pending_items: VecDeque<RPCCodedResponse<TSpec>>,
+    pending_items: VecDeque<RPCCodedResponse<TSpec>>,
     /// Protocol of the original request we received from the peer.
-    pub protocol: Protocol,
+    protocol: Protocol,
     /// Responses that the peer is still expecting from us.
-    pub remaining_chunks: u64,
+    remaining_chunks: u64,
     /// Useful to timing how long each request took to process. Currently only used by
     /// BlocksByRange.
-    pub request_start_time: Instant,
+    request_start_time: Instant,
     /// Key to keep track of the substream's timeout via `self.inbound_substreams_delay`.
-    pub delay_key: Option<delay_queue::Key>,
+    delay_key: Option<delay_queue::Key>,
 }
 
 /// Contains the information the handler keeps on established outbound substreams.

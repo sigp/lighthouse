@@ -19,7 +19,7 @@ use libp2p::{InboundUpgrade, OutboundUpgrade};
 use lighthouse_network::rpc::methods::RPCCodedResponse;
 use lighthouse_network::rpc::{
     max_rpc_size, BaseOutboundCodec, Encoding, GoodbyeReason,
-    HandlerErr, HandlerEvent, HandlerState, InboundInfo, InboundRequest, 
+    HandlerErr, HandlerEvent, HandlerState, InboundRequest, 
     OutboundCodec, OutboundFramed, OutboundInfo, OutboundRequest, OutboundSubstreamState, Protocol,
     ProtocolId, RPCError, RPCMessage, RPCProtocol, RPCReceived, RPCSend,
     ReqId, SSZSnappyOutboundCodec, SubstreamId, Version,
@@ -221,12 +221,6 @@ where
     /// Current number of concurrent outbound substreams being opened.
     dial_negotiated: u32,
 
-    /// Current inbound substreams awaiting processing.
-    inbound_substreams: FnvHashMap<SubstreamId, InboundInfo<TSpec>>,
-
-    /// Inbound substream `DelayQueue` which keeps track of when an inbound substream will timeout.
-    inbound_substreams_delay: DelayQueue<SubstreamId>,
-
     /// Map of outbound substreams that need to be driven to completion.
     outbound_substreams: FnvHashMap<SubstreamId, OutboundInfo<Id, TSpec>>,
 
@@ -353,9 +347,7 @@ where
             events_out: SmallVec::new(),
             dial_queue: SmallVec::new(),
             dial_negotiated: 0,
-            inbound_substreams: FnvHashMap::default(),
             outbound_substreams: FnvHashMap::default(),
-            inbound_substreams_delay: DelayQueue::new(),
             outbound_substreams_delay: DelayQueue::new(),
             current_inbound_substream_id: SubstreamId(0),
             current_outbound_substream_id: SubstreamId(0),
@@ -408,40 +400,6 @@ where
             })),
         }
     }
-
-    /// Sends a response to a peer's request.
-    // NOTE: If the substream has closed due to inactivity, or the substream is in the
-    // wrong state a response will fail silently.
-    fn send_response(&mut self, inbound_id: SubstreamId, response: RPCCodedResponse<TSpec>) {
-        // check if the stream matching the response still exists
-        let inbound_info = if let Some(info) = self.inbound_substreams.get_mut(&inbound_id) {
-            info
-        } else {
-            if !matches!(response, RPCCodedResponse::StreamTermination(..)) {
-                // the stream is closed after sending the expected number of responses
-                trace!(self.log, "Inbound stream has expired. Response not sent";
-                    "response" => %response, "id" => inbound_id);
-            }
-            return;
-        };
-
-        // If the response we are sending is an error, report back for handling
-        if let RPCCodedResponse::Error(ref code, ref reason) = response {
-            self.events_out.push(Err(HandlerErr::Inbound {
-                error: RPCError::ErrorResponse(*code, reason.to_string()),
-                proto: inbound_info.protocol,
-                id: inbound_id,
-            }));
-        }
-
-        if matches!(self.state, HandlerState::Deactivated) {
-            // we no longer send responses after the handler is deactivated
-            debug!(self.log, "Response not sent. Deactivated handler";
-                "response" => %response, "id" => inbound_id);
-            return;
-        }
-        inbound_info.pending_items.push_back(response);
-    }
 }
 
 impl<Id, TSpec> ConnectionHandler for MockRPCHandler<Id, TSpec>
@@ -469,15 +427,6 @@ where
         self.dial_negotiated -= 1;
         let (id, request) = request_info;
         let proto = request.protocol();
-
-        // accept outbound connections only if the handler is not deactivated
-        if matches!(self.state, HandlerState::Deactivated) {
-            self.events_out.push(Err(HandlerErr::Outbound {
-                error: RPCError::Disconnected,
-                proto,
-                id,
-            }));
-        }
 
         // add the stream to substreams if we expect a response, otherwise drop the stream.
         let expected_responses = request.expected_responses();
@@ -544,8 +493,8 @@ where
     fn inject_event(&mut self, rpc_event: Self::InEvent) {
         match rpc_event {
             RPCSend::Request(id, req) => self.send_request(id, req),
-            RPCSend::Response(inbound_id, response) => self.send_response(inbound_id, response),
             RPCSend::Shutdown(id, reason) => self.shutdown(Some((id, reason))),
+            _ => {},
         }
         // In any case, we need the handler to process the event.
         if let Some(waker) = &self.waker {
@@ -611,7 +560,6 @@ where
             HandlerState::ShuttingDown(_) => {
                 self.dial_queue.is_empty()
                     && self.outbound_substreams.is_empty()
-                    && self.inbound_substreams.is_empty()
                     && self.events_out.is_empty()
                     && self.dial_negotiated == 0
             }
@@ -849,7 +797,6 @@ where
         if let HandlerState::ShuttingDown(_) = self.state {
             if self.dial_queue.is_empty()
                 && self.outbound_substreams.is_empty()
-                && self.inbound_substreams.is_empty()
                 && self.events_out.is_empty()
                 && self.dial_negotiated == 0
             {

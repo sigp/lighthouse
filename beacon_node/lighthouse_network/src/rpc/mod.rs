@@ -23,7 +23,7 @@ pub(crate) use methods::{MetaData, MetaDataV1, MetaDataV2, Ping, RPCCodedRespons
 
 pub use codec::{BaseOutboundCodec, OutboundCodec, SSZSnappyOutboundCodec};
 pub use handler::{
-    send_message_to_inbound_substream, HandlerErr, HandlerEvent, HandlerState, InboundInfo,
+    send_message_to_inbound_substream, HandlerErr, HandlerEvent, HandlerState,
     InboundState, OutboundInfo, OutboundSubstreamState, RPCHandler, SubstreamId,
 };
 pub use methods::{
