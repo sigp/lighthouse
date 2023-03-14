@@ -1,5 +1,5 @@
 FROM rust:1.66.0-bullseye AS builder
-RUN apt-get update && apt-get -y upgrade && apt-get install -y cmake libclang-dev protobuf-compiler
+RUN apt-get update && apt-get -y upgrade && apt-get install -y cmake libclang-dev
 COPY . lighthouse
 ARG FEATURES
 ENV FEATURES $FEATURES

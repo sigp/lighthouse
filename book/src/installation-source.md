@@ -16,7 +16,7 @@ operating system.
 Install the following packages:
 
 ```bash
-sudo apt install -y git gcc g++ make cmake pkg-config llvm-dev libclang-dev clang protobuf-compiler
+sudo apt install -y git gcc g++ make cmake pkg-config llvm-dev libclang-dev clang
 ```
 
 > Note: Lighthouse requires CMake v3.12 or newer, which isn't available in the package repositories
@@ -32,10 +32,6 @@ sudo apt install -y git gcc g++ make cmake pkg-config llvm-dev libclang-dev clan
 brew install cmake
 ```
 
-1. Install protoc using Homebrew:
-```
-brew install protobuf
-```
 
 [Homebrew]: https://brew.sh/
 
@@ -43,7 +39,7 @@ brew install protobuf
 
 1. Install [Git](https://git-scm.com/book/en/v2/Getting-Started-Installing-Git).
 1. Install the [Chocolatey](https://chocolatey.org/install) package manager for Windows.
-1. Install Make, CMake, LLVM and protoc using Chocolatey:
+1. Install Make, CMake and LLVM using Chocolatey:
 
 ```
 choco install make
@@ -55,10 +51,6 @@ choco install cmake --installargs 'ADD_CMAKE_TO_PATH=System'
 
 ```
 choco install llvm
-```
-
-```
-choco install protoc
 ```
 
 These dependencies are for compiling Lighthouse natively on Windows. Lighthouse can also run
