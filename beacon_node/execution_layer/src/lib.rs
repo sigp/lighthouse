@@ -47,7 +47,7 @@ use types::{
 
 mod block_hash;
 mod engine_api;
-mod engines;
+pub mod engines;
 mod keccak;
 mod metrics;
 pub mod payload_cache;
