@@ -1006,7 +1006,7 @@ impl slog::Value for SubstreamId {
 ///
 /// This function returns the given substream, along with whether it has been closed or not. Any
 /// error that occurred with sending a message is reported also.
-pub async fn send_message_to_inbound_substream<TSpec: EthSpec>(
+async fn send_message_to_inbound_substream<TSpec: EthSpec>(
     mut substream: InboundSubstream<TSpec>,
     message: RPCCodedResponse<TSpec>,
     last_chunk: bool,

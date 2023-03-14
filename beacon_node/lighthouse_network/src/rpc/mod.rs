@@ -20,6 +20,7 @@ use std::time::Duration;
 use types::{EthSpec, ForkContext};
 
 pub(crate) use methods::{MetaData, MetaDataV1, MetaDataV2, Ping, RPCCodedResponse, RPCResponse};
+pub(crate) use protocol::InboundRequest;
 
 pub use codec::{BaseOutboundCodec, OutboundCodec, SSZSnappyOutboundCodec};
 pub use handler::{
@@ -33,7 +34,7 @@ pub use methods::{
 pub use outbound::OutboundFramed;
 pub use outbound::OutboundRequest;
 pub use protocol::{
-    max_rpc_size, Encoding, InboundRequest, Protocol, ProtocolId, RPCError, RPCProtocol, Version,
+    max_rpc_size, Encoding, Protocol, ProtocolId, RPCError, RPCProtocol, Version,
 };
 
 use self::config::OutboundRateLimiterConfig;
