@@ -45,6 +45,7 @@ fn get_valid_sync_committee_message(
     harness: &BeaconChainHarness<EphemeralHarnessType<E>>,
     slot: Slot,
     relative_sync_committee: RelativeSyncCommittee,
+    message_index: usize,
 ) -> (SyncCommitteeMessage, usize, SecretKey, SyncSubnetId) {
     let head_state = harness.chain.head_beacon_state_cloned();
     let head_block_root = harness.chain.head_snapshot().beacon_block_root;
@@ -52,7 +53,7 @@ fn get_valid_sync_committee_message(
         .make_sync_committee_messages(&head_state, head_block_root, slot, relative_sync_committee)
         .get(0)
         .expect("sync messages should exist")
-        .get(0)
+        .get(message_index)
         .expect("first sync message should exist")
         .clone();
 
@@ -494,7 +495,7 @@ async fn unaggregated_gossip_verification() {
     let current_slot = harness.chain.slot().expect("should get slot");
 
     let (valid_sync_committee_message, expected_validator_index, validator_sk, subnet_id) =
-        get_valid_sync_committee_message(&harness, current_slot, RelativeSyncCommittee::Current);
+        get_valid_sync_committee_message(&harness, current_slot, RelativeSyncCommittee::Current, 0);
 
     macro_rules! assert_invalid {
             ($desc: tt, $attn_getter: expr, $subnet_getter: expr, $($error: pat_param) |+ $( if $guard: expr )?) => {
@@ -644,7 +645,7 @@ async fn unaggregated_gossip_verification() {
 
     // **Incorrectly** create a sync message using the current sync committee
     let (next_valid_sync_committee_message, _, _, next_subnet_id) =
-        get_valid_sync_committee_message(&harness, target_slot, RelativeSyncCommittee::Current);
+        get_valid_sync_committee_message(&harness, target_slot, RelativeSyncCommittee::Current, 1);
 
     assert_invalid!(
         "sync message on incorrect subnet",

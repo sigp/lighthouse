@@ -79,6 +79,7 @@ pub struct Config {
     pub monitoring_api: Option<monitoring_api::Config>,
     pub slasher: Option<slasher::Config>,
     pub logger_config: LoggerConfig,
+    pub always_prefer_builder_payload: bool,
 }
 
 impl Default for Config {
@@ -105,6 +106,7 @@ impl Default for Config {
             validator_monitor_pubkeys: vec![],
             validator_monitor_individual_tracking_threshold: DEFAULT_INDIVIDUAL_TRACKING_THRESHOLD,
             logger_config: LoggerConfig::default(),
+            always_prefer_builder_payload: false,
         }
     }
 }

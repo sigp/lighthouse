@@ -820,6 +820,15 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true)
         )
         .arg(
+            Arg::with_name("always-prepare-payload")
+                .long("always-prepare-payload")
+                .help("Send payload attributes with every fork choice update. This is intended for \
+                       use by block builders, relays and developers. You should set a fee \
+                       recipient on this BN and also consider adjusting the \
+                       --prepare-payload-lookahead flag.")
+                .takes_value(false)
+        )
+        .arg(
             Arg::with_name("fork-choice-before-proposal-timeout")
                 .long("fork-choice-before-proposal-timeout")
                 .help("Set the maximum number of milliseconds to wait for fork choice before \
@@ -947,5 +956,14 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .help("Enable the graphical user interface and all its requirements. \
                       This is equivalent to --http and --validator-monitor-auto.")
                 .takes_value(false)
+        )
+        .arg(
+            Arg::with_name("always-prefer-builder-payload")
+            .long("always-prefer-builder-payload")
+            .help("If set, the beacon node always uses the payload from the builder instead of the local payload.")
+            // The builder profit threshold flag is used to provide preference
+            // to local payloads, therefore it fundamentally conflicts with
+            // always using the builder.
+            .conflicts_with("builder-profit-threshold")
         )
 }

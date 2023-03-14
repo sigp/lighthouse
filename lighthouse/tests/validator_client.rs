@@ -476,3 +476,28 @@ fn disable_run_on_all() {
             assert!(config.disable_run_on_all);
         });
 }
+
+#[test]
+fn latency_measurement_service() {
+    CommandLineTest::new().run().with_config(|config| {
+        assert!(config.enable_latency_measurement_service);
+    });
+    CommandLineTest::new()
+        .flag("latency-measurement-service", None)
+        .run()
+        .with_config(|config| {
+            assert!(config.enable_latency_measurement_service);
+        });
+    CommandLineTest::new()
+        .flag("latency-measurement-service", Some("true"))
+        .run()
+        .with_config(|config| {
+            assert!(config.enable_latency_measurement_service);
+        });
+    CommandLineTest::new()
+        .flag("latency-measurement-service", Some("false"))
+        .run()
+        .with_config(|config| {
+            assert!(!config.enable_latency_measurement_service);
+        });
+}

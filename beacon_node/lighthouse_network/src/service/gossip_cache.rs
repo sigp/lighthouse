@@ -34,6 +34,8 @@ pub struct GossipCache {
     signed_contribution_and_proof: Option<Duration>,
     /// Timeout for sync committee messages.
     sync_committee_message: Option<Duration>,
+    /// Timeout for signed BLS to execution changes.
+    bls_to_execution_change: Option<Duration>,
     /// Timeout for light client finality updates.
     light_client_finality_update: Option<Duration>,
     /// Timeout for light client optimistic updates.
@@ -59,6 +61,8 @@ pub struct GossipCacheBuilder {
     signed_contribution_and_proof: Option<Duration>,
     /// Timeout for sync committee messages.
     sync_committee_message: Option<Duration>,
+    /// Timeout for signed BLS to execution changes.
+    bls_to_execution_change: Option<Duration>,
     /// Timeout for light client finality updates.
     light_client_finality_update: Option<Duration>,
     /// Timeout for light client optimistic updates.
@@ -121,6 +125,12 @@ impl GossipCacheBuilder {
         self
     }
 
+    /// Timeout for BLS to execution change messages.
+    pub fn bls_to_execution_change_timeout(mut self, timeout: Duration) -> Self {
+        self.bls_to_execution_change = Some(timeout);
+        self
+    }
+
     /// Timeout for light client finality update messages.
     pub fn light_client_finality_update_timeout(mut self, timeout: Duration) -> Self {
         self.light_client_finality_update = Some(timeout);
@@ -144,6 +154,7 @@ impl GossipCacheBuilder {
             attester_slashing,
             signed_contribution_and_proof,
             sync_committee_message,
+            bls_to_execution_change,
             light_client_finality_update,
             light_client_optimistic_update,
         } = self;
@@ -158,6 +169,7 @@ impl GossipCacheBuilder {
             attester_slashing: attester_slashing.or(default_timeout),
             signed_contribution_and_proof: signed_contribution_and_proof.or(default_timeout),
             sync_committee_message: sync_committee_message.or(default_timeout),
+            bls_to_execution_change: bls_to_execution_change.or(default_timeout),
             light_client_finality_update: light_client_finality_update.or(default_timeout),
             light_client_optimistic_update: light_client_optimistic_update.or(default_timeout),
         }
@@ -182,6 +194,7 @@ impl GossipCache {
             GossipKind::AttesterSlashing => self.attester_slashing,
             GossipKind::SignedContributionAndProof => self.signed_contribution_and_proof,
             GossipKind::SyncCommitteeMessage(_) => self.sync_committee_message,
+            GossipKind::BlsToExecutionChange => self.bls_to_execution_change,
             GossipKind::LightClientFinalityUpdate => self.light_client_finality_update,
             GossipKind::LightClientOptimisticUpdate => self.light_client_optimistic_update,
         };

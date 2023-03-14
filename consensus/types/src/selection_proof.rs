@@ -7,8 +7,7 @@ use ssz::Encode;
 use std::cmp;
 use std::convert::TryInto;
 
-#[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
-#[derive(PartialEq, Debug, Clone)]
+#[derive(arbitrary::Arbitrary, PartialEq, Debug, Clone)]
 pub struct SelectionProof(Signature);
 
 impl SelectionProof {

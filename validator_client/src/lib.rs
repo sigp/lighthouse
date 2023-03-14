@@ -8,6 +8,7 @@ mod duties_service;
 mod graffiti_file;
 mod http_metrics;
 mod key_cache;
+mod latency;
 mod notifier;
 mod preparation_service;
 mod signing_method;
@@ -562,6 +563,14 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             info!(log, "HTTP API server is disabled");
             None
         };
+
+        if self.config.enable_latency_measurement_service {
+            latency::start_latency_service(
+                self.context.clone(),
+                self.duties_service.slot_clock.clone(),
+                self.duties_service.beacon_nodes.clone(),
+            );
+        }
 
         Ok(())
     }

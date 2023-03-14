@@ -1,5 +1,7 @@
 use beacon_chain::{
-    test_utils::{BeaconChainHarness, BoxedMutator, EphemeralHarnessType},
+    test_utils::{
+        BeaconChainHarness, BoxedMutator, Builder as HarnessBuilder, EphemeralHarnessType,
+    },
     BeaconChain, BeaconChainTypes,
 };
 use directory::DEFAULT_ROOT_DIR;
@@ -55,25 +57,39 @@ pub struct ApiServer<E: EthSpec, SFut: Future<Output = ()>> {
     pub external_peer_id: PeerId,
 }
 
+type Initializer<E> = Box<
+    dyn FnOnce(HarnessBuilder<EphemeralHarnessType<E>>) -> HarnessBuilder<EphemeralHarnessType<E>>,
+>;
 type Mutator<E> = BoxedMutator<E, MemoryStore<E>, MemoryStore<E>>;
 
 impl<E: EthSpec> InteractiveTester<E> {
     pub async fn new(spec: Option<ChainSpec>, validator_count: usize) -> Self {
-        Self::new_with_mutator(spec, validator_count, None).await
+        Self::new_with_initializer_and_mutator(spec, validator_count, None, None).await
     }
 
-    pub async fn new_with_mutator(
+    pub async fn new_with_initializer_and_mutator(
         spec: Option<ChainSpec>,
         validator_count: usize,
+        initializer: Option<Initializer<E>>,
         mutator: Option<Mutator<E>>,
     ) -> Self {
         let mut harness_builder = BeaconChainHarness::builder(E::default())
             .spec_or_default(spec)
-            .deterministic_keypairs(validator_count)
             .logger(test_logger())
-            .mock_execution_layer()
-            .fresh_ephemeral_store();
+            .mock_execution_layer();
 
+        harness_builder = if let Some(initializer) = initializer {
+            // Apply custom initialization provided by the caller.
+            initializer(harness_builder)
+        } else {
+            // Apply default initial configuration.
+            harness_builder
+                .deterministic_keypairs(validator_count)
+                .fresh_ephemeral_store()
+        };
+
+        // Add a mutator for the beacon chain builder which will be called in
+        // `HarnessBuilder::build`.
         if let Some(mutator) = mutator {
             harness_builder = harness_builder.initial_mutator(mutator);
         }

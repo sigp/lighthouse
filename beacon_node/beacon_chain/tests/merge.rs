@@ -12,17 +12,14 @@ fn verify_execution_payload_chain<T: EthSpec>(chain: &[FullPayload<T>]) {
     let mut prev_ep: Option<FullPayload<T>> = None;
 
     for ep in chain {
-        assert!(*ep != FullPayload::default());
+        assert!(!ep.is_default_with_empty_roots());
         assert!(ep.block_hash() != ExecutionBlockHash::zero());
 
         // Check against previous `ExecutionPayload`.
         if let Some(prev_ep) = prev_ep {
-            assert_eq!(prev_ep.block_hash(), ep.execution_payload.parent_hash);
-            assert_eq!(
-                prev_ep.execution_payload.block_number + 1,
-                ep.execution_payload.block_number
-            );
-            assert!(ep.execution_payload.timestamp > prev_ep.execution_payload.timestamp);
+            assert_eq!(prev_ep.block_hash(), ep.parent_hash());
+            assert_eq!(prev_ep.block_number() + 1, ep.block_number());
+            assert!(ep.timestamp() > prev_ep.timestamp());
         }
         prev_ep = Some(ep.clone());
     }
@@ -89,7 +86,7 @@ async fn merge_with_terminal_block_hash_override() {
         if i == 0 {
             assert_eq!(execution_payload.block_hash(), genesis_pow_block_hash);
         }
-        execution_payloads.push(execution_payload);
+        execution_payloads.push(execution_payload.into());
     }
 
     verify_execution_payload_chain(execution_payloads.as_slice());
@@ -141,9 +138,14 @@ async fn base_altair_merge_with_terminal_block_after_fork() {
     let merge_head = &harness.chain.head_snapshot().beacon_block;
     assert!(merge_head.as_merge().is_ok());
     assert_eq!(merge_head.slot(), merge_fork_slot);
-    assert_eq!(
-        *merge_head.message().body().execution_payload().unwrap(),
-        FullPayload::default()
+    assert!(
+        merge_head
+            .message()
+            .body()
+            .execution_payload()
+            .unwrap()
+            .is_default_with_empty_roots(),
+        "Merge head is default payload"
     );
 
     /*
@@ -153,13 +155,14 @@ async fn base_altair_merge_with_terminal_block_after_fork() {
     harness.extend_slots(1).await;
 
     let one_after_merge_head = &harness.chain.head_snapshot().beacon_block;
-    assert_eq!(
-        *one_after_merge_head
+    assert!(
+        one_after_merge_head
             .message()
             .body()
             .execution_payload()
-            .unwrap(),
-        FullPayload::default()
+            .unwrap()
+            .is_default_with_empty_roots(),
+        "One after merge head is default payload"
     );
     assert_eq!(one_after_merge_head.slot(), merge_fork_slot + 1);
 
@@ -185,26 +188,34 @@ async fn base_altair_merge_with_terminal_block_after_fork() {
 
     harness.extend_slots(1).await;
 
-    let one_after_merge_head = &harness.chain.head_snapshot().beacon_block;
-    assert_eq!(
-        *one_after_merge_head
+    let two_after_merge_head = &harness.chain.head_snapshot().beacon_block;
+    assert!(
+        two_after_merge_head
             .message()
             .body()
             .execution_payload()
-            .unwrap(),
-        FullPayload::default()
+            .unwrap()
+            .is_default_with_empty_roots(),
+        "Two after merge head is default payload"
     );
-    assert_eq!(one_after_merge_head.slot(), merge_fork_slot + 2);
+    assert_eq!(two_after_merge_head.slot(), merge_fork_slot + 2);
 
     /*
      * Next merge block should include an exec payload.
      */
-
     for _ in 0..4 {
         harness.extend_slots(1).await;
 
         let block = &harness.chain.head_snapshot().beacon_block;
-        execution_payloads.push(block.message().body().execution_payload().unwrap().clone());
+        execution_payloads.push(
+            block
+                .message()
+                .body()
+                .execution_payload()
+                .unwrap()
+                .clone()
+                .into(),
+        );
     }
 
     verify_execution_payload_chain(execution_payloads.as_slice());
