@@ -88,6 +88,7 @@ use std::time::Duration;
 use store::{Error as DBError, HotStateSummary, KeyValueStore, StoreOp};
 use task_executor::JoinHandle;
 use tree_hash::TreeHash;
+use types::ExecPayload;
 use types::{
     BeaconBlockRef, BeaconState, BeaconStateError, BlindedPayload, ChainSpec, CloneConfig, Epoch,
     EthSpec, ExecutionBlockHash, Hash256, InconsistentFork, PublicKey, PublicKeyBytes,
@@ -1185,7 +1186,7 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
                     .message()
                     .body()
                     .execution_payload()
-                    .map(|full_payload| full_payload.execution_payload.block_hash);
+                    .map(|full_payload| full_payload.block_hash());
 
                 // Ensure the block is a candidate for optimistic import.
                 if !is_optimistic_candidate_block(&chain, block.slot(), block.parent_root()).await?
@@ -1850,7 +1851,7 @@ fn cheap_state_advance_to_obtain_committees<'a, E: EthSpec>(
 }
 
 /// Obtains a read-locked `ValidatorPubkeyCache` from the `chain`.
-fn get_validator_pubkey_cache<T: BeaconChainTypes>(
+pub fn get_validator_pubkey_cache<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
 ) -> Result<RwLockReadGuard<ValidatorPubkeyCache<T>>, BlockError<T::EthSpec>> {
     chain

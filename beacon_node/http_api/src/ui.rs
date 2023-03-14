@@ -1,5 +1,7 @@
-use beacon_chain::{metrics, BeaconChain, BeaconChainError, BeaconChainTypes};
-use eth2::types::ValidatorStatus;
+use beacon_chain::{
+    validator_monitor::HISTORIC_EPOCHS, BeaconChain, BeaconChainError, BeaconChainTypes,
+};
+use eth2::types::{Epoch, ValidatorStatus};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -72,6 +74,82 @@ pub fn get_validator_count<T: BeaconChainTypes>(
 }
 
 #[derive(PartialEq, Serialize, Deserialize)]
+pub struct ValidatorInfoRequestData {
+    #[serde(with = "eth2_serde_utils::quoted_u64_vec")]
+    indices: Vec<u64>,
+}
+
+#[derive(PartialEq, Serialize, Deserialize)]
+pub struct ValidatorInfoValues {
+    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    epoch: u64,
+    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    total_balance: u64,
+}
+
+#[derive(PartialEq, Serialize, Deserialize)]
+pub struct ValidatorInfo {
+    info: Vec<ValidatorInfoValues>,
+}
+
+#[derive(PartialEq, Serialize, Deserialize)]
+pub struct ValidatorInfoResponse {
+    validators: HashMap<String, ValidatorInfo>,
+}
+
+pub fn get_validator_info<T: BeaconChainTypes>(
+    request_data: ValidatorInfoRequestData,
+    chain: Arc<BeaconChain<T>>,
+) -> Result<ValidatorInfoResponse, warp::Rejection> {
+    let current_epoch = chain.epoch().map_err(beacon_chain_error)?;
+
+    let epochs = current_epoch.saturating_sub(HISTORIC_EPOCHS).as_u64()..=current_epoch.as_u64();
+
+    let validator_ids = chain
+        .validator_monitor
+        .read()
+        .get_all_monitored_validators()
+        .iter()
+        .cloned()
+        .collect::<HashSet<String>>();
+
+    let indices = request_data
+        .indices
+        .iter()
+        .map(|index| index.to_string())
+        .collect::<HashSet<String>>();
+
+    let ids = validator_ids
+        .intersection(&indices)
+        .collect::<HashSet<&String>>();
+
+    let mut validators = HashMap::new();
+
+    for id in ids {
+        if let Ok(index) = id.parse::<u64>() {
+            if let Some(validator) = chain
+                .validator_monitor
+                .read()
+                .get_monitored_validator(index)
+            {
+                let mut info = vec![];
+                for epoch in epochs.clone() {
+                    if let Some(total_balance) = validator.get_total_balance(Epoch::new(epoch)) {
+                        info.push(ValidatorInfoValues {
+                            epoch,
+                            total_balance,
+                        });
+                    }
+                }
+                validators.insert(id.clone(), ValidatorInfo { info });
+            }
+        }
+    }
+
+    Ok(ValidatorInfoResponse { validators })
+}
+
+#[derive(PartialEq, Serialize, Deserialize)]
 pub struct ValidatorMetricsRequestData {
     indices: Vec<u64>,
 }
@@ -119,76 +197,56 @@ pub fn post_validator_monitor_metrics<T: BeaconChainTypes>(
     let mut validators = HashMap::new();
 
     for id in ids {
-        let attestation_hits = metrics::get_int_counter(
-            &metrics::VALIDATOR_MONITOR_PREV_EPOCH_ON_CHAIN_ATTESTER_HIT,
-            &[id],
-        )
-        .map(|counter| counter.get())
-        .unwrap_or(0);
-        let attestation_misses = metrics::get_int_counter(
-            &metrics::VALIDATOR_MONITOR_PREV_EPOCH_ON_CHAIN_ATTESTER_MISS,
-            &[id],
-        )
-        .map(|counter| counter.get())
-        .unwrap_or(0);
-        let attestations = attestation_hits + attestation_misses;
-        let attestation_hit_percentage: f64 = if attestations == 0 {
-            0.0
-        } else {
-            (100 * attestation_hits / attestations) as f64
-        };
+        if let Ok(index) = id.parse::<u64>() {
+            if let Some(validator) = chain
+                .validator_monitor
+                .read()
+                .get_monitored_validator(index)
+            {
+                let val_metrics = validator.metrics.read();
+                let attestation_hits = val_metrics.attestation_hits;
+                let attestation_misses = val_metrics.attestation_misses;
+                let attestation_head_hits = val_metrics.attestation_head_hits;
+                let attestation_head_misses = val_metrics.attestation_head_misses;
+                let attestation_target_hits = val_metrics.attestation_target_hits;
+                let attestation_target_misses = val_metrics.attestation_target_misses;
+                drop(val_metrics);
 
-        let attestation_head_hits = metrics::get_int_counter(
-            &metrics::VALIDATOR_MONITOR_PREV_EPOCH_ON_CHAIN_HEAD_ATTESTER_HIT,
-            &[id],
-        )
-        .map(|counter| counter.get())
-        .unwrap_or(0);
-        let attestation_head_misses = metrics::get_int_counter(
-            &metrics::VALIDATOR_MONITOR_PREV_EPOCH_ON_CHAIN_HEAD_ATTESTER_MISS,
-            &[id],
-        )
-        .map(|counter| counter.get())
-        .unwrap_or(0);
-        let head_attestations = attestation_head_hits + attestation_head_misses;
-        let attestation_head_hit_percentage: f64 = if head_attestations == 0 {
-            0.0
-        } else {
-            (100 * attestation_head_hits / head_attestations) as f64
-        };
+                let attestations = attestation_hits + attestation_misses;
+                let attestation_hit_percentage: f64 = if attestations == 0 {
+                    0.0
+                } else {
+                    (100 * attestation_hits / attestations) as f64
+                };
+                let head_attestations = attestation_head_hits + attestation_head_misses;
+                let attestation_head_hit_percentage: f64 = if head_attestations == 0 {
+                    0.0
+                } else {
+                    (100 * attestation_head_hits / head_attestations) as f64
+                };
 
-        let attestation_target_hits = metrics::get_int_counter(
-            &metrics::VALIDATOR_MONITOR_PREV_EPOCH_ON_CHAIN_TARGET_ATTESTER_HIT,
-            &[id],
-        )
-        .map(|counter| counter.get())
-        .unwrap_or(0);
-        let attestation_target_misses = metrics::get_int_counter(
-            &metrics::VALIDATOR_MONITOR_PREV_EPOCH_ON_CHAIN_TARGET_ATTESTER_MISS,
-            &[id],
-        )
-        .map(|counter| counter.get())
-        .unwrap_or(0);
-        let target_attestations = attestation_target_hits + attestation_target_misses;
-        let attestation_target_hit_percentage: f64 = if target_attestations == 0 {
-            0.0
-        } else {
-            (100 * attestation_target_hits / target_attestations) as f64
-        };
+                let target_attestations = attestation_target_hits + attestation_target_misses;
+                let attestation_target_hit_percentage: f64 = if target_attestations == 0 {
+                    0.0
+                } else {
+                    (100 * attestation_target_hits / target_attestations) as f64
+                };
 
-        let metrics = ValidatorMetrics {
-            attestation_hits,
-            attestation_misses,
-            attestation_hit_percentage,
-            attestation_head_hits,
-            attestation_head_misses,
-            attestation_head_hit_percentage,
-            attestation_target_hits,
-            attestation_target_misses,
-            attestation_target_hit_percentage,
-        };
+                let metrics = ValidatorMetrics {
+                    attestation_hits,
+                    attestation_misses,
+                    attestation_hit_percentage,
+                    attestation_head_hits,
+                    attestation_head_misses,
+                    attestation_head_hit_percentage,
+                    attestation_target_hits,
+                    attestation_target_misses,
+                    attestation_target_hit_percentage,
+                };
 
-        validators.insert(id.clone(), metrics);
+                validators.insert(id.clone(), metrics);
+            }
+        }
     }
 
     Ok(ValidatorMetricsResponse { validators })

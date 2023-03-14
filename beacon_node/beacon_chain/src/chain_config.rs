@@ -69,6 +69,10 @@ pub struct ChainConfig {
     pub optimistic_finalized_sync: bool,
     /// The size of the shuffling cache,
     pub shuffling_cache_size: usize,
+    /// Whether to send payload attributes every slot, regardless of connected proposers.
+    ///
+    /// This is useful for block builders and testing.
+    pub always_prepare_payload: bool,
 }
 
 impl Default for ChainConfig {
@@ -93,8 +97,10 @@ impl Default for ChainConfig {
             count_unrealized_full: CountUnrealizedFull::default(),
             checkpoint_sync_url_timeout: 60,
             prepare_payload_lookahead: Duration::from_secs(4),
+            // This value isn't actually read except in tests.
             optimistic_finalized_sync: true,
             shuffling_cache_size: crate::shuffling_cache::DEFAULT_CACHE_SIZE,
+            always_prepare_payload: false,
         }
     }
 }

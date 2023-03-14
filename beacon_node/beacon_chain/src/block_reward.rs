@@ -5,10 +5,10 @@ use state_processing::{
     common::get_attesting_indices_from_state,
     per_block_processing::altair::sync_committee::compute_sync_aggregate_rewards,
 };
-use types::{BeaconBlockRef, BeaconState, EthSpec, ExecPayload, Hash256};
+use types::{AbstractExecPayload, BeaconBlockRef, BeaconState, EthSpec, Hash256};
 
 impl<T: BeaconChainTypes> BeaconChain<T> {
-    pub fn compute_block_reward<Payload: ExecPayload<T::EthSpec>>(
+    pub fn compute_block_reward<Payload: AbstractExecPayload<T::EthSpec>>(
         &self,
         block: BeaconBlockRef<'_, T::EthSpec, Payload>,
         block_root: Hash256,

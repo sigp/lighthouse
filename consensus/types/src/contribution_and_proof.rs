@@ -9,9 +9,20 @@ use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
 /// A Validators aggregate sync committee contribution and selection proof.
-#[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TestRandom, TreeHash)]
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Serialize,
+    Deserialize,
+    Encode,
+    Decode,
+    TestRandom,
+    TreeHash,
+    arbitrary::Arbitrary,
+)]
 #[serde(bound = "T: EthSpec")]
+#[arbitrary(bound = "T: EthSpec")]
 pub struct ContributionAndProof<T: EthSpec> {
     /// The index of the validator that created the sync contribution.
     #[serde(with = "eth2_serde_utils::quoted_u64")]

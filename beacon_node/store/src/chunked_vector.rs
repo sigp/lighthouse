@@ -18,6 +18,7 @@ use self::UpdatePattern::*;
 use crate::*;
 use ssz::{Decode, Encode};
 use typenum::Unsigned;
+use types::historical_summary::HistoricalSummary;
 
 /// Description of how a `BeaconState` field is updated during state processing.
 ///
@@ -26,7 +27,18 @@ use typenum::Unsigned;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UpdatePattern {
     /// The value is updated once per `n` slots.
-    OncePerNSlots { n: u64 },
+    OncePerNSlots {
+        n: u64,
+        /// The slot at which the field begins to accumulate values.
+        ///
+        /// The field should not be read or written until `activation_slot` is reached, and the
+        /// activation slot should act as an offset when converting slots to vector indices.
+        activation_slot: Option<Slot>,
+        /// The slot at which the field ceases to accumulate values.
+        ///
+        /// If this is `None` then the field is continually updated.
+        deactivation_slot: Option<Slot>,
+    },
     /// The value is updated once per epoch, for the epoch `current_epoch - lag`.
     OncePerEpoch { lag: u64 },
 }
@@ -98,12 +110,30 @@ pub trait Field<E: EthSpec>: Copy {
     fn start_and_end_vindex(current_slot: Slot, spec: &ChainSpec) -> (usize, usize) {
         // We take advantage of saturating subtraction on slots and epochs
         match Self::update_pattern(spec) {
-            OncePerNSlots { n } => {
+            OncePerNSlots {
+                n,
+                activation_slot,
+                deactivation_slot,
+            } => {
                 // Per-slot changes exclude the index for the current slot, because
                 // it won't be set until the slot completes (think of `state_roots`, `block_roots`).
                 // This also works for the `historical_roots` because at the `n`th slot, the 0th
                 // entry of the list is created, and before that the list is empty.
-                let end_vindex = current_slot / n;
+                //
+                // To account for the switch from historical roots to historical summaries at
+                // Capella we also modify the current slot by the activation and deactivation slots.
+                // The activation slot acts as an offset (subtraction) while the deactivation slot
+                // acts as a clamp (min).
+                let slot_with_clamp = deactivation_slot.map_or(current_slot, |deactivation_slot| {
+                    std::cmp::min(current_slot, deactivation_slot)
+                });
+                let slot_with_clamp_and_offset = if let Some(activation_slot) = activation_slot {
+                    slot_with_clamp - activation_slot
+                } else {
+                    // Return (0, 0) to indicate that the field should not be read/written.
+                    return (0, 0);
+                };
+                let end_vindex = slot_with_clamp_and_offset / n;
                 let start_vindex = end_vindex - Self::Length::to_u64();
                 (start_vindex.as_usize(), end_vindex.as_usize())
             }
@@ -295,7 +325,11 @@ field!(
     Hash256,
     T::SlotsPerHistoricalRoot,
     DBColumn::BeaconBlockRoots,
-    |_| OncePerNSlots { n: 1 },
+    |_| OncePerNSlots {
+        n: 1,
+        activation_slot: Some(Slot::new(0)),
+        deactivation_slot: None
+    },
     |state: &BeaconState<_>, index, _| safe_modulo_index(state.block_roots(), index)
 );
 
@@ -305,7 +339,11 @@ field!(
     Hash256,
     T::SlotsPerHistoricalRoot,
     DBColumn::BeaconStateRoots,
-    |_| OncePerNSlots { n: 1 },
+    |_| OncePerNSlots {
+        n: 1,
+        activation_slot: Some(Slot::new(0)),
+        deactivation_slot: None,
+    },
     |state: &BeaconState<_>, index, _| safe_modulo_index(state.state_roots(), index)
 );
 
@@ -315,8 +353,12 @@ field!(
     Hash256,
     T::HistoricalRootsLimit,
     DBColumn::BeaconHistoricalRoots,
-    |_| OncePerNSlots {
-        n: T::SlotsPerHistoricalRoot::to_u64()
+    |spec: &ChainSpec| OncePerNSlots {
+        n: T::SlotsPerHistoricalRoot::to_u64(),
+        activation_slot: Some(Slot::new(0)),
+        deactivation_slot: spec
+            .capella_fork_epoch
+            .map(|fork_epoch| fork_epoch.start_slot(T::slots_per_epoch())),
     },
     |state: &BeaconState<_>, index, _| safe_modulo_index(state.historical_roots(), index)
 );
@@ -329,6 +371,27 @@ field!(
     DBColumn::BeaconRandaoMixes,
     |_| OncePerEpoch { lag: 1 },
     |state: &BeaconState<_>, index, _| safe_modulo_index(state.randao_mixes(), index)
+);
+
+field!(
+    HistoricalSummaries,
+    VariableLengthField,
+    HistoricalSummary,
+    T::HistoricalRootsLimit,
+    DBColumn::BeaconHistoricalSummaries,
+    |spec: &ChainSpec| OncePerNSlots {
+        n: T::SlotsPerHistoricalRoot::to_u64(),
+        activation_slot: spec
+            .capella_fork_epoch
+            .map(|fork_epoch| fork_epoch.start_slot(T::slots_per_epoch())),
+        deactivation_slot: None,
+    },
+    |state: &BeaconState<_>, index, _| safe_modulo_index(
+        state
+            .historical_summaries()
+            .map_err(|_| ChunkError::InvalidFork)?,
+        index
+    )
 );
 
 pub fn store_updated_vector<F: Field<E>, E: EthSpec, S: KeyValueStore<E>>(
@@ -679,6 +742,7 @@ pub enum ChunkError {
         end_vindex: usize,
         length: usize,
     },
+    InvalidFork,
 }
 
 #[cfg(test)]
