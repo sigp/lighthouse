@@ -91,7 +91,7 @@ impl<T: BeaconChainTypes> Worker<T> {
             .map_err(BlockError::BlobValidation);
 
         let result = match available_block {
-            Ok(block) => {
+            Ok(BlockProcessingResult::Verified(block)) => {
                 self.chain
                     .process_block(
                         block_root,
@@ -100,6 +100,10 @@ impl<T: BeaconChainTypes> Worker<T> {
                         NotifyExecutionLayer::Yes,
                     )
                     .await
+            }
+            Ok(BlockProcessingResult::AvailabilityPending(executed_block)) => {
+                // Shouldn't happen as sync should only send blocks for processing
+                // after sending blocks into the availability cache.
             }
             Err(e) => Err(e),
         };

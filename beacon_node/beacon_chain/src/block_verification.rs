@@ -658,11 +658,8 @@ type PayloadVerificationHandle<E> =
 /// Note: a `ExecutionPendingBlock` is not _forever_ valid to be imported, it may later become invalid
 /// due to finality or some other event. A `ExecutionPendingBlock` should be imported into the
 /// `BeaconChain` immediately after it is instantiated.
-pub struct ExecutionPendingBlock<
-    T: BeaconChainTypes,
-    B: IntoAvailablBlockk = AvailableBlock<T::EthSpec>,
-> {
-    pub block: B,
+pub struct ExecutionPendingBlock<T: BeaconChainTypes> {
+    pub block: Arc<SignedBeaconBlock<T::EthSpec>>,
     pub block_root: Hash256,
     pub state: BeaconState<T::EthSpec>,
     pub parent_block: SignedBeaconBlock<T::EthSpec, BlindedPayload<T::EthSpec>>,
@@ -672,14 +669,21 @@ pub struct ExecutionPendingBlock<
     pub payload_verification_handle: PayloadVerificationHandle<T::EthSpec>,
 }
 
+pub struct ExecutedBlock<T: BeaconChainTypes> {
+    pub block: Arc<SignedBeaconBlock<T::EthSpec>>,
+    pub block_root: Hash256,
+    pub state: BeaconState<T::EthSpec>,
+    pub parent_block: SignedBeaconBlock<T::EthSpec, BlindedPayload<T::EthSpec>>,
+    pub parent_eth1_finalization_data: Eth1FinalizationData,
+    pub confirmed_state_roots: Vec<Hash256>,
+    pub consensus_context: ConsensusContext<T::EthSpec>,
+    pub payload_verification_outcome: PayloadVerificationOutcome,
+}
+
 /// Implemented on types that can be converted into a `ExecutionPendingBlock`.
 ///
 /// Used to allow functions to accept blocks at various stages of verification.
-pub trait IntoExecutionPendingBlock<
-    T: BeaconChainTypes,
-    B: IntoAvailableBlock<T> = AvailableBlock<T::EthSpec>,
->: Sized
-{
+pub trait IntoExecutionPendingBlock<T: BeaconChainTypes>: Sized {
     fn into_execution_pending_block(
         self,
         block_root: Hash256,
