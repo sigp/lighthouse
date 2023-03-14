@@ -18,23 +18,22 @@ use libp2p::swarm::{NotifyHandler, PollParameters, SwarmBuilder, SwarmEvent};
 use libp2p::{InboundUpgrade, OutboundUpgrade};
 use lighthouse_network::rpc::methods::RPCCodedResponse;
 use lighthouse_network::rpc::{
-    max_rpc_size, send_message_to_inbound_substream, BaseOutboundCodec, Encoding, GoodbyeReason,
-    HandlerErr, HandlerEvent, HandlerState, InboundInfo, InboundRequest, InboundState,
+    max_rpc_size, BaseOutboundCodec, Encoding, GoodbyeReason,
+    HandlerErr, HandlerEvent, HandlerState, InboundInfo, InboundRequest, 
     OutboundCodec, OutboundFramed, OutboundInfo, OutboundRequest, OutboundSubstreamState, Protocol,
-    ProtocolId, RPCError, RPCMessage, RPCProtocol, RPCReceived, RPCResponseErrorCode, RPCSend,
+    ProtocolId, RPCError, RPCMessage, RPCProtocol, RPCReceived, RPCSend,
     ReqId, SSZSnappyOutboundCodec, SubstreamId, Version,
 };
 use lighthouse_network::NetworkConfig;
 use lighthouse_network::{error, Request};
-use slog::{crit, debug, o, trace, warn};
+use slog::{crit, debug, o, trace};
 use smallvec::SmallVec;
 use std::collections::hash_map::Entry;
-use std::collections::VecDeque;
 use std::marker::PhantomData;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use tokio::time::sleep_until;
 use tokio::time::Instant as TInstant;
 use tokio_util::codec::Framed;
@@ -52,9 +51,6 @@ const IO_ERROR_RETRIES: u8 = 3;
 
 /// Maximum time given to the handler to perform shutdown operations.
 const SHUTDOWN_TIMEOUT_SECS: u8 = 15;
-
-/// Maximum number of simultaneous inbound substreams we keep for this peer.
-const MAX_INBOUND_SUBSTREAMS: usize = 32;
 
 pub struct MockLibP2PLightClientService<Id: ReqId, TSpec: EthSpec> {
     pub swarm: libp2p::swarm::Swarm<MockRPC<Id, TSpec>>,
