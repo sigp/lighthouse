@@ -6,10 +6,9 @@
 
 use futures::future::FutureExt;
 use handler::{HandlerEvent, RPCHandler};
-use libp2p::core::connection::ConnectionId;
 use libp2p::swarm::{
-    handler::ConnectionHandler, NetworkBehaviour, NetworkBehaviourAction, NotifyHandler,
-    PollParameters, SubstreamProtocol,
+    handler::ConnectionHandler, ConnectionId, NetworkBehaviour, NetworkBehaviourAction,
+    NotifyHandler, PollParameters, SubstreamProtocol,
 };
 use libp2p::PeerId;
 use rate_limiter::{RPCRateLimiter as RateLimiter, RateLimitedErr};

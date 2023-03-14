@@ -25,10 +25,10 @@ use libp2p::multiaddr::Protocol;
 use libp2p::swarm::behaviour::{DialFailure, FromSwarm};
 use libp2p::swarm::AddressScore;
 pub use libp2p::{
-    core::{connection::ConnectionId, ConnectedPoint, Multiaddr, PeerId},
+    core::{ConnectedPoint, Multiaddr, PeerId},
     swarm::{
-        dummy::ConnectionHandler, DialError, NetworkBehaviour, NetworkBehaviourAction as NBAction,
-        NotifyHandler, PollParameters, SubstreamProtocol,
+        dummy::ConnectionHandler, ConnectionId, DialError, NetworkBehaviour,
+        NetworkBehaviourAction as NBAction, NotifyHandler, PollParameters, SubstreamProtocol,
     },
 };
 use lru::LruCache;
