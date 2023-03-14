@@ -11,13 +11,13 @@ use environment::RuntimeContext;
 use execution_layer::DEFAULT_JWT_FILE;
 use genesis::Eth1Endpoint;
 use http_api::TlsConfig;
+use lighthouse_network::ListenAddress;
 use lighthouse_network::{multiaddr::Protocol, Enr, Multiaddr, NetworkConfig, PeerIdSerialized};
 use sensitive_url::SensitiveUrl;
 use slog::{info, warn, Logger};
 use std::cmp;
 use std::cmp::max;
 use std::fmt::Debug;
-use std::fmt::Write;
 use std::fs;
 use std::net::Ipv6Addr;
 use std::net::{IpAddr, Ipv4Addr, ToSocketAddrs};
@@ -25,7 +25,6 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::time::Duration;
 use types::{Checkpoint, Epoch, EthSpec, Hash256, PublicKeyBytes, GRAFFITI_BYTES_LEN};
-use unused_port::{unused_tcp_port, unused_udp_port};
 
 /// Gets the fully-initialized global client.
 ///
@@ -79,13 +78,7 @@ pub fn get_config<E: EthSpec>(
 
     let data_dir_ref = client_config.data_dir().clone();
 
-    set_network_config(
-        &mut client_config.network,
-        cli_args,
-        &data_dir_ref,
-        log,
-        false,
-    )?;
+    set_network_config(&mut client_config.network, cli_args, &data_dir_ref, log)?;
 
     /*
      * Staking flag
@@ -441,13 +434,6 @@ pub fn get_config<E: EthSpec>(
      * Discovery address is set to localhost by default.
      */
     if cli_args.is_present("zero-ports") {
-        if client_config.network.enr_address == Some(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0))) {
-            client_config.network.enr_address = None
-        }
-        client_config.network.libp2p_port =
-            unused_tcp_port().map_err(|e| format!("Failed to get port for libp2p: {}", e))?;
-        client_config.network.discovery_port =
-            unused_udp_port().map_err(|e| format!("Failed to get port for discovery: {}", e))?;
         client_config.http_api.listen_port = 0;
         client_config.http_metrics.listen_port = 0;
     }
@@ -798,13 +784,177 @@ pub fn get_config<E: EthSpec>(
     Ok(client_config)
 }
 
-/// Sets the network config from the command line arguments
+/// Gets the listening_addresses for lighthouse based on the cli options.
+pub fn parse_listening_addresses(
+    cli_args: &ArgMatches,
+    log: &Logger,
+) -> Result<ListenAddress, String> {
+    let listen_addresses_str = cli_args
+        .values_of("listen-address")
+        .expect("--listen_addresses has a default value");
+
+    let use_zero_ports = cli_args.is_present("zero-ports");
+
+    // parse the possible ips
+    let mut maybe_ipv4 = None;
+    let mut maybe_ipv6 = None;
+    for addr_str in listen_addresses_str {
+        let addr = addr_str.parse::<IpAddr>().map_err(|parse_error| {
+            format!("Failed to parse listen-address ({addr_str}) as an Ip address: {parse_error}")
+        })?;
+
+        match addr {
+            IpAddr::V4(v4_addr) => match &maybe_ipv4 {
+                Some(first_ipv4_addr) => {
+                    return Err(format!(
+                                "When setting the --listen-address option twice, use an IpV4 address and an Ipv6 address. \
+                                Got two IpV4 addresses {first_ipv4_addr} and {v4_addr}"
+                            ));
+                }
+                None => maybe_ipv4 = Some(v4_addr),
+            },
+            IpAddr::V6(v6_addr) => match &maybe_ipv6 {
+                Some(first_ipv6_addr) => {
+                    return Err(format!(
+                                "When setting the --listen-address option twice, use an IpV4 address and an Ipv6 address. \
+                                Got two IpV6 addresses {first_ipv6_addr} and {v6_addr}"
+                            ));
+                }
+                None => maybe_ipv6 = Some(v6_addr),
+            },
+        }
+    }
+
+    // parse the possible tcp ports
+    let port = cli_args
+        .value_of("port")
+        .expect("--port has a default value")
+        .parse::<u16>()
+        .map_err(|parse_error| format!("Failed to parse --port as an integer: {parse_error}"))?;
+    let port6 = cli_args
+        .value_of("port6")
+        .map(str::parse::<u16>)
+        .transpose()
+        .map_err(|parse_error| format!("Failed to parse --port6 as an integer: {parse_error}"))?
+        .unwrap_or(9090);
+
+    // parse the possible udp ports
+    let maybe_udp_port = cli_args
+        .value_of("discovery-port")
+        .map(str::parse::<u16>)
+        .transpose()
+        .map_err(|parse_error| {
+            format!("Failed to parse --discovery-port as an integer: {parse_error}")
+        })?;
+    let maybe_udp6_port = cli_args
+        .value_of("discovery-port6")
+        .map(str::parse::<u16>)
+        .transpose()
+        .map_err(|parse_error| {
+            format!("Failed to parse --discovery-port6 as an integer: {parse_error}")
+        })?;
+
+    // Now put everything together
+    let listening_addresses = match (maybe_ipv4, maybe_ipv6) {
+        (None, None) => {
+            // This should never happen unless clap is broken
+            return Err("No listening addresses provided".into());
+        }
+        (None, Some(ipv6)) => {
+            // A single ipv6 address was provided. Set the ports
+
+            if cli_args.is_present("port6") {
+                warn!(log, "When listening only over IpV6, use the --port flag. The value of --port6 will be ignored.")
+            }
+            // use zero ports if required. If not, use the given port.
+            let tcp_port = use_zero_ports
+                .then(unused_port::unused_tcp6_port)
+                .transpose()?
+                .unwrap_or(port);
+
+            if maybe_udp6_port.is_some() {
+                warn!(log, "When listening only over IpV6, use the --discovery-port flag. The value of --discovery-port6 will be ignored.")
+            }
+            // use zero ports if required. If not, use the specific udp port. If none given, use
+            // the tcp port.
+            let udp_port = use_zero_ports
+                .then(unused_port::unused_udp6_port)
+                .transpose()?
+                .or(maybe_udp_port)
+                .unwrap_or(port);
+
+            ListenAddress::V6(lighthouse_network::ListenAddr {
+                addr: ipv6,
+                udp_port,
+                tcp_port,
+            })
+        }
+        (Some(ipv4), None) => {
+            // A single ipv4 address was provided. Set the ports
+
+            // use zero ports if required. If not, use the given port.
+            let tcp_port = use_zero_ports
+                .then(unused_port::unused_tcp4_port)
+                .transpose()?
+                .unwrap_or(port);
+            // use zero ports if required. If not, use the specific udp port. If none given, use
+            // the tcp port.
+            let udp_port = use_zero_ports
+                .then(unused_port::unused_udp4_port)
+                .transpose()?
+                .or(maybe_udp_port)
+                .unwrap_or(port);
+            ListenAddress::V4(lighthouse_network::ListenAddr {
+                addr: ipv4,
+                udp_port,
+                tcp_port,
+            })
+        }
+        (Some(ipv4), Some(ipv6)) => {
+            let ipv4_tcp_port = use_zero_ports
+                .then(unused_port::unused_tcp4_port)
+                .transpose()?
+                .unwrap_or(port);
+            let ipv4_udp_port = use_zero_ports
+                .then(unused_port::unused_udp4_port)
+                .transpose()?
+                .or(maybe_udp_port)
+                .unwrap_or(ipv4_tcp_port);
+
+            // Defaults to 9090 when required
+            let ipv6_tcp_port = use_zero_ports
+                .then(unused_port::unused_tcp6_port)
+                .transpose()?
+                .unwrap_or(port6);
+            let ipv6_udp_port = use_zero_ports
+                .then(unused_port::unused_udp6_port)
+                .transpose()?
+                .or(maybe_udp6_port)
+                .unwrap_or(ipv6_tcp_port);
+            ListenAddress::DualStack(
+                lighthouse_network::ListenAddr {
+                    addr: ipv4,
+                    udp_port: ipv4_udp_port,
+                    tcp_port: ipv4_tcp_port,
+                },
+                lighthouse_network::ListenAddr {
+                    addr: ipv6,
+                    udp_port: ipv6_udp_port,
+                    tcp_port: ipv6_tcp_port,
+                },
+            )
+        }
+    };
+
+    Ok(listening_addresses)
+}
+
+/// Sets the network config from the command line arguments.
 pub fn set_network_config(
     config: &mut NetworkConfig,
     cli_args: &ArgMatches,
     data_dir: &Path,
     log: &Logger,
-    use_listening_port_as_enr_port_by_default: bool,
 ) -> Result<(), String> {
     // If a network dir has been specified, override the `datadir` definition.
     if let Some(dir) = cli_args.value_of("network-dir") {
@@ -825,32 +975,12 @@ pub fn set_network_config(
         config.shutdown_after_sync = true;
     }
 
-    if let Some(listen_address_str) = cli_args.value_of("listen-address") {
-        let listen_address = listen_address_str
-            .parse()
-            .map_err(|_| format!("Invalid listen address: {:?}", listen_address_str))?;
-        config.listen_address = listen_address;
-    }
+    config.set_listening_addr(parse_listening_addresses(cli_args, log)?);
 
     if let Some(target_peers_str) = cli_args.value_of("target-peers") {
         config.target_peers = target_peers_str
             .parse::<usize>()
             .map_err(|_| format!("Invalid number of target peers: {}", target_peers_str))?;
-    }
-
-    if let Some(port_str) = cli_args.value_of("port") {
-        let port = port_str
-            .parse::<u16>()
-            .map_err(|_| format!("Invalid port: {}", port_str))?;
-        config.libp2p_port = port;
-        config.discovery_port = port;
-    }
-
-    if let Some(port_str) = cli_args.value_of("discovery-port") {
-        let port = port_str
-            .parse::<u16>()
-            .map_err(|_| format!("Invalid port: {}", port_str))?;
-        config.discovery_port = port;
     }
 
     if let Some(value) = cli_args.value_of("network-load") {
@@ -908,7 +1038,7 @@ pub fn set_network_config(
     }
 
     if let Some(enr_udp_port_str) = cli_args.value_of("enr-udp-port") {
-        config.enr_udp_port = Some(
+        config.enr_udp4_port = Some(
             enr_udp_port_str
                 .parse::<u16>()
                 .map_err(|_| format!("Invalid discovery port: {}", enr_udp_port_str))?,
@@ -916,7 +1046,23 @@ pub fn set_network_config(
     }
 
     if let Some(enr_tcp_port_str) = cli_args.value_of("enr-tcp-port") {
-        config.enr_tcp_port = Some(
+        config.enr_tcp4_port = Some(
+            enr_tcp_port_str
+                .parse::<u16>()
+                .map_err(|_| format!("Invalid ENR TCP port: {}", enr_tcp_port_str))?,
+        );
+    }
+
+    if let Some(enr_udp_port_str) = cli_args.value_of("enr-udp6-port") {
+        config.enr_udp6_port = Some(
+            enr_udp_port_str
+                .parse::<u16>()
+                .map_err(|_| format!("Invalid discovery port: {}", enr_udp_port_str))?,
+        );
+    }
+
+    if let Some(enr_tcp_port_str) = cli_args.value_of("enr-tcp6-port") {
+        config.enr_tcp6_port = Some(
             enr_tcp_port_str
                 .parse::<u16>()
                 .map_err(|_| format!("Invalid ENR TCP port: {}", enr_tcp_port_str))?,
@@ -924,58 +1070,106 @@ pub fn set_network_config(
     }
 
     if cli_args.is_present("enr-match") {
+        // Match the Ip and UDP port in the enr.
+
         // set the enr address to localhost if the address is unspecified
-        if config.listen_address == IpAddr::V4(Ipv4Addr::UNSPECIFIED) {
-            config.enr_address = Some(IpAddr::V4(Ipv4Addr::LOCALHOST));
-        } else if config.listen_address == IpAddr::V6(Ipv6Addr::UNSPECIFIED) {
-            config.enr_address = Some(IpAddr::V6(Ipv6Addr::LOCALHOST));
-        } else {
-            config.enr_address = Some(config.listen_address);
+        if let Some(ipv4_addr) = config.listen_addrs().v4().cloned() {
+            let ipv4_enr_addr = if ipv4_addr.addr == Ipv4Addr::UNSPECIFIED {
+                Ipv4Addr::LOCALHOST
+            } else {
+                ipv4_addr.addr
+            };
+            config.enr_address.0 = Some(ipv4_enr_addr);
+            config.enr_udp4_port = Some(ipv4_addr.udp_port);
         }
-        config.enr_udp_port = Some(config.discovery_port);
+
+        if let Some(ipv6_addr) = config.listen_addrs().v6().cloned() {
+            let ipv6_enr_addr = if ipv6_addr.addr == Ipv6Addr::UNSPECIFIED {
+                Ipv6Addr::LOCALHOST
+            } else {
+                ipv6_addr.addr
+            };
+            config.enr_address.1 = Some(ipv6_enr_addr);
+            config.enr_udp6_port = Some(ipv6_addr.udp_port);
+        }
     }
 
-    if let Some(enr_address) = cli_args.value_of("enr-address") {
-        let resolved_addr = match enr_address.parse::<IpAddr>() {
-            Ok(addr) => addr, // // Input is an IpAddr
-            Err(_) => {
-                let mut addr = enr_address.to_string();
-                // Appending enr-port to the dns hostname to appease `to_socket_addrs()` parsing.
-                // Since enr-update is disabled with a dns address, not setting the enr-udp-port
-                // will make the node undiscoverable.
-                if let Some(enr_udp_port) =
-                    config
-                        .enr_udp_port
-                        .or(if use_listening_port_as_enr_port_by_default {
-                            Some(config.discovery_port)
-                        } else {
-                            None
-                        })
-                {
-                    write!(addr, ":{}", enr_udp_port)
-                        .map_err(|e| format!("Failed to write enr address {}", e))?;
-                } else {
-                    return Err(
-                        "enr-udp-port must be set for node to be discoverable with dns address"
-                            .into(),
-                    );
+    if let Some(enr_addresses) = cli_args.values_of("enr-address") {
+        let mut enr_ip4 = None;
+        let mut enr_ip6 = None;
+        let mut resolved_enr_ip4 = None;
+        let mut resolved_enr_ip6 = None;
+
+        for addr in enr_addresses {
+            match addr.parse::<IpAddr>() {
+                Ok(IpAddr::V4(v4_addr)) => {
+                    if let Some(used) = enr_ip4.as_ref() {
+                        warn!(log, "More than one Ipv4 ENR address provided"; "used" => %used, "ignored" => %v4_addr)
+                    } else {
+                        enr_ip4 = Some(v4_addr)
+                    }
                 }
-                // `to_socket_addr()` does the dns resolution
-                // Note: `to_socket_addrs()` is a blocking call
-                let resolved_addr = if let Ok(mut resolved_addrs) = addr.to_socket_addrs() {
-                    // Pick the first ip from the list of resolved addresses
-                    resolved_addrs
-                        .next()
-                        .map(|a| a.ip())
-                        .ok_or("Resolved dns addr contains no entries")?
-                } else {
-                    return Err(format!("Failed to parse enr-address: {}", enr_address));
-                };
-                config.discv5_config.enr_update = false;
-                resolved_addr
+                Ok(IpAddr::V6(v6_addr)) => {
+                    if let Some(used) = enr_ip6.as_ref() {
+                        warn!(log, "More than one Ipv6 ENR address provided"; "used" => %used, "ignored" => %v6_addr)
+                    } else {
+                        enr_ip6 = Some(v6_addr)
+                    }
+                }
+                Err(_) => {
+                    // Try to resolve the address
+
+                    // NOTE: From checking the `to_socket_addrs` code I don't think the port
+                    // actually matters. Just use the udp port.
+
+                    let port = match config.listen_addrs() {
+                        ListenAddress::V4(v4_addr) => v4_addr.udp_port,
+                        ListenAddress::V6(v6_addr) => v6_addr.udp_port,
+                        ListenAddress::DualStack(v4_addr, _v6_addr) => {
+                            // NOTE: slight preference for ipv4 that I don't think is of importance.
+                            v4_addr.udp_port
+                        }
+                    };
+
+                    let addr_str = format!("{addr}:{port}");
+                    match addr_str.to_socket_addrs() {
+                        Err(_e) => {
+                            return Err(format!("Failed to parse or resolve address {addr}."))
+                        }
+                        Ok(resolved_addresses) => {
+                            for socket_addr in resolved_addresses {
+                                // Use the first ipv4 and first ipv6 addresses present.
+
+                                // NOTE: this means that if two dns addresses are provided, we
+                                // might end up using the ipv4 and ipv6 resolved addresses of just
+                                // the first.
+                                match socket_addr.ip() {
+                                    IpAddr::V4(v4_addr) => {
+                                        if resolved_enr_ip4.is_none() {
+                                            resolved_enr_ip4 = Some(v4_addr)
+                                        }
+                                    }
+                                    IpAddr::V6(v6_addr) => {
+                                        if resolved_enr_ip6.is_none() {
+                                            resolved_enr_ip6 = Some(v6_addr)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
-        };
-        config.enr_address = Some(resolved_addr);
+        }
+
+        // The ENR addresses given as ips should take preference over any resolved address
+        let used_host_resolution = resolved_enr_ip4.is_some() || resolved_enr_ip6.is_some();
+        let ip4 = enr_ip4.or(resolved_enr_ip4);
+        let ip6 = enr_ip6.or(resolved_enr_ip6);
+        config.enr_address = (ip4, ip6);
+        if used_host_resolution {
+            config.discv5_config.enr_update = false;
+        }
     }
 
     if cli_args.is_present("disable-enr-auto-update") {

@@ -127,7 +127,7 @@ pub async fn create_api_server<T: BeaconChainTypes>(
     log: Logger,
 ) -> ApiServer<T::EthSpec, impl Future<Output = ()>> {
     // Get a random unused port.
-    let port = unused_port::unused_tcp_port().unwrap();
+    let port = unused_port::unused_tcp4_port().unwrap();
     create_api_server_on_port(chain, log, port).await
 }
 
@@ -148,8 +148,8 @@ pub async fn create_api_server_on_port<T: BeaconChainTypes>(
     let enr = EnrBuilder::new("v4").build(&enr_key).unwrap();
     let network_globals = Arc::new(NetworkGlobals::new(
         enr.clone(),
-        TCP_PORT,
-        UDP_PORT,
+        Some(TCP_PORT),
+        None,
         meta_data,
         vec![],
         &log,

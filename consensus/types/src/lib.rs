@@ -1,6 +1,4 @@
 //! Ethereum 2.0 types
-// Required for big type-level numbers
-#![recursion_limit = "128"]
 // Clippy lint set up
 #![cfg_attr(
     not(test),

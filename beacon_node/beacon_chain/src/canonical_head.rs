@@ -167,6 +167,17 @@ impl<E: EthSpec> CachedHead<E> {
             .map(|payload| payload.prev_randao())
     }
 
+    /// Returns the execution block number of the block at the head of the chain.
+    ///
+    /// Returns an error if the chain is prior to Bellatrix.
+    pub fn head_block_number(&self) -> Result<u64, BeaconStateError> {
+        self.snapshot
+            .beacon_block
+            .message()
+            .execution_payload()
+            .map(|payload| payload.block_number())
+    }
+
     /// Returns the active validator count for the current epoch of the head state.
     ///
     /// Should only return `None` if the caches have not been built on the head state (this should
