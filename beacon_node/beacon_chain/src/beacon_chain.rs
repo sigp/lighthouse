@@ -197,6 +197,9 @@ pub enum ProduceBlockVerification {
 pub struct PrePayloadAttributes {
     pub proposer_index: u64,
     pub prev_randao: Hash256,
+    /// The parent block number is not part of the payload attributes sent to the EL, but *is*
+    /// sent to builders via SSE.
+    pub parent_block_number: u64,
 }
 
 /// Define whether a forkchoiceUpdate needs to be checked for an override (`Yes`) or has already
@@ -3866,16 +3869,21 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             proposer as u64
         };
 
-        // Get the `prev_randao` value.
-        let prev_randao = if proposer_head == parent_block_root {
-            cached_head.parent_random()
+        // Get the `prev_randao` and parent block number.
+        let head_block_number = cached_head.head_block_number()?;
+        let (prev_randao, parent_block_number) = if proposer_head == parent_block_root {
+            (
+                cached_head.parent_random()?,
+                head_block_number.saturating_sub(1),
+            )
         } else {
-            cached_head.head_random()
-        }?;
+            (cached_head.head_random()?, head_block_number)
+        };
 
         Ok(Some(PrePayloadAttributes {
             proposer_index,
             prev_randao,
+            parent_block_number,
         }))
     }
 
@@ -4865,6 +4873,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         proposal_slot: prepare_slot,
                         proposer_index: proposer,
                         parent_block_root: head_root,
+                        parent_block_number: pre_payload_attributes.parent_block_number,
                         parent_block_hash: forkchoice_update_params.head_hash.unwrap_or_default(),
                         payload_attributes: payload_attributes.into(),
                     },

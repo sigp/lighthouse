@@ -47,7 +47,7 @@ use types::{
 
 mod block_hash;
 mod engine_api;
-mod engines;
+pub mod engines;
 mod keccak;
 mod metrics;
 pub mod payload_cache;
@@ -293,6 +293,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                 .map_err(Error::InvalidJWTSecret)
         } else {
             // Create a new file and write a randomly generated secret to it if file does not exist
+            warn!(log, "No JWT found on disk. Generating"; "path" => %secret_file.display());
             std::fs::File::options()
                 .write(true)
                 .create_new(true)

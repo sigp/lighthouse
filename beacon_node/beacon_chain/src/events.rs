@@ -65,43 +65,43 @@ impl<T: EthSpec> ServerSentEventHandler<T> {
             EventKind::Attestation(_) => self
                 .attestation_tx
                 .send(kind)
-                .map(|count| log_count(count, "attestation")),
+                .map(|count| log_count("attestation", count)),
             EventKind::Block(_) => self
                 .block_tx
                 .send(kind)
-                .map(|count| log_count(count, "block")),
+                .map(|count| log_count("block", count)),
             EventKind::FinalizedCheckpoint(_) => self
                 .finalized_tx
                 .send(kind)
-                .map(|count| log_count(count, "finalized checkpoint")),
+                .map(|count| log_count("finalized checkpoint", count)),
             EventKind::Head(_) => self
                 .head_tx
                 .send(kind)
-                .map(|count| log_count(count, "head")),
+                .map(|count| log_count("head", count)),
             EventKind::VoluntaryExit(_) => self
                 .exit_tx
                 .send(kind)
-                .map(|count| log_count(count, "exit")),
+                .map(|count| log_count("exit", count)),
             EventKind::ChainReorg(_) => self
                 .chain_reorg_tx
                 .send(kind)
-                .map(|count| log_count(count, "chain reorg")),
+                .map(|count| log_count("chain reorg", count)),
             EventKind::ContributionAndProof(_) => self
                 .contribution_tx
                 .send(kind)
-                .map(|count| log_count(count, "contribution and proof")),
+                .map(|count| log_count("contribution and proof", count)),
             EventKind::PayloadAttributes(_) => self
                 .payload_attributes_tx
                 .send(kind)
-                .map(|count| log_count(count, "payload attributes")),
+                .map(|count| log_count("payload attributes", count)),
             EventKind::LateHead(_) => self
                 .late_head
                 .send(kind)
-                .map(|count| log_count(count, "late head")),
+                .map(|count| log_count("late head", count)),
             EventKind::BlockReward(_) => self
                 .block_reward_tx
                 .send(kind)
-                .map(|count| log_count(count, "block reward")),
+                .map(|count| log_count("block reward", count)),
         };
         if let Err(SendError(event)) = result {
             trace!(self.log, "No receivers registered to listen for event"; "event" => ?event);

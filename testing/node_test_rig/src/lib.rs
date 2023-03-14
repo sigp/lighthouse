@@ -89,8 +89,9 @@ pub fn testing_client_config() -> ClientConfig {
     let mut client_config = ClientConfig::default();
 
     // Setting ports to `0` means that the OS will choose some available port.
-    client_config.network.libp2p_port = 0;
-    client_config.network.discovery_port = 0;
+    client_config
+        .network
+        .set_ipv4_listening_address(std::net::Ipv4Addr::UNSPECIFIED, 0, 0);
     client_config.network.upnp_enabled = false;
     client_config.http_api.enabled = true;
     client_config.http_api.listen_port = 0;
