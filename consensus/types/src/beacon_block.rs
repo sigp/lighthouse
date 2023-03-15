@@ -731,17 +731,6 @@ impl<E: EthSpec> From<BeaconBlock<E, FullPayload<E>>>
     }
 }
 
-impl<T: EthSpec, Payload: AbstractExecPayload<T>> From<BlockContents<T, Payload>>
-    for BeaconBlock<T, Payload>
-{
-    fn from(block_contents: BlockContents<T, Payload>) -> Self {
-        match block_contents {
-            BlockContents::BlockAndBlobSidecars(block_and_sidecars) => block_and_sidecars.block,
-            BlockContents::Block(block) => block,
-        }
-    }
-}
-
 impl<T: EthSpec, Payload: AbstractExecPayload<T>> ForkVersionDeserialize
     for BeaconBlock<T, Payload>
 {

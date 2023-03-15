@@ -1,8 +1,7 @@
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockProductionError};
+use eth2::types::BlockContents;
 use std::sync::Arc;
-use types::{
-    AbstractExecPayload, BeaconBlock, BeaconBlockAndBlobSidecars, BlockContents, ForkName,
-};
+use types::{AbstractExecPayload, BeaconBlock, BeaconBlockAndBlobSidecars, ForkName};
 
 type Error = warp::reject::Rejection;
 
