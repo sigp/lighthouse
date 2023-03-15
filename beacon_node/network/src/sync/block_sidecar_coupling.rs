@@ -61,7 +61,7 @@ impl<T: EthSpec> BlocksAndBlobsRequestInfo<T> {
 
         // if accumulated sidecars is not empty, throw an error.
         if blob_iter.next().is_some() {
-            return Err("Received sidecars that don't pair weel ");
+            return Err("Received sidecars that don't pair well");
         }
 
         Ok(responses)
