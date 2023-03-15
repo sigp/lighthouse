@@ -94,9 +94,9 @@ fn keypair_from_hex(hex_bytes: &str) -> error::Result<Keypair> {
 
 #[allow(dead_code)]
 fn keypair_from_bytes(mut bytes: Vec<u8>) -> error::Result<Keypair> {
-    libp2p::core::identity::secp256k1::SecretKey::from_bytes(&mut bytes)
+    libp2p::identity::secp256k1::SecretKey::from_bytes(&mut bytes)
         .map(|secret| {
-            let keypair: libp2p::core::identity::secp256k1::Keypair = secret.into();
+            let keypair: libp2p::identity::secp256k1::Keypair = secret.into();
             Keypair::Secp256k1(keypair)
         })
         .map_err(|e| format!("Unable to parse p2p secret key: {:?}", e).into())
@@ -116,9 +116,9 @@ pub fn load_private_key(config: &NetworkConfig, log: &slog::Logger) -> Keypair {
             Ok(_) => {
                 // only accept secp256k1 keys for now
                 if let Ok(secret_key) =
-                    libp2p::core::identity::secp256k1::SecretKey::from_bytes(&mut key_bytes)
+                    libp2p::identity::secp256k1::SecretKey::from_bytes(&mut key_bytes)
                 {
-                    let kp: libp2p::core::identity::secp256k1::Keypair = secret_key.into();
+                    let kp: libp2p::identity::secp256k1::Keypair = secret_key.into();
                     debug!(log, "Loaded network key from disk.");
                     return Keypair::Secp256k1(kp);
                 } else {

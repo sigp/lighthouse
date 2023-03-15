@@ -7,7 +7,7 @@ use super::ENR_FILENAME;
 use crate::types::{Enr, EnrAttestationBitfield, EnrSyncCommitteeBitfield};
 use crate::NetworkConfig;
 use discv5::enr::EnrKey;
-use libp2p::core::identity::Keypair;
+use libp2p::identity::Keypair;
 use slog::{debug, warn};
 use ssz::{Decode, Encode};
 use ssz_types::BitVector;

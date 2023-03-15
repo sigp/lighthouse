@@ -1,7 +1,8 @@
 //! ENR extension trait to support libp2p integration.
 use crate::{Enr, Multiaddr, PeerId};
 use discv5::enr::{CombinedKey, CombinedPublicKey};
-use libp2p::core::{identity::Keypair, identity::PublicKey, multiaddr::Protocol};
+use libp2p::core::multiaddr::Protocol;
+use libp2p::identity::{Keypair, PublicKey};
 use tiny_keccak::{Hasher, Keccak};
 
 /// Extend ENR for libp2p types.
@@ -35,7 +36,7 @@ pub trait CombinedKeyPublicExt {
 /// Extend ENR CombinedKey for conversion to libp2p keys.
 pub trait CombinedKeyExt {
     /// Converts a libp2p key into an ENR combined key.
-    fn from_libp2p(key: &libp2p::core::identity::Keypair) -> Result<CombinedKey, &'static str>;
+    fn from_libp2p(key: &libp2p::identity::Keypair) -> Result<CombinedKey, &'static str>;
 }
 
 impl EnrExt for Enr {
@@ -200,7 +201,7 @@ impl CombinedKeyPublicExt for CombinedPublicKey {
             Self::Secp256k1(pk) => {
                 let pk_bytes = pk.to_bytes();
                 let libp2p_pk = libp2p::identity::PublicKey::Secp256k1(
-                    libp2p::core::identity::secp256k1::PublicKey::decode(&pk_bytes)
+                    libp2p::identity::secp256k1::PublicKey::decode(&pk_bytes)
                         .expect("valid public key"),
                 );
                 PeerId::from_public_key(&libp2p_pk)
@@ -208,7 +209,7 @@ impl CombinedKeyPublicExt for CombinedPublicKey {
             Self::Ed25519(pk) => {
                 let pk_bytes = pk.to_bytes();
                 let libp2p_pk = libp2p::identity::PublicKey::Ed25519(
-                    libp2p::core::identity::ed25519::PublicKey::decode(&pk_bytes)
+                    libp2p::identity::ed25519::PublicKey::decode(&pk_bytes)
                         .expect("valid public key"),
                 );
                 PeerId::from_public_key(&libp2p_pk)
@@ -218,7 +219,7 @@ impl CombinedKeyPublicExt for CombinedPublicKey {
 }
 
 impl CombinedKeyExt for CombinedKey {
-    fn from_libp2p(key: &libp2p::core::identity::Keypair) -> Result<CombinedKey, &'static str> {
+    fn from_libp2p(key: &libp2p::identity::Keypair) -> Result<CombinedKey, &'static str> {
         match key {
             Keypair::Secp256k1(key) => {
                 let secret =

@@ -16,7 +16,7 @@ pub use enr::{
     Eth2Enr,
 };
 pub use enr_ext::{peer_id_to_node_id, CombinedKeyExt, EnrExt};
-pub use libp2p::core::identity::{Keypair, PublicKey};
+pub use libp2p::identity::{Keypair, PublicKey};
 
 use enr::{ATTESTATION_BITFIELD_ENR_KEY, ETH2_ENR_KEY, SYNC_COMMITTEE_BITFIELD_ENR_KEY};
 use futures::prelude::*;
