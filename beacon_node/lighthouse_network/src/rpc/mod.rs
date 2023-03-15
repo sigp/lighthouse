@@ -6,11 +6,11 @@
 
 use futures::future::FutureExt;
 use handler::{HandlerEvent, RPCHandler};
-use libp2p::swarm::THandlerInEvent;
 use libp2p::swarm::{
     handler::ConnectionHandler, ConnectionId, NetworkBehaviour, NetworkBehaviourAction,
     NotifyHandler, PollParameters, SubstreamProtocol,
 };
+use libp2p::swarm::{FromSwarm, THandlerInEvent};
 use libp2p::PeerId;
 use rate_limiter::{RPCRateLimiter as RateLimiter, RateLimitedErr};
 use slog::{crit, debug, o};
@@ -232,6 +232,26 @@ where
             self.fork_context.clone(),
             &self.log,
         )
+    }
+
+    fn on_swarm_event(&mut self, event: FromSwarm<Self::ConnectionHandler>) {
+        match event {
+            FromSwarm::ConnectionEstablished(_)
+            | FromSwarm::ConnectionClosed(_)
+            | FromSwarm::AddressChange(_)
+            | FromSwarm::DialFailure(_)
+            | FromSwarm::ListenFailure(_)
+            | FromSwarm::NewListener(_)
+            | FromSwarm::NewListenAddr(_)
+            | FromSwarm::ExpiredListenAddr(_)
+            | FromSwarm::ListenerError(_)
+            | FromSwarm::ListenerClosed(_)
+            | FromSwarm::NewExternalAddr(_)
+            | FromSwarm::ExpiredExternalAddr(_) => {
+                // Rpc Bheaviour does not act on these swarm events. We use a comprehensive match
+                // statement tu ensure future events are dealt with appropiately.
+            }
+        }
     }
 
     fn on_connection_handler_event(
