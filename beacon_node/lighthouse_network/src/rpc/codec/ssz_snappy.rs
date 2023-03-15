@@ -16,9 +16,9 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 use tokio_util::codec::{Decoder, Encoder};
 use types::{
-    LightClientBootstrap, EthSpec, ForkContext, ForkName, Hash256,
-    LightClientFinalityUpdate, LightClientOptimisticUpdate, SignedBeaconBlock,
-    SignedBeaconBlockAltair, SignedBeaconBlockBase, SignedBeaconBlockMerge, SignedBeaconBlockCapella,
+    EthSpec, ForkContext, ForkName, Hash256, LightClientBootstrap, LightClientFinalityUpdate,
+    LightClientOptimisticUpdate, SignedBeaconBlock, SignedBeaconBlockAltair, SignedBeaconBlockBase,
+    SignedBeaconBlockCapella, SignedBeaconBlockMerge,
 };
 use unsigned_varint::codec::Uvi;
 
@@ -488,12 +488,10 @@ fn handle_v1_request<T: EthSpec>(
                 root: Hash256::from_ssz_bytes(decoded_buffer)?,
             },
         ))),
-        Protocol::LightClientOptimisticUpdate => Ok(Some(
-            InboundRequest::LightClientOptimisticUpdate,
-        )),
-        Protocol::LightClientFinalityUpdate => Ok(Some(
-                InboundRequest::LightClientFinalityUpdate,
-        )),
+        Protocol::LightClientOptimisticUpdate => {
+            Ok(Some(InboundRequest::LightClientOptimisticUpdate))
+        }
+        Protocol::LightClientFinalityUpdate => Ok(Some(InboundRequest::LightClientFinalityUpdate)),
         // MetaData requests return early from InboundUpgrade and do not reach the decoder.
         // Handle this case just for completeness.
         Protocol::MetaData => {

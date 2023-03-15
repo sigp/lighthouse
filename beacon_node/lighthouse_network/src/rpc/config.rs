@@ -141,7 +141,11 @@ impl FromStr for OutboundRateLimiterConfig {
                 Protocol::MetaData => meta_data_quota = meta_data_quota.or(quota),
                 Protocol::LightClientBootstrap
                 | Protocol::LightClientOptimisticUpdate
-                | Protocol::LightClientFinalityUpdate => return Err("Lighthouse does not send LightClient requests. Quota should not be set."),
+                | Protocol::LightClientFinalityUpdate => {
+                    return Err(
+                        "Lighthouse does not send LightClient requests. Quota should not be set.",
+                    )
+                }
             }
         }
         Ok(OutboundRateLimiterConfig {

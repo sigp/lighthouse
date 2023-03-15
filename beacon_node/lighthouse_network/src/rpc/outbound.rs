@@ -122,9 +122,7 @@ impl<TSpec: EthSpec> OutboundRequest<TSpec> {
             OutboundRequest::Ping(_) => Protocol::Ping,
             OutboundRequest::MetaData(_) => Protocol::MetaData,
             OutboundRequest::LightClientBootstrap(_) => Protocol::LightClientBootstrap,
-            OutboundRequest::LightClientOptimisticUpdate => {
-                Protocol::LightClientOptimisticUpdate
-            }
+            OutboundRequest::LightClientOptimisticUpdate => Protocol::LightClientOptimisticUpdate,
             OutboundRequest::LightClientFinalityUpdate => Protocol::LightClientFinalityUpdate,
         }
     }

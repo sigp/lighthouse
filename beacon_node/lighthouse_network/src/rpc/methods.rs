@@ -13,8 +13,8 @@ use std::sync::Arc;
 use strum::IntoStaticStr;
 use superstruct::superstruct;
 use types::{
-    LightClientBootstrap, Epoch, EthSpec, Hash256,
-    LightClientFinalityUpdate, LightClientOptimisticUpdate, SignedBeaconBlock, Slot,
+    Epoch, EthSpec, Hash256, LightClientBootstrap, LightClientFinalityUpdate,
+    LightClientOptimisticUpdate, SignedBeaconBlock, Slot,
 };
 
 /// Maximum number of blocks in a single request.

@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use libp2p::core::connection::ConnectionId;
 use types::{
-    LightClientBootstrap, EthSpec, LightClientFinalityUpdate,
-    LightClientOptimisticUpdate, SignedBeaconBlock,
+    EthSpec, LightClientBootstrap, LightClientFinalityUpdate, LightClientOptimisticUpdate,
+    SignedBeaconBlock,
 };
 
 use crate::rpc::{
@@ -57,12 +57,8 @@ impl<TSpec: EthSpec> std::convert::From<Request> for OutboundRequest<TSpec> {
                 })
             }
             Request::LightClientBootstrap(b) => OutboundRequest::LightClientBootstrap(b),
-            Request::LightClientOptimisticUpdate => {
-                OutboundRequest::LightClientOptimisticUpdate
-            }
-            Request::LightClientFinalityUpdate => {
-                OutboundRequest::LightClientFinalityUpdate
-            }
+            Request::LightClientOptimisticUpdate => OutboundRequest::LightClientOptimisticUpdate,
+            Request::LightClientFinalityUpdate => OutboundRequest::LightClientFinalityUpdate,
             Request::Status(s) => OutboundRequest::Status(s),
         }
     }

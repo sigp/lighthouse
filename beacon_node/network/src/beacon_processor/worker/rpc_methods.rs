@@ -11,7 +11,7 @@ use slog::{debug, error, warn};
 use slot_clock::SlotClock;
 use task_executor::TaskExecutor;
 use tokio_stream::StreamExt;
-use types::{LightClientBootstrap, Epoch, EthSpec, Hash256, Slot};
+use types::{Epoch, EthSpec, Hash256, LightClientBootstrap, Slot};
 
 use super::Worker;
 
@@ -282,11 +282,7 @@ impl<T: BeaconChainTypes> Worker<T> {
     }
 
     /// Handle a `LightClientOptimisticUpdate` request from the peer.
-    pub fn handle_light_client_optimistic_update(
-        self,
-        peer_id: PeerId,
-        request_id: PeerRequestId,
-    ) {
+    pub fn handle_light_client_optimistic_update(self, peer_id: PeerId, request_id: PeerRequestId) {
         let light_client_optimistic_update =
             match self.chain.latest_seen_optimistic_update.lock().clone() {
                 Some(update) => update,
@@ -308,11 +304,7 @@ impl<T: BeaconChainTypes> Worker<T> {
     }
 
     /// Handle a `LightClientFinalityUpdate` request from the peer.
-    pub fn handle_light_client_finality_update(
-        self,
-        peer_id: PeerId,
-        request_id: PeerRequestId,
-    ) {
+    pub fn handle_light_client_finality_update(self, peer_id: PeerId, request_id: PeerRequestId) {
         let light_client_finality_update =
             match self.chain.latest_seen_finality_update.lock().clone() {
                 Some(update) => update,

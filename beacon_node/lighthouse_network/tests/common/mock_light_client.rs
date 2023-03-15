@@ -4,7 +4,7 @@ use futures::future::BoxFuture;
 use futures::prelude::*;
 use libp2p::core::connection::ConnectionId;
 use libp2p::core::upgrade::{NegotiationError, ProtocolError};
-use libp2p::core::{UpgradeError, UpgradeInfo, PeerId};
+use libp2p::core::{PeerId, UpgradeError, UpgradeInfo};
 use libp2p::multiaddr::{Multiaddr, Protocol as MProtocol};
 use libp2p::swarm::handler::SubstreamProtocol;
 use libp2p::swarm::{
@@ -15,13 +15,12 @@ use libp2p::swarm::{NotifyHandler, PollParameters, SwarmBuilder, SwarmEvent};
 use libp2p::OutboundUpgrade;
 use lighthouse_network::rpc::methods::RPCCodedResponse;
 use lighthouse_network::rpc::{
-    max_rpc_size, BaseOutboundCodec, Encoding, GoodbyeReason,
-    HandlerErr, HandlerEvent, HandlerState,
-    OutboundCodec, OutboundFramed, OutboundInfo, OutboundRequest, OutboundSubstreamState, Protocol,
-    ProtocolId, RPCError, RPCMessage, RPCProtocol, RPCReceived, RPCSend,
-    ReqId, SSZSnappyOutboundCodec, SubstreamId, Version,
+    max_rpc_size, BaseOutboundCodec, Encoding, GoodbyeReason, HandlerErr, HandlerEvent,
+    HandlerState, OutboundCodec, OutboundFramed, OutboundInfo, OutboundRequest,
+    OutboundSubstreamState, Protocol, ProtocolId, RPCError, RPCMessage, RPCProtocol, RPCReceived,
+    RPCSend, ReqId, SSZSnappyOutboundCodec, SubstreamId, Version,
 };
-use lighthouse_network::{error, Request, NetworkConfig};
+use lighthouse_network::{error, NetworkConfig, Request};
 use slog::{crit, debug, o, trace};
 use smallvec::SmallVec;
 use std::collections::hash_map::Entry;
@@ -35,7 +34,7 @@ use tokio::time::Instant as TInstant;
 use tokio_util::{codec::Framed, compat::FuturesAsyncReadCompatExt, time::DelayQueue};
 use types::{EthSpec, ForkContext};
 
-use lighthouse_network::{build_transport, Context as ServiceContext, };
+use lighthouse_network::{build_transport, Context as ServiceContext};
 
 /// The time (in seconds) before a substream that is awaiting a response from the user times out.
 pub const RESPONSE_TIMEOUT: u64 = 10;
@@ -470,7 +469,7 @@ where
         match rpc_event {
             RPCSend::Request(id, req) => self.send_request(id, req),
             RPCSend::Shutdown(id, reason) => self.shutdown(Some((id, reason))),
-            _ => {},
+            _ => {}
         }
         // In any case, we need the handler to process the event.
         if let Some(waker) = &self.waker {

@@ -22,8 +22,9 @@ use tokio_util::{
 };
 use types::{
     BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockCapella, BeaconBlockMerge,
-    EmptyBlock, EthSpec, ForkContext, ForkName, Hash256, MainnetEthSpec, Signature,
-    SignedBeaconBlock, LightClientFinalityUpdate, LightClientOptimisticUpdate, LightClientBootstrap,
+    EmptyBlock, EthSpec, ForkContext, ForkName, Hash256, LightClientBootstrap,
+    LightClientFinalityUpdate, LightClientOptimisticUpdate, MainnetEthSpec, Signature,
+    SignedBeaconBlock,
 };
 
 lazy_static! {
@@ -447,6 +448,12 @@ where
             // MetaData requests should be empty, return the stream
             match protocol_name {
                 Protocol::MetaData => Ok((InboundRequest::MetaData(PhantomData), socket)),
+                Protocol::LightClientOptimisticUpdate => {
+                    Ok((InboundRequest::LightClientOptimisticUpdate, socket))
+                }
+                Protocol::LightClientFinalityUpdate => {
+                    Ok((InboundRequest::LightClientFinalityUpdate, socket))
+                }
                 _ => {
                     match tokio::time::timeout(
                         Duration::from_secs(REQUEST_TIMEOUT),
