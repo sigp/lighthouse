@@ -17,7 +17,11 @@ pub type SubscriptionFilter = MaxCountSubscriptionFilter<WhitelistSubscriptionFi
 pub type Gossipsub = BaseGossipsub<SnappyTransform, SubscriptionFilter>;
 
 #[derive(NetworkBehaviour)]
-pub(crate) struct Behaviour<AppReqId: ReqId, TSpec: EthSpec> {
+pub(crate) struct Behaviour<AppReqId, TSpec>
+where
+    AppReqId: ReqId,
+    TSpec: EthSpec,
+{
     /// The routing pub-sub mechanism for eth2.
     pub gossipsub: Gossipsub,
     /// The Eth2 RPC specified in the wire-0 protocol.
