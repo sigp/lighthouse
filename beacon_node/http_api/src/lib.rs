@@ -31,7 +31,8 @@ use beacon_chain::{
 pub use block_id::BlockId;
 use directory::DEFAULT_ROOT_DIR;
 use eth2::types::{
-    self as api_types, EndpointVersion, SkipRandaoVerification, ValidatorId, ValidatorStatus,
+    self as api_types, EndpointVersion, SignedBlockContents, SkipRandaoVerification, ValidatorId,
+    ValidatorStatus,
 };
 use lighthouse_network::{types::SyncState, EnrExt, NetworkGlobals, PeerId, PubsubMessage};
 use lighthouse_version::version_with_platform;
@@ -57,7 +58,7 @@ use types::{
     Attestation, AttestationData, AttesterSlashing, BeaconStateError, BlindedPayload,
     CommitteeCache, ConfigAndPreset, Epoch, EthSpec, ForkName, FullPayload,
     ProposerPreparationData, ProposerSlashing, RelativeEpoch, SignedAggregateAndProof,
-    SignedBeaconBlock, SignedBlindedBeaconBlock, SignedBlockContents, SignedBlsToExecutionChange,
+    SignedBeaconBlock, SignedBlindedBeaconBlock, SignedBlsToExecutionChange,
     SignedContributionAndProof, SignedValidatorRegistrationData, SignedVoluntaryExit, Slot,
     SyncCommitteeMessage, SyncContributionData,
 };

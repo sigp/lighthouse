@@ -3,6 +3,7 @@ use beacon_chain::blob_verification::{AsBlock, BlockWrapper, IntoAvailableBlock}
 use beacon_chain::validator_monitor::{get_block_delay_ms, timestamp_now};
 use beacon_chain::NotifyExecutionLayer;
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockError, CountUnrealized};
+use eth2::types::SignedBlockContents;
 use lighthouse_network::PubsubMessage;
 use network::NetworkMessage;
 use slog::{debug, error, info, warn, Logger};
@@ -12,7 +13,7 @@ use tokio::sync::mpsc::UnboundedSender;
 use tree_hash::TreeHash;
 use types::{
     AbstractExecPayload, BlindedPayload, EthSpec, ExecPayload, ExecutionBlockHash, FullPayload,
-    Hash256, SignedBeaconBlock, SignedBlockContents,
+    Hash256, SignedBeaconBlock,
 };
 use warp::Rejection;
 

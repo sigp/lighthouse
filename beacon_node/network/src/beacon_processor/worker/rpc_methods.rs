@@ -252,7 +252,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                                         block_parent_root: block.parent_root,
                                         proposer_index: block.proposer_index,
                                         blob,
-                                        kzg_commitment: block.body.blob_kzg_commitments[known_index].clone(), // TODO: needs to be stored in a more logical way so that this won't panic.
+                                        kzg_commitment: block.body.blob_kzg_commitments[known_index], // TODO: needs to be stored in a more logical way so that this won't panic.
                                         kzg_proof: kzg_aggregated_proof // TODO: yeah
                                     };
                                     self.send_response(
@@ -843,7 +843,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                         beacon_block_root,
                         beacon_block_slot,
                         blobs: blob_bundle,
-                        kzg_aggregated_proof,
+                        kzg_aggregated_proof: _,
                     }: types::BlobsSidecar<_> = blobs;
 
                     for (blob_index, blob) in blob_bundle.into_iter().enumerate() {

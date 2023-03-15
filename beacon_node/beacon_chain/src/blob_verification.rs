@@ -3,7 +3,7 @@ use slot_clock::SlotClock;
 use std::sync::Arc;
 
 use crate::beacon_chain::{BeaconChain, BeaconChainTypes, MAXIMUM_GOSSIP_CLOCK_DISPARITY};
-use crate::{kzg_utils, BeaconChainError};
+use crate::BeaconChainError;
 use state_processing::per_block_processing::eip4844::eip4844::verify_kzg_commitments_against_transactions;
 use types::signed_beacon_block::BlobReconstructionError;
 use types::{
@@ -116,11 +116,11 @@ pub fn validate_blob_for_gossip<T: BeaconChainTypes>(
 }
 
 fn verify_data_availability<T: BeaconChainTypes>(
-    blob_sidecar: &BlobsSidecar<T::EthSpec>,
+    _blob_sidecar: &BlobsSidecar<T::EthSpec>,
     kzg_commitments: &[KzgCommitment],
     transactions: &Transactions<T::EthSpec>,
-    block_slot: Slot,
-    block_root: Hash256,
+    _block_slot: Slot,
+    _block_root: Hash256,
     chain: &BeaconChain<T>,
 ) -> Result<(), BlobError> {
     if verify_kzg_commitments_against_transactions::<T::EthSpec>(transactions, kzg_commitments)
@@ -130,7 +130,7 @@ fn verify_data_availability<T: BeaconChainTypes>(
     }
 
     // Validatate that the kzg proof is valid against the commitments and blobs
-    let kzg = chain
+    let _kzg = chain
         .kzg
         .as_ref()
         .ok_or(BlobError::TrustedSetupNotInitialized)?;
