@@ -4,13 +4,13 @@ use crate::types::{
     error, EnrAttestationBitfield, EnrSyncCommitteeBitfield, GossipEncoding, GossipKind,
 };
 use crate::{GossipTopic, NetworkConfig};
-use libp2p::bandwidth::{BandwidthLogging, BandwidthSinks};
+use libp2p::bandwidth::BandwidthSinks;
 use libp2p::core::{
     identity::Keypair, multiaddr::Multiaddr, muxing::StreamMuxerBox, transport::Boxed,
 };
 use libp2p::gossipsub::subscription_filter::WhitelistSubscriptionFilter;
 use libp2p::gossipsub::IdentTopic as Topic;
-use libp2p::{core, noise, PeerId, Transport};
+use libp2p::{core, noise, PeerId, Transport, TransportExt};
 use prometheus_client::registry::Registry;
 use slog::{debug, warn};
 use ssz::Decode;
@@ -52,8 +52,6 @@ pub fn build_transport(
         transport.or_transport(libp2p::websocket::WsConfig::new(trans_clone))
     };
 
-    let (transport, bandwidth) = BandwidthLogging::new(transport);
-
     // mplex config
     let mut mplex_config = libp2p::mplex::MplexConfig::new();
     mplex_config.set_max_buffer_size(256);
@@ -62,20 +60,17 @@ pub fn build_transport(
     // yamux config
     let mut yamux_config = libp2p::yamux::YamuxConfig::default();
     yamux_config.set_window_update_mode(libp2p::yamux::WindowUpdateMode::on_read());
+    let multiplexer = core::upgrade::SelectUpgrade::new(yamux_config, mplex_config);
+    let (transport, bandwidth) = transport
+        .upgrade(core::upgrade::Version::V1)
+        .authenticate(generate_noise_config(&local_private_key))
+        .multiplex(multiplexer)
+        .timeout(Duration::from_secs(10))
+        .boxed()
+        .with_bandwidth_logging();
 
     // Authentication
-    Ok((
-        transport
-            .upgrade(core::upgrade::Version::V1)
-            .authenticate(generate_noise_config(&local_private_key))
-            .multiplex(core::upgrade::SelectUpgrade::new(
-                yamux_config,
-                mplex_config,
-            ))
-            .timeout(Duration::from_secs(10))
-            .boxed(),
-        bandwidth,
-    ))
+    Ok((transport, bandwidth))
 }
 
 // Useful helper functions for debugging. Currently not used in the client.
