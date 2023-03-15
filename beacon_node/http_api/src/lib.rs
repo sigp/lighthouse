@@ -57,9 +57,9 @@ use types::{
     Attestation, AttestationData, AttesterSlashing, BeaconStateError, BlindedPayload,
     CommitteeCache, ConfigAndPreset, Epoch, EthSpec, ForkName, FullPayload,
     ProposerPreparationData, ProposerSlashing, RelativeEpoch, SignedAggregateAndProof,
-    SignedBeaconBlock, SignedBlindedBeaconBlock, SignedBlsToExecutionChange,
+    SignedBeaconBlock, SignedBlindedBeaconBlock, SignedBlockContents, SignedBlsToExecutionChange,
     SignedContributionAndProof, SignedValidatorRegistrationData, SignedVoluntaryExit, Slot,
-    SyncCommitteeMessage, SyncContributionData, SignedBlockContents,
+    SyncCommitteeMessage, SyncContributionData,
 };
 use version::{
     add_consensus_version_header, execution_optimistic_fork_versioned_response,

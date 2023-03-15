@@ -1,9 +1,9 @@
 use crate::{test_utils::TestRandom, BlobSidecar, EthSpec, Signature};
+use derivative::Derivative;
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
-use derivative::Derivative;
 
 #[derive(
     Debug,

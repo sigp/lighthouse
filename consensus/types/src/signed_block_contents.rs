@@ -1,5 +1,5 @@
-use crate::{AbstractExecPayload, EthSpec, FullPayload, SignedBeaconBlock, SignedBlobSidecar};
 use crate::signed_block_and_blobs::SignedBeaconBlockAndBlobSidecars;
+use crate::{AbstractExecPayload, EthSpec, FullPayload, SignedBeaconBlock, SignedBlobSidecar};
 use derivative::Derivative;
 use serde_derive::{Deserialize, Serialize};
 use ssz_types::VariableList;
@@ -17,12 +17,19 @@ pub enum SignedBlockContents<T: EthSpec, Payload: AbstractExecPayload<T> = FullP
 impl<T: EthSpec, Payload: AbstractExecPayload<T>> SignedBlockContents<T, Payload> {
     pub fn signed_block(&self) -> &SignedBeaconBlock<T, Payload> {
         match self {
-            SignedBlockContents::BlockAndBlobSidecars(block_and_sidecars) => &block_and_sidecars.signed_block,
+            SignedBlockContents::BlockAndBlobSidecars(block_and_sidecars) => {
+                &block_and_sidecars.signed_block
+            }
             SignedBlockContents::Block(block) => block,
         }
     }
 
-    pub fn deconstruct(self) -> (SignedBeaconBlock<T, Payload>, Option<VariableList<SignedBlobSidecar<T>, <T as EthSpec>::MaxBlobsPerBlock>>) {
+    pub fn deconstruct(
+        self,
+    ) -> (
+        SignedBeaconBlock<T, Payload>,
+        Option<VariableList<SignedBlobSidecar<T>, <T as EthSpec>::MaxBlobsPerBlock>>,
+    ) {
         match self {
             SignedBlockContents::BlockAndBlobSidecars(block_and_sidecars) => (
                 block_and_sidecars.signed_block,
@@ -33,7 +40,9 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> SignedBlockContents<T, Payload
     }
 }
 
-impl<T: EthSpec, Payload: AbstractExecPayload<T>> From<SignedBeaconBlock<T, Payload>> for SignedBlockContents<T, Payload> {
+impl<T: EthSpec, Payload: AbstractExecPayload<T>> From<SignedBeaconBlock<T, Payload>>
+    for SignedBlockContents<T, Payload>
+{
     fn from(block: SignedBeaconBlock<T, Payload>) -> Self {
         SignedBlockContents::Block(block)
     }

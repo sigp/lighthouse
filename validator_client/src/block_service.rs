@@ -14,7 +14,10 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio::time::sleep;
-use types::{AbstractExecPayload, BeaconBlock, BlindedPayload, BlockType, EthSpec, FullPayload, Graffiti, PublicKeyBytes, SignedBlockContents, Slot};
+use types::{
+    AbstractExecPayload, BeaconBlock, BlindedPayload, BlockType, EthSpec, FullPayload, Graffiti,
+    PublicKeyBytes, SignedBlockContents, Slot,
+};
 
 #[derive(Debug)]
 pub enum BlockError {
