@@ -23,7 +23,7 @@ use futures::prelude::*;
 use futures::stream::FuturesUnordered;
 use libp2p::multiaddr::Protocol;
 use libp2p::swarm::behaviour::{DialFailure, FromSwarm};
-use libp2p::swarm::AddressScore;
+use libp2p::swarm::{AddressScore, THandlerInEvent};
 pub use libp2p::{
     core::{ConnectedPoint, Multiaddr},
     identity::PeerId,
@@ -977,7 +977,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
         &mut self,
         cx: &mut Context,
         _: &mut impl PollParameters,
-    ) -> Poll<NBAction<Self::OutEvent, Self::ConnectionHandler>> {
+    ) -> Poll<NBAction<Self::OutEvent, THandlerInEvent<Self>>> {
         if !self.started {
             return Poll::Pending;
         }
