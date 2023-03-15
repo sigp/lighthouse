@@ -44,12 +44,11 @@ use tree_hash::TreeHash;
 use types::consts::eip4844::BLOB_TX_TYPE;
 use types::transaction::{AccessTuple, BlobTransaction, EcdsaSignature, SignedBlobTransaction};
 use types::Withdrawals;
+use types::{AbstractExecPayload, BeaconStateError, ExecPayload, VersionedHash};
 use types::{
-    blobs_sidecar::{Blobs, KzgCommitments},
-    BlindedPayload, BlockType, ChainSpec, Epoch, ExecutionBlockHash, ExecutionPayload,
+    BlindedPayload, Blobs, BlockType, ChainSpec, Epoch, ExecutionBlockHash, ExecutionPayload,
     ExecutionPayloadCapella, ExecutionPayloadEip4844, ExecutionPayloadMerge, ForkName,
 };
-use types::{AbstractExecPayload, BeaconStateError, ExecPayload, VersionedHash};
 use types::{
     ProposerPreparationData, PublicKeyBytes, Signature, SignedBeaconBlock, Slot, Transaction,
     Uint256,

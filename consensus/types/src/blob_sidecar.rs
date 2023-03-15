@@ -1,5 +1,6 @@
 use crate::test_utils::TestRandom;
 use crate::{Blob, EthSpec, Hash256, SignedRoot, Slot};
+use bls::Signature;
 use derivative::Derivative;
 use kzg::{KzgCommitment, KzgProof};
 use serde_derive::{Deserialize, Serialize};
@@ -34,7 +35,6 @@ pub struct BlobIdentifier {
 #[derivative(PartialEq, Hash(bound = "T: EthSpec"))]
 pub struct BlobSidecar<T: EthSpec> {
     pub block_root: Hash256,
-    // TODO: fix the type, should fit in u8 as well
     #[serde(with = "eth2_serde_utils::quoted_u64")]
     pub index: u64,
     pub slot: Slot,
@@ -52,6 +52,13 @@ pub type BlobSidecarList<T> = VariableList<BlobSidecar<T>, <T as EthSpec>::MaxBl
 impl<T: EthSpec> SignedRoot for BlobSidecar<T> {}
 
 impl<T: EthSpec> BlobSidecar<T> {
+    pub fn id(&self) -> BlobIdentifier {
+        BlobIdentifier {
+            block_root: self.block_root,
+            index: self.index,
+        }
+    }
+
     pub fn empty() -> Self {
         Self::default()
     }

@@ -6216,9 +6216,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Err(BlobError::TransactionCommitmentMismatch);
         }
 
-        self.blob_cache
-
-        // Validatate that the kzg proof is valid against the commitments and blobs
+        // Validate that the kzg proof is valid against the commitments and blobs
         let kzg = self
             .kzg
             .as_ref()
