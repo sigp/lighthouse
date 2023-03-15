@@ -1,11 +1,11 @@
 use crate::test_utils::TestRandom;
 use crate::{Blob, EthSpec, Hash256, SignedRoot, Slot};
-use bls::Signature;
 use derivative::Derivative;
 use kzg::{KzgCommitment, KzgProof};
 use serde_derive::{Deserialize, Serialize};
 use ssz::Encode;
 use ssz_derive::{Decode, Encode};
+use ssz_types::VariableList;
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
@@ -52,10 +52,6 @@ pub type BlobSidecarList<T> = VariableList<BlobSidecar<T>, <T as EthSpec>::MaxBl
 impl<T: EthSpec> SignedRoot for BlobSidecar<T> {}
 
 impl<T: EthSpec> BlobSidecar<T> {
-    pub fn id(&self) -> BlobIdentifier {
-        BlobIdentifier::new(self.block_root, self.index)
-    }
-
     pub fn empty() -> Self {
         Self::default()
     }

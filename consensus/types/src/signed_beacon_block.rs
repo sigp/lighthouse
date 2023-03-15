@@ -35,6 +35,14 @@ impl From<SignedBeaconBlockHash> for Hash256 {
     }
 }
 
+#[derive(Debug)]
+pub enum BlobReconstructionError {
+    /// No blobs for the specified block where we would expect blobs.
+    UnavailableBlobs,
+    /// Blobs provided for a pre-Eip4844 fork.
+    InconsistentFork,
+}
+
 /// A `BeaconBlock` and a signature from its proposer.
 #[superstruct(
     variants(Base, Altair, Merge, Capella, Eip4844),

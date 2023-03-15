@@ -25,7 +25,6 @@ pub mod beacon_block_body;
 pub mod beacon_block_header;
 pub mod beacon_committee;
 pub mod beacon_state;
-pub mod blob_sidecar;
 pub mod bls_to_execution_change;
 pub mod builder_bid;
 pub mod chain_spec;
@@ -220,7 +219,6 @@ pub type BLSFieldElement = Uint256;
 pub type Blob<T> = FixedVector<u8, <T as EthSpec>::BytesPerBlob>;
 pub type VersionedHash = Hash256;
 pub type Hash64 = ethereum_types::H64;
-pub type BlobsSidecar<T> = VariableList<BlobSidecar<T>, <T as EthSpec>::MaxBlobsPerBlock>;
 
 pub use bls::{
     AggregatePublicKey, AggregateSignature, Keypair, PublicKey, PublicKeyBytes, SecretKey,
@@ -229,6 +227,5 @@ pub use bls::{
 
 pub use kzg::{KzgCommitment, KzgProof};
 
-use crate::blob_sidecar::BlobSidecar;
 pub use ssz_types::{typenum, typenum::Unsigned, BitList, BitVector, FixedVector, VariableList};
 pub use superstruct::superstruct;
