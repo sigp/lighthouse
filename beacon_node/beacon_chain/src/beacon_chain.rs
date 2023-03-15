@@ -4857,7 +4857,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     )),
                 )?;
 
-                kzg_utils::compute_blob_kzg_proof::<T::EthSpec>(kzg, blob, kzg_commitment.clone())
+                kzg_utils::compute_blob_kzg_proof::<T::EthSpec>(kzg, blob, *kzg_commitment)
                     .map_err(BlockProductionError::KzgError)
             })
             .collect::<Result<Vec<KzgProof>, BlockProductionError>>()

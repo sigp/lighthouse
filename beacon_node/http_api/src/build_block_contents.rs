@@ -24,9 +24,9 @@ pub fn build_block_contents<T: BeaconChainTypes, Payload: AbstractExecPayload<T:
 
                 Ok(BlockContents::BlockAndBlobSidecars(block_and_blobs))
             } else {
-                return Err(warp_utils::reject::block_production_error(
+                Err(warp_utils::reject::block_production_error(
                     BlockProductionError::NoBlobsCached,
-                ));
+                ))
             }
         }
     }

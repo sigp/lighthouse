@@ -4,6 +4,11 @@ use derivative::Derivative;
 use serde_derive::{Deserialize, Serialize};
 use ssz_types::VariableList;
 
+pub type BlockContentsTuple<T, Payload> = (
+    SignedBeaconBlock<T, Payload>,
+    Option<VariableList<SignedBlobSidecar<T>, <T as EthSpec>::MaxBlobsPerBlock>>,
+);
+
 /// A wrapper over a [`SignedBeaconBlock`] or a [`SignedBeaconBlockAndBlobSidecars`].
 #[derive(Clone, Debug, Derivative, Serialize, Deserialize)]
 #[derivative(PartialEq, Hash(bound = "T: EthSpec"))]
@@ -24,12 +29,7 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> SignedBlockContents<T, Payload
         }
     }
 
-    pub fn deconstruct(
-        self,
-    ) -> (
-        SignedBeaconBlock<T, Payload>,
-        Option<VariableList<SignedBlobSidecar<T>, <T as EthSpec>::MaxBlobsPerBlock>>,
-    ) {
+    pub fn deconstruct(self) -> BlockContentsTuple<T, Payload> {
         match self {
             SignedBlockContents::BlockAndBlobSidecars(block_and_sidecars) => (
                 block_and_sidecars.signed_block,

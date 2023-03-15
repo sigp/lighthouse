@@ -388,7 +388,6 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                                     ))
                                 })?
                                 .data
-                                .into()
                         }
                     };
 
@@ -455,7 +454,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                             );
                             beacon_node
                                 // TODO: need to be adjusted for blobs
-                                .post_beacon_blinded_blocks(&signed_block_contents.signed_block())
+                                .post_beacon_blinded_blocks(signed_block_contents.signed_block())
                                 .await
                                 .map_err(|e| {
                                     BlockError::Irrecoverable(format!(
