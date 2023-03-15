@@ -7,12 +7,15 @@ use crate::attester_cache::{AttesterCache, AttesterCacheKey};
 use crate::beacon_proposer_cache::compute_proposer_duties_from_head;
 use crate::beacon_proposer_cache::BeaconProposerCache;
 use crate::blob_cache::BlobCache;
-use crate::blob_verification::{AsBlock, AvailabilityPendingBlock, AvailableBlock, BlobError, BlockWrapper, IntoAvailableBlock, Blobs};
+use crate::blob_verification::{
+    AsBlock, AvailabilityPendingBlock, AvailableBlock, BlobError, Blobs, BlockWrapper,
+    IntoAvailableBlock,
+};
 use crate::block_times_cache::BlockTimesCache;
 use crate::block_verification::{
     check_block_is_finalized_checkpoint_or_descendant, check_block_relevancy, get_block_root,
-    signature_verify_chain_segment, BlockError, ExecutionPendingBlock, GossipVerifiedBlock,
-    IntoExecutionPendingBlock, PayloadVerificationOutcome, POS_PANDA_BANNER, ExecutedBlock,
+    signature_verify_chain_segment, BlockError, ExecutedBlock, ExecutionPendingBlock,
+    GossipVerifiedBlock, IntoExecutionPendingBlock, PayloadVerificationOutcome, POS_PANDA_BANNER,
 };
 pub use crate::canonical_head::{CanonicalHead, CanonicalHeadRwLock};
 use crate::chain_config::ChainConfig;
@@ -82,6 +85,7 @@ use slasher::Slasher;
 use slog::{crit, debug, error, info, trace, warn, Logger};
 use slot_clock::SlotClock;
 use ssz::Encode;
+use state_processing::per_block_processing::eip4844::eip4844::verify_kzg_commitments_against_transactions;
 use state_processing::{
     common::get_attesting_indices_from_state,
     per_block_processing,
@@ -102,16 +106,14 @@ use std::io::prelude::*;
 use std::marker::PhantomData;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::task::JoinHandle;
-use state_processing::per_block_processing::eip4844::eip4844::verify_kzg_commitments_against_transactions;
 use store::iter::{BlockRootsIterator, ParentRootBlockIterator, StateRootsIterator};
 use store::{
     DatabaseBlock, Error as DBError, HotColdDB, KeyValueStore, KeyValueStoreOp, StoreItem, StoreOp,
 };
 use task_executor::{ShutdownReason, TaskExecutor};
+use tokio::task::JoinHandle;
 use tree_hash::TreeHash;
 use types::beacon_state::CloneConfig;
-use types::blobs_sidecar::KzgCommitments;
 use types::consts::eip4844::MIN_EPOCHS_FOR_BLOBS_SIDECARS_REQUESTS;
 use types::consts::merge::INTERVALS_PER_SLOT;
 use types::*;
@@ -2709,7 +2711,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let slot = unverified_block.block().slot();
 
-        
         let execution_pending = unverified_block.into_execution_pending_block(
             block_root,
             &chain,
@@ -2723,9 +2724,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let chain = self.clone();
 
-        // Check if the executed block has all it's blobs available to qualify as a fully 
+        // Check if the executed block has all it's blobs available to qualify as a fully
         // available block
-        let import_block = if let Ok(blobs) = self.gossip_blob_cache.lock().blobs(executed_block.block_root) {
+        let import_block = if let Ok(blobs) = self
+            .gossip_blob_cache
+            .lock()
+            .blobs(executed_block.block_root)
+        {
             self.import_available_block(executed_block, blobs, count_unrealized)
         } else {
             return Ok(BlockProcessingResult::AvailabilityPending(executed_block));
@@ -2839,7 +2844,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             confirmed_state_roots,
             parent_eth1_finalization_data,
             consensus_context,
-            payload_verification_outcome
+            payload_verification_outcome,
         })
     }
 
@@ -2851,7 +2856,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     async fn import_available_block(
         self: Arc<Self>,
         executed_block: ExecutedBlock<T>,
-        blobs: Blobs<T::EthSpec>
+        blobs: Blobs<T::EthSpec>,
         count_unrealized: CountUnrealized,
     ) -> Result<Hash256, BlockError<T::EthSpec>> {
         let ExecutedBlock {
@@ -2865,14 +2870,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             consensus_context,
         } = execution_pending_block;
 
-
         let chain = self.clone();
-        
+
         let available_block = AvailableBlock {
-            block: block, 
-            blobs: blobs
+            block: block,
+            blobs: blobs,
         };
-        
+
         let block_hash = self
             .spawn_blocking_handle(
                 move || {
@@ -4911,7 +4915,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     )),
                 )?;
 
-                kzg_utils::compute_blob_kzg_proof::<T::EthSpec>(kzg, blob, kzg_commitment.clone())
+                kzg_utils::compute_blob_kzg_proof::<T::EthSpec>(kzg, blob, *kzg_commitment)
                     .map_err(BlockProductionError::KzgError)
             })
             .collect::<Result<Vec<KzgProof>, BlockProductionError>>()
@@ -6196,19 +6200,22 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .unwrap_or(false))
     }
 
-    pub async fn check_data_availability(&self, block: Arc<SignedBeaconBlock<T::EthSpec>>) -> Result<AvailableBlock<T>, Error> {
-            let kzg_commitments = block
-                .message()
-                .body()
-                .blob_kzg_commitments()
-                .map_err(|_| BlobError::KzgCommitmentMissing)?;
-            let transactions = block
-                .message()
-                .body()
-                .execution_payload_eip4844()
-                .map(|payload| payload.transactions())
-                .map_err(|_| BlobError::TransactionsMissing)?
-                .ok_or(BlobError::TransactionsMissing)?;
+    pub async fn check_data_availability(
+        &self,
+        block: Arc<SignedBeaconBlock<T::EthSpec>>,
+    ) -> Result<AvailableBlock<T>, Error> {
+        let kzg_commitments = block
+            .message()
+            .body()
+            .blob_kzg_commitments()
+            .map_err(|_| BlobError::KzgCommitmentMissing)?;
+        let transactions = block
+            .message()
+            .body()
+            .execution_payload_eip4844()
+            .map(|payload| payload.transactions())
+            .map_err(|_| BlobError::TransactionsMissing)?
+            .ok_or(BlobError::TransactionsMissing)?;
 
         if verify_kzg_commitments_against_transactions::<T::EthSpec>(transactions, kzg_commitments)
             .is_err()
@@ -6229,7 +6236,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             kzg_commitments,
             blob_sidecar,
         )
-            .map_err(BlobError::KzgError)?
+        .map_err(BlobError::KzgError)?
         {
             return Err(BlobError::InvalidKzgProof);
         }

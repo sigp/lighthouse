@@ -7,6 +7,7 @@ use crate::{
 };
 use crate::{http_metrics::metrics, validator_store::ValidatorStore};
 use environment::RuntimeContext;
+use eth2::types::SignedBlockContents;
 use slog::{crit, debug, error, info, trace, warn};
 use slot_clock::SlotClock;
 use std::ops::Deref;
@@ -16,7 +17,7 @@ use tokio::sync::mpsc;
 use tokio::time::sleep;
 use types::{
     AbstractExecPayload, BeaconBlock, BlindedPayload, BlockType, EthSpec, FullPayload, Graffiti,
-    PublicKeyBytes, SignedBlockContents, Slot,
+    PublicKeyBytes, Slot,
 };
 
 #[derive(Debug)]
@@ -388,7 +389,6 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                                     ))
                                 })?
                                 .data
-                                .into()
                         }
                     };
 
@@ -455,7 +455,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                             );
                             beacon_node
                                 // TODO: need to be adjusted for blobs
-                                .post_beacon_blinded_blocks(&signed_block_contents.signed_block())
+                                .post_beacon_blinded_blocks(signed_block_contents.signed_block())
                                 .await
                                 .map_err(|e| {
                                     BlockError::Irrecoverable(format!(

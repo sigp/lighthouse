@@ -1,12 +1,12 @@
 use crate::{
-    AbstractExecPayload, BlobsSidecar, EthSpec, SignedBeaconBlock, SignedBeaconBlockEip4844,
+    AbstractExecPayload, EthSpec, SignedBeaconBlock, SignedBeaconBlockEip4844,
     SignedBlobSidecar,
 };
+use crate::{BlobsSidecar, EthSpec, SignedBeaconBlock, SignedBeaconBlockEip4844};
 use derivative::Derivative;
 use serde_derive::{Deserialize, Serialize};
 use ssz::{Decode, DecodeError};
 use ssz_derive::{Decode, Encode};
-use ssz_types::VariableList;
 use std::sync::Arc;
 use tree_hash_derive::TreeHash;
 
@@ -36,12 +36,4 @@ impl<T: EthSpec> SignedBeaconBlockAndBlobsSidecar<T> {
             blobs_sidecar: Arc::new(blobs_sidecar),
         })
     }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Encode, TreeHash, Derivative)]
-#[derivative(PartialEq, Hash(bound = "T: EthSpec"))]
-#[serde(bound = "T: EthSpec")]
-pub struct SignedBeaconBlockAndBlobSidecars<T: EthSpec, Payload: AbstractExecPayload<T>> {
-    pub signed_block: SignedBeaconBlock<T, Payload>,
-    pub signed_blob_sidecars: VariableList<SignedBlobSidecar<T>, <T as EthSpec>::MaxBlobsPerBlock>,
 }

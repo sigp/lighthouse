@@ -99,10 +99,8 @@ pub mod sqlite;
 
 pub mod beacon_block_and_blob_sidecars;
 pub mod blob_sidecar;
-pub mod blobs_sidecar;
 pub mod signed_blob;
 pub mod signed_block_and_blobs;
-pub mod signed_block_contents;
 pub mod transaction;
 
 use ethereum_types::{H160, H256};
@@ -125,7 +123,6 @@ pub use crate::beacon_block_header::BeaconBlockHeader;
 pub use crate::beacon_committee::{BeaconCommittee, OwnedBeaconCommittee};
 pub use crate::beacon_state::{BeaconTreeHashCache, Error as BeaconStateError, *};
 pub use crate::blob_sidecar::{BlobSidecar, BlobSidecarList};
-pub use crate::blobs_sidecar::{Blobs, BlobsSidecar};
 pub use crate::bls_to_execution_change::BlsToExecutionChange;
 pub use crate::chain_spec::{ChainSpec, Config, Domain};
 pub use crate::checkpoint::Checkpoint;
@@ -185,10 +182,8 @@ pub use crate::signed_beacon_block::{
 pub use crate::signed_beacon_block_header::SignedBeaconBlockHeader;
 pub use crate::signed_blob::*;
 pub use crate::signed_block_and_blobs::{
-    SignedBeaconBlockAndBlobSidecars, SignedBeaconBlockAndBlobsSidecar,
-    SignedBeaconBlockAndBlobsSidecarDecode,
+    SignedBeaconBlockAndBlobsSidecar, SignedBeaconBlockAndBlobsSidecarDecode,
 };
-pub use crate::signed_block_contents::SignedBlockContents;
 pub use crate::signed_bls_to_execution_change::SignedBlsToExecutionChange;
 pub use crate::signed_contribution_and_proof::SignedContributionAndProof;
 pub use crate::signed_voluntary_exit::SignedVoluntaryExit;

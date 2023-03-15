@@ -875,8 +875,8 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     fn rpc_blobs_received(
         &mut self,
         request_id: RequestId,
-        peer_id: PeerId,
-        maybe_blob: Option<Arc<BlobSidecar<<T>::EthSpec>>>,
+        _peer_id: PeerId,
+        _maybe_blob: Option<Arc<BlobSidecar<<T>::EthSpec>>>,
         _seen_timestamp: Duration,
     ) {
         match request_id {
@@ -892,7 +892,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             RequestId::RangeBlocks { .. } => {
                 unreachable!("Only-blocks range requests don't receive sidecars")
             }
-            RequestId::RangeBlobs { id } => {
+            RequestId::RangeBlobs { id: _ } => {
                 unimplemented!("Adjust range");
             }
         }

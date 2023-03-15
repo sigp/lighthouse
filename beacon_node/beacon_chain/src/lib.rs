@@ -23,6 +23,7 @@ pub mod events;
 pub mod execution_payload;
 pub mod fork_choice_signal;
 pub mod fork_revert;
+pub mod gossip_blob_cache;
 mod head_tracker;
 pub mod historical_blocks;
 pub mod kzg_utils;
@@ -51,7 +52,6 @@ pub mod test_utils;
 mod timeout_rw_lock;
 pub mod validator_monitor;
 pub mod validator_pubkey_cache;
-pub mod gossip_blob_cache;
 
 pub use self::beacon_chain::{
     AttestationProcessingOutcome, BeaconChain, BeaconChainTypes, BeaconStore, ChainSegmentResult,

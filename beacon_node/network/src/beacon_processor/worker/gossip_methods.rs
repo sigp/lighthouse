@@ -652,12 +652,12 @@ impl<T: BeaconChainTypes> Worker<T> {
     #[allow(clippy::too_many_arguments)]
     pub async fn process_gossip_blob(
         self,
-        message_id: MessageId,
+        _message_id: MessageId,
         peer_id: PeerId,
         peer_client: Client,
         blob_index: u64,
         signed_blob: Arc<SignedBlobSidecar<T::EthSpec>>,
-        seen_duration: Duration,
+        _seen_duration: Duration,
     ) {
         // TODO: gossip verification
         crit!(self.log, "UNIMPLEMENTED gossip blob verification";

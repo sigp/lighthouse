@@ -2,7 +2,6 @@ use super::*;
 use serde::{Deserialize, Serialize};
 use strum::EnumString;
 use superstruct::superstruct;
-use types::blobs_sidecar::KzgCommitments;
 use types::{
     Blobs, EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadCapella,
     ExecutionPayloadEip4844, ExecutionPayloadMerge, FixedVector, Transaction, Unsigned,
