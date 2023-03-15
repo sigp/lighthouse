@@ -8,7 +8,7 @@ use std::fmt::{Debug, Display, Formatter};
 use std::str::FromStr;
 use tree_hash::{PackedEncoding, TreeHash};
 
-#[derive(Derivative, Clone, Encode, Decode)]
+#[derive(Derivative, Clone, Copy, Encode, Decode)]
 #[derivative(PartialEq, Eq, Hash)]
 #[ssz(struct_behaviour = "transparent")]
 pub struct KzgCommitment(pub [u8; BYTES_PER_COMMITMENT]);

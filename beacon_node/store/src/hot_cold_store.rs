@@ -259,7 +259,7 @@ impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
                 db.blobs_db = Some(LevelDB::open(path.as_path())?);
             }
         }
-        let blob_info = blob_info.unwrap_or(db.get_blob_info());
+        let blob_info = blob_info.unwrap_or_else(|| db.get_blob_info());
         db.compare_and_set_blob_info_with_write(blob_info, new_blob_info)?;
         info!(
             db.log,
@@ -1899,7 +1899,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         let blob_info = self.get_blob_info();
         let oldest_blob_slot = blob_info
             .oldest_blob_slot
-            .unwrap_or(eip4844_fork.start_slot(E::slots_per_epoch()));
+            .unwrap_or_else(|| eip4844_fork.start_slot(E::slots_per_epoch()));
 
         // The last entirely pruned epoch, blobs sidecar pruning may have stopped early in the
         // middle of an epoch otherwise the oldest blob slot is a start slot.
