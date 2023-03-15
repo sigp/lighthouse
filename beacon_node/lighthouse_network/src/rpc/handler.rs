@@ -854,7 +854,11 @@ where
     }
 }
 
-impl<Id, TSpec: EthSpec> RPCHandler<Id, TSpec> {
+impl<Id, TSpec: EthSpec> RPCHandler<Id, TSpec>
+where
+    Id: ReqId,
+    TSpec: EthSpec,
+{
     fn on_fully_negotiated_inbound(
         &mut self,
         substream: InboundOutput<NegotiatedSubstream, TSpec>,

@@ -972,6 +972,35 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
         }
     }
 
+    fn on_swarm_event(&mut self, event: FromSwarm<Self::ConnectionHandler>) {
+        match event {
+            FromSwarm::DialFailure(DialFailure { peer_id, error, .. }) => {
+                self.on_dial_failure(peer_id, error)
+            }
+            FromSwarm::ConnectionEstablished(_)
+            | FromSwarm::ConnectionClosed(_)
+            | FromSwarm::AddressChange(_)
+            | FromSwarm::ListenFailure(_)
+            | FromSwarm::NewListener(_)
+            | FromSwarm::NewListenAddr(_)
+            | FromSwarm::ExpiredListenAddr(_)
+            | FromSwarm::ListenerError(_)
+            | FromSwarm::ListenerClosed(_)
+            | FromSwarm::NewExternalAddr(_)
+            | FromSwarm::ExpiredExternalAddr(_) => {
+                // Ignore events not relevant to discovery
+            }
+        }
+    }
+
+    fn on_connection_handler_event(
+        &mut self,
+        _peer_id: PeerId,
+        _connection_id: ConnectionId,
+        _event: void::Void,
+    ) {
+    }
+
     // Main execution loop to drive the behaviour
     fn poll(
         &mut self,
@@ -1078,27 +1107,6 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
         }
         Poll::Pending
     }
-
-    fn on_swarm_event(&mut self, event: FromSwarm<Self::ConnectionHandler>) {
-        match event {
-            FromSwarm::DialFailure(DialFailure { peer_id, error, .. }) => {
-                self.on_dial_failure(peer_id, error)
-            }
-            FromSwarm::ConnectionEstablished(_)
-            | FromSwarm::ConnectionClosed(_)
-            | FromSwarm::AddressChange(_)
-            | FromSwarm::ListenFailure(_)
-            | FromSwarm::NewListener(_)
-            | FromSwarm::NewListenAddr(_)
-            | FromSwarm::ExpiredListenAddr(_)
-            | FromSwarm::ListenerError(_)
-            | FromSwarm::ListenerClosed(_)
-            | FromSwarm::NewExternalAddr(_)
-            | FromSwarm::ExpiredExternalAddr(_) => {
-                // Ignore events not relevant to discovery
-            }
-        }
-    }
 }
 
 impl<TSpec: EthSpec> Discovery<TSpec> {
@@ -1106,9 +1114,9 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
         if let Some(peer_id) = peer_id {
             match error {
                 DialError::Banned
-                | DialError::LocalPeerId
+                | DialError::LocalPeerId { .. }
                 | DialError::InvalidPeerId(_)
-                | DialError::ConnectionIo(_)
+                | DialError::Denied { .. }
                 | DialError::NoAddresses
                 | DialError::Transport(_)
                 | DialError::WrongPeerId { .. } => {
