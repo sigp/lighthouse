@@ -1363,7 +1363,14 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> From<SignedBeaconBlock<T, Payl
     for SignedBlockContents<T, Payload>
 {
     fn from(block: SignedBeaconBlock<T, Payload>) -> Self {
-        SignedBlockContents::Block(block)
+        match block {
+            SignedBeaconBlock::Base(_)
+            | SignedBeaconBlock::Altair(_)
+            | SignedBeaconBlock::Merge(_)
+            | SignedBeaconBlock::Capella(_) => SignedBlockContents::Block(block),
+            //TODO: error handling, this should be try from
+            SignedBeaconBlock::Eip4844(_block) => todo!(),
+        }
     }
 }
 

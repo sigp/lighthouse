@@ -61,8 +61,8 @@ struct ApiTester {
     harness: Arc<BeaconChainHarness<EphemeralHarnessType<E>>>,
     chain: Arc<BeaconChain<EphemeralHarnessType<E>>>,
     client: BeaconNodeHttpClient,
-    next_block: SignedBeaconBlock<E>,
-    reorg_block: SignedBeaconBlock<E>,
+    next_block: SignedBlockContents<E>,
+    reorg_block: SignedBlockContents<E>,
     attestations: Vec<Attestation<E>>,
     contribution_and_proofs: Vec<SignedContributionAndProof<E>>,
     attester_slashing: AttesterSlashing<E>,
@@ -154,11 +154,13 @@ impl ApiTester {
         let (next_block, _next_state) = harness
             .make_block(head.beacon_state.clone(), harness.chain.slot().unwrap())
             .await;
+        let next_block = SignedBlockContents::from(next_block);
 
         // `make_block` adds random graffiti, so this will produce an alternate block
         let (reorg_block, _reorg_state) = harness
             .make_block(head.beacon_state.clone(), harness.chain.slot().unwrap())
             .await;
+        let reorg_block = SignedBlockContents::from(reorg_block);
 
         let head_state_root = head.beacon_state_root();
         let attestations = harness
@@ -288,11 +290,13 @@ impl ApiTester {
         let (next_block, _next_state) = harness
             .make_block(head.beacon_state.clone(), harness.chain.slot().unwrap())
             .await;
+        let next_block = SignedBlockContents::from(next_block);
 
         // `make_block` adds random graffiti, so this will produce an alternate block
         let (reorg_block, _reorg_state) = harness
             .make_block(head.beacon_state.clone(), harness.chain.slot().unwrap())
             .await;
+        let reorg_block = SignedBlockContents::from(reorg_block);
 
         let head_state_root = head.beacon_state_root();
         let attestations = harness
@@ -975,9 +979,9 @@ impl ApiTester {
     }
 
     pub async fn test_post_beacon_blocks_valid(mut self) -> Self {
-        let next_block = &self.next_block;
+        let next_block = self.next_block.clone();
 
-        self.client.post_beacon_blocks(next_block).await.unwrap();
+        self.client.post_beacon_blocks(&next_block).await.unwrap();
 
         assert!(
             self.network_rx.network_recv.recv().await.is_some(),
@@ -988,10 +992,14 @@ impl ApiTester {
     }
 
     pub async fn test_post_beacon_blocks_invalid(mut self) -> Self {
-        let mut next_block = self.next_block.clone();
+        let mut next_block = self.next_block.clone().deconstruct().0;
         *next_block.message_mut().proposer_index_mut() += 1;
 
-        assert!(self.client.post_beacon_blocks(&next_block).await.is_err());
+        assert!(self
+            .client
+            .post_beacon_blocks(&SignedBlockContents::from(next_block))
+            .await
+            .is_err());
 
         assert!(
             self.network_rx.network_recv.recv().await.is_some(),
@@ -2070,8 +2078,12 @@ impl ApiTester {
                 .0;
 
             let signed_block = block.sign(&sk, &fork, genesis_validators_root, &self.chain.spec);
+            let signed_block_contents = SignedBlockContents::from(signed_block.clone());
 
-            self.client.post_beacon_blocks(&signed_block).await.unwrap();
+            self.client
+                .post_beacon_blocks(&signed_block_contents)
+                .await
+                .unwrap();
 
             assert_eq!(self.chain.head_beacon_block().as_ref(), &signed_block);
 
@@ -2095,7 +2107,9 @@ impl ApiTester {
                 )
                 .await
                 .unwrap()
-                .data;
+                .data
+                .deconstruct()
+                .0;
             assert_eq!(block.slot(), slot);
             self.chain.slot_clock.set_slot(slot.as_u64() + 1);
         }
@@ -3762,12 +3776,12 @@ impl ApiTester {
 
         // Submit the next block, which is on an epoch boundary, so this will produce a finalized
         // checkpoint event, head event, and block event
-        let block_root = self.next_block.canonical_root();
+        let block_root = self.next_block.signed_block().canonical_root();
 
         // current_duty_dependent_root = block root because this is the first slot of the epoch
         let current_duty_dependent_root = self.chain.head_beacon_block_root();
         let current_slot = self.chain.slot().unwrap();
-        let next_slot = self.next_block.slot();
+        let next_slot = self.next_block.signed_block().slot();
         let finalization_distance = E::slots_per_epoch() * 2;
 
         let expected_block = EventKind::Block(SseBlock {
@@ -3779,7 +3793,7 @@ impl ApiTester {
         let expected_head = EventKind::Head(SseHead {
             block: block_root,
             slot: next_slot,
-            state: self.next_block.state_root(),
+            state: self.next_block.signed_block().state_root(),
             current_duty_dependent_root,
             previous_duty_dependent_root: self
                 .chain
@@ -3828,13 +3842,17 @@ impl ApiTester {
             .unwrap();
 
         let expected_reorg = EventKind::ChainReorg(SseChainReorg {
-            slot: self.next_block.slot(),
+            slot: self.next_block.signed_block().slot(),
             depth: 1,
-            old_head_block: self.next_block.canonical_root(),
-            old_head_state: self.next_block.state_root(),
-            new_head_block: self.reorg_block.canonical_root(),
-            new_head_state: self.reorg_block.state_root(),
-            epoch: self.next_block.slot().epoch(E::slots_per_epoch()),
+            old_head_block: self.next_block.signed_block().canonical_root(),
+            old_head_state: self.next_block.signed_block().state_root(),
+            new_head_block: self.reorg_block.signed_block().canonical_root(),
+            new_head_state: self.reorg_block.signed_block().state_root(),
+            epoch: self
+                .next_block
+                .signed_block()
+                .slot()
+                .epoch(E::slots_per_epoch()),
             execution_optimistic: false,
         });
 
@@ -3896,8 +3914,8 @@ impl ApiTester {
             .await
             .unwrap();
 
-        let block_root = self.next_block.canonical_root();
-        let next_slot = self.next_block.slot();
+        let block_root = self.next_block.signed_block().canonical_root();
+        let next_slot = self.next_block.signed_block().slot();
 
         let expected_block = EventKind::Block(SseBlock {
             block: block_root,
@@ -3908,7 +3926,7 @@ impl ApiTester {
         let expected_head = EventKind::Head(SseHead {
             block: block_root,
             slot: next_slot,
-            state: self.next_block.state_root(),
+            state: self.next_block.signed_block().state_root(),
             current_duty_dependent_root: self.chain.genesis_block_root,
             previous_duty_dependent_root: self.chain.genesis_block_root,
             epoch_transition: false,
