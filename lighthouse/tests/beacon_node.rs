@@ -356,6 +356,8 @@ fn genesis_backfill_with_historic_flag() {
         .run_with_zero_port()
         .with_config(|config| assert_eq!(config.chain.genesis_backfill, true));
 }
+
+#[test]
 fn always_prefer_builder_payload_flag() {
     CommandLineTest::new()
         .flag("always-prefer-builder-payload", None)
