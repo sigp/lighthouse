@@ -1259,3 +1259,63 @@ mod tests {
         )
     }
 }
+
+/// A wrapper over a [`BeaconBlock`] or a [`BeaconBlockAndBlobSidecars`].
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(untagged)]
+#[serde(bound = "T: EthSpec")]
+pub enum BlockContents<T: EthSpec, Payload: AbstractExecPayload<T>> {
+    BlockAndBlobSidecars(BeaconBlockAndBlobSidecars<T, Payload>),
+    Block(BeaconBlock<T, Payload>),
+}
+
+impl<T: EthSpec, Payload: AbstractExecPayload<T>> BlockContents<T, Payload> {
+    pub fn block(&self) -> &BeaconBlock<T, Payload> {
+        match self {
+            BlockContents::BlockAndBlobSidecars(block_and_sidecars) => &block_and_sidecars.block,
+            BlockContents::Block(block) => block,
+        }
+    }
+
+    pub fn deconstruct(self) -> (BeaconBlock<T, Payload>, Option<BlobSidecarList<T>>) {
+        match self {
+            BlockContents::BlockAndBlobSidecars(block_and_sidecars) => (
+                block_and_sidecars.block,
+                Some(block_and_sidecars.blob_sidecars),
+            ),
+            BlockContents::Block(block) => (block, None),
+        }
+    }
+}
+
+impl<T: EthSpec, Payload: AbstractExecPayload<T>> ForkVersionDeserialize
+    for BlockContents<T, Payload>
+{
+    fn deserialize_by_fork<'de, D: serde::Deserializer<'de>>(
+        value: serde_json::value::Value,
+        fork_name: ForkName,
+    ) -> Result<Self, D::Error> {
+        match fork_name {
+            ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {
+                Ok(BlockContents::Block(BeaconBlock::deserialize_by_fork::<
+                    'de,
+                    D,
+                >(value, fork_name)?))
+            }
+            ForkName::Eip4844 => Ok(BlockContents::BlockAndBlobSidecars(
+                BeaconBlockAndBlobSidecars::deserialize_by_fork::<'de, D>(value, fork_name)?,
+            )),
+        }
+    }
+}
+
+impl<T: EthSpec, Payload: AbstractExecPayload<T>> Into<BeaconBlock<T, Payload>>
+    for BlockContents<T, Payload>
+{
+    fn into(self) -> BeaconBlock<T, Payload> {
+        match self {
+            Self::BlockAndBlobSidecars(block_and_sidecars) => block_and_sidecars.block,
+            Self::Block(block) => block,
+        }
+    }
+}

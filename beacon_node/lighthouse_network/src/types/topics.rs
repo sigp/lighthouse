@@ -314,7 +314,6 @@ mod tests {
                 VoluntaryExit,
                 ProposerSlashing,
                 AttesterSlashing,
-                BeaconBlocksAndBlobsSidecar,
             ]
             .iter()
             {

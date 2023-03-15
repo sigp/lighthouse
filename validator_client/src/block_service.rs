@@ -15,8 +15,8 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio::time::sleep;
 use types::{
-    AbstractExecPayload, BlindedPayload, BlockType, EthSpec, FullPayload, Graffiti, PublicKeyBytes,
-    Slot,
+    AbstractExecPayload, BeaconBlock, BlindedPayload, BlockType, EthSpec, FullPayload, Graffiti,
+    PublicKeyBytes, Slot,
 };
 
 #[derive(Debug)]
@@ -347,7 +347,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                 RequireSynced::No,
                 OfflineOnFailure::Yes,
                 |beacon_node| async move {
-                    let block = match Payload::block_type() {
+                    let block: BeaconBlock<E, Payload> = match Payload::block_type() {
                         BlockType::Full => {
                             let _get_timer = metrics::start_timer_vec(
                                 &metrics::BLOCK_SERVICE_TIMES,
@@ -367,6 +367,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                                     ))
                                 })?
                                 .data
+                                .into()
                         }
                         BlockType::Blinded => {
                             let _get_timer = metrics::start_timer_vec(
@@ -387,6 +388,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                                     ))
                                 })?
                                 .data
+                                .into()
                         }
                     };
 

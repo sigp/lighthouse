@@ -73,6 +73,7 @@ use fork_choice::{
 use futures::channel::mpsc::Sender;
 use itertools::process_results;
 use itertools::Itertools;
+use kzg::Kzg;
 use operation_pool::{AttestationRef, OperationPool, PersistedOperationPool, ReceivedPreCapella};
 use parking_lot::{Mutex, RwLock};
 use proto_array::{CountUnrealizedFull, DoNotReOrg, ProposerHeadError};
@@ -107,6 +108,7 @@ use store::{
 use task_executor::{ShutdownReason, TaskExecutor};
 use tree_hash::TreeHash;
 use types::beacon_state::CloneConfig;
+use types::blobs_sidecar::KzgCommitments;
 use types::consts::eip4844::MIN_EPOCHS_FOR_BLOBS_SIDECARS_REQUESTS;
 use types::consts::merge::INTERVALS_PER_SLOT;
 use types::*;
@@ -4759,30 +4761,62 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .kzg
                 .as_ref()
                 .ok_or(BlockProductionError::TrustedSetupNotInitialized)?;
-            let kzg_aggregated_proof =
-                kzg_utils::compute_aggregate_kzg_proof::<T::EthSpec>(kzg, &blobs)
-                    .map_err(BlockProductionError::KzgError)?;
             let beacon_block_root = block.canonical_root();
-            let expected_kzg_commitments = block.body().blob_kzg_commitments().map_err(|_| {
-                BlockProductionError::InvalidBlockVariant(
-                    "EIP4844 block does not contain kzg commitments".to_string(),
-                )
-            })?;
-            let blobs_sidecar = BlobsSidecar {
-                beacon_block_slot: slot,
-                beacon_block_root,
-                blobs,
-                kzg_aggregated_proof,
-            };
-            kzg_utils::validate_blobs_sidecar(
+            let expected_kzg_commitments: &KzgCommitments<T::EthSpec> =
+                block.body().blob_kzg_commitments().map_err(|_| {
+                    BlockProductionError::InvalidBlockVariant(
+                        "EIP4844 block does not contain kzg commitments".to_string(),
+                    )
+                })?;
+
+            if expected_kzg_commitments.len() != blobs.len() {
+                return Err(BlockProductionError::MissingKzgCommitment(format!(
+                    "Missing KZG commitment for slot {}. Expected {}, got: {}",
+                    slot,
+                    blobs.len(),
+                    expected_kzg_commitments.len()
+                )));
+            }
+
+            let kzg_proofs =
+                Self::compute_blob_kzg_proofs(kzg, &blobs, expected_kzg_commitments, slot)?;
+
+            kzg_utils::validate_blobs::<T::EthSpec>(
                 kzg,
-                slot,
-                beacon_block_root,
                 expected_kzg_commitments,
-                &blobs_sidecar,
+                &blobs,
+                &kzg_proofs,
             )
             .map_err(BlockProductionError::KzgError)?;
-            self.blob_cache.put(beacon_block_root, blobs_sidecar);
+
+            let blob_sidecars = VariableList::from(
+                blobs
+                    .into_iter()
+                    .enumerate()
+                    .map(|(blob_index, blob)| {
+                        let kzg_commitment = expected_kzg_commitments
+                            .get(blob_index)
+                            .expect("KZG commitment should exist for blob");
+
+                        let kzg_proof = kzg_proofs
+                            .get(blob_index)
+                            .expect("KZG proof should exist for blob");
+
+                        Ok(BlobSidecar {
+                            block_root: beacon_block_root,
+                            index: blob_index as u64,
+                            slot,
+                            block_parent_root: block.parent_root(),
+                            proposer_index,
+                            blob,
+                            kzg_commitment: *kzg_commitment,
+                            kzg_proof: *kzg_proof,
+                        })
+                    })
+                    .collect::<Result<Vec<BlobSidecar<T::EthSpec>>, BlockProductionError>>()?,
+            );
+
+            self.blob_cache.put(beacon_block_root, blob_sidecars);
         }
 
         metrics::inc_counter(&metrics::BLOCK_PRODUCTION_SUCCESSES);
@@ -4796,6 +4830,29 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         );
 
         Ok((block, state))
+    }
+
+    fn compute_blob_kzg_proofs(
+        kzg: &Arc<Kzg>,
+        blobs: &Blobs<<T as BeaconChainTypes>::EthSpec>,
+        expected_kzg_commitments: &KzgCommitments<<T as BeaconChainTypes>::EthSpec>,
+        slot: Slot,
+    ) -> Result<Vec<KzgProof>, BlockProductionError> {
+        blobs
+            .iter()
+            .enumerate()
+            .map(|(blob_index, blob)| {
+                let kzg_commitment = expected_kzg_commitments.get(blob_index).ok_or(
+                    BlockProductionError::MissingKzgCommitment(format!(
+                        "Missing KZG commitment for slot {} blob index {}",
+                        slot, blob_index
+                    )),
+                )?;
+
+                kzg_utils::compute_blob_kzg_proof::<T::EthSpec>(kzg, blob, kzg_commitment.clone())
+                    .map_err(BlockProductionError::KzgError)
+            })
+            .collect::<Result<Vec<KzgProof>, BlockProductionError>>()
     }
 
     /// This method must be called whenever an execution engine indicates that a payload is

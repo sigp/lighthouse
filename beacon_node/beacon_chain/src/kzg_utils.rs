@@ -42,10 +42,11 @@ pub fn validate_blobs<T: EthSpec>(
 /// Compute the kzg proof given an ssz blob and its kzg commitment.
 pub fn compute_blob_kzg_proof<T: EthSpec>(
     kzg: &Kzg,
-    blob: Blob<T>,
+    blob: &Blob<T>,
     kzg_commitment: KzgCommitment,
 ) -> Result<KzgProof, KzgError> {
-    kzg.compute_blob_kzg_proof(ssz_blob_to_crypto_blob::<T>(blob), kzg_commitment)
+    // Avoid this blob clone
+    kzg.compute_blob_kzg_proof(ssz_blob_to_crypto_blob::<T>(blob.clone()), kzg_commitment)
 }
 
 /// Compute the kzg commitment for a given blob.

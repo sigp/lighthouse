@@ -135,18 +135,19 @@ fn verify_data_availability<T: BeaconChainTypes>(
         .as_ref()
         .ok_or(BlobError::TrustedSetupNotInitialized)?;
 
-    if !kzg_utils::validate_blobs_sidecar(
-        kzg,
-        block_slot,
-        block_root,
-        kzg_commitments,
-        blob_sidecar,
-    )
-    .map_err(BlobError::KzgError)?
-    {
-        return Err(BlobError::InvalidKzgProof);
-    }
-    Ok(())
+    todo!("use `kzg_utils::validate_blobs` once the function is updated")
+    // if !kzg_utils::validate_blobs_sidecar(
+    //     kzg,
+    //     block_slot,
+    //     block_root,
+    //     kzg_commitments,
+    //     blob_sidecar,
+    // )
+    // .map_err(BlobError::KzgError)?
+    // {
+    //     return Err(BlobError::InvalidKzgProof);
+    // }
+    // Ok(())
 }
 
 /// A wrapper over a [`SignedBeaconBlock`] or a [`SignedBeaconBlockAndBlobsSidecar`]. This makes no
