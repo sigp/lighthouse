@@ -133,12 +133,15 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockServiceBuilder<T, E> {
     }
 }
 
+// Combines a set of non-block-proposing `beacon_nodes` and only-block-proposing
+// `proposer_nodes`.
 pub struct ProposerFallback<T, E: EthSpec> {
     beacon_nodes: Arc<BeaconNodeFallback<T, E>>,
     proposer_nodes: Option<Arc<BeaconNodeFallback<T, E>>>,
 }
 
 impl<T: SlotClock, E: EthSpec> ProposerFallback<T, E> {
+    // Try `func` on `self.proposer_nodes` first. If that doesn't work, try `self.beacon_nodes`.
     pub async fn first_success_try_proposers_first<'a, F, O, Err, R>(
         &'a self,
         require_synced: RequireSynced,
@@ -166,6 +169,7 @@ impl<T: SlotClock, E: EthSpec> ProposerFallback<T, E> {
             .await
     }
 
+    // Try `func` on `self.beacon_nodes` first. If that doesn't work, try `self.proposer_nodes`.
     pub async fn first_success_try_proposers_last<'a, F, O, Err, R>(
         &'a self,
         require_synced: RequireSynced,
@@ -421,7 +425,11 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
             "Requesting unsigned block";
             "slot" => slot.as_u64(),
         );
+
         // Request block from first responsive beacon node.
+        //
+        // Try the proposer nodes last, since it's likely that they don't have a
+        // great view of attestations on the network.
         let block = proposer_fallback
             .first_success_try_proposers_last(
                 RequireSynced::No,
@@ -504,6 +512,10 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
         );
 
         // Publish block with first available beacon node.
+        //
+        // Try the proposer nodes first, since we've likely gone to efforts to
+        // protect them from DoS attacks and they're most likely to successfully
+        // publish a block.
         proposer_fallback
             .first_success_try_proposers_first(
                 RequireSynced::No,
