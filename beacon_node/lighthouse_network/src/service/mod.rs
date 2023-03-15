@@ -353,7 +353,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                     Executor(executor),
                 )
                 .notify_handler_buffer_size(std::num::NonZeroUsize::new(7).expect("Not zero"))
-                .connection_event_buffer_size(64)
+                .per_connection_event_buffer_size(4)
                 .connection_limits(limits)
                 .build(),
                 bandwidth,
