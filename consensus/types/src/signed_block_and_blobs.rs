@@ -1,10 +1,13 @@
-use crate::{AbstractExecPayload, BlobsSidecar, EthSpec, SignedBeaconBlock, SignedBeaconBlockEip4844, SignedBlobSidecar};
+use crate::{
+    AbstractExecPayload, BlobsSidecar, EthSpec, SignedBeaconBlock, SignedBeaconBlockEip4844,
+    SignedBlobSidecar,
+};
 use derivative::Derivative;
 use serde_derive::{Deserialize, Serialize};
 use ssz::{Decode, DecodeError};
 use ssz_derive::{Decode, Encode};
-use std::sync::Arc;
 use ssz_types::VariableList;
+use std::sync::Arc;
 use tree_hash_derive::TreeHash;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, PartialEq)]

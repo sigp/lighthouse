@@ -10,7 +10,10 @@ use slot_clock::SlotClock;
 use std::sync::Arc;
 use tokio::sync::mpsc::UnboundedSender;
 use tree_hash::TreeHash;
-use types::{AbstractExecPayload, BlindedPayload, EthSpec, ExecPayload, ExecutionBlockHash, FullPayload, Hash256, SignedBeaconBlock, SignedBlockContents};
+use types::{
+    AbstractExecPayload, BlindedPayload, EthSpec, ExecPayload, ExecutionBlockHash, FullPayload,
+    Hash256, SignedBeaconBlock, SignedBlockContents,
+};
 use warp::Rejection;
 
 /// Handles a request from the HTTP API for full blocks.
@@ -22,7 +25,7 @@ pub async fn publish_block<T: BeaconChainTypes>(
     log: Logger,
 ) -> Result<(), Rejection> {
     let seen_timestamp = timestamp_now();
-    let (block, _maybe_blobs) = block_contents.deconstruct();
+    let (block, maybe_blobs) = block_contents.deconstruct();
     let block = Arc::new(block);
 
     //FIXME(sean) have to move this to prior to publishing because it's included in the blobs sidecar message.
@@ -36,13 +39,27 @@ pub async fn publish_block<T: BeaconChainTypes>(
 
     // Send the block, regardless of whether or not it is valid. The API
     // specification is very clear that this is the desired behaviour.
-    let wrapped_block: BlockWrapper<T::EthSpec> =
-        if matches!(block.as_ref(), SignedBeaconBlock::Eip4844(_)) {
-            todo!("to be implemented")
-        } else {
+    let wrapped_block: BlockWrapper<T::EthSpec> = match block.as_ref() {
+        SignedBeaconBlock::Base(_)
+        | SignedBeaconBlock::Altair(_)
+        | SignedBeaconBlock::Merge(_)
+        | SignedBeaconBlock::Capella(_) => {
             crate::publish_pubsub_message(network_tx, PubsubMessage::BeaconBlock(block.clone()))?;
             block.into()
-        };
+        }
+        SignedBeaconBlock::Eip4844(_) => {
+            crate::publish_pubsub_message(network_tx, PubsubMessage::BeaconBlock(block.clone()))?;
+            if let Some(blobs) = maybe_blobs {
+                for (blob_index, blob) in blobs.into_iter().enumerate() {
+                    crate::publish_pubsub_message(
+                        network_tx,
+                        PubsubMessage::BlobSidecar(Box::new((blob_index as u64, blob))),
+                    )?;
+                }
+            }
+            block.into()
+        }
+    };
 
     // Determine the delay after the start of the slot, register it with metrics.
     let block = wrapped_block.as_block();
