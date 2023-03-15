@@ -518,7 +518,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     self.log,
                     "Failed to sync chain built on invalid parent";
                     "parent_root" => ?parent_root,
-                    "advice" => "check execution node for database corruption",
+                    "advice" => "check execution node for corruption then restart it and Lighthouse",
                 );
                 Err(ChainSegmentFailed {
                     message: format!("Peer sent invalid block. Reason: {err:?}"),
