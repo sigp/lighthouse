@@ -513,12 +513,13 @@ pub async fn proposer_boost_re_org_test(
     let randao_reveal = harness
         .sign_randao_reveal(&state_b, proposer_index, slot_c)
         .into();
-    let unsigned_block_c = tester
+    let unsigned_block_contents_c = tester
         .client
         .get_validator_blocks(slot_c, &randao_reveal, None)
         .await
         .unwrap()
         .data;
+    let unsigned_block_c = unsigned_block_contents_c.deconstruct().0;
     let block_c = harness.sign_beacon_block(unsigned_block_c, &state_b);
 
     if should_re_org {
@@ -700,7 +701,9 @@ pub async fn fork_choice_before_proposal() {
         .get_validator_blocks::<E, FullPayload<E>>(slot_d, &randao_reveal, None)
         .await
         .unwrap()
-        .data;
+        .data
+        .deconstruct()
+        .0;
 
     // Head is now B.
     assert_eq!(

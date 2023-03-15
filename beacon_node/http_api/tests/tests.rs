@@ -2065,7 +2065,9 @@ impl ApiTester {
                 .get_validator_blocks::<E, FullPayload<E>>(slot, &randao_reveal, None)
                 .await
                 .unwrap()
-                .data;
+                .data
+                .deconstruct()
+                .0;
 
             let signed_block = block.sign(&sk, &fork, genesis_validators_root, &self.chain.spec);
 

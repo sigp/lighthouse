@@ -7,6 +7,7 @@ use crate::{
 };
 use crate::{http_metrics::metrics, validator_store::ValidatorStore};
 use environment::RuntimeContext;
+use eth2::types::SignedBlockContents;
 use slog::{crit, debug, error, info, trace, warn};
 use slot_clock::SlotClock;
 use std::ops::Deref;
@@ -16,7 +17,7 @@ use tokio::sync::mpsc;
 use tokio::time::sleep;
 use types::{
     AbstractExecPayload, BeaconBlock, BlindedPayload, BlockType, EthSpec, FullPayload, Graffiti,
-    PublicKeyBytes, SignedBlockContents, Slot,
+    PublicKeyBytes, Slot,
 };
 
 #[derive(Debug)]
