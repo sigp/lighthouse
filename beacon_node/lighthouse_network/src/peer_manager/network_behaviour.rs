@@ -2,11 +2,11 @@ use std::task::{Context, Poll};
 
 use futures::StreamExt;
 use libp2p::core::ConnectedPoint;
+use libp2p::identity::PeerId;
 use libp2p::swarm::behaviour::{ConnectionClosed, ConnectionEstablished, DialFailure, FromSwarm};
 use libp2p::swarm::dial_opts::{DialOpts, PeerCondition};
 use libp2p::swarm::dummy::ConnectionHandler;
-use libp2p::swarm::{NetworkBehaviour, NetworkBehaviourAction, PollParameters};
-use libp2p::PeerId;
+use libp2p::swarm::{ConnectionId, NetworkBehaviour, NetworkBehaviourAction, PollParameters};
 use slog::{debug, error};
 use types::EthSpec;
 
@@ -28,11 +28,49 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
         ConnectionHandler
     }
 
+    fn on_swarm_event(&mut self, event: FromSwarm<Self::ConnectionHandler>) {
+        match event {
+            FromSwarm::ConnectionEstablished(ConnectionEstablished {
+                peer_id,
+                endpoint,
+                other_established,
+                ..
+            }) => self.on_connection_established(peer_id, endpoint, other_established),
+            FromSwarm::ConnectionClosed(ConnectionClosed {
+                peer_id,
+                remaining_established,
+                ..
+            }) => self.on_connection_closed(peer_id, remaining_established),
+            FromSwarm::DialFailure(DialFailure { peer_id, .. }) => self.on_dial_failure(peer_id),
+            FromSwarm::AddressChange(_)
+            | FromSwarm::ListenFailure(_)
+            | FromSwarm::NewListener(_)
+            | FromSwarm::NewListenAddr(_)
+            | FromSwarm::ExpiredListenAddr(_)
+            | FromSwarm::ListenerError(_)
+            | FromSwarm::ListenerClosed(_)
+            | FromSwarm::NewExternalAddr(_)
+            | FromSwarm::ExpiredExternalAddr(_) => {
+                // The rest of the events we ignore since they are handled in their associated
+                // `SwarmEvent`
+            }
+        }
+    }
+
+    fn on_connection_handler_event(
+        &mut self,
+        _peer_id: PeerId,
+        _connection_id: ConnectionId,
+        _event: libp2p::swarm::THandlerOutEvent<Self>,
+    ) {
+        todo!()
+    }
+
     fn poll(
         &mut self,
         cx: &mut Context<'_>,
         _params: &mut impl PollParameters,
-    ) -> Poll<NetworkBehaviourAction<Self::OutEvent, Self::ConnectionHandler>> {
+    ) -> Poll<NetworkBehaviourAction<Self::OutEvent, void::Void>> {
         // perform the heartbeat when necessary
         while self.heartbeat.poll_tick(cx).is_ready() {
             self.heartbeat();
@@ -96,40 +134,10 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
                 opts: DialOpts::peer_id(peer_id)
                     .condition(PeerCondition::Disconnected)
                     .build(),
-                handler,
             });
         }
 
         Poll::Pending
-    }
-
-    fn on_swarm_event(&mut self, event: FromSwarm<Self::ConnectionHandler>) {
-        match event {
-            FromSwarm::ConnectionEstablished(ConnectionEstablished {
-                peer_id,
-                endpoint,
-                other_established,
-                ..
-            }) => self.on_connection_established(peer_id, endpoint, other_established),
-            FromSwarm::ConnectionClosed(ConnectionClosed {
-                peer_id,
-                remaining_established,
-                ..
-            }) => self.on_connection_closed(peer_id, remaining_established),
-            FromSwarm::DialFailure(DialFailure { peer_id, .. }) => self.on_dial_failure(peer_id),
-            FromSwarm::AddressChange(_)
-            | FromSwarm::ListenFailure(_)
-            | FromSwarm::NewListener(_)
-            | FromSwarm::NewListenAddr(_)
-            | FromSwarm::ExpiredListenAddr(_)
-            | FromSwarm::ListenerError(_)
-            | FromSwarm::ListenerClosed(_)
-            | FromSwarm::NewExternalAddr(_)
-            | FromSwarm::ExpiredExternalAddr(_) => {
-                // The rest of the events we ignore since they are handled in their associated
-                // `SwarmEvent`
-            }
-        }
     }
 }
 
