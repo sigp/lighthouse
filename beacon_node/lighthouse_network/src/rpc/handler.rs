@@ -915,7 +915,7 @@ impl<Id, TSpec: EthSpec> RPCHandler<Id, TSpec> {
     fn on_fully_negotiated_outbound(
         &mut self,
         substream: OutboundFramed<NegotiatedSubstream, TSpec>,
-        (request, id): (Id, OutboundRequest<TSpec>),
+        (id, request): (Id, OutboundRequest<TSpec>),
     ) {
         self.dial_negotiated -= 1;
         let proto = request.protocol();
@@ -969,7 +969,7 @@ impl<Id, TSpec: EthSpec> RPCHandler<Id, TSpec> {
     fn on_dial_upgrade_error(
         &mut self,
         request_info: (Id, OutboundRequest<TSpec>),
-        error: RPCError,
+        error: ConnectionHandlerUpgrErr<RPCError>,
     ) {
         let (id, req) = request_info;
         if let ConnectionHandlerUpgrErr::Upgrade(UpgradeError::Apply(RPCError::IoError(_))) = error
