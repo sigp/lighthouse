@@ -4,14 +4,16 @@ use std::sync::Arc;
 use tokio::task::JoinHandle;
 use ssz_types::VariableList;
 
-use crate::beacon_chain::{BeaconChain, BeaconChainTypes, MAXIMUM_GOSSIP_CLOCK_DISPARITY};
-use crate::block_verification::PayloadVerificationOutcome;
-use crate::{kzg_utils, BeaconChainError, BlockError};
+use crate::beacon_chain::{
+    BeaconChain, BeaconChainTypes, MAXIMUM_GOSSIP_CLOCK_DISPARITY,
+    VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT,
+};
+use crate::BeaconChainError;
 use state_processing::per_block_processing::eip4844::eip4844::verify_kzg_commitments_against_transactions;
 use types::{
     BeaconBlockRef, BeaconStateError, BlobsSidecar, EthSpec, Hash256, KzgCommitment,
-    SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
-    Transactions,
+    SignedBeaconBlock, SignedBeaconBlockAndBlobsSidecar, SignedBeaconBlockHeader,
+    SignedBlobSidecar, Slot, Transactions,
 };
 use types::{Epoch, ExecPayload};
 use types::blob_sidecar::BlobSidecar;
@@ -65,6 +67,52 @@ pub enum BlobError {
     UnavailableBlobs,
     /// Blobs provided for a pre-Eip4844 fork.
     InconsistentFork,
+
+    /// The `blobs_sidecar.message.beacon_block_root` block is unknown.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The blob points to a block we have not yet imported. The blob cannot be imported
+    /// into fork choice yet
+    UnknownHeadBlock {
+        beacon_block_root: Hash256,
+    },
+
+    /// The `BlobSidecar` was gossiped over an incorrect subnet.
+    InvalidSubnet {
+        expected: u64,
+        received: u64,
+    },
+
+    /// The sidecar corresponds to a slot older than the finalized head slot.
+    PastFinalizedSlot {
+        blob_slot: Slot,
+        finalized_slot: Slot,
+    },
+
+    /// The proposer index specified in the sidecar does not match the locally computed
+    /// proposer index.
+    ProposerIndexMismatch {
+        sidecar: usize,
+        local: usize,
+    },
+
+    ProposerSignatureInvalid,
+
+    /// A sidecar with same slot, beacon_block_root and proposer_index but different blob is received for
+    /// the same blob index.
+    RepeatSidecar {
+        proposer: usize,
+        slot: Slot,
+        blob_index: usize,
+    },
+
+    /// The proposal_index corresponding to blob.beacon_block_root is not known.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The block is invalid and the peer is faulty.
+    UnknownValidator(u64),
 }
 
 impl From<BeaconChainError> for BlobError {
@@ -79,34 +127,125 @@ impl From<BeaconStateError> for BlobError {
     }
 }
 
-pub fn validate_blob_for_gossip<T: BeaconChainTypes>(
-    block_wrapper: BlockWrapper<T::EthSpec>,
-    block_root: Hash256,
+pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
+    blob_sidecar: SignedBlobSidecar<T::EthSpec>,
+    subnet: u64,
     chain: &BeaconChain<T>,
-) -> Result<AvailabilityPendingBlock<T::EthSpec>, BlobError> {
-    if let BlockWrapper::BlockAndBlobs(ref block, ref blobs_sidecar) = block_wrapper {
-        let blob_slot = blobs_sidecar.beacon_block_slot;
-        // Do not gossip or process blobs from future or past slots.
-        let latest_permissible_slot = chain
-            .slot_clock
-            .now_with_future_tolerance(MAXIMUM_GOSSIP_CLOCK_DISPARITY)
-            .ok_or(BeaconChainError::UnableToReadSlot)?;
-        if blob_slot > latest_permissible_slot {
-            return Err(BlobError::FutureSlot {
-                message_slot: latest_permissible_slot,
-                latest_permissible_slot: blob_slot,
-            });
-        }
+) -> Result<(), BlobError> {
+    let blob_slot = blob_sidecar.message.slot;
+    let blob_index = blob_sidecar.message.index;
+    let block_root = blob_sidecar.message.block_root;
 
-        if blob_slot != block.slot() {
-            return Err(BlobError::SlotMismatch {
-                blob_slot,
-                block_slot: block.slot(),
-            });
-        }
+    // Verify that the blob_sidecar was received on the correct subnet.
+    if blob_index != subnet {
+        return Err(BlobError::InvalidSubnet {
+            expected: blob_index,
+            received: subnet,
+        });
     }
 
-    block_wrapper.into_availablilty_pending_block(block_root, chain)
+    // Verify that the sidecar is not from a future slot.
+    let latest_permissible_slot = chain
+        .slot_clock
+        .now_with_future_tolerance(MAXIMUM_GOSSIP_CLOCK_DISPARITY)
+        .ok_or(BeaconChainError::UnableToReadSlot)?;
+    if blob_slot > latest_permissible_slot {
+        return Err(BlobError::FutureSlot {
+            message_slot: blob_slot,
+            latest_permissible_slot,
+        });
+    }
+
+    // TODO(pawan): Verify not from a past slot?
+
+    // Verify that the sidecar slot is greater than the latest finalized slot
+    let latest_finalized_slot = chain
+        .head()
+        .finalized_checkpoint()
+        .epoch
+        .start_slot(T::EthSpec::slots_per_epoch());
+    if blob_slot <= latest_finalized_slot {
+        return Err(BlobError::PastFinalizedSlot {
+            blob_slot,
+            finalized_slot: latest_finalized_slot,
+        });
+    }
+
+    // TODO(pawan): should we verify locally that the parent root is correct
+    // or just use whatever the proposer gives us?
+    let proposer_shuffling_root = blob_sidecar.message.block_parent_root;
+
+    let (proposer_index, fork) = match chain
+        .beacon_proposer_cache
+        .lock()
+        .get_slot::<T::EthSpec>(proposer_shuffling_root, blob_slot)
+    {
+        Some(proposer) => (proposer.index, proposer.fork),
+        None => {
+            let state = &chain.canonical_head.cached_head().snapshot.beacon_state;
+            (
+                state.get_beacon_proposer_index(blob_slot, &chain.spec)?,
+                state.fork(),
+            )
+        }
+    };
+
+    let blob_proposer_index = blob_sidecar.message.proposer_index;
+    if proposer_index != blob_proposer_index {
+        return Err(BlobError::ProposerIndexMismatch {
+            sidecar: blob_proposer_index,
+            local: proposer_index,
+        });
+    }
+
+    let signature_is_valid = {
+        let pubkey_cache = chain
+            .validator_pubkey_cache
+            .try_read_for(VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT)
+            .ok_or(BeaconChainError::ValidatorPubkeyCacheLockTimeout)
+            .map_err(BlobError::BeaconChainError)?;
+
+        let pubkey = pubkey_cache
+            .get(proposer_index as usize)
+            .ok_or_else(|| BlobError::UnknownValidator(proposer_index as u64))?;
+
+        blob_sidecar.verify_signature(
+            None,
+            pubkey,
+            &fork,
+            chain.genesis_validators_root,
+            &chain.spec,
+        )
+    };
+
+    if !signature_is_valid {
+        return Err(BlobError::ProposerSignatureInvalid);
+    }
+
+    // TODO(pawan): kzg validations.
+
+    // TODO(pawan): Check if other blobs for the same proposer index and blob index have been
+    // received and drop if required.
+
+    // TODO(pawan): potentially add to a seen cache at this point.
+
+    // Verify if the corresponding block for this blob has been received.
+    // Note: this should be the last gossip check so that we can forward the blob
+    // over the gossip network even if we haven't received the corresponding block yet
+    // as all other validations have passed.
+    let block_opt = chain
+        .canonical_head
+        .fork_choice_read_lock()
+        .get_block(&block_root)
+        .or_else(|| chain.early_attester_cache.get_proto_block(block_root)); // TODO(pawan): should we be checking this cache?
+
+    if block_opt.is_none() {
+        return Err(BlobError::UnknownHeadBlock {
+            beacon_block_root: block_root,
+        });
+    }
+
+    Ok(())
 }
 
 pub fn verify_data_availability<T: BeaconChainTypes>(
