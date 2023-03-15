@@ -9,12 +9,11 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::runtime::Runtime;
 use tokio::time::sleep;
-use types::light_client_bootstrap::LightClientBootstrap;
 use types::light_client_update::CURRENT_SYNC_COMMITTEE_PROOF_LEN;
 use types::{
     BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockHeader, BeaconBlockMerge,
     EmptyBlock, Epoch, EthSpec, ForkContext, ForkName, Hash256, MinimalEthSpec, Signature,
-    SignedBeaconBlock, Slot, SyncCommittee, LightClientOptimisticUpdate, SyncAggregate,
+    SignedBeaconBlock, Slot, SyncCommittee, LightClientOptimisticUpdate, SyncAggregate, LightClientBootstrap,
 };
 
 mod common;

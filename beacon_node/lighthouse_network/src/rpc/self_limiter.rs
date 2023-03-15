@@ -73,6 +73,8 @@ impl<Id: ReqId, TSpec: EthSpec> SelfRateLimiter<Id, TSpec> {
             // inbound and outbound requests, and the LightClientBootstrap is an only inbound
             // protocol.
             .one_every(Protocol::LightClientBootstrap, Duration::from_secs(10))
+            .one_every(Protocol::LightClientOptimisticUpdate, Duration::from_secs(10))
+            .one_every(Protocol::LightClientFinalityUpdate, Duration::from_secs(10))
             .build()?;
 
         Ok(SelfRateLimiter {
