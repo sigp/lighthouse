@@ -1,0 +1,13 @@
+[package]
+name = "system_health"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+lighthouse_network = { path = "../../beacon_node/lighthouse_network" }
+types = { path = "../../consensus/types" }
+sysinfo = "0.26.5"
+serde = "1.0.116"
+serde_derive = "1.0.116"
+serde_json = "1.0.58"
+parking_lot = "0.12.0"

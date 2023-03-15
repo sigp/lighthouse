@@ -49,7 +49,7 @@ impl<'a, T: EthSpec> AttMaxCover<'a, T> {
         let indices = get_attesting_indices::<T>(committee.committee, &fresh_validators).ok()?;
         let fresh_validators_rewards: HashMap<u64, u64> = indices
             .iter()
-            .map(|i| *i as u64)
+            .copied()
             .flat_map(|validator_index| {
                 let reward = base::get_base_reward(
                     state,

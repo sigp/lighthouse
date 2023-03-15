@@ -7,11 +7,11 @@ use itertools::process_results;
 use lighthouse_network::rpc::StatusMessage;
 use lighthouse_network::rpc::*;
 use lighthouse_network::{PeerId, PeerRequestId, ReportSource, Response, SyncInfo};
-use slog::{debug, error};
+use slog::{debug, error, warn};
 use slot_clock::SlotClock;
 use std::sync::Arc;
 use task_executor::TaskExecutor;
-use types::{Epoch, EthSpec, Hash256, Slot};
+use types::{light_client_bootstrap::LightClientBootstrap, Epoch, EthSpec, Hash256, Slot};
 
 use super::Worker;
 
@@ -204,6 +204,79 @@ impl<T: BeaconChainTypes> Worker<T> {
         )
     }
 
+    /// Handle a `BlocksByRoot` request from the peer.
+    pub fn handle_light_client_bootstrap(
+        self,
+        peer_id: PeerId,
+        request_id: PeerRequestId,
+        request: LightClientBootstrapRequest,
+    ) {
+        let block_root = request.root;
+        let state_root = match self.chain.get_blinded_block(&block_root) {
+            Ok(signed_block) => match signed_block {
+                Some(signed_block) => signed_block.state_root(),
+                None => {
+                    self.send_error_response(
+                        peer_id,
+                        RPCResponseErrorCode::ResourceUnavailable,
+                        "Bootstrap not avaiable".into(),
+                        request_id,
+                    );
+                    return;
+                }
+            },
+            Err(_) => {
+                self.send_error_response(
+                    peer_id,
+                    RPCResponseErrorCode::ResourceUnavailable,
+                    "Bootstrap not avaiable".into(),
+                    request_id,
+                );
+                return;
+            }
+        };
+        let mut beacon_state = match self.chain.get_state(&state_root, None) {
+            Ok(beacon_state) => match beacon_state {
+                Some(state) => state,
+                None => {
+                    self.send_error_response(
+                        peer_id,
+                        RPCResponseErrorCode::ResourceUnavailable,
+                        "Bootstrap not avaiable".into(),
+                        request_id,
+                    );
+                    return;
+                }
+            },
+            Err(_) => {
+                self.send_error_response(
+                    peer_id,
+                    RPCResponseErrorCode::ResourceUnavailable,
+                    "Bootstrap not avaiable".into(),
+                    request_id,
+                );
+                return;
+            }
+        };
+        let bootstrap = match LightClientBootstrap::from_beacon_state(&mut beacon_state) {
+            Ok(bootstrap) => bootstrap,
+            Err(_) => {
+                self.send_error_response(
+                    peer_id,
+                    RPCResponseErrorCode::ResourceUnavailable,
+                    "Bootstrap not avaiable".into(),
+                    request_id,
+                );
+                return;
+            }
+        };
+        self.send_response(
+            peer_id,
+            Response::LightClientBootstrap(bootstrap),
+            request_id,
+        )
+    }
+
     /// Handle a `BlocksByRange` request from the peer.
     pub fn handle_blocks_by_range_request(
         self,
@@ -319,12 +392,35 @@ impl<T: BeaconChainTypes> Worker<T> {
                             break;
                         }
                         Err(e) => {
-                            error!(
-                                self.log,
-                                "Error fetching block for peer";
-                                "block_root" => ?root,
-                                "error" => ?e
+                            if matches!(
+                                e,
+                                BeaconChainError::ExecutionLayerErrorPayloadReconstruction(_block_hash, ref boxed_error)
+                                if matches!(**boxed_error, execution_layer::Error::EngineError(_))
+                            ) {
+                                warn!(
+                                    self.log,
+                                    "Error rebuilding payload for peer";
+                                    "info" => "this may occur occasionally when the EE is busy",
+                                    "block_root" => ?root,
+                                    "error" => ?e,
+                                );
+                            } else {
+                                error!(
+                                    self.log,
+                                    "Error fetching block for peer";
+                                    "block_root" => ?root,
+                                    "error" => ?e
+                                );
+                            }
+
+                            // send the stream terminator
+                            self.send_error_response(
+                                peer_id,
+                                RPCResponseErrorCode::ServerError,
+                                "Failed fetching blocks".into(),
+                                request_id,
                             );
+                            send_response = false;
                             break;
                         }
                     }

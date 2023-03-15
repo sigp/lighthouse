@@ -9,10 +9,11 @@ use std::boxed::Box;
 use std::io::{Error, ErrorKind};
 use std::sync::Arc;
 use types::{
-    Attestation, AttesterSlashing, EthSpec, ForkContext, ForkName, ProposerSlashing,
-    SignedAggregateAndProof, SignedBeaconBlock, SignedBeaconBlockAltair, SignedBeaconBlockBase,
-    SignedBeaconBlockMerge, SignedContributionAndProof, SignedVoluntaryExit, SubnetId,
-    SyncCommitteeMessage, SyncSubnetId,
+    Attestation, AttesterSlashing, EthSpec, ForkContext, ForkName, LightClientFinalityUpdate,
+    LightClientOptimisticUpdate, ProposerSlashing, SignedAggregateAndProof, SignedBeaconBlock,
+    SignedBeaconBlockAltair, SignedBeaconBlockBase, SignedBeaconBlockCapella,
+    SignedBeaconBlockMerge, SignedBlsToExecutionChange, SignedContributionAndProof,
+    SignedVoluntaryExit, SubnetId, SyncCommitteeMessage, SyncSubnetId,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -33,6 +34,12 @@ pub enum PubsubMessage<T: EthSpec> {
     SignedContributionAndProof(Box<SignedContributionAndProof<T>>),
     /// Gossipsub message providing notification of unaggregated sync committee signatures with its subnet id.
     SyncCommitteeMessage(Box<(SyncSubnetId, SyncCommitteeMessage)>),
+    /// Gossipsub message for BLS to execution change messages.
+    BlsToExecutionChange(Box<SignedBlsToExecutionChange>),
+    /// Gossipsub message providing notification of a light client finality update.
+    LightClientFinalityUpdate(Box<LightClientFinalityUpdate<T>>),
+    /// Gossipsub message providing notification of a light client optimistic update.
+    LightClientOptimisticUpdate(Box<LightClientOptimisticUpdate<T>>),
 }
 
 // Implements the `DataTransform` trait of gossipsub to employ snappy compression
@@ -115,6 +122,11 @@ impl<T: EthSpec> PubsubMessage<T> {
             PubsubMessage::AttesterSlashing(_) => GossipKind::AttesterSlashing,
             PubsubMessage::SignedContributionAndProof(_) => GossipKind::SignedContributionAndProof,
             PubsubMessage::SyncCommitteeMessage(data) => GossipKind::SyncCommitteeMessage(data.0),
+            PubsubMessage::BlsToExecutionChange(_) => GossipKind::BlsToExecutionChange,
+            PubsubMessage::LightClientFinalityUpdate(_) => GossipKind::LightClientFinalityUpdate,
+            PubsubMessage::LightClientOptimisticUpdate(_) => {
+                GossipKind::LightClientOptimisticUpdate
+            }
         }
     }
 
@@ -167,6 +179,10 @@ impl<T: EthSpec> PubsubMessage<T> {
                                     SignedBeaconBlockMerge::from_ssz_bytes(data)
                                         .map_err(|e| format!("{:?}", e))?,
                                 ),
+                                Some(ForkName::Capella) => SignedBeaconBlock::<T>::Capella(
+                                    SignedBeaconBlockCapella::from_ssz_bytes(data)
+                                        .map_err(|e| format!("{:?}", e))?,
+                                ),
                                 None => {
                                     return Err(format!(
                                         "Unknown gossipsub fork digest: {:?}",
@@ -206,6 +222,30 @@ impl<T: EthSpec> PubsubMessage<T> {
                             sync_committee,
                         ))))
                     }
+                    GossipKind::BlsToExecutionChange => {
+                        let bls_to_execution_change =
+                            SignedBlsToExecutionChange::from_ssz_bytes(data)
+                                .map_err(|e| format!("{:?}", e))?;
+                        Ok(PubsubMessage::BlsToExecutionChange(Box::new(
+                            bls_to_execution_change,
+                        )))
+                    }
+                    GossipKind::LightClientFinalityUpdate => {
+                        let light_client_finality_update =
+                            LightClientFinalityUpdate::from_ssz_bytes(data)
+                                .map_err(|e| format!("{:?}", e))?;
+                        Ok(PubsubMessage::LightClientFinalityUpdate(Box::new(
+                            light_client_finality_update,
+                        )))
+                    }
+                    GossipKind::LightClientOptimisticUpdate => {
+                        let light_client_optimistic_update =
+                            LightClientOptimisticUpdate::from_ssz_bytes(data)
+                                .map_err(|e| format!("{:?}", e))?;
+                        Ok(PubsubMessage::LightClientOptimisticUpdate(Box::new(
+                            light_client_optimistic_update,
+                        )))
+                    }
                 }
             }
         }
@@ -227,6 +267,9 @@ impl<T: EthSpec> PubsubMessage<T> {
             PubsubMessage::Attestation(data) => data.1.as_ssz_bytes(),
             PubsubMessage::SignedContributionAndProof(data) => data.as_ssz_bytes(),
             PubsubMessage::SyncCommitteeMessage(data) => data.1.as_ssz_bytes(),
+            PubsubMessage::BlsToExecutionChange(data) => data.as_ssz_bytes(),
+            PubsubMessage::LightClientFinalityUpdate(data) => data.as_ssz_bytes(),
+            PubsubMessage::LightClientOptimisticUpdate(data) => data.as_ssz_bytes(),
         }
     }
 }
@@ -260,6 +303,19 @@ impl<T: EthSpec> std::fmt::Display for PubsubMessage<T> {
             }
             PubsubMessage::SyncCommitteeMessage(data) => {
                 write!(f, "Sync committee message: subnet_id: {}", *data.0)
+            }
+            PubsubMessage::BlsToExecutionChange(data) => {
+                write!(
+                    f,
+                    "Signed BLS to execution change: validator_index: {}, address: {:?}",
+                    data.message.validator_index, data.message.to_execution_address
+                )
+            }
+            PubsubMessage::LightClientFinalityUpdate(_data) => {
+                write!(f, "Light CLient Finality Update")
+            }
+            PubsubMessage::LightClientOptimisticUpdate(_data) => {
+                write!(f, "Light CLient Optimistic Update")
             }
         }
     }

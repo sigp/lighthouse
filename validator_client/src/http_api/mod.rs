@@ -4,7 +4,7 @@ mod keystores;
 mod remotekeys;
 mod tests;
 
-use crate::ValidatorStore;
+use crate::{determine_graffiti, GraffitiFile, ValidatorStore};
 use account_utils::{
     mnemonic_from_phrase,
     validator_definitions::{SigningDefinition, ValidatorDefinition, Web3SignerDefinition},
@@ -13,17 +13,21 @@ pub use api_secret::ApiSecret;
 use create_validator::{create_validators_mnemonic, create_validators_web3signer};
 use eth2::lighthouse_vc::{
     std_types::{AuthResponse, GetFeeRecipientResponse, GetGasLimitResponse},
-    types::{self as api_types, GenericResponse, PublicKey, PublicKeyBytes},
+    types::{self as api_types, GenericResponse, Graffiti, PublicKey, PublicKeyBytes},
 };
 use lighthouse_version::version_with_platform;
+use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use slog::{crit, info, warn, Logger};
 use slot_clock::SlotClock;
+use std::collections::HashMap;
 use std::future::Future;
 use std::marker::PhantomData;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use std::sync::Arc;
+use sysinfo::{System, SystemExt};
+use system_health::observe_system_health_vc;
 use task_executor::TaskExecutor;
 use types::{ChainSpec, ConfigAndPreset, EthSpec};
 use validator_dir::Builder as ValidatorDirBuilder;
@@ -62,6 +66,8 @@ pub struct Context<T: SlotClock, E: EthSpec> {
     pub api_secret: ApiSecret,
     pub validator_store: Option<Arc<ValidatorStore<T, E>>>,
     pub validator_dir: Option<PathBuf>,
+    pub graffiti_file: Option<GraffitiFile>,
+    pub graffiti_flag: Option<Graffiti>,
     pub spec: ChainSpec,
     pub config: Config,
     pub log: Logger,
@@ -174,6 +180,12 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
             })
         });
 
+    let inner_graffiti_file = ctx.graffiti_file.clone();
+    let graffiti_file_filter = warp::any().map(move || inner_graffiti_file.clone());
+
+    let inner_graffiti_flag = ctx.graffiti_flag;
+    let graffiti_flag_filter = warp::any().map(move || inner_graffiti_flag);
+
     let inner_ctx = ctx.clone();
     let log_filter = warp::any().map(move || inner_ctx.log.clone());
 
@@ -182,6 +194,35 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
 
     let api_token_path_inner = api_token_path.clone();
     let api_token_path_filter = warp::any().map(move || api_token_path_inner.clone());
+
+    // Create a `warp` filter that provides access to local system information.
+    let system_info = Arc::new(RwLock::new(sysinfo::System::new()));
+    {
+        // grab write access for initialisation
+        let mut system_info = system_info.write();
+        system_info.refresh_disks_list();
+        system_info.refresh_networks_list();
+    } // end lock
+
+    let system_info_filter =
+        warp::any()
+            .map(move || system_info.clone())
+            .map(|sysinfo: Arc<RwLock<System>>| {
+                {
+                    // refresh stats
+                    let mut sysinfo_lock = sysinfo.write();
+                    sysinfo_lock.refresh_memory();
+                    sysinfo_lock.refresh_cpu_specifics(sysinfo::CpuRefreshKind::everything());
+                    sysinfo_lock.refresh_cpu();
+                    sysinfo_lock.refresh_system();
+                    sysinfo_lock.refresh_networks();
+                    sysinfo_lock.refresh_disks();
+                } // end lock
+                sysinfo
+            });
+
+    let app_start = std::time::Instant::now();
+    let app_start_filter = warp::any().map(move || app_start);
 
     // GET lighthouse/version
     let get_node_version = warp::path("lighthouse")
@@ -275,6 +316,60 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                         })?;
 
                     Ok(api_types::GenericResponse::from(validator))
+                })
+            },
+        );
+
+    // GET lighthouse/ui/health
+    let get_lighthouse_ui_health = warp::path("lighthouse")
+        .and(warp::path("ui"))
+        .and(warp::path("health"))
+        .and(warp::path::end())
+        .and(system_info_filter)
+        .and(app_start_filter)
+        .and(validator_dir_filter.clone())
+        .and(signer.clone())
+        .and_then(|sysinfo, app_start: std::time::Instant, val_dir, signer| {
+            blocking_signed_json_task(signer, move || {
+                let app_uptime = app_start.elapsed().as_secs();
+                Ok(api_types::GenericResponse::from(observe_system_health_vc(
+                    sysinfo, val_dir, app_uptime,
+                )))
+            })
+        });
+
+    let get_lighthouse_ui_graffiti = warp::path("lighthouse")
+        .and(warp::path("ui"))
+        .and(warp::path("graffiti"))
+        .and(warp::path::end())
+        .and(validator_store_filter.clone())
+        .and(graffiti_file_filter)
+        .and(graffiti_flag_filter)
+        .and(signer.clone())
+        .and(log_filter.clone())
+        .and_then(
+            |validator_store: Arc<ValidatorStore<T, E>>,
+             graffiti_file: Option<GraffitiFile>,
+             graffiti_flag: Option<Graffiti>,
+             signer,
+             log| {
+                blocking_signed_json_task(signer, move || {
+                    let mut result = HashMap::new();
+                    for (key, graffiti_definition) in validator_store
+                        .initialized_validators()
+                        .read()
+                        .get_all_validators_graffiti()
+                    {
+                        let graffiti = determine_graffiti(
+                            key,
+                            &log,
+                            graffiti_file.clone(),
+                            graffiti_definition,
+                            graffiti_flag,
+                        );
+                        result.insert(key.to_string(), graffiti.map(|g| g.as_utf8_lossy()));
+                    }
+                    Ok(api_types::GenericResponse::from(result))
                 })
             },
         );
@@ -894,6 +989,8 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                         .or(get_lighthouse_spec)
                         .or(get_lighthouse_validators)
                         .or(get_lighthouse_validators_pubkey)
+                        .or(get_lighthouse_ui_health)
+                        .or(get_lighthouse_ui_graffiti)
                         .or(get_fee_recipient)
                         .or(get_gas_limit)
                         .or(get_std_keystores)

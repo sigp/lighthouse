@@ -29,7 +29,7 @@ pub struct MerkleProofValidity<E: EthSpec> {
 impl<E: EthSpec> LoadCase for MerkleProofValidity<E> {
     fn load_from_dir(path: &Path, fork_name: ForkName) -> Result<Self, Error> {
         let spec = &testing_spec::<E>(fork_name);
-        let state = ssz_decode_state(&path.join("state.ssz_snappy"), spec)?;
+        let state = ssz_decode_state(&path.join("object.ssz_snappy"), spec)?;
         let merkle_proof = yaml_decode_file(&path.join("proof.yaml"))?;
         // Metadata does not exist in these tests but it is left like this just in case.
         let meta_path = path.join("meta.yaml");
@@ -78,6 +78,10 @@ impl<E: EthSpec> Case for MerkleProofValidity<E> {
                 )));
             }
         }
+
+        // Tree hash cache should still be initialized (not dropped).
+        assert!(state.tree_hash_cache().is_initialized());
+
         Ok(())
     }
 }

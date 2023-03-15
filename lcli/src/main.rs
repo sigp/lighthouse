@@ -371,7 +371,8 @@ fn main() {
         .subcommand(
             SubCommand::with_name("create-payload-header")
                 .about("Generates an SSZ file containing bytes for an `ExecutionPayloadHeader`. \
-                Useful as input for `lcli new-testnet --execution-payload-header FILE`. ")
+                Useful as input for `lcli new-testnet --execution-payload-header FILE`. If `--fork` \
+                is not provided, a payload header for the `Bellatrix` fork will be created.")
                 .arg(
                     Arg::with_name("execution-block-hash")
                         .long("execution-block-hash")
@@ -417,7 +418,15 @@ fn main() {
                         .takes_value(true)
                         .required(true)
                         .help("Output file"),
-                )
+                ).arg(
+                Arg::with_name("fork")
+                    .long("fork")
+                    .value_name("FORK")
+                    .takes_value(true)
+                    .default_value("bellatrix")
+                    .help("The fork for which the execution payload header should be created.")
+                    .possible_values(&["merge", "bellatrix", "capella"])
+            )
         )
         .subcommand(
             SubCommand::with_name("new-testnet")
@@ -597,6 +606,14 @@ fn main() {
                         .takes_value(true)
                         .help("The genesis time when generating a genesis state."),
                 )
+                .arg(
+                    Arg::with_name("proposer-score-boost")
+                        .long("proposer-score-boost")
+                        .value_name("INTEGER")
+                        .takes_value(true)
+                        .help("The proposer score boost to apply as a percentage, e.g. 70 = 70%"),
+                )
+
         )
         .subcommand(
             SubCommand::with_name("check-deposit-data")
@@ -724,7 +741,6 @@ fn main() {
                         .value_name("PATH")
                         .takes_value(true)
                         .conflicts_with("beacon-url")
-                        .requires("pre-state-path")
                         .help("Path to load a SignedBeaconBlock from file as SSZ."),
                 )
                 .arg(
@@ -784,11 +800,13 @@ fn run<T: EthSpec>(
             debug_level: String::from("trace"),
             logfile_debug_level: String::from("trace"),
             log_format: None,
+            logfile_format: None,
             log_color: false,
             disable_log_timestamp: false,
             max_log_size: 0,
             max_log_number: 0,
             compression: false,
+            is_restricted: true,
         })
         .map_err(|e| format!("should start logger: {:?}", e))?
         .build()
