@@ -23,7 +23,7 @@ use tokio_util::{
 use types::{
     BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockCapella, BeaconBlockMerge,
     EmptyBlock, EthSpec, ForkContext, ForkName, Hash256, MainnetEthSpec, Signature,
-    SignedBeaconBlock, LightClientFinalityUpdate, LightClientOptimisticUpdate,
+    SignedBeaconBlock, LightClientFinalityUpdate, LightClientOptimisticUpdate, LightClientBootstrap,
 };
 
 lazy_static! {
@@ -352,7 +352,10 @@ impl ProtocolId {
                 <MetaDataV1<T> as Encode>::ssz_fixed_len(),
                 <MetaDataV2<T> as Encode>::ssz_fixed_len(),
             ),
-            Protocol::LightClientBootstrap => rpc_block_limits_by_fork(fork_context.current_fork()),
+            Protocol::LightClientBootstrap => RpcLimits::new(
+                <LightClientBootstrap<T> as Encode>::ssz_fixed_len(),
+                <LightClientBootstrap<T> as Encode>::ssz_fixed_len(),
+            ),
             Protocol::LightClientOptimisticUpdate => RpcLimits::new(
                 <LightClientOptimisticUpdate<T> as Encode>::ssz_fixed_len(),
                 <LightClientOptimisticUpdate<T> as Encode>::ssz_fixed_len(),

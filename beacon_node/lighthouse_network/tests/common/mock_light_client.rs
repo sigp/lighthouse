@@ -282,6 +282,16 @@ impl<TSpec: EthSpec> UpgradeInfo for MockOutboundRequestContainer<TSpec> {
                 Version::V1,
                 Encoding::SSZSnappy,
             )],
+            OutboundRequest::LightClientFinalityUpdate => vec![ProtocolId::new(
+                Protocol::LightClientFinalityUpdate,
+                Version::V1,
+                Encoding::SSZSnappy,
+            )],
+            OutboundRequest::LightClientOptimisticUpdate => vec![ProtocolId::new(
+                Protocol::LightClientOptimisticUpdate,
+                Version::V1,
+                Encoding::SSZSnappy,
+            )],
             OutboundRequest::BlocksByRange(_) => vec![],
             OutboundRequest::BlocksByRoot(_) => vec![],
         }

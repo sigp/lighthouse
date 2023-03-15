@@ -14,7 +14,7 @@ use types::light_client_update::CURRENT_SYNC_COMMITTEE_PROOF_LEN;
 use types::{
     BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockHeader, BeaconBlockMerge,
     EmptyBlock, Epoch, EthSpec, ForkContext, ForkName, Hash256, MinimalEthSpec, Signature,
-    SignedBeaconBlock, Slot, SyncCommittee,
+    SignedBeaconBlock, Slot, SyncCommittee, LightClientOptimisticUpdate, SyncAggregate,
 };
 
 mod common;
@@ -145,7 +145,7 @@ fn test_status_rpc() {
 fn test_light_client_bootstrap_rpc() {
     // set up the logging. The level and enabled logging or not
     let log_level = Level::Debug;
-    let enable_logging = false;
+    let enable_logging = true;
 
     let rt = Arc::new(Runtime::new().unwrap());
 
@@ -167,9 +167,7 @@ fn test_light_client_bootstrap_rpc() {
         let rpc_request = Request::LightClientBootstrap(LightClientBootstrapRequest {
             root: Hash256::from_low_u64_be(0),
         });
-
-        // Dummy LightClientBootstrap RPC response
-        let nl_rpc_response = RPCResponse::LightClientBootstrap(LightClientBootstrap {
+        let light_client_bootstrap = LightClientBootstrap::<E> {
             header: BeaconBlockHeader {
                 slot: Slot::new(0),
                 proposer_index: 0,
@@ -183,23 +181,8 @@ fn test_light_client_bootstrap_rpc() {
                 CURRENT_SYNC_COMMITTEE_PROOF_LEN
             ])
             .unwrap(),
-        });
-
-        let rpc_response = Response::LightClientBootstrap(LightClientBootstrap {
-            header: BeaconBlockHeader {
-                slot: Slot::new(0),
-                proposer_index: 0,
-                parent_root: Hash256::zero(),
-                state_root: Hash256::zero(),
-                body_root: Hash256::zero(),
-            },
-            current_sync_committee: Arc::new(SyncCommittee::temporary().unwrap()),
-            current_sync_committee_branch: FixedVector::new(vec![
-                Hash256::zero();
-                CURRENT_SYNC_COMMITTEE_PROOF_LEN
-            ])
-            .unwrap(),
-        });
+        };
+        let rpc_response = RPCResponse::LightClientBootstrap(light_client_bootstrap.clone());
 
         // build the sender future
         let sender_future = async {
@@ -217,7 +200,7 @@ fn test_light_client_bootstrap_rpc() {
                     })) => {
                         // Should receive the RPC response
                         debug!(log, "Sender Received");
-                        assert_eq!(response, nl_rpc_response.clone());
+                        assert_eq!(response, rpc_response.clone());
                         debug!(log, "Sender Completed");
                         return;
                     }
@@ -238,7 +221,7 @@ fn test_light_client_bootstrap_rpc() {
                         if request == rpc_request {
                             // send the response
                             debug!(log, "Receiver Received");
-                            receiver.send_response(peer_id, id, rpc_response.clone());
+                            receiver.send_response(peer_id, id, Response::LightClientBootstrap(light_client_bootstrap.clone()));
                         }
                     }
                     _ => {} // Ignore other events
@@ -255,6 +238,105 @@ fn test_light_client_bootstrap_rpc() {
         }
     })
 }
+
+// Tests the LightClientOptimisticUpdate RPC message
+#[test]
+#[allow(clippy::single_match)]
+fn test_light_client_optimistic_update_rpc() {
+    // set up the logging. The level and enabled logging or not
+    let log_level = Level::Debug;
+    let enable_logging = true;
+
+    let rt = Arc::new(Runtime::new().unwrap());
+
+    let log = common::build_log(log_level, enable_logging);
+
+    rt.block_on(async {
+        // get sender/receiver
+        let (mut sender, mut receiver): (
+            common::MockLibp2pLightClientInstance,
+            common::Libp2pInstance,
+        ) = common::build_node_and_light_client(
+            Arc::downgrade(&rt),
+            &log,
+            ForkName::Altair,
+        )
+        .await;
+
+        // Dummy LightClientOptimisticUpdate RPC request
+        let rpc_request = Request::LightClientOptimisticUpdate;
+        let light_client_optimistic_update = Arc::new(LightClientOptimisticUpdate::<E> {
+            attested_header: BeaconBlockHeader {
+                slot: Slot::new(0),
+                proposer_index: 0,
+                parent_root: Hash256::zero(),
+                state_root: Hash256::zero(),
+                body_root: Hash256::zero(),
+            },
+            sync_aggregate: SyncAggregate::empty(),
+            signature_slot: Slot::new(0),
+        });
+        let rpc_response = RPCResponse::LightClientOptimisticUpdate(light_client_optimistic_update.clone());
+
+        // build the sender future
+        let sender_future = async {
+            loop {
+                match sender.0.next_event().await {
+                    Some(SwarmEvent::ConnectionEstablished { peer_id, .. }) => {
+                        // Send a LightClientOptimisticUpdate message
+                        debug!(log, "Sending RPC");
+                        sender.0.send_request(peer_id, 10, rpc_request.clone());
+                    }
+                    Some(SwarmEvent::Behaviour(RPCMessage {
+                        peer_id: _,
+                        conn_id: _,
+                        event: Ok(RPCReceived::Response(_, response)),
+                    })) => {
+                        // Should receive the RPC response
+                        debug!(log, "Sender Received");
+                        assert_eq!(response, rpc_response);
+                        debug!(log, "Sender Completed");
+                        return;
+                    }
+                    _ => {}
+                }
+            }
+        };
+
+        // build the receiver future
+        let receiver_future = async {
+            loop {
+                match receiver.next_event().await {
+                    NetworkEvent::RequestReceived {
+                        peer_id,
+                        id,
+                        request,
+                    } => {
+                        if request == rpc_request {
+                            // send the response
+                            debug!(log, "Receiver Received");
+                            receiver.send_response(
+                                peer_id, 
+                                id, 
+                                Response::LightClientOptimisticUpdate(light_client_optimistic_update.clone()),
+                            );
+                        }
+                    }
+                    _ => {} // Ignore other events
+                }
+            }
+        };
+
+        tokio::select! {
+            _ = sender_future => {}
+            _ = receiver_future => {}
+            _ = sleep(Duration::from_secs(30)) => {
+                panic!("Future timed out");
+            }
+        }
+    })
+}
+
 
 // Tests a streamed BlocksByRange RPC Message
 #[test]
@@ -304,7 +386,7 @@ fn test_blocks_by_range_chunked_rpc() {
             loop {
                 match sender.next_event().await {
                     NetworkEvent::PeerConnectedOutgoing(peer_id) => {
-                        // Send a STATUS message
+                        // Send a BlocksByRange message
                         debug!(log, "Sending RPC");
                         sender.send_request(peer_id, request_id, rpc_request.clone());
                     }
@@ -419,7 +501,7 @@ fn test_blocks_by_range_over_limit() {
             loop {
                 match sender.next_event().await {
                     NetworkEvent::PeerConnectedOutgoing(peer_id) => {
-                        // Send a STATUS message
+                        // Send a BlocksByRange message
                         debug!(log, "Sending RPC");
                         sender.send_request(peer_id, request_id, rpc_request.clone());
                     }
@@ -507,7 +589,7 @@ fn test_blocks_by_range_chunked_rpc_terminates_correctly() {
             loop {
                 match sender.next_event().await {
                     NetworkEvent::PeerConnectedOutgoing(peer_id) => {
-                        // Send a STATUS message
+                        // Send a BlocksByRange message
                         debug!(log, "Sending RPC");
                         sender.send_request(peer_id, request_id, rpc_request.clone());
                     }
@@ -631,7 +713,7 @@ fn test_blocks_by_range_single_empty_rpc() {
             loop {
                 match sender.next_event().await {
                     NetworkEvent::PeerConnectedOutgoing(peer_id) => {
-                        // Send a STATUS message
+                        // Send a BlocksByRange message
                         debug!(log, "Sending RPC");
                         sender.send_request(peer_id, 10, rpc_request.clone());
                     }
@@ -746,7 +828,7 @@ fn test_blocks_by_root_chunked_rpc() {
             loop {
                 match sender.next_event().await {
                     NetworkEvent::PeerConnectedOutgoing(peer_id) => {
-                        // Send a STATUS message
+                        // Send a BlocksByRoot message
                         debug!(log, "Sending RPC");
                         sender.send_request(peer_id, 6, rpc_request.clone());
                     }
@@ -870,7 +952,7 @@ fn test_blocks_by_root_chunked_rpc_terminates_correctly() {
             loop {
                 match sender.next_event().await {
                     NetworkEvent::PeerConnectedOutgoing(peer_id) => {
-                        // Send a STATUS message
+                        // Send a BlocksByRoot message
                         debug!(log, "Sending RPC");
                         sender.send_request(peer_id, 10, rpc_request.clone());
                     }
