@@ -199,7 +199,7 @@ impl CombinedKeyPublicExt for CombinedPublicKey {
         match self {
             Self::Secp256k1(pk) => {
                 let pk_bytes = pk.to_bytes();
-                let libp2p_pk = libp2p::core::PublicKey::Secp256k1(
+                let libp2p_pk = libp2p::identity::PublicKey::Secp256k1(
                     libp2p::core::identity::secp256k1::PublicKey::decode(&pk_bytes)
                         .expect("valid public key"),
                 );
@@ -207,7 +207,7 @@ impl CombinedKeyPublicExt for CombinedPublicKey {
             }
             Self::Ed25519(pk) => {
                 let pk_bytes = pk.to_bytes();
-                let libp2p_pk = libp2p::core::PublicKey::Ed25519(
+                let libp2p_pk = libp2p::identity::PublicKey::Ed25519(
                     libp2p::core::identity::ed25519::PublicKey::decode(&pk_bytes)
                         .expect("valid public key"),
                 );

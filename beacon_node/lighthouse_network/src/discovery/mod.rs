@@ -25,7 +25,8 @@ use libp2p::multiaddr::Protocol;
 use libp2p::swarm::behaviour::{DialFailure, FromSwarm};
 use libp2p::swarm::AddressScore;
 pub use libp2p::{
-    core::{ConnectedPoint, Multiaddr, PeerId},
+    core::{ConnectedPoint, Multiaddr},
+    identity::PeerId,
     swarm::{
         dummy::ConnectionHandler, ConnectionId, DialError, NetworkBehaviour,
         NetworkBehaviourAction as NBAction, NotifyHandler, PollParameters, SubstreamProtocol,

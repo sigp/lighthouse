@@ -23,11 +23,11 @@ use api_types::{PeerRequestId, Request, RequestId, Response};
 use futures::stream::StreamExt;
 use gossipsub_scoring_parameters::{lighthouse_gossip_thresholds, PeerScoreSettings};
 use libp2p::bandwidth::BandwidthSinks;
-use libp2p::gossipsub::error::PublishError;
 use libp2p::gossipsub::metrics::Config as GossipsubMetricsConfig;
 use libp2p::gossipsub::subscription_filter::MaxCountSubscriptionFilter;
+use libp2p::gossipsub::PublishError;
 use libp2p::gossipsub::{
-    GossipsubEvent, IdentTopic as Topic, MessageAcceptance, MessageAuthenticity, MessageId,
+    Event as GossipsubEvent, IdentTopic as Topic, MessageAcceptance, MessageAuthenticity, MessageId,
 };
 use libp2p::identify::{Behaviour as Identify, Config as IdentifyConfig, Event as IdentifyEvent};
 use libp2p::multiaddr::{Multiaddr, Protocol as MProtocol};

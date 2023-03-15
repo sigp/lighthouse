@@ -2,7 +2,9 @@
 
 use crate::types::{GossipEncoding, GossipKind, GossipTopic};
 use crate::TopicHash;
-use libp2p::gossipsub::{DataTransform, GossipsubMessage, RawGossipsubMessage};
+use libp2p::gossipsub::{
+    DataTransform, Message as GossipsubMessage, RawMessage as RawGossipsubMessage,
+};
 use snap::raw::{decompress_len, Decoder, Encoder};
 use ssz::{Decode, Encode};
 use std::boxed::Box;

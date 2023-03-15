@@ -7,8 +7,8 @@ use directory::{
 };
 use discv5::{Discv5Config, Discv5ConfigBuilder};
 use libp2p::gossipsub::{
-    FastMessageId, GossipsubConfig, GossipsubConfigBuilder, GossipsubMessage, MessageId,
-    RawGossipsubMessage, ValidationMode,
+    ConfigBuilder as GossipsubConfigBuilder, Config as GossipsubConfig, FastMessageId,
+    Message as GossipsubMessage, MessageId, RawMessage as RawGossipsubMessage, ValidationMode,
 };
 use libp2p::Multiaddr;
 use serde_derive::{Deserialize, Serialize};
