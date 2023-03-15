@@ -3,18 +3,19 @@
 
 use super::methods::{GoodbyeReason, RPCCodedResponse, RPCResponseErrorCode, ResponseTermination};
 use super::outbound::OutboundRequestContainer;
-use super::protocol::{max_rpc_size, InboundRequest, Protocol, RPCError, RPCProtocol};
+use super::protocol::{
+    max_rpc_size, InboundOutput, InboundRequest, Protocol, RPCError, RPCProtocol,
+};
 use super::{RPCReceived, RPCSend, ReqId};
 use crate::rpc::outbound::{OutboundFramed, OutboundRequest};
 use crate::rpc::protocol::InboundFramed;
 use fnv::FnvHashMap;
 use futures::prelude::*;
 use futures::{Sink, SinkExt};
-use libp2p::core::upgrade::{
-    InboundUpgrade, NegotiationError, OutboundUpgrade, ProtocolError, UpgradeError,
-};
+use libp2p::core::upgrade::{NegotiationError, ProtocolError, UpgradeError};
 use libp2p::swarm::handler::{
-    ConnectionHandler, ConnectionHandlerEvent, ConnectionHandlerUpgrErr, KeepAlive,
+    ConnectionEvent, ConnectionHandler, ConnectionHandlerEvent, ConnectionHandlerUpgrErr,
+    DialUpgradeError, FullyNegotiatedInbound, FullyNegotiatedOutbound, KeepAlive,
     SubstreamProtocol,
 };
 use libp2p::swarm::NegotiatedSubstream;
@@ -327,121 +328,7 @@ where
         self.listen_protocol.clone()
     }
 
-    fn inject_fully_negotiated_outbound(
-        &mut self,
-        out: <Self::OutboundProtocol as OutboundUpgrade<NegotiatedSubstream>>::Output,
-        request_info: Self::OutboundOpenInfo,
-    ) {
-        self.dial_negotiated -= 1;
-        let (id, request) = request_info;
-        let proto = request.protocol();
-
-        // accept outbound connections only if the handler is not deactivated
-        if matches!(self.state, HandlerState::Deactivated) {
-            self.events_out.push(Err(HandlerErr::Outbound {
-                error: RPCError::Disconnected,
-                proto,
-                id,
-            }));
-        }
-
-        // add the stream to substreams if we expect a response, otherwise drop the stream.
-        let expected_responses = request.expected_responses();
-        if expected_responses > 0 {
-            // new outbound request. Store the stream and tag the output.
-            let delay_key = self.outbound_substreams_delay.insert(
-                self.current_outbound_substream_id,
-                Duration::from_secs(RESPONSE_TIMEOUT),
-            );
-            let awaiting_stream = OutboundSubstreamState::RequestPendingResponse {
-                substream: Box::new(out),
-                request,
-            };
-            let expected_responses = if expected_responses > 1 {
-                // Currently enforced only for multiple responses
-                Some(expected_responses)
-            } else {
-                None
-            };
-            if self
-                .outbound_substreams
-                .insert(
-                    self.current_outbound_substream_id,
-                    OutboundInfo {
-                        state: awaiting_stream,
-                        delay_key,
-                        proto,
-                        remaining_chunks: expected_responses,
-                        req_id: id,
-                    },
-                )
-                .is_some()
-            {
-                crit!(self.log, "Duplicate outbound substream id"; "id" => self.current_outbound_substream_id);
-            }
-            self.current_outbound_substream_id.0 += 1;
-        }
-    }
-
-    fn inject_fully_negotiated_inbound(
-        &mut self,
-        substream: <Self::InboundProtocol as InboundUpgrade<NegotiatedSubstream>>::Output,
-        _info: Self::InboundOpenInfo,
-    ) {
-        // only accept new peer requests when active
-        if !matches!(self.state, HandlerState::Active) {
-            return;
-        }
-
-        let (req, substream) = substream;
-        let expected_responses = req.expected_responses();
-
-        // store requests that expect responses
-        if expected_responses > 0 {
-            if self.inbound_substreams.len() < MAX_INBOUND_SUBSTREAMS {
-                // Store the stream and tag the output.
-                let delay_key = self.inbound_substreams_delay.insert(
-                    self.current_inbound_substream_id,
-                    Duration::from_secs(RESPONSE_TIMEOUT),
-                );
-                let awaiting_stream = InboundState::Idle(substream);
-                self.inbound_substreams.insert(
-                    self.current_inbound_substream_id,
-                    InboundInfo {
-                        state: awaiting_stream,
-                        pending_items: VecDeque::with_capacity(std::cmp::min(
-                            expected_responses,
-                            128,
-                        ) as usize),
-                        delay_key: Some(delay_key),
-                        protocol: req.protocol(),
-                        request_start_time: Instant::now(),
-                        remaining_chunks: expected_responses,
-                    },
-                );
-            } else {
-                self.events_out.push(Err(HandlerErr::Inbound {
-                    id: self.current_inbound_substream_id,
-                    proto: req.protocol(),
-                    error: RPCError::HandlerRejected,
-                }));
-                return self.shutdown(None);
-            }
-        }
-
-        // If we received a goodbye, shutdown the connection.
-        if let InboundRequest::Goodbye(_) = req {
-            self.shutdown(None);
-        }
-
-        self.events_out.push(Ok(RPCReceived::Request(
-            self.current_inbound_substream_id,
-            req,
-        )));
-        self.current_inbound_substream_id.0 += 1;
-    }
-
-    fn inject_event(&mut self, rpc_event: Self::InEvent) {
+    fn on_behaviour_event(&mut self, rpc_event: Self::InEvent) {
         match rpc_event {
             RPCSend::Request(id, req) => self.send_request(id, req),
             RPCSend::Response(inbound_id, response) => self.send_response(inbound_id, response),
@@ -451,56 +338,6 @@ where
         if let Some(waker) = &self.waker {
             waker.wake_by_ref();
         }
-    }
-
-    fn inject_dial_upgrade_error(
-        &mut self,
-        request_info: Self::OutboundOpenInfo,
-        error: ConnectionHandlerUpgrErr<
-            <Self::OutboundProtocol as OutboundUpgrade<NegotiatedSubstream>>::Error,
-        >,
-    ) {
-        let (id, req) = request_info;
-        if let ConnectionHandlerUpgrErr::Upgrade(UpgradeError::Apply(RPCError::IoError(_))) = error
-        {
-            self.outbound_io_error_retries += 1;
-            if self.outbound_io_error_retries < IO_ERROR_RETRIES {
-                self.send_request(id, req);
-                return;
-            }
-        }
-
-        // This dialing is now considered failed
-        self.dial_negotiated -= 1;
-
-        self.outbound_io_error_retries = 0;
-        // map the error
-        let error = match error {
-            ConnectionHandlerUpgrErr::Timer => RPCError::InternalError("Timer failed"),
-            ConnectionHandlerUpgrErr::Timeout => RPCError::NegotiationTimeout,
-            ConnectionHandlerUpgrErr::Upgrade(UpgradeError::Apply(e)) => e,
-            ConnectionHandlerUpgrErr::Upgrade(UpgradeError::Select(NegotiationError::Failed)) => {
-                RPCError::UnsupportedProtocol
-            }
-            ConnectionHandlerUpgrErr::Upgrade(UpgradeError::Select(
-                NegotiationError::ProtocolError(e),
-            )) => match e {
-                ProtocolError::IoError(io_err) => RPCError::IoError(io_err.to_string()),
-                ProtocolError::InvalidProtocol => {
-                    RPCError::InternalError("Protocol was deemed invalid")
-                }
-                ProtocolError::InvalidMessage | ProtocolError::TooManyProtocols => {
-                    // Peer is sending invalid data during the negotiation phase, not
-                    // participating in the protocol
-                    RPCError::InvalidData("Invalid message during negotiation".to_string())
-                }
-            },
-        };
-        self.events_out.push(Err(HandlerErr::Outbound {
-            error,
-            proto: req.protocol(),
-            id,
-        }));
     }
 
     fn connection_keep_alive(&self) -> KeepAlive {
@@ -988,6 +825,193 @@ where
         }
 
         Poll::Pending
+    }
+
+    fn on_connection_event(
+        &mut self,
+        event: ConnectionEvent<
+            Self::InboundProtocol,
+            Self::OutboundProtocol,
+            Self::InboundOpenInfo,
+            Self::OutboundOpenInfo,
+        >,
+    ) {
+        match event {
+            ConnectionEvent::FullyNegotiatedInbound(FullyNegotiatedInbound {
+                protocol,
+                info: _,
+            }) => self.on_fully_negotiated_inbound(protocol),
+            ConnectionEvent::FullyNegotiatedOutbound(FullyNegotiatedOutbound {
+                protocol,
+                info,
+            }) => self.on_fully_negotiated_outbound(protocol, info),
+            ConnectionEvent::AddressChange(_) => todo!(),
+            ConnectionEvent::DialUpgradeError(DialUpgradeError { info, error }) => {
+                self.on_dial_upgrade_error(info, error)
+            }
+            ConnectionEvent::ListenUpgradeError(_) => todo!(),
+        }
+    }
+}
+
+impl<Id, TSpec: EthSpec> RPCHandler<Id, TSpec> {
+    fn on_fully_negotiated_inbound(
+        &mut self,
+        substream: InboundOutput<NegotiatedSubstream, TSpec>,
+    ) {
+        // only accept new peer requests when active
+        if !matches!(self.state, HandlerState::Active) {
+            return;
+        }
+
+        let (req, substream) = substream;
+        let expected_responses = req.expected_responses();
+
+        // store requests that expect responses
+        if expected_responses > 0 {
+            if self.inbound_substreams.len() < MAX_INBOUND_SUBSTREAMS {
+                // Store the stream and tag the output.
+                let delay_key = self.inbound_substreams_delay.insert(
+                    self.current_inbound_substream_id,
+                    Duration::from_secs(RESPONSE_TIMEOUT),
+                );
+                let awaiting_stream = InboundState::Idle(substream);
+                self.inbound_substreams.insert(
+                    self.current_inbound_substream_id,
+                    InboundInfo {
+                        state: awaiting_stream,
+                        pending_items: VecDeque::with_capacity(std::cmp::min(
+                            expected_responses,
+                            128,
+                        ) as usize),
+                        delay_key: Some(delay_key),
+                        protocol: req.protocol(),
+                        request_start_time: Instant::now(),
+                        remaining_chunks: expected_responses,
+                    },
+                );
+            } else {
+                self.events_out.push(Err(HandlerErr::Inbound {
+                    id: self.current_inbound_substream_id,
+                    proto: req.protocol(),
+                    error: RPCError::HandlerRejected,
+                }));
+                return self.shutdown(None);
+            }
+        }
+
+        // If we received a goodbye, shutdown the connection.
+        if let InboundRequest::Goodbye(_) = req {
+            self.shutdown(None);
+        }
+
+        self.events_out.push(Ok(RPCReceived::Request(
+            self.current_inbound_substream_id,
+            req,
+        )));
+        self.current_inbound_substream_id.0 += 1;
+    }
+
+    fn on_fully_negotiated_outbound(
+        &mut self,
+        substream: OutboundFramed<NegotiatedSubstream, TSpec>,
+        (request, id): (Id, OutboundRequest<TSpec>),
+    ) {
+        self.dial_negotiated -= 1;
+        let proto = request.protocol();
+
+        // accept outbound connections only if the handler is not deactivated
+        if matches!(self.state, HandlerState::Deactivated) {
+            self.events_out.push(Err(HandlerErr::Outbound {
+                error: RPCError::Disconnected,
+                proto,
+                id,
+            }));
+        }
+
+        // add the stream to substreams if we expect a response, otherwise drop the stream.
+        let expected_responses = request.expected_responses();
+        if expected_responses > 0 {
+            // new outbound request. Store the stream and tag the output.
+            let delay_key = self.outbound_substreams_delay.insert(
+                self.current_outbound_substream_id,
+                Duration::from_secs(RESPONSE_TIMEOUT),
+            );
+            let awaiting_stream = OutboundSubstreamState::RequestPendingResponse {
+                substream: Box::new(substream),
+                request,
+            };
+            let expected_responses = if expected_responses > 1 {
+                // Currently enforced only for multiple responses
+                Some(expected_responses)
+            } else {
+                None
+            };
+            if self
+                .outbound_substreams
+                .insert(
+                    self.current_outbound_substream_id,
+                    OutboundInfo {
+                        state: awaiting_stream,
+                        delay_key,
+                        proto,
+                        remaining_chunks: expected_responses,
+                        req_id: id,
+                    },
+                )
+                .is_some()
+            {
+                crit!(self.log, "Duplicate outbound substream id"; "id" => self.current_outbound_substream_id);
+            }
+            self.current_outbound_substream_id.0 += 1;
+        }
+    }
+    fn on_dial_upgrade_error(
+        &mut self,
+        request_info: (Id, OutboundRequest<TSpec>),
+        error: RPCError,
+    ) {
+        let (id, req) = request_info;
+        if let ConnectionHandlerUpgrErr::Upgrade(UpgradeError::Apply(RPCError::IoError(_))) = error
+        {
+            self.outbound_io_error_retries += 1;
+            if self.outbound_io_error_retries < IO_ERROR_RETRIES {
+                self.send_request(id, req);
+                return;
+            }
+        }
+
+        // This dialing is now considered failed
+        self.dial_negotiated -= 1;
+
+        self.outbound_io_error_retries = 0;
+        // map the error
+        let error = match error {
+            ConnectionHandlerUpgrErr::Timer => RPCError::InternalError("Timer failed"),
+            ConnectionHandlerUpgrErr::Timeout => RPCError::NegotiationTimeout,
+            ConnectionHandlerUpgrErr::Upgrade(UpgradeError::Apply(e)) => e,
+            ConnectionHandlerUpgrErr::Upgrade(UpgradeError::Select(NegotiationError::Failed)) => {
+                RPCError::UnsupportedProtocol
+            }
+            ConnectionHandlerUpgrErr::Upgrade(UpgradeError::Select(
+                NegotiationError::ProtocolError(e),
+            )) => match e {
+                ProtocolError::IoError(io_err) => RPCError::IoError(io_err.to_string()),
+                ProtocolError::InvalidProtocol => {
+                    RPCError::InternalError("Protocol was deemed invalid")
+                }
+                ProtocolError::InvalidMessage | ProtocolError::TooManyProtocols => {
+                    // Peer is sending invalid data during the negotiation phase, not
+                    // participating in the protocol
+                    RPCError::InvalidData("Invalid message during negotiation".to_string())
+                }
+            },
+        };
+        self.events_out.push(Err(HandlerErr::Outbound {
+            error,
+            proto: req.protocol(),
+            id,
+        }));
     }
 }
 
