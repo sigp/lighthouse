@@ -14,10 +14,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio::time::sleep;
-use types::{
-    AbstractExecPayload, BeaconBlock, BlindedPayload, BlockType, EthSpec, FullPayload, Graffiti,
-    PublicKeyBytes, Slot,
-};
+use types::{AbstractExecPayload, BeaconBlock, BlindedPayload, BlockType, EthSpec, FullPayload, Graffiti, PublicKeyBytes, SignedBlockContents, Slot};
 
 #[derive(Debug)]
 pub enum BlockError {
@@ -410,11 +407,12 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
             .await?;
 
         let signing_timer = metrics::start_timer(&metrics::BLOCK_SIGNING_TIMES);
-        let signed_block = self_ref
+        let signed_block_contents: SignedBlockContents<E, Payload> = self_ref
             .validator_store
             .sign_block::<Payload>(*validator_pubkey_ref, block, current_slot)
             .await
-            .map_err(|e| BlockError::Recoverable(format!("Unable to sign block: {:?}", e)))?;
+            .map_err(|e| BlockError::Recoverable(format!("Unable to sign block: {:?}", e)))?
+            .into();
         let signing_time_ms =
             Duration::from_secs_f64(signing_timer.map_or(0.0, |t| t.stop_and_record())).as_millis();
 
@@ -438,7 +436,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                                 &[metrics::BEACON_BLOCK_HTTP_POST],
                             );
                             beacon_node
-                                .post_beacon_blocks(&signed_block)
+                                .post_beacon_blocks(&signed_block_contents)
                                 .await
                                 .map_err(|e| {
                                     BlockError::Irrecoverable(format!(
@@ -453,7 +451,8 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                                 &[metrics::BLINDED_BEACON_BLOCK_HTTP_POST],
                             );
                             beacon_node
-                                .post_beacon_blinded_blocks(&signed_block)
+                                // TODO: need to be adjusted for blobs
+                                .post_beacon_blinded_blocks(&signed_block_contents.signed_block())
                                 .await
                                 .map_err(|e| {
                                     BlockError::Irrecoverable(format!(
@@ -472,10 +471,10 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
             log,
             "Successfully published block";
             "block_type" => ?Payload::block_type(),
-            "deposits" => signed_block.message().body().deposits().len(),
-            "attestations" => signed_block.message().body().attestations().len(),
+            "deposits" => signed_block_contents.signed_block().message().body().deposits().len(),
+            "attestations" => signed_block_contents.signed_block().message().body().attestations().len(),
             "graffiti" => ?graffiti.map(|g| g.as_utf8_lossy()),
-            "slot" => signed_block.slot().as_u64(),
+            "slot" => signed_block_contents.signed_block().slot().as_u64(),
         );
 
         Ok(())

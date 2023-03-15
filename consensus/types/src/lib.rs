@@ -103,6 +103,7 @@ pub mod blobs_sidecar;
 pub mod signed_blob;
 pub mod signed_block_and_blobs;
 pub mod transaction;
+pub mod signed_block_contents;
 
 use ethereum_types::{H160, H256};
 
@@ -183,8 +184,8 @@ pub use crate::signed_beacon_block::{
 };
 pub use crate::signed_beacon_block_header::SignedBeaconBlockHeader;
 pub use crate::signed_blob::*;
-pub use crate::signed_block_and_blobs::SignedBeaconBlockAndBlobsSidecar;
-pub use crate::signed_block_and_blobs::SignedBeaconBlockAndBlobsSidecarDecode;
+pub use crate::signed_block_and_blobs::{SignedBeaconBlockAndBlobsSidecar, SignedBeaconBlockAndBlobsSidecarDecode, SignedBeaconBlockAndBlobSidecars};
+pub use crate::signed_block_contents::SignedBlockContents;
 pub use crate::signed_bls_to_execution_change::SignedBlsToExecutionChange;
 pub use crate::signed_contribution_and_proof::SignedContributionAndProof;
 pub use crate::signed_voluntary_exit::SignedVoluntaryExit;

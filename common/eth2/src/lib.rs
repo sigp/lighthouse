@@ -612,7 +612,7 @@ impl BeaconNodeHttpClient {
     /// Returns `Ok(None)` on a 404 error.
     pub async fn post_beacon_blocks<T: EthSpec, Payload: AbstractExecPayload<T>>(
         &self,
-        block: &SignedBeaconBlock<T, Payload>,
+        block_contents: &SignedBlockContents<T, Payload>,
     ) -> Result<(), Error> {
         let mut path = self.eth_path(V1)?;
 
@@ -621,7 +621,7 @@ impl BeaconNodeHttpClient {
             .push("beacon")
             .push("blocks");
 
-        self.post_with_timeout(path, block, self.timeouts.proposal)
+        self.post_with_timeout(path, block_contents, self.timeouts.proposal)
             .await?;
 
         Ok(())

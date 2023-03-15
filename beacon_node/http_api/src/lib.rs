@@ -59,7 +59,7 @@ use types::{
     ProposerPreparationData, ProposerSlashing, RelativeEpoch, SignedAggregateAndProof,
     SignedBeaconBlock, SignedBlindedBeaconBlock, SignedBlsToExecutionChange,
     SignedContributionAndProof, SignedValidatorRegistrationData, SignedVoluntaryExit, Slot,
-    SyncCommitteeMessage, SyncContributionData,
+    SyncCommitteeMessage, SyncContributionData, SignedBlockContents,
 };
 use version::{
     add_consensus_version_header, execution_optimistic_fork_versioned_response,
@@ -1120,11 +1120,11 @@ pub fn serve<T: BeaconChainTypes>(
         .and(network_tx_filter.clone())
         .and(log_filter.clone())
         .and_then(
-            |block: Arc<SignedBeaconBlock<T::EthSpec>>,
+            |block_contents: SignedBlockContents<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
              log: Logger| async move {
-                publish_blocks::publish_block(None, block, chain, &network_tx, log)
+                publish_blocks::publish_block(None, block_contents, chain, &network_tx, log)
                     .await
                     .map(|()| warp::reply().into_response())
             },
