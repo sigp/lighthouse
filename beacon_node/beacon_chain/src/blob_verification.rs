@@ -135,9 +135,7 @@ fn verify_data_availability<T: BeaconChainTypes>(
         .as_ref()
         .ok_or(BlobError::TrustedSetupNotInitialized)?;
 
-    // TODO: use `kzg_utils::validate_blobs` once the function is updated
-    // I believe this is currently being worked on in another branch.
-    //
+    todo!("use `kzg_utils::validate_blobs` once the function is updated")
     // if !kzg_utils::validate_blobs_sidecar(
     //     kzg,
     //     block_slot,
@@ -149,7 +147,7 @@ fn verify_data_availability<T: BeaconChainTypes>(
     // {
     //     return Err(BlobError::InvalidKzgProof);
     // }
-    Ok(())
+    // Ok(())
 }
 
 /// A wrapper over a [`SignedBeaconBlock`] or a [`SignedBeaconBlockAndBlobsSidecar`]. This makes no
