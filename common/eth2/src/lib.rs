@@ -704,7 +704,7 @@ impl BeaconNodeHttpClient {
     pub async fn get_blobs_sidecar<T: EthSpec>(
         &self,
         block_id: BlockId,
-    ) -> Result<Option<GenericResponse<BlobsSidecar<T>>>, Error> {
+    ) -> Result<Option<GenericResponse<BlobSidecarList<T>>>, Error> {
         let path = self.get_blobs_sidecar_path(block_id)?;
         let response = match self.get_response(path, |b| b).await.optional()? {
             Some(res) => res,

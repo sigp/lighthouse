@@ -48,6 +48,7 @@ pub struct BlobSidecar<T: EthSpec> {
 }
 
 pub type BlobSidecarList<T> = VariableList<BlobSidecar<T>, <T as EthSpec>::MaxBlobsPerBlock>;
+pub type Blobs<T> = VariableList<Blob<T>, <T as EthSpec>::MaxExtraDataBytes>;
 
 impl<T: EthSpec> SignedRoot for BlobSidecar<T> {}
 

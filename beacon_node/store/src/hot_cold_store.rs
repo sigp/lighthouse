@@ -66,7 +66,7 @@ pub struct HotColdDB<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> {
     /// The hot database also contains all blocks.
     pub hot_db: Hot,
     /// LRU cache of deserialized blobs. Updated whenever a blob is loaded.
-    blob_cache: Mutex<LruCache<Hash256, BlobsSidecar<E>>>,
+    blob_cache: Mutex<LruCache<Hash256, BlobSidecarList<E>>>,
     /// LRU cache of deserialized blocks. Updated whenever a block is loaded.
     block_cache: Mutex<LruCache<Hash256, SignedBeaconBlock<E>>>,
     /// Chain spec.
@@ -547,7 +547,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
     /// Check if the blobs sidecar for a block exists on disk.
     pub fn blobs_sidecar_exists(&self, block_root: &Hash256) -> Result<bool, Error> {
-        self.get_item::<BlobsSidecar<E>>(block_root)
+        self.get_item::<BlobSidecarList<E>>(block_root)
             .map(|blobs| blobs.is_some())
     }
 
@@ -568,7 +568,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         blobs_db.key_delete(DBColumn::BeaconBlob.into(), block_root.as_bytes())
     }
 
-    pub fn put_blobs(&self, block_root: &Hash256, blobs: BlobsSidecar<E>) -> Result<(), Error> {
+    pub fn put_blobs(&self, block_root: &Hash256, blobs: BlobSidecarList<E>) -> Result<(), Error> {
         let blobs_db = self.blobs_db.as_ref().unwrap_or(&self.cold_db);
         blobs_db.put_bytes(
             DBColumn::BeaconBlob.into(),
@@ -582,7 +582,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     pub fn blobs_as_kv_store_ops(
         &self,
         key: &Hash256,
-        blobs: &BlobsSidecar<E>,
+        blobs: &BlobSidecarList<E>,
         ops: &mut Vec<KeyValueStoreOp>,
     ) {
         let db_key = get_key_for_col(DBColumn::BeaconBlob.into(), key.as_bytes());
@@ -925,8 +925,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             for op in blob_cache_ops.iter_mut() {
                 let reverse_op = match op {
                     StoreOp::PutBlobs(block_root, _) => StoreOp::DeleteBlobs(*block_root),
-                    StoreOp::DeleteBlobs(_) => match blobs_to_delete.pop() {
-                        Some(blobs) => StoreOp::PutBlobs(blobs.beacon_block_root, Arc::new(blobs)),
+                    StoreOp::DeleteBlobs(block_root) => match blobs_to_delete.pop() {
+                        Some(blobs) => StoreOp::PutBlobs(*block_root, Arc::new(blobs)),
                         None => return Err(HotColdDBError::Rollback.into()),
                     },
                     _ => return Err(HotColdDBError::Rollback.into()),
@@ -1320,12 +1320,12 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     }
 
     /// Fetch a blobs sidecar from the store.
-    pub fn get_blobs(&self, block_root: &Hash256) -> Result<Option<BlobsSidecar<E>>, Error> {
+    pub fn get_blobs(&self, block_root: &Hash256) -> Result<Option<BlobSidecarList<E>>, Error> {
         let blobs_db = self.blobs_db.as_ref().unwrap_or(&self.cold_db);
 
         match blobs_db.get_bytes(DBColumn::BeaconBlob.into(), block_root.as_bytes())? {
             Some(ref blobs_bytes) => {
-                let blobs = BlobsSidecar::from_ssz_bytes(blobs_bytes)?;
+                let blobs = BlobSidecarList::from_ssz_bytes(blobs_bytes)?;
                 // FIXME(sean) I was attempting to use a blob cache here but was getting deadlocks,
                 // may want to attempt to use one again
                 self.blob_cache.lock().put(*block_root, blobs.clone());
