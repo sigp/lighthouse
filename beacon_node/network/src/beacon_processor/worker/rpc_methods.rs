@@ -11,7 +11,7 @@ use slog::{debug, error, warn};
 use slot_clock::SlotClock;
 use task_executor::TaskExecutor;
 use tokio_stream::StreamExt;
-use types::{light_client_bootstrap::LightClientBootstrap, Epoch, EthSpec, Hash256, Slot};
+use types::{LightClientBootstrap, Epoch, EthSpec, Hash256, Slot};
 
 use super::Worker;
 

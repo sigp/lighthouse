@@ -13,7 +13,7 @@ use std::sync::Arc;
 use strum::IntoStaticStr;
 use superstruct::superstruct;
 use types::{
-    light_client_bootstrap::LightClientBootstrap, Epoch, EthSpec, Hash256,
+    LightClientBootstrap, Epoch, EthSpec, Hash256,
     LightClientFinalityUpdate, LightClientOptimisticUpdate, SignedBeaconBlock, Slot,
 };
 

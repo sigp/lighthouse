@@ -178,8 +178,10 @@ pub enum Protocol {
     #[strum(serialize = "light_client_bootstrap")]
     LightClientBootstrap,
     /// The `LightClientOptimisticUpdate` protocol name.
+    #[strum(serialize = "light_client_optimistic_update")]
     LightClientOptimisticUpdate,
     /// The `LightClientFinalityUpdate` protocol name.
+    #[strum(serialize = "light_client_finality_update")]
     LightClientFinalityUpdate,
 }
 
