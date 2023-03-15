@@ -320,7 +320,7 @@ impl<T: EthSpec> std::fmt::Display for PubsubMessage<T> {
             PubsubMessage::BlobSidecar(data) => write!(
                 f,
                 "BlobSidecar: slot: {}, blob index: {}",
-                data.1.blob.slot, data.1.blob.index,
+                data.1.message.slot, data.1.message.index,
             ),
             PubsubMessage::AggregateAndProofAttestation(att) => write!(
                 f,

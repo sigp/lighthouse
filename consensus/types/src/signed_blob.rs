@@ -19,6 +19,6 @@ use tree_hash_derive::TreeHash;
 #[serde(bound = "T: EthSpec")]
 #[arbitrary(bound = "T: EthSpec")]
 pub struct SignedBlobSidecar<T: EthSpec> {
-    pub blob: BlobSidecar<T>,
+    pub message: BlobSidecar<T>,
     pub signature: Signature,
 }

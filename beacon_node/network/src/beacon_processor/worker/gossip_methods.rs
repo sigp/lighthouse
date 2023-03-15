@@ -664,8 +664,8 @@ impl<T: BeaconChainTypes> Worker<T> {
            "peer_id" => %peer_id,
            "client" => %peer_client,
            "blob_topic" => blob_index,
-           "blob_index" => signed_blob.blob.index,
-           "blob_slot" => signed_blob.blob.slot
+           "blob_index" => signed_blob.message.index,
+           "blob_slot" => signed_blob.message.slot
         );
     }
 
