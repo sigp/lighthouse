@@ -78,11 +78,11 @@ pub enum RequestId {
     ParentLookup { id: Id },
     /// Request was from the backfill sync algorithm.
     BackFillBlocks { id: Id },
-    /// Backfill request for blob sidecars.
+    /// Backfill request that is composed by both a block range request and a blob range request.
     BackFillBlobs { id: Id },
     /// The request was from a chain in the range sync algorithm.
     RangeBlocks { id: Id },
-    /// The request was from a chain in range, asking for ranges blob sidecars.
+    /// Range request that is composed by both a block range request and a blob range request.
     RangeBlobs { id: Id },
 }
 
