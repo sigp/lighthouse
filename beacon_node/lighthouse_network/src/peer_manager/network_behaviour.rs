@@ -129,7 +129,6 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
 
         if let Some((peer_id, maybe_enr)) = self.peers_to_dial.pop_first() {
             self.inject_peer_connection(&peer_id, ConnectingType::Dialing, maybe_enr);
-            let handler = self.new_handler();
             return Poll::Ready(NetworkBehaviourAction::Dial {
                 opts: DialOpts::peer_id(peer_id)
                     .condition(PeerCondition::Disconnected)
