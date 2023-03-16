@@ -1615,6 +1615,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "delay_map"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e4355c25cbf99edcb6b4a0e906f6bdc6956eda149e84455bea49696429b2f8e8"
+dependencies = [
+ "futures",
+ "tokio-util 0.7.7",
+]
+
+[[package]]
 name = "deposit_contract"
 version = "0.2.0"
 dependencies = [
@@ -1812,7 +1822,7 @@ dependencies = [
  "aes 0.7.5",
  "aes-gcm 0.9.4",
  "arrayvec",
- "delay_map",
+ "delay_map 0.1.2",
  "enr",
  "fnv",
  "futures",
@@ -4404,7 +4414,7 @@ dependencies = [
 name = "lighthouse_network"
 version = "0.2.0"
 dependencies = [
- "delay_map",
+ "delay_map 0.3.0",
  "directory",
  "dirs",
  "discv5",
@@ -5021,7 +5031,7 @@ name = "network"
 version = "0.2.0"
 dependencies = [
  "beacon_chain",
- "delay_map",
+ "delay_map 0.3.0",
  "derivative",
  "environment",
  "error-chain",
@@ -7985,6 +7995,7 @@ dependencies = [
  "futures-io",
  "futures-sink",
  "pin-project-lite 0.2.9",
+ "slab",
  "tokio",
  "tracing",
 ]
