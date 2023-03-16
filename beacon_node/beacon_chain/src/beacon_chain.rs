@@ -8,7 +8,7 @@ use crate::beacon_proposer_cache::compute_proposer_duties_from_head;
 use crate::beacon_proposer_cache::BeaconProposerCache;
 use crate::blob_cache::BlobCache;
 use crate::blob_verification::{
-    AsBlock, AvailabilityPendingBlock, AvailableBlock, BlobError, Blobs, BlockWrapper,
+    AsBlock, AvailableBlock, BlobError, Blobs, BlockWrapper,
     IntoAvailableBlock,
 };
 use crate::block_times_cache::BlockTimesCache;
@@ -442,8 +442,7 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     /// Provides monitoring of a set of explicitly defined validators.
     pub validator_monitor: RwLock<ValidatorMonitor<T::EthSpec>>,
     pub blob_cache: BlobCache<T::EthSpec>,
-    pub blob_cache: BlobCache<T::EthSpec>,
-    pub kzg: Option<Arc<kzg::Kzg>>,
+    pub kzg: Option<Arc<Kzg>>,
 }
 
 type BeaconBlockAndState<T, Payload> = (BeaconBlock<T, Payload>, BeaconState<T>);
@@ -1084,34 +1083,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn get_blobs(
         &self,
         block_root: &Hash256,
-        data_availability_boundary: Epoch,
-    ) -> Result<Option<BlobsSidecar<T::EthSpec>>, Error> {
-        match self.store.get_blobs(block_root)? {
-            Some(blobs) => Ok(Some(blobs)),
-            None => {
-                // Check for the corresponding block to understand whether we *should* have blobs.
-                self.get_blinded_block(block_root)?
-                    .map(|block| {
-                        // If there are no KZG commitments in the block, we know the sidecar should
-                        // be empty.
-                        let expected_kzg_commitments =
-                            match block.message().body().blob_kzg_commitments() {
-                                Ok(kzg_commitments) => kzg_commitments,
-                                Err(_) => return Err(Error::NoKzgCommitmentsFieldOnBlock),
-                            };
-                        if expected_kzg_commitments.is_empty() {
-                            Ok(BlobsSidecar::empty_from_parts(*block_root, block.slot()))
-                        } else if data_availability_boundary <= block.epoch() {
-                            // We should have blobs for all blocks younger than the boundary.
-                            Err(Error::BlobsUnavailable)
-                        } else {
-                            // We shouldn't have blobs for blocks older than the boundary.
-                            Err(Error::BlobsOlderThanDataAvailabilityBoundary(block.epoch()))
-                        }
-                    })
-                    .transpose()
-            }
-        }
+    ) -> Result<Option<BlobSidecarList<T::EthSpec>>, Error> {
+        self.store.get_blobs(block_root)
     }
 
     pub fn get_blinded_block(
