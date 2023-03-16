@@ -2,6 +2,7 @@ use crate::{test_utils::TestRandom, BlobSidecar, EthSpec, Signature};
 use derivative::Derivative;
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
+use ssz_types::VariableList;
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
@@ -25,3 +26,6 @@ pub struct SignedBlobSidecar<T: EthSpec> {
     pub message: BlobSidecar<T>,
     pub signature: Signature,
 }
+
+pub type SignedBlobSidecarList<T> =
+    VariableList<SignedBlobSidecar<T>, <T as EthSpec>::MaxBlobsPerBlock>;
