@@ -41,6 +41,8 @@ use tokio::{
 };
 use tokio_stream::wrappers::WatchStream;
 use tree_hash::TreeHash;
+use types::beacon_block_body::KzgCommitments;
+use types::blob_sidecar::Blobs;
 use types::consts::eip4844::BLOB_TX_TYPE;
 use types::transaction::{AccessTuple, BlobTransaction, EcdsaSignature, SignedBlobTransaction};
 use types::Withdrawals;
@@ -53,8 +55,6 @@ use types::{
     ProposerPreparationData, PublicKeyBytes, Signature, SignedBeaconBlock, Slot, Transaction,
     Uint256,
 };
-use types::beacon_block_body::KzgCommitments;
-use types::blob_sidecar::Blobs;
 
 mod block_hash;
 mod engine_api;

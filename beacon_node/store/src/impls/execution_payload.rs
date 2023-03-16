@@ -1,8 +1,8 @@
 use crate::{DBColumn, Error, StoreItem};
 use ssz::{Decode, Encode};
 use types::{
-    EthSpec, ExecutionPayload, ExecutionPayloadCapella, ExecutionPayloadEip4844,
-    ExecutionPayloadMerge,BlobSidecarList
+    BlobSidecarList, EthSpec, ExecutionPayload, ExecutionPayloadCapella, ExecutionPayloadEip4844,
+    ExecutionPayloadMerge,
 };
 
 macro_rules! impl_store_item {

@@ -12,9 +12,8 @@ use crate::BeaconChainError;
 use state_processing::per_block_processing::eip4844::eip4844::verify_kzg_commitments_against_transactions;
 use types::blob_sidecar::BlobSidecar;
 use types::{
-    BeaconBlockRef, BeaconStateError, EthSpec, Hash256, KzgCommitment,
-    SignedBeaconBlock, SignedBeaconBlockHeader,
-    SignedBlobSidecar, Slot, Transactions,
+    BeaconBlockRef, BeaconStateError, EthSpec, Hash256, KzgCommitment, SignedBeaconBlock,
+    SignedBeaconBlockHeader, SignedBlobSidecar, Slot, Transactions,
 };
 use types::{Epoch, ExecPayload};
 
@@ -297,8 +296,12 @@ pub trait IntoAvailableBlock<T: BeaconChainTypes> {
     ) -> Result<AvailableBlock<T::EthSpec>, BlobError>;
 }
 
-impl <T: BeaconChainTypes> IntoAvailableBlock<T> for BlockWrapper<T::EthSpec> {
-    fn into_available_block(self, block_root: Hash256, chain: &BeaconChain<T>) -> Result<AvailableBlock<T::EthSpec>, BlobError> {
+impl<T: BeaconChainTypes> IntoAvailableBlock<T> for BlockWrapper<T::EthSpec> {
+    fn into_available_block(
+        self,
+        block_root: Hash256,
+        chain: &BeaconChain<T>,
+    ) -> Result<AvailableBlock<T::EthSpec>, BlobError> {
         todo!()
     }
 }
@@ -318,12 +321,7 @@ impl<T: EthSpec> AvailableBlock<T> {
         }
     }
 
-    pub fn deconstruct(
-        self,
-    ) -> (
-        Arc<SignedBeaconBlock<T>>,
-        Option<Arc<BlobsSidecar<T>>>,
-    ) {
+    pub fn deconstruct(self) -> (Arc<SignedBeaconBlock<T>>, Option<Arc<BlobsSidecar<T>>>) {
         match self.blobs {
             Blobs::NotRequired | Blobs::None => (self.block, None),
             Blobs::Available(blob_sidecars) => (self.block, Some(blob_sidecars)),

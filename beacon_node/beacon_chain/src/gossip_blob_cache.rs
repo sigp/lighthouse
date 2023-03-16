@@ -1,8 +1,9 @@
-use crate::blob_verification::{verify_data_availability};
+use crate::blob_verification::verify_data_availability;
 use crate::block_verification::{ExecutedBlock, IntoExecutionPendingBlock};
 use crate::kzg_utils::validate_blob;
 use crate::{BeaconChainError, BeaconChainTypes, BlockError};
 use eth2::reqwest::header::Entry;
+use kzg::Error as KzgError;
 use kzg::{Kzg, KzgCommitment};
 use parking_lot::{Mutex, RwLock};
 use ssz_types::VariableList;
@@ -11,7 +12,6 @@ use std::future::Future;
 use std::sync::Arc;
 use types::blob_sidecar::{BlobIdentifier, BlobSidecar};
 use types::{EthSpec, Hash256};
-use kzg::Error as KzgError;
 
 pub enum BlobCacheError {
     DuplicateBlob(Hash256),
@@ -54,7 +54,8 @@ impl<T: BeaconChainTypes> GossipBlobCache<T> {
             blob.blob.clone(),
             blob.kzg_commitment.clone(),
             blob.kzg_proof,
-        ).map_err(|e|BlobCacheError::Kzg(e))?;
+        )
+        .map_err(|e| BlobCacheError::Kzg(e))?;
 
         if verified {
             let mut blob_cache = self.gossip_blob_cache.lock();
@@ -93,7 +94,11 @@ impl<T: BeaconChainTypes> GossipBlobCache<T> {
             .entry(executed_block.block_root)
             .and_modify(|cache| {
                 if let Ok(block) = executed_block.block.message_eip4844() {
-                    let verified_commitments_vec: Vec<_> = cache.verified_blobs.iter().map(|blob|blob.kzg_commitment).collect();
+                    let verified_commitments_vec: Vec<_> = cache
+                        .verified_blobs
+                        .iter()
+                        .map(|blob| blob.kzg_commitment)
+                        .collect();
                     let verified_commitments = VariableList::from(verified_commitments_vec);
                     if verified_commitments == block.body.blob_kzg_commitments {
                         // send to reprocessing queue ?

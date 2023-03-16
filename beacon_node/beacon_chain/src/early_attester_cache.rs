@@ -1,4 +1,4 @@
-use crate::blob_verification::{AvailableBlock};
+use crate::blob_verification::AvailableBlock;
 use crate::{
     attester_cache::{CommitteeLengths, Error},
     metrics,

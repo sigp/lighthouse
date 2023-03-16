@@ -49,8 +49,7 @@
 #![allow(clippy::result_large_err)]
 
 use crate::blob_verification::{
-    AsBlock, AvailableBlock, BlobError,
-    BlockWrapper, IntoAvailableBlock, IntoBlockWrapper,
+    AsBlock, AvailableBlock, BlobError, BlockWrapper, IntoAvailableBlock, IntoBlockWrapper,
 };
 use crate::eth1_finalization_cache::Eth1FinalizationData;
 use crate::execution_payload::{
@@ -933,7 +932,7 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         // Having checked the proposer index and the block root we can cache them.
         let consensus_context = ConsensusContext::new(available_block.slot())
             .set_current_block_root(block_root)
-            .set_proposer_index(available_block.as_block().message().proposer_index())
+            .set_proposer_index(block.as_block().message().proposer_index())
             .set_kzg_commitments_consistent(true);
 
         Ok(Self {
