@@ -725,34 +725,39 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     ) {
         match request_id {
             RequestId::SingleBlock { id } => {
-                // TODO(diva) adjust when dealing with by root requests.
-                unimplemented!("Single block lookups depend on decoupling the by root requests")
-
-                /*self.block_lookups.single_block_lookup_response(
-                    id,
-                    peer_id,
-                    block_or_blob.map(|block| block.into()),
-                    seen_timestamp,
-                    &mut self.network,
-                )*/
+                // TODO(diva) adjust when dealing with by root requests. This code is here to
+                // satisfy dead code analysis
+                match block_or_blob {
+                    BlockOrBlob::Block(maybe_block) => {
+                        self.block_lookups.single_block_lookup_response(
+                            id,
+                            peer_id,
+                            maybe_block.map(BlockWrapper::Block),
+                            seen_timestamp,
+                            &mut self.network,
+                        )
+                    }
+                    BlockOrBlob::Sidecar(_) => unimplemented!("Mimatch between BlockWrapper and what the network receives needs to be handled first."),
+                }
             }
-            // TODO(diva) adjust/review when dealing with by root requests.
             RequestId::ParentLookup { id } => {
-                // TODO(diva) adjust when dealing with by root requests.
-                unimplemented!("Parent lookups depend on single block lookups, which depend on decoupling the by root requests")
-                /*
-                    self.block_lookups.parent_lookup_response(
-                    id,
-                    peer_id,
-                    block_or_blob.map(|block| block.into()),
-                    seen_timestamp,
-                    &mut self.network,
-                )*/
+                // TODO(diva) adjust when dealing with by root requests. This code is here to
+                // satisfy dead code analysis
+                match block_or_blob {
+                    BlockOrBlob::Block(maybe_block) => self.block_lookups.parent_lookup_response(
+                        id,
+                        peer_id,
+                        maybe_block.map(BlockWrapper::Block),
+                        seen_timestamp,
+                        &mut self.network,
+                    ),
+                    BlockOrBlob::Sidecar(_) => unimplemented!("Mimatch between BlockWrapper and what the network receives needs to be handled first."),
+                }
             }
             RequestId::BackFillBlocks { id } => {
                 let maybe_block = match block_or_blob {
                     BlockOrBlob::Block(maybe_block) => maybe_block,
-                    BlockOrBlob::Sidecar(_) => todo!("I think this should be unreachable, since this is a backfill only-blocks request, and the network should not accept this chunk at all. Needs better handling"),
+                    BlockOrBlob::Sidecar(_) => todo!("I think this is unreachable"),
                 };
                 let is_stream_terminator = maybe_block.is_none();
                 if let Some(batch_id) = self
