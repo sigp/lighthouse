@@ -74,6 +74,7 @@ pub mod voluntary_exit;
 #[macro_use]
 pub mod slot_epoch_macros;
 pub mod config_and_preset;
+pub mod eip6110;
 pub mod execution_block_header;
 pub mod fork_context;
 pub mod participation_flags;
@@ -131,14 +132,15 @@ pub use crate::deposit::{Deposit, DEPOSIT_TREE_DEPTH};
 pub use crate::deposit_data::DepositData;
 pub use crate::deposit_message::DepositMessage;
 pub use crate::deposit_tree_snapshot::{DepositTreeSnapshot, FinalizedExecutionBlock};
+pub use crate::eip6110::DepositReceipt;
 pub use crate::enr_fork_id::EnrForkId;
 pub use crate::eth1_data::Eth1Data;
 pub use crate::eth_spec::EthSpecId;
 pub use crate::execution_block_hash::ExecutionBlockHash;
 pub use crate::execution_block_header::ExecutionBlockHeader;
 pub use crate::execution_payload::{
-    ExecutionPayload, ExecutionPayloadCapella, ExecutionPayloadEip4844, ExecutionPayloadMerge,
-    ExecutionPayloadRef, Transaction, Transactions, Withdrawals,
+    DepositReceipts, ExecutionPayload, ExecutionPayloadCapella, ExecutionPayloadEip4844,
+    ExecutionPayloadMerge, ExecutionPayloadRef, Transaction, Transactions, Withdrawals,
 };
 pub use crate::execution_payload_header::{
     ExecutionPayloadHeader, ExecutionPayloadHeaderCapella, ExecutionPayloadHeaderEip4844,

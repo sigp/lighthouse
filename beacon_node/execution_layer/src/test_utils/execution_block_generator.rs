@@ -554,6 +554,7 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
                                     block_hash: ExecutionBlockHash::zero(),
                                     transactions: vec![].into(),
                                     withdrawals: pa.withdrawals.clone().into(),
+                                    deposit_receipts: vec![].into(), // TODO: Check if deposit receipts should be part of PayloadAttributesV2
                                 })
                             }
                             _ => unreachable!(),

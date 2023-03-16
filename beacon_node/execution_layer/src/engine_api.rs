@@ -10,7 +10,7 @@ use eth2::types::{SsePayloadAttributes, SsePayloadAttributesV1, SsePayloadAttrib
 pub use ethers_core::types::Transaction;
 use ethers_core::utils::rlp::{self, Decodable, Rlp};
 use http::deposit_methods::RpcError;
-pub use json_structures::{JsonWithdrawal, TransitionConfigurationV1};
+pub use json_structures::{JsonDepositReceipt, JsonWithdrawal, TransitionConfigurationV1};
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 use std::convert::TryFrom;
@@ -51,6 +51,7 @@ pub enum Error {
     PayloadConversionLogicFlaw,
     SszError(ssz_types::Error),
     DeserializeWithdrawals(ssz_types::Error),
+    DeserializeDepositReceipts(ssz_types::Error),
     BuilderApi(builder_client::Error),
     IncorrectStateVariant,
     RequiredMethodUnsupported(&'static str),
@@ -189,6 +190,8 @@ pub struct ExecutionBlockWithTransactions<T: EthSpec> {
     pub transactions: Vec<Transaction>,
     #[superstruct(only(Capella, Eip4844))]
     pub withdrawals: Vec<JsonWithdrawal>,
+    #[superstruct(only(Eip4844))]
+    pub deposit_receipts: Vec<JsonDepositReceipt>,
 }
 
 impl<T: EthSpec> TryFrom<ExecutionPayload<T>> for ExecutionBlockWithTransactions<T> {
@@ -266,6 +269,10 @@ impl<T: EthSpec> TryFrom<ExecutionPayload<T>> for ExecutionBlockWithTransactions
                     withdrawals: Vec::from(block.withdrawals)
                         .into_iter()
                         .map(|withdrawal| withdrawal.into())
+                        .collect(),
+                    deposit_receipts: Vec::from(block.deposit_receipts)
+                        .into_iter()
+                        .map(|receipt| receipt.into())
                         .collect(),
                 })
             }

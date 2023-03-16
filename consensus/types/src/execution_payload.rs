@@ -14,6 +14,9 @@ pub type Transactions<T> = VariableList<
 
 pub type Withdrawals<T> = VariableList<Withdrawal, <T as EthSpec>::MaxWithdrawalsPerPayload>;
 
+pub type DepositReceipts<T> =
+    VariableList<DepositReceipt, <T as EthSpec>::MaxDepositReceiptsPerPayload>;
+
 #[superstruct(
     variants(Merge, Capella, Eip4844),
     variant_attributes(
@@ -87,6 +90,8 @@ pub struct ExecutionPayload<T: EthSpec> {
     pub transactions: Transactions<T>,
     #[superstruct(only(Capella, Eip4844))]
     pub withdrawals: Withdrawals<T>,
+    #[superstruct(only(Eip4844))]
+    pub deposit_receipts: DepositReceipts<T>,
 }
 
 impl<'a, T: EthSpec> ExecutionPayloadRef<'a, T> {

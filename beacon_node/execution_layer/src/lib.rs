@@ -1784,6 +1784,16 @@ impl<T: EthSpec> ExecutionLayer<T> {
                         .collect(),
                 )
                 .map_err(ApiError::DeserializeWithdrawals)?;
+
+                let deposit_receipts = VariableList::new(
+                    eip4844_block
+                        .deposit_receipts
+                        .into_iter()
+                        .map(Into::into)
+                        .collect(),
+                )
+                .map_err(ApiError::DeserializeDepositReceipts)?;
+
                 ExecutionPayload::Eip4844(ExecutionPayloadEip4844 {
                     parent_hash: eip4844_block.parent_hash,
                     fee_recipient: eip4844_block.fee_recipient,
@@ -1801,6 +1811,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                     block_hash: eip4844_block.block_hash,
                     transactions: convert_transactions(eip4844_block.transactions)?,
                     withdrawals,
+                    deposit_receipts,
                 })
             }
         };

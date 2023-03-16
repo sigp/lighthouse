@@ -1,10 +1,12 @@
 use super::*;
+use eth2::types::PublicKey;
+use eth2::types::Signature;
 use serde::{Deserialize, Serialize};
 use strum::EnumString;
 use superstruct::superstruct;
 use types::blobs_sidecar::KzgCommitments;
 use types::{
-    Blobs, EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadCapella,
+    Blobs, DepositReceipt, EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadCapella,
     ExecutionPayloadEip4844, ExecutionPayloadMerge, FixedVector, Transactions, Unsigned,
     VariableList, Withdrawal,
 };
@@ -101,6 +103,8 @@ pub struct JsonExecutionPayload<T: EthSpec> {
     pub transactions: Transactions<T>,
     #[superstruct(only(V2, V3))]
     pub withdrawals: VariableList<JsonWithdrawal, T::MaxWithdrawalsPerPayload>,
+    #[superstruct(only(V3))]
+    pub deposit_receipts: VariableList<JsonDepositReceipt, T::MaxDepositReceiptsPerPayload>,
 }
 
 impl<T: EthSpec> From<ExecutionPayloadMerge<T>> for JsonExecutionPayloadV1<T> {
@@ -169,6 +173,12 @@ impl<T: EthSpec> From<ExecutionPayloadEip4844<T>> for JsonExecutionPayloadV3<T> 
             transactions: payload.transactions,
             withdrawals: payload
                 .withdrawals
+                .into_iter()
+                .map(Into::into)
+                .collect::<Vec<_>>()
+                .into(),
+            deposit_receipts: payload
+                .deposit_receipts
                 .into_iter()
                 .map(Into::into)
                 .collect::<Vec<_>>()
@@ -253,6 +263,12 @@ impl<T: EthSpec> From<JsonExecutionPayloadV3<T>> for ExecutionPayloadEip4844<T> 
             transactions: payload.transactions,
             withdrawals: payload
                 .withdrawals
+                .into_iter()
+                .map(Into::into)
+                .collect::<Vec<_>>()
+                .into(),
+            deposit_receipts: payload
+                .deposit_receipts
                 .into_iter()
                 .map(Into::into)
                 .collect::<Vec<_>>()
@@ -348,6 +364,42 @@ impl From<JsonWithdrawal> for Withdrawal {
             validator_index: jw.validator_index,
             address: jw.address,
             amount: jw.amount,
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JsonDepositReceipt {
+    pub pubkey: PublicKey,
+    pub withdrawal_credentials: Hash256,
+    #[serde(with = "eth2_serde_utils::u64_hex_be")]
+    pub amount: u64,
+    pub signature: Signature,
+    #[serde(with = "eth2_serde_utils::u64_hex_be")]
+    pub index: u64,
+}
+
+impl From<DepositReceipt> for JsonDepositReceipt {
+    fn from(deposit_receipt: DepositReceipt) -> Self {
+        Self {
+            pubkey: deposit_receipt.pubkey,
+            withdrawal_credentials: deposit_receipt.withdrawal_credentials,
+            amount: deposit_receipt.amount,
+            signature: deposit_receipt.signature,
+            index: deposit_receipt.index,
+        }
+    }
+}
+
+impl From<JsonDepositReceipt> for DepositReceipt {
+    fn from(json_deposit_receipt: JsonDepositReceipt) -> Self {
+        Self {
+            pubkey: json_deposit_receipt.pubkey,
+            withdrawal_credentials: json_deposit_receipt.withdrawal_credentials,
+            amount: json_deposit_receipt.amount,
+            signature: json_deposit_receipt.signature,
+            index: json_deposit_receipt.index,
         }
     }
 }
