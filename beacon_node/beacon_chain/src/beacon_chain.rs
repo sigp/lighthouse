@@ -2682,6 +2682,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         metrics::inc_counter(&metrics::BLOCK_PROCESSING_REQUESTS);
 
         let slot = unverified_block.block().slot();
+        let chain = self.clone();
 
         let execution_pending = unverified_block.into_execution_pending_block(
             block_root,
@@ -2693,8 +2694,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let executed_block = self
             .into_executed_block(execution_pending, count_unrealized)
             .await?;
-
-        let chain = self.clone();
 
         // Check if the executed block has all it's blobs available to qualify as a fully
         // available block
@@ -2840,12 +2839,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             payload_verification_outcome,
             parent_eth1_finalization_data,
             consensus_context,
-        } = execution_pending_block;
+        } = executed_block;
 
         let chain = self.clone();
 
         let available_block = AvailableBlock {
-            block: block,
+            block: block.block_cloned(),
             blobs: blobs,
         };
 
@@ -2857,7 +2856,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         block_root,
                         state,
                         confirmed_state_roots,
-                        payload_verification_status,
+                        payload_verification_outcome.payload_verification_status,
                         count_unrealized,
                         parent_block,
                         parent_eth1_finalization_data,
@@ -2871,7 +2870,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(block_hash)
     }
 
-    /// Accepts a fully-verified block and imports it into the chain without performing any
+    /// Accepts a fully-verified and available block and imports it into the chain without performing any
     /// additional verification.
     ///
     /// An error is returned if the block was unable to be imported. It may be partially imported
@@ -2896,7 +2895,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // -----------------------------------------------------------------------------------------
         let current_slot = self.slot()?;
         let current_epoch = current_slot.epoch(T::EthSpec::slots_per_epoch());
-        let block = signed_block.message();
+        let block = signed_block.block.message();
         let post_exec_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_POST_EXEC_PROCESSING);
 
         // Check against weak subjectivity checkpoint.
@@ -2933,9 +2932,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let mut fork_choice = self.canonical_head.fork_choice_write_lock();
 
         // Do not import a block that doesn't descend from the finalized root.
-        let signed_block =
-            check_block_is_finalized_checkpoint_or_descendant(self, &fork_choice, signed_block)?;
-        let block = signed_block.message();
+        let signed_block = check_block_is_finalized_checkpoint_or_descendant(
+            self,
+            &fork_choice,
+            BlockWrapper::from(signed_block),
+        )?;
+        // TODO(pawan): fix this atrocity
+        let signed_block = signed_block.into_available_block().unwrap();
+        let block = signed_block.block.message();
 
         // Register the new block with the fork choice service.
         {
@@ -3065,14 +3069,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             // margin, or younger (of higher epoch number).
             if block_epoch >= import_boundary {
                 if let Some(blobs) = blobs {
-                    if !blobs.blobs.is_empty() {
-                        //FIXME(sean) using this for debugging for now
-                        info!(
-                            self.log, "Writing blobs to store";
-                            "block_root" => ?block_root
-                        );
-                        ops.push(StoreOp::PutBlobs(block_root, blobs));
-                    }
+                    //FIXME(sean) using this for debugging for now
+                    info!(
+                        self.log, "Writing blobs to store";
+                        "block_root" => ?block_root
+                    );
+                    ops.push(StoreOp::PutBlobs(block_root, blobs));
                 }
             }
         }
