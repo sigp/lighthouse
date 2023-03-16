@@ -537,24 +537,11 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         &self,
         validator_pubkey: PublicKeyBytes,
         blob_sidecars: BlobSidecarList<E>,
-        current_slot: Slot,
     ) -> Result<SignedBlobSidecarList<E>, Error> {
         let mut signed_blob_sidecars = Vec::new();
 
         for blob_sidecar in blob_sidecars.into_iter() {
             let slot = blob_sidecar.slot;
-
-            // Make sure the blob slot is not higher than the current slot to avoid potential attacks.
-            if slot > current_slot {
-                warn!(
-                    self.log,
-                    "Not signing blob with slot greater than current slot";
-                    "blob_slot" => slot.as_u64(),
-                    "current_slot" => current_slot.as_u64()
-                );
-                return Err(Error::GreaterThanCurrentSlot { slot, current_slot });
-            }
-
             let signing_epoch = slot.epoch(E::slots_per_epoch());
             let signing_context = self.signing_context(Domain::BlobSidecar, signing_epoch);
             let signing_method = self.doppelganger_checked_signing_method(validator_pubkey)?;

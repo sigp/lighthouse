@@ -375,7 +375,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
             Some(blob_sidecars) => Some(
                 self_ref
                     .validator_store
-                    .sign_blobs(*validator_pubkey_ref, blob_sidecars, current_slot)
+                    .sign_blobs(*validator_pubkey_ref, blob_sidecars)
                     .await
                     .map_err(|e| {
                         BlockError::Recoverable(format!("Unable to sign blob: {:?}", e))

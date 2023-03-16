@@ -1285,7 +1285,7 @@ mod tests {
 
         test_domain(Domain::BeaconProposer, spec.domain_beacon_proposer, &spec);
         test_domain(Domain::BeaconAttester, spec.domain_beacon_attester, &spec);
-        test_domain(Domain::BlobSideCar, spec.domain_blob_sidecar, &spec);
+        test_domain(Domain::BlobSidecar, spec.domain_blob_sidecar, &spec);
         test_domain(Domain::Randao, spec.domain_randao, &spec);
         test_domain(Domain::Deposit, spec.domain_deposit, &spec);
         test_domain(Domain::VoluntaryExit, spec.domain_voluntary_exit, &spec);
@@ -1311,7 +1311,7 @@ mod tests {
             &spec,
         );
 
-        test_domain(Domain::BlobSideCar, spec.domain_blob_sidecar, &spec);
+        test_domain(Domain::BlobSidecar, spec.domain_blob_sidecar, &spec);
     }
 
     fn apply_bit_mask(domain_bytes: [u8; 4], spec: &ChainSpec) -> u32 {
