@@ -1,4 +1,7 @@
-use crate::{test_utils::TestRandom, BlobSidecar, EthSpec, Signature};
+use crate::{
+    test_utils::TestRandom, BlobSidecar, ChainSpec, EthSpec, Fork, Hash256, PublicKey, Signature,
+    SignedRoot,
+};
 use derivative::Derivative;
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
@@ -24,4 +27,20 @@ use tree_hash_derive::TreeHash;
 pub struct SignedBlobSidecar<T: EthSpec> {
     pub message: BlobSidecar<T>,
     pub signature: Signature,
+}
+
+impl<T: EthSpec> SignedRoot for SignedBlobSidecar<T> {}
+
+impl<T: EthSpec> SignedBlobSidecar<T> {
+    pub fn verify_signature(
+        &self,
+        _object_root_opt: Option<Hash256>,
+        _pubkey: &PublicKey,
+        _fork: &Fork,
+        _genesis_validators_root: Hash256,
+        _spec: &ChainSpec,
+    ) -> bool {
+        // TODO (pawan): fill up logic
+        unimplemented!()
+    }
 }

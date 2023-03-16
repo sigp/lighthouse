@@ -7,12 +7,14 @@ use crate::attester_cache::{AttesterCache, AttesterCacheKey};
 use crate::beacon_proposer_cache::compute_proposer_duties_from_head;
 use crate::beacon_proposer_cache::BeaconProposerCache;
 use crate::blob_cache::BlobCache;
-use crate::blob_verification::{AsBlock, AvailabilityPendingBlock, AvailableBlock, BlobError, BlockWrapper, IntoAvailableBlock, Blobs};
+use crate::blob_verification::{
+    AsBlock, AvailableBlock, BlobError, Blobs, BlockWrapper, IntoAvailableBlock,
+};
 use crate::block_times_cache::BlockTimesCache;
 use crate::block_verification::{
     check_block_is_finalized_checkpoint_or_descendant, check_block_relevancy, get_block_root,
-    signature_verify_chain_segment, BlockError, ExecutionPendingBlock, GossipVerifiedBlock,
-    IntoExecutionPendingBlock, PayloadVerificationOutcome, POS_PANDA_BANNER, ExecutedBlock,
+    signature_verify_chain_segment, BlockError, ExecutedBlock, ExecutionPendingBlock,
+    GossipVerifiedBlock, IntoExecutionPendingBlock, PayloadVerificationOutcome, POS_PANDA_BANNER,
 };
 pub use crate::canonical_head::{CanonicalHead, CanonicalHeadRwLock};
 use crate::chain_config::ChainConfig;
@@ -82,6 +84,7 @@ use slasher::Slasher;
 use slog::{crit, debug, error, info, trace, warn, Logger};
 use slot_clock::SlotClock;
 use ssz::Encode;
+use state_processing::per_block_processing::eip4844::eip4844::verify_kzg_commitments_against_transactions;
 use state_processing::{
     common::get_attesting_indices_from_state,
     per_block_processing,
@@ -102,16 +105,14 @@ use std::io::prelude::*;
 use std::marker::PhantomData;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::task::JoinHandle;
-use state_processing::per_block_processing::eip4844::eip4844::verify_kzg_commitments_against_transactions;
 use store::iter::{BlockRootsIterator, ParentRootBlockIterator, StateRootsIterator};
 use store::{
     DatabaseBlock, Error as DBError, HotColdDB, KeyValueStore, KeyValueStoreOp, StoreItem, StoreOp,
 };
 use task_executor::{ShutdownReason, TaskExecutor};
+use tokio::task::JoinHandle;
 use tree_hash::TreeHash;
 use types::beacon_state::CloneConfig;
-use types::blobs_sidecar::KzgCommitments;
 use types::consts::eip4844::MIN_EPOCHS_FOR_BLOBS_SIDECARS_REQUESTS;
 use types::consts::merge::INTERVALS_PER_SLOT;
 use types::*;
@@ -440,8 +441,7 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     /// Provides monitoring of a set of explicitly defined validators.
     pub validator_monitor: RwLock<ValidatorMonitor<T::EthSpec>>,
     pub blob_cache: BlobCache<T::EthSpec>,
-    pub blob_cache: BlobCache<T::EthSpec>,
-    pub kzg: Option<Arc<kzg::Kzg>>,
+    pub kzg: Option<Arc<Kzg>>,
 }
 
 type BeaconBlockAndState<T, Payload> = (BeaconBlock<T, Payload>, BeaconState<T>);
@@ -1082,34 +1082,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn get_blobs(
         &self,
         block_root: &Hash256,
-        data_availability_boundary: Epoch,
-    ) -> Result<Option<BlobsSidecar<T::EthSpec>>, Error> {
-        match self.store.get_blobs(block_root)? {
-            Some(blobs) => Ok(Some(blobs)),
-            None => {
-                // Check for the corresponding block to understand whether we *should* have blobs.
-                self.get_blinded_block(block_root)?
-                    .map(|block| {
-                        // If there are no KZG commitments in the block, we know the sidecar should
-                        // be empty.
-                        let expected_kzg_commitments =
-                            match block.message().body().blob_kzg_commitments() {
-                                Ok(kzg_commitments) => kzg_commitments,
-                                Err(_) => return Err(Error::NoKzgCommitmentsFieldOnBlock),
-                            };
-                        if expected_kzg_commitments.is_empty() {
-                            Ok(BlobsSidecar::empty_from_parts(*block_root, block.slot()))
-                        } else if data_availability_boundary <= block.epoch() {
-                            // We should have blobs for all blocks younger than the boundary.
-                            Err(Error::BlobsUnavailable)
-                        } else {
-                            // We shouldn't have blobs for blocks older than the boundary.
-                            Err(Error::BlobsOlderThanDataAvailabilityBoundary(block.epoch()))
-                        }
-                    })
-                    .transpose()
-            }
-        }
+    ) -> Result<Option<BlobSidecarList<T::EthSpec>>, Error> {
+        self.store.get_blobs(block_root)
     }
 
     pub fn get_blinded_block(
@@ -2708,8 +2682,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         metrics::inc_counter(&metrics::BLOCK_PROCESSING_REQUESTS);
 
         let slot = unverified_block.block().slot();
+        let chain = self.clone();
 
-        
         let execution_pending = unverified_block.into_execution_pending_block(
             block_root,
             &chain,
@@ -2721,11 +2695,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .into_executed_block(execution_pending, count_unrealized)
             .await?;
 
-        let chain = self.clone();
-
-        // Check if the executed block has all it's blobs available to qualify as a fully 
+        // Check if the executed block has all it's blobs available to qualify as a fully
         // available block
-        let import_block = if let Ok(blobs) = self.gossip_blob_cache.lock().blobs(executed_block.block_root) {
+        let import_block = if let Ok(blobs) = self
+            .gossip_blob_cache
+            .lock()
+            .blobs(executed_block.block_root)
+        {
             self.import_available_block(executed_block, blobs, count_unrealized)
         } else {
             return Ok(BlockProcessingResult::AvailabilityPending(executed_block));
@@ -2839,7 +2815,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             confirmed_state_roots,
             parent_eth1_finalization_data,
             consensus_context,
-            payload_verification_outcome
+            payload_verification_outcome,
         })
     }
 
@@ -2851,7 +2827,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     async fn import_available_block(
         self: Arc<Self>,
         executed_block: ExecutedBlock<T>,
-        blobs: Blobs<T::EthSpec>
+        blobs: Blobs<T::EthSpec>,
         count_unrealized: CountUnrealized,
     ) -> Result<Hash256, BlockError<T::EthSpec>> {
         let ExecutedBlock {
@@ -2863,16 +2839,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             payload_verification_outcome,
             parent_eth1_finalization_data,
             consensus_context,
-        } = execution_pending_block;
-
+        } = executed_block;
 
         let chain = self.clone();
-        
+
         let available_block = AvailableBlock {
-            block: block, 
-            blobs: blobs
+            block: block.block_cloned(),
+            blobs: blobs,
         };
-        
+
         let block_hash = self
             .spawn_blocking_handle(
                 move || {
@@ -2881,7 +2856,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         block_root,
                         state,
                         confirmed_state_roots,
-                        payload_verification_status,
+                        payload_verification_outcome.payload_verification_status,
                         count_unrealized,
                         parent_block,
                         parent_eth1_finalization_data,
@@ -2895,7 +2870,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(block_hash)
     }
 
-    /// Accepts a fully-verified block and imports it into the chain without performing any
+    /// Accepts a fully-verified and available block and imports it into the chain without performing any
     /// additional verification.
     ///
     /// An error is returned if the block was unable to be imported. It may be partially imported
@@ -2920,7 +2895,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // -----------------------------------------------------------------------------------------
         let current_slot = self.slot()?;
         let current_epoch = current_slot.epoch(T::EthSpec::slots_per_epoch());
-        let block = signed_block.message();
+        let block = signed_block.block.message();
         let post_exec_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_POST_EXEC_PROCESSING);
 
         // Check against weak subjectivity checkpoint.
@@ -2957,9 +2932,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let mut fork_choice = self.canonical_head.fork_choice_write_lock();
 
         // Do not import a block that doesn't descend from the finalized root.
-        let signed_block =
-            check_block_is_finalized_checkpoint_or_descendant(self, &fork_choice, signed_block)?;
-        let block = signed_block.message();
+        let signed_block = check_block_is_finalized_checkpoint_or_descendant(
+            self,
+            &fork_choice,
+            BlockWrapper::from(signed_block),
+        )?;
+        // TODO(pawan): fix this atrocity
+        let signed_block = signed_block.into_available_block().unwrap();
+        let block = signed_block.block.message();
 
         // Register the new block with the fork choice service.
         {
@@ -3089,14 +3069,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             // margin, or younger (of higher epoch number).
             if block_epoch >= import_boundary {
                 if let Some(blobs) = blobs {
-                    if !blobs.blobs.is_empty() {
-                        //FIXME(sean) using this for debugging for now
-                        info!(
-                            self.log, "Writing blobs to store";
-                            "block_root" => ?block_root
-                        );
-                        ops.push(StoreOp::PutBlobs(block_root, blobs));
-                    }
+                    //FIXME(sean) using this for debugging for now
+                    info!(
+                        self.log, "Writing blobs to store";
+                        "block_root" => ?block_root
+                    );
+                    ops.push(StoreOp::PutBlobs(block_root, blobs));
                 }
             }
         }
@@ -4911,7 +4889,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     )),
                 )?;
 
-                kzg_utils::compute_blob_kzg_proof::<T::EthSpec>(kzg, blob, kzg_commitment.clone())
+                kzg_utils::compute_blob_kzg_proof::<T::EthSpec>(kzg, blob, *kzg_commitment)
                     .map_err(BlockProductionError::KzgError)
             })
             .collect::<Result<Vec<KzgProof>, BlockProductionError>>()
@@ -6196,19 +6174,22 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .unwrap_or(false))
     }
 
-    pub async fn check_data_availability(&self, block: Arc<SignedBeaconBlock<T::EthSpec>>) -> Result<AvailableBlock<T>, Error> {
-            let kzg_commitments = block
-                .message()
-                .body()
-                .blob_kzg_commitments()
-                .map_err(|_| BlobError::KzgCommitmentMissing)?;
-            let transactions = block
-                .message()
-                .body()
-                .execution_payload_eip4844()
-                .map(|payload| payload.transactions())
-                .map_err(|_| BlobError::TransactionsMissing)?
-                .ok_or(BlobError::TransactionsMissing)?;
+    pub async fn check_data_availability(
+        &self,
+        block: Arc<SignedBeaconBlock<T::EthSpec>>,
+    ) -> Result<AvailableBlock<T>, Error> {
+        let kzg_commitments = block
+            .message()
+            .body()
+            .blob_kzg_commitments()
+            .map_err(|_| BlobError::KzgCommitmentMissing)?;
+        let transactions = block
+            .message()
+            .body()
+            .execution_payload_eip4844()
+            .map(|payload| payload.transactions())
+            .map_err(|_| BlobError::TransactionsMissing)?
+            .ok_or(BlobError::TransactionsMissing)?;
 
         if verify_kzg_commitments_against_transactions::<T::EthSpec>(transactions, kzg_commitments)
             .is_err()
@@ -6216,9 +6197,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Err(BlobError::TransactionCommitmentMismatch);
         }
 
-        self.blob_cache
-
-        // Validatate that the kzg proof is valid against the commitments and blobs
+        // Validate that the kzg proof is valid against the commitments and blobs
         let kzg = self
             .kzg
             .as_ref()
@@ -6231,7 +6210,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             kzg_commitments,
             blob_sidecar,
         )
-            .map_err(BlobError::KzgError)?
+        .map_err(BlobError::KzgError)?
         {
             return Err(BlobError::InvalidKzgProof);
         }

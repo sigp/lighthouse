@@ -48,10 +48,7 @@
 // returned alongside.
 #![allow(clippy::result_large_err)]
 
-use crate::blob_verification::{
-    validate_blob_for_gossip, AsBlock, AvailabilityPendingBlock, AvailableBlock, BlobError,
-    BlockWrapper, IntoAvailableBlock, IntoBlockWrapper,
-};
+use crate::blob_verification::{AsBlock, AvailableBlock, BlobError, BlockWrapper};
 use crate::eth1_finalization_cache::Eth1FinalizationData;
 use crate::execution_payload::{
     is_optimistic_candidate_block, validate_execution_payload_for_gossip, validate_merge_block,
@@ -67,7 +64,6 @@ use crate::{
     },
     metrics, BeaconChain, BeaconChainError, BeaconChainTypes,
 };
-use derivative::Derivative;
 use eth2::types::EventKind;
 use execution_layer::PayloadStatus;
 use fork_choice::{AttestationFromBlock, PayloadVerificationStatus};
@@ -596,13 +592,12 @@ pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
         signature_verifier.include_all_signatures(block.as_block(), &mut consensus_context)?;
 
         //FIXME(sean) batch kzg verification
-        let available_block = block.clone().into_available_block(*block_root, chain)?;
         consensus_context = consensus_context.set_kzg_commitments_consistent(true);
 
         // Save the block and its consensus context. The context will have had its proposer index
         // and attesting indices filled in, which can be used to accelerate later block processing.
         signature_verified_blocks.push(SignatureVerifiedBlock {
-            block: available_block,
+            block: block.clone(),
             block_root: *block_root,
             parent: None,
             consensus_context,
@@ -624,10 +619,9 @@ pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
 
 /// A wrapper around a `SignedBeaconBlock` that indicates it has been approved for re-gossiping on
 /// the p2p network.
-#[derive(Derivative)]
-#[derivative(Debug(bound = "T: BeaconChainTypes"))]
+#[derive(Debug)]
 pub struct GossipVerifiedBlock<T: BeaconChainTypes> {
-    pub block: AvailabilityPendingBlock<T>,
+    pub block: BlockWrapper<T::EthSpec>,
     pub block_root: Hash256,
     parent: Option<PreProcessingSnapshot<T::EthSpec>>,
     consensus_context: ConsensusContext<T::EthSpec>,
@@ -636,7 +630,7 @@ pub struct GossipVerifiedBlock<T: BeaconChainTypes> {
 /// A wrapper around a `SignedBeaconBlock` that indicates that all signatures (except the deposit
 /// signatures) have been verified.
 pub struct SignatureVerifiedBlock<T: BeaconChainTypes> {
-    block: AvailabilityPendingBlock<T::EthSpec>,
+    block: BlockWrapper<T::EthSpec>,
     block_root: Hash256,
     parent: Option<PreProcessingSnapshot<T::EthSpec>>,
     consensus_context: ConsensusContext<T::EthSpec>,
@@ -659,7 +653,7 @@ type PayloadVerificationHandle<E> =
 /// due to finality or some other event. A `ExecutionPendingBlock` should be imported into the
 /// `BeaconChain` immediately after it is instantiated.
 pub struct ExecutionPendingBlock<T: BeaconChainTypes> {
-    pub block: Arc<SignedBeaconBlock<T::EthSpec>>,
+    pub block: BlockWrapper<T::EthSpec>,
     pub block_root: Hash256,
     pub state: BeaconState<T::EthSpec>,
     pub parent_block: SignedBeaconBlock<T::EthSpec, BlindedPayload<T::EthSpec>>,
@@ -670,7 +664,7 @@ pub struct ExecutionPendingBlock<T: BeaconChainTypes> {
 }
 
 pub struct ExecutedBlock<T: BeaconChainTypes> {
-    pub block: Arc<SignedBeaconBlock<T::EthSpec>>,
+    pub block: BlockWrapper<T::EthSpec>,
     pub block_root: Hash256,
     pub state: BeaconState<T::EthSpec>,
     pub parent_block: SignedBeaconBlock<T::EthSpec, BlindedPayload<T::EthSpec>>,
@@ -689,7 +683,7 @@ pub trait IntoExecutionPendingBlock<T: BeaconChainTypes>: Sized {
         block_root: Hash256,
         chain: &Arc<BeaconChain<T>>,
         notify_execution_layer: NotifyExecutionLayer,
-    ) -> Result<ExecutionPendingBlock<T, B>, BlockError<T::EthSpec>> {
+    ) -> Result<ExecutionPendingBlock<T>, BlockError<T::EthSpec>> {
         self.into_execution_pending_block_slashable(block_root, chain, notify_execution_layer)
             .map(|execution_pending| {
                 // Supply valid block to slasher.
@@ -707,7 +701,7 @@ pub trait IntoExecutionPendingBlock<T: BeaconChainTypes>: Sized {
         block_root: Hash256,
         chain: &Arc<BeaconChain<T>>,
         notify_execution_layer: NotifyExecutionLayer,
-    ) -> Result<ExecutionPendingBlock<T, B>, BlockSlashInfo<BlockError<T::EthSpec>>>;
+    ) -> Result<ExecutionPendingBlock<T>, BlockSlashInfo<BlockError<T::EthSpec>>>;
 
     fn block(&self) -> &SignedBeaconBlock<T::EthSpec>;
 }
@@ -930,16 +924,14 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         // Validate the block's execution_payload (if any).
         validate_execution_payload_for_gossip(&parent_block, block.message(), chain)?;
 
-        let available_block = validate_blob_for_gossip(block, block_root, chain)?;
-
         // Having checked the proposer index and the block root we can cache them.
-        let consensus_context = ConsensusContext::new(available_block.slot())
+        let consensus_context = ConsensusContext::new(block.slot())
             .set_current_block_root(block_root)
-            .set_proposer_index(available_block.as_block().message().proposer_index())
+            .set_proposer_index(block.as_block().message().proposer_index())
             .set_kzg_commitments_consistent(true);
 
         Ok(Self {
-            block: available_block,
+            block: block,
             block_root,
             parent,
             consensus_context,
@@ -979,10 +971,11 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
     ///
     /// Returns an error if the block is invalid, or if the block was unable to be verified.
     pub fn new(
-        block: AvailabilityPendingBlock<T::EthSpec>,
+        block: Arc<SignedBeaconBlock<T::EthSpec>>,
         block_root: Hash256,
         chain: &BeaconChain<T>,
     ) -> Result<Self, BlockError<T::EthSpec>> {
+        let block = BlockWrapper::from(block);
         // Ensure the block is the correct structure for the fork at `block.slot()`.
         block
             .as_block()
@@ -1029,7 +1022,7 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
 
     /// As for `new` above but producing `BlockSlashInfo`.
     pub fn check_slashable(
-        block: AvailabilityPendingBlock<T::EthSpec>,
+        block: Arc<SignedBeaconBlock<T::EthSpec>>,
         block_root: Hash256,
         chain: &BeaconChain<T>,
     ) -> Result<Self, BlockSlashInfo<BlockError<T::EthSpec>>> {
@@ -1139,11 +1132,8 @@ impl<T: BeaconChainTypes> IntoExecutionPendingBlock<T> for Arc<SignedBeaconBlock
             .map_err(|e| BlockSlashInfo::SignatureNotChecked(self.signed_block_header(), e))?;
 
         let header = self.signed_block_header();
-        let available_block = BlockWrapper::from(self)
-            .into_available_block(block_root, chain)
-            .map_err(|e| BlockSlashInfo::from_early_error(header, BlockError::BlobValidation(e)))?;
 
-        SignatureVerifiedBlock::check_slashable(available_block, block_root, chain)?
+        SignatureVerifiedBlock::check_slashable(self, block_root, chain)?
             .into_execution_pending_block_slashable(block_root, chain, notify_execution_layer)
     }
 
@@ -1152,24 +1142,38 @@ impl<T: BeaconChainTypes> IntoExecutionPendingBlock<T> for Arc<SignedBeaconBlock
     }
 }
 
-impl<T: BeaconChainTypes> IntoExecutionPendingBlock<T> for AvailabilityPendingBlock<T::EthSpec> {
-    /// Verifies the `SignedBeaconBlock` by first transforming it into a `SignatureVerifiedBlock`
-    /// and then using that implementation of `IntoExecutionPendingBlock` to complete verification.
+impl<T: BeaconChainTypes> IntoExecutionPendingBlock<T> for BlockWrapper<T::EthSpec> {
     fn into_execution_pending_block_slashable(
         self,
         block_root: Hash256,
         chain: &Arc<BeaconChain<T>>,
         notify_execution_layer: NotifyExecutionLayer,
-    ) -> Result<ExecutionPendingBlock<T>, BlockSlashInfo<BlockError<T::EthSpec>>> {
-        // Perform an early check to prevent wasting time on irrelevant blocks.
-        let block_root = check_block_relevancy(self.as_block(), block_root, chain)
-            .map_err(|e| BlockSlashInfo::SignatureNotChecked(self.signed_block_header(), e))?;
-
-        SignatureVerifiedBlock::check_slashable(self, block_root, chain)?
-            .into_execution_pending_block_slashable(block_root, chain, notify_execution_layer)
+    ) -> Result<
+        ExecutionPendingBlock<T>,
+        BlockSlashInfo<BlockError<<T as BeaconChainTypes>::EthSpec>>,
+    > {
+        match self {
+            BlockWrapper::AvailabilityPending(block) => block
+                .into_execution_pending_block_slashable(block_root, chain, notify_execution_layer),
+            BlockWrapper::Available(AvailableBlock { block, blobs }) => {
+                let execution_pending_block = block.into_execution_pending_block_slashable(
+                    block_root,
+                    chain,
+                    notify_execution_layer,
+                )?;
+                let block = execution_pending_block.block.block_cloned();
+                let available_execution_pending_block =
+                    BlockWrapper::Available(AvailableBlock { block, blobs });
+                std::mem::replace(
+                    &mut execution_pending_block.block,
+                    available_execution_pending_block,
+                );
+                Ok(execution_pending_block)
+            }
+        }
     }
 
-    fn block(&self) -> &SignedBeaconBlock<T::EthSpec> {
+    fn block(&self) -> &SignedBeaconBlock<<T as BeaconChainTypes>::EthSpec> {
         self.as_block()
     }
 }
@@ -1183,7 +1187,7 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
     ///
     /// Returns an error if the block is invalid, or if the block was unable to be verified.
     pub fn from_signature_verified_components(
-        block: AvailabilityPendingBlock<T::EthSpec>,
+        block: BlockWrapper<T::EthSpec>,
         block_root: Hash256,
         parent: PreProcessingSnapshot<T::EthSpec>,
         mut consensus_context: ConsensusContext<T::EthSpec>,
@@ -1213,7 +1217,7 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
             //  because it will revert finalization. Note that the finalized block is stored in fork
             //  choice, so we will not reject any child of the finalized block (this is relevant during
             //  genesis).
-            return Err(BlockError::ParentUnknown(block.into_block_wrapper()));
+            return Err(BlockError::ParentUnknown(block));
         }
 
         // Reject any block that exceeds our limit on skipped slots.
@@ -1648,14 +1652,11 @@ fn check_block_against_finalized_slot<T: BeaconChainTypes>(
 /// ## Warning
 ///
 /// Taking a lock on the `chain.canonical_head.fork_choice` might cause a deadlock here.
-pub fn check_block_is_finalized_checkpoint_or_descendant<
-    T: BeaconChainTypes,
-    B: IntoBlockWrapper<T::EthSpec>,
->(
+pub fn check_block_is_finalized_checkpoint_or_descendant<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
     fork_choice: &BeaconForkChoice<T>,
-    block: B,
-) -> Result<B, BlockError<T::EthSpec>> {
+    block: BlockWrapper<T::EthSpec>,
+) -> Result<BlockWrapper<T::EthSpec>, BlockError<T::EthSpec>> {
     if fork_choice.is_finalized_checkpoint_or_descendant(block.parent_root()) {
         Ok(block)
     } else {
@@ -1676,7 +1677,7 @@ pub fn check_block_is_finalized_checkpoint_or_descendant<
                 block_parent_root: block.parent_root(),
             })
         } else {
-            Err(BlockError::ParentUnknown(block.into_block_wrapper()))
+            Err(BlockError::ParentUnknown(block))
         }
     }
 }
@@ -1766,11 +1767,11 @@ fn verify_parent_block_is_known<T: BeaconChainTypes>(
 /// Returns `Err(BlockError::ParentUnknown)` if the parent is not found, or if an error occurs
 /// whilst attempting the operation.
 #[allow(clippy::type_complexity)]
-fn load_parent<T: BeaconChainTypes, B: IntoBlockWrapper<T::EthSpec>>(
+fn load_parent<T: BeaconChainTypes>(
     block_root: Hash256,
-    block: B,
+    block: BlockWrapper<T::EthSpec>,
     chain: &BeaconChain<T>,
-) -> Result<(PreProcessingSnapshot<T::EthSpec>, B), BlockError<T::EthSpec>> {
+) -> Result<(PreProcessingSnapshot<T::EthSpec>, BlockWrapper<T::EthSpec>), BlockError<T::EthSpec>> {
     let spec = &chain.spec;
 
     // Reject any block if its parent is not known to fork choice.
@@ -1788,7 +1789,7 @@ fn load_parent<T: BeaconChainTypes, B: IntoBlockWrapper<T::EthSpec>>(
         .fork_choice_read_lock()
         .contains_block(&block.parent_root())
     {
-        return Err(BlockError::ParentUnknown(block.into_block_wrapper()));
+        return Err(BlockError::ParentUnknown(block));
     }
 
     let block_delay = chain
