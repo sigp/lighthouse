@@ -208,8 +208,8 @@ enum SupportedProtocol {
 }
 
 impl SupportedProtocol {
-    fn currently_supported<T: EthSpec>(info: &RPCProtocol<T>) -> Vec<ProtocolId> {
-        let mut supported_protocols = vec![
+    fn currently_supported() -> Vec<ProtocolId> {
+        vec![
             ProtocolId::new(Protocol::Status, Version::V1, Encoding::SSZSnappy),
             ProtocolId::new(Protocol::Goodbye, Version::V1, Encoding::SSZSnappy),
             // V2 variants have higher preference then V1
@@ -220,15 +220,7 @@ impl SupportedProtocol {
             ProtocolId::new(Protocol::Ping, Version::V1, Encoding::SSZSnappy),
             ProtocolId::new(Protocol::MetaData, Version::V2, Encoding::SSZSnappy),
             ProtocolId::new(Protocol::MetaData, Version::V1, Encoding::SSZSnappy),
-        ];
-        if info.enable_light_client_server {
-            supported_protocols.push(ProtocolId::new(
-                Protocol::LightClientBootstrap,
-                Version::V1,
-                Encoding::SSZSnappy,
-            ));
-        }
-        supported_protocols
+        ]
     }
 }
 
@@ -265,7 +257,15 @@ impl<TSpec: EthSpec> UpgradeInfo for RPCProtocol<TSpec> {
 
     /// The list of supported RPC protocols for Lighthouse.
     fn protocol_info(&self) -> Self::InfoIter {
-        SupportedProtocol::currently_supported(self)
+        let mut supported_protocols = SupportedProtocol::currently_supported();
+        if self.enable_light_client_server {
+            supported_protocols.push(ProtocolId::new(
+                Protocol::LightClientBootstrap,
+                Version::V1,
+                Encoding::SSZSnappy,
+            ));
+        }
+        supported_protocols
     }
 }
 
