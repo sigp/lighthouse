@@ -210,6 +210,12 @@ async fn reconstruct_block<T: BeaconChainTypes>(
     };
 
     match full_payload_opt {
+        // A block without a payload is pre-merge and we consider it locally
+        // built.
+        None => block
+            .try_into_full_block(None)
+            .map(Arc::new)
+            .map(ProvenancedBlock::Local),
         Some(ProvenancedPayload::Local(full_payload)) => block
             .try_into_full_block(Some(full_payload))
             .map(Arc::new)
@@ -218,7 +224,6 @@ async fn reconstruct_block<T: BeaconChainTypes>(
             .try_into_full_block(Some(full_payload))
             .map(Arc::new)
             .map(ProvenancedBlock::Builder),
-        None => None,
     }
     .ok_or_else(|| {
         warp_utils::reject::custom_server_error("Unable to add payload to block".to_string())
