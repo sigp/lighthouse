@@ -114,6 +114,9 @@ where
     #[ssz(skip_serializing, skip_deserializing)]
     #[superstruct(only(Capella, Eip4844))]
     pub historical_summaries: Option<VariableList<HistoricalSummary, T::HistoricalRootsLimit>>,
+
+    #[superstruct(only(Capella, Eip4844))]
+    pub deposit_receipts_start_index: u64,
 }
 
 /// Implement the conversion function from BeaconState -> PartialBeaconState.
@@ -223,7 +226,8 @@ impl<T: EthSpec> PartialBeaconState<T> {
                     inactivity_scores,
                     latest_execution_payload_header,
                     next_withdrawal_index,
-                    next_withdrawal_validator_index
+                    next_withdrawal_validator_index,
+                    deposit_receipts_start_index
                 ],
                 [historical_summaries]
             ),
@@ -240,7 +244,8 @@ impl<T: EthSpec> PartialBeaconState<T> {
                     inactivity_scores,
                     latest_execution_payload_header,
                     next_withdrawal_index,
-                    next_withdrawal_validator_index
+                    next_withdrawal_validator_index,
+                    deposit_receipts_start_index
                 ],
                 [historical_summaries]
             ),
@@ -468,7 +473,8 @@ impl<E: EthSpec> TryInto<BeaconState<E>> for PartialBeaconState<E> {
                     inactivity_scores,
                     latest_execution_payload_header,
                     next_withdrawal_index,
-                    next_withdrawal_validator_index
+                    next_withdrawal_validator_index,
+                    deposit_receipts_start_index
                 ],
                 [historical_summaries]
             ),
@@ -484,7 +490,8 @@ impl<E: EthSpec> TryInto<BeaconState<E>> for PartialBeaconState<E> {
                     inactivity_scores,
                     latest_execution_payload_header,
                     next_withdrawal_index,
-                    next_withdrawal_validator_index
+                    next_withdrawal_validator_index,
+                    deposit_receipts_start_index
                 ],
                 [historical_summaries]
             ),

@@ -309,6 +309,9 @@ where
     // Deep history valid from Capella onwards.
     #[superstruct(only(Capella, Eip4844))]
     pub historical_summaries: VariableList<HistoricalSummary, T::HistoricalRootsLimit>,
+    #[superstruct(only(Capella, Eip4844), partial_getter(copy))]
+    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    pub deposit_receipts_start_index: u64,
 
     // Caching (not in the spec)
     #[serde(skip_serializing, skip_deserializing)]

@@ -43,13 +43,13 @@ use tokio_stream::wrappers::WatchStream;
 use tree_hash::TreeHash;
 use types::consts::eip4844::BLOB_TX_TYPE;
 use types::transaction::{AccessTuple, BlobTransaction, EcdsaSignature, SignedBlobTransaction};
-use types::Withdrawals;
 use types::{
     blobs_sidecar::{Blobs, KzgCommitments},
     BlindedPayload, BlockType, ChainSpec, Epoch, ExecutionBlockHash, ExecutionPayload,
     ExecutionPayloadCapella, ExecutionPayloadEip4844, ExecutionPayloadMerge, ForkName,
 };
 use types::{AbstractExecPayload, BeaconStateError, ExecPayload, VersionedHash};
+use types::{DepositReceipt, Withdrawals};
 use types::{
     ProposerPreparationData, PublicKeyBytes, Signature, SignedBeaconBlock, Slot, Transaction,
     Uint256,
@@ -1785,14 +1785,14 @@ impl<T: EthSpec> ExecutionLayer<T> {
                 )
                 .map_err(ApiError::DeserializeWithdrawals)?;
 
-                let deposit_receipts = VariableList::new(
-                    eip4844_block
-                        .deposit_receipts
-                        .into_iter()
-                        .map(Into::into)
-                        .collect(),
-                )
-                .map_err(ApiError::DeserializeDepositReceipts)?;
+                let deposit_receipts = eip4844_block
+                    .deposit_receipts
+                    .into_iter()
+                    .map(Into::into)
+                    .collect::<Vec<DepositReceipt>>();
+
+                let deposit_receipts = VariableList::new(deposit_receipts)
+                    .map_err(ApiError::DeserializeDepositReceipts)?;
 
                 ExecutionPayload::Eip4844(ExecutionPayloadEip4844 {
                     parent_hash: eip4844_block.parent_hash,

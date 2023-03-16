@@ -66,6 +66,8 @@ pub fn upgrade_to_capella<E: EthSpec>(
         pubkey_cache: mem::take(&mut pre.pubkey_cache),
         exit_cache: mem::take(&mut pre.exit_cache),
         tree_hash_cache: mem::take(&mut pre.tree_hash_cache),
+        // EIP-6110
+        deposit_receipts_start_index: 0,
     });
 
     *pre_state = post;

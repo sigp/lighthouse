@@ -81,6 +81,9 @@ pub struct ExecutionPayloadHeader<T: EthSpec> {
     #[superstruct(only(Capella, Eip4844))]
     #[superstruct(getter(copy))]
     pub withdrawals_root: Hash256,
+    #[superstruct(only(Eip4844))]
+    #[superstruct(getter(copy))]
+    pub deposit_receipts_root: Hash256,
 }
 
 impl<T: EthSpec> ExecutionPayloadHeader<T> {
@@ -155,6 +158,7 @@ impl<T: EthSpec> ExecutionPayloadHeaderCapella<T> {
             block_hash: self.block_hash,
             transactions_root: self.transactions_root,
             withdrawals_root: self.withdrawals_root,
+            deposit_receipts_root: Hash256::zero(),
         }
     }
 }
@@ -220,6 +224,7 @@ impl<'a, T: EthSpec> From<&'a ExecutionPayloadEip4844<T>> for ExecutionPayloadHe
             block_hash: payload.block_hash,
             transactions_root: payload.transactions.tree_hash_root(),
             withdrawals_root: payload.withdrawals.tree_hash_root(),
+            deposit_receipts_root: payload.deposit_receipts.tree_hash_root(),
         }
     }
 }
