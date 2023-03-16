@@ -201,8 +201,13 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
         info!(log, "ENR Initialised"; "enr" => local_enr.to_base64(), "seq" => local_enr.seq(), "id"=> %local_enr.node_id(),
               "ip4" => ?local_enr.ip4(), "udp4"=> ?local_enr.udp4(), "tcp4" => ?local_enr.tcp6()
         );
-
-        let listen_socket = SocketAddr::new(config.listen_address, config.discovery_port);
+        let listen_socket = match config.listen_addrs() {
+            crate::listen_addr::ListenAddress::V4(v4_addr) => v4_addr.udp_socket_addr(),
+            crate::listen_addr::ListenAddress::V6(v6_addr) => v6_addr.udp_socket_addr(),
+            crate::listen_addr::ListenAddress::DualStack(_v4_addr, v6_addr) => {
+                v6_addr.udp_socket_addr()
+            }
+        };
 
         // convert the keypair into an ENR key
         let enr_key: CombinedKey = CombinedKey::from_libp2p(local_key)?;
@@ -1015,14 +1020,27 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
                             *self.network_globals.local_enr.write() = enr;
                             // A new UDP socket has been detected.
                             // Build a multiaddr to report to libp2p
-                            let mut address = Multiaddr::from(socket_addr.ip());
-                            // NOTE: This doesn't actually track the external TCP port. More sophisticated NAT handling
-                            // should handle this.
-                            address.push(Protocol::Tcp(self.network_globals.listen_port_tcp()));
-                            return Poll::Ready(NBAction::ReportObservedAddr {
-                                address,
-                                score: AddressScore::Finite(1),
-                            });
+                            let addr = match socket_addr.ip() {
+                                IpAddr::V4(v4_addr) => {
+                                    self.network_globals.listen_port_tcp4().map(|tcp4_port| {
+                                        Multiaddr::from(v4_addr).with(Protocol::Tcp(tcp4_port))
+                                    })
+                                }
+                                IpAddr::V6(v6_addr) => {
+                                    self.network_globals.listen_port_tcp6().map(|tcp6_port| {
+                                        Multiaddr::from(v6_addr).with(Protocol::Tcp(tcp6_port))
+                                    })
+                                }
+                            };
+
+                            if let Some(address) = addr {
+                                // NOTE: This doesn't actually track the external TCP port. More sophisticated NAT handling
+                                // should handle this.
+                                return Poll::Ready(NBAction::ReportObservedAddr {
+                                    address,
+                                    score: AddressScore::Finite(1),
+                                });
+                            }
                         }
                         Discv5Event::EnrAdded { .. }
                         | Discv5Event::TalkRequest(_)
@@ -1087,7 +1105,6 @@ mod tests {
     use enr::EnrBuilder;
     use slog::{o, Drain};
     use types::{BitVector, MinimalEthSpec, SubnetId};
-    use unused_port::unused_udp_port;
 
     type E = MinimalEthSpec;
 
@@ -1105,17 +1122,15 @@ mod tests {
 
     async fn build_discovery() -> Discovery<E> {
         let keypair = libp2p::identity::Keypair::generate_secp256k1();
-        let config = NetworkConfig {
-            discovery_port: unused_udp_port().unwrap(),
-            ..Default::default()
-        };
+        let mut config = NetworkConfig::default();
+        config.set_listening_addr(crate::ListenAddress::unused_v4_ports());
         let enr_key: CombinedKey = CombinedKey::from_libp2p(&keypair).unwrap();
         let enr: Enr = build_enr::<E>(&enr_key, &config, &EnrForkId::default()).unwrap();
         let log = build_log(slog::Level::Debug, false);
         let globals = NetworkGlobals::new(
             enr,
-            9000,
-            9000,
+            Some(9000),
+            None,
             MetaData::V2(MetaDataV2 {
                 seq_number: 0,
                 attnets: Default::default(),
