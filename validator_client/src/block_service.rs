@@ -435,7 +435,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                     &[metrics::BEACON_BLOCK_HTTP_POST],
                 );
                 beacon_node
-                    .post_beacon_blocks(&signed_block_contents)
+                    .post_beacon_blocks(signed_block_contents)
                     .await
                     .map_err(|e| {
                         BlockError::Irrecoverable(format!(
