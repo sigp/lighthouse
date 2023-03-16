@@ -264,7 +264,9 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .arg(
             Arg::with_name("disable-backfill-rate-limiting")
                 .long("disable-backfill-rate-limiting")
-                .help("Disable the backfill sync rate-limiting. This allow users to just sync the entire chain as fast as they can.")
+                .help("Disable the backfill sync rate-limiting. This allow users to just sync the entire chain as fast \
+                    as possible, however it can result in resource contention which degrades staking performance. Stakers \
+                    should generally choose to avoid this flag since backfill sync is not required for staking.")
                 .takes_value(false),
         )
         /* REST API related arguments */
