@@ -240,7 +240,6 @@ impl<E: EthSpec> BodiesByRange<E> {
             {
                 Ok(bodies) => {
                     let mut range_map = (self.start..(self.start + self.count))
-                        .into_iter()
                         .zip(bodies.into_iter().chain(std::iter::repeat(None)))
                         .collect::<HashMap<_, _>>();
 
