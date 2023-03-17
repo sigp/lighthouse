@@ -297,11 +297,6 @@ pub enum StateSkipConfig {
     WithoutStateRoots,
 }
 
-pub enum BlockProcessingResult<T: BeaconChainTypes> {
-    Verified(Hash256),
-    AvailabilityPending(ExecutedBlock<T::EthSpec>),
-}
-
 pub trait BeaconChainTypes: Send + Sync + 'static {
     type HotStore: store::ItemStore<Self::EthSpec>;
     type ColdStore: store::ItemStore<Self::EthSpec>;
@@ -2669,10 +2664,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Returns `Ok(block_root)` if the given `unverified_block` was successfully verified and
     /// imported into the chain.
     ///
+    /// For post deneb blocks, this returns a `BlockError::AvailabilityPending` error
+    /// if the corresponding blobs are not in the required caches.
+    ///
     /// Items that implement `IntoExecutionPendingBlock` include:
     ///
     /// - `SignedBeaconBlock`
     /// - `GossipVerifiedBlock`
+    /// - `BlockWrapper`
     ///
     /// ## Errors
     ///
@@ -2691,7 +2690,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Increment the Prometheus counter for block processing requests.
         metrics::inc_counter(&metrics::BLOCK_PROCESSING_REQUESTS);
 
-        let slot = unverified_block.block().slot();
         let chain = self.clone();
 
         let execution_pending = unverified_block.into_execution_pending_block(
@@ -2818,7 +2816,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// An error is returned if the block was unable to be imported. It may be partially imported
     /// (i.e., this function is not atomic).
-    async fn check_availability_and_maybe_import(
+    pub async fn check_availability_and_maybe_import(
         self: &Arc<Self>,
         cache_fn: impl FnOnce(Arc<Self>) -> Result<Availability<T::EthSpec>, AvailabilityCheckError>,
         count_unrealized: CountUnrealized,

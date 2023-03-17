@@ -119,6 +119,14 @@ pub enum SyncMessage<T: EthSpec> {
     /// manager to attempt to find the block matching the unknown hash.
     UnknownBlockHash(PeerId, Hash256),
 
+    /// A peer has sent us a block that we haven't received all the blobs for. This triggers
+    /// the manager to attempt to find a blobs for the given block root.
+    /// TODO: add required blob indices as well.
+    UnknownBlobHash {
+        peer_id: PeerId,
+        block_root: Hash256,
+    },
+
     /// A peer has disconnected.
     Disconnect(PeerId),
 
@@ -597,6 +605,9 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     self.block_lookups
                         .search_block(block_hash, peer_id, &mut self.network);
                 }
+            }
+            SyncMessage::UnknownBlobHash { .. } => {
+                unimplemented!()
             }
             SyncMessage::Disconnect(peer_id) => {
                 self.peer_disconnect(&peer_id);

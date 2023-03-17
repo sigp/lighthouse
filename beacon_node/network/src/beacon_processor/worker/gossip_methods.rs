@@ -2,6 +2,7 @@ use crate::{metrics, service::NetworkMessage, sync::SyncMessage};
 
 use beacon_chain::blob_verification::{AsBlock, BlockWrapper, GossipVerifiedBlob};
 use beacon_chain::store::Error;
+use beacon_chain::ExecutedBlock;
 use beacon_chain::{
     attestation_verification::{self, Error as AttnError, VerifiedAttestation},
     light_client_finality_update_verification::Error as LightClientFinalityUpdateError,
@@ -30,8 +31,8 @@ use types::{
 
 use super::{
     super::work_reprocessing_queue::{
-        QueuedAggregate, QueuedGossipBlock, QueuedLightClientUpdate, QueuedUnaggregate,
-        ReprocessQueueMessage,
+        QueuedAggregate, QueuedExecutedBlock, QueuedGossipBlock, QueuedLightClientUpdate,
+        QueuedUnaggregate, ReprocessQueueMessage,
     },
     Worker,
 };
@@ -990,13 +991,111 @@ impl<T: BeaconChainTypes> Worker<T> {
     /// Process the beacon block that has already passed gossip verification.
     ///
     /// Raises a log if there are errors.
+    pub async fn process_execution_verified_block(
+        self,
+        peer_id: PeerId,
+        executed_block: ExecutedBlock<T::EthSpec>,
+        reprocess_tx: mpsc::Sender<ReprocessQueueMessage<T>>,
+        // This value is not used presently, but it might come in handy for debugging.
+        seen_duration: Duration,
+    ) {
+        let block_root = executed_block.block_root;
+        let block = executed_block.block.block_cloned();
+
+        match self
+            .chain
+            .check_availability_and_maybe_import(
+                |chain| {
+                    chain
+                        .data_availability_checker
+                        .check_block_availability(executed_block)
+                },
+                CountUnrealized::True,
+            )
+            .await
+        {
+            Ok(AvailabilityProcessingStatus::Imported(block_root)) => {
+                metrics::inc_counter(&metrics::BEACON_PROCESSOR_GOSSIP_BLOCK_IMPORTED_TOTAL);
+
+                if reprocess_tx
+                    .try_send(ReprocessQueueMessage::BlockImported {
+                        block_root,
+                        parent_root: block.message().parent_root(),
+                    })
+                    .is_err()
+                {
+                    error!(
+                        self.log,
+                        "Failed to inform block import";
+                        "source" => "gossip",
+                        "block_root" => ?block_root,
+                    )
+                };
+
+                debug!(
+                    self.log,
+                    "Gossipsub block processed";
+                    "block" => ?block_root,
+                    "peer_id" => %peer_id
+                );
+
+                self.chain.recompute_head_at_current_slot().await;
+            }
+            Ok(AvailabilityProcessingStatus::PendingBlobs(_))
+            | Ok(AvailabilityProcessingStatus::PendingBlock(_))
+            | Err(BlockError::AvailabilityCheck(_)) => {
+                // TODO(need to do something different if it's unavailble again)
+                unimplemented!()
+            }
+            Err(BlockError::ParentUnknown(block)) => {
+                // Inform the sync manager to find parents for this block
+                // This should not occur. It should be checked by `should_forward_block`
+                error!(
+                    self.log,
+                    "Block with unknown parent attempted to be processed";
+                    "peer_id" => %peer_id
+                );
+                self.send_sync_message(SyncMessage::UnknownBlock(peer_id, block, block_root));
+            }
+            Err(ref e @ BlockError::ExecutionPayloadError(ref epe)) if !epe.penalize_peer() => {
+                debug!(
+                    self.log,
+                    "Failed to verify execution payload";
+                    "error" => %e
+                );
+            }
+            other => {
+                debug!(
+                    self.log,
+                    "Invalid gossip beacon block";
+                    "outcome" => ?other,
+                    "block root" => ?block_root,
+                    "block slot" => block.slot()
+                );
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::MidToleranceError,
+                    "bad_gossip_block_ssz",
+                );
+                trace!(
+                    self.log,
+                    "Invalid gossip beacon block ssz";
+                    "ssz" => format_args!("0x{}", hex::encode(block.as_ssz_bytes())),
+                );
+            }
+        };
+    }
+
+    /// Process the beacon block that has already passed gossip verification.
+    ///
+    /// Raises a log if there are errors.
     pub async fn process_gossip_verified_block(
         self,
         peer_id: PeerId,
         verified_block: GossipVerifiedBlock<T>,
         reprocess_tx: mpsc::Sender<ReprocessQueueMessage<T>>,
         // This value is not used presently, but it might come in handy for debugging.
-        _seen_duration: Duration,
+        seen_duration: Duration,
     ) {
         let block = verified_block.block.block_cloned();
         let block_root = verified_block.block_root;
@@ -1044,6 +1143,32 @@ impl<T: BeaconChainTypes> Worker<T> {
             }
             Ok(AvailabilityProcessingStatus::PendingBlobs(blob_ids)) => {
                 // make rpc request for blob
+                // let block_slot = block.block.slot();
+                // // Make rpc request for blobs
+                // self.send_sync_message(SyncMessage::UnknownBlobHash {
+                //     peer_id,
+                //     block_root: block.block_root,
+                // });
+
+                // // Send block to reprocessing queue to await blobs
+                // if reprocess_tx
+                //     .try_send(ReprocessQueueMessage::ExecutedBlock(QueuedExecutedBlock {
+                //         peer_id,
+                //         block,
+                //         seen_timestamp: seen_duration,
+                //     }))
+                //     .is_err()
+                // {
+                //     error!(
+                //         self.log,
+                //         "Failed to send partially verified block to reprocessing queue";
+                //         "block_slot" => %block_slot,
+                //         "block_root" => ?block_root,
+                //         "location" => "block gossip"
+                //     )
+                // }
+            }
+            Err(BlockError::AvailabilityCheck(_)) => {
                 todo!()
             }
             Err(BlockError::ParentUnknown(block)) => {

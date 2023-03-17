@@ -686,6 +686,12 @@ pub struct ExecutedBlock<E: EthSpec> {
     pub payload_verification_outcome: PayloadVerificationOutcome,
 }
 
+impl<E: EthSpec> std::fmt::Debug for ExecutedBlock<E> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self.block)
+    }
+}
+
 /// Implemented on types that can be converted into a `ExecutionPendingBlock`.
 ///
 /// Used to allow functions to accept blocks at various stages of verification.

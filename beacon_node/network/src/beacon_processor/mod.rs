@@ -42,7 +42,9 @@ use crate::sync::manager::BlockProcessType;
 use crate::{metrics, service::NetworkMessage, sync::SyncMessage};
 use beacon_chain::blob_verification::BlockWrapper;
 use beacon_chain::parking_lot::Mutex;
-use beacon_chain::{BeaconChain, BeaconChainTypes, GossipVerifiedBlock, NotifyExecutionLayer};
+use beacon_chain::{
+    BeaconChain, BeaconChainTypes, ExecutedBlock, GossipVerifiedBlock, NotifyExecutionLayer,
+};
 use derivative::Derivative;
 use futures::stream::{Stream, StreamExt};
 use futures::task::Poll;
@@ -82,6 +84,8 @@ mod worker;
 
 use crate::beacon_processor::work_reprocessing_queue::QueuedGossipBlock;
 pub use worker::{ChainSegmentProcessId, GossipAggregatePackage, GossipAttestationPackage};
+
+use self::work_reprocessing_queue::QueuedExecutedBlock;
 
 /// The maximum size of the channel for work events to the `BeaconProcessor`.
 ///
@@ -219,6 +223,7 @@ pub const GOSSIP_ATTESTATION_BATCH: &str = "gossip_attestation_batch";
 pub const GOSSIP_AGGREGATE: &str = "gossip_aggregate";
 pub const GOSSIP_AGGREGATE_BATCH: &str = "gossip_aggregate_batch";
 pub const GOSSIP_BLOCK: &str = "gossip_block";
+pub const EXECUTED_BLOCK: &str = "executed_block";
 pub const GOSSIP_BLOCK_AND_BLOBS_SIDECAR: &str = "gossip_block_and_blobs_sidecar";
 pub const DELAYED_IMPORT_BLOCK: &str = "delayed_import_block";
 pub const GOSSIP_VOLUNTARY_EXIT: &str = "gossip_voluntary_exit";
@@ -729,13 +734,25 @@ impl<T: BeaconChainTypes> WorkEvent<T> {
 impl<T: BeaconChainTypes> std::convert::From<ReadyWork<T>> for WorkEvent<T> {
     fn from(ready_work: ReadyWork<T>) -> Self {
         match ready_work {
-            ReadyWork::Block(QueuedGossipBlock {
+            ReadyWork::GossipBlock(QueuedGossipBlock {
                 peer_id,
                 block,
                 seen_timestamp,
             }) => Self {
                 drop_during_sync: false,
                 work: Work::DelayedImportBlock {
+                    peer_id,
+                    block,
+                    seen_timestamp,
+                },
+            },
+            ReadyWork::ExecutedBlock(QueuedExecutedBlock {
+                peer_id,
+                block,
+                seen_timestamp,
+            }) => Self {
+                drop_during_sync: false,
+                work: Work::ExecutedBlock {
                     peer_id,
                     block,
                     seen_timestamp,
@@ -872,6 +889,11 @@ pub enum Work<T: BeaconChainTypes> {
         block: Box<GossipVerifiedBlock<T>>,
         seen_timestamp: Duration,
     },
+    ExecutedBlock {
+        peer_id: PeerId,
+        block: ExecutedBlock<T::EthSpec>,
+        seen_timestamp: Duration,
+    },
     GossipVoluntaryExit {
         message_id: MessageId,
         peer_id: PeerId,
@@ -968,6 +990,7 @@ impl<T: BeaconChainTypes> Work<T> {
             Work::GossipAggregate { .. } => GOSSIP_AGGREGATE,
             Work::GossipAggregateBatch { .. } => GOSSIP_AGGREGATE_BATCH,
             Work::GossipBlock { .. } => GOSSIP_BLOCK,
+            Work::ExecutedBlock { .. } => EXECUTED_BLOCK,
             Work::GossipSignedBlobSidecar { .. } => GOSSIP_BLOCK_AND_BLOBS_SIDECAR,
             Work::DelayedImportBlock { .. } => DELAYED_IMPORT_BLOCK,
             Work::GossipVoluntaryExit { .. } => GOSSIP_VOLUNTARY_EXIT,
@@ -1127,6 +1150,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
             FifoQueue::new(MAX_GOSSIP_OPTIMISTIC_UPDATE_REPROCESS_QUEUE_LEN);
 
         // Using a FIFO queue since blocks need to be imported sequentially.
+        let mut executed_block_queue = FifoQueue::new(MAX_RPC_BLOCK_QUEUE_LEN);
         let mut rpc_block_queue = FifoQueue::new(MAX_RPC_BLOCK_QUEUE_LEN);
         let mut chain_segment_queue = FifoQueue::new(MAX_CHAIN_SEGMENT_QUEUE_LEN);
         let mut backfill_chain_segment = FifoQueue::new(MAX_CHAIN_SEGMENT_QUEUE_LEN);
@@ -1242,6 +1266,9 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                         // Check delayed blocks before gossip blocks, the gossip blocks might rely
                         // on the delayed ones.
                         } else if let Some(item) = delayed_block_queue.pop() {
+                            self.spawn_worker(item, toolbox);
+                        // Check availability pending blocks
+                        } else if let Some(item) = executed_block_queue.pop() {
                             self.spawn_worker(item, toolbox);
                         // Check gossip blocks before gossip attestations, since a block might be
                         // required to verify some attestations.
@@ -1460,6 +1487,9 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                                     "type" => "GossipAggregateBatch"
                             ),
                             Work::GossipBlock { .. } => {
+                                gossip_block_queue.push(work, work_id, &self.log)
+                            }
+                            Work::ExecutedBlock { .. } => {
                                 gossip_block_queue.push(work, work_id, &self.log)
                             }
                             Work::GossipSignedBlobSidecar { .. } => {
@@ -1738,6 +1768,20 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                         block.into(),
                         work_reprocessing_tx,
                         duplicate_cache,
+                        seen_timestamp,
+                    )
+                    .await
+            }),
+            Work::ExecutedBlock {
+                peer_id,
+                block,
+                seen_timestamp,
+            } => task_spawner.spawn_async(async move {
+                worker
+                    .process_execution_verified_block(
+                        peer_id,
+                        block,
+                        work_reprocessing_tx,
                         seen_timestamp,
                     )
                     .await
