@@ -854,8 +854,8 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
 
                 debug!(
                     log,
-                    "Sending scheduled backfill work to Beacon Processor at {} seconds from current slot start",
-                    seconds_from_slot_start
+                    "Sending scheduled backfill work";
+                    "seconds_from_slot_start" => seconds_from_slot_start
                 );
 
                 if self
@@ -865,7 +865,8 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                 {
                     error!(
                         log,
-                        "Failed to send scheduled backfill work. Sending it back to queue.";
+                        "Failed to send scheduled backfill work";
+                        "info" => "sending work back to queue"
                     );
                     self.queued_backfill_batches
                         .insert(0, queued_backfill_batch);

@@ -1121,7 +1121,15 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                                                     ReprocessQueueMessage::BackfillSync(
                                                         backfill_batch,
                                                     ) => Some(backfill_batch.into()),
-                                                    _ => unreachable!(),
+                                                    other => {
+                                                        crit!(
+                                                            self.log,
+                                                            "Unexpected queue message type";
+                                                            "message_type" => other.as_ref()
+                                                        );
+                                                        // This is an unhandled exception, drop the message.
+                                                        continue;
+                                                    }
                                                 }
                                             }
                                         }
