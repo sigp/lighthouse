@@ -1326,7 +1326,7 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> Into<BeaconBlock<T, Payload>>
 
 pub type BlockContentsTuple<T, Payload> = (
     SignedBeaconBlock<T, Payload>,
-    Option<VariableList<SignedBlobSidecar<T>, <T as EthSpec>::MaxBlobsPerBlock>>,
+    Option<SignedBlobSidecarList<T>>,
 );
 
 /// A wrapper over a [`SignedBeaconBlock`] or a [`SignedBeaconBlockAndBlobSidecars`].
@@ -1374,9 +1374,25 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> From<SignedBeaconBlock<T, Payl
     }
 }
 
+impl<T: EthSpec, Payload: AbstractExecPayload<T>> From<BlockContentsTuple<T, Payload>>
+    for SignedBlockContents<T, Payload>
+{
+    fn from(block_contents_tuple: BlockContentsTuple<T, Payload>) -> Self {
+        match block_contents_tuple {
+            (signed_block, None) => SignedBlockContents::Block(signed_block),
+            (signed_block, Some(signed_blob_sidecars)) => {
+                SignedBlockContents::BlockAndBlobSidecars(SignedBeaconBlockAndBlobSidecars {
+                    signed_block,
+                    signed_blob_sidecars,
+                })
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Encode)]
 #[serde(bound = "T: EthSpec")]
 pub struct SignedBeaconBlockAndBlobSidecars<T: EthSpec, Payload: AbstractExecPayload<T>> {
     pub signed_block: SignedBeaconBlock<T, Payload>,
-    pub signed_blob_sidecars: VariableList<SignedBlobSidecar<T>, <T as EthSpec>::MaxBlobsPerBlock>,
+    pub signed_blob_sidecars: SignedBlobSidecarList<T>,
 }

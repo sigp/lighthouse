@@ -1,10 +1,8 @@
-use crate::{
-    test_utils::TestRandom, BlobSidecar, ChainSpec, EthSpec, Fork, Hash256, PublicKey, Signature,
-    SignedRoot,
-};
+use crate::{test_utils::TestRandom, BlobSidecar, EthSpec, Signature};
 use derivative::Derivative;
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
+use ssz_types::VariableList;
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
@@ -29,18 +27,5 @@ pub struct SignedBlobSidecar<T: EthSpec> {
     pub signature: Signature,
 }
 
-impl<T: EthSpec> SignedRoot for SignedBlobSidecar<T> {}
-
-impl<T: EthSpec> SignedBlobSidecar<T> {
-    pub fn verify_signature(
-        &self,
-        _object_root_opt: Option<Hash256>,
-        _pubkey: &PublicKey,
-        _fork: &Fork,
-        _genesis_validators_root: Hash256,
-        _spec: &ChainSpec,
-    ) -> bool {
-        // TODO (pawan): fill up logic
-        unimplemented!()
-    }
-}
+pub type SignedBlobSidecarList<T> =
+    VariableList<SignedBlobSidecar<T>, <T as EthSpec>::MaxBlobsPerBlock>;
