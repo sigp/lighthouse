@@ -460,7 +460,11 @@ async fn capella_readiness_logging<T: BeaconChainTypes>(
 
     match beacon_chain.check_capella_readiness().await {
         CapellaReadiness::Ready => {
-            info!(log, "Ready for Capella")
+            info!(
+                log,
+                "Ready for Capella";
+                "info" => "ensure the execution endpoint is updated to the latest Capella/Shanghai release"
+            )
         }
         readiness @ CapellaReadiness::ExchangeCapabilitiesFailed { error: _ } => {
             error!(
