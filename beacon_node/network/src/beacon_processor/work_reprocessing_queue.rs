@@ -69,8 +69,18 @@ const MAXIMUM_QUEUED_ATTESTATIONS: usize = 16_384;
 /// How many light client updates we keep before new ones get dropped.
 const MAXIMUM_QUEUED_LIGHT_CLIENT_UPDATES: usize = 128;
 
-// Process backfill batch 50%, 60%, 80% through each slot
-pub const BACKFILL_SCHEDULE_IN_SLOT: [f32; 3] = [0.5f32, 0.6, 0.8];
+// Process backfill batch 50%, 60%, 80% through each slot.
+//
+// Note: use caution to set these fractions in a way that won't cause panic-y
+// arithmetic.
+pub const BACKFILL_SCHEDULE_IN_SLOT: [(u32, u32); 3] = [
+    // One half: 6s on mainnet, 2.5s on Gnosis.
+    (1, 2),
+    // Three fifths: 7.2s on mainnet, 3s on Gnosis.
+    (3, 5),
+    // Four fifths: 9.6s on mainnet, 4s on Gnosis.
+    (4, 5),
+];
 
 /// Messages that the scheduler can receive.
 #[derive(AsRefStr)]
@@ -847,16 +857,12 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                 }
             }
             InboundEvent::ReadyBackfillSync(queued_backfill_batch) => {
-                let seconds_from_slot_start = slot_clock
-                    .seconds_from_current_slot_start()
-                    .map_or("unknown".to_string(), |duration| {
-                        duration.as_secs().to_string()
-                    });
+                let duration_from_slot_start = slot_clock.millis_from_current_slot_start();
 
                 debug!(
                     log,
                     "Sending scheduled backfill work";
-                    "seconds_from_slot_start" => seconds_from_slot_start
+                    "duration_from_slot_start" => format!("{:?}", duration_from_slot_start)
                 );
 
                 if self
@@ -913,26 +919,22 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
     fn duration_until_next_backfill_batch_event(slot_clock: &T::SlotClock) -> Duration {
         let slot_duration = slot_clock.slot_duration();
         slot_clock
-            .seconds_from_current_slot_start()
+            .millis_from_current_slot_start()
             .and_then(|duration_from_slot_start| {
                 BACKFILL_SCHEDULE_IN_SLOT
-                    .iter()
-                    .map(|percentage_in_slot| {
-                        // convert % to seconds from slot start
-                        (percentage_in_slot * slot_duration.as_secs_f32()) as u64
+                    .into_iter()
+                    // Convert fractions to seconds from slot start.
+                    .map(|(multiplier, divisor)| (slot_duration / divisor) * multiplier)
+                    .find_or_first(|&event_duration_from_slot_start| {
+                        event_duration_from_slot_start > duration_from_slot_start
                     })
-                    .find_or_first(|event_time_from_slot_start| {
-                        *event_time_from_slot_start > duration_from_slot_start.as_secs()
-                    })
-                    .map(|next_event_time_secs| {
-                        if duration_from_slot_start.as_secs() >= next_event_time_secs {
+                    .map(|next_event_time| {
+                        if duration_from_slot_start >= next_event_time {
                             // event is in the next slot, add duration to next slot
                             let duration_to_next_slot = slot_duration - duration_from_slot_start;
-                            duration_to_next_slot + Duration::from_secs(next_event_time_secs)
+                            duration_to_next_slot + next_event_time
                         } else {
-                            Duration::from_secs(
-                                next_event_time_secs - duration_from_slot_start.as_secs(),
-                            )
+                            next_event_time - duration_from_slot_start
                         }
                     })
             })
@@ -956,38 +958,28 @@ mod tests {
 
     #[test]
     fn backfill_processing_schedule_calculation() {
-        let slot_duration = 12;
-        let slot_clock = TestingSlotClock::new(
-            Slot::new(0),
-            Duration::from_secs(0),
-            Duration::from_secs(slot_duration),
-        );
-
+        let slot_duration = Duration::from_secs(12);
+        let slot_clock = TestingSlotClock::new(Slot::new(0), Duration::from_secs(0), slot_duration);
         let current_slot_start = slot_clock.start_of(Slot::new(100)).unwrap();
         slot_clock.set_current_time(current_slot_start);
 
         let event_times = BACKFILL_SCHEDULE_IN_SLOT
-            .map(|percentage_in_slot| (percentage_in_slot * slot_duration as f32) as u64);
+            .map(|(multiplier, divisor)| (slot_duration / divisor) * multiplier);
 
-        for event_secs_from_slot_start in event_times.iter() {
+        for &event_duration_from_slot_start in event_times.iter() {
             let duration_to_next_event =
                 ReprocessQueue::<TestBeaconChainType>::duration_until_next_backfill_batch_event(
                     &slot_clock,
                 );
 
-            let current_time = slot_clock
-                .seconds_from_current_slot_start()
-                .unwrap()
-                .as_secs();
+            let current_time = slot_clock.millis_from_current_slot_start().unwrap();
 
             assert_eq!(
                 duration_to_next_event,
-                Duration::from_secs(*event_secs_from_slot_start - current_time)
+                event_duration_from_slot_start - current_time
             );
 
-            slot_clock.set_current_time(Duration::from_secs(
-                current_slot_start.as_secs() + *event_secs_from_slot_start,
-            ))
+            slot_clock.set_current_time(current_slot_start + event_duration_from_slot_start)
         }
 
         // check for next event beyond the current slot
@@ -998,7 +990,7 @@ mod tests {
             );
         assert_eq!(
             duration_to_next_event,
-            Duration::from_secs(duration_to_next_slot.as_secs() + event_times[0])
+            duration_to_next_slot + event_times[0]
         );
     }
 }
