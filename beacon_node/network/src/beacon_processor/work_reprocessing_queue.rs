@@ -573,6 +573,8 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
             }) => {
                 // Unqueue the attestations we have for this root, if any.
                 if let Some(queued_ids) = self.awaiting_attestations_per_root.remove(&block_root) {
+                    let mut num_failed_to_send = 0;
+
                     for id in queued_ids {
                         metrics::inc_counter(
                             &metrics::BEACON_PROCESSOR_REPROCESSING_QUEUE_MATCHED_ATTESTATIONS,
@@ -597,10 +599,7 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
 
                             // Send the work.
                             if self.ready_work_tx.try_send(work).is_err() {
-                                error!(
-                                    log,
-                                    "Failed to send scheduled attestation";
-                                );
+                                num_failed_to_send += 1;
                             }
                         } else {
                             // There is a mismatch between the attestation ids registered for this
@@ -612,6 +611,16 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                                 "att_id" => ?id,
                             );
                         }
+                    }
+
+                    if num_failed_to_send > 0 {
+                        error!(
+                            log,
+                            "Ignored queued attestation(s) for block";
+                            "parent_root" => ?parent_root,
+                            "block_root" => ?block_root,
+                            "count" => num_failed_to_send,
+                        );
                     }
                 }
                 // Unqueue the light client optimistic updates we have for this root, if any.
@@ -727,7 +736,7 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                     if self.ready_work_tx.try_send(work).is_err() {
                         error!(
                             log,
-                            "Failed to send scheduled attestation";
+                            "Ignored queued attestation";
                         );
                     }
 
