@@ -145,16 +145,39 @@ pub fn create_enr_builder_from_config<T: EnrKey>(
     enable_tcp: bool,
 ) -> EnrBuilder<T> {
     let mut builder = EnrBuilder::new("v4");
-    if let Some(enr_address) = config.enr_address {
-        builder.ip(enr_address);
+    let (maybe_ipv4_address, maybe_ipv6_address) = &config.enr_address;
+
+    if let Some(ip) = maybe_ipv4_address {
+        builder.ip4(*ip);
     }
-    if let Some(udp_port) = config.enr_udp_port {
-        builder.udp4(udp_port);
+
+    if let Some(ip) = maybe_ipv6_address {
+        builder.ip6(*ip);
     }
-    // we always give it our listening tcp port
+
+    if let Some(udp4_port) = config.enr_udp4_port {
+        builder.udp4(udp4_port);
+    }
+
+    if let Some(udp6_port) = config.enr_udp6_port {
+        builder.udp6(udp6_port);
+    }
+
     if enable_tcp {
-        let tcp_port = config.enr_tcp_port.unwrap_or(config.libp2p_port);
-        builder.tcp4(tcp_port);
+        // If the ENR port is not set, and we are listening over that ip version, use the listening port instead.
+        let tcp4_port = config
+            .enr_tcp4_port
+            .or_else(|| config.listen_addrs().v4().map(|v4_addr| v4_addr.tcp_port));
+        if let Some(tcp4_port) = tcp4_port {
+            builder.tcp4(tcp4_port);
+        }
+
+        let tcp6_port = config
+            .enr_tcp6_port
+            .or_else(|| config.listen_addrs().v6().map(|v6_addr| v6_addr.tcp_port));
+        if let Some(tcp6_port) = tcp6_port {
+            builder.tcp6(tcp6_port);
+        }
     }
     builder
 }
