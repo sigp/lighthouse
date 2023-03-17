@@ -959,35 +959,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(self.get_block(block_root).await?.map(Arc::new))
     }
 
-    pub async fn get_block_and_blobs_checking_early_attester_cache(
+    pub async fn get_blobs_checking_early_attester_cache(
         &self,
         block_root: &Hash256,
-    ) -> Result<Option<SignedBeaconBlockAndBlobsSidecar<T::EthSpec>>, Error> {
+    ) -> Result<Option<BlobSidecarList<T::EthSpec>>, Error> {
         // If there is no data availability boundary, the Eip4844 fork is disabled.
         if let Some(finalized_data_availability_boundary) =
             self.finalized_data_availability_boundary()
         {
-            // Only use the attester cache if we can find both the block and blob
-            if let (Some(block), Some(blobs)) = (
-                self.early_attester_cache.get_block(*block_root),
-                self.early_attester_cache.get_blobs(*block_root),
-            ) {
-                Ok(Some(SignedBeaconBlockAndBlobsSidecar {
-                    beacon_block: block,
-                    blobs_sidecar: blobs,
-                }))
-            // Attempt to get the block and blobs from the database
-            } else if let Some(block) = self.get_block(block_root).await?.map(Arc::new) {
-                let blobs = self
-                    .get_blobs(block_root, finalized_data_availability_boundary)?
-                    .map(Arc::new);
-                Ok(blobs.map(|blobs| SignedBeaconBlockAndBlobsSidecar {
-                    beacon_block: block,
-                    blobs_sidecar: blobs,
-                }))
-            } else {
-                Ok(None)
-            }
+            self.early_attester_cache
+                .get_blobs(*block_root)
+                .map_or_else(
+                    || self.get_blobs(block_root, finalized_data_availability_boundary),
+                    |blobs| Ok(Some(blobs)),
+                )
         } else {
             Ok(None)
         }
@@ -1057,23 +1042,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .map(Some)
     }
 
-    // FIXME(jimmy): temporary method added to unblock API work. This method will be replaced by
-    // the `get_blobs` method below once the new blob sidecar structure (`BlobSidecarList`) is
-    // implemented in that method.
-    #[allow(clippy::type_complexity)] // FIXME: this will be fixed by the `BlobSidecarList` alias in Sean's PR
-    pub fn get_blob_sidecar_list(
-        &self,
-        _block_root: &Hash256,
-        _data_availability_boundary: Epoch,
-    ) -> Result<
-        Option<
-            VariableList<Arc<BlobSidecar<T::EthSpec>>, <T::EthSpec as EthSpec>::MaxBlobsPerBlock>,
-        >,
-        Error,
-    > {
-        unimplemented!("update to use the updated `get_blobs` method instead once this PR is merged: https://github.com/sigp/lighthouse/pull/4104")
-    }
-
     /// Returns the blobs at the given root, if any.
     ///
     /// Returns `Ok(None)` if the blobs and associated block are not found.
@@ -1091,9 +1059,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         block_root: &Hash256,
         data_availability_boundary: Epoch,
-    ) -> Result<Option<BlobsSidecar<T::EthSpec>>, Error> {
+    ) -> Result<Option<BlobSidecarList<T::EthSpec>>, Error> {
         match self.store.get_blobs(block_root)? {
-            Some(blobs) => Ok(Some(blobs)),
+            Some(blob_sidecar_list) => Ok(Some(blob_sidecar_list)),
             None => {
                 // Check for the corresponding block to understand whether we *should* have blobs.
                 self.get_blinded_block(block_root)?
@@ -1106,7 +1074,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                                 Err(_) => return Err(Error::NoKzgCommitmentsFieldOnBlock),
                             };
                         if expected_kzg_commitments.is_empty() {
-                            Ok(BlobsSidecar::empty_from_parts(*block_root, block.slot()))
+                            // TODO (mark): verify this
+                            Ok(BlobSidecarList::empty())
                         } else if data_availability_boundary <= block.epoch() {
                             // We should have blobs for all blocks younger than the boundary.
                             Err(Error::BlobsUnavailable)
@@ -3052,7 +3021,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             // margin, or younger (of higher epoch number).
             if block_epoch >= import_boundary {
                 if let Some(blobs) = blobs {
-                    if !blobs.blobs.is_empty() {
+                    if !blobs.is_empty() {
                         //FIXME(sean) using this for debugging for now
                         info!(
                             self.log, "Writing blobs to store";
@@ -4814,7 +4783,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             )
             .map_err(BlockProductionError::KzgError)?;
 
-            let blob_sidecars = VariableList::from(
+            let blob_sidecars = BlobSidecarList::from(
                 blobs
                     .into_iter()
                     .enumerate()
@@ -4827,7 +4796,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             .get(blob_index)
                             .expect("KZG proof should exist for blob");
 
-                        Ok(BlobSidecar {
+                        Ok(Arc::new(BlobSidecar {
                             block_root: beacon_block_root,
                             index: blob_index as u64,
                             slot,
@@ -4836,9 +4805,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             blob,
                             kzg_commitment: *kzg_commitment,
                             kzg_proof: *kzg_proof,
-                        })
+                        }))
                     })
-                    .collect::<Result<Vec<BlobSidecar<T::EthSpec>>, BlockProductionError>>()?,
+                    .collect::<Result<Vec<_>, BlockProductionError>>()?,
             );
 
             self.blob_cache.put(beacon_block_root, blob_sidecars);

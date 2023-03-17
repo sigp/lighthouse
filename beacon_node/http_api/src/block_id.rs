@@ -4,7 +4,7 @@ use eth2::types::{BlockId as CoreBlockId, VariableList};
 use std::fmt;
 use std::str::FromStr;
 use std::sync::Arc;
-use types::{BlobSidecar, EthSpec, Hash256, SignedBeaconBlock, SignedBlindedBeaconBlock, Slot};
+use types::{BlobSidecarList, Hash256, SignedBeaconBlock, SignedBlindedBeaconBlock, Slot};
 
 /// Wraps `eth2::types::BlockId` and provides a simple way to obtain a block or root for a given
 /// `BlockId`.
@@ -216,16 +216,13 @@ impl BlockId {
     pub async fn blob_sidecar_list<T: BeaconChainTypes>(
         &self,
         chain: &BeaconChain<T>,
-    ) -> Result<
-        VariableList<Arc<BlobSidecar<T::EthSpec>>, <T::EthSpec as EthSpec>::MaxBlobsPerBlock>,
-        warp::Rejection,
-    > {
+    ) -> Result<BlobSidecarList<T::EthSpec>, warp::Rejection> {
         let root = self.root(chain)?.0;
         let Some(data_availability_boundary) = chain.data_availability_boundary() else {
             return Err(warp_utils::reject::custom_not_found("Deneb fork disabled".into()));
         };
-        match chain.get_blob_sidecar_list(&root, data_availability_boundary) {
-            Ok(Some(blobs)) => Ok(blobs),
+        match chain.get_blobs(&root, data_availability_boundary) {
+            Ok(Some(blob_sidecar_list)) => Ok(blob_sidecar_list),
             Ok(None) => Err(warp_utils::reject::custom_not_found(format!(
                 "No blobs with block root {} found in the store",
                 root
