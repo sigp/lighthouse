@@ -16,6 +16,12 @@ pub fn process_operations<T: EthSpec, Payload: AbstractExecPayload<T>>(
     ctxt: &mut ConsensusContext<T>,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
+    let unprocessed_deposits_count = state
+        .eth1_data()
+        .deposit_count
+        .saturating_sub(state.eth1_deposit_index());
+    let max_deposits = <T as EthSpec>::MaxDeposits::to_u64();
+
     process_proposer_slashings(
         state,
         block_body.proposer_slashings(),
@@ -31,12 +37,21 @@ pub fn process_operations<T: EthSpec, Payload: AbstractExecPayload<T>>(
         spec,
     )?;
     process_attestations(state, block_body, verify_signatures, ctxt, spec)?;
+    assert_eq!(
+        block_body.deposits().len() as usize,
+        std::cmp::min(max_deposits as usize, unprocessed_deposits_count as usize),
+        "Number of deposits in block does not match the minimum of the maximum number of deposits and the number of unprocessed deposits"
+    );
     process_deposits(state, block_body.deposits(), spec)?;
     process_exits(state, block_body.voluntary_exits(), verify_signatures, spec)?;
 
-    if let Ok(bls_to_execution_changes) = block_body.bls_to_execution_changes() {
-        process_bls_to_execution_changes(state, bls_to_execution_changes, verify_signatures, spec)?;
+    /*
+    if let Ok(payload) = block_body.execution_payload() {
+        if is_execution_enabled(state, block_body) {
+            process_deposit_receipt(state, payload.deposit_receipts())?;
+        }
     }
+    */
 
     Ok(())
 }
