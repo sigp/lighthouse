@@ -67,23 +67,23 @@ pub async fn publish_block<T: BeaconChainTypes>(
     let delay = get_block_delay_ms(seen_timestamp, block.message(), &chain.slot_clock);
     metrics::observe_duration(&metrics::HTTP_API_BLOCK_BROADCAST_DELAY_TIMES, delay);
 
-    let available_block = match wrapped_block.into_available_block(block_root, &chain) {
-        Ok(available_block) => available_block,
-        Err(e) => {
-            let msg = format!("{:?}", e);
+    let available_block = match wrapped_block.clone().into_available_block() {
+        Some(available_block) => available_block,
+        None => {
             error!(
                 log,
-                "Invalid block provided to HTTP API";
-                "reason" => &msg
+                "Invalid block provided to HTTP API unavailable block"; //TODO(sean) probably want a real error here
             );
-            return Err(warp_utils::reject::broadcast_without_import(msg));
+            return Err(warp_utils::reject::broadcast_without_import(
+                "unavailable block".to_string(),
+            ));
         }
     };
 
     match chain
         .process_block(
             block_root,
-            available_block.clone(),
+            wrapped_block,
             CountUnrealized::True,
             NotifyExecutionLayer::Yes,
         )
@@ -95,14 +95,14 @@ pub async fn publish_block<T: BeaconChainTypes>(
                 "Valid block from HTTP API";
                 "block_delay" => ?delay,
                 "root" => format!("{}", root),
-                "proposer_index" => available_block.message().proposer_index(),
-                "slot" => available_block.slot(),
+                "proposer_index" => available_block.block.message().proposer_index(),
+                "slot" => available_block.block.slot(),
             );
 
             // Notify the validator monitor.
             chain.validator_monitor.read().register_api_block(
                 seen_timestamp,
-                available_block.message(),
+                available_block.block.message(),
                 root,
                 &chain.slot_clock,
             );
@@ -124,7 +124,7 @@ pub async fn publish_block<T: BeaconChainTypes>(
                     "Block was broadcast too late";
                     "msg" => "system may be overloaded, block likely to be orphaned",
                     "delay_ms" => delay.as_millis(),
-                    "slot" => available_block.slot(),
+                    "slot" => available_block.block.slot(),
                     "root" => ?root,
                 )
             } else if delay >= delayed_threshold {
@@ -133,7 +133,7 @@ pub async fn publish_block<T: BeaconChainTypes>(
                     "Block broadcast was delayed";
                     "msg" => "system may be overloaded, block may be orphaned",
                     "delay_ms" => delay.as_millis(),
-                    "slot" => available_block.slot(),
+                    "slot" => available_block.block.slot(),
                     "root" => ?root,
                 )
             }
@@ -145,7 +145,7 @@ pub async fn publish_block<T: BeaconChainTypes>(
                 log,
                 "Block from HTTP API already known";
                 "block" => ?block_root,
-                "slot" => available_block.slot(),
+                "slot" => available_block.block.slot(),
             );
             Ok(())
         }

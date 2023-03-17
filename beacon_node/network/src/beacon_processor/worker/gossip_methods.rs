@@ -802,6 +802,10 @@ impl<T: BeaconChainTypes> Worker<T> {
 
                 verified_block
             }
+            Err(BlockError::AvailabilityPending(_)) => {
+                //TODO(sean) think about what to do hereA
+                todo!()
+            }
             Err(BlockError::ParentUnknown(block)) => {
                 debug!(
                     self.log,
@@ -985,7 +989,7 @@ impl<T: BeaconChainTypes> Worker<T> {
             )
             .await
         {
-            Ok(BlockProcessingResult::Verified(block_root)) => {
+            Ok(block_root) => {
                 metrics::inc_counter(&metrics::BEACON_PROCESSOR_GOSSIP_BLOCK_IMPORTED_TOTAL);
 
                 if reprocess_tx
@@ -1012,8 +1016,8 @@ impl<T: BeaconChainTypes> Worker<T> {
 
                 self.chain.recompute_head_at_current_slot().await;
             }
-            Ok(BlockProcessingResult::AvailabilityPending(executed_block)) => {
-                // cache in blob cache and make rpc request for blob
+            Err(BlockError::AvailabilityPending(block_root)) => {
+                // make rpc request for blob
             }
             Err(BlockError::ParentUnknown(block)) => {
                 // Inform the sync manager to find parents for this block

@@ -1,7 +1,7 @@
-use crate::blob_verification::verify_data_availability;
+use crate::blob_verification::{verify_data_availability, AsBlock};
 use crate::block_verification::{ExecutedBlock, IntoExecutionPendingBlock};
 use crate::kzg_utils::validate_blob;
-use crate::{BeaconChainError, BeaconChainTypes, BlockError};
+use crate::{BeaconChain, BeaconChainError, BeaconChainTypes, BlockError};
 use eth2::reqwest::header::Entry;
 use kzg::Error as KzgError;
 use kzg::{Kzg, KzgCommitment};
@@ -9,9 +9,10 @@ use parking_lot::{Mutex, RwLock};
 use ssz_types::VariableList;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::future::Future;
-use std::sync::Arc;
+use std::sync::{mpsc, Arc};
+use tokio::sync::mpsc::Sender;
 use types::blob_sidecar::{BlobIdentifier, BlobSidecar};
-use types::{EthSpec, Hash256};
+use types::{EthSpec, Hash256, SignedBeaconBlock};
 
 pub enum BlobCacheError {
     DuplicateBlob(Hash256),
@@ -22,23 +23,25 @@ pub enum BlobCacheError {
 ///  - commitments for blocks that have been gossip verified, but the commitments themselves
 ///    have not been verified against blobs
 ///  - blocks that have been fully verified and only require a data availability check
-pub struct GossipBlobCache<T: BeaconChainTypes> {
-    rpc_blob_cache: RwLock<HashMap<BlobIdentifier, Arc<BlobSidecar<T::EthSpec>>>>,
-    gossip_blob_cache: Mutex<HashMap<Hash256, GossipBlobCacheInner<T>>>,
-    kzg: Kzg,
+pub struct DataAvailabilityChecker<T: EthSpec> {
+    rpc_blob_cache: RwLock<HashMap<BlobIdentifier, Arc<BlobSidecar<T>>>>,
+    gossip_blob_cache: Mutex<HashMap<Hash256, GossipBlobCache<T>>>,
+    kzg: Arc<Kzg>,
+    tx: Sender<ExecutedBlock<T>>,
 }
 
-struct GossipBlobCacheInner<T: BeaconChainTypes> {
-    verified_blobs: Vec<Arc<BlobSidecar<T::EthSpec>>>,
+struct GossipBlobCache<T: EthSpec> {
+    verified_blobs: Vec<Arc<BlobSidecar<T>>>,
     executed_block: Option<ExecutedBlock<T>>,
 }
 
-impl<T: BeaconChainTypes> GossipBlobCache<T> {
-    pub fn new(kzg: Kzg) -> Self {
+impl<T: EthSpec> DataAvailabilityChecker<T> {
+    pub fn new(kzg: Arc<Kzg>, tx: Sender<ExecutedBlock<T>>) -> Self {
         Self {
-            rpc_blob_cache: RwLock::new(HashMap::new()),
-            gossip_blob_cache: Mutex::new(HashMap::new()),
+            rpc_blob_cache: <_>::default(),
+            gossip_blob_cache: <_>::default(),
             kzg,
+            tx,
         }
     }
 
@@ -47,9 +50,9 @@ impl<T: BeaconChainTypes> GossipBlobCache<T> {
     /// cached, verify the block and import it.
     ///
     /// This should only accept gossip verified blobs, so we should not have to worry about dupes.
-    pub fn put_blob(&self, blob: Arc<BlobSidecar<T::EthSpec>>) -> Result<(), BlobCacheError> {
+    pub fn put_blob(&self, blob: Arc<BlobSidecar<T>>) -> Result<(), BlobCacheError> {
         // TODO(remove clones)
-        let verified = validate_blob::<T::EthSpec>(
+        let verified = validate_blob::<T>(
             &self.kzg,
             blob.blob.clone(),
             blob.kzg_commitment.clone(),
@@ -70,11 +73,33 @@ impl<T: BeaconChainTypes> GossipBlobCache<T> {
                         .verified_blobs
                         .insert(blob.index as usize, blob.clone());
 
-                    if let Some(executed_block) = inner.executed_block.as_ref() {
-                        // trigger reprocessing ?
+                    if let Some(executed_block) = inner.executed_block.take() {
+                        let verified_commitments: Vec<_> = inner
+                            .verified_blobs
+                            .iter()
+                            .map(|blob| blob.kzg_commitment)
+                            .collect();
+                        if verified_commitments
+                            == executed_block
+                                .block
+                                .as_block()
+                                .message_eip4844()
+                                .unwrap() //TODO(sean) errors
+                                .body
+                                .blob_kzg_commitments
+                                .clone()
+                                .to_vec()
+                        {
+                            // send to reprocessing queue ?
+                            //TODO(sean) try_send?
+                            //TODO(sean) errors
+                            self.tx.try_send(executed_block);
+                        } else {
+                            let _ = inner.executed_block.insert(executed_block);
+                        }
                     }
                 })
-                .or_insert(GossipBlobCacheInner {
+                .or_insert(GossipBlobCache {
                     verified_blobs: vec![blob.clone()],
                     executed_block: None,
                 });
@@ -93,24 +118,26 @@ impl<T: BeaconChainTypes> GossipBlobCache<T> {
         guard
             .entry(executed_block.block_root)
             .and_modify(|cache| {
-                if let Ok(block) = executed_block.block.message_eip4844() {
-                    let verified_commitments_vec: Vec<_> = cache
+                let block: &SignedBeaconBlock<T> = executed_block.block.as_block();
+                if let Ok(block) = block.message_eip4844() {
+                    let verified_commitments: Vec<_> = cache
                         .verified_blobs
                         .iter()
                         .map(|blob| blob.kzg_commitment)
                         .collect();
-                    let verified_commitments = VariableList::from(verified_commitments_vec);
-                    if verified_commitments == block.body.blob_kzg_commitments {
+                    if verified_commitments == block.body.blob_kzg_commitments.clone().to_vec() {
                         // send to reprocessing queue ?
+                        //TODO(sean) errors
+                        self.tx.try_send(executed_block.clone());
                     } else {
-                        let _ = cache.executed_block.insert(executed_block);
+                        let _ = cache.executed_block.insert(executed_block.clone());
                         // log that we cached
                     }
                 } else {
                     // log error
                 }
             })
-            .or_insert(GossipBlobCacheInner {
+            .or_insert(GossipBlobCache {
                 verified_blobs: vec![],
                 executed_block: Some(executed_block),
             });

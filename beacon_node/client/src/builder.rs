@@ -862,6 +862,9 @@ where
             .ok_or("beacon_chain requires a runtime context")?
             .clone();
 
+        let (tx, mut rx) =
+            tokio::sync::mpsc::channel::<beacon_chain::ExecutedBlock<TEthSpec>>(1000); //TODO(sean) capacity
+
         let chain = self
             .beacon_chain_builder
             .ok_or("beacon_chain requires a beacon_chain_builder")?
@@ -871,10 +874,14 @@ where
                     .ok_or("beacon_chain requires a slot clock")?,
             )
             .shutdown_sender(context.executor.shutdown_sender())
+            .block_importer_sender(tx)
             .build()
             .map_err(|e| format!("Failed to build beacon chain: {}", e))?;
 
-        self.beacon_chain = Some(Arc::new(chain));
+        let arc_chain = Arc::new(chain);
+        arc_chain.start_block_importer(rx);
+
+        self.beacon_chain = Some(arc_chain);
         self.beacon_chain_builder = None;
 
         // a beacon chain requires a timer

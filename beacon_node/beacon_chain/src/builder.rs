@@ -1,9 +1,11 @@
 use crate::beacon_chain::{CanonicalHead, BEACON_CHAIN_DB_KEY, ETH1_CACHE_DB_KEY, OP_POOL_DB_KEY};
 use crate::blob_cache::BlobCache;
+use crate::block_verification::ExecutedBlock;
 use crate::eth1_chain::{CachingEth1Backend, SszEth1};
 use crate::eth1_finalization_cache::Eth1FinalizationCache;
 use crate::fork_choice_signal::ForkChoiceSignalTx;
 use crate::fork_revert::{reset_fork_choice_to_finalization, revert_to_fork_boundary};
+use crate::gossip_blob_cache::DataAvailabilityChecker;
 use crate::head_tracker::HeadTracker;
 use crate::migrate::{BackgroundMigrator, MigratorConfig};
 use crate::persisted_beacon_chain::PersistedBeaconChain;
@@ -85,6 +87,7 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
     event_handler: Option<ServerSentEventHandler<T::EthSpec>>,
     slot_clock: Option<T::SlotClock>,
     shutdown_sender: Option<Sender<ShutdownReason>>,
+    block_importer_sender: Option<tokio::sync::mpsc::Sender<ExecutedBlock<T::EthSpec>>>,
     head_tracker: Option<HeadTracker>,
     validator_pubkey_cache: Option<ValidatorPubkeyCache<T>>,
     spec: ChainSpec,
@@ -127,6 +130,7 @@ where
             event_handler: None,
             slot_clock: None,
             shutdown_sender: None,
+            block_importer_sender: None,
             head_tracker: None,
             validator_pubkey_cache: None,
             spec: TEthSpec::default_spec(),
@@ -558,6 +562,14 @@ where
         self
     }
 
+    pub fn block_importer_sender(
+        mut self,
+        sender: tokio::sync::mpsc::Sender<ExecutedBlock<TEthSpec>>,
+    ) -> Self {
+        self.block_importer_sender = Some(sender);
+        self
+    }
+
     /// Creates a new, empty operation pool.
     fn empty_op_pool(mut self) -> Self {
         self.op_pool = Some(OperationPool::new());
@@ -641,12 +653,18 @@ where
             slot_clock.now().ok_or("Unable to read slot")?
         };
 
-        let kzg = if let Some(trusted_setup) = self.trusted_setup {
+        let (kzg, data_availability_checker) = if let (Some(tx), Some(trusted_setup)) =
+            (self.block_importer_sender, self.trusted_setup)
+        {
             let kzg = Kzg::new_from_trusted_setup(trusted_setup)
                 .map_err(|e| format!("Failed to load trusted setup: {:?}", e))?;
-            Some(Arc::new(kzg))
+            let kzg_arc = Arc::new(kzg);
+            (
+                Some(kzg_arc.clone()),
+                Some(DataAvailabilityChecker::new(kzg_arc, tx)),
+            )
         } else {
-            None
+            (None, None)
         };
 
         let initial_head_block_root = fork_choice
@@ -850,7 +868,9 @@ where
             graffiti: self.graffiti,
             slasher: self.slasher.clone(),
             validator_monitor: RwLock::new(validator_monitor),
-            blob_cache: BlobCache::default(),
+            //TODO(sean) should we move kzg solely to the da checker?
+            data_availability_checker,
+            proposal_blob_cache: BlobCache::default(),
             kzg,
         };
 

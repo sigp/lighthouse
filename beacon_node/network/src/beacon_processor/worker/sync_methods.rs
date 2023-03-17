@@ -86,27 +86,16 @@ impl<T: BeaconChainTypes> Worker<T> {
         };
         let slot = block.slot();
         let parent_root = block.message().parent_root();
-        let available_block = block
-            .into_available_block(block_root, &self.chain)
-            .map_err(BlockError::BlobValidation);
 
-        let result = match available_block {
-            Ok(BlockProcessingResult::Verified(block)) => {
-                self.chain
-                    .process_block(
-                        block_root,
-                        block,
-                        CountUnrealized::True,
-                        NotifyExecutionLayer::Yes,
-                    )
-                    .await
-            }
-            Ok(BlockProcessingResult::AvailabilityPending(executed_block)) => {
-                // Shouldn't happen as sync should only send blocks for processing
-                // after sending blocks into the availability cache.
-            }
-            Err(e) => Err(e),
-        };
+        let result = self
+            .chain
+            .process_block(
+                block_root,
+                block,
+                CountUnrealized::True,
+                NotifyExecutionLayer::Yes,
+            )
+            .await;
 
         metrics::inc_counter(&metrics::BEACON_PROCESSOR_RPC_BLOCK_IMPORTED_TOTAL);
 

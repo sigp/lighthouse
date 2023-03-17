@@ -16,7 +16,7 @@ pub fn build_block_contents<T: BeaconChainTypes, Payload: AbstractExecPayload<T:
         }
         ForkName::Eip4844 => {
             let block_root = &block.canonical_root();
-            if let Some(blob_sidecars) = chain.blob_cache.pop(block_root) {
+            if let Some(blob_sidecars) = chain.proposal_blob_cache.pop(block_root) {
                 let block_and_blobs = BeaconBlockAndBlobSidecars {
                     block,
                     blob_sidecars,

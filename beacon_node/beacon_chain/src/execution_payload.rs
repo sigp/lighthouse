@@ -134,9 +134,9 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
 /// contains a few extra checks by running `partially_verify_execution_payload` first:
 ///
 /// https://github.com/ethereum/consensus-specs/blob/v1.1.9/specs/bellatrix/beacon-chain.md#notify_new_payload
-async fn notify_new_payload<T: BeaconChainTypes>(
+async fn notify_new_payload<'a, T: BeaconChainTypes>(
     chain: &Arc<BeaconChain<T>>,
-    block: BeaconBlockRef<T::EthSpec>,
+    block: BeaconBlockRef<'a, T::EthSpec>,
 ) -> Result<PayloadVerificationStatus, BlockError<T::EthSpec>> {
     let execution_payload = block.execution_payload()?;
 

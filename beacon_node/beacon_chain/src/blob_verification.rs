@@ -1,3 +1,4 @@
+use derivative::Derivative;
 use slot_clock::SlotClock;
 use std::sync::Arc;
 
@@ -301,30 +302,36 @@ impl<T: BeaconChainTypes> IntoAvailableBlock<T> for BlockWrapper<T::EthSpec> {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Derivative)]
+#[derivative(Hash(bound = "T: EthSpec"))]
 pub struct AvailableBlock<T: EthSpec> {
     pub block: Arc<SignedBeaconBlock<T>>,
-    pub blobs: Blobs<T>,
+    pub blobs: VerifiedBlobs<T>,
 }
 
 impl<T: EthSpec> AvailableBlock<T> {
     pub fn blobs(&self) -> Option<Arc<BlobSidecarList<T>>> {
         match &self.blobs {
-            Blobs::NotRequired | Blobs::None => None,
-            Blobs::Available(blobs) => Some(blobs.clone()),
+            VerifiedBlobs::EmptyBlobs | VerifiedBlobs::NotRequired | VerifiedBlobs::PreEip4844 => {
+                None
+            }
+            VerifiedBlobs::Available(blobs) => Some(blobs.clone()),
         }
     }
 
     pub fn deconstruct(self) -> (Arc<SignedBeaconBlock<T>>, Option<Arc<BlobSidecarList<T>>>) {
         match self.blobs {
-            Blobs::NotRequired | Blobs::None => (self.block, None),
-            Blobs::Available(blobs) => (self.block, Some(blobs)),
+            VerifiedBlobs::EmptyBlobs | VerifiedBlobs::NotRequired | VerifiedBlobs::PreEip4844 => {
+                (self.block, None)
+            }
+            VerifiedBlobs::Available(blobs) => (self.block, Some(blobs)),
         }
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
-pub enum Blobs<E: EthSpec> {
+#[derive(Clone, Debug, PartialEq, Derivative)]
+#[derivative(Hash(bound = "E: EthSpec"))]
+pub enum VerifiedBlobs<E: EthSpec> {
     /// These blobs are available.
     Available(Arc<BlobSidecarList<E>>),
     /// This block is from outside the data availability boundary so doesn't require
@@ -333,7 +340,7 @@ pub enum Blobs<E: EthSpec> {
     /// The block's `kzg_commitments` field is empty so it does not contain any blobs.
     EmptyBlobs,
     /// This is a block prior to the 4844 fork, so doesn't require any blobs
-    None,
+    PreEip4844,
 }
 
 pub trait AsBlock<E: EthSpec> {
@@ -348,7 +355,8 @@ pub trait AsBlock<E: EthSpec> {
     fn canonical_root(&self) -> Hash256;
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Derivative)]
+#[derivative(Hash(bound = "E: EthSpec"))]
 pub enum BlockWrapper<E: EthSpec> {
     /// This variant is fully available.
     /// i.e. for pre-4844 blocks, it contains a (`SignedBeaconBlock`, `Blobs::None`) and for
