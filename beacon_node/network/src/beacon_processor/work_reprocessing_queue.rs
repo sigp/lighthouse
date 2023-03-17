@@ -23,13 +23,13 @@ use lighthouse_network::{MessageId, PeerId};
 use logging::TimeLatch;
 use slog::{crit, debug, error, trace, warn, Logger};
 use slot_clock::SlotClock;
-use smallvec::SmallVec;
 use std::collections::{HashMap, HashSet};
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::Context;
 use std::time::Duration;
+use strum::AsRefStr;
 use task_executor::TaskExecutor;
 use tokio::sync::mpsc::{self, Receiver, Sender};
 use tokio::time::error::Error as TimeError;
@@ -73,6 +73,7 @@ const MAXIMUM_QUEUED_LIGHT_CLIENT_UPDATES: usize = 128;
 pub const BACKFILL_SCHEDULE_IN_SLOT: [f32; 3] = [0.5f32, 0.6, 0.8];
 
 /// Messages that the scheduler can receive.
+#[derive(AsRefStr)]
 pub enum ReprocessQueueMessage<T: BeaconChainTypes> {
     /// A block that has been received early and we should queue for later processing.
     EarlyBlock(QueuedGossipBlock<T>),
@@ -238,7 +239,7 @@ struct ReprocessQueue<T: BeaconChainTypes> {
     /// Light Client Updates per parent_root.
     awaiting_lc_updates_per_parent_root: HashMap<Hash256, Vec<QueuedLightClientUpdateId>>,
     /// Queued backfill batches
-    queued_backfill_batches: SmallVec<[QueuedBackfillBatch<T::EthSpec>; 2]>,
+    queued_backfill_batches: Vec<QueuedBackfillBatch<T::EthSpec>>,
 
     /* Aux */
     /// Next attestation id, used for both aggregated and unaggregated attestations
@@ -387,7 +388,7 @@ pub fn spawn_reprocess_scheduler<T: BeaconChainTypes>(
         queued_unaggregates: FnvHashMap::default(),
         awaiting_attestations_per_root: HashMap::new(),
         awaiting_lc_updates_per_parent_root: HashMap::new(),
-        queued_backfill_batches: SmallVec::new(),
+        queued_backfill_batches: Vec::new(),
         next_attestation: 0,
         next_lc_update: 0,
         early_block_debounce: TimeLatch::default(),
