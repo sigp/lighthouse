@@ -834,7 +834,6 @@ impl<T: BeaconChainTypes> Worker<T> {
             | Err(e @ BlockError::WeakSubjectivityConflict)
             | Err(e @ BlockError::InconsistentFork(_))
             | Err(e @ BlockError::ExecutionPayloadError(_))
-            // TODO(merge): reconsider peer scoring for this event.
             | Err(e @ BlockError::ParentExecutionPayloadInvalid { .. })
             | Err(e @ BlockError::GenesisBlock) => {
                 warn!(self.log, "Could not verify block for gossip. Rejecting the block";
@@ -847,7 +846,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                 );
                 return None;
             }
-            Err(e@ BlockError::BlobValidation(_)) => {
+            Err(e @ BlockError::BlobValidation(_)) => {
                 warn!(self.log, "Could not verify blob for gossip. Rejecting the block and blob";
                             "error" => %e);
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
