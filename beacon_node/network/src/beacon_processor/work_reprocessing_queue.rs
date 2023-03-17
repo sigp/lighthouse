@@ -617,6 +617,7 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                         error!(
                             log,
                             "Ignored queued attestation(s) for block";
+                            "hint" => "system may be overloaded",
                             "parent_root" => ?parent_root,
                             "block_root" => ?block_root,
                             "count" => num_failed_to_send,
@@ -737,6 +738,8 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                         error!(
                             log,
                             "Ignored queued attestation";
+                            "hint" => "system may be overloaded",
+                            "beacon_block_root" => ?root
                         );
                     }
 
