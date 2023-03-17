@@ -5097,7 +5097,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     latest_valid_hash,
                     ref validation_error,
                 } => {
-                    debug!(
+                    warn!(
                         self.log,
                         "Invalid execution payload";
                         "validation_error" => ?validation_error,
@@ -5105,11 +5105,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         "head_hash" => ?head_hash,
                         "head_block_root" => ?head_block_root,
                         "method" => "fcU",
-                    );
-                    warn!(
-                        self.log,
-                        "Fork choice update invalidated payload";
-                        "status" => ?status
                     );
 
                     match latest_valid_hash {
@@ -5156,18 +5151,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 PayloadStatus::InvalidBlockHash {
                     ref validation_error,
                 } => {
-                    debug!(
+                    warn!(
                         self.log,
                         "Invalid execution payload block hash";
                         "validation_error" => ?validation_error,
                         "head_hash" => ?head_hash,
                         "head_block_root" => ?head_block_root,
                         "method" => "fcU",
-                    );
-                    warn!(
-                        self.log,
-                        "Fork choice update invalidated payload";
-                        "status" => ?status
                     );
                     // The execution engine has stated that the head block is invalid, however it
                     // hasn't returned a latest valid ancestor.
