@@ -8,7 +8,8 @@ use crate::beacon_proposer_cache::compute_proposer_duties_from_head;
 use crate::beacon_proposer_cache::BeaconProposerCache;
 use crate::blob_cache::BlobCache;
 use crate::blob_verification::{
-    AsBlock, AvailableBlock, BlobError, BlockWrapper, IntoAvailableBlock, VerifiedBlobs,
+    self, AsBlock, AvailableBlock, BlobError, BlockWrapper, GossipVerifiedBlobSidecar,
+    IntoAvailableBlock, VerifiedBlobs,
 };
 use crate::block_times_cache::BlockTimesCache;
 use crate::block_verification::{
@@ -1896,6 +1897,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             metrics::inc_counter(&metrics::FINALITY_UPDATE_PROCESSING_SUCCESSES);
             v
         })
+    }
+
+    pub fn verify_blob_sidecar_for_gossip(
+        self: &Arc<Self>,
+        blob_sidecar: Arc<SignedBlobSidecar<T::EthSpec>>,
+        subnet_id: u64,
+    ) -> Result<GossipVerifiedBlobSidecar, BlobError> // TODO(pawan): make a GossipVerifedBlob type
+    {
+        blob_verification::validate_blob_sidecar_for_gossip(blob_sidecar, subnet_id, self)
     }
 
     /// Accepts some 'LightClientOptimisticUpdate' from the network and attempts to verify it

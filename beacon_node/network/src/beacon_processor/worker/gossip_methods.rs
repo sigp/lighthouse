@@ -658,15 +658,36 @@ impl<T: BeaconChainTypes> Worker<T> {
         peer_client: Client,
         blob_index: u64,
         signed_blob: Arc<SignedBlobSidecar<T::EthSpec>>,
+        reprocess_tx: mpsc::Sender<ReprocessQueueMessage<T>>,
         _seen_duration: Duration,
     ) {
+        if let Ok(gossip_verified) = self
+            .chain
+            .verify_blob_sidecar_for_gossip(signed_blob, blob_index)
+        {
+            if gossip_verified.all_blobs_available {
+                if reprocess_tx
+                    .try_send(ReprocessQueueMessage::BlobsAvailable(
+                        gossip_verified.block_root,
+                    ))
+                    .is_err()
+                {
+                    {
+                        error!(
+                            self.log,
+                            "Failed to send blob availability message";
+                            "block_root" => ?gossip_verified.block_root,
+                            "location" => "block gossip"
+                        )
+                    }
+                }
+            }
+        }
         // TODO: gossip verification
         crit!(self.log, "UNIMPLEMENTED gossip blob verification";
            "peer_id" => %peer_id,
            "client" => %peer_client,
            "blob_topic" => blob_index,
-           "blob_index" => signed_blob.message.index,
-           "blob_slot" => signed_blob.message.slot
         );
     }
 

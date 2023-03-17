@@ -7,6 +7,7 @@ use crate::beacon_chain::{
     BeaconChain, BeaconChainTypes, MAXIMUM_GOSSIP_CLOCK_DISPARITY,
     VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT,
 };
+use crate::gossip_blob_cache::AvailabilityCheckError;
 use crate::snapshot_cache::PreProcessingSnapshot;
 use crate::BeaconChainError;
 use state_processing::per_block_processing::eip4844::eip4844::verify_kzg_commitments_against_transactions;
@@ -112,6 +113,8 @@ pub enum BlobError {
     ///
     /// The block is invalid and the peer is faulty.
     UnknownValidator(u64),
+
+    BlobCacheError(AvailabilityCheckError),
 }
 
 impl From<BeaconChainError> for BlobError {
@@ -138,15 +141,23 @@ impl<T: EthSpec> GossipVerifiedBlob<T> {
         self.blob
     }
 }
+pub struct GossipVerifiedBlobSidecar {
+    /// Indicates if all blobs for a given block_root are available
+    /// in the blob cache.
+    pub all_blobs_available: bool,
+    pub block_root: Hash256,
+    // TODO(pawan): add an Arced blob sidecar which when returned to gossip_methods
+    // adds the entire thing to the blob cache.
+}
 
 pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
-    blob_sidecar: SignedBlobSidecar<T::EthSpec>,
+    signed_blob_sidecar: Arc<SignedBlobSidecar<T::EthSpec>>,
     subnet: u64,
     chain: &BeaconChain<T>,
-) -> Result<GossipVerifiedBlob<T::EthSpec>, BlobError> {
-    let blob_slot = blob_sidecar.message.slot;
-    let blob_index = blob_sidecar.message.index;
-    let block_root = blob_sidecar.message.block_root;
+) -> Result<GossipVerifiedBlobSidecar, BlobError> {
+    let blob_slot = signed_blob_sidecar.message.slot;
+    let blob_index = signed_blob_sidecar.message.index;
+    let block_root = signed_blob_sidecar.message.block_root;
 
     // Verify that the blob_sidecar was received on the correct subnet.
     if blob_index != subnet {
@@ -185,7 +196,7 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
 
     // TODO(pawan): should we verify locally that the parent root is correct
     // or just use whatever the proposer gives us?
-    let proposer_shuffling_root = blob_sidecar.message.block_parent_root;
+    let proposer_shuffling_root = signed_blob_sidecar.message.block_parent_root;
 
     let (proposer_index, fork) = match chain
         .beacon_proposer_cache
@@ -202,7 +213,7 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
         }
     };
 
-    let blob_proposer_index = blob_sidecar.message.proposer_index;
+    let blob_proposer_index = signed_blob_sidecar.message.proposer_index;
     if proposer_index != blob_proposer_index as usize {
         return Err(BlobError::ProposerIndexMismatch {
             sidecar: blob_proposer_index as usize,
@@ -221,7 +232,7 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
             .get(proposer_index as usize)
             .ok_or_else(|| BlobError::UnknownValidator(proposer_index as u64))?;
 
-        blob_sidecar.verify_signature(
+        signed_blob_sidecar.verify_signature(
             None,
             pubkey,
             &fork,
@@ -239,7 +250,10 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
     // TODO(pawan): Check if other blobs for the same proposer index and blob index have been
     // received and drop if required.
 
-    // TODO(pawan): potentially add to a seen cache at this point.
+    let da_checker = &chain.data_availability_checker;
+    let all_blobs_available = da_checker
+        .put_blob_temp(signed_blob_sidecar)
+        .map_err(BlobError::BlobCacheError)?;
 
     // Verify if the corresponding block for this blob has been received.
     // Note: this should be the last gossip check so that we can forward the blob
@@ -257,8 +271,9 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
         });
     }
 
-    Ok(GossipVerifiedBlob {
-        blob: blob_sidecar.message,
+    Ok(GossipVerifiedBlobSidecar {
+        all_blobs_available,
+        block_root,
     })
 }
 
