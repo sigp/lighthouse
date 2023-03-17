@@ -1,7 +1,7 @@
 use crate::metrics;
 use beacon_chain::blob_verification::{AsBlock, BlockWrapper, IntoAvailableBlock};
 use beacon_chain::validator_monitor::{get_block_delay_ms, timestamp_now};
-use beacon_chain::NotifyExecutionLayer;
+use beacon_chain::{AvailabilityProcessingStatus, NotifyExecutionLayer};
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockError, CountUnrealized};
 use eth2::types::SignedBlockContents;
 use lighthouse_network::PubsubMessage;
@@ -89,7 +89,7 @@ pub async fn publish_block<T: BeaconChainTypes>(
         )
         .await
     {
-        Ok(root) => {
+        Ok(AvailabilityProcessingStatus::Imported(root)) => {
             info!(
                 log,
                 "Valid block from HTTP API";
@@ -139,6 +139,24 @@ pub async fn publish_block<T: BeaconChainTypes>(
             }
 
             Ok(())
+        }
+        Ok(AvailabilityProcessingStatus::PendingBlock(block_root)) => {
+            let msg = format!("Missing block with root {:?}", block_root);
+            error!(
+                log,
+                "Invalid block provided to HTTP API";
+                "reason" => &msg
+            );
+            Err(warp_utils::reject::broadcast_without_import(msg))
+        }
+        Ok(AvailabilityProcessingStatus::PendingBlobs(blob_ids)) => {
+            let msg = format!("Missing blobs {:?}", blob_ids);
+            error!(
+                log,
+                "Invalid block provided to HTTP API";
+                "reason" => &msg
+            );
+            Err(warp_utils::reject::broadcast_without_import(msg))
         }
         Err(BlockError::BlockIsAlreadyKnown) => {
             info!(

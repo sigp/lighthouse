@@ -8,7 +8,7 @@ use crate::metrics;
 use crate::sync::manager::{BlockProcessType, SyncMessage};
 use crate::sync::{BatchProcessResult, ChainId};
 use beacon_chain::blob_verification::{AsBlock, BlockWrapper, IntoAvailableBlock};
-use beacon_chain::CountUnrealized;
+use beacon_chain::{AvailabilityProcessingStatus, CountUnrealized};
 use beacon_chain::{
     BeaconChainError, BeaconChainTypes, BlockError, ChainSegmentResult, HistoricalBlockError,
     NotifyExecutionLayer,
@@ -100,7 +100,8 @@ impl<T: BeaconChainTypes> Worker<T> {
         metrics::inc_counter(&metrics::BEACON_PROCESSOR_RPC_BLOCK_IMPORTED_TOTAL);
 
         // RPC block imported, regardless of process type
-        if let &Ok(hash) = &result {
+        //TODO(sean) handle pending availability variants
+        if let &Ok(AvailabilityProcessingStatus::Imported(hash)) = &result {
             info!(self.log, "New RPC block received"; "slot" => slot, "hash" => %hash);
 
             // Trigger processing for work referencing this block.

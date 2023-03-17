@@ -54,6 +54,7 @@ use crate::execution_payload::{
     is_optimistic_candidate_block, validate_execution_payload_for_gossip, validate_merge_block,
     AllowOptimisticImport, NotifyExecutionLayer, PayloadNotifier,
 };
+use crate::gossip_blob_cache::AvailabilityCheckError;
 use crate::snapshot_cache::PreProcessingSnapshot;
 use crate::validator_monitor::HISTORIC_EPOCHS as VALIDATOR_MONITOR_HISTORIC_EPOCHS;
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
@@ -307,12 +308,18 @@ pub enum BlockError<T: EthSpec> {
         parent_root: Hash256,
     },
     BlobValidation(BlobError),
-    AvailabilityPending(Hash256),
+    AvailabilityCheck(AvailabilityCheckError),
 }
 
 impl<T: EthSpec> From<BlobError> for BlockError<T> {
     fn from(e: BlobError) -> Self {
         Self::BlobValidation(e)
+    }
+}
+
+impl<T: EthSpec> From<AvailabilityCheckError> for BlockError<T> {
+    fn from(e: AvailabilityCheckError) -> Self {
+        Self::AvailabilityCheck(e)
     }
 }
 

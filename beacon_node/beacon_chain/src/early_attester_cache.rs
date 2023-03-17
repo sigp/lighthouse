@@ -6,6 +6,7 @@ use crate::{
 use parking_lot::RwLock;
 use proto_array::Block as ProtoBlock;
 use std::sync::Arc;
+use types::blob_sidecar::BlobSidecarArcList;
 use types::*;
 
 pub struct CacheItem<E: EthSpec> {
@@ -21,7 +22,8 @@ pub struct CacheItem<E: EthSpec> {
      * Values used to make the block available.
      */
     block: Arc<SignedBeaconBlock<E>>,
-    blobs: Option<Arc<BlobSidecarList<E>>>,
+    //TODO(sean) remove this and just use the da checker?'
+    blobs: Option<BlobSidecarArcList<E>>,
     proto_block: ProtoBlock,
 }
 
@@ -160,7 +162,7 @@ impl<E: EthSpec> EarlyAttesterCache<E> {
     }
 
     /// Returns the blobs, if `block_root` matches the cached item.
-    pub fn get_blobs(&self, block_root: Hash256) -> Option<Arc<BlobSidecarList<E>>> {
+    pub fn get_blobs(&self, block_root: Hash256) -> Option<BlobSidecarArcList<E>> {
         self.item
             .read()
             .as_ref()

@@ -732,7 +732,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         self.block_lookups.single_block_lookup_response(
                             id,
                             peer_id,
-                            maybe_block.map(BlockWrapper::Block),
+                            maybe_block.map(BlockWrapper::AvailabilityPending),
                             seen_timestamp,
                             &mut self.network,
                         )
@@ -747,7 +747,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     BlockOrBlob::Block(maybe_block) => self.block_lookups.parent_lookup_response(
                         id,
                         peer_id,
-                        maybe_block.map(BlockWrapper::Block),
+                        maybe_block.map(BlockWrapper::AvailabilityPending),
                         seen_timestamp,
                         &mut self.network,
                     ),

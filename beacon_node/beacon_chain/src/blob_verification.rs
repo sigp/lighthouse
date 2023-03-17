@@ -1,16 +1,20 @@
 use derivative::Derivative;
 use slot_clock::SlotClock;
+use state_processing::ConsensusContext;
 use std::sync::Arc;
 
 use crate::beacon_chain::{
     BeaconChain, BeaconChainTypes, MAXIMUM_GOSSIP_CLOCK_DISPARITY,
     VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT,
 };
+use crate::snapshot_cache::PreProcessingSnapshot;
 use crate::BeaconChainError;
 use state_processing::per_block_processing::eip4844::eip4844::verify_kzg_commitments_against_transactions;
+use types::blob_sidecar::BlobSidecarArcList;
 use types::{
-    BeaconBlockRef, BeaconStateError, BlobSidecarList, Epoch, EthSpec, Hash256, KzgCommitment,
-    SignedBeaconBlock, SignedBeaconBlockHeader, SignedBlobSidecar, Slot, Transactions,
+    BeaconBlockRef, BeaconStateError, BlobSidecar, BlobSidecarList, Epoch, EthSpec, Hash256,
+    KzgCommitment, SignedBeaconBlock, SignedBeaconBlockHeader, SignedBlobSidecar, Slot,
+    Transactions,
 };
 
 #[derive(Debug)]
@@ -122,11 +126,24 @@ impl From<BeaconStateError> for BlobError {
     }
 }
 
+/// A wrapper around a `BlobSidecar` that indicates it has been approved for re-gossiping on
+/// the p2p network.
+#[derive(Debug)]
+pub struct GossipVerifiedBlob<T: EthSpec> {
+    blob: BlobSidecar<T>,
+}
+
+impl<T: EthSpec> GossipVerifiedBlob<T> {
+    pub fn to_blob(self) -> BlobSidecar<T> {
+        self.blob
+    }
+}
+
 pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
     blob_sidecar: SignedBlobSidecar<T::EthSpec>,
     subnet: u64,
     chain: &BeaconChain<T>,
-) -> Result<(), BlobError> {
+) -> Result<GossipVerifiedBlob<T::EthSpec>, BlobError> {
     let blob_slot = blob_sidecar.message.slot;
     let blob_index = blob_sidecar.message.index;
     let block_root = blob_sidecar.message.block_root;
@@ -240,7 +257,9 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
         });
     }
 
-    Ok(())
+    Ok(GossipVerifiedBlob {
+        blob: blob_sidecar.message,
+    })
 }
 
 pub fn verify_data_availability<T: BeaconChainTypes>(
@@ -310,7 +329,7 @@ pub struct AvailableBlock<T: EthSpec> {
 }
 
 impl<T: EthSpec> AvailableBlock<T> {
-    pub fn blobs(&self) -> Option<Arc<BlobSidecarList<T>>> {
+    pub fn blobs(&self) -> Option<BlobSidecarArcList<T>> {
         match &self.blobs {
             VerifiedBlobs::EmptyBlobs | VerifiedBlobs::NotRequired | VerifiedBlobs::PreEip4844 => {
                 None
@@ -319,7 +338,7 @@ impl<T: EthSpec> AvailableBlock<T> {
         }
     }
 
-    pub fn deconstruct(self) -> (Arc<SignedBeaconBlock<T>>, Option<Arc<BlobSidecarList<T>>>) {
+    pub fn deconstruct(self) -> (Arc<SignedBeaconBlock<T>>, Option<BlobSidecarArcList<T>>) {
         match self.blobs {
             VerifiedBlobs::EmptyBlobs | VerifiedBlobs::NotRequired | VerifiedBlobs::PreEip4844 => {
                 (self.block, None)
@@ -333,7 +352,7 @@ impl<T: EthSpec> AvailableBlock<T> {
 #[derivative(Hash(bound = "E: EthSpec"))]
 pub enum VerifiedBlobs<E: EthSpec> {
     /// These blobs are available.
-    Available(Arc<BlobSidecarList<E>>),
+    Available(BlobSidecarArcList<E>),
     /// This block is from outside the data availability boundary so doesn't require
     /// a data availability check.
     NotRequired,
