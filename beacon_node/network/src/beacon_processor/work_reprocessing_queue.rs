@@ -573,7 +573,8 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
             }) => {
                 // Unqueue the attestations we have for this root, if any.
                 if let Some(queued_ids) = self.awaiting_attestations_per_root.remove(&block_root) {
-                    let mut num_failed_to_send = 0;
+                    let mut sent_count = 0;
+                    let mut failed_to_send_count = 0;
 
                     for id in queued_ids {
                         metrics::inc_counter(
@@ -599,7 +600,9 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
 
                             // Send the work.
                             if self.ready_work_tx.try_send(work).is_err() {
-                                num_failed_to_send += 1;
+                                failed_to_send_count += 1;
+                            } else {
+                                sent_count += 1;
                             }
                         } else {
                             // There is a mismatch between the attestation ids registered for this
@@ -613,14 +616,15 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                         }
                     }
 
-                    if num_failed_to_send > 0 {
+                    if failed_to_send_count > 0 {
                         error!(
                             log,
-                            "Ignored queued attestation(s) for block";
+                            "Ignored scheduled attestation(s) for block";
                             "hint" => "system may be overloaded",
                             "parent_root" => ?parent_root,
                             "block_root" => ?block_root,
-                            "count" => num_failed_to_send,
+                            "failed_count" => failed_to_send_count,
+                            "sent_count" => sent_count,
                         );
                     }
                 }
@@ -737,7 +741,7 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                     if self.ready_work_tx.try_send(work).is_err() {
                         error!(
                             log,
-                            "Ignored queued attestation";
+                            "Ignored scheduled attestation";
                             "hint" => "system may be overloaded",
                             "beacon_block_root" => ?root
                         );
