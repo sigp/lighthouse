@@ -42,6 +42,10 @@ pub const ENGINE_FORKCHOICE_UPDATED_V1: &str = "engine_forkchoiceUpdatedV1";
 pub const ENGINE_FORKCHOICE_UPDATED_V2: &str = "engine_forkchoiceUpdatedV2";
 pub const ENGINE_FORKCHOICE_UPDATED_TIMEOUT: Duration = Duration::from_secs(8);
 
+pub const ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1: &str = "engine_getPayloadBodiesByHashV1";
+pub const ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1: &str = "engine_getPayloadBodiesByRangeV1";
+pub const ENGINE_GET_PAYLOAD_BODIES_TIMEOUT: Duration = Duration::from_secs(10);
+
 pub const ENGINE_EXCHANGE_TRANSITION_CONFIGURATION_V1: &str =
     "engine_exchangeTransitionConfigurationV1";
 pub const ENGINE_EXCHANGE_TRANSITION_CONFIGURATION_V1_TIMEOUT: Duration = Duration::from_secs(1);
@@ -62,6 +66,8 @@ pub static LIGHTHOUSE_CAPABILITIES: &[&str] = &[
     ENGINE_GET_PAYLOAD_V2,
     ENGINE_FORKCHOICE_UPDATED_V1,
     ENGINE_FORKCHOICE_UPDATED_V2,
+    ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1,
+    ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1,
     ENGINE_EXCHANGE_TRANSITION_CONFIGURATION_V1,
 ];
 
@@ -73,6 +79,8 @@ pub static PRE_CAPELLA_ENGINE_CAPABILITIES: EngineCapabilities = EngineCapabilit
     new_payload_v2: false,
     forkchoice_updated_v1: true,
     forkchoice_updated_v2: false,
+    get_payload_bodies_by_hash_v1: false,
+    get_payload_bodies_by_range_v1: false,
     get_payload_v1: true,
     get_payload_v2: false,
     exchange_transition_configuration_v1: true,
@@ -882,6 +890,50 @@ impl HttpJsonRpc {
         Ok(response.into())
     }
 
+    pub async fn get_payload_bodies_by_hash_v1<E: EthSpec>(
+        &self,
+        block_hashes: Vec<ExecutionBlockHash>,
+    ) -> Result<Vec<Option<ExecutionPayloadBodyV1<E>>>, Error> {
+        let params = json!([block_hashes]);
+
+        let response: Vec<Option<JsonExecutionPayloadBodyV1<E>>> = self
+            .rpc_request(
+                ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1,
+                params,
+                ENGINE_GET_PAYLOAD_BODIES_TIMEOUT * self.execution_timeout_multiplier,
+            )
+            .await?;
+
+        Ok(response
+            .into_iter()
+            .map(|opt_json| opt_json.map(From::from))
+            .collect())
+    }
+
+    pub async fn get_payload_bodies_by_range_v1<E: EthSpec>(
+        &self,
+        start: u64,
+        count: u64,
+    ) -> Result<Vec<Option<ExecutionPayloadBodyV1<E>>>, Error> {
+        #[derive(Serialize)]
+        #[serde(transparent)]
+        struct Quantity(#[serde(with = "eth2_serde_utils::u64_hex_be")] u64);
+
+        let params = json!([Quantity(start), Quantity(count)]);
+        let response: Vec<Option<JsonExecutionPayloadBodyV1<E>>> = self
+            .rpc_request(
+                ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1,
+                params,
+                ENGINE_GET_PAYLOAD_BODIES_TIMEOUT * self.execution_timeout_multiplier,
+            )
+            .await?;
+
+        Ok(response
+            .into_iter()
+            .map(|opt_json| opt_json.map(From::from))
+            .collect())
+    }
+
     pub async fn exchange_transition_configuration_v1(
         &self,
         transition_configuration: TransitionConfigurationV1,
@@ -924,6 +976,10 @@ impl HttpJsonRpc {
                 new_payload_v2: capabilities.contains(ENGINE_NEW_PAYLOAD_V2),
                 forkchoice_updated_v1: capabilities.contains(ENGINE_FORKCHOICE_UPDATED_V1),
                 forkchoice_updated_v2: capabilities.contains(ENGINE_FORKCHOICE_UPDATED_V2),
+                get_payload_bodies_by_hash_v1: capabilities
+                    .contains(ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1),
+                get_payload_bodies_by_range_v1: capabilities
+                    .contains(ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1),
                 get_payload_v1: capabilities.contains(ENGINE_GET_PAYLOAD_V1),
                 get_payload_v2: capabilities.contains(ENGINE_GET_PAYLOAD_V2),
                 exchange_transition_configuration_v1: capabilities
