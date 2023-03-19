@@ -419,23 +419,26 @@ pub fn process_execution_payload<T: EthSpec, Payload: AbstractExecPayload<T>>(
 pub const UNSET_DEPOSIT_RECEIPTS_START_INDEX: u64 = std::u64::MAX;
 pub fn process_deposit_receipt<T: EthSpec>(
     state: &mut BeaconState<T>,
-    deposit_receipts: &DepositReceipt,
+    deposit_receipt: &DepositReceipt,
 ) -> Result<(), BlockProcessingError> {
-    /*
     // Set deposit receipt start index
-    let start_index = state.deposit_receipts_start_index().map_err(|_| BlockProcessingError::DepositReceiptError)?;
+    let start_index = state
+        .deposit_receipts_start_index()
+        .map_err(|_| BlockProcessingError::DepositReceiptError)?;
     if start_index == UNSET_DEPOSIT_RECEIPTS_START_INDEX {
-        *state.deposit_receipts_start_index_mut().map_err(|_| BlockProcessingError::DepositReceiptError)? = deposit_receipt.index;
+        *state
+            .deposit_receipts_start_index_mut()
+            .map_err(|_| BlockProcessingError::DepositReceiptError)? = deposit_receipt.index;
     }
-    
-    // Process the deposit (replace this with the actual deposit processing logic)
-    let pubkey = &deposit_receipt.pubkey;
-    let withdrawal_credentials = &deposit_receipt.withdrawal_credentials;
-    let amount = deposit_receipt.amount;
-    let signature = &deposit_receipt.signature;
-    */
 
-    // Add the logic to process the deposit here
+    /* TODO: Check how apply_deposit works: Create a DepositData instance (?) from the DepositReceipt fields
+    let deposit_data = DepositData {
+        pubkey: deposit_receipt.pubkey.into(),
+        withdrawal_credentials: deposit_receipt.withdrawal_credentials,
+        amount: deposit_receipt.amount,
+        signature: deposit_receipt.signature.into(),
+    };
+    */
 
     Ok(())
 }
