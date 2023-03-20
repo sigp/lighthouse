@@ -1065,7 +1065,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         _block_root: &Hash256,
         _data_availability_boundary: Epoch,
     ) -> Result<Option<BlobSidecarList<T::EthSpec>>, Error> {
-        unimplemented!("`get_blobs` method below to be updated to return `BlobSidecarList`")
+        unimplemented!("update to use the updated `get_blobs` method instead once this PR is merged: https://github.com/sigp/lighthouse/pull/4104")
     }
 
     /// Returns the blobs at the given root, if any.
