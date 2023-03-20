@@ -168,6 +168,12 @@ pub struct ChainSpec {
     pub eip4844_fork_epoch: Option<Epoch>,
 
     /*
+     * Eip6110 hard fork params
+     */
+    pub eip6110_fork_version: [u8; 4],
+    pub eip6110_fork_epoch: Option<Epoch>,
+
+    /*
      * Networking
      */
     pub boot_nodes: Vec<String>,
@@ -643,6 +649,12 @@ impl ChainSpec {
             eip4844_fork_epoch: None,
 
             /*
+             * Eip6110 hard fork params
+             */
+            eip6110_fork_version: [0x05, 0x00, 0x00, 0x00],
+            eip6110_fork_epoch: None,
+
+            /*
              * Network specific
              */
             boot_nodes: vec![],
@@ -878,6 +890,12 @@ impl ChainSpec {
              */
             eip4844_fork_version: [0x04, 0x00, 0x00, 0x64],
             eip4844_fork_epoch: None,
+
+            /*
+             * Eip6110 hard fork params
+             */
+            eip6110_fork_version: [0x05, 0x00, 0x00, 0x64],
+            eip6110_fork_epoch: None,
 
             /*
              * Network specific
