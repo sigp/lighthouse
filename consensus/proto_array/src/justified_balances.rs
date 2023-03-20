@@ -28,7 +28,9 @@ impl JustifiedBalances {
         let mut equivocating_indices = vec![];
 
         let mut iter = state.validators().iter().enumerate().map(|(i, validator)| {
-            equivocating_indices.push(i as u64);
+            if validator.slashed {
+                equivocating_indices.push(i as u64);
+            }
             validator
         });
 
