@@ -216,13 +216,13 @@ impl BlockId {
     pub async fn blob_sidecar_list<T: BeaconChainTypes>(
         &self,
         chain: &BeaconChain<T>,
-    ) -> Result<Arc<BlobSidecarList<T::EthSpec>>, warp::Rejection> {
+    ) -> Result<BlobSidecarList<T::EthSpec>, warp::Rejection> {
         let root = self.root(chain)?.0;
         let Some(data_availability_boundary) = chain.data_availability_boundary() else {
             return Err(warp_utils::reject::custom_not_found("Deneb fork disabled".into()));
         };
         match chain.get_blob_sidecar_list(&root, data_availability_boundary) {
-            Ok(Some(blobs)) => Ok(Arc::new(blobs)),
+            Ok(Some(blobs)) => Ok(blobs),
             Ok(None) => Err(warp_utils::reject::custom_not_found(format!(
                 "No blobs with block root {} found in the store",
                 root
