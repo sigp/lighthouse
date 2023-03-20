@@ -11,7 +11,6 @@ use proto_array::JustifiedBalances;
 use safe_arith::ArithError;
 use ssz_derive::{Decode, Encode};
 use std::collections::BTreeSet;
-use std::iter::FromIterator;
 use std::marker::PhantomData;
 use std::sync::Arc;
 use store::{Error as StoreError, HotColdDB, ItemStore};
@@ -20,8 +19,6 @@ use types::{
     AbstractExecPayload, BeaconBlockRef, BeaconState, BeaconStateError, Checkpoint, Epoch, EthSpec,
     Hash256, Slot,
 };
-
-type SlashedIndices = Vec<u64>;
 
 /// Ensure this justified checkpoint has an epoch of 0 so that it is never
 /// greater than the justified checkpoint and enshrined as the actual justified
@@ -96,7 +93,7 @@ impl BalancesCache {
         &mut self,
         block_root: Hash256,
         state: &BeaconState<E>,
-    ) -> Result<Option<SlashedIndices>, Error> {
+    ) -> Result<(), Error> {
         let epoch = state.current_epoch();
         let epoch_boundary_slot = epoch.start_slot(E::slots_per_epoch());
         let epoch_boundary_root = if epoch_boundary_slot == state.slot() {
@@ -112,13 +109,10 @@ impl BalancesCache {
         // of a single epoch, so even if the block on the epoch boundary itself is skipped we can
         // still update its cache entry from any subsequent state in that epoch.
         if self.position(epoch_boundary_root, epoch).is_none() {
-            let (justified_balances, slashed_indices) =
-                JustifiedBalances::from_justified_state_with_equivocating_indices(state)?;
-
             let item = CacheItem {
                 block_root: epoch_boundary_root,
                 epoch,
-                balances: justified_balances.effective_balances,
+                balances: JustifiedBalances::from_justified_state(state)?.effective_balances,
             };
 
             if self.items.len() == MAX_BALANCE_CACHE_SIZE {
@@ -126,11 +120,9 @@ impl BalancesCache {
             }
 
             self.items.push(item);
-
-            Ok(Some(slashed_indices))
-        } else {
-            Ok(None)
         }
+
+        Ok(())
     }
 
     fn position(&self, block_root: Hash256, epoch: Epoch) -> Option<usize> {
@@ -200,9 +192,7 @@ where
             root: anchor_root,
         };
         let finalized_checkpoint = justified_checkpoint;
-        let (justified_balances, slashed_indices) =
-            JustifiedBalances::from_justified_state_with_equivocating_indices(anchor_state)?;
-        let equivocating_indices = BTreeSet::from_iter(slashed_indices.into_iter());
+        let justified_balances = JustifiedBalances::from_justified_state(anchor_state)?;
 
         Ok(Self {
             store,
@@ -214,7 +204,7 @@ where
             unrealized_justified_checkpoint: justified_checkpoint,
             unrealized_finalized_checkpoint: finalized_checkpoint,
             proposer_boost_root: Hash256::zero(),
-            equivocating_indices,
+            equivocating_indices: BTreeSet::new(),
             _phantom: PhantomData,
         })
     }
@@ -281,14 +271,7 @@ where
         block_root: Hash256,
         state: &BeaconState<E>,
     ) -> Result<(), Self::Error> {
-        if let Some(slashed_indices) = self.balances_cache.process_state(block_root, state)? {
-            // Note the equivocating indices for any state which could
-            // potentially be a justified state (i.e.  an epoch boundary state).
-            self.equivocating_indices
-                .extend(slashed_indices.into_iter())
-        }
-
-        Ok(())
+        self.balances_cache.process_state(block_root, state)
     }
 
     fn justified_checkpoint(&self) -> &Checkpoint {
@@ -345,11 +328,7 @@ where
                 .map_err(Error::FailedToReadState)?
                 .ok_or_else(|| Error::MissingState(justified_block.state_root()))?;
 
-            let (justified_balances, slashed_indices) =
-                JustifiedBalances::from_justified_state_with_equivocating_indices(&state)?;
-            self.justified_balances = justified_balances;
-            self.equivocating_indices
-                .extend(slashed_indices.into_iter());
+            self.justified_balances = JustifiedBalances::from_justified_state(&state)?;
         }
 
         Ok(())

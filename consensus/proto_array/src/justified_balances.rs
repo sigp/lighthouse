@@ -1,5 +1,5 @@
 use safe_arith::{ArithError, SafeArith};
-use types::{BeaconState, Epoch, EthSpec, Validator};
+use types::{BeaconState, EthSpec};
 
 #[derive(Debug, PartialEq, Clone, Default)]
 pub struct JustifiedBalances {
@@ -16,50 +16,15 @@ pub struct JustifiedBalances {
 
 impl JustifiedBalances {
     pub fn from_justified_state<T: EthSpec>(state: &BeaconState<T>) -> Result<Self, ArithError> {
-        Self::from_justified_components(state.current_epoch(), &mut state.validators().iter())
-    }
-
-    /// Instantiates `Self` and returns a list of all slashed validator indices
-    /// in `state`, without performing any additional iterations over the
-    /// validator set.
-    pub fn from_justified_state_with_equivocating_indices<T: EthSpec>(
-        state: &BeaconState<T>,
-    ) -> Result<(Self, Vec<u64>), ArithError> {
-        let mut equivocating_indices = vec![];
-
-        let mut iter = state.validators().iter().enumerate().map(|(i, validator)| {
-            if validator.slashed {
-                equivocating_indices.push(i as u64);
-            }
-            validator
-        });
-
-        let justified_balances = Self::from_justified_components(state.current_epoch(), &mut iter)?;
-
-        // Ensure that the entirety of the iterator has been consumed. This is a
-        // paranoid check to defend against modifications to
-        // `Self::from_justified_changes` that might result in the `validators`
-        // iterator not visiting all validators.
-        iter.all(|_| true);
-
-        Ok((justified_balances, equivocating_indices))
-    }
-
-    /// A generic method for generating `Self` from an iterator over the
-    /// validator set.
-    fn from_justified_components<'a, I>(
-        current_epoch: Epoch,
-        validators: &mut I,
-    ) -> Result<Self, ArithError>
-    where
-        I: Iterator<Item = &'a Validator>,
-    {
+        let current_epoch = state.current_epoch();
         let mut total_effective_balance = 0u64;
         let mut num_active_validators = 0u64;
 
-        let effective_balances = validators
+        let effective_balances = state
+            .validators()
+            .iter()
             .map(|validator| {
-                if validator.is_active_at(current_epoch) {
+                if !validator.slashed && validator.is_active_at(current_epoch) {
                     total_effective_balance.safe_add_assign(validator.effective_balance)?;
                     num_active_validators.safe_add_assign(1)?;
 
