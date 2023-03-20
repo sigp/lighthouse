@@ -47,8 +47,8 @@ pub fn run<T: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
         .write_all(enr.to_base64().as_bytes())
         .map_err(|e| format!("Unable to write ENR to {}: {:?}", ENR_FILENAME, e))?;
 
-    let secret_bytes = match local_keypair {
-        Keypair::Secp256k1(key) => key.secret().to_bytes(),
+    let secret_bytes = match local_keypair.into_secp256k1() {
+        Some(key) => key.secret().to_bytes(),
         _ => return Err("Key is not a secp256k1 key".into()),
     };
 

@@ -92,7 +92,7 @@ fn keypair_from_bytes(mut bytes: Vec<u8>) -> error::Result<Keypair> {
     libp2p::identity::secp256k1::SecretKey::from_bytes(&mut bytes)
         .map(|secret| {
             let keypair: libp2p::identity::secp256k1::Keypair = secret.into();
-            Keypair::Secp256k1(keypair)
+            keypair.into()
         })
         .map_err(|e| format!("Unable to parse p2p secret key: {:?}", e).into())
 }
@@ -115,7 +115,7 @@ pub fn load_private_key(config: &NetworkConfig, log: &slog::Logger) -> Keypair {
                 {
                     let kp: libp2p::identity::secp256k1::Keypair = secret_key.into();
                     debug!(log, "Loaded network key from disk.");
-                    return Keypair::Secp256k1(kp);
+                    return kp.into();
                 } else {
                     debug!(log, "Network key file is not a valid secp256k1 key");
                 }
@@ -125,7 +125,7 @@ pub fn load_private_key(config: &NetworkConfig, log: &slog::Logger) -> Keypair {
 
     // if a key could not be loaded from disk, generate a new one and save it
     let local_private_key = Keypair::generate_secp256k1();
-    if let Keypair::Secp256k1(key) = local_private_key.clone() {
+    if let Some(key) = local_private_key.clone().into_secp256k1() {
         let _ = std::fs::create_dir_all(&config.network_dir);
         match File::create(network_key_f.clone())
             .and_then(|mut f| f.write_all(&key.secret().to_bytes()))
