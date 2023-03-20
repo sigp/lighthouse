@@ -365,7 +365,7 @@ impl<T: BeaconChainTypes> Processor<T> {
         peer_id: PeerId,
         peer_client: Client,
         blob_index: u64, // TODO: add a type for the blob index
-        signed_blob: Arc<SignedBlobSidecar<T::EthSpec>>,
+        signed_blob: SignedBlobSidecar<T::EthSpec>,
     ) {
         self.send_beacon_processor_work(BeaconWorkEvent::gossip_signed_blob_sidecar(
             message_id,

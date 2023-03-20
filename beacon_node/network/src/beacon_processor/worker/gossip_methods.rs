@@ -657,38 +657,62 @@ impl<T: BeaconChainTypes> Worker<T> {
         peer_id: PeerId,
         peer_client: Client,
         blob_index: u64,
-        signed_blob: Arc<SignedBlobSidecar<T::EthSpec>>,
+        signed_blob: SignedBlobSidecar<T::EthSpec>,
         reprocess_tx: mpsc::Sender<ReprocessQueueMessage<T>>,
         _seen_duration: Duration,
     ) {
-        if let Ok(gossip_verified) = self
+        match self
             .chain
             .verify_blob_sidecar_for_gossip(signed_blob, blob_index)
         {
-            if gossip_verified.all_blobs_available {
-                if reprocess_tx
-                    .try_send(ReprocessQueueMessage::BlobsAvailable(
-                        gossip_verified.block_root,
-                    ))
-                    .is_err()
-                {
-                    {
-                        error!(
-                            self.log,
-                            "Failed to send blob availability message";
-                            "block_root" => ?gossip_verified.block_root,
-                            "location" => "block gossip"
-                        )
-                    }
-                }
+            Ok(gossip_verified_blob) => {
+                self.process_gossip_verified_blob(
+                    peer_id,
+                    gossip_verified_blob,
+                    reprocess_tx,
+                    _seen_duration,
+                )
+                .await
+            }
+            Err(_) => {
+                // TODO(pawan): handle all blob errors for peer scoring
+                todo!()
             }
         }
-        // TODO: gossip verification
-        crit!(self.log, "UNIMPLEMENTED gossip blob verification";
-           "peer_id" => %peer_id,
-           "client" => %peer_client,
-           "blob_topic" => blob_index,
-        );
+    }
+
+    pub async fn process_gossip_verified_blob(
+        self,
+        peer_id: PeerId,
+        verified_blob: GossipVerifiedBlob<T::EthSpec>,
+        reprocess_tx: mpsc::Sender<ReprocessQueueMessage<T>>,
+        // This value is not used presently, but it might come in handy for debugging.
+        _seen_duration: Duration,
+    ) {
+        // TODO
+        match self
+            .chain
+            .process_blob(verified_blob.to_blob(), CountUnrealized::True)
+            .await
+        {
+            Ok(AvailabilityProcessingStatus::Imported(hash)) => {
+                todo!()
+                // add to metrics
+                // logging
+            }
+            Ok(AvailabilityProcessingStatus::PendingBlobs(pending_blobs)) => self
+                .send_sync_message(SyncMessage::UnknownBlobHash {
+                    peer_id,
+                    pending_blobs,
+                }),
+            Ok(AvailabilityProcessingStatus::PendingBlock(block_hash)) => {
+                self.send_sync_message(SyncMessage::UnknownBlockHash(peer_id, block_hash));
+            }
+            Err(e) => {
+                // handle errors
+                todo!()
+            }
+        }
     }
 
     /// Process the beacon block received from the gossip network and:
@@ -986,29 +1010,6 @@ impl<T: BeaconChainTypes> Worker<T> {
         }
     }
 
-    pub async fn process_gossip_verified_blob(
-        self,
-        peer_id: PeerId,
-        verified_blob: GossipVerifiedBlob<T::EthSpec>,
-        reprocess_tx: mpsc::Sender<ReprocessQueueMessage<T>>,
-        // This value is not used presently, but it might come in handy for debugging.
-        _seen_duration: Duration,
-    ) {
-        // TODO
-        match self
-            .chain
-            .process_blob(verified_blob.to_blob(), CountUnrealized::True)
-            .await
-        {
-            Ok(hash) => {
-                // block imported
-            }
-            Err(e) => {
-                // handle errors
-            }
-        }
-    }
-
     /// Process the beacon block that has already passed gossip verification.
     ///
     /// Raises a log if there are errors.
@@ -1159,35 +1160,19 @@ impl<T: BeaconChainTypes> Worker<T> {
                 self.chain.recompute_head_at_current_slot().await;
             }
             Ok(AvailabilityProcessingStatus::PendingBlock(block_root)) => {
-                // make rpc request for block
-                todo!()
+                // This error variant doesn't make any sense in this context
+                crit!(
+                    self.log,
+                    "Internal error. Cannot get AvailabilityProcessingStatus::PendingBlock on processing block";
+                    "block_root" => %block_root
+                );
             }
-            Ok(AvailabilityProcessingStatus::PendingBlobs(blob_ids)) => {
+            Ok(AvailabilityProcessingStatus::PendingBlobs(pending_blobs)) => {
                 // make rpc request for blob
-                // let block_slot = block.block.slot();
-                // // Make rpc request for blobs
-                // self.send_sync_message(SyncMessage::UnknownBlobHash {
-                //     peer_id,
-                //     block_root: block.block_root,
-                // });
-
-                // // Send block to reprocessing queue to await blobs
-                // if reprocess_tx
-                //     .try_send(ReprocessQueueMessage::ExecutedBlock(QueuedExecutedBlock {
-                //         peer_id,
-                //         block,
-                //         seen_timestamp: seen_duration,
-                //     }))
-                //     .is_err()
-                // {
-                //     error!(
-                //         self.log,
-                //         "Failed to send partially verified block to reprocessing queue";
-                //         "block_slot" => %block_slot,
-                //         "block_root" => ?block_root,
-                //         "location" => "block gossip"
-                //     )
-                // }
+                self.send_sync_message(SyncMessage::UnknownBlobHash {
+                    peer_id,
+                    pending_blobs,
+                });
             }
             Err(BlockError::AvailabilityCheck(_)) => {
                 todo!()

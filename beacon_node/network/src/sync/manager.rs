@@ -56,6 +56,7 @@ use std::ops::Sub;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
+use types::blob_sidecar::BlobIdentifier;
 use types::{BlobSidecar, EthSpec, Hash256, SignedBeaconBlock, Slot};
 
 /// The number of slots ahead of us that is allowed before requesting a long-range (batch)  Sync
@@ -120,11 +121,10 @@ pub enum SyncMessage<T: EthSpec> {
     UnknownBlockHash(PeerId, Hash256),
 
     /// A peer has sent us a block that we haven't received all the blobs for. This triggers
-    /// the manager to attempt to find a blobs for the given block root.
-    /// TODO: add required blob indices as well.
+    /// the manager to attempt to find the pending blobs for the given block root.
     UnknownBlobHash {
         peer_id: PeerId,
-        block_root: Hash256,
+        pending_blobs: Vec<BlobIdentifier>,
     },
 
     /// A peer has disconnected.

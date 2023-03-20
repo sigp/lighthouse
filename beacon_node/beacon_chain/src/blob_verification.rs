@@ -141,20 +141,12 @@ impl<T: EthSpec> GossipVerifiedBlob<T> {
         self.blob
     }
 }
-pub struct GossipVerifiedBlobSidecar {
-    /// Indicates if all blobs for a given block_root are available
-    /// in the blob cache.
-    pub all_blobs_available: bool,
-    pub block_root: Hash256,
-    // TODO(pawan): add an Arced blob sidecar which when returned to gossip_methods
-    // adds the entire thing to the blob cache.
-}
 
 pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
-    signed_blob_sidecar: Arc<SignedBlobSidecar<T::EthSpec>>,
+    signed_blob_sidecar: SignedBlobSidecar<T::EthSpec>,
     subnet: u64,
     chain: &BeaconChain<T>,
-) -> Result<GossipVerifiedBlobSidecar, BlobError> {
+) -> Result<GossipVerifiedBlob<T::EthSpec>, BlobError> {
     let blob_slot = signed_blob_sidecar.message.slot;
     let blob_index = signed_blob_sidecar.message.index;
     let block_root = signed_blob_sidecar.message.block_root;
@@ -250,11 +242,6 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
     // TODO(pawan): Check if other blobs for the same proposer index and blob index have been
     // received and drop if required.
 
-    let da_checker = &chain.data_availability_checker;
-    let all_blobs_available = da_checker
-        .put_blob_temp(signed_blob_sidecar)
-        .map_err(BlobError::BlobCacheError)?;
-
     // Verify if the corresponding block for this blob has been received.
     // Note: this should be the last gossip check so that we can forward the blob
     // over the gossip network even if we haven't received the corresponding block yet
@@ -265,15 +252,15 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
         .get_block(&block_root)
         .or_else(|| chain.early_attester_cache.get_proto_block(block_root)); // TODO(pawan): should we be checking this cache?
 
+    // TODO(pawan): this may be redundant with the new `AvailabilityProcessingStatus::PendingBlock variant`
     if block_opt.is_none() {
         return Err(BlobError::UnknownHeadBlock {
             beacon_block_root: block_root,
         });
     }
 
-    Ok(GossipVerifiedBlobSidecar {
-        all_blobs_available,
-        block_root,
+    Ok(GossipVerifiedBlob {
+        blob: signed_blob_sidecar.message,
     })
 }
 

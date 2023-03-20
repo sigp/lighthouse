@@ -454,7 +454,7 @@ impl<T: BeaconChainTypes> WorkEvent<T> {
         peer_id: PeerId,
         peer_client: Client,
         blob_index: u64,
-        signed_blob: Arc<SignedBlobSidecar<T::EthSpec>>,
+        signed_blob: SignedBlobSidecar<T::EthSpec>,
         seen_timestamp: Duration,
     ) -> Self {
         Self {
@@ -881,7 +881,7 @@ pub enum Work<T: BeaconChainTypes> {
         peer_id: PeerId,
         peer_client: Client,
         blob_index: u64,
-        signed_blob: Arc<SignedBlobSidecar<T::EthSpec>>,
+        signed_blob: SignedBlobSidecar<T::EthSpec>,
         seen_timestamp: Duration,
     },
     DelayedImportBlock {
@@ -1804,6 +1804,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                         peer_client,
                         blob_index,
                         signed_blob,
+                        work_reprocessing_tx,
                         seen_timestamp,
                     )
                     .await

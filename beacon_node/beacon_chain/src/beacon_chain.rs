@@ -8,8 +8,8 @@ use crate::beacon_proposer_cache::compute_proposer_duties_from_head;
 use crate::beacon_proposer_cache::BeaconProposerCache;
 use crate::blob_cache::BlobCache;
 use crate::blob_verification::{
-    self, AsBlock, AvailableBlock, BlobError, BlockWrapper, GossipVerifiedBlobSidecar,
-    IntoAvailableBlock, VerifiedBlobs,
+    self, AsBlock, AvailableBlock, BlobError, BlockWrapper, GossipVerifiedBlob, IntoAvailableBlock,
+    VerifiedBlobs,
 };
 use crate::block_times_cache::BlockTimesCache;
 use crate::block_verification::{
@@ -1901,9 +1901,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     pub fn verify_blob_sidecar_for_gossip(
         self: &Arc<Self>,
-        blob_sidecar: Arc<SignedBlobSidecar<T::EthSpec>>,
+        blob_sidecar: SignedBlobSidecar<T::EthSpec>,
         subnet_id: u64,
-    ) -> Result<GossipVerifiedBlobSidecar, BlobError> // TODO(pawan): make a GossipVerifedBlob type
+    ) -> Result<GossipVerifiedBlob<T::EthSpec>, BlobError> // TODO(pawan): make a GossipVerifedBlob type
     {
         blob_verification::validate_blob_sidecar_for_gossip(blob_sidecar, subnet_id, self)
     }
