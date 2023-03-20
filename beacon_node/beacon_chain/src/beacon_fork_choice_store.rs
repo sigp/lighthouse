@@ -193,9 +193,9 @@ where
             root: anchor_root,
         };
         let finalized_checkpoint = justified_checkpoint;
-        let justified_balances = JustifiedBalances::from_justified_state(anchor_state)?;
-        let equivocating_indices =
-            BTreeSet::from_iter(justified_balances.slashed_indices.iter().copied());
+        let (justified_balances, slashed_indices) =
+            JustifiedBalances::from_justified_state_with_equivocating_indices(anchor_state)?;
+        let equivocating_indices = BTreeSet::from_iter(slashed_indices.into_iter());
 
         Ok(Self {
             store,
@@ -331,9 +331,11 @@ where
                 .map_err(Error::FailedToReadState)?
                 .ok_or_else(|| Error::MissingState(justified_block.state_root()))?;
 
-            self.justified_balances = JustifiedBalances::from_justified_state(&state)?;
+            let (justified_balances, slashed_indices) =
+                JustifiedBalances::from_justified_state_with_equivocating_indices(&state)?;
+            self.justified_balances = justified_balances;
             self.equivocating_indices
-                .extend(self.justified_balances.slashed_indices.iter().copied());
+                .extend(slashed_indices.into_iter());
         }
 
         Ok(())

@@ -1,6 +1,5 @@
 use safe_arith::{ArithError, SafeArith};
-use std::collections::HashSet;
-use types::{BeaconState, EthSpec};
+use types::{BeaconState, Epoch, EthSpec, Validator};
 
 #[derive(Debug, PartialEq, Clone, Default)]
 pub struct JustifiedBalances {
@@ -13,26 +12,51 @@ pub struct JustifiedBalances {
     pub total_effective_balance: u64,
     /// The number of active validators included in `self.effective_balances`.
     pub num_active_validators: u64,
-    /// The set of all slashed validators.
-    pub slashed_indices: HashSet<u64>,
 }
 
 impl JustifiedBalances {
     pub fn from_justified_state<T: EthSpec>(state: &BeaconState<T>) -> Result<Self, ArithError> {
-        let current_epoch = state.current_epoch();
+        Self::from_justified_components(state.current_epoch(), &mut state.validators().iter())
+    }
+
+    /// Instantiates `Self` and returns a list of all slashed validator indices
+    /// in `state`, without performing any additional iterations over the
+    /// validator set.
+    pub fn from_justified_state_with_equivocating_indices<T: EthSpec>(
+        state: &BeaconState<T>,
+    ) -> Result<(Self, Vec<u64>), ArithError> {
+        let mut equivocating_indices = vec![];
+
+        let mut iter = state.validators().iter().enumerate().map(|(i, validator)| {
+            equivocating_indices.push(i as u64);
+            validator
+        });
+
+        let justified_balances = Self::from_justified_components(state.current_epoch(), &mut iter)?;
+
+        // Ensure that the entirety of the iterator has been consumed. This is a
+        // paranoid check to defend against modifications to
+        // `Self::from_justified_changes` that might result in the `validators`
+        // iterator not visiting all validators.
+        iter.all(|_| true);
+
+        Ok((justified_balances, equivocating_indices))
+    }
+
+    /// A generic method for generating `Self` from an iterator over the
+    /// validator set.
+    fn from_justified_components<'a, I>(
+        current_epoch: Epoch,
+        validators: &mut I,
+    ) -> Result<Self, ArithError>
+    where
+        I: Iterator<Item = &'a Validator>,
+    {
         let mut total_effective_balance = 0u64;
         let mut num_active_validators = 0u64;
-        let mut slashed_indices = HashSet::new();
 
-        let effective_balances = state
-            .validators()
-            .iter()
-            .enumerate()
-            .map(|(validator_index, validator)| {
-                if validator.slashed {
-                    slashed_indices.insert(validator_index as u64);
-                }
-
+        let effective_balances = validators
+            .map(|validator| {
                 if validator.is_active_at(current_epoch) {
                     total_effective_balance.safe_add_assign(validator.effective_balance)?;
                     num_active_validators.safe_add_assign(1)?;
@@ -48,7 +72,6 @@ impl JustifiedBalances {
             effective_balances,
             total_effective_balance,
             num_active_validators,
-            slashed_indices,
         })
     }
 
@@ -67,8 +90,6 @@ impl JustifiedBalances {
             effective_balances,
             total_effective_balance,
             num_active_validators,
-            // TODO(paul): is an empty set sensible?
-            slashed_indices: <_>::default(),
         })
     }
 }
