@@ -120,6 +120,8 @@ impl ApiTester {
             api_secret,
             validator_dir: Some(validator_dir.path().into()),
             validator_store: Some(validator_store.clone()),
+            graffiti_file: None,
+            graffiti_flag: Some(Graffiti::default()),
             spec: E::default_spec(),
             config: HttpConfig {
                 enabled: true,
@@ -210,9 +212,9 @@ impl ApiTester {
     pub async fn test_get_lighthouse_spec(self) -> Self {
         let result = self
             .client
-            .get_lighthouse_spec::<ConfigAndPresetBellatrix>()
+            .get_lighthouse_spec::<ConfigAndPresetCapella>()
             .await
-            .map(|res| ConfigAndPreset::Bellatrix(res.data))
+            .map(|res| ConfigAndPreset::Capella(res.data))
             .unwrap();
         let expected = ConfigAndPreset::from_chain_spec::<E>(&E::default_spec(), None);
 

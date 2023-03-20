@@ -71,7 +71,16 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("listen-address")
                 .long("listen-address")
                 .value_name("ADDRESS")
-                .help("The address lighthouse will listen for UDP and TCP connections.")
+                .help("The address lighthouse will listen for UDP and TCP connections. To listen \
+                      over IpV4 and IpV6 set this flag twice with the different values.\n\
+                      Examples:\n\
+                      - --listen-address '0.0.0.0' will listen over Ipv4.\n\
+                      - --listen-address '::' will listen over Ipv6.\n\
+                      - --listen-address '0.0.0.0' --listen-address '::' will listen over both \
+                      Ipv4 and Ipv6. The order of the given addresses is not relevant. However, \
+                      multiple Ipv4, or multiple Ipv6 addresses will not be accepted.")
+                .multiple(true)
+                .max_values(2)
                 .default_value("0.0.0.0")
                 .takes_value(true)
         )
@@ -79,8 +88,19 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("port")
                 .long("port")
                 .value_name("PORT")
-                .help("The TCP/UDP port to listen on. The UDP port can be modified by the --discovery-port flag.")
+                .help("The TCP/UDP port to listen on. The UDP port can be modified by the \
+                      --discovery-port flag. If listening over both Ipv4 and Ipv6 the --port flag \
+                      will apply to the Ipv4 address and --port6 to the Ipv6 address.")
                 .default_value("9000")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("port6")
+                .long("port6")
+                .value_name("PORT")
+                .help("The TCP/UDP port to listen on over IpV6 when listening over both Ipv4 and \
+                      Ipv6. Defaults to 9090 when required.")
+                .default_value("9090")
                 .takes_value(true),
         )
         .arg(
@@ -88,6 +108,15 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .long("discovery-port")
                 .value_name("PORT")
                 .help("The UDP port that discovery will listen on. Defaults to `port`")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("discovery-port6")
+                .long("discovery-port6")
+                .value_name("PORT")
+                .help("The UDP port that discovery will listen on over IpV6 if listening over \
+                      both Ipv4 and IpV6. Defaults to `port6`")
+                .hidden(true) // TODO: implement dual stack via two sockets in discv5.
                 .takes_value(true),
         )
         .arg(
@@ -129,27 +158,49 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("enr-udp-port")
                 .long("enr-udp-port")
                 .value_name("PORT")
-                .help("The UDP port of the local ENR. Set this only if you are sure other nodes can connect to your local node on this port.")
+                .help("The UDP4 port of the local ENR. Set this only if you are sure other nodes \
+                      can connect to your local node on this port over IpV4.")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("enr-udp6-port")
+                .long("enr-udp6-port")
+                .value_name("PORT")
+                .help("The UDP6 port of the local ENR. Set this only if you are sure other nodes \
+                      can connect to your local node on this port over IpV6.")
                 .takes_value(true),
         )
         .arg(
             Arg::with_name("enr-tcp-port")
                 .long("enr-tcp-port")
                 .value_name("PORT")
-                .help("The TCP port of the local ENR. Set this only if you are sure other nodes can connect to your local node on this port.\
-                    The --port flag is used if this is not set.")
+                .help("The TCP4 port of the local ENR. Set this only if you are sure other nodes \
+                      can connect to your local node on this port over IpV4. The --port flag is \
+                      used if this is not set.")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("enr-tcp6-port")
+                .long("enr-tcp6-port")
+                .value_name("PORT")
+                .help("The TCP6 port of the local ENR. Set this only if you are sure other nodes \
+                      can connect to your local node on this port over IpV6. The --port6 flag is \
+                      used if this is not set.")
                 .takes_value(true),
         )
         .arg(
             Arg::with_name("enr-address")
                 .long("enr-address")
                 .value_name("ADDRESS")
-                .help("The IP address/ DNS address to broadcast to other peers on how to reach this node. \
-                If a DNS address is provided, the enr-address is set to the IP address it resolves to and \
-                does not auto-update based on PONG responses in discovery. \
-                Set this only if you are sure other nodes can connect to your local node on this address. \
-                Discovery will automatically find your external address, if possible.")
+                .help("The IP address/ DNS address to broadcast to other peers on how to reach \
+                      this node. If a DNS address is provided, the enr-address is set to the IP \
+                      address it resolves to and does not auto-update based on PONG responses in \
+                      discovery. Set this only if you are sure other nodes can connect to your \
+                      local node on this address. This will update the `ip4` or `ip6` ENR fields \
+                      accordingly. To update both, set this flag twice with the different values.")
                 .requires("enr-udp-port")
+                .multiple(true)
+                .max_values(2)
                 .takes_value(true),
         )
         .arg(
@@ -157,7 +208,8 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .short("e")
                 .long("enr-match")
                 .help("Sets the local ENR IP address and port to match those set for lighthouse. \
-                Specifically, the IP address will be the value of --listen-address and the UDP port will be --discovery-port.")
+                      Specifically, the IP address will be the value of --listen-address and the \
+                      UDP port will be --discovery-port.")
         )
         .arg(
             Arg::with_name("disable-enr-auto-update")
@@ -192,6 +244,21 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .long("enable-private-discovery")
                 .help("Lighthouse by default does not discover private IP addresses. Set this flag to enable connection attempts to local addresses.")
                 .takes_value(false),
+        )
+        .arg(
+            Arg::with_name("self-limiter")
+            .long("self-limiter")
+            .help(
+                "Enables the outbound rate limiter (requests made by this node).\
+                \
+                Rate limit quotas per protocol can be set in the form of \
+                <protocol_name>:<tokens>/<time_in_seconds>. To set quotas for multiple protocols, \
+                separate them by ';'. If the self rate limiter is enabled and a protocol is not \
+                present in the configuration, the quotas used for the inbound rate limiter will be \
+                used."
+            )
+            .min_values(0)
+            .hidden(true)
         )
         .arg(
             Arg::with_name("proposer-only")
@@ -722,6 +789,14 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .conflicts_with("checkpoint-state")
         )
         .arg(
+            Arg::with_name("checkpoint-sync-url-timeout")
+                .long("checkpoint-sync-url-timeout")
+                .help("Set the timeout for checkpoint sync calls to remote beacon node HTTP endpoint.")
+                .value_name("SECONDS")
+                .takes_value(true)
+                .default_value("60")
+        )
+        .arg(
             Arg::with_name("reconstruct-historic-states")
                 .long("reconstruct-historic-states")
                 .help("After a checkpoint sync, reconstruct historic states in the database.")
@@ -753,11 +828,63 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true)
         )
         .arg(
+            Arg::with_name("validator-monitor-individual-tracking-threshold")
+                .long("validator-monitor-individual-tracking-threshold")
+                .help("Once the validator monitor reaches this number of local validators \
+                    it will stop collecting per-validator Prometheus metrics and issuing \
+                    per-validator logs. Instead, it will provide aggregate metrics and logs. \
+                    This avoids infeasibly high cardinality in the Prometheus database and \
+                    high log volume when using many validators. Defaults to 64.")
+                .value_name("INTEGER")
+                .takes_value(true)
+        )
+        .arg(
             Arg::with_name("disable-lock-timeouts")
                 .long("disable-lock-timeouts")
                 .help("Disable the timeouts applied to some internal locks by default. This can \
                        lead to less spurious failures on slow hardware but is considered \
                        experimental as it may obscure performance issues.")
+                .takes_value(false)
+        )
+        .arg(
+            Arg::with_name("disable-proposer-reorgs")
+                .long("disable-proposer-reorgs")
+                .help("Do not attempt to reorg late blocks from other validators when proposing.")
+                .takes_value(false)
+        )
+        .arg(
+            Arg::with_name("proposer-reorg-threshold")
+                .long("proposer-reorg-threshold")
+                .value_name("PERCENT")
+                .help("Percentage of vote weight below which to attempt a proposer reorg. \
+                       Default: 20%")
+                .conflicts_with("disable-proposer-reorgs")
+        )
+        .arg(
+            Arg::with_name("proposer-reorg-epochs-since-finalization")
+                .long("proposer-reorg-epochs-since-finalization")
+                .value_name("EPOCHS")
+                .help("Maximum number of epochs since finalization at which proposer reorgs are \
+                       allowed. Default: 2")
+                .conflicts_with("disable-proposer-reorgs")
+        )
+        .arg(
+            Arg::with_name("prepare-payload-lookahead")
+                .long("prepare-payload-lookahead")
+                .value_name("MILLISECONDS")
+                .help("The time before the start of a proposal slot at which payload attributes \
+                       should be sent. Low values are useful for execution nodes which don't \
+                       improve their payload after the first call, and high values are useful \
+                       for ensuring the EL is given ample notice. Default: 1/3 of a slot.")
+                .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("always-prepare-payload")
+                .long("always-prepare-payload")
+                .help("Send payload attributes with every fork choice update. This is intended for \
+                       use by block builders, relays and developers. You should set a fee \
+                       recipient on this BN and also consider adjusting the \
+                       --prepare-payload-lookahead flag.")
                 .takes_value(false)
         )
         .arg(
@@ -866,5 +993,36 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                       This overrides any previous option that depends on it. \
                       Useful if you intend to run a non-validating beacon node.")
                 .takes_value(false)
+        )
+        .arg(
+            Arg::with_name("disable-optimistic-finalized-sync")
+                .long("disable-optimistic-finalized-sync")
+                .help("Force Lighthouse to verify every execution block hash with the execution \
+                       client during finalized sync. By default block hashes will be checked in \
+                       Lighthouse and only passed to the EL if initial verification fails.")
+        )
+        .arg(
+            Arg::with_name("light-client-server")
+                .long("light-client-server")
+                .help("Act as a full node supporting light clients on the p2p network \
+                       [experimental]")
+                .takes_value(false)
+        )
+        .arg(
+            Arg::with_name("gui")
+                .long("gui")
+                .hidden(true)
+                .help("Enable the graphical user interface and all its requirements. \
+                      This is equivalent to --http and --validator-monitor-auto.")
+                .takes_value(false)
+        )
+        .arg(
+            Arg::with_name("always-prefer-builder-payload")
+            .long("always-prefer-builder-payload")
+            .help("If set, the beacon node always uses the payload from the builder instead of the local payload.")
+            // The builder profit threshold flag is used to provide preference
+            // to local payloads, therefore it fundamentally conflicts with
+            // always using the builder.
+            .conflicts_with("builder-profit-threshold")
         )
 }

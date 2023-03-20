@@ -24,7 +24,7 @@ pub fn new_env() -> Environment<MinimalEthSpec> {
 
 #[test]
 fn basic() {
-    let mut env = new_env();
+    let env = new_env();
     let log = env.core_context().log().clone();
     let mut spec = env.eth2_config().spec.clone();
 

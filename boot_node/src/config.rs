@@ -1,9 +1,11 @@
 use beacon_node::{get_data_dir, set_network_config};
 use clap::ArgMatches;
 use eth2_network_config::Eth2NetworkConfig;
+use lighthouse_network::discovery::create_enr_builder_from_config;
+use lighthouse_network::discv5::IpMode;
 use lighthouse_network::discv5::{enr::CombinedKey, Discv5Config, Enr};
 use lighthouse_network::{
-    discovery::{create_enr_builder_from_config, load_enr_from_disk, use_or_load_enr},
+    discovery::{load_enr_from_disk, use_or_load_enr},
     load_private_key, CombinedKeyExt, NetworkConfig,
 };
 use serde_derive::{Deserialize, Serialize};
@@ -55,12 +57,24 @@ impl<T: EthSpec> BootNodeConfig<T> {
 
         let logger = slog_scope::logger();
 
-        set_network_config(&mut network_config, matches, &data_dir, &logger, true)?;
+        set_network_config(&mut network_config, matches, &data_dir, &logger)?;
 
-        // Set the enr-udp-port to the default listening port if it was not specified.
-        if !matches.is_present("enr-udp-port") {
-            network_config.enr_udp_port = Some(network_config.discovery_port);
-        }
+        // Set the Enr UDP ports to the listening ports if not present.
+        if let Some(listening_addr_v4) = network_config.listen_addrs().v4() {
+            network_config.enr_udp4_port = Some(
+                network_config
+                    .enr_udp4_port
+                    .unwrap_or(listening_addr_v4.udp_port),
+            )
+        };
+
+        if let Some(listening_addr_v6) = network_config.listen_addrs().v6() {
+            network_config.enr_udp6_port = Some(
+                network_config
+                    .enr_udp6_port
+                    .unwrap_or(listening_addr_v6.udp_port),
+            )
+        };
 
         // By default this is enabled. If it is not set, revert to false.
         if !matches.is_present("enable-enr-auto-update") {
@@ -68,8 +82,29 @@ impl<T: EthSpec> BootNodeConfig<T> {
         }
 
         // the address to listen on
-        let listen_socket =
-            SocketAddr::new(network_config.listen_address, network_config.discovery_port);
+        let listen_socket = match network_config.listen_addrs().clone() {
+            lighthouse_network::ListenAddress::V4(v4_addr) => {
+                // Set explicitly as ipv4 otherwise
+                network_config.discv5_config.ip_mode = IpMode::Ip4;
+                v4_addr.udp_socket_addr()
+            }
+            lighthouse_network::ListenAddress::V6(v6_addr) => {
+                // create ipv6 sockets and enable ipv4 mapped addresses.
+                network_config.discv5_config.ip_mode = IpMode::Ip6 {
+                    enable_mapped_addresses: false,
+                };
+
+                v6_addr.udp_socket_addr()
+            }
+            lighthouse_network::ListenAddress::DualStack(_v4_addr, v6_addr) => {
+                // create ipv6 sockets and enable ipv4 mapped addresses.
+                network_config.discv5_config.ip_mode = IpMode::Ip6 {
+                    enable_mapped_addresses: true,
+                };
+
+                v6_addr.udp_socket_addr()
+            }
+        };
 
         let private_key = load_private_key(&network_config, &logger);
         let local_key = CombinedKey::from_libp2p(&private_key)?;
@@ -104,8 +139,8 @@ impl<T: EthSpec> BootNodeConfig<T> {
             // Build the local ENR
 
             let mut local_enr = {
-                let mut builder = create_enr_builder_from_config(&network_config, false);
-
+                let enable_tcp = false;
+                let mut builder = create_enr_builder_from_config(&network_config, enable_tcp);
                 // If we know of the ENR field, add it to the initial construction
                 if let Some(enr_fork_bytes) = enr_fork {
                     builder.add_value("eth2", enr_fork_bytes.as_slice());
