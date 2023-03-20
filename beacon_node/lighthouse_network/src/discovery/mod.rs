@@ -197,6 +197,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
         };
 
         let local_enr = network_globals.local_enr.read().clone();
+        let local_node_id = local_enr.node_id();
 
         info!(log, "ENR Initialised"; "enr" => local_enr.to_base64(), "seq" => local_enr.seq(), "id"=> %local_enr.node_id(),
               "ip4" => ?local_enr.ip4(), "udp4"=> ?local_enr.udp4(), "tcp4" => ?local_enr.tcp6()
@@ -217,6 +218,10 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
 
         // Add bootnodes to routing table
         for bootnode_enr in config.boot_nodes_enr.clone() {
+            if bootnode_enr.node_id() == local_node_id {
+                // If we are a boot node, ignore adding it to the routing table
+                continue;
+            }
             debug!(
                 log,
                 "Adding node to routing table";
