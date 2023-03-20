@@ -18,7 +18,6 @@ use operation_pool::ReceivedPreCapella;
 use slog::{crit, debug, error, info, trace, warn};
 use slot_clock::SlotClock;
 use ssz::Encode;
-use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use store::hot_cold_store::HotColdDBError;
 use tokio::sync::mpsc;
@@ -31,8 +30,8 @@ use types::{
 
 use super::{
     super::work_reprocessing_queue::{
-        QueuedAggregate, QueuedExecutedBlock, QueuedGossipBlock, QueuedLightClientUpdate,
-        QueuedUnaggregate, ReprocessQueueMessage,
+        QueuedAggregate, QueuedGossipBlock, QueuedLightClientUpdate, QueuedUnaggregate,
+        ReprocessQueueMessage,
     },
     Worker,
 };

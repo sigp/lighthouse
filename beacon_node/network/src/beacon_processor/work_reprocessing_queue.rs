@@ -14,15 +14,13 @@ use super::MAX_SCHEDULED_WORK_QUEUE_LEN;
 use crate::metrics;
 use crate::sync::manager::BlockProcessType;
 use beacon_chain::blob_verification::{AsBlock, BlockWrapper};
-use beacon_chain::{
-    BeaconChainTypes, ExecutedBlock, GossipVerifiedBlock, MAXIMUM_GOSSIP_CLOCK_DISPARITY,
-};
+use beacon_chain::{BeaconChainTypes, GossipVerifiedBlock, MAXIMUM_GOSSIP_CLOCK_DISPARITY};
 use fnv::FnvHashMap;
 use futures::task::Poll;
 use futures::{Stream, StreamExt};
 use lighthouse_network::{MessageId, PeerId};
 use logging::TimeLatch;
-use slog::{crit, debug, error, trace, warn, Logger};
+use slog::{debug, error, trace, warn, Logger};
 use slot_clock::SlotClock;
 use std::collections::{HashMap, HashSet};
 use std::pin::Pin;
@@ -30,7 +28,6 @@ use std::task::Context;
 use std::time::Duration;
 use task_executor::TaskExecutor;
 use tokio::sync::mpsc::{self, Receiver, Sender};
-use tokio::time::error::Error as TimeError;
 use tokio_util::time::delay_queue::{DelayQueue, Key as DelayKey};
 use types::{
     Attestation, EthSpec, Hash256, LightClientOptimisticUpdate, SignedAggregateAndProof, SubnetId,
@@ -55,18 +52,10 @@ pub const QUEUED_LIGHT_CLIENT_UPDATE_DELAY: Duration = Duration::from_secs(12);
 /// For how long to queue rpc blocks before sending them back for reprocessing.
 pub const QUEUED_RPC_BLOCK_DELAY: Duration = Duration::from_secs(3);
 
-/// For how long to queue executed blocks before sending them back for reprocessing.
-pub const QUEUED_EXECUTED_BLOCK_DELAY: Duration = Duration::from_secs(12);
-
 /// Set an arbitrary upper-bound on the number of queued blocks to avoid DoS attacks. The fact that
 /// we signature-verify blocks before putting them in the queue *should* protect against this, but
 /// it's nice to have extra protection.
 const MAXIMUM_QUEUED_BLOCKS: usize = 16;
-
-/// An `ExecutedBlock` contains the entire `BeaconState`, so we shouldn't be storing too many of them
-/// to avoid getting DoS'd by the block proposer.
-/// TODO(pawan): revise the max blocks
-const MAXIMUM_QUEUED_EXECUTED_BLOCKS: usize = 4;
 
 /// How many attestations we keep before new ones get dropped.
 const MAXIMUM_QUEUED_ATTESTATIONS: usize = 16_384;
@@ -87,9 +76,6 @@ pub enum ReprocessQueueMessage<T: BeaconChainTypes> {
         block_root: Hash256,
         parent_root: Hash256,
     },
-    ExecutedBlock(QueuedExecutedBlock<T::EthSpec>),
-    /// The blobs corresponding to a `block_root` are now fully available.
-    BlobsAvailable(Hash256),
     /// An unaggregated attestation that references an unknown block.
     UnknownBlockUnaggregate(QueuedUnaggregate<T::EthSpec>),
     /// An aggregated attestation that references an unknown block.
@@ -101,7 +87,6 @@ pub enum ReprocessQueueMessage<T: BeaconChainTypes> {
 /// Events sent by the scheduler once they are ready for re-processing.
 pub enum ReadyWork<T: BeaconChainTypes> {
     GossipBlock(QueuedGossipBlock<T>),
-    ExecutedBlock(QueuedExecutedBlock<T::EthSpec>),
     RpcBlock(QueuedRpcBlock<T::EthSpec>),
     Unaggregate(QueuedUnaggregate<T::EthSpec>),
     Aggregate(QueuedAggregate<T::EthSpec>),
@@ -145,14 +130,6 @@ pub struct QueuedGossipBlock<T: BeaconChainTypes> {
     pub seen_timestamp: Duration,
 }
 
-/// A block that has been fully verified and is pending data availability
-/// and import into the beacon chain.
-pub struct QueuedExecutedBlock<T: EthSpec> {
-    pub peer_id: PeerId,
-    pub block: ExecutedBlock<T>,
-    pub seen_timestamp: Duration,
-}
-
 /// A block that arrived for processing when the same block was being imported over gossip.
 /// It is queued for later import.
 pub struct QueuedRpcBlock<T: EthSpec> {
@@ -169,9 +146,6 @@ pub struct QueuedRpcBlock<T: EthSpec> {
 enum InboundEvent<T: BeaconChainTypes> {
     /// A gossip block that was queued for later processing and is ready for import.
     ReadyGossipBlock(QueuedGossipBlock<T>),
-    /// An executed block that was queued for blob availability and is now
-    /// ready for import
-    ReadyExecutedBlock(QueuedExecutedBlock<T::EthSpec>),
     /// A rpc block that was queued because the same gossip block was being imported
     /// will now be retried for import.
     ReadyRpcBlock(QueuedRpcBlock<T::EthSpec>),
@@ -179,8 +153,6 @@ enum InboundEvent<T: BeaconChainTypes> {
     ReadyAttestation(QueuedAttestationId),
     /// A light client update that is ready for re-processing.
     ReadyLightClientUpdate(QueuedLightClientUpdateId),
-    /// A `DelayQueue` returned an error.
-    DelayQueueError(TimeError, &'static str),
     /// A message sent to the `ReprocessQueue`
     Msg(ReprocessQueueMessage<T>),
 }
@@ -195,8 +167,6 @@ struct ReprocessQueue<T: BeaconChainTypes> {
     /* Queues */
     /// Queue to manage scheduled early blocks.
     gossip_block_delay_queue: DelayQueue<QueuedGossipBlock<T>>,
-    /// Queue to manage availability pending blocks.
-    executed_block_delay_queue: DelayQueue<QueuedExecutedBlock<T::EthSpec>>,
     /// Queue to manage scheduled early blocks.
     rpc_block_delay_queue: DelayQueue<QueuedRpcBlock<T::EthSpec>>,
     /// Queue to manage scheduled attestations.
@@ -207,8 +177,6 @@ struct ReprocessQueue<T: BeaconChainTypes> {
     /* Queued items */
     /// Queued blocks.
     queued_gossip_block_roots: HashSet<Hash256>,
-    /// Queued availability pending blocks.
-    queued_executed_block_roots: HashMap<Hash256, DelayKey>,
     /// Queued aggregated attestations.
     queued_aggregates: FnvHashMap<usize, (QueuedAggregate<T::EthSpec>, DelayKey)>,
     /// Queued attestations.
@@ -264,17 +232,6 @@ impl<T: BeaconChainTypes> Stream for ReprocessQueue<T> {
         match self.gossip_block_delay_queue.poll_expired(cx) {
             Poll::Ready(Some(queued_block)) => {
                 return Poll::Ready(Some(InboundEvent::ReadyGossipBlock(
-                    queued_block.into_inner(),
-                )));
-            }
-            // `Poll::Ready(None)` means that there are no more entries in the delay queue and we
-            // will continue to get this result until something else is added into the queue.
-            Poll::Ready(None) | Poll::Pending => (),
-        }
-
-        match self.executed_block_delay_queue.poll_expired(cx) {
-            Poll::Ready(Some(queued_block)) => {
-                return Poll::Ready(Some(InboundEvent::ReadyExecutedBlock(
                     queued_block.into_inner(),
                 )));
             }
@@ -341,12 +298,10 @@ pub fn spawn_reprocess_scheduler<T: BeaconChainTypes>(
         work_reprocessing_rx,
         ready_work_tx,
         gossip_block_delay_queue: DelayQueue::new(),
-        executed_block_delay_queue: DelayQueue::new(),
         rpc_block_delay_queue: DelayQueue::new(),
         attestations_delay_queue: DelayQueue::new(),
         lc_updates_delay_queue: DelayQueue::new(),
         queued_gossip_block_roots: HashSet::new(),
-        queued_executed_block_roots: HashMap::new(),
         queued_lc_updates: FnvHashMap::default(),
         queued_aggregates: FnvHashMap::default(),
         queued_unaggregates: FnvHashMap::default(),
@@ -437,59 +392,6 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                                 log,
                                 "Failed to send block";
                             );
-                        }
-                    }
-                }
-            }
-            InboundEvent::Msg(ExecutedBlock(executed_block)) => {
-                if self.executed_block_delay_queue.len() >= MAXIMUM_QUEUED_EXECUTED_BLOCKS {
-                    // TODO(use your own debounce)
-                    if self.rpc_block_debounce.elapsed() {
-                        warn!(
-                            log,
-                            "Executed blocks queue is full";
-                            "queue_size" => MAXIMUM_QUEUED_EXECUTED_BLOCKS,
-                            "msg" => "check system clock"
-                        );
-                    }
-                    // TODO(pawan): block would essentially get dropped here
-                    // can the devs do something?
-                }
-                // Queue the block for a slot
-                let block_root = executed_block.block.block_root;
-                if !self.queued_executed_block_roots.contains_key(&block_root) {
-                    let key = self
-                        .executed_block_delay_queue
-                        .insert(executed_block, QUEUED_EXECUTED_BLOCK_DELAY);
-
-                    self.queued_executed_block_roots.insert(block_root, key);
-                }
-            }
-            InboundEvent::Msg(BlobsAvailable(block_root)) => {
-                match self.queued_executed_block_roots.remove(&block_root) {
-                    None => {
-                        // Log an error to alert that we've made a bad assumption about how this
-                        // program works, but still process the block anyway.
-                        error!(
-                            log,
-                            "Unknown executed block in delay queue";
-                            "block_root" => ?block_root
-                        );
-                    }
-                    Some(key) => {
-                        if let Some(executed_block) =
-                            self.executed_block_delay_queue.try_remove(&key)
-                        {
-                            if self
-                                .ready_work_tx
-                                .try_send(ReadyWork::ExecutedBlock(executed_block.into_inner()))
-                                .is_err()
-                            {
-                                error!(
-                                    log,
-                                    "Failed to pop queued block";
-                                );
-                            }
                         }
                     }
                 }
@@ -747,24 +649,6 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                     }
                 }
             }
-            InboundEvent::ReadyExecutedBlock(executed_block) => {
-                let block_root = executed_block.block.block_root;
-
-                if self
-                    .queued_executed_block_roots
-                    .remove(&block_root)
-                    .is_none()
-                {
-                    // Log an error to alert that we've made a bad assumption about how this
-                    // program works, but still process the block anyway.
-                    error!(
-                        log,
-                        "Unknown block in delay queue";
-                        "block_root" => ?block_root
-                    );
-                }
-                // TODO(pawan): just dropping the block, rethink what can be done here
-            }
             // A block that was queued for later processing is now ready to be processed.
             InboundEvent::ReadyGossipBlock(ready_block) => {
                 let block_root = ready_block.block.block_root;
@@ -791,14 +675,6 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                 }
             }
 
-            InboundEvent::DelayQueueError(e, queue_name) => {
-                crit!(
-                    log,
-                    "Failed to poll queue";
-                    "queue" => queue_name,
-                    "e" => ?e
-                )
-            }
             InboundEvent::ReadyAttestation(queued_id) => {
                 metrics::inc_counter(
                     &metrics::BEACON_PROCESSOR_REPROCESSING_QUEUE_EXPIRED_ATTESTATIONS,
