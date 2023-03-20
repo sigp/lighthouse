@@ -32,7 +32,7 @@ impl<T: EthSpec> BlocksAndBlobsRequestInfo<T> {
     pub fn into_responses(self) -> Result<Vec<TempBlockWrapper<T>>, &'static str> {
         let BlocksAndBlobsRequestInfo {
             accumulated_blocks,
-            mut accumulated_sidecars,
+            accumulated_sidecars,
             ..
         } = self;
 

@@ -1,47 +1,63 @@
-use std::collections::{BTreeMap, HashMap, HashSet};
-use std::sync::Arc;
+use crate::blob_verification::{
+    verify_data_availability, AsBlock, AvailableBlock, BlockWrapper, VerifiedBlobs,
+};
+use crate::block_verification::{ExecutedBlock, IntoExecutionPendingBlock};
+use crate::kzg_utils::validate_blob;
+use crate::{BeaconChain, BeaconChainError, BeaconChainTypes, BlockError};
+use kzg::Error as KzgError;
+use kzg::{Kzg, KzgCommitment};
 use parking_lot::{Mutex, RwLock};
-use kzg::KzgCommitment;
-use ssz_types::VariableList;
+use ssz_types::{Error, VariableList};
+use std::collections::hash_map::Entry;
+use std::collections::{BTreeMap, HashMap, HashSet};
+use std::future::Future;
+use std::sync::{mpsc, Arc};
+use tokio::sync::mpsc::Sender;
 use types::blob_sidecar::{BlobIdentifier, BlobSidecar};
-use types::{EthSpec, Hash256};
-use crate::blob_verification::{AvailabilityPendingBlock, verify_data_availability};
-use crate::block_verification::IntoExecutionPendingBlock;
+use types::{EthSpec, Hash256, SignedBeaconBlock, SignedBlobSidecar};
+
+#[derive(Debug)]
+pub enum AvailabilityCheckError {
+    DuplicateBlob(Hash256),
+    Kzg(KzgError),
+    SszTypes(ssz_types::Error),
+}
+
+impl From<ssz_types::Error> for AvailabilityCheckError {
+    fn from(value: Error) -> Self {
+        Self::SszTypes(value)
+    }
+}
 
 /// This cache contains
 ///  - blobs that have been gossip verified
 ///  - commitments for blocks that have been gossip verified, but the commitments themselves
 ///    have not been verified against blobs
 ///  - blocks that have been fully verified and only require a data availability check
-pub struct GossipBlobCache<T: EthSpec> {
-    blob_cache: Mutex<GossipBlobCacheInner<T>>
+pub struct DataAvailabilityChecker<T: EthSpec> {
+    rpc_blob_cache: RwLock<HashMap<BlobIdentifier, Arc<BlobSidecar<T>>>>,
+    gossip_blob_cache: Mutex<HashMap<Hash256, GossipBlobCache<T>>>,
+    kzg: Option<Arc<Kzg>>,
 }
 
-struct GossipBlobCacheInner<T: EthSpec> {
-    // used when all blobs are not yet present and when the block is not yet present
-
-    //TODO(sean) do we want two versions of this cache, one meant to serve RPC?
-    unverified_blobs: BTreeMap<BlobIdentifier, Arc<BlobSidecar<T>>>,
-    // used when the block was fully processed before we received all blobs
-    availability_pending_blocks: HashMap<Hash256, AvailabilityPendingBlock<T>>,
-    // used to cache kzg commitments from gossip verified blocks in case we receive all blobs during block processing
-    unverified_commitments: HashMap<Hash256, VariableList<KzgCommitment, T::MaxBlobsPerBlock>>,
-    // used when block + blob kzg verification completes prior before block processing
-    verified_commitments: HashSet<Hash256>,
+pub enum Availability<T: EthSpec> {
+    PendingBlobs(Vec<BlobIdentifier>),
+    PendingBlock(Hash256),
+    Available(ExecutedBlock<T>),
 }
 
-impl <T: EthSpec> GossipBlobCache<T> {
-    pub fn new() -> Self {
+struct GossipBlobCache<T: EthSpec> {
+    verified_blobs: Vec<Arc<BlobSidecar<T>>>,
+    executed_block: Option<ExecutedBlock<T>>,
+}
 
+impl<T: EthSpec> DataAvailabilityChecker<T> {
+    pub fn new(kzg: Option<Arc<Kzg>>) -> Self {
         Self {
-            blob_cache: Mutex::new(GossipBlobCacheInner {
-                unverified_blobs:  BTreeMap::new(),
-                availability_pending_blocks:  HashMap::new(),
-                unverified_commitments: HashMap::new(),
-                verified_commitments: HashSet::new(),
-            })
+            rpc_blob_cache: <_>::default(),
+            gossip_blob_cache: <_>::default(),
+            kzg,
         }
-
     }
 
     /// When we receive a blob check if we've cached it. If it completes a set and we have the
@@ -49,59 +65,192 @@ impl <T: EthSpec> GossipBlobCache<T> {
     /// cached, verify the block and import it.
     ///
     /// This should only accept gossip verified blobs, so we should not have to worry about dupes.
-    pub fn put_blob(&self, blob: Arc<BlobSidecar<T>>) {
-        let blob_id = blob.id();
-        let blob_cache = self.blob_cache.lock();
-
-        if let Some(dup) = blob_cache.unverified_blobs.insert(blob_id, blob) {
-            // return error relating to gossip validation failure
-        }
-
-        if let Some(availability_pending_block) = blob_cache.availability_pending_blocks.get(&blob.block_root) {
-            let num_blobs = availability_pending_block.kzg_commitments().len();
-            let mut blobs : Vec<BlobIdentifier, BlobSidecar<T>> = blob_cache.unverified_blobs.range(BlobIdentifier::new(blob.block_root, 0)
-                ..BlobIdentifier::new(blob.block_root, num_blobs as u64)).collect();
-
-            if blobs.len() == num_blobs {
-               // verify
-                // import
-            }
-        } else if let Some(commitments) = blob_cache.unverified_commitments.get(&blob.block_root) {
-            let num_blobs = commitments.len();
-            let mut blobs : Vec<BlobIdentifier, BlobSidecar<T>> = blob_cache.unverified_blobs.range(BlobIdentifier::new(blob.block_root, 0)
-                ..BlobIdentifier::new(blob.block_root, num_blobs as u64)).collect();
-
-            if blobs.len() == num_blobs {
-                // verify
-                // cache
-            }
-        }
-    }
-
-
-    pub fn put_commitments(&self, block_root: Hash256, kzg_commitments: VariableList<KzgCommitment, T::MaxBlobsPerBlock>) {
-        let blob_cache = self.blob_cache.lock();
-        if let Some(dup) = blob_cache.unverified_commitments.insert(block_root, kzg_commitments) {
-            // return error relating to gossip validation failure
-        }
-
-        let num_blobs = commitments.len();
-        let mut blobs : Vec<BlobIdentifier, BlobSidecar<T>> = blob_cache.unverified_blobs.range(BlobIdentifier::new(blob.block_root, 0)
-            ..BlobIdentifier::new(blob.block_root, num_blobs as u64)).collect();
-
-        if blobs.len() == num_blobs {
-            // verify
-            // cache
-        }
-    }
-
-    pub fn check_availability_and_import(&self, block_root: Hash256, block: AvailabilityPendingBlock<T>) -> bool {
-        let blob_cache = self.blob_cache.lock();
-       if blob_cache.verified_commitments.contains(&block_root) {
-          true
-       } else {
-           // cache the block
+    // return an enum here that may include the full block
+    pub fn put_blob(
+        &self,
+        blob: Arc<BlobSidecar<T>>,
+    ) -> Result<Availability<T>, AvailabilityCheckError> {
+        let verified = if let Some(kzg) = self.kzg.as_ref() {
+            validate_blob::<T>(
+                kzg,
+                blob.blob.clone(),
+                blob.kzg_commitment.clone(),
+                blob.kzg_proof,
+            )
+            .map_err(|e| AvailabilityCheckError::Kzg(e))?
+        } else {
             false
-       }
+            // error wrong fork
+        };
+
+        // TODO(remove clones)
+
+        if verified {
+            let mut blob_cache = self.gossip_blob_cache.lock();
+
+            // Gossip cache.
+            blob_cache
+                .entry(blob.block_root)
+                .and_modify(|mut inner| {
+                    // All blobs reaching this cache should be gossip verified and gossip verification
+                    // should filter duplicates, as well as validate indices.
+                    inner
+                        .verified_blobs
+                        .insert(blob.index as usize, blob.clone());
+
+                    if let Some(executed_block) = inner.executed_block.take() {
+                        let verified_commitments: Vec<_> = inner
+                            .verified_blobs
+                            .iter()
+                            .map(|blob| blob.kzg_commitment)
+                            .collect();
+                        if verified_commitments
+                            == executed_block
+                                .block
+                                .as_block()
+                                .message_eip4844()
+                                .unwrap() //TODO(sean) errors
+                                .body
+                                .blob_kzg_commitments
+                                .clone()
+                                .to_vec()
+                        {
+                            // send to reprocessing queue ?
+                            //TODO(sean) try_send?
+                            //TODO(sean) errors
+                        } else {
+                            let _ = inner.executed_block.insert(executed_block);
+                        }
+                    }
+                })
+                .or_insert(GossipBlobCache {
+                    verified_blobs: vec![blob.clone()],
+                    executed_block: None,
+                });
+
+            drop(blob_cache);
+
+            // RPC cache.
+            self.rpc_blob_cache.write().insert(blob.id(), blob.clone());
+        }
+
+        Ok(Availability::PendingBlobs(vec![]))
+    }
+
+    // return an enum here that may include the full block
+    pub fn check_block_availability(
+        &self,
+        executed_block: ExecutedBlock<T>,
+    ) -> Result<Availability<T>, AvailabilityCheckError> {
+        let block_clone = executed_block.block.clone();
+
+        let availability = match block_clone {
+            BlockWrapper::Available(available_block) => Availability::Available(executed_block),
+            BlockWrapper::AvailabilityPending(block) => {
+                if let Ok(kzg_commitments) = block.message().body().blob_kzg_commitments() {
+                    // first check if the blockwrapper contains blobs, if so, use those
+
+                    let mut guard = self.gossip_blob_cache.lock();
+                    let entry = guard.entry(executed_block.block_root);
+
+                    match entry {
+                        Entry::Occupied(mut occupied_entry) => {
+                            let cache: &mut GossipBlobCache<T> = occupied_entry.get_mut();
+
+                            let verified_commitments: Vec<_> = cache
+                                .verified_blobs
+                                .iter()
+                                .map(|blob| blob.kzg_commitment)
+                                .collect();
+                            if verified_commitments == kzg_commitments.clone().to_vec() {
+                                let removed: GossipBlobCache<T> = occupied_entry.remove();
+
+                                let ExecutedBlock {
+                                    block: _,
+                                    block_root,
+                                    state,
+                                    parent_block,
+                                    parent_eth1_finalization_data,
+                                    confirmed_state_roots,
+                                    consensus_context,
+                                    payload_verification_outcome,
+                                } = executed_block;
+
+                                let available_block = BlockWrapper::Available(AvailableBlock {
+                                    block,
+                                    blobs: VerifiedBlobs::Available(VariableList::new(
+                                        removed.verified_blobs,
+                                    )?),
+                                });
+
+                                let available_executed = ExecutedBlock {
+                                    block: available_block,
+                                    block_root,
+                                    state,
+                                    parent_block,
+                                    parent_eth1_finalization_data,
+                                    confirmed_state_roots,
+                                    consensus_context,
+                                    payload_verification_outcome,
+                                };
+                                Availability::Available(available_executed)
+                            } else {
+                                let mut missing_blobs = Vec::with_capacity(kzg_commitments.len());
+                                for i in 0..kzg_commitments.len() {
+                                    if cache.verified_blobs.get(i).is_none() {
+                                        missing_blobs.push(BlobIdentifier {
+                                            block_root: executed_block.block_root,
+                                            index: i as u64,
+                                        })
+                                    }
+                                }
+
+                                //TODO(sean) add a check that missing blobs > 0
+
+                                let _ = cache.executed_block.insert(executed_block.clone());
+                                // log that we cached the block?
+                                Availability::PendingBlobs(missing_blobs)
+                            }
+                        }
+                        Entry::Vacant(vacant_entry) => {
+                            let mut blob_ids = Vec::with_capacity(kzg_commitments.len());
+                            for i in 0..kzg_commitments.len() {
+                                blob_ids.push(BlobIdentifier {
+                                    block_root: executed_block.block_root,
+                                    index: i as u64,
+                                });
+                            }
+
+                            vacant_entry.insert(GossipBlobCache {
+                                verified_blobs: vec![],
+                                executed_block: Some(executed_block),
+                            });
+
+                            Availability::PendingBlobs(blob_ids)
+                        }
+                    }
+                } else {
+                    Availability::Available(executed_block)
+                }
+            }
+        };
+        Ok(availability)
+    }
+
+    /// Adds the blob to the cache. Returns true if adding the blob completes
+    /// all the required blob sidecars for a given block root.
+    ///
+    /// Note: we can only know this if we know `block.kzg_commitments.len()`
+    pub fn put_blob_temp(
+        &self,
+        blob: Arc<SignedBlobSidecar<T>>,
+    ) -> Result<bool, AvailabilityCheckError> {
+        unimplemented!()
+    }
+
+    /// Returns all blobs associated with a given block root otherwise returns
+    /// a UnavailableBlobs error.
+    pub fn blobs(&self, block_root: Hash256) -> Result<VerifiedBlobs<T>, AvailabilityCheckError> {
+        unimplemented!()
     }
 }

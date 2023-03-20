@@ -7,7 +7,7 @@ use types::{
     ChainSpec, Epoch, EthSpec, Hash256, IndexedAttestation, SignedBeaconBlock, Slot,
 };
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ConsensusContext<T: EthSpec> {
     /// Slot to act as an identifier/safeguard
     slot: Slot,

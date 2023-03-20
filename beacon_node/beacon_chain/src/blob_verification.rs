@@ -1,15 +1,21 @@
 use slot_clock::SlotClock;
+use state_processing::ConsensusContext;
 use std::sync::Arc;
 
 use crate::beacon_chain::{
     BeaconChain, BeaconChainTypes, MAXIMUM_GOSSIP_CLOCK_DISPARITY,
     VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT,
 };
+use crate::gossip_blob_cache::AvailabilityCheckError;
+use crate::snapshot_cache::PreProcessingSnapshot;
 use crate::BeaconChainError;
+use derivative::Derivative;
 use state_processing::per_block_processing::eip4844::eip4844::verify_kzg_commitments_against_transactions;
+use types::blob_sidecar::BlobSidecarArcList;
 use types::{
-    BeaconBlockRef, BeaconStateError, BlobSidecarList, Epoch, EthSpec, Hash256, KzgCommitment,
-    SignedBeaconBlock, SignedBeaconBlockHeader, SignedBlobSidecar, Slot, Transactions,
+    BeaconBlockRef, BeaconStateError, BlobSidecar, BlobSidecarList, Epoch, EthSpec, Hash256,
+    KzgCommitment, SignedBeaconBlock, SignedBeaconBlockHeader, SignedBlobSidecar, Slot,
+    Transactions,
 };
 
 #[derive(Debug)]
@@ -107,6 +113,8 @@ pub enum BlobError {
     ///
     /// The block is invalid and the peer is faulty.
     UnknownValidator(u64),
+
+    BlobCacheError(AvailabilityCheckError),
 }
 
 impl From<BeaconChainError> for BlobError {
@@ -121,14 +129,27 @@ impl From<BeaconStateError> for BlobError {
     }
 }
 
+/// A wrapper around a `BlobSidecar` that indicates it has been approved for re-gossiping on
+/// the p2p network.
+#[derive(Debug)]
+pub struct GossipVerifiedBlob<T: EthSpec> {
+    blob: BlobSidecar<T>,
+}
+
+impl<T: EthSpec> GossipVerifiedBlob<T> {
+    pub fn to_blob(self) -> BlobSidecar<T> {
+        self.blob
+    }
+}
+
 pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
-    blob_sidecar: SignedBlobSidecar<T::EthSpec>,
+    signed_blob_sidecar: SignedBlobSidecar<T::EthSpec>,
     subnet: u64,
     chain: &BeaconChain<T>,
-) -> Result<(), BlobError> {
-    let blob_slot = blob_sidecar.message.slot;
-    let blob_index = blob_sidecar.message.index;
-    let block_root = blob_sidecar.message.block_root;
+) -> Result<GossipVerifiedBlob<T::EthSpec>, BlobError> {
+    let blob_slot = signed_blob_sidecar.message.slot;
+    let blob_index = signed_blob_sidecar.message.index;
+    let block_root = signed_blob_sidecar.message.block_root;
 
     // Verify that the blob_sidecar was received on the correct subnet.
     if blob_index != subnet {
@@ -167,7 +188,7 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
 
     // TODO(pawan): should we verify locally that the parent root is correct
     // or just use whatever the proposer gives us?
-    let proposer_shuffling_root = blob_sidecar.message.block_parent_root;
+    let proposer_shuffling_root = signed_blob_sidecar.message.block_parent_root;
 
     let (proposer_index, fork) = match chain
         .beacon_proposer_cache
@@ -184,7 +205,7 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
         }
     };
 
-    let blob_proposer_index = blob_sidecar.message.proposer_index;
+    let blob_proposer_index = signed_blob_sidecar.message.proposer_index;
     if proposer_index != blob_proposer_index as usize {
         return Err(BlobError::ProposerIndexMismatch {
             sidecar: blob_proposer_index as usize,
@@ -203,7 +224,7 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
             .get(proposer_index as usize)
             .ok_or_else(|| BlobError::UnknownValidator(proposer_index as u64))?;
 
-        blob_sidecar.verify_signature(
+        signed_blob_sidecar.verify_signature(
             None,
             pubkey,
             &fork,
@@ -221,8 +242,6 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
     // TODO(pawan): Check if other blobs for the same proposer index and blob index have been
     // received and drop if required.
 
-    // TODO(pawan): potentially add to a seen cache at this point.
-
     // Verify if the corresponding block for this blob has been received.
     // Note: this should be the last gossip check so that we can forward the blob
     // over the gossip network even if we haven't received the corresponding block yet
@@ -233,13 +252,16 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
         .get_block(&block_root)
         .or_else(|| chain.early_attester_cache.get_proto_block(block_root)); // TODO(pawan): should we be checking this cache?
 
+    // TODO(pawan): this may be redundant with the new `AvailabilityProcessingStatus::PendingBlock variant`
     if block_opt.is_none() {
         return Err(BlobError::UnknownHeadBlock {
             beacon_block_root: block_root,
         });
     }
 
-    Ok(())
+    Ok(GossipVerifiedBlob {
+        blob: signed_blob_sidecar.message,
+    })
 }
 
 pub fn verify_data_availability<T: BeaconChainTypes>(
@@ -301,39 +323,45 @@ impl<T: BeaconChainTypes> IntoAvailableBlock<T> for BlockWrapper<T::EthSpec> {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Derivative)]
+#[derivative(Hash(bound = "T: EthSpec"))]
 pub struct AvailableBlock<T: EthSpec> {
     pub block: Arc<SignedBeaconBlock<T>>,
-    pub blobs: Blobs<T>,
+    pub blobs: VerifiedBlobs<T>,
 }
 
 impl<T: EthSpec> AvailableBlock<T> {
-    pub fn blobs(&self) -> Option<Arc<BlobSidecarList<T>>> {
+    pub fn blobs(&self) -> Option<BlobSidecarArcList<T>> {
         match &self.blobs {
-            Blobs::NotRequired | Blobs::None => None,
-            Blobs::Available(blobs) => Some(blobs.clone()),
+            VerifiedBlobs::EmptyBlobs | VerifiedBlobs::NotRequired | VerifiedBlobs::PreEip4844 => {
+                None
+            }
+            VerifiedBlobs::Available(blobs) => Some(blobs.clone()),
         }
     }
 
-    pub fn deconstruct(self) -> (Arc<SignedBeaconBlock<T>>, Option<Arc<BlobSidecarList<T>>>) {
+    pub fn deconstruct(self) -> (Arc<SignedBeaconBlock<T>>, Option<BlobSidecarArcList<T>>) {
         match self.blobs {
-            Blobs::NotRequired | Blobs::None => (self.block, None),
-            Blobs::Available(blobs) => (self.block, Some(blobs)),
+            VerifiedBlobs::EmptyBlobs | VerifiedBlobs::NotRequired | VerifiedBlobs::PreEip4844 => {
+                (self.block, None)
+            }
+            VerifiedBlobs::Available(blobs) => (self.block, Some(blobs)),
         }
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
-pub enum Blobs<E: EthSpec> {
+#[derive(Clone, Debug, PartialEq, Derivative)]
+#[derivative(Hash(bound = "E: EthSpec"))]
+pub enum VerifiedBlobs<E: EthSpec> {
     /// These blobs are available.
-    Available(Arc<BlobSidecarList<E>>),
+    Available(BlobSidecarArcList<E>),
     /// This block is from outside the data availability boundary so doesn't require
     /// a data availability check.
     NotRequired,
     /// The block's `kzg_commitments` field is empty so it does not contain any blobs.
     EmptyBlobs,
     /// This is a block prior to the 4844 fork, so doesn't require any blobs
-    None,
+    PreEip4844,
 }
 
 pub trait AsBlock<E: EthSpec> {
@@ -348,7 +376,8 @@ pub trait AsBlock<E: EthSpec> {
     fn canonical_root(&self) -> Hash256;
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Derivative)]
+#[derivative(Hash(bound = "E: EthSpec"))]
 pub enum BlockWrapper<E: EthSpec> {
     /// This variant is fully available.
     /// i.e. for pre-4844 blocks, it contains a (`SignedBeaconBlock`, `Blobs::None`) and for

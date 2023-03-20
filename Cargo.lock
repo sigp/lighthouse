@@ -5094,7 +5094,7 @@ dependencies = [
  "task_executor",
  "tokio",
  "tokio-stream",
- "tokio-util 0.6.10",
+ "tokio-util 0.7.7",
  "types",
 ]
 
@@ -8021,6 +8021,7 @@ dependencies = [
  "futures-io",
  "futures-sink",
  "pin-project-lite 0.2.9",
+ "slab",
  "tokio",
  "tracing",
 ]

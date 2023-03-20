@@ -16,7 +16,7 @@ pub fn build_block_contents<T: BeaconChainTypes, Payload: AbstractExecPayload<T:
         }
         ForkName::Eip4844 => {
             let block_root = &block.canonical_root();
-            if let Some(blob_sidecars) = chain.blob_cache.pop(block_root) {
+            if let Some(blob_sidecars) = chain.proposal_blob_cache.pop(block_root) {
                 let block_and_blobs = BeaconBlockAndBlobSidecars {
                     block,
                     blob_sidecars,
@@ -24,9 +24,9 @@ pub fn build_block_contents<T: BeaconChainTypes, Payload: AbstractExecPayload<T:
 
                 Ok(BlockContents::BlockAndBlobSidecars(block_and_blobs))
             } else {
-                return Err(warp_utils::reject::block_production_error(
+                Err(warp_utils::reject::block_production_error(
                     BlockProductionError::NoBlobsCached,
-                ));
+                ))
             }
         }
     }

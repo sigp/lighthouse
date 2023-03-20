@@ -54,6 +54,7 @@ use crate::execution_payload::{
     is_optimistic_candidate_block, validate_execution_payload_for_gossip, validate_merge_block,
     AllowOptimisticImport, NotifyExecutionLayer, PayloadNotifier,
 };
+use crate::gossip_blob_cache::AvailabilityCheckError;
 use crate::snapshot_cache::PreProcessingSnapshot;
 use crate::validator_monitor::HISTORIC_EPOCHS as VALIDATOR_MONITOR_HISTORIC_EPOCHS;
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
@@ -64,6 +65,7 @@ use crate::{
     },
     metrics, BeaconChain, BeaconChainError, BeaconChainTypes,
 };
+use derivative::Derivative;
 use eth2::types::EventKind;
 use execution_layer::PayloadStatus;
 use fork_choice::{AttestationFromBlock, PayloadVerificationStatus};
@@ -306,11 +308,18 @@ pub enum BlockError<T: EthSpec> {
         parent_root: Hash256,
     },
     BlobValidation(BlobError),
+    AvailabilityCheck(AvailabilityCheckError),
 }
 
 impl<T: EthSpec> From<BlobError> for BlockError<T> {
     fn from(e: BlobError) -> Self {
         Self::BlobValidation(e)
+    }
+}
+
+impl<T: EthSpec> From<AvailabilityCheckError> for BlockError<T> {
+    fn from(e: AvailabilityCheckError) -> Self {
+        Self::AvailabilityCheck(e)
     }
 }
 
@@ -487,6 +496,7 @@ impl<T: EthSpec> From<ArithError> for BlockError<T> {
 }
 
 /// Stores information about verifying a payload against an execution engine.
+#[derive(Clone)]
 pub struct PayloadVerificationOutcome {
     pub payload_verification_status: PayloadVerificationStatus,
     pub is_valid_merge_transition_block: bool,
@@ -619,7 +629,8 @@ pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
 
 /// A wrapper around a `SignedBeaconBlock` that indicates it has been approved for re-gossiping on
 /// the p2p network.
-#[derive(Debug)]
+#[derive(Derivative)]
+#[derivative(Debug(bound = "T: BeaconChainTypes"))]
 pub struct GossipVerifiedBlock<T: BeaconChainTypes> {
     pub block: BlockWrapper<T::EthSpec>,
     pub block_root: Hash256,
@@ -663,15 +674,22 @@ pub struct ExecutionPendingBlock<T: BeaconChainTypes> {
     pub payload_verification_handle: PayloadVerificationHandle<T::EthSpec>,
 }
 
-pub struct ExecutedBlock<T: BeaconChainTypes> {
-    pub block: BlockWrapper<T::EthSpec>,
+#[derive(Clone)]
+pub struct ExecutedBlock<E: EthSpec> {
+    pub block: BlockWrapper<E>,
     pub block_root: Hash256,
-    pub state: BeaconState<T::EthSpec>,
-    pub parent_block: SignedBeaconBlock<T::EthSpec, BlindedPayload<T::EthSpec>>,
+    pub state: BeaconState<E>,
+    pub parent_block: SignedBeaconBlock<E, BlindedPayload<E>>,
     pub parent_eth1_finalization_data: Eth1FinalizationData,
     pub confirmed_state_roots: Vec<Hash256>,
-    pub consensus_context: ConsensusContext<T::EthSpec>,
+    pub consensus_context: ConsensusContext<E>,
     pub payload_verification_outcome: PayloadVerificationOutcome,
+}
+
+impl<E: EthSpec> std::fmt::Debug for ExecutedBlock<E> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self.block)
+    }
 }
 
 /// Implemented on types that can be converted into a `ExecutionPendingBlock`.
@@ -1156,7 +1174,7 @@ impl<T: BeaconChainTypes> IntoExecutionPendingBlock<T> for BlockWrapper<T::EthSp
             BlockWrapper::AvailabilityPending(block) => block
                 .into_execution_pending_block_slashable(block_root, chain, notify_execution_layer),
             BlockWrapper::Available(AvailableBlock { block, blobs }) => {
-                let execution_pending_block = block.into_execution_pending_block_slashable(
+                let mut execution_pending_block = block.into_execution_pending_block_slashable(
                     block_root,
                     chain,
                     notify_execution_layer,

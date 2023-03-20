@@ -258,7 +258,7 @@ impl<T: BeaconChainTypes> Processor<T> {
         );
 
         if let RequestId::Sync(id) = request_id {
-            self.send_to_sync(SyncMessage::RpcBlobs {
+            self.send_to_sync(SyncMessage::RpcBlob {
                 peer_id,
                 request_id: id,
                 blob_sidecar,
@@ -330,7 +330,7 @@ impl<T: BeaconChainTypes> Processor<T> {
             "Received BlobsByRoot Response";
             "peer" => %peer_id,
         );
-        self.send_to_sync(SyncMessage::RpcBlobs {
+        self.send_to_sync(SyncMessage::RpcBlob {
             request_id,
             peer_id,
             blob_sidecar,
@@ -365,7 +365,7 @@ impl<T: BeaconChainTypes> Processor<T> {
         peer_id: PeerId,
         peer_client: Client,
         blob_index: u64, // TODO: add a type for the blob index
-        signed_blob: Arc<SignedBlobSidecar<T::EthSpec>>,
+        signed_blob: SignedBlobSidecar<T::EthSpec>,
     ) {
         self.send_beacon_processor_work(BeaconWorkEvent::gossip_signed_blob_sidecar(
             message_id,

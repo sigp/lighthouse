@@ -233,36 +233,37 @@ impl<T: BeaconChainTypes> Worker<T> {
                         .get_block_and_blobs_checking_early_attester_cache(&root)
                         .await
                     {
-                        Ok(Some(block_and_blobs)) => {
-                            //
-                            // TODO: HORRIBLE NSFW CODE AHEAD
-                            //
-                            let types::SignedBeaconBlockAndBlobsSidecar {beacon_block, blobs_sidecar} = block_and_blobs;
-                            let types::BlobsSidecar{ beacon_block_root, beacon_block_slot, blobs: blob_bundle, kzg_aggregated_proof }: types::BlobsSidecar<_> = blobs_sidecar.as_ref().clone();
-                            // TODO: this should be unreachable after this is addressed seriously,
-                            // so for now let's be ok with a panic in the expect.
-                            let block = beacon_block.message_eip4844().expect("We fucked up the block blob stuff");
-                            // Intentionally not accessing the list directly
-                            for (known_index, blob) in blob_bundle.into_iter().enumerate() {
-                                if (known_index as u64) == index {
-                                    let blob_sidecar = types::BlobSidecar{
-                                        block_root: beacon_block_root,
-                                        index,
-                                        slot: beacon_block_slot,
-                                        block_parent_root: block.parent_root,
-                                        proposer_index: block.proposer_index,
-                                        blob,
-                                        kzg_commitment: block.body.blob_kzg_commitments[known_index].clone(), // TODO: needs to be stored in a more logical way so that this won't panic.
-                                        kzg_proof: kzg_aggregated_proof // TODO: yeah
-                                    };
-                                    self.send_response(
-                                        peer_id,
-                                        Response::BlobsByRoot(Some(Arc::new(blob_sidecar))),
-                                        request_id,
-                                    );
-                                    send_block_count += 1;
-                                }
-                            }
+                        Ok(Some(())) => {
+                            todo!();
+                            // //
+                            // // TODO: HORRIBLE NSFW CODE AHEAD
+                            // //
+                            // let types::SignedBeaconBlockAndBlobsSidecar {beacon_block, blobs_sidecar} = block_and_blobs;
+                            // let types::BlobsSidecar{ beacon_block_root, beacon_block_slot, blobs: blob_bundle, kzg_aggregated_proof }: types::BlobsSidecar<_> = blobs_sidecar.as_ref().clone();
+                            // // TODO: this should be unreachable after this is addressed seriously,
+                            // // so for now let's be ok with a panic in the expect.
+                            // let block = beacon_block.message_eip4844().expect("We fucked up the block blob stuff");
+                            // // Intentionally not accessing the list directly
+                            // for (known_index, blob) in blob_bundle.into_iter().enumerate() {
+                            //     if (known_index as u64) == index {
+                            //         let blob_sidecar = types::BlobSidecar{
+                            //             block_root: beacon_block_root,
+                            //             index,
+                            //             slot: beacon_block_slot,
+                            //             block_parent_root: block.parent_root,
+                            //             proposer_index: block.proposer_index,
+                            //             blob,
+                            //             kzg_commitment: block.body.blob_kzg_commitments[known_index], // TODO: needs to be stored in a more logical way so that this won't panic.
+                            //             kzg_proof: kzg_aggregated_proof // TODO: yeah
+                            //         };
+                            //         self.send_response(
+                            //             peer_id,
+                            //             Response::BlobsByRoot(Some(Arc::new(blob_sidecar))),
+                            //             request_id,
+                            //         );
+                            //         send_block_count += 1;
+                            //     }
+                            // }
                         }
                         Ok(None) => {
                             debug!(
@@ -836,35 +837,36 @@ impl<T: BeaconChainTypes> Worker<T> {
         let mut send_response = true;
 
         for root in block_roots {
-            match self.chain.get_blobs(&root, data_availability_boundary) {
+            match self.chain.get_blobs(&root) {
                 Ok(Some(blobs)) => {
-                    // TODO: more GROSS code ahead. Reader beware
-                    let types::BlobsSidecar {
-                        beacon_block_root,
-                        beacon_block_slot,
-                        blobs: blob_bundle,
-                        kzg_aggregated_proof,
-                    }: types::BlobsSidecar<_> = blobs;
-
-                    for (blob_index, blob) in blob_bundle.into_iter().enumerate() {
-                        let blob_sidecar = types::BlobSidecar {
-                            block_root: beacon_block_root,
-                            index: blob_index as u64,
-                            slot: beacon_block_slot,
-                            block_parent_root: Hash256::zero(),
-                            proposer_index: 0,
-                            blob,
-                            kzg_commitment: types::KzgCommitment::default(),
-                            kzg_proof: types::KzgProof::default(),
-                        };
-
-                        blobs_sent += 1;
-                        self.send_network_message(NetworkMessage::SendResponse {
-                            peer_id,
-                            response: Response::BlobsByRange(Some(Arc::new(blob_sidecar))),
-                            id: request_id,
-                        });
-                    }
+                    todo!();
+                    // // TODO: more GROSS code ahead. Reader beware
+                    // let types::BlobsSidecar {
+                    //     beacon_block_root,
+                    //     beacon_block_slot,
+                    //     blobs: blob_bundle,
+                    //     kzg_aggregated_proof: _,
+                    // }: types::BlobsSidecar<_> = blobs;
+                    //
+                    // for (blob_index, blob) in blob_bundle.into_iter().enumerate() {
+                    //     let blob_sidecar = types::BlobSidecar {
+                    //         block_root: beacon_block_root,
+                    //         index: blob_index as u64,
+                    //         slot: beacon_block_slot,
+                    //         block_parent_root: Hash256::zero(),
+                    //         proposer_index: 0,
+                    //         blob,
+                    //         kzg_commitment: types::KzgCommitment::default(),
+                    //         kzg_proof: types::KzgProof::default(),
+                    //     };
+                    //
+                    //     blobs_sent += 1;
+                    //     self.send_network_message(NetworkMessage::SendResponse {
+                    //         peer_id,
+                    //         response: Response::BlobsByRange(Some(Arc::new(blob_sidecar))),
+                    //         id: request_id,
+                    //     });
+                    // }
                 }
                 Ok(None) => {
                     error!(

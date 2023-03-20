@@ -35,7 +35,7 @@
 
 use super::backfill_sync::{BackFillSync, ProcessResult, SyncStart};
 use super::block_lookups::BlockLookups;
-use super::network_context::{BlockOrBlobs, SyncNetworkContext};
+use super::network_context::{BlockOrBlob, SyncNetworkContext};
 use super::peer_sync_info::{remote_sync_type, PeerSyncType};
 use super::range_sync::{RangeSync, RangeSyncType, EPOCHS_PER_BATCH};
 use crate::beacon_processor::{ChainSegmentProcessId, WorkEvent as BeaconWorkEvent};
@@ -56,6 +56,7 @@ use std::ops::Sub;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
+use types::blob_sidecar::BlobIdentifier;
 use types::{BlobSidecar, EthSpec, Hash256, SignedBeaconBlock, Slot};
 
 /// The number of slots ahead of us that is allowed before requesting a long-range (batch)  Sync
@@ -86,6 +87,10 @@ pub enum RequestId {
     RangeBlobs { id: Id },
 }
 
+// TODO(diva) I'm updating functions what at a time, but this should be revisited because I think
+// some code paths that are split for blobs and blocks can be made just one after sync as a whole
+// is updated.
+
 #[derive(Debug)]
 /// A message that can be sent to the sync manager thread.
 pub enum SyncMessage<T: EthSpec> {
@@ -101,7 +106,7 @@ pub enum SyncMessage<T: EthSpec> {
     },
 
     /// A blob has been received from the RPC.
-    RpcBlobs {
+    RpcBlob {
         request_id: RequestId,
         peer_id: PeerId,
         blob_sidecar: Option<Arc<BlobSidecar<T>>>,
@@ -114,6 +119,13 @@ pub enum SyncMessage<T: EthSpec> {
     /// A peer has sent an object that references a block that is unknown. This triggers the
     /// manager to attempt to find the block matching the unknown hash.
     UnknownBlockHash(PeerId, Hash256),
+
+    /// A peer has sent us a block that we haven't received all the blobs for. This triggers
+    /// the manager to attempt to find the pending blobs for the given block root.
+    UnknownBlobHash {
+        peer_id: PeerId,
+        pending_blobs: Vec<BlobIdentifier>,
+    },
 
     /// A peer has disconnected.
     Disconnect(PeerId),
@@ -554,7 +566,12 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 beacon_block,
                 seen_timestamp,
             } => {
-                self.rpc_block_received(request_id, peer_id, beacon_block, seen_timestamp);
+                self.rpc_block_or_blob_received(
+                    request_id,
+                    peer_id,
+                    beacon_block.into(),
+                    seen_timestamp,
+                );
             }
             SyncMessage::UnknownBlock(peer_id, block, block_root) => {
                 // If we are not synced or within SLOT_IMPORT_TOLERANCE of the block, ignore
@@ -588,6 +605,9 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     self.block_lookups
                         .search_block(block_hash, peer_id, &mut self.network);
                 }
+            }
+            SyncMessage::UnknownBlobHash { .. } => {
+                unimplemented!()
             }
             SyncMessage::Disconnect(peer_id) => {
                 self.peer_disconnect(&peer_id);
@@ -638,12 +658,17 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     .block_lookups
                     .parent_chain_processed(chain_hash, result, &mut self.network),
             },
-            SyncMessage::RpcBlobs {
+            SyncMessage::RpcBlob {
                 request_id,
                 peer_id,
                 blob_sidecar,
                 seen_timestamp,
-            } => self.rpc_blobs_received(request_id, peer_id, blob_sidecar, seen_timestamp),
+            } => self.rpc_block_or_blob_received(
+                request_id,
+                peer_id,
+                blob_sidecar.into(),
+                seen_timestamp,
+            ),
         }
     }
 
@@ -702,30 +727,50 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         }
     }
 
-    fn rpc_block_received(
+    fn rpc_block_or_blob_received(
         &mut self,
         request_id: RequestId,
         peer_id: PeerId,
-        beacon_block: Option<Arc<SignedBeaconBlock<T::EthSpec>>>,
+        block_or_blob: BlockOrBlob<T::EthSpec>,
         seen_timestamp: Duration,
     ) {
         match request_id {
-            RequestId::SingleBlock { id } => self.block_lookups.single_block_lookup_response(
-                id,
-                peer_id,
-                beacon_block.map(|block| block.into()),
-                seen_timestamp,
-                &mut self.network,
-            ),
-            RequestId::ParentLookup { id } => self.block_lookups.parent_lookup_response(
-                id,
-                peer_id,
-                beacon_block.map(|block| block.into()),
-                seen_timestamp,
-                &mut self.network,
-            ),
+            RequestId::SingleBlock { id } => {
+                // TODO(diva) adjust when dealing with by root requests. This code is here to
+                // satisfy dead code analysis
+                match block_or_blob {
+                    BlockOrBlob::Block(maybe_block) => {
+                        self.block_lookups.single_block_lookup_response(
+                            id,
+                            peer_id,
+                            maybe_block.map(BlockWrapper::AvailabilityPending),
+                            seen_timestamp,
+                            &mut self.network,
+                        )
+                    }
+                    BlockOrBlob::Sidecar(_) => unimplemented!("Mimatch between BlockWrapper and what the network receives needs to be handled first."),
+                }
+            }
+            RequestId::ParentLookup { id } => {
+                // TODO(diva) adjust when dealing with by root requests. This code is here to
+                // satisfy dead code analysis
+                match block_or_blob {
+                    BlockOrBlob::Block(maybe_block) => self.block_lookups.parent_lookup_response(
+                        id,
+                        peer_id,
+                        maybe_block.map(BlockWrapper::AvailabilityPending),
+                        seen_timestamp,
+                        &mut self.network,
+                    ),
+                    BlockOrBlob::Sidecar(_) => unimplemented!("Mimatch between BlockWrapper and what the network receives needs to be handled first."),
+                }
+            }
             RequestId::BackFillBlocks { id } => {
-                let is_stream_terminator = beacon_block.is_none();
+                let maybe_block = match block_or_blob {
+                    BlockOrBlob::Block(maybe_block) => maybe_block,
+                    BlockOrBlob::Sidecar(_) => todo!("I think this is unreachable"),
+                };
+                let is_stream_terminator = maybe_block.is_none();
                 if let Some(batch_id) = self
                     .network
                     .backfill_sync_only_blocks_response(id, is_stream_terminator)
@@ -735,7 +780,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         batch_id,
                         &peer_id,
                         id,
-                        beacon_block.map(|block| block.into()),
+                        maybe_block.map(|block| block.into()),
                     ) {
                         Ok(ProcessResult::SyncCompleted) => self.update_sync_state(),
                         Ok(ProcessResult::Successful) => {}
@@ -748,7 +793,11 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 }
             }
             RequestId::RangeBlocks { id } => {
-                let is_stream_terminator = beacon_block.is_none();
+                let maybe_block = match block_or_blob {
+                    BlockOrBlob::Block(maybe_block) => maybe_block,
+                    BlockOrBlob::Sidecar(_) => todo!("I think this should be unreachable, since this is a range only-blocks request, and the network should not accept this chunk at all. Needs better handling"),
+                };
+                let is_stream_terminator = maybe_block.is_none();
                 if let Some((chain_id, batch_id)) = self
                     .network
                     .range_sync_block_response(id, is_stream_terminator)
@@ -759,28 +808,28 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         chain_id,
                         batch_id,
                         id,
-                        beacon_block.map(|block| block.into()),
+                        maybe_block.map(|block| block.into()),
                     );
                     self.update_sync_state();
                 }
             }
 
             RequestId::BackFillBlobs { id } => {
-                self.blobs_backfill_response(id, peer_id, beacon_block.into())
+                self.backfill_block_and_blobs_response(id, peer_id, block_or_blob)
             }
             RequestId::RangeBlobs { id } => {
-                self.blobs_range_response(id, peer_id, beacon_block.into())
+                self.range_block_and_blobs_response(id, peer_id, block_or_blob)
             }
         }
     }
 
     /// Handles receiving a response for a range sync request that should have both blocks and
     /// blobs.
-    fn blobs_range_response(
+    fn range_block_and_blobs_response(
         &mut self,
         id: Id,
         peer_id: PeerId,
-        block_or_blob: BlockOrBlobs<T::EthSpec>,
+        block_or_blob: BlockOrBlob<T::EthSpec>,
     ) {
         if let Some((chain_id, resp)) = self
             .network
@@ -822,11 +871,11 @@ impl<T: BeaconChainTypes> SyncManager<T> {
 
     /// Handles receiving a response for a Backfill sync request that should have both blocks and
     /// blobs.
-    fn blobs_backfill_response(
+    fn backfill_block_and_blobs_response(
         &mut self,
         id: Id,
         peer_id: PeerId,
-        block_or_blob: BlockOrBlobs<T::EthSpec>,
+        block_or_blob: BlockOrBlob<T::EthSpec>,
     ) {
         if let Some(resp) = self
             .network
@@ -868,32 +917,6 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     let id = RequestId::BackFillBlobs { id };
                     self.inject_error(peer_id, id, RPCError::InvalidData(e.into()))
                 }
-            }
-        }
-    }
-
-    fn rpc_blobs_received(
-        &mut self,
-        request_id: RequestId,
-        peer_id: PeerId,
-        maybe_blob: Option<Arc<BlobSidecar<<T>::EthSpec>>>,
-        _seen_timestamp: Duration,
-    ) {
-        match request_id {
-            RequestId::SingleBlock { .. } | RequestId::ParentLookup { .. } => {
-                unreachable!("There is no such thing as a singular 'by root' glob request that is not accompanied by the block")
-            }
-            RequestId::BackFillBlocks { .. } => {
-                unreachable!("An only blocks request does not receive sidecars")
-            }
-            RequestId::BackFillBlobs { .. } => {
-                unimplemented!("Adjust backfill sync");
-            }
-            RequestId::RangeBlocks { .. } => {
-                unreachable!("Only-blocks range requests don't receive sidecars")
-            }
-            RequestId::RangeBlobs { id } => {
-                unimplemented!("Adjust range");
             }
         }
     }

@@ -5,6 +5,7 @@ use crate::Error as ServerError;
 use lighthouse_network::{ConnectionDirection, Enr, Multiaddr, PeerConnectionStatus};
 use mime::{Mime, APPLICATION, JSON, OCTET_STREAM, STAR};
 use serde::{Deserialize, Serialize};
+use ssz_derive::Encode;
 use std::cmp::Reverse;
 use std::convert::TryFrom;
 use std::fmt;
@@ -1321,4 +1322,77 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> Into<BeaconBlock<T, Payload>>
             Self::Block(block) => block,
         }
     }
+}
+
+pub type BlockContentsTuple<T, Payload> = (
+    SignedBeaconBlock<T, Payload>,
+    Option<SignedBlobSidecarList<T>>,
+);
+
+/// A wrapper over a [`SignedBeaconBlock`] or a [`SignedBeaconBlockAndBlobSidecars`].
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(untagged)]
+#[serde(bound = "T: EthSpec")]
+pub enum SignedBlockContents<T: EthSpec, Payload: AbstractExecPayload<T> = FullPayload<T>> {
+    BlockAndBlobSidecars(SignedBeaconBlockAndBlobSidecars<T, Payload>),
+    Block(SignedBeaconBlock<T, Payload>),
+}
+
+impl<T: EthSpec, Payload: AbstractExecPayload<T>> SignedBlockContents<T, Payload> {
+    pub fn signed_block(&self) -> &SignedBeaconBlock<T, Payload> {
+        match self {
+            SignedBlockContents::BlockAndBlobSidecars(block_and_sidecars) => {
+                &block_and_sidecars.signed_block
+            }
+            SignedBlockContents::Block(block) => block,
+        }
+    }
+
+    pub fn deconstruct(self) -> BlockContentsTuple<T, Payload> {
+        match self {
+            SignedBlockContents::BlockAndBlobSidecars(block_and_sidecars) => (
+                block_and_sidecars.signed_block,
+                Some(block_and_sidecars.signed_blob_sidecars),
+            ),
+            SignedBlockContents::Block(block) => (block, None),
+        }
+    }
+}
+
+impl<T: EthSpec, Payload: AbstractExecPayload<T>> From<SignedBeaconBlock<T, Payload>>
+    for SignedBlockContents<T, Payload>
+{
+    fn from(block: SignedBeaconBlock<T, Payload>) -> Self {
+        match block {
+            SignedBeaconBlock::Base(_)
+            | SignedBeaconBlock::Altair(_)
+            | SignedBeaconBlock::Merge(_)
+            | SignedBeaconBlock::Capella(_) => SignedBlockContents::Block(block),
+            //TODO: error handling, this should be try from
+            SignedBeaconBlock::Eip4844(_block) => todo!(),
+        }
+    }
+}
+
+impl<T: EthSpec, Payload: AbstractExecPayload<T>> From<BlockContentsTuple<T, Payload>>
+    for SignedBlockContents<T, Payload>
+{
+    fn from(block_contents_tuple: BlockContentsTuple<T, Payload>) -> Self {
+        match block_contents_tuple {
+            (signed_block, None) => SignedBlockContents::Block(signed_block),
+            (signed_block, Some(signed_blob_sidecars)) => {
+                SignedBlockContents::BlockAndBlobSidecars(SignedBeaconBlockAndBlobSidecars {
+                    signed_block,
+                    signed_blob_sidecars,
+                })
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Encode)]
+#[serde(bound = "T: EthSpec")]
+pub struct SignedBeaconBlockAndBlobSidecars<T: EthSpec, Payload: AbstractExecPayload<T>> {
+    pub signed_block: SignedBeaconBlock<T, Payload>,
+    pub signed_blob_sidecars: SignedBlobSidecarList<T>,
 }

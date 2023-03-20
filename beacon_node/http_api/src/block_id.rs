@@ -4,7 +4,7 @@ use eth2::types::BlockId as CoreBlockId;
 use std::fmt;
 use std::str::FromStr;
 use std::sync::Arc;
-use types::{BlobsSidecar, Hash256, SignedBeaconBlock, SignedBlindedBeaconBlock, Slot};
+use types::{BlobSidecar, Hash256, SignedBeaconBlock, SignedBlindedBeaconBlock, Slot};
 
 /// Wraps `eth2::types::BlockId` and provides a simple way to obtain a block or root for a given
 /// `BlockId`.
@@ -216,13 +216,13 @@ impl BlockId {
     pub async fn blobs_sidecar<T: BeaconChainTypes>(
         &self,
         chain: &BeaconChain<T>,
-    ) -> Result<Arc<BlobsSidecar<T::EthSpec>>, warp::Rejection> {
+    ) -> Result<Arc<BlobSidecar<T::EthSpec>>, warp::Rejection> {
         let root = self.root(chain)?.0;
         let Some(data_availability_boundary) = chain.data_availability_boundary() else {
             return Err(warp_utils::reject::custom_not_found("Eip4844 fork disabled".into()));
         };
-        match chain.get_blobs(&root, data_availability_boundary) {
-            Ok(Some(blob)) => Ok(Arc::new(blob)),
+        match chain.get_blobs(&root) {
+            Ok(Some(blob)) => todo!(), // Jimmy's PR will fix this,
             Ok(None) => Err(warp_utils::reject::custom_not_found(format!(
                 "Blob with block root {} is not in the store",
                 root

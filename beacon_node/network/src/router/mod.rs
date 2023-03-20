@@ -257,7 +257,7 @@ impl<T: BeaconChainTypes> Router<T> {
                     peer_id,
                     self.network_globals.client(&peer_id),
                     blob_index,
-                    Arc::new(signed_blob),
+                    signed_blob,
                 );
             }
             PubsubMessage::VoluntaryExit(exit) => {
