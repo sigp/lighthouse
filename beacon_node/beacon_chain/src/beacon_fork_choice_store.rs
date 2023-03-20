@@ -21,6 +21,8 @@ use types::{
     Hash256, Slot,
 };
 
+type SlashedIndices = Vec<u64>;
+
 /// Ensure this justified checkpoint has an epoch of 0 so that it is never
 /// greater than the justified checkpoint and enshrined as the actual justified
 /// checkpoint.
@@ -94,7 +96,7 @@ impl BalancesCache {
         &mut self,
         block_root: Hash256,
         state: &BeaconState<E>,
-    ) -> Result<(), Error> {
+    ) -> Result<Option<SlashedIndices>, Error> {
         let epoch = state.current_epoch();
         let epoch_boundary_slot = epoch.start_slot(E::slots_per_epoch());
         let epoch_boundary_root = if epoch_boundary_slot == state.slot() {
@@ -110,10 +112,13 @@ impl BalancesCache {
         // of a single epoch, so even if the block on the epoch boundary itself is skipped we can
         // still update its cache entry from any subsequent state in that epoch.
         if self.position(epoch_boundary_root, epoch).is_none() {
+            let (justified_balances, slashed_indices) =
+                JustifiedBalances::from_justified_state_with_equivocating_indices(state)?;
+
             let item = CacheItem {
                 block_root: epoch_boundary_root,
                 epoch,
-                balances: JustifiedBalances::from_justified_state(state)?.effective_balances,
+                balances: justified_balances.effective_balances,
             };
 
             if self.items.len() == MAX_BALANCE_CACHE_SIZE {
@@ -121,9 +126,11 @@ impl BalancesCache {
             }
 
             self.items.push(item);
-        }
 
-        Ok(())
+            Ok(Some(slashed_indices))
+        } else {
+            Ok(None)
+        }
     }
 
     fn position(&self, block_root: Hash256, epoch: Epoch) -> Option<usize> {
@@ -274,7 +281,14 @@ where
         block_root: Hash256,
         state: &BeaconState<E>,
     ) -> Result<(), Self::Error> {
-        self.balances_cache.process_state(block_root, state)
+        if let Some(slashed_indices) = self.balances_cache.process_state(block_root, state)? {
+            // Note the equivocating indices for any state which could
+            // potentially be a justified state (i.e.  an epoch boundary state).
+            self.equivocating_indices
+                .extend(slashed_indices.into_iter())
+        }
+
+        Ok(())
     }
 
     fn justified_checkpoint(&self) -> &Checkpoint {
