@@ -441,7 +441,7 @@ impl<E: EthSpec> Tester<E> {
                         &state,
                         PayloadVerificationStatus::Irrelevant,
                         &self.harness.chain.spec,
-                        self.harness.chain.config.count_unrealized.into(),
+                        CountUnrealized::True,
                     );
 
                 if result.is_ok() {

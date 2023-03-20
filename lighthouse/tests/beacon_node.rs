@@ -223,24 +223,27 @@ fn count_unrealized_default() {
 fn count_unrealized_no_arg() {
     CommandLineTest::new()
         .flag("count-unrealized", None)
-        .run_with_zero_port()
-        .with_config(|config| assert!(config.chain.count_unrealized));
+        // This flag should be ignored, so there's nothing to test but that the
+        // client starts with the flag present.
+        .run_with_zero_port();
 }
 
 #[test]
 fn count_unrealized_false() {
     CommandLineTest::new()
         .flag("count-unrealized", Some("false"))
-        .run_with_zero_port()
-        .with_config(|config| assert!(!config.chain.count_unrealized));
+        // This flag should be ignored, so there's nothing to test but that the
+        // client starts with the flag present.
+        .run_with_zero_port();
 }
 
 #[test]
 fn count_unrealized_true() {
     CommandLineTest::new()
         .flag("count-unrealized", Some("true"))
-        .run_with_zero_port()
-        .with_config(|config| assert!(config.chain.count_unrealized));
+        // This flag should be ignored, so there's nothing to test but that the
+        // client starts with the flag present.
+        .run_with_zero_port();
 }
 
 #[test]

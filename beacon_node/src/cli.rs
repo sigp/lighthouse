@@ -958,10 +958,8 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("count-unrealized")
                 .long("count-unrealized")
                 .hidden(true)
-                .help("Enables an alternative, potentially more performant FFG \
-                       vote tracking method.")
+                .help("This flag is deprecated and has no effect.")
                 .takes_value(true)
-                .default_value("true")
         )
         .arg(
             Arg::with_name("count-unrealized-full")

@@ -187,24 +187,6 @@ impl CountUnrealized {
     pub fn is_true(&self) -> bool {
         matches!(self, CountUnrealized::True)
     }
-
-    pub fn and(&self, other: CountUnrealized) -> CountUnrealized {
-        if self.is_true() && other.is_true() {
-            CountUnrealized::True
-        } else {
-            CountUnrealized::False
-        }
-    }
-}
-
-impl From<bool> for CountUnrealized {
-    fn from(count_unrealized: bool) -> Self {
-        if count_unrealized {
-            CountUnrealized::True
-        } else {
-            CountUnrealized::False
-        }
-    }
 }
 
 /// Indicates if a block has been verified by an execution payload.
