@@ -213,13 +213,6 @@ fn paranoid_block_proposal_on() {
 }
 
 #[test]
-fn count_unrealized_default() {
-    CommandLineTest::new()
-        .run_with_zero_port()
-        .with_config(|config| assert!(config.chain.count_unrealized));
-}
-
-#[test]
 fn count_unrealized_no_arg() {
     CommandLineTest::new()
         .flag("count-unrealized", None)
