@@ -1057,6 +1057,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .map(Some)
     }
 
+    // FIXME(jimmy): temporary method added to unblock API work. This method will be replaced by
+    // the `get_blobs` method below once the new blob sidecar structure (`BlobSidecarList`) is
+    // implemented in that method.
+    pub fn get_blob_sidecar_list(
+        &self,
+        _block_root: &Hash256,
+        _data_availability_boundary: Epoch,
+    ) -> Result<Option<BlobSidecarList<T::EthSpec>>, Error> {
+        unimplemented!("`get_blobs` method below to be updated to return `BlobSidecarList`")
+    }
+
     /// Returns the blobs at the given root, if any.
     ///
     /// Returns `Ok(None)` if the blobs and associated block are not found.
