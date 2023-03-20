@@ -7,6 +7,7 @@ use std::borrow::Cow;
 use tree_hash::TreeHash;
 use types::*;
 
+use self::process_operations::process_deposit;
 pub use self::verify_attester_slashing::{
     get_slashable_indices, get_slashable_indices_modular, verify_attester_slashing,
 };
@@ -420,6 +421,7 @@ pub const UNSET_DEPOSIT_RECEIPTS_START_INDEX: u64 = std::u64::MAX;
 pub fn process_deposit_receipt<T: EthSpec>(
     state: &mut BeaconState<T>,
     deposit_receipt: &DepositReceipt,
+    spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
     // Set deposit receipt start index
     let start_index = state
@@ -431,14 +433,20 @@ pub fn process_deposit_receipt<T: EthSpec>(
             .map_err(|_| BlockProcessingError::DepositReceiptError)? = deposit_receipt.index;
     }
 
-    /* TODO: Check how apply_deposit works: Create a DepositData instance (?) from the DepositReceipt fields
+    // Create a Deposit object from the DepositReceipt
     let deposit_data = DepositData {
-        pubkey: deposit_receipt.pubkey.into(),
+        pubkey: deposit_receipt.pubkey.clone().into(),
         withdrawal_credentials: deposit_receipt.withdrawal_credentials,
         amount: deposit_receipt.amount,
-        signature: deposit_receipt.signature.into(),
+        signature: deposit_receipt.signature.clone().into(),
     };
-    */
+    let deposit = Deposit {
+        proof: FixedVector::from_elem(Hash256::zero()), // Set an empty proof, since it's not included in DepositReceipt
+        data: deposit_data,
+    };
+
+    // Call process_deposit with the created Deposit object
+    process_deposit(state, &deposit, spec, true)?;
 
     Ok(())
 }

@@ -38,7 +38,7 @@ pub fn process_operations<T: EthSpec, Payload: AbstractExecPayload<T>>(
     )?;
     process_attestations(state, block_body, verify_signatures, ctxt, spec)?;
     assert_eq!(
-        block_body.deposits().len() as usize,
+        block_body.deposits().len(),
         std::cmp::min(max_deposits as usize, unprocessed_deposits_count as usize),
         "Number of deposits in block does not match the minimum of the maximum number of deposits and the number of unprocessed deposits"
     );
