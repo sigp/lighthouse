@@ -618,7 +618,7 @@ dependencies = [
 
 [[package]]
 name = "beacon_node"
-version = "3.5.1"
+version = "4.0.0"
 dependencies = [
  "beacon_chain",
  "clap",
@@ -786,7 +786,7 @@ dependencies = [
 
 [[package]]
 name = "boot_node"
-version = "3.5.1"
+version = "4.0.0"
 dependencies = [
  "beacon_node",
  "clap",
@@ -3770,7 +3770,7 @@ checksum = "830d08ce1d1d941e6b30645f1a0eb5643013d835ce3779a5fc208261dbe10f55"
 
 [[package]]
 name = "lcli"
-version = "3.5.1"
+version = "4.0.0"
 dependencies = [
  "account_utils",
  "beacon_chain",
@@ -4374,7 +4374,7 @@ dependencies = [
 
 [[package]]
 name = "lighthouse"
-version = "3.5.1"
+version = "4.0.0"
 dependencies = [
  "account_manager",
  "account_utils",
