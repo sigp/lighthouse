@@ -1,5 +1,5 @@
-TESTS_TAG := v1.3.0-rc.3-pr18-1b09c23
-TESTS = minimal mainnet
+TESTS_TAG := v1.3.0-rc.4
+TESTS = general minimal mainnet
 TARBALLS = $(patsubst %,%-$(TESTS_TAG).tar.gz,$(TESTS))
 
 REPO_NAME := consensus-spec-tests
@@ -29,6 +29,9 @@ $(BLS_OUTPUT_DIR):
 	mkdir $(BLS_OUTPUT_DIR)
 	$(WGET) $(BLS_BASE_URL)/$(BLS_TEST).tar.gz -O $(BLS_TARBALL)
 	tar -xzf $(BLS_TARBALL) -C $(BLS_OUTPUT_DIR)
+
+%-$(TESTS_TAG).tar.gz:
+	$(WGET) $(BASE_URL)/$*.tar.gz -O $@
 
 clean-test-files:
 	rm -rf $(OUTPUT_DIR) $(BLS_OUTPUT_DIR)
