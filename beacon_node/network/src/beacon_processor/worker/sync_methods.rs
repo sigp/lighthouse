@@ -7,7 +7,7 @@ use crate::beacon_processor::DuplicateCache;
 use crate::metrics;
 use crate::sync::manager::{BlockProcessType, SyncMessage};
 use crate::sync::{BatchProcessResult, ChainId};
-use beacon_chain::blob_verification::{AsBlock, BlockWrapper, IntoAvailableBlock};
+use beacon_chain::blob_verification::{AsBlock, BlockWrapper};
 use beacon_chain::{AvailabilityProcessingStatus, CountUnrealized};
 use beacon_chain::{
     BeaconChainError, BeaconChainTypes, BlockError, ChainSegmentResult, HistoricalBlockError,

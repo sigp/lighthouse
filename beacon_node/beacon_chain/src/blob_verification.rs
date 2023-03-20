@@ -1,5 +1,4 @@
 use slot_clock::SlotClock;
-use state_processing::ConsensusContext;
 use std::sync::Arc;
 
 use crate::beacon_chain::{
@@ -7,7 +6,6 @@ use crate::beacon_chain::{
     VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT,
 };
 use crate::gossip_blob_cache::AvailabilityCheckError;
-use crate::snapshot_cache::PreProcessingSnapshot;
 use crate::BeaconChainError;
 use derivative::Derivative;
 use state_processing::per_block_processing::eip4844::eip4844::verify_kzg_commitments_against_transactions;
@@ -221,7 +219,7 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
             .map_err(BlobError::BeaconChainError)?;
 
         let pubkey = pubkey_cache
-            .get(proposer_index as usize)
+            .get(proposer_index)
             .ok_or_else(|| BlobError::UnknownValidator(proposer_index as u64))?;
 
         signed_blob_sidecar.verify_signature(
@@ -265,7 +263,7 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
 }
 
 pub fn verify_data_availability<T: BeaconChainTypes>(
-    blob_sidecar: &BlobSidecarList<T::EthSpec>,
+    _blob_sidecar: &BlobSidecarList<T::EthSpec>,
     kzg_commitments: &[KzgCommitment],
     transactions: &Transactions<T::EthSpec>,
     _block_slot: Slot,
@@ -316,8 +314,8 @@ pub trait IntoAvailableBlock<T: BeaconChainTypes> {
 impl<T: BeaconChainTypes> IntoAvailableBlock<T> for BlockWrapper<T::EthSpec> {
     fn into_available_block(
         self,
-        block_root: Hash256,
-        chain: &BeaconChain<T>,
+        _block_root: Hash256,
+        _chain: &BeaconChain<T>,
     ) -> Result<AvailableBlock<T::EthSpec>, BlobError> {
         todo!()
     }
@@ -436,7 +434,7 @@ impl<E: EthSpec> AsBlock<E> for BlockWrapper<E> {
     fn as_block(&self) -> &SignedBeaconBlock<E> {
         match &self {
             BlockWrapper::Available(block) => &block.block,
-            BlockWrapper::AvailabilityPending(block) => &block,
+            BlockWrapper::AvailabilityPending(block) => block,
         }
     }
     fn block_cloned(&self) -> Arc<SignedBeaconBlock<E>> {
@@ -493,7 +491,7 @@ impl<E: EthSpec> AsBlock<E> for &BlockWrapper<E> {
     fn as_block(&self) -> &SignedBeaconBlock<E> {
         match &self {
             BlockWrapper::Available(block) => &block.block,
-            BlockWrapper::AvailabilityPending(block) => &block,
+            BlockWrapper::AvailabilityPending(block) => block,
         }
     }
     fn block_cloned(&self) -> Arc<SignedBeaconBlock<E>> {

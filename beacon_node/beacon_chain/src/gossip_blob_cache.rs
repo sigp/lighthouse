@@ -1,20 +1,15 @@
-use crate::blob_verification::{
-    verify_data_availability, AsBlock, AvailableBlock, BlockWrapper, VerifiedBlobs,
-};
-use crate::block_verification::{ExecutedBlock, IntoExecutionPendingBlock};
+use crate::blob_verification::{AsBlock, AvailableBlock, BlockWrapper, VerifiedBlobs};
+use crate::block_verification::ExecutedBlock;
 use crate::kzg_utils::validate_blob;
-use crate::{BeaconChain, BeaconChainError, BeaconChainTypes, BlockError};
 use kzg::Error as KzgError;
-use kzg::{Kzg, KzgCommitment};
+use kzg::Kzg;
 use parking_lot::{Mutex, RwLock};
 use ssz_types::{Error, VariableList};
 use std::collections::hash_map::Entry;
-use std::collections::{BTreeMap, HashMap, HashSet};
-use std::future::Future;
-use std::sync::{mpsc, Arc};
-use tokio::sync::mpsc::Sender;
+use std::collections::HashMap;
+use std::sync::Arc;
 use types::blob_sidecar::{BlobIdentifier, BlobSidecar};
-use types::{EthSpec, Hash256, SignedBeaconBlock, SignedBlobSidecar};
+use types::{EthSpec, Hash256};
 
 #[derive(Debug)]
 pub enum AvailabilityCheckError {
@@ -43,7 +38,7 @@ pub struct DataAvailabilityChecker<T: EthSpec> {
 pub enum Availability<T: EthSpec> {
     PendingBlobs(Vec<BlobIdentifier>),
     PendingBlock(Hash256),
-    Available(ExecutedBlock<T>),
+    Available(Box<ExecutedBlock<T>>),
 }
 
 struct GossipBlobCache<T: EthSpec> {
@@ -71,13 +66,8 @@ impl<T: EthSpec> DataAvailabilityChecker<T> {
         blob: Arc<BlobSidecar<T>>,
     ) -> Result<Availability<T>, AvailabilityCheckError> {
         let verified = if let Some(kzg) = self.kzg.as_ref() {
-            validate_blob::<T>(
-                kzg,
-                blob.blob.clone(),
-                blob.kzg_commitment.clone(),
-                blob.kzg_proof,
-            )
-            .map_err(|e| AvailabilityCheckError::Kzg(e))?
+            validate_blob::<T>(kzg, blob.blob.clone(), blob.kzg_commitment, blob.kzg_proof)
+                .map_err(AvailabilityCheckError::Kzg)?
         } else {
             false
             // error wrong fork
@@ -91,7 +81,7 @@ impl<T: EthSpec> DataAvailabilityChecker<T> {
             // Gossip cache.
             blob_cache
                 .entry(blob.block_root)
-                .and_modify(|mut inner| {
+                .and_modify(|inner| {
                     // All blobs reaching this cache should be gossip verified and gossip verification
                     // should filter duplicates, as well as validate indices.
                     inner
@@ -145,7 +135,7 @@ impl<T: EthSpec> DataAvailabilityChecker<T> {
         let block_clone = executed_block.block.clone();
 
         let availability = match block_clone {
-            BlockWrapper::Available(available_block) => Availability::Available(executed_block),
+            BlockWrapper::Available(_) => Availability::Available(Box::new(executed_block)),
             BlockWrapper::AvailabilityPending(block) => {
                 if let Ok(kzg_commitments) = block.message().body().blob_kzg_commitments() {
                     // first check if the blockwrapper contains blobs, if so, use those
@@ -193,7 +183,7 @@ impl<T: EthSpec> DataAvailabilityChecker<T> {
                                     consensus_context,
                                     payload_verification_outcome,
                                 };
-                                Availability::Available(available_executed)
+                                Availability::Available(Box::new(available_executed))
                             } else {
                                 let mut missing_blobs = Vec::with_capacity(kzg_commitments.len());
                                 for i in 0..kzg_commitments.len() {
@@ -207,7 +197,7 @@ impl<T: EthSpec> DataAvailabilityChecker<T> {
 
                                 //TODO(sean) add a check that missing blobs > 0
 
-                                let _ = cache.executed_block.insert(executed_block.clone());
+                                let _ = cache.executed_block.insert(executed_block);
                                 // log that we cached the block?
                                 Availability::PendingBlobs(missing_blobs)
                             }
@@ -230,27 +220,10 @@ impl<T: EthSpec> DataAvailabilityChecker<T> {
                         }
                     }
                 } else {
-                    Availability::Available(executed_block)
+                    Availability::Available(Box::new(executed_block))
                 }
             }
         };
         Ok(availability)
-    }
-
-    /// Adds the blob to the cache. Returns true if adding the blob completes
-    /// all the required blob sidecars for a given block root.
-    ///
-    /// Note: we can only know this if we know `block.kzg_commitments.len()`
-    pub fn put_blob_temp(
-        &self,
-        blob: Arc<SignedBlobSidecar<T>>,
-    ) -> Result<bool, AvailabilityCheckError> {
-        unimplemented!()
-    }
-
-    /// Returns all blobs associated with a given block root otherwise returns
-    /// a UnavailableBlobs error.
-    pub fn blobs(&self, block_root: Hash256) -> Result<VerifiedBlobs<T>, AvailabilityCheckError> {
-        unimplemented!()
     }
 }

@@ -862,9 +862,6 @@ where
             .ok_or("beacon_chain requires a runtime context")?
             .clone();
 
-        let (tx, mut rx) =
-            tokio::sync::mpsc::channel::<beacon_chain::ExecutedBlock<TEthSpec>>(1000); //TODO(sean) capacity
-
         let chain = self
             .beacon_chain_builder
             .ok_or("beacon_chain requires a beacon_chain_builder")?

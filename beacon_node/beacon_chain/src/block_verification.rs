@@ -949,7 +949,7 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
             .set_kzg_commitments_consistent(true);
 
         Ok(Self {
-            block: block,
+            block,
             block_root,
             parent,
             consensus_context,
@@ -1149,8 +1149,6 @@ impl<T: BeaconChainTypes> IntoExecutionPendingBlock<T> for Arc<SignedBeaconBlock
         let block_root = check_block_relevancy(&self, block_root, chain)
             .map_err(|e| BlockSlashInfo::SignatureNotChecked(self.signed_block_header(), e))?;
 
-        let header = self.signed_block_header();
-
         SignatureVerifiedBlock::check_slashable(self, block_root, chain)?
             .into_execution_pending_block_slashable(block_root, chain, notify_execution_layer)
     }
@@ -1182,10 +1180,7 @@ impl<T: BeaconChainTypes> IntoExecutionPendingBlock<T> for BlockWrapper<T::EthSp
                 let block = execution_pending_block.block.block_cloned();
                 let available_execution_pending_block =
                     BlockWrapper::Available(AvailableBlock { block, blobs });
-                std::mem::replace(
-                    &mut execution_pending_block.block,
-                    available_execution_pending_block,
-                );
+                execution_pending_block.block = available_execution_pending_block;
                 Ok(execution_pending_block)
             }
         }

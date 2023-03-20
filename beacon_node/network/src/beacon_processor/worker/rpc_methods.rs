@@ -225,9 +225,9 @@ impl<T: BeaconChainTypes> Worker<T> {
         executor.spawn(
             async move {
                 let requested_blobs = request.blob_ids.len();
-                let mut send_block_count = 0;
+                let send_block_count = 0;
                 let mut send_response = true;
-                for BlobIdentifier{ block_root: root, index } in request.blob_ids.into_iter() {
+                for BlobIdentifier{ block_root: root, index: _index } in request.blob_ids.into_iter() {
                     match self
                         .chain
                         .get_block_and_blobs_checking_early_attester_cache(&root)
@@ -833,12 +833,12 @@ impl<T: BeaconChainTypes> Worker<T> {
         // remove all skip slots
         let block_roots = block_roots.into_iter().flatten().collect::<Vec<_>>();
 
-        let mut blobs_sent = 0;
+        let blobs_sent = 0;
         let mut send_response = true;
 
         for root in block_roots {
             match self.chain.get_blobs(&root) {
-                Ok(Some(blobs)) => {
+                Ok(Some(_blobs)) => {
                     todo!();
                     // // TODO: more GROSS code ahead. Reader beware
                     // let types::BlobsSidecar {

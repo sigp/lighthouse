@@ -218,11 +218,11 @@ impl BlockId {
         chain: &BeaconChain<T>,
     ) -> Result<Arc<BlobSidecar<T::EthSpec>>, warp::Rejection> {
         let root = self.root(chain)?.0;
-        let Some(data_availability_boundary) = chain.data_availability_boundary() else {
+        let Some(_data_availability_boundary) = chain.data_availability_boundary() else {
             return Err(warp_utils::reject::custom_not_found("Eip4844 fork disabled".into()));
         };
         match chain.get_blobs(&root) {
-            Ok(Some(blob)) => todo!(), // Jimmy's PR will fix this,
+            Ok(Some(_blob)) => todo!(), // Jimmy's PR will fix this,
             Ok(None) => Err(warp_utils::reject::custom_not_found(format!(
                 "Blob with block root {} is not in the store",
                 root

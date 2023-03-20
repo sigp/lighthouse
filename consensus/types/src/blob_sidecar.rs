@@ -1,6 +1,5 @@
 use crate::test_utils::TestRandom;
 use crate::{Blob, EthSpec, Hash256, SignedRoot, Slot};
-use bls::Signature;
 use derivative::Derivative;
 use kzg::{KzgCommitment, KzgProof};
 use serde_derive::{Deserialize, Serialize};

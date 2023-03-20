@@ -8,14 +8,13 @@ use crate::beacon_proposer_cache::compute_proposer_duties_from_head;
 use crate::beacon_proposer_cache::BeaconProposerCache;
 use crate::blob_cache::BlobCache;
 use crate::blob_verification::{
-    self, AsBlock, AvailableBlock, BlobError, BlockWrapper, GossipVerifiedBlob, IntoAvailableBlock,
-    VerifiedBlobs,
+    self, AsBlock, AvailableBlock, BlobError, BlockWrapper, GossipVerifiedBlob,
 };
 use crate::block_times_cache::BlockTimesCache;
 use crate::block_verification::{
     check_block_is_finalized_checkpoint_or_descendant, check_block_relevancy, get_block_root,
     signature_verify_chain_segment, BlockError, ExecutedBlock, ExecutionPendingBlock,
-    GossipVerifiedBlock, IntoExecutionPendingBlock, PayloadVerificationOutcome, POS_PANDA_BANNER,
+    GossipVerifiedBlock, IntoExecutionPendingBlock, POS_PANDA_BANNER,
 };
 pub use crate::canonical_head::{CanonicalHead, CanonicalHeadRwLock};
 use crate::chain_config::ChainConfig;
@@ -78,7 +77,6 @@ use futures::channel::mpsc::Sender;
 use itertools::process_results;
 use itertools::Itertools;
 use kzg::Kzg;
-use oneshot_broadcast::Receiver;
 use operation_pool::{AttestationRef, OperationPool, PersistedOperationPool, ReceivedPreCapella};
 use parking_lot::{Mutex, RwLock};
 use proto_array::{CountUnrealizedFull, DoNotReOrg, ProposerHeadError};
@@ -87,7 +85,6 @@ use slasher::Slasher;
 use slog::{crit, debug, error, info, trace, warn, Logger};
 use slot_clock::SlotClock;
 use ssz::Encode;
-use state_processing::per_block_processing::eip4844::eip4844::verify_kzg_commitments_against_transactions;
 use state_processing::{
     common::get_attesting_indices_from_state,
     per_block_processing,
@@ -103,7 +100,6 @@ use std::borrow::Cow;
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::collections::HashSet;
-use std::future::Future;
 use std::io::prelude::*;
 use std::marker::PhantomData;
 use std::sync::Arc;
@@ -113,7 +109,6 @@ use store::{
     DatabaseBlock, Error as DBError, HotColdDB, KeyValueStore, KeyValueStoreOp, StoreItem, StoreOp,
 };
 use task_executor::{ShutdownReason, TaskExecutor};
-use tokio::task::JoinHandle;
 use tree_hash::TreeHash;
 use types::beacon_block_body::KzgCommitments;
 use types::beacon_state::CloneConfig;
@@ -990,7 +985,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     pub async fn get_block_and_blobs_checking_early_attester_cache(
         &self,
-        block_root: &Hash256,
+        _block_root: &Hash256,
     ) -> Result<Option<()>, Error> {
         //TODO(sean) use the rpc blobs cache and revert this to the current block cache logic
         Ok(Some(()))
@@ -2711,7 +2706,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // TODO(log required errors)
         let executed_block = self
             .clone()
-            .into_executed_block(execution_pending, count_unrealized)
+            .into_executed_block(execution_pending)
             .await
             .map_err(|e| self.handle_block_error(e))?;
 
@@ -2733,7 +2728,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     async fn into_executed_block(
         self: Arc<Self>,
         execution_pending_block: ExecutionPendingBlock<T>,
-        count_unrealized: CountUnrealized,
     ) -> Result<ExecutedBlock<T::EthSpec>, BlockError<T::EthSpec>> {
         let ExecutionPendingBlock {
             block,
@@ -2843,7 +2837,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     confirmed_state_roots,
                     consensus_context,
                     payload_verification_outcome,
-                } = block;
+                } = *block;
 
                 let available_block = match block {
                     BlockWrapper::Available(block) => block,
