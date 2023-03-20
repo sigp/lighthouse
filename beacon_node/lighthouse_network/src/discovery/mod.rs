@@ -302,7 +302,10 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
             }
         }
 
-        let update_tcp_port = (config.enr_tcp4_port.is_none(), config.enr_tcp6_port.is_none());
+        let update_tcp_port = (
+            config.enr_tcp4_port.is_none(),
+            config.enr_tcp6_port.is_none(),
+        );
 
         Ok(Self {
             cached_enrs: LruCache::new(50),
@@ -1025,7 +1028,9 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
                             // Discv5 will have updated our local ENR. We save the updated version
                             // to disk.
 
-                            if (self.update_tcp_port.0 && socket_addr.is_ipv4()) || (self.update_tcp_port.1 && socket_addr.is_ipv6()) {
+                            if (self.update_tcp_port.0 && socket_addr.is_ipv4())
+                                || (self.update_tcp_port.1 && socket_addr.is_ipv6())
+                            {
                                 // Update the TCP port in the ENR
                                 self.discv5.update_local_enr_socket(socket_addr, true);
                             }
