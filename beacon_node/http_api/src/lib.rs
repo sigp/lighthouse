@@ -819,41 +819,54 @@ pub fn serve<T: BeaconChainTypes>(
                                 {
                                     shuffling
                                 } else {
-                                    let possibly_built_cache = match RelativeEpoch::from_epoch(
-                                        current_epoch,
-                                        epoch,
-                                    ) {
-                                        Ok(relative_epoch)
-                                            if state
-                                                .committee_cache_is_initialized(relative_epoch) =>
-                                        {
-                                            state.committee_cache(relative_epoch).map(Cow::Borrowed)
-                                        }
-                                        _ => CommitteeCache::initialized(state, epoch, &chain.spec)
+                                    let possibly_built_cache =
+                                        match RelativeEpoch::from_epoch(current_epoch, epoch) {
+                                            Ok(relative_epoch)
+                                                if state.committee_cache_is_initialized(
+                                                    relative_epoch,
+                                                ) =>
+                                            {
+                                                state
+                                                    .committee_cache(relative_epoch)
+                                                    .map(Cow::Borrowed)
+                                            }
+                                            _ => CommitteeCache::initialized(
+                                                state,
+                                                epoch,
+                                                &chain.spec,
+                                            )
                                             .map(Cow::Owned),
-                                    }
-                                    .map_err(|e| match e {
-                                        BeaconStateError::EpochOutOfBounds => {
-                                            let max_sprp =
-                                                T::EthSpec::slots_per_historical_root() as u64;
-                                            let first_subsequent_restore_point_slot = ((epoch
-                                                .start_slot(T::EthSpec::slots_per_epoch())
-                                                / max_sprp)
-                                                + 1)
-                                                * max_sprp;
-                                            if epoch < current_epoch {
-                                                warp_utils::reject::custom_bad_request(format!(
+                                        }
+                                        .map_err(|e| {
+                                            match e {
+                                                BeaconStateError::EpochOutOfBounds => {
+                                                    let max_sprp =
+                                                        T::EthSpec::slots_per_historical_root()
+                                                            as u64;
+                                                    let first_subsequent_restore_point_slot =
+                                                        ((epoch.start_slot(
+                                                            T::EthSpec::slots_per_epoch(),
+                                                        ) / max_sprp)
+                                                            + 1)
+                                                            * max_sprp;
+                                                    if epoch < current_epoch {
+                                                        warp_utils::reject::custom_bad_request(
+                                                            format!(
                                                     "epoch out of bounds, try state at slot {}",
                                                     first_subsequent_restore_point_slot,
-                                                ))
-                                            } else {
-                                                warp_utils::reject::custom_bad_request(
+                                                ),
+                                                        )
+                                                    } else {
+                                                        warp_utils::reject::custom_bad_request(
                                                     "epoch out of bounds, too far in future".into(),
                                                 )
+                                                    }
+                                                }
+                                                _ => {
+                                                    warp_utils::reject::beacon_chain_error(e.into())
+                                                }
                                             }
-                                        }
-                                        _ => warp_utils::reject::beacon_chain_error(e.into()),
-                                    })?;
+                                        })?;
 
                                     let owned_cache = Arc::new(possibly_built_cache.into_owned());
 
