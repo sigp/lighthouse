@@ -45,13 +45,14 @@ pub fn process_operations<T: EthSpec, Payload: AbstractExecPayload<T>>(
     process_deposits(state, block_body.deposits(), spec)?;
     process_exits(state, block_body.voluntary_exits(), verify_signatures, spec)?;
 
-    /* TODO: Add deposit_receipts to AbstractExecPayload
     if let Ok(payload) = block_body.execution_payload() {
         if is_execution_enabled(state, block_body) {
-            process_deposit_receipt(state, payload.deposit_receipts())?;
+            let deposit_receipts = payload.deposit_receipts()?;
+            for deposit_receipt in deposit_receipts.iter() {
+                process_deposit_receipt(state, deposit_receipt, spec)?;
+            }
         }
     }
-    */
 
     Ok(())
 }

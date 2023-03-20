@@ -39,6 +39,7 @@ pub trait ExecPayload<T: EthSpec>: Debug + Clone + PartialEq + Hash + TreeHash +
     fn transactions(&self) -> Option<&Transactions<T>>;
     /// fork-specific fields
     fn withdrawals_root(&self) -> Result<Hash256, Error>;
+    fn deposit_receipts(&self) -> Result<DepositReceipts<T>, Error>;
 
     /// Is this a default payload with 0x0 roots for transactions and withdrawals?
     fn is_default_with_zero_roots(&self) -> bool;
@@ -267,6 +268,20 @@ impl<T: EthSpec> ExecPayload<T> for FullPayload<T> {
         // For full payloads the empty/zero distinction does not exist.
         self.is_default_with_zero_roots()
     }
+
+    fn deposit_receipts(&self) -> Result<DepositReceipts<T>, Error> {
+        match self {
+            FullPayload::Merge(_) => {
+                // Return an error for the Merge variant
+                Err(Error::IncorrectStateVariant)
+            }
+            FullPayload::Capella(_) => {
+                // Return an error for the Capella variant
+                Err(Error::IncorrectStateVariant)
+            }
+            FullPayload::Eip4844(ref inner) => Ok(inner.execution_payload.deposit_receipts.clone()),
+        }
+    }
 }
 
 impl<T: EthSpec> FullPayload<T> {
@@ -375,6 +390,20 @@ impl<'b, T: EthSpec> ExecPayload<T> for FullPayloadRef<'b, T> {
     fn is_default_with_empty_roots(&self) -> bool {
         // For full payloads the empty/zero distinction does not exist.
         self.is_default_with_zero_roots()
+    }
+
+    fn deposit_receipts(&self) -> Result<DepositReceipts<T>, Error> {
+        match self {
+            FullPayloadRef::Merge(_) => {
+                // Return an error for the Merge variant
+                Err(Error::IncorrectStateVariant)
+            }
+            FullPayloadRef::Capella(_) => {
+                // Return an error for the Capella variant
+                Err(Error::IncorrectStateVariant)
+            }
+            FullPayloadRef::Eip4844(inner) => Ok(inner.execution_payload.deposit_receipts.clone()),
+        }
     }
 }
 
@@ -548,6 +577,10 @@ impl<T: EthSpec> ExecPayload<T> for BlindedPayload<T> {
     fn is_default_with_empty_roots(&self) -> bool {
         self.to_ref().is_default_with_empty_roots()
     }
+
+    fn deposit_receipts(&self) -> Result<DepositReceipts<T>, Error> {
+        todo!()
+    }
 }
 
 impl<'b, T: EthSpec> ExecPayload<T> for BlindedPayloadRef<'b, T> {
@@ -640,6 +673,10 @@ impl<'b, T: EthSpec> ExecPayload<T> for BlindedPayloadRef<'b, T> {
             payload.is_default_with_empty_roots()
         })
     }
+
+    fn deposit_receipts(&self) -> Result<DepositReceipts<T>, Error> {
+        todo!()
+    }
 }
 
 macro_rules! impl_exec_payload_common {
@@ -709,6 +746,10 @@ macro_rules! impl_exec_payload_common {
             fn withdrawals_root(&self) -> Result<Hash256, Error> {
                 let g = $g;
                 g(self)
+            }
+
+            fn deposit_receipts(&self) -> Result<DepositReceipts<T>, Error> {
+                todo!()
             }
         }
 
