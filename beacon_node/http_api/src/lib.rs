@@ -39,6 +39,7 @@ use lighthouse_version::version_with_platform;
 use network::{NetworkMessage, NetworkSenders, ValidatorSubscriptionMessage};
 use operation_pool::ReceivedPreCapella;
 use parking_lot::RwLock;
+use publish_blocks::ProvenancedBlock;
 use serde::{Deserialize, Serialize};
 use slog::{crit, debug, error, info, warn, Logger};
 use slot_clock::SlotClock;
@@ -1125,9 +1126,15 @@ pub fn serve<T: BeaconChainTypes>(
              chain: Arc<BeaconChain<T>>,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
              log: Logger| async move {
-                publish_blocks::publish_block(None, block_contents, chain, &network_tx, log)
-                    .await
-                    .map(|()| warp::reply().into_response())
+                publish_blocks::publish_block(
+                    None,
+                    ProvenancedBlock::Local(block_contents),
+                    chain,
+                    &network_tx,
+                    log,
+                )
+                .await
+                .map(|()| warp::reply().into_response())
             },
         );
 
