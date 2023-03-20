@@ -41,7 +41,7 @@ drastically and use the (recommended) default.
 
 ### NAT Traversal (Port Forwarding)
 
-Lighthouse, by default, used port 9000 for both TCP and UDP. Lighthouse will
+Lighthouse, by default, uses port 9000 for both TCP and UDP. Lighthouse will
 still function if it is behind a NAT without any port mappings. Although
 Lighthouse still functions, we recommend that some mechanism is used to ensure
 that your Lighthouse node is publicly accessible. This will typically improve
@@ -53,6 +53,16 @@ Lighthouse will automatically establish the port mappings for you (the beacon
 node will inform you of established routes in this case). If UPnP is not
 enabled, we recommend you manually set up port mappings to both of Lighthouse's
 TCP and UDP ports (9000 by default).
+
+> Note: Lighthouse needs to advertise its publicly accessible ports in
+> order to inform its peers that it is contactable and how to connect to it. 
+> Lighthouse has an automated way of doing this for the UDP port. This means
+> Lighthouse can detect its external UDP port. There is no such mechanism for the
+> TCP port. As such, we assume that the external UDP and external TCP port is the
+> same (i.e external 5050 UDP/TCP mapping to internal 9000 is fine). If you are setting up differing external UDP and TCP ports, you should
+> explicitly specify them using the `--enr-tcp-port` and `--enr-udp-port` as
+> explained in the following section.
+
 
 ### ENR Configuration
 
