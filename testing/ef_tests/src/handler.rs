@@ -547,12 +547,8 @@ impl<E: EthSpec + TypeName> Handler for ForkChoiceHandler<E> {
             return false;
         }
 
-        // Withholding tests were introduced shortly before the Capella fork and
-        // have not been generated for prior forks.\
-        let no_base_tests = ["ex_ante", "withholding", "on_block", "reorg", "get_head"]
-            .iter()
-            .any(|&name| self.handler_name == name);
-        if no_base_tests && fork_name == ForkName::Base {
+        // Tests are no longer generated for the base/phase0 specification.
+        if fork_name == ForkName::Base {
             return false;
         }
 
