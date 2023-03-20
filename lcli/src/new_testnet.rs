@@ -10,8 +10,7 @@ use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 use types::{
     test_utils::generate_deterministic_keypairs, Address, Config, Epoch, EthSpec,
-    ExecutionPayloadHeader, ExecutionPayloadHeaderCapella, ExecutionPayloadHeaderEip4844,
-    ExecutionPayloadHeaderMerge, ForkName,
+    ExecutionPayloadHeader, ExecutionPayloadHeaderCapella, ExecutionPayloadHeaderMerge, ForkName,
 };
 
 pub fn run<T: EthSpec>(testnet_dir_path: PathBuf, matches: &ArgMatches) -> Result<(), String> {
@@ -93,10 +92,6 @@ pub fn run<T: EthSpec>(testnet_dir_path: PathBuf, matches: &ArgMatches) -> Resul
                         ForkName::Capella => {
                             ExecutionPayloadHeaderCapella::<T>::from_ssz_bytes(bytes.as_slice())
                                 .map(ExecutionPayloadHeader::Capella)
-                        }
-                        ForkName::Eip4844 => {
-                            ExecutionPayloadHeaderEip4844::<T>::from_ssz_bytes(bytes.as_slice())
-                                .map(ExecutionPayloadHeader::Eip4844)
                         }
                     }
                     .map_err(|e| format!("SSZ decode failed: {:?}", e))

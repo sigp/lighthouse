@@ -116,7 +116,7 @@ Several conditions need to be met in order to run `lighthouse db`:
 2. The command must run as the user that owns the beacon node database. If you are using systemd then
    your beacon node might run as a user called `lighthousebeacon`.
 3. The `--datadir` flag must be set to the location of the Lighthouse data directory.
-4. The `--network` flag must be set to the correct network, e.g. `mainnet`, `prater` or `ropsten`.
+4. The `--network` flag must be set to the correct network, e.g. `mainnet`, `prater` or `sepolia`.
 
 The general form for a `lighthouse db` command is:
 

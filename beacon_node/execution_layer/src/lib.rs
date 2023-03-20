@@ -26,6 +26,7 @@ use std::collections::HashMap;
 use std::fmt;
 use std::future::Future;
 use std::io::Write;
+use std::marker::PhantomData;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -37,17 +38,16 @@ use tokio::{
 };
 use tokio_stream::wrappers::WatchStream;
 use tree_hash::TreeHash;
-use types::{AbstractExecPayload, BeaconStateError, Blob, ExecPayload, KzgCommitment, Withdrawals};
+use types::{AbstractExecPayload, BeaconStateError, ExecPayload, Withdrawals};
 use types::{
     BlindedPayload, BlockType, ChainSpec, Epoch, ExecutionBlockHash, ExecutionPayload,
-    ExecutionPayloadCapella, ExecutionPayloadEip4844, ExecutionPayloadMerge, ForkName,
-    ForkVersionedResponse, ProposerPreparationData, PublicKeyBytes, Signature, SignedBeaconBlock,
-    Slot, Uint256,
+    ExecutionPayloadCapella, ExecutionPayloadMerge, ForkName, ForkVersionedResponse,
+    ProposerPreparationData, PublicKeyBytes, Signature, SignedBeaconBlock, Slot, Uint256,
 };
 
 mod block_hash;
 mod engine_api;
-mod engines;
+pub mod engines;
 mod keccak;
 mod metrics;
 pub mod payload_cache;
@@ -122,12 +122,8 @@ pub enum BlockProposalContents<T: EthSpec, Payload: AbstractExecPayload<T>> {
     Payload {
         payload: Payload,
         block_value: Uint256,
-    },
-    PayloadAndBlobs {
-        payload: Payload,
-        block_value: Uint256,
-        kzg_commitments: Vec<KzgCommitment>,
-        blobs: Vec<Blob<T>>,
+        // TODO: remove for 4844, since it appears in PayloadAndBlobs
+        _phantom: PhantomData<T>,
     },
 }
 
@@ -137,12 +133,7 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> BlockProposalContents<T, Paylo
             Self::Payload {
                 payload,
                 block_value: _,
-            } => payload,
-            Self::PayloadAndBlobs {
-                payload,
-                block_value: _,
-                kzg_commitments: _,
-                blobs: _,
+                _phantom: _,
             } => payload,
         }
     }
@@ -151,41 +142,8 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> BlockProposalContents<T, Paylo
             Self::Payload {
                 payload,
                 block_value: _,
+                _phantom: _,
             } => payload,
-            Self::PayloadAndBlobs {
-                payload,
-                block_value: _,
-                kzg_commitments: _,
-                blobs: _,
-            } => payload,
-        }
-    }
-    pub fn kzg_commitments(&self) -> Option<&[KzgCommitment]> {
-        match self {
-            Self::Payload {
-                payload: _,
-                block_value: _,
-            } => None,
-            Self::PayloadAndBlobs {
-                payload: _,
-                block_value: _,
-                kzg_commitments,
-                blobs: _,
-            } => Some(kzg_commitments),
-        }
-    }
-    pub fn blobs(&self) -> Option<&[Blob<T>]> {
-        match self {
-            Self::Payload {
-                payload: _,
-                block_value: _,
-            } => None,
-            Self::PayloadAndBlobs {
-                payload: _,
-                block_value: _,
-                kzg_commitments: _,
-                blobs,
-            } => Some(blobs),
         }
     }
     pub fn block_value(&self) -> &Uint256 {
@@ -193,12 +151,7 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> BlockProposalContents<T, Paylo
             Self::Payload {
                 payload: _,
                 block_value,
-            } => block_value,
-            Self::PayloadAndBlobs {
-                payload: _,
-                block_value,
-                kzg_commitments: _,
-                blobs: _,
+                _phantom: _,
             } => block_value,
         }
     }
@@ -208,14 +161,9 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> BlockProposalContents<T, Paylo
                 BlockProposalContents::Payload {
                     payload: Payload::default_at_fork(fork_name)?,
                     block_value: Uint256::zero(),
+                    _phantom: PhantomData::default(),
                 }
             }
-            ForkName::Eip4844 => BlockProposalContents::PayloadAndBlobs {
-                payload: Payload::default_at_fork(fork_name)?,
-                block_value: Uint256::zero(),
-                blobs: vec![],
-                kzg_commitments: vec![],
-            },
         })
     }
 }
@@ -271,6 +219,7 @@ struct Inner<E: EthSpec> {
     payload_cache: PayloadCache<E>,
     builder_profit_threshold: Uint256,
     log: Logger,
+    always_prefer_builder_payload: bool,
 }
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
@@ -293,6 +242,7 @@ pub struct Config {
     /// The minimum value of an external payload for it to be considered in a proposal.
     pub builder_profit_threshold: u128,
     pub execution_timeout_multiplier: Option<u32>,
+    pub always_prefer_builder_payload: bool,
 }
 
 /// Provides access to one execution engine and provides a neat interface for consumption by the
@@ -315,6 +265,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
             default_datadir,
             builder_profit_threshold,
             execution_timeout_multiplier,
+            always_prefer_builder_payload,
         } = config;
 
         if urls.len() > 1 {
@@ -342,6 +293,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                 .map_err(Error::InvalidJWTSecret)
         } else {
             // Create a new file and write a randomly generated secret to it if file does not exist
+            warn!(log, "No JWT found on disk. Generating"; "path" => %secret_file.display());
             std::fs::File::options()
                 .write(true)
                 .create_new(true)
@@ -387,6 +339,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
             payload_cache: PayloadCache::default(),
             builder_profit_threshold: Uint256::from(builder_profit_threshold),
             log,
+            always_prefer_builder_payload,
         };
 
         Ok(Self {
@@ -848,7 +801,9 @@ impl<T: EthSpec> ExecutionLayer<T> {
 
                             let relay_value = relay.data.message.value;
                             let local_value = *local.block_value();
-                            if local_value >= relay_value {
+                            if !self.inner.always_prefer_builder_payload
+                                && local_value >= relay_value
+                            {
                                 info!(
                                     self.log(),
                                     "Local block is more profitable than relay block";
@@ -871,6 +826,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                                     BlockProposalContents::Payload {
                                         payload: relay.data.message.header,
                                         block_value: relay.data.message.value,
+                                        _phantom: PhantomData::default(),
                                     },
                                 )),
                                 Err(reason) if !reason.payload_invalid() => {
@@ -925,6 +881,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                                     BlockProposalContents::Payload {
                                         payload: relay.data.message.header,
                                         block_value: relay.data.message.value,
+                                        _phantom: PhantomData::default(),
                                     },
                                 )),
                                 // If the payload is valid then use it. The local EE failed
@@ -933,6 +890,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                                     BlockProposalContents::Payload {
                                         payload: relay.data.message.header,
                                         block_value: relay.data.message.value,
+                                        _phantom: PhantomData::default(),
                                     },
                                 )),
                                 Err(reason) => {
@@ -1101,24 +1059,6 @@ impl<T: EthSpec> ExecutionLayer<T> {
                     }
                 };
 
-                let blob_fut = async {
-                    match current_fork {
-                        ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {
-                            None
-                        }
-                        ForkName::Eip4844 => {
-                            debug!(
-                                self.log(),
-                                "Issuing engine_getBlobsBundle";
-                                "suggested_fee_recipient" => ?payload_attributes.suggested_fee_recipient(),
-                                "prev_randao" => ?payload_attributes.prev_randao(),
-                                "timestamp" => payload_attributes.timestamp(),
-                                "parent_hash" => ?parent_hash,
-                            );
-                            Some(engine.api.get_blobs_bundle_v1::<T>(payload_id).await)
-                        }
-                    }
-                };
                 let payload_fut = async {
                     debug!(
                         self.log(),
@@ -1130,7 +1070,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                     );
                     engine.api.get_payload::<T>(current_fork, payload_id).await
                 };
-                let (blob, payload_response) = tokio::join!(blob_fut, payload_fut);
+                let payload_response = payload_fut.await;
                 let (execution_payload, block_value) = payload_response.map(|payload_response| {
                     if payload_response.execution_payload_ref().fee_recipient() != payload_attributes.suggested_fee_recipient() {
                         error!(
@@ -1154,20 +1094,11 @@ impl<T: EthSpec> ExecutionLayer<T> {
                     }
                     payload_response.into()
                 })?;
-                if let Some(blob) = blob.transpose()? {
-                    // FIXME(sean) cache blobs
-                    Ok(BlockProposalContents::PayloadAndBlobs {
-                        payload: execution_payload.into(),
-                        block_value,
-                        blobs: blob.blobs,
-                        kzg_commitments: blob.kzgs,
-                    })
-                } else {
-                    Ok(BlockProposalContents::Payload {
-                        payload: execution_payload.into(),
-                        block_value,
-                    })
-                }
+                Ok(BlockProposalContents::Payload {
+                    payload: execution_payload.into(),
+                    block_value,
+                    _phantom: PhantomData::default(),
+                })
             })
             .await
             .map_err(Box::new)
@@ -1667,7 +1598,6 @@ impl<T: EthSpec> ExecutionLayer<T> {
             return match fork {
                 ForkName::Merge => Ok(Some(ExecutionPayloadMerge::default().into())),
                 ForkName::Capella => Ok(Some(ExecutionPayloadCapella::default().into())),
-                ForkName::Eip4844 => Ok(Some(ExecutionPayloadEip4844::default().into())),
                 ForkName::Base | ForkName::Altair => Err(ApiError::UnsupportedForkVariant(
                     format!("called get_payload_by_block_hash_from_engine with {}", fork),
                 )),
@@ -1736,34 +1666,6 @@ impl<T: EthSpec> ExecutionLayer<T> {
                     extra_data: capella_block.extra_data,
                     base_fee_per_gas: capella_block.base_fee_per_gas,
                     block_hash: capella_block.block_hash,
-                    transactions,
-                    withdrawals,
-                })
-            }
-            ExecutionBlockWithTransactions::Eip4844(eip4844_block) => {
-                let withdrawals = VariableList::new(
-                    eip4844_block
-                        .withdrawals
-                        .into_iter()
-                        .map(Into::into)
-                        .collect(),
-                )
-                .map_err(ApiError::DeserializeWithdrawals)?;
-                ExecutionPayload::Eip4844(ExecutionPayloadEip4844 {
-                    parent_hash: eip4844_block.parent_hash,
-                    fee_recipient: eip4844_block.fee_recipient,
-                    state_root: eip4844_block.state_root,
-                    receipts_root: eip4844_block.receipts_root,
-                    logs_bloom: eip4844_block.logs_bloom,
-                    prev_randao: eip4844_block.prev_randao,
-                    block_number: eip4844_block.block_number,
-                    gas_limit: eip4844_block.gas_limit,
-                    gas_used: eip4844_block.gas_used,
-                    timestamp: eip4844_block.timestamp,
-                    extra_data: eip4844_block.extra_data,
-                    base_fee_per_gas: eip4844_block.base_fee_per_gas,
-                    excess_data_gas: eip4844_block.excess_data_gas,
-                    block_hash: eip4844_block.block_hash,
                     transactions,
                     withdrawals,
                 })
