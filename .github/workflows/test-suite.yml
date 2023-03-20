@@ -47,60 +47,26 @@ jobs:
       run: make cargo-fmt
   release-tests-ubuntu:
     name: release-tests-ubuntu
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, large]
     needs: cargo-fmt
     steps:
     - uses: actions/checkout@v3
-    - name: Get latest version of stable Rust
-      run: rustup update stable
-    - name: Install Protoc
-      uses: arduino/setup-protoc@e52d9eb8f7b63115df1ac544a1376fdbf5a39612
-      with:
-        repo-token: ${{ secrets.GITHUB_TOKEN }}
-    - name: Install ganache
-      run: sudo npm install -g ganache
     - name: Run tests in release
       run: make test-release
   release-tests-windows:
     name: release-tests-windows
-    runs-on: windows-2019
+    runs-on: [self-hosted, windows]
     needs: cargo-fmt
     steps:
     - uses: actions/checkout@v3
-    - name: Get latest version of stable Rust
-      run: rustup update stable
-    - name: Use Node.js
-      uses: actions/setup-node@v2
-      with:
-        node-version: '14'
-    - name: Install windows build tools
-      run: |
-        choco install python protoc visualstudio2019-workload-vctools -y
-        npm config set msvs_version 2019
-    - name: Install ganache
-      run: npm install -g ganache --loglevel verbose
-    - name: Install make
-      run: choco install -y make
-    - uses: KyleMayes/install-llvm-action@v1
-      with:
-        version: "13.0"
-        directory: ${{ runner.temp }}/llvm
-    - name: Set LIBCLANG_PATH
-      run: echo "LIBCLANG_PATH=$((gcm clang).source -replace "clang.exe")" >> $env:GITHUB_ENV
     - name: Run tests in release
       run: make test-release
   beacon-chain-tests:
     name: beacon-chain-tests
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, large]
     needs: cargo-fmt
     steps:
     - uses: actions/checkout@v3
-    - name: Get latest version of stable Rust
-      run: rustup update stable
-    - name: Install Protoc
-      uses: arduino/setup-protoc@e52d9eb8f7b63115df1ac544a1376fdbf5a39612
-      with:
-        repo-token: ${{ secrets.GITHUB_TOKEN }}
     - name: Run beacon_chain tests for all known forks
       run: make test-beacon-chain
   op-pool-tests:
@@ -159,16 +125,10 @@ jobs:
       run: make run-state-transition-tests
   ef-tests-ubuntu:
     name: ef-tests-ubuntu
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, small]
     needs: cargo-fmt
     steps:
     - uses: actions/checkout@v3
-    - name: Get latest version of stable Rust
-      run: rustup update stable
-    - name: Install Protoc
-      uses: arduino/setup-protoc@e52d9eb8f7b63115df1ac544a1376fdbf5a39612
-      with:
-        repo-token: ${{ secrets.GITHUB_TOKEN }}
     - name: Run consensus-spec-tests with blst, milagro and fake_crypto
       run: make test-ef
   dockerfile-ubuntu:
