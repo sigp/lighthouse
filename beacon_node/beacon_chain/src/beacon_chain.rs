@@ -1060,6 +1060,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     // FIXME(jimmy): temporary method added to unblock API work. This method will be replaced by
     // the `get_blobs` method below once the new blob sidecar structure (`BlobSidecarList`) is
     // implemented in that method.
+    #[allow(clippy::type_complexity)] // FIXME: this will be fixed by the `BlobSidecarList` alias in Sean's PR
     pub fn get_blob_sidecar_list(
         &self,
         _block_root: &Hash256,
