@@ -569,11 +569,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         blobs_db.key_delete(DBColumn::BeaconBlob.into(), block_root.as_bytes())
     }
 
-    pub fn put_blobs(
-        &self,
-        block_root: &Hash256,
-        blobs: BlobSidecarList<E>,
-    ) -> Result<(), Error> {
+    pub fn put_blobs(&self, block_root: &Hash256, blobs: BlobSidecarList<E>) -> Result<(), Error> {
         let blobs_db = self.blobs_db.as_ref().unwrap_or(&self.cold_db);
         blobs_db.put_bytes(
             DBColumn::BeaconBlob.into(),
@@ -587,7 +583,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     pub fn blobs_as_kv_store_ops(
         &self,
         key: &Hash256,
-        blobs: &BlobSidecarList<E>,
+        blobs: BlobSidecarList<E>,
         ops: &mut Vec<KeyValueStoreOp>,
     ) {
         let db_key = get_key_for_col(DBColumn::BeaconBlob.into(), key.as_bytes());
@@ -822,7 +818,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 }
 
                 StoreOp::PutBlobs(block_root, blobs) => {
-                    self.blobs_as_kv_store_ops(&block_root, &blobs, &mut key_value_batch);
+                    self.blobs_as_kv_store_ops(&block_root, blobs, &mut key_value_batch);
                 }
 
                 StoreOp::PutStateSummary(state_root, summary) => {
@@ -890,8 +886,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 StoreOp::PutBlobs(_, _) => true,
                 StoreOp::DeleteBlobs(block_root) => {
                     match self.get_blobs(block_root) {
-                        Ok(Some(blobs_sidecar)) => {
-                            blobs_to_delete.push(blobs_sidecar);
+                        Ok(Some(blobs_sidecar_list)) => {
+                            blobs_to_delete.push((*block_root, blobs_sidecar_list));
                         }
                         Err(e) => {
                             error!(
@@ -930,8 +926,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             for op in blob_cache_ops.iter_mut() {
                 let reverse_op = match op {
                     StoreOp::PutBlobs(block_root, _) => StoreOp::DeleteBlobs(*block_root),
-                    StoreOp::DeleteBlobs(block_root) => match blobs_to_delete.pop() {
-                        Some(blobs) => StoreOp::PutBlobs(*block_root, blobs),
+                    StoreOp::DeleteBlobs(_) => match blobs_to_delete.pop() {
+                        Some((block_root, blobs)) => StoreOp::PutBlobs(block_root, blobs),
                         None => return Err(HotColdDBError::Rollback.into()),
                     },
                     _ => return Err(HotColdDBError::Rollback.into()),
@@ -977,7 +973,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         for op in blob_cache_ops {
             match op {
                 StoreOp::PutBlobs(block_root, blobs) => {
-                    guard_blob.put(block_root, blobs.clone());
+                    guard_blob.put(block_root, blobs);
                 }
 
                 StoreOp::DeleteBlobs(block_root) => {

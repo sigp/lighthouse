@@ -47,8 +47,6 @@ pub struct BlobSidecar<T: EthSpec> {
     pub kzg_proof: KzgProof,
 }
 
-pub type BlobSidecarList<T> = VariableList<BlobSidecar<T>, <T as EthSpec>::MaxBlobsPerBlock>;
-//TODO(sean) is there any other way around this? need it arc blobs for caching in multiple places
 pub type BlobSidecarList<T> =
     VariableList<Arc<BlobSidecar<T>>, <T as EthSpec>::MaxBlobsPerBlock>;
 pub type Blobs<T> = VariableList<Blob<T>, <T as EthSpec>::MaxExtraDataBytes>;
