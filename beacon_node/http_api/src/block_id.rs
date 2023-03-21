@@ -1,6 +1,6 @@
 use crate::{state_id::checkpoint_slot_and_execution_optimistic, ExecutionOptimistic};
 use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes, WhenSlotSkipped};
-use eth2::types::{BlockId as CoreBlockId, VariableList};
+use eth2::types::BlockId as CoreBlockId;
 use std::fmt;
 use std::str::FromStr;
 use std::sync::Arc;
