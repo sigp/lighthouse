@@ -1,21 +1,22 @@
-use crate::blob_verification::{AsBlock, AvailableBlock, BlockWrapper, VerifiedBlobs};
+use crate::blob_verification::{AsBlock, AvailableBlock, BlockWrapper};
 use crate::block_verification::ExecutedBlock;
 use crate::kzg_utils::validate_blob;
 use kzg::Error as KzgError;
 use kzg::Kzg;
 use parking_lot::{Mutex, RwLock};
-use ssz_types::{Error, VariableList};
+use ssz_types::Error;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::sync::Arc;
 use types::blob_sidecar::{BlobIdentifier, BlobSidecar};
-use types::{EthSpec, Hash256};
+use types::{Epoch, EthSpec, Hash256};
 
 #[derive(Debug)]
 pub enum AvailabilityCheckError {
     DuplicateBlob(Hash256),
     Kzg(KzgError),
     SszTypes(ssz_types::Error),
+    InvalidBlockOrBlob(String),
 }
 
 impl From<ssz_types::Error> for AvailabilityCheckError {
@@ -131,6 +132,7 @@ impl<T: EthSpec> DataAvailabilityChecker<T> {
     pub fn check_block_availability(
         &self,
         executed_block: ExecutedBlock<T>,
+        da_check_fn: impl FnOnce(Epoch) -> bool,
     ) -> Result<Availability<T>, AvailabilityCheckError> {
         let block_clone = executed_block.block.clone();
 
@@ -166,12 +168,10 @@ impl<T: EthSpec> DataAvailabilityChecker<T> {
                                     payload_verification_outcome,
                                 } = executed_block;
 
-                                let available_block = BlockWrapper::Available(AvailableBlock {
-                                    block,
-                                    blobs: VerifiedBlobs::Available(VariableList::new(
-                                        removed.verified_blobs,
-                                    )?),
-                                });
+                                let available_block =
+                                    AvailableBlock::new(block, removed.verified_blobs, da_check_fn)
+                                        .map_err(AvailabilityCheckError::InvalidBlockOrBlob)?
+                                        .into();
 
                                 let available_executed = ExecutedBlock {
                                     block: available_block,

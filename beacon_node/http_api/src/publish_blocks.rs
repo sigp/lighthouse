@@ -1,4 +1,5 @@
 use crate::metrics;
+use beacon_chain::blob_verification::AsBlock;
 use beacon_chain::blob_verification::BlockWrapper;
 use beacon_chain::validator_monitor::{get_block_delay_ms, timestamp_now};
 use beacon_chain::{AvailabilityProcessingStatus, NotifyExecutionLayer};
@@ -110,14 +111,14 @@ pub async fn publish_block<T: BeaconChainTypes>(
                 "Valid block from HTTP API";
                 "block_delay" => ?delay,
                 "root" => format!("{}", root),
-                "proposer_index" => available_block.block.message().proposer_index(),
-                "slot" => available_block.block.slot(),
+                "proposer_index" => available_block.message().proposer_index(),
+                "slot" => available_block.slot(),
             );
 
             // Notify the validator monitor.
             chain.validator_monitor.read().register_api_block(
                 seen_timestamp,
-                available_block.block.message(),
+                available_block.message(),
                 root,
                 &chain.slot_clock,
             );
@@ -133,7 +134,7 @@ pub async fn publish_block<T: BeaconChainTypes>(
                 late_block_logging(
                     &chain,
                     seen_timestamp,
-                    available_block.block.message(),
+                    available_block.message(),
                     root,
                     "local",
                     &log,
@@ -165,7 +166,7 @@ pub async fn publish_block<T: BeaconChainTypes>(
                 log,
                 "Block from HTTP API already known";
                 "block" => ?block_root,
-                "slot" => available_block.block.slot(),
+                "slot" => available_block.slot(),
             );
             Ok(())
         }

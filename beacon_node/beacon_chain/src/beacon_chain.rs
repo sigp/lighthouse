@@ -2714,7 +2714,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             |chain| {
                 chain
                     .data_availability_checker
-                    .check_block_availability(executed_block)
+                    .check_block_availability(executed_block, |epoch| {
+                        chain.block_needs_da_check(epoch)
+                    })
             },
             count_unrealized,
         )
@@ -2846,7 +2848,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     }
                 };
 
-                let slot = available_block.block.slot();
+                let slot = available_block.slot();
 
                 // import
                 let chain = self.clone();
@@ -2925,7 +2927,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // -----------------------------------------------------------------------------------------
         let current_slot = self.slot()?;
         let current_epoch = current_slot.epoch(T::EthSpec::slots_per_epoch());
-        let block = signed_block.block.message();
+        let block = signed_block.message();
         let post_exec_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_POST_EXEC_PROCESSING);
 
         // Check against weak subjectivity checkpoint.
@@ -2969,7 +2971,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         )?;
         // TODO(pawan): fix this atrocity
         let signed_block = signed_block.into_available_block().unwrap();
-        let block = signed_block.block.message();
+        let block = signed_block.message();
 
         // Register the new block with the fork choice service.
         {
@@ -6167,6 +6169,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 )
             })
         })
+    }
+
+    /// Returns true if the given epoch lies within the da boundary and false otherwise.
+    pub fn block_needs_da_check(&self, block_epoch: Epoch) -> bool {
+        self.data_availability_boundary()
+            .map_or(false, |da_epoch| block_epoch >= da_epoch)
     }
 
     /// The epoch that is a data availability boundary, or the latest finalized epoch.

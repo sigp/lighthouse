@@ -93,9 +93,9 @@ use task_executor::JoinHandle;
 use tree_hash::TreeHash;
 use types::ExecPayload;
 use types::{
-    BeaconBlockRef, BeaconState, BeaconStateError, BlindedPayload, ChainSpec, CloneConfig, Epoch,
-    EthSpec, ExecutionBlockHash, Hash256, InconsistentFork, PublicKey, PublicKeyBytes,
-    RelativeEpoch, SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
+    BeaconBlockRef, BeaconState, BeaconStateError, BlindedPayload, BlobSidecar, ChainSpec,
+    CloneConfig, Epoch, EthSpec, ExecutionBlockHash, Hash256, InconsistentFork, PublicKey,
+    PublicKeyBytes, RelativeEpoch, SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
 };
 
 pub const POS_PANDA_BANNER: &str = r#"
@@ -1171,16 +1171,30 @@ impl<T: BeaconChainTypes> IntoExecutionPendingBlock<T> for BlockWrapper<T::EthSp
         match self {
             BlockWrapper::AvailabilityPending(block) => block
                 .into_execution_pending_block_slashable(block_root, chain, notify_execution_layer),
-            BlockWrapper::Available(AvailableBlock { block, blobs }) => {
+            BlockWrapper::Available(available_block) => {
+                let (block, blobs) = available_block.deconstruct();
                 let mut execution_pending_block = block.into_execution_pending_block_slashable(
                     block_root,
                     chain,
                     notify_execution_layer,
                 )?;
                 let block = execution_pending_block.block.block_cloned();
+
+                let blobs: Vec<Arc<BlobSidecar<_>>> = match blobs {
+                    Some(blob_list) => blob_list.into(),
+                    None => vec![],
+                };
                 let available_execution_pending_block =
-                    BlockWrapper::Available(AvailableBlock { block, blobs });
-                execution_pending_block.block = available_execution_pending_block;
+                    AvailableBlock::new(block, blobs, |epoch| chain.block_needs_da_check(epoch))
+                        .map_err(|e| {
+                            BlockSlashInfo::SignatureValid(
+                                execution_pending_block.block.signed_block_header(),
+                                BlockError::AvailabilityCheck(
+                                    AvailabilityCheckError::InvalidBlockOrBlob(e),
+                                ),
+                            )
+                        })?;
+                execution_pending_block.block = available_execution_pending_block.into();
                 Ok(execution_pending_block)
             }
         }
