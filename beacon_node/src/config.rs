@@ -705,7 +705,7 @@ pub fn get_config<E: EthSpec>(
         client_config.chain.fork_choice_before_proposal_timeout_ms = timeout;
     }
 
-    if cli_args.is_present("count-unrealized") {
+    if clap_utils::parse_required::<bool>(cli_args, "count-unrealized")? == false {
         warn!(
             log,
             "The flag --count-unrealized is deprecated and will be removed";
