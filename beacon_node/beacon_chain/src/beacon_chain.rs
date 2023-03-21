@@ -1057,6 +1057,23 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .map(Some)
     }
 
+    // FIXME(jimmy): temporary method added to unblock API work. This method will be replaced by
+    // the `get_blobs` method below once the new blob sidecar structure (`BlobSidecarList`) is
+    // implemented in that method.
+    #[allow(clippy::type_complexity)] // FIXME: this will be fixed by the `BlobSidecarList` alias in Sean's PR
+    pub fn get_blob_sidecar_list(
+        &self,
+        _block_root: &Hash256,
+        _data_availability_boundary: Epoch,
+    ) -> Result<
+        Option<
+            VariableList<Arc<BlobSidecar<T::EthSpec>>, <T::EthSpec as EthSpec>::MaxBlobsPerBlock>,
+        >,
+        Error,
+    > {
+        unimplemented!("update to use the updated `get_blobs` method instead once this PR is merged: https://github.com/sigp/lighthouse/pull/4104")
+    }
+
     /// Returns the blobs at the given root, if any.
     ///
     /// Returns `Ok(None)` if the blobs and associated block are not found.

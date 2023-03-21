@@ -1,10 +1,10 @@
 use crate::{state_id::checkpoint_slot_and_execution_optimistic, ExecutionOptimistic};
 use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes, WhenSlotSkipped};
-use eth2::types::BlockId as CoreBlockId;
+use eth2::types::{BlockId as CoreBlockId, VariableList};
 use std::fmt;
 use std::str::FromStr;
 use std::sync::Arc;
-use types::{BlobsSidecar, Hash256, SignedBeaconBlock, SignedBlindedBeaconBlock, Slot};
+use types::{BlobSidecar, EthSpec, Hash256, SignedBeaconBlock, SignedBlindedBeaconBlock, Slot};
 
 /// Wraps `eth2::types::BlockId` and provides a simple way to obtain a block or root for a given
 /// `BlockId`.
@@ -212,19 +212,22 @@ impl BlockId {
         }
     }
 
-    /// Return the `BlobsSidecar` identified by `self`.
-    pub async fn blobs_sidecar<T: BeaconChainTypes>(
+    /// Return the `BlobSidecarList` identified by `self`.
+    pub async fn blob_sidecar_list<T: BeaconChainTypes>(
         &self,
         chain: &BeaconChain<T>,
-    ) -> Result<Arc<BlobsSidecar<T::EthSpec>>, warp::Rejection> {
+    ) -> Result<
+        VariableList<Arc<BlobSidecar<T::EthSpec>>, <T::EthSpec as EthSpec>::MaxBlobsPerBlock>,
+        warp::Rejection,
+    > {
         let root = self.root(chain)?.0;
         let Some(data_availability_boundary) = chain.data_availability_boundary() else {
-            return Err(warp_utils::reject::custom_not_found("Eip4844 fork disabled".into()));
+            return Err(warp_utils::reject::custom_not_found("Deneb fork disabled".into()));
         };
-        match chain.get_blobs(&root, data_availability_boundary) {
-            Ok(Some(blob)) => Ok(Arc::new(blob)),
+        match chain.get_blob_sidecar_list(&root, data_availability_boundary) {
+            Ok(Some(blobs)) => Ok(blobs),
             Ok(None) => Err(warp_utils::reject::custom_not_found(format!(
-                "Blob with block root {} is not in the store",
+                "No blobs with block root {} found in the store",
                 root
             ))),
             Err(e) => Err(warp_utils::reject::beacon_chain_error(e)),
