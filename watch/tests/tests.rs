@@ -26,7 +26,7 @@ use std::net::SocketAddr;
 use std::time::Duration;
 use tokio::{runtime, task::JoinHandle};
 use tokio_postgres::{config::Config as PostgresConfig, Client, NoTls};
-use unused_port::unused_tcp_port;
+use unused_port::unused_tcp4_port;
 
 use testcontainers::{clients::Cli, images::postgres::Postgres, RunnableImage};
 
@@ -101,8 +101,8 @@ impl TesterBuilder {
         /*
          * Create a watch configuration
          */
-        let database_port = unused_tcp_port().expect("Unable to find unused port.");
-        let server_port = unused_tcp_port().expect("Unable to find unused port.");
+        let database_port = unused_tcp4_port().expect("Unable to find unused port.");
+        let server_port = unused_tcp4_port().expect("Unable to find unused port.");
         let config = Config {
             database: DatabaseConfig {
                 dbname: random_dbname(),
