@@ -987,9 +987,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         block_root: &Hash256,
     ) -> Result<Option<BlobSidecarList<T::EthSpec>>, Error> {
-        self.early_attester_cache
-            .get_blobs(*block_root)
-            .map_or_else(|| self.get_blobs(block_root), |blobs| Ok(Some(blobs)))
+        // If there is no data availability boundary, the Eip4844 fork is disabled.
+        if let Some(finalized_data_availability_boundary) =
+            self.finalized_data_availability_boundary()
+        {
+            self.early_attester_cache
+                .get_blobs(*block_root)
+                .map_or_else(
+                    || self.get_blobs(block_root, finalized_data_availability_boundary),
+                    |blobs| Ok(Some(blobs)),
+                )
+        } else {
+            Ok(None)
+        }
     }
 
     /// Returns the block at the given root, if any.
@@ -2657,11 +2667,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     pub async fn process_blob(
         self: &Arc<Self>,
-        blob: Arc<BlobSidecar<T::EthSpec>>,
+        blob: BlobSidecar<T::EthSpec>,
         count_unrealized: CountUnrealized,
     ) -> Result<AvailabilityProcessingStatus, BlockError<T::EthSpec>> {
         self.check_availability_and_maybe_import(
-            |chain| chain.data_availability_checker.put_blob(blob),
+            |chain| chain.data_availability_checker.put_blob(Arc::new(blob)),
             count_unrealized,
         )
         .await

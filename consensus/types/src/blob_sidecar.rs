@@ -47,7 +47,8 @@ pub struct BlobSidecar<T: EthSpec> {
     pub kzg_proof: KzgProof,
 }
 
-pub type BlobSidecarList<T> = VariableList<Arc<BlobSidecar<T>>, <T as EthSpec>::MaxBlobsPerBlock>;
+pub type BlobSidecarList<T> =
+    VariableList<Arc<BlobSidecar<T>>, <T as EthSpec>::MaxBlobsPerBlock>;
 pub type Blobs<T> = VariableList<Blob<T>, <T as EthSpec>::MaxExtraDataBytes>;
 
 impl<T: EthSpec> SignedRoot for BlobSidecar<T> {}

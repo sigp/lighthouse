@@ -9,6 +9,7 @@ use crate::gossip_blob_cache::AvailabilityCheckError;
 use crate::BeaconChainError;
 use derivative::Derivative;
 use state_processing::per_block_processing::eip4844::eip4844::verify_kzg_commitments_against_transactions;
+use types::blob_sidecar::BlobSidecarList;
 use types::{
     BeaconBlockRef, BeaconStateError, BlobSidecar, BlobSidecarList, Epoch, EthSpec, Hash256,
     KzgCommitment, SignedBeaconBlock, SignedBeaconBlockHeader, SignedBlobSidecar, Slot,
@@ -130,11 +131,11 @@ impl From<BeaconStateError> for BlobError {
 /// the p2p network.
 #[derive(Debug)]
 pub struct GossipVerifiedBlob<T: EthSpec> {
-    blob: Arc<BlobSidecar<T>>,
+    blob: BlobSidecar<T>,
 }
 
 impl<T: EthSpec> GossipVerifiedBlob<T> {
-    pub fn to_blob(self) -> Arc<BlobSidecar<T>> {
+    pub fn to_blob(self) -> BlobSidecar<T> {
         self.blob
     }
 }
