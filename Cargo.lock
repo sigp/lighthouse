@@ -1607,16 +1607,6 @@ checksum = "b72465f46d518f6015d9cf07f7f3013a95dd6b9c2747c3d65ae0cce43929d14f"
 
 [[package]]
 name = "delay_map"
-version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9c4d75d3abfe4830dcbf9bcb1b926954e121669f74dd1ca7aa0183b1755d83f6"
-dependencies = [
- "futures",
- "tokio-util 0.6.10",
-]
-
-[[package]]
-name = "delay_map"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e4355c25cbf99edcb6b4a0e906f6bdc6956eda149e84455bea49696429b2f8e8"
@@ -1816,15 +1806,15 @@ dependencies = [
 
 [[package]]
 name = "discv5"
-version = "0.1.0"
+version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d767c0e59b3e8d65222d95df723cc2ea1da92bb0f27c563607e6f0bde064f255"
+checksum = "b009a99b85b58900df46435307fc5c4c845af7e182582b1fbf869572fa9fce69"
 dependencies = [
  "aes 0.7.5",
  "aes-gcm 0.9.4",
  "arrayvec",
- "delay_map 0.1.2",
- "enr",
+ "delay_map",
+ "enr 0.7.0",
  "fnv",
  "futures",
  "hashlink 0.7.0",
@@ -1973,6 +1963,25 @@ name = "enr"
 version = "0.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "26fa0a0be8915790626d5759eb51fe47435a8eac92c2f212bd2da9aa7f30ea56"
+dependencies = [
+ "base64 0.13.1",
+ "bs58",
+ "bytes",
+ "hex",
+ "k256",
+ "log",
+ "rand 0.8.5",
+ "rlp",
+ "serde",
+ "sha3 0.10.6",
+ "zeroize",
+]
+
+[[package]]
+name = "enr"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "492a7e5fc2504d5fdce8e124d3e263b244a68b283cac67a69eda0cd43e0aebad"
 dependencies = [
  "base64 0.13.1",
  "bs58",
@@ -2221,7 +2230,7 @@ dependencies = [
 name = "eth2_network_config"
 version = "0.2.0"
 dependencies = [
- "enr",
+ "discv5",
  "eth2_config",
  "eth2_ssz",
  "serde_yaml",
@@ -2372,7 +2381,7 @@ dependencies = [
  "async-stream",
  "blst",
  "bs58",
- "enr",
+ "enr 0.6.2",
  "hex",
  "integer-sqrt",
  "multiaddr 0.14.0",
@@ -4415,7 +4424,7 @@ dependencies = [
 name = "lighthouse_network"
 version = "0.2.0"
 dependencies = [
- "delay_map 0.3.0",
+ "delay_map",
  "directory",
  "dirs",
  "discv5",
@@ -5032,7 +5041,7 @@ name = "network"
 version = "0.2.0"
 dependencies = [
  "beacon_chain",
- "delay_map 0.3.0",
+ "delay_map",
  "derivative",
  "environment",
  "error-chain",

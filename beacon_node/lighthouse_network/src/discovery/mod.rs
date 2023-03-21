@@ -177,6 +177,13 @@ pub struct Discovery<TSpec: EthSpec> {
     /// always false.
     pub started: bool,
 
+    /// This keeps track of whether an external UDP port change should also indicate an internal
+    /// TCP port change. As we cannot detect our external TCP port, we assume that the external UDP
+    /// port is also our external TCP port. This assumption only holds if the user has not
+    /// explicitly set their ENR TCP port via the CLI config. The first indicates tcp4 and the
+    /// second indicates tcp6.
+    update_tcp_port: (bool, bool),
+
     /// Logger for the discovery behaviour.
     log: slog::Logger,
 }
@@ -300,6 +307,11 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
             }
         }
 
+        let update_tcp_port = (
+            config.enr_tcp4_port.is_none(),
+            config.enr_tcp6_port.is_none(),
+        );
+
         Ok(Self {
             cached_enrs: LruCache::new(50),
             network_globals,
@@ -309,6 +321,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
             discv5,
             event_stream,
             started: !config.disable_discovery,
+            update_tcp_port,
             log,
             enr_dir,
         })
@@ -1019,6 +1032,13 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
                             metrics::check_nat();
                             // Discv5 will have updated our local ENR. We save the updated version
                             // to disk.
+
+                            if (self.update_tcp_port.0 && socket_addr.is_ipv4())
+                                || (self.update_tcp_port.1 && socket_addr.is_ipv6())
+                            {
+                                // Update the TCP port in the ENR
+                                self.discv5.update_local_enr_socket(socket_addr, true);
+                            }
                             let enr = self.discv5.local_enr();
                             enr::save_enr_to_disk(Path::new(&self.enr_dir), &enr, &self.log);
                             // update  network globals
