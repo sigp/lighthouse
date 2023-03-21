@@ -112,7 +112,7 @@ use task_executor::{ShutdownReason, TaskExecutor};
 use tree_hash::TreeHash;
 use types::beacon_block_body::KzgCommitments;
 use types::beacon_state::CloneConfig;
-use types::blob_sidecar::{BlobIdentifier, BlobSidecarArcList, Blobs};
+use types::blob_sidecar::{BlobIdentifier, BlobSidecarList, Blobs};
 use types::consts::eip4844::MIN_EPOCHS_FOR_BLOBS_SIDECARS_REQUESTS;
 use types::consts::merge::INTERVALS_PER_SLOT;
 use types::*;
@@ -983,12 +983,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(self.get_block(block_root).await?.map(Arc::new))
     }
 
-    pub async fn get_block_and_blobs_checking_early_attester_cache(
+    pub async fn get_blobs_checking_early_attester_cache(
         &self,
-        _block_root: &Hash256,
-    ) -> Result<Option<()>, Error> {
-        //TODO(sean) use the rpc blobs cache and revert this to the current block cache logic
-        Ok(Some(()))
+        block_root: &Hash256,
+    ) -> Result<Option<BlobSidecarList<T::EthSpec>>, Error> {
+        self.early_attester_cache
+            .get_blobs(*block_root)
+            .map_or_else(|| self.get_blobs(block_root), |blobs| Ok(Some(blobs)))
     }
 
     /// Returns the block at the given root, if any.
@@ -1071,7 +1072,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn get_blobs(
         &self,
         block_root: &Hash256,
-    ) -> Result<Option<BlobSidecarArcList<T::EthSpec>>, Error> {
+    ) -> Result<Option<BlobSidecarList<T::EthSpec>>, Error> {
         Ok(self.store.get_blobs(block_root)?)
     }
 
@@ -2656,11 +2657,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     pub async fn process_blob(
         self: &Arc<Self>,
-        blob: BlobSidecar<T::EthSpec>,
+        blob: Arc<BlobSidecar<T::EthSpec>>,
         count_unrealized: CountUnrealized,
     ) -> Result<AvailabilityProcessingStatus, BlockError<T::EthSpec>> {
         self.check_availability_and_maybe_import(
-            |chain| chain.data_availability_checker.put_blob(Arc::new(blob)),
+            |chain| chain.data_availability_checker.put_blob(blob),
             count_unrealized,
         )
         .await
@@ -3101,12 +3102,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             // margin, or younger (of higher epoch number).
             if block_epoch >= import_boundary {
                 if let Some(blobs) = blobs {
-                    //FIXME(sean) using this for debugging for now
-                    info!(
-                        self.log, "Writing blobs to store";
-                        "block_root" => ?block_root
-                    );
-                    ops.push(StoreOp::PutBlobs(block_root, blobs));
+                    if !blobs.is_empty() {
+                        //FIXME(sean) using this for debugging for now
+                        info!(
+                            self.log, "Writing blobs to store";
+                            "block_root" => ?block_root
+                        );
+                        ops.push(StoreOp::PutBlobs(block_root, blobs));
+                    }
                 }
             }
         }
@@ -4860,7 +4863,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             )
             .map_err(BlockProductionError::KzgError)?;
 
-            let blob_sidecars = VariableList::from(
+            let blob_sidecars = BlobSidecarList::from(
                 blobs
                     .into_iter()
                     .enumerate()
@@ -4873,7 +4876,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             .get(blob_index)
                             .expect("KZG proof should exist for blob");
 
-                        Ok(BlobSidecar {
+                        Ok(Arc::new(BlobSidecar {
                             block_root: beacon_block_root,
                             index: blob_index as u64,
                             slot,
@@ -4882,9 +4885,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             blob,
                             kzg_commitment: *kzg_commitment,
                             kzg_proof: *kzg_proof,
-                        })
+                        }))
                     })
-                    .collect::<Result<Vec<BlobSidecar<T::EthSpec>>, BlockProductionError>>()?,
+                    .collect::<Result<Vec<_>, BlockProductionError>>()?,
             );
 
             self.proposal_blob_cache

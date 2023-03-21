@@ -7,6 +7,7 @@ use derivative::Derivative;
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use ssz_types::VariableList;
+use std::sync::Arc;
 use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
@@ -28,7 +29,7 @@ use tree_hash_derive::TreeHash;
 #[arbitrary(bound = "T: EthSpec")]
 #[derivative(Hash(bound = "T: EthSpec"))]
 pub struct SignedBlobSidecar<T: EthSpec> {
-    pub message: BlobSidecar<T>,
+    pub message: Arc<BlobSidecar<T>>,
     pub signature: Signature,
 }
 

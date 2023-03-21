@@ -225,15 +225,15 @@ impl<T: BeaconChainTypes> Worker<T> {
         executor.spawn(
             async move {
                 let requested_blobs = request.blob_ids.len();
-                let send_block_count = 0;
+                let send_blob_count = 0;
                 let mut send_response = true;
                 for BlobIdentifier{ block_root: root, index: _index } in request.blob_ids.into_iter() {
                     match self
                         .chain
-                        .get_block_and_blobs_checking_early_attester_cache(&root)
+                        .get_blobs_checking_early_attester_cache(&root)
                         .await
                     {
-                        Ok(Some(())) => {
+                        Ok(Some(_blob_sidecar_list)) => {
                             todo!();
                             // //
                             // // TODO: HORRIBLE NSFW CODE AHEAD
@@ -356,7 +356,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     "Received BlobsByRoot Request";
                     "peer" => %peer_id,
                     "requested" => requested_blobs,
-                    "returned" => send_block_count
+                    "returned" => send_blob_count
                 );
 
                 // send stream termination
