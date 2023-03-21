@@ -38,7 +38,7 @@ use std::marker::PhantomData;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
-use types::blob_sidecar::BlobSidecarArcList;
+use types::blob_sidecar::BlobSidecarList;
 use types::consts::eip4844::MIN_EPOCHS_FOR_BLOBS_SIDECARS_REQUESTS;
 use types::*;
 
@@ -67,7 +67,7 @@ pub struct HotColdDB<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> {
     /// The hot database also contains all blocks.
     pub hot_db: Hot,
     /// LRU cache of deserialized blobs. Updated whenever a blob is loaded.
-    blob_cache: Mutex<LruCache<Hash256, BlobSidecarArcList<E>>>,
+    blob_cache: Mutex<LruCache<Hash256, BlobSidecarList<E>>>,
     /// LRU cache of deserialized blocks. Updated whenever a block is loaded.
     block_cache: Mutex<LruCache<Hash256, SignedBeaconBlock<E>>>,
     /// Chain spec.
@@ -572,7 +572,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     pub fn put_blobs(
         &self,
         block_root: &Hash256,
-        blobs: BlobSidecarArcList<E>,
+        blobs: BlobSidecarList<E>,
     ) -> Result<(), Error> {
         let blobs_db = self.blobs_db.as_ref().unwrap_or(&self.cold_db);
         blobs_db.put_bytes(
@@ -587,7 +587,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     pub fn blobs_as_kv_store_ops(
         &self,
         key: &Hash256,
-        blobs: &BlobSidecarArcList<E>,
+        blobs: &BlobSidecarList<E>,
         ops: &mut Vec<KeyValueStoreOp>,
     ) {
         let db_key = get_key_for_col(DBColumn::BeaconBlob.into(), key.as_bytes());
@@ -1325,12 +1325,12 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     }
 
     /// Fetch a blobs sidecar from the store.
-    pub fn get_blobs(&self, block_root: &Hash256) -> Result<Option<BlobSidecarArcList<E>>, Error> {
+    pub fn get_blobs(&self, block_root: &Hash256) -> Result<Option<BlobSidecarList<E>>, Error> {
         let blobs_db = self.blobs_db.as_ref().unwrap_or(&self.cold_db);
 
         match blobs_db.get_bytes(DBColumn::BeaconBlob.into(), block_root.as_bytes())? {
             Some(ref blobs_bytes) => {
-                let blobs = BlobSidecarArcList::from_ssz_bytes(blobs_bytes)?;
+                let blobs = BlobSidecarList::from_ssz_bytes(blobs_bytes)?;
                 // FIXME(sean) I was attempting to use a blob cache here but was getting deadlocks,
                 // may want to attempt to use one again
                 self.blob_cache.lock().put(*block_root, blobs.clone());

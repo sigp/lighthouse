@@ -112,7 +112,7 @@ use task_executor::{ShutdownReason, TaskExecutor};
 use tree_hash::TreeHash;
 use types::beacon_block_body::KzgCommitments;
 use types::beacon_state::CloneConfig;
-use types::blob_sidecar::{BlobIdentifier, BlobSidecarArcList, Blobs};
+use types::blob_sidecar::{BlobIdentifier, BlobSidecarList, Blobs};
 use types::consts::eip4844::MIN_EPOCHS_FOR_BLOBS_SIDECARS_REQUESTS;
 use types::consts::merge::INTERVALS_PER_SLOT;
 use types::*;
@@ -1071,7 +1071,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn get_blobs(
         &self,
         block_root: &Hash256,
-    ) -> Result<Option<BlobSidecarArcList<T::EthSpec>>, Error> {
+    ) -> Result<Option<BlobSidecarList<T::EthSpec>>, Error> {
         Ok(self.store.get_blobs(block_root)?)
     }
 

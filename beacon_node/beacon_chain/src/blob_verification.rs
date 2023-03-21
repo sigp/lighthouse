@@ -9,7 +9,7 @@ use crate::gossip_blob_cache::AvailabilityCheckError;
 use crate::BeaconChainError;
 use derivative::Derivative;
 use state_processing::per_block_processing::eip4844::eip4844::verify_kzg_commitments_against_transactions;
-use types::blob_sidecar::BlobSidecarArcList;
+use types::blob_sidecar::BlobSidecarList;
 use types::{
     BeaconBlockRef, BeaconStateError, BlobSidecar, BlobSidecarList, Epoch, EthSpec, Hash256,
     KzgCommitment, SignedBeaconBlock, SignedBeaconBlockHeader, SignedBlobSidecar, Slot,
@@ -392,7 +392,7 @@ impl<E: EthSpec> AvailableBlock<E> {
         &self.0.block
     }
 
-    pub fn blobs(&self) -> Option<BlobSidecarArcList<E>> {
+    pub fn blobs(&self) -> Option<BlobSidecarList<E>> {
         match &self.0.blobs {
             VerifiedBlobs::EmptyBlobs | VerifiedBlobs::NotRequired | VerifiedBlobs::PreEip4844 => {
                 None
@@ -401,7 +401,7 @@ impl<E: EthSpec> AvailableBlock<E> {
         }
     }
 
-    pub fn deconstruct(self) -> (Arc<SignedBeaconBlock<E>>, Option<BlobSidecarArcList<E>>) {
+    pub fn deconstruct(self) -> (Arc<SignedBeaconBlock<E>>, Option<BlobSidecarList<E>>) {
         match self.0.blobs {
             VerifiedBlobs::EmptyBlobs | VerifiedBlobs::NotRequired | VerifiedBlobs::PreEip4844 => {
                 (self.0.block, None)
@@ -415,7 +415,7 @@ impl<E: EthSpec> AvailableBlock<E> {
 #[derivative(Hash(bound = "E: EthSpec"))]
 pub enum VerifiedBlobs<E: EthSpec> {
     /// These blobs are available.
-    Available(BlobSidecarArcList<E>),
+    Available(BlobSidecarList<E>),
     /// This block is from outside the data availability boundary so doesn't require
     /// a data availability check.
     NotRequired,
