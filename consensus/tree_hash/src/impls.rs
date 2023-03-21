@@ -1,5 +1,6 @@
 use super::*;
 use ethereum_types::{H160, H256, U128, U256};
+use std::sync::Arc;
 
 fn int_to_hash256(int: u64) -> Hash256 {
     let mut bytes = [0; HASHSIZE];
@@ -183,6 +184,24 @@ impl TreeHash for H256 {
 
     fn tree_hash_root(&self) -> Hash256 {
         *self
+    }
+}
+
+impl<T: TreeHash> TreeHash for Arc<T> {
+    fn tree_hash_type() -> TreeHashType {
+        T::tree_hash_type()
+    }
+
+    fn tree_hash_packed_encoding(&self) -> PackedEncoding {
+        self.as_ref().tree_hash_packed_encoding()
+    }
+
+    fn tree_hash_packing_factor() -> usize {
+        T::tree_hash_packing_factor()
+    }
+
+    fn tree_hash_root(&self) -> Hash256 {
+        self.as_ref().tree_hash_root()
     }
 }
 

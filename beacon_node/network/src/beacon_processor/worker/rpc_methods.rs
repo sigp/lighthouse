@@ -12,6 +12,7 @@ use lighthouse_network::rpc::*;
 use lighthouse_network::{PeerId, PeerRequestId, ReportSource, Response, SyncInfo};
 use slog::{debug, error, warn};
 use slot_clock::SlotClock;
+use std::collections::{hash_map::Entry, HashMap};
 use std::sync::Arc;
 use task_executor::TaskExecutor;
 use types::blob_sidecar::BlobIdentifier;
@@ -225,42 +226,34 @@ impl<T: BeaconChainTypes> Worker<T> {
         executor.spawn(
             async move {
                 let requested_blobs = request.blob_ids.len();
-                let mut send_block_count = 0;
+                let mut send_blob_count = 0;
                 let mut send_response = true;
+
+                let mut blob_list_results = HashMap::new();
                 for BlobIdentifier{ block_root: root, index } in request.blob_ids.into_iter() {
-                    match self
-                        .chain
-                        .get_block_and_blobs_checking_early_attester_cache(&root)
-                        .await
-                    {
-                        Ok(Some(block_and_blobs)) => {
-                            //
-                            // TODO: HORRIBLE NSFW CODE AHEAD
-                            //
-                            let types::SignedBeaconBlockAndBlobsSidecar {beacon_block, blobs_sidecar} = block_and_blobs;
-                            let types::BlobsSidecar{ beacon_block_root, beacon_block_slot, blobs: blob_bundle, kzg_aggregated_proof }: types::BlobsSidecar<_> = blobs_sidecar.as_ref().clone();
-                            // TODO: this should be unreachable after this is addressed seriously,
-                            // so for now let's be ok with a panic in the expect.
-                            let block = beacon_block.message_eip4844().expect("We fucked up the block blob stuff");
-                            // Intentionally not accessing the list directly
-                            for (known_index, blob) in blob_bundle.into_iter().enumerate() {
-                                if (known_index as u64) == index {
-                                    let blob_sidecar = types::BlobSidecar{
-                                        block_root: beacon_block_root,
-                                        index,
-                                        slot: beacon_block_slot,
-                                        block_parent_root: block.parent_root,
-                                        proposer_index: block.proposer_index,
-                                        blob,
-                                        kzg_commitment: block.body.blob_kzg_commitments[known_index], // TODO: needs to be stored in a more logical way so that this won't panic.
-                                        kzg_proof: kzg_aggregated_proof // TODO: yeah
-                                    };
+                    let blob_list_result = match blob_list_results.entry(root) {
+                        Entry::Vacant(entry) => {
+                            entry.insert(self
+                                .chain
+                                .get_blobs_checking_early_attester_cache(&root)
+                                .await)
+                        }
+                        Entry::Occupied(entry) => {
+                            entry.into_mut()
+                        }
+                    };
+
+                    match blob_list_result.as_ref() {
+                        Ok(Some(blobs_sidecar_list)) => {
+                            for blob_sidecar in blobs_sidecar_list.iter() {
+                                if blob_sidecar.index == index {
                                     self.send_response(
                                         peer_id,
-                                        Response::BlobsByRoot(Some(Arc::new(blob_sidecar))),
+                                        Response::BlobsByRoot(Some(blob_sidecar.clone())),
                                         request_id,
                                     );
-                                    send_block_count += 1;
+                                    send_blob_count += 1;
+                                    break;
                                 }
                             }
                         }
@@ -355,7 +348,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     "Received BlobsByRoot Request";
                     "peer" => %peer_id,
                     "requested" => requested_blobs,
-                    "returned" => send_block_count
+                    "returned" => send_blob_count
                 );
 
                 // send stream termination
@@ -837,31 +830,12 @@ impl<T: BeaconChainTypes> Worker<T> {
 
         for root in block_roots {
             match self.chain.get_blobs(&root, data_availability_boundary) {
-                Ok(Some(blobs)) => {
-                    // TODO: more GROSS code ahead. Reader beware
-                    let types::BlobsSidecar {
-                        beacon_block_root,
-                        beacon_block_slot,
-                        blobs: blob_bundle,
-                        kzg_aggregated_proof: _,
-                    }: types::BlobsSidecar<_> = blobs;
-
-                    for (blob_index, blob) in blob_bundle.into_iter().enumerate() {
-                        let blob_sidecar = types::BlobSidecar {
-                            block_root: beacon_block_root,
-                            index: blob_index as u64,
-                            slot: beacon_block_slot,
-                            block_parent_root: Hash256::zero(),
-                            proposer_index: 0,
-                            blob,
-                            kzg_commitment: types::KzgCommitment::default(),
-                            kzg_proof: types::KzgProof::default(),
-                        };
-
+                Ok(Some(blob_sidecar_list)) => {
+                    for blob_sidecar in blob_sidecar_list.iter() {
                         blobs_sent += 1;
                         self.send_network_message(NetworkMessage::SendResponse {
                             peer_id,
-                            response: Response::BlobsByRange(Some(Arc::new(blob_sidecar))),
+                            response: Response::BlobsByRange(Some(blob_sidecar.clone())),
                             id: request_id,
                         });
                     }

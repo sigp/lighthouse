@@ -21,7 +21,7 @@ pub struct CacheItem<E: EthSpec> {
      * Values used to make the block available.
      */
     block: Arc<SignedBeaconBlock<E>>,
-    blobs: Option<Arc<BlobsSidecar<E>>>,
+    blobs: Option<BlobSidecarList<E>>,
     proto_block: ProtoBlock,
 }
 
@@ -160,7 +160,7 @@ impl<E: EthSpec> EarlyAttesterCache<E> {
     }
 
     /// Returns the blobs, if `block_root` matches the cached item.
-    pub fn get_blobs(&self, block_root: Hash256) -> Option<Arc<BlobsSidecar<E>>> {
+    pub fn get_blobs(&self, block_root: Hash256) -> Option<BlobSidecarList<E>> {
         self.item
             .read()
             .as_ref()
