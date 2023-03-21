@@ -1,10 +1,10 @@
 use crate::{state_id::checkpoint_slot_and_execution_optimistic, ExecutionOptimistic};
 use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes, WhenSlotSkipped};
-use eth2::types::BlockId as CoreBlockId;
+use eth2::types::{BlockId as CoreBlockId, VariableList};
 use std::fmt;
 use std::str::FromStr;
 use std::sync::Arc;
-use types::{BlobSidecarList, Hash256, SignedBeaconBlock, SignedBlindedBeaconBlock, Slot};
+use types::{BlobSidecar, EthSpec, Hash256, SignedBeaconBlock, SignedBlindedBeaconBlock, Slot};
 
 /// Wraps `eth2::types::BlockId` and provides a simple way to obtain a block or root for a given
 /// `BlockId`.
@@ -216,7 +216,10 @@ impl BlockId {
     pub async fn blob_sidecar_list<T: BeaconChainTypes>(
         &self,
         chain: &BeaconChain<T>,
-    ) -> Result<BlobSidecarList<T::EthSpec>, warp::Rejection> {
+    ) -> Result<
+        VariableList<Arc<BlobSidecar<T::EthSpec>>, <T::EthSpec as EthSpec>::MaxBlobsPerBlock>,
+        warp::Rejection,
+    > {
         let root = self.root(chain)?.0;
         let Some(data_availability_boundary) = chain.data_availability_boundary() else {
             return Err(warp_utils::reject::custom_not_found("Deneb fork disabled".into()));

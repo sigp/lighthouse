@@ -1064,7 +1064,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         _block_root: &Hash256,
         _data_availability_boundary: Epoch,
-    ) -> Result<Option<BlobSidecarList<T::EthSpec>>, Error> {
+    ) -> Result<
+        Option<
+            VariableList<Arc<BlobSidecar<T::EthSpec>>, <T::EthSpec as EthSpec>::MaxBlobsPerBlock>,
+        >,
+        Error,
+    > {
         unimplemented!("update to use the updated `get_blobs` method instead once this PR is merged: https://github.com/sigp/lighthouse/pull/4104")
     }
 
