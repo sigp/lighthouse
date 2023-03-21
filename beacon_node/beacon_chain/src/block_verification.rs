@@ -1468,7 +1468,6 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
                 current_slot,
                 indexed_attestation,
                 AttestationFromBlock::True,
-                &chain.spec,
             ) {
                 Ok(()) => Ok(()),
                 // Ignore invalid attestations whilst importing attestations from a block. The

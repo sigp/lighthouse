@@ -1,4 +1,4 @@
-pub use proto_array::{CountUnrealizedFull, ReOrgThreshold};
+pub use proto_array::ReOrgThreshold;
 use serde_derive::{Deserialize, Serialize};
 use std::time::Duration;
 use types::{Checkpoint, Epoch};
@@ -48,16 +48,11 @@ pub struct ChainConfig {
     pub builder_fallback_epochs_since_finalization: usize,
     /// Whether any chain health checks should be considered when deciding whether to use the builder API.
     pub builder_fallback_disable_checks: bool,
-    /// When set to `true`, weigh the "unrealized" FFG progression when choosing a head in fork
-    /// choice.
-    pub count_unrealized: bool,
     /// When set to `true`, forget any valid/invalid/optimistic statuses in fork choice during start
     /// up.
     pub always_reset_payload_statuses: bool,
     /// Whether to apply paranoid checks to blocks proposed by this beacon node.
     pub paranoid_block_proposal: bool,
-    /// Whether to strictly count unrealized justified votes.
-    pub count_unrealized_full: CountUnrealizedFull,
     /// Optionally set timeout for calls to checkpoint sync endpoint.
     pub checkpoint_sync_url_timeout: u64,
     /// The offset before the start of a proposal slot at which payload attributes should be sent.
@@ -91,10 +86,8 @@ impl Default for ChainConfig {
             builder_fallback_skips_per_epoch: 8,
             builder_fallback_epochs_since_finalization: 3,
             builder_fallback_disable_checks: false,
-            count_unrealized: true,
             always_reset_payload_statuses: false,
             paranoid_block_proposal: false,
-            count_unrealized_full: CountUnrealizedFull::default(),
             checkpoint_sync_url_timeout: 60,
             prepare_payload_lookahead: Duration::from_secs(4),
             // This value isn't actually read except in tests.

@@ -1,8 +1,8 @@
 use crate::{
     error::Error,
     proto_array::{
-        calculate_committee_fraction, CountUnrealizedFull, InvalidationOperation, Iter,
-        ProposerBoost, ProtoArray, ProtoNode,
+        calculate_committee_fraction, InvalidationOperation, Iter, ProposerBoost, ProtoArray,
+        ProtoNode,
     },
     ssz_container::SszContainer,
     JustifiedBalances,
@@ -307,7 +307,6 @@ impl ProtoArrayForkChoice {
         current_epoch_shuffling_id: AttestationShufflingId,
         next_epoch_shuffling_id: AttestationShufflingId,
         execution_status: ExecutionStatus,
-        count_unrealized_full: CountUnrealizedFull,
     ) -> Result<Self, String> {
         let mut proto_array = ProtoArray {
             prune_threshold: DEFAULT_PRUNE_THRESHOLD,
@@ -316,7 +315,6 @@ impl ProtoArrayForkChoice {
             nodes: Vec::with_capacity(1),
             indices: HashMap::with_capacity(1),
             previous_proposer_boost: ProposerBoost::default(),
-            count_unrealized_full,
         };
 
         let block = Block {
@@ -780,13 +778,10 @@ impl ProtoArrayForkChoice {
         SszContainer::from(self).as_ssz_bytes()
     }
 
-    pub fn from_bytes(
-        bytes: &[u8],
-        count_unrealized_full: CountUnrealizedFull,
-    ) -> Result<Self, String> {
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, String> {
         let container = SszContainer::from_ssz_bytes(bytes)
             .map_err(|e| format!("Failed to decode ProtoArrayForkChoice: {:?}", e))?;
-        (container, count_unrealized_full)
+        container
             .try_into()
             .map_err(|e| format!("Failed to initialize ProtoArrayForkChoice: {e:?}"))
     }
@@ -950,7 +945,6 @@ mod test_compute_deltas {
             junk_shuffling_id.clone(),
             junk_shuffling_id.clone(),
             execution_status,
-            CountUnrealizedFull::default(),
         )
         .unwrap();
 
@@ -1076,7 +1070,6 @@ mod test_compute_deltas {
             junk_shuffling_id.clone(),
             junk_shuffling_id.clone(),
             execution_status,
-            CountUnrealizedFull::default(),
         )
         .unwrap();
 

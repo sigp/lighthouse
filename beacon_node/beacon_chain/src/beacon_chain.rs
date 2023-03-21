@@ -73,7 +73,7 @@ use itertools::process_results;
 use itertools::Itertools;
 use operation_pool::{AttestationRef, OperationPool, PersistedOperationPool, ReceivedPreCapella};
 use parking_lot::{Mutex, RwLock};
-use proto_array::{CountUnrealizedFull, DoNotReOrg, ProposerHeadError};
+use proto_array::{DoNotReOrg, ProposerHeadError};
 use safe_arith::SafeArith;
 use slasher::Slasher;
 use slog::{crit, debug, error, info, trace, warn, Logger};
@@ -479,7 +479,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn load_fork_choice(
         store: BeaconStore<T>,
         reset_payload_statuses: ResetPayloadStatuses,
-        count_unrealized_full: CountUnrealizedFull,
         spec: &ChainSpec,
         log: &Logger,
     ) -> Result<Option<BeaconForkChoice<T>>, Error> {
@@ -496,7 +495,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             persisted_fork_choice.fork_choice,
             reset_payload_statuses,
             fc_store,
-            count_unrealized_full,
             spec,
             log,
         )?))
@@ -1900,7 +1898,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 self.slot()?,
                 verified.indexed_attestation(),
                 AttestationFromBlock::False,
-                &self.spec,
             )
             .map_err(Into::into)
     }
@@ -2868,7 +2865,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     &state,
                     payload_verification_status,
                     &self.spec,
-                    count_unrealized.and(self.config.count_unrealized.into()),
+                    count_unrealized,
                 )
                 .map_err(|e| BlockError::BeaconChainError(e.into()))?;
         }
@@ -2987,7 +2984,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 ResetPayloadStatuses::always_reset_conditionally(
                     self.config.always_reset_payload_statuses,
                 ),
-                self.config.count_unrealized_full,
                 &self.store,
                 &self.spec,
                 &self.log,

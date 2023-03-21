@@ -1,4 +1,4 @@
-use beacon_node::{beacon_chain::CountUnrealizedFull, ClientConfig as Config};
+use beacon_node::ClientConfig as Config;
 
 use crate::exec::{CommandLineTestExec, CompletedTest};
 use beacon_node::beacon_chain::chain_config::{
@@ -233,73 +233,57 @@ fn paranoid_block_proposal_on() {
 }
 
 #[test]
-fn count_unrealized_default() {
-    CommandLineTest::new()
-        .run_with_zero_port()
-        .with_config(|config| assert!(config.chain.count_unrealized));
-}
-
-#[test]
 fn count_unrealized_no_arg() {
     CommandLineTest::new()
         .flag("count-unrealized", None)
-        .run_with_zero_port()
-        .with_config(|config| assert!(config.chain.count_unrealized));
+        // This flag should be ignored, so there's nothing to test but that the
+        // client starts with the flag present.
+        .run_with_zero_port();
 }
 
 #[test]
 fn count_unrealized_false() {
     CommandLineTest::new()
         .flag("count-unrealized", Some("false"))
-        .run_with_zero_port()
-        .with_config(|config| assert!(!config.chain.count_unrealized));
+        // This flag should be ignored, so there's nothing to test but that the
+        // client starts with the flag present.
+        .run_with_zero_port();
 }
 
 #[test]
 fn count_unrealized_true() {
     CommandLineTest::new()
         .flag("count-unrealized", Some("true"))
-        .run_with_zero_port()
-        .with_config(|config| assert!(config.chain.count_unrealized));
+        // This flag should be ignored, so there's nothing to test but that the
+        // client starts with the flag present.
+        .run_with_zero_port();
 }
 
 #[test]
 fn count_unrealized_full_no_arg() {
     CommandLineTest::new()
         .flag("count-unrealized-full", None)
-        .run_with_zero_port()
-        .with_config(|config| {
-            assert_eq!(
-                config.chain.count_unrealized_full,
-                CountUnrealizedFull::False
-            )
-        });
+        // This flag should be ignored, so there's nothing to test but that the
+        // client starts with the flag present.
+        .run_with_zero_port();
 }
 
 #[test]
 fn count_unrealized_full_false() {
     CommandLineTest::new()
         .flag("count-unrealized-full", Some("false"))
-        .run_with_zero_port()
-        .with_config(|config| {
-            assert_eq!(
-                config.chain.count_unrealized_full,
-                CountUnrealizedFull::False
-            )
-        });
+        // This flag should be ignored, so there's nothing to test but that the
+        // client starts with the flag present.
+        .run_with_zero_port();
 }
 
 #[test]
 fn count_unrealized_full_true() {
     CommandLineTest::new()
         .flag("count-unrealized-full", Some("true"))
-        .run_with_zero_port()
-        .with_config(|config| {
-            assert_eq!(
-                config.chain.count_unrealized_full,
-                CountUnrealizedFull::True
-            )
-        });
+        // This flag should be ignored, so there's nothing to test but that the
+        // client starts with the flag present.
+        .run_with_zero_port();
 }
 
 #[test]

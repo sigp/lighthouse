@@ -1,7 +1,6 @@
 use crate::{BeaconForkChoiceStore, BeaconSnapshot};
 use fork_choice::{CountUnrealized, ForkChoice, PayloadVerificationStatus};
 use itertools::process_results;
-use proto_array::CountUnrealizedFull;
 use slog::{info, warn, Logger};
 use state_processing::state_advance::complete_state_advance;
 use state_processing::{
@@ -102,7 +101,6 @@ pub fn reset_fork_choice_to_finalization<E: EthSpec, Hot: ItemStore<E>, Cold: It
     current_slot: Option<Slot>,
     spec: &ChainSpec,
     count_unrealized_config: CountUnrealized,
-    count_unrealized_full_config: CountUnrealizedFull,
 ) -> Result<ForkChoice<BeaconForkChoiceStore<E, Hot, Cold>, E>, String> {
     // Fetch finalized block.
     let finalized_checkpoint = head_state.finalized_checkpoint();
@@ -156,7 +154,6 @@ pub fn reset_fork_choice_to_finalization<E: EthSpec, Hot: ItemStore<E>, Cold: It
         &finalized_snapshot.beacon_block,
         &finalized_snapshot.beacon_state,
         current_slot,
-        count_unrealized_full_config,
         spec,
     )
     .map_err(|e| format!("Unable to reset fork choice for revert: {:?}", e))?;
