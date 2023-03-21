@@ -54,7 +54,6 @@ doc = false
 
 [patch]
 [patch.crates-io]
-fixed-hash = { git = "https://github.com/paritytech/parity-common", rev="df638ab0885293d21d656dc300d39236b69ce57d" }
 warp = { git = "https://github.com/macladson/warp", rev="7e75acc368229a46a236a8c991bf251fe7fe50ef" }
 eth2_ssz = { path = "../../../consensus/ssz" }
 eth2_ssz_derive = { path = "../../../consensus/ssz_derive" }
@@ -63,3 +62,11 @@ eth2_hashing = { path = "../../../crypto/eth2_hashing" }
 tree_hash = { path = "../../../consensus/tree_hash" }
 tree_hash_derive = { path = "../../../consensus/tree_hash_derive" }
 eth2_serde_utils = { path = "../../../consensus/serde_utils" }
+arbitrary = { git = "https://github.com/michaelsproul/arbitrary", rev="a572fd8743012a4f1ada5ee5968b1b3619c427ba" }
+
+[patch."https://github.com/ralexstokes/mev-rs"]
+mev-rs = { git = "https://github.com/ralexstokes//mev-rs", rev = "7813d4a4a564e0754e9aaab2d95520ba437c3889" }
+[patch."https://github.com/ralexstokes/ethereum-consensus"]
+ethereum-consensus = { git = "https://github.com/ralexstokes//ethereum-consensus", rev = "9b0ee0a8a45b968c8df5e7e64ea1c094e16f053d" }
+[patch."https://github.com/ralexstokes/ssz-rs"]
+ssz-rs = { git = "https://github.com/ralexstokes//ssz-rs", rev = "adf1a0b14cef90b9536f28ef89da1fab316465e1" }

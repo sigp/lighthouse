@@ -47,7 +47,7 @@ cd lighthouse/beacon_node/beacon_chain/fuzz # this directory
 
 mkdir -p data/in
 
-echo "lets start fuzzing" > data/in
+echo "lets start fuzzing" > data/in/start
 ```
 
 Next, we need to tweak some kernel parameters so that AFL is happy:
@@ -59,7 +59,7 @@ sudo ./setup.sh
 Then you can start Hydra like so:
 
 ```
-./hydra.py --spec mainnet --num-workers 16
+./hydra.py run --spec mainnet --num-workers 16
 ```
 
 This will create a new `screen` session with 16 windows running the AFL processes. You
