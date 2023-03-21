@@ -12,6 +12,7 @@ use parking_lot::{Mutex, RwLock, RwLockWriteGuard};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use slog::{info, Logger};
+use std::collections::HashMap;
 use std::convert::Infallible;
 use std::future::Future;
 use std::marker::PhantomData;
@@ -21,7 +22,9 @@ use tokio::{runtime, sync::oneshot};
 use types::{EthSpec, ExecutionBlockHash, Uint256};
 use warp::{http::StatusCode, Filter, Rejection};
 
+use crate::EngineCapabilities;
 pub use execution_block_generator::{generate_pow_block, Block, ExecutionBlockGenerator};
+pub use hook::Hook;
 pub use mock_builder::{Context as MockBuilderContext, MockBuilder, Operation, TestingBuilder};
 pub use mock_execution_layer::MockExecutionLayer;
 
@@ -29,9 +32,21 @@ pub const DEFAULT_TERMINAL_DIFFICULTY: u64 = 6400;
 pub const DEFAULT_TERMINAL_BLOCK: u64 = 64;
 pub const DEFAULT_JWT_SECRET: [u8; 32] = [42; 32];
 pub const DEFAULT_BUILDER_THRESHOLD_WEI: u128 = 1_000_000_000_000_000_000;
+pub const DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI: u128 = 10_000_000_000_000_000;
+pub const DEFAULT_BUILDER_PAYLOAD_VALUE_WEI: u128 = 20_000_000_000_000_000;
+pub const DEFAULT_ENGINE_CAPABILITIES: EngineCapabilities = EngineCapabilities {
+    new_payload_v1: true,
+    new_payload_v2: true,
+    forkchoice_updated_v1: true,
+    forkchoice_updated_v2: true,
+    get_payload_v1: true,
+    get_payload_v2: true,
+    exchange_transition_configuration_v1: true,
+};
 
 mod execution_block_generator;
 mod handle_rpc;
+mod hook;
 mod mock_builder;
 mod mock_execution_layer;
 
@@ -42,6 +57,7 @@ pub struct MockExecutionConfig {
     pub terminal_difficulty: Uint256,
     pub terminal_block: u64,
     pub terminal_block_hash: ExecutionBlockHash,
+    pub shanghai_time: Option<u64>,
 }
 
 impl Default for MockExecutionConfig {
@@ -52,6 +68,7 @@ impl Default for MockExecutionConfig {
             terminal_block: DEFAULT_TERMINAL_BLOCK,
             terminal_block_hash: ExecutionBlockHash::zero(),
             server_config: Config::default(),
+            shanghai_time: None,
         }
     }
 }
@@ -71,6 +88,7 @@ impl<T: EthSpec> MockServer<T> {
             DEFAULT_TERMINAL_DIFFICULTY.into(),
             DEFAULT_TERMINAL_BLOCK,
             ExecutionBlockHash::zero(),
+            None, // FIXME(capella): should this be the default?
         )
     }
 
@@ -81,11 +99,16 @@ impl<T: EthSpec> MockServer<T> {
             terminal_block,
             terminal_block_hash,
             server_config,
+            shanghai_time,
         } = config;
         let last_echo_request = Arc::new(RwLock::new(None));
         let preloaded_responses = Arc::new(Mutex::new(vec![]));
-        let execution_block_generator =
-            ExecutionBlockGenerator::new(terminal_difficulty, terminal_block, terminal_block_hash);
+        let execution_block_generator = ExecutionBlockGenerator::new(
+            terminal_difficulty,
+            terminal_block,
+            terminal_block_hash,
+            shanghai_time,
+        );
 
         let ctx: Arc<Context<T>> = Arc::new(Context {
             config: server_config,
@@ -98,6 +121,10 @@ impl<T: EthSpec> MockServer<T> {
             static_new_payload_response: <_>::default(),
             static_forkchoice_updated_response: <_>::default(),
             static_get_block_by_hash_response: <_>::default(),
+            hook: <_>::default(),
+            new_payload_statuses: <_>::default(),
+            fcu_payload_statuses: <_>::default(),
+            engine_capabilities: Arc::new(RwLock::new(DEFAULT_ENGINE_CAPABILITIES)),
             _phantom: PhantomData,
         });
 
@@ -128,12 +155,17 @@ impl<T: EthSpec> MockServer<T> {
         }
     }
 
+    pub fn set_engine_capabilities(&self, engine_capabilities: EngineCapabilities) {
+        *self.ctx.engine_capabilities.write() = engine_capabilities;
+    }
+
     pub fn new(
         handle: &runtime::Handle,
         jwt_key: JwtKey,
         terminal_difficulty: Uint256,
         terminal_block: u64,
         terminal_block_hash: ExecutionBlockHash,
+        shanghai_time: Option<u64>,
     ) -> Self {
         Self::new_with_config(
             handle,
@@ -143,6 +175,7 @@ impl<T: EthSpec> MockServer<T> {
                 terminal_difficulty,
                 terminal_block,
                 terminal_block_hash,
+                shanghai_time,
             },
         )
     }
@@ -356,8 +389,7 @@ impl<T: EthSpec> MockServer<T> {
             .write()
             // The EF tests supply blocks out of order, so we must import them "without checks" and
             // trust they form valid chains.
-            .insert_block_without_checks(block)
-            .unwrap()
+            .insert_block_without_checks(block);
     }
 
     pub fn get_block(&self, block_hash: ExecutionBlockHash) -> Option<Block<T>> {
@@ -369,6 +401,25 @@ impl<T: EthSpec> MockServer<T> {
 
     pub fn drop_all_blocks(&self) {
         self.ctx.execution_block_generator.write().drop_all_blocks()
+    }
+
+    pub fn set_payload_statuses(&self, block_hash: ExecutionBlockHash, status: PayloadStatusV1) {
+        self.set_new_payload_status(block_hash, status.clone());
+        self.set_fcu_payload_status(block_hash, status);
+    }
+
+    pub fn set_new_payload_status(&self, block_hash: ExecutionBlockHash, status: PayloadStatusV1) {
+        self.ctx
+            .new_payload_statuses
+            .lock()
+            .insert(block_hash, status);
+    }
+
+    pub fn set_fcu_payload_status(&self, block_hash: ExecutionBlockHash, status: PayloadStatusV1) {
+        self.ctx
+            .fcu_payload_statuses
+            .lock()
+            .insert(block_hash, status);
     }
 }
 
@@ -419,7 +470,33 @@ pub struct Context<T: EthSpec> {
     pub static_new_payload_response: Arc<Mutex<Option<StaticNewPayloadResponse>>>,
     pub static_forkchoice_updated_response: Arc<Mutex<Option<PayloadStatusV1>>>,
     pub static_get_block_by_hash_response: Arc<Mutex<Option<Option<ExecutionBlock>>>>,
+    pub hook: Arc<Mutex<Hook>>,
+
+    // Canned responses by block hash.
+    //
+    // This is a more flexible and less stateful alternative to `static_new_payload_response`
+    // and `preloaded_responses`.
+    pub new_payload_statuses: Arc<Mutex<HashMap<ExecutionBlockHash, PayloadStatusV1>>>,
+    pub fcu_payload_statuses: Arc<Mutex<HashMap<ExecutionBlockHash, PayloadStatusV1>>>,
+
+    pub engine_capabilities: Arc<RwLock<EngineCapabilities>>,
     pub _phantom: PhantomData<T>,
+}
+
+impl<T: EthSpec> Context<T> {
+    pub fn get_new_payload_status(
+        &self,
+        block_hash: &ExecutionBlockHash,
+    ) -> Option<PayloadStatusV1> {
+        self.new_payload_statuses.lock().get(block_hash).cloned()
+    }
+
+    pub fn get_fcu_payload_status(
+        &self,
+        block_hash: &ExecutionBlockHash,
+    ) -> Option<PayloadStatusV1> {
+        self.fcu_payload_statuses.lock().get(block_hash).cloned()
+    }
 }
 
 /// Configuration for the HTTP server.
@@ -554,11 +631,11 @@ pub fn serve<T: EthSpec>(
                         "jsonrpc": JSONRPC_VERSION,
                         "result": result
                     }),
-                    Err(message) => json!({
+                    Err((message, code)) => json!({
                         "id": id,
                         "jsonrpc": JSONRPC_VERSION,
                         "error": {
-                            "code": -1234,   // Junk error code.
+                            "code": code,
                             "message": message
                         }
                     }),

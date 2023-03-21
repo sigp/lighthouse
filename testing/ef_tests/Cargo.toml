@@ -9,13 +9,14 @@ edition = "2021"
 ef_tests = []
 milagro = ["bls/milagro"]
 fake_crypto = ["bls/fake_crypto"]
+fork_choice_custom = []
 
 [dependencies]
 bls = { path = "../../crypto/bls", default-features = false }
 compare_fields = { path = "../../common/compare_fields" }
 compare_fields_derive = { path = "../../common/compare_fields_derive" }
 derivative = "2.1.1"
-ethereum-types = "0.12.1"
+ethereum-types = "0.14.1"
 hex = "0.4.2"
 rayon = "1.4.1"
 serde = "1.0.116"
@@ -23,7 +24,7 @@ serde_derive = "1.0.116"
 serde_repr = "0.1.6"
 serde_yaml = "0.8.13"
 eth2_ssz = "0.4.1"
-eth2_ssz_derive = "0.3.0"
+eth2_ssz_derive = "0.3.1"
 tree_hash = "0.4.1"
 tree_hash_derive = "0.4.0"
 cached_tree_hash = { path = "../../consensus/cached_tree_hash" }
@@ -35,3 +36,4 @@ fs2 = "0.4.3"
 beacon_chain = { path = "../../beacon_node/beacon_chain" }
 store = { path = "../../beacon_node/store" }
 fork_choice = { path = "../../consensus/fork_choice" }
+execution_layer = { path = "../../beacon_node/execution_layer" }

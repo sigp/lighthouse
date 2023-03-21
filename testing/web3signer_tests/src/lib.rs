@@ -660,17 +660,17 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn ropsten_base_types() {
-        test_base_types("ropsten", 4250).await
+    async fn sepolia_base_types() {
+        test_base_types("sepolia", 4250).await
     }
 
     #[tokio::test]
-    async fn ropsten_altair_types() {
-        test_altair_types("ropsten", 4251).await
+    async fn sepolia_altair_types() {
+        test_altair_types("sepolia", 4251).await
     }
 
     #[tokio::test]
-    async fn ropsten_merge_types() {
-        test_merge_types("ropsten", 4252).await
+    async fn sepolia_merge_types() {
+        test_merge_types("sepolia", 4252).await
     }
 }

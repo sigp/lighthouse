@@ -2,6 +2,7 @@ use super::*;
 use beacon_chain::{
     builder::{BeaconChainBuilder, Witness},
     eth1_chain::CachingEth1Backend,
+    validator_monitor::DEFAULT_INDIVIDUAL_TRACKING_THRESHOLD,
     BeaconChain,
 };
 use futures::prelude::*;
@@ -75,7 +76,7 @@ impl TestBeaconChain {
                     Duration::from_millis(SLOT_DURATION_MILLIS),
                 ))
                 .shutdown_sender(shutdown_tx)
-                .monitor_validators(true, vec![], log)
+                .monitor_validators(true, vec![], DEFAULT_INDIVIDUAL_TRACKING_THRESHOLD, log)
                 .build()
                 .expect("should build"),
         );
@@ -181,6 +182,7 @@ mod attestation_service {
     #[cfg(feature = "deterministic_long_lived_attnets")]
     use std::collections::HashSet;
 
+    #[cfg(not(windows))]
     use crate::subnet_service::attestation_subnets::MIN_PEER_DISCOVERY_SLOT_LOOK_AHEAD;
 
     use super::*;
@@ -289,6 +291,7 @@ mod attestation_service {
     }
 
     /// Test to verify that we are not unsubscribing to a subnet before a required subscription.
+    #[cfg(not(windows))]
     #[tokio::test]
     async fn test_same_subnet_unsubscription() {
         // subscription config
@@ -512,6 +515,7 @@ mod attestation_service {
         assert_eq!(unexpected_msg_count, 0);
     }
 
+    #[cfg(not(windows))]
     #[tokio::test]
     async fn test_subscribe_same_subnet_several_slots_apart() {
         // subscription config

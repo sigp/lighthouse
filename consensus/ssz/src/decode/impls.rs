@@ -246,6 +246,20 @@ impl Decode for NonZeroUsize {
     }
 }
 
+impl<T: Decode> Decode for Option<T> {
+    fn is_ssz_fixed_len() -> bool {
+        false
+    }
+    fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
+        let (selector, body) = split_union_bytes(bytes)?;
+        match selector.into() {
+            0u8 => Ok(None),
+            1u8 => <T as Decode>::from_ssz_bytes(body).map(Option::Some),
+            other => Err(DecodeError::UnionSelectorInvalid(other)),
+        }
+    }
+}
+
 impl<T: Decode> Decode for Arc<T> {
     fn is_ssz_fixed_len() -> bool {
         T::is_ssz_fixed_len()
@@ -374,6 +388,7 @@ macro_rules! impl_decodable_for_u8_array {
 
 impl_decodable_for_u8_array!(4);
 impl_decodable_for_u8_array!(32);
+impl_decodable_for_u8_array!(48);
 
 macro_rules! impl_for_vec {
     ($type: ty, $max_len: expr) => {

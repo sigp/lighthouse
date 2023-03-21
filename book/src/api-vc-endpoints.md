@@ -6,6 +6,7 @@ HTTP Path | Description |
 | --- | -- |
 [`GET /lighthouse/version`](#get-lighthouseversion) | Get the Lighthouse software version.
 [`GET /lighthouse/health`](#get-lighthousehealth) | Get information about the host machine.
+[`GET /lighthouse/ui/health`](#get-lighthouseuihealth) | Get information about the host machine. Focused for UI applications.
 [`GET /lighthouse/spec`](#get-lighthousespec) | Get the Ethereum proof-of-stake consensus specification used by the validator.
 [`GET /lighthouse/auth`](#get-lighthouseauth) | Get the location of the authorization token.
 [`GET /lighthouse/validators`](#get-lighthousevalidators) | List all validators.
@@ -74,6 +75,70 @@ Returns information regarding the health of the host machine.
         "sys_loadavg_5": 0.98,
         "sys_loadavg_15": 1.01
     }
+}
+```
+
+## `GET /lighthouse/ui/health`
+
+Returns information regarding the health of the host machine.
+
+### HTTP Specification
+
+| Property          | Specification                              |
+|-------------------|--------------------------------------------|
+| Path              | `/lighthouse/ui/health`                       |
+| Method            | GET                                        |
+| Required Headers  | [`Authorization`](./api-vc-auth-header.md) |
+| Typical Responses | 200                                        |
+
+### Example Response Body
+
+```json
+{
+  "data": {
+    "total_memory": 16443219968,
+    "free_memory": 1283739648,
+    "used_memory": 5586264064,
+    "sys_loadavg_1": 0.59,
+    "sys_loadavg_5": 1.13,
+    "sys_loadavg_15": 2.41,
+    "cpu_cores": 4,
+    "cpu_threads": 8,
+    "global_cpu_frequency": 3.4,
+    "disk_bytes_total": 502390845440,
+    "disk_bytes_free": 9981386752,
+    "system_uptime": 660706,
+    "app_uptime": 105,
+    "system_name": "Arch Linux",
+    "kernel_version": "5.19.13-arch1-1",
+    "os_version": "Linux rolling Arch Linux",
+    "host_name": "Computer1"
+  }
+}
+```
+
+## `GET /lighthouse/ui/graffiti`
+
+Returns the graffiti that will be used for the next block proposal of each validator.
+
+### HTTP Specification
+
+| Property          | Specification                              |
+|-------------------|--------------------------------------------|
+| Path              | `/lighthouse/ui/graffiti`                    |
+| Method            | GET                                        |
+| Required Headers  | [`Authorization`](./api-vc-auth-header.md) |
+| Typical Responses | 200                                        |
+
+### Example Response Body
+
+```json
+{
+  "data": {
+    "0x81283b7a20e1ca460ebd9bbd77005d557370cabb1f9a44f530c4c4c66230f675f8df8b4c2818851aa7d77a80ca5a4a5e": "mr f was here",
+    "0xa3a32b0f8b4ddb83f1a0a853d81dd725dfe577d4f4c3db8ece52ce2b026eca84815c1a7e8e92a4de3d755733bf7e4a9b": "mr v was here",
+    "0x872c61b4a7f8510ec809e5b023f5fdda2105d024c470ddbbeca4bc74e8280af0d178d749853e8f6a841083ac1b4db98f": null
+  }
 }
 ```
 

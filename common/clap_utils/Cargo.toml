@@ -12,7 +12,7 @@ hex = "0.4.2"
 dirs = "3.0.1"
 eth2_network_config = { path = "../eth2_network_config" }
 eth2_ssz = "0.4.1"
-ethereum-types = "0.12.1"
+ethereum-types = "0.14.1"
 serde = "1.0.116"
 serde_json = "1.0.59"
 serde_yaml = "0.8.13"

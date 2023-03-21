@@ -14,7 +14,7 @@ pub const GRAFFITI_BYTES_LEN: usize = 32;
 /// The 32-byte `graffiti` field on a beacon block.
 #[derive(Default, Debug, PartialEq, Hash, Clone, Copy, Serialize, Deserialize)]
 #[serde(transparent)]
-#[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
+#[derive(arbitrary::Arbitrary)]
 pub struct Graffiti(#[serde(with = "serde_graffiti")] pub [u8; GRAFFITI_BYTES_LEN]);
 
 impl Graffiti {
@@ -27,7 +27,7 @@ impl Graffiti {
 
 impl fmt::Display for Graffiti {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", eth2_serde_utils::hex::encode(&self.0))
+        write!(f, "{}", eth2_serde_utils::hex::encode(self.0))
     }
 }
 

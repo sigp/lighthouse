@@ -1,5 +1,6 @@
 use crate::beacon_chain::{CanonicalHead, BEACON_CHAIN_DB_KEY, ETH1_CACHE_DB_KEY, OP_POOL_DB_KEY};
 use crate::eth1_chain::{CachingEth1Backend, SszEth1};
+use crate::eth1_finalization_cache::Eth1FinalizationCache;
 use crate::fork_choice_signal::ForkChoiceSignalTx;
 use crate::fork_revert::{reset_fork_choice_to_finalization, revert_to_fork_boundary};
 use crate::head_tracker::HeadTracker;
@@ -17,10 +18,11 @@ use crate::{
 };
 use eth1::Config as Eth1Config;
 use execution_layer::ExecutionLayer;
-use fork_choice::{ForkChoice, ResetPayloadStatuses};
+use fork_choice::{CountUnrealized, ForkChoice, ResetPayloadStatuses};
 use futures::channel::mpsc::Sender;
 use operation_pool::{OperationPool, PersistedOperationPool};
 use parking_lot::RwLock;
+use proto_array::ReOrgThreshold;
 use slasher::Slasher;
 use slog::{crit, error, info, Logger};
 use slot_clock::{SlotClock, TestingSlotClock};
@@ -30,8 +32,8 @@ use std::time::Duration;
 use store::{Error as StoreError, HotColdDB, ItemStore, KeyValueStoreOp};
 use task_executor::{ShutdownReason, TaskExecutor};
 use types::{
-    BeaconBlock, BeaconState, ChainSpec, Checkpoint, EthSpec, Graffiti, Hash256, PublicKeyBytes,
-    Signature, SignedBeaconBlock, Slot,
+    BeaconBlock, BeaconState, ChainSpec, Checkpoint, Epoch, EthSpec, Graffiti, Hash256,
+    PublicKeyBytes, Signature, SignedBeaconBlock, Slot,
 };
 
 /// An empty struct used to "witness" all the `BeaconChainTypes` traits. It has no user-facing
@@ -158,6 +160,21 @@ where
         self
     }
 
+    /// Sets the proposer re-org threshold.
+    pub fn proposer_re_org_threshold(mut self, threshold: Option<ReOrgThreshold>) -> Self {
+        self.chain_config.re_org_threshold = threshold;
+        self
+    }
+
+    /// Sets the proposer re-org max epochs since finalization.
+    pub fn proposer_re_org_max_epochs_since_finalization(
+        mut self,
+        epochs_since_finalization: Epoch,
+    ) -> Self {
+        self.chain_config.re_org_max_epochs_since_finalization = epochs_since_finalization;
+        self
+    }
+
     /// Sets the store (database).
     ///
     /// Should generally be called early in the build chain.
@@ -248,7 +265,6 @@ where
                 ResetPayloadStatuses::always_reset_conditionally(
                     self.chain_config.always_reset_payload_statuses,
                 ),
-                self.chain_config.count_unrealized_full,
                 &self.spec,
                 log,
             )
@@ -357,7 +373,8 @@ where
         let (genesis, updated_builder) = self.set_genesis_state(beacon_state)?;
         self = updated_builder;
 
-        let fc_store = BeaconForkChoiceStore::get_forkchoice_store(store, &genesis);
+        let fc_store = BeaconForkChoiceStore::get_forkchoice_store(store, &genesis)
+            .map_err(|e| format!("Unable to initialize fork choice store: {e:?}"))?;
         let current_slot = None;
 
         let fork_choice = ForkChoice::from_anchor(
@@ -366,7 +383,6 @@ where
             &genesis.beacon_block,
             &genesis.beacon_state,
             current_slot,
-            self.chain_config.count_unrealized_full,
             &self.spec,
         )
         .map_err(|e| format!("Unable to initialize ForkChoice: {:?}", e))?;
@@ -475,7 +491,8 @@ where
             beacon_state: weak_subj_state,
         };
 
-        let fc_store = BeaconForkChoiceStore::get_forkchoice_store(store, &snapshot);
+        let fc_store = BeaconForkChoiceStore::get_forkchoice_store(store, &snapshot)
+            .map_err(|e| format!("Unable to initialize fork choice store: {e:?}"))?;
 
         let current_slot = Some(snapshot.beacon_block.slot());
         let fork_choice = ForkChoice::from_anchor(
@@ -484,7 +501,6 @@ where
             &snapshot.beacon_block,
             &snapshot.beacon_state,
             current_slot,
-            self.chain_config.count_unrealized_full,
             &self.spec,
         )
         .map_err(|e| format!("Unable to initialize ForkChoice: {:?}", e))?;
@@ -560,11 +576,13 @@ where
         mut self,
         auto_register: bool,
         validators: Vec<PublicKeyBytes>,
+        individual_metrics_threshold: usize,
         log: Logger,
     ) -> Self {
         self.validator_monitor = Some(ValidatorMonitor::new(
             validators,
             auto_register,
+            individual_metrics_threshold,
             log.clone(),
         ));
         self
@@ -660,8 +678,7 @@ where
                 store.clone(),
                 Some(current_slot),
                 &self.spec,
-                self.chain_config.count_unrealized.into(),
-                self.chain_config.count_unrealized_full,
+                CountUnrealized::True,
             )?;
         }
 
@@ -779,6 +796,9 @@ where
             observed_voluntary_exits: <_>::default(),
             observed_proposer_slashings: <_>::default(),
             observed_attester_slashings: <_>::default(),
+            observed_bls_to_execution_changes: <_>::default(),
+            latest_seen_finality_update: <_>::default(),
+            latest_seen_optimistic_update: <_>::default(),
             eth1_chain: self.eth1_chain,
             execution_layer: self.execution_layer,
             genesis_validators_root,
@@ -795,6 +815,7 @@ where
                 head_for_snapshot_cache,
             )),
             shuffling_cache: TimeoutRwLock::new(ShufflingCache::new()),
+            eth1_finalization_cache: TimeoutRwLock::new(Eth1FinalizationCache::new(log.clone())),
             beacon_proposer_cache: <_>::default(),
             block_times_cache: <_>::default(),
             pre_finalization_block_cache: <_>::default(),
@@ -967,6 +988,7 @@ fn descriptive_db_error(item: &str, error: &StoreError) -> String {
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::validator_monitor::DEFAULT_INDIVIDUAL_TRACKING_THRESHOLD;
     use eth2_hashing::hash;
     use genesis::{
         generate_deterministic_keypairs, interop_genesis_state, DEFAULT_ETH1_BLOCK_HASH,
@@ -1023,7 +1045,12 @@ mod test {
             .testing_slot_clock(Duration::from_secs(1))
             .expect("should configure testing slot clock")
             .shutdown_sender(shutdown_tx)
-            .monitor_validators(true, vec![], log.clone())
+            .monitor_validators(
+                true,
+                vec![],
+                DEFAULT_INDIVIDUAL_TRACKING_THRESHOLD,
+                log.clone(),
+            )
             .build()
             .expect("should build");
 

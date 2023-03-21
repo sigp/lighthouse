@@ -13,7 +13,7 @@ use node_test_rig::{
 use rayon::prelude::*;
 use sensitive_url::SensitiveUrl;
 use std::cmp::max;
-use std::net::{IpAddr, Ipv4Addr};
+use std::net::Ipv4Addr;
 use std::time::Duration;
 use tokio::time::sleep;
 use types::{Epoch, EthSpec, MinimalEthSpec};
@@ -62,11 +62,13 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
             debug_level: String::from("debug"),
             logfile_debug_level: String::from("debug"),
             log_format: None,
+            logfile_format: None,
             log_color: false,
             disable_log_timestamp: false,
             max_log_size: 0,
             max_log_number: 0,
             compression: false,
+            is_restricted: true,
         })?
         .multi_threaded_tokio_runtime()?
         .build()?;
@@ -147,7 +149,7 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
         beacon_config.eth1.chain_id = Eth1Id::from(chain_id);
         beacon_config.network.target_peers = node_count - 1;
 
-        beacon_config.network.enr_address = Some(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)));
+        beacon_config.network.enr_address = (Some(Ipv4Addr::LOCALHOST), None);
 
         if post_merge_sim {
             let el_config = execution_layer::Config {

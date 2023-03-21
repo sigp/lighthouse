@@ -26,6 +26,7 @@ eth2_ssz = "0.4.1"
 eth2_ssz_types = "0.2.2"
 eth2 = { path = "../../common/eth2" }
 state_processing = { path = "../../consensus/state_processing" }
+superstruct = "0.6.0"
 lru = "0.7.1"
 exit-future = "0.2.0"
 tree_hash = "0.4.1"
@@ -37,11 +38,15 @@ rand = "0.8.5"
 zeroize = { version = "1.4.2", features = ["zeroize_derive"] }
 lighthouse_metrics = { path = "../../common/lighthouse_metrics" }
 lazy_static = "1.4.0"
-ethers-core = { git = "https://github.com/gakonst/ethers-rs", rev = "02ad93a1cfb7b62eb051c77c61dc4c0218428e4a" }
+ethers-core = "1.0.2"
 builder_client = { path = "../builder_client" }
 fork_choice = { path = "../../consensus/fork_choice" }
-mev-build-rs = {git = "https://github.com/ralexstokes/mev-rs", rev = "a088806575805c00d63fa59c002abc5eb1dc7709"}
-ethereum-consensus = {git = "https://github.com/ralexstokes/ethereum-consensus", rev = "e1188b1" }
-ssz-rs = {git = "https://github.com/ralexstokes/ssz-rs", rev = "cb08f1" }
+mev-rs = { git = "https://github.com/ralexstokes/mev-rs" }
+ethereum-consensus = { git = "https://github.com/ralexstokes/ethereum-consensus" }
+ssz-rs = { git = "https://github.com/ralexstokes/ssz-rs" }
 tokio-stream = { version = "0.1.9", features = [ "sync" ] }
 strum = "0.24.0"
+keccak-hash = "0.10.0"
+hash256-std-hasher = "0.15.2"
+triehash = "0.8.4"
+hash-db = "0.15.2"

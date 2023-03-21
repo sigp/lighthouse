@@ -3,6 +3,7 @@
 #![allow(clippy::indexing_slicing)]
 
 use super::Error;
+use crate::historical_summary::HistoricalSummaryCache;
 use crate::{BeaconState, EthSpec, Hash256, ParticipationList, Slot, Unsigned, Validator};
 use cached_tree_hash::{int_log, CacheArena, CachedTreeHash, TreeHashCache};
 use rayon::prelude::*;
@@ -18,7 +19,7 @@ use tree_hash::{mix_in_length, MerkleHasher, TreeHash};
 ///
 /// This constant is set with the assumption that there are `> 16` and `<= 32` fields on the
 /// `BeaconState`. **Tree hashing will fail if this value is set incorrectly.**
-const NUM_BEACON_STATE_HASH_TREE_ROOT_LEAVES: usize = 32;
+pub const NUM_BEACON_STATE_HASH_TREE_ROOT_LEAVES: usize = 32;
 
 /// The number of nodes in the Merkle tree of a validator record.
 const NODES_PER_VALIDATOR: usize = 15;
@@ -142,6 +143,7 @@ pub struct BeaconTreeHashCacheInner<T: EthSpec> {
     block_roots: TreeHashCache,
     state_roots: TreeHashCache,
     historical_roots: TreeHashCache,
+    historical_summaries: OptionalTreeHashCache,
     balances: TreeHashCache,
     randao_mixes: TreeHashCache,
     slashings: TreeHashCache,
@@ -164,6 +166,14 @@ impl<T: EthSpec> BeaconTreeHashCacheInner<T> {
         let historical_roots = state
             .historical_roots()
             .new_tree_hash_cache(&mut fixed_arena);
+        let historical_summaries = OptionalTreeHashCache::new(
+            state
+                .historical_summaries()
+                .ok()
+                .map(HistoricalSummaryCache::new)
+                .as_ref(),
+        );
+
         let randao_mixes = state.randao_mixes().new_tree_hash_cache(&mut fixed_arena);
 
         let validators = ValidatorsListTreeHashCache::new::<T>(state.validators());
@@ -200,6 +210,7 @@ impl<T: EthSpec> BeaconTreeHashCacheInner<T> {
             block_roots,
             state_roots,
             historical_roots,
+            historical_summaries,
             balances,
             randao_mixes,
             slashings,
@@ -208,6 +219,109 @@ impl<T: EthSpec> BeaconTreeHashCacheInner<T> {
             previous_epoch_participation,
             current_epoch_participation,
         }
+    }
+
+    pub fn recalculate_tree_hash_leaves(
+        &mut self,
+        state: &BeaconState<T>,
+    ) -> Result<Vec<Hash256>, Error> {
+        let mut leaves = vec![
+            // Genesis data leaves.
+            state.genesis_time().tree_hash_root(),
+            state.genesis_validators_root().tree_hash_root(),
+            // Current fork data leaves.
+            state.slot().tree_hash_root(),
+            state.fork().tree_hash_root(),
+            state.latest_block_header().tree_hash_root(),
+            // Roots leaves.
+            state
+                .block_roots()
+                .recalculate_tree_hash_root(&mut self.fixed_arena, &mut self.block_roots)?,
+            state
+                .state_roots()
+                .recalculate_tree_hash_root(&mut self.fixed_arena, &mut self.state_roots)?,
+            state
+                .historical_roots()
+                .recalculate_tree_hash_root(&mut self.fixed_arena, &mut self.historical_roots)?,
+            // Eth1 Data leaves.
+            state.eth1_data().tree_hash_root(),
+            self.eth1_data_votes.recalculate_tree_hash_root(state)?,
+            state.eth1_deposit_index().tree_hash_root(),
+            // Validator leaves.
+            self.validators
+                .recalculate_tree_hash_root(state.validators())?,
+            state
+                .balances()
+                .recalculate_tree_hash_root(&mut self.balances_arena, &mut self.balances)?,
+            state
+                .randao_mixes()
+                .recalculate_tree_hash_root(&mut self.fixed_arena, &mut self.randao_mixes)?,
+            state
+                .slashings()
+                .recalculate_tree_hash_root(&mut self.slashings_arena, &mut self.slashings)?,
+        ];
+
+        // Participation
+        if let BeaconState::Base(state) = state {
+            leaves.push(state.previous_epoch_attestations.tree_hash_root());
+            leaves.push(state.current_epoch_attestations.tree_hash_root());
+        } else {
+            leaves.push(
+                self.previous_epoch_participation
+                    .recalculate_tree_hash_root(&ParticipationList::new(
+                        state.previous_epoch_participation()?,
+                    ))?,
+            );
+            leaves.push(
+                self.current_epoch_participation
+                    .recalculate_tree_hash_root(&ParticipationList::new(
+                        state.current_epoch_participation()?,
+                    ))?,
+            );
+        }
+        // Checkpoint leaves
+        leaves.push(state.justification_bits().tree_hash_root());
+        leaves.push(state.previous_justified_checkpoint().tree_hash_root());
+        leaves.push(state.current_justified_checkpoint().tree_hash_root());
+        leaves.push(state.finalized_checkpoint().tree_hash_root());
+        // Inactivity & light-client sync committees (Altair and later).
+        if let Ok(inactivity_scores) = state.inactivity_scores() {
+            leaves.push(
+                self.inactivity_scores
+                    .recalculate_tree_hash_root(inactivity_scores)?,
+            );
+        }
+        if let Ok(current_sync_committee) = state.current_sync_committee() {
+            leaves.push(current_sync_committee.tree_hash_root());
+        }
+
+        if let Ok(next_sync_committee) = state.next_sync_committee() {
+            leaves.push(next_sync_committee.tree_hash_root());
+        }
+
+        // Execution payload (merge and later).
+        if let Ok(payload_header) = state.latest_execution_payload_header() {
+            leaves.push(payload_header.tree_hash_root());
+        }
+
+        // Withdrawal indices (Capella and later).
+        if let Ok(next_withdrawal_index) = state.next_withdrawal_index() {
+            leaves.push(next_withdrawal_index.tree_hash_root());
+        }
+        if let Ok(next_withdrawal_validator_index) = state.next_withdrawal_validator_index() {
+            leaves.push(next_withdrawal_validator_index.tree_hash_root());
+        }
+
+        // Historical roots/summaries (Capella and later).
+        if let Ok(historical_summaries) = state.historical_summaries() {
+            leaves.push(
+                self.historical_summaries.recalculate_tree_hash_root(
+                    &HistoricalSummaryCache::new(historical_summaries),
+                )?,
+            );
+        }
+
+        Ok(leaves)
     }
 
     /// Updates the cache and returns the tree hash root for the given `state`.
@@ -246,121 +360,9 @@ impl<T: EthSpec> BeaconTreeHashCacheInner<T> {
 
         let mut hasher = MerkleHasher::with_leaves(NUM_BEACON_STATE_HASH_TREE_ROOT_LEAVES);
 
-        hasher.write(state.genesis_time().tree_hash_root().as_bytes())?;
-        hasher.write(state.genesis_validators_root().tree_hash_root().as_bytes())?;
-        hasher.write(state.slot().tree_hash_root().as_bytes())?;
-        hasher.write(state.fork().tree_hash_root().as_bytes())?;
-        hasher.write(state.latest_block_header().tree_hash_root().as_bytes())?;
-        hasher.write(
-            state
-                .block_roots()
-                .recalculate_tree_hash_root(&mut self.fixed_arena, &mut self.block_roots)?
-                .as_bytes(),
-        )?;
-        hasher.write(
-            state
-                .state_roots()
-                .recalculate_tree_hash_root(&mut self.fixed_arena, &mut self.state_roots)?
-                .as_bytes(),
-        )?;
-        hasher.write(
-            state
-                .historical_roots()
-                .recalculate_tree_hash_root(&mut self.fixed_arena, &mut self.historical_roots)?
-                .as_bytes(),
-        )?;
-        hasher.write(state.eth1_data().tree_hash_root().as_bytes())?;
-        hasher.write(
-            self.eth1_data_votes
-                .recalculate_tree_hash_root(state)?
-                .as_bytes(),
-        )?;
-        hasher.write(state.eth1_deposit_index().tree_hash_root().as_bytes())?;
-        hasher.write(
-            self.validators
-                .recalculate_tree_hash_root(state.validators())?
-                .as_bytes(),
-        )?;
-        hasher.write(
-            state
-                .balances()
-                .recalculate_tree_hash_root(&mut self.balances_arena, &mut self.balances)?
-                .as_bytes(),
-        )?;
-        hasher.write(
-            state
-                .randao_mixes()
-                .recalculate_tree_hash_root(&mut self.fixed_arena, &mut self.randao_mixes)?
-                .as_bytes(),
-        )?;
-        hasher.write(
-            state
-                .slashings()
-                .recalculate_tree_hash_root(&mut self.slashings_arena, &mut self.slashings)?
-                .as_bytes(),
-        )?;
-
-        // Participation
-        if let BeaconState::Base(state) = state {
-            hasher.write(
-                state
-                    .previous_epoch_attestations
-                    .tree_hash_root()
-                    .as_bytes(),
-            )?;
-            hasher.write(state.current_epoch_attestations.tree_hash_root().as_bytes())?;
-        } else {
-            hasher.write(
-                self.previous_epoch_participation
-                    .recalculate_tree_hash_root(&ParticipationList::new(
-                        state.previous_epoch_participation()?,
-                    ))?
-                    .as_bytes(),
-            )?;
-            hasher.write(
-                self.current_epoch_participation
-                    .recalculate_tree_hash_root(&ParticipationList::new(
-                        state.current_epoch_participation()?,
-                    ))?
-                    .as_bytes(),
-            )?;
-        }
-
-        hasher.write(state.justification_bits().tree_hash_root().as_bytes())?;
-        hasher.write(
-            state
-                .previous_justified_checkpoint()
-                .tree_hash_root()
-                .as_bytes(),
-        )?;
-        hasher.write(
-            state
-                .current_justified_checkpoint()
-                .tree_hash_root()
-                .as_bytes(),
-        )?;
-        hasher.write(state.finalized_checkpoint().tree_hash_root().as_bytes())?;
-
-        // Inactivity & light-client sync committees (Altair and later).
-        if let Ok(inactivity_scores) = state.inactivity_scores() {
-            hasher.write(
-                self.inactivity_scores
-                    .recalculate_tree_hash_root(inactivity_scores)?
-                    .as_bytes(),
-            )?;
-        }
-
-        if let Ok(current_sync_committee) = state.current_sync_committee() {
-            hasher.write(current_sync_committee.tree_hash_root().as_bytes())?;
-        }
-
-        if let Ok(next_sync_committee) = state.next_sync_committee() {
-            hasher.write(next_sync_committee.tree_hash_root().as_bytes())?;
-        }
-
-        // Execution payload (merge and later).
-        if let Ok(payload_header) = state.latest_execution_payload_header() {
-            hasher.write(payload_header.tree_hash_root().as_bytes())?;
+        let leaves = self.recalculate_tree_hash_leaves(state)?;
+        for leaf in leaves {
+            hasher.write(leaf.as_bytes())?;
         }
 
         let root = hasher.finish()?;
@@ -598,7 +600,6 @@ impl OptionalTreeHashCacheInner {
     }
 }
 
-#[cfg(feature = "arbitrary-fuzz")]
 impl<T: EthSpec> arbitrary::Arbitrary<'_> for BeaconTreeHashCache<T> {
     fn arbitrary(_u: &mut arbitrary::Unstructured<'_>) -> arbitrary::Result<Self> {
         Ok(Self::default())

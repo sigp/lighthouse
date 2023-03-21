@@ -2,13 +2,15 @@
 
 use beacon_chain::attestation_verification::Error as AttnError;
 use beacon_chain::builder::BeaconChainBuilder;
+use beacon_chain::schema_change::migrate_schema;
 use beacon_chain::test_utils::{
     test_spec, AttestationStrategy, BeaconChainHarness, BlockStrategy, DiskHarnessType,
 };
+use beacon_chain::validator_monitor::DEFAULT_INDIVIDUAL_TRACKING_THRESHOLD;
 use beacon_chain::{
     historical_blocks::HistoricalBlockError, migrate::MigratorConfig, BeaconChain,
-    BeaconChainError, BeaconChainTypes, BeaconSnapshot, ChainConfig, ServerSentEventHandler,
-    WhenSlotSkipped,
+    BeaconChainError, BeaconChainTypes, BeaconSnapshot, ChainConfig, NotifyExecutionLayer,
+    ServerSentEventHandler, WhenSlotSkipped,
 };
 use fork_choice::CountUnrealized;
 use lazy_static::lazy_static;
@@ -21,6 +23,7 @@ use std::collections::HashSet;
 use std::convert::TryInto;
 use std::sync::Arc;
 use std::time::Duration;
+use store::metadata::{SchemaVersion, CURRENT_SCHEMA_VERSION};
 use store::{
     iter::{BlockRootsIterator, StateRootsIterator},
     HotColdDB, LevelDB, StoreConfig,
@@ -67,6 +70,7 @@ fn get_harness(
     let harness = BeaconChainHarness::builder(MinimalEthSpec)
         .default_spec()
         .keypairs(KEYPAIRS[0..validator_count].to_vec())
+        .logger(store.logger().clone())
         .fresh_disk_store(store)
         .mock_execution_layer()
         .build();
@@ -811,7 +815,6 @@ async fn shuffling_compatible_linear_chain() {
     let store = get_store(&db_path);
     let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
 
-    // Skip the block at the end of the first epoch.
     let head_block_root = harness
         .extend_chain(
             4 * E::slots_per_epoch() as usize,
@@ -824,10 +827,6 @@ async fn shuffling_compatible_linear_chain() {
         &harness,
         &get_state_for_block(&harness, head_block_root),
         head_block_root,
-        true,
-        true,
-        None,
-        None,
     );
 }
 
@@ -859,10 +858,6 @@ async fn shuffling_compatible_missing_pivot_block() {
         &harness,
         &get_state_for_block(&harness, head_block_root),
         head_block_root,
-        true,
-        true,
-        Some(E::slots_per_epoch() - 2),
-        Some(E::slots_per_epoch() - 2),
     );
 }
 
@@ -880,10 +875,10 @@ async fn shuffling_compatible_simple_fork() {
     let head1_state = get_state_for_block(&harness, head1);
     let head2_state = get_state_for_block(&harness, head2);
 
-    check_shuffling_compatible(&harness, &head1_state, head1, true, true, None, None);
-    check_shuffling_compatible(&harness, &head1_state, head2, false, false, None, None);
-    check_shuffling_compatible(&harness, &head2_state, head1, false, false, None, None);
-    check_shuffling_compatible(&harness, &head2_state, head2, true, true, None, None);
+    check_shuffling_compatible(&harness, &head1_state, head1);
+    check_shuffling_compatible(&harness, &head1_state, head2);
+    check_shuffling_compatible(&harness, &head2_state, head1);
+    check_shuffling_compatible(&harness, &head2_state, head2);
 
     drop(db_path);
 }
@@ -902,21 +897,10 @@ async fn shuffling_compatible_short_fork() {
     let head1_state = get_state_for_block(&harness, head1);
     let head2_state = get_state_for_block(&harness, head2);
 
-    check_shuffling_compatible(&harness, &head1_state, head1, true, true, None, None);
-    check_shuffling_compatible(&harness, &head1_state, head2, false, true, None, None);
-    // NOTE: don't check this case, as block 14 from the first chain appears valid on the second
-    // chain due to it matching the second chain's block 15.
-    // check_shuffling_compatible(&harness, &head2_state, head1, false, true, None, None);
-    check_shuffling_compatible(
-        &harness,
-        &head2_state,
-        head2,
-        true,
-        true,
-        // Required because of the skipped slot.
-        Some(2 * E::slots_per_epoch() - 2),
-        None,
-    );
+    check_shuffling_compatible(&harness, &head1_state, head1);
+    check_shuffling_compatible(&harness, &head1_state, head2);
+    check_shuffling_compatible(&harness, &head2_state, head1);
+    check_shuffling_compatible(&harness, &head2_state, head2);
 
     drop(db_path);
 }
@@ -940,54 +924,82 @@ fn check_shuffling_compatible(
     harness: &TestHarness,
     head_state: &BeaconState<E>,
     head_block_root: Hash256,
-    current_epoch_valid: bool,
-    previous_epoch_valid: bool,
-    current_epoch_cutoff_slot: Option<u64>,
-    previous_epoch_cutoff_slot: Option<u64>,
 ) {
-    let shuffling_lookahead = harness.chain.spec.min_seed_lookahead.as_u64() + 1;
-    let current_pivot_slot =
-        (head_state.current_epoch() - shuffling_lookahead).end_slot(E::slots_per_epoch());
-    let previous_pivot_slot =
-        (head_state.previous_epoch() - shuffling_lookahead).end_slot(E::slots_per_epoch());
-
     for maybe_tuple in harness
         .chain
         .rev_iter_block_roots_from(head_block_root)
         .unwrap()
     {
         let (block_root, slot) = maybe_tuple.unwrap();
-        // Shuffling is compatible targeting the current epoch,
-        // if slot is greater than or equal to the current epoch pivot block.
-        assert_eq!(
-            harness.chain.shuffling_is_compatible(
-                &block_root,
+
+        // Would an attestation to `block_root` at the current epoch be compatible with the head
+        // state's shuffling?
+        let current_epoch_shuffling_is_compatible = harness.chain.shuffling_is_compatible(
+            &block_root,
+            head_state.current_epoch(),
+            &head_state,
+        );
+
+        // Check for consistency with the more expensive shuffling lookup.
+        harness
+            .chain
+            .with_committee_cache(
+                block_root,
                 head_state.current_epoch(),
-                &head_state
-            ),
-            current_epoch_valid
-                && slot >= current_epoch_cutoff_slot.unwrap_or(current_pivot_slot.as_u64())
-        );
+                |committee_cache, _| {
+                    let state_cache = head_state.committee_cache(RelativeEpoch::Current).unwrap();
+                    if current_epoch_shuffling_is_compatible {
+                        assert_eq!(committee_cache, state_cache, "block at slot {slot}");
+                    } else {
+                        assert_ne!(committee_cache, state_cache, "block at slot {slot}");
+                    }
+                    Ok(())
+                },
+            )
+            .unwrap_or_else(|e| {
+                // If the lookup fails then the shuffling must be invalid in some way, e.g. the
+                // block with `block_root` is from a later epoch than `previous_epoch`.
+                assert!(
+                    !current_epoch_shuffling_is_compatible,
+                    "block at slot {slot} has compatible shuffling at epoch {} \
+                     but should be incompatible due to error: {e:?}",
+                    head_state.current_epoch()
+                );
+            });
+
         // Similarly for the previous epoch
-        assert_eq!(
-            harness.chain.shuffling_is_compatible(
-                &block_root,
+        let previous_epoch_shuffling_is_compatible = harness.chain.shuffling_is_compatible(
+            &block_root,
+            head_state.previous_epoch(),
+            &head_state,
+        );
+        harness
+            .chain
+            .with_committee_cache(
+                block_root,
                 head_state.previous_epoch(),
-                &head_state
-            ),
-            previous_epoch_valid
-                && slot >= previous_epoch_cutoff_slot.unwrap_or(previous_pivot_slot.as_u64())
-        );
-        // Targeting the next epoch should always return false
-        assert_eq!(
-            harness.chain.shuffling_is_compatible(
-                &block_root,
-                head_state.current_epoch() + 1,
-                &head_state
-            ),
-            false
-        );
-        // Targeting two epochs before the current epoch should also always return false
+                |committee_cache, _| {
+                    let state_cache = head_state.committee_cache(RelativeEpoch::Previous).unwrap();
+                    if previous_epoch_shuffling_is_compatible {
+                        assert_eq!(committee_cache, state_cache);
+                    } else {
+                        assert_ne!(committee_cache, state_cache);
+                    }
+                    Ok(())
+                },
+            )
+            .unwrap_or_else(|e| {
+                // If the lookup fails then the shuffling must be invalid in some way, e.g. the
+                // block with `block_root` is from a later epoch than `previous_epoch`.
+                assert!(
+                    !previous_epoch_shuffling_is_compatible,
+                    "block at slot {slot} has compatible shuffling at epoch {} \
+                     but should be incompatible due to error: {e:?}",
+                    head_state.previous_epoch()
+                );
+            });
+
+        // Targeting two epochs before the current epoch should always return false
         if head_state.current_epoch() >= 2 {
             assert_eq!(
                 harness.chain.shuffling_is_compatible(
@@ -1004,8 +1016,8 @@ fn check_shuffling_compatible(
 // Ensure blocks from abandoned forks are pruned from the Hot DB
 #[tokio::test]
 async fn prunes_abandoned_fork_between_two_finalized_checkpoints() {
-    const HONEST_VALIDATOR_COUNT: usize = 16 + 0;
-    const ADVERSARIAL_VALIDATOR_COUNT: usize = 8 - 0;
+    const HONEST_VALIDATOR_COUNT: usize = 32 + 0;
+    const ADVERSARIAL_VALIDATOR_COUNT: usize = 16 - 0;
     const VALIDATOR_COUNT: usize = HONEST_VALIDATOR_COUNT + ADVERSARIAL_VALIDATOR_COUNT;
     let validators_keypairs = types::test_utils::generate_deterministic_keypairs(VALIDATOR_COUNT);
     let honest_validators: Vec<usize> = (0..HONEST_VALIDATOR_COUNT).collect();
@@ -1114,8 +1126,8 @@ async fn prunes_abandoned_fork_between_two_finalized_checkpoints() {
 
 #[tokio::test]
 async fn pruning_does_not_touch_abandoned_block_shared_with_canonical_chain() {
-    const HONEST_VALIDATOR_COUNT: usize = 16 + 0;
-    const ADVERSARIAL_VALIDATOR_COUNT: usize = 8 - 0;
+    const HONEST_VALIDATOR_COUNT: usize = 32 + 0;
+    const ADVERSARIAL_VALIDATOR_COUNT: usize = 16 - 0;
     const VALIDATOR_COUNT: usize = HONEST_VALIDATOR_COUNT + ADVERSARIAL_VALIDATOR_COUNT;
     let validators_keypairs = types::test_utils::generate_deterministic_keypairs(VALIDATOR_COUNT);
     let honest_validators: Vec<usize> = (0..HONEST_VALIDATOR_COUNT).collect();
@@ -1246,8 +1258,8 @@ async fn pruning_does_not_touch_abandoned_block_shared_with_canonical_chain() {
 
 #[tokio::test]
 async fn pruning_does_not_touch_blocks_prior_to_finalization() {
-    const HONEST_VALIDATOR_COUNT: usize = 16;
-    const ADVERSARIAL_VALIDATOR_COUNT: usize = 8;
+    const HONEST_VALIDATOR_COUNT: usize = 32;
+    const ADVERSARIAL_VALIDATOR_COUNT: usize = 16;
     const VALIDATOR_COUNT: usize = HONEST_VALIDATOR_COUNT + ADVERSARIAL_VALIDATOR_COUNT;
     let validators_keypairs = types::test_utils::generate_deterministic_keypairs(VALIDATOR_COUNT);
     let honest_validators: Vec<usize> = (0..HONEST_VALIDATOR_COUNT).collect();
@@ -1341,8 +1353,8 @@ async fn pruning_does_not_touch_blocks_prior_to_finalization() {
 
 #[tokio::test]
 async fn prunes_fork_growing_past_youngest_finalized_checkpoint() {
-    const HONEST_VALIDATOR_COUNT: usize = 16 + 0;
-    const ADVERSARIAL_VALIDATOR_COUNT: usize = 8 - 0;
+    const HONEST_VALIDATOR_COUNT: usize = 32 + 0;
+    const ADVERSARIAL_VALIDATOR_COUNT: usize = 16 - 0;
     const VALIDATOR_COUNT: usize = HONEST_VALIDATOR_COUNT + ADVERSARIAL_VALIDATOR_COUNT;
     let validators_keypairs = types::test_utils::generate_deterministic_keypairs(VALIDATOR_COUNT);
     let honest_validators: Vec<usize> = (0..HONEST_VALIDATOR_COUNT).collect();
@@ -1486,8 +1498,8 @@ async fn prunes_fork_growing_past_youngest_finalized_checkpoint() {
 // This is to check if state outside of normal block processing are pruned correctly.
 #[tokio::test]
 async fn prunes_skipped_slots_states() {
-    const HONEST_VALIDATOR_COUNT: usize = 16 + 0;
-    const ADVERSARIAL_VALIDATOR_COUNT: usize = 8 - 0;
+    const HONEST_VALIDATOR_COUNT: usize = 32 + 0;
+    const ADVERSARIAL_VALIDATOR_COUNT: usize = 16 - 0;
     const VALIDATOR_COUNT: usize = HONEST_VALIDATOR_COUNT + ADVERSARIAL_VALIDATOR_COUNT;
     let validators_keypairs = types::test_utils::generate_deterministic_keypairs(VALIDATOR_COUNT);
     let honest_validators: Vec<usize> = (0..HONEST_VALIDATOR_COUNT).collect();
@@ -1615,8 +1627,8 @@ async fn prunes_skipped_slots_states() {
 // This is to check if state outside of normal block processing are pruned correctly.
 #[tokio::test]
 async fn finalizes_non_epoch_start_slot() {
-    const HONEST_VALIDATOR_COUNT: usize = 16 + 0;
-    const ADVERSARIAL_VALIDATOR_COUNT: usize = 8 - 0;
+    const HONEST_VALIDATOR_COUNT: usize = 32 + 0;
+    const ADVERSARIAL_VALIDATOR_COUNT: usize = 16 - 0;
     const VALIDATOR_COUNT: usize = HONEST_VALIDATOR_COUNT + ADVERSARIAL_VALIDATOR_COUNT;
     let validators_keypairs = types::test_utils::generate_deterministic_keypairs(VALIDATOR_COUNT);
     let honest_validators: Vec<usize> = (0..HONEST_VALIDATOR_COUNT).collect();
@@ -2113,7 +2125,7 @@ async fn weak_subjectivity_sync() {
                 log.clone(),
                 1,
             )))
-            .monitor_validators(true, vec![], log)
+            .monitor_validators(true, vec![], DEFAULT_INDIVIDUAL_TRACKING_THRESHOLD, log)
             .build()
             .expect("should build"),
     );
@@ -2140,6 +2152,7 @@ async fn weak_subjectivity_sync() {
                 full_block.canonical_root(),
                 Arc::new(full_block),
                 CountUnrealized::True,
+                NotifyExecutionLayer::Yes,
             )
             .await
             .unwrap();
@@ -2517,6 +2530,91 @@ async fn revert_minority_fork_on_resume() {
     let heads = resumed_harness.chain.heads();
     assert_eq!(heads, harness2.chain.heads());
     assert_eq!(heads.len(), 1);
+}
+
+// This test checks whether the schema downgrade from the latest version to some minimum supported
+// version is correct. This is the easiest schema test to write without historic versions of
+// Lighthouse on-hand, but has the disadvantage that the min version needs to be adjusted manually
+// as old downgrades are deprecated.
+#[tokio::test]
+async fn schema_downgrade_to_min_version() {
+    let num_blocks_produced = E::slots_per_epoch() * 4;
+    let db_path = tempdir().unwrap();
+    let store = get_store(&db_path);
+    let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
+    let spec = &harness.chain.spec.clone();
+
+    harness
+        .extend_chain(
+            num_blocks_produced as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    let min_version = if harness.spec.capella_fork_epoch.is_some() {
+        // Can't downgrade beyond V14 once Capella is reached, for simplicity don't test that
+        // at all if Capella is enabled.
+        SchemaVersion(14)
+    } else {
+        SchemaVersion(11)
+    };
+
+    // Close the database to ensure everything is written to disk.
+    drop(store);
+    drop(harness);
+
+    // Re-open the store.
+    let store = get_store(&db_path);
+
+    // Downgrade.
+    let deposit_contract_deploy_block = 0;
+    migrate_schema::<DiskHarnessType<E>>(
+        store.clone(),
+        deposit_contract_deploy_block,
+        CURRENT_SCHEMA_VERSION,
+        min_version,
+        store.logger().clone(),
+        spec,
+    )
+    .expect("schema downgrade to minimum version should work");
+
+    // Upgrade back.
+    migrate_schema::<DiskHarnessType<E>>(
+        store.clone(),
+        deposit_contract_deploy_block,
+        min_version,
+        CURRENT_SCHEMA_VERSION,
+        store.logger().clone(),
+        spec,
+    )
+    .expect("schema upgrade from minimum version should work");
+
+    // Rescreate the harness.
+    let harness = BeaconChainHarness::builder(MinimalEthSpec)
+        .default_spec()
+        .keypairs(KEYPAIRS[0..LOW_VALIDATOR_COUNT].to_vec())
+        .logger(store.logger().clone())
+        .resumed_disk_store(store.clone())
+        .mock_execution_layer()
+        .build();
+
+    check_finalization(&harness, num_blocks_produced);
+    check_split_slot(&harness, store.clone());
+    check_chain_dump(&harness, num_blocks_produced + 1);
+    check_iterators(&harness);
+
+    // Check that downgrading beyond the minimum version fails (bound is *tight*).
+    let min_version_sub_1 = SchemaVersion(min_version.as_u64().checked_sub(1).unwrap());
+    migrate_schema::<DiskHarnessType<E>>(
+        store.clone(),
+        deposit_contract_deploy_block,
+        CURRENT_SCHEMA_VERSION,
+        min_version_sub_1,
+        harness.logger().clone(),
+        spec,
+    )
+    .expect_err("should not downgrade below minimum version");
 }
 
 /// Checks that two chains are the same, for the purpose of these tests.

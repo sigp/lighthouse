@@ -196,7 +196,7 @@ impl<'a> Builder<'a> {
                 if path.exists() {
                     return Err(Error::DepositDataAlreadyExists(path));
                 } else {
-                    let hex = format!("0x{}", hex::encode(&deposit_data));
+                    let hex = format!("0x{}", hex::encode(deposit_data));
                     File::options()
                         .write(true)
                         .read(true)

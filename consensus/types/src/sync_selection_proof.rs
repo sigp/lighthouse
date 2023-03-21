@@ -12,8 +12,7 @@ use ssz_types::typenum::Unsigned;
 use std::cmp;
 use std::convert::TryInto;
 
-#[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
-#[derive(PartialEq, Debug, Clone)]
+#[derive(arbitrary::Arbitrary, PartialEq, Debug, Clone)]
 pub struct SyncSelectionProof(Signature);
 
 impl SyncSelectionProof {

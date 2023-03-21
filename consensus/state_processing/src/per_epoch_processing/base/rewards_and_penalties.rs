@@ -235,7 +235,7 @@ fn get_inclusion_delay_delta(
         let max_attester_reward = base_reward.safe_sub(proposer_reward)?;
         delta.reward(max_attester_reward.safe_div(inclusion_info.delay)?)?;
 
-        let proposer_index = inclusion_info.proposer_index as usize;
+        let proposer_index = inclusion_info.proposer_index;
         Ok((delta, Some((proposer_index, proposer_delta))))
     } else {
         Ok((Delta::default(), None))

@@ -48,14 +48,14 @@ impl EnrExt for Enr {
     /// The vector remains empty if these fields are not defined.
     fn multiaddr(&self) -> Vec<Multiaddr> {
         let mut multiaddrs: Vec<Multiaddr> = Vec::new();
-        if let Some(ip) = self.ip() {
-            if let Some(udp) = self.udp() {
+        if let Some(ip) = self.ip4() {
+            if let Some(udp) = self.udp4() {
                 let mut multiaddr: Multiaddr = ip.into();
                 multiaddr.push(Protocol::Udp(udp));
                 multiaddrs.push(multiaddr);
             }
 
-            if let Some(tcp) = self.tcp() {
+            if let Some(tcp) = self.tcp4() {
                 let mut multiaddr: Multiaddr = ip.into();
                 multiaddr.push(Protocol::Tcp(tcp));
                 multiaddrs.push(multiaddr);
@@ -84,15 +84,15 @@ impl EnrExt for Enr {
     fn multiaddr_p2p(&self) -> Vec<Multiaddr> {
         let peer_id = self.peer_id();
         let mut multiaddrs: Vec<Multiaddr> = Vec::new();
-        if let Some(ip) = self.ip() {
-            if let Some(udp) = self.udp() {
+        if let Some(ip) = self.ip4() {
+            if let Some(udp) = self.udp4() {
                 let mut multiaddr: Multiaddr = ip.into();
                 multiaddr.push(Protocol::Udp(udp));
                 multiaddr.push(Protocol::P2p(peer_id.into()));
                 multiaddrs.push(multiaddr);
             }
 
-            if let Some(tcp) = self.tcp() {
+            if let Some(tcp) = self.tcp4() {
                 let mut multiaddr: Multiaddr = ip.into();
                 multiaddr.push(Protocol::Tcp(tcp));
                 multiaddr.push(Protocol::P2p(peer_id.into()));
@@ -124,8 +124,8 @@ impl EnrExt for Enr {
     fn multiaddr_p2p_tcp(&self) -> Vec<Multiaddr> {
         let peer_id = self.peer_id();
         let mut multiaddrs: Vec<Multiaddr> = Vec::new();
-        if let Some(ip) = self.ip() {
-            if let Some(tcp) = self.tcp() {
+        if let Some(ip) = self.ip4() {
+            if let Some(tcp) = self.tcp4() {
                 let mut multiaddr: Multiaddr = ip.into();
                 multiaddr.push(Protocol::Tcp(tcp));
                 multiaddr.push(Protocol::P2p(peer_id.into()));
@@ -150,8 +150,8 @@ impl EnrExt for Enr {
     fn multiaddr_p2p_udp(&self) -> Vec<Multiaddr> {
         let peer_id = self.peer_id();
         let mut multiaddrs: Vec<Multiaddr> = Vec::new();
-        if let Some(ip) = self.ip() {
-            if let Some(udp) = self.udp() {
+        if let Some(ip) = self.ip4() {
+            if let Some(udp) = self.udp4() {
                 let mut multiaddr: Multiaddr = ip.into();
                 multiaddr.push(Protocol::Udp(udp));
                 multiaddr.push(Protocol::P2p(peer_id.into()));
@@ -173,8 +173,8 @@ impl EnrExt for Enr {
     /// The vector remains empty if these fields are not defined.
     fn multiaddr_tcp(&self) -> Vec<Multiaddr> {
         let mut multiaddrs: Vec<Multiaddr> = Vec::new();
-        if let Some(ip) = self.ip() {
-            if let Some(tcp) = self.tcp() {
+        if let Some(ip) = self.ip4() {
+            if let Some(tcp) = self.tcp4() {
                 let mut multiaddr: Multiaddr = ip.into();
                 multiaddr.push(Protocol::Tcp(tcp));
                 multiaddrs.push(multiaddr);
@@ -232,6 +232,7 @@ impl CombinedKeyExt for CombinedKey {
                         .expect("libp2p key must be valid");
                 Ok(CombinedKey::from(ed_keypair))
             }
+            Keypair::Ecdsa(_) => Err("Ecdsa keypairs not supported"),
         }
     }
 }
@@ -265,6 +266,10 @@ pub fn peer_id_to_node_id(peer_id: &PeerId) -> Result<discv5::enr::NodeId, Strin
             hasher.finalize(&mut output);
             Ok(discv5::enr::NodeId::parse(&output).expect("Must be correct length"))
         }
+        PublicKey::Ecdsa(_) => Err(format!(
+            "Unsupported public key (Ecdsa) from peer {}",
+            peer_id
+        )),
     }
 }
 

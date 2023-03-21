@@ -10,7 +10,6 @@ status = [
     "merge-transition-ubuntu",
     "no-eth1-simulator-ubuntu",
     "check-benchmarks",
-    "check-consensus",
     "clippy",
     "arbitrary-check",
     "cargo-audit",
@@ -20,7 +19,10 @@ status = [
     "doppelganger-protection-test",
     "execution-engine-integration-ubuntu",
     "cargo-vendor",
-    "check-msrv"
+    "check-msrv",
+    "slasher-tests",
+    "syncing-simulator-ubuntu",
+    "compile-with-beta-compiler"
 ]
 use_squash_merge = true
 timeout_sec = 10800

@@ -86,7 +86,7 @@ impl Eth1GenesisService {
                 .deposits()
                 .read()
                 .cache
-                .get(min_genesis_active_validator_count.saturating_sub(1))
+                .get_log(min_genesis_active_validator_count.saturating_sub(1))
                 .map(|log| log.block_number)
         }
     }

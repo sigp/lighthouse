@@ -36,6 +36,7 @@ lcli \
 	--eth1-follow-distance 1 \
 	--seconds-per-slot $SECONDS_PER_SLOT \
 	--seconds-per-eth1-block $SECONDS_PER_ETH1_BLOCK \
+	--proposer-score-boost "$PROPOSER_SCORE_BOOST" \
 	--force
 
 echo Specification generated at $TESTNET_DIR.

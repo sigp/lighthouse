@@ -1,5 +1,5 @@
 use crate::error::InvalidBestNodeInfo;
-use crate::{error::Error, Block, ExecutionStatus};
+use crate::{error::Error, Block, ExecutionStatus, JustifiedBalances};
 use serde_derive::{Deserialize, Serialize};
 use ssz::four_byte_option_impl;
 use ssz::Encode;
@@ -118,24 +118,6 @@ impl Default for ProposerBoost {
     }
 }
 
-/// Indicate whether we should strictly count unrealized justification/finalization votes.
-#[derive(Default, PartialEq, Eq, Debug, Serialize, Deserialize, Copy, Clone)]
-pub enum CountUnrealizedFull {
-    True,
-    #[default]
-    False,
-}
-
-impl From<bool> for CountUnrealizedFull {
-    fn from(b: bool) -> Self {
-        if b {
-            CountUnrealizedFull::True
-        } else {
-            CountUnrealizedFull::False
-        }
-    }
-}
-
 #[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
 pub struct ProtoArray {
     /// Do not attempt to prune the tree unless it has at least this many nodes. Small prunes
@@ -146,7 +128,6 @@ pub struct ProtoArray {
     pub nodes: Vec<ProtoNode>,
     pub indices: HashMap<Hash256, usize>,
     pub previous_proposer_boost: ProposerBoost,
-    pub count_unrealized_full: CountUnrealizedFull,
 }
 
 impl ProtoArray {
@@ -169,7 +150,7 @@ impl ProtoArray {
         mut deltas: Vec<i64>,
         justified_checkpoint: Checkpoint,
         finalized_checkpoint: Checkpoint,
-        new_balances: &[u64],
+        new_justified_balances: &JustifiedBalances,
         proposer_boost_root: Hash256,
         current_slot: Slot,
         spec: &ChainSpec,
@@ -241,9 +222,11 @@ impl ProtoArray {
                     // Invalid nodes (or their ancestors) should not receive a proposer boost.
                     && !execution_status_is_invalid
                 {
-                    proposer_score =
-                        calculate_proposer_boost::<E>(new_balances, proposer_score_boost)
-                            .ok_or(Error::ProposerBoostOverflow(node_index))?;
+                    proposer_score = calculate_committee_fraction::<E>(
+                        new_justified_balances,
+                        proposer_score_boost,
+                    )
+                    .ok_or(Error::ProposerBoostOverflow(node_index))?;
                     node_delta = node_delta
                         .checked_add(proposer_score as i64)
                         .ok_or(Error::DeltaOverflow(node_index))?;
@@ -449,7 +432,7 @@ impl ProtoArray {
     /// Invalidate zero or more blocks, as specified by the `InvalidationOperation`.
     ///
     /// See the documentation of `InvalidationOperation` for usage.
-    pub fn propagate_execution_payload_invalidation(
+    pub fn propagate_execution_payload_invalidation<E: EthSpec>(
         &mut self,
         op: &InvalidationOperation,
     ) -> Result<(), Error> {
@@ -480,7 +463,7 @@ impl ProtoArray {
         let latest_valid_ancestor_is_descendant =
             latest_valid_ancestor_root.map_or(false, |ancestor_root| {
                 self.is_descendant(ancestor_root, head_block_root)
-                    && self.is_descendant(self.finalized_checkpoint.root, ancestor_root)
+                    && self.is_finalized_checkpoint_or_descendant::<E>(ancestor_root)
             });
 
         // Collect all *ancestors* which were declared invalid since they reside between the
@@ -898,55 +881,44 @@ impl ProtoArray {
         }
 
         let genesis_epoch = Epoch::new(0);
-
-        let checkpoint_match_predicate =
-            |node_justified_checkpoint: Checkpoint, node_finalized_checkpoint: Checkpoint| {
-                let correct_justified = node_justified_checkpoint == self.justified_checkpoint
-                    || self.justified_checkpoint.epoch == genesis_epoch;
-                let correct_finalized = node_finalized_checkpoint == self.finalized_checkpoint
-                    || self.finalized_checkpoint.epoch == genesis_epoch;
-                correct_justified && correct_finalized
+        let current_epoch = current_slot.epoch(E::slots_per_epoch());
+        let node_epoch = node.slot.epoch(E::slots_per_epoch());
+        let node_justified_checkpoint =
+            if let Some(justified_checkpoint) = node.justified_checkpoint {
+                justified_checkpoint
+            } else {
+                // The node does not have any information about the justified
+                // checkpoint. This indicates an inconsistent proto-array.
+                return false;
             };
 
-        if let (
-            Some(unrealized_justified_checkpoint),
-            Some(unrealized_finalized_checkpoint),
-            Some(justified_checkpoint),
-            Some(finalized_checkpoint),
-        ) = (
-            node.unrealized_justified_checkpoint,
-            node.unrealized_finalized_checkpoint,
-            node.justified_checkpoint,
-            node.finalized_checkpoint,
-        ) {
-            let current_epoch = current_slot.epoch(E::slots_per_epoch());
-
-            // If previous epoch is justified, pull up all tips to at least the previous epoch
-            if CountUnrealizedFull::True == self.count_unrealized_full
-                && (current_epoch > genesis_epoch
-                    && self.justified_checkpoint.epoch + 1 == current_epoch)
-            {
-                unrealized_justified_checkpoint.epoch + 1 >= current_epoch
-            // If previous epoch is not justified, pull up only tips from past epochs up to the current epoch
-            } else {
-                // If block is from a previous epoch, filter using unrealized justification & finalization information
-                if node.slot.epoch(E::slots_per_epoch()) < current_epoch {
-                    checkpoint_match_predicate(
-                        unrealized_justified_checkpoint,
-                        unrealized_finalized_checkpoint,
-                    )
-                // If block is from the current epoch, filter using the head state's justification & finalization information
-                } else {
-                    checkpoint_match_predicate(justified_checkpoint, finalized_checkpoint)
-                }
-            }
-        } else if let (Some(justified_checkpoint), Some(finalized_checkpoint)) =
-            (node.justified_checkpoint, node.finalized_checkpoint)
-        {
-            checkpoint_match_predicate(justified_checkpoint, finalized_checkpoint)
+        let voting_source = if current_epoch > node_epoch {
+            // The block is from a prior epoch, the voting source will be pulled-up.
+            node.unrealized_justified_checkpoint
+                // Sometimes we don't track the unrealized justification. In
+                // that case, just use the fully-realized justified checkpoint.
+                .unwrap_or(node_justified_checkpoint)
         } else {
-            false
+            // The block is not from a prior epoch, therefore the voting source
+            // is not pulled up.
+            node_justified_checkpoint
+        };
+
+        let mut correct_justified = self.justified_checkpoint.epoch == genesis_epoch
+            || voting_source.epoch == self.justified_checkpoint.epoch;
+
+        if let Some(node_unrealized_justified_checkpoint) = node.unrealized_justified_checkpoint {
+            if !correct_justified && self.justified_checkpoint.epoch + 1 == current_epoch {
+                correct_justified = node_unrealized_justified_checkpoint.epoch
+                    >= self.justified_checkpoint.epoch
+                    && voting_source.epoch + 2 >= current_epoch;
+            }
         }
+
+        let correct_finalized = self.finalized_checkpoint.epoch == genesis_epoch
+            || self.is_finalized_checkpoint_or_descendant::<E>(node.root);
+
+        correct_justified && correct_finalized
     }
 
     /// Return a reverse iterator over the nodes which comprise the chain ending at `block_root`.
@@ -975,6 +947,12 @@ impl ProtoArray {
     /// ## Notes
     ///
     /// Still returns `true` if `ancestor_root` is known and `ancestor_root == descendant_root`.
+    ///
+    /// ## Warning
+    ///
+    /// Do not use this function to check if a block is a descendant of the
+    /// finalized checkpoint. Use `Self::is_finalized_checkpoint_or_descendant`
+    /// instead.
     pub fn is_descendant(&self, ancestor_root: Hash256, descendant_root: Hash256) -> bool {
         self.indices
             .get(&ancestor_root)
@@ -986,6 +964,70 @@ impl ProtoArray {
                     .map(|(root, _slot)| root == ancestor_root)
             })
             .unwrap_or(false)
+    }
+
+    /// Returns `true` if `root` is equal to or a descendant of
+    /// `self.finalized_checkpoint`.
+    ///
+    /// Notably, this function is checking ancestory of the finalized
+    /// *checkpoint* not the finalized *block*.
+    pub fn is_finalized_checkpoint_or_descendant<E: EthSpec>(&self, root: Hash256) -> bool {
+        let finalized_root = self.finalized_checkpoint.root;
+        let finalized_slot = self
+            .finalized_checkpoint
+            .epoch
+            .start_slot(E::slots_per_epoch());
+
+        let mut node = if let Some(node) = self
+            .indices
+            .get(&root)
+            .and_then(|index| self.nodes.get(*index))
+        {
+            node
+        } else {
+            // An unknown root is not a finalized descendant. This line can only
+            // be reached if the user supplies a root that is not known to fork
+            // choice.
+            return false;
+        };
+
+        // The finalized and justified checkpoints represent a list of known
+        // ancestors of `node` that are likely to coincide with the store's
+        // finalized checkpoint.
+        //
+        // Run this check once, outside of the loop rather than inside the loop.
+        // If the conditions don't match for this node then they're unlikely to
+        // start matching for its ancestors.
+        for checkpoint in &[
+            node.finalized_checkpoint,
+            node.justified_checkpoint,
+            node.unrealized_finalized_checkpoint,
+            node.unrealized_justified_checkpoint,
+        ] {
+            if checkpoint.map_or(false, |cp| cp == self.finalized_checkpoint) {
+                return true;
+            }
+        }
+
+        loop {
+            // If `node` is less than or equal to the finalized slot then `node`
+            // must be the finalized block.
+            if node.slot <= finalized_slot {
+                return node.root == finalized_root;
+            }
+
+            // Since `node` is from a higher slot that the finalized checkpoint,
+            // replace `node` with the parent of `node`.
+            if let Some(parent) = node.parent.and_then(|index| self.nodes.get(index)) {
+                node = parent
+            } else {
+                // If `node` is not the finalized block and its parent does not
+                // exist in fork choice, then the parent must have been pruned.
+                // Proto-array only prunes blocks prior to the finalized block,
+                // so this means the parent conflicts with finality.
+                return false;
+            };
+        }
     }
 
     /// Returns the first *beacon block root* which contains an execution payload with the given
@@ -1006,32 +1048,19 @@ impl ProtoArray {
     }
 }
 
-/// A helper method to calculate the proposer boost based on the given `validator_balances`.
-/// This does *not* do any verification about whether a boost should or should not be applied.
-/// The `validator_balances` array used here is assumed to be structured like the one stored in
-/// the `BalancesCache`, where *effective* balances are stored and inactive balances are defaulted
-/// to zero.
-///
-/// Returns `None` if there is an overflow or underflow when calculating the score.
+/// A helper method to calculate the proposer boost based on the given `justified_balances`.
 ///
 /// https://github.com/ethereum/consensus-specs/blob/dev/specs/phase0/fork-choice.md#get_latest_attesting_balance
-pub fn calculate_proposer_boost<E: EthSpec>(
-    validator_balances: &[u64],
+pub fn calculate_committee_fraction<E: EthSpec>(
+    justified_balances: &JustifiedBalances,
     proposer_score_boost: u64,
 ) -> Option<u64> {
-    let mut total_balance: u64 = 0;
-    let mut num_validators: u64 = 0;
-    for &balance in validator_balances {
-        // We need to filter zero balances here to get an accurate active validator count.
-        // This is because we default inactive validator balances to zero when creating
-        // this balances array.
-        if balance != 0 {
-            total_balance = total_balance.checked_add(balance)?;
-            num_validators = num_validators.checked_add(1)?;
-        }
-    }
-    let average_balance = total_balance.checked_div(num_validators)?;
-    let committee_size = num_validators.checked_div(E::slots_per_epoch())?;
+    let average_balance = justified_balances
+        .total_effective_balance
+        .checked_div(justified_balances.num_active_validators)?;
+    let committee_size = justified_balances
+        .num_active_validators
+        .checked_div(E::slots_per_epoch())?;
     let committee_weight = committee_size.checked_mul(average_balance)?;
     committee_weight
         .checked_mul(proposer_score_boost)?

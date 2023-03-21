@@ -8,6 +8,7 @@ mod duties_service;
 mod graffiti_file;
 mod http_metrics;
 mod key_cache;
+mod latency;
 mod notifier;
 mod preparation_service;
 mod signing_method;
@@ -30,13 +31,15 @@ use crate::beacon_node_fallback::{
     RequireSynced,
 };
 use crate::doppelganger_service::DoppelgangerService;
+use crate::graffiti_file::GraffitiFile;
+use crate::initialized_validators::Error::UnableToOpenVotingKeystore;
 use account_utils::validator_definitions::ValidatorDefinitions;
 use attestation_service::{AttestationService, AttestationServiceBuilder};
 use block_service::{BlockService, BlockServiceBuilder};
 use clap::ArgMatches;
 use duties_service::DutiesService;
 use environment::RuntimeContext;
-use eth2::{reqwest::ClientBuilder, BeaconNodeHttpClient, StatusCode, Timeouts};
+use eth2::{reqwest::ClientBuilder, types::Graffiti, BeaconNodeHttpClient, StatusCode, Timeouts};
 use http_api::ApiSecret;
 use notifier::spawn_notifier;
 use parking_lot::RwLock;
@@ -57,7 +60,7 @@ use tokio::{
     sync::mpsc,
     time::{sleep, Duration},
 };
-use types::{EthSpec, Hash256};
+use types::{EthSpec, Hash256, PublicKeyBytes};
 use validator_store::ValidatorStore;
 
 /// The interval between attempts to contact the beacon node during startup.
@@ -77,6 +80,7 @@ const HTTP_SYNC_COMMITTEE_CONTRIBUTION_TIMEOUT_QUOTIENT: u32 = 4;
 const HTTP_SYNC_DUTIES_TIMEOUT_QUOTIENT: u32 = 4;
 const HTTP_GET_BEACON_BLOCK_SSZ_TIMEOUT_QUOTIENT: u32 = 4;
 const HTTP_GET_DEBUG_BEACON_STATE_QUOTIENT: u32 = 4;
+const HTTP_GET_DEPOSIT_SNAPSHOT_QUOTIENT: u32 = 4;
 
 const DOPPELGANGER_SERVICE_NAME: &str = "doppelganger";
 
@@ -182,7 +186,16 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             log.clone(),
         )
         .await
-        .map_err(|e| format!("Unable to initialize validators: {:?}", e))?;
+        .map_err(|e| {
+            match e {
+                UnableToOpenVotingKeystore(err) => {
+                    format!("Unable to initialize validators: {:?}. If you have recently moved the location of your data directory \
+                    make sure to update the location of voting_keystore_path in your validator_definitions.yml", err)
+                },
+                err => {
+                    format!("Unable to initialize validators: {:?}", err)}
+                }
+            })?;
 
         let voting_pubkeys: Vec<_> = validators.iter_voting_pubkeys().collect();
 
@@ -291,6 +304,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
                             / HTTP_GET_BEACON_BLOCK_SSZ_TIMEOUT_QUOTIENT,
                         get_debug_beacon_states: slot_duration
                             / HTTP_GET_DEBUG_BEACON_STATE_QUOTIENT,
+                        get_deposit_snapshot: slot_duration / HTTP_GET_DEPOSIT_SNAPSHOT_QUOTIENT,
                     }
                 } else {
                     Timeouts::set_all(slot_duration)
@@ -409,6 +423,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             },
             spec: context.eth2_config.spec.clone(),
             context: duties_context,
+            enable_high_validator_count_metrics: config.enable_high_validator_count_metrics,
         });
 
         // Update the metrics server.
@@ -424,6 +439,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             .runtime_context(context.service_context("block".into()))
             .graffiti(config.graffiti)
             .graffiti_file(config.graffiti_file.clone())
+            .block_delay(config.block_delay)
             .build()?;
 
         let attestation_service = AttestationServiceBuilder::new()
@@ -524,6 +540,8 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
                 api_secret,
                 validator_store: Some(self.validator_store.clone()),
                 validator_dir: Some(self.config.validator_dir.clone()),
+                graffiti_file: self.config.graffiti_file.clone(),
+                graffiti_flag: self.config.graffiti,
                 spec: self.context.eth2_config.spec.clone(),
                 config: self.config.http_api.clone(),
                 log: log.clone(),
@@ -545,6 +563,14 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             info!(log, "HTTP API server is disabled");
             None
         };
+
+        if self.config.enable_latency_measurement_service {
+            latency::start_latency_service(
+                self.context.clone(),
+                self.duties_service.slot_clock.clone(),
+                self.duties_service.beacon_nodes.clone(),
+            );
+        }
 
         Ok(())
     }
@@ -723,4 +749,25 @@ pub fn load_pem_certificate<P: AsRef<Path>>(pem_path: P) -> Result<Certificate, 
         .read_to_end(&mut buf)
         .map_err(|e| format!("Unable to read certificate file: {}", e))?;
     Certificate::from_pem(&buf).map_err(|e| format!("Unable to parse certificate: {}", e))
+}
+
+// Given the various graffiti control methods, determine the graffiti that will be used for
+// the next block produced by the validator with the given public key.
+pub fn determine_graffiti(
+    validator_pubkey: &PublicKeyBytes,
+    log: &Logger,
+    graffiti_file: Option<GraffitiFile>,
+    validator_definition_graffiti: Option<Graffiti>,
+    graffiti_flag: Option<Graffiti>,
+) -> Option<Graffiti> {
+    graffiti_file
+        .and_then(|mut g| match g.load_graffiti(validator_pubkey) {
+            Ok(g) => g,
+            Err(e) => {
+                warn!(log, "Failed to read graffiti file"; "error" => ?e);
+                None
+            }
+        })
+        .or(validator_definition_graffiti)
+        .or(graffiti_flag)
 }

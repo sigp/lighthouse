@@ -63,15 +63,15 @@ mod test {
     #[test]
     fn encoding() {
         let bytes = vec![0, 255];
-        let hex = encode(&bytes);
+        let hex = encode(bytes);
         assert_eq!(hex.as_str(), "0x00ff");
 
         let bytes = vec![];
-        let hex = encode(&bytes);
+        let hex = encode(bytes);
         assert_eq!(hex.as_str(), "0x");
 
         let bytes = vec![1, 2, 3];
-        let hex = encode(&bytes);
+        let hex = encode(bytes);
         assert_eq!(hex.as_str(), "0x010203");
     }
 }

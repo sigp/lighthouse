@@ -34,7 +34,8 @@
 use crate::persisted_fork_choice::PersistedForkChoice;
 use crate::{
     beacon_chain::{
-        BeaconForkChoice, BeaconStore, BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT, FORK_CHOICE_DB_KEY,
+        BeaconForkChoice, BeaconStore, OverrideForkchoiceUpdate,
+        BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT, FORK_CHOICE_DB_KEY,
     },
     block_times_cache::BlockTimesCache,
     events::ServerSentEventHandler,
@@ -44,8 +45,7 @@ use crate::{
 };
 use eth2::types::{EventKind, SseChainReorg, SseFinalizedCheckpoint, SseHead, SseLateHead};
 use fork_choice::{
-    CountUnrealizedFull, ExecutionStatus, ForkChoiceView, ForkchoiceUpdateParameters, ProtoBlock,
-    ResetPayloadStatuses,
+    ExecutionStatus, ForkChoiceView, ForkchoiceUpdateParameters, ProtoBlock, ResetPayloadStatuses,
 };
 use itertools::process_results;
 use parking_lot::{Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard};
@@ -114,6 +114,11 @@ impl<E: EthSpec> CachedHead<E> {
         self.snapshot.beacon_block_root
     }
 
+    /// Returns the root of the parent of the head block.
+    pub fn parent_block_root(&self) -> Hash256 {
+        self.snapshot.beacon_block.parent_root()
+    }
+
     /// Returns root of the `BeaconState` at the head of the beacon chain.
     ///
     /// ## Note
@@ -144,6 +149,32 @@ impl<E: EthSpec> CachedHead<E> {
         let state = &self.snapshot.beacon_state;
         let root = *state.get_randao_mix(state.current_epoch())?;
         Ok(root)
+    }
+
+    /// Returns the randao mix for the parent of the block at the head of the chain.
+    ///
+    /// This is useful for re-orging the current head. The parent's RANDAO value is read from
+    /// the head's execution payload because it is unavailable in the beacon state's RANDAO mixes
+    /// array after being overwritten by the head block's RANDAO mix.
+    ///
+    /// This will error if the head block is not execution-enabled (post Bellatrix).
+    pub fn parent_random(&self) -> Result<Hash256, BeaconStateError> {
+        self.snapshot
+            .beacon_block
+            .message()
+            .execution_payload()
+            .map(|payload| payload.prev_randao())
+    }
+
+    /// Returns the execution block number of the block at the head of the chain.
+    ///
+    /// Returns an error if the chain is prior to Bellatrix.
+    pub fn head_block_number(&self) -> Result<u64, BeaconStateError> {
+        self.snapshot
+            .beacon_block
+            .message()
+            .execution_payload()
+            .map(|payload| payload.block_number())
     }
 
     /// Returns the active validator count for the current epoch of the head state.
@@ -253,19 +284,13 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
         // defensive programming.
         mut fork_choice_write_lock: RwLockWriteGuard<BeaconForkChoice<T>>,
         reset_payload_statuses: ResetPayloadStatuses,
-        count_unrealized_full: CountUnrealizedFull,
         store: &BeaconStore<T>,
         spec: &ChainSpec,
         log: &Logger,
     ) -> Result<(), Error> {
-        let fork_choice = <BeaconChain<T>>::load_fork_choice(
-            store.clone(),
-            reset_payload_statuses,
-            count_unrealized_full,
-            spec,
-            log,
-        )?
-        .ok_or(Error::MissingPersistedForkChoice)?;
+        let fork_choice =
+            <BeaconChain<T>>::load_fork_choice(store.clone(), reset_payload_statuses, spec, log)?
+                .ok_or(Error::MissingPersistedForkChoice)?;
         let fork_choice_view = fork_choice.cached_fork_choice_view();
         let beacon_block_root = fork_choice_view.head_block_root;
         let beacon_block = store
@@ -765,6 +790,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         new_cached_head: &CachedHead<T::EthSpec>,
         new_head_proto_block: ProtoBlock,
     ) -> Result<(), Error> {
+        let _timer = metrics::start_timer(&metrics::FORK_CHOICE_AFTER_NEW_HEAD_TIMES);
         let old_snapshot = &old_cached_head.snapshot;
         let new_snapshot = &new_cached_head.snapshot;
         let new_head_is_optimistic = new_head_proto_block
@@ -902,13 +928,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         new_view: ForkChoiceView,
         finalized_proto_block: ProtoBlock,
     ) -> Result<(), Error> {
+        let _timer = metrics::start_timer(&metrics::FORK_CHOICE_AFTER_FINALIZATION_TIMES);
         let new_snapshot = &new_cached_head.snapshot;
         let finalized_block_is_optimistic = finalized_proto_block
             .execution_status
             .is_optimistic_or_invalid();
 
-        self.op_pool
-            .prune_all(&new_snapshot.beacon_state, self.epoch()?);
+        self.op_pool.prune_all(
+            &new_snapshot.beacon_block,
+            &new_snapshot.beacon_state,
+            self.epoch()?,
+            &self.spec,
+        );
 
         self.observed_block_producers.write().prune(
             new_view
@@ -1124,7 +1155,11 @@ fn spawn_execution_layer_updates<T: BeaconChainTypes>(
                 }
 
                 if let Err(e) = chain
-                    .update_execution_engine_forkchoice(current_slot, forkchoice_update_params)
+                    .update_execution_engine_forkchoice(
+                        current_slot,
+                        forkchoice_update_params,
+                        OverrideForkchoiceUpdate::Yes,
+                    )
                     .await
                 {
                     crit!(
