@@ -52,7 +52,7 @@ excluded_paths = [
     # some bls tests are not included now
     "bls12-381-tests/deserialization_G1",
     "bls12-381-tests/deserialization_G2",
-    "bls12-381-tests/hash_to_G2",
+    "bls12-381-tests/hash_to_G2"
 ]
 
 

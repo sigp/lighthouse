@@ -9,7 +9,6 @@ edition = "2021"
 ef_tests = []
 milagro = ["bls/milagro"]
 fake_crypto = ["bls/fake_crypto"]
-fork_choice_custom = []
 
 [dependencies]
 bls = { path = "../../crypto/bls", default-features = false }
