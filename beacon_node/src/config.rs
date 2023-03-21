@@ -433,7 +433,7 @@ pub fn get_config<E: EthSpec>(
             client_config
                 .network
                 .boot_nodes_enr
-                .extend_from_slice(boot_nodes.as_slice())
+                .extend_from_slice(boot_nodes)
         }
     }
     client_config.chain.checkpoint_sync_url_timeout =
