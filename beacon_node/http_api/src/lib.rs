@@ -814,10 +814,10 @@ pub fn serve<T: BeaconChainTypes>(
                                     None
                                 };
 
-                                let committee_cache = if let Some(shuffling) =
+                                let committee_cache = if let Some(ref shuffling) =
                                     maybe_cached_shuffling
                                 {
-                                    shuffling
+                                    Cow::Borrowed(&**shuffling)
                                 } else {
                                     let possibly_built_cache =
                                         match RelativeEpoch::from_epoch(current_epoch, epoch) {
@@ -852,14 +852,17 @@ pub fn serve<T: BeaconChainTypes>(
                                                     if epoch < current_epoch {
                                                         warp_utils::reject::custom_bad_request(
                                                             format!(
-                                                    "epoch out of bounds, try state at slot {}",
-                                                    first_subsequent_restore_point_slot,
-                                                ),
+                                                                "epoch out of bounds, \
+                                                                 try state at slot {}",
+                                                                first_subsequent_restore_point_slot,
+                                                            ),
                                                         )
                                                     } else {
                                                         warp_utils::reject::custom_bad_request(
-                                                    "epoch out of bounds, too far in future".into(),
-                                                )
+                                                            "epoch out of bounds, \
+                                                             too far in future"
+                                                                .into(),
+                                                        )
                                                     }
                                                 }
                                                 _ => {
@@ -868,10 +871,8 @@ pub fn serve<T: BeaconChainTypes>(
                                             }
                                         })?;
 
-                                    let owned_cache = Arc::new(possibly_built_cache.into_owned());
-
                                     // Attempt to write to the beacon cache (only if the cache
-                                    // size is not the default value
+                                    // size is not the default value).
                                     if chain.config.shuffling_cache_size
                                         != beacon_chain::shuffling_cache::DEFAULT_CACHE_SIZE
                                     {
@@ -882,12 +883,12 @@ pub fn serve<T: BeaconChainTypes>(
                                             {
                                                 cache_write.insert_committee_cache(
                                                     shuffling_id,
-                                                    &owned_cache,
+                                                    &*possibly_built_cache,
                                                 );
                                             }
                                         }
                                     }
-                                    owned_cache
+                                    possibly_built_cache
                                 };
 
                                 // Use either the supplied slot or all slots in the epoch.
