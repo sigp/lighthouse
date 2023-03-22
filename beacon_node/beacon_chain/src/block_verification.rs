@@ -49,12 +49,12 @@
 #![allow(clippy::result_large_err)]
 
 use crate::blob_verification::{AsBlock, AvailableBlock, BlobError, BlockWrapper};
+use crate::data_availability_checker::AvailabilityCheckError;
 use crate::eth1_finalization_cache::Eth1FinalizationData;
 use crate::execution_payload::{
     is_optimistic_candidate_block, validate_execution_payload_for_gossip, validate_merge_block,
     AllowOptimisticImport, NotifyExecutionLayer, PayloadNotifier,
 };
-use crate::data_availability_checker::AvailabilityCheckError;
 use crate::snapshot_cache::PreProcessingSnapshot;
 use crate::validator_monitor::HISTORIC_EPOCHS as VALIDATOR_MONITOR_HISTORIC_EPOCHS;
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
@@ -674,9 +674,10 @@ pub struct ExecutionPendingBlock<T: BeaconChainTypes> {
     pub payload_verification_handle: PayloadVerificationHandle<T::EthSpec>,
 }
 
+pub struct ExecutedBlock<E: EthSpec>(pub ExecutedBlockInner<E>, pub BlockWrapper<E>);
+
 #[derive(Clone)]
-pub struct ExecutedBlock<E: EthSpec> {
-    pub block: BlockWrapper<E>,
+pub struct ExecutedBlockInner<E: EthSpec> {
     pub block_root: Hash256,
     pub state: BeaconState<E>,
     pub parent_block: SignedBeaconBlock<E, BlindedPayload<E>>,
@@ -686,9 +687,45 @@ pub struct ExecutedBlock<E: EthSpec> {
     pub payload_verification_outcome: PayloadVerificationOutcome,
 }
 
+#[derive(Clone)]
+pub struct AvailableExecutedBlock<E: EthSpec> {
+    pub block: AvailableBlock<E>,
+    pub block_root: Hash256,
+    pub state: BeaconState<E>,
+    pub parent_block: SignedBeaconBlock<E, BlindedPayload<E>>,
+    pub parent_eth1_finalization_data: Eth1FinalizationData,
+    pub confirmed_state_roots: Vec<Hash256>,
+    pub consensus_context: ConsensusContext<E>,
+    pub payload_verification_outcome: PayloadVerificationOutcome,
+}
+
+impl<E: EthSpec> AvailableExecutedBlock<E> {
+    pub fn new(inner: ExecutedBlockInner<E>, block: AvailableBlock<E>) -> Self {
+        let ExecutedBlockInner {
+            block_root,
+            state,
+            parent_block,
+            parent_eth1_finalization_data,
+            confirmed_state_roots,
+            consensus_context,
+            payload_verification_outcome,
+        } = inner;
+        Self {
+            block,
+            block_root,
+            state,
+            parent_block,
+            parent_eth1_finalization_data,
+            confirmed_state_roots,
+            consensus_context,
+            payload_verification_outcome,
+        }
+    }
+}
+
 impl<E: EthSpec> std::fmt::Debug for ExecutedBlock<E> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", self.block)
+        write!(f, "{:?}", self.1.as_block())
     }
 }
 
@@ -1155,53 +1192,6 @@ impl<T: BeaconChainTypes> IntoExecutionPendingBlock<T> for Arc<SignedBeaconBlock
 
     fn block(&self) -> &SignedBeaconBlock<T::EthSpec> {
         self
-    }
-}
-
-impl<T: BeaconChainTypes> IntoExecutionPendingBlock<T> for BlockWrapper<T::EthSpec> {
-    fn into_execution_pending_block_slashable(
-        self,
-        block_root: Hash256,
-        chain: &Arc<BeaconChain<T>>,
-        notify_execution_layer: NotifyExecutionLayer,
-    ) -> Result<
-        ExecutionPendingBlock<T>,
-        BlockSlashInfo<BlockError<<T as BeaconChainTypes>::EthSpec>>,
-    > {
-        match self {
-            BlockWrapper::AvailabilityPending(block) => block
-                .into_execution_pending_block_slashable(block_root, chain, notify_execution_layer),
-            BlockWrapper::Available(available_block) => {
-                let (block, blobs) = available_block.deconstruct();
-                let mut execution_pending_block = block.into_execution_pending_block_slashable(
-                    block_root,
-                    chain,
-                    notify_execution_layer,
-                )?;
-                let block = execution_pending_block.block.block_cloned();
-
-                let blobs: Vec<Arc<BlobSidecar<_>>> = match blobs {
-                    Some(blob_list) => blob_list.into(),
-                    None => vec![],
-                };
-                let available_execution_pending_block =
-                    AvailableBlock::new(block, blobs, |epoch| chain.block_needs_da_check(epoch))
-                        .map_err(|e| {
-                            BlockSlashInfo::SignatureValid(
-                                execution_pending_block.block.signed_block_header(),
-                                BlockError::AvailabilityCheck(
-                                    AvailabilityCheckError::InvalidBlockOrBlob(e),
-                                ),
-                            )
-                        })?;
-                execution_pending_block.block = available_execution_pending_block.into();
-                Ok(execution_pending_block)
-            }
-        }
-    }
-
-    fn block(&self) -> &SignedBeaconBlock<<T as BeaconChainTypes>::EthSpec> {
-        self.as_block()
     }
 }
 
@@ -1679,11 +1669,14 @@ fn check_block_against_finalized_slot<T: BeaconChainTypes>(
 /// ## Warning
 ///
 /// Taking a lock on the `chain.canonical_head.fork_choice` might cause a deadlock here.
-pub fn check_block_is_finalized_checkpoint_or_descendant<T: BeaconChainTypes>(
+pub fn check_block_is_finalized_checkpoint_or_descendant<
+    T: BeaconChainTypes,
+    B: AsBlock<T::EthSpec>,
+>(
     chain: &BeaconChain<T>,
     fork_choice: &BeaconForkChoice<T>,
-    block: BlockWrapper<T::EthSpec>,
-) -> Result<BlockWrapper<T::EthSpec>, BlockError<T::EthSpec>> {
+    block: B,
+) -> Result<B, BlockError<T::EthSpec>> {
     if fork_choice.is_finalized_checkpoint_or_descendant(block.parent_root()) {
         Ok(block)
     } else {
@@ -1704,7 +1697,7 @@ pub fn check_block_is_finalized_checkpoint_or_descendant<T: BeaconChainTypes>(
                 block_parent_root: block.parent_root(),
             })
         } else {
-            Err(BlockError::ParentUnknown(block))
+            Err(BlockError::ParentUnknown(block.into_block_wrapper()))
         }
     }
 }

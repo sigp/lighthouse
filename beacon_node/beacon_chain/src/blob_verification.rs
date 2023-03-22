@@ -6,12 +6,15 @@ use crate::beacon_chain::{
     VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT,
 };
 use crate::data_availability_checker::AvailabilityCheckError;
-use crate::BeaconChainError;
+use crate::kzg_utils::validate_blob;
+use crate::{kzg_utils, BeaconChainError, BlockProductionError};
 use derivative::Derivative;
+use kzg::Kzg;
+use ssz_types::VariableList;
 use state_processing::per_block_processing::eip4844::eip4844::verify_kzg_commitments_against_transactions;
 use types::{
-    BeaconBlockRef, BeaconStateError, BlobSidecar, BlobSidecarList, Epoch, EthSpec, Hash256,
-    KzgCommitment, SignedBeaconBlock, SignedBeaconBlockHeader, SignedBlobSidecar, Slot,
+    BeaconBlockRef, BeaconStateError, BlobSidecar, BlobSidecarList, Epoch, EthSpec, ExecPayload,
+    Hash256, KzgCommitment, SignedBeaconBlock, SignedBeaconBlockHeader, SignedBlobSidecar, Slot,
     Transactions,
 };
 
@@ -131,12 +134,6 @@ impl From<BeaconStateError> for BlobError {
 #[derive(Debug)]
 pub struct GossipVerifiedBlob<T: EthSpec> {
     blob: Arc<BlobSidecar<T>>,
-}
-
-impl<T: EthSpec> GossipVerifiedBlob<T> {
-    pub fn to_blob(self) -> Arc<BlobSidecar<T>> {
-        self.blob
-    }
 }
 
 pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
@@ -261,64 +258,43 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
     })
 }
 
-pub fn verify_data_availability<T: BeaconChainTypes>(
-    _blob_sidecar: &BlobSidecarList<T::EthSpec>,
-    kzg_commitments: &[KzgCommitment],
-    transactions: &Transactions<T::EthSpec>,
-    _block_slot: Slot,
-    _block_root: Hash256,
-    chain: &BeaconChain<T>,
-) -> Result<(), BlobError> {
-    if verify_kzg_commitments_against_transactions::<T::EthSpec>(transactions, kzg_commitments)
-        .is_err()
+#[derive(Debug, Clone)]
+pub struct KzgVerifiedBlob<T: EthSpec> {
+    blob: Arc<BlobSidecar<T>>,
+}
+
+impl<T: EthSpec> KzgVerifiedBlob<T> {
+    pub fn clone_blob(&self) -> Arc<BlobSidecar<T>> {
+        self.blob.clone()
+    }
+    pub fn kzg_commitment(&self) -> KzgCommitment {
+        self.blob.kzg_commitment
+    }
+    pub fn block_root(&self) -> Hash256 {
+        self.blob.block_root
+    }
+}
+
+pub fn verify_kzg_for_blob<T: EthSpec>(
+    blob: GossipVerifiedBlob<T>,
+    kzg: &Kzg,
+) -> Result<KzgVerifiedBlob<T>, AvailabilityCheckError> {
+    //TODO(sean) remove clone
+    if validate_blob::<T>(
+        kzg,
+        blob.blob.blob.clone(),
+        blob.blob.kzg_commitment,
+        blob.blob.kzg_proof,
+    )
+    .map_err(AvailabilityCheckError::Kzg)?
     {
-        return Err(BlobError::TransactionCommitmentMismatch);
-    }
-
-    // Validatate that the kzg proof is valid against the commitments and blobs
-    let _kzg = chain
-        .kzg
-        .as_ref()
-        .ok_or(BlobError::TrustedSetupNotInitialized)?;
-
-    todo!("use `kzg_utils::validate_blobs` once the function is updated")
-    // if !kzg_utils::validate_blobs_sidecar(
-    //     kzg,
-    //     block_slot,
-    //     block_root,
-    //     kzg_commitments,
-    //     blob_sidecar,
-    // )
-    // .map_err(BlobError::KzgError)?
-    // {
-    //     return Err(BlobError::InvalidKzgProof);
-    // }
-    // Ok(())
-}
-
-#[derive(Copy, Clone)]
-pub enum DataAvailabilityCheckRequired {
-    Yes,
-    No,
-}
-
-pub trait IntoAvailableBlock<T: BeaconChainTypes> {
-    fn into_available_block(
-        self,
-        block_root: Hash256,
-        chain: &BeaconChain<T>,
-    ) -> Result<AvailableBlock<T::EthSpec>, BlobError>;
-}
-
-impl<T: BeaconChainTypes> IntoAvailableBlock<T> for BlockWrapper<T::EthSpec> {
-    fn into_available_block(
-        self,
-        _block_root: Hash256,
-        _chain: &BeaconChain<T>,
-    ) -> Result<AvailableBlock<T::EthSpec>, BlobError> {
-        todo!()
+        Ok(KzgVerifiedBlob { blob: blob.blob })
+    } else {
+        return Err(AvailabilityCheckError::KzgVerificationFailed);
     }
 }
+
+pub type KzgVerifiedBlobList<T> = Vec<KzgVerifiedBlob<T>>;
 
 #[derive(Clone, Debug, PartialEq, Derivative)]
 #[derivative(Hash(bound = "E: EthSpec"))]
@@ -331,13 +307,52 @@ struct AvailableBlockInner<E: EthSpec> {
     blobs: VerifiedBlobs<E>,
 }
 
-impl<E: EthSpec> AvailableBlock<E> {
-    pub fn new(
-        block: Arc<SignedBeaconBlock<E>>,
-        blobs: Vec<Arc<BlobSidecar<E>>>,
+pub trait IntoKzgVerifiedBlobs<T: EthSpec> {
+    fn into_kzg_verified_blobs(
+        self,
+        kzg: Kzg,
         da_check: impl FnOnce(Epoch) -> bool,
-    ) -> Result<Self, String> {
-        if let Ok(block_kzg_commitments) = block.message().body().blob_kzg_commitments() {
+    ) -> Result<KzgVerifiedBlobList<T>, AvailabilityCheckError>;
+}
+
+impl<T: EthSpec> IntoKzgVerifiedBlobs<T> for KzgVerifiedBlobList<T> {
+    fn into_kzg_verified_blobs(
+        self,
+        kzg: Kzg,
+        da_check: impl FnOnce(Epoch) -> bool,
+    ) -> Result<KzgVerifiedBlobList<T>, AvailabilityCheckError> {
+        Ok(self)
+    }
+}
+
+impl<E: EthSpec> IntoKzgVerifiedBlobs<E> for Vec<Arc<BlobSidecar<E>>> {
+    fn into_kzg_verified_blobs(
+        self,
+        kzg: Kzg,
+        da_check: impl FnOnce(Epoch) -> bool,
+    ) -> Result<KzgVerifiedBlobList<E>, AvailabilityCheckError> {
+        kzg_utils::validate_blobs::<E>(kzg, expected_kzg_commitments, &blobs, &kzg_proofs)
+            .map_err(AvailabilityCheckError::Kzg)?;
+        todo!()
+        // verify batch kzg, need this for creating available blocks in
+        // `process_chain_segment` or local block production
+    }
+}
+
+impl<E: EthSpec> AvailableBlock<E> {
+    pub fn new<Blobs: IntoKzgVerifiedBlobs<E>>(
+        block: Arc<SignedBeaconBlock<E>>,
+        blobs: Blobs,
+        da_check: impl FnOnce(Epoch) -> bool,
+        kzg: Kzg,
+    ) -> Result<Self, AvailabilityCheckError> {
+        if let (Ok(block_kzg_commitments), Ok(payload)) = (
+            block.message().body().blob_kzg_commitments(),
+            block.message().body().execution_payload(),
+        ) {
+
+            let blobs = blobs.into_kzg_verified_blobs(kzg, da_check)?;
+
             if blobs.is_empty() && block_kzg_commitments.is_empty() {
                 return Ok(Self(AvailableBlockInner {
                     block,
@@ -352,33 +367,45 @@ impl<E: EthSpec> AvailableBlock<E> {
                         blobs: VerifiedBlobs::NotRequired,
                     }));
                 } else {
-                    return Err("Block within DA boundary but no blobs provided".to_string());
+                    return Err(AvailabilityCheckError::MissingBlobs);
                 }
             }
 
             if blobs.len() != block_kzg_commitments.len() {
-                return Err(format!(
-                    "Block commitments and blobs length must be the same. 
-                        Block commitments len: {}, blobs length: {}",
-                    block_kzg_commitments.len(),
-                    blobs.len()
-                ));
+                return Err(AvailabilityCheckError::NumBlobsMismatch {
+                    num_kzg_commitments: block_kzg_commitments.len(),
+                    num_blobs: blobs.len(),
+                });
+            }
+
+            // If there are no transactions here, this is a blinded block.
+            if let Some(transactions) = payload.transactions() {
+                verify_kzg_commitments_against_transactions::<E>(transactions, block_kzg_commitments)
+                    .map_err(|_|AvailabilityCheckError::TxKzgCommitmentMismatch)?;
             }
 
             for (block_commitment, blob) in block_kzg_commitments.iter().zip(blobs.iter()) {
-                if *block_commitment != blob.kzg_commitment {
-                    return Err(format!(
-                        "Invalid input. Blob and block commitment mismatch at index {}",
-                        blob.index
-                    ));
+                if *block_commitment != blob.kzg_commitment() {
+                    return Err(AvailabilityCheckError::KzgCommitmentMismatch {
+                        blob_index: blob.blob.index,
+                    });
                 }
             }
+
+            let verified_blobs = VariableList::new(
+                blobs
+                    .into_iter()
+                    .map(|blob| blob.blob)
+                    .collect(),
+            )?;
+
+            //TODO(sean) AvailableBlockInner not add anything if the fields of AvailableBlock are private
             Ok(Self(AvailableBlockInner {
                 block,
-                blobs: VerifiedBlobs::Available(blobs.into()),
+                blobs: VerifiedBlobs::Available(verified_blobs),
             }))
         }
-        // This is a pre 4844 block
+        // This is a pre eip4844 block
         else {
             Ok(Self(AvailableBlockInner {
                 block,
@@ -414,6 +441,7 @@ impl<E: EthSpec> AvailableBlock<E> {
 #[derivative(Hash(bound = "E: EthSpec"))]
 pub enum VerifiedBlobs<E: EthSpec> {
     /// These blobs are available.
+    //TODO(sean) add AvailableBlobsInner, this shouldn't be mutable
     Available(BlobSidecarList<E>),
     /// This block is from outside the data availability boundary so doesn't require
     /// a data availability check.
@@ -434,24 +462,34 @@ pub trait AsBlock<E: EthSpec> {
     fn as_block(&self) -> &SignedBeaconBlock<E>;
     fn block_cloned(&self) -> Arc<SignedBeaconBlock<E>>;
     fn canonical_root(&self) -> Hash256;
+    fn into_block_wrapper(self) -> BlockWrapper<E>;
 }
 
 #[derive(Debug, Clone, Derivative)]
 #[derivative(Hash(bound = "E: EthSpec"))]
 pub enum BlockWrapper<E: EthSpec> {
     /// This variant is fully available.
-    /// i.e. for pre-4844 blocks, it contains a (`SignedBeaconBlock`, `Blobs::None`) and for
+    /// i.e. for pre-eip4844 blocks, it contains a (`SignedBeaconBlock`, `Blobs::None`) and for
     /// post-4844 blocks, it contains a `SignedBeaconBlock` and a Blobs variant other than `Blobs::None`.
     Available(AvailableBlock<E>),
     /// This variant is not fully available and requires blobs to become fully available.
     AvailabilityPending(Arc<SignedBeaconBlock<E>>),
+    /// This variant is useful in the networking stack to separate consensus checks from networking.
+    AvailabiltyCheckDelayed(Arc<SignedBeaconBlock<E>>, Vec<Arc<BlobSidecar<E>>>),
 }
 
 impl<E: EthSpec> BlockWrapper<E> {
-    pub fn into_available_block(self) -> Option<AvailableBlock<E>> {
+    pub fn into_available_block(
+        self,
+        kzg: Kzg,
+        da_check: impl FnOnce(Epoch) -> bool,
+    ) -> Result<AvailableBlock<E>, AvailabilityCheckError> {
         match self {
-            BlockWrapper::AvailabilityPending(_) => None,
-            BlockWrapper::Available(block) => Some(block),
+            BlockWrapper::AvailabilityPending(_) => Err(AvailabilityCheckError::Pending),
+            BlockWrapper::Available(block) => Ok(block),
+            BlockWrapper::AvailabiltyCheckDelayed(block, blobs) => {
+                AvailableBlock::new(block, blobs, da_check, kzg)
+            }
         }
     }
 }
@@ -492,6 +530,10 @@ impl<E: EthSpec> AsBlock<E> for AvailableBlock<E> {
     fn canonical_root(&self) -> Hash256 {
         self.0.block.canonical_root()
     }
+
+    fn into_block_wrapper(self) -> BlockWrapper<E> {
+        BlockWrapper::Available(self)
+    }
 }
 
 impl<E: EthSpec> AsBlock<E> for BlockWrapper<E> {
@@ -528,6 +570,10 @@ impl<E: EthSpec> AsBlock<E> for BlockWrapper<E> {
     fn canonical_root(&self) -> Hash256 {
         self.as_block().canonical_root()
     }
+
+    fn into_block_wrapper(self) -> BlockWrapper<E> {
+        self
+    }
 }
 
 impl<E: EthSpec> AsBlock<E> for &BlockWrapper<E> {
@@ -563,6 +609,10 @@ impl<E: EthSpec> AsBlock<E> for &BlockWrapper<E> {
     }
     fn canonical_root(&self) -> Hash256 {
         self.as_block().canonical_root()
+    }
+
+    fn into_block_wrapper(self) -> BlockWrapper<E> {
+       self.clone()
     }
 }
 

@@ -11,13 +11,12 @@ use crate::blob_verification::{
     self, AsBlock, AvailableBlock, BlobError, BlockWrapper, GossipVerifiedBlob,
 };
 use crate::block_times_cache::BlockTimesCache;
-use crate::block_verification::{
-    check_block_is_finalized_checkpoint_or_descendant, check_block_relevancy, get_block_root,
-    signature_verify_chain_segment, BlockError, ExecutedBlock, ExecutionPendingBlock,
-    GossipVerifiedBlock, IntoExecutionPendingBlock, POS_PANDA_BANNER,
-};
+use crate::block_verification::{check_block_is_finalized_checkpoint_or_descendant, check_block_relevancy, get_block_root, signature_verify_chain_segment, BlockError, ExecutedBlock, ExecutedBlockInner, ExecutionPendingBlock, GossipVerifiedBlock, IntoExecutionPendingBlock, POS_PANDA_BANNER, AvailableExecutedBlock};
 pub use crate::canonical_head::{CanonicalHead, CanonicalHeadRwLock};
 use crate::chain_config::ChainConfig;
+use crate::data_availability_checker::{
+    Availability, AvailabilityCheckError, DataAvailabilityChecker,
+};
 use crate::early_attester_cache::EarlyAttesterCache;
 use crate::errors::{BeaconChainError as Error, BlockProductionError};
 use crate::eth1_chain::{Eth1Chain, Eth1ChainBackend};
@@ -25,7 +24,6 @@ use crate::eth1_finalization_cache::{Eth1FinalizationCache, Eth1FinalizationData
 use crate::events::ServerSentEventHandler;
 use crate::execution_payload::{get_execution_payload, NotifyExecutionLayer, PreparePayloadHandle};
 use crate::fork_choice_signal::{ForkChoiceSignalRx, ForkChoiceSignalTx, ForkChoiceWaitResult};
-use crate::data_availability_checker::{Availability, AvailabilityCheckError, DataAvailabilityChecker};
 use crate::head_tracker::HeadTracker;
 use crate::historical_blocks::HistoricalBlockError;
 use crate::kzg_utils;
@@ -2657,7 +2655,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     pub async fn process_blob(
         self: &Arc<Self>,
-        blob: Arc<BlobSidecar<T::EthSpec>>,
+        blob: GossipVerifiedBlob<T::EthSpec>,
         count_unrealized: CountUnrealized,
     ) -> Result<AvailabilityProcessingStatus, BlockError<T::EthSpec>> {
         self.check_availability_and_maybe_import(
@@ -2777,16 +2775,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     .into_root()
             );
         }
-        Ok(ExecutedBlock {
+        Ok(ExecutedBlock(
+            ExecutedBlockInner {
+                block_root,
+                state,
+                parent_block,
+                confirmed_state_roots,
+                parent_eth1_finalization_data,
+                consensus_context,
+                payload_verification_outcome,
+            },
             block,
-            block_root,
-            state,
-            parent_block,
-            confirmed_state_roots,
-            parent_eth1_finalization_data,
-            consensus_context,
-            payload_verification_outcome,
-        })
+        ))
     }
 
     fn handle_block_error(&self, e: BlockError<T::EthSpec>) -> BlockError<T::EthSpec> {
@@ -2831,7 +2831,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let availability = cache_fn(self.clone())?;
         match availability {
             Availability::Available(block) => {
-                let ExecutedBlock {
+                let AvailableExecutedBlock {
                     block,
                     block_root,
                     state,
@@ -2842,14 +2842,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     payload_verification_outcome,
                 } = *block;
 
-                let available_block = match block {
-                    BlockWrapper::Available(block) => block,
-                    BlockWrapper::AvailabilityPending(_) => {
-                        todo!() // logic error
-                    }
-                };
-
-                let slot = available_block.slot();
+                let slot = block.slot();
 
                 // import
                 let chain = self.clone();
@@ -2857,7 +2850,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     .spawn_blocking_handle(
                         move || {
                             chain.import_block(
-                                available_block,
+                                block,
                                 block_root,
                                 state,
                                 confirmed_state_roots,
@@ -2965,13 +2958,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let mut fork_choice = self.canonical_head.fork_choice_write_lock();
 
         // Do not import a block that doesn't descend from the finalized root.
-        let signed_block = check_block_is_finalized_checkpoint_or_descendant(
-            self,
-            &fork_choice,
-            BlockWrapper::from(signed_block),
-        )?;
-        // TODO(pawan): fix this atrocity
-        let signed_block = signed_block.into_available_block().unwrap();
+        let signed_block =
+            check_block_is_finalized_checkpoint_or_descendant(self, &fork_choice, signed_block)?;
         let block = signed_block.message();
 
         // Register the new block with the fork choice service.
