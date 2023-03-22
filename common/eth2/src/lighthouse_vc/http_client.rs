@@ -460,6 +460,22 @@ impl ValidatorClientHttpClient {
         self.post(path, &request).await
     }
 
+    /// `POST lighthouse/validators/voluntary_exits`
+    pub async fn post_lighthouse_validators_voluntary_exits(
+        &self,
+        request: &VoluntaryExitRequest,
+    ) -> Result<SignedVoluntaryExit, Error> {
+        let mut path = self.server.full.clone();
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("lighthouse")
+            .push("validators")
+            .push("voluntary_exits");
+
+        self.post(path, &request).await
+    }
+
     /// `PATCH lighthouse/validators/{validator_pubkey}`
     pub async fn patch_lighthouse_validators(
         &self,

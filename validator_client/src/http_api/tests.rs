@@ -499,6 +499,22 @@ impl ApiTester {
         self
     }
 
+    pub async fn test_sign_voluntary_exits(self, index: usize) -> Self {
+        let validator = &self.client.get_lighthouse_validators().await.unwrap().data[index];
+        let request = VoluntaryExitRequest {
+            pubkey: validator.voting_pubkey,
+        };
+
+        let resp = self
+            .client
+            .post_lighthouse_validators_voluntary_exits(&request)
+            .await;
+
+        assert!(resp.is_ok());
+
+        self
+    }
+
     pub async fn set_validator_enabled(self, index: usize, enabled: bool) -> Self {
         let validator = &self.client.get_lighthouse_validators().await.unwrap().data[index];
 
@@ -780,6 +796,27 @@ fn hd_validator_creation() {
             .await
             .assert_enabled_validators_count(2)
             .assert_validators_count(3);
+    });
+}
+
+#[test]
+fn validator_exit() {
+    let runtime = build_runtime();
+    let weak_runtime = Arc::downgrade(&runtime);
+    runtime.block_on(async {
+        ApiTester::new(weak_runtime)
+            .await
+            .create_hd_validators(HdValidatorScenario {
+                count: 2,
+                specify_mnemonic: false,
+                key_derivation_path_offset: 0,
+                disabled: vec![],
+            })
+            .await
+            .assert_enabled_validators_count(2)
+            .assert_validators_count(2)
+            .test_sign_voluntary_exits(0)
+            .await;
     });
 }
 

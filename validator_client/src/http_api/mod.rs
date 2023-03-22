@@ -615,7 +615,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(signer.clone())
         .and(task_executor_filter.clone())
         .and_then(
-            |body: api_types::ValidatorExitRequest,
+            |body: api_types::VoluntaryExitRequest,
              validator_store: Arc<ValidatorStore<T, E>>,
              spec: Arc<ChainSpec>,
              genesis_time: u64,

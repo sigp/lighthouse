@@ -146,6 +146,6 @@ pub struct UpdateGasLimitRequest {
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
-pub struct ValidatorExitRequest {
+pub struct VoluntaryExitRequest {
     pub pubkey: PublicKeyBytes,
 }
