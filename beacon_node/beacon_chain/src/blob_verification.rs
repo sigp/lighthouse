@@ -136,6 +136,12 @@ pub struct GossipVerifiedBlob<T: EthSpec> {
     blob: Arc<BlobSidecar<T>>,
 }
 
+impl<T: EthSpec> GossipVerifiedBlob<T> {
+    pub fn block_root(&self) -> Hash256 {
+        self.blob.block_root
+    }
+}
+
 pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
     signed_blob_sidecar: SignedBlobSidecar<T::EthSpec>,
     subnet: u64,

@@ -82,7 +82,7 @@ impl<T: EthSpec> DataAvailabilityChecker<T> {
         da_check_fn: impl FnOnce(Epoch) -> bool,
     ) -> Result<Availability<T>, AvailabilityCheckError> {
 
-        let block_root = kzg_verified_blob.block_root();
+        let block_root = verified_blob.block_root();
 
         let kzg_verified_blob = if let Some(kzg) = self.kzg.as_ref() {
             verify_kzg_for_blob(verified_blob, kzg)?
