@@ -25,7 +25,7 @@ use crate::eth1_finalization_cache::{Eth1FinalizationCache, Eth1FinalizationData
 use crate::events::ServerSentEventHandler;
 use crate::execution_payload::{get_execution_payload, NotifyExecutionLayer, PreparePayloadHandle};
 use crate::fork_choice_signal::{ForkChoiceSignalRx, ForkChoiceSignalTx, ForkChoiceWaitResult};
-use crate::gossip_blob_cache::{Availability, AvailabilityCheckError, DataAvailabilityChecker};
+use crate::data_availability_checker::{Availability, AvailabilityCheckError, DataAvailabilityChecker};
 use crate::head_tracker::HeadTracker;
 use crate::historical_blocks::HistoricalBlockError;
 use crate::kzg_utils;

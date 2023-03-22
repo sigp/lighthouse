@@ -23,7 +23,7 @@ pub mod events;
 pub mod execution_payload;
 pub mod fork_choice_signal;
 pub mod fork_revert;
-pub mod gossip_blob_cache;
+pub mod data_availability_checker;
 mod head_tracker;
 pub mod historical_blocks;
 pub mod kzg_utils;

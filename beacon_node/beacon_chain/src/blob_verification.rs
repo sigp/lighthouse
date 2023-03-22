@@ -5,7 +5,7 @@ use crate::beacon_chain::{
     BeaconChain, BeaconChainTypes, MAXIMUM_GOSSIP_CLOCK_DISPARITY,
     VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT,
 };
-use crate::gossip_blob_cache::AvailabilityCheckError;
+use crate::data_availability_checker::AvailabilityCheckError;
 use crate::BeaconChainError;
 use derivative::Derivative;
 use state_processing::per_block_processing::eip4844::eip4844::verify_kzg_commitments_against_transactions;
