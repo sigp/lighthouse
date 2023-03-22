@@ -501,6 +501,11 @@ impl ApiTester {
 
     pub async fn test_sign_voluntary_exits(self, index: usize) -> Self {
         let validator = &self.client.get_lighthouse_validators().await.unwrap().data[index];
+        // manually setting validator index in `ValidatorStore`
+        self.initialized_validators
+            .write()
+            .set_index(&validator.voting_pubkey, 0);
+
         let request = VoluntaryExitRequest {
             pubkey: validator.voting_pubkey,
         };
