@@ -310,32 +310,37 @@ struct AvailableBlockInner<E: EthSpec> {
 pub trait IntoKzgVerifiedBlobs<T: EthSpec> {
     fn into_kzg_verified_blobs(
         self,
-        kzg: Kzg,
-        da_check: impl FnOnce(Epoch) -> bool,
+        kzg: &Kzg,
     ) -> Result<KzgVerifiedBlobList<T>, AvailabilityCheckError>;
+    fn is_empty(&self) -> bool;
 }
 
 impl<T: EthSpec> IntoKzgVerifiedBlobs<T> for KzgVerifiedBlobList<T> {
     fn into_kzg_verified_blobs(
         self,
-        kzg: Kzg,
-        da_check: impl FnOnce(Epoch) -> bool,
+        kzg: &Kzg,
     ) -> Result<KzgVerifiedBlobList<T>, AvailabilityCheckError> {
         Ok(self)
+    }
+
+    fn is_empty(&self) -> bool {
+        self.is_empty()
     }
 }
 
 impl<E: EthSpec> IntoKzgVerifiedBlobs<E> for Vec<Arc<BlobSidecar<E>>> {
     fn into_kzg_verified_blobs(
         self,
-        kzg: Kzg,
-        da_check: impl FnOnce(Epoch) -> bool,
+        kzg: &Kzg
     ) -> Result<KzgVerifiedBlobList<E>, AvailabilityCheckError> {
-        kzg_utils::validate_blobs::<E>(kzg, expected_kzg_commitments, &blobs, &kzg_proofs)
-            .map_err(AvailabilityCheckError::Kzg)?;
+
         todo!()
         // verify batch kzg, need this for creating available blocks in
         // `process_chain_segment` or local block production
+    }
+
+    fn is_empty(&self) -> bool {
+        self.is_empty()
     }
 }
 
@@ -344,14 +349,14 @@ impl<E: EthSpec> AvailableBlock<E> {
         block: Arc<SignedBeaconBlock<E>>,
         blobs: Blobs,
         da_check: impl FnOnce(Epoch) -> bool,
-        kzg: Kzg,
+        kzg: Option<Arc<Kzg>>,
     ) -> Result<Self, AvailabilityCheckError> {
         if let (Ok(block_kzg_commitments), Ok(payload)) = (
             block.message().body().blob_kzg_commitments(),
             block.message().body().execution_payload(),
         ) {
 
-            let blobs = blobs.into_kzg_verified_blobs(kzg, da_check)?;
+            let kzg = kzg.ok_or(AvailabilityCheckError::KzgNotInitialized)?;
 
             if blobs.is_empty() && block_kzg_commitments.is_empty() {
                 return Ok(Self(AvailableBlockInner {
@@ -370,6 +375,8 @@ impl<E: EthSpec> AvailableBlock<E> {
                     return Err(AvailabilityCheckError::MissingBlobs);
                 }
             }
+
+            let blobs = blobs.into_kzg_verified_blobs(kzg.as_ref())?;
 
             if blobs.len() != block_kzg_commitments.len() {
                 return Err(AvailabilityCheckError::NumBlobsMismatch {
@@ -481,7 +488,7 @@ pub enum BlockWrapper<E: EthSpec> {
 impl<E: EthSpec> BlockWrapper<E> {
     pub fn into_available_block(
         self,
-        kzg: Kzg,
+        kzg: Option<Arc<Kzg>>,
         da_check: impl FnOnce(Epoch) -> bool,
     ) -> Result<AvailableBlock<E>, AvailabilityCheckError> {
         match self {

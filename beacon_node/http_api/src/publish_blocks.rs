@@ -83,7 +83,9 @@ pub async fn publish_block<T: BeaconChainTypes>(
     };
     // Determine the delay after the start of the slot, register it with metrics.
 
-    let available_block = match wrapped_block.clone().into_available_block() {
+    let available_block = match wrapped_block.clone().into_available_block(chain.kzg.clone(), |epoch|{
+        chain.block_needs_da_check(epoch)
+    }) {
         Some(available_block) => available_block,
         None => {
             error!(
