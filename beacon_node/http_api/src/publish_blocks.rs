@@ -87,11 +87,11 @@ pub async fn publish_block<T: BeaconChainTypes>(
         .clone()
         .into_available_block(chain.kzg.clone(), |epoch| chain.block_needs_da_check(epoch))
     {
-        Some(available_block) => available_block,
-        None => {
+        Ok(available_block) => available_block,
+        Err(e)=> {
             error!(
                 log,
-                "Invalid block provided to HTTP API unavailable block"; //TODO(sean) probably want a real error here
+                "Invalid block provided to HTTP API unavailable block"; "error" => ?e
             );
             return Err(warp_utils::reject::broadcast_without_import(
                 "unavailable block".to_string(),

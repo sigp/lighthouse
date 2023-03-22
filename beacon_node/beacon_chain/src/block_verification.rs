@@ -93,7 +93,7 @@ use task_executor::JoinHandle;
 use tree_hash::TreeHash;
 use types::ExecPayload;
 use types::{
-    BeaconBlockRef, BeaconState, BeaconStateError, BlindedPayload, BlobSidecar, ChainSpec,
+    BeaconBlockRef, BeaconState, BeaconStateError, BlindedPayload, ChainSpec,
     CloneConfig, Epoch, EthSpec, ExecutionBlockHash, Hash256, InconsistentFork, PublicKey,
     PublicKeyBytes, RelativeEpoch, SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
 };
@@ -1192,6 +1192,31 @@ impl<T: BeaconChainTypes> IntoExecutionPendingBlock<T> for Arc<SignedBeaconBlock
 
     fn block(&self) -> &SignedBeaconBlock<T::EthSpec> {
         self
+    }
+}
+
+impl<T: BeaconChainTypes> IntoExecutionPendingBlock<T> for BlockWrapper<T::EthSpec> {
+    fn into_execution_pending_block_slashable(
+        self,
+        block_root: Hash256,
+        chain: &Arc<BeaconChain<T>>,
+        notify_execution_layer: NotifyExecutionLayer,
+    ) -> Result<
+        ExecutionPendingBlock<T>,
+        BlockSlashInfo<BlockError<<T as BeaconChainTypes>::EthSpec>>,
+    > {
+        //TODO(seaon) this is ugly
+        let mut pending_block = self.block_cloned().into_execution_pending_block_slashable(
+            block_root,
+            chain,
+            notify_execution_layer,
+        )?;
+        pending_block.block = self;
+        Ok(pending_block)
+    }
+
+    fn block(&self) -> &SignedBeaconBlock<<T as BeaconChainTypes>::EthSpec> {
+        self.as_block()
     }
 }
 

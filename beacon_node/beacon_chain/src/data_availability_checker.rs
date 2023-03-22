@@ -3,7 +3,7 @@ use crate::blob_verification::{
     KzgVerifiedBlobList,
 };
 use crate::block_verification::{AvailableExecutedBlock, ExecutedBlock};
-use crate::kzg_utils::validate_blob;
+
 use kzg::Error as KzgError;
 use kzg::Kzg;
 use parking_lot::{Mutex, RwLock};
@@ -104,7 +104,7 @@ impl<T: EthSpec> DataAvailabilityChecker<T> {
             Entry::Occupied(mut occupied_entry) => {
                 // All blobs reaching this cache should be gossip verified and gossip verification
                 // should filter duplicates, as well as validate indices.
-                let mut cache = occupied_entry.get_mut();
+                let cache = occupied_entry.get_mut();
 
                 cache
                     .verified_blobs
@@ -154,11 +154,11 @@ impl<T: EthSpec> DataAvailabilityChecker<T> {
                                 Availability::PendingBlobs(missing_blobs)
                             }
                         }
-                        BlockWrapper::Available(available_block) => {
+                        BlockWrapper::Available(_available_block) => {
                             // log warn, shouldn't have cached this
                             todo!()
                         }
-                        BlockWrapper::AvailabiltyCheckDelayed(block, blobs) => {
+                        BlockWrapper::AvailabiltyCheckDelayed(_block, _blobs) => {
                             // log warn, shouldn't have cached this
                             todo!()
                         }
@@ -167,7 +167,7 @@ impl<T: EthSpec> DataAvailabilityChecker<T> {
                     Availability::PendingBlock(block_root)
                 }
             }
-            Entry::Vacant(mut vacant_entry) => {
+            Entry::Vacant(vacant_entry) => {
                 let block_root = kzg_verified_blob.block_root();
                 vacant_entry.insert(GossipBlobCache {
                     verified_blobs: vec![kzg_verified_blob],

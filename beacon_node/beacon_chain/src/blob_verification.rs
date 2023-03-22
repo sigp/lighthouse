@@ -7,7 +7,7 @@ use crate::beacon_chain::{
 };
 use crate::data_availability_checker::AvailabilityCheckError;
 use crate::kzg_utils::validate_blob;
-use crate::{kzg_utils, BeaconChainError, BlockProductionError};
+use crate::{BeaconChainError};
 use derivative::Derivative;
 use kzg::Kzg;
 use ssz_types::VariableList;
@@ -15,7 +15,6 @@ use state_processing::per_block_processing::eip4844::eip4844::verify_kzg_commitm
 use types::{
     BeaconBlockRef, BeaconStateError, BlobSidecar, BlobSidecarList, Epoch, EthSpec, ExecPayload,
     Hash256, KzgCommitment, SignedBeaconBlock, SignedBeaconBlockHeader, SignedBlobSidecar, Slot,
-    Transactions,
 };
 
 #[derive(Debug)]
@@ -296,7 +295,7 @@ pub fn verify_kzg_for_blob<T: EthSpec>(
     {
         Ok(KzgVerifiedBlob { blob: blob.blob })
     } else {
-        return Err(AvailabilityCheckError::KzgVerificationFailed);
+        Err(AvailabilityCheckError::KzgVerificationFailed)
     }
 }
 
@@ -324,7 +323,7 @@ pub trait IntoKzgVerifiedBlobs<T: EthSpec> {
 impl<T: EthSpec> IntoKzgVerifiedBlobs<T> for KzgVerifiedBlobList<T> {
     fn into_kzg_verified_blobs(
         self,
-        kzg: Option<Arc<Kzg>>,
+        _kzg: Option<Arc<Kzg>>,
     ) -> Result<KzgVerifiedBlobList<T>, AvailabilityCheckError> {
         Ok(self)
     }
@@ -337,7 +336,7 @@ impl<T: EthSpec> IntoKzgVerifiedBlobs<T> for KzgVerifiedBlobList<T> {
 impl<E: EthSpec> IntoKzgVerifiedBlobs<E> for Vec<Arc<BlobSidecar<E>>> {
     fn into_kzg_verified_blobs(
         self,
-        kzg: Option<Arc<Kzg>>,
+        _kzg: Option<Arc<Kzg>>,
     ) -> Result<KzgVerifiedBlobList<E>, AvailabilityCheckError> {
         todo!()
         // verify batch kzg, need this for creating available blocks in
