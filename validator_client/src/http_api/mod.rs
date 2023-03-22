@@ -5,8 +5,7 @@ mod keystores;
 mod remotekeys;
 mod tests;
 
-use crate::beacon_node_fallback::BeaconNodeFallback;
-use crate::http_api::exit_validator::publish_voluntary_exit;
+use crate::http_api::exit_validator::sign_voluntary_exit;
 use crate::{determine_graffiti, GraffitiFile, ValidatorStore};
 use account_utils::{
     mnemonic_from_phrase,
@@ -71,10 +70,10 @@ pub struct Context<T: SlotClock, E: EthSpec> {
     pub validator_dir: Option<PathBuf>,
     pub graffiti_file: Option<GraffitiFile>,
     pub graffiti_flag: Option<Graffiti>,
-    pub beacon_nodes: Arc<BeaconNodeFallback<T, E>>,
     pub spec: ChainSpec,
     pub config: Config,
     pub log: Logger,
+    pub genesis_time: u64,
     pub _phantom: PhantomData<E>,
 }
 
@@ -190,11 +189,11 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
     let inner_graffiti_flag = ctx.graffiti_flag;
     let graffiti_flag_filter = warp::any().map(move || inner_graffiti_flag);
 
-    let inner_beacon_nodes = ctx.beacon_nodes.clone();
-    let beacon_nodes_filter = warp::any().map(move || inner_beacon_nodes.clone());
-
     let inner_ctx = ctx.clone();
     let log_filter = warp::any().map(move || inner_ctx.log.clone());
+
+    let inner_genesis_time = ctx.genesis_time;
+    let genesis_time_filter = warp::any().map(move || inner_genesis_time);
 
     let inner_spec = Arc::new(ctx.spec.clone());
     let spec_filter = warp::any().map(move || inner_spec.clone());
@@ -603,36 +602,36 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
             },
         );
 
-    // POST lighthouse/validators/exit
-    let post_validators_exit = warp::path("lighthouse")
+    // POST lighthouse/validators/voluntary_exits
+    let post_validators_voluntary_exits = warp::path("lighthouse")
         .and(warp::path("validators"))
-        .and(warp::path("exit"))
+        .and(warp::path("voluntary_exits"))
         .and(warp::path::end())
         .and(warp::body::json())
         .and(validator_store_filter.clone())
-        .and(beacon_nodes_filter)
         .and(spec_filter)
+        .and(genesis_time_filter)
         .and(log_filter.clone())
         .and(signer.clone())
         .and(task_executor_filter.clone())
         .and_then(
             |body: api_types::ValidatorExitRequest,
              validator_store: Arc<ValidatorStore<T, E>>,
-             beacon_nodes: Arc<BeaconNodeFallback<T, E>>,
              spec: Arc<ChainSpec>,
+             genesis_time: u64,
              log,
              signer,
              task_executor: TaskExecutor| {
                 blocking_signed_json_task(signer, move || {
                     if let Some(handle) = task_executor.handle() {
-                        handle.block_on(publish_voluntary_exit(
+                        let signed_voluntary_exit = handle.block_on(sign_voluntary_exit(
                             body.pubkey,
                             validator_store,
-                            beacon_nodes,
                             spec,
+                            genesis_time,
                             log,
                         ))?;
-                        Ok(())
+                        Ok(signed_voluntary_exit)
                     } else {
                         Err(warp_utils::reject::custom_server_error(
                             "Lighthouse shutting down".into(),
@@ -1047,7 +1046,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                         .or(post_validators_keystore)
                         .or(post_validators_mnemonic)
                         .or(post_validators_web3signer)
-                        .or(post_validators_exit)
+                        .or(post_validators_voluntary_exits)
                         .or(post_fee_recipient)
                         .or(post_gas_limit)
                         .or(post_std_keystores)

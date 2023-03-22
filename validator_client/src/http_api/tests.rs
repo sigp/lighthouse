@@ -3,7 +3,6 @@
 
 mod keystores;
 
-use crate::beacon_node_fallback::BeaconNodeFallback;
 use crate::doppelganger_service::DoppelgangerService;
 use crate::{
     http_api::{ApiSecret, Config as HttpConfig, Context},
@@ -91,8 +90,12 @@ impl ApiTester {
         let slashing_db_path = config.validator_dir.join(SLASHING_PROTECTION_FILENAME);
         let slashing_protection = SlashingDatabase::open_or_create(&slashing_db_path).unwrap();
 
-        let slot_clock =
-            TestingSlotClock::new(Slot::new(0), Duration::from_secs(0), Duration::from_secs(1));
+        let genesis_time: u64 = 0;
+        let slot_clock = TestingSlotClock::new(
+            Slot::new(0),
+            Duration::from_secs(genesis_time),
+            Duration::from_secs(1),
+        );
 
         let (runtime_shutdown, exit) = exit_future::signal();
         let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
@@ -131,12 +134,7 @@ impl ApiTester {
                 allow_origin: None,
             },
             log: log.clone(),
-            beacon_nodes: Arc::new(BeaconNodeFallback::new(
-                vec![], // FIXME: (jimmy) add a beacon node
-                false,
-                spec.clone(),
-                log.clone(),
-            )),
+            genesis_time,
             _phantom: PhantomData,
         });
         let ctx = context.clone();
