@@ -12,7 +12,7 @@ use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum BlockType {
     Blinded,
     Full,

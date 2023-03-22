@@ -4,6 +4,7 @@ use crate::attestation_verification::{
     VerifiedUnaggregatedAttestation,
 };
 use crate::attester_cache::{AttesterCache, AttesterCacheKey};
+use crate::beacon_block_streamer::{BeaconBlockStreamer, CheckEarlyAttesterCache};
 use crate::beacon_proposer_cache::compute_proposer_duties_from_head;
 use crate::beacon_proposer_cache::BeaconProposerCache;
 use crate::block_times_cache::BlockTimesCache;
@@ -102,6 +103,7 @@ use store::{
     DatabaseBlock, Error as DBError, HotColdDB, KeyValueStore, KeyValueStoreOp, StoreItem, StoreOp,
 };
 use task_executor::{ShutdownReason, TaskExecutor};
+use tokio_stream::Stream;
 use tree_hash::TreeHash;
 use types::beacon_state::CloneConfig;
 use types::consts::merge::INTERVALS_PER_SLOT;
@@ -939,14 +941,42 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// ## Errors
     ///
     /// May return a database error.
-    pub async fn get_block_checking_early_attester_cache(
-        &self,
-        block_root: &Hash256,
-    ) -> Result<Option<Arc<SignedBeaconBlock<T::EthSpec>>>, Error> {
-        if let Some(block) = self.early_attester_cache.get_block(*block_root) {
-            return Ok(Some(block));
-        }
-        Ok(self.get_block(block_root).await?.map(Arc::new))
+    pub fn get_blocks_checking_early_attester_cache(
+        self: &Arc<Self>,
+        block_roots: Vec<Hash256>,
+        executor: &TaskExecutor,
+    ) -> Result<
+        impl Stream<
+            Item = (
+                Hash256,
+                Arc<Result<Option<Arc<SignedBeaconBlock<T::EthSpec>>>, Error>>,
+            ),
+        >,
+        Error,
+    > {
+        Ok(
+            BeaconBlockStreamer::<T>::new(self, CheckEarlyAttesterCache::Yes)?
+                .launch_stream(block_roots, executor),
+        )
+    }
+
+    pub fn get_blocks(
+        self: &Arc<Self>,
+        block_roots: Vec<Hash256>,
+        executor: &TaskExecutor,
+    ) -> Result<
+        impl Stream<
+            Item = (
+                Hash256,
+                Arc<Result<Option<Arc<SignedBeaconBlock<T::EthSpec>>>, Error>>,
+            ),
+        >,
+        Error,
+    > {
+        Ok(
+            BeaconBlockStreamer::<T>::new(self, CheckEarlyAttesterCache::No)?
+                .launch_stream(block_roots, executor),
+        )
     }
 
     /// Returns the block at the given root, if any.
@@ -5106,7 +5136,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     latest_valid_hash,
                     ref validation_error,
                 } => {
-                    debug!(
+                    warn!(
                         self.log,
                         "Invalid execution payload";
                         "validation_error" => ?validation_error,
@@ -5114,11 +5144,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         "head_hash" => ?head_hash,
                         "head_block_root" => ?head_block_root,
                         "method" => "fcU",
-                    );
-                    warn!(
-                        self.log,
-                        "Fork choice update invalidated payload";
-                        "status" => ?status
                     );
 
                     match latest_valid_hash {
@@ -5165,18 +5190,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 PayloadStatus::InvalidBlockHash {
                     ref validation_error,
                 } => {
-                    debug!(
+                    warn!(
                         self.log,
                         "Invalid execution payload block hash";
                         "validation_error" => ?validation_error,
                         "head_hash" => ?head_hash,
                         "head_block_root" => ?head_block_root,
                         "method" => "fcU",
-                    );
-                    warn!(
-                        self.log,
-                        "Fork choice update invalidated payload";
-                        "status" => ?status
                     );
                     // The execution engine has stated that the head block is invalid, however it
                     // hasn't returned a latest valid ancestor.

@@ -148,6 +148,10 @@ pub fn get_config<E: EthSpec>(
         client_config.http_api.allow_sync_stalled = true;
     }
 
+    if let Some(cache_size) = clap_utils::parse_optional(cli_args, "shuffling-cache-size")? {
+        client_config.chain.shuffling_cache_size = cache_size;
+    }
+
     /*
      * Prometheus metrics HTTP server
      */
@@ -705,7 +709,7 @@ pub fn get_config<E: EthSpec>(
         client_config.chain.fork_choice_before_proposal_timeout_ms = timeout;
     }
 
-    if cli_args.is_present("count-unrealized") {
+    if !clap_utils::parse_required::<bool>(cli_args, "count-unrealized")? {
         warn!(
             log,
             "The flag --count-unrealized is deprecated and will be removed";

@@ -77,7 +77,7 @@ const DEFAULT_SUGGESTED_FEE_RECIPIENT: [u8; 20] =
 const CONFIG_POLL_INTERVAL: Duration = Duration::from_secs(60);
 
 /// A payload alongside some information about where it came from.
-enum ProvenancedPayload<P> {
+pub enum ProvenancedPayload<P> {
     /// A good ol' fashioned farm-to-table payload from your local EE.
     Local(P),
     /// A payload from a builder (e.g. mev-boost).
@@ -1569,6 +1569,37 @@ impl<T: EthSpec> ExecutionLayer<T> {
         } else {
             Ok(None)
         }
+    }
+
+    pub async fn get_payload_bodies_by_hash(
+        &self,
+        hashes: Vec<ExecutionBlockHash>,
+    ) -> Result<Vec<Option<ExecutionPayloadBodyV1<T>>>, Error> {
+        self.engine()
+            .request(|engine: &Engine| async move {
+                engine.api.get_payload_bodies_by_hash_v1(hashes).await
+            })
+            .await
+            .map_err(Box::new)
+            .map_err(Error::EngineError)
+    }
+
+    pub async fn get_payload_bodies_by_range(
+        &self,
+        start: u64,
+        count: u64,
+    ) -> Result<Vec<Option<ExecutionPayloadBodyV1<T>>>, Error> {
+        let _timer = metrics::start_timer(&metrics::EXECUTION_LAYER_GET_PAYLOAD_BODIES_BY_RANGE);
+        self.engine()
+            .request(|engine: &Engine| async move {
+                engine
+                    .api
+                    .get_payload_bodies_by_range_v1(start, count)
+                    .await
+            })
+            .await
+            .map_err(Box::new)
+            .map_err(Error::EngineError)
     }
 
     pub async fn get_payload_by_block_hash(

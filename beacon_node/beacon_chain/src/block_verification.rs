@@ -280,10 +280,10 @@ pub enum BlockError<T: EthSpec> {
     ///
     /// ## Peer scoring
     ///
-    /// TODO(merge): reconsider how we score peers for this.
-    ///
-    /// The peer sent us an invalid block, but I'm not really sure how to score this in an
-    /// "optimistic" sync world.
+    /// The peer sent us an invalid block, we must penalise harshly.
+    /// If it's actually our fault (e.g. our execution node database is corrupt) we have bigger
+    /// problems to worry about than losing peers, and we're doing the network a favour by
+    /// disconnecting.
     ParentExecutionPayloadInvalid { parent_root: Hash256 },
 }
 

@@ -119,6 +119,26 @@ fn disable_lock_timeouts_flag() {
 }
 
 #[test]
+fn shuffling_cache_default() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config.chain.shuffling_cache_size,
+                beacon_node::beacon_chain::shuffling_cache::DEFAULT_CACHE_SIZE
+            )
+        });
+}
+
+#[test]
+fn shuffling_cache_set() {
+    CommandLineTest::new()
+        .flag("shuffling-cache-size", Some("500"))
+        .run_with_zero_port()
+        .with_config(|config| assert_eq!(config.chain.shuffling_cache_size, 500));
+}
+
+#[test]
 fn fork_choice_before_proposal_timeout_default() {
     CommandLineTest::new()
         .run_with_zero_port()
