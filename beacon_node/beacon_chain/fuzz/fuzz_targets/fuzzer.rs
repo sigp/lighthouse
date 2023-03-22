@@ -1,7 +1,9 @@
 use beacon_chain::test_utils::test_spec;
 use beacon_chain_fuzz::{Config, LogConfig, LogInterceptor, Runner, TestHarness};
 use tokio::runtime::Runtime;
-use types::Keypair;
+use types::{ChainSpec, ForkName, Keypair};
+
+const TEST_FORK: ForkName = ForkName::Capella;
 
 #[cfg(feature = "afl")]
 use afl::fuzz;
@@ -24,9 +26,12 @@ type E = types::MinimalEthSpec;
 #[cfg(feature = "mainnet")]
 type E = types::MainnetEthSpec;
 
-fn get_harness(id: String, log_config: LogConfig, keypairs: &[Keypair]) -> TestHarness<E> {
-    let spec = test_spec::<E>();
-
+fn get_harness(
+    id: String,
+    log_config: LogConfig,
+    spec: ChainSpec,
+    keypairs: &[Keypair],
+) -> TestHarness<E> {
     let log = LogInterceptor::new(id, log_config).into_logger();
 
     let harness = TestHarness::builder(E::default())
@@ -44,7 +49,9 @@ fn main() {
         let config = Config::from_env();
         let rt = Runtime::new().unwrap();
 
-        let mut runner = Runner::new(data, config, get_harness);
+        // FIXME(sproul): need to actually get execution enabled
+        let spec = TEST_FORK.make_genesis_spec(test_spec::<E>());
+        let mut runner = Runner::new(data, config, spec, get_harness);
 
         match rt.block_on(async move { runner.run().await }) {
             Ok(()) => (),

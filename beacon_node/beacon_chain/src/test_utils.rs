@@ -119,7 +119,7 @@ pub enum SyncCommitteeStrategy {
 
 /// Indicates whether the `BeaconChainHarness` should use the `state.current_sync_committee` or
 /// `state.next_sync_committee` when creating sync messages or contributions.
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug)]
 pub enum RelativeSyncCommittee {
     Current,
     Next,
@@ -1051,15 +1051,12 @@ where
         relative_sync_committee: RelativeSyncCommittee,
     ) -> Vec<Vec<(SyncCommitteeMessage, usize)>> {
         let sync_committee: Arc<SyncCommittee<E>> = match relative_sync_committee {
-            RelativeSyncCommittee::Current => state
-                .current_sync_committee()
-                .expect("should be called on altair beacon state")
-                .clone(),
-            RelativeSyncCommittee::Next => state
-                .next_sync_committee()
-                .expect("should be called on altair beacon state")
-                .clone(),
-        };
+            RelativeSyncCommittee::Current => state.current_sync_committee(),
+            RelativeSyncCommittee::Next => state.next_sync_committee(),
+        }
+        .expect("should be called on altair beacon state")
+        .clone();
+
         let fork = self
             .spec
             .fork_at_epoch(message_slot.epoch(E::slots_per_epoch()));
@@ -1258,10 +1255,12 @@ where
             .map(|(subnet_id, committee_messages)| {
                 // If there are any sync messages in this committee, create an aggregate.
                 if let Some((sync_message, subcommittee_position)) = committee_messages.first() {
-                    let sync_committee: Arc<SyncCommittee<E>> = state
-                        .current_sync_committee()
-                        .expect("should be called on altair beacon state")
-                        .clone();
+                    let sync_committee: Arc<SyncCommittee<E>> = match relative_sync_committee {
+                        RelativeSyncCommittee::Current => state.current_sync_committee(),
+                        RelativeSyncCommittee::Next => state.next_sync_committee(),
+                    }
+                    .expect("should be called on altair beacon state")
+                    .clone();
 
                     let aggregator_index = sync_committee
                         .get_subcommittee_pubkeys(subnet_id)
@@ -2208,7 +2207,9 @@ where
         let mut verified_contributions = Vec::with_capacity(sync_contributions.len());
 
         for (_, contribution_and_proof) in sync_contributions {
-            let signed_contribution_and_proof = contribution_and_proof.unwrap();
+            let Some(signed_contribution_and_proof) = contribution_and_proof else {
+                continue;
+            };
 
             let verified_contribution = self
                 .chain

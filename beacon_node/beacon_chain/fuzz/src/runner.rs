@@ -1,8 +1,9 @@
 use crate::{Config, Hydra, LogConfig, Message, Node, TestHarness};
 use arbitrary::Unstructured;
-use beacon_chain::beacon_proposer_cache::compute_proposer_duties_from_head;
-use beacon_chain::slot_clock::SlotClock;
-use beacon_chain::test_utils::test_spec;
+use beacon_chain::{
+    beacon_proposer_cache::compute_proposer_duties_from_head, slot_clock::SlotClock,
+    test_utils::RelativeSyncCommittee,
+};
 use std::collections::HashMap;
 use std::collections::VecDeque;
 use std::ops::ControlFlow;
@@ -38,12 +39,12 @@ impl<'a, E: EthSpec> Runner<'a, E> {
     pub fn new(
         data: &'a [u8],
         conf: Config,
-        get_harness: impl for<'b> Fn(String, LogConfig, &'b [Keypair]) -> TestHarness<E>,
+        spec: ChainSpec,
+        get_harness: impl for<'b> Fn(String, LogConfig, ChainSpec, &'b [Keypair]) -> TestHarness<E>,
     ) -> Self {
         assert!(conf.is_valid());
 
         let u = Unstructured::new(data);
-        let spec = test_spec::<E>();
 
         let keypairs = generate_deterministic_keypairs(conf.total_validators);
 
@@ -53,7 +54,7 @@ impl<'a, E: EthSpec> Runner<'a, E> {
             .map(|i| {
                 let id = format!("node_{i}");
                 let log_config = conf.log_config(i);
-                let harness = get_harness(id.clone(), log_config, &keypairs);
+                let harness = get_harness(id.clone(), log_config, spec.clone(), &keypairs);
                 let validators = (i * validators_per_node..(i + 1) * validators_per_node).collect();
                 Node {
                     id,
@@ -70,7 +71,12 @@ impl<'a, E: EthSpec> Runner<'a, E> {
         let attacker_id = "attacker".to_string();
         let attacker = Node {
             id: attacker_id.clone(),
-            harness: get_harness(attacker_id, conf.attacker_log_config(), &keypairs),
+            harness: get_harness(
+                attacker_id,
+                conf.attacker_log_config(),
+                spec.clone(),
+                &keypairs,
+            ),
             message_queue: VecDeque::new(),
             dependent_messages: HashMap::default(),
             validators: (conf.honest_validators()..conf.total_validators).collect(),
@@ -116,10 +122,20 @@ impl<'a, E: EthSpec> Runner<'a, E> {
         let slot = block.slot();
         if self.conf.debug.block_proposals {
             println!(
-                "block {:?} @ slot {}, parent: {:?}",
+                "block {:?} @ slot {}, parent: {:?}, withdrawals: {}",
                 block_root,
                 slot,
-                block.parent_root()
+                block.parent_root(),
+                block
+                    .message()
+                    .body()
+                    .execution_payload()
+                    .and_then(|payload| {
+                        payload
+                            .execution_payload_capella()
+                            .map(|p| p.withdrawals.len())
+                    })
+                    .unwrap_or(0)
             );
         }
         self.all_blocks.push((block_root, slot));
@@ -250,6 +266,42 @@ impl<'a, E: EthSpec> Runner<'a, E> {
                 for attestation in new_attestations {
                     self.deliver_all(Message::Attestation(attestation)).await;
                 }
+            }
+
+            // Sync committee messages and contributions for *all* nodes.
+            //
+            // We don't care too much about their quality, but want to use them to prevent
+            // validator balances from dropping so low that partial withdrawals are disabled.
+            if self.conf.is_attestation_tick(self.tick()) {
+                // Use the attacker harness as it has full view of the network.
+                let harness = &self.attacker.harness;
+                let head = harness.chain.canonical_head.cached_head();
+
+                // FIXME(sproul): this junk should probably be in the harness
+                let current_period = current_slot.epoch(E::slots_per_epoch())
+                    / harness.spec.epochs_per_sync_committee_period;
+                let next_slot_period = (current_slot + 1).epoch(E::slots_per_epoch())
+                    / harness.spec.epochs_per_sync_committee_period;
+                let relative_sync_committee = if current_period == next_slot_period {
+                    RelativeSyncCommittee::Current
+                } else {
+                    RelativeSyncCommittee::Next
+                };
+
+                let sync_contributions = self.attacker.harness.make_sync_contributions(
+                    &head.snapshot.beacon_state,
+                    head.head_block_root(),
+                    current_slot,
+                    relative_sync_committee,
+                );
+                for node in &self.honest_nodes {
+                    node.harness
+                        .process_sync_contributions(sync_contributions.clone())
+                        .expect("should process sync contributions");
+                }
+                harness
+                    .process_sync_contributions(sync_contributions)
+                    .expect("should process sync contributions");
             }
 
             // Slot start activities for the attacker.
