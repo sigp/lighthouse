@@ -968,6 +968,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .hidden(true)
                 .help("This flag is deprecated and has no effect.")
                 .takes_value(true)
+                .default_value("true")
         )
         .arg(
             Arg::with_name("count-unrealized-full")
