@@ -88,7 +88,7 @@ pub async fn publish_block<T: BeaconChainTypes>(
         .into_available_block(chain.kzg.clone(), |epoch| chain.block_needs_da_check(epoch))
     {
         Ok(available_block) => available_block,
-        Err(e)=> {
+        Err(e) => {
             error!(
                 log,
                 "Invalid block provided to HTTP API unavailable block"; "error" => ?e

@@ -81,7 +81,6 @@ impl<T: EthSpec> DataAvailabilityChecker<T> {
         verified_blob: GossipVerifiedBlob<T>,
         da_check_fn: impl FnOnce(Epoch) -> bool,
     ) -> Result<Availability<T>, AvailabilityCheckError> {
-
         let block_root = verified_blob.block_root();
 
         let kzg_verified_blob = if let Some(kzg) = self.kzg.as_ref() {
@@ -129,8 +128,12 @@ impl<T: EthSpec> DataAvailabilityChecker<T> {
                             if verified_commitments == kzg_commitments {
                                 //TODO(sean) can we remove this clone
                                 let blobs = cache.verified_blobs.clone();
-                                let available_block =
-                                    AvailableBlock::new(block, blobs, da_check_fn, self.kzg.clone())?;
+                                let available_block = AvailableBlock::new(
+                                    block,
+                                    blobs,
+                                    da_check_fn,
+                                    self.kzg.clone(),
+                                )?;
                                 Availability::Available(Box::new(AvailableExecutedBlock::new(
                                     inner,
                                     available_block,

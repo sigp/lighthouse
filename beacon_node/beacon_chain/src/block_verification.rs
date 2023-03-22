@@ -93,9 +93,9 @@ use task_executor::JoinHandle;
 use tree_hash::TreeHash;
 use types::ExecPayload;
 use types::{
-    BeaconBlockRef, BeaconState, BeaconStateError, BlindedPayload, ChainSpec,
-    CloneConfig, Epoch, EthSpec, ExecutionBlockHash, Hash256, InconsistentFork, PublicKey,
-    PublicKeyBytes, RelativeEpoch, SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
+    BeaconBlockRef, BeaconState, BeaconStateError, BlindedPayload, ChainSpec, CloneConfig, Epoch,
+    EthSpec, ExecutionBlockHash, Hash256, InconsistentFork, PublicKey, PublicKeyBytes,
+    RelativeEpoch, SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
 };
 
 pub const POS_PANDA_BANNER: &str = r#"

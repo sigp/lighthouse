@@ -7,7 +7,7 @@ use crate::beacon_chain::{
 };
 use crate::data_availability_checker::AvailabilityCheckError;
 use crate::kzg_utils::validate_blob;
-use crate::{BeaconChainError};
+use crate::BeaconChainError;
 use derivative::Derivative;
 use kzg::Kzg;
 use ssz_types::VariableList;

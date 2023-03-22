@@ -2664,8 +2664,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         count_unrealized: CountUnrealized,
     ) -> Result<AvailabilityProcessingStatus, BlockError<T::EthSpec>> {
         self.check_availability_and_maybe_import(
-            |chain| chain.data_availability_checker.put_blob(blob,
-            |epoch| chain.block_needs_da_check(epoch)),
+            |chain| {
+                chain
+                    .data_availability_checker
+                    .put_blob(blob, |epoch| chain.block_needs_da_check(epoch))
+            },
             count_unrealized,
         )
         .await
