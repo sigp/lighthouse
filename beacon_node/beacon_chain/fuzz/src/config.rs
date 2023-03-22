@@ -27,6 +27,9 @@ pub struct Config {
     pub max_delay_difference: usize,
     /// Maximum length of re-org that will be tolerated.
     pub max_reorg_length: usize,
+    /// Number of slots to run the chain for with only honest nodes, before the attacker becomes
+    /// active.
+    pub num_warmup_slots: usize,
     pub debug: DebugConfig,
 }
 
@@ -64,6 +67,7 @@ impl Default for DebugConfig {
 
 impl Config {
     pub fn with_10pc_attacker() -> Self {
+        // FIXME(sproul): read slots_per_epoch from EthSpec
         let ticks_per_slot = 3;
         let slots_per_epoch = 8;
         Config {
@@ -76,6 +80,7 @@ impl Config {
             max_first_node_delay: 2 * slots_per_epoch * ticks_per_slot,
             max_delay_difference: ticks_per_slot,
             max_reorg_length: 8,
+            num_warmup_slots: 4 * 32,
             debug: DebugConfig::default(),
         }
     }

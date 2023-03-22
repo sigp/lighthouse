@@ -253,7 +253,9 @@ impl<'a, E: EthSpec> Runner<'a, E> {
             }
 
             // Slot start activities for the attacker.
-            if self.conf.is_block_proposal_tick(self.tick()) {
+            if current_slot.as_usize() >= self.conf.num_warmup_slots
+                && self.conf.is_block_proposal_tick(self.tick())
+            {
                 self.hydra
                     .update(&self.attacker.harness, current_epoch, &self.spec);
                 let proposer_heads = self.hydra.proposer_heads_at_slot(

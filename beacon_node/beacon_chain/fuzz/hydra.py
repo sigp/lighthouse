@@ -45,7 +45,7 @@ def build_repro_target(args):
         check=True,
     )
 
-def fuzz_command(i):
+def fuzz_command(i, args):
     return [
        "cargo",
        "+nightly",
@@ -58,7 +58,7 @@ def fuzz_command(i):
        "-S",
        f"worker{i}",
        "-t",
-       "60000",
+       str(args.timeout * 1000),
        f"target/release/{FUZZ_TARGET}"
     ]
 
@@ -74,7 +74,7 @@ def run_single(args):
 
     # Fuzz the compiled binary.
     subprocess.run(
-        fuzz_command(0),
+        fuzz_command(0, args),
         stdout=sys.stdout,
         stderr=sys.stderr,
     )
@@ -112,7 +112,7 @@ def run_multi(args):
                 session,
                 "-X",
                 "screen",
-                *fuzz_command(i)
+                *fuzz_command(i, args)
             ],
             stdout=sys.stdout,
             stderr=sys.stderr
@@ -145,6 +145,7 @@ def parse_args():
     # run_parser.add_argument("--reorg-limit", metavar="N", type=int, default=5)
     run_parser.add_argument("--session", metavar="NAME", type=str, default="hydra")
     run_parser.add_argument("--worker-offset", metavar="N", type=int, default=0)
+    run_parser.add_argument("--timeout", metavar="SECONDS", type=int, default=10 * 60)
     run_parser.set_defaults(func=run)
 
     repro_parser = subparsers.add_parser("repro", help="Reproduce a crash with debugging output")
