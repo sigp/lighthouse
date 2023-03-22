@@ -3,6 +3,7 @@
 
 mod keystores;
 
+use crate::beacon_node_fallback::BeaconNodeFallback;
 use crate::doppelganger_service::DoppelgangerService;
 use crate::{
     http_api::{ApiSecret, Config as HttpConfig, Context},
@@ -101,7 +102,7 @@ impl ApiTester {
             initialized_validators,
             slashing_protection,
             Hash256::repeat_byte(42),
-            spec,
+            spec.clone(),
             Some(Arc::new(DoppelgangerService::new(log.clone()))),
             slot_clock,
             &config,
@@ -129,7 +130,13 @@ impl ApiTester {
                 listen_port: 0,
                 allow_origin: None,
             },
-            log,
+            log: log.clone(),
+            beacon_nodes: Arc::new(BeaconNodeFallback::new(
+                vec![], // FIXME: (jimmy) add a beacon node
+                false,
+                spec.clone(),
+                log.clone(),
+            )),
             _phantom: PhantomData,
         });
         let ctx = context.clone();
