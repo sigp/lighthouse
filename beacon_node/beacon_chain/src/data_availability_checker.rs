@@ -1,5 +1,6 @@
 use crate::blob_verification::{
     verify_kzg_for_blob, AvailableBlock, BlockWrapper, GossipVerifiedBlob, KzgVerifiedBlob,
+    KzgVerifiedBlobList,
 };
 use crate::block_verification::{AvailableExecutedBlock, ExecutedBlock};
 use crate::kzg_utils::validate_blob;
@@ -110,7 +111,8 @@ impl<T: EthSpec> DataAvailabilityChecker<T> {
                     match block_wrapper {
                         BlockWrapper::AvailabilityPending(block) => {
                             let kzg_commitments = block
-                                .message_eip4844().map_err(|_|AvailabilityCheckError::IncorrectFork)?
+                                .message_eip4844()
+                                .map_err(|_| AvailabilityCheckError::IncorrectFork)?
                                 .body
                                 .blob_kzg_commitments
                                 .clone()
@@ -123,12 +125,8 @@ impl<T: EthSpec> DataAvailabilityChecker<T> {
                             if verified_commitments == kzg_commitments {
                                 //TODO(sean) can we remove this clone
                                 let blobs = cache.verified_blobs.clone();
-                                let available_block = AvailableBlock::new(
-                                    block,
-                                    blobs,
-                                    da_check_fn,
-                                    kzg
-                                )?;
+                                let available_block =
+                                    AvailableBlock::new(block, blobs, da_check_fn, Some(kzg))?;
                                 Availability::Available(Box::new(AvailableExecutedBlock::new(
                                     inner,
                                     available_block,
@@ -190,6 +188,8 @@ impl<T: EthSpec> DataAvailabilityChecker<T> {
         executed_block: ExecutedBlock<T>,
         da_check_fn: impl FnOnce(Epoch) -> bool,
     ) -> Result<Availability<T>, AvailabilityCheckError> {
+        let kzg = self.kzg.clone();
+
         let ExecutedBlock(inner, block) = executed_block;
 
         let availability = match block {
@@ -265,9 +265,10 @@ impl<T: EthSpec> DataAvailabilityChecker<T> {
                         }
                     }
                 } else {
+                    let blob_list: KzgVerifiedBlobList<T> = vec![];
                     Availability::Available(Box::new(AvailableExecutedBlock::new(
                         inner,
-                        AvailableBlock::new(block, vec![], da_check_fn, kzg)?,
+                        AvailableBlock::new(block, blob_list, da_check_fn, kzg)?,
                     )))
                 }
             }

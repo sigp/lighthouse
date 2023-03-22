@@ -11,7 +11,12 @@ use crate::blob_verification::{
     self, AsBlock, AvailableBlock, BlobError, BlockWrapper, GossipVerifiedBlob,
 };
 use crate::block_times_cache::BlockTimesCache;
-use crate::block_verification::{check_block_is_finalized_checkpoint_or_descendant, check_block_relevancy, get_block_root, signature_verify_chain_segment, BlockError, ExecutedBlock, ExecutedBlockInner, ExecutionPendingBlock, GossipVerifiedBlock, IntoExecutionPendingBlock, POS_PANDA_BANNER, AvailableExecutedBlock};
+use crate::block_verification::{
+    check_block_is_finalized_checkpoint_or_descendant, check_block_relevancy, get_block_root,
+    signature_verify_chain_segment, AvailableExecutedBlock, BlockError, ExecutedBlock,
+    ExecutedBlockInner, ExecutionPendingBlock, GossipVerifiedBlock, IntoExecutionPendingBlock,
+    POS_PANDA_BANNER,
+};
 pub use crate::canonical_head::{CanonicalHead, CanonicalHeadRwLock};
 use crate::chain_config::ChainConfig;
 use crate::data_availability_checker::{

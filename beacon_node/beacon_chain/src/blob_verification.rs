@@ -310,7 +310,7 @@ struct AvailableBlockInner<E: EthSpec> {
 pub trait IntoKzgVerifiedBlobs<T: EthSpec> {
     fn into_kzg_verified_blobs(
         self,
-        kzg: &Kzg,
+        kzg: Option<Arc<Kzg>>,
     ) -> Result<KzgVerifiedBlobList<T>, AvailabilityCheckError>;
     fn is_empty(&self) -> bool;
 }
@@ -318,7 +318,7 @@ pub trait IntoKzgVerifiedBlobs<T: EthSpec> {
 impl<T: EthSpec> IntoKzgVerifiedBlobs<T> for KzgVerifiedBlobList<T> {
     fn into_kzg_verified_blobs(
         self,
-        kzg: &Kzg,
+        kzg: Option<Arc<Kzg>>,
     ) -> Result<KzgVerifiedBlobList<T>, AvailabilityCheckError> {
         Ok(self)
     }
@@ -331,9 +331,8 @@ impl<T: EthSpec> IntoKzgVerifiedBlobs<T> for KzgVerifiedBlobList<T> {
 impl<E: EthSpec> IntoKzgVerifiedBlobs<E> for Vec<Arc<BlobSidecar<E>>> {
     fn into_kzg_verified_blobs(
         self,
-        kzg: &Kzg
+        kzg: Option<Arc<Kzg>>,
     ) -> Result<KzgVerifiedBlobList<E>, AvailabilityCheckError> {
-
         todo!()
         // verify batch kzg, need this for creating available blocks in
         // `process_chain_segment` or local block production
@@ -355,9 +354,6 @@ impl<E: EthSpec> AvailableBlock<E> {
             block.message().body().blob_kzg_commitments(),
             block.message().body().execution_payload(),
         ) {
-
-            let kzg = kzg.ok_or(AvailabilityCheckError::KzgNotInitialized)?;
-
             if blobs.is_empty() && block_kzg_commitments.is_empty() {
                 return Ok(Self(AvailableBlockInner {
                     block,
@@ -376,7 +372,7 @@ impl<E: EthSpec> AvailableBlock<E> {
                 }
             }
 
-            let blobs = blobs.into_kzg_verified_blobs(kzg.as_ref())?;
+            let blobs = blobs.into_kzg_verified_blobs(kzg)?;
 
             if blobs.len() != block_kzg_commitments.len() {
                 return Err(AvailabilityCheckError::NumBlobsMismatch {
@@ -387,8 +383,11 @@ impl<E: EthSpec> AvailableBlock<E> {
 
             // If there are no transactions here, this is a blinded block.
             if let Some(transactions) = payload.transactions() {
-                verify_kzg_commitments_against_transactions::<E>(transactions, block_kzg_commitments)
-                    .map_err(|_|AvailabilityCheckError::TxKzgCommitmentMismatch)?;
+                verify_kzg_commitments_against_transactions::<E>(
+                    transactions,
+                    block_kzg_commitments,
+                )
+                .map_err(|_| AvailabilityCheckError::TxKzgCommitmentMismatch)?;
             }
 
             for (block_commitment, blob) in block_kzg_commitments.iter().zip(blobs.iter()) {
@@ -399,12 +398,8 @@ impl<E: EthSpec> AvailableBlock<E> {
                 }
             }
 
-            let verified_blobs = VariableList::new(
-                blobs
-                    .into_iter()
-                    .map(|blob| blob.blob)
-                    .collect(),
-            )?;
+            let verified_blobs =
+                VariableList::new(blobs.into_iter().map(|blob| blob.blob).collect())?;
 
             //TODO(sean) AvailableBlockInner not add anything if the fields of AvailableBlock are private
             Ok(Self(AvailableBlockInner {
@@ -619,7 +614,7 @@ impl<E: EthSpec> AsBlock<E> for &BlockWrapper<E> {
     }
 
     fn into_block_wrapper(self) -> BlockWrapper<E> {
-       self.clone()
+        self.clone()
     }
 }
 

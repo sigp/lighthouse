@@ -147,7 +147,7 @@ async fn produces_attestations() {
                     .add_head_block(
                         block_root,
                         block_wrapper
-                            .into_available_block(None, |_|{false})
+                            .into_available_block(None, |_| false)
                             .expect("should wrap into available block"),
                         proto_block,
                         &state,
@@ -209,7 +209,7 @@ async fn early_attester_cache_old_request() {
             head.beacon_block_root,
             block
                 .clone()
-                .into_available_block(None, |_|{false})
+                .into_available_block(None, |_| false)
                 .expect("should wrap into available block"),
             head_proto_block,
             &head.beacon_state,
