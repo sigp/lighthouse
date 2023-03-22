@@ -567,12 +567,14 @@ impl<E: EthSpec> AsBlock<E> for BlockWrapper<E> {
         match &self {
             BlockWrapper::Available(block) => &block.0.block,
             BlockWrapper::AvailabilityPending(block) => block,
+            BlockWrapper::AvailabiltyCheckDelayed(block, _) => block,
         }
     }
     fn block_cloned(&self) -> Arc<SignedBeaconBlock<E>> {
         match &self {
             BlockWrapper::Available(block) => block.0.block.clone(),
             BlockWrapper::AvailabilityPending(block) => block.clone(),
+            BlockWrapper::AvailabiltyCheckDelayed(block, _) => block.clone(),
         }
     }
     fn canonical_root(&self) -> Hash256 {
@@ -607,12 +609,14 @@ impl<E: EthSpec> AsBlock<E> for &BlockWrapper<E> {
         match &self {
             BlockWrapper::Available(block) => &block.0.block,
             BlockWrapper::AvailabilityPending(block) => block,
+            BlockWrapper::AvailabiltyCheckDelayed(block, _) => block,
         }
     }
     fn block_cloned(&self) -> Arc<SignedBeaconBlock<E>> {
         match &self {
             BlockWrapper::Available(block) => block.0.block.clone(),
             BlockWrapper::AvailabilityPending(block) => block.clone(),
+            BlockWrapper::AvailabiltyCheckDelayed(block, _) => block.clone(),
         }
     }
     fn canonical_root(&self) -> Hash256 {
