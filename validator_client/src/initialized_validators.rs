@@ -998,16 +998,14 @@ impl InitializedValidators {
             )
         });
 
-        let mut key_cache;
-
         // Only decrypt cache when there is at least one local definition.
         // Decrypting cache is a very expensive operation which is never used for web3signer.
-        if has_local_definitions {
-            key_cache = self.decrypt_key_cache(cache, &mut key_stores).await?;
+        let mut key_cache = if has_local_definitions {
+            self.decrypt_key_cache(cache, &mut key_stores).await?
         } else {
             // Assign an empty KeyCache if all definitions are of the Web3Signer type.
-            key_cache = KeyCache::new();
-        }
+            KeyCache::new()
+        };
 
         let mut disabled_uuids = HashSet::new();
         for def in self.definitions.as_slice() {
