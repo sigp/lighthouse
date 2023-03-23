@@ -20,11 +20,11 @@ use tree_hash_derive::TreeHash;
     TestRandom,
 )]
 pub struct DepositReceipt {
-    pub pubkey: PublicKey,
+    pub pubkey: PublicKeyBytes,
     pub withdrawal_credentials: Hash256,
     #[serde(with = "eth2_serde_utils::quoted_u64")]
     pub amount: u64,
-    pub signature: Signature,
+    pub signature: SignatureBytes,
     #[serde(with = "eth2_serde_utils::quoted_u64")]
     pub index: u64,
 }

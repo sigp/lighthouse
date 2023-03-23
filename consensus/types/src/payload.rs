@@ -272,12 +272,12 @@ impl<T: EthSpec> ExecPayload<T> for FullPayload<T> {
     fn deposit_receipts(&self) -> Result<DepositReceipts<T>, Error> {
         match self {
             FullPayload::Merge(_) => {
-                // Return an error for the Merge variant
-                Err(Error::IncorrectStateVariant)
+                // Return an "empty" or "default" value for the Merge variant
+                Ok(Vec::new().into())
             }
             FullPayload::Capella(_) => {
-                // Return an error for the Capella variant
-                Err(Error::IncorrectStateVariant)
+                // Return an "empty" or "default" value for the Capella variant
+                Ok(Vec::new().into())
             }
             FullPayload::Eip4844(ref inner) => Ok(inner.execution_payload.deposit_receipts.clone()),
         }
@@ -395,16 +395,16 @@ impl<'b, T: EthSpec> ExecPayload<T> for FullPayloadRef<'b, T> {
     fn deposit_receipts(&self) -> Result<DepositReceipts<T>, Error> {
         match self {
             FullPayloadRef::Merge(_) => {
-                // Return an error for the Merge variant
-                Err(Error::IncorrectStateVariant)
+                // Return an "empty" or "default" value for the Merge variant
+                Ok(Vec::new().into())
             }
             FullPayloadRef::Capella(_) => {
-                // Return an error for the Capella variant
-                Err(Error::IncorrectStateVariant)
+                // Return an "empty" or "default" value for the Capella variant
+                Ok(Vec::new().into())
             }
-            FullPayloadRef::Eip4844(inner) => Ok(inner.execution_payload.deposit_receipts.clone()),
+            FullPayloadRef::Eip4844(ref inner) => Ok(inner.execution_payload.deposit_receipts.clone()),
         }
-    }
+    }    
 }
 
 impl<T: EthSpec> AbstractExecPayload<T> for FullPayload<T> {
@@ -675,8 +675,21 @@ impl<'b, T: EthSpec> ExecPayload<T> for BlindedPayloadRef<'b, T> {
     }
 
     fn deposit_receipts(&self) -> Result<DepositReceipts<T>, Error> {
-        todo!()
-    }
+        match self {
+            BlindedPayloadRef::Merge(_) => {
+                // Return an "empty" or "default" value for the Merge variant
+                Ok(Vec::new().into())
+            }
+            BlindedPayloadRef::Capella(_) => {
+                // Return an "empty" or "default" value for the Capella variant
+                Ok(Vec::new().into())
+            }
+            BlindedPayloadRef::Eip4844(_) => {
+                // Return an "empty" or "default" value for the Eip4844 variant
+                Ok(Vec::new().into())
+            }
+        }
+    }    
 }
 
 macro_rules! impl_exec_payload_common {

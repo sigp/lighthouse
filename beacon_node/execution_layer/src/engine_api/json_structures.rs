@@ -1,6 +1,6 @@
 use super::*;
-use eth2::types::PublicKey;
-use eth2::types::Signature;
+use eth2::types::PublicKeyBytes;
+use eth2::types::SignatureBytes;
 use serde::{Deserialize, Serialize};
 use strum::EnumString;
 use superstruct::superstruct;
@@ -371,11 +371,11 @@ impl From<JsonWithdrawal> for Withdrawal {
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct JsonDepositReceipt {
-    pub pubkey: PublicKey,
+    pub pubkey: PublicKeyBytes,
     pub withdrawal_credentials: Hash256,
     #[serde(with = "eth2_serde_utils::u64_hex_be")]
     pub amount: u64,
-    pub signature: Signature,
+    pub signature: SignatureBytes,
     #[serde(with = "eth2_serde_utils::u64_hex_be")]
     pub index: u64,
 }
@@ -383,10 +383,10 @@ pub struct JsonDepositReceipt {
 impl From<DepositReceipt> for JsonDepositReceipt {
     fn from(deposit_receipt: DepositReceipt) -> Self {
         Self {
-            pubkey: deposit_receipt.pubkey,
+            pubkey: deposit_receipt.pubkey.decompress().unwrap().into(), // Convert PublicKeyBytes to PublicKey
             withdrawal_credentials: deposit_receipt.withdrawal_credentials,
             amount: deposit_receipt.amount,
-            signature: deposit_receipt.signature,
+            signature: (deposit_receipt.signature).try_into().unwrap(), // Convert SignatureBytes to Signature
             index: deposit_receipt.index,
         }
     }
@@ -395,10 +395,10 @@ impl From<DepositReceipt> for JsonDepositReceipt {
 impl From<JsonDepositReceipt> for DepositReceipt {
     fn from(json_deposit_receipt: JsonDepositReceipt) -> Self {
         Self {
-            pubkey: json_deposit_receipt.pubkey,
+            pubkey: json_deposit_receipt.pubkey.into(),
             withdrawal_credentials: json_deposit_receipt.withdrawal_credentials,
             amount: json_deposit_receipt.amount,
-            signature: json_deposit_receipt.signature,
+            signature: json_deposit_receipt.signature.into(),
             index: json_deposit_receipt.index,
         }
     }
