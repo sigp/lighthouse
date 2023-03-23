@@ -27,6 +27,7 @@ impl<T: EthSpec> MockExecutionLayer<T> {
         Self::new(
             executor,
             DEFAULT_TERMINAL_BLOCK,
+            0, // FIXME(sproul): tweak
             None,
             None,
             Some(JwtKey::from_slice(&DEFAULT_JWT_SECRET).unwrap()),
@@ -39,6 +40,7 @@ impl<T: EthSpec> MockExecutionLayer<T> {
     pub fn new(
         executor: TaskExecutor,
         terminal_block: u64,
+        genesis_time: u64,
         shanghai_time: Option<u64>,
         builder_threshold: Option<u128>,
         jwt_key: Option<JwtKey>,
@@ -54,6 +56,7 @@ impl<T: EthSpec> MockExecutionLayer<T> {
             spec.terminal_total_difficulty,
             terminal_block,
             spec.terminal_block_hash,
+            genesis_time,
             shanghai_time,
         );
 
@@ -224,6 +227,12 @@ impl<T: EthSpec> MockExecutionLayer<T> {
         assert_eq!(head_execution_block.parent_hash(), parent_hash);
 
         self
+    }
+
+    pub fn genesis_execution_payload_header(&self) -> Option<ExecutionPayloadHeader<T>> {
+        self.server
+            .execution_block_generator()
+            .genesis_execution_payload_header()
     }
 
     pub fn move_to_block_prior_to_terminal_block(self) -> Self {

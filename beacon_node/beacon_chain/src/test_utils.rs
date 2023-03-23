@@ -181,6 +181,11 @@ impl<E: EthSpec> Builder<EphemeralHarnessType<E>> {
             .clone()
             .expect("cannot build without validator keypairs");
 
+        let genesis_execution_payload_header = self
+            .mock_execution_layer
+            .as_ref()
+            .and_then(|el| el.genesis_execution_payload_header());
+
         let store = Arc::new(
             HotColdDB::open_ephemeral(
                 self.store_config.clone().unwrap_or_default(),
@@ -194,7 +199,7 @@ impl<E: EthSpec> Builder<EphemeralHarnessType<E>> {
                 &validator_keypairs,
                 HARNESS_GENESIS_TIME,
                 Hash256::from_slice(DEFAULT_ETH1_BLOCK_HASH),
-                None,
+                genesis_execution_payload_header,
                 builder.get_spec(),
             )
             .expect("should generate interop state");
@@ -433,14 +438,19 @@ where
         self
     }
 
-    pub fn mock_execution_layer(mut self) -> Self {
+    pub fn mock_execution_layer(self) -> Self {
+        self.mock_execution_layer_generic(DEFAULT_TERMINAL_BLOCK)
+    }
+
+    pub fn mock_execution_layer_generic(mut self, terminal_block_number: u64) -> Self {
         let spec = self.spec.clone().expect("cannot build without spec");
         let shanghai_time = spec.capella_fork_epoch.map(|epoch| {
             HARNESS_GENESIS_TIME + spec.seconds_per_slot * E::slots_per_epoch() * epoch.as_u64()
         });
         let mock = MockExecutionLayer::new(
             self.runtime.task_executor.clone(),
-            DEFAULT_TERMINAL_BLOCK,
+            terminal_block_number,
+            HARNESS_GENESIS_TIME,
             shanghai_time,
             None,
             Some(JwtKey::from_slice(&DEFAULT_JWT_SECRET).unwrap()),
@@ -467,6 +477,7 @@ where
         });
         let mock_el = MockExecutionLayer::new(
             self.runtime.task_executor.clone(),
+            HARNESS_GENESIS_TIME,
             DEFAULT_TERMINAL_BLOCK,
             shanghai_time,
             builder_threshold,

@@ -1,7 +1,7 @@
 use beacon_chain::test_utils::test_spec;
 use beacon_chain_fuzz::{Config, LogConfig, LogInterceptor, Runner, TestHarness};
 use tokio::runtime::Runtime;
-use types::{ChainSpec, ForkName, Keypair};
+use types::{ChainSpec, ForkName, Keypair, Uint256};
 
 const TEST_FORK: ForkName = ForkName::Capella;
 
@@ -34,12 +34,15 @@ fn get_harness(
 ) -> TestHarness<E> {
     let log = LogInterceptor::new(id, log_config).into_logger();
 
+    // Start from PoS.
+    let terminal_block_number = 0;
+
     let harness = TestHarness::builder(E::default())
         .spec(spec)
         .logger(log)
         .keypairs(keypairs.to_vec())
+        .mock_execution_layer_generic(terminal_block_number)
         .fresh_ephemeral_store()
-        .mock_execution_layer()
         .build();
     harness
 }
@@ -50,7 +53,8 @@ fn main() {
         let rt = Runtime::new().unwrap();
 
         // FIXME(sproul): need to actually get execution enabled
-        let spec = TEST_FORK.make_genesis_spec(test_spec::<E>());
+        let mut spec = TEST_FORK.make_genesis_spec(test_spec::<E>());
+        spec.terminal_total_difficulty = Uint256::zero();
         let mut runner = Runner::new(data, config, spec, get_harness);
 
         match rt.block_on(async move { runner.run().await }) {

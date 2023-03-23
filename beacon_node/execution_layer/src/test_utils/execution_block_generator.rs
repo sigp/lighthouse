@@ -13,8 +13,8 @@ use std::collections::HashMap;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 use types::{
-    EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadCapella, ExecutionPayloadMerge,
-    ForkName, Hash256, Uint256,
+    Address, EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadCapella,
+    ExecutionPayloadHeader, ExecutionPayloadMerge, ForkName, Hash256, Uint256,
 };
 
 const GAS_LIMIT: u64 = 16384;
@@ -125,6 +125,7 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
         terminal_total_difficulty: Uint256,
         terminal_block_number: u64,
         terminal_block_hash: ExecutionBlockHash,
+        genesis_time: u64,
         shanghai_time: Option<u64>,
     ) -> Self {
         let mut gen = Self {
@@ -141,7 +142,27 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
             shanghai_time,
         };
 
-        gen.insert_pow_block(0).unwrap();
+        // Proof-of-stake start.
+        if terminal_total_difficulty.is_zero()
+            && terminal_block_number == 0
+            && terminal_block_hash == ExecutionBlockHash::zero()
+        {
+            println!("Proof of stake start");
+            let payload_attributes = PayloadAttributes::new(
+                genesis_time,
+                Hash256::zero(), // FIXME(sproul): tweak prev randao?
+                Address::zero(),
+                Some(vec![]),
+            );
+            let execution_payload =
+                gen.generate_pos_payload(ExecutionBlockHash::zero(), 0, &payload_attributes);
+            let block = Block::PoS(execution_payload);
+            gen.insert_block(block.clone()).unwrap();
+            gen.head_block = Some(block);
+        } else {
+            println!("Proof of work start");
+            gen.insert_pow_block(0).unwrap();
+        }
 
         gen
     }
@@ -153,6 +174,14 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
     pub fn latest_execution_block(&self) -> Option<ExecutionBlock> {
         self.latest_block()
             .map(|block| block.as_execution_block(self.terminal_total_difficulty))
+    }
+
+    /// Get the execution payload header for the genesis block, if the chain was started from PoS.
+    pub fn genesis_execution_payload_header(&self) -> Option<ExecutionPayloadHeader<T>> {
+        match self.block_by_number(0) {
+            None | Some(Block::PoW(_)) => None,
+            Some(Block::PoS(payload)) => Some(payload.to_ref().into()),
+        }
     }
 
     pub fn block_by_number(&self, number: u64) -> Option<Block<T>> {
@@ -475,63 +504,11 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
                 let id = payload_id_from_u64(self.next_payload_id);
                 self.next_payload_id += 1;
 
-                let mut execution_payload = match &attributes {
-                    PayloadAttributes::V1(pa) => ExecutionPayload::Merge(ExecutionPayloadMerge {
-                        parent_hash: forkchoice_state.head_block_hash,
-                        fee_recipient: pa.suggested_fee_recipient,
-                        receipts_root: Hash256::repeat_byte(42),
-                        state_root: Hash256::repeat_byte(43),
-                        logs_bloom: vec![0; 256].into(),
-                        prev_randao: pa.prev_randao,
-                        block_number: parent.block_number() + 1,
-                        gas_limit: GAS_LIMIT,
-                        gas_used: GAS_USED,
-                        timestamp: pa.timestamp,
-                        extra_data: "block gen was here".as_bytes().to_vec().into(),
-                        base_fee_per_gas: Uint256::one(),
-                        block_hash: ExecutionBlockHash::zero(),
-                        transactions: vec![].into(),
-                    }),
-                    PayloadAttributes::V2(pa) => match self.get_fork_at_timestamp(pa.timestamp) {
-                        ForkName::Merge => ExecutionPayload::Merge(ExecutionPayloadMerge {
-                            parent_hash: forkchoice_state.head_block_hash,
-                            fee_recipient: pa.suggested_fee_recipient,
-                            receipts_root: Hash256::repeat_byte(42),
-                            state_root: Hash256::repeat_byte(43),
-                            logs_bloom: vec![0; 256].into(),
-                            prev_randao: pa.prev_randao,
-                            block_number: parent.block_number() + 1,
-                            gas_limit: GAS_LIMIT,
-                            gas_used: GAS_USED,
-                            timestamp: pa.timestamp,
-                            extra_data: "block gen was here".as_bytes().to_vec().into(),
-                            base_fee_per_gas: Uint256::one(),
-                            block_hash: ExecutionBlockHash::zero(),
-                            transactions: vec![].into(),
-                        }),
-                        ForkName::Capella => ExecutionPayload::Capella(ExecutionPayloadCapella {
-                            parent_hash: forkchoice_state.head_block_hash,
-                            fee_recipient: pa.suggested_fee_recipient,
-                            receipts_root: Hash256::repeat_byte(42),
-                            state_root: Hash256::repeat_byte(43),
-                            logs_bloom: vec![0; 256].into(),
-                            prev_randao: pa.prev_randao,
-                            block_number: parent.block_number() + 1,
-                            gas_limit: GAS_LIMIT,
-                            gas_used: GAS_USED,
-                            timestamp: pa.timestamp,
-                            extra_data: "block gen was here".as_bytes().to_vec().into(),
-                            base_fee_per_gas: Uint256::one(),
-                            block_hash: ExecutionBlockHash::zero(),
-                            transactions: vec![].into(),
-                            withdrawals: pa.withdrawals.clone().into(),
-                        }),
-                        _ => unreachable!(),
-                    },
-                };
-
-                *execution_payload.block_hash_mut() =
-                    ExecutionBlockHash::from_root(execution_payload.tree_hash_root());
+                let execution_payload = self.generate_pos_payload(
+                    forkchoice_state.head_block_hash,
+                    parent.block_number() + 1,
+                    &attributes,
+                );
 
                 self.payload_ids.insert(id, execution_payload);
 
@@ -558,6 +535,62 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
             },
             payload_id: id.map(Into::into),
         })
+    }
+
+    pub fn generate_pos_payload(
+        &self,
+        parent_hash: ExecutionBlockHash,
+        block_number: u64,
+        attributes: &PayloadAttributes,
+    ) -> ExecutionPayload<T> {
+        let pa = attributes;
+        let mut execution_payload = match self.get_fork_at_timestamp(attributes.timestamp()) {
+            ForkName::Merge => ExecutionPayload::Merge(ExecutionPayloadMerge {
+                parent_hash,
+                fee_recipient: pa.suggested_fee_recipient(),
+                receipts_root: Hash256::repeat_byte(42),
+                state_root: Hash256::repeat_byte(43),
+                logs_bloom: vec![0; 256].into(),
+                prev_randao: pa.prev_randao(),
+                block_number,
+                gas_limit: GAS_LIMIT,
+                gas_used: GAS_USED,
+                timestamp: pa.timestamp(),
+                extra_data: "block gen was here".as_bytes().to_vec().into(),
+                base_fee_per_gas: Uint256::one(),
+                block_hash: ExecutionBlockHash::zero(),
+                transactions: vec![].into(),
+            }),
+            ForkName::Capella => {
+                let withdrawals = attributes
+                    .withdrawals()
+                    .expect("capella payload attributes must have withdrawals")
+                    .clone();
+
+                ExecutionPayload::Capella(ExecutionPayloadCapella {
+                    parent_hash,
+                    fee_recipient: pa.suggested_fee_recipient(),
+                    receipts_root: Hash256::repeat_byte(42),
+                    state_root: Hash256::repeat_byte(43),
+                    logs_bloom: vec![0; 256].into(),
+                    prev_randao: pa.prev_randao(),
+                    block_number,
+                    gas_limit: GAS_LIMIT,
+                    gas_used: GAS_USED,
+                    timestamp: pa.timestamp(),
+                    extra_data: "block gen was here".as_bytes().to_vec().into(),
+                    base_fee_per_gas: Uint256::one(),
+                    block_hash: ExecutionBlockHash::zero(),
+                    transactions: vec![].into(),
+                    withdrawals: withdrawals.into(),
+                })
+            }
+            _ => unreachable!(),
+        };
+
+        *execution_payload.block_hash_mut() =
+            ExecutionBlockHash::from_root(execution_payload.tree_hash_root());
+        execution_payload
     }
 }
 

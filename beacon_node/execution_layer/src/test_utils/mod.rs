@@ -59,6 +59,7 @@ pub struct MockExecutionConfig {
     pub terminal_difficulty: Uint256,
     pub terminal_block: u64,
     pub terminal_block_hash: ExecutionBlockHash,
+    pub genesis_time: u64,
     pub shanghai_time: Option<u64>,
 }
 
@@ -70,6 +71,7 @@ impl Default for MockExecutionConfig {
             terminal_block: DEFAULT_TERMINAL_BLOCK,
             terminal_block_hash: ExecutionBlockHash::zero(),
             server_config: Config::default(),
+            genesis_time: 0,
             shanghai_time: None,
         }
     }
@@ -90,6 +92,7 @@ impl<T: EthSpec> MockServer<T> {
             DEFAULT_TERMINAL_DIFFICULTY.into(),
             DEFAULT_TERMINAL_BLOCK,
             ExecutionBlockHash::zero(),
+            0,
             None, // FIXME(capella): should this be the default?
         )
     }
@@ -101,6 +104,7 @@ impl<T: EthSpec> MockServer<T> {
             terminal_block,
             terminal_block_hash,
             server_config,
+            genesis_time,
             shanghai_time,
         } = config;
         let last_echo_request = Arc::new(RwLock::new(None));
@@ -109,6 +113,7 @@ impl<T: EthSpec> MockServer<T> {
             terminal_difficulty,
             terminal_block,
             terminal_block_hash,
+            genesis_time,
             shanghai_time,
         );
 
@@ -167,6 +172,7 @@ impl<T: EthSpec> MockServer<T> {
         terminal_difficulty: Uint256,
         terminal_block: u64,
         terminal_block_hash: ExecutionBlockHash,
+        genesis_time: u64,
         shanghai_time: Option<u64>,
     ) -> Self {
         Self::new_with_config(
@@ -177,6 +183,7 @@ impl<T: EthSpec> MockServer<T> {
                 terminal_difficulty,
                 terminal_block,
                 terminal_block_hash,
+                genesis_time,
                 shanghai_time,
             },
         )
