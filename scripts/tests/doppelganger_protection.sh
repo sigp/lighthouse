@@ -35,10 +35,8 @@ exit_if_fails cp -R $HOME/.lighthouse/local-testnet/node_1 $HOME/.lighthouse/loc
 echo "Starting bootnode"
 
 exit_if_fails ../local_testnet/bootnode.sh &> /dev/null &
-BOOT_PID=$!
 
 exit_if_fails ../local_testnet/el_bootnode.sh &> /dev/null &
-EL_BOOT_PID=$!
 
 # wait for the bootnode to start
 sleep 10
@@ -46,31 +44,22 @@ sleep 10
 echo "Starting local execution nodes"
 
 exit_if_fails ../local_testnet/geth.sh $HOME/.lighthouse/local-testnet/geth_datadir1 7000 6000 5000 $genesis_file &> geth.log &
-EL_PID=$!
 exit_if_fails ../local_testnet/geth.sh $HOME/.lighthouse/local-testnet/geth_datadir2 7100 6100 5100 $genesis_file &> /dev/null &
-EL_PID2=$!
 exit_if_fails ../local_testnet/geth.sh $HOME/.lighthouse/local-testnet/geth_datadir3 7200 6200 5200 $genesis_file &> /dev/null &
-EL_PID3=$!
 
 sleep 20
 
 echo "Starting local beacon nodes"
 
 exit_if_fails ../local_testnet/beacon_node.sh -d debug $HOME/.lighthouse/local-testnet/node_1 9000 8000 http://localhost:5000 $HOME/.lighthouse/local-testnet/geth_datadir1/geth/jwtsecret &> beacon.log &
-BEACON_PID=$!
 exit_if_fails ../local_testnet/beacon_node.sh $HOME/.lighthouse/local-testnet/node_2 9100 8100 http://localhost:5100 $HOME/.lighthouse/local-testnet/geth_datadir2/geth/jwtsecret &> /dev/null &
-BEACON_PID2=$!
 exit_if_fails ../local_testnet/beacon_node.sh $HOME/.lighthouse/local-testnet/node_3 9200 8200 http://localhost:5200 $HOME/.lighthouse/local-testnet/geth_datadir3/geth/jwtsecret &> /dev/null &
-BEACON_PID3=$!
 
 echo "Starting local validator clients"
 
 exit_if_fails ../local_testnet/validator_client.sh $HOME/.lighthouse/local-testnet/node_1 http://localhost:8000 &> /dev/null &
-VALIDATOR_1_PID=$!
 exit_if_fails ../local_testnet/validator_client.sh $HOME/.lighthouse/local-testnet/node_2 http://localhost:8100 &> /dev/null &
-VALIDATOR_2_PID=$!
 exit_if_fails ../local_testnet/validator_client.sh $HOME/.lighthouse/local-testnet/node_3 http://localhost:8200 &> /dev/null &
-VALIDATOR_3_PID=$!
 
 echo "Waiting an epoch before starting the next validator client"
 sleep $(( $SECONDS_PER_SLOT * 32 ))
@@ -87,7 +76,9 @@ if [[ "$BEHAVIOR" == "failure" ]]; then
     echo "Shutting down"
 
     # Cleanup
-    kill $BOOT_PID $BEACON_PID $BEACON_PID2 $BEACON_PID3 $EL_BOOT_PID $EL_PID $EL_PID2 $EL_PID3 $VALIDATOR_1_PID $VALIDATOR_2_PID $VALIDATOR_3_PID
+    killall geth
+    killall lighthouse
+    killall bootnode
 
     echo "Done"
 
@@ -152,7 +143,10 @@ if [[ "$BEHAVIOR" == "success" ]]; then
 
     # Cleanup
     cd $PREVIOUS_DIR
-    kill $BOOT_PID $BEACON_PID $BEACON_PID2 $BEACON_PID3 $EL_BOOT_PID $EL_PID $EL_PID2 $EL_PID3 $VALIDATOR_1_PID $VALIDATOR_2_PID $VALIDATOR_3_PID $VALIDATOR_4_PID
+
+    killall geth
+    killall lighthouse
+    killall bootnode
 
     echo "Done"
 
