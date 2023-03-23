@@ -665,9 +665,9 @@ impl ProtoArray {
                 start_root: *justified_root,
                 justified_checkpoint: self.justified_checkpoint,
                 finalized_checkpoint: self.finalized_checkpoint,
-                head_root: justified_node.root,
-                head_justified_checkpoint: justified_node.justified_checkpoint,
-                head_finalized_checkpoint: justified_node.finalized_checkpoint,
+                head_root: best_node.root,
+                head_justified_checkpoint: best_node.justified_checkpoint,
+                head_finalized_checkpoint: best_node.finalized_checkpoint,
             })));
         }
 
