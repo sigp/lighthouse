@@ -110,7 +110,11 @@ impl<T: EthSpec> DataAvailabilityChecker<T> {
                     .insert(blob.index as usize, kzg_verified_blob);
 
                 if let Some(executed_block) = cache.executed_block.take() {
-                    let ExecutedBlock(inner, block_wrapper) = executed_block;
+                    let ExecutedBlock {
+                        block: block_wrapper,
+                        import_data,
+                        payload_verification_outcome,
+                    } = executed_block;
                     match block_wrapper {
                         BlockWrapper::AvailabilityPending(block) => {
                             let kzg_commitments = block
@@ -135,23 +139,25 @@ impl<T: EthSpec> DataAvailabilityChecker<T> {
                                     self.kzg.clone(),
                                 )?;
                                 Availability::Available(Box::new(AvailableExecutedBlock::new(
-                                    inner,
                                     available_block,
+                                    import_data,
+                                    payload_verification_outcome,
                                 )))
                             } else {
                                 let mut missing_blobs = Vec::with_capacity(kzg_commitments.len());
                                 for i in 0..kzg_commitments.len() {
                                     if cache.verified_blobs.get(i).is_none() {
                                         missing_blobs.push(BlobIdentifier {
-                                            block_root: inner.block_root,
+                                            block_root: import_data.block_root,
                                             index: i as u64,
                                         })
                                     }
                                 }
 
-                                let _ = cache.executed_block.insert(ExecutedBlock(
-                                    inner,
+                                let _ = cache.executed_block.insert(ExecutedBlock::new(
                                     BlockWrapper::AvailabilityPending(block),
+                                    import_data,
+                                    payload_verification_outcome,
                                 ));
 
                                 Availability::PendingBlobs(missing_blobs)
@@ -161,7 +167,7 @@ impl<T: EthSpec> DataAvailabilityChecker<T> {
                             // log warn, shouldn't have cached this
                             todo!()
                         }
-                        BlockWrapper::AvailabiltyCheckDelayed(_block, _blobs) => {
+                        BlockWrapper::AvailabilityCheckDelayed(_block, _blobs) => {
                             // log warn, shouldn't have cached this
                             todo!()
                         }
@@ -196,16 +202,20 @@ impl<T: EthSpec> DataAvailabilityChecker<T> {
     ) -> Result<Availability<T>, AvailabilityCheckError> {
         let kzg = self.kzg.clone();
 
-        let ExecutedBlock(inner, block) = executed_block;
+        let ExecutedBlock {
+            block,
+            import_data,
+            payload_verification_outcome,
+        } = executed_block;
 
         let availability = match block {
-            BlockWrapper::Available(available) => {
-                Availability::Available(Box::new(AvailableExecutedBlock::new(inner, available)))
-            }
+            BlockWrapper::Available(available) => Availability::Available(Box::new(
+                AvailableExecutedBlock::new(available, import_data, payload_verification_outcome),
+            )),
             BlockWrapper::AvailabilityPending(block) => {
                 if let Ok(kzg_commitments) = block.message().body().blob_kzg_commitments() {
                     let mut guard = self.gossip_blob_cache.lock();
-                    let entry = guard.entry(inner.block_root);
+                    let entry = guard.entry(import_data.block_root);
 
                     match entry {
                         Entry::Occupied(mut occupied_entry) => {
@@ -226,15 +236,18 @@ impl<T: EthSpec> DataAvailabilityChecker<T> {
                                     kzg,
                                 )?;
 
-                                let available_executed =
-                                    AvailableExecutedBlock::new(inner, available_block);
+                                let available_executed = AvailableExecutedBlock::new(
+                                    available_block,
+                                    import_data,
+                                    payload_verification_outcome,
+                                );
                                 Availability::Available(Box::new(available_executed))
                             } else {
                                 let mut missing_blobs = Vec::with_capacity(kzg_commitments.len());
                                 for i in 0..kzg_commitments.len() {
                                     if cache.verified_blobs.get(i).is_none() {
                                         missing_blobs.push(BlobIdentifier {
-                                            block_root: inner.block_root,
+                                            block_root: import_data.block_root,
                                             index: i as u64,
                                         })
                                     }
@@ -242,9 +255,10 @@ impl<T: EthSpec> DataAvailabilityChecker<T> {
 
                                 //TODO(sean) add a check that missing blobs > 0
 
-                                let _ = cache.executed_block.insert(ExecutedBlock(
-                                    inner,
+                                let _ = cache.executed_block.insert(ExecutedBlock::new(
                                     BlockWrapper::AvailabilityPending(block),
+                                    import_data,
+                                    payload_verification_outcome,
                                 ));
                                 // log that we cached the block?
                                 Availability::PendingBlobs(missing_blobs)
@@ -254,16 +268,17 @@ impl<T: EthSpec> DataAvailabilityChecker<T> {
                             let mut blob_ids = Vec::with_capacity(kzg_commitments.len());
                             for i in 0..kzg_commitments.len() {
                                 blob_ids.push(BlobIdentifier {
-                                    block_root: inner.block_root,
+                                    block_root: import_data.block_root,
                                     index: i as u64,
                                 });
                             }
 
                             vacant_entry.insert(GossipBlobCache {
                                 verified_blobs: vec![],
-                                executed_block: Some(ExecutedBlock(
-                                    inner,
+                                executed_block: Some(ExecutedBlock::new(
                                     BlockWrapper::AvailabilityPending(block),
+                                    import_data,
+                                    payload_verification_outcome,
                                 )),
                             });
 
@@ -273,17 +288,19 @@ impl<T: EthSpec> DataAvailabilityChecker<T> {
                 } else {
                     let blob_list: KzgVerifiedBlobList<T> = vec![];
                     Availability::Available(Box::new(AvailableExecutedBlock::new(
-                        inner,
                         AvailableBlock::new(block, blob_list, da_check_fn, kzg)?,
+                        import_data,
+                        payload_verification_outcome,
                     )))
                 }
             }
-            BlockWrapper::AvailabiltyCheckDelayed(block, blobs) => {
+            BlockWrapper::AvailabilityCheckDelayed(block, blobs) => {
                 //TODO(sean) shouldn't need to touch the cache here, maybe we should check if any blobs/blocks should
                 // be purged though?
                 Availability::Available(Box::new(AvailableExecutedBlock::new(
-                    inner,
                     AvailableBlock::new(block, blobs, da_check_fn, kzg)?,
+                    import_data,
+                    payload_verification_outcome,
                 )))
             }
         };

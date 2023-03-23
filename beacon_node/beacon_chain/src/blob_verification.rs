@@ -482,7 +482,7 @@ pub enum BlockWrapper<E: EthSpec> {
     /// This variant is not fully available and requires blobs to become fully available.
     AvailabilityPending(Arc<SignedBeaconBlock<E>>),
     /// This variant is useful in the networking stack to separate consensus checks from networking.
-    AvailabiltyCheckDelayed(Arc<SignedBeaconBlock<E>>, Vec<Arc<BlobSidecar<E>>>),
+    AvailabilityCheckDelayed(Arc<SignedBeaconBlock<E>>, Vec<Arc<BlobSidecar<E>>>),
 }
 
 impl<E: EthSpec> BlockWrapper<E> {
@@ -494,7 +494,7 @@ impl<E: EthSpec> BlockWrapper<E> {
         match self {
             BlockWrapper::AvailabilityPending(_) => Err(AvailabilityCheckError::Pending),
             BlockWrapper::Available(block) => Ok(block),
-            BlockWrapper::AvailabiltyCheckDelayed(block, blobs) => {
+            BlockWrapper::AvailabilityCheckDelayed(block, blobs) => {
                 AvailableBlock::new(block, blobs, da_check, kzg)
             }
         }
@@ -566,14 +566,14 @@ impl<E: EthSpec> AsBlock<E> for BlockWrapper<E> {
         match &self {
             BlockWrapper::Available(block) => &block.0.block,
             BlockWrapper::AvailabilityPending(block) => block,
-            BlockWrapper::AvailabiltyCheckDelayed(block, _) => block,
+            BlockWrapper::AvailabilityCheckDelayed(block, _) => block,
         }
     }
     fn block_cloned(&self) -> Arc<SignedBeaconBlock<E>> {
         match &self {
             BlockWrapper::Available(block) => block.0.block.clone(),
             BlockWrapper::AvailabilityPending(block) => block.clone(),
-            BlockWrapper::AvailabiltyCheckDelayed(block, _) => block.clone(),
+            BlockWrapper::AvailabilityCheckDelayed(block, _) => block.clone(),
         }
     }
     fn canonical_root(&self) -> Hash256 {
@@ -608,14 +608,14 @@ impl<E: EthSpec> AsBlock<E> for &BlockWrapper<E> {
         match &self {
             BlockWrapper::Available(block) => &block.0.block,
             BlockWrapper::AvailabilityPending(block) => block,
-            BlockWrapper::AvailabiltyCheckDelayed(block, _) => block,
+            BlockWrapper::AvailabilityCheckDelayed(block, _) => block,
         }
     }
     fn block_cloned(&self) -> Arc<SignedBeaconBlock<E>> {
         match &self {
             BlockWrapper::Available(block) => block.0.block.clone(),
             BlockWrapper::AvailabilityPending(block) => block.clone(),
-            BlockWrapper::AvailabiltyCheckDelayed(block, _) => block.clone(),
+            BlockWrapper::AvailabilityCheckDelayed(block, _) => block.clone(),
         }
     }
     fn canonical_root(&self) -> Hash256 {

@@ -13,8 +13,8 @@ use crate::blob_verification::{
 use crate::block_times_cache::BlockTimesCache;
 use crate::block_verification::{
     check_block_is_finalized_checkpoint_or_descendant, check_block_relevancy, get_block_root,
-    signature_verify_chain_segment, AvailableExecutedBlock, BlockError, ExecutedBlock,
-    ExecutedBlockInner, ExecutionPendingBlock, GossipVerifiedBlock, IntoExecutionPendingBlock,
+    signature_verify_chain_segment, AvailableExecutedBlock, BlockError, BlockImportData,
+    ExecutedBlock, ExecutionPendingBlock, GossipVerifiedBlock, IntoExecutionPendingBlock,
     POS_PANDA_BANNER,
 };
 pub use crate::canonical_head::{CanonicalHead, CanonicalHeadRwLock};
@@ -2711,7 +2711,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             notify_execution_layer,
         )?;
 
-        // TODO(log required errors)
         let executed_block = self
             .clone()
             .into_executed_block(execution_pending)
@@ -2741,13 +2740,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ) -> Result<ExecutedBlock<T::EthSpec>, BlockError<T::EthSpec>> {
         let ExecutionPendingBlock {
             block,
-            block_root,
-            state,
-            parent_block,
-            confirmed_state_roots,
+            import_data,
             payload_verification_handle,
-            parent_eth1_finalization_data,
-            consensus_context,
         } = execution_pending_block;
 
         let payload_verification_outcome = payload_verification_handle
@@ -2784,17 +2778,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     .into_root()
             );
         }
-        Ok(ExecutedBlock(
-            ExecutedBlockInner {
-                block_root,
-                state,
-                parent_block,
-                confirmed_state_roots,
-                parent_eth1_finalization_data,
-                consensus_context,
-                payload_verification_outcome,
-            },
+        Ok(ExecutedBlock::new(
             block,
+            import_data,
+            payload_verification_outcome,
         ))
     }
 
@@ -2842,14 +2829,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             Availability::Available(block) => {
                 let AvailableExecutedBlock {
                     block,
+                    import_data,
+
+                    payload_verification_outcome,
+                } = *block;
+
+                let BlockImportData {
                     block_root,
                     state,
                     parent_block,
                     parent_eth1_finalization_data,
                     confirmed_state_roots,
                     consensus_context,
-                    payload_verification_outcome,
-                } = *block;
+                } = import_data;
 
                 let slot = block.slot();
 

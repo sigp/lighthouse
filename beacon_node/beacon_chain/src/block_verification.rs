@@ -601,9 +601,6 @@ pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
 
         signature_verifier.include_all_signatures(block.as_block(), &mut consensus_context)?;
 
-        //FIXME(sean) batch kzg verification
-        consensus_context = consensus_context.set_kzg_commitments_consistent(true);
-
         // Save the block and its consensus context. The context will have had its proposer index
         // and attesting indices filled in, which can be used to accelerate later block processing.
         signature_verified_blocks.push(SignatureVerifiedBlock {
@@ -665,68 +662,63 @@ type PayloadVerificationHandle<E> =
 /// `BeaconChain` immediately after it is instantiated.
 pub struct ExecutionPendingBlock<T: BeaconChainTypes> {
     pub block: BlockWrapper<T::EthSpec>,
-    pub block_root: Hash256,
-    pub state: BeaconState<T::EthSpec>,
-    pub parent_block: SignedBeaconBlock<T::EthSpec, BlindedPayload<T::EthSpec>>,
-    pub parent_eth1_finalization_data: Eth1FinalizationData,
-    pub confirmed_state_roots: Vec<Hash256>,
-    pub consensus_context: ConsensusContext<T::EthSpec>,
+    pub import_data: BlockImportData<T::EthSpec>,
     pub payload_verification_handle: PayloadVerificationHandle<T::EthSpec>,
 }
 
-pub struct ExecutedBlock<E: EthSpec>(pub ExecutedBlockInner<E>, pub BlockWrapper<E>);
-
-#[derive(Clone)]
-pub struct ExecutedBlockInner<E: EthSpec> {
-    pub block_root: Hash256,
-    pub state: BeaconState<E>,
-    pub parent_block: SignedBeaconBlock<E, BlindedPayload<E>>,
-    pub parent_eth1_finalization_data: Eth1FinalizationData,
-    pub confirmed_state_roots: Vec<Hash256>,
-    pub consensus_context: ConsensusContext<E>,
+pub struct ExecutedBlock<E: EthSpec> {
+    pub block: BlockWrapper<E>,
+    pub import_data: BlockImportData<E>,
     pub payload_verification_outcome: PayloadVerificationOutcome,
 }
 
-#[derive(Clone)]
-pub struct AvailableExecutedBlock<E: EthSpec> {
-    pub block: AvailableBlock<E>,
-    pub block_root: Hash256,
-    pub state: BeaconState<E>,
-    pub parent_block: SignedBeaconBlock<E, BlindedPayload<E>>,
-    pub parent_eth1_finalization_data: Eth1FinalizationData,
-    pub confirmed_state_roots: Vec<Hash256>,
-    pub consensus_context: ConsensusContext<E>,
-    pub payload_verification_outcome: PayloadVerificationOutcome,
+impl<E: EthSpec> std::fmt::Debug for ExecutedBlock<E> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self.block.as_block())
+    }
 }
 
-impl<E: EthSpec> AvailableExecutedBlock<E> {
-    pub fn new(inner: ExecutedBlockInner<E>, block: AvailableBlock<E>) -> Self {
-        let ExecutedBlockInner {
-            block_root,
-            state,
-            parent_block,
-            parent_eth1_finalization_data,
-            confirmed_state_roots,
-            consensus_context,
-            payload_verification_outcome,
-        } = inner;
+impl<E: EthSpec> ExecutedBlock<E> {
+    pub fn new(
+        block: BlockWrapper<E>,
+        import_data: BlockImportData<E>,
+        payload_verification_outcome: PayloadVerificationOutcome,
+    ) -> Self {
         Self {
             block,
-            block_root,
-            state,
-            parent_block,
-            parent_eth1_finalization_data,
-            confirmed_state_roots,
-            consensus_context,
+            import_data,
             payload_verification_outcome,
         }
     }
 }
 
-impl<E: EthSpec> std::fmt::Debug for ExecutedBlock<E> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", self.1.as_block())
+pub struct AvailableExecutedBlock<E: EthSpec> {
+    pub block: AvailableBlock<E>,
+    pub import_data: BlockImportData<E>,
+    pub payload_verification_outcome: PayloadVerificationOutcome,
+}
+
+impl<E: EthSpec> AvailableExecutedBlock<E> {
+    pub fn new(
+        block: AvailableBlock<E>,
+        import_data: BlockImportData<E>,
+        payload_verification_outcome: PayloadVerificationOutcome,
+    ) -> Self {
+        Self {
+            block,
+            import_data,
+            payload_verification_outcome,
+        }
     }
+}
+
+pub struct BlockImportData<E: EthSpec> {
+    pub block_root: Hash256,
+    pub state: BeaconState<E>,
+    pub parent_block: SignedBeaconBlock<E, BlindedPayload<E>>,
+    pub parent_eth1_finalization_data: Eth1FinalizationData,
+    pub confirmed_state_roots: Vec<Hash256>,
+    pub consensus_context: ConsensusContext<E>,
 }
 
 /// Implemented on types that can be converted into a `ExecutionPendingBlock`.
@@ -1610,12 +1602,14 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
 
         Ok(Self {
             block,
-            block_root,
-            state,
-            parent_block: parent.beacon_block,
-            parent_eth1_finalization_data,
-            confirmed_state_roots,
-            consensus_context,
+            import_data: BlockImportData {
+                block_root,
+                state,
+                parent_block: parent.beacon_block,
+                parent_eth1_finalization_data,
+                confirmed_state_roots,
+                consensus_context,
+            },
             payload_verification_handle,
         })
     }
