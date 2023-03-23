@@ -402,9 +402,11 @@ impl<'b, T: EthSpec> ExecPayload<T> for FullPayloadRef<'b, T> {
                 // Return an "empty" or "default" value for the Capella variant
                 Ok(Vec::new().into())
             }
-            FullPayloadRef::Eip4844(ref inner) => Ok(inner.execution_payload.deposit_receipts.clone()),
+            FullPayloadRef::Eip4844(ref inner) => {
+                Ok(inner.execution_payload.deposit_receipts.clone())
+            }
         }
-    }    
+    }
 }
 
 impl<T: EthSpec> AbstractExecPayload<T> for FullPayload<T> {
@@ -689,7 +691,7 @@ impl<'b, T: EthSpec> ExecPayload<T> for BlindedPayloadRef<'b, T> {
                 Ok(Vec::new().into())
             }
         }
-    }    
+    }
 }
 
 macro_rules! impl_exec_payload_common {
