@@ -989,7 +989,25 @@ impl InitializedValidators {
 
         let cache =
             KeyCache::open_or_create(&self.validators_dir).map_err(Error::UnableToOpenKeyCache)?;
-        let mut key_cache = self.decrypt_key_cache(cache, &mut key_stores).await?;
+
+        // Check if there is at least one local definition.
+        let has_local_definitions = self.definitions.as_slice().iter().any(|def| {
+            matches!(
+                def.signing_definition,
+                SigningDefinition::LocalKeystore { .. }
+            )
+        });
+
+        let mut key_cache;
+
+        // Only decrypt cache when there is at least one local definition.
+        // Decrypting cache is a very expensive operation which is never used for web3signer.
+        if has_local_definitions {
+            key_cache = self.decrypt_key_cache(cache, &mut key_stores).await?;
+        } else {
+            // Assign an empty KeyCache if all definitions are of the Web3Signer type.
+            key_cache = KeyCache::new();
+        }
 
         let mut disabled_uuids = HashSet::new();
         for def in self.definitions.as_slice() {
@@ -1115,13 +1133,16 @@ impl InitializedValidators {
                 );
             }
         }
-        for uuid in disabled_uuids {
-            key_cache.remove(&uuid);
+
+        if has_local_definitions {
+            for uuid in disabled_uuids {
+                key_cache.remove(&uuid);
+            }
         }
 
         let validators_dir = self.validators_dir.clone();
         let log = self.log.clone();
-        if key_cache.is_modified() {
+        if has_local_definitions && key_cache.is_modified() {
             tokio::task::spawn_blocking(move || {
                 match key_cache.save(validators_dir) {
                     Err(e) => warn!(
