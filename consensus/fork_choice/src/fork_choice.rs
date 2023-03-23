@@ -799,7 +799,10 @@ where
 
             // If block is from past epochs, try to update store's justified & finalized checkpoints right away
             if block.slot().epoch(E::slots_per_epoch()) < current_slot.epoch(E::slots_per_epoch()) {
-                self.pull_up_store_checkpoints()?;
+                self.pull_up_store_checkpoints(
+                    unrealized_justified_checkpoint,
+                    unrealized_finalized_checkpoint,
+                )?;
             }
 
             (
@@ -1159,15 +1162,21 @@ where
 
         // Update the justified/finalized checkpoints based upon the
         // best-observed unrealized justification/finality.
-        self.pull_up_store_checkpoints()?;
+        let unrealized_justified_checkpoint = *self.fc_store.unrealized_justified_checkpoint();
+        let unrealized_finalized_checkpoint = *self.fc_store.unrealized_finalized_checkpoint();
+        self.pull_up_store_checkpoints(
+            unrealized_justified_checkpoint,
+            unrealized_finalized_checkpoint,
+        )?;
 
         Ok(())
     }
 
-    fn pull_up_store_checkpoints(&mut self) -> Result<(), Error<T::Error>> {
-        // Update store.justified_checkpoint if a better unrealized justified checkpoint is known
-        let unrealized_justified_checkpoint = *self.fc_store.unrealized_justified_checkpoint();
-        let unrealized_finalized_checkpoint = *self.fc_store.unrealized_finalized_checkpoint();
+    fn pull_up_store_checkpoints(
+        &mut self,
+        unrealized_justified_checkpoint: Checkpoint,
+        unrealized_finalized_checkpoint: Checkpoint,
+    ) -> Result<(), Error<T::Error>> {
         self.update_checkpoints(
             unrealized_justified_checkpoint,
             unrealized_finalized_checkpoint,
