@@ -49,6 +49,10 @@ exit_if_fails ../local_testnet/geth.sh $HOME/.lighthouse/local-testnet/geth_data
 
 sleep 20
 
+# Reset the `genesis.json` config file fork times.
+sed -i 's/"shanghaiTime".*$/"shanghaiTime": 0,/g' genesis.json
+sed -i 's/"shardingForkTime".*$/"shardingForkTime": 0,/g' genesis.json
+
 echo "Starting local beacon nodes"
 
 exit_if_fails ../local_testnet/beacon_node.sh -d debug $HOME/.lighthouse/local-testnet/node_1 9000 8000 http://localhost:5000 $HOME/.lighthouse/local-testnet/geth_datadir1/geth/jwtsecret &> beacon.log &
