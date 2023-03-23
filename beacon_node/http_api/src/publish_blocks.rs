@@ -71,34 +71,27 @@ pub async fn publish_block<T: BeaconChainTypes>(
         SignedBeaconBlock::Eip4844(_) => {
             crate::publish_pubsub_message(network_tx, PubsubMessage::BeaconBlock(block.clone()))?;
             if let Some(blobs) = maybe_blobs {
-                for (blob_index, blob) in blobs.into_iter().enumerate() {
+                for (blob_index, blob) in blobs.clone().into_iter().enumerate() {
                     crate::publish_pubsub_message(
                         network_tx,
                         PubsubMessage::BlobSidecar(Box::new((blob_index as u64, blob))),
                     )?;
                 }
+                let unsigned_blobs = blobs
+                    .into_iter()
+                    .map(|signed_blobs| signed_blobs.message)
+                    .collect();
+                BlockWrapper::AvailabilityCheckDelayed(block, unsigned_blobs)
+            } else {
+                block.into()
             }
-            block.into()
         }
     };
     // Determine the delay after the start of the slot, register it with metrics.
 
-    let available_block = match wrapped_block
-        .clone()
-        .into_available_block(chain.kzg.clone(), |epoch| chain.block_needs_da_check(epoch))
-    {
-        Ok(available_block) => available_block,
-        Err(e) => {
-            error!(
-                log,
-                "Invalid block provided to HTTP API unavailable block"; "error" => ?e
-            );
-            return Err(warp_utils::reject::broadcast_without_import(
-                "unavailable block".to_string(),
-            ));
-        }
-    };
-
+    let block_clone = wrapped_block.block_cloned();
+    let slot = block_clone.message().slot();
+    let proposer_index = block_clone.message().proposer_index();
     match chain
         .process_block(
             block_root,
@@ -114,14 +107,14 @@ pub async fn publish_block<T: BeaconChainTypes>(
                 "Valid block from HTTP API";
                 "block_delay" => ?delay,
                 "root" => format!("{}", root),
-                "proposer_index" => available_block.message().proposer_index(),
-                "slot" => available_block.slot(),
+                "proposer_index" => proposer_index,
+                "slot" =>slot,
             );
 
             // Notify the validator monitor.
             chain.validator_monitor.read().register_api_block(
                 seen_timestamp,
-                available_block.message(),
+                block_clone.message(),
                 root,
                 &chain.slot_clock,
             );
@@ -137,7 +130,7 @@ pub async fn publish_block<T: BeaconChainTypes>(
                 late_block_logging(
                     &chain,
                     seen_timestamp,
-                    available_block.message(),
+                    block_clone.message(),
                     root,
                     "local",
                     &log,
@@ -169,7 +162,7 @@ pub async fn publish_block<T: BeaconChainTypes>(
                 log,
                 "Block from HTTP API already known";
                 "block" => ?block_root,
-                "slot" => available_block.slot(),
+                "slot" => slot,
             );
             Ok(())
         }
