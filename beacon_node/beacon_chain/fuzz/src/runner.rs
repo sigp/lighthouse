@@ -277,8 +277,7 @@ impl<'a, E: EthSpec> Runner<'a, E> {
                 let harness = &self.attacker.harness;
                 let head = harness.chain.canonical_head.cached_head();
 
-                // FIXME(sproul): this junk should probably be in the harness
-                let current_period = current_slot.epoch(E::slots_per_epoch())
+                let current_period = head.snapshot.beacon_state.current_epoch()
                     / harness.spec.epochs_per_sync_committee_period;
                 let next_slot_period = (current_slot + 1).epoch(E::slots_per_epoch())
                     / harness.spec.epochs_per_sync_committee_period;
