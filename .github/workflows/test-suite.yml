@@ -260,15 +260,15 @@ jobs:
       uses: arduino/setup-protoc@e52d9eb8f7b63115df1ac544a1376fdbf5a39612
       with:
         repo-token: ${{ secrets.GITHUB_TOKEN }}
-    - name: Install lighthouse and lcli
-      run: |
-          make
-          make install-lcli
     - name: Install geth
       run: |
           sudo add-apt-repository -y ppa:ethereum/ethereum
           sudo apt-get update
           sudo apt-get install ethereum
+    - name: Install lighthouse and lcli
+      run: |
+          make
+          make install-lcli
     - name: Run the doppelganger protection success test script
       run: |
           cd scripts/tests
