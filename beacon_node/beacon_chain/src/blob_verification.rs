@@ -11,7 +11,7 @@ use types::{
     SignedBeaconBlock, SignedBeaconBlockAndBlobsSidecar, SignedBeaconBlockHeader, Slot,
     Transactions,
 };
-use types::{Epoch, ExecPayload};
+use types::{BlobSidecarList, Epoch, ExecPayload};
 
 #[derive(Debug)]
 pub enum BlobError {
@@ -348,15 +348,14 @@ impl<E: EthSpec> AvailableBlock<E> {
         }
     }
 
-    pub fn deconstruct(self) -> (Arc<SignedBeaconBlock<E>>, Option<Arc<BlobsSidecar<E>>>) {
+    pub fn deconstruct(self) -> (Arc<SignedBeaconBlock<E>>, Option<BlobSidecarList<E>>) {
         match self.0 {
             AvailableBlockInner::Block(block) => (block, None),
-            AvailableBlockInner::BlockAndBlob(block_sidecar_pair) => {
-                let SignedBeaconBlockAndBlobsSidecar {
-                    beacon_block,
-                    blobs_sidecar,
-                } = block_sidecar_pair;
-                (beacon_block, Some(blobs_sidecar))
+            AvailableBlockInner::BlockAndBlob(_) => {
+                unimplemented!(
+                    "This should return a Some(BlobSidecarList)
+                    after #4092"
+                )
             }
         }
     }
@@ -374,12 +373,7 @@ impl<E: EthSpec> IntoBlockWrapper<E> for BlockWrapper<E> {
 
 impl<E: EthSpec> IntoBlockWrapper<E> for AvailableBlock<E> {
     fn into_block_wrapper(self) -> BlockWrapper<E> {
-        let (block, blobs) = self.deconstruct();
-        if let Some(blobs) = blobs {
-            BlockWrapper::BlockAndBlob(block, blobs)
-        } else {
-            BlockWrapper::Block(block)
-        }
+        unimplemented!("Block wrapper will be changed in #4092")
     }
 }
 
