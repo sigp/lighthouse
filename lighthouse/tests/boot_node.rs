@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::str::FromStr;
 use tempfile::TempDir;
-use unused_port::unused_udp_port;
+use unused_port::unused_udp4_port;
 
 const IP_ADDRESS: &str = "192.168.2.108";
 
@@ -62,7 +62,7 @@ fn enr_address_arg() {
 
 #[test]
 fn port_flag() {
-    let port = unused_udp_port().unwrap();
+    let port = unused_udp4_port().unwrap();
     CommandLineTest::new()
         .flag("port", Some(port.to_string().as_str()))
         .run_with_ip()
@@ -122,7 +122,7 @@ fn boot_nodes_flag() {
 
 #[test]
 fn enr_port_flag() {
-    let port = unused_udp_port().unwrap();
+    let port = unused_udp4_port().unwrap();
     CommandLineTest::new()
         .flag("enr-port", Some(port.to_string().as_str()))
         .run_with_ip()

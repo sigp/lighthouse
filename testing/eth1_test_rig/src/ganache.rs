@@ -3,7 +3,7 @@ use std::io::prelude::*;
 use std::io::BufReader;
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
-use unused_port::unused_tcp_port;
+use unused_port::unused_tcp4_port;
 use web3::{transports::Http, Transport, Web3};
 
 /// How long we will wait for ganache to indicate that it is ready.
@@ -65,7 +65,7 @@ impl GanacheInstance {
     /// Start a new `ganache` process, waiting until it indicates that it is ready to accept
     /// RPC connections.
     pub fn new(chain_id: u64) -> Result<Self, String> {
-        let port = unused_tcp_port()?;
+        let port = unused_tcp4_port()?;
         let binary = match cfg!(windows) {
             true => "ganache.cmd",
             false => "ganache",
@@ -97,7 +97,7 @@ impl GanacheInstance {
     }
 
     pub fn fork(&self) -> Result<Self, String> {
-        let port = unused_tcp_port()?;
+        let port = unused_tcp4_port()?;
         let binary = match cfg!(windows) {
             true => "ganache.cmd",
             false => "ganache",

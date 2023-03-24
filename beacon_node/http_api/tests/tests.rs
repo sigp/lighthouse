@@ -112,7 +112,7 @@ impl ApiTester {
     pub async fn new_from_config(config: ApiTesterConfig) -> Self {
         // Get a random unused port
         let spec = config.spec;
-        let port = unused_port::unused_tcp_port().unwrap();
+        let port = unused_port::unused_tcp4_port().unwrap();
         let beacon_url = SensitiveUrl::parse(format!("http://127.0.0.1:{port}").as_str()).unwrap();
 
         let harness = Arc::new(

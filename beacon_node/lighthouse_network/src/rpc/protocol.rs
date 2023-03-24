@@ -344,13 +344,16 @@ impl ProtocolId {
     /// Returns `true` if the given `ProtocolId` should expect `context_bytes` in the
     /// beginning of the stream, else returns `false`.
     pub fn has_context_bytes(&self) -> bool {
-        if self.version == Version::V2 {
-            match self.message_name {
-                Protocol::BlocksByRange | Protocol::BlocksByRoot => return true,
-                _ => return false,
-            }
+        match self.message_name {
+            Protocol::BlocksByRange | Protocol::BlocksByRoot => match self.version {
+                Version::V2 => true,
+                Version::V1 => false,
+            },
+            Protocol::LightClientBootstrap => match self.version {
+                Version::V2 | Version::V1 => true,
+            },
+            Protocol::Goodbye | Protocol::Ping | Protocol::Status | Protocol::MetaData => false,
         }
-        false
     }
 }
 

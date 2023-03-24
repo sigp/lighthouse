@@ -2,7 +2,7 @@ use super::Context;
 use crate::engine_api::{http::*, *};
 use crate::json_structures::*;
 use crate::test_utils::DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI;
-use serde::de::DeserializeOwned;
+use serde::{de::DeserializeOwned, Deserialize};
 use serde_json::Value as JsonValue;
 use std::sync::Arc;
 use types::{EthSpec, ForkName};
@@ -358,6 +358,61 @@ pub async fn handle_rpc<T: EthSpec>(
         ENGINE_EXCHANGE_CAPABILITIES => {
             let engine_capabilities = ctx.engine_capabilities.read();
             Ok(serde_json::to_value(engine_capabilities.to_response()).unwrap())
+        }
+        ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1 => {
+            #[derive(Deserialize)]
+            #[serde(transparent)]
+            struct Quantity(#[serde(with = "eth2_serde_utils::u64_hex_be")] pub u64);
+
+            let start = get_param::<Quantity>(params, 0)
+                .map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?
+                .0;
+            let count = get_param::<Quantity>(params, 1)
+                .map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?
+                .0;
+
+            let mut response = vec![];
+            for block_num in start..(start + count) {
+                let maybe_block = ctx
+                    .execution_block_generator
+                    .read()
+                    .execution_block_with_txs_by_number(block_num);
+
+                match maybe_block {
+                    Some(block) => {
+                        let transactions = Transactions::<T>::new(
+                            block
+                                .transactions()
+                                .iter()
+                                .map(|transaction| VariableList::new(transaction.rlp().to_vec()))
+                                .collect::<Result<_, _>>()
+                                .map_err(|e| {
+                                    (
+                                        format!("failed to deserialize transaction: {:?}", e),
+                                        GENERIC_ERROR_CODE,
+                                    )
+                                })?,
+                        )
+                        .map_err(|e| {
+                            (
+                                format!("failed to deserialize transactions: {:?}", e),
+                                GENERIC_ERROR_CODE,
+                            )
+                        })?;
+
+                        response.push(Some(JsonExecutionPayloadBodyV1::<T> {
+                            transactions,
+                            withdrawals: block
+                                .withdrawals()
+                                .ok()
+                                .map(|withdrawals| VariableList::from(withdrawals.clone())),
+                        }));
+                    }
+                    None => response.push(None),
+                }
+            }
+
+            Ok(serde_json::to_value(response).unwrap())
         }
         other => Err((
             format!("The method {} does not exist/is not available", other),

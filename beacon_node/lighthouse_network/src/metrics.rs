@@ -159,7 +159,7 @@ pub fn check_nat() {
     if NAT_OPEN.as_ref().map(|v| v.get()).unwrap_or(0) != 0 {
         return;
     }
-    if ADDRESS_UPDATE_COUNT.as_ref().map(|v| v.get()).unwrap_or(0) == 0
+    if ADDRESS_UPDATE_COUNT.as_ref().map(|v| v.get()).unwrap_or(0) != 0
         || NETWORK_INBOUND_PEERS.as_ref().map(|v| v.get()).unwrap_or(0) != 0_i64
     {
         inc_counter(&NAT_OPEN);
@@ -167,7 +167,8 @@ pub fn check_nat() {
 }
 
 pub fn scrape_discovery_metrics() {
-    let metrics = discv5::metrics::Metrics::from(discv5::Discv5::raw_metrics());
+    let metrics =
+        discv5::metrics::Metrics::from(discv5::Discv5::<discv5::DefaultProtocolId>::raw_metrics());
     set_float_gauge(&DISCOVERY_REQS, metrics.unsolicited_requests_per_second);
     set_gauge(&DISCOVERY_SESSIONS, metrics.active_sessions as i64);
     set_gauge(&DISCOVERY_SENT_BYTES, metrics.bytes_sent as i64);

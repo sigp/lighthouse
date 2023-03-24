@@ -159,7 +159,7 @@ async fn notify_new_payload<'a, T: BeaconChainTypes>(
                 latest_valid_hash,
                 ref validation_error,
             } => {
-                debug!(
+                warn!(
                     chain.log,
                     "Invalid execution payload";
                     "validation_error" => ?validation_error,
@@ -206,7 +206,7 @@ async fn notify_new_payload<'a, T: BeaconChainTypes>(
             PayloadStatus::InvalidBlockHash {
                 ref validation_error,
             } => {
-                debug!(
+                warn!(
                     chain.log,
                     "Invalid execution payload block hash";
                     "validation_error" => ?validation_error,

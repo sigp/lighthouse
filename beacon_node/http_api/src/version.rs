@@ -4,7 +4,7 @@ use serde::Serialize;
 use types::{
     ExecutionOptimisticForkVersionedResponse, ForkName, ForkVersionedResponse, InconsistentFork,
 };
-use warp::reply::{self, Reply, WithHeader};
+use warp::reply::{self, Reply, Response};
 
 pub const V1: EndpointVersion = EndpointVersion(1);
 pub const V2: EndpointVersion = EndpointVersion(2);
@@ -48,8 +48,8 @@ pub fn execution_optimistic_fork_versioned_response<T: Serialize>(
 }
 
 /// Add the `Eth-Consensus-Version` header to a response.
-pub fn add_consensus_version_header<T: Reply>(reply: T, fork_name: ForkName) -> WithHeader<T> {
-    reply::with_header(reply, CONSENSUS_VERSION_HEADER, fork_name.to_string())
+pub fn add_consensus_version_header<T: Reply>(reply: T, fork_name: ForkName) -> Response {
+    reply::with_header(reply, CONSENSUS_VERSION_HEADER, fork_name.to_string()).into_response()
 }
 
 pub fn inconsistent_fork_rejection(error: InconsistentFork) -> warp::reject::Rejection {

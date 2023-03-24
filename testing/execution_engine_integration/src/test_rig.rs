@@ -15,8 +15,8 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use task_executor::TaskExecutor;
 use tokio::time::sleep;
 use types::{
-    Address, ChainSpec, EthSpec, ExecutionBlockHash, ExecutionPayload, ForkName, FullPayload,
-    Hash256, MainnetEthSpec, PublicKeyBytes, Slot, Uint256,
+    Address, ChainSpec, EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadHeader,
+    ForkName, FullPayload, Hash256, MainnetEthSpec, PublicKeyBytes, Slot, Uint256,
 };
 const EXECUTION_ENGINE_START_TIMEOUT: Duration = Duration::from_secs(30);
 
@@ -628,12 +628,32 @@ async fn check_payload_reconstruction<E: GenericExecutionEngine>(
 ) {
     let reconstructed = ee
         .execution_layer
-        // FIXME: handle other forks here?
-        .get_payload_by_block_hash(payload.block_hash(), ForkName::Merge)
+        .get_payload_by_block_hash(payload.block_hash(), payload.fork_name())
         .await
         .unwrap()
         .unwrap();
     assert_eq!(reconstructed, *payload);
+    // also check via payload bodies method
+    let capabilities = ee
+        .execution_layer
+        .get_engine_capabilities(None)
+        .await
+        .unwrap();
+    assert!(
+        // if the engine doesn't have these capabilities, we need to update the client in our tests
+        capabilities.get_payload_bodies_by_hash_v1 && capabilities.get_payload_bodies_by_range_v1,
+        "Testing engine does not support payload bodies methods"
+    );
+    let mut bodies = ee
+        .execution_layer
+        .get_payload_bodies_by_hash(vec![payload.block_hash()])
+        .await
+        .unwrap();
+    assert_eq!(bodies.len(), 1);
+    let body = bodies.pop().unwrap().unwrap();
+    let header = ExecutionPayloadHeader::from(payload.to_ref());
+    let reconstructed_from_body = body.to_payload(header).unwrap();
+    assert_eq!(reconstructed_from_body, *payload);
 }
 
 /// Returns the duration since the unix epoch.

@@ -44,7 +44,7 @@ pub async fn run<T: EthSpec>(config: BootNodeConfig<T>, log: slog::Logger) {
     info!(log, "Contact information"; "multiaddrs" => ?local_enr.multiaddr_p2p());
 
     // construct the discv5 server
-    let mut discv5 = Discv5::new(local_enr.clone(), local_key, discv5_config).unwrap();
+    let mut discv5: Discv5 = Discv5::new(local_enr.clone(), local_key, discv5_config).unwrap();
 
     // If there are any bootnodes add them to the routing table
     for enr in boot_nodes {
