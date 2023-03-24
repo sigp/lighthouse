@@ -20,4 +20,4 @@ types = { path = "../../consensus/types"}
 kzg = { path = "../../crypto/kzg" }
 eth2_ssz = "0.4.1"
 eth2_config = { path = "../eth2_config"}
-enr = { version = "0.6.2", features = ["ed25519", "k256"] }
+discv5 = "0.2.2"
