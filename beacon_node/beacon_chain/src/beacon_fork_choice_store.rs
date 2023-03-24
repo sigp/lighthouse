@@ -20,6 +20,14 @@ use types::{
     Hash256, Slot,
 };
 
+/// Ensure this justified checkpoint has an epoch of 0 so that it is never
+/// greater than the justified checkpoint and enshrined as the actual justified
+/// checkpoint.
+const JUNK_BEST_JUSTIFIED_CHECKPOINT: Checkpoint = Checkpoint {
+    epoch: Epoch::new(0),
+    root: Hash256::repeat_byte(0),
+};
+
 #[derive(Debug)]
 pub enum Error {
     UnableToReadSlot,
@@ -144,7 +152,6 @@ pub struct BeaconForkChoiceStore<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<
     finalized_checkpoint: Checkpoint,
     justified_checkpoint: Checkpoint,
     justified_balances: JustifiedBalances,
-    best_justified_checkpoint: Checkpoint,
     unrealized_justified_checkpoint: Checkpoint,
     unrealized_finalized_checkpoint: Checkpoint,
     proposer_boost_root: Hash256,
@@ -194,7 +201,6 @@ where
             justified_checkpoint,
             justified_balances,
             finalized_checkpoint,
-            best_justified_checkpoint: justified_checkpoint,
             unrealized_justified_checkpoint: justified_checkpoint,
             unrealized_finalized_checkpoint: finalized_checkpoint,
             proposer_boost_root: Hash256::zero(),
@@ -212,7 +218,7 @@ where
             finalized_checkpoint: self.finalized_checkpoint,
             justified_checkpoint: self.justified_checkpoint,
             justified_balances: self.justified_balances.effective_balances.clone(),
-            best_justified_checkpoint: self.best_justified_checkpoint,
+            best_justified_checkpoint: JUNK_BEST_JUSTIFIED_CHECKPOINT,
             unrealized_justified_checkpoint: self.unrealized_justified_checkpoint,
             unrealized_finalized_checkpoint: self.unrealized_finalized_checkpoint,
             proposer_boost_root: self.proposer_boost_root,
@@ -234,7 +240,6 @@ where
             finalized_checkpoint: persisted.finalized_checkpoint,
             justified_checkpoint: persisted.justified_checkpoint,
             justified_balances,
-            best_justified_checkpoint: persisted.best_justified_checkpoint,
             unrealized_justified_checkpoint: persisted.unrealized_justified_checkpoint,
             unrealized_finalized_checkpoint: persisted.unrealized_finalized_checkpoint,
             proposer_boost_root: persisted.proposer_boost_root,
@@ -275,10 +280,6 @@ where
 
     fn justified_balances(&self) -> &JustifiedBalances {
         &self.justified_balances
-    }
-
-    fn best_justified_checkpoint(&self) -> &Checkpoint {
-        &self.best_justified_checkpoint
     }
 
     fn finalized_checkpoint(&self) -> &Checkpoint {
@@ -331,10 +332,6 @@ where
         }
 
         Ok(())
-    }
-
-    fn set_best_justified_checkpoint(&mut self, checkpoint: Checkpoint) {
-        self.best_justified_checkpoint = checkpoint
     }
 
     fn set_unrealized_justified_checkpoint(&mut self, checkpoint: Checkpoint) {
