@@ -7,9 +7,7 @@ use crate::attester_cache::{AttesterCache, AttesterCacheKey};
 use crate::beacon_proposer_cache::compute_proposer_duties_from_head;
 use crate::beacon_proposer_cache::BeaconProposerCache;
 use crate::blob_cache::BlobCache;
-use crate::blob_verification::{
-    self, AsBlock, BlobError, BlockWrapper, GossipVerifiedBlob,
-};
+use crate::blob_verification::{self, AsBlock, BlobError, BlockWrapper, GossipVerifiedBlob};
 use crate::block_times_cache::BlockTimesCache;
 use crate::block_verification::POS_PANDA_BANNER;
 use crate::block_verification::{
@@ -188,7 +186,7 @@ pub enum WhenSlotSkipped {
     Prev,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum AvailabilityProcessingStatus {
     PendingBlobs(Vec<BlobIdentifier>),
     PendingBlock(Hash256),
@@ -202,6 +200,17 @@ impl TryInto<SignedBeaconBlockHash> for AvailabilityProcessingStatus {
     fn try_into(self) -> Result<SignedBeaconBlockHash, Self::Error> {
         match self {
             AvailabilityProcessingStatus::Imported(hash) => Ok(hash.into()),
+            _ => Err(()),
+        }
+    }
+}
+
+impl TryInto<Hash256> for AvailabilityProcessingStatus {
+    type Error = ();
+
+    fn try_into(self) -> Result<Hash256, Self::Error> {
+        match self {
+            AvailabilityProcessingStatus::Imported(hash) => Ok(hash),
             _ => Err(()),
         }
     }
@@ -2664,7 +2673,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         count_unrealized: CountUnrealized,
     ) -> Result<AvailabilityProcessingStatus, BlockError<T::EthSpec>> {
         self.check_availability_and_maybe_import(
-            |chain| chain.data_availability_checker.put_blob(blob),
+            |chain| chain.data_availability_checker.put_gossip_blob(blob),
             count_unrealized,
         )
         .await
@@ -2723,7 +2732,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     |chain| {
                         chain
                             .data_availability_checker
-                            .check_block_availability(block)
+                            .put_pending_executed_block(block)
                     },
                     count_unrealized,
                 )

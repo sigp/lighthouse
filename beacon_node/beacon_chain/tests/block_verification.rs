@@ -2,7 +2,7 @@
 
 use beacon_chain::blob_verification::BlockWrapper;
 use beacon_chain::{
-    blob_verification::{AsBlock, MaybeAvailableBlock},
+    blob_verification::AsBlock,
     test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType},
 };
 use beacon_chain::{BeaconSnapshot, BlockError, ChainSegmentResult, NotifyExecutionLayer};

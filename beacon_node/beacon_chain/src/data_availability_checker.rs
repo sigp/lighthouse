@@ -4,7 +4,6 @@ use crate::blob_verification::{
 };
 use crate::block_verification::{AvailabilityPendingExecutedBlock, AvailableExecutedBlock};
 
-
 use kzg::Error as KzgError;
 use kzg::Kzg;
 use parking_lot::{Mutex, RwLock};
@@ -83,12 +82,13 @@ impl<T: EthSpec, S: SlotClock> DataAvailabilityChecker<T, S> {
         }
     }
 
-    /// Validate the KZG commitment included in the blob sidecar.
+    /// This first validate the KZG commitments included in the blob sidecar.
     /// Check if we've cached other blobs for this block. If it completes a set and we also
-    /// have a block cached, import the block. Otherwise cache the blob sidecar.
+    /// have a block cached, return the Availability variant triggering block import.
+    /// Otherwise cache the blob sidecar.
     ///
     /// This should only accept gossip verified blobs, so we should not have to worry about dupes.
-    pub fn put_blob(
+    pub fn put_gossip_blob(
         &self,
         verified_blob: GossipVerifiedBlob<T>,
     ) -> Result<Availability<T>, AvailabilityCheckError> {
@@ -121,7 +121,7 @@ impl<T: EthSpec, S: SlotClock> DataAvailabilityChecker<T, S> {
                     .insert(blob.index as usize, kzg_verified_blob);
 
                 if let Some(executed_block) = cache.executed_block.take() {
-                    self.handle_some_blocks_and_blobs(cache, executed_block)?
+                    self.check_block_availability_or_cache(cache, executed_block)?
                 } else {
                     Availability::PendingBlock(block_root)
                 }
@@ -144,8 +144,9 @@ impl<T: EthSpec, S: SlotClock> DataAvailabilityChecker<T, S> {
         Ok(availability)
     }
 
-    // return an enum here that may include the full block
-    pub fn check_block_availability(
+    /// Check if we have all the blobs for a block. If we do, return the Availability variant that
+    /// triggers import of the block.
+    pub fn put_pending_executed_block(
         &self,
         executed_block: AvailabilityPendingExecutedBlock<T>,
     ) -> Result<Availability<T>, AvailabilityCheckError> {
@@ -156,7 +157,7 @@ impl<T: EthSpec, S: SlotClock> DataAvailabilityChecker<T, S> {
             Entry::Occupied(mut occupied_entry) => {
                 let cache: &mut GossipBlobCache<T> = occupied_entry.get_mut();
 
-                self.handle_some_blocks_and_blobs(cache, executed_block)?
+                self.check_block_availability_or_cache(cache, executed_block)?
             }
             Entry::Vacant(vacant_entry) => {
                 let kzg_commitments_len = executed_block.block.kzg_commitments()?.len();
@@ -180,7 +181,7 @@ impl<T: EthSpec, S: SlotClock> DataAvailabilityChecker<T, S> {
         Ok(availability)
     }
 
-    fn handle_some_blocks_and_blobs(
+    fn check_block_availability_or_cache(
         &self,
         cache: &mut GossipBlobCache<T>,
         executed_block: AvailabilityPendingExecutedBlock<T>,
@@ -226,6 +227,8 @@ impl<T: EthSpec, S: SlotClock> DataAvailabilityChecker<T, S> {
         }
     }
 
+    /// Checks if a block is available, returns a MaybeAvailableBlock enum that may include the fully
+    /// available block.
     pub fn check_availability(
         &self,
         block: BlockWrapper<T>,
@@ -246,7 +249,30 @@ impl<T: EthSpec, S: SlotClock> DataAvailabilityChecker<T, S> {
         }
     }
 
-    fn check_availability_with_blobs(
+    /// Checks if a block is available, returning an error if the block is not immediately available.
+    /// Does not access the gossip cache.
+    pub fn try_check_availability(
+        &self,
+        block: BlockWrapper<T>,
+    ) -> Result<AvailableBlock<T>, AvailabilityCheckError> {
+        match block {
+            BlockWrapper::Block(block) => {
+                let blob_requirements = self.get_blob_requirements(&block)?;
+                let blobs = match blob_requirements {
+                    BlobRequirements::EmptyBlobs => VerifiedBlobs::EmptyBlobs,
+                    BlobRequirements::NotRequired => VerifiedBlobs::NotRequired,
+                    BlobRequirements::PreEip4844 => VerifiedBlobs::PreEip4844,
+                    BlobRequirements::Required => return Err(AvailabilityCheckError::MissingBlobs),
+                };
+                Ok(AvailableBlock { block, blobs })
+            }
+            BlockWrapper::BlockAndBlobs(_, _) => Err(AvailabilityCheckError::Pending),
+        }
+    }
+
+    /// Verifies a block against a set of KZG verified blobs. Returns an AvailableBlock if block's
+    /// commitments are consistent with the provided verified blob commitments.
+    pub fn check_availability_with_blobs(
         &self,
         block: Arc<SignedBeaconBlock<T>>,
         blobs: KzgVerifiedBlobList<T>,
@@ -259,6 +285,8 @@ impl<T: EthSpec, S: SlotClock> DataAvailabilityChecker<T, S> {
         }
     }
 
+    /// Verifies a block as much as possible, returning a MaybeAvailableBlock enum that may include
+    /// an AvailableBlock if no blobs are required. Otherwise this will return an AvailabilityPendingBlock.
     pub fn check_availability_without_blobs(
         &self,
         block: Arc<SignedBeaconBlock<T>>,
@@ -280,6 +308,9 @@ impl<T: EthSpec, S: SlotClock> DataAvailabilityChecker<T, S> {
         }))
     }
 
+    /// Verifies an AvailabilityPendingBlock against a set of KZG verified blobs.
+    /// This does not check whether a block *should* have blobs, these checks should must have been
+    /// completed when producing the AvailabilityPendingBlock.
     pub fn make_available(
         &self,
         block: AvailabilityPendingBlock<T>,
@@ -309,6 +340,8 @@ impl<T: EthSpec, S: SlotClock> DataAvailabilityChecker<T, S> {
         })
     }
 
+    /// Determines the blob requirements for a block. Answers the question: "Does this block require
+    /// blobs?".
     fn get_blob_requirements(
         &self,
         block: &Arc<SignedBeaconBlock<T, FullPayload<T>>>,
