@@ -2,10 +2,11 @@ mod api_secret;
 mod create_validator;
 mod keystores;
 mod remotekeys;
-mod sign_voluntary_exit;
+mod submit_voluntary_exit;
 mod tests;
 
-use crate::http_api::sign_voluntary_exit::sign_voluntary_exit;
+use crate::beacon_node_fallback::BeaconNodeFallback;
+use crate::http_api::submit_voluntary_exit::submit_voluntary_exit;
 use crate::{determine_graffiti, GraffitiFile, ValidatorStore};
 use account_utils::{
     mnemonic_from_phrase,
@@ -74,6 +75,7 @@ pub struct Context<T: SlotClock, E: EthSpec> {
     pub config: Config,
     pub log: Logger,
     pub genesis_time: u64,
+    pub beacon_nodes: Arc<BeaconNodeFallback<T, E>>,
     pub _phantom: PhantomData<E>,
 }
 
@@ -191,6 +193,9 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
 
     let inner_ctx = ctx.clone();
     let log_filter = warp::any().map(move || inner_ctx.log.clone());
+
+    let inner_beacon_nodes = ctx.beacon_nodes.clone();
+    let beacon_nodes_filter = warp::any().map(move || inner_beacon_nodes.clone());
 
     let inner_genesis_time = ctx.genesis_time;
     let genesis_time_filter = warp::any().map(move || inner_genesis_time);
@@ -607,31 +612,32 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(warp::path("validators"))
         .and(warp::path("voluntary_exits"))
         .and(warp::path::end())
-        .and(warp::body::json())
         .and(validator_store_filter.clone())
         .and(spec_filter)
+        .and(beacon_nodes_filter)
         .and(genesis_time_filter)
         .and(log_filter.clone())
         .and(signer.clone())
         .and(task_executor_filter.clone())
         .and_then(
-            |body: api_types::VoluntaryExitRequest,
-             validator_store: Arc<ValidatorStore<T, E>>,
+            |validator_store: Arc<ValidatorStore<T, E>>,
              spec: Arc<ChainSpec>,
+             beacon_nodes: Arc<BeaconNodeFallback<T, E>>,
              genesis_time: u64,
              log,
              signer,
              task_executor: TaskExecutor| {
                 blocking_signed_json_task(signer, move || {
                     if let Some(handle) = task_executor.handle() {
-                        let signed_voluntary_exit = handle.block_on(sign_voluntary_exit(
+                        handle.block_on(submit_voluntary_exit(
                             body.pubkey,
                             validator_store,
                             spec,
+                            beacon_nodes,
                             genesis_time,
                             log,
                         ))?;
-                        Ok(signed_voluntary_exit)
+                        Ok(())
                     } else {
                         Err(warp_utils::reject::custom_server_error(
                             "Lighthouse shutting down".into(),

@@ -1,18 +1,20 @@
+use crate::beacon_node_fallback::{BeaconNodeFallback, OfflineOnFailure, RequireSynced};
 use crate::validator_store::ValidatorStore;
 use bls::PublicKeyBytes;
 use slog::{info, Logger};
 use slot_clock::{SlotClock, SystemTimeSlotClock};
 use std::sync::Arc;
 use std::time::Duration;
-use types::{ChainSpec, Epoch, EthSpec, SignedVoluntaryExit, VoluntaryExit};
+use types::{ChainSpec, Epoch, EthSpec, VoluntaryExit};
 
-pub async fn sign_voluntary_exit<T: 'static + SlotClock + Clone, E: EthSpec>(
+pub async fn submit_voluntary_exit<T: 'static + SlotClock + Clone, E: EthSpec>(
     pubkey: PublicKeyBytes,
     validator_store: Arc<ValidatorStore<T, E>>,
     spec: Arc<ChainSpec>,
+    beacon_nodes: Arc<BeaconNodeFallback<T, E>>,
     genesis_time: u64,
     log: Logger,
-) -> Result<SignedVoluntaryExit, warp::Rejection> {
+) -> Result<(), warp::Rejection> {
     let epoch = get_current_epoch::<E>(genesis_time, spec).ok_or_else(|| {
         warp_utils::reject::custom_server_error("Unable to determine current epoch".to_string())
     })?;
@@ -29,8 +31,6 @@ pub async fn sign_voluntary_exit<T: 'static + SlotClock + Clone, E: EthSpec>(
         validator_index,
     };
 
-    info!(log, "Signing voluntary exit"; "validator" => pubkey.as_hex_string());
-
     let signed_voluntary_exit = validator_store
         .sign_voluntary_exit(pubkey, voluntary_exit)
         .await
@@ -41,7 +41,23 @@ pub async fn sign_voluntary_exit<T: 'static + SlotClock + Clone, E: EthSpec>(
             ))
         })?;
 
-    Ok(signed_voluntary_exit)
+    info!(log, "Publishing voluntary exit"; "validator" => pubkey.as_hex_string());
+
+    beacon_nodes
+        .first_success(RequireSynced::Yes, OfflineOnFailure::No, |client| async {
+            client
+                .post_beacon_pool_voluntary_exits(&signed_voluntary_exit)
+                .await
+        })
+        .await
+        .map_err(|e| {
+            warp_utils::reject::custom_server_error(format!(
+                "Failed to publish voluntary exit: {}",
+                e
+            ))
+        })?;
+
+    Ok(())
 }
 
 /// Calculates the current epoch from the genesis time and current time.
