@@ -1,5 +1,5 @@
+use crate::test_utils::TestRandom;
 use crate::*;
-use crate::{blobs_sidecar::KzgCommitments, test_utils::TestRandom};
 use derivative::Derivative;
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
@@ -8,6 +8,8 @@ use std::marker::PhantomData;
 use superstruct::superstruct;
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
+
+pub type KzgCommitments<T> = VariableList<KzgCommitment, <T as EthSpec>::MaxBlobsPerBlock>;
 
 /// The body of a `BeaconChain` block, containing operations.
 ///

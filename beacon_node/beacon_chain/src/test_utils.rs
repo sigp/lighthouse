@@ -1680,7 +1680,8 @@ where
                 NotifyExecutionLayer::Yes,
             )
             .await?
-            .into();
+            .try_into()
+            .unwrap();
         self.chain.recompute_head_at_current_slot().await;
         Ok(block_hash)
     }
@@ -1698,7 +1699,8 @@ where
                 NotifyExecutionLayer::Yes,
             )
             .await?
-            .into();
+            .try_into()
+            .unwrap();
         self.chain.recompute_head_at_current_slot().await;
         Ok(block_hash)
     }

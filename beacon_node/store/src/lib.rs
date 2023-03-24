@@ -43,6 +43,7 @@ pub use metrics::scrape_for_metrics;
 use parking_lot::MutexGuard;
 use std::sync::Arc;
 use strum::{EnumString, IntoStaticStr};
+use types::blob_sidecar::BlobSidecarList;
 pub use types::*;
 
 pub type ColumnIter<'a> = Box<dyn Iterator<Item = Result<(Hash256, Vec<u8>), Error>> + 'a>;

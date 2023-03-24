@@ -38,6 +38,7 @@ use std::marker::PhantomData;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
+use types::blob_sidecar::BlobSidecarList;
 use types::consts::eip4844::MIN_EPOCHS_FOR_BLOBS_SIDECARS_REQUESTS;
 use types::*;
 
@@ -547,7 +548,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
     /// Check if the blobs sidecar for a block exists on disk.
     pub fn blobs_sidecar_exists(&self, block_root: &Hash256) -> Result<bool, Error> {
-        self.get_item::<BlobsSidecar<E>>(block_root)
+        self.get_item::<BlobSidecarList<E>>(block_root)
             .map(|blobs| blobs.is_some())
     }
 

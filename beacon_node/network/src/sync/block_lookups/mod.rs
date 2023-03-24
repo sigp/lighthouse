@@ -2,7 +2,8 @@ use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::time::Duration;
 
-use beacon_chain::blob_verification::{AsBlock, BlockWrapper};
+use beacon_chain::blob_verification::AsBlock;
+use beacon_chain::blob_verification::BlockWrapper;
 use beacon_chain::{BeaconChainTypes, BlockError};
 use fnv::FnvHashMap;
 use lighthouse_network::rpc::{RPCError, RPCResponseErrorCode};

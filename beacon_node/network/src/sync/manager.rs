@@ -42,7 +42,8 @@ use crate::beacon_processor::{ChainSegmentProcessId, WorkEvent as BeaconWorkEven
 use crate::service::NetworkMessage;
 use crate::status::ToStatusMessage;
 use crate::sync::range_sync::ByRangeRequestType;
-use beacon_chain::blob_verification::{AsBlock, BlockWrapper};
+use beacon_chain::blob_verification::AsBlock;
+use beacon_chain::blob_verification::BlockWrapper;
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockError, EngineState};
 use futures::StreamExt;
 use lighthouse_network::rpc::methods::MAX_REQUEST_BLOCKS;
@@ -56,6 +57,7 @@ use std::ops::Sub;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
+use types::blob_sidecar::BlobIdentifier;
 use types::{BlobSidecar, EthSpec, Hash256, SignedBeaconBlock, Slot};
 
 /// The number of slots ahead of us that is allowed before requesting a long-range (batch)  Sync
@@ -118,6 +120,13 @@ pub enum SyncMessage<T: EthSpec> {
     /// A peer has sent an object that references a block that is unknown. This triggers the
     /// manager to attempt to find the block matching the unknown hash.
     UnknownBlockHash(PeerId, Hash256),
+
+    /// A peer has sent us a block that we haven't received all the blobs for. This triggers
+    /// the manager to attempt to find the pending blobs for the given block root.
+    UnknownBlobHash {
+        peer_id: PeerId,
+        pending_blobs: Vec<BlobIdentifier>,
+    },
 
     /// A peer has disconnected.
     Disconnect(PeerId),
@@ -597,6 +606,9 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     self.block_lookups
                         .search_block(block_hash, peer_id, &mut self.network);
                 }
+            }
+            SyncMessage::UnknownBlobHash { .. } => {
+                unimplemented!()
             }
             SyncMessage::Disconnect(peer_id) => {
                 self.peer_disconnect(&peer_id);

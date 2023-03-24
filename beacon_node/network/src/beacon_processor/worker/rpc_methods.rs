@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use crate::beacon_processor::{worker::FUTURE_SLOT_TOLERANCE, SendOnDrop};
 use crate::service::NetworkMessage;
 use crate::status::ToStatusMessage;
@@ -15,7 +13,6 @@ use lighthouse_network::{PeerId, PeerRequestId, ReportSource, Response, SyncInfo
 use slog::{debug, error, warn};
 use slot_clock::SlotClock;
 use std::collections::{hash_map::Entry, HashMap};
-use std::sync::Arc;
 use task_executor::TaskExecutor;
 use tokio_stream::StreamExt;
 use types::blob_sidecar::BlobIdentifier;
@@ -840,7 +837,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         let mut send_response = true;
 
         for root in block_roots {
-            match self.chain.get_blobs(&root, data_availability_boundary) {
+            match self.chain.get_blobs(&root) {
                 Ok(Some(blob_sidecar_list)) => {
                     for blob_sidecar in blob_sidecar_list.iter() {
                         blobs_sent += 1;

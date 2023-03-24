@@ -1,10 +1,10 @@
 use crate::metrics;
-use beacon_chain::blob_verification::{AsBlock, BlockWrapper, IntoAvailableBlock};
+
+use beacon_chain::blob_verification::{AsBlock, BlockWrapper};
 use beacon_chain::validator_monitor::{get_block_delay_ms, timestamp_now};
-use beacon_chain::{
-    BeaconChain, BeaconChainTypes, BlockError, CountUnrealized, NotifyExecutionLayer,
-};
-use eth2::types::SignedBlockContents;
+use beacon_chain::{AvailabilityProcessingStatus, NotifyExecutionLayer};
+use beacon_chain::{BeaconChain, BeaconChainTypes, BlockError, CountUnrealized};
+use eth2::types::{SignedBlockContents, VariableList};
 use execution_layer::ProvenancedPayload;
 use lighthouse_network::PubsubMessage;
 use network::NetworkMessage;
@@ -70,54 +70,51 @@ pub async fn publish_block<T: BeaconChainTypes>(
         }
         SignedBeaconBlock::Eip4844(_) => {
             crate::publish_pubsub_message(network_tx, PubsubMessage::BeaconBlock(block.clone()))?;
-            if let Some(blobs) = maybe_blobs {
-                for (blob_index, blob) in blobs.into_iter().enumerate() {
+            if let Some(signed_blobs) = maybe_blobs {
+                for (blob_index, blob) in signed_blobs.clone().into_iter().enumerate() {
                     crate::publish_pubsub_message(
                         network_tx,
                         PubsubMessage::BlobSidecar(Box::new((blob_index as u64, blob))),
                     )?;
                 }
+                let blobs_vec = signed_blobs.into_iter().map(|blob| blob.message).collect();
+                let blobs = VariableList::new(blobs_vec).map_err(|e| {
+                    warp_utils::reject::custom_server_error(format!("Invalid blobs length: {e:?}"))
+                })?;
+                BlockWrapper::BlockAndBlobs(block, blobs)
+            } else {
+                block.into()
             }
-            block.into()
         }
     };
+    // Determine the delay after the start of the slot, register it with metrics.
 
-    let available_block = match wrapped_block.into_available_block(block_root, &chain) {
-        Ok(available_block) => available_block,
-        Err(e) => {
-            let msg = format!("{:?}", e);
-            error!(
-                log,
-                "Invalid block provided to HTTP API";
-                "reason" => &msg
-            );
-            return Err(warp_utils::reject::broadcast_without_import(msg));
-        }
-    };
-
+    let block_clone = wrapped_block.block_cloned();
+    let slot = block_clone.message().slot();
+    let proposer_index = block_clone.message().proposer_index();
     match chain
         .process_block(
             block_root,
-            available_block.clone(),
+            wrapped_block,
             CountUnrealized::True,
             NotifyExecutionLayer::Yes,
         )
         .await
     {
-        Ok(root) => {
+        Ok(AvailabilityProcessingStatus::Imported(root)) => {
             info!(
                 log,
                 "Valid block from HTTP API";
                 "block_delay" => ?delay,
                 "root" => format!("{}", root),
-                "proposer_index" => available_block.message().proposer_index(),
-                "slot" => available_block.slot(),
+                "proposer_index" => proposer_index,
+                "slot" =>slot,
             );
 
             // Notify the validator monitor.
             chain.validator_monitor.read().register_api_block(
                 seen_timestamp,
-                available_block.message(),
+                block_clone.message(),
                 root,
                 &chain.slot_clock,
             );
@@ -133,7 +130,7 @@ pub async fn publish_block<T: BeaconChainTypes>(
                 late_block_logging(
                     &chain,
                     seen_timestamp,
-                    available_block.message(),
+                    block_clone.message(),
                     root,
                     "local",
                     &log,
@@ -142,12 +139,30 @@ pub async fn publish_block<T: BeaconChainTypes>(
 
             Ok(())
         }
+        Ok(AvailabilityProcessingStatus::PendingBlock(block_root)) => {
+            let msg = format!("Missing block with root {:?}", block_root);
+            error!(
+                log,
+                "Invalid block provided to HTTP API";
+                "reason" => &msg
+            );
+            Err(warp_utils::reject::broadcast_without_import(msg))
+        }
+        Ok(AvailabilityProcessingStatus::PendingBlobs(blob_ids)) => {
+            let msg = format!("Missing blobs {:?}", blob_ids);
+            error!(
+                log,
+                "Invalid block provided to HTTP API";
+                "reason" => &msg
+            );
+            Err(warp_utils::reject::broadcast_without_import(msg))
+        }
         Err(BlockError::BlockIsAlreadyKnown) => {
             info!(
                 log,
                 "Block from HTTP API already known";
                 "block" => ?block_root,
-                "slot" => available_block.slot(),
+                "slot" => slot,
             );
             Ok(())
         }

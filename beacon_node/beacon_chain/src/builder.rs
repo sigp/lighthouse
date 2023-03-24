@@ -1,5 +1,6 @@
 use crate::beacon_chain::{CanonicalHead, BEACON_CHAIN_DB_KEY, ETH1_CACHE_DB_KEY, OP_POOL_DB_KEY};
 use crate::blob_cache::BlobCache;
+use crate::data_availability_checker::DataAvailabilityChecker;
 use crate::eth1_chain::{CachingEth1Backend, SszEth1};
 use crate::eth1_finalization_cache::Eth1FinalizationCache;
 use crate::fork_choice_signal::ForkChoiceSignalTx;
@@ -641,7 +642,8 @@ where
         let kzg = if let Some(trusted_setup) = self.trusted_setup {
             let kzg = Kzg::new_from_trusted_setup(trusted_setup)
                 .map_err(|e| format!("Failed to load trusted setup: {:?}", e))?;
-            Some(Arc::new(kzg))
+            let kzg_arc = Arc::new(kzg);
+            Some(kzg_arc)
         } else {
             None
         };
@@ -781,14 +783,14 @@ where
         let shuffling_cache_size = self.chain_config.shuffling_cache_size;
 
         let beacon_chain = BeaconChain {
-            spec: self.spec,
+            spec: self.spec.clone(),
             config: self.chain_config,
             store,
             task_executor: self
                 .task_executor
                 .ok_or("Cannot build without task executor")?,
             store_migrator,
-            slot_clock,
+            slot_clock: slot_clock.clone(),
             op_pool: self.op_pool.ok_or("Cannot build without op pool")?,
             // TODO: allow for persisting and loading the pool from disk.
             naive_aggregation_pool: <_>::default(),
@@ -847,7 +849,13 @@ where
             graffiti: self.graffiti,
             slasher: self.slasher.clone(),
             validator_monitor: RwLock::new(validator_monitor),
-            blob_cache: BlobCache::default(),
+            //TODO(sean) should we move kzg solely to the da checker?
+            data_availability_checker: DataAvailabilityChecker::new(
+                slot_clock,
+                kzg.clone(),
+                self.spec,
+            ),
+            proposal_blob_cache: BlobCache::default(),
             kzg,
         };
 

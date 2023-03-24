@@ -11,7 +11,7 @@ use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
 /// Container of the data that identifies an individual blob.
-#[derive(Encode, Decode, Clone, Debug, PartialEq)]
+#[derive(Encode, Decode, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct BlobIdentifier {
     pub block_root: Hash256,
     pub index: u64,
@@ -35,7 +35,6 @@ pub struct BlobIdentifier {
 #[derivative(PartialEq, Hash(bound = "T: EthSpec"))]
 pub struct BlobSidecar<T: EthSpec> {
     pub block_root: Hash256,
-    // TODO: fix the type, should fit in u8 as well
     #[serde(with = "eth2_serde_utils::quoted_u64")]
     pub index: u64,
     pub slot: Slot,
@@ -49,10 +48,18 @@ pub struct BlobSidecar<T: EthSpec> {
 }
 
 pub type BlobSidecarList<T> = VariableList<Arc<BlobSidecar<T>>, <T as EthSpec>::MaxBlobsPerBlock>;
+pub type Blobs<T> = VariableList<Blob<T>, <T as EthSpec>::MaxExtraDataBytes>;
 
 impl<T: EthSpec> SignedRoot for BlobSidecar<T> {}
 
 impl<T: EthSpec> BlobSidecar<T> {
+    pub fn id(&self) -> BlobIdentifier {
+        BlobIdentifier {
+            block_root: self.block_root,
+            index: self.index,
+        }
+    }
+
     pub fn empty() -> Self {
         Self::default()
     }

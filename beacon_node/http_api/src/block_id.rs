@@ -218,10 +218,7 @@ impl BlockId {
         chain: &BeaconChain<T>,
     ) -> Result<BlobSidecarList<T::EthSpec>, warp::Rejection> {
         let root = self.root(chain)?.0;
-        let Some(data_availability_boundary) = chain.data_availability_boundary() else {
-            return Err(warp_utils::reject::custom_not_found("Deneb fork disabled".into()));
-        };
-        match chain.get_blobs(&root, data_availability_boundary) {
+        match chain.get_blobs(&root) {
             Ok(Some(blob_sidecar_list)) => Ok(blob_sidecar_list),
             Ok(None) => Err(warp_utils::reject::custom_not_found(format!(
                 "No blobs with block root {} found in the store",

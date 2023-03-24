@@ -280,7 +280,6 @@ impl<T: BeaconChainTypes> Router<T> {
             PubsubMessage::BlobSidecar(data) => {
                 let (blob_index, signed_blob) = *data;
                 let peer_client = self.network_globals.client(&peer_id);
-                let signed_blob = Arc::new(signed_blob);
                 self.send_beacon_processor_work(BeaconWorkEvent::gossip_signed_blob_sidecar(
                     message_id,
                     peer_id,
