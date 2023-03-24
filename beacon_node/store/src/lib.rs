@@ -160,7 +160,6 @@ pub trait ItemStore<E: EthSpec>: KeyValueStore<E> + Sync + Send + Sized + 'stati
 pub enum StoreOp<'a, E: EthSpec> {
     PutBlock(Hash256, Arc<SignedBeaconBlock<E>>),
     PutState(Hash256, &'a BeaconState<E>),
-    // TODO (mark): space can be optimized here by de-duplicating data
     PutBlobs(Hash256, BlobSidecarList<E>),
     PutOrphanedBlobsKey(Hash256),
     PutStateSummary(Hash256, HotStateSummary),
