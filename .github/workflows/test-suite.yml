@@ -269,14 +269,14 @@ jobs:
       run: |
           make
           make install-lcli
-    - name: Run the doppelganger protection success test script
-      run: |
-          cd scripts/tests
-          ./doppelganger_protection.sh success genesis.json
     - name: Run the doppelganger protection failure test script
       run: |
           cd scripts/tests
           ./doppelganger_protection.sh failure genesis.json
+    - name: Run the doppelganger protection success test script
+      run: |
+          cd scripts/tests
+          ./doppelganger_protection.sh success genesis.json
   execution-engine-integration-ubuntu:
     name: execution-engine-integration-ubuntu
     runs-on: ubuntu-latest
