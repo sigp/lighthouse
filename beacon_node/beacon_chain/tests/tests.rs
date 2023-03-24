@@ -500,7 +500,7 @@ async fn unaggregated_attestations_added_to_fork_choice_some_none() {
     // Move forward a slot so all queued attestations can be processed.
     harness.advance_slot();
     fork_choice
-        .update_time(harness.chain.slot().unwrap(), &harness.chain.spec)
+        .update_time(harness.chain.slot().unwrap())
         .unwrap();
 
     let validator_slots: Vec<(usize, Slot)> = (0..VALIDATOR_COUNT)
@@ -614,7 +614,7 @@ async fn unaggregated_attestations_added_to_fork_choice_all_updated() {
     // Move forward a slot so all queued attestations can be processed.
     harness.advance_slot();
     fork_choice
-        .update_time(harness.chain.slot().unwrap(), &harness.chain.spec)
+        .update_time(harness.chain.slot().unwrap())
         .unwrap();
 
     let validators: Vec<usize> = (0..VALIDATOR_COUNT).collect();

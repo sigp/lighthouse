@@ -9,7 +9,7 @@ use types::{beacon_state::CommitteeCache, AttestationShufflingId, Epoch, Hash256
 /// Each entry should be `8 + 800,000 = 800,008` bytes in size with 100k validators. (8-byte hash +
 /// 100k indices). Therefore, this cache should be approx `16 * 800,008 = 12.8 MB`. (Note: this
 /// ignores a few extra bytes in the caches that should be insignificant compared to the indices).
-const CACHE_SIZE: usize = 16;
+pub const DEFAULT_CACHE_SIZE: usize = 16;
 
 /// The maximum number of concurrent committee cache "promises" that can be issued. In effect, this
 /// limits the number of concurrent states that can be loaded into memory for the committee cache.
@@ -54,9 +54,9 @@ pub struct ShufflingCache {
 }
 
 impl ShufflingCache {
-    pub fn new() -> Self {
+    pub fn new(cache_size: usize) -> Self {
         Self {
-            cache: LruCache::new(CACHE_SIZE),
+            cache: LruCache::new(cache_size),
         }
     }
 
@@ -172,7 +172,7 @@ impl ToArcCommitteeCache for Arc<CommitteeCache> {
 
 impl Default for ShufflingCache {
     fn default() -> Self {
-        Self::new()
+        Self::new(DEFAULT_CACHE_SIZE)
     }
 }
 
@@ -249,7 +249,7 @@ mod test {
     fn resolved_promise() {
         let (committee_a, _) = committee_caches();
         let id_a = shuffling_id(1);
-        let mut cache = ShufflingCache::new();
+        let mut cache = ShufflingCache::default();
 
         // Create a promise.
         let sender = cache.create_promise(id_a.clone()).unwrap();
@@ -276,7 +276,7 @@ mod test {
     #[test]
     fn unresolved_promise() {
         let id_a = shuffling_id(1);
-        let mut cache = ShufflingCache::new();
+        let mut cache = ShufflingCache::default();
 
         // Create a promise.
         let sender = cache.create_promise(id_a.clone()).unwrap();
@@ -301,7 +301,7 @@ mod test {
     fn two_promises() {
         let (committee_a, committee_b) = committee_caches();
         let (id_a, id_b) = (shuffling_id(1), shuffling_id(2));
-        let mut cache = ShufflingCache::new();
+        let mut cache = ShufflingCache::default();
 
         // Create promise A.
         let sender_a = cache.create_promise(id_a.clone()).unwrap();
@@ -355,7 +355,7 @@ mod test {
 
     #[test]
     fn too_many_promises() {
-        let mut cache = ShufflingCache::new();
+        let mut cache = ShufflingCache::default();
 
         for i in 0..MAX_CONCURRENT_PROMISES {
             cache.create_promise(shuffling_id(i as u64)).unwrap();

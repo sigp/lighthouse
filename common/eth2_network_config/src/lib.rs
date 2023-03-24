@@ -11,7 +11,7 @@
 //! To add a new built-in testnet, add it to the `define_hardcoded_nets` invocation in the `eth2_config`
 //! crate.
 
-use enr::{CombinedKey, Enr};
+use discv5::enr::{CombinedKey, Enr};
 use eth2_config::{instantiate_hardcoded_nets, HardcodedNet};
 use kzg::TrustedSetup;
 use std::fs::{create_dir_all, File};

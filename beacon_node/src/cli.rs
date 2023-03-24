@@ -377,6 +377,14 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     address of this server (e.g., http://localhost:5054).")
                 .takes_value(true),
         )
+        .arg(
+            Arg::with_name("shuffling-cache-size")
+            .long("shuffling-cache-size")
+            .help("Some HTTP API requests can be optimised by caching the shufflings at each epoch. \
+            This flag allows the user to set the shuffling cache size in epochs. \
+            Shufflings are dependent on validator count and setting this value to a large number can consume a large amount of memory.")
+            .takes_value(true)
+        )
 
         /*
          * Monitoring metrics
@@ -1000,8 +1008,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("count-unrealized")
                 .long("count-unrealized")
                 .hidden(true)
-                .help("Enables an alternative, potentially more performant FFG \
-                       vote tracking method.")
+                .help("This flag is deprecated and has no effect.")
                 .takes_value(true)
                 .default_value("true")
         )
@@ -1009,7 +1016,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("count-unrealized-full")
                 .long("count-unrealized-full")
                 .hidden(true)
-                .help("Stricter version of `count-unrealized`.")
+                .help("This flag is deprecated and has no effect.")
                 .takes_value(true)
                 .default_value("false")
         )
