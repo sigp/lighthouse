@@ -683,7 +683,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         // TODO
         match self
             .chain
-            .process_blob(verified_blob.to_blob(), CountUnrealized::True)
+            .process_blob(verified_blob, CountUnrealized::True)
             .await
         {
             Ok(AvailabilityProcessingStatus::Imported(_hash)) => {

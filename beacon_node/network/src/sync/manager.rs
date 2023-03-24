@@ -42,7 +42,8 @@ use crate::beacon_processor::{ChainSegmentProcessId, WorkEvent as BeaconWorkEven
 use crate::service::NetworkMessage;
 use crate::status::ToStatusMessage;
 use crate::sync::range_sync::ByRangeRequestType;
-use beacon_chain::blob_verification::{AsBlock, BlockWrapper};
+use beacon_chain::blob_verification::AsBlock;
+use beacon_chain::blob_verification::BlockWrapper;
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockError, EngineState};
 use futures::StreamExt;
 use lighthouse_network::rpc::methods::MAX_REQUEST_BLOCKS;
@@ -743,7 +744,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         self.block_lookups.single_block_lookup_response(
                             id,
                             peer_id,
-                            maybe_block.map(BlockWrapper::AvailabilityPending),
+                            maybe_block.map(BlockWrapper::Block),
                             seen_timestamp,
                             &mut self.network,
                         )
@@ -758,7 +759,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     BlockOrBlob::Block(maybe_block) => self.block_lookups.parent_lookup_response(
                         id,
                         peer_id,
-                        maybe_block.map(BlockWrapper::AvailabilityPending),
+                        maybe_block.map(BlockWrapper::Block),
                         seen_timestamp,
                         &mut self.network,
                     ),

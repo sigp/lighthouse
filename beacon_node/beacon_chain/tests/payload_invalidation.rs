@@ -702,6 +702,8 @@ async fn invalidates_all_descendants() {
             NotifyExecutionLayer::Yes,
         )
         .await
+        .unwrap()
+        .try_into()
         .unwrap();
     rig.recompute_head().await;
 
@@ -799,6 +801,8 @@ async fn switches_heads() {
             NotifyExecutionLayer::Yes,
         )
         .await
+        .unwrap()
+        .try_into()
         .unwrap();
     rig.recompute_head().await;
 

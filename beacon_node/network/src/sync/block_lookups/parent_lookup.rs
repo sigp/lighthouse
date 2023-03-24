@@ -1,5 +1,6 @@
 use super::RootBlockTuple;
-use beacon_chain::blob_verification::{AsBlock, BlockWrapper};
+use beacon_chain::blob_verification::AsBlock;
+use beacon_chain::blob_verification::BlockWrapper;
 use beacon_chain::BeaconChainTypes;
 use lighthouse_network::PeerId;
 use store::Hash256;

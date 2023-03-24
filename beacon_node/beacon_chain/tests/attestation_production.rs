@@ -1,9 +1,7 @@
 #![cfg(not(debug_assertions))]
 
-use beacon_chain::{
-    blob_verification::{BlockWrapper, IntoAvailableBlock},
-    test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy},
-};
+use beacon_chain::blob_verification::BlockWrapper;
+use beacon_chain::test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy};
 use beacon_chain::{StateSkipConfig, WhenSlotSkipped};
 use lazy_static::lazy_static;
 use std::sync::Arc;
@@ -135,6 +133,10 @@ async fn produces_attestations() {
             assert_eq!(data.target.root, target_root, "bad target root");
 
             let block_wrapper: BlockWrapper<MainnetEthSpec> = Arc::new(block.clone()).into();
+            let available_block = chain
+                .data_availability_checker
+                .try_check_availability(block_wrapper)
+                .unwrap();
 
             let early_attestation = {
                 let proto_block = chain
@@ -146,9 +148,7 @@ async fn produces_attestations() {
                     .early_attester_cache
                     .add_head_block(
                         block_root,
-                        block_wrapper
-                            .into_available_block(block_root, chain)
-                            .expect("should wrap into available block"),
+                        available_block,
                         proto_block,
                         &state,
                         &chain.spec,
@@ -199,18 +199,19 @@ async fn early_attester_cache_old_request() {
         .get_block(&head.beacon_block_root)
         .unwrap();
 
-    let block: BlockWrapper<MainnetEthSpec> = head.beacon_block.clone().into();
+    let block_wrapper: BlockWrapper<MainnetEthSpec> = head.beacon_block.clone().into();
+    let available_block = harness
+        .chain
+        .data_availability_checker
+        .try_check_availability(block_wrapper)
+        .unwrap();
 
-    let chain = &harness.chain;
     harness
         .chain
         .early_attester_cache
         .add_head_block(
             head.beacon_block_root,
-            block
-                .clone()
-                .into_available_block(head.beacon_block_root, &chain)
-                .expect("should wrap into available block"),
+            available_block,
             head_proto_block,
             &head.beacon_state,
             &harness.chain.spec,
