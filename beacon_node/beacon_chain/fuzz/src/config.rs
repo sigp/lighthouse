@@ -1,8 +1,9 @@
 use crate::LogConfig;
+use std::marker::PhantomData;
 use std::time::Duration;
-use types::ChainSpec;
+use types::{ChainSpec, EthSpec};
 
-pub struct Config {
+pub struct Config<E: EthSpec> {
     pub num_honest_nodes: usize,
     pub total_validators: usize,
     pub attacker_validators: usize,
@@ -31,6 +32,7 @@ pub struct Config {
     /// active.
     pub num_warmup_slots: usize,
     pub debug: DebugConfig,
+    pub _phantom: PhantomData<E>,
 }
 
 #[derive(Clone)]
@@ -47,8 +49,8 @@ pub struct DebugConfig {
     pub log_perspective: Option<usize>,
 }
 
-impl Default for Config {
-    fn default() -> Config {
+impl<E: EthSpec> Default for Config<E> {
+    fn default() -> Self {
         Config::with_15pc_attacker()
     }
 }
@@ -65,11 +67,10 @@ impl Default for DebugConfig {
     }
 }
 
-impl Config {
+impl<E: EthSpec> Config<E> {
     pub fn with_10pc_attacker() -> Self {
-        // FIXME(sproul): read slots_per_epoch from EthSpec
         let ticks_per_slot = 3;
-        let slots_per_epoch = 8;
+        let slots_per_epoch = E::slots_per_epoch() as usize;
         Config {
             num_honest_nodes: 3,
             total_validators: 60,
@@ -80,8 +81,9 @@ impl Config {
             max_first_node_delay: 2 * slots_per_epoch * ticks_per_slot,
             max_delay_difference: ticks_per_slot,
             max_reorg_length: 8,
-            num_warmup_slots: 4 * 32,
+            num_warmup_slots: 4 * slots_per_epoch,
             debug: DebugConfig::default(),
+            _phantom: PhantomData,
         }
     }
 

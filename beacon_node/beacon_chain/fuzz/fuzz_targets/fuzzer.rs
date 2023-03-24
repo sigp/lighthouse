@@ -52,7 +52,6 @@ fn main() {
         let config = Config::from_env();
         let rt = Runtime::new().unwrap();
 
-        // FIXME(sproul): need to actually get execution enabled
         let mut spec = TEST_FORK.make_genesis_spec(test_spec::<E>());
         spec.terminal_total_difficulty = Uint256::zero();
         let mut runner = Runner::new(data, config, spec, get_harness);

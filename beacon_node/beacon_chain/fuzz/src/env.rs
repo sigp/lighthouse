@@ -2,11 +2,13 @@ use crate::Config;
 use std::env::VarError;
 use std::str::FromStr;
 use strum::EnumString;
+use types::EthSpec;
 
 const CONFIG_BASE: &str = "HYDRA_CONFIG_BASE";
 const MAX_REORG_LENGTH: &str = "HYDRA_MAX_REORG_LENGTH";
 const DEBUG_LOGS: &str = "HYDRA_DEBUG_LOGS";
 const LOG_PERSPECTIVE: &str = "HYDRA_LOG_PERSPECTIVE";
+const WARMUP_EPOCHS: &str = "HYDRA_WARMUP_EPOCHS";
 
 #[derive(EnumString)]
 pub enum BaseConfig {
@@ -39,7 +41,7 @@ where
         })
 }
 
-impl Config {
+impl<E: EthSpec> Config<E> {
     pub fn from_env() -> Self {
         let mut config = match env(CONFIG_BASE) {
             Some(BaseConfig::Attacker10Percent) => Config::with_10pc_attacker(),
@@ -62,6 +64,10 @@ impl Config {
 
         if let Some(log_perspective) = env(LOG_PERSPECTIVE) {
             config.debug.log_perspective = Some(log_perspective);
+        }
+
+        if let Some(warmup_epochs) = env::<usize>(WARMUP_EPOCHS) {
+            config.num_warmup_slots = warmup_epochs * E::slots_per_epoch() as usize;
         }
 
         config

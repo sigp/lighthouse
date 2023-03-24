@@ -12,7 +12,7 @@ use types::{test_utils::generate_deterministic_keypairs, *};
 
 // FIXME(hydra): add slashing protection
 pub struct Runner<'a, E: EthSpec> {
-    conf: Config,
+    conf: Config<E>,
     honest_nodes: Vec<Node<E>>,
     attacker: Node<E>,
     hydra: Hydra<E>,
@@ -38,7 +38,7 @@ impl CurrentTime {
 impl<'a, E: EthSpec> Runner<'a, E> {
     pub fn new(
         data: &'a [u8],
-        conf: Config,
+        conf: Config<E>,
         spec: ChainSpec,
         get_harness: impl for<'b> Fn(String, LogConfig, ChainSpec, &'b [Keypair]) -> TestHarness<E>,
     ) -> Self {
@@ -212,8 +212,14 @@ impl<'a, E: EthSpec> Runner<'a, E> {
     pub async fn run(&mut self) -> arbitrary::Result<()> {
         let slots_per_epoch = E::slots_per_epoch() as usize;
 
-        // Generate events while the input is non-empty.
-        while !self.u.is_empty() {
+        // Keep running while there is entropy remaining, or the message queues contain undelivered
+        // messages.
+        while !self.u.is_empty()
+            || self
+                .honest_nodes
+                .iter()
+                .any(|node| node.has_messages_queued())
+        {
             let current_slot = self.current_slot();
             let current_epoch = self.current_epoch();
 
@@ -303,8 +309,10 @@ impl<'a, E: EthSpec> Runner<'a, E> {
                     .expect("should process sync contributions");
             }
 
-            // Slot start activities for the attacker.
+            // Slot start activities for the attacker. The attacker only generates new actions
+            // so long as there is entropy remaining.
             if current_slot.as_usize() >= self.conf.num_warmup_slots
+                && !self.u.is_empty()
                 && self.conf.is_block_proposal_tick(self.tick())
             {
                 self.hydra
@@ -365,16 +373,6 @@ impl<'a, E: EthSpec> Runner<'a, E> {
             }
 
             // Increment clock on each node and deliver messages.
-            self.time.increment();
-            self.on_clock_advance().await;
-        }
-
-        // Keep running until all message queues are empty.
-        while self
-            .honest_nodes
-            .iter()
-            .any(|node| node.has_messages_queued())
-        {
             self.time.increment();
             self.on_clock_advance().await;
         }

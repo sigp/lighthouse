@@ -147,10 +147,9 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
             && terminal_block_number == 0
             && terminal_block_hash == ExecutionBlockHash::zero()
         {
-            println!("Proof of stake start");
             let payload_attributes = PayloadAttributes::new(
                 genesis_time,
-                Hash256::zero(), // FIXME(sproul): tweak prev randao?
+                Hash256::zero(),
                 Address::zero(),
                 Some(vec![]),
             );
@@ -160,7 +159,6 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
             gen.insert_block(block.clone()).unwrap();
             gen.head_block = Some(block);
         } else {
-            println!("Proof of work start");
             gen.insert_pow_block(0).unwrap();
         }
 
