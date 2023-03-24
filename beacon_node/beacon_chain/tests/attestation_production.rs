@@ -1,7 +1,7 @@
 #![cfg(not(debug_assertions))]
 
 use beacon_chain::{
-    blob_verification::{BlockWrapper, IntoAvailableBlock},
+    blob_verification::{IntoAvailableBlock, MaybeAvailableBlock},
     test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy},
 };
 use beacon_chain::{StateSkipConfig, WhenSlotSkipped};
@@ -134,7 +134,7 @@ async fn produces_attestations() {
             assert_eq!(data.target.epoch, state.current_epoch(), "bad target epoch");
             assert_eq!(data.target.root, target_root, "bad target root");
 
-            let block_wrapper: BlockWrapper<MainnetEthSpec> = Arc::new(block.clone()).into();
+            let block_wrapper: MaybeAvailableBlock<MainnetEthSpec> = Arc::new(block.clone()).into();
 
             let early_attestation = {
                 let proto_block = chain
@@ -199,7 +199,7 @@ async fn early_attester_cache_old_request() {
         .get_block(&head.beacon_block_root)
         .unwrap();
 
-    let block: BlockWrapper<MainnetEthSpec> = head.beacon_block.clone().into();
+    let block: MaybeAvailableBlock<MainnetEthSpec> = head.beacon_block.clone().into();
 
     let chain = &harness.chain;
     harness

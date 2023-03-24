@@ -786,14 +786,14 @@ where
         let canonical_head = CanonicalHead::new(fork_choice, Arc::new(head_snapshot));
 
         let beacon_chain = BeaconChain {
-            spec: self.spec,
+            spec: self.spec.clone(),
             config: self.chain_config,
             store,
             task_executor: self
                 .task_executor
                 .ok_or("Cannot build without task executor")?,
             store_migrator,
-            slot_clock,
+            slot_clock: slot_clock.clone(),
             op_pool: self.op_pool.ok_or("Cannot build without op pool")?,
             // TODO: allow for persisting and loading the pool from disk.
             naive_aggregation_pool: <_>::default(),
@@ -853,7 +853,11 @@ where
             slasher: self.slasher.clone(),
             validator_monitor: RwLock::new(validator_monitor),
             //TODO(sean) should we move kzg solely to the da checker?
-            data_availability_checker: DataAvailabilityChecker::new(kzg.clone()),
+            data_availability_checker: DataAvailabilityChecker::new(
+                slot_clock,
+                kzg.clone(),
+                self.spec,
+            ),
             proposal_blob_cache: BlobCache::default(),
             kzg,
         };

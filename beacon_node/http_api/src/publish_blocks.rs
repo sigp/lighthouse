@@ -1,10 +1,10 @@
 use crate::metrics;
-use beacon_chain::blob_verification::AsBlock;
-use beacon_chain::blob_verification::BlockWrapper;
+use beacon_chain::blob_verification::MaybeAvailableBlock;
+use beacon_chain::blob_verification::{AsBlock, BlockWrapper};
 use beacon_chain::validator_monitor::{get_block_delay_ms, timestamp_now};
 use beacon_chain::{AvailabilityProcessingStatus, NotifyExecutionLayer};
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockError, CountUnrealized};
-use eth2::types::SignedBlockContents;
+use eth2::types::{SignedBlockContents, VariableList};
 use execution_layer::ProvenancedPayload;
 use lighthouse_network::PubsubMessage;
 use network::NetworkMessage;
@@ -70,18 +70,18 @@ pub async fn publish_block<T: BeaconChainTypes>(
         }
         SignedBeaconBlock::Eip4844(_) => {
             crate::publish_pubsub_message(network_tx, PubsubMessage::BeaconBlock(block.clone()))?;
-            if let Some(blobs) = maybe_blobs {
-                for (blob_index, blob) in blobs.clone().into_iter().enumerate() {
+            if let Some(signed_blobs) = maybe_blobs {
+                for (blob_index, blob) in signed_blobs.clone().into_iter().enumerate() {
                     crate::publish_pubsub_message(
                         network_tx,
                         PubsubMessage::BlobSidecar(Box::new((blob_index as u64, blob))),
                     )?;
                 }
-                let unsigned_blobs = blobs
-                    .into_iter()
-                    .map(|signed_blobs| signed_blobs.message)
-                    .collect();
-                BlockWrapper::AvailabilityCheckDelayed(block, unsigned_blobs)
+                let blobs_vec = signed_blobs.into_iter().map(|blob| blob.message).collect();
+                let blobs = VariableList::new(blobs_vec).map_err(|e| {
+                    warp_utils::reject::custom_server_error(format!("Invalid blobs length: {e:?}"))
+                })?;
+                BlockWrapper::BlockAndBlobs(block, blobs)
             } else {
                 block.into()
             }

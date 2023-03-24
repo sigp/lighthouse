@@ -8,19 +8,19 @@ use crate::beacon_proposer_cache::compute_proposer_duties_from_head;
 use crate::beacon_proposer_cache::BeaconProposerCache;
 use crate::blob_cache::BlobCache;
 use crate::blob_verification::{
-    self, AsBlock, AvailableBlock, BlobError, BlockWrapper, GossipVerifiedBlob,
+    self, AsBlock, BlobError, BlockWrapper, GossipVerifiedBlob, MaybeAvailableBlock,
 };
 use crate::block_times_cache::BlockTimesCache;
+use crate::block_verification::POS_PANDA_BANNER;
 use crate::block_verification::{
     check_block_is_finalized_checkpoint_or_descendant, check_block_relevancy, get_block_root,
     signature_verify_chain_segment, AvailableExecutedBlock, BlockError, BlockImportData,
     ExecutedBlock, ExecutionPendingBlock, GossipVerifiedBlock, IntoExecutionPendingBlock,
-    POS_PANDA_BANNER,
 };
 pub use crate::canonical_head::{CanonicalHead, CanonicalHeadRwLock};
 use crate::chain_config::ChainConfig;
 use crate::data_availability_checker::{
-    Availability, AvailabilityCheckError, DataAvailabilityChecker,
+    Availability, AvailabilityCheckError, AvailableBlock, DataAvailabilityChecker,
 };
 use crate::early_attester_cache::EarlyAttesterCache;
 use crate::errors::{BeaconChainError as Error, BlockProductionError};
@@ -458,7 +458,7 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     /// Provides monitoring of a set of explicitly defined validators.
     pub validator_monitor: RwLock<ValidatorMonitor<T::EthSpec>>,
     pub proposal_blob_cache: BlobCache<T::EthSpec>,
-    pub data_availability_checker: DataAvailabilityChecker<T::EthSpec>,
+    pub data_availability_checker: DataAvailabilityChecker<T::EthSpec, T::SlotClock>,
     pub kzg: Option<Arc<Kzg>>,
 }
 
@@ -2664,11 +2664,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         count_unrealized: CountUnrealized,
     ) -> Result<AvailabilityProcessingStatus, BlockError<T::EthSpec>> {
         self.check_availability_and_maybe_import(
-            |chain| {
-                chain
-                    .data_availability_checker
-                    .put_blob(blob, |epoch| chain.block_needs_da_check(epoch))
-            },
+            |chain| chain.data_availability_checker.put_blob(blob),
             count_unrealized,
         )
         .await
@@ -2717,17 +2713,23 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .await
             .map_err(|e| self.handle_block_error(e))?;
 
-        self.check_availability_and_maybe_import(
-            |chain| {
-                chain
-                    .data_availability_checker
-                    .check_block_availability(executed_block, |epoch| {
-                        chain.block_needs_da_check(epoch)
-                    })
-            },
-            count_unrealized,
-        )
-        .await
+        match executed_block {
+            ExecutedBlock::Available(block) => {
+                self.import_available_block(Box::new(block), count_unrealized)
+                    .await
+            }
+            ExecutedBlock::AvailabilityPending(block) => {
+                self.check_availability_and_maybe_import(
+                    |chain| {
+                        chain
+                            .data_availability_checker
+                            .check_block_availability(block)
+                    },
+                    count_unrealized,
+                )
+                .await
+            }
+        }
     }
 
     /// Accepts a fully-verified block and awaits on it's payload verification handle to
@@ -2827,66 +2829,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let availability = cache_fn(self.clone())?;
         match availability {
             Availability::Available(block) => {
-                let AvailableExecutedBlock {
-                    block,
-                    import_data,
-
-                    payload_verification_outcome,
-                } = *block;
-
-                let BlockImportData {
-                    block_root,
-                    state,
-                    parent_block,
-                    parent_eth1_finalization_data,
-                    confirmed_state_roots,
-                    consensus_context,
-                } = import_data;
-
-                let slot = block.slot();
-
-                // import
-                let chain = self.clone();
-                let result = self
-                    .spawn_blocking_handle(
-                        move || {
-                            chain.import_block(
-                                block,
-                                block_root,
-                                state,
-                                confirmed_state_roots,
-                                payload_verification_outcome.payload_verification_status,
-                                count_unrealized,
-                                parent_block,
-                                parent_eth1_finalization_data,
-                                consensus_context,
-                            )
-                        },
-                        "payload_verification_handle",
-                    )
-                    .await
-                    .map_err(|e| {
-                        let b = BlockError::from(e);
-                        self.handle_block_error(b)
-                    })?;
-
-                match result {
-                    // The block was successfully verified and imported. Yay.
-                    Ok(block_root) => {
-                        trace!(
-                            self.log,
-                            "Beacon block imported";
-                            "block_root" => ?block_root,
-                             "block_slot" => slot,
-                        );
-
-                        // Increment the Prometheus counter for block processing successes.
-                        metrics::inc_counter(&metrics::BLOCK_PROCESSING_SUCCESSES);
-
-                        Ok(AvailabilityProcessingStatus::Imported(block_root))
-                    }
-                    Err(e) => Err(self.handle_block_error(e)),
-                }
+                self.import_available_block(block, count_unrealized).await
             }
             Availability::PendingBlock(block_root) => {
                 Ok(AvailabilityProcessingStatus::PendingBlock(block_root))
@@ -2894,6 +2837,72 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             Availability::PendingBlobs(blob_ids) => {
                 Ok(AvailabilityProcessingStatus::PendingBlobs(blob_ids))
             }
+        }
+    }
+
+    async fn import_available_block(
+        self: &Arc<Self>,
+        block: Box<AvailableExecutedBlock<T::EthSpec>>,
+        count_unrealized: CountUnrealized,
+    ) -> Result<AvailabilityProcessingStatus, BlockError<T::EthSpec>> {
+        let AvailableExecutedBlock {
+            block,
+            import_data,
+            payload_verification_outcome,
+        } = *block;
+
+        let BlockImportData {
+            block_root,
+            state,
+            parent_block,
+            parent_eth1_finalization_data,
+            confirmed_state_roots,
+            consensus_context,
+        } = import_data;
+
+        let slot = block.slot();
+
+        // import
+        let chain = self.clone();
+        let result = self
+            .spawn_blocking_handle(
+                move || {
+                    chain.import_block(
+                        block,
+                        block_root,
+                        state,
+                        confirmed_state_roots,
+                        payload_verification_outcome.payload_verification_status,
+                        count_unrealized,
+                        parent_block,
+                        parent_eth1_finalization_data,
+                        consensus_context,
+                    )
+                },
+                "payload_verification_handle",
+            )
+            .await
+            .map_err(|e| {
+                let b = BlockError::from(e);
+                self.handle_block_error(b)
+            })?;
+
+        match result {
+            // The block was successfully verified and imported. Yay.
+            Ok(block_root) => {
+                trace!(
+                    self.log,
+                    "Beacon block imported";
+                    "block_root" => ?block_root,
+                     "block_slot" => slot,
+                );
+
+                // Increment the Prometheus counter for block processing successes.
+                metrics::inc_counter(&metrics::BLOCK_PROCESSING_SUCCESSES);
+
+                Ok(AvailabilityProcessingStatus::Imported(block_root))
+            }
+            Err(e) => Err(self.handle_block_error(e)),
         }
     }
 
@@ -3081,27 +3090,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         ops.push(StoreOp::PutBlock(block_root, signed_block.clone()));
         ops.push(StoreOp::PutState(block.state_root(), &state));
 
-        // Only consider blobs if the eip4844 fork is enabled.
-        if let Some(data_availability_boundary) = self.data_availability_boundary() {
-            let block_epoch = block.slot().epoch(T::EthSpec::slots_per_epoch());
-            let margin_epochs = self.store.get_config().blob_prune_margin_epochs;
-            let import_boundary = data_availability_boundary - margin_epochs;
-
-            // Only store blobs at the data availability boundary, minus any configured epochs
-            // margin, or younger (of higher epoch number).
-            if block_epoch >= import_boundary {
-                if let Some(blobs) = blobs {
-                    if !blobs.is_empty() {
-                        //FIXME(sean) using this for debugging for now
-                        info!(
-                            self.log, "Writing blobs to store";
-                            "block_root" => ?block_root
-                        );
-                        ops.push(StoreOp::PutBlobs(block_root, blobs));
-                    }
-                }
+        if let Some(blobs) = blobs {
+            if !blobs.is_empty() {
+                //FIXME(sean) using this for debugging for now
+                info!(
+                    self.log, "Writing blobs to store";
+                    "block_root" => ?block_root
+                );
+                ops.push(StoreOp::PutBlobs(block_root, blobs));
             }
         }
+
         let txn_lock = self.store.hot_db.begin_rw_transaction();
 
         if let Err(e) = self.store.do_atomically_with_block_and_blobs_cache(ops) {
@@ -6167,20 +6166,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn block_needs_da_check(&self, block_epoch: Epoch) -> bool {
         self.data_availability_boundary()
             .map_or(false, |da_epoch| block_epoch >= da_epoch)
-    }
-
-    /// The epoch that is a data availability boundary, or the latest finalized epoch.
-    /// `None` if the `Eip4844` fork is disabled.
-    pub fn finalized_data_availability_boundary(&self) -> Option<Epoch> {
-        self.data_availability_boundary().map(|boundary| {
-            std::cmp::max(
-                boundary,
-                self.canonical_head
-                    .cached_head()
-                    .finalized_checkpoint()
-                    .epoch,
-            )
-        })
     }
 
     /// Returns `true` if we are at or past the `Eip4844` fork. This will always return `false` if

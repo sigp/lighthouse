@@ -1,3 +1,4 @@
+use derivative::Derivative;
 use slot_clock::SlotClock;
 use std::sync::Arc;
 
@@ -5,16 +6,15 @@ use crate::beacon_chain::{
     BeaconChain, BeaconChainTypes, MAXIMUM_GOSSIP_CLOCK_DISPARITY,
     VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT,
 };
-use crate::data_availability_checker::AvailabilityCheckError;
-use crate::kzg_utils::validate_blob;
+use crate::data_availability_checker::{
+    AvailabilityCheckError, AvailabilityPendingBlock, AvailableBlock,
+};
+use crate::kzg_utils::{validate_blob, validate_blobs};
 use crate::BeaconChainError;
-use derivative::Derivative;
 use kzg::Kzg;
-use ssz_types::VariableList;
-use state_processing::per_block_processing::eip4844::eip4844::verify_kzg_commitments_against_transactions;
 use types::{
-    BeaconBlockRef, BeaconStateError, BlobSidecar, BlobSidecarList, Epoch, EthSpec, ExecPayload,
-    Hash256, KzgCommitment, SignedBeaconBlock, SignedBeaconBlockHeader, SignedBlobSidecar, Slot,
+    BeaconBlockRef, BeaconStateError, BlobSidecar, BlobSidecarList, Epoch, EthSpec, Hash256,
+    KzgCommitment, SignedBeaconBlock, SignedBeaconBlockHeader, SignedBlobSidecar, Slot,
 };
 
 #[derive(Debug)]
@@ -269,6 +269,12 @@ pub struct KzgVerifiedBlob<T: EthSpec> {
 }
 
 impl<T: EthSpec> KzgVerifiedBlob<T> {
+    pub fn to_blob(self) -> Arc<BlobSidecar<T>> {
+        self.blob
+    }
+    pub fn as_blob(&self) -> &BlobSidecar<T> {
+        &self.blob
+    }
     pub fn clone_blob(&self) -> Arc<BlobSidecar<T>> {
         self.blob.clone()
     }
@@ -299,164 +305,43 @@ pub fn verify_kzg_for_blob<T: EthSpec>(
     }
 }
 
+pub fn verify_kzg_for_blob_list<T: EthSpec>(
+    blob_list: BlobSidecarList<T>,
+    kzg: &Kzg,
+) -> Result<KzgVerifiedBlobList<T>, AvailabilityCheckError> {
+    let (blobs, (commitments, proofs)): (Vec<_>, (Vec<_>, Vec<_>)) = blob_list
+        .clone()
+        .into_iter()
+        //TODO(sean) remove clone
+        .map(|blob| (blob.blob.clone(), (blob.kzg_commitment, blob.kzg_proof)))
+        .unzip();
+    if validate_blobs::<T>(
+        kzg,
+        commitments.as_slice(),
+        blobs.as_slice(),
+        proofs.as_slice(),
+    )
+    .map_err(AvailabilityCheckError::Kzg)?
+    {
+        Ok(blob_list
+            .into_iter()
+            .map(|blob| KzgVerifiedBlob { blob })
+            .collect())
+    } else {
+        Err(AvailabilityCheckError::KzgVerificationFailed)
+    }
+}
+
 pub type KzgVerifiedBlobList<T> = Vec<KzgVerifiedBlob<T>>;
 
-#[derive(Clone, Debug, PartialEq, Derivative)]
-#[derivative(Hash(bound = "E: EthSpec"))]
-pub struct AvailableBlock<E: EthSpec>(AvailableBlockInner<E>);
-
-#[derive(Clone, Debug, PartialEq, Derivative)]
-#[derivative(Hash(bound = "E: EthSpec"))]
-struct AvailableBlockInner<E: EthSpec> {
-    block: Arc<SignedBeaconBlock<E>>,
-    blobs: VerifiedBlobs<E>,
-}
-
-pub trait IntoKzgVerifiedBlobs<T: EthSpec> {
-    fn into_kzg_verified_blobs(
-        self,
-        kzg: Option<Arc<Kzg>>,
-    ) -> Result<KzgVerifiedBlobList<T>, AvailabilityCheckError>;
-    fn is_empty(&self) -> bool;
-}
-
-impl<T: EthSpec> IntoKzgVerifiedBlobs<T> for KzgVerifiedBlobList<T> {
-    fn into_kzg_verified_blobs(
-        self,
-        _kzg: Option<Arc<Kzg>>,
-    ) -> Result<KzgVerifiedBlobList<T>, AvailabilityCheckError> {
-        Ok(self)
-    }
-
-    fn is_empty(&self) -> bool {
-        self.is_empty()
-    }
-}
-
-impl<E: EthSpec> IntoKzgVerifiedBlobs<E> for Vec<Arc<BlobSidecar<E>>> {
-    fn into_kzg_verified_blobs(
-        self,
-        _kzg: Option<Arc<Kzg>>,
-    ) -> Result<KzgVerifiedBlobList<E>, AvailabilityCheckError> {
-        todo!()
-        // verify batch kzg, need this for creating available blocks in
-        // `process_chain_segment` or local block production
-    }
-
-    fn is_empty(&self) -> bool {
-        self.is_empty()
-    }
-}
-
-impl<E: EthSpec> AvailableBlock<E> {
-    pub fn new<Blobs: IntoKzgVerifiedBlobs<E>>(
-        block: Arc<SignedBeaconBlock<E>>,
-        blobs: Blobs,
-        da_check: impl FnOnce(Epoch) -> bool,
-        kzg: Option<Arc<Kzg>>,
-    ) -> Result<Self, AvailabilityCheckError> {
-        if let (Ok(block_kzg_commitments), Ok(payload)) = (
-            block.message().body().blob_kzg_commitments(),
-            block.message().body().execution_payload(),
-        ) {
-            if blobs.is_empty() && block_kzg_commitments.is_empty() {
-                return Ok(Self(AvailableBlockInner {
-                    block,
-                    blobs: VerifiedBlobs::EmptyBlobs,
-                }));
-            }
-
-            if blobs.is_empty() {
-                if da_check(block.epoch()) {
-                    return Ok(Self(AvailableBlockInner {
-                        block,
-                        blobs: VerifiedBlobs::NotRequired,
-                    }));
-                } else {
-                    return Err(AvailabilityCheckError::MissingBlobs);
-                }
-            }
-
-            let blobs = blobs.into_kzg_verified_blobs(kzg)?;
-
-            if blobs.len() != block_kzg_commitments.len() {
-                return Err(AvailabilityCheckError::NumBlobsMismatch {
-                    num_kzg_commitments: block_kzg_commitments.len(),
-                    num_blobs: blobs.len(),
-                });
-            }
-
-            // If there are no transactions here, this is a blinded block.
-            if let Some(transactions) = payload.transactions() {
-                verify_kzg_commitments_against_transactions::<E>(
-                    transactions,
-                    block_kzg_commitments,
-                )
-                .map_err(|_| AvailabilityCheckError::TxKzgCommitmentMismatch)?;
-            }
-
-            for (block_commitment, blob) in block_kzg_commitments.iter().zip(blobs.iter()) {
-                if *block_commitment != blob.kzg_commitment() {
-                    return Err(AvailabilityCheckError::KzgCommitmentMismatch {
-                        blob_index: blob.blob.index,
-                    });
-                }
-            }
-
-            let verified_blobs =
-                VariableList::new(blobs.into_iter().map(|blob| blob.blob).collect())?;
-
-            //TODO(sean) AvailableBlockInner not add anything if the fields of AvailableBlock are private
-            Ok(Self(AvailableBlockInner {
-                block,
-                blobs: VerifiedBlobs::Available(verified_blobs),
-            }))
-        }
-        // This is a pre eip4844 block
-        else {
-            Ok(Self(AvailableBlockInner {
-                block,
-                blobs: VerifiedBlobs::PreEip4844,
-            }))
-        }
-    }
-
-    pub fn block(&self) -> &SignedBeaconBlock<E> {
-        &self.0.block
-    }
-
-    pub fn blobs(&self) -> Option<BlobSidecarList<E>> {
-        match &self.0.blobs {
-            VerifiedBlobs::EmptyBlobs | VerifiedBlobs::NotRequired | VerifiedBlobs::PreEip4844 => {
-                None
-            }
-            VerifiedBlobs::Available(blobs) => Some(blobs.clone()),
-        }
-    }
-
-    pub fn deconstruct(self) -> (Arc<SignedBeaconBlock<E>>, Option<BlobSidecarList<E>>) {
-        match self.0.blobs {
-            VerifiedBlobs::EmptyBlobs | VerifiedBlobs::NotRequired | VerifiedBlobs::PreEip4844 => {
-                (self.0.block, None)
-            }
-            VerifiedBlobs::Available(blobs) => (self.0.block, Some(blobs)),
-        }
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Derivative)]
-#[derivative(Hash(bound = "E: EthSpec"))]
-pub enum VerifiedBlobs<E: EthSpec> {
-    /// These blobs are available.
-    //TODO(sean) add AvailableBlobsInner, this shouldn't be mutable
-    Available(BlobSidecarList<E>),
-    /// This block is from outside the data availability boundary so doesn't require
-    /// a data availability check.
-    NotRequired,
-    /// The block's `kzg_commitments` field is empty so it does not contain any blobs.
-    EmptyBlobs,
-    /// This is a block prior to the 4844 fork, so doesn't require any blobs
-    PreEip4844,
+#[derive(Debug, Clone)]
+pub enum MaybeAvailableBlock<E: EthSpec> {
+    /// This variant is fully available.
+    /// i.e. for pre-eip4844 blocks, it contains a (`SignedBeaconBlock`, `Blobs::None`) and for
+    /// post-4844 blocks, it contains a `SignedBeaconBlock` and a Blobs variant other than `Blobs::None`.
+    Available(AvailableBlock<E>),
+    /// This variant is not fully available and requires blobs to become fully available.
+    AvailabilityPending(AvailabilityPendingBlock<E>),
 }
 
 pub trait AsBlock<E: EthSpec> {
@@ -472,75 +357,96 @@ pub trait AsBlock<E: EthSpec> {
     fn into_block_wrapper(self) -> BlockWrapper<E>;
 }
 
-#[derive(Debug, Clone, Derivative)]
-#[derivative(Hash(bound = "E: EthSpec"))]
-pub enum BlockWrapper<E: EthSpec> {
-    /// This variant is fully available.
-    /// i.e. for pre-eip4844 blocks, it contains a (`SignedBeaconBlock`, `Blobs::None`) and for
-    /// post-4844 blocks, it contains a `SignedBeaconBlock` and a Blobs variant other than `Blobs::None`.
-    Available(AvailableBlock<E>),
-    /// This variant is not fully available and requires blobs to become fully available.
-    AvailabilityPending(Arc<SignedBeaconBlock<E>>),
-    /// This variant is useful in the networking stack to separate consensus checks from networking.
-    AvailabilityCheckDelayed(Arc<SignedBeaconBlock<E>>, Vec<Arc<BlobSidecar<E>>>),
-}
+impl<E: EthSpec> AsBlock<E> for MaybeAvailableBlock<E> {
+    fn slot(&self) -> Slot {
+        self.as_block().slot()
+    }
+    fn epoch(&self) -> Epoch {
+        self.as_block().epoch()
+    }
+    fn parent_root(&self) -> Hash256 {
+        self.as_block().parent_root()
+    }
+    fn state_root(&self) -> Hash256 {
+        self.as_block().state_root()
+    }
+    fn signed_block_header(&self) -> SignedBeaconBlockHeader {
+        self.as_block().signed_block_header()
+    }
+    fn message(&self) -> BeaconBlockRef<E> {
+        self.as_block().message()
+    }
+    fn as_block(&self) -> &SignedBeaconBlock<E> {
+        match &self {
+            MaybeAvailableBlock::Available(block) => block.as_block(),
+            MaybeAvailableBlock::AvailabilityPending(block) => block.as_block(),
+        }
+    }
+    fn block_cloned(&self) -> Arc<SignedBeaconBlock<E>> {
+        match &self {
+            MaybeAvailableBlock::Available(block) => block.block_cloned(),
+            MaybeAvailableBlock::AvailabilityPending(block) => block.block_cloned(),
+        }
+    }
+    fn canonical_root(&self) -> Hash256 {
+        self.as_block().canonical_root()
+    }
 
-impl<E: EthSpec> BlockWrapper<E> {
-    pub fn into_available_block(
-        self,
-        kzg: Option<Arc<Kzg>>,
-        da_check: impl FnOnce(Epoch) -> bool,
-    ) -> Result<AvailableBlock<E>, AvailabilityCheckError> {
+    fn into_block_wrapper(self) -> BlockWrapper<E> {
         match self {
-            BlockWrapper::AvailabilityPending(_) => Err(AvailabilityCheckError::Pending),
-            BlockWrapper::Available(block) => Ok(block),
-            BlockWrapper::AvailabilityCheckDelayed(block, blobs) => {
-                AvailableBlock::new(block, blobs, da_check, kzg)
+            MaybeAvailableBlock::Available(available_block) => available_block.into_block_wrapper(),
+            MaybeAvailableBlock::AvailabilityPending(pending_block) => {
+                BlockWrapper::Block(pending_block.to_block())
             }
         }
     }
 }
 
-impl<E: EthSpec> AsBlock<E> for AvailableBlock<E> {
+impl<E: EthSpec> AsBlock<E> for &MaybeAvailableBlock<E> {
     fn slot(&self) -> Slot {
-        self.0.block.slot()
+        self.as_block().slot()
     }
-
     fn epoch(&self) -> Epoch {
-        self.0.block.epoch()
+        self.as_block().epoch()
     }
-
     fn parent_root(&self) -> Hash256 {
-        self.0.block.parent_root()
+        self.as_block().parent_root()
     }
-
     fn state_root(&self) -> Hash256 {
-        self.0.block.state_root()
+        self.as_block().state_root()
     }
-
     fn signed_block_header(&self) -> SignedBeaconBlockHeader {
-        self.0.block.signed_block_header()
+        self.as_block().signed_block_header()
     }
-
     fn message(&self) -> BeaconBlockRef<E> {
-        self.0.block.message()
+        self.as_block().message()
     }
-
     fn as_block(&self) -> &SignedBeaconBlock<E> {
-        &self.0.block
+        match &self {
+            MaybeAvailableBlock::Available(block) => block.as_block(),
+            MaybeAvailableBlock::AvailabilityPending(block) => block.as_block(),
+        }
     }
-
     fn block_cloned(&self) -> Arc<SignedBeaconBlock<E>> {
-        self.0.block.clone()
+        match &self {
+            MaybeAvailableBlock::Available(block) => block.block_cloned(),
+            MaybeAvailableBlock::AvailabilityPending(block) => block.block_cloned(),
+        }
     }
-
     fn canonical_root(&self) -> Hash256 {
-        self.0.block.canonical_root()
+        self.as_block().canonical_root()
     }
 
     fn into_block_wrapper(self) -> BlockWrapper<E> {
-        BlockWrapper::Available(self)
+        self.clone().into_block_wrapper()
     }
+}
+
+#[derive(Debug, Clone, Derivative)]
+#[derivative(Hash(bound = "E: EthSpec"))]
+pub enum BlockWrapper<E: EthSpec> {
+    Block(Arc<SignedBeaconBlock<E>>),
+    BlockAndBlobs(Arc<SignedBeaconBlock<E>>, BlobSidecarList<E>),
 }
 
 impl<E: EthSpec> AsBlock<E> for BlockWrapper<E> {
@@ -564,16 +470,14 @@ impl<E: EthSpec> AsBlock<E> for BlockWrapper<E> {
     }
     fn as_block(&self) -> &SignedBeaconBlock<E> {
         match &self {
-            BlockWrapper::Available(block) => &block.0.block,
-            BlockWrapper::AvailabilityPending(block) => block,
-            BlockWrapper::AvailabilityCheckDelayed(block, _) => block,
+            BlockWrapper::Block(block) => block,
+            BlockWrapper::BlockAndBlobs(block, _) => block,
         }
     }
     fn block_cloned(&self) -> Arc<SignedBeaconBlock<E>> {
         match &self {
-            BlockWrapper::Available(block) => block.0.block.clone(),
-            BlockWrapper::AvailabilityPending(block) => block.clone(),
-            BlockWrapper::AvailabilityCheckDelayed(block, _) => block.clone(),
+            BlockWrapper::Block(block) => block.clone(),
+            BlockWrapper::BlockAndBlobs(block, _) => block.clone(),
         }
     }
     fn canonical_root(&self) -> Hash256 {
@@ -585,62 +489,8 @@ impl<E: EthSpec> AsBlock<E> for BlockWrapper<E> {
     }
 }
 
-impl<E: EthSpec> AsBlock<E> for &BlockWrapper<E> {
-    fn slot(&self) -> Slot {
-        self.as_block().slot()
-    }
-    fn epoch(&self) -> Epoch {
-        self.as_block().epoch()
-    }
-    fn parent_root(&self) -> Hash256 {
-        self.as_block().parent_root()
-    }
-    fn state_root(&self) -> Hash256 {
-        self.as_block().state_root()
-    }
-    fn signed_block_header(&self) -> SignedBeaconBlockHeader {
-        self.as_block().signed_block_header()
-    }
-    fn message(&self) -> BeaconBlockRef<E> {
-        self.as_block().message()
-    }
-    fn as_block(&self) -> &SignedBeaconBlock<E> {
-        match &self {
-            BlockWrapper::Available(block) => &block.0.block,
-            BlockWrapper::AvailabilityPending(block) => block,
-            BlockWrapper::AvailabilityCheckDelayed(block, _) => block,
-        }
-    }
-    fn block_cloned(&self) -> Arc<SignedBeaconBlock<E>> {
-        match &self {
-            BlockWrapper::Available(block) => block.0.block.clone(),
-            BlockWrapper::AvailabilityPending(block) => block.clone(),
-            BlockWrapper::AvailabilityCheckDelayed(block, _) => block.clone(),
-        }
-    }
-    fn canonical_root(&self) -> Hash256 {
-        self.as_block().canonical_root()
-    }
-
-    fn into_block_wrapper(self) -> BlockWrapper<E> {
-        self.clone()
-    }
-}
-
-impl<E: EthSpec> From<SignedBeaconBlock<E>> for BlockWrapper<E> {
-    fn from(block: SignedBeaconBlock<E>) -> Self {
-        BlockWrapper::AvailabilityPending(Arc::new(block))
-    }
-}
-
 impl<E: EthSpec> From<Arc<SignedBeaconBlock<E>>> for BlockWrapper<E> {
-    fn from(block: Arc<SignedBeaconBlock<E>>) -> Self {
-        BlockWrapper::AvailabilityPending(block)
-    }
-}
-
-impl<E: EthSpec> From<AvailableBlock<E>> for BlockWrapper<E> {
-    fn from(block: AvailableBlock<E>) -> Self {
-        BlockWrapper::Available(block)
+    fn from(value: Arc<SignedBeaconBlock<E>>) -> Self {
+        Self::Block(value)
     }
 }

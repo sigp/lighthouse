@@ -1,7 +1,8 @@
 #![cfg(not(debug_assertions))]
 
+use beacon_chain::blob_verification::BlockWrapper;
 use beacon_chain::{
-    blob_verification::{AsBlock, BlockWrapper},
+    blob_verification::{AsBlock, MaybeAvailableBlock},
     test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType},
 };
 use beacon_chain::{BeaconSnapshot, BlockError, ChainSegmentResult, NotifyExecutionLayer};

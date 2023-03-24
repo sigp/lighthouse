@@ -1,18 +1,26 @@
 use crate::blob_verification::{
-    verify_kzg_for_blob, AvailableBlock, BlockWrapper, GossipVerifiedBlob, KzgVerifiedBlob,
-    KzgVerifiedBlobList,
+    verify_kzg_for_blob, verify_kzg_for_blob_list, AsBlock, BlockWrapper, GossipVerifiedBlob,
+    KzgVerifiedBlob, KzgVerifiedBlobList, MaybeAvailableBlock,
 };
-use crate::block_verification::{AvailableExecutedBlock, ExecutedBlock};
+use crate::block_verification::{AvailabilityPendingExecutedBlock, AvailableExecutedBlock};
 
+use crate::kzg_utils::validate_blobs;
 use kzg::Error as KzgError;
 use kzg::Kzg;
 use parking_lot::{Mutex, RwLock};
-use ssz_types::Error;
+use slot_clock::SlotClock;
+use ssz_types::{Error, VariableList};
+use state_processing::per_block_processing::eip4844::eip4844::verify_kzg_commitments_against_transactions;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::sync::Arc;
+use types::beacon_block_body::KzgCommitments;
 use types::blob_sidecar::{BlobIdentifier, BlobSidecar};
-use types::{Epoch, EthSpec, Hash256};
+use types::consts::eip4844::MIN_EPOCHS_FOR_BLOBS_SIDECARS_REQUESTS;
+use types::{
+    BeaconBlockRef, BlobSidecarList, ChainSpec, Epoch, EthSpec, ExecPayload, FullPayload, Hash256,
+    SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
+};
 
 #[derive(Debug)]
 pub enum AvailabilityCheckError {
@@ -45,10 +53,17 @@ impl From<ssz_types::Error> for AvailabilityCheckError {
 ///  - commitments for blocks that have been gossip verified, but the commitments themselves
 ///    have not been verified against blobs
 ///  - blocks that have been fully verified and only require a data availability check
-pub struct DataAvailabilityChecker<T: EthSpec> {
+pub struct DataAvailabilityChecker<T: EthSpec, S: SlotClock> {
     rpc_blob_cache: RwLock<HashMap<BlobIdentifier, Arc<BlobSidecar<T>>>>,
     gossip_blob_cache: Mutex<HashMap<Hash256, GossipBlobCache<T>>>,
+    slot_clock: S,
     kzg: Option<Arc<Kzg>>,
+    spec: ChainSpec,
+}
+
+struct GossipBlobCache<T: EthSpec> {
+    verified_blobs: Vec<KzgVerifiedBlob<T>>,
+    executed_block: Option<AvailabilityPendingExecutedBlock<T>>,
 }
 
 pub enum Availability<T: EthSpec> {
@@ -57,17 +72,14 @@ pub enum Availability<T: EthSpec> {
     Available(Box<AvailableExecutedBlock<T>>),
 }
 
-struct GossipBlobCache<T: EthSpec> {
-    verified_blobs: Vec<KzgVerifiedBlob<T>>,
-    executed_block: Option<ExecutedBlock<T>>,
-}
-
-impl<T: EthSpec> DataAvailabilityChecker<T> {
-    pub fn new(kzg: Option<Arc<Kzg>>) -> Self {
+impl<T: EthSpec, S: SlotClock> DataAvailabilityChecker<T, S> {
+    pub fn new(slot_clock: S, kzg: Option<Arc<Kzg>>, spec: ChainSpec) -> Self {
         Self {
             rpc_blob_cache: <_>::default(),
             gossip_blob_cache: <_>::default(),
+            slot_clock,
             kzg,
+            spec,
         }
     }
 
@@ -79,7 +91,6 @@ impl<T: EthSpec> DataAvailabilityChecker<T> {
     pub fn put_blob(
         &self,
         verified_blob: GossipVerifiedBlob<T>,
-        da_check_fn: impl FnOnce(Epoch) -> bool,
     ) -> Result<Availability<T>, AvailabilityCheckError> {
         let block_root = verified_blob.block_root();
 
@@ -110,68 +121,7 @@ impl<T: EthSpec> DataAvailabilityChecker<T> {
                     .insert(blob.index as usize, kzg_verified_blob);
 
                 if let Some(executed_block) = cache.executed_block.take() {
-                    let ExecutedBlock {
-                        block: block_wrapper,
-                        import_data,
-                        payload_verification_outcome,
-                    } = executed_block;
-                    match block_wrapper {
-                        BlockWrapper::AvailabilityPending(block) => {
-                            let kzg_commitments = block
-                                .message_eip4844()
-                                .map_err(|_| AvailabilityCheckError::IncorrectFork)?
-                                .body
-                                .blob_kzg_commitments
-                                .clone()
-                                .to_vec();
-                            let verified_commitments: Vec<_> = cache
-                                .verified_blobs
-                                .iter()
-                                .map(|blob| blob.kzg_commitment())
-                                .collect();
-                            if verified_commitments == kzg_commitments {
-                                //TODO(sean) can we remove this clone
-                                let blobs = cache.verified_blobs.clone();
-                                let available_block = AvailableBlock::new(
-                                    block,
-                                    blobs,
-                                    da_check_fn,
-                                    self.kzg.clone(),
-                                )?;
-                                Availability::Available(Box::new(AvailableExecutedBlock::new(
-                                    available_block,
-                                    import_data,
-                                    payload_verification_outcome,
-                                )))
-                            } else {
-                                let mut missing_blobs = Vec::with_capacity(kzg_commitments.len());
-                                for i in 0..kzg_commitments.len() {
-                                    if cache.verified_blobs.get(i).is_none() {
-                                        missing_blobs.push(BlobIdentifier {
-                                            block_root: import_data.block_root,
-                                            index: i as u64,
-                                        })
-                                    }
-                                }
-
-                                let _ = cache.executed_block.insert(ExecutedBlock::new(
-                                    BlockWrapper::AvailabilityPending(block),
-                                    import_data,
-                                    payload_verification_outcome,
-                                ));
-
-                                Availability::PendingBlobs(missing_blobs)
-                            }
-                        }
-                        BlockWrapper::Available(_available_block) => {
-                            // log warn, shouldn't have cached this
-                            todo!()
-                        }
-                        BlockWrapper::AvailabilityCheckDelayed(_block, _blobs) => {
-                            // log warn, shouldn't have cached this
-                            todo!()
-                        }
-                    }
+                    self.handle_some_blocks_and_blobs(cache, executed_block)?
                 } else {
                     Availability::PendingBlock(block_root)
                 }
@@ -197,113 +147,337 @@ impl<T: EthSpec> DataAvailabilityChecker<T> {
     // return an enum here that may include the full block
     pub fn check_block_availability(
         &self,
-        executed_block: ExecutedBlock<T>,
-        da_check_fn: impl FnOnce(Epoch) -> bool,
+        executed_block: AvailabilityPendingExecutedBlock<T>,
     ) -> Result<Availability<T>, AvailabilityCheckError> {
-        let kzg = self.kzg.clone();
+        let mut guard = self.gossip_blob_cache.lock();
+        let entry = guard.entry(executed_block.import_data.block_root);
 
-        let ExecutedBlock {
+        let availability = match entry {
+            Entry::Occupied(mut occupied_entry) => {
+                let cache: &mut GossipBlobCache<T> = occupied_entry.get_mut();
+
+                self.handle_some_blocks_and_blobs(cache, executed_block)?
+            }
+            Entry::Vacant(vacant_entry) => {
+                let kzg_commitments_len = executed_block.block.kzg_commitments()?.len();
+                let mut blob_ids = Vec::with_capacity(kzg_commitments_len);
+                for i in 0..kzg_commitments_len {
+                    blob_ids.push(BlobIdentifier {
+                        block_root: executed_block.import_data.block_root,
+                        index: i as u64,
+                    });
+                }
+
+                vacant_entry.insert(GossipBlobCache {
+                    verified_blobs: vec![],
+                    executed_block: Some(executed_block),
+                });
+
+                Availability::PendingBlobs(blob_ids)
+            }
+        };
+
+        Ok(availability)
+    }
+
+    fn handle_some_blocks_and_blobs(
+        &self,
+        cache: &mut GossipBlobCache<T>,
+        executed_block: AvailabilityPendingExecutedBlock<T>,
+    ) -> Result<Availability<T>, AvailabilityCheckError> {
+        let AvailabilityPendingExecutedBlock {
             block,
             import_data,
             payload_verification_outcome,
         } = executed_block;
-
-        let availability = match block {
-            BlockWrapper::Available(available) => Availability::Available(Box::new(
-                AvailableExecutedBlock::new(available, import_data, payload_verification_outcome),
-            )),
-            BlockWrapper::AvailabilityPending(block) => {
-                if let Ok(kzg_commitments) = block.message().body().blob_kzg_commitments() {
-                    let mut guard = self.gossip_blob_cache.lock();
-                    let entry = guard.entry(import_data.block_root);
-
-                    match entry {
-                        Entry::Occupied(mut occupied_entry) => {
-                            let cache: &mut GossipBlobCache<T> = occupied_entry.get_mut();
-
-                            let verified_commitments: Vec<_> = cache
-                                .verified_blobs
-                                .iter()
-                                .map(|blob| blob.kzg_commitment())
-                                .collect();
-                            if verified_commitments == kzg_commitments.clone().to_vec() {
-                                let removed: GossipBlobCache<T> = occupied_entry.remove();
-
-                                let available_block = AvailableBlock::new(
-                                    block,
-                                    removed.verified_blobs,
-                                    da_check_fn,
-                                    kzg,
-                                )?;
-
-                                let available_executed = AvailableExecutedBlock::new(
-                                    available_block,
-                                    import_data,
-                                    payload_verification_outcome,
-                                );
-                                Availability::Available(Box::new(available_executed))
-                            } else {
-                                let mut missing_blobs = Vec::with_capacity(kzg_commitments.len());
-                                for i in 0..kzg_commitments.len() {
-                                    if cache.verified_blobs.get(i).is_none() {
-                                        missing_blobs.push(BlobIdentifier {
-                                            block_root: import_data.block_root,
-                                            index: i as u64,
-                                        })
-                                    }
-                                }
-
-                                //TODO(sean) add a check that missing blobs > 0
-
-                                let _ = cache.executed_block.insert(ExecutedBlock::new(
-                                    BlockWrapper::AvailabilityPending(block),
-                                    import_data,
-                                    payload_verification_outcome,
-                                ));
-                                // log that we cached the block?
-                                Availability::PendingBlobs(missing_blobs)
-                            }
-                        }
-                        Entry::Vacant(vacant_entry) => {
-                            let mut blob_ids = Vec::with_capacity(kzg_commitments.len());
-                            for i in 0..kzg_commitments.len() {
-                                blob_ids.push(BlobIdentifier {
-                                    block_root: import_data.block_root,
-                                    index: i as u64,
-                                });
-                            }
-
-                            vacant_entry.insert(GossipBlobCache {
-                                verified_blobs: vec![],
-                                executed_block: Some(ExecutedBlock::new(
-                                    BlockWrapper::AvailabilityPending(block),
-                                    import_data,
-                                    payload_verification_outcome,
-                                )),
-                            });
-
-                            Availability::PendingBlobs(blob_ids)
-                        }
-                    }
-                } else {
-                    let blob_list: KzgVerifiedBlobList<T> = vec![];
-                    Availability::Available(Box::new(AvailableExecutedBlock::new(
-                        AvailableBlock::new(block, blob_list, da_check_fn, kzg)?,
-                        import_data,
-                        payload_verification_outcome,
-                    )))
-                }
-            }
-            BlockWrapper::AvailabilityCheckDelayed(block, blobs) => {
-                //TODO(sean) shouldn't need to touch the cache here, maybe we should check if any blobs/blocks should
-                // be purged though?
-                Availability::Available(Box::new(AvailableExecutedBlock::new(
-                    AvailableBlock::new(block, blobs, da_check_fn, kzg)?,
+        let kzg_commitments_len = block.kzg_commitments()?.len();
+        let verified_commitments_len = cache.verified_blobs.len();
+        if kzg_commitments_len == verified_commitments_len {
+            //TODO(sean) can we remove this clone
+            let blobs = cache.verified_blobs.clone();
+            let available_block = self.make_available(block, blobs)?;
+            Ok(Availability::Available(Box::new(
+                AvailableExecutedBlock::new(
+                    available_block,
                     import_data,
                     payload_verification_outcome,
-                )))
+                ),
+            )))
+        } else {
+            let mut missing_blobs = Vec::with_capacity(kzg_commitments_len);
+            for i in 0..kzg_commitments_len {
+                if cache.verified_blobs.get(i).is_none() {
+                    missing_blobs.push(BlobIdentifier {
+                        block_root: import_data.block_root,
+                        index: i as u64,
+                    })
+                }
+            }
+
+            let _ = cache
+                .executed_block
+                .insert(AvailabilityPendingExecutedBlock::new(
+                    block,
+                    import_data,
+                    payload_verification_outcome,
+                ));
+
+            Ok(Availability::PendingBlobs(missing_blobs))
+        }
+    }
+
+    pub fn check_availability(
+        &self,
+        block: BlockWrapper<T>,
+    ) -> Result<MaybeAvailableBlock<T>, AvailabilityCheckError> {
+        match block {
+            BlockWrapper::Block(block) => self.check_availability_without_blobs(block),
+            BlockWrapper::BlockAndBlobs(block, blob_list) => {
+                let kzg = self
+                    .kzg
+                    .as_ref()
+                    .ok_or(AvailabilityCheckError::KzgNotInitialized)?;
+                let verified_blobs = verify_kzg_for_blob_list(blob_list, kzg)?;
+
+                Ok(MaybeAvailableBlock::Available(
+                    self.check_availability_with_blobs(block, verified_blobs)?,
+                ))
+            }
+        }
+    }
+
+    fn check_availability_with_blobs(
+        &self,
+        block: Arc<SignedBeaconBlock<T>>,
+        blobs: KzgVerifiedBlobList<T>,
+    ) -> Result<AvailableBlock<T>, AvailabilityCheckError> {
+        match self.check_availability_without_blobs(block)? {
+            MaybeAvailableBlock::Available(block) => Ok(block),
+            MaybeAvailableBlock::AvailabilityPending(pending_block) => {
+                self.make_available(pending_block, blobs)
+            }
+        }
+    }
+
+    pub fn check_availability_without_blobs(
+        &self,
+        block: Arc<SignedBeaconBlock<T>>,
+    ) -> Result<MaybeAvailableBlock<T>, AvailabilityCheckError> {
+        let blob_requirements = self.get_blob_requirements(&block)?;
+        let blobs = match blob_requirements {
+            BlobRequirements::EmptyBlobs => VerifiedBlobs::EmptyBlobs,
+            BlobRequirements::NotRequired => VerifiedBlobs::NotRequired,
+            BlobRequirements::PreEip4844 => VerifiedBlobs::PreEip4844,
+            BlobRequirements::Required => {
+                return Ok(MaybeAvailableBlock::AvailabilityPending(
+                    AvailabilityPendingBlock { block },
+                ))
             }
         };
-        Ok(availability)
+        Ok(MaybeAvailableBlock::Available(AvailableBlock {
+            block,
+            blobs,
+        }))
+    }
+
+    pub fn make_available(
+        &self,
+        block: AvailabilityPendingBlock<T>,
+        blobs: KzgVerifiedBlobList<T>,
+    ) -> Result<AvailableBlock<T>, AvailabilityCheckError> {
+        let block_kzg_commitments = block.kzg_commitments()?;
+        if blobs.len() != block_kzg_commitments.len() {
+            return Err(AvailabilityCheckError::NumBlobsMismatch {
+                num_kzg_commitments: block_kzg_commitments.len(),
+                num_blobs: blobs.len(),
+            });
+        }
+
+        for (block_commitment, blob) in block_kzg_commitments.iter().zip(blobs.iter()) {
+            if *block_commitment != blob.kzg_commitment() {
+                return Err(AvailabilityCheckError::KzgCommitmentMismatch {
+                    blob_index: blob.as_blob().index,
+                });
+            }
+        }
+
+        let blobs = VariableList::new(blobs.into_iter().map(|blob| blob.to_blob()).collect())?;
+
+        Ok(AvailableBlock {
+            block: block.block,
+            blobs: VerifiedBlobs::Available(blobs),
+        })
+    }
+
+    fn get_blob_requirements(
+        &self,
+        block: &Arc<SignedBeaconBlock<T, FullPayload<T>>>,
+    ) -> Result<BlobRequirements, AvailabilityCheckError> {
+        let verified_blobs = if let (Ok(block_kzg_commitments), Ok(payload)) = (
+            block.message().body().blob_kzg_commitments(),
+            block.message().body().execution_payload(),
+        ) {
+            if let Some(transactions) = payload.transactions() {
+                let verified = verify_kzg_commitments_against_transactions::<T>(
+                    transactions,
+                    block_kzg_commitments,
+                )
+                .map_err(|_| AvailabilityCheckError::TxKzgCommitmentMismatch)?;
+                if !verified {
+                    return Err(AvailabilityCheckError::TxKzgCommitmentMismatch);
+                }
+            }
+
+            if self.da_check_required(block.epoch()) {
+                if block_kzg_commitments.is_empty() {
+                    BlobRequirements::EmptyBlobs
+                } else {
+                    BlobRequirements::Required
+                }
+            } else {
+                BlobRequirements::NotRequired
+            }
+        } else {
+            BlobRequirements::PreEip4844
+        };
+        Ok(verified_blobs)
+    }
+
+    /// The epoch at which we require a data availability check in block processing.
+    /// `None` if the `Eip4844` fork is disabled.
+    pub fn data_availability_boundary(&self) -> Option<Epoch> {
+        self.spec.eip4844_fork_epoch.and_then(|fork_epoch| {
+            self.slot_clock
+                .now()
+                .map(|slot| slot.epoch(T::slots_per_epoch()))
+                .map(|current_epoch| {
+                    std::cmp::max(
+                        fork_epoch,
+                        current_epoch.saturating_sub(*MIN_EPOCHS_FOR_BLOBS_SIDECARS_REQUESTS),
+                    )
+                })
+        })
+    }
+
+    /// Returns true if the given epoch lies within the da boundary and false otherwise.
+    pub fn da_check_required(&self, block_epoch: Epoch) -> bool {
+        self.data_availability_boundary()
+            .map_or(false, |da_epoch| block_epoch >= da_epoch)
+    }
+}
+
+pub enum BlobRequirements {
+    Required,
+    /// This block is from outside the data availability boundary so doesn't require
+    /// a data availability check.
+    NotRequired,
+    /// The block's `kzg_commitments` field is empty so it does not contain any blobs.
+    EmptyBlobs,
+    /// This is a block prior to the 4844 fork, so doesn't require any blobs
+    PreEip4844,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct AvailabilityPendingBlock<E: EthSpec> {
+    block: Arc<SignedBeaconBlock<E>>,
+}
+
+impl<E: EthSpec> AvailabilityPendingBlock<E> {
+    pub fn to_block(self) -> Arc<SignedBeaconBlock<E>> {
+        self.block
+    }
+    pub fn as_block(&self) -> &SignedBeaconBlock<E> {
+        &self.block
+    }
+    pub fn block_cloned(&self) -> Arc<SignedBeaconBlock<E>> {
+        self.block.clone()
+    }
+    pub fn kzg_commitments(&self) -> Result<&KzgCommitments<E>, AvailabilityCheckError> {
+        self.block
+            .message()
+            .body()
+            .blob_kzg_commitments()
+            .map_err(|_| AvailabilityCheckError::IncorrectFork)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct AvailableBlock<E: EthSpec> {
+    block: Arc<SignedBeaconBlock<E>>,
+    blobs: VerifiedBlobs<E>,
+}
+
+impl<E: EthSpec> AvailableBlock<E> {
+    pub fn block(&self) -> &SignedBeaconBlock<E> {
+        &self.block
+    }
+
+    pub fn deconstruct(self) -> (Arc<SignedBeaconBlock<E>>, Option<BlobSidecarList<E>>) {
+        match self.blobs {
+            VerifiedBlobs::EmptyBlobs | VerifiedBlobs::NotRequired | VerifiedBlobs::PreEip4844 => {
+                (self.block, None)
+            }
+            VerifiedBlobs::Available(blobs) => (self.block, Some(blobs)),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum VerifiedBlobs<E: EthSpec> {
+    /// These blobs are available.
+    Available(BlobSidecarList<E>),
+    /// This block is from outside the data availability boundary so doesn't require
+    /// a data availability check.
+    NotRequired,
+    /// The block's `kzg_commitments` field is empty so it does not contain any blobs.
+    EmptyBlobs,
+    /// This is a block prior to the 4844 fork, so doesn't require any blobs
+    PreEip4844,
+}
+
+impl<E: EthSpec> AsBlock<E> for AvailableBlock<E> {
+    fn slot(&self) -> Slot {
+        self.block.slot()
+    }
+
+    fn epoch(&self) -> Epoch {
+        self.block.epoch()
+    }
+
+    fn parent_root(&self) -> Hash256 {
+        self.block.parent_root()
+    }
+
+    fn state_root(&self) -> Hash256 {
+        self.block.state_root()
+    }
+
+    fn signed_block_header(&self) -> SignedBeaconBlockHeader {
+        self.block.signed_block_header()
+    }
+
+    fn message(&self) -> BeaconBlockRef<E> {
+        self.block.message()
+    }
+
+    fn as_block(&self) -> &SignedBeaconBlock<E> {
+        &self.block
+    }
+
+    fn block_cloned(&self) -> Arc<SignedBeaconBlock<E>> {
+        self.block.clone()
+    }
+
+    fn canonical_root(&self) -> Hash256 {
+        self.block.canonical_root()
+    }
+
+    fn into_block_wrapper(self) -> BlockWrapper<E> {
+        let (block, blobs_opt) = self.deconstruct();
+        if let Some(blobs) = blobs_opt {
+            BlockWrapper::BlockAndBlobs(block, blobs)
+        } else {
+            BlockWrapper::Block(block)
+        }
     }
 }
