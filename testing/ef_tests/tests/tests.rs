@@ -216,7 +216,6 @@ macro_rules! ssz_static_test_no_run {
 mod ssz_static {
     use ef_tests::{Handler, SszStaticHandler, SszStaticTHCHandler, SszStaticWithSpecHandler};
     use types::historical_summary::HistoricalSummary;
-    use types::signed_block_and_blobs::SignedBeaconBlockAndBlobsSidecarDecode;
     use types::*;
 
     ssz_static_test!(aggregate_and_proof, AggregateAndProof<_>);
@@ -376,12 +375,6 @@ mod ssz_static {
     fn blobs_sidecar() {
         SszStaticHandler::<BlobsSidecar<MinimalEthSpec>, MinimalEthSpec>::eip4844_only().run();
         SszStaticHandler::<BlobsSidecar<MainnetEthSpec>, MainnetEthSpec>::eip4844_only().run();
-    }
-
-    #[test]
-    fn signed_blobs_sidecar() {
-        SszStaticHandler::<SignedBeaconBlockAndBlobsSidecarDecode<MinimalEthSpec>, MinimalEthSpec>::eip4844_only().run();
-        SszStaticHandler::<SignedBeaconBlockAndBlobsSidecarDecode<MainnetEthSpec>, MainnetEthSpec>::eip4844_only().run();
     }
 
     #[test]
