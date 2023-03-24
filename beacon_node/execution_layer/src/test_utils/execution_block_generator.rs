@@ -205,6 +205,14 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
             .and_then(|block| block.as_execution_block_with_tx())
     }
 
+    pub fn execution_block_with_txs_by_number(
+        &self,
+        number: u64,
+    ) -> Option<ExecutionBlockWithTransactions<T>> {
+        self.block_by_number(number)
+            .and_then(|block| block.as_execution_block_with_tx())
+    }
+
     pub fn move_to_block_prior_to_terminal_block(&mut self) -> Result<(), String> {
         let target_block = self
             .terminal_block_number

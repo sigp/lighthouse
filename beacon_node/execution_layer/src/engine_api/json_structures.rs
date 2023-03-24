@@ -5,7 +5,7 @@ use superstruct::superstruct;
 use types::blobs_sidecar::KzgCommitments;
 use types::{
     Blobs, EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadCapella,
-    ExecutionPayloadEip4844, ExecutionPayloadMerge, FixedVector, Transaction, Unsigned,
+    ExecutionPayloadEip4844, ExecutionPayloadMerge, FixedVector, Transactions, Unsigned,
     VariableList, Withdrawal,
 };
 
@@ -98,8 +98,7 @@ pub struct JsonExecutionPayload<T: EthSpec> {
     pub excess_data_gas: Uint256,
     pub block_hash: ExecutionBlockHash,
     #[serde(with = "ssz_types::serde_utils::list_of_hex_var_list")]
-    pub transactions:
-        VariableList<Transaction<T::MaxBytesPerTransaction>, T::MaxTransactionsPerPayload>,
+    pub transactions: Transactions<T>,
     #[superstruct(only(V2, V3))]
     pub withdrawals: VariableList<JsonWithdrawal, T::MaxWithdrawalsPerPayload>,
 }
@@ -568,6 +567,30 @@ impl From<ForkchoiceUpdatedResponse> for JsonForkchoiceUpdatedV1Response {
         Self {
             payload_status: status.into(),
             payload_id: payload_id.map(Into::into),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(bound = "E: EthSpec")]
+pub struct JsonExecutionPayloadBodyV1<E: EthSpec> {
+    #[serde(with = "ssz_types::serde_utils::list_of_hex_var_list")]
+    pub transactions: Transactions<E>,
+    pub withdrawals: Option<VariableList<JsonWithdrawal, E::MaxWithdrawalsPerPayload>>,
+}
+
+impl<E: EthSpec> From<JsonExecutionPayloadBodyV1<E>> for ExecutionPayloadBodyV1<E> {
+    fn from(value: JsonExecutionPayloadBodyV1<E>) -> Self {
+        Self {
+            transactions: value.transactions,
+            withdrawals: value.withdrawals.map(|json_withdrawals| {
+                Withdrawals::<E>::from(
+                    json_withdrawals
+                        .into_iter()
+                        .map(Into::into)
+                        .collect::<Vec<_>>(),
+                )
+            }),
         }
     }
 }
