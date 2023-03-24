@@ -8,7 +8,7 @@ use crate::beacon_proposer_cache::compute_proposer_duties_from_head;
 use crate::beacon_proposer_cache::BeaconProposerCache;
 use crate::blob_cache::BlobCache;
 use crate::blob_verification::{
-    self, AsBlock, BlobError, BlockWrapper, GossipVerifiedBlob, MaybeAvailableBlock,
+    self, AsBlock, BlobError, BlockWrapper, GossipVerifiedBlob,
 };
 use crate::block_times_cache::BlockTimesCache;
 use crate::block_verification::POS_PANDA_BANNER;

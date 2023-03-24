@@ -4,7 +4,7 @@ use crate::blob_verification::{
 };
 use crate::block_verification::{AvailabilityPendingExecutedBlock, AvailableExecutedBlock};
 
-use crate::kzg_utils::validate_blobs;
+
 use kzg::Error as KzgError;
 use kzg::Kzg;
 use parking_lot::{Mutex, RwLock};

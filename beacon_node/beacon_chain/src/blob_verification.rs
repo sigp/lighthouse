@@ -494,3 +494,9 @@ impl<E: EthSpec> From<Arc<SignedBeaconBlock<E>>> for BlockWrapper<E> {
         Self::Block(value)
     }
 }
+
+impl<E: EthSpec> From<SignedBeaconBlock<E>> for BlockWrapper<E> {
+    fn from(value: SignedBeaconBlock<E>) -> Self {
+        Self::Block(Arc::new(value))
+    }
+}

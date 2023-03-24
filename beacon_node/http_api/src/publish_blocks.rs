@@ -1,5 +1,5 @@
 use crate::metrics;
-use beacon_chain::blob_verification::MaybeAvailableBlock;
+
 use beacon_chain::blob_verification::{AsBlock, BlockWrapper};
 use beacon_chain::validator_monitor::{get_block_delay_ms, timestamp_now};
 use beacon_chain::{AvailabilityProcessingStatus, NotifyExecutionLayer};
