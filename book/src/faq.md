@@ -128,8 +128,9 @@ same `datadir` as a previous network. I.e if you have been running the
 `datadir` (the `datadir` is also printed out in the beacon node's logs on
 boot-up).
 
-If you find yourself with a low peer count and is not reaching the target you
-expect. Try setting up the correct port forwards as described [here](./advanced_networking.md#nat-traversal-port-forwarding).
+If you find yourself with a low peer count and it's not reaching the target you
+expect. Try setting up the correct port forwards as described
+[here](./advanced_networking.md#nat-traversal-port-forwarding).
 
 ### What should I do if I lose my slashing protection database?
 
