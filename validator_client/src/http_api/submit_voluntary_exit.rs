@@ -1,6 +1,6 @@
 use crate::beacon_node_fallback::{BeaconNodeFallback, OfflineOnFailure, RequireSynced};
 use crate::validator_store::ValidatorStore;
-use bls::PublicKeyBytes;
+use bls::{PublicKey, PublicKeyBytes};
 use slog::{info, Logger};
 use slot_clock::{SlotClock, SystemTimeSlotClock};
 use std::sync::Arc;
@@ -8,23 +8,30 @@ use std::time::Duration;
 use types::{ChainSpec, Epoch, EthSpec, VoluntaryExit};
 
 pub async fn submit_voluntary_exit<T: 'static + SlotClock + Clone, E: EthSpec>(
-    pubkey: PublicKeyBytes,
+    pubkey: PublicKey,
+    maybe_epoch: Option<Epoch>,
     validator_store: Arc<ValidatorStore<T, E>>,
     spec: Arc<ChainSpec>,
     beacon_nodes: Arc<BeaconNodeFallback<T, E>>,
     genesis_time: u64,
     log: Logger,
 ) -> Result<(), warp::Rejection> {
-    let epoch = get_current_epoch::<E>(genesis_time, spec).ok_or_else(|| {
-        warp_utils::reject::custom_server_error("Unable to determine current epoch".to_string())
-    })?;
+    let epoch = match maybe_epoch {
+        Some(epoch) => epoch,
+        None => get_current_epoch::<E>(genesis_time, spec).ok_or_else(|| {
+            warp_utils::reject::custom_server_error("Unable to determine current epoch".to_string())
+        })?,
+    };
 
-    let validator_index = validator_store.validator_index(&pubkey).ok_or_else(|| {
-        warp_utils::reject::custom_server_error(format!(
-            "Unable to find validator with public key: {}",
-            pubkey.as_hex_string()
-        ))
-    })?;
+    let pubkey_bytes = PublicKeyBytes::from(pubkey);
+    let validator_index = validator_store
+        .validator_index(&pubkey_bytes)
+        .ok_or_else(|| {
+            warp_utils::reject::custom_server_error(format!(
+                "Unable to find validator with public key: {}",
+                pubkey_bytes.as_hex_string()
+            ))
+        })?;
 
     let voluntary_exit = VoluntaryExit {
         epoch,
@@ -32,7 +39,7 @@ pub async fn submit_voluntary_exit<T: 'static + SlotClock + Clone, E: EthSpec>(
     };
 
     let signed_voluntary_exit = validator_store
-        .sign_voluntary_exit(pubkey, voluntary_exit)
+        .sign_voluntary_exit(pubkey_bytes, voluntary_exit)
         .await
         .map_err(|e| {
             warp_utils::reject::custom_server_error(format!(
@@ -41,7 +48,7 @@ pub async fn submit_voluntary_exit<T: 'static + SlotClock + Clone, E: EthSpec>(
             ))
         })?;
 
-    info!(log, "Publishing voluntary exit"; "validator" => pubkey.as_hex_string());
+    info!(log, "Publishing voluntary exit"; "validator" => pubkey_bytes.as_hex_string());
 
     beacon_nodes
         .first_success(RequireSynced::Yes, OfflineOnFailure::No, |client| async {

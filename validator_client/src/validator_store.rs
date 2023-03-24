@@ -624,7 +624,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
     ) -> Result<SignedVoluntaryExit, Error> {
         let signing_epoch = voluntary_exit.epoch;
         let signing_context = self.signing_context(Domain::VoluntaryExit, signing_epoch);
-        let signing_method = self.doppelganger_checked_signing_method(validator_pubkey)?;
+        let signing_method = self.doppelganger_bypassed_signing_method(validator_pubkey)?;
 
         let signature = signing_method
             .get_signature::<E, BlindedPayload<E>>(

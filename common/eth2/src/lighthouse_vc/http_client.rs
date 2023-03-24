@@ -460,22 +460,6 @@ impl ValidatorClientHttpClient {
         self.post(path, &request).await
     }
 
-    /// `POST lighthouse/validators/voluntary_exits`
-    pub async fn post_lighthouse_validators_voluntary_exits(
-        &self,
-        request: &VoluntaryExitRequest,
-    ) -> Result<SignedVoluntaryExit, Error> {
-        let mut path = self.server.full.clone();
-
-        path.path_segments_mut()
-            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
-            .push("lighthouse")
-            .push("validators")
-            .push("voluntary_exits");
-
-        self.post(path, &request).await
-    }
-
     /// `PATCH lighthouse/validators/{validator_pubkey}`
     pub async fn patch_lighthouse_validators(
         &self,
@@ -657,6 +641,35 @@ impl ValidatorClientHttpClient {
     pub async fn delete_gas_limit(&self, pubkey: &PublicKeyBytes) -> Result<Response, Error> {
         let url = self.make_gas_limit_url(pubkey)?;
         self.delete_with_raw_response(url, &()).await
+    }
+
+    /// `POST /eth/v1/validator/{pubkey}/voluntary_exit`
+    pub async fn post_validator_voluntary_exit(
+        &self,
+        pubkey: &PublicKeyBytes,
+        confirm: bool,
+        epoch: Option<Epoch>,
+    ) -> Result<SignedVoluntaryExit, Error> {
+        let mut path = self.server.full.clone();
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("eth")
+            .push("v1")
+            .push("validator")
+            .push(&pubkey.to_string())
+            .push("voluntary_exit");
+
+        if confirm {
+            path.query_pairs_mut().append_pair("confirm", "yes");
+        }
+
+        if let Some(epoch) = epoch {
+            path.query_pairs_mut()
+                .append_pair("epoch", &epoch.to_string());
+        }
+
+        self.post(path, &()).await
     }
 }
 

@@ -14,6 +14,7 @@ use account_utils::{
 };
 pub use api_secret::ApiSecret;
 use create_validator::{create_validators_mnemonic, create_validators_web3signer};
+use eth2::lighthouse_vc::types::ConfirmVoluntaryExit;
 use eth2::lighthouse_vc::{
     std_types::{AuthResponse, GetFeeRecipientResponse, GetGasLimitResponse},
     types::{self as api_types, GenericResponse, Graffiti, PublicKey, PublicKeyBytes},
@@ -607,46 +608,6 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
             },
         );
 
-    // POST lighthouse/validators/voluntary_exits
-    let post_validators_voluntary_exits = warp::path("lighthouse")
-        .and(warp::path("validators"))
-        .and(warp::path("voluntary_exits"))
-        .and(warp::path::end())
-        .and(validator_store_filter.clone())
-        .and(spec_filter)
-        .and(beacon_nodes_filter)
-        .and(genesis_time_filter)
-        .and(log_filter.clone())
-        .and(signer.clone())
-        .and(task_executor_filter.clone())
-        .and_then(
-            |validator_store: Arc<ValidatorStore<T, E>>,
-             spec: Arc<ChainSpec>,
-             beacon_nodes: Arc<BeaconNodeFallback<T, E>>,
-             genesis_time: u64,
-             log,
-             signer,
-             task_executor: TaskExecutor| {
-                blocking_signed_json_task(signer, move || {
-                    if let Some(handle) = task_executor.handle() {
-                        handle.block_on(submit_voluntary_exit(
-                            body.pubkey,
-                            validator_store,
-                            spec,
-                            beacon_nodes,
-                            genesis_time,
-                            log,
-                        ))?;
-                        Ok(())
-                    } else {
-                        Err(warp_utils::reject::custom_server_error(
-                            "Lighthouse shutting down".into(),
-                        ))
-                    }
-                })
-            },
-        );
-
     // PATCH lighthouse/validators/{validator_pubkey}
     let patch_validators = warp::path("lighthouse")
         .and(warp::path("validators"))
@@ -954,6 +915,54 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
             },
         )
         .map(|reply| warp::reply::with_status(reply, warp::http::StatusCode::NO_CONTENT));
+
+    // POST /eth/v1/validator/{pubkey}/voluntary_exit
+    let post_validators_voluntary_exits = eth_v1
+        .and(warp::path("validator"))
+        .and(warp::path::param::<PublicKey>())
+        .and(warp::path("voluntary_exit"))
+        .and(warp::query::<api_types::VoluntaryExitQuery>())
+        .and(warp::path::end())
+        .and(validator_store_filter.clone())
+        .and(spec_filter)
+        .and(beacon_nodes_filter)
+        .and(genesis_time_filter)
+        .and(log_filter.clone())
+        .and(signer.clone())
+        .and(task_executor_filter.clone())
+        .and_then(
+            |pubkey: PublicKey,
+             query: api_types::VoluntaryExitQuery,
+             validator_store: Arc<ValidatorStore<T, E>>,
+             spec: Arc<ChainSpec>,
+             beacon_nodes: Arc<BeaconNodeFallback<T, E>>,
+             genesis_time: u64,
+             log,
+             signer,
+             task_executor: TaskExecutor| {
+                blocking_signed_json_task(signer, move || {
+                    if let ConfirmVoluntaryExit::No = query.confirm {
+                        return Err(warp_utils::reject::custom_bad_request("please confirm you intend to exit this validator, it cannot be undone once the message is submitted!".to_string()));
+                    }
+                    if let Some(handle) = task_executor.handle() {
+                        handle.block_on(submit_voluntary_exit(
+                            pubkey,
+                            query.epoch,
+                            validator_store,
+                            spec,
+                            beacon_nodes,
+                            genesis_time,
+                            log,
+                        ))?;
+                        Ok(())
+                    } else {
+                        Err(warp_utils::reject::custom_server_error(
+                            "Lighthouse shutting down".into(),
+                        ))
+                    }
+                })
+            },
+        );
 
     // GET /eth/v1/keystores
     let get_std_keystores = std_keystores
