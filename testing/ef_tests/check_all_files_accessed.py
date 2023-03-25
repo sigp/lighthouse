@@ -53,8 +53,8 @@ excluded_paths = [
     "bls12-381-tests/hash_to_G2",
     # FIXME(sean)
     "tests/mainnet/capella/light_client/single_merkle_proof/BeaconBlockBody/*",
-    "tests/mainnet/deneb/light_client/single_merkle_proof/BeaconBlockBody/*"
-    "tests/general/deneb/kzg/*"
+    "tests/mainnet/deneb/light_client/single_merkle_proof/BeaconBlockBody/*",
+    "tests/general/deneb/kzg"
 ]
 
 def normalize_path(path):
