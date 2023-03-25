@@ -77,16 +77,16 @@ pub struct ExecutionPayload<T: EthSpec> {
     #[serde(with = "eth2_serde_utils::quoted_u256")]
     #[superstruct(getter(copy))]
     pub base_fee_per_gas: Uint256,
-    #[superstruct(only(Deneb))]
-    #[serde(with = "eth2_serde_utils::quoted_u256")]
-    #[superstruct(getter(copy))]
-    pub excess_data_gas: Uint256,
     #[superstruct(getter(copy))]
     pub block_hash: ExecutionBlockHash,
     #[serde(with = "ssz_types::serde_utils::list_of_hex_var_list")]
     pub transactions: Transactions<T>,
     #[superstruct(only(Capella, Deneb))]
     pub withdrawals: Withdrawals<T>,
+    #[superstruct(only(Deneb))]
+    #[serde(with = "eth2_serde_utils::quoted_u256")]
+    #[superstruct(getter(copy))]
+    pub excess_data_gas: Uint256,
 }
 
 impl<'a, T: EthSpec> ExecutionPayloadRef<'a, T> {

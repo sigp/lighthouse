@@ -93,14 +93,14 @@ pub struct JsonExecutionPayload<T: EthSpec> {
     pub extra_data: VariableList<u8, T::MaxExtraDataBytes>,
     #[serde(with = "eth2_serde_utils::u256_hex_be")]
     pub base_fee_per_gas: Uint256,
-    #[superstruct(only(V3))]
-    #[serde(with = "eth2_serde_utils::u256_hex_be")]
-    pub excess_data_gas: Uint256,
     pub block_hash: ExecutionBlockHash,
     #[serde(with = "ssz_types::serde_utils::list_of_hex_var_list")]
     pub transactions: Transactions<T>,
     #[superstruct(only(V2, V3))]
     pub withdrawals: VariableList<JsonWithdrawal, T::MaxWithdrawalsPerPayload>,
+    #[superstruct(only(V3))]
+    #[serde(with = "eth2_serde_utils::u256_hex_be")]
+    pub excess_data_gas: Uint256,
 }
 
 impl<T: EthSpec> From<ExecutionPayloadMerge<T>> for JsonExecutionPayloadV1<T> {
@@ -164,7 +164,6 @@ impl<T: EthSpec> From<ExecutionPayloadDeneb<T>> for JsonExecutionPayloadV3<T> {
             timestamp: payload.timestamp,
             extra_data: payload.extra_data,
             base_fee_per_gas: payload.base_fee_per_gas,
-            excess_data_gas: payload.excess_data_gas,
             block_hash: payload.block_hash,
             transactions: payload.transactions,
             withdrawals: payload
@@ -173,6 +172,7 @@ impl<T: EthSpec> From<ExecutionPayloadDeneb<T>> for JsonExecutionPayloadV3<T> {
                 .map(Into::into)
                 .collect::<Vec<_>>()
                 .into(),
+            excess_data_gas: payload.excess_data_gas,
         }
     }
 }
@@ -248,7 +248,6 @@ impl<T: EthSpec> From<JsonExecutionPayloadV3<T>> for ExecutionPayloadDeneb<T> {
             timestamp: payload.timestamp,
             extra_data: payload.extra_data,
             base_fee_per_gas: payload.base_fee_per_gas,
-            excess_data_gas: payload.excess_data_gas,
             block_hash: payload.block_hash,
             transactions: payload.transactions,
             withdrawals: payload
@@ -257,6 +256,7 @@ impl<T: EthSpec> From<JsonExecutionPayloadV3<T>> for ExecutionPayloadDeneb<T> {
                 .map(Into::into)
                 .collect::<Vec<_>>()
                 .into(),
+            excess_data_gas: payload.excess_data_gas,
         }
     }
 }

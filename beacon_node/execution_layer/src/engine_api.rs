@@ -181,14 +181,14 @@ pub struct ExecutionBlockWithTransactions<T: EthSpec> {
     #[serde(with = "ssz_types::serde_utils::hex_var_list")]
     pub extra_data: VariableList<u8, T::MaxExtraDataBytes>,
     pub base_fee_per_gas: Uint256,
-    #[superstruct(only(Deneb))]
-    #[serde(with = "eth2_serde_utils::u256_hex_be")]
-    pub excess_data_gas: Uint256,
     #[serde(rename = "hash")]
     pub block_hash: ExecutionBlockHash,
     pub transactions: Vec<Transaction>,
     #[superstruct(only(Capella, Deneb))]
     pub withdrawals: Vec<JsonWithdrawal>,
+    #[superstruct(only(Deneb))]
+    #[serde(with = "eth2_serde_utils::u256_hex_be")]
+    pub excess_data_gas: Uint256,
 }
 
 impl<T: EthSpec> TryFrom<ExecutionPayload<T>> for ExecutionBlockWithTransactions<T> {
@@ -255,7 +255,6 @@ impl<T: EthSpec> TryFrom<ExecutionPayload<T>> for ExecutionBlockWithTransactions
                 timestamp: block.timestamp,
                 extra_data: block.extra_data,
                 base_fee_per_gas: block.base_fee_per_gas,
-                excess_data_gas: block.excess_data_gas,
                 block_hash: block.block_hash,
                 transactions: block
                     .transactions
@@ -266,6 +265,7 @@ impl<T: EthSpec> TryFrom<ExecutionPayload<T>> for ExecutionBlockWithTransactions
                     .into_iter()
                     .map(|withdrawal| withdrawal.into())
                     .collect(),
+                excess_data_gas: block.excess_data_gas,
             }),
         };
         Ok(json_payload)
@@ -497,10 +497,10 @@ impl<E: EthSpec> ExecutionPayloadBodyV1<E> {
                         timestamp: header.timestamp,
                         extra_data: header.extra_data,
                         base_fee_per_gas: header.base_fee_per_gas,
-                        excess_data_gas: header.excess_data_gas,
                         block_hash: header.block_hash,
                         transactions: self.transactions,
                         withdrawals,
+                        excess_data_gas: header.excess_data_gas,
                     }))
                 } else {
                     Err(format!(

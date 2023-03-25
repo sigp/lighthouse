@@ -1798,10 +1798,10 @@ impl<T: EthSpec> ExecutionLayer<T> {
                     timestamp: deneb_block.timestamp,
                     extra_data: deneb_block.extra_data,
                     base_fee_per_gas: deneb_block.base_fee_per_gas,
-                    excess_data_gas: deneb_block.excess_data_gas,
                     block_hash: deneb_block.block_hash,
                     transactions: convert_transactions(deneb_block.transactions)?,
                     withdrawals,
+                    excess_data_gas: deneb_block.excess_data_gas,
                 })
             }
         };
