@@ -217,6 +217,7 @@ mod ssz_static {
     use ef_tests::{Handler, SszStaticHandler, SszStaticTHCHandler, SszStaticWithSpecHandler};
     use types::historical_summary::HistoricalSummary;
     use types::*;
+    use types::blob_sidecar::BlobIdentifier;
 
     ssz_static_test!(aggregate_and_proof, AggregateAndProof<_>);
     ssz_static_test!(attestation, Attestation<_>);
@@ -372,9 +373,22 @@ mod ssz_static {
     }
 
     #[test]
-    fn blobs_sidecar() {
-        SszStaticHandler::<BlobsSidecar<MinimalEthSpec>, MinimalEthSpec>::deneb_only().run();
-        SszStaticHandler::<BlobsSidecar<MainnetEthSpec>, MainnetEthSpec>::deneb_only().run();
+    fn blob_sidecar() {
+        SszStaticHandler::<BlobSidecar<MinimalEthSpec>, MinimalEthSpec>::deneb_only().run();
+        SszStaticHandler::<BlobSidecar<MainnetEthSpec>, MainnetEthSpec>::deneb_only().run();
+    }
+
+    #[test]
+    fn signed_blob_sidecar() {
+        SszStaticHandler::<SignedBlobSidecar<MinimalEthSpec>, MinimalEthSpec>::deneb_only().run();
+        SszStaticHandler::<SignedBlobSidecar<MainnetEthSpec>, MainnetEthSpec>::deneb_only().run();
+    }
+
+
+    #[test]
+    fn blob_identifier() {
+        SszStaticHandler::<BlobIdentifier, MinimalEthSpec>::deneb_only().run();
+        SszStaticHandler::<BlobIdentifier, MainnetEthSpec>::deneb_only().run();
     }
 
     #[test]

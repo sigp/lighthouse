@@ -1,5 +1,5 @@
 use crate::cases::{self, Case, Cases, EpochTransition, LoadCase, Operation};
-use crate::type_name;
+use crate::{Error, type_name};
 use crate::type_name::TypeName;
 use derivative::Derivative;
 use std::fs::{self, DirEntry};
@@ -57,11 +57,18 @@ pub trait Handler {
             .filter_map(as_directory)
             .flat_map(|suite| fs::read_dir(suite.path()).expect("suite dir exists"))
             .filter_map(as_directory)
-            .map(|test_case_dir| {
+            .filter_map(|test_case_dir| {
                 let path = test_case_dir.path();
 
-                let case = Self::Case::load_from_dir(&path, fork_name).expect("test should load");
-                (path, case)
+                let case_result = Self::Case::load_from_dir(&path, fork_name);
+
+                match case_result.as_ref() {
+                    Err(Error::SkippedKnownFailure) => return None,
+                    _ => {}
+                }
+
+                let case = case_result.expect("test should load");
+                Some((path, case))
             })
             .collect();
 
