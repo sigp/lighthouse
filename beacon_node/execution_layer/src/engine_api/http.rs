@@ -757,7 +757,7 @@ impl HttpJsonRpc {
                 )
                 .await?,
             ),
-            ForkName::Eip4844 => ExecutionBlockWithTransactions::Eip4844(
+            ForkName::Deneb => ExecutionBlockWithTransactions::Deneb(
                 self.rpc_request(
                     ETH_GET_BLOCK_BY_HASH,
                     params,
@@ -876,7 +876,7 @@ impl HttpJsonRpc {
                     .await?;
                 Ok(JsonGetPayloadResponse::V2(response).into())
             }
-            ForkName::Base | ForkName::Altair | ForkName::Eip4844 => Err(
+            ForkName::Base | ForkName::Altair | ForkName::Deneb => Err(
                 Error::UnsupportedForkVariant(format!("called get_payload_v2 with {}", fork_name)),
             ),
         }
@@ -910,7 +910,7 @@ impl HttpJsonRpc {
                     .await?;
                 Ok(JsonGetPayloadResponse::V2(response).into())
             }
-            ForkName::Eip4844 => {
+            ForkName::Deneb => {
                 let response: JsonGetPayloadResponseV3<T> = self
                     .rpc_request(
                         ENGINE_GET_PAYLOAD_V3,

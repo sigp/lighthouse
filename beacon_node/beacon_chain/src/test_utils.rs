@@ -431,10 +431,9 @@ where
             spec.capella_fork_epoch.map(|epoch| {
                 genesis_time + spec.seconds_per_slot * E::slots_per_epoch() * epoch.as_u64()
             });
-        mock.server.execution_block_generator().eip4844_time =
-            spec.eip4844_fork_epoch.map(|epoch| {
-                genesis_time + spec.seconds_per_slot * E::slots_per_epoch() * epoch.as_u64()
-            });
+        mock.server.execution_block_generator().deneb_time = spec.deneb_fork_epoch.map(|epoch| {
+            genesis_time + spec.seconds_per_slot * E::slots_per_epoch() * epoch.as_u64()
+        });
 
         self
     }
@@ -444,14 +443,14 @@ where
         let shanghai_time = spec.capella_fork_epoch.map(|epoch| {
             HARNESS_GENESIS_TIME + spec.seconds_per_slot * E::slots_per_epoch() * epoch.as_u64()
         });
-        let eip4844_time = spec.eip4844_fork_epoch.map(|epoch| {
+        let deneb_time = spec.deneb_fork_epoch.map(|epoch| {
             HARNESS_GENESIS_TIME + spec.seconds_per_slot * E::slots_per_epoch() * epoch.as_u64()
         });
         let mock = MockExecutionLayer::new(
             self.runtime.task_executor.clone(),
             DEFAULT_TERMINAL_BLOCK,
             shanghai_time,
-            eip4844_time,
+            deneb_time,
             None,
             Some(JwtKey::from_slice(&DEFAULT_JWT_SECRET).unwrap()),
             spec,
@@ -475,14 +474,14 @@ where
         let shanghai_time = spec.capella_fork_epoch.map(|epoch| {
             HARNESS_GENESIS_TIME + spec.seconds_per_slot * E::slots_per_epoch() * epoch.as_u64()
         });
-        let eip4844_time = spec.eip4844_fork_epoch.map(|epoch| {
+        let deneb_time = spec.deneb_fork_epoch.map(|epoch| {
             HARNESS_GENESIS_TIME + spec.seconds_per_slot * E::slots_per_epoch() * epoch.as_u64()
         });
         let mock_el = MockExecutionLayer::new(
             self.runtime.task_executor.clone(),
             DEFAULT_TERMINAL_BLOCK,
             shanghai_time,
-            eip4844_time,
+            deneb_time,
             builder_threshold,
             Some(JwtKey::from_slice(&DEFAULT_JWT_SECRET).unwrap()),
             spec.clone(),

@@ -267,9 +267,9 @@ mod ssz_static {
             .run();
         SszStaticHandler::<BeaconBlockBodyCapella<MainnetEthSpec>, MainnetEthSpec>::capella_only()
             .run();
-        SszStaticHandler::<BeaconBlockBodyEip4844<MinimalEthSpec>, MinimalEthSpec>::eip4844_only()
+        SszStaticHandler::<BeaconBlockBodyDeneb<MinimalEthSpec>, MinimalEthSpec>::deneb_only()
             .run();
-        SszStaticHandler::<BeaconBlockBodyEip4844<MainnetEthSpec>, MainnetEthSpec>::eip4844_only()
+        SszStaticHandler::<BeaconBlockBodyDeneb<MainnetEthSpec>, MainnetEthSpec>::deneb_only()
             .run();
     }
 
@@ -331,9 +331,9 @@ mod ssz_static {
             .run();
         SszStaticHandler::<ExecutionPayloadCapella<MainnetEthSpec>, MainnetEthSpec>::capella_only()
             .run();
-        SszStaticHandler::<ExecutionPayloadEip4844<MinimalEthSpec>, MinimalEthSpec>::eip4844_only()
+        SszStaticHandler::<ExecutionPayloadDeneb<MinimalEthSpec>, MinimalEthSpec>::deneb_only()
             .run();
-        SszStaticHandler::<ExecutionPayloadEip4844<MainnetEthSpec>, MainnetEthSpec>::eip4844_only()
+        SszStaticHandler::<ExecutionPayloadDeneb<MainnetEthSpec>, MainnetEthSpec>::deneb_only()
             .run();
     }
 
@@ -347,10 +347,10 @@ mod ssz_static {
             ::capella_only().run();
         SszStaticHandler::<ExecutionPayloadHeaderCapella<MainnetEthSpec>, MainnetEthSpec>
             ::capella_only().run();
-        SszStaticHandler::<ExecutionPayloadHeaderEip4844<MinimalEthSpec>, MinimalEthSpec>
-            ::eip4844_only().run();
-        SszStaticHandler::<ExecutionPayloadHeaderEip4844<MainnetEthSpec>, MainnetEthSpec>
-            ::eip4844_only().run();
+        SszStaticHandler::<ExecutionPayloadHeaderDeneb<MinimalEthSpec>, MinimalEthSpec>
+            ::deneb_only().run();
+        SszStaticHandler::<ExecutionPayloadHeaderDeneb<MainnetEthSpec>, MainnetEthSpec>
+            ::deneb_only().run();
     }
 
     #[test]
@@ -373,8 +373,8 @@ mod ssz_static {
 
     #[test]
     fn blobs_sidecar() {
-        SszStaticHandler::<BlobsSidecar<MinimalEthSpec>, MinimalEthSpec>::eip4844_only().run();
-        SszStaticHandler::<BlobsSidecar<MainnetEthSpec>, MainnetEthSpec>::eip4844_only().run();
+        SszStaticHandler::<BlobsSidecar<MinimalEthSpec>, MinimalEthSpec>::deneb_only().run();
+        SszStaticHandler::<BlobsSidecar<MainnetEthSpec>, MainnetEthSpec>::deneb_only().run();
     }
 
     #[test]

@@ -13,7 +13,7 @@ pub use self::verify_attester_slashing::{
 pub use self::verify_proposer_slashing::verify_proposer_slashing;
 pub use altair::sync_committee::process_sync_aggregate;
 pub use block_signature_verifier::{BlockSignatureVerifier, ParallelSignatureSets};
-pub use eip4844::eip4844::process_blob_kzg_commitments;
+pub use deneb::deneb::process_blob_kzg_commitments;
 pub use is_valid_indexed_attestation::is_valid_indexed_attestation;
 pub use process_operations::process_operations;
 pub use verify_attestation::{
@@ -27,7 +27,7 @@ pub use verify_exit::verify_exit;
 
 pub mod altair;
 pub mod block_signature_verifier;
-pub mod eip4844;
+pub mod deneb;
 pub mod errors;
 mod is_valid_indexed_attestation;
 pub mod process_operations;
@@ -405,9 +405,9 @@ pub fn process_execution_payload<T: EthSpec, Payload: AbstractExecPayload<T>>(
                 _ => return Err(BlockProcessingError::IncorrectStateType),
             }
         }
-        ExecutionPayloadHeaderRefMut::Eip4844(header_mut) => {
+        ExecutionPayloadHeaderRefMut::Deneb(header_mut) => {
             match payload.to_execution_payload_header() {
-                ExecutionPayloadHeader::Eip4844(header) => *header_mut = header,
+                ExecutionPayloadHeader::Deneb(header) => *header_mut = header,
                 _ => return Err(BlockProcessingError::IncorrectStateType),
             }
         }
@@ -523,7 +523,7 @@ pub fn process_withdrawals<T: EthSpec, Payload: AbstractExecPayload<T>>(
 ) -> Result<(), BlockProcessingError> {
     match state {
         BeaconState::Merge(_) => Ok(()),
-        BeaconState::Capella(_) | BeaconState::Eip4844(_) => {
+        BeaconState::Capella(_) | BeaconState::Deneb(_) => {
             let expected_withdrawals = get_expected_withdrawals(state, spec)?;
             let expected_root = expected_withdrawals.tree_hash_root();
             let withdrawals_root = payload.withdrawals_root()?;

@@ -3,7 +3,7 @@ use execution_layer::{ExecutionLayer, ExecutionPayloadBodyV1};
 use slog::{crit, debug, Logger};
 use std::collections::HashMap;
 use std::sync::Arc;
-use store::{DatabaseBlock, ExecutionPayloadEip4844};
+use store::{DatabaseBlock, ExecutionPayloadDeneb};
 use task_executor::TaskExecutor;
 use tokio::sync::{
     mpsc::{self, UnboundedSender},
@@ -97,7 +97,7 @@ fn reconstruct_default_header_block<E: EthSpec>(
     let payload: ExecutionPayload<E> = match fork {
         ForkName::Merge => ExecutionPayloadMerge::default().into(),
         ForkName::Capella => ExecutionPayloadCapella::default().into(),
-        ForkName::Eip4844 => ExecutionPayloadEip4844::default().into(),
+        ForkName::Deneb => ExecutionPayloadDeneb::default().into(),
         ForkName::Base | ForkName::Altair => {
             return Err(Error::PayloadReconstruction(format!(
                 "Block with fork variant {} has execution payload",

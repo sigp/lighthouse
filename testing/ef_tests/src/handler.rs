@@ -218,8 +218,8 @@ impl<T, E> SszStaticHandler<T, E> {
         Self::for_forks(vec![ForkName::Capella])
     }
 
-    pub fn eip4844_only() -> Self {
-        Self::for_forks(vec![ForkName::Eip4844])
+    pub fn deneb_only() -> Self {
+        Self::for_forks(vec![ForkName::Deneb])
     }
 
     pub fn altair_and_later() -> Self {

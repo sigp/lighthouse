@@ -162,10 +162,10 @@ pub struct ChainSpec {
     pub max_validators_per_withdrawals_sweep: u64,
 
     /*
-     * Eip4844 hard fork params
+     * Deneb hard fork params
      */
-    pub eip4844_fork_version: [u8; 4],
-    pub eip4844_fork_epoch: Option<Epoch>,
+    pub deneb_fork_version: [u8; 4],
+    pub deneb_fork_epoch: Option<Epoch>,
 
     /*
      * Networking
@@ -255,8 +255,8 @@ impl ChainSpec {
 
     /// Returns the name of the fork which is active at `epoch`.
     pub fn fork_name_at_epoch(&self, epoch: Epoch) -> ForkName {
-        match self.eip4844_fork_epoch {
-            Some(fork_epoch) if epoch >= fork_epoch => ForkName::Eip4844,
+        match self.deneb_fork_epoch {
+            Some(fork_epoch) if epoch >= fork_epoch => ForkName::Deneb,
             _ => match self.capella_fork_epoch {
                 Some(fork_epoch) if epoch >= fork_epoch => ForkName::Capella,
                 _ => match self.bellatrix_fork_epoch {
@@ -277,7 +277,7 @@ impl ChainSpec {
             ForkName::Altair => self.altair_fork_version,
             ForkName::Merge => self.bellatrix_fork_version,
             ForkName::Capella => self.capella_fork_version,
-            ForkName::Eip4844 => self.eip4844_fork_version,
+            ForkName::Deneb => self.deneb_fork_version,
         }
     }
 
@@ -288,7 +288,7 @@ impl ChainSpec {
             ForkName::Altair => self.altair_fork_epoch,
             ForkName::Merge => self.bellatrix_fork_epoch,
             ForkName::Capella => self.capella_fork_epoch,
-            ForkName::Eip4844 => self.eip4844_fork_epoch,
+            ForkName::Deneb => self.deneb_fork_epoch,
         }
     }
 
@@ -299,7 +299,7 @@ impl ChainSpec {
             BeaconState::Altair(_) => self.inactivity_penalty_quotient_altair,
             BeaconState::Merge(_) => self.inactivity_penalty_quotient_bellatrix,
             BeaconState::Capella(_) => self.inactivity_penalty_quotient_bellatrix,
-            BeaconState::Eip4844(_) => self.inactivity_penalty_quotient_bellatrix,
+            BeaconState::Deneb(_) => self.inactivity_penalty_quotient_bellatrix,
         }
     }
 
@@ -313,7 +313,7 @@ impl ChainSpec {
             BeaconState::Altair(_) => self.proportional_slashing_multiplier_altair,
             BeaconState::Merge(_) => self.proportional_slashing_multiplier_bellatrix,
             BeaconState::Capella(_) => self.proportional_slashing_multiplier_bellatrix,
-            BeaconState::Eip4844(_) => self.proportional_slashing_multiplier_bellatrix,
+            BeaconState::Deneb(_) => self.proportional_slashing_multiplier_bellatrix,
         }
     }
 
@@ -327,7 +327,7 @@ impl ChainSpec {
             BeaconState::Altair(_) => self.min_slashing_penalty_quotient_altair,
             BeaconState::Merge(_) => self.min_slashing_penalty_quotient_bellatrix,
             BeaconState::Capella(_) => self.min_slashing_penalty_quotient_bellatrix,
-            BeaconState::Eip4844(_) => self.min_slashing_penalty_quotient_bellatrix,
+            BeaconState::Deneb(_) => self.min_slashing_penalty_quotient_bellatrix,
         }
     }
 
@@ -637,10 +637,10 @@ impl ChainSpec {
             max_validators_per_withdrawals_sweep: 16384,
 
             /*
-             * Eip4844 hard fork params
+             * Deneb hard fork params
              */
-            eip4844_fork_version: [0x04, 0x00, 0x00, 0x00],
-            eip4844_fork_epoch: None,
+            deneb_fork_version: [0x04, 0x00, 0x00, 0x00],
+            deneb_fork_epoch: None,
 
             /*
              * Network specific
@@ -709,9 +709,9 @@ impl ChainSpec {
             capella_fork_version: [0x03, 0x00, 0x00, 0x01],
             capella_fork_epoch: None,
             max_validators_per_withdrawals_sweep: 16,
-            // Eip4844
-            eip4844_fork_version: [0x04, 0x00, 0x00, 0x01],
-            eip4844_fork_epoch: None,
+            // Deneb
+            deneb_fork_version: [0x04, 0x00, 0x00, 0x01],
+            deneb_fork_epoch: None,
             // Other
             network_id: 2, // lighthouse testnet network id
             deposit_chain_id: 5,
@@ -874,10 +874,10 @@ impl ChainSpec {
             max_validators_per_withdrawals_sweep: 16384,
 
             /*
-             * Eip4844 hard fork params
+             * Deneb hard fork params
              */
-            eip4844_fork_version: [0x04, 0x00, 0x00, 0x64],
-            eip4844_fork_epoch: None,
+            deneb_fork_version: [0x04, 0x00, 0x00, 0x64],
+            deneb_fork_epoch: None,
 
             /*
              * Network specific
@@ -970,13 +970,13 @@ pub struct Config {
     #[serde(deserialize_with = "deserialize_fork_epoch")]
     pub capella_fork_epoch: Option<MaybeQuoted<Epoch>>,
 
-    #[serde(default = "default_eip4844_fork_version")]
+    #[serde(default = "default_deneb_fork_version")]
     #[serde(with = "eth2_serde_utils::bytes_4_hex")]
-    eip4844_fork_version: [u8; 4],
+    deneb_fork_version: [u8; 4],
     #[serde(default)]
     #[serde(serialize_with = "serialize_fork_epoch")]
     #[serde(deserialize_with = "deserialize_fork_epoch")]
-    pub eip4844_fork_epoch: Option<MaybeQuoted<Epoch>>,
+    pub deneb_fork_epoch: Option<MaybeQuoted<Epoch>>,
 
     #[serde(with = "eth2_serde_utils::quoted_u64")]
     seconds_per_slot: u64,
@@ -1020,7 +1020,7 @@ fn default_capella_fork_version() -> [u8; 4] {
     [0xff, 0xff, 0xff, 0xff]
 }
 
-fn default_eip4844_fork_version() -> [u8; 4] {
+fn default_deneb_fork_version() -> [u8; 4] {
     // This value shouldn't be used.
     [0xff, 0xff, 0xff, 0xff]
 }
@@ -1125,9 +1125,9 @@ impl Config {
             capella_fork_epoch: spec
                 .capella_fork_epoch
                 .map(|epoch| MaybeQuoted { value: epoch }),
-            eip4844_fork_version: spec.eip4844_fork_version,
-            eip4844_fork_epoch: spec
-                .eip4844_fork_epoch
+            deneb_fork_version: spec.deneb_fork_version,
+            deneb_fork_epoch: spec
+                .deneb_fork_epoch
                 .map(|epoch| MaybeQuoted { value: epoch }),
 
             seconds_per_slot: spec.seconds_per_slot,
@@ -1176,8 +1176,8 @@ impl Config {
             bellatrix_fork_version,
             capella_fork_epoch,
             capella_fork_version,
-            eip4844_fork_epoch,
-            eip4844_fork_version,
+            deneb_fork_epoch,
+            deneb_fork_version,
             seconds_per_slot,
             seconds_per_eth1_block,
             min_validator_withdrawability_delay,
@@ -1210,8 +1210,8 @@ impl Config {
             bellatrix_fork_version,
             capella_fork_epoch: capella_fork_epoch.map(|q| q.value),
             capella_fork_version,
-            eip4844_fork_epoch: eip4844_fork_epoch.map(|q| q.value),
-            eip4844_fork_version,
+            deneb_fork_epoch: deneb_fork_epoch.map(|q| q.value),
+            deneb_fork_version,
             seconds_per_slot,
             seconds_per_eth1_block,
             min_validator_withdrawability_delay,

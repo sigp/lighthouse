@@ -43,13 +43,13 @@ use tokio_stream::wrappers::WatchStream;
 use tree_hash::TreeHash;
 use types::beacon_block_body::KzgCommitments;
 use types::blob_sidecar::Blobs;
-use types::consts::eip4844::BLOB_TX_TYPE;
+use types::consts::deneb::BLOB_TX_TYPE;
 use types::transaction::{AccessTuple, BlobTransaction, EcdsaSignature, SignedBlobTransaction};
 use types::Withdrawals;
 use types::{AbstractExecPayload, BeaconStateError, ExecPayload, VersionedHash};
 use types::{
     BlindedPayload, BlockType, ChainSpec, Epoch, ExecutionBlockHash, ExecutionPayload,
-    ExecutionPayloadCapella, ExecutionPayloadEip4844, ExecutionPayloadMerge, ForkName,
+    ExecutionPayloadCapella, ExecutionPayloadDeneb, ExecutionPayloadMerge, ForkName,
 };
 use types::{
     ProposerPreparationData, PublicKeyBytes, Signature, SignedBeaconBlock, Slot, Transaction,
@@ -208,7 +208,7 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> BlockProposalContents<T, Paylo
                     block_value: Uint256::zero(),
                 }
             }
-            ForkName::Eip4844 => BlockProposalContents::PayloadAndBlobs {
+            ForkName::Deneb => BlockProposalContents::PayloadAndBlobs {
                 payload: Payload::default_at_fork(fork_name)?,
                 block_value: Uint256::zero(),
                 blobs: VariableList::default(),
@@ -1111,7 +1111,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                         ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {
                             None
                         }
-                        ForkName::Eip4844 => {
+                        ForkName::Deneb => {
                             debug!(
                                 self.log(),
                                 "Issuing engine_getBlobsBundle";
@@ -1703,7 +1703,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
             return match fork {
                 ForkName::Merge => Ok(Some(ExecutionPayloadMerge::default().into())),
                 ForkName::Capella => Ok(Some(ExecutionPayloadCapella::default().into())),
-                ForkName::Eip4844 => Ok(Some(ExecutionPayloadEip4844::default().into())),
+                ForkName::Deneb => Ok(Some(ExecutionPayloadDeneb::default().into())),
                 ForkName::Base | ForkName::Altair => Err(ApiError::UnsupportedForkVariant(
                     format!("called get_payload_by_block_hash_from_engine with {}", fork),
                 )),
@@ -1776,31 +1776,31 @@ impl<T: EthSpec> ExecutionLayer<T> {
                     withdrawals,
                 })
             }
-            ExecutionBlockWithTransactions::Eip4844(eip4844_block) => {
+            ExecutionBlockWithTransactions::Deneb(deneb_block) => {
                 let withdrawals = VariableList::new(
-                    eip4844_block
+                    deneb_block
                         .withdrawals
                         .into_iter()
                         .map(Into::into)
                         .collect(),
                 )
                 .map_err(ApiError::DeserializeWithdrawals)?;
-                ExecutionPayload::Eip4844(ExecutionPayloadEip4844 {
-                    parent_hash: eip4844_block.parent_hash,
-                    fee_recipient: eip4844_block.fee_recipient,
-                    state_root: eip4844_block.state_root,
-                    receipts_root: eip4844_block.receipts_root,
-                    logs_bloom: eip4844_block.logs_bloom,
-                    prev_randao: eip4844_block.prev_randao,
-                    block_number: eip4844_block.block_number,
-                    gas_limit: eip4844_block.gas_limit,
-                    gas_used: eip4844_block.gas_used,
-                    timestamp: eip4844_block.timestamp,
-                    extra_data: eip4844_block.extra_data,
-                    base_fee_per_gas: eip4844_block.base_fee_per_gas,
-                    excess_data_gas: eip4844_block.excess_data_gas,
-                    block_hash: eip4844_block.block_hash,
-                    transactions: convert_transactions(eip4844_block.transactions)?,
+                ExecutionPayload::Deneb(ExecutionPayloadDeneb {
+                    parent_hash: deneb_block.parent_hash,
+                    fee_recipient: deneb_block.fee_recipient,
+                    state_root: deneb_block.state_root,
+                    receipts_root: deneb_block.receipts_root,
+                    logs_bloom: deneb_block.logs_bloom,
+                    prev_randao: deneb_block.prev_randao,
+                    block_number: deneb_block.block_number,
+                    gas_limit: deneb_block.gas_limit,
+                    gas_used: deneb_block.gas_used,
+                    timestamp: deneb_block.timestamp,
+                    extra_data: deneb_block.extra_data,
+                    base_fee_per_gas: deneb_block.base_fee_per_gas,
+                    excess_data_gas: deneb_block.excess_data_gas,
+                    block_hash: deneb_block.block_hash,
+                    transactions: convert_transactions(deneb_block.transactions)?,
                     withdrawals,
                 })
             }

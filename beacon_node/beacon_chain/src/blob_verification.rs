@@ -64,7 +64,7 @@ pub enum BlobError {
     BeaconChainError(BeaconChainError),
     /// No blobs for the specified block where we would expect blobs.
     UnavailableBlobs,
-    /// Blobs provided for a pre-Eip4844 fork.
+    /// Blobs provided for a pre-Deneb fork.
     InconsistentFork,
 
     /// The `blobs_sidecar.message.beacon_block_root` block is unknown.
@@ -337,7 +337,7 @@ pub type KzgVerifiedBlobList<T> = Vec<KzgVerifiedBlob<T>>;
 #[derive(Debug, Clone)]
 pub enum MaybeAvailableBlock<E: EthSpec> {
     /// This variant is fully available.
-    /// i.e. for pre-eip4844 blocks, it contains a (`SignedBeaconBlock`, `Blobs::None`) and for
+    /// i.e. for pre-deneb blocks, it contains a (`SignedBeaconBlock`, `Blobs::None`) and for
     /// post-4844 blocks, it contains a `SignedBeaconBlock` and a Blobs variant other than `Blobs::None`.
     Available(AvailableBlock<E>),
     /// This variant is not fully available and requires blobs to become fully available.
