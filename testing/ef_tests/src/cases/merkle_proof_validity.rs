@@ -28,7 +28,6 @@ pub struct MerkleProofValidity<E: EthSpec> {
 
 impl<E: EthSpec> LoadCase for MerkleProofValidity<E> {
     fn load_from_dir(path: &Path, fork_name: ForkName) -> Result<Self, Error> {
-
         //FIXME(sean)
         if path.ends_with("execution_merkle_proof") {
             return Err(Error::SkippedKnownFailure);

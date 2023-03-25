@@ -215,9 +215,9 @@ macro_rules! ssz_static_test_no_run {
 #[cfg(feature = "fake_crypto")]
 mod ssz_static {
     use ef_tests::{Handler, SszStaticHandler, SszStaticTHCHandler, SszStaticWithSpecHandler};
+    use types::blob_sidecar::BlobIdentifier;
     use types::historical_summary::HistoricalSummary;
     use types::*;
-    use types::blob_sidecar::BlobIdentifier;
 
     ssz_static_test!(aggregate_and_proof, AggregateAndProof<_>);
     ssz_static_test!(attestation, Attestation<_>);
@@ -383,7 +383,6 @@ mod ssz_static {
         SszStaticHandler::<SignedBlobSidecar<MinimalEthSpec>, MinimalEthSpec>::deneb_only().run();
         SszStaticHandler::<SignedBlobSidecar<MainnetEthSpec>, MainnetEthSpec>::deneb_only().run();
     }
-
 
     #[test]
     fn blob_identifier() {

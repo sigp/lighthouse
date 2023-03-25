@@ -1,7 +1,7 @@
 //! Mapping from types to canonical string identifiers used in testing.
+use types::blob_sidecar::BlobIdentifier;
 use types::historical_summary::HistoricalSummary;
 use types::*;
-use types::blob_sidecar::BlobIdentifier;
 
 pub trait TypeName {
     fn name() -> &'static str;

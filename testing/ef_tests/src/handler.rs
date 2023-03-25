@@ -1,6 +1,6 @@
 use crate::cases::{self, Case, Cases, EpochTransition, LoadCase, Operation};
-use crate::{Error, type_name};
 use crate::type_name::TypeName;
+use crate::{type_name, Error};
 use derivative::Derivative;
 use std::fs::{self, DirEntry};
 use std::marker::PhantomData;
@@ -62,9 +62,8 @@ pub trait Handler {
 
                 let case_result = Self::Case::load_from_dir(&path, fork_name);
 
-                match case_result.as_ref() {
-                    Err(Error::SkippedKnownFailure) => return None,
-                    _ => {}
+                if let Err(Error::SkippedKnownFailure) = case_result.as_ref() {
+                    return None;
                 }
 
                 let case = case_result.expect("test should load");
