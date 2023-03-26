@@ -93,6 +93,7 @@ use std::time::Duration;
 use store::{Error as DBError, HotStateSummary, KeyValueStore, StoreOp};
 use task_executor::JoinHandle;
 use tree_hash::TreeHash;
+use types::blob_sidecar::BlobIdentifier;
 use types::ExecPayload;
 use types::{
     BeaconBlockRef, BeaconState, BeaconStateError, BlindedPayload, ChainSpec, CloneConfig, Epoch,
@@ -735,6 +736,23 @@ impl<E: EthSpec> AvailableExecutedBlock<E> {
             payload_verification_outcome,
         }
     }
+
+    pub fn get_all_blob_ids(&self) -> Vec<BlobIdentifier> {
+        let num_blobs_expected = self
+            .block
+            .message()
+            .body()
+            .blob_kzg_commitments()
+            .map_or(0, |commitments| commitments.len());
+        let mut blob_ids = Vec::with_capacity(num_blobs_expected);
+        for i in 0..num_blobs_expected {
+            blob_ids.push(BlobIdentifier {
+                block_root: self.import_data.block_root,
+                index: i as u64,
+            });
+        }
+        blob_ids
+    }
 }
 
 pub struct AvailabilityPendingExecutedBlock<E: EthSpec> {
@@ -754,6 +772,30 @@ impl<E: EthSpec> AvailabilityPendingExecutedBlock<E> {
             import_data,
             payload_verification_outcome,
         }
+    }
+
+    pub fn num_blobs_expected(&self) -> usize {
+        self.block
+            .kzg_commitments()
+            .map_or(0, |commitments| commitments.len())
+    }
+
+    pub fn get_all_blob_ids(&self) -> Vec<BlobIdentifier> {
+        self.get_filtered_blob_ids(|_| true)
+    }
+
+    pub fn get_filtered_blob_ids(&self, filter: impl Fn(usize) -> bool) -> Vec<BlobIdentifier> {
+        let num_blobs_expected = self.num_blobs_expected();
+        let mut blob_ids = Vec::with_capacity(num_blobs_expected);
+        for i in 0..num_blobs_expected {
+            if filter(i) {
+                blob_ids.push(BlobIdentifier {
+                    block_root: self.import_data.block_root,
+                    index: i as u64,
+                });
+            }
+        }
+        blob_ids
     }
 }
 
