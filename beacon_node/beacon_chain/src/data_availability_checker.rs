@@ -9,13 +9,13 @@ use kzg::Kzg;
 use parking_lot::{Mutex, RwLock};
 use slot_clock::SlotClock;
 use ssz_types::{Error, VariableList};
-use state_processing::per_block_processing::eip4844::eip4844::verify_kzg_commitments_against_transactions;
+use state_processing::per_block_processing::deneb::deneb::verify_kzg_commitments_against_transactions;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::sync::Arc;
 use types::beacon_block_body::KzgCommitments;
 use types::blob_sidecar::{BlobIdentifier, BlobSidecar};
-use types::consts::eip4844::MIN_EPOCHS_FOR_BLOBS_SIDECARS_REQUESTS;
+use types::consts::deneb::MIN_EPOCHS_FOR_BLOBS_SIDECARS_REQUESTS;
 use types::{
     BeaconBlockRef, BlobSidecarList, ChainSpec, Epoch, EthSpec, ExecPayload, FullPayload, Hash256,
     SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
@@ -261,7 +261,7 @@ impl<T: EthSpec, S: SlotClock> DataAvailabilityChecker<T, S> {
                 let blobs = match blob_requirements {
                     BlobRequirements::EmptyBlobs => VerifiedBlobs::EmptyBlobs,
                     BlobRequirements::NotRequired => VerifiedBlobs::NotRequired,
-                    BlobRequirements::PreEip4844 => VerifiedBlobs::PreEip4844,
+                    BlobRequirements::PreDeneb => VerifiedBlobs::PreDeneb,
                     BlobRequirements::Required => return Err(AvailabilityCheckError::MissingBlobs),
                 };
                 Ok(AvailableBlock { block, blobs })
@@ -295,7 +295,7 @@ impl<T: EthSpec, S: SlotClock> DataAvailabilityChecker<T, S> {
         let blobs = match blob_requirements {
             BlobRequirements::EmptyBlobs => VerifiedBlobs::EmptyBlobs,
             BlobRequirements::NotRequired => VerifiedBlobs::NotRequired,
-            BlobRequirements::PreEip4844 => VerifiedBlobs::PreEip4844,
+            BlobRequirements::PreDeneb => VerifiedBlobs::PreDeneb,
             BlobRequirements::Required => {
                 return Ok(MaybeAvailableBlock::AvailabilityPending(
                     AvailabilityPendingBlock { block },
@@ -371,15 +371,15 @@ impl<T: EthSpec, S: SlotClock> DataAvailabilityChecker<T, S> {
                 BlobRequirements::NotRequired
             }
         } else {
-            BlobRequirements::PreEip4844
+            BlobRequirements::PreDeneb
         };
         Ok(verified_blobs)
     }
 
     /// The epoch at which we require a data availability check in block processing.
-    /// `None` if the `Eip4844` fork is disabled.
+    /// `None` if the `Deneb` fork is disabled.
     pub fn data_availability_boundary(&self) -> Option<Epoch> {
-        self.spec.eip4844_fork_epoch.and_then(|fork_epoch| {
+        self.spec.deneb_fork_epoch.and_then(|fork_epoch| {
             self.slot_clock
                 .now()
                 .map(|slot| slot.epoch(T::slots_per_epoch()))
@@ -407,7 +407,7 @@ pub enum BlobRequirements {
     /// The block's `kzg_commitments` field is empty so it does not contain any blobs.
     EmptyBlobs,
     /// This is a block prior to the 4844 fork, so doesn't require any blobs
-    PreEip4844,
+    PreDeneb,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -447,7 +447,7 @@ impl<E: EthSpec> AvailableBlock<E> {
 
     pub fn deconstruct(self) -> (Arc<SignedBeaconBlock<E>>, Option<BlobSidecarList<E>>) {
         match self.blobs {
-            VerifiedBlobs::EmptyBlobs | VerifiedBlobs::NotRequired | VerifiedBlobs::PreEip4844 => {
+            VerifiedBlobs::EmptyBlobs | VerifiedBlobs::NotRequired | VerifiedBlobs::PreDeneb => {
                 (self.block, None)
             }
             VerifiedBlobs::Available(blobs) => (self.block, Some(blobs)),
@@ -465,7 +465,7 @@ pub enum VerifiedBlobs<E: EthSpec> {
     /// The block's `kzg_commitments` field is empty so it does not contain any blobs.
     EmptyBlobs,
     /// This is a block prior to the 4844 fork, so doesn't require any blobs
-    PreEip4844,
+    PreDeneb,
 }
 
 impl<E: EthSpec> AsBlock<E> for AvailableBlock<E> {

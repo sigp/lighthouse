@@ -287,7 +287,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                         Err(BeaconChainError::NoKzgCommitmentsFieldOnBlock) => {
                             debug!(
                                 self.log,
-                                "Peer requested blobs for a pre-eip4844 block";
+                                "Peer requested blobs for a pre-deneb block";
                                 "peer" => %peer_id,
                                 "block_root" => ?root,
                             );
@@ -707,11 +707,11 @@ impl<T: BeaconChainTypes> Worker<T> {
         let data_availability_boundary = match self.chain.data_availability_boundary() {
             Some(boundary) => boundary,
             None => {
-                debug!(self.log, "Eip4844 fork is disabled");
+                debug!(self.log, "Deneb fork is disabled");
                 self.send_error_response(
                     peer_id,
                     RPCResponseErrorCode::ServerError,
-                    "Eip4844 fork is disabled".into(),
+                    "Deneb fork is disabled".into(),
                     request_id,
                 );
                 return;

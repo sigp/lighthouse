@@ -68,7 +68,7 @@ pub async fn publish_block<T: BeaconChainTypes>(
             crate::publish_pubsub_message(network_tx, PubsubMessage::BeaconBlock(block.clone()))?;
             block.into()
         }
-        SignedBeaconBlock::Eip4844(_) => {
+        SignedBeaconBlock::Deneb(_) => {
             crate::publish_pubsub_message(network_tx, PubsubMessage::BeaconBlock(block.clone()))?;
             if let Some(signed_blobs) = maybe_blobs {
                 for (blob_index, blob) in signed_blobs.clone().into_iter().enumerate() {

@@ -70,8 +70,8 @@ impl Eth2NetworkConfig {
     fn from_hardcoded_net(net: &HardcodedNet) -> Result<Self, String> {
         let config: Config = serde_yaml::from_reader(net.config)
             .map_err(|e| format!("Unable to parse yaml config: {:?}", e))?;
-        let kzg_trusted_setup = if let Some(epoch) = config.eip4844_fork_epoch {
-            // Only load the trusted setup if the eip4844 fork epoch is set
+        let kzg_trusted_setup = if let Some(epoch) = config.deneb_fork_epoch {
+            // Only load the trusted setup if the deneb fork epoch is set
             if epoch.value != Epoch::max_value() {
                 let trusted_setup: TrustedSetup = serde_json::from_reader(TRUSTED_SETUP)
                     .map_err(|e| format!("Unable to read trusted setup file: {}", e))?;
@@ -236,8 +236,8 @@ impl Eth2NetworkConfig {
             None
         };
 
-        let kzg_trusted_setup = if let Some(epoch) = config.eip4844_fork_epoch {
-            // Only load the trusted setup if the eip4844 fork epoch is set
+        let kzg_trusted_setup = if let Some(epoch) = config.deneb_fork_epoch {
+            // Only load the trusted setup if the deneb fork epoch is set
             if epoch.value != Epoch::max_value() {
                 let trusted_setup: TrustedSetup = serde_json::from_reader(TRUSTED_SETUP)
                     .map_err(|e| format!("Unable to read trusted setup file: {}", e))?;

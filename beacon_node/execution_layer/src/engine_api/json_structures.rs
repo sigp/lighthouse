@@ -5,9 +5,8 @@ use superstruct::superstruct;
 use types::beacon_block_body::KzgCommitments;
 use types::blob_sidecar::Blobs;
 use types::{
-    EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadCapella,
-    ExecutionPayloadEip4844, ExecutionPayloadMerge, FixedVector, Transactions, Unsigned,
-    VariableList, Withdrawal,
+    EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadCapella, ExecutionPayloadDeneb,
+    ExecutionPayloadMerge, FixedVector, Transactions, Unsigned, VariableList, Withdrawal,
 };
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
@@ -94,14 +93,14 @@ pub struct JsonExecutionPayload<T: EthSpec> {
     pub extra_data: VariableList<u8, T::MaxExtraDataBytes>,
     #[serde(with = "eth2_serde_utils::u256_hex_be")]
     pub base_fee_per_gas: Uint256,
-    #[superstruct(only(V3))]
-    #[serde(with = "eth2_serde_utils::u256_hex_be")]
-    pub excess_data_gas: Uint256,
     pub block_hash: ExecutionBlockHash,
     #[serde(with = "ssz_types::serde_utils::list_of_hex_var_list")]
     pub transactions: Transactions<T>,
     #[superstruct(only(V2, V3))]
     pub withdrawals: VariableList<JsonWithdrawal, T::MaxWithdrawalsPerPayload>,
+    #[superstruct(only(V3))]
+    #[serde(with = "eth2_serde_utils::u256_hex_be")]
+    pub excess_data_gas: Uint256,
 }
 
 impl<T: EthSpec> From<ExecutionPayloadMerge<T>> for JsonExecutionPayloadV1<T> {
@@ -150,8 +149,8 @@ impl<T: EthSpec> From<ExecutionPayloadCapella<T>> for JsonExecutionPayloadV2<T> 
         }
     }
 }
-impl<T: EthSpec> From<ExecutionPayloadEip4844<T>> for JsonExecutionPayloadV3<T> {
-    fn from(payload: ExecutionPayloadEip4844<T>) -> Self {
+impl<T: EthSpec> From<ExecutionPayloadDeneb<T>> for JsonExecutionPayloadV3<T> {
+    fn from(payload: ExecutionPayloadDeneb<T>) -> Self {
         JsonExecutionPayloadV3 {
             parent_hash: payload.parent_hash,
             fee_recipient: payload.fee_recipient,
@@ -165,7 +164,6 @@ impl<T: EthSpec> From<ExecutionPayloadEip4844<T>> for JsonExecutionPayloadV3<T> 
             timestamp: payload.timestamp,
             extra_data: payload.extra_data,
             base_fee_per_gas: payload.base_fee_per_gas,
-            excess_data_gas: payload.excess_data_gas,
             block_hash: payload.block_hash,
             transactions: payload.transactions,
             withdrawals: payload
@@ -174,6 +172,7 @@ impl<T: EthSpec> From<ExecutionPayloadEip4844<T>> for JsonExecutionPayloadV3<T> 
                 .map(Into::into)
                 .collect::<Vec<_>>()
                 .into(),
+            excess_data_gas: payload.excess_data_gas,
         }
     }
 }
@@ -183,7 +182,7 @@ impl<T: EthSpec> From<ExecutionPayload<T>> for JsonExecutionPayload<T> {
         match execution_payload {
             ExecutionPayload::Merge(payload) => JsonExecutionPayload::V1(payload.into()),
             ExecutionPayload::Capella(payload) => JsonExecutionPayload::V2(payload.into()),
-            ExecutionPayload::Eip4844(payload) => JsonExecutionPayload::V3(payload.into()),
+            ExecutionPayload::Deneb(payload) => JsonExecutionPayload::V3(payload.into()),
         }
     }
 }
@@ -234,9 +233,9 @@ impl<T: EthSpec> From<JsonExecutionPayloadV2<T>> for ExecutionPayloadCapella<T> 
         }
     }
 }
-impl<T: EthSpec> From<JsonExecutionPayloadV3<T>> for ExecutionPayloadEip4844<T> {
+impl<T: EthSpec> From<JsonExecutionPayloadV3<T>> for ExecutionPayloadDeneb<T> {
     fn from(payload: JsonExecutionPayloadV3<T>) -> Self {
-        ExecutionPayloadEip4844 {
+        ExecutionPayloadDeneb {
             parent_hash: payload.parent_hash,
             fee_recipient: payload.fee_recipient,
             state_root: payload.state_root,
@@ -249,7 +248,6 @@ impl<T: EthSpec> From<JsonExecutionPayloadV3<T>> for ExecutionPayloadEip4844<T> 
             timestamp: payload.timestamp,
             extra_data: payload.extra_data,
             base_fee_per_gas: payload.base_fee_per_gas,
-            excess_data_gas: payload.excess_data_gas,
             block_hash: payload.block_hash,
             transactions: payload.transactions,
             withdrawals: payload
@@ -258,6 +256,7 @@ impl<T: EthSpec> From<JsonExecutionPayloadV3<T>> for ExecutionPayloadEip4844<T> 
                 .map(Into::into)
                 .collect::<Vec<_>>()
                 .into(),
+            excess_data_gas: payload.excess_data_gas,
         }
     }
 }
@@ -267,7 +266,7 @@ impl<T: EthSpec> From<JsonExecutionPayload<T>> for ExecutionPayload<T> {
         match json_execution_payload {
             JsonExecutionPayload::V1(payload) => ExecutionPayload::Merge(payload.into()),
             JsonExecutionPayload::V2(payload) => ExecutionPayload::Capella(payload.into()),
-            JsonExecutionPayload::V3(payload) => ExecutionPayload::Eip4844(payload.into()),
+            JsonExecutionPayload::V3(payload) => ExecutionPayload::Deneb(payload.into()),
         }
     }
 }
@@ -310,7 +309,7 @@ impl<T: EthSpec> From<JsonGetPayloadResponse<T>> for GetPayloadResponse<T> {
                 })
             }
             JsonGetPayloadResponse::V3(response) => {
-                GetPayloadResponse::Eip4844(GetPayloadResponseEip4844 {
+                GetPayloadResponse::Deneb(GetPayloadResponseDeneb {
                     execution_payload: response.execution_payload.into(),
                     block_value: response.block_value,
                 })

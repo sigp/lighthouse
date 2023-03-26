@@ -1,6 +1,6 @@
 # Extends the mainnet preset
 PRESET_BASE: 'mainnet'
-CONFIG_NAME: 'eip4844' # needs to exist because of Prysm. Otherwise it conflicts with mainnet genesis and needs to match configuration in common_eth2_config/src/lib.rs to pass lh ci.
+CONFIG_NAME: 'deneb' # needs to exist because of Prysm. Otherwise it conflicts with mainnet genesis and needs to match configuration in common_eth2_config/src/lib.rs to pass lh ci.
 
 # Genesis
 # ---------------------------------------------------------------
@@ -33,10 +33,10 @@ TERMINAL_BLOCK_HASH_ACTIVATION_EPOCH: 18446744073709551615
 CAPELLA_FORK_VERSION: 0x40484404
 CAPELLA_FORK_EPOCH: 1
 
-# EIP4844/Deneb
+# DENEB/Deneb
 # TODO: Rename to Deneb once specs/clients support it
-EIP4844_FORK_VERSION: 0x50484404
-EIP4844_FORK_EPOCH: 5
+DENEB_FORK_VERSION: 0x50484404
+DENEB_FORK_EPOCH: 5
 
 # Time parameters
 # ---------------------------------------------------------------

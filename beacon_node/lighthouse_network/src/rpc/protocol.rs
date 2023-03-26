@@ -83,8 +83,8 @@ lazy_static! {
     + types::ExecutionPayload::<MainnetEthSpec>::max_execution_payload_capella_size() // adding max size of execution payload (~16gb)
     + ssz::BYTES_PER_LENGTH_OFFSET; // Adding the additional ssz offset for the `ExecutionPayload` field
 
-    pub static ref SIGNED_BEACON_BLOCK_EIP4844_MAX: usize = *SIGNED_BEACON_BLOCK_CAPELLA_MAX_WITHOUT_PAYLOAD
-    + types::ExecutionPayload::<MainnetEthSpec>::max_execution_payload_eip4844_size() // adding max size of execution payload (~16gb)
+    pub static ref SIGNED_BEACON_BLOCK_DENEB_MAX: usize = *SIGNED_BEACON_BLOCK_CAPELLA_MAX_WITHOUT_PAYLOAD
+    + types::ExecutionPayload::<MainnetEthSpec>::max_execution_payload_deneb_size() // adding max size of execution payload (~16gb)
     + ssz::BYTES_PER_LENGTH_OFFSET // Adding the additional offsets for the `ExecutionPayload`
     + (<types::KzgCommitment as Encode>::ssz_fixed_len() * <MainnetEthSpec>::max_blobs_per_block())
     + ssz::BYTES_PER_LENGTH_OFFSET; // Length offset for the blob commitments field.
@@ -119,7 +119,7 @@ lazy_static! {
 
     //FIXME(sean) these are underestimates
     pub static ref SIGNED_BLOCK_AND_BLOBS_MIN: usize = *BLOB_SIDECAR_MIN + *SIGNED_BEACON_BLOCK_BASE_MIN;
-    pub static ref SIGNED_BLOCK_AND_BLOBS_MAX: usize =*BLOB_SIDECAR_MAX + *SIGNED_BEACON_BLOCK_EIP4844_MAX;
+    pub static ref SIGNED_BLOCK_AND_BLOBS_MAX: usize =*BLOB_SIDECAR_MAX + *SIGNED_BEACON_BLOCK_DENEB_MAX;
 }
 
 /// The maximum bytes that can be sent across the RPC pre-merge.
@@ -128,7 +128,7 @@ pub(crate) const MAX_RPC_SIZE: usize = 1_048_576; // 1M
 pub(crate) const MAX_RPC_SIZE_POST_MERGE: usize = 10 * 1_048_576; // 10M
 pub(crate) const MAX_RPC_SIZE_POST_CAPELLA: usize = 10 * 1_048_576; // 10M
                                                                     // FIXME(sean) should this be increased to account for blobs?
-pub(crate) const MAX_RPC_SIZE_POST_EIP4844: usize = 10 * 1_048_576; // 10M
+pub(crate) const MAX_RPC_SIZE_POST_DENEB: usize = 10 * 1_048_576; // 10M
 /// The protocol prefix the RPC protocol id.
 const PROTOCOL_PREFIX: &str = "/eth2/beacon_chain/req";
 /// Time allowed for the first byte of a request to arrive before we time out (Time To First Byte).
@@ -143,7 +143,7 @@ pub fn max_rpc_size(fork_context: &ForkContext) -> usize {
         ForkName::Altair | ForkName::Base => MAX_RPC_SIZE,
         ForkName::Merge => MAX_RPC_SIZE_POST_MERGE,
         ForkName::Capella => MAX_RPC_SIZE_POST_CAPELLA,
-        ForkName::Eip4844 => MAX_RPC_SIZE_POST_EIP4844,
+        ForkName::Deneb => MAX_RPC_SIZE_POST_DENEB,
     }
 }
 
@@ -168,9 +168,9 @@ pub fn rpc_block_limits_by_fork(current_fork: ForkName) -> RpcLimits {
             *SIGNED_BEACON_BLOCK_BASE_MIN, // Base block is smaller than altair and merge blocks
             *SIGNED_BEACON_BLOCK_CAPELLA_MAX, // Capella block is larger than base, altair and merge blocks
         ),
-        ForkName::Eip4844 => RpcLimits::new(
+        ForkName::Deneb => RpcLimits::new(
             *SIGNED_BEACON_BLOCK_BASE_MIN, // Base block is smaller than altair and merge blocks
-            *SIGNED_BEACON_BLOCK_EIP4844_MAX, // EIP 4844 block is larger than all prior fork blocks
+            *SIGNED_BEACON_BLOCK_DENEB_MAX, // EIP 4844 block is larger than all prior fork blocks
         ),
     }
 }
@@ -282,7 +282,7 @@ impl<TSpec: EthSpec> UpgradeInfo for RPCProtocol<TSpec> {
             ProtocolId::new(Protocol::MetaData, Version::V1, Encoding::SSZSnappy),
         ];
 
-        if let ForkName::Eip4844 = self.fork_context.current_fork() {
+        if let ForkName::Deneb = self.fork_context.current_fork() {
             supported_protocols.extend_from_slice(&[
                 ProtocolId::new(Protocol::BlobsByRoot, Version::V1, Encoding::SSZSnappy),
                 ProtocolId::new(Protocol::BlobsByRange, Version::V1, Encoding::SSZSnappy),

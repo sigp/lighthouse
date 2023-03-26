@@ -39,7 +39,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 use types::blob_sidecar::BlobSidecarList;
-use types::consts::eip4844::MIN_EPOCHS_FOR_BLOBS_SIDECARS_REQUESTS;
+use types::consts::deneb::MIN_EPOCHS_FOR_BLOBS_SIDECARS_REQUESTS;
 use types::*;
 
 /// On-disk database that stores finalized states efficiently.
@@ -1854,10 +1854,10 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     ///  Try to prune blobs, approximating the current epoch from lower epoch numbers end (older
     /// end) and is useful when the data availability boundary is not at hand.
     pub fn try_prune_most_blobs(&self, force: bool) -> Result<(), Error> {
-        let eip4844_fork = match self.spec.eip4844_fork_epoch {
+        let deneb_fork = match self.spec.deneb_fork_epoch {
             Some(epoch) => epoch,
             None => {
-                debug!(self.log, "Eip4844 fork is disabled");
+                debug!(self.log, "Deneb fork is disabled");
                 return Ok(());
             }
         };
@@ -1865,7 +1865,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         // `split.slot` is not updated and current_epoch > split_epoch + 2.
         let min_current_epoch = self.get_split_slot().epoch(E::slots_per_epoch()) + Epoch::new(2);
         let min_data_availability_boundary = std::cmp::max(
-            eip4844_fork,
+            deneb_fork,
             min_current_epoch.saturating_sub(*MIN_EPOCHS_FOR_BLOBS_SIDECARS_REQUESTS),
         );
 
@@ -1878,11 +1878,11 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         force: bool,
         data_availability_boundary: Option<Epoch>,
     ) -> Result<(), Error> {
-        let (data_availability_boundary, eip4844_fork) =
-            match (data_availability_boundary, self.spec.eip4844_fork_epoch) {
+        let (data_availability_boundary, deneb_fork) =
+            match (data_availability_boundary, self.spec.deneb_fork_epoch) {
                 (Some(boundary_epoch), Some(fork_epoch)) => (boundary_epoch, fork_epoch),
                 _ => {
-                    debug!(self.log, "Eip4844 fork is disabled");
+                    debug!(self.log, "Deneb fork is disabled");
                     return Ok(());
                 }
             };
@@ -1900,7 +1900,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         let blob_info = self.get_blob_info();
         let oldest_blob_slot = blob_info
             .oldest_blob_slot
-            .unwrap_or_else(|| eip4844_fork.start_slot(E::slots_per_epoch()));
+            .unwrap_or_else(|| deneb_fork.start_slot(E::slots_per_epoch()));
 
         // The last entirely pruned epoch, blobs sidecar pruning may have stopped early in the
         // middle of an epoch otherwise the oldest blob slot is a start slot.

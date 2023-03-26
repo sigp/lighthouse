@@ -751,9 +751,9 @@ where
                     (parent_justified, parent_finalized)
                 } else {
                     let justification_and_finalization_state = match block {
-                        // TODO(eip4844): Ensure that the final specification
+                        // TODO(deneb): Ensure that the final specification
                         // does not substantially modify per epoch processing.
-                        BeaconBlockRef::Eip4844(_)
+                        BeaconBlockRef::Deneb(_)
                         | BeaconBlockRef::Capella(_)
                         | BeaconBlockRef::Merge(_)
                         | BeaconBlockRef::Altair(_) => {

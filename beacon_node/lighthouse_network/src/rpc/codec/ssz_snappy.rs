@@ -18,7 +18,7 @@ use tokio_util::codec::{Decoder, Encoder};
 use types::{light_client_bootstrap::LightClientBootstrap, BlobSidecar};
 use types::{
     EthSpec, ForkContext, ForkName, Hash256, SignedBeaconBlock, SignedBeaconBlockAltair,
-    SignedBeaconBlockBase, SignedBeaconBlockCapella, SignedBeaconBlockEip4844,
+    SignedBeaconBlockBase, SignedBeaconBlockCapella, SignedBeaconBlockDeneb,
     SignedBeaconBlockMerge,
 };
 use unsigned_varint::codec::Uvi;
@@ -419,9 +419,9 @@ fn context_bytes<T: EthSpec>(
                 return match **ref_box_block {
                     // NOTE: If you are adding another fork type here, be sure to modify the
                     //       `fork_context.to_context_bytes()` function to support it as well!
-                    SignedBeaconBlock::Eip4844 { .. } => {
-                        // Eip4844 context being `None` implies that "merge never happened".
-                        fork_context.to_context_bytes(ForkName::Eip4844)
+                    SignedBeaconBlock::Deneb { .. } => {
+                        // Deneb context being `None` implies that "merge never happened".
+                        fork_context.to_context_bytes(ForkName::Deneb)
                     }
                     SignedBeaconBlock::Capella { .. } => {
                         // Capella context being `None` implies that "merge never happened".
@@ -440,7 +440,7 @@ fn context_bytes<T: EthSpec>(
                 };
             }
             if let RPCResponse::BlobsByRange(_) | RPCResponse::SidecarByRoot(_) = rpc_variant {
-                return fork_context.to_context_bytes(ForkName::Eip4844);
+                return fork_context.to_context_bytes(ForkName::Deneb);
             }
         }
     }
@@ -580,7 +580,7 @@ fn handle_v1_response<T: EthSpec>(
                 )
             })?;
             match fork_name {
-                ForkName::Eip4844 => Ok(Some(RPCResponse::BlobsByRange(Arc::new(
+                ForkName::Deneb => Ok(Some(RPCResponse::BlobsByRange(Arc::new(
                     BlobSidecar::from_ssz_bytes(decoded_buffer)?,
                 )))),
                 _ => Err(RPCError::ErrorResponse(
@@ -597,7 +597,7 @@ fn handle_v1_response<T: EthSpec>(
                 )
             })?;
             match fork_name {
-                ForkName::Eip4844 => Ok(Some(RPCResponse::SidecarByRoot(Arc::new(
+                ForkName::Deneb => Ok(Some(RPCResponse::SidecarByRoot(Arc::new(
                     BlobSidecar::from_ssz_bytes(decoded_buffer)?,
                 )))),
                 _ => Err(RPCError::ErrorResponse(
@@ -662,8 +662,8 @@ fn handle_v2_response<T: EthSpec>(
                         decoded_buffer,
                     )?),
                 )))),
-                ForkName::Eip4844 => Ok(Some(RPCResponse::BlocksByRange(Arc::new(
-                    SignedBeaconBlock::Eip4844(SignedBeaconBlockEip4844::from_ssz_bytes(
+                ForkName::Deneb => Ok(Some(RPCResponse::BlocksByRange(Arc::new(
+                    SignedBeaconBlock::Deneb(SignedBeaconBlockDeneb::from_ssz_bytes(
                         decoded_buffer,
                     )?),
                 )))),
@@ -687,8 +687,8 @@ fn handle_v2_response<T: EthSpec>(
                         decoded_buffer,
                     )?),
                 )))),
-                ForkName::Eip4844 => Ok(Some(RPCResponse::BlocksByRoot(Arc::new(
-                    SignedBeaconBlock::Eip4844(SignedBeaconBlockEip4844::from_ssz_bytes(
+                ForkName::Deneb => Ok(Some(RPCResponse::BlocksByRoot(Arc::new(
+                    SignedBeaconBlock::Deneb(SignedBeaconBlockDeneb::from_ssz_bytes(
                         decoded_buffer,
                     )?),
                 )))),
@@ -753,19 +753,19 @@ mod tests {
         let altair_fork_epoch = Epoch::new(1);
         let merge_fork_epoch = Epoch::new(2);
         let capella_fork_epoch = Epoch::new(3);
-        let eip4844_fork_epoch = Epoch::new(4);
+        let deneb_fork_epoch = Epoch::new(4);
 
         chain_spec.altair_fork_epoch = Some(altair_fork_epoch);
         chain_spec.bellatrix_fork_epoch = Some(merge_fork_epoch);
         chain_spec.capella_fork_epoch = Some(capella_fork_epoch);
-        chain_spec.eip4844_fork_epoch = Some(eip4844_fork_epoch);
+        chain_spec.deneb_fork_epoch = Some(deneb_fork_epoch);
 
         let current_slot = match fork_name {
             ForkName::Base => Slot::new(0),
             ForkName::Altair => altair_fork_epoch.start_slot(Spec::slots_per_epoch()),
             ForkName::Merge => merge_fork_epoch.start_slot(Spec::slots_per_epoch()),
             ForkName::Capella => capella_fork_epoch.start_slot(Spec::slots_per_epoch()),
-            ForkName::Eip4844 => eip4844_fork_epoch.start_slot(Spec::slots_per_epoch()),
+            ForkName::Deneb => deneb_fork_epoch.start_slot(Spec::slots_per_epoch()),
         };
         ForkContext::new::<Spec>(current_slot, Hash256::zero(), &chain_spec)
     }

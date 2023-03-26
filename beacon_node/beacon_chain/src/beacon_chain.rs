@@ -116,7 +116,7 @@ use tree_hash::TreeHash;
 use types::beacon_block_body::KzgCommitments;
 use types::beacon_state::CloneConfig;
 use types::blob_sidecar::{BlobIdentifier, BlobSidecarList, Blobs};
-use types::consts::eip4844::MIN_EPOCHS_FOR_BLOBS_SIDECARS_REQUESTS;
+use types::consts::deneb::MIN_EPOCHS_FOR_BLOBS_SIDECARS_REQUESTS;
 use types::consts::merge::INTERVALS_PER_SLOT;
 use types::*;
 
@@ -1107,7 +1107,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// ## Errors
     /// - any database read errors
     /// - block and blobs are inconsistent in the database
-    /// - this method is called with a pre-eip4844 block root
+    /// - this method is called with a pre-deneb block root
     /// - this method is called for a blob that is beyond the prune depth
     pub fn get_blobs(
         &self,
@@ -4465,7 +4465,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // allows it to run concurrently with things like attestation packing.
         let prepare_payload_handle = match &state {
             BeaconState::Base(_) | BeaconState::Altair(_) => None,
-            BeaconState::Merge(_) | BeaconState::Capella(_) | BeaconState::Eip4844(_) => {
+            BeaconState::Merge(_) | BeaconState::Capella(_) | BeaconState::Deneb(_) => {
                 let prepare_payload_handle =
                     get_execution_payload(self.clone(), &state, proposer_index, builder_params)?;
                 Some(prepare_payload_handle)
@@ -4773,17 +4773,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     None,
                 )
             }
-            BeaconState::Eip4844(_) => {
+            BeaconState::Deneb(_) => {
                 let (payload, kzg_commitments, blobs) = block_contents
                     .ok_or(BlockProductionError::MissingExecutionPayload)?
                     .deconstruct();
                 (
-                    BeaconBlock::Eip4844(BeaconBlockEip4844 {
+                    BeaconBlock::Deneb(BeaconBlockDeneb {
                         slot,
                         proposer_index,
                         parent_root,
                         state_root: Hash256::zero(),
-                        body: BeaconBlockBodyEip4844 {
+                        body: BeaconBlockBodyDeneb {
                             randao_reveal,
                             eth1_data,
                             graffiti,
@@ -4862,7 +4862,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let beacon_block_root = block.canonical_root();
             let expected_kzg_commitments = block.body().blob_kzg_commitments().map_err(|_| {
                 BlockProductionError::InvalidBlockVariant(
-                    "EIP4844 block does not contain kzg commitments".to_string(),
+                    "DENEB block does not contain kzg commitments".to_string(),
                 )
             })?;
 
@@ -5162,7 +5162,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         } else {
             let withdrawals = match self.spec.fork_name_at_slot::<T::EthSpec>(prepare_slot) {
                 ForkName::Base | ForkName::Altair | ForkName::Merge => None,
-                ForkName::Capella | ForkName::Eip4844 => {
+                ForkName::Capella | ForkName::Deneb => {
                     let chain = self.clone();
                     self.spawn_blocking_handle(
                         move || {
@@ -6185,9 +6185,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 
     /// The epoch at which we require a data availability check in block processing.
-    /// `None` if the `Eip4844` fork is disabled.
+    /// `None` if the `Deneb` fork is disabled.
     pub fn data_availability_boundary(&self) -> Option<Epoch> {
-        self.spec.eip4844_fork_epoch.and_then(|fork_epoch| {
+        self.spec.deneb_fork_epoch.and_then(|fork_epoch| {
             self.epoch().ok().map(|current_epoch| {
                 std::cmp::max(
                     fork_epoch,
@@ -6203,13 +6203,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .map_or(false, |da_epoch| block_epoch >= da_epoch)
     }
 
-    /// Returns `true` if we are at or past the `Eip4844` fork. This will always return `false` if
-    /// the `Eip4844` fork is disabled.
+    /// Returns `true` if we are at or past the `Deneb` fork. This will always return `false` if
+    /// the `Deneb` fork is disabled.
     pub fn is_data_availability_check_required(&self) -> Result<bool, Error> {
         let current_epoch = self.epoch()?;
         Ok(self
             .spec
-            .eip4844_fork_epoch
+            .deneb_fork_epoch
             .map(|fork_epoch| fork_epoch <= current_epoch)
             .unwrap_or(false))
     }
