@@ -618,7 +618,7 @@ dependencies = [
 
 [[package]]
 name = "beacon_node"
-version = "4.0.1-rc.0"
+version = "4.0.1"
 dependencies = [
  "beacon_chain",
  "clap",
@@ -786,7 +786,7 @@ dependencies = [
 
 [[package]]
 name = "boot_node"
-version = "4.0.1-rc.0"
+version = "4.0.1"
 dependencies = [
  "beacon_node",
  "clap",
@@ -3770,7 +3770,7 @@ checksum = "830d08ce1d1d941e6b30645f1a0eb5643013d835ce3779a5fc208261dbe10f55"
 
 [[package]]
 name = "lcli"
-version = "4.0.1-rc.0"
+version = "4.0.1"
 dependencies = [
  "account_utils",
  "beacon_chain",
@@ -4374,7 +4374,7 @@ dependencies = [
 
 [[package]]
 name = "lighthouse"
-version = "4.0.1-rc.0"
+version = "4.0.1"
 dependencies = [
  "account_manager",
  "account_utils",
@@ -5333,9 +5333,9 @@ dependencies = [
 
 [[package]]
 name = "openssl"
-version = "0.10.45"
+version = "0.10.48"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b102428fd03bc5edf97f62620f7298614c45cedf287c271e7ed450bbaf83f2e1"
+checksum = "518915b97df115dd36109bfa429a48b8f737bd05508cf9588977b599648926d2"
 dependencies = [
  "bitflags",
  "cfg-if",
@@ -5374,9 +5374,9 @@ dependencies = [
 
 [[package]]
 name = "openssl-sys"
-version = "0.9.80"
+version = "0.9.83"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "23bbbf7854cd45b83958ebe919f0e8e516793727652e27fda10a8384cfc790b7"
+checksum = "666416d899cf077260dac8698d60a60b435a46d57e82acb1be3d0dad87284e5b"
 dependencies = [
  "autocfg 1.1.0",
  "cc",
