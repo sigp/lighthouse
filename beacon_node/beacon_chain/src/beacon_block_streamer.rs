@@ -726,6 +726,8 @@ mod tests {
         spec.altair_fork_epoch = Some(Epoch::new(0));
         spec.bellatrix_fork_epoch = Some(Epoch::new(bellatrix_fork_epoch as u64));
         spec.capella_fork_epoch = Some(Epoch::new(capella_fork_epoch as u64));
+        //FIXME(sean) extend this to test deneb?
+        spec.deneb_fork_epoch = None;
 
         let harness = get_harness(VALIDATOR_COUNT, spec);
         // go to bellatrix fork
@@ -845,6 +847,8 @@ mod tests {
         spec.altair_fork_epoch = Some(Epoch::new(0));
         spec.bellatrix_fork_epoch = Some(Epoch::new(bellatrix_fork_epoch as u64));
         spec.capella_fork_epoch = Some(Epoch::new(capella_fork_epoch as u64));
+        //FIXME(sean) extend this to test deneb?
+        spec.deneb_fork_epoch = None;
 
         let harness = get_harness(VALIDATOR_COUNT, spec);
 
