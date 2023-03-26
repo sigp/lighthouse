@@ -92,10 +92,7 @@ pub enum Availability<T: EthSpec> {
 }
 
 impl<T: EthSpec> Availability<T> {
-    pub fn is_available(&self) -> bool {
-        matches!(self, Self::Available(_))
-    }
-    pub fn get_prunable_blob_ids(&self) -> Option<Vec<BlobIdentifier>> {
+    pub fn get_available_blob_ids(&self) -> Option<Vec<BlobIdentifier>> {
         if let Self::Available(block) = self {
             Some(block.get_all_blob_ids())
         } else {
@@ -164,7 +161,7 @@ impl<T: EthSpec, S: SlotClock> DataAvailabilityChecker<T, S> {
 
         drop(blob_cache);
 
-        if let Some(blob_ids) = availability.get_prunable_blob_ids() {
+        if let Some(blob_ids) = availability.get_available_blob_ids() {
             self.prune_rpc_blob_cache(&blob_ids);
         } else {
             self.rpc_blob_cache.write().insert(blob.id(), blob.clone());
@@ -195,7 +192,7 @@ impl<T: EthSpec, S: SlotClock> DataAvailabilityChecker<T, S> {
 
         drop(guard);
 
-        if let Some(blob_ids) = availability.get_prunable_blob_ids() {
+        if let Some(blob_ids) = availability.get_available_blob_ids() {
             self.prune_rpc_blob_cache(&blob_ids);
         }
 
