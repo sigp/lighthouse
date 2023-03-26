@@ -1,4 +1,4 @@
-use super::network_context::TempBlockWrapper;
+use beacon_chain::blob_verification::BlockWrapper;
 use std::{collections::VecDeque, sync::Arc};
 use types::{BlobSidecar, EthSpec, SignedBeaconBlock};
 
@@ -29,7 +29,7 @@ impl<T: EthSpec> BlocksAndBlobsRequestInfo<T> {
         }
     }
 
-    pub fn into_responses(self) -> Result<Vec<TempBlockWrapper<T>>, &'static str> {
+    pub fn into_responses(self) -> Result<Vec<BlockWrapper<T>>, &'static str> {
         let BlocksAndBlobsRequestInfo {
             accumulated_blocks,
             accumulated_sidecars,
@@ -53,9 +53,9 @@ impl<T: EthSpec> BlocksAndBlobsRequestInfo<T> {
             }
 
             if blob_list.is_empty() {
-                responses.push(TempBlockWrapper::Block(block))
+                responses.push(BlockWrapper::Block(block))
             } else {
-                responses.push(TempBlockWrapper::BlockAndBlobList(block, blob_list))
+                responses.push(BlockWrapper::BlockAndBlobs(block, blob_list))
             }
         }
 
