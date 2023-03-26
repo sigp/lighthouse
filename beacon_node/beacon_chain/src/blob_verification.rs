@@ -446,7 +446,7 @@ impl<E: EthSpec> AsBlock<E> for &MaybeAvailableBlock<E> {
 #[derivative(Hash(bound = "E: EthSpec"))]
 pub enum BlockWrapper<E: EthSpec> {
     Block(Arc<SignedBeaconBlock<E>>),
-    BlockAndBlobs(Arc<SignedBeaconBlock<E>>, BlobSidecarList<E>),
+    BlockAndBlobs(Arc<SignedBeaconBlock<E>>, Vec<Arc<BlobSidecar<E>>>),
 }
 
 impl<E: EthSpec> AsBlock<E> for BlockWrapper<E> {

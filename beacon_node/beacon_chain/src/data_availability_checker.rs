@@ -240,7 +240,7 @@ impl<T: EthSpec, S: SlotClock> DataAvailabilityChecker<T, S> {
                     .kzg
                     .as_ref()
                     .ok_or(AvailabilityCheckError::KzgNotInitialized)?;
-                let verified_blobs = verify_kzg_for_blob_list(blob_list, kzg)?;
+                let verified_blobs = verify_kzg_for_blob_list(VariableList::new(blob_list)?, kzg)?;
 
                 Ok(MaybeAvailableBlock::Available(
                     self.check_availability_with_blobs(block, verified_blobs)?,
@@ -508,7 +508,7 @@ impl<E: EthSpec> AsBlock<E> for AvailableBlock<E> {
     fn into_block_wrapper(self) -> BlockWrapper<E> {
         let (block, blobs_opt) = self.deconstruct();
         if let Some(blobs) = blobs_opt {
-            BlockWrapper::BlockAndBlobs(block, blobs)
+            BlockWrapper::BlockAndBlobs(block, blobs.to_vec())
         } else {
             BlockWrapper::Block(block)
         }

@@ -20,12 +20,6 @@ use std::sync::Arc;
 use tokio::sync::mpsc;
 use types::{BlobSidecar, EthSpec, SignedBeaconBlock};
 
-// Temporary struct to handle incremental changes in the meantime.
-pub enum TempBlockWrapper<T: EthSpec> {
-    Block(Arc<SignedBeaconBlock<T>>),
-    BlockAndBlobList(Arc<SignedBeaconBlock<T>>, Vec<Arc<BlobSidecar<T>>>),
-}
-
 pub struct BlocksAndBlobsByRangeResponse<T: EthSpec> {
     pub batch_id: BatchId,
     pub responses: Result<Vec<BlockWrapper<T>>, &'static str>,
@@ -328,26 +322,13 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                         batch_id,
                         block_blob_info,
                     } = entry.remove();
-
-                    let responses = block_blob_info.into_responses();
-                    let unimplemented_info = match responses {
-                        Ok(responses) => {
-                            let infos = responses
-                                .into_iter()
-                                .map(|temp_block_wrapper| match temp_block_wrapper {
-                                    TempBlockWrapper::Block(block) => {
-                                        format!("slot{}", block.slot())
-                                    }
-                                    TempBlockWrapper::BlockAndBlobList(block, blob_list) => {
-                                        format!("slot{}({} blobs)", block.slot(), blob_list.len())
-                                    }
-                                })
-                                .collect::<Vec<_>>();
-                            infos.join(", ")
-                        }
-                        Err(e) => format!("Error: {e}"),
-                    };
-                    unimplemented!("Here we are supposed to return a block possibly paired with a Bundle of blobs, but only have a list of individual blobs. This is what we got from the network: ChainId[{chain_id}] BatchId[{batch_id}] {unimplemented_info}")
+                    Some((
+                        chain_id,
+                        BlocksAndBlobsByRangeResponse {
+                            batch_id,
+                            responses: block_blob_info.into_responses(),
+                        },
+                    ))
                 } else {
                     None
                 }
@@ -416,24 +397,10 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                     let (batch_id, info) = entry.remove();
 
                     let responses = info.into_responses();
-                    let unimplemented_info = match responses {
-                        Ok(responses) => {
-                            let infos = responses
-                                .into_iter()
-                                .map(|temp_block_wrapper| match temp_block_wrapper {
-                                    TempBlockWrapper::Block(block) => {
-                                        format!("slot{}", block.slot())
-                                    }
-                                    TempBlockWrapper::BlockAndBlobList(block, blob_list) => {
-                                        format!("slot{}({} blobs)", block.slot(), blob_list.len())
-                                    }
-                                })
-                                .collect::<Vec<_>>();
-                            infos.join(", ")
-                        }
-                        Err(e) => format!("Error: {e}"),
-                    };
-                    unimplemented!("Here we are supposed to return a block possibly paired with a Bundle of blobs for backfill, but only have a list of individual blobs. This is what we got from the network: BatchId[{batch_id}]{unimplemented_info}")
+                    Some(BlocksAndBlobsByRangeResponse {
+                        batch_id,
+                        responses,
+                    })
                 } else {
                     None
                 }
