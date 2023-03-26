@@ -29,9 +29,7 @@ use beacon_chain::{
 };
 pub use block_id::BlockId;
 use directory::DEFAULT_ROOT_DIR;
-use eth2::types::{
-    self as api_types, EndpointVersion, SkipRandaoVerification, ValidatorId, ValidatorStatus,
-};
+use eth2::types::{self as api_types, EndpointVersion, ForkChoice, ForkChoiceNode, SkipRandaoVerification, ValidatorId, ValidatorStatus};
 use lighthouse_network::{types::SyncState, EnrExt, NetworkGlobals, PeerId, PubsubMessage};
 use lighthouse_version::version_with_platform;
 use network::{NetworkMessage, NetworkSenders, ValidatorSubscriptionMessage};
@@ -2148,6 +2146,53 @@ pub fn serve<T: BeaconChainTypes>(
             },
         );
 
+    // GET debug/fork_choice
+    let get_debug_fork_choice = eth_v1
+        .and(warp::path("debug"))
+        .and(warp::path("fork_choice"))
+        .and(warp::path::end())
+        .and(chain_filter.clone())
+        .and_then(
+            |chain: Arc<BeaconChain<T>>| {
+                blocking_json_task(move || {
+                    let beacon_fork_choice = chain
+                        .canonical_head
+                        .fork_choice_read_lock();
+
+                    let proto_array = beacon_fork_choice
+                        .proto_array()
+                        .core_proto_array();
+
+                    let fork_choice_nodes = proto_array
+                        .nodes
+                        .iter()
+                        .map(|node| {
+                            let execution_status = if node.execution_status.is_execution_enabled() {
+                                Some(node.execution_status)
+                            } else {
+                                None
+                            };
+                            ForkChoiceNode {
+                                slot: node.slot,
+                                block_root: node.root,
+                                parent_root: node.parent,
+                                justified_epoch: node.justified_checkpoint.map(|checkpoint| checkpoint.epoch),
+                                finalized_epoch: node.finalized_checkpoint.map(|checkpoint| checkpoint.epoch),
+                                weight: node.weight,
+                                validity: execution_status,
+                                execution_block_hash: node.execution_status.block_hash(),
+                            }
+                        })
+                        .collect();
+                    Ok(api_types::GenericResponse::from(ForkChoice {
+                        justified_checkpoint: proto_array.justified_checkpoint,
+                        finalized_checkpoint: proto_array.finalized_checkpoint,
+                        fork_choice_nodes,
+                    }))
+                })
+            },
+        );
+
     /*
      * node
      */
@@ -3676,6 +3721,7 @@ pub fn serve<T: BeaconChainTypes>(
                 .uor(get_config_deposit_contract)
                 .uor(get_debug_beacon_states)
                 .uor(get_debug_beacon_heads)
+                .uor(get_debug_fork_choice)
                 .uor(get_node_identity)
                 .uor(get_node_version)
                 .uor(get_node_syncing)

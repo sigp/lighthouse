@@ -10,6 +10,7 @@ use std::convert::TryFrom;
 use std::fmt;
 use std::str::{from_utf8, FromStr};
 use std::time::Duration;
+use proto_array::ExecutionStatus;
 pub use types::*;
 
 #[cfg(feature = "lighthouse")]
@@ -1195,6 +1196,25 @@ pub struct LivenessResponseData {
     pub index: u64,
     pub epoch: Epoch,
     pub is_live: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ForkChoice {
+    pub justified_checkpoint: Checkpoint,
+    pub finalized_checkpoint: Checkpoint,
+    pub fork_choice_nodes: Vec<ForkChoiceNode>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ForkChoiceNode {
+    pub slot: Slot,
+    pub block_root: Hash256,
+    pub parent_root: Option<usize>,
+    pub justified_epoch: Option<Epoch>,
+    pub finalized_epoch: Option<Epoch>,
+    pub weight: u64,
+    pub validity: Option<ExecutionStatus>,
+    pub execution_block_hash: Option<ExecutionBlockHash>,
 }
 
 #[cfg(test)]
