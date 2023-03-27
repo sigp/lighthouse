@@ -155,6 +155,7 @@ pub async fn create_api_server_on_port<T: BeaconChainTypes>(
         None,
         meta_data,
         vec![],
+        false,
         &log,
     ));
 
