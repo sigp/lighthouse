@@ -1984,13 +1984,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                 request_id,
                 request,
             } => task_spawner.spawn_blocking_with_manual_send_idle(move |send_idle_on_drop| {
-                worker.handle_blobs_by_root_request(
-                    sub_executor,
-                    send_idle_on_drop,
-                    peer_id,
-                    request_id,
-                    request,
-                )
+                worker.handle_blobs_by_root_request(send_idle_on_drop, peer_id, request_id, request)
             }),
 
             /*

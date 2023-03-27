@@ -22,7 +22,6 @@ pub struct CacheItem<E: EthSpec> {
      * Values used to make the block available.
      */
     block: Arc<SignedBeaconBlock<E>>,
-    //TODO(sean) remove this and just use the da checker?'
     blobs: Option<BlobSidecarList<E>>,
     proto_block: ProtoBlock,
 }
