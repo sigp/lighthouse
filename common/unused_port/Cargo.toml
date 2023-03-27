@@ -6,3 +6,5 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+lru_cache = { path = "../lru_cache" }
+lazy_static = "1.4.0"
