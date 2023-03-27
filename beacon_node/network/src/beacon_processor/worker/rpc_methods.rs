@@ -682,7 +682,6 @@ impl<T: BeaconChainTypes> Worker<T> {
     /// Handle a `BlobsByRange` request from the peer.
     pub fn handle_blobs_by_range_request(
         self,
-        _executor: TaskExecutor,
         send_on_drop: SendOnDrop,
         peer_id: PeerId,
         request_id: PeerRequestId,
@@ -704,13 +703,15 @@ impl<T: BeaconChainTypes> Worker<T> {
             );
         }
 
-        let data_availability_boundary = match self.chain.data_availability_boundary() {
-            Some(boundary) => boundary,
+        let request_start_slot = Slot::from(req.start_slot);
+
+        let data_availability_boundary_slot = match self.chain.data_availability_boundary() {
+            Some(boundary) => boundary.start_slot(T::EthSpec::slots_per_epoch()),
             None => {
                 debug!(self.log, "Deneb fork is disabled");
                 self.send_error_response(
                     peer_id,
-                    RPCResponseErrorCode::ServerError,
+                    RPCResponseErrorCode::InvalidRequest,
                     "Deneb fork is disabled".into(),
                     request_id,
                 );
@@ -718,47 +719,40 @@ impl<T: BeaconChainTypes> Worker<T> {
             }
         };
 
-        let start_slot = Slot::from(req.start_slot);
-        let start_epoch = start_slot.epoch(T::EthSpec::slots_per_epoch());
-
-        // If the peer requests data from beyond the data availability boundary we altruistically
-        // cap to the right time range.
-        let serve_blobs_from_slot = if start_epoch < data_availability_boundary {
-            // Attempt to serve from the earliest block in our database, falling back to the data
-            // availability boundary
-            let oldest_blob_slot =
-                self.chain.store.get_blob_info().oldest_blob_slot.unwrap_or(
-                    data_availability_boundary.start_slot(T::EthSpec::slots_per_epoch()),
-                );
-
+        let oldest_blob_slot = self
+            .chain
+            .store
+            .get_blob_info()
+            .oldest_blob_slot
+            .unwrap_or(data_availability_boundary_slot);
+        if request_start_slot < oldest_blob_slot {
             debug!(
                 self.log,
-                "Range request start slot is older than data availability boundary";
-                "requested_slot" => req.start_slot,
-                "oldest_known_slot" => oldest_blob_slot,
-                "data_availability_boundary" => data_availability_boundary
+                "Range request start slot is older than data availability boundary.";
+                "requested_slot" => request_start_slot,
+                "oldest_blob_slot" => oldest_blob_slot,
+                "data_availability_boundary" => data_availability_boundary_slot
             );
 
-            // Check if the request is entirely out of the data availability period. The
-            // `oldest_blob_slot` is the oldest slot in the database, so includes a margin of error
-            // controlled by our prune margin.
-            let end_request_slot = start_slot + req.count;
-            if oldest_blob_slot < end_request_slot {
-                return self.send_error_response(
+            return if data_availability_boundary_slot < oldest_blob_slot {
+                self.send_error_response(
+                    peer_id,
+                    RPCResponseErrorCode::ResourceUnavailable,
+                    "blobs pruned within boundary".into(),
+                    request_id,
+                )
+            } else {
+                self.send_error_response(
                     peer_id,
                     RPCResponseErrorCode::InvalidRequest,
-                    "Request outside of data availability period".into(),
+                    "Req outside availability period".into(),
                     request_id,
-                );
-            }
-            std::cmp::max(oldest_blob_slot, start_slot)
-        } else {
-            start_slot
-        };
+                )
+            };
+        }
 
-        // If the peer requests data from beyond the data availability boundary we altruistically cap to the right time range
         let forwards_block_root_iter =
-            match self.chain.forwards_iter_block_roots(serve_blobs_from_slot) {
+            match self.chain.forwards_iter_block_roots(request_start_slot) {
                 Ok(iter) => iter,
                 Err(BeaconChainError::HistoricalBlockError(
                     HistoricalBlockError::BlockOutOfRange {
@@ -849,21 +843,13 @@ impl<T: BeaconChainTypes> Worker<T> {
                     }
                 }
                 Ok(None) => {
-                    error!(
+                    debug!(
                         self.log,
-                        "No blobs or block in the store for block root";
+                        "No blobs in the store for block root";
                         "request" => ?req,
                         "peer" => %peer_id,
                         "block_root" => ?root
                     );
-                    self.send_error_response(
-                        peer_id,
-                        RPCResponseErrorCode::ServerError,
-                        "Database inconsistency".into(),
-                        request_id,
-                    );
-                    send_response = false;
-                    break;
                 }
                 Err(BeaconChainError::BlobsUnavailable) => {
                     error!(
@@ -885,7 +871,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                 Err(e) => {
                     error!(
                         self.log,
-                        "Error fetching blinded block for block root";
+                        "Error fetching blobs block root";
                         "request" => ?req,
                         "peer" => %peer_id,
                         "block_root" => ?root,
