@@ -207,7 +207,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
         let local_node_id = local_enr.node_id();
 
         info!(log, "ENR Initialised"; "enr" => local_enr.to_base64(), "seq" => local_enr.seq(), "id"=> %local_enr.node_id(),
-              "ip4" => ?local_enr.ip4(), "udp4"=> ?local_enr.udp4(), "tcp4" => ?local_enr.tcp6()
+              "ip4" => ?local_enr.ip4(), "udp4"=> ?local_enr.udp4(), "tcp4" => ?local_enr.tcp4(), "tcp6" => ?local_enr.tcp6(), "udp6" => ?local_enr.udp6()
         );
         let listen_socket = match config.listen_addrs() {
             crate::listen_addr::ListenAddress::V4(v4_addr) => v4_addr.udp_socket_addr(),
