@@ -21,7 +21,6 @@ jobs:
   release-tests-windows:
     name: release-tests-windows
     runs-on: windows-2019
-    needs: cargo-fmt
     steps:
     - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
