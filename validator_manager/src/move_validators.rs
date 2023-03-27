@@ -116,9 +116,9 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .long(VALIDATORS_FLAG)
                 .value_name("STRING")
                 .help(
-                    "The validators to be moved. Either (a) a list of \
-                    0x-prefixed validator pubkeys, (b) an integer count of \
-                    validators or (c) the word \"all\".",
+                    "The validators to be moved. Either a list of 0x-prefixed \
+                    validator pubkeys, an integer count of validators or the \
+                    word \"all\".",
                 )
                 .required(true)
                 .takes_value(true),
