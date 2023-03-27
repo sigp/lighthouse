@@ -66,8 +66,8 @@ echo -n -e $SECRET_KEY > $HOME/.lighthouse/local-testnet/node_2/beacon/network/k
 
 echo "Starting local beacon nodes"
 
-exit_if_fails ../local_testnet/beacon_node.sh -t $PEER_ID -d debug $HOME/.lighthouse/local-testnet/node_1 9000 8000 http://localhost:5000 $HOME/.lighthouse/local-testnet/geth_datadir1/geth/jwtsecret &> beacon1.log &
-exit_if_fails ../local_testnet/beacon_node.sh $HOME/.lighthouse/local-testnet/node_2 9100 8100 http://localhost:5100 $HOME/.lighthouse/local-testnet/geth_datadir2/geth/jwtsecret &> /dev/null &
+exit_if_fails ../local_testnet/beacon_node.sh -t $PEER_ID -d debug $HOME/.lighthouse/local-testnet/node_1 9000 8000 http://localhost:5000 $HOME/.lighthouse/local-testnet/geth_datadir1/geth/jwtsecret &> /dev/null &
+exit_if_fails ../local_testnet/beacon_node.sh -d debug $HOME/.lighthouse/local-testnet/node_2 9100 8100 http://localhost:5100 $HOME/.lighthouse/local-testnet/geth_datadir2/geth/jwtsecret &> beacon1.log &
 exit_if_fails ../local_testnet/beacon_node.sh -t $PEER_ID $HOME/.lighthouse/local-testnet/node_3 9200 8200 http://localhost:5200 $HOME/.lighthouse/local-testnet/geth_datadir3/geth/jwtsecret &> /dev/null &
 
 echo "Starting local validator clients"
@@ -111,7 +111,7 @@ if [[ "$BEHAVIOR" == "success" ]]; then
 
     echo "Starting the last validator client"
 
-    ../local_testnet/validator_client.sh $HOME/.lighthouse/local-testnet/node_4 http://localhost:8300 &
+    ../local_testnet/validator_client.sh $HOME/.lighthouse/local-testnet/node_4 http://localhost:8100 &
     DOPPELGANGER_FAILURE=0
 
     # Sleep three epochs, then make sure all validators were active in epoch 2. Use

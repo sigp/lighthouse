@@ -40,9 +40,6 @@ while getopts "d:t:sh" flag; do
   esac
 done
 
-echo "HELLO"
-echo $TRUSTED_PEERS
-
 
 # Get positional arguments
 data_dir=${@:$OPTIND+0:1}
