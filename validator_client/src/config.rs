@@ -73,6 +73,8 @@ pub struct Config {
     pub block_delay: Option<Duration>,
     /// Disables publishing http api requests to all beacon nodes for select api calls.
     pub disable_run_on_all: bool,
+    /// Enables a service which attempts to measure latency between the VC and BNs.
+    pub enable_latency_measurement_service: bool,
 }
 
 impl Default for Config {
@@ -111,6 +113,7 @@ impl Default for Config {
             builder_registration_timestamp_override: None,
             gas_limit: None,
             disable_run_on_all: false,
+            enable_latency_measurement_service: true,
         }
     }
 }
@@ -356,6 +359,9 @@ impl Config {
                 missed proposals. The flag will be ignored."
             );
         }
+
+        config.enable_latency_measurement_service =
+            parse_optional(cli_args, "latency-measurement-service")?.unwrap_or(true);
 
         /*
          * Experimental

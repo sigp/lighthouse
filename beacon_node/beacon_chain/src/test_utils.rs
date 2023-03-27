@@ -13,17 +13,17 @@ use crate::{
     StateSkipConfig,
 };
 use bls::get_withdrawal_credentials;
-use execution_layer::test_utils::DEFAULT_JWT_SECRET;
 use execution_layer::{
     auth::JwtKey,
     test_utils::{
-        ExecutionBlockGenerator, MockExecutionLayer, TestingBuilder, DEFAULT_TERMINAL_BLOCK,
+        ExecutionBlockGenerator, MockExecutionLayer, TestingBuilder, DEFAULT_JWT_SECRET,
+        DEFAULT_TERMINAL_BLOCK,
     },
     ExecutionLayer,
 };
 use fork_choice::CountUnrealized;
 use futures::channel::mpsc::Receiver;
-pub use genesis::{interop_genesis_state, DEFAULT_ETH1_BLOCK_HASH};
+pub use genesis::{interop_genesis_state_with_eth1, DEFAULT_ETH1_BLOCK_HASH};
 use int_to_bytes::int_to_bytes32;
 use merkle_proof::MerkleTree;
 use parking_lot::Mutex;
@@ -108,6 +108,14 @@ pub enum AttestationStrategy {
     SomeValidators(Vec<usize>),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SyncCommitteeStrategy {
+    /// All sync committee validators sign.
+    AllValidators,
+    /// No validators sign.
+    NoValidators,
+}
+
 /// Indicates whether the `BeaconChainHarness` should use the `state.current_sync_committee` or
 /// `state.next_sync_committee` when creating sync messages or contributions.
 #[derive(Clone, Debug)]
@@ -149,6 +157,7 @@ pub struct Builder<T: BeaconChainTypes> {
     eth_spec_instance: T::EthSpec,
     spec: Option<ChainSpec>,
     validator_keypairs: Option<Vec<Keypair>>,
+    withdrawal_keypairs: Vec<Option<Keypair>>,
     chain_config: Option<ChainConfig>,
     store_config: Option<StoreConfig>,
     #[allow(clippy::type_complexity)]
@@ -180,7 +189,7 @@ impl<E: EthSpec> Builder<EphemeralHarnessType<E>> {
             .unwrap(),
         );
         let mutator = move |builder: BeaconChainBuilder<_>| {
-            let genesis_state = interop_genesis_state::<E>(
+            let genesis_state = interop_genesis_state_with_eth1::<E>(
                 &validator_keypairs,
                 HARNESS_GENESIS_TIME,
                 Hash256::from_slice(DEFAULT_ETH1_BLOCK_HASH),
@@ -241,7 +250,7 @@ impl<E: EthSpec> Builder<DiskHarnessType<E>> {
             .expect("cannot build without validator keypairs");
 
         let mutator = move |builder: BeaconChainBuilder<_>| {
-            let genesis_state = interop_genesis_state::<E>(
+            let genesis_state = interop_genesis_state_with_eth1::<E>(
                 &validator_keypairs,
                 HARNESS_GENESIS_TIME,
                 Hash256::from_slice(DEFAULT_ETH1_BLOCK_HASH),
@@ -283,6 +292,7 @@ where
             eth_spec_instance,
             spec: None,
             validator_keypairs: None,
+            withdrawal_keypairs: vec![],
             chain_config: None,
             store_config: None,
             store: None,
@@ -305,6 +315,26 @@ where
 
     pub fn keypairs(mut self, validator_keypairs: Vec<Keypair>) -> Self {
         self.validator_keypairs = Some(validator_keypairs);
+        self
+    }
+
+    /// Initializes the BLS withdrawal keypairs for `num_keypairs` validators to
+    /// the "determistic" values, regardless of wether or not the validator has
+    /// a BLS or execution address in the genesis deposits.
+    ///
+    /// This aligns with the withdrawal commitments used in the "interop"
+    /// genesis states.
+    pub fn deterministic_withdrawal_keypairs(self, num_keypairs: usize) -> Self {
+        self.withdrawal_keypairs(
+            types::test_utils::generate_deterministic_keypairs(num_keypairs)
+                .into_iter()
+                .map(Option::Some)
+                .collect(),
+        )
+    }
+
+    pub fn withdrawal_keypairs(mut self, withdrawal_keypairs: Vec<Option<Keypair>>) -> Self {
+        self.withdrawal_keypairs = withdrawal_keypairs;
         self
     }
 
@@ -385,15 +415,35 @@ where
         self
     }
 
+    pub fn recalculate_fork_times_with_genesis(mut self, genesis_time: u64) -> Self {
+        let mock = self
+            .mock_execution_layer
+            .as_mut()
+            .expect("must have mock execution layer to recalculate fork times");
+        let spec = self
+            .spec
+            .clone()
+            .expect("cannot recalculate fork times without spec");
+        mock.server.execution_block_generator().shanghai_time =
+            spec.capella_fork_epoch.map(|epoch| {
+                genesis_time + spec.seconds_per_slot * E::slots_per_epoch() * epoch.as_u64()
+            });
+
+        self
+    }
+
     pub fn mock_execution_layer(mut self) -> Self {
         let spec = self.spec.clone().expect("cannot build without spec");
+        let shanghai_time = spec.capella_fork_epoch.map(|epoch| {
+            HARNESS_GENESIS_TIME + spec.seconds_per_slot * E::slots_per_epoch() * epoch.as_u64()
+        });
         let mock = MockExecutionLayer::new(
             self.runtime.task_executor.clone(),
-            spec.terminal_total_difficulty,
             DEFAULT_TERMINAL_BLOCK,
-            spec.terminal_block_hash,
-            spec.terminal_block_hash_activation_epoch,
+            shanghai_time,
+            None,
             Some(JwtKey::from_slice(&DEFAULT_JWT_SECRET).unwrap()),
+            spec,
             None,
         );
         self.execution_layer = Some(mock.el.clone());
@@ -401,19 +451,26 @@ where
         self
     }
 
-    pub fn mock_execution_layer_with_builder(mut self, beacon_url: SensitiveUrl) -> Self {
+    pub fn mock_execution_layer_with_builder(
+        mut self,
+        beacon_url: SensitiveUrl,
+        builder_threshold: Option<u128>,
+    ) -> Self {
         // Get a random unused port
-        let port = unused_port::unused_tcp_port().unwrap();
+        let port = unused_port::unused_tcp4_port().unwrap();
         let builder_url = SensitiveUrl::parse(format!("http://127.0.0.1:{port}").as_str()).unwrap();
 
         let spec = self.spec.clone().expect("cannot build without spec");
+        let shanghai_time = spec.capella_fork_epoch.map(|epoch| {
+            HARNESS_GENESIS_TIME + spec.seconds_per_slot * E::slots_per_epoch() * epoch.as_u64()
+        });
         let mock_el = MockExecutionLayer::new(
             self.runtime.task_executor.clone(),
-            spec.terminal_total_difficulty,
             DEFAULT_TERMINAL_BLOCK,
-            spec.terminal_block_hash,
-            spec.terminal_block_hash_activation_epoch,
+            shanghai_time,
+            builder_threshold,
             Some(JwtKey::from_slice(&DEFAULT_JWT_SECRET).unwrap()),
+            spec.clone(),
             Some(builder_url.clone()),
         )
         .move_to_terminal_block();
@@ -505,6 +562,7 @@ where
             spec: chain.spec.clone(),
             chain: Arc::new(chain),
             validator_keypairs,
+            withdrawal_keypairs: self.withdrawal_keypairs,
             shutdown_receiver: Arc::new(Mutex::new(shutdown_receiver)),
             runtime: self.runtime,
             mock_execution_layer: self.mock_execution_layer,
@@ -520,6 +578,12 @@ where
 /// Used for testing.
 pub struct BeaconChainHarness<T: BeaconChainTypes> {
     pub validator_keypairs: Vec<Keypair>,
+    /// Optional BLS withdrawal keys for each validator.
+    ///
+    /// If a validator index is missing from this vec or their entry is `None` then either
+    /// no BLS withdrawal key was set for them (they had an address from genesis) or the test
+    /// initializer neglected to set this field.
+    pub withdrawal_keypairs: Vec<Option<Keypair>>,
 
     pub chain: Arc<BeaconChain<T>>,
     pub spec: ChainSpec,
@@ -1431,6 +1495,44 @@ where
         .sign(sk, &fork, genesis_validators_root, &self.chain.spec)
     }
 
+    pub fn make_bls_to_execution_change(
+        &self,
+        validator_index: u64,
+        address: Address,
+    ) -> SignedBlsToExecutionChange {
+        let keypair = self.get_withdrawal_keypair(validator_index);
+        self.make_bls_to_execution_change_with_keys(
+            validator_index,
+            address,
+            &keypair.pk,
+            &keypair.sk,
+        )
+    }
+
+    pub fn make_bls_to_execution_change_with_keys(
+        &self,
+        validator_index: u64,
+        address: Address,
+        pubkey: &PublicKey,
+        secret_key: &SecretKey,
+    ) -> SignedBlsToExecutionChange {
+        let genesis_validators_root = self.chain.genesis_validators_root;
+        BlsToExecutionChange {
+            validator_index,
+            from_bls_pubkey: pubkey.compress(),
+            to_execution_address: address,
+        }
+        .sign(secret_key, genesis_validators_root, &self.chain.spec)
+    }
+
+    pub fn get_withdrawal_keypair(&self, validator_index: u64) -> &Keypair {
+        self.withdrawal_keypairs
+            .get(validator_index as usize)
+            .expect("BLS withdrawal key missing from harness")
+            .as_ref()
+            .expect("no withdrawal key for validator")
+    }
+
     pub fn add_voluntary_exit(
         &self,
         block: &mut BeaconBlock<E>,
@@ -1658,6 +1760,18 @@ where
         self.process_attestations(attestations);
     }
 
+    pub fn sync_committee_sign_block(
+        &self,
+        state: &BeaconState<E>,
+        block_hash: Hash256,
+        slot: Slot,
+        relative_sync_committee: RelativeSyncCommittee,
+    ) {
+        let sync_contributions =
+            self.make_sync_contributions(state, block_hash, slot, relative_sync_committee);
+        self.process_sync_contributions(sync_contributions).unwrap()
+    }
+
     pub async fn add_attested_block_at_slot(
         &self,
         slot: Slot,
@@ -1665,8 +1779,45 @@ where
         state_root: Hash256,
         validators: &[usize],
     ) -> Result<(SignedBeaconBlockHash, BeaconState<E>), BlockError<E>> {
+        self.add_attested_block_at_slot_with_sync(
+            slot,
+            state,
+            state_root,
+            validators,
+            SyncCommitteeStrategy::NoValidators,
+        )
+        .await
+    }
+
+    pub async fn add_attested_block_at_slot_with_sync(
+        &self,
+        slot: Slot,
+        state: BeaconState<E>,
+        state_root: Hash256,
+        validators: &[usize],
+        sync_committee_strategy: SyncCommitteeStrategy,
+    ) -> Result<(SignedBeaconBlockHash, BeaconState<E>), BlockError<E>> {
         let (block_hash, block, state) = self.add_block_at_slot(slot, state).await?;
         self.attest_block(&state, state_root, block_hash, &block, validators);
+
+        if sync_committee_strategy == SyncCommitteeStrategy::AllValidators
+            && state.current_sync_committee().is_ok()
+        {
+            self.sync_committee_sign_block(
+                &state,
+                block_hash.into(),
+                slot,
+                if (slot + 1).epoch(E::slots_per_epoch())
+                    % self.spec.epochs_per_sync_committee_period
+                    == 0
+                {
+                    RelativeSyncCommittee::Next
+                } else {
+                    RelativeSyncCommittee::Current
+                },
+            );
+        }
+
         Ok((block_hash, state))
     }
 
@@ -1677,9 +1828,34 @@ where
         slots: &[Slot],
         validators: &[usize],
     ) -> AddBlocksResult<E> {
+        self.add_attested_blocks_at_slots_with_sync(
+            state,
+            state_root,
+            slots,
+            validators,
+            SyncCommitteeStrategy::NoValidators,
+        )
+        .await
+    }
+
+    pub async fn add_attested_blocks_at_slots_with_sync(
+        &self,
+        state: BeaconState<E>,
+        state_root: Hash256,
+        slots: &[Slot],
+        validators: &[usize],
+        sync_committee_strategy: SyncCommitteeStrategy,
+    ) -> AddBlocksResult<E> {
         assert!(!slots.is_empty());
-        self.add_attested_blocks_at_slots_given_lbh(state, state_root, slots, validators, None)
-            .await
+        self.add_attested_blocks_at_slots_given_lbh(
+            state,
+            state_root,
+            slots,
+            validators,
+            None,
+            sync_committee_strategy,
+        )
+        .await
     }
 
     async fn add_attested_blocks_at_slots_given_lbh(
@@ -1689,6 +1865,7 @@ where
         slots: &[Slot],
         validators: &[usize],
         mut latest_block_hash: Option<SignedBeaconBlockHash>,
+        sync_committee_strategy: SyncCommitteeStrategy,
     ) -> AddBlocksResult<E> {
         assert!(
             slots.windows(2).all(|w| w[0] <= w[1]),
@@ -1698,7 +1875,13 @@ where
         let mut state_hash_from_slot: HashMap<Slot, BeaconStateHash> = HashMap::new();
         for slot in slots {
             let (block_hash, new_state) = self
-                .add_attested_block_at_slot(*slot, state, state_root, validators)
+                .add_attested_block_at_slot_with_sync(
+                    *slot,
+                    state,
+                    state_root,
+                    validators,
+                    sync_committee_strategy,
+                )
                 .await
                 .unwrap();
             state = new_state;
@@ -1780,6 +1963,7 @@ where
                         &epoch_slots,
                         &validators,
                         Some(head_block),
+                        SyncCommitteeStrategy::NoValidators, // for backwards compat
                     )
                     .await;
 
@@ -1897,6 +2081,22 @@ where
         block_strategy: BlockStrategy,
         attestation_strategy: AttestationStrategy,
     ) -> Hash256 {
+        self.extend_chain_with_sync(
+            num_blocks,
+            block_strategy,
+            attestation_strategy,
+            SyncCommitteeStrategy::NoValidators,
+        )
+        .await
+    }
+
+    pub async fn extend_chain_with_sync(
+        &self,
+        num_blocks: usize,
+        block_strategy: BlockStrategy,
+        attestation_strategy: AttestationStrategy,
+        sync_committee_strategy: SyncCommitteeStrategy,
+    ) -> Hash256 {
         let (mut state, slots) = match block_strategy {
             BlockStrategy::OnCanonicalHead => {
                 let current_slot: u64 = self.get_current_slot().into();
@@ -1927,7 +2127,13 @@ where
         };
         let state_root = state.update_tree_hash_cache().unwrap();
         let (_, _, last_produced_block_hash, _) = self
-            .add_attested_blocks_at_slots(state, state_root, &slots, &validators)
+            .add_attested_blocks_at_slots_with_sync(
+                state,
+                state_root,
+                &slots,
+                &validators,
+                sync_committee_strategy,
+            )
             .await;
         last_produced_block_hash.into()
     }

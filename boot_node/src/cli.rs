@@ -54,6 +54,14 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .conflicts_with("network-dir")
         )
         .arg(
+            Arg::with_name("enr-udp6-port")
+                .long("enr-udp6-port")
+                .value_name("PORT")
+                .help("The UDP6 port of the local ENR. Set this only if you are sure other nodes \
+                      can connect to your local node on this port over IpV6.")
+                .takes_value(true),
+        )
+        .arg(
             Arg::with_name("enable-enr-auto-update")
                 .short("x")
                 .long("enable-enr-auto-update")

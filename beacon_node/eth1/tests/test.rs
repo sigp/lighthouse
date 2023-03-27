@@ -698,6 +698,7 @@ mod fast {
             let anvil_client = eth1.json_rpc_client();
 
             let now = get_block_number(&anvil_client).await;
+            let spec = MainnetEthSpec::default_spec();
             let service = Service::new(
                 Config {
                     endpoint: Eth1Endpoint::NoAuth(
@@ -711,7 +712,7 @@ mod fast {
                     ..Config::default()
                 },
                 log,
-                MainnetEthSpec::default_spec(),
+                spec.clone(),
             )
             .unwrap();
             let client =

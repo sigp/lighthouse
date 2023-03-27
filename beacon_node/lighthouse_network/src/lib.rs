@@ -10,12 +10,14 @@ pub mod service;
 
 #[allow(clippy::mutable_key_type)] // PeerId in hashmaps are no longer permitted by clippy
 pub mod discovery;
+pub mod listen_addr;
 pub mod metrics;
 pub mod peer_manager;
 pub mod rpc;
 pub mod types;
 
 pub use config::gossip_max_size;
+pub use listen_addr::*;
 
 use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
 use std::str::FromStr;

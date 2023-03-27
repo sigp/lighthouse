@@ -13,9 +13,9 @@ use beacon_chain::{
     INVALID_JUSTIFIED_PAYLOAD_SHUTDOWN_REASON,
 };
 use execution_layer::{
-    json_structures::{JsonForkChoiceStateV1, JsonPayloadAttributesV1},
+    json_structures::{JsonForkchoiceStateV1, JsonPayloadAttributes, JsonPayloadAttributesV1},
     test_utils::ExecutionBlockGenerator,
-    ExecutionLayer, ForkChoiceState, PayloadAttributes,
+    ExecutionLayer, ForkchoiceState, PayloadAttributes,
 };
 use fork_choice::{
     CountUnrealized, Error as ForkChoiceError, InvalidationOperation, PayloadVerificationStatus,
@@ -120,7 +120,7 @@ impl InvalidPayloadRig {
         &self.harness.chain.canonical_head
     }
 
-    fn previous_forkchoice_update_params(&self) -> (ForkChoiceState, PayloadAttributes) {
+    fn previous_forkchoice_update_params(&self) -> (ForkchoiceState, PayloadAttributes) {
         let mock_execution_layer = self.harness.mock_execution_layer.as_ref().unwrap();
         let json = mock_execution_layer
             .server
@@ -129,14 +129,17 @@ impl InvalidPayloadRig {
         let params = json.get("params").expect("no params");
 
         let fork_choice_state_json = params.get(0).expect("no payload param");
-        let fork_choice_state: JsonForkChoiceStateV1 =
+        let fork_choice_state: JsonForkchoiceStateV1 =
             serde_json::from_value(fork_choice_state_json.clone()).unwrap();
 
         let payload_param_json = params.get(1).expect("no payload param");
         let attributes: JsonPayloadAttributesV1 =
             serde_json::from_value(payload_param_json.clone()).unwrap();
 
-        (fork_choice_state.into(), attributes.into())
+        (
+            fork_choice_state.into(),
+            JsonPayloadAttributes::V1(attributes).into(),
+        )
     }
 
     fn previous_payload_attributes(&self) -> PayloadAttributes {
@@ -991,20 +994,20 @@ async fn payload_preparation() {
         .await
         .unwrap();
 
-    let payload_attributes = PayloadAttributes {
-        timestamp: rig
-            .harness
+    let payload_attributes = PayloadAttributes::new(
+        rig.harness
             .chain
             .slot_clock
             .start_of(next_slot)
             .unwrap()
             .as_secs(),
-        prev_randao: *head
+        *head
             .beacon_state
             .get_randao_mix(head.beacon_state.current_epoch())
             .unwrap(),
-        suggested_fee_recipient: fee_recipient,
-    };
+        fee_recipient,
+        None,
+    );
     assert_eq!(rig.previous_payload_attributes(), payload_attributes);
 }
 
@@ -1138,7 +1141,7 @@ async fn payload_preparation_before_transition_block() {
 
     let (fork_choice_state, payload_attributes) = rig.previous_forkchoice_update_params();
     let latest_block_hash = rig.latest_execution_block_hash();
-    assert_eq!(payload_attributes.suggested_fee_recipient, fee_recipient);
+    assert_eq!(payload_attributes.suggested_fee_recipient(), fee_recipient);
     assert_eq!(fork_choice_state.head_block_hash, latest_block_hash);
 }
 
@@ -1385,18 +1388,16 @@ async fn build_optimistic_chain(
             .body()
             .execution_payload()
             .unwrap()
-            .execution_payload
-            == <_>::default(),
+            .is_default_with_empty_roots(),
         "the block *has not* undergone the merge transition"
     );
     assert!(
-        post_transition_block
+        !post_transition_block
             .message()
             .body()
             .execution_payload()
             .unwrap()
-            .execution_payload
-            != <_>::default(),
+            .is_default_with_empty_roots(),
         "the block *has* undergone the merge transition"
     );
 

@@ -13,7 +13,7 @@ use tokio::runtime::Runtime;
 use types::{
     ChainSpec, EnrForkId, Epoch, EthSpec, ForkContext, ForkName, Hash256, MinimalEthSpec, Slot,
 };
-use unused_port::unused_tcp_port;
+use unused_port::unused_tcp4_port;
 
 type E = MinimalEthSpec;
 type ReqId = usize;
@@ -25,14 +25,17 @@ pub fn fork_context(fork_name: ForkName) -> ForkContext {
     let mut chain_spec = E::default_spec();
     let altair_fork_epoch = Epoch::new(1);
     let merge_fork_epoch = Epoch::new(2);
+    let capella_fork_epoch = Epoch::new(3);
 
     chain_spec.altair_fork_epoch = Some(altair_fork_epoch);
     chain_spec.bellatrix_fork_epoch = Some(merge_fork_epoch);
+    chain_spec.capella_fork_epoch = Some(capella_fork_epoch);
 
     let current_slot = match fork_name {
         ForkName::Base => Slot::new(0),
         ForkName::Altair => altair_fork_epoch.start_slot(E::slots_per_epoch()),
         ForkName::Merge => merge_fork_epoch.start_slot(E::slots_per_epoch()),
+        ForkName::Capella => capella_fork_epoch.start_slot(E::slots_per_epoch()),
     };
     ForkContext::new::<E>(current_slot, Hash256::zero(), &chain_spec)
 }
@@ -72,11 +75,9 @@ pub fn build_config(port: u16, mut boot_nodes: Vec<Enr>) -> NetworkConfig {
         .tempdir()
         .unwrap();
 
-    config.libp2p_port = port; // tcp port
-    config.discovery_port = port; // udp port
-    config.enr_tcp_port = Some(port);
-    config.enr_udp_port = Some(port);
-    config.enr_address = Some("127.0.0.1".parse().unwrap());
+    config.set_ipv4_listening_address(std::net::Ipv4Addr::UNSPECIFIED, port, port);
+    config.enr_udp4_port = Some(port);
+    config.enr_address = (Some(std::net::Ipv4Addr::LOCALHOST), None);
     config.boot_nodes_enr.append(&mut boot_nodes);
     config.network_dir = path.into_path();
     // Reduce gossipsub heartbeat parameters
@@ -94,7 +95,7 @@ pub async fn build_libp2p_instance(
     log: slog::Logger,
     fork_name: ForkName,
 ) -> Libp2pInstance {
-    let port = unused_tcp_port().unwrap();
+    let port = unused_tcp4_port().unwrap();
     let config = build_config(port, boot_nodes);
     // launch libp2p service
 

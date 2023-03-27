@@ -1,10 +1,10 @@
 [package]
 name = "lighthouse"
-version = "3.4.0"
+version = "4.0.1"
 authors = ["Sigma Prime <contact@sigmaprime.io>"]
 edition = "2021"
 autotests = false
-rust-version = "1.62"
+rust-version = "1.66"
 
 [features]
 default = ["slasher-mdbx"]
@@ -55,7 +55,7 @@ malloc_utils = { path = "../common/malloc_utils" }
 directory = { path = "../common/directory" }
 unused_port = { path = "../common/unused_port" }
 database_manager = { path = "../database_manager" }
-slasher = { path = "../slasher" }
+slasher = { path = "../slasher", default-features = false }
 
 [dev-dependencies]
 tempfile = "3.1.0"
