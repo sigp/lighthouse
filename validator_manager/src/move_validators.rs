@@ -116,9 +116,9 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .long(VALIDATORS_FLAG)
                 .value_name("STRING")
                 .help(
-                    "One or more validator public keys (as 0x-prefixed hex) to be moved from \
-                    the source to destination validator clients. Alternatively, use \"all\" to \
-                    move all the validators from the source validator client.",
+                    "The validators to be moved. Either (a) a list of \
+                    0x-prefixed validator pubkeys, (b) an integer count of \
+                    validators or (c) the word \"all\".",
                 )
                 .required(true)
                 .takes_value(true),
