@@ -118,7 +118,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .help(
                     "The validators to be moved. Either a list of 0x-prefixed \
                     validator pubkeys, an integer count of validators or the \
-                    word \"all\".",
+                    keyword \"all\".",
                 )
                 .required(true)
                 .takes_value(true),
