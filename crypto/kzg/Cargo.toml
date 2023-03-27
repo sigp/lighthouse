@@ -16,8 +16,7 @@ serde_derive = "1.0.116"
 eth2_serde_utils = "0.1.1"
 hex = "0.4.2"
 eth2_hashing = "0.3.0"
-# c-kzg = {git = "https://github.com/ethereum/c-kzg-4844", rev = "8de0aa54ce9de30fe6227d72076ccbfe58a33611" }
-c-kzg = { path = "/home/divagant-martian/Documents/github/c-kzg-4844/bindings/rust" }
+c-kzg = {git = "https://github.com/divagant-martian/c-kzg-4844", branch = "windows-bindings-trial-hack" }
 arbitrary = { version = "1.0", features = ["derive"], optional = true }
 
 [features]
