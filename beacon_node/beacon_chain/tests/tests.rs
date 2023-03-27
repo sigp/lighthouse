@@ -500,7 +500,7 @@ async fn unaggregated_attestations_added_to_fork_choice_some_none() {
     // Move forward a slot so all queued attestations can be processed.
     harness.advance_slot();
     fork_choice
-        .update_time(harness.chain.slot().unwrap(), &harness.chain.spec)
+        .update_time(harness.chain.slot().unwrap())
         .unwrap();
 
     let validator_slots: Vec<(usize, Slot)> = (0..VALIDATOR_COUNT)
@@ -614,7 +614,7 @@ async fn unaggregated_attestations_added_to_fork_choice_all_updated() {
     // Move forward a slot so all queued attestations can be processed.
     harness.advance_slot();
     fork_choice
-        .update_time(harness.chain.slot().unwrap(), &harness.chain.spec)
+        .update_time(harness.chain.slot().unwrap())
         .unwrap();
 
     let validators: Vec<usize> = (0..VALIDATOR_COUNT).collect();
@@ -681,19 +681,20 @@ async fn run_skip_slot_test(skip_slots: u64) {
         Slot::new(0)
     );
 
-    assert_eq!(
-        harness_b
-            .chain
-            .process_block(
-                harness_a.chain.head_snapshot().beacon_block_root,
-                harness_a.chain.head_snapshot().beacon_block.clone(),
-                CountUnrealized::True,
-                NotifyExecutionLayer::Yes,
-            )
-            .await
-            .unwrap(),
-        harness_a.chain.head_snapshot().beacon_block_root
-    );
+    let status = harness_b
+        .chain
+        .process_block(
+            harness_a.chain.head_snapshot().beacon_block_root,
+            harness_a.chain.head_snapshot().beacon_block.clone(),
+            CountUnrealized::True,
+            NotifyExecutionLayer::Yes,
+        )
+        .await
+        .unwrap();
+
+    let root: Hash256 = status.try_into().unwrap();
+
+    assert_eq!(root, harness_a.chain.head_snapshot().beacon_block_root);
 
     harness_b.chain.recompute_head_at_current_slot().await;
 

@@ -1,4 +1,4 @@
-use crate::blob_verification::AvailableBlock;
+use crate::data_availability_checker::AvailableBlock;
 use crate::{
     attester_cache::{CommitteeLengths, Error},
     metrics,
@@ -6,6 +6,7 @@ use crate::{
 use parking_lot::RwLock;
 use proto_array::Block as ProtoBlock;
 use std::sync::Arc;
+use types::blob_sidecar::BlobSidecarList;
 use types::*;
 
 pub struct CacheItem<E: EthSpec> {
@@ -21,6 +22,7 @@ pub struct CacheItem<E: EthSpec> {
      * Values used to make the block available.
      */
     block: Arc<SignedBeaconBlock<E>>,
+    //TODO(sean) remove this and just use the da checker?'
     blobs: Option<BlobSidecarList<E>>,
     proto_block: ProtoBlock,
 }

@@ -382,7 +382,7 @@ fn test_parent_lookup_rpc_failure() {
         &mut cx,
         RPCError::ErrorResponse(
             RPCResponseErrorCode::ResourceUnavailable,
-            "older than eip4844".into(),
+            "older than deneb".into(),
         ),
     );
     let id2 = rig.expect_parent_request();
@@ -424,7 +424,7 @@ fn test_parent_lookup_too_many_attempts() {
                     &mut cx,
                     RPCError::ErrorResponse(
                         RPCResponseErrorCode::ResourceUnavailable,
-                        "older than eip4844".into(),
+                        "older than deneb".into(),
                     ),
                 );
             }
@@ -467,7 +467,7 @@ fn test_parent_lookup_too_many_download_attempts_no_blacklist() {
                 &mut cx,
                 RPCError::ErrorResponse(
                     RPCResponseErrorCode::ResourceUnavailable,
-                    "older than eip4844".into(),
+                    "older than deneb".into(),
                 ),
             );
         } else {
@@ -509,7 +509,7 @@ fn test_parent_lookup_too_many_processing_attempts_must_blacklist() {
             &mut cx,
             RPCError::ErrorResponse(
                 RPCResponseErrorCode::ResourceUnavailable,
-                "older than eip4844".into(),
+                "older than deneb".into(),
             ),
         );
     }

@@ -35,17 +35,9 @@ impl From<SignedBeaconBlockHash> for Hash256 {
     }
 }
 
-#[derive(Debug)]
-pub enum BlobReconstructionError {
-    /// No blobs for the specified block where we would expect blobs.
-    UnavailableBlobs,
-    /// Blobs provided for a pre-Eip4844 fork.
-    InconsistentFork,
-}
-
 /// A `BeaconBlock` and a signature from its proposer.
 #[superstruct(
-    variants(Base, Altair, Merge, Capella, Eip4844),
+    variants(Base, Altair, Merge, Capella, Deneb),
     variant_attributes(
         derive(
             Debug,
@@ -84,8 +76,8 @@ pub struct SignedBeaconBlock<E: EthSpec, Payload: AbstractExecPayload<E> = FullP
     pub message: BeaconBlockMerge<E, Payload>,
     #[superstruct(only(Capella), partial_getter(rename = "message_capella"))]
     pub message: BeaconBlockCapella<E, Payload>,
-    #[superstruct(only(Eip4844), partial_getter(rename = "message_eip4844"))]
-    pub message: BeaconBlockEip4844<E, Payload>,
+    #[superstruct(only(Deneb), partial_getter(rename = "message_deneb"))]
+    pub message: BeaconBlockDeneb<E, Payload>,
     pub signature: Signature,
 }
 
@@ -146,8 +138,8 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> SignedBeaconBlock<E, Payload> 
             BeaconBlock::Capella(message) => {
                 SignedBeaconBlock::Capella(SignedBeaconBlockCapella { message, signature })
             }
-            BeaconBlock::Eip4844(message) => {
-                SignedBeaconBlock::Eip4844(SignedBeaconBlockEip4844 { message, signature })
+            BeaconBlock::Deneb(message) => {
+                SignedBeaconBlock::Deneb(SignedBeaconBlockDeneb { message, signature })
             }
         }
     }
@@ -249,28 +241,6 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> SignedBeaconBlock<E, Payload> 
     /// Returns the `tree_hash_root` of the block.
     pub fn canonical_root(&self) -> Hash256 {
         self.message().tree_hash_root()
-    }
-
-    /// Reconstructs an empty `BlobsSidecar`, using the given block root if provided, else calculates it.
-    /// If this block has kzg commitments, an error will be returned. If this block is from prior to the
-    /// Eip4844 fork, this will error.
-    pub fn reconstruct_empty_blobs(
-        &self,
-        block_root_opt: Option<Hash256>,
-    ) -> Result<BlobsSidecar<E>, BlobReconstructionError> {
-        let kzg_commitments = self
-            .message()
-            .body()
-            .blob_kzg_commitments()
-            .map_err(|_| BlobReconstructionError::InconsistentFork)?;
-        if kzg_commitments.is_empty() {
-            Ok(BlobsSidecar::empty_from_parts(
-                block_root_opt.unwrap_or_else(|| self.canonical_root()),
-                self.slot(),
-            ))
-        } else {
-            Err(BlobReconstructionError::UnavailableBlobs)
-        }
     }
 }
 
@@ -408,20 +378,20 @@ impl<E: EthSpec> SignedBeaconBlockCapella<E, BlindedPayload<E>> {
     }
 }
 
-impl<E: EthSpec> SignedBeaconBlockEip4844<E, BlindedPayload<E>> {
+impl<E: EthSpec> SignedBeaconBlockDeneb<E, BlindedPayload<E>> {
     pub fn into_full_block(
         self,
-        execution_payload: ExecutionPayloadEip4844<E>,
-    ) -> SignedBeaconBlockEip4844<E, FullPayload<E>> {
-        let SignedBeaconBlockEip4844 {
+        execution_payload: ExecutionPayloadDeneb<E>,
+    ) -> SignedBeaconBlockDeneb<E, FullPayload<E>> {
+        let SignedBeaconBlockDeneb {
             message:
-                BeaconBlockEip4844 {
+                BeaconBlockDeneb {
                     slot,
                     proposer_index,
                     parent_root,
                     state_root,
                     body:
-                        BeaconBlockBodyEip4844 {
+                        BeaconBlockBodyDeneb {
                             randao_reveal,
                             eth1_data,
                             graffiti,
@@ -431,20 +401,20 @@ impl<E: EthSpec> SignedBeaconBlockEip4844<E, BlindedPayload<E>> {
                             deposits,
                             voluntary_exits,
                             sync_aggregate,
-                            execution_payload: BlindedPayloadEip4844 { .. },
+                            execution_payload: BlindedPayloadDeneb { .. },
                             bls_to_execution_changes,
                             blob_kzg_commitments,
                         },
                 },
             signature,
         } = self;
-        SignedBeaconBlockEip4844 {
-            message: BeaconBlockEip4844 {
+        SignedBeaconBlockDeneb {
+            message: BeaconBlockDeneb {
                 slot,
                 proposer_index,
                 parent_root,
                 state_root,
-                body: BeaconBlockBodyEip4844 {
+                body: BeaconBlockBodyDeneb {
                     randao_reveal,
                     eth1_data,
                     graffiti,
@@ -454,7 +424,7 @@ impl<E: EthSpec> SignedBeaconBlockEip4844<E, BlindedPayload<E>> {
                     deposits,
                     voluntary_exits,
                     sync_aggregate,
-                    execution_payload: FullPayloadEip4844 { execution_payload },
+                    execution_payload: FullPayloadDeneb { execution_payload },
                     bls_to_execution_changes,
                     blob_kzg_commitments,
                 },
@@ -478,14 +448,14 @@ impl<E: EthSpec> SignedBeaconBlock<E, BlindedPayload<E>> {
             (SignedBeaconBlock::Capella(block), Some(ExecutionPayload::Capella(payload))) => {
                 SignedBeaconBlock::Capella(block.into_full_block(payload))
             }
-            (SignedBeaconBlock::Eip4844(block), Some(ExecutionPayload::Eip4844(payload))) => {
-                SignedBeaconBlock::Eip4844(block.into_full_block(payload))
+            (SignedBeaconBlock::Deneb(block), Some(ExecutionPayload::Deneb(payload))) => {
+                SignedBeaconBlock::Deneb(block.into_full_block(payload))
             }
             // avoid wildcard matching forks so that compiler will
             // direct us here when a new fork has been added
             (SignedBeaconBlock::Merge(_), _) => return None,
             (SignedBeaconBlock::Capella(_), _) => return None,
-            (SignedBeaconBlock::Eip4844(_), _) => return None,
+            (SignedBeaconBlock::Deneb(_), _) => return None,
         };
         Some(full_block)
     }

@@ -1,7 +1,7 @@
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockProductionError};
-use eth2::types::BlockContents;
+use eth2::types::{BeaconBlockAndBlobSidecars, BlockContents};
 use std::sync::Arc;
-use types::{AbstractExecPayload, BeaconBlock, BeaconBlockAndBlobSidecars, ForkName};
+use types::{AbstractExecPayload, BeaconBlock, ForkName};
 
 type Error = warp::reject::Rejection;
 
@@ -14,9 +14,9 @@ pub fn build_block_contents<T: BeaconChainTypes, Payload: AbstractExecPayload<T:
         ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {
             Ok(BlockContents::Block(block))
         }
-        ForkName::Eip4844 => {
+        ForkName::Deneb => {
             let block_root = &block.canonical_root();
-            if let Some(blob_sidecars) = chain.blob_cache.pop(block_root) {
+            if let Some(blob_sidecars) = chain.proposal_blob_cache.pop(block_root) {
                 let block_and_blobs = BeaconBlockAndBlobSidecars {
                     block,
                     blob_sidecars,

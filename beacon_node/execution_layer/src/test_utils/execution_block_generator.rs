@@ -13,8 +13,8 @@ use std::collections::HashMap;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 use types::{
-    EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadCapella,
-    ExecutionPayloadEip4844, ExecutionPayloadMerge, ForkName, Hash256, Uint256,
+    EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadCapella, ExecutionPayloadDeneb,
+    ExecutionPayloadMerge, ForkName, Hash256, Uint256,
 };
 
 const GAS_LIMIT: u64 = 16384;
@@ -118,7 +118,7 @@ pub struct ExecutionBlockGenerator<T: EthSpec> {
      * Post-merge fork triggers
      */
     pub shanghai_time: Option<u64>, // withdrawals
-    pub eip4844_time: Option<u64>,  // 4844
+    pub deneb_time: Option<u64>,    // 4844
 }
 
 impl<T: EthSpec> ExecutionBlockGenerator<T> {
@@ -127,7 +127,7 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
         terminal_block_number: u64,
         terminal_block_hash: ExecutionBlockHash,
         shanghai_time: Option<u64>,
-        eip4844_time: Option<u64>,
+        deneb_time: Option<u64>,
     ) -> Self {
         let mut gen = Self {
             head_block: <_>::default(),
@@ -141,7 +141,7 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
             next_payload_id: 0,
             payload_ids: <_>::default(),
             shanghai_time,
-            eip4844_time,
+            deneb_time,
         };
 
         gen.insert_pow_block(0).unwrap();
@@ -174,8 +174,8 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
     }
 
     pub fn get_fork_at_timestamp(&self, timestamp: u64) -> ForkName {
-        match self.eip4844_time {
-            Some(fork_time) if timestamp >= fork_time => ForkName::Eip4844,
+        match self.deneb_time {
+            Some(fork_time) if timestamp >= fork_time => ForkName::Deneb,
             _ => match self.shanghai_time {
                 Some(fork_time) if timestamp >= fork_time => ForkName::Capella,
                 _ => ForkName::Merge,
@@ -202,6 +202,14 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
         hash: ExecutionBlockHash,
     ) -> Option<ExecutionBlockWithTransactions<T>> {
         self.block_by_hash(hash)
+            .and_then(|block| block.as_execution_block_with_tx())
+    }
+
+    pub fn execution_block_with_txs_by_number(
+        &self,
+        number: u64,
+    ) -> Option<ExecutionBlockWithTransactions<T>> {
+        self.block_by_number(number)
             .and_then(|block| block.as_execution_block_with_tx())
     }
 
@@ -527,8 +535,8 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
                                     withdrawals: pa.withdrawals.clone().into(),
                                 })
                             }
-                            ForkName::Eip4844 => {
-                                ExecutionPayload::Eip4844(ExecutionPayloadEip4844 {
+                            ForkName::Deneb => {
+                                ExecutionPayload::Deneb(ExecutionPayloadDeneb {
                                     parent_hash: forkchoice_state.head_block_hash,
                                     fee_recipient: pa.suggested_fee_recipient,
                                     receipts_root: Hash256::repeat_byte(42),
@@ -541,11 +549,11 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
                                     timestamp: pa.timestamp,
                                     extra_data: "block gen was here".as_bytes().to_vec().into(),
                                     base_fee_per_gas: Uint256::one(),
-                                    // FIXME(4844): maybe this should be set to something?
-                                    excess_data_gas: Uint256::one(),
                                     block_hash: ExecutionBlockHash::zero(),
                                     transactions: vec![].into(),
                                     withdrawals: pa.withdrawals.clone().into(),
+                                    // FIXME(deneb) maybe this should be set to something?
+                                    excess_data_gas: Uint256::one(),
                                 })
                             }
                             _ => unreachable!(),

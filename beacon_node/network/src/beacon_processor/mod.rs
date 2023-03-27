@@ -449,7 +449,7 @@ impl<T: BeaconChainTypes> WorkEvent<T> {
         peer_id: PeerId,
         peer_client: Client,
         blob_index: u64,
-        signed_blob: Arc<SignedBlobSidecar<T::EthSpec>>,
+        signed_blob: SignedBlobSidecar<T::EthSpec>,
         seen_timestamp: Duration,
     ) -> Self {
         Self {
@@ -459,7 +459,7 @@ impl<T: BeaconChainTypes> WorkEvent<T> {
                 peer_id,
                 peer_client,
                 blob_index,
-                signed_blob,
+                signed_blob: Box::new(signed_blob),
                 seen_timestamp,
             },
         }
@@ -729,7 +729,7 @@ impl<T: BeaconChainTypes> WorkEvent<T> {
 impl<T: BeaconChainTypes> std::convert::From<ReadyWork<T>> for WorkEvent<T> {
     fn from(ready_work: ReadyWork<T>) -> Self {
         match ready_work {
-            ReadyWork::Block(QueuedGossipBlock {
+            ReadyWork::GossipBlock(QueuedGossipBlock {
                 peer_id,
                 block,
                 seen_timestamp,
@@ -864,7 +864,7 @@ pub enum Work<T: BeaconChainTypes> {
         peer_id: PeerId,
         peer_client: Client,
         blob_index: u64,
-        signed_blob: Arc<SignedBlobSidecar<T::EthSpec>>,
+        signed_blob: Box<SignedBlobSidecar<T::EthSpec>>,
         seen_timestamp: Duration,
     },
     DelayedImportBlock {
@@ -1759,7 +1759,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                         peer_id,
                         peer_client,
                         blob_index,
-                        signed_blob,
+                        *signed_blob,
                         seen_timestamp,
                     )
                     .await

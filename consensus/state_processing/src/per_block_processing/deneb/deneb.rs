@@ -3,7 +3,7 @@ use eth2_hashing::hash_fixed;
 use itertools::{EitherOrBoth, Itertools};
 use safe_arith::SafeArith;
 use ssz::Decode;
-use types::consts::eip4844::{BLOB_TX_TYPE, VERSIONED_HASH_VERSION_KZG};
+use types::consts::deneb::{BLOB_TX_TYPE, VERSIONED_HASH_VERSION_KZG};
 use types::{
     AbstractExecPayload, BeaconBlockBodyRef, EthSpec, ExecPayload, KzgCommitment, Transaction,
     Transactions, VersionedHash,

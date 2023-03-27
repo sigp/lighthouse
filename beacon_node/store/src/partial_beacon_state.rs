@@ -15,7 +15,7 @@ use types::*;
 ///
 /// Utilises lazy-loading from separate storage for its vector fields.
 #[superstruct(
-    variants(Base, Altair, Merge, Capella, Eip4844),
+    variants(Base, Altair, Merge, Capella, Deneb),
     variant_attributes(derive(Debug, PartialEq, Clone, Encode, Decode))
 )]
 #[derive(Debug, PartialEq, Clone, Encode)]
@@ -67,9 +67,9 @@ where
     pub current_epoch_attestations: VariableList<PendingAttestation<T>, T::MaxPendingAttestations>,
 
     // Participation (Altair and later)
-    #[superstruct(only(Altair, Merge, Capella, Eip4844))]
+    #[superstruct(only(Altair, Merge, Capella, Deneb))]
     pub previous_epoch_participation: VariableList<ParticipationFlags, T::ValidatorRegistryLimit>,
-    #[superstruct(only(Altair, Merge, Capella, Eip4844))]
+    #[superstruct(only(Altair, Merge, Capella, Deneb))]
     pub current_epoch_participation: VariableList<ParticipationFlags, T::ValidatorRegistryLimit>,
 
     // Finality
@@ -79,13 +79,13 @@ where
     pub finalized_checkpoint: Checkpoint,
 
     // Inactivity
-    #[superstruct(only(Altair, Merge, Capella, Eip4844))]
+    #[superstruct(only(Altair, Merge, Capella, Deneb))]
     pub inactivity_scores: VariableList<u64, T::ValidatorRegistryLimit>,
 
     // Light-client sync committees
-    #[superstruct(only(Altair, Merge, Capella, Eip4844))]
+    #[superstruct(only(Altair, Merge, Capella, Deneb))]
     pub current_sync_committee: Arc<SyncCommittee<T>>,
-    #[superstruct(only(Altair, Merge, Capella, Eip4844))]
+    #[superstruct(only(Altair, Merge, Capella, Deneb))]
     pub next_sync_committee: Arc<SyncCommittee<T>>,
 
     // Execution
@@ -100,19 +100,19 @@ where
     )]
     pub latest_execution_payload_header: ExecutionPayloadHeaderCapella<T>,
     #[superstruct(
-        only(Eip4844),
-        partial_getter(rename = "latest_execution_payload_header_eip4844")
+        only(Deneb),
+        partial_getter(rename = "latest_execution_payload_header_deneb")
     )]
-    pub latest_execution_payload_header: ExecutionPayloadHeaderEip4844<T>,
+    pub latest_execution_payload_header: ExecutionPayloadHeaderDeneb<T>,
 
     // Capella
-    #[superstruct(only(Capella, Eip4844))]
+    #[superstruct(only(Capella, Deneb))]
     pub next_withdrawal_index: u64,
-    #[superstruct(only(Capella, Eip4844))]
+    #[superstruct(only(Capella, Deneb))]
     pub next_withdrawal_validator_index: u64,
 
     #[ssz(skip_serializing, skip_deserializing)]
-    #[superstruct(only(Capella, Eip4844))]
+    #[superstruct(only(Capella, Deneb))]
     pub historical_summaries: Option<VariableList<HistoricalSummary, T::HistoricalRootsLimit>>,
 }
 
@@ -227,11 +227,11 @@ impl<T: EthSpec> PartialBeaconState<T> {
                 ],
                 [historical_summaries]
             ),
-            BeaconState::Eip4844(s) => impl_from_state_forgetful!(
+            BeaconState::Deneb(s) => impl_from_state_forgetful!(
                 s,
                 outer,
-                Eip4844,
-                PartialBeaconStateEip4844,
+                Deneb,
+                PartialBeaconStateDeneb,
                 [
                     previous_epoch_participation,
                     current_epoch_participation,
@@ -472,10 +472,10 @@ impl<E: EthSpec> TryInto<BeaconState<E>> for PartialBeaconState<E> {
                 ],
                 [historical_summaries]
             ),
-            PartialBeaconState::Eip4844(inner) => impl_try_into_beacon_state!(
+            PartialBeaconState::Deneb(inner) => impl_try_into_beacon_state!(
                 inner,
-                Eip4844,
-                BeaconStateEip4844,
+                Deneb,
+                BeaconStateDeneb,
                 [
                     previous_epoch_participation,
                     current_epoch_participation,

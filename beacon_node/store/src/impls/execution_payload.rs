@@ -1,7 +1,7 @@
 use crate::{DBColumn, Error, StoreItem};
 use ssz::{Decode, Encode};
 use types::{
-    BlobsSidecar, EthSpec, ExecutionPayload, ExecutionPayloadCapella, ExecutionPayloadEip4844,
+    BlobSidecarList, EthSpec, ExecutionPayload, ExecutionPayloadCapella, ExecutionPayloadDeneb,
     ExecutionPayloadMerge,
 };
 
@@ -24,8 +24,8 @@ macro_rules! impl_store_item {
 }
 impl_store_item!(ExecutionPayloadMerge);
 impl_store_item!(ExecutionPayloadCapella);
-impl_store_item!(ExecutionPayloadEip4844);
-impl_store_item!(BlobsSidecar);
+impl_store_item!(ExecutionPayloadDeneb);
+impl_store_item!(BlobSidecarList);
 
 /// This fork-agnostic implementation should be only used for writing.
 ///
@@ -41,8 +41,8 @@ impl<E: EthSpec> StoreItem for ExecutionPayload<E> {
     }
 
     fn from_store_bytes(bytes: &[u8]) -> Result<Self, Error> {
-        ExecutionPayloadEip4844::from_ssz_bytes(bytes)
-            .map(Self::Eip4844)
+        ExecutionPayloadDeneb::from_ssz_bytes(bytes)
+            .map(Self::Deneb)
             .or_else(|_| {
                 ExecutionPayloadCapella::from_ssz_bytes(bytes)
                     .map(Self::Capella)

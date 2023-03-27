@@ -940,7 +940,7 @@ impl ForkVersionDeserialize for SsePayloadAttributes {
             ForkName::Merge => serde_json::from_value(value)
                 .map(Self::V1)
                 .map_err(serde::de::Error::custom),
-            ForkName::Capella | ForkName::Eip4844 => serde_json::from_value(value)
+            ForkName::Capella | ForkName::Deneb => serde_json::from_value(value)
                 .map(Self::V2)
                 .map_err(serde::de::Error::custom),
             ForkName::Base | ForkName::Altair => Err(serde::de::Error::custom(format!(
@@ -1306,7 +1306,7 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> ForkVersionDeserialize
                     D,
                 >(value, fork_name)?))
             }
-            ForkName::Eip4844 => Ok(BlockContents::BlockAndBlobSidecars(
+            ForkName::Deneb => Ok(BlockContents::BlockAndBlobSidecars(
                 BeaconBlockAndBlobSidecars::deserialize_by_fork::<'de, D>(value, fork_name)?,
             )),
         }
@@ -1369,7 +1369,7 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> From<SignedBeaconBlock<T, Payl
             | SignedBeaconBlock::Merge(_)
             | SignedBeaconBlock::Capella(_) => SignedBlockContents::Block(block),
             //TODO: error handling, this should be try from
-            SignedBeaconBlock::Eip4844(_block) => todo!(),
+            SignedBeaconBlock::Deneb(_block) => todo!(),
         }
     }
 }
@@ -1395,4 +1395,33 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> From<BlockContentsTuple<T, Pay
 pub struct SignedBeaconBlockAndBlobSidecars<T: EthSpec, Payload: AbstractExecPayload<T>> {
     pub signed_block: SignedBeaconBlock<T, Payload>,
     pub signed_blob_sidecars: SignedBlobSidecarList<T>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Encode)]
+#[serde(bound = "T: EthSpec, Payload: AbstractExecPayload<T>")]
+pub struct BeaconBlockAndBlobSidecars<T: EthSpec, Payload: AbstractExecPayload<T>> {
+    pub block: BeaconBlock<T, Payload>,
+    pub blob_sidecars: BlobSidecarList<T>,
+}
+
+impl<T: EthSpec, Payload: AbstractExecPayload<T>> ForkVersionDeserialize
+    for BeaconBlockAndBlobSidecars<T, Payload>
+{
+    fn deserialize_by_fork<'de, D: serde::Deserializer<'de>>(
+        value: serde_json::value::Value,
+        fork_name: ForkName,
+    ) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(bound = "T: EthSpec")]
+        struct Helper<T: EthSpec> {
+            block: serde_json::Value,
+            blob_sidecars: BlobSidecarList<T>,
+        }
+        let helper: Helper<T> = serde_json::from_value(value).map_err(serde::de::Error::custom)?;
+
+        Ok(Self {
+            block: BeaconBlock::deserialize_by_fork::<'de, D>(helper.block, fork_name)?,
+            blob_sidecars: helper.blob_sidecars,
+        })
+    }
 }
