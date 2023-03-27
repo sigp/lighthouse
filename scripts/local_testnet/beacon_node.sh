@@ -9,13 +9,15 @@ set -Eeuo pipefail
 source ./vars.env
 
 SUBSCRIBE_ALL_SUBNETS=
+TRUSTED_PEERS=
 DEBUG_LEVEL=${DEBUG_LEVEL:-info}
 
 # Get options
-while getopts "d:sh" flag; do
+while getopts "d:t:sh" flag; do
   case "${flag}" in
     d) DEBUG_LEVEL=${OPTARG};;
     s) SUBSCRIBE_ALL_SUBNETS="--subscribe-all-subnets";;
+    t) TRUSTED_PEERS="--trusted-peers ${OPTARG}";;
     h)
        echo "Start a beacon node"
        echo
@@ -24,6 +26,7 @@ while getopts "d:sh" flag; do
        echo "Options:"
        echo "   -s: pass --subscribe-all-subnets to 'lighthouse bn ...', default is not passed"
        echo "   -d: DEBUG_LEVEL, default info"
+       echo "   -t: TRUSTED_PEERS, default none"
        echo "   -h: this help"
        echo
        echo "Positional arguments:"
@@ -37,6 +40,10 @@ while getopts "d:sh" flag; do
   esac
 done
 
+echo "HELLO"
+echo $TRUSTED_PEERS
+
+
 # Get positional arguments
 data_dir=${@:$OPTIND+0:1}
 network_port=${@:$OPTIND+1:1}
@@ -45,6 +52,7 @@ execution_endpoint=${@:$OPTIND+3:1}
 execution_jwt=${@:$OPTIND+4:1}
 
 lighthouse_binary=lighthouse
+
 
 exec $lighthouse_binary \
 	--debug-level $DEBUG_LEVEL \
@@ -62,4 +70,5 @@ exec $lighthouse_binary \
 	--disable-packet-filter \
 	--target-peers $((BN_COUNT - 1)) \
   --execution-endpoint $execution_endpoint \
-  --execution-jwt $execution_jwt
+  --execution-jwt $execution_jwt \
+  $TRUSTED_PEERS
