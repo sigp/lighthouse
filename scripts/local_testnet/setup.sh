@@ -59,4 +59,4 @@ DENEB_TIME=$((GENESIS_TIME + (DENEB_FORK_EPOCH * 32 * SECONDS_PER_SLOT)))
 CURR_DIR=`pwd`
 
 sed -i 's/"shanghaiTime".*$/"shanghaiTime": '"$CAPELLA_TIME"',/g' $CURR_DIR/genesis.json
-sed -i 's/"shardingForkTime".*$/"shardingForkTime": '"$EIP4844_TIME"',/g' $CURR_DIR/genesis.json
+sed -i 's/"shardingForkTime".*$/"shardingForkTime": '"$DENEB_TIME"',/g' $CURR_DIR/genesis.json
