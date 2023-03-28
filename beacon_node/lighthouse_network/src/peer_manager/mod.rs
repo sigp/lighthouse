@@ -290,11 +290,20 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
 
                 // If a peer is being banned, this trumps any temporary ban the peer might be
                 // under. We no longer track it in the temporary ban list.
-                self.temporary_banned_peers.raw_remove(peer_id);
-
-                // Inform the Swarm to ban the peer
-                self.events
-                    .push(PeerManagerEvent::Banned(*peer_id, banned_ips));
+                if !self.temporary_banned_peers.raw_remove(peer_id) {
+                    // If the peer is not already banned, inform the Swarm to ban the peer
+                    self.events
+                        .push(PeerManagerEvent::Banned(*peer_id, banned_ips));
+                    // If the peer was in the process of being un-banned, remove it (a rare race
+                    // condition)
+                    self.events.retain(|event| {
+                        if let PeerManagerEvent::UnBanned(unbanned_peer_id,_) = event {
+                            unbanned_peer_id != peer_id // Remove matching peer ids
+                        } else {
+                            true
+                        }
+                    });
+                }
             }
         }
     }
