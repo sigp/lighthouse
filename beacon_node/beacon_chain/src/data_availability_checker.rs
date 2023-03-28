@@ -112,6 +112,11 @@ impl<T: EthSpec, S: SlotClock> DataAvailabilityChecker<T, S> {
         }
     }
 
+    /// Get a blob from the RPC cache.
+    pub fn get_blob(&self, blob_id: &BlobIdentifier) -> Option<Arc<BlobSidecar<T>>> {
+        self.rpc_blob_cache.read().get(blob_id).cloned()
+    }
+
     /// This first validate the KZG commitments included in the blob sidecar.
     /// Check if we've cached other blobs for this block. If it completes a set and we also
     /// have a block cached, return the Availability variant triggering block import.

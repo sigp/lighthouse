@@ -1023,7 +1023,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         )
     }
 
-    pub async fn get_blobs_checking_early_attester_cache(
+    pub fn get_blobs_checking_early_attester_cache(
         &self,
         block_root: &Hash256,
     ) -> Result<Option<BlobSidecarList<T::EthSpec>>, Error> {
