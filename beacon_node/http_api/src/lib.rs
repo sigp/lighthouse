@@ -2171,7 +2171,7 @@ pub fn serve<T: BeaconChainTypes>(
                             None
                         };
 
-                        Ok(ForkChoiceNode {
+                        ForkChoiceNode {
                             slot: node.slot,
                             block_root: node.root,
                             parent_root: node
@@ -2190,13 +2190,13 @@ pub fn serve<T: BeaconChainTypes>(
                                 .execution_status
                                 .block_hash()
                                 .map(|block_hash| block_hash.into_root()),
-                        })
+                        }
                     })
-                    .collect::<Result<Vec<_>, warp::Rejection>>();
+                    .collect::<Vec<_>>();
                 Ok(ForkChoice {
                     justified_checkpoint: proto_array.justified_checkpoint,
                     finalized_checkpoint: proto_array.finalized_checkpoint,
-                    fork_choice_nodes: fork_choice_nodes?,
+                    fork_choice_nodes,
                 })
             })
         });
