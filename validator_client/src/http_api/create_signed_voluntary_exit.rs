@@ -5,7 +5,7 @@ use slot_clock::SlotClock;
 use std::sync::Arc;
 use types::{Epoch, EthSpec, SignedVoluntaryExit, VoluntaryExit};
 
-pub async fn submit_voluntary_exit<T: 'static + SlotClock + Clone, E: EthSpec>(
+pub async fn create_signed_voluntary_exit<T: 'static + SlotClock + Clone, E: EthSpec>(
     pubkey: PublicKey,
     epoch: Epoch,
     validator_store: Arc<ValidatorStore<T, E>>,

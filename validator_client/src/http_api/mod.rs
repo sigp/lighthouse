@@ -1,11 +1,11 @@
 mod api_secret;
+mod create_signed_voluntary_exit;
 mod create_validator;
 mod keystores;
 mod remotekeys;
-mod sign_voluntary_exit;
 mod tests;
 
-use crate::http_api::sign_voluntary_exit::submit_voluntary_exit;
+use crate::http_api::create_signed_voluntary_exit::create_signed_voluntary_exit;
 use crate::{determine_graffiti, GraffitiFile, ValidatorStore};
 use account_utils::{
     mnemonic_from_phrase,
@@ -926,12 +926,9 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
              task_executor: TaskExecutor| {
                 blocking_signed_json_task(signer, move || {
                     if let Some(handle) = task_executor.handle() {
-                        let signed_voluntary_exit = handle.block_on(submit_voluntary_exit(
-                            pubkey,
-                            query.epoch,
-                            validator_store,
-                            log,
-                        ))?;
+                        let signed_voluntary_exit = handle.block_on(
+                            create_signed_voluntary_exit(pubkey, query.epoch, validator_store, log),
+                        )?;
                         Ok(signed_voluntary_exit)
                     } else {
                         Err(warp_utils::reject::custom_server_error(
