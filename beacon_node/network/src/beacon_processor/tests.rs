@@ -180,6 +180,7 @@ impl TestRig {
             None,
             meta_data,
             vec![],
+            false,
             &log,
         ));
 
