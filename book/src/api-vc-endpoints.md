@@ -16,7 +16,6 @@ HTTP Path | Description |
 [`POST /lighthouse/validators/keystore`](#post-lighthousevalidatorskeystore) | Import a keystore.
 [`POST /lighthouse/validators/mnemonic`](#post-lighthousevalidatorsmnemonic) | Create a new validator from an existing mnemonic.
 [`POST /lighthouse/validators/web3signer`](#post-lighthousevalidatorsweb3signer) | Add web3signer validators.
-[`POST /lighthouse/validators/voluntary_exits](#post-lighthousevalidatorsvoluntaryexits) | Create a signed voluntary exit message. 
 
 In addition to the above endpoints Lighthouse also supports all of the [standard keymanager APIs](https://ethereum.github.io/keymanager-APIs/).
 
@@ -579,36 +578,3 @@ The following fields may be omitted or nullified to obtain default values:
 ### Example Response Body
 
 *No data is included in the response body.*
-
-## `POST /lighthouse/validators/voluntary_exits`
-
-Generate and sign a voluntary exit message for the given validator.
-
-### HTTP Specification
-
-| Property          | Specification                              |
-|-------------------|--------------------------------------------|
-| Path              | `/lighthouse/validators/voluntary_exits`   |
-| Method            | POST                                       |
-| Required Headers  | [`Authorization`](./api-vc-auth-header.md) |
-| Typical Responses | 200, 400                                   |
-
-### Example Request Body
-
-```json
-{
-    "pubkey": "0x81054bd51ce57a8415f0c8e0f2fbf94f5a8464552baa33263c20a4da062e5ed994a4d32c171106d2008cd063f48f6fe2"
-}
-```
-
-### Example Response Body
-
-```json
-{
-  "message": {
-    "epoch": "3",
-    "validator_index": "35"
-  },
-  "signature": "0xa3217699ecbecde7452ad4b43fbc60ba751770a00af4ba1af3f779d18cd2f535e29060ea10effd5f87ec9d7e27c65dcb13f4e6e2cde97f4487544d2206f795f4ded25916b2f170e084ae98f89c0bbff62d4c1a1c31015098f325620a50564d2f"
-}
-```
