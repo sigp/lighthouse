@@ -2,10 +2,10 @@ mod api_secret;
 mod create_validator;
 mod keystores;
 mod remotekeys;
-mod submit_voluntary_exit;
+mod sign_voluntary_exit;
 mod tests;
 
-use crate::http_api::submit_voluntary_exit::submit_voluntary_exit;
+use crate::http_api::sign_voluntary_exit::submit_voluntary_exit;
 use crate::{determine_graffiti, GraffitiFile, ValidatorStore};
 use account_utils::{
     mnemonic_from_phrase,
