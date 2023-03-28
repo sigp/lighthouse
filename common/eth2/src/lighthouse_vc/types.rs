@@ -147,29 +147,5 @@ pub struct UpdateGasLimitRequest {
 
 #[derive(Deserialize)]
 pub struct VoluntaryExitQuery {
-    pub confirm: ConfirmVoluntaryExit,
-    pub epoch: Option<Epoch>,
-}
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
-#[serde(try_from = "Option<String>")]
-pub enum ConfirmVoluntaryExit {
-    Yes,
-    #[default]
-    No,
-}
-
-/// Parse a `confirm` query parameter for voluntary exit.
-impl TryFrom<Option<String>> for ConfirmVoluntaryExit {
-    type Error = String;
-
-    fn try_from(opt: Option<String>) -> Result<Self, String> {
-        match opt.as_deref() {
-            None => Ok(ConfirmVoluntaryExit::No),
-            Some("yes") => Ok(ConfirmVoluntaryExit::Yes),
-            Some(s) => Err(format!(
-                "confirm does not take any value other than 'yes', got: {s}"
-            )),
-        }
-    }
+    pub epoch: Epoch,
 }

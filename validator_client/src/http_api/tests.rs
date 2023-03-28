@@ -3,7 +3,6 @@
 
 mod keystores;
 
-use crate::beacon_node_fallback::BeaconNodeFallback;
 use crate::doppelganger_service::DoppelgangerService;
 use crate::{
     http_api::{ApiSecret, Config as HttpConfig, Context},
@@ -135,13 +134,6 @@ impl ApiTester {
                 allow_origin: None,
             },
             log: log.clone(),
-            beacon_nodes: Arc::new(BeaconNodeFallback::new(
-                vec![], // FIXME: (jimmy) add a beacon node
-                false,
-                spec.clone(),
-                log.clone(),
-            )),
-            genesis_time,
             _phantom: PhantomData,
         });
         let ctx = context.clone();
@@ -513,10 +505,10 @@ impl ApiTester {
             .write()
             .set_index(&validator.voting_pubkey, 0);
 
-        // TODO(jimmy): add test cases for different params
+        let test_epoch = Epoch::new(256);
         let resp = self
             .client
-            .post_validator_voluntary_exit(&validator.voting_pubkey, true, None)
+            .post_validator_voluntary_exit(&validator.voting_pubkey, test_epoch)
             .await;
 
         assert!(resp.is_ok());

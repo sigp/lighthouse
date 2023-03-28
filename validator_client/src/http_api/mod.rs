@@ -5,7 +5,6 @@ mod remotekeys;
 mod submit_voluntary_exit;
 mod tests;
 
-use crate::beacon_node_fallback::BeaconNodeFallback;
 use crate::http_api::submit_voluntary_exit::submit_voluntary_exit;
 use crate::{determine_graffiti, GraffitiFile, ValidatorStore};
 use account_utils::{
@@ -14,7 +13,6 @@ use account_utils::{
 };
 pub use api_secret::ApiSecret;
 use create_validator::{create_validators_mnemonic, create_validators_web3signer};
-use eth2::lighthouse_vc::types::ConfirmVoluntaryExit;
 use eth2::lighthouse_vc::{
     std_types::{AuthResponse, GetFeeRecipientResponse, GetGasLimitResponse},
     types::{self as api_types, GenericResponse, Graffiti, PublicKey, PublicKeyBytes},
@@ -75,8 +73,6 @@ pub struct Context<T: SlotClock, E: EthSpec> {
     pub spec: ChainSpec,
     pub config: Config,
     pub log: Logger,
-    pub genesis_time: u64,
-    pub beacon_nodes: Arc<BeaconNodeFallback<T, E>>,
     pub _phantom: PhantomData<E>,
 }
 
@@ -194,12 +190,6 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
 
     let inner_ctx = ctx.clone();
     let log_filter = warp::any().map(move || inner_ctx.log.clone());
-
-    let inner_beacon_nodes = ctx.beacon_nodes.clone();
-    let beacon_nodes_filter = warp::any().map(move || inner_beacon_nodes.clone());
-
-    let inner_genesis_time = ctx.genesis_time;
-    let genesis_time_filter = warp::any().map(move || inner_genesis_time);
 
     let inner_spec = Arc::new(ctx.spec.clone());
     let spec_filter = warp::any().map(move || inner_spec.clone());
@@ -436,7 +426,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(warp::body::json())
         .and(validator_dir_filter.clone())
         .and(validator_store_filter.clone())
-        .and(spec_filter.clone())
+        .and(spec_filter)
         .and(signer.clone())
         .and(task_executor_filter.clone())
         .and_then(
@@ -924,9 +914,6 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(warp::query::<api_types::VoluntaryExitQuery>())
         .and(warp::path::end())
         .and(validator_store_filter.clone())
-        .and(spec_filter)
-        .and(beacon_nodes_filter)
-        .and(genesis_time_filter)
         .and(log_filter.clone())
         .and(signer.clone())
         .and(task_executor_filter.clone())
@@ -934,27 +921,18 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
             |pubkey: PublicKey,
              query: api_types::VoluntaryExitQuery,
              validator_store: Arc<ValidatorStore<T, E>>,
-             spec: Arc<ChainSpec>,
-             beacon_nodes: Arc<BeaconNodeFallback<T, E>>,
-             genesis_time: u64,
              log,
              signer,
              task_executor: TaskExecutor| {
                 blocking_signed_json_task(signer, move || {
-                    if let ConfirmVoluntaryExit::No = query.confirm {
-                        return Err(warp_utils::reject::custom_bad_request("please confirm you intend to exit this validator, it cannot be undone once the message is submitted!".to_string()));
-                    }
                     if let Some(handle) = task_executor.handle() {
-                        handle.block_on(submit_voluntary_exit(
+                        let signed_voluntary_exit = handle.block_on(submit_voluntary_exit(
                             pubkey,
                             query.epoch,
                             validator_store,
-                            spec,
-                            beacon_nodes,
-                            genesis_time,
                             log,
                         ))?;
-                        Ok(())
+                        Ok(signed_voluntary_exit)
                     } else {
                         Err(warp_utils::reject::custom_server_error(
                             "Lighthouse shutting down".into(),
