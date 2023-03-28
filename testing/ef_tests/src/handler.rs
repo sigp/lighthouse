@@ -1,6 +1,6 @@
 use crate::cases::{self, Case, Cases, EpochTransition, LoadCase, Operation};
+use crate::type_name;
 use crate::type_name::TypeName;
-use crate::{type_name, Error};
 use derivative::Derivative;
 use std::fs::{self, DirEntry};
 use std::marker::PhantomData;
@@ -57,17 +57,11 @@ pub trait Handler {
             .filter_map(as_directory)
             .flat_map(|suite| fs::read_dir(suite.path()).expect("suite dir exists"))
             .filter_map(as_directory)
-            .filter_map(|test_case_dir| {
+            .map(|test_case_dir| {
                 let path = test_case_dir.path();
 
-                let case_result = Self::Case::load_from_dir(&path, fork_name);
-
-                if let Err(Error::SkippedKnownFailure) = case_result.as_ref() {
-                    return None;
-                }
-
-                let case = case_result.expect("test should load");
-                Some((path, case))
+                let case = Self::Case::load_from_dir(&path, fork_name).expect("test should load");
+                (path, case)
             })
             .collect();
 
@@ -668,7 +662,7 @@ impl<E: EthSpec + TypeName> Handler for MerkleProofValidityHandler<E> {
             // spec.
             //
             // https://github.com/sigp/lighthouse/issues/4022
-            && fork_name != ForkName::Capella
+            && fork_name != ForkName::Capella && fork_name != ForkName::Deneb
     }
 }
 
