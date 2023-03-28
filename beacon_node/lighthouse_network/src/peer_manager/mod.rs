@@ -561,8 +561,8 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                     Protocol::BlocksByRoot => return,
                     Protocol::Goodbye => return,
                     Protocol::LightClientBootstrap => return,
-                    Protocol::MetaData => PeerAction::LowToleranceError,
-                    Protocol::Status => PeerAction::LowToleranceError,
+                    Protocol::MetaData => PeerAction::Fatal,
+                    Protocol::Status => PeerAction::Fatal,
                 }
             }
             RPCError::StreamTimeout => match direction {
