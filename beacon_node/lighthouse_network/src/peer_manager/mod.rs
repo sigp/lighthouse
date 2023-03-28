@@ -297,7 +297,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                     // If the peer was in the process of being un-banned, remove it (a rare race
                     // condition)
                     self.events.retain(|event| {
-                        if let PeerManagerEvent::UnBanned(unbanned_peer_id,_) = event {
+                        if let PeerManagerEvent::UnBanned(unbanned_peer_id, _) = event {
                             unbanned_peer_id != peer_id // Remove matching peer ids
                         } else {
                             true
