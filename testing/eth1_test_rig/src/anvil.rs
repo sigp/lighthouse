@@ -2,7 +2,7 @@ use ethers_core::utils::{Anvil, AnvilInstance};
 use ethers_providers::{Http, Middleware, Provider};
 use serde_json::json;
 use std::convert::TryFrom;
-use unused_port::unused_tcp_port;
+use unused_port::unused_tcp4_port;
 
 /// Provides a dedicated `anvil` instance.
 ///
@@ -26,7 +26,7 @@ impl AnvilCliInstance {
         })
     }
     pub fn new(chain_id: u64) -> Result<Self, String> {
-        let port = unused_tcp_port()?;
+        let port = unused_tcp4_port()?;
 
         let anvil = Anvil::new()
             .port(port)
@@ -44,7 +44,7 @@ impl AnvilCliInstance {
     }
 
     pub fn fork(&self) -> Result<Self, String> {
-        let port = unused_tcp_port()?;
+        let port = unused_tcp4_port()?;
 
         let anvil = Anvil::new()
             .port(port)
