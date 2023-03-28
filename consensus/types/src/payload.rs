@@ -424,9 +424,7 @@ impl<'b, T: EthSpec> ExecPayload<T> for FullPayloadRef<'b, T> {
                 // Return an "empty" or "default" value for the EIP-4844 variant
                 Ok(Vec::new().into())
             }
-            FullPayloadRef::Eip6110(ref inner) => {
-                Ok(inner.execution_payload.deposit_receipts.clone())
-            }
+            FullPayloadRef::Eip6110(inner) => Ok(inner.execution_payload.deposit_receipts.clone()),
         }
     }
 }

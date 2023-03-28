@@ -558,6 +558,7 @@ impl<E: EthSpec> ExecutionPayloadBodyV1<E> {
                     ))
                 }
             }
+            ExecutionPayloadHeader::Eip6110(_) => todo!(),
         }
     }
 }

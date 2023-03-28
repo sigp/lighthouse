@@ -2,22 +2,12 @@ use crate::test_utils::TestRandom;
 use crate::*;
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
+use std::hash::{Hash, Hasher};
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
 #[derive(
-    arbitrary::Arbitrary,
-    Debug,
-    // PartialEq,
-    // Eq,
-    Hash,
-    Clone,
-    Serialize,
-    Deserialize,
-    Encode,
-    Decode,
-    TreeHash,
-    TestRandom,
+    arbitrary::Arbitrary, Debug, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom,
 )]
 pub struct DepositReceipt {
     pub pubkey: PublicKeyBytes,
@@ -38,6 +28,16 @@ impl PartialEq<DepositReceipt> for DepositReceipt {
             && self.withdrawal_credentials == other.withdrawal_credentials
             && self.amount == other.amount
             && self.index == other.index
+    }
+}
+
+// Manually implement the Hash trait for DepositReceipt
+impl Hash for DepositReceipt {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.pubkey.hash(state);
+        self.withdrawal_credentials.hash(state);
+        self.amount.hash(state);
+        self.index.hash(state);
     }
 }
 

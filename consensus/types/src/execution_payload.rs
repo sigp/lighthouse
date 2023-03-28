@@ -198,6 +198,7 @@ impl<T: EthSpec> ExecutionPayload<T> {
             ExecutionPayload::Merge(_) => ForkName::Merge,
             ExecutionPayload::Capella(_) => ForkName::Capella,
             ExecutionPayload::Eip4844(_) => ForkName::Eip4844,
+            ExecutionPayload::Eip6110(_) => ForkName::Eip6110,
         }
     }
 }
