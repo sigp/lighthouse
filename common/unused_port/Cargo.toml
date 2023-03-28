@@ -8,3 +8,4 @@ edition = "2021"
 [dependencies]
 lru_cache = { path = "../lru_cache" }
 lazy_static = "1.4.0"
+parking_lot = "0.12.0"

@@ -1,7 +1,7 @@
 use lazy_static::lazy_static;
 use lru_cache::LRUTimeCache;
+use parking_lot::Mutex;
 use std::net::{SocketAddr, TcpListener, UdpSocket};
-use std::sync::Mutex;
 use std::time::Duration;
 
 #[derive(Copy, Clone)]
@@ -59,11 +59,10 @@ pub fn zero_port(transport: Transport, ipv: IpVersion) -> Result<u16, String> {
         IpVersion::Ipv6 => std::net::Ipv6Addr::LOCALHOST.into(),
     };
     let socket_addr = std::net::SocketAddr::new(localhost, 0);
-
-    let mut cache_lock = FOUND_PORTS_CACHE.lock().unwrap();
     let mut unused_port: u16;
     loop {
         unused_port = find_unused_port(transport, socket_addr)?;
+        let mut cache_lock = FOUND_PORTS_CACHE.lock();
         if !cache_lock.contains(&unused_port) {
             cache_lock.insert(unused_port);
             break;

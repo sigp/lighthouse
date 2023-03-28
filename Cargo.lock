@@ -8478,6 +8478,7 @@ version = "0.1.0"
 dependencies = [
  "lazy_static",
  "lru_cache",
+ "parking_lot 0.12.1",
 ]
 
 [[package]]
