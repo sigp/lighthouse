@@ -112,6 +112,21 @@ pub async fn handle_rpc<T: EthSpec>(
                             })
                     })
                     .map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?,
+                ENGINE_NEW_PAYLOAD_V4 => get_param::<JsonExecutionPayloadV4<T>>(params, 0)
+                    .map(|jep| JsonExecutionPayload::V4(jep))
+                    .or_else(|_| {
+                        get_param::<JsonExecutionPayloadV3<T>>(params, 0)
+                            .map(|jep| JsonExecutionPayload::V3(jep))
+                            .or_else(|_| {
+                                get_param::<JsonExecutionPayloadV2<T>>(params, 0)
+                                    .map(|jep| JsonExecutionPayload::V2(jep))
+                                    .or_else(|_| {
+                                        get_param::<JsonExecutionPayloadV1<T>>(params, 0)
+                                            .map(|jep| JsonExecutionPayload::V1(jep))
+                                    })
+                            })
+                    })
+                    .map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?,
                 _ => unreachable!(),
             };
 
@@ -175,6 +190,44 @@ pub async fn handle_rpc<T: EthSpec>(
                         ));
                     }
                 }
+                ForkName::Eip6110 => {
+                    if method == ENGINE_NEW_PAYLOAD_V1
+                        || method == ENGINE_NEW_PAYLOAD_V2
+                        || method == ENGINE_NEW_PAYLOAD_V3
+                    {
+                        return Err((
+                            format!("{} called after eip6110 fork!", method),
+                            GENERIC_ERROR_CODE,
+                        ));
+                    }
+                    if matches!(request, JsonExecutionPayload::V1(_)) {
+                        return Err((
+                            format!(
+                                "{} called with `ExecutionPayloadV1` after eip6110 fork!",
+                                method
+                            ),
+                            GENERIC_ERROR_CODE,
+                        ));
+                    }
+                    if matches!(request, JsonExecutionPayload::V2(_)) {
+                        return Err((
+                            format!(
+                                "{} called with `ExecutionPayloadV2` after eip6110 fork!",
+                                method
+                            ),
+                            GENERIC_ERROR_CODE,
+                        ));
+                    }
+                    if matches!(request, JsonExecutionPayload::V3(_)) {
+                        return Err((
+                            format!(
+                                "{} called with `ExecutionPayloadV3` after eip6110 fork!",
+                                method
+                            ),
+                            GENERIC_ERROR_CODE,
+                        ));
+                    }
+                }
                 _ => unreachable!(),
             };
 
@@ -208,7 +261,10 @@ pub async fn handle_rpc<T: EthSpec>(
 
             Ok(serde_json::to_value(JsonPayloadStatusV1::from(response)).unwrap())
         }
-        ENGINE_GET_PAYLOAD_V1 | ENGINE_GET_PAYLOAD_V2 | ENGINE_GET_PAYLOAD_V3 => {
+        ENGINE_GET_PAYLOAD_V1
+        | ENGINE_GET_PAYLOAD_V2
+        | ENGINE_GET_PAYLOAD_V3
+        | ENGINE_GET_PAYLOAD_V4 => {
             let request: JsonPayloadIdRequest =
                 get_param(params, 0).map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?;
             let id = request.into();
@@ -289,6 +345,43 @@ pub async fn handle_rpc<T: EthSpec>(
                     }
                     JsonExecutionPayload::V3(execution_payload) => {
                         serde_json::to_value(JsonGetPayloadResponseV3 {
+                            execution_payload,
+                            block_value: DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI.into(),
+                        })
+                        .unwrap()
+                    }
+                    JsonExecutionPayload::V4(execution_payload) => {
+                        serde_json::to_value(JsonGetPayloadResponseV4 {
+                            execution_payload,
+                            block_value: DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI.into(),
+                        })
+                        .unwrap()
+                    }
+                }),
+                ENGINE_GET_PAYLOAD_V4 => Ok(match JsonExecutionPayload::from(response) {
+                    JsonExecutionPayload::V1(execution_payload) => {
+                        serde_json::to_value(JsonGetPayloadResponseV1 {
+                            execution_payload,
+                            block_value: DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI.into(),
+                        })
+                        .unwrap()
+                    }
+                    JsonExecutionPayload::V2(execution_payload) => {
+                        serde_json::to_value(JsonGetPayloadResponseV2 {
+                            execution_payload,
+                            block_value: DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI.into(),
+                        })
+                        .unwrap()
+                    }
+                    JsonExecutionPayload::V3(execution_payload) => {
+                        serde_json::to_value(JsonGetPayloadResponseV3 {
+                            execution_payload,
+                            block_value: DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI.into(),
+                        })
+                        .unwrap()
+                    }
+                    JsonExecutionPayload::V4(execution_payload) => {
+                        serde_json::to_value(JsonGetPayloadResponseV4 {
                             execution_payload,
                             block_value: DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI.into(),
                         })

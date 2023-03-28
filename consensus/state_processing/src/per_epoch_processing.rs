@@ -14,6 +14,7 @@ pub mod altair;
 pub mod base;
 pub mod capella;
 pub mod effective_balance_updates;
+pub mod eip4844;
 pub mod epoch_processing_summary;
 pub mod errors;
 pub mod historical_roots_update;
@@ -41,6 +42,7 @@ pub fn process_epoch<T: EthSpec>(
         BeaconState::Base(_) => base::process_epoch(state, spec),
         BeaconState::Altair(_) | BeaconState::Merge(_) => altair::process_epoch(state, spec),
         BeaconState::Capella(_) | BeaconState::Eip4844(_) => capella::process_epoch(state, spec),
+        BeaconState::Eip4844(_) | BeaconState::Eip6110(_) => capella::process_epoch(state, spec),
     }
 }
 

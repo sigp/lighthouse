@@ -6,7 +6,7 @@ use std::io::Write;
 use std::time::{SystemTime, UNIX_EPOCH};
 use types::{
     EthSpec, ExecutionPayloadHeader, ExecutionPayloadHeaderCapella, ExecutionPayloadHeaderEip4844,
-    ExecutionPayloadHeaderMerge, ForkName,
+    ExecutionPayloadHeaderEip6110, ExecutionPayloadHeaderMerge, ForkName,
 };
 
 pub fn run<T: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
@@ -47,6 +47,14 @@ pub fn run<T: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
             block_hash: eth1_block_hash,
             prev_randao: eth1_block_hash.into_root(),
             ..ExecutionPayloadHeaderEip4844::default()
+        }),
+        ForkName::Eip6110 => ExecutionPayloadHeader::Eip6110(ExecutionPayloadHeaderEip6110 {
+            gas_limit,
+            base_fee_per_gas,
+            timestamp: genesis_time,
+            block_hash: eth1_block_hash,
+            prev_randao: eth1_block_hash.into_root(),
+            ..ExecutionPayloadHeaderEip6110::default()
         }),
     };
 

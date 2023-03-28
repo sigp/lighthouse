@@ -252,6 +252,11 @@ pub trait EthSpec:
         Self::MaxWithdrawalsPerPayload::to_usize()
     }
 
+    /// Returns the `MAX_DEPOSIT_RECEIPTS_PER_PAYLOAD` constant for this specification.
+    fn max_deposit_receipts_per_payload() -> usize {
+        Self::MaxDepositReceiptsPerPayload::to_usize()
+    }
+
     /// Returns the `MAX_BLOBS_PER_BLOCK` constant for this specification.
     fn max_blobs_per_block() -> usize {
         Self::MaxBlobsPerBlock::to_usize()

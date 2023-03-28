@@ -1,6 +1,6 @@
 use crate::beacon_block_body::{
-    BeaconBlockBodyAltair, BeaconBlockBodyBase, BeaconBlockBodyEip4844, BeaconBlockBodyMerge,
-    BeaconBlockBodyRef, BeaconBlockBodyRefMut,
+    BeaconBlockBodyAltair, BeaconBlockBodyBase, BeaconBlockBodyEip4844, BeaconBlockBodyEip6110,
+    BeaconBlockBodyMerge, BeaconBlockBodyRef, BeaconBlockBodyRefMut,
 };
 use crate::test_utils::TestRandom;
 use crate::*;
@@ -17,7 +17,7 @@ use tree_hash_derive::TreeHash;
 
 /// A block of the `BeaconChain`.
 #[superstruct(
-    variants(Base, Altair, Merge, Capella, Eip4844),
+    variants(Base, Altair, Merge, Capella, Eip4844, Eip6110),
     variant_attributes(
         derive(
             Debug,
@@ -74,6 +74,8 @@ pub struct BeaconBlock<T: EthSpec, Payload: AbstractExecPayload<T> = FullPayload
     pub body: BeaconBlockBodyCapella<T, Payload>,
     #[superstruct(only(Eip4844), partial_getter(rename = "body_eip4844"))]
     pub body: BeaconBlockBodyEip4844<T, Payload>,
+    #[superstruct(only(Eip6110), partial_getter(rename = "body_eip6110"))]
+    pub body: BeaconBlockBodyEip6110<T, Payload>,
 }
 
 pub type BlindedBeaconBlock<E> = BeaconBlock<E, BlindedPayload<E>>;
@@ -132,6 +134,7 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> BeaconBlock<T, Payload> {
             .or_else(|_| BeaconBlockMerge::from_ssz_bytes(bytes).map(BeaconBlock::Merge))
             .or_else(|_| BeaconBlockAltair::from_ssz_bytes(bytes).map(BeaconBlock::Altair))
             .or_else(|_| BeaconBlockBase::from_ssz_bytes(bytes).map(BeaconBlock::Base))
+            .or_else(|_| BeaconBlockEip6110::from_ssz_bytes(bytes).map(BeaconBlock::Eip6110))
     }
 
     /// Convenience accessor for the `body` as a `BeaconBlockBodyRef`.
@@ -207,6 +210,7 @@ impl<'a, T: EthSpec, Payload: AbstractExecPayload<T>> BeaconBlockRef<'a, T, Payl
             BeaconBlockRef::Merge { .. } => ForkName::Merge,
             BeaconBlockRef::Capella { .. } => ForkName::Capella,
             BeaconBlockRef::Eip4844 { .. } => ForkName::Eip4844,
+            BeaconBlockRef::Eip6110 { .. } => ForkName::Eip6110,
         };
 
         if fork_at_slot == object_fork {
@@ -560,6 +564,36 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> EmptyBlock for BeaconBlockCape
     }
 }
 
+impl<T: EthSpec, Payload: AbstractExecPayload<T>> EmptyBlock for BeaconBlockEip6110<T, Payload> {
+    /// Returns an empty Eip6110 block to be used during genesis.
+    fn empty(spec: &ChainSpec) -> Self {
+        BeaconBlockEip6110 {
+            slot: spec.genesis_slot,
+            proposer_index: 0,
+            parent_root: Hash256::zero(),
+            state_root: Hash256::zero(),
+            body: BeaconBlockBodyEip6110 {
+                randao_reveal: Signature::empty(),
+                eth1_data: Eth1Data {
+                    deposit_root: Hash256::zero(),
+                    block_hash: Hash256::zero(),
+                    deposit_count: 0,
+                },
+                graffiti: Graffiti::default(),
+                proposer_slashings: VariableList::empty(),
+                attester_slashings: VariableList::empty(),
+                attestations: VariableList::empty(),
+                deposits: VariableList::empty(),
+                voluntary_exits: VariableList::empty(),
+                sync_aggregate: SyncAggregate::empty(),
+                execution_payload: Payload::Eip6110::default(),
+                bls_to_execution_changes: VariableList::empty(),
+                blob_kzg_commitments: VariableList::empty(),
+            },
+        }
+    }
+}
+
 impl<T: EthSpec, Payload: AbstractExecPayload<T>> EmptyBlock for BeaconBlockEip4844<T, Payload> {
     /// Returns an empty Eip4844 block to be used during genesis.
     fn empty(spec: &ChainSpec) -> Self {
@@ -670,6 +704,7 @@ impl_from!(BeaconBlockAltair, <E, FullPayload<E>>, <E, BlindedPayload<E>>, |body
 impl_from!(BeaconBlockMerge, <E, FullPayload<E>>, <E, BlindedPayload<E>>, |body: BeaconBlockBodyMerge<_, _>| body.into());
 impl_from!(BeaconBlockCapella, <E, FullPayload<E>>, <E, BlindedPayload<E>>, |body: BeaconBlockBodyCapella<_, _>| body.into());
 impl_from!(BeaconBlockEip4844, <E, FullPayload<E>>, <E, BlindedPayload<E>>, |body: BeaconBlockBodyEip4844<_, _>| body.into());
+impl_from!(BeaconBlockEip6110, <E, FullPayload<E>>, <E, BlindedPayload<E>>, |body: BeaconBlockBodyEip6110<_, _>| body.into());
 
 // We can clone blocks with payloads to blocks without payloads, without cloning the payload.
 macro_rules! impl_clone_as_blinded {
@@ -702,6 +737,7 @@ impl_clone_as_blinded!(BeaconBlockAltair, <E, FullPayload<E>>, <E, BlindedPayloa
 impl_clone_as_blinded!(BeaconBlockMerge, <E, FullPayload<E>>, <E, BlindedPayload<E>>);
 impl_clone_as_blinded!(BeaconBlockCapella, <E, FullPayload<E>>, <E, BlindedPayload<E>>);
 impl_clone_as_blinded!(BeaconBlockEip4844, <E, FullPayload<E>>, <E, BlindedPayload<E>>);
+impl_clone_as_blinded!(BeaconBlockEip6110, <E, FullPayload<E>>, <E, BlindedPayload<E>>);
 
 // A reference to a full beacon block can be cloned into a blinded beacon block, without cloning the
 // execution payload.
@@ -853,10 +889,13 @@ mod tests {
         let capella_slot = capella_epoch.start_slot(E::slots_per_epoch());
         let eip4844_epoch = capella_epoch + 1;
         let eip4844_slot = eip4844_epoch.start_slot(E::slots_per_epoch());
+        let eip6110_epoch = eip4844_epoch + 1;
+        let eip6110_slot = eip6110_epoch.start_slot(E::slots_per_epoch());
 
         spec.altair_fork_epoch = Some(altair_epoch);
         spec.capella_fork_epoch = Some(capella_epoch);
         spec.eip4844_fork_epoch = Some(eip4844_epoch);
+        spec.eip6110_fork_epoch = Some(eip6110_epoch);
 
         // BeaconBlockBase
         {
@@ -944,6 +983,28 @@ mod tests {
             );
             BeaconBlock::from_ssz_bytes(&bad_block.as_ssz_bytes(), &spec)
                 .expect_err("bad eip4844 block cannot be decoded");
+        }
+
+        // BeaconBlockEip6110
+        {
+            let good_block = BeaconBlock::Eip6110(BeaconBlockEip6110 {
+                slot: eip6110_slot,
+                ..<_>::random_for_test(rng)
+            });
+            // It's invalid to have an Eip4844 block with a epoch lower than the fork epoch.
+            let bad_block = {
+                let mut bad = good_block.clone();
+                *bad.slot_mut() = eip4844_slot;
+                bad
+            };
+
+            assert_eq!(
+                BeaconBlock::from_ssz_bytes(&good_block.as_ssz_bytes(), &spec)
+                    .expect("good eip6110 block can be decoded"),
+                good_block
+            );
+            BeaconBlock::from_ssz_bytes(&bad_block.as_ssz_bytes(), &spec)
+                .expect_err("bad eip6110 block cannot be decoded");
         }
     }
 }

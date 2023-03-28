@@ -43,13 +43,14 @@ use tokio_stream::wrappers::WatchStream;
 use tree_hash::TreeHash;
 use types::consts::eip4844::BLOB_TX_TYPE;
 use types::transaction::{AccessTuple, BlobTransaction, EcdsaSignature, SignedBlobTransaction};
+use types::Withdrawals;
 use types::{
     blobs_sidecar::{Blobs, KzgCommitments},
     BlindedPayload, BlockType, ChainSpec, Epoch, ExecutionBlockHash, ExecutionPayload,
-    ExecutionPayloadCapella, ExecutionPayloadEip4844, ExecutionPayloadMerge, ForkName,
+    ExecutionPayloadCapella, ExecutionPayloadEip4844, ExecutionPayloadEip6110,
+    ExecutionPayloadMerge, ForkName,
 };
 use types::{AbstractExecPayload, BeaconStateError, ExecPayload, VersionedHash};
-use types::{DepositReceipt, Withdrawals};
 use types::{
     ProposerPreparationData, PublicKeyBytes, Signature, SignedBeaconBlock, Slot, Transaction,
     Uint256,
@@ -208,6 +209,12 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> BlockProposalContents<T, Paylo
                 }
             }
             ForkName::Eip4844 => BlockProposalContents::PayloadAndBlobs {
+                payload: Payload::default_at_fork(fork_name)?,
+                block_value: Uint256::zero(),
+                blobs: VariableList::default(),
+                kzg_commitments: VariableList::default(),
+            },
+            ForkName::Eip6110 => BlockProposalContents::PayloadAndBlobs {
                 payload: Payload::default_at_fork(fork_name)?,
                 block_value: Uint256::zero(),
                 blobs: VariableList::default(),
@@ -1110,7 +1117,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                         ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {
                             None
                         }
-                        ForkName::Eip4844 => {
+                        ForkName::Eip4844 | ForkName::Eip6110 => {
                             debug!(
                                 self.log(),
                                 "Issuing engine_getBlobsBundle";
@@ -1703,6 +1710,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                 ForkName::Merge => Ok(Some(ExecutionPayloadMerge::default().into())),
                 ForkName::Capella => Ok(Some(ExecutionPayloadCapella::default().into())),
                 ForkName::Eip4844 => Ok(Some(ExecutionPayloadEip4844::default().into())),
+                ForkName::Eip6110 => Ok(Some(ExecutionPayloadEip6110::default().into())),
                 ForkName::Base | ForkName::Altair => Err(ApiError::UnsupportedForkVariant(
                     format!("called get_payload_by_block_hash_from_engine with {}", fork),
                 )),
@@ -1785,15 +1793,6 @@ impl<T: EthSpec> ExecutionLayer<T> {
                 )
                 .map_err(ApiError::DeserializeWithdrawals)?;
 
-                let deposit_receipts = eip4844_block
-                    .deposit_receipts
-                    .into_iter()
-                    .map(Into::into)
-                    .collect::<Vec<DepositReceipt>>();
-
-                let deposit_receipts = VariableList::new(deposit_receipts)
-                    .map_err(ApiError::DeserializeDepositReceipts)?;
-
                 ExecutionPayload::Eip4844(ExecutionPayloadEip4844 {
                     parent_hash: eip4844_block.parent_hash,
                     fee_recipient: eip4844_block.fee_recipient,
@@ -1810,6 +1809,44 @@ impl<T: EthSpec> ExecutionLayer<T> {
                     excess_data_gas: eip4844_block.excess_data_gas,
                     block_hash: eip4844_block.block_hash,
                     transactions: convert_transactions(eip4844_block.transactions)?,
+                    withdrawals,
+                })
+            }
+            ExecutionBlockWithTransactions::Eip6110(eip6110_block) => {
+                let withdrawals = VariableList::new(
+                    eip6110_block
+                        .withdrawals
+                        .into_iter()
+                        .map(Into::into)
+                        .collect(),
+                )
+                .map_err(ApiError::DeserializeWithdrawals)?;
+
+                let deposit_receipts = VariableList::new(
+                    eip6110_block
+                        .deposit_receipts
+                        .into_iter()
+                        .map(Into::into)
+                        .collect(),
+                )
+                .map_err(ApiError::DeserializeDepositReceipts)?;
+
+                ExecutionPayload::Eip6110(ExecutionPayloadEip6110 {
+                    parent_hash: eip6110_block.parent_hash,
+                    fee_recipient: eip6110_block.fee_recipient,
+                    state_root: eip6110_block.state_root,
+                    receipts_root: eip6110_block.receipts_root,
+                    logs_bloom: eip6110_block.logs_bloom,
+                    prev_randao: eip6110_block.prev_randao,
+                    block_number: eip6110_block.block_number,
+                    gas_limit: eip6110_block.gas_limit,
+                    gas_used: eip6110_block.gas_used,
+                    timestamp: eip6110_block.timestamp,
+                    extra_data: eip6110_block.extra_data,
+                    base_fee_per_gas: eip6110_block.base_fee_per_gas,
+                    excess_data_gas: eip6110_block.excess_data_gas,
+                    block_hash: eip6110_block.block_hash,
+                    transactions: convert_transactions(eip6110_block.transactions)?,
                     withdrawals,
                     deposit_receipts,
                 })

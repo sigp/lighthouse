@@ -67,7 +67,6 @@ pub fn upgrade_to_eip4844<E: EthSpec>(
         pubkey_cache: mem::take(&mut pre.pubkey_cache),
         exit_cache: mem::take(&mut pre.exit_cache),
         tree_hash_cache: mem::take(&mut pre.tree_hash_cache),
-        deposit_receipts_start_index: pre.deposit_receipts_start_index,
     });
 
     *pre_state = post;

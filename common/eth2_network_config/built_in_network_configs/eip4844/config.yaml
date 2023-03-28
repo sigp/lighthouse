@@ -38,6 +38,10 @@ CAPELLA_FORK_EPOCH: 1
 EIP4844_FORK_VERSION: 0x50484404
 EIP4844_FORK_EPOCH: 5
 
+# EIP6110
+EIP6110_FORK_VERSION: 0x60484404
+EIP6110_FORK_EPOCH: 10
+
 # Time parameters
 # ---------------------------------------------------------------
 # 12 seconds

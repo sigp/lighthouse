@@ -195,11 +195,13 @@ mod tests {
         let merge_fork_epoch = Epoch::new(2);
         let capella_fork_epoch = Epoch::new(3);
         let eip4844_fork_epoch = Epoch::new(4);
+        let eip6110_fork_epoch = Epoch::new(5);
 
         chain_spec.altair_fork_epoch = Some(altair_fork_epoch);
         chain_spec.bellatrix_fork_epoch = Some(merge_fork_epoch);
         chain_spec.capella_fork_epoch = Some(capella_fork_epoch);
         chain_spec.eip4844_fork_epoch = Some(eip4844_fork_epoch);
+        chain_spec.eip6110_fork_epoch = Some(eip6110_fork_epoch);
 
         let current_slot = match fork_name {
             ForkName::Base => Slot::new(0),
@@ -207,6 +209,7 @@ mod tests {
             ForkName::Merge => merge_fork_epoch.start_slot(Spec::slots_per_epoch()),
             ForkName::Capella => capella_fork_epoch.start_slot(Spec::slots_per_epoch()),
             ForkName::Eip4844 => eip4844_fork_epoch.start_slot(Spec::slots_per_epoch()),
+            ForkName::Eip6110 => eip6110_fork_epoch.start_slot(Spec::slots_per_epoch()),
         };
         ForkContext::new::<Spec>(current_slot, Hash256::zero(), &chain_spec)
     }

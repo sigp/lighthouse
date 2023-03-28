@@ -98,7 +98,8 @@ impl<E: EthSpec> Operation<E> for Attestation<E> {
             BeaconState::Altair(_)
             | BeaconState::Merge(_)
             | BeaconState::Capella(_)
-            | BeaconState::Eip4844(_) => {
+            | BeaconState::Eip4844(_)
+            | BeaconState::Eip6110(_) => {
                 altair::process_attestation(state, self, 0, &mut ctxt, VerifySignatures::True, spec)
             }
         }

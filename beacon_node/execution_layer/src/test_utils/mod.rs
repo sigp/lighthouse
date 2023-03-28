@@ -63,6 +63,7 @@ pub struct MockExecutionConfig {
     pub terminal_block_hash: ExecutionBlockHash,
     pub shanghai_time: Option<u64>,
     pub eip4844_time: Option<u64>,
+    pub eip6110_time: Option<u64>,
 }
 
 impl Default for MockExecutionConfig {
@@ -75,6 +76,7 @@ impl Default for MockExecutionConfig {
             server_config: Config::default(),
             shanghai_time: None,
             eip4844_time: None,
+            eip6110_time: None,
         }
     }
 }
@@ -96,6 +98,7 @@ impl<T: EthSpec> MockServer<T> {
             ExecutionBlockHash::zero(),
             None, // FIXME(capella): should this be the default?
             None, // FIXME(eip4844): should this be the default?
+            None, // FIXME(eip6110): should this be the default?
         )
     }
 
@@ -108,6 +111,7 @@ impl<T: EthSpec> MockServer<T> {
             server_config,
             shanghai_time,
             eip4844_time,
+            eip6110_time,
         } = config;
         let last_echo_request = Arc::new(RwLock::new(None));
         let preloaded_responses = Arc::new(Mutex::new(vec![]));
@@ -117,6 +121,7 @@ impl<T: EthSpec> MockServer<T> {
             terminal_block_hash,
             shanghai_time,
             eip4844_time,
+            eip6110_time,
         );
 
         let ctx: Arc<Context<T>> = Arc::new(Context {
@@ -176,6 +181,7 @@ impl<T: EthSpec> MockServer<T> {
         terminal_block_hash: ExecutionBlockHash,
         shanghai_time: Option<u64>,
         eip4844_time: Option<u64>,
+        eip6110_time: Option<u64>,
     ) -> Self {
         Self::new_with_config(
             handle,
@@ -187,6 +193,7 @@ impl<T: EthSpec> MockServer<T> {
                 terminal_block_hash,
                 shanghai_time,
                 eip4844_time,
+                eip6110_time,
             },
         )
     }

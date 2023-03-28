@@ -29,6 +29,7 @@ pub use verify_exit::verify_exit;
 pub mod altair;
 pub mod block_signature_verifier;
 pub mod eip4844;
+pub mod eip6110;
 pub mod errors;
 mod is_valid_indexed_attestation;
 pub mod process_operations;
@@ -412,6 +413,12 @@ pub fn process_execution_payload<T: EthSpec, Payload: AbstractExecPayload<T>>(
                 _ => return Err(BlockProcessingError::IncorrectStateType),
             }
         }
+        ExecutionPayloadHeaderRefMut::Eip6110(header_mut) => {
+            match payload.to_execution_payload_header() {
+                ExecutionPayloadHeader::Eip6110(header) => *header_mut = header,
+                _ => return Err(BlockProcessingError::IncorrectStateType),
+            }
+        }
     }
 
     Ok(())
@@ -558,7 +565,7 @@ pub fn process_withdrawals<T: EthSpec, Payload: AbstractExecPayload<T>>(
 ) -> Result<(), BlockProcessingError> {
     match state {
         BeaconState::Merge(_) => Ok(()),
-        BeaconState::Capella(_) | BeaconState::Eip4844(_) => {
+        BeaconState::Capella(_) | BeaconState::Eip4844(_) | BeaconState::Eip6110(_) => {
             let expected_withdrawals = get_expected_withdrawals(state, spec)?;
             let expected_root = expected_withdrawals.tree_hash_root();
             let withdrawals_root = payload.withdrawals_root()?;

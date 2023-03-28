@@ -1,28 +1,24 @@
-use ssz_types::VariableList;
 use std::mem;
-use types::{BeaconState, BeaconStateCapella, BeaconStateError as Error, ChainSpec, EthSpec, Fork};
+use types::{BeaconState, BeaconStateEip6110, BeaconStateError as Error, ChainSpec, EthSpec, Fork};
 
-/// Transform a `Merge` state into an `Capella` state.
-pub fn upgrade_to_capella<E: EthSpec>(
+/// Transform a `Eip4844` state into an `Eip6110` state.
+pub fn upgrade_to_eip6110<E: EthSpec>(
     pre_state: &mut BeaconState<E>,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
     let epoch = pre_state.current_epoch();
-    let pre = pre_state.as_merge_mut()?;
+    let pre = pre_state.as_eip4844_mut()?;
 
-    // Where possible, use something like `mem::take` to move fields from behind the &mut
-    // reference. For other fields that don't have a good default value, use `clone`.
-    //
-    // Fixed size vectors get cloned because replacing them would require the same size
-    // allocation as cloning.
-    let post = BeaconState::Capella(BeaconStateCapella {
+    let previous_fork_version = pre.fork.current_version;
+
+    let post = BeaconState::Eip6110(BeaconStateEip6110 {
         // Versioning
         genesis_time: pre.genesis_time,
         genesis_validators_root: pre.genesis_validators_root,
         slot: pre.slot,
         fork: Fork {
-            previous_version: pre.fork.current_version,
-            current_version: spec.capella_fork_version,
+            previous_version: previous_fork_version,
+            current_version: spec.eip6110_fork_version,
             epoch,
         },
         // History
@@ -41,7 +37,7 @@ pub fn upgrade_to_capella<E: EthSpec>(
         randao_mixes: pre.randao_mixes.clone(),
         // Slashings
         slashings: pre.slashings.clone(),
-        // `Participation
+        // Participation
         previous_epoch_participation: mem::take(&mut pre.previous_epoch_participation),
         current_epoch_participation: mem::take(&mut pre.current_epoch_participation),
         // Finality
@@ -55,17 +51,19 @@ pub fn upgrade_to_capella<E: EthSpec>(
         current_sync_committee: pre.current_sync_committee.clone(),
         next_sync_committee: pre.next_sync_committee.clone(),
         // Execution
-        latest_execution_payload_header: pre.latest_execution_payload_header.upgrade_to_capella(),
+        latest_execution_payload_header: pre.latest_execution_payload_header.upgrade_to_eip6110(),
         // Capella
-        next_withdrawal_index: 0,
-        next_withdrawal_validator_index: 0,
-        historical_summaries: VariableList::default(),
+        next_withdrawal_index: pre.next_withdrawal_index,
+        next_withdrawal_validator_index: pre.next_withdrawal_validator_index,
+        historical_summaries: pre.historical_summaries.clone(),
         // Caches
         total_active_balance: pre.total_active_balance,
         committee_caches: mem::take(&mut pre.committee_caches),
         pubkey_cache: mem::take(&mut pre.pubkey_cache),
         exit_cache: mem::take(&mut pre.exit_cache),
         tree_hash_cache: mem::take(&mut pre.tree_hash_cache),
+        // Eip6110
+        deposit_receipts_start_index: 0,
     });
 
     *pre_state = post;

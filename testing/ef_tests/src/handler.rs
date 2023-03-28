@@ -222,6 +222,10 @@ impl<T, E> SszStaticHandler<T, E> {
         Self::for_forks(vec![ForkName::Eip4844])
     }
 
+    pub fn eip6110_only() -> Self {
+        Self::for_forks(vec![ForkName::Eip6110])
+    }
+
     pub fn altair_and_later() -> Self {
         Self::for_forks(ForkName::list_all()[1..].to_vec())
     }

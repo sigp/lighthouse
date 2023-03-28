@@ -959,9 +959,11 @@ impl ForkVersionDeserialize for SsePayloadAttributes {
             ForkName::Merge => serde_json::from_value(value)
                 .map(Self::V1)
                 .map_err(serde::de::Error::custom),
-            ForkName::Capella | ForkName::Eip4844 => serde_json::from_value(value)
-                .map(Self::V2)
-                .map_err(serde::de::Error::custom),
+            ForkName::Capella | ForkName::Eip4844 | ForkName::Eip6110 => {
+                serde_json::from_value(value)
+                    .map(Self::V2)
+                    .map_err(serde::de::Error::custom)
+            }
             ForkName::Base | ForkName::Altair => Err(serde::de::Error::custom(format!(
                 "SsePayloadAttributes deserialization for {fork_name} not implemented"
             ))),

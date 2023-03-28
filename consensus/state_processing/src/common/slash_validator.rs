@@ -56,6 +56,9 @@ pub fn slash_validator<T: EthSpec>(
         | BeaconState::Eip4844(_) => whistleblower_reward
             .safe_mul(PROPOSER_WEIGHT)?
             .safe_div(WEIGHT_DENOMINATOR)?,
+        BeaconState::Eip6110(_) => whistleblower_reward
+            .safe_mul(PROPOSER_WEIGHT)?
+            .safe_div(WEIGHT_DENOMINATOR)?,
     };
 
     // Ensure the whistleblower index is in the validator registry.

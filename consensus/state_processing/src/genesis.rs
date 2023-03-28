@@ -68,7 +68,12 @@ pub fn initialize_beacon_state_from_eth1<T: EthSpec>(
                 if let ExecutionPayloadHeader::Eip4844(header) = header {
                     *header_mut = header;
                 }
-            } // TODO: Should a Eip6110 or upgrade_to_eip6110() be added?
+            }
+            ExecutionPayloadHeaderRefMut::Eip6110(header_mut) => {
+                if let ExecutionPayloadHeader::Eip6110(header) = header {
+                    *header_mut = header;
+                }
+            }
         }
     }
 

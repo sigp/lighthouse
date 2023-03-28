@@ -425,7 +425,7 @@ fn main() {
                     .takes_value(true)
                     .default_value("bellatrix")
                     .help("The fork for which the execution payload header should be created.")
-                    .possible_values(&["merge", "bellatrix", "capella", "eip4844"])
+                    .possible_values(&["merge", "bellatrix", "capella", "eip4844", "eip6110"])
             )
         )
         .subcommand(
@@ -592,6 +592,15 @@ fn main() {
                         .takes_value(true)
                         .help(
                             "The epoch at which to enable the eip4844 hard fork",
+                        ),
+                )
+                .arg(
+                    Arg::with_name("eip6110-fork-epoch")
+                        .long("eip6110-fork-epoch")
+                        .value_name("EPOCH")
+                        .takes_value(true)
+                        .help(
+                            "The epoch at which to enable the eip6110 hard fork",
                         ),
                 )
                 .arg(

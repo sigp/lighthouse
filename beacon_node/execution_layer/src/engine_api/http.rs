@@ -33,11 +33,13 @@ pub const ETH_SYNCING_TIMEOUT: Duration = Duration::from_secs(1);
 pub const ENGINE_NEW_PAYLOAD_V1: &str = "engine_newPayloadV1";
 pub const ENGINE_NEW_PAYLOAD_V2: &str = "engine_newPayloadV2";
 pub const ENGINE_NEW_PAYLOAD_V3: &str = "engine_newPayloadV3";
+pub const ENGINE_NEW_PAYLOAD_V4: &str = "engine_newPayloadV4";
 pub const ENGINE_NEW_PAYLOAD_TIMEOUT: Duration = Duration::from_secs(8);
 
 pub const ENGINE_GET_PAYLOAD_V1: &str = "engine_getPayloadV1";
 pub const ENGINE_GET_PAYLOAD_V2: &str = "engine_getPayloadV2";
 pub const ENGINE_GET_PAYLOAD_V3: &str = "engine_getPayloadV3";
+pub const ENGINE_GET_PAYLOAD_V4: &str = "engine_getPayloadV4";
 pub const ENGINE_GET_PAYLOAD_TIMEOUT: Duration = Duration::from_secs(2);
 
 pub const ENGINE_GET_BLOBS_BUNDLE_V1: &str = "engine_getBlobsBundleV1";
@@ -765,6 +767,14 @@ impl HttpJsonRpc {
                 )
                 .await?,
             ),
+            ForkName::Eip6110 => ExecutionBlockWithTransactions::Eip6110(
+                self.rpc_request(
+                    ETH_GET_BLOCK_BY_HASH,
+                    params,
+                    ETH_GET_BLOCK_BY_HASH_TIMEOUT * self.execution_timeout_multiplier,
+                )
+                .await?,
+            ),
             ForkName::Base | ForkName::Altair => {
                 return Err(Error::UnsupportedForkVariant(format!(
                     "called get_block_by_hash_with_txns with fork {:?}",
@@ -876,9 +886,30 @@ impl HttpJsonRpc {
                     .await?;
                 Ok(JsonGetPayloadResponse::V2(response).into())
             }
-            ForkName::Base | ForkName::Altair | ForkName::Eip4844 => Err(
-                Error::UnsupportedForkVariant(format!("called get_payload_v2 with {}", fork_name)),
-            ),
+            ForkName::Eip4844 => {
+                let response: JsonGetPayloadResponseV3<T> = self
+                    .rpc_request(
+                        ENGINE_GET_PAYLOAD_V2,
+                        params,
+                        ENGINE_GET_PAYLOAD_TIMEOUT * self.execution_timeout_multiplier,
+                    )
+                    .await?;
+                Ok(JsonGetPayloadResponse::V3(response).into())
+            }
+            ForkName::Eip6110 => {
+                let response: JsonGetPayloadResponseV4<T> = self
+                    .rpc_request(
+                        ENGINE_GET_PAYLOAD_V2,
+                        params,
+                        ENGINE_GET_PAYLOAD_TIMEOUT * self.execution_timeout_multiplier,
+                    )
+                    .await?;
+                Ok(JsonGetPayloadResponse::V4(response).into())
+            }
+            ForkName::Base | ForkName::Altair => Err(Error::UnsupportedForkVariant(format!(
+                "called get_payload_v2 with {}",
+                fork_name
+            ))),
         }
     }
 
@@ -919,6 +950,16 @@ impl HttpJsonRpc {
                     )
                     .await?;
                 Ok(JsonGetPayloadResponse::V3(response).into())
+            }
+            ForkName::Eip6110 => {
+                let response: JsonGetPayloadResponseV4<T> = self
+                    .rpc_request(
+                        ENGINE_GET_PAYLOAD_V4,
+                        params,
+                        ENGINE_GET_PAYLOAD_TIMEOUT * self.execution_timeout_multiplier,
+                    )
+                    .await?;
+                Ok(JsonGetPayloadResponse::V4(response).into())
             }
             ForkName::Base | ForkName::Altair => Err(Error::UnsupportedForkVariant(format!(
                 "called get_payload_v3 with {}",

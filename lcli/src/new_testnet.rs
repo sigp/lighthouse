@@ -16,8 +16,8 @@ use types::ExecutionBlockHash;
 use types::{
     test_utils::generate_deterministic_keypairs, Address, BeaconState, ChainSpec, Config, Epoch,
     Eth1Data, EthSpec, ExecutionPayloadHeader, ExecutionPayloadHeaderCapella,
-    ExecutionPayloadHeaderEip4844, ExecutionPayloadHeaderMerge, ForkName, Hash256, Keypair,
-    PublicKey, Validator,
+    ExecutionPayloadHeaderEip4844, ExecutionPayloadHeaderEip6110, ExecutionPayloadHeaderMerge,
+    ForkName, Hash256, Keypair, PublicKey, Validator,
 };
 
 pub fn run<T: EthSpec>(testnet_dir_path: PathBuf, matches: &ArgMatches) -> Result<(), String> {
@@ -86,6 +86,10 @@ pub fn run<T: EthSpec>(testnet_dir_path: PathBuf, matches: &ArgMatches) -> Resul
         spec.eip4844_fork_epoch = Some(fork_epoch);
     }
 
+    if let Some(fork_epoch) = parse_optional(matches, "eip6110-fork-epoch")? {
+        spec.eip6110_fork_epoch = Some(fork_epoch);
+    }
+
     if let Some(ttd) = parse_optional(matches, "ttd")? {
         spec.terminal_total_difficulty = ttd;
     }
@@ -115,6 +119,10 @@ pub fn run<T: EthSpec>(testnet_dir_path: PathBuf, matches: &ArgMatches) -> Resul
                         ForkName::Eip4844 => {
                             ExecutionPayloadHeaderEip4844::<T>::from_ssz_bytes(bytes.as_slice())
                                 .map(ExecutionPayloadHeader::Eip4844)
+                        }
+                        ForkName::Eip6110 => {
+                            ExecutionPayloadHeaderEip6110::<T>::from_ssz_bytes(bytes.as_slice())
+                                .map(ExecutionPayloadHeader::Eip6110)
                         }
                     }
                     .map_err(|e| format!("SSZ decode failed: {:?}", e))

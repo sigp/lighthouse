@@ -111,11 +111,13 @@ pub use crate::attestation_duty::AttestationDuty;
 pub use crate::attester_slashing::AttesterSlashing;
 pub use crate::beacon_block::{
     BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockCapella, BeaconBlockEip4844,
-    BeaconBlockMerge, BeaconBlockRef, BeaconBlockRefMut, BlindedBeaconBlock, EmptyBlock,
+    BeaconBlockEip6110, BeaconBlockMerge, BeaconBlockRef, BeaconBlockRefMut, BlindedBeaconBlock,
+    EmptyBlock,
 };
 pub use crate::beacon_block_body::{
     BeaconBlockBody, BeaconBlockBodyAltair, BeaconBlockBodyBase, BeaconBlockBodyCapella,
-    BeaconBlockBodyEip4844, BeaconBlockBodyMerge, BeaconBlockBodyRef, BeaconBlockBodyRefMut,
+    BeaconBlockBodyEip4844, BeaconBlockBodyEip6110, BeaconBlockBodyMerge, BeaconBlockBodyRef,
+    BeaconBlockBodyRefMut,
 };
 pub use crate::beacon_block_header::BeaconBlockHeader;
 pub use crate::beacon_committee::{BeaconCommittee, OwnedBeaconCommittee};
@@ -140,11 +142,13 @@ pub use crate::execution_block_hash::ExecutionBlockHash;
 pub use crate::execution_block_header::ExecutionBlockHeader;
 pub use crate::execution_payload::{
     DepositReceipts, ExecutionPayload, ExecutionPayloadCapella, ExecutionPayloadEip4844,
-    ExecutionPayloadMerge, ExecutionPayloadRef, Transaction, Transactions, Withdrawals,
+    ExecutionPayloadEip6110, ExecutionPayloadMerge, ExecutionPayloadRef, Transaction, Transactions,
+    Withdrawals,
 };
 pub use crate::execution_payload_header::{
     ExecutionPayloadHeader, ExecutionPayloadHeaderCapella, ExecutionPayloadHeaderEip4844,
-    ExecutionPayloadHeaderMerge, ExecutionPayloadHeaderRef, ExecutionPayloadHeaderRefMut,
+    ExecutionPayloadHeaderEip6110, ExecutionPayloadHeaderMerge, ExecutionPayloadHeaderRef,
+    ExecutionPayloadHeaderRefMut,
 };
 pub use crate::fork::Fork;
 pub use crate::fork_context::ForkContext;
@@ -162,8 +166,9 @@ pub use crate::participation_flags::ParticipationFlags;
 pub use crate::participation_list::ParticipationList;
 pub use crate::payload::{
     AbstractExecPayload, BlindedPayload, BlindedPayloadCapella, BlindedPayloadEip4844,
-    BlindedPayloadMerge, BlindedPayloadRef, BlockType, ExecPayload, FullPayload,
-    FullPayloadCapella, FullPayloadEip4844, FullPayloadMerge, FullPayloadRef, OwnedExecPayload,
+    BlindedPayloadEip6110, BlindedPayloadMerge, BlindedPayloadRef, BlockType, ExecPayload,
+    FullPayload, FullPayloadCapella, FullPayloadEip4844, FullPayloadEip6110, FullPayloadMerge,
+    FullPayloadRef, OwnedExecPayload,
 };
 pub use crate::pending_attestation::PendingAttestation;
 pub use crate::preset::{AltairPreset, BasePreset, BellatrixPreset, CapellaPreset};
@@ -175,8 +180,8 @@ pub use crate::shuffling_id::AttestationShufflingId;
 pub use crate::signed_aggregate_and_proof::SignedAggregateAndProof;
 pub use crate::signed_beacon_block::{
     SignedBeaconBlock, SignedBeaconBlockAltair, SignedBeaconBlockBase, SignedBeaconBlockCapella,
-    SignedBeaconBlockEip4844, SignedBeaconBlockHash, SignedBeaconBlockMerge,
-    SignedBlindedBeaconBlock,
+    SignedBeaconBlockEip4844, SignedBeaconBlockEip6110, SignedBeaconBlockHash,
+    SignedBeaconBlockMerge, SignedBlindedBeaconBlock,
 };
 pub use crate::signed_beacon_block_header::SignedBeaconBlockHeader;
 pub use crate::signed_block_and_blobs::SignedBeaconBlockAndBlobsSidecar;

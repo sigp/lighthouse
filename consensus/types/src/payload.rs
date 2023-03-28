@@ -83,12 +83,14 @@ pub trait AbstractExecPayload<T: EthSpec>:
     + TryInto<Self::Merge>
     + TryInto<Self::Capella>
     + TryInto<Self::Eip4844>
+    + TryInto<Self::Eip6110>
 {
     type Ref<'a>: ExecPayload<T>
         + Copy
         + From<&'a Self::Merge>
         + From<&'a Self::Capella>
-        + From<&'a Self::Eip4844>;
+        + From<&'a Self::Eip4844>
+        + From<&'a Self::Eip6110>;
 
     type Merge: OwnedExecPayload<T>
         + Into<Self>
@@ -102,12 +104,16 @@ pub trait AbstractExecPayload<T: EthSpec>:
         + Into<Self>
         + for<'a> From<Cow<'a, ExecutionPayloadEip4844<T>>>
         + TryFrom<ExecutionPayloadHeaderEip4844<T>>;
+    type Eip6110: OwnedExecPayload<T>
+        + Into<Self>
+        + for<'a> From<Cow<'a, ExecutionPayloadEip6110<T>>>
+        + TryFrom<execution_payload_header::ExecutionPayloadHeaderEip6110<T>>;
 
     fn default_at_fork(fork_name: ForkName) -> Result<Self, Error>;
 }
 
 #[superstruct(
-    variants(Merge, Capella, Eip4844),
+    variants(Merge, Capella, Eip4844, Eip6110),
     variant_attributes(
         derive(
             Debug,
@@ -148,6 +154,8 @@ pub struct FullPayload<T: EthSpec> {
     pub execution_payload: ExecutionPayloadCapella<T>,
     #[superstruct(only(Eip4844), partial_getter(rename = "execution_payload_eip4844"))]
     pub execution_payload: ExecutionPayloadEip4844<T>,
+    #[superstruct(only(Eip6110), partial_getter(rename = "execution_payload_eip6110"))]
+    pub execution_payload: ExecutionPayloadEip6110<T>,
 }
 
 impl<T: EthSpec> From<FullPayload<T>> for ExecutionPayload<T> {
@@ -254,6 +262,9 @@ impl<T: EthSpec> ExecPayload<T> for FullPayload<T> {
             FullPayload::Eip4844(ref inner) => {
                 Ok(inner.execution_payload.withdrawals.tree_hash_root())
             }
+            FullPayload::Eip6110(ref inner) => {
+                Ok(inner.execution_payload.withdrawals.tree_hash_root())
+            }
         }
     }
 
@@ -279,7 +290,11 @@ impl<T: EthSpec> ExecPayload<T> for FullPayload<T> {
                 // Return an "empty" or "default" value for the Capella variant
                 Ok(Vec::new().into())
             }
-            FullPayload::Eip4844(ref inner) => Ok(inner.execution_payload.deposit_receipts.clone()),
+            FullPayload::Eip4844(_) => {
+                // Return an "empty" or "default" value for the EIP-4844 variant
+                Ok(Vec::new().into())
+            }
+            FullPayload::Eip6110(ref inner) => Ok(inner.execution_payload.deposit_receipts.clone()),
         }
     }
 }
@@ -377,6 +392,9 @@ impl<'b, T: EthSpec> ExecPayload<T> for FullPayloadRef<'b, T> {
             FullPayloadRef::Eip4844(inner) => {
                 Ok(inner.execution_payload.withdrawals.tree_hash_root())
             }
+            FullPayloadRef::Eip6110(inner) => {
+                Ok(inner.execution_payload.withdrawals.tree_hash_root())
+            }
         }
     }
 
@@ -402,7 +420,11 @@ impl<'b, T: EthSpec> ExecPayload<T> for FullPayloadRef<'b, T> {
                 // Return an "empty" or "default" value for the Capella variant
                 Ok(Vec::new().into())
             }
-            FullPayloadRef::Eip4844(ref inner) => {
+            FullPayloadRef::Eip4844(_) => {
+                // Return an "empty" or "default" value for the EIP-4844 variant
+                Ok(Vec::new().into())
+            }
+            FullPayloadRef::Eip6110(ref inner) => {
                 Ok(inner.execution_payload.deposit_receipts.clone())
             }
         }
@@ -414,6 +436,7 @@ impl<T: EthSpec> AbstractExecPayload<T> for FullPayload<T> {
     type Merge = FullPayloadMerge<T>;
     type Capella = FullPayloadCapella<T>;
     type Eip4844 = FullPayloadEip4844<T>;
+    type Eip6110 = FullPayloadEip6110<T>;
 
     fn default_at_fork(fork_name: ForkName) -> Result<Self, Error> {
         match fork_name {
@@ -421,6 +444,7 @@ impl<T: EthSpec> AbstractExecPayload<T> for FullPayload<T> {
             ForkName::Merge => Ok(FullPayloadMerge::default().into()),
             ForkName::Capella => Ok(FullPayloadCapella::default().into()),
             ForkName::Eip4844 => Ok(FullPayloadEip4844::default().into()),
+            ForkName::Eip6110 => Ok(FullPayloadEip6110::default().into()),
         }
     }
 }
@@ -441,7 +465,7 @@ impl<T: EthSpec> TryFrom<ExecutionPayloadHeader<T>> for FullPayload<T> {
 }
 
 #[superstruct(
-    variants(Merge, Capella, Eip4844),
+    variants(Merge, Capella, Eip4844, Eip6110),
     variant_attributes(
         derive(
             Debug,
@@ -481,6 +505,8 @@ pub struct BlindedPayload<T: EthSpec> {
     pub execution_payload_header: ExecutionPayloadHeaderCapella<T>,
     #[superstruct(only(Eip4844), partial_getter(rename = "execution_payload_eip4844"))]
     pub execution_payload_header: ExecutionPayloadHeaderEip4844<T>,
+    #[superstruct(only(Eip6110), partial_getter(rename = "execution_payload_eip6110"))]
+    pub execution_payload_header: ExecutionPayloadHeaderEip6110<T>,
 }
 
 impl<'a, T: EthSpec> From<BlindedPayloadRef<'a, T>> for BlindedPayload<T> {
@@ -563,6 +589,9 @@ impl<T: EthSpec> ExecPayload<T> for BlindedPayload<T> {
                 Ok(inner.execution_payload_header.withdrawals_root)
             }
             BlindedPayload::Eip4844(ref inner) => {
+                Ok(inner.execution_payload_header.withdrawals_root)
+            }
+            BlindedPayload::Eip6110(ref inner) => {
                 Ok(inner.execution_payload_header.withdrawals_root)
             }
         }
@@ -659,6 +688,9 @@ impl<'b, T: EthSpec> ExecPayload<T> for BlindedPayloadRef<'b, T> {
             BlindedPayloadRef::Eip4844(inner) => {
                 Ok(inner.execution_payload_header.withdrawals_root)
             }
+            BlindedPayloadRef::Eip6110(inner) => {
+                Ok(inner.execution_payload_header.withdrawals_root)
+            }
         }
     }
 
@@ -688,6 +720,10 @@ impl<'b, T: EthSpec> ExecPayload<T> for BlindedPayloadRef<'b, T> {
             }
             BlindedPayloadRef::Eip4844(_) => {
                 // Return an "empty" or "default" value for the Eip4844 variant
+                Ok(Vec::new().into())
+            }
+            BlindedPayloadRef::Eip6110(_) => {
+                // Return an "empty" or "default" value for the Eip6110 variant
                 Ok(Vec::new().into())
             }
         }
@@ -950,12 +986,20 @@ impl_exec_payload_for_fork!(
     ExecutionPayloadEip4844,
     Eip4844
 );
+impl_exec_payload_for_fork!(
+    BlindedPayloadEip6110,
+    FullPayloadEip6110,
+    ExecutionPayloadHeaderEip6110,
+    ExecutionPayloadEip6110,
+    Eip6110
+);
 
 impl<T: EthSpec> AbstractExecPayload<T> for BlindedPayload<T> {
     type Ref<'a> = BlindedPayloadRef<'a, T>;
     type Merge = BlindedPayloadMerge<T>;
     type Capella = BlindedPayloadCapella<T>;
     type Eip4844 = BlindedPayloadEip4844<T>;
+    type Eip6110 = BlindedPayloadEip6110<T>;
 
     fn default_at_fork(fork_name: ForkName) -> Result<Self, Error> {
         match fork_name {
@@ -963,6 +1007,7 @@ impl<T: EthSpec> AbstractExecPayload<T> for BlindedPayload<T> {
             ForkName::Merge => Ok(BlindedPayloadMerge::default().into()),
             ForkName::Capella => Ok(BlindedPayloadCapella::default().into()),
             ForkName::Eip4844 => Ok(BlindedPayloadEip4844::default().into()),
+            ForkName::Eip6110 => Ok(BlindedPayloadEip6110::default().into()),
         }
     }
 }
@@ -996,6 +1041,11 @@ impl<T: EthSpec> From<ExecutionPayloadHeader<T>> for BlindedPayload<T> {
                     execution_payload_header,
                 })
             }
+            ExecutionPayloadHeader::Eip6110(execution_payload_header) => {
+                Self::Eip6110(BlindedPayloadEip6110 {
+                    execution_payload_header,
+                })
+            }
         }
     }
 }
@@ -1011,6 +1061,9 @@ impl<T: EthSpec> From<BlindedPayload<T>> for ExecutionPayloadHeader<T> {
             }
             BlindedPayload::Eip4844(blinded_payload) => {
                 ExecutionPayloadHeader::Eip4844(blinded_payload.execution_payload_header)
+            }
+            BlindedPayload::Eip6110(blinded_payload) => {
+                ExecutionPayloadHeader::Eip6110(blinded_payload.execution_payload_header)
             }
         }
     }

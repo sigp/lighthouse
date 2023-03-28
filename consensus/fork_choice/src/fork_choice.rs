@@ -754,6 +754,7 @@ where
                         // TODO(eip4844): Ensure that the final specification
                         // does not substantially modify per epoch processing.
                         BeaconBlockRef::Eip4844(_)
+                        | BeaconBlockRef::Eip6110(_)
                         | BeaconBlockRef::Capella(_)
                         | BeaconBlockRef::Merge(_)
                         | BeaconBlockRef::Altair(_) => {

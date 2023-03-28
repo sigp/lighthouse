@@ -285,7 +285,7 @@ impl<E: EthSpec> AvailableBlock<E> {
             | SignedBeaconBlock::Merge(_) => {
                 Ok(AvailableBlock(AvailableBlockInner::Block(beacon_block)))
             }
-            SignedBeaconBlock::Eip4844(_) => {
+            SignedBeaconBlock::Eip4844(_) | SignedBeaconBlock::Eip6110(_) => {
                 match da_check_required {
                     DataAvailabilityCheckRequired::Yes => {
                         // Attempt to reconstruct empty blobs here.
@@ -320,7 +320,7 @@ impl<E: EthSpec> AvailableBlock<E> {
             | SignedBeaconBlock::Altair(_)
             | SignedBeaconBlock::Capella(_)
             | SignedBeaconBlock::Merge(_) => Err(BlobError::InconsistentFork),
-            SignedBeaconBlock::Eip4844(_) => {
+            SignedBeaconBlock::Eip4844(_) | SignedBeaconBlock::Eip6110(_) => {
                 match da_check_required {
                     DataAvailabilityCheckRequired::Yes => Ok(AvailableBlock(
                         AvailableBlockInner::BlockAndBlob(SignedBeaconBlockAndBlobsSidecar {
@@ -330,7 +330,7 @@ impl<E: EthSpec> AvailableBlock<E> {
                     )),
                     DataAvailabilityCheckRequired::No => {
                         // Blobs were not verified so we drop them, we'll instead just pass around
-                        // an available `Eip4844` block without blobs.
+                        // an available `Eip4844` or `Eip6110` block without blobs.
                         Ok(AvailableBlock(AvailableBlockInner::Block(beacon_block)))
                     }
                 }

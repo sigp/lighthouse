@@ -67,6 +67,7 @@ pub fn previous_fork(fork_name: ForkName) -> ForkName {
         ForkName::Merge => ForkName::Altair,
         ForkName::Capella => ForkName::Merge,
         ForkName::Eip4844 => ForkName::Capella,
+        ForkName::Eip6110 => ForkName::Eip4844,
     }
 }
 

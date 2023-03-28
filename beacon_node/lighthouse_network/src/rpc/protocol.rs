@@ -90,6 +90,12 @@ lazy_static! {
     + (<types::KzgCommitment as Encode>::ssz_fixed_len() * <MainnetEthSpec>::max_blobs_per_block())
     + ssz::BYTES_PER_LENGTH_OFFSET; // Length offset for the blob commitments field.
 
+    pub static ref SIGNED_BEACON_BLOCK_EIP6110_MAX: usize = *SIGNED_BEACON_BLOCK_CAPELLA_MAX_WITHOUT_PAYLOAD
+    + types::ExecutionPayload::<MainnetEthSpec>::max_execution_payload_eip6110_size() // adding max size of execution payload (~16gb)
+    + ssz::BYTES_PER_LENGTH_OFFSET // Adding the additional offsets for the `ExecutionPayload`
+    + (<types::KzgCommitment as Encode>::ssz_fixed_len() * <MainnetEthSpec>::max_blobs_per_block())
+    + ssz::BYTES_PER_LENGTH_OFFSET; // Length offset for the blob commitments field.
+
     pub static ref BLOCKS_BY_ROOT_REQUEST_MIN: usize =
         VariableList::<Hash256, MaxRequestBlocks>::from(Vec::<Hash256>::new())
     .as_ssz_bytes()
@@ -130,6 +136,7 @@ pub(crate) const MAX_RPC_SIZE_POST_MERGE: usize = 10 * 1_048_576; // 10M
 pub(crate) const MAX_RPC_SIZE_POST_CAPELLA: usize = 10 * 1_048_576; // 10M
                                                                     // FIXME(sean) should this be increased to account for blobs?
 pub(crate) const MAX_RPC_SIZE_POST_EIP4844: usize = 10 * 1_048_576; // 10M
+pub(crate) const MAX_RPC_SIZE_POST_EIP6110: usize = 10 * 1_048_576; // 10M
 /// The protocol prefix the RPC protocol id.
 const PROTOCOL_PREFIX: &str = "/eth2/beacon_chain/req";
 /// Time allowed for the first byte of a request to arrive before we time out (Time To First Byte).
@@ -145,6 +152,7 @@ pub fn max_rpc_size(fork_context: &ForkContext) -> usize {
         ForkName::Merge => MAX_RPC_SIZE_POST_MERGE,
         ForkName::Capella => MAX_RPC_SIZE_POST_CAPELLA,
         ForkName::Eip4844 => MAX_RPC_SIZE_POST_EIP4844,
+        ForkName::Eip6110 => MAX_RPC_SIZE_POST_EIP6110,
     }
 }
 
@@ -172,6 +180,10 @@ pub fn rpc_block_limits_by_fork(current_fork: ForkName) -> RpcLimits {
         ForkName::Eip4844 => RpcLimits::new(
             *SIGNED_BEACON_BLOCK_BASE_MIN, // Base block is smaller than altair and merge blocks
             *SIGNED_BEACON_BLOCK_EIP4844_MAX, // EIP 4844 block is larger than all prior fork blocks
+        ),
+        ForkName::Eip6110 => RpcLimits::new(
+            *SIGNED_BEACON_BLOCK_BASE_MIN, // Base block is smaller than altair and merge blocks
+            *SIGNED_BEACON_BLOCK_EIP6110_MAX, // EIP 6110 block is larger than all prior fork blocks
         ),
     }
 }

@@ -8,7 +8,7 @@ use tree_hash_derive::TreeHash;
 #[derive(
     arbitrary::Arbitrary,
     Debug,
-    PartialEq,
+    // PartialEq,
     // Eq,
     Hash,
     Clone,
@@ -27,6 +27,18 @@ pub struct DepositReceipt {
     pub signature: SignatureBytes,
     #[serde(with = "eth2_serde_utils::quoted_u64")]
     pub index: u64,
+}
+
+// Manually implement the Eq trait for DepositReceipt
+impl Eq for DepositReceipt {}
+
+impl PartialEq<DepositReceipt> for DepositReceipt {
+    fn eq(&self, other: &DepositReceipt) -> bool {
+        self.pubkey == other.pubkey
+            && self.withdrawal_credentials == other.withdrawal_credentials
+            && self.amount == other.amount
+            && self.index == other.index
+    }
 }
 
 #[cfg(test)]

@@ -15,7 +15,7 @@ use types::*;
 ///
 /// Utilises lazy-loading from separate storage for its vector fields.
 #[superstruct(
-    variants(Base, Altair, Merge, Capella, Eip4844),
+    variants(Base, Altair, Merge, Capella, Eip4844, Eip6110),
     variant_attributes(derive(Debug, PartialEq, Clone, Encode, Decode))
 )]
 #[derive(Debug, PartialEq, Clone, Encode)]
@@ -67,9 +67,9 @@ where
     pub current_epoch_attestations: VariableList<PendingAttestation<T>, T::MaxPendingAttestations>,
 
     // Participation (Altair and later)
-    #[superstruct(only(Altair, Merge, Capella, Eip4844))]
+    #[superstruct(only(Altair, Merge, Capella, Eip4844, Eip6110))]
     pub previous_epoch_participation: VariableList<ParticipationFlags, T::ValidatorRegistryLimit>,
-    #[superstruct(only(Altair, Merge, Capella, Eip4844))]
+    #[superstruct(only(Altair, Merge, Capella, Eip4844, Eip6110))]
     pub current_epoch_participation: VariableList<ParticipationFlags, T::ValidatorRegistryLimit>,
 
     // Finality
@@ -79,13 +79,13 @@ where
     pub finalized_checkpoint: Checkpoint,
 
     // Inactivity
-    #[superstruct(only(Altair, Merge, Capella, Eip4844))]
+    #[superstruct(only(Altair, Merge, Capella, Eip4844, Eip6110))]
     pub inactivity_scores: VariableList<u64, T::ValidatorRegistryLimit>,
 
     // Light-client sync committees
-    #[superstruct(only(Altair, Merge, Capella, Eip4844))]
+    #[superstruct(only(Altair, Merge, Capella, Eip4844, Eip6110))]
     pub current_sync_committee: Arc<SyncCommittee<T>>,
-    #[superstruct(only(Altair, Merge, Capella, Eip4844))]
+    #[superstruct(only(Altair, Merge, Capella, Eip4844, Eip6110))]
     pub next_sync_committee: Arc<SyncCommittee<T>>,
 
     // Execution
@@ -104,18 +104,23 @@ where
         partial_getter(rename = "latest_execution_payload_header_eip4844")
     )]
     pub latest_execution_payload_header: ExecutionPayloadHeaderEip4844<T>,
+    #[superstruct(
+        only(Eip6110),
+        partial_getter(rename = "latest_execution_payload_header_eip6110")
+    )]
+    pub latest_execution_payload_header: ExecutionPayloadHeaderEip6110<T>,
 
     // Capella
-    #[superstruct(only(Capella, Eip4844))]
+    #[superstruct(only(Capella, Eip4844, Eip6110))]
     pub next_withdrawal_index: u64,
-    #[superstruct(only(Capella, Eip4844))]
+    #[superstruct(only(Capella, Eip4844, Eip6110))]
     pub next_withdrawal_validator_index: u64,
 
     #[ssz(skip_serializing, skip_deserializing)]
-    #[superstruct(only(Capella, Eip4844))]
+    #[superstruct(only(Capella, Eip4844, Eip6110))]
     pub historical_summaries: Option<VariableList<HistoricalSummary, T::HistoricalRootsLimit>>,
 
-    #[superstruct(only(Capella, Eip4844))]
+    #[superstruct(only(Eip6110))]
     pub deposit_receipts_start_index: u64,
 }
 
@@ -226,8 +231,7 @@ impl<T: EthSpec> PartialBeaconState<T> {
                     inactivity_scores,
                     latest_execution_payload_header,
                     next_withdrawal_index,
-                    next_withdrawal_validator_index,
-                    deposit_receipts_start_index
+                    next_withdrawal_validator_index
                 ],
                 [historical_summaries]
             ),
@@ -236,6 +240,23 @@ impl<T: EthSpec> PartialBeaconState<T> {
                 outer,
                 Eip4844,
                 PartialBeaconStateEip4844,
+                [
+                    previous_epoch_participation,
+                    current_epoch_participation,
+                    current_sync_committee,
+                    next_sync_committee,
+                    inactivity_scores,
+                    latest_execution_payload_header,
+                    next_withdrawal_index,
+                    next_withdrawal_validator_index
+                ],
+                [historical_summaries]
+            ),
+            BeaconState::Eip6110(s) => impl_from_state_forgetful!(
+                s,
+                outer,
+                Eip6110,
+                PartialBeaconStateEip6110,
                 [
                     previous_epoch_participation,
                     current_epoch_participation,
@@ -473,8 +494,7 @@ impl<E: EthSpec> TryInto<BeaconState<E>> for PartialBeaconState<E> {
                     inactivity_scores,
                     latest_execution_payload_header,
                     next_withdrawal_index,
-                    next_withdrawal_validator_index,
-                    deposit_receipts_start_index
+                    next_withdrawal_validator_index
                 ],
                 [historical_summaries]
             ),
@@ -482,6 +502,22 @@ impl<E: EthSpec> TryInto<BeaconState<E>> for PartialBeaconState<E> {
                 inner,
                 Eip4844,
                 BeaconStateEip4844,
+                [
+                    previous_epoch_participation,
+                    current_epoch_participation,
+                    current_sync_committee,
+                    next_sync_committee,
+                    inactivity_scores,
+                    latest_execution_payload_header,
+                    next_withdrawal_index,
+                    next_withdrawal_validator_index
+                ],
+                [historical_summaries]
+            ),
+            PartialBeaconState::Eip6110(inner) => impl_try_into_beacon_state!(
+                inner,
+                Eip6110,
+                BeaconStateEip6110,
                 [
                     previous_epoch_participation,
                     current_epoch_participation,

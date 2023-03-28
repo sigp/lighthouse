@@ -190,6 +190,12 @@ impl<T: EthSpec> PubsubMessage<T> {
                                             .to_string(),
                                     )
                                 }
+                                Some(ForkName::Eip6110) => {
+                                    return Err(
+                                        "beacon_block topic is not used from eip4844 fork onwards"
+                                            .to_string(),
+                                    )
+                                }
                                 Some(ForkName::Capella) => SignedBeaconBlock::<T>::Capella(
                                     SignedBeaconBlockCapella::from_ssz_bytes(data)
                                         .map_err(|e| format!("{:?}", e))?,
@@ -205,7 +211,7 @@ impl<T: EthSpec> PubsubMessage<T> {
                     }
                     GossipKind::BeaconBlocksAndBlobsSidecar => {
                         match fork_context.from_context_bytes(gossip_topic.fork_digest) {
-                            Some(ForkName::Eip4844) => {
+                            Some(ForkName::Eip4844) | Some(ForkName::Eip6110) => {
                                 let block_and_blobs_sidecar =
                                     SignedBeaconBlockAndBlobsSidecar::from_ssz_bytes(data)
                                         .map_err(|e| format!("{:?}", e))?;

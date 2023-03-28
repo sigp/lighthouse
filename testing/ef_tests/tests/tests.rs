@@ -272,6 +272,10 @@ mod ssz_static {
             .run();
         SszStaticHandler::<BeaconBlockBodyEip4844<MainnetEthSpec>, MainnetEthSpec>::eip4844_only()
             .run();
+        SszStaticHandler::<BeaconBlockBodyEip6110<MinimalEthSpec>, MinimalEthSpec>::eip6110_only()
+            .run();
+        SszStaticHandler::<BeaconBlockBodyEip6110<MainnetEthSpec>, MainnetEthSpec>::eip6110_only()
+            .run();
     }
 
     // Altair and later
@@ -336,6 +340,10 @@ mod ssz_static {
             .run();
         SszStaticHandler::<ExecutionPayloadEip4844<MainnetEthSpec>, MainnetEthSpec>::eip4844_only()
             .run();
+        SszStaticHandler::<ExecutionPayloadEip6110<MinimalEthSpec>, MinimalEthSpec>::eip6110_only()
+            .run();
+        SszStaticHandler::<ExecutionPayloadEip6110<MainnetEthSpec>, MainnetEthSpec>::eip6110_only()
+            .run();
     }
 
     #[test]
@@ -352,6 +360,10 @@ mod ssz_static {
             ::eip4844_only().run();
         SszStaticHandler::<ExecutionPayloadHeaderEip4844<MainnetEthSpec>, MainnetEthSpec>
             ::eip4844_only().run();
+        SszStaticHandler::<ExecutionPayloadHeaderEip6110<MinimalEthSpec>, MinimalEthSpec>
+            ::eip6110_only().run();
+        SszStaticHandler::<ExecutionPayloadHeaderEip6110<MainnetEthSpec>, MainnetEthSpec>
+            ::eip6110_only().run();
     }
 
     #[test]

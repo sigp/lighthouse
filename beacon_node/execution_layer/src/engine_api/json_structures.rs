@@ -7,7 +7,7 @@ use superstruct::superstruct;
 use types::blobs_sidecar::KzgCommitments;
 use types::{
     Blobs, DepositReceipt, EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadCapella,
-    ExecutionPayloadEip4844, ExecutionPayloadMerge, FixedVector, Transactions, Unsigned,
+    ExecutionPayloadEip4844, ExecutionPayloadEip6110, ExecutionPayloadMerge, FixedVector, Transactions, Transaction, Unsigned,
     VariableList, Withdrawal,
 };
 
@@ -65,7 +65,7 @@ pub struct JsonPayloadIdResponse {
 }
 
 #[superstruct(
-    variants(V1, V2, V3),
+    variants(V1, V2, V3, V4),
     variant_attributes(
         derive(Debug, PartialEq, Default, Serialize, Deserialize,),
         serde(bound = "T: EthSpec", rename_all = "camelCase"),
@@ -95,16 +95,16 @@ pub struct JsonExecutionPayload<T: EthSpec> {
     pub extra_data: VariableList<u8, T::MaxExtraDataBytes>,
     #[serde(with = "eth2_serde_utils::u256_hex_be")]
     pub base_fee_per_gas: Uint256,
-    #[superstruct(only(V3))]
+    #[superstruct(only(V3, V4))]
     #[serde(with = "eth2_serde_utils::u256_hex_be")]
     pub excess_data_gas: Uint256,
     pub block_hash: ExecutionBlockHash,
     #[serde(with = "ssz_types::serde_utils::list_of_hex_var_list")]
-    pub transactions: Transactions<T>,
-    #[superstruct(only(V2, V3))]
+    pub transactions: VariableList<Transaction<T::MaxBytesPerTransaction>, T::MaxTransactionsPerPayload>,
+    #[superstruct(only(V2, V3, V4))]
     pub withdrawals: VariableList<JsonWithdrawal, T::MaxWithdrawalsPerPayload>,
-    #[superstruct(only(V3))]
-    pub deposit_receipts: VariableList<JsonDepositReceipt, T::MaxDepositReceiptsPerPayload>,
+    #[superstruct(only(V4))]
+    pub deposit_receipts: VariableList<JsonDepositReceipt, T::MaxDepositReceiptsPerPayload>,    
 }
 
 impl<T: EthSpec> From<ExecutionPayloadMerge<T>> for JsonExecutionPayloadV1<T> {
@@ -177,6 +177,33 @@ impl<T: EthSpec> From<ExecutionPayloadEip4844<T>> for JsonExecutionPayloadV3<T> 
                 .map(Into::into)
                 .collect::<Vec<_>>()
                 .into(),
+        }
+    }
+}
+impl<T: EthSpec> From<ExecutionPayloadEip6110<T>> for JsonExecutionPayloadV4<T> {
+    fn from(payload: ExecutionPayloadEip6110<T>) -> Self {
+        JsonExecutionPayloadV4 {
+            parent_hash: payload.parent_hash,
+            fee_recipient: payload.fee_recipient,
+            state_root: payload.state_root,
+            receipts_root: payload.receipts_root,
+            logs_bloom: payload.logs_bloom,
+            prev_randao: payload.prev_randao,
+            block_number: payload.block_number,
+            gas_limit: payload.gas_limit,
+            gas_used: payload.gas_used,
+            timestamp: payload.timestamp,
+            extra_data: payload.extra_data,
+            base_fee_per_gas: payload.base_fee_per_gas,
+            excess_data_gas: payload.excess_data_gas,
+            block_hash: payload.block_hash,
+            transactions: payload.transactions,
+            withdrawals: payload
+                .withdrawals
+                .into_iter()
+                .map(Into::into)
+                .collect::<Vec<_>>()
+                .into(),
             deposit_receipts: payload
                 .deposit_receipts
                 .into_iter()
@@ -193,6 +220,7 @@ impl<T: EthSpec> From<ExecutionPayload<T>> for JsonExecutionPayload<T> {
             ExecutionPayload::Merge(payload) => JsonExecutionPayload::V1(payload.into()),
             ExecutionPayload::Capella(payload) => JsonExecutionPayload::V2(payload.into()),
             ExecutionPayload::Eip4844(payload) => JsonExecutionPayload::V3(payload.into()),
+            ExecutionPayload::Eip6110(payload) => JsonExecutionPayload::V4(payload.into()),
         }
     }
 }
@@ -267,6 +295,33 @@ impl<T: EthSpec> From<JsonExecutionPayloadV3<T>> for ExecutionPayloadEip4844<T> 
                 .map(Into::into)
                 .collect::<Vec<_>>()
                 .into(),
+        }
+    }
+}
+impl<T: EthSpec> From<JsonExecutionPayloadV4<T>> for ExecutionPayloadEip6110<T> {
+    fn from(payload: JsonExecutionPayloadV4<T>) -> Self {
+        ExecutionPayloadEip6110 {
+            parent_hash: payload.parent_hash,
+            fee_recipient: payload.fee_recipient,
+            state_root: payload.state_root,
+            receipts_root: payload.receipts_root,
+            logs_bloom: payload.logs_bloom,
+            prev_randao: payload.prev_randao,
+            block_number: payload.block_number,
+            gas_limit: payload.gas_limit,
+            gas_used: payload.gas_used,
+            timestamp: payload.timestamp,
+            extra_data: payload.extra_data,
+            base_fee_per_gas: payload.base_fee_per_gas,
+            excess_data_gas: payload.excess_data_gas,
+            block_hash: payload.block_hash,
+            transactions: payload.transactions,
+            withdrawals: payload
+                .withdrawals
+                .into_iter()
+                .map(Into::into)
+                .collect::<Vec<_>>()
+                .into(),
             deposit_receipts: payload
                 .deposit_receipts
                 .into_iter()
@@ -283,12 +338,13 @@ impl<T: EthSpec> From<JsonExecutionPayload<T>> for ExecutionPayload<T> {
             JsonExecutionPayload::V1(payload) => ExecutionPayload::Merge(payload.into()),
             JsonExecutionPayload::V2(payload) => ExecutionPayload::Capella(payload.into()),
             JsonExecutionPayload::V3(payload) => ExecutionPayload::Eip4844(payload.into()),
+            JsonExecutionPayload::V4(payload) => ExecutionPayload::Eip6110(payload.into()),
         }
     }
 }
 
 #[superstruct(
-    variants(V1, V2, V3),
+    variants(V1, V2, V3, V4),
     variant_attributes(
         derive(Debug, PartialEq, Serialize, Deserialize),
         serde(bound = "T: EthSpec", rename_all = "camelCase")
@@ -305,6 +361,8 @@ pub struct JsonGetPayloadResponse<T: EthSpec> {
     pub execution_payload: JsonExecutionPayloadV2<T>,
     #[superstruct(only(V3), partial_getter(rename = "execution_payload_v3"))]
     pub execution_payload: JsonExecutionPayloadV3<T>,
+    #[superstruct(only(V4), partial_getter(rename = "execution_payload_v4"))]
+    pub execution_payload: JsonExecutionPayloadV4<T>,
     #[serde(with = "eth2_serde_utils::u256_hex_be")]
     pub block_value: Uint256,
 }
@@ -326,6 +384,12 @@ impl<T: EthSpec> From<JsonGetPayloadResponse<T>> for GetPayloadResponse<T> {
             }
             JsonGetPayloadResponse::V3(response) => {
                 GetPayloadResponse::Eip4844(GetPayloadResponseEip4844 {
+                    execution_payload: response.execution_payload.into(),
+                    block_value: response.block_value,
+                })
+            }
+            JsonGetPayloadResponse::V4(response) => {
+                GetPayloadResponse::Eip6110(GetPayloadResponseEip6110 {
                     execution_payload: response.execution_payload.into(),
                     block_value: response.block_value,
                 })
@@ -422,6 +486,8 @@ pub struct JsonPayloadAttributes {
     pub suggested_fee_recipient: Address,
     #[superstruct(only(V2))]
     pub withdrawals: Vec<JsonWithdrawal>,
+    #[superstruct(only(V2))]
+    pub deposit_receipts: Vec<JsonDepositReceipt>,
 }
 
 impl From<PayloadAttributes> for JsonPayloadAttributes {
@@ -437,6 +503,7 @@ impl From<PayloadAttributes> for JsonPayloadAttributes {
                 prev_randao: pa.prev_randao,
                 suggested_fee_recipient: pa.suggested_fee_recipient,
                 withdrawals: pa.withdrawals.into_iter().map(Into::into).collect(),
+                deposit_receipts: pa.deposit_receipts.into_iter().map(Into::into).collect(),
             }),
         }
     }
@@ -455,6 +522,7 @@ impl From<JsonPayloadAttributes> for PayloadAttributes {
                 prev_randao: jpa.prev_randao,
                 suggested_fee_recipient: jpa.suggested_fee_recipient,
                 withdrawals: jpa.withdrawals.into_iter().map(Into::into).collect(),
+                deposit_receipts: jpa.deposit_receipts.into_iter().map(Into::into).collect(),
             }),
         }
     }
