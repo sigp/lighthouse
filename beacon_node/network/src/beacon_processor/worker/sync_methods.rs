@@ -101,7 +101,8 @@ impl<T: BeaconChainTypes> Worker<T> {
         metrics::inc_counter(&metrics::BEACON_PROCESSOR_RPC_BLOCK_IMPORTED_TOTAL);
 
         // RPC block imported, regardless of process type
-        //TODO(sean) handle pending availability variants
+        //TODO(sean) do we need to do anything here for missing blobs? or is passing the result
+        // along to sync enough?
         if let &Ok(AvailabilityProcessingStatus::Imported(hash)) = &result {
             info!(self.log, "New RPC block received"; "slot" => slot, "hash" => %hash);
 

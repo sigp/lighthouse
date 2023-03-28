@@ -44,7 +44,9 @@ use crate::status::ToStatusMessage;
 use crate::sync::range_sync::ByRangeRequestType;
 use beacon_chain::blob_verification::AsBlock;
 use beacon_chain::blob_verification::BlockWrapper;
-use beacon_chain::{BeaconChain, BeaconChainTypes, BlockError, EngineState};
+use beacon_chain::{
+    AvailabilityProcessingStatus, BeaconChain, BeaconChainTypes, BlockError, EngineState,
+};
 use futures::StreamExt;
 use lighthouse_network::rpc::methods::MAX_REQUEST_BLOCKS;
 use lighthouse_network::rpc::RPCError;
@@ -117,15 +119,21 @@ pub enum SyncMessage<T: EthSpec> {
     /// A block with an unknown parent has been received.
     UnknownBlock(PeerId, BlockWrapper<T>, Hash256),
 
-    /// A peer has sent an object that references a block that is unknown. This triggers the
+    /// A peer has sent an attestation that references a block that is unknown. This triggers the
     /// manager to attempt to find the block matching the unknown hash.
-    UnknownBlockHash(PeerId, Hash256),
+    UnknownBlockHashFromAttestation(PeerId, Hash256),
+
+    /// A peer has sent a blob that references a block that is unknown. This triggers the
+    /// manager to attempt to find the block matching the unknown hash when the specified delay expires.
+    UnknownBlockHashFromGossipBlob(PeerId, Hash256, Duration),
 
     /// A peer has sent us a block that we haven't received all the blobs for. This triggers
-    /// the manager to attempt to find the pending blobs for the given block root.
-    UnknownBlobHash {
+    /// the manager to attempt to find the pending blobs for the given block root when the specified
+    /// delay expires.
+    MissingBlobs {
         peer_id: PeerId,
         pending_blobs: Vec<BlobIdentifier>,
+        search_delay: Duration,
     },
 
     /// A peer has disconnected.
@@ -161,6 +169,7 @@ pub enum BlockProcessType {
 #[derive(Debug)]
 pub enum BlockProcessResult<T: EthSpec> {
     Ok,
+    MissingBlobs(Vec<BlobIdentifier>),
     Err(BlockError<T>),
     Ignored,
 }
@@ -597,18 +606,38 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         .search_parent(block_root, block, peer_id, &mut self.network);
                 }
             }
-            SyncMessage::UnknownBlockHash(peer_id, block_hash) => {
+            SyncMessage::UnknownBlockHashFromAttestation(peer_id, block_hash) => {
                 // If we are not synced, ignore this block.
-                if self.network_globals.sync_state.read().is_synced()
-                    && self.network_globals.peers.read().is_connected(&peer_id)
-                    && self.network.is_execution_engine_online()
-                {
+                if self.synced_and_connected(&peer_id) {
                     self.block_lookups
                         .search_block(block_hash, peer_id, &mut self.network);
                 }
             }
-            SyncMessage::UnknownBlobHash { .. } => {
-                unimplemented!()
+            SyncMessage::UnknownBlockHashFromGossipBlob(peer_id, block_hash, delay) => {
+                // If we are not synced, ignore this block.
+                if self.synced_and_connected(&peer_id) {
+                    self.block_lookups.search_block_delayed(
+                        peer_id,
+                        block_hash,
+                        delay,
+                        &mut self.network,
+                    );
+                }
+            }
+            SyncMessage::MissingBlobs {
+                peer_id,
+                pending_blobs,
+                search_delay,
+            } => {
+                // If we are not synced, ignore these blobs.
+                if self.synced_and_connected(&peer_id) {
+                    self.block_lookups.search_blobs_delayed(
+                        peer_id,
+                        pending_blobs,
+                        search_delay,
+                        &mut self.network,
+                    );
+                }
             }
             SyncMessage::Disconnect(peer_id) => {
                 self.peer_disconnect(&peer_id);
@@ -671,6 +700,12 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 seen_timestamp,
             ),
         }
+    }
+
+    fn synced_and_connected(&mut self, peer_id: &PeerId) -> bool {
+        self.network_globals.sync_state.read().is_synced()
+            && self.network_globals.peers.read().is_connected(&peer_id)
+            && self.network.is_execution_engine_online()
     }
 
     fn handle_new_execution_engine_state(&mut self, engine_state: EngineState) {
@@ -923,10 +958,18 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     }
 }
 
-impl<IgnoredOkVal, T: EthSpec> From<Result<IgnoredOkVal, BlockError<T>>> for BlockProcessResult<T> {
-    fn from(result: Result<IgnoredOkVal, BlockError<T>>) -> Self {
+impl<T: EthSpec> From<Result<AvailabilityProcessingStatus, BlockError<T>>>
+    for BlockProcessResult<T>
+{
+    fn from(result: Result<AvailabilityProcessingStatus, BlockError<T>>) -> Self {
         match result {
-            Ok(_) => BlockProcessResult::Ok,
+            Ok(AvailabilityProcessingStatus::Imported(_)) => BlockProcessResult::Ok,
+            Ok(AvailabilityProcessingStatus::PendingBlock(_)) => {
+                todo!() // doesn't make sense
+            }
+            Ok(AvailabilityProcessingStatus::PendingBlobs(blobs)) => {
+                BlockProcessResult::MissingBlobs(blobs)
+            }
             Err(e) => e.into(),
         }
     }

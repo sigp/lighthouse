@@ -692,12 +692,17 @@ impl<T: BeaconChainTypes> Worker<T> {
                 // logging
             }
             Ok(AvailabilityProcessingStatus::PendingBlobs(pending_blobs)) => self
-                .send_sync_message(SyncMessage::UnknownBlobHash {
+                .send_sync_message(SyncMessage::MissingBlobs {
                     peer_id,
                     pending_blobs,
+                    search_delay: Duration::from_secs(0), //TODO(sean) update
                 }),
             Ok(AvailabilityProcessingStatus::PendingBlock(block_hash)) => {
-                self.send_sync_message(SyncMessage::UnknownBlockHash(peer_id, block_hash));
+                self.send_sync_message(SyncMessage::UnknownBlockHashFromGossipBlob(
+                    peer_id,
+                    block_hash,
+                    Duration::from_secs(0),
+                )); //TODO(sean) update
             }
             Err(_err) => {
                 // handle errors
@@ -1061,9 +1066,10 @@ impl<T: BeaconChainTypes> Worker<T> {
             }
             Ok(AvailabilityProcessingStatus::PendingBlobs(pending_blobs)) => {
                 // make rpc request for blob
-                self.send_sync_message(SyncMessage::UnknownBlobHash {
+                self.send_sync_message(SyncMessage::MissingBlobs {
                     peer_id,
                     pending_blobs,
+                    search_delay: Duration::from_secs(0), //TODO(sean) update
                 });
             }
             Err(BlockError::AvailabilityCheck(_)) => {
@@ -1902,7 +1908,10 @@ impl<T: BeaconChainTypes> Worker<T> {
                     // We don't know the block, get the sync manager to handle the block lookup, and
                     // send the attestation to be scheduled for re-processing.
                     self.sync_tx
-                        .send(SyncMessage::UnknownBlockHash(peer_id, *beacon_block_root))
+                        .send(SyncMessage::UnknownBlockHashFromAttestation(
+                            peer_id,
+                            *beacon_block_root,
+                        ))
                         .unwrap_or_else(|_| {
                             warn!(
                                 self.log,

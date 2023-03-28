@@ -1,5 +1,6 @@
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
+use std::thread::sleep;
 use std::time::Duration;
 
 use beacon_chain::blob_verification::AsBlock;
@@ -12,6 +13,7 @@ use lru_cache::LRUTimeCache;
 use slog::{debug, error, trace, warn, Logger};
 use smallvec::SmallVec;
 use store::Hash256;
+use types::blob_sidecar::BlobIdentifier;
 
 use crate::beacon_processor::{ChainSegmentProcessId, WorkEvent};
 use crate::metrics;
@@ -131,6 +133,37 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 self.single_block_lookups.len() as i64,
             );
         }
+    }
+
+    pub fn search_blobs(
+        &mut self,
+        blob_ids: Vec<BlobIdentifier>,
+        peer_id: PeerId,
+        cx: &mut SyncNetworkContext<T>,
+    ) {
+        todo!()
+    }
+
+    pub fn search_block_delayed(
+        &mut self,
+        peer_id: PeerId,
+        hash: Hash256,
+        delay: Duration,
+        cx: &mut SyncNetworkContext<T>,
+    ) {
+        //TODO(sean) handle delay
+        self.search_block(hash, peer_id, cx);
+    }
+
+    pub fn search_blobs_delayed(
+        &mut self,
+        peer_id: PeerId,
+        blob_ids: Vec<BlobIdentifier>,
+        delay: Duration,
+        cx: &mut SyncNetworkContext<T>,
+    ) {
+        //TODO(sean) handle delay
+        self.search_blobs(blob_ids, peer_id, cx);
     }
 
     /// If a block is attempted to be processed but we do not know its parent, this function is
@@ -460,6 +493,9 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             BlockProcessResult::Ok => {
                 trace!(self.log, "Single block processing succeeded"; "block" => %root);
             }
+            BlockProcessResult::MissingBlobs(blobs) => {
+                todo!()
+            }
             BlockProcessResult::Ignored => {
                 // Beacon processor signalled to ignore the block processing result.
                 // This implies that the cpu is overloaded. Drop the request.
@@ -543,6 +579,9 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             BlockProcessResult::Ok => {
                 trace!(self.log, "Parent block processing succeeded"; &parent_lookup)
             }
+            BlockProcessResult::MissingBlobs(blobs) => {
+                todo!()
+            }
             BlockProcessResult::Err(e) => {
                 trace!(self.log, "Parent block processing failed"; &parent_lookup, "error" => %e)
             }
@@ -557,6 +596,9 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         }
 
         match result {
+            BlockProcessResult::MissingBlobs(blobs) => {
+                todo!()
+            }
             BlockProcessResult::Err(BlockError::ParentUnknown(block)) => {
                 // need to keep looking for parents
                 // add the block back to the queue and continue the search
