@@ -28,11 +28,6 @@ pub struct MerkleProofValidity<E: EthSpec> {
 
 impl<E: EthSpec> LoadCase for MerkleProofValidity<E> {
     fn load_from_dir(path: &Path, fork_name: ForkName) -> Result<Self, Error> {
-        //FIXME(sean)
-        if path.ends_with("execution_merkle_proof") {
-            return Err(Error::SkippedKnownFailure);
-        }
-
         let spec = &testing_spec::<E>(fork_name);
         let state = ssz_decode_state(&path.join("object.ssz_snappy"), spec)?;
         let merkle_proof = yaml_decode_file(&path.join("proof.yaml"))?;
