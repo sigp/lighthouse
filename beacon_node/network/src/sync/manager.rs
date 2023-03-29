@@ -583,6 +583,17 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     seen_timestamp,
                 );
             }
+            SyncMessage::RpcBlob {
+                request_id,
+                peer_id,
+                blob_sidecar,
+                seen_timestamp,
+            } => self.rpc_block_or_blob_received(
+                request_id,
+                peer_id,
+                blob_sidecar.into(),
+                seen_timestamp,
+            ),
             SyncMessage::UnknownBlock(peer_id, block, block_root) => {
                 // If we are not synced or within SLOT_IMPORT_TOLERANCE of the block, ignore
                 if !self.network_globals.sync_state.read().is_synced() {
@@ -688,17 +699,6 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     .block_lookups
                     .parent_chain_processed(chain_hash, result, &mut self.network),
             },
-            SyncMessage::RpcBlob {
-                request_id,
-                peer_id,
-                blob_sidecar,
-                seen_timestamp,
-            } => self.rpc_block_or_blob_received(
-                request_id,
-                peer_id,
-                blob_sidecar.into(),
-                seen_timestamp,
-            ),
         }
     }
 
