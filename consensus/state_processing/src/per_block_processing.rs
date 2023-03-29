@@ -442,10 +442,10 @@ pub fn process_deposit_receipt<T: EthSpec>(
 
     // Create a Deposit object from the DepositReceipt
     let deposit_data = DepositData {
-        pubkey: deposit_receipt.pubkey.clone().into(),
+        pubkey: deposit_receipt.pubkey,
         withdrawal_credentials: deposit_receipt.withdrawal_credentials,
         amount: deposit_receipt.amount,
-        signature: deposit_receipt.signature.clone().into(),
+        signature: deposit_receipt.signature.clone(),
     };
     let deposit = Deposit {
         proof: FixedVector::from_elem(Hash256::zero()), // Set an empty proof, since it's not included in DepositReceipt

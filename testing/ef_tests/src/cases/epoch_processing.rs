@@ -324,7 +324,7 @@ impl<E: EthSpec, T: EpochTransition<E>> Case for EpochProcessing<E, T> {
                 T::name() != "participation_record_updates"
                     && T::name() != "historical_roots_update"
             }
-            ForkName::Eip4844 | ForkName::Eip6110 => {
+            ForkName::Eip6110 => {
                 T::name() != "participation_record_updates"
                     && T::name() != "historical_roots_update"
             }
