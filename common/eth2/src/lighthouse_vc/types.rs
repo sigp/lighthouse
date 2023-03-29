@@ -147,5 +147,5 @@ pub struct UpdateGasLimitRequest {
 
 #[derive(Deserialize)]
 pub struct VoluntaryExitQuery {
-    pub epoch: Epoch,
+    pub epoch: Option<Epoch>,
 }

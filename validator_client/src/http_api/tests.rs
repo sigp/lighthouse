@@ -134,6 +134,7 @@ impl ApiTester {
                 allow_origin: None,
             },
             log: log.clone(),
+            genesis_time,
             _phantom: PhantomData,
         });
         let ctx = context.clone();
@@ -505,10 +506,9 @@ impl ApiTester {
             .write()
             .set_index(&validator.voting_pubkey, 0);
 
-        let test_epoch = Epoch::new(256);
         let resp = self
             .client
-            .post_validator_voluntary_exit(&validator.voting_pubkey, test_epoch)
+            .post_validator_voluntary_exit(&validator.voting_pubkey, None)
             .await;
 
         assert!(resp.is_ok());

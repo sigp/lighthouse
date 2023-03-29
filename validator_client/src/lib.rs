@@ -94,6 +94,7 @@ pub struct ProductionValidatorClient<T: EthSpec> {
     doppelganger_service: Option<Arc<DoppelgangerService>>,
     preparation_service: PreparationService<SystemTimeSlotClock, T>,
     validator_store: Arc<ValidatorStore<SystemTimeSlotClock, T>>,
+    genesis_time: u64,
     http_api_listen_addr: Option<SocketAddr>,
     config: Config,
 }
@@ -482,6 +483,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             preparation_service,
             validator_store,
             config,
+            genesis_time,
             http_api_listen_addr: None,
         })
     }
@@ -544,6 +546,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
                 graffiti_flag: self.config.graffiti,
                 spec: self.context.eth2_config.spec.clone(),
                 config: self.config.http_api.clone(),
+                genesis_time: self.genesis_time,
                 log: log.clone(),
                 _phantom: PhantomData,
             });

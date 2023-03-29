@@ -647,7 +647,7 @@ impl ValidatorClientHttpClient {
     pub async fn post_validator_voluntary_exit(
         &self,
         pubkey: &PublicKeyBytes,
-        epoch: Epoch,
+        epoch: Option<Epoch>,
     ) -> Result<SignedVoluntaryExit, Error> {
         let mut path = self.server.full.clone();
 
@@ -659,8 +659,10 @@ impl ValidatorClientHttpClient {
             .push(&pubkey.to_string())
             .push("voluntary_exit");
 
-        path.query_pairs_mut()
-            .append_pair("epoch", &epoch.to_string());
+        if let Some(epoch) = epoch {
+            path.query_pairs_mut()
+                .append_pair("epoch", &epoch.to_string());
+        }
 
         self.post(path, &()).await
     }

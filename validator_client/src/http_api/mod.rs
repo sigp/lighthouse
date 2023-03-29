@@ -73,6 +73,7 @@ pub struct Context<T: SlotClock, E: EthSpec> {
     pub spec: ChainSpec,
     pub config: Config,
     pub log: Logger,
+    pub genesis_time: u64,
     pub _phantom: PhantomData<E>,
 }
 
@@ -190,6 +191,9 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
 
     let inner_ctx = ctx.clone();
     let log_filter = warp::any().map(move || inner_ctx.log.clone());
+
+    let inner_genesis_time = ctx.genesis_time;
+    let genesis_time_filter = warp::any().map(move || inner_genesis_time);
 
     let inner_spec = Arc::new(ctx.spec.clone());
     let spec_filter = warp::any().map(move || inner_spec.clone());
@@ -426,7 +430,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(warp::body::json())
         .and(validator_dir_filter.clone())
         .and(validator_store_filter.clone())
-        .and(spec_filter)
+        .and(spec_filter.clone())
         .and(signer.clone())
         .and(task_executor_filter.clone())
         .and_then(
@@ -914,6 +918,8 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(warp::query::<api_types::VoluntaryExitQuery>())
         .and(warp::path::end())
         .and(validator_store_filter.clone())
+        .and(spec_filter)
+        .and(genesis_time_filter)
         .and(log_filter.clone())
         .and(signer.clone())
         .and(task_executor_filter.clone())
@@ -921,14 +927,22 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
             |pubkey: PublicKey,
              query: api_types::VoluntaryExitQuery,
              validator_store: Arc<ValidatorStore<T, E>>,
+             spec: Arc<ChainSpec>,
+             genesis_time: u64,
              log,
              signer,
              task_executor: TaskExecutor| {
                 blocking_signed_json_task(signer, move || {
                     if let Some(handle) = task_executor.handle() {
-                        let signed_voluntary_exit = handle.block_on(
-                            create_signed_voluntary_exit(pubkey, query.epoch, validator_store, log),
-                        )?;
+                        let signed_voluntary_exit =
+                            handle.block_on(create_signed_voluntary_exit(
+                                pubkey,
+                                query.epoch,
+                                validator_store,
+                                spec,
+                                genesis_time,
+                                log,
+                            ))?;
                         Ok(signed_voluntary_exit)
                     } else {
                         Err(warp_utils::reject::custom_server_error(
