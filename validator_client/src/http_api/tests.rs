@@ -45,6 +45,7 @@ struct ApiTester {
     initialized_validators: Arc<RwLock<InitializedValidators>>,
     validator_store: Arc<ValidatorStore<TestingSlotClock, E>>,
     url: SensitiveUrl,
+    slot_clock: TestingSlotClock,
     _server_shutdown: oneshot::Sender<()>,
     _validator_dir: TempDir,
     _runtime_shutdown: exit_future::Signal,
@@ -107,7 +108,7 @@ impl ApiTester {
             Hash256::repeat_byte(42),
             spec.clone(),
             Some(Arc::new(DoppelgangerService::new(log.clone()))),
-            slot_clock,
+            slot_clock.clone(),
             &config,
             executor.clone(),
             log.clone(),
@@ -134,7 +135,7 @@ impl ApiTester {
                 allow_origin: None,
             },
             log: log.clone(),
-            genesis_time,
+            slot_clock: slot_clock.clone(),
             _phantom: PhantomData,
         });
         let ctx = context.clone();
@@ -161,6 +162,7 @@ impl ApiTester {
             initialized_validators,
             validator_store,
             url,
+            slot_clock,
             _server_shutdown: shutdown_tx,
             _validator_dir: validator_dir,
             _runtime_shutdown: runtime_shutdown,
@@ -499,21 +501,31 @@ impl ApiTester {
         self
     }
 
-    pub async fn test_sign_voluntary_exits(self, index: usize) -> Self {
+    pub async fn test_sign_voluntary_exits(self, index: usize, maybe_epoch: Option<Epoch>) -> Self {
         let validator = &self.client.get_lighthouse_validators().await.unwrap().data[index];
         // manually setting validator index in `ValidatorStore`
         self.initialized_validators
             .write()
             .set_index(&validator.voting_pubkey, 0);
 
+        let expected_exit_epoch = maybe_epoch.unwrap_or_else(|| self.get_current_epoch());
+
         let resp = self
             .client
-            .post_validator_voluntary_exit(&validator.voting_pubkey, None)
+            .post_validator_voluntary_exit(&validator.voting_pubkey, maybe_epoch)
             .await;
 
         assert!(resp.is_ok());
+        assert_eq!(resp.unwrap().message.epoch, expected_exit_epoch);
 
         self
+    }
+
+    fn get_current_epoch(&self) -> Epoch {
+        self.slot_clock
+            .now()
+            .map(|s| s.epoch(E::slots_per_epoch()))
+            .unwrap()
     }
 
     pub async fn set_validator_enabled(self, index: usize, enabled: bool) -> Self {
@@ -816,7 +828,9 @@ fn validator_exit() {
             .await
             .assert_enabled_validators_count(2)
             .assert_validators_count(2)
-            .test_sign_voluntary_exits(0)
+            .test_sign_voluntary_exits(0, None)
+            .await
+            .test_sign_voluntary_exits(0, Some(Epoch::new(256)))
             .await;
     });
 }

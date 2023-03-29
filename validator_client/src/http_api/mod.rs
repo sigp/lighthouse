@@ -73,7 +73,7 @@ pub struct Context<T: SlotClock, E: EthSpec> {
     pub spec: ChainSpec,
     pub config: Config,
     pub log: Logger,
-    pub genesis_time: u64,
+    pub slot_clock: T,
     pub _phantom: PhantomData<E>,
 }
 
@@ -192,8 +192,8 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
     let inner_ctx = ctx.clone();
     let log_filter = warp::any().map(move || inner_ctx.log.clone());
 
-    let inner_genesis_time = ctx.genesis_time;
-    let genesis_time_filter = warp::any().map(move || inner_genesis_time);
+    let inner_slot_clock = ctx.slot_clock.clone();
+    let slot_clock_filter = warp::any().map(move || inner_slot_clock.clone());
 
     let inner_spec = Arc::new(ctx.spec.clone());
     let spec_filter = warp::any().map(move || inner_spec.clone());
@@ -430,7 +430,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(warp::body::json())
         .and(validator_dir_filter.clone())
         .and(validator_store_filter.clone())
-        .and(spec_filter.clone())
+        .and(spec_filter)
         .and(signer.clone())
         .and(task_executor_filter.clone())
         .and_then(
@@ -918,8 +918,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(warp::query::<api_types::VoluntaryExitQuery>())
         .and(warp::path::end())
         .and(validator_store_filter.clone())
-        .and(spec_filter)
-        .and(genesis_time_filter)
+        .and(slot_clock_filter)
         .and(log_filter.clone())
         .and(signer.clone())
         .and(task_executor_filter.clone())
@@ -927,8 +926,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
             |pubkey: PublicKey,
              query: api_types::VoluntaryExitQuery,
              validator_store: Arc<ValidatorStore<T, E>>,
-             spec: Arc<ChainSpec>,
-             genesis_time: u64,
+             slot_clock: T,
              log,
              signer,
              task_executor: TaskExecutor| {
@@ -939,8 +937,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                                 pubkey,
                                 query.epoch,
                                 validator_store,
-                                spec,
-                                genesis_time,
+                                slot_clock,
                                 log,
                             ))?;
                         Ok(signed_voluntary_exit)
