@@ -7,7 +7,6 @@ use super::range_sync::{BatchId, ByRangeRequestType, ChainId};
 use crate::beacon_processor::WorkEvent;
 use crate::service::{NetworkMessage, RequestId};
 use crate::status::ToStatusMessage;
-use crate::sync::block_lookups::ForceBlockRequest;
 use beacon_chain::blob_verification::BlockWrapper;
 use beacon_chain::{BeaconChain, BeaconChainTypes, EngineState};
 use fnv::FnvHashMap;
@@ -453,13 +452,11 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         &mut self,
         peer_id: PeerId,
         request: BlocksByRootRequest,
-        force_block_request: ForceBlockRequest,
     ) -> Result<Id, &'static str> {
         let request = if self
             .chain
             .is_data_availability_check_required()
             .map_err(|_| "Unable to read slot clock")?
-            && matches!(force_block_request, ForceBlockRequest::False)
         {
             trace!(
                 self.log,

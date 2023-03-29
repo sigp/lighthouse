@@ -1,16 +1,14 @@
 use super::RootBlockTuple;
+use crate::sync::{
+    manager::{Id, SLOT_IMPORT_TOLERANCE},
+    network_context::SyncNetworkContext,
+};
 use beacon_chain::blob_verification::AsBlock;
 use beacon_chain::blob_verification::BlockWrapper;
 use beacon_chain::BeaconChainTypes;
 use lighthouse_network::PeerId;
 use store::Hash256;
 use strum::IntoStaticStr;
-
-use crate::sync::block_lookups::ForceBlockRequest;
-use crate::sync::{
-    manager::{Id, SLOT_IMPORT_TOLERANCE},
-    network_context::SyncNetworkContext,
-};
 
 use super::single_block_lookup::{self, SingleBlockRequest};
 
@@ -73,18 +71,14 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
     }
 
     /// Attempts to request the next unknown parent. If the request fails, it should be removed.
-    pub fn request_parent(
-        &mut self,
-        cx: &mut SyncNetworkContext<T>,
-        force_block_request: ForceBlockRequest,
-    ) -> Result<(), RequestError> {
+    pub fn request_parent(&mut self, cx: &mut SyncNetworkContext<T>) -> Result<(), RequestError> {
         // check to make sure this request hasn't failed
         if self.downloaded_blocks.len() >= PARENT_DEPTH_TOLERANCE {
             return Err(RequestError::ChainTooLong);
         }
 
         let (peer_id, request) = self.current_parent_request.request_block()?;
-        match cx.parent_lookup_request(peer_id, request, force_block_request) {
+        match cx.parent_lookup_request(peer_id, request) {
             Ok(request_id) => {
                 self.current_parent_request_id = Some(request_id);
                 Ok(())
