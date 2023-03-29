@@ -10,7 +10,10 @@ use crate::{
 use serde_derive::{Deserialize, Serialize};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
-use std::collections::{BTreeSet, HashMap};
+use std::{
+    collections::{BTreeSet, HashMap},
+    fmt,
+};
 use types::{
     AttestationShufflingId, ChainSpec, Checkpoint, Epoch, EthSpec, ExecutionBlockHash, Hash256,
     Slot,
@@ -122,6 +125,17 @@ impl ExecutionStatus {
     /// - Does not have execution enabled (before or after Bellatrix fork)
     pub fn is_irrelevant(&self) -> bool {
         matches!(self, ExecutionStatus::Irrelevant(_))
+    }
+}
+
+impl fmt::Display for ExecutionStatus {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ExecutionStatus::Valid(_) => write!(f, "valid"),
+            ExecutionStatus::Invalid(_) => write!(f, "invalid"),
+            ExecutionStatus::Optimistic(_) => write!(f, "optimistic"),
+            ExecutionStatus::Irrelevant(_) => write!(f, "irrelevant"),
+        }
     }
 }
 
