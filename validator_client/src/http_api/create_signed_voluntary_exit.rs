@@ -25,7 +25,7 @@ pub async fn create_signed_voluntary_exit<T: 'static + SlotClock + Clone, E: Eth
     let validator_index = validator_store
         .validator_index(&pubkey_bytes)
         .ok_or_else(|| {
-            warp_utils::reject::custom_server_error(format!(
+            warp_utils::reject::custom_not_found(format!(
                 "Unable to find validator with public key: {}",
                 pubkey_bytes.as_hex_string()
             ))
