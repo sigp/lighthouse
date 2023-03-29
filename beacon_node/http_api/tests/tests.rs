@@ -8,7 +8,7 @@ use environment::null_logger;
 use eth2::{
     mixin::{RequestAccept, ResponseForkName, ResponseOptional},
     reqwest::RequestBuilder,
-    types::{BlockId as CoreBlockId, StateId as CoreStateId, *},
+    types::{BlockId as CoreBlockId, ForkChoiceNode, StateId as CoreStateId, *},
     BeaconNodeHttpClient, Error, StatusCode, Timeouts,
 };
 use execution_layer::test_utils::TestingBuilder;
@@ -1676,6 +1676,59 @@ impl ApiTester {
 
         assert_eq!(result, expected);
 
+        self
+    }
+
+    pub async fn test_get_debug_fork_choice(self) -> Self {
+        let result = self.client.get_debug_fork_choice().await.unwrap();
+
+        let beacon_fork_choice = self.chain.canonical_head.fork_choice_read_lock();
+
+        let expected_proto_array = beacon_fork_choice.proto_array().core_proto_array();
+
+        assert_eq!(
+            result.justified_checkpoint,
+            expected_proto_array.justified_checkpoint
+        );
+        assert_eq!(
+            result.finalized_checkpoint,
+            expected_proto_array.finalized_checkpoint
+        );
+
+        let expected_fork_choice_nodes: Vec<ForkChoiceNode> = expected_proto_array
+            .nodes
+            .iter()
+            .map(|node| {
+                let execution_status = if node.execution_status.is_execution_enabled() {
+                    Some(node.execution_status.to_string())
+                } else {
+                    None
+                };
+                ForkChoiceNode {
+                    slot: node.slot,
+                    block_root: node.root,
+                    parent_root: node
+                        .parent
+                        .and_then(|index| expected_proto_array.nodes.get(index))
+                        .map(|parent| parent.root),
+                    justified_epoch: node.justified_checkpoint.map(|checkpoint| checkpoint.epoch),
+                    finalized_epoch: node.finalized_checkpoint.map(|checkpoint| checkpoint.epoch),
+                    weight: node.weight,
+                    validity: execution_status,
+                    execution_block_hash: node
+                        .execution_status
+                        .block_hash()
+                        .map(|block_hash| block_hash.into_root()),
+                }
+            })
+            .collect();
+
+        assert_eq!(result.fork_choice_nodes, expected_fork_choice_nodes);
+
+        // need to drop beacon_fork_choice here, else borrow checker will complain
+        // that self cannot be moved out since beacon_fork_choice borrowed self.chain
+        // and might still live after self is moved out
+        drop(beacon_fork_choice);
         self
     }
 
@@ -4148,6 +4201,8 @@ async fn debug_get() {
         .test_get_debug_beacon_states()
         .await
         .test_get_debug_beacon_heads()
+        .await
+        .test_get_debug_fork_choice()
         .await;
 }
 

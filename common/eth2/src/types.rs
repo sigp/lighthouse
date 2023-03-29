@@ -1197,6 +1197,26 @@ pub struct LivenessResponseData {
     pub is_live: bool,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ForkChoice {
+    pub justified_checkpoint: Checkpoint,
+    pub finalized_checkpoint: Checkpoint,
+    pub fork_choice_nodes: Vec<ForkChoiceNode>,
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ForkChoiceNode {
+    pub slot: Slot,
+    pub block_root: Hash256,
+    pub parent_root: Option<Hash256>,
+    pub justified_epoch: Option<Epoch>,
+    pub finalized_epoch: Option<Epoch>,
+    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    pub weight: u64,
+    pub validity: Option<String>,
+    pub execution_block_hash: Option<Hash256>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
