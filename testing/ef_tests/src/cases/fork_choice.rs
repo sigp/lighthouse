@@ -45,7 +45,6 @@ pub struct Checks {
     justified_checkpoint: Option<Checkpoint>,
     justified_checkpoint_root: Option<Hash256>,
     finalized_checkpoint: Option<Checkpoint>,
-    best_justified_checkpoint: Option<Checkpoint>,
     u_justified_checkpoint: Option<Checkpoint>,
     u_finalized_checkpoint: Option<Checkpoint>,
     proposer_boost_root: Option<Hash256>,
@@ -229,7 +228,6 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
                         justified_checkpoint,
                         justified_checkpoint_root,
                         finalized_checkpoint,
-                        best_justified_checkpoint,
                         u_justified_checkpoint,
                         u_finalized_checkpoint,
                         proposer_boost_root,
@@ -258,11 +256,6 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
 
                     if let Some(expected_finalized_checkpoint) = finalized_checkpoint {
                         tester.check_finalized_checkpoint(*expected_finalized_checkpoint)?;
-                    }
-
-                    if let Some(expected_best_justified_checkpoint) = best_justified_checkpoint {
-                        tester
-                            .check_best_justified_checkpoint(*expected_best_justified_checkpoint)?;
                     }
 
                     if let Some(expected_u_justified_checkpoint) = u_justified_checkpoint {
@@ -378,7 +371,7 @@ impl<E: EthSpec> Tester<E> {
             .chain
             .canonical_head
             .fork_choice_write_lock()
-            .update_time(slot, &self.spec)
+            .update_time(slot)
             .unwrap();
     }
 
@@ -388,7 +381,7 @@ impl<E: EthSpec> Tester<E> {
         let result = self.block_on_dangerous(self.harness.chain.process_block(
             block_root,
             block.clone(),
-            CountUnrealized::False,
+            CountUnrealized::True,
             NotifyExecutionLayer::Yes,
         ))?;
         if result.is_ok() != valid {
@@ -448,7 +441,7 @@ impl<E: EthSpec> Tester<E> {
                         &state,
                         PayloadVerificationStatus::Irrelevant,
                         &self.harness.chain.spec,
-                        self.harness.chain.config.count_unrealized.into(),
+                        CountUnrealized::True,
                     );
 
                 if result.is_ok() {
@@ -574,23 +567,6 @@ impl<E: EthSpec> Tester<E> {
         assert_checkpoints_eq("finalized_checkpoint", head_checkpoint, fc_checkpoint);
 
         check_equal("finalized_checkpoint", fc_checkpoint, expected_checkpoint)
-    }
-
-    pub fn check_best_justified_checkpoint(
-        &self,
-        expected_checkpoint: Checkpoint,
-    ) -> Result<(), Error> {
-        let best_justified_checkpoint = self
-            .harness
-            .chain
-            .canonical_head
-            .fork_choice_read_lock()
-            .best_justified_checkpoint();
-        check_equal(
-            "best_justified_checkpoint",
-            best_justified_checkpoint,
-            expected_checkpoint,
-        )
     }
 
     pub fn check_u_justified_checkpoint(

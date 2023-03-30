@@ -13,7 +13,7 @@ use peerdb::{client::ClientKind, BanOperation, BanResult, ScoreUpdateResult};
 use rand::seq::SliceRandom;
 use slog::{debug, error, trace, warn};
 use smallvec::SmallVec;
-use std::collections::VecDeque;
+use std::collections::BTreeMap;
 use std::{
     sync::Arc,
     time::{Duration, Instant},
@@ -77,7 +77,7 @@ pub struct PeerManager<TSpec: EthSpec> {
     /// The target number of peers we would like to connect to.
     target_peers: usize,
     /// Peers queued to be dialed.
-    peers_to_dial: VecDeque<(PeerId, Option<Enr>)>,
+    peers_to_dial: BTreeMap<PeerId, Option<Enr>>,
     /// The number of temporarily banned peers. This is used to prevent instantaneous
     /// reconnection.
     // NOTE: This just prevents re-connections. The state of the peer is otherwise unaffected. A
@@ -308,7 +308,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     /// proves resource constraining, we should switch to multiaddr dialling here.
     #[allow(clippy::mutable_key_type)]
     pub fn peers_discovered(&mut self, results: HashMap<PeerId, Option<Instant>>) -> Vec<PeerId> {
-        let mut to_dial_peers = Vec::new();
+        let mut to_dial_peers = Vec::with_capacity(4);
 
         let connected_or_dialing = self.network_globals.connected_or_dialing_peers();
         for (peer_id, min_ttl) in results {
@@ -398,7 +398,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
 
     // A peer is being dialed.
     pub fn dial_peer(&mut self, peer_id: &PeerId, enr: Option<Enr>) {
-        self.peers_to_dial.push_back((*peer_id, enr));
+        self.peers_to_dial.insert(*peer_id, enr);
     }
 
     /// Reports if a peer is banned or not.
@@ -1185,6 +1185,18 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
 
         // Unban any peers that have served their temporary ban timeout
         self.unban_temporary_banned_peers();
+
+        // Maintains memory by shrinking mappings
+        self.shrink_mappings();
+    }
+
+    // Reduce memory footprint by routinely shrinking associating mappings.
+    fn shrink_mappings(&mut self) {
+        self.inbound_ping_peers.shrink_to(5);
+        self.outbound_ping_peers.shrink_to(5);
+        self.status_peers.shrink_to(5);
+        self.temporary_banned_peers.shrink_to_fit();
+        self.sync_committee_subnets.shrink_to_fit();
     }
 
     // Update metrics related to peer scoring.
