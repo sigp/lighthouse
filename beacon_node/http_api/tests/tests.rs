@@ -598,7 +598,7 @@ impl ApiTester {
                 .unwrap();
 
             let (block_root, _, _) = block_root.unwrap();
-            let (block, _) = block.unwrap();
+            let (block, _, _) = block.unwrap();
             let block_slot = block.slot();
             let expected = self
                 .chain
@@ -634,7 +634,7 @@ impl ApiTester {
                 .unwrap();
 
             let (block_root, _, _) = block_root.unwrap();
-            let (block, _) = block.unwrap();
+            let (block, _, _) = block.unwrap();
             let block_slot = block.slot();
             let expected = self
                 .chain
@@ -670,7 +670,7 @@ impl ApiTester {
                 .unwrap();
 
             let (block_root, _, _) = block_root.unwrap();
-            let (block, _) = block.unwrap();
+            let (block, _, _) = block.unwrap();
             let block_slot = block.slot();
             let expected = self
                 .chain
@@ -1172,7 +1172,7 @@ impl ApiTester {
                 .full_block(&self.chain)
                 .await
                 .ok()
-                .map(|(block, _execution_optimistic)| block);
+                .map(|(block, _execution_optimistic, _finalized)| block);
 
             if block_opt.is_none() && result.is_none() {
                 continue;
@@ -1265,7 +1265,7 @@ impl ApiTester {
                 .full_block(&self.chain)
                 .await
                 .ok()
-                .map(|(block, _execution_optimistic)| block);
+                .map(|(block, _execution_optimistic, _finalized)| block);
 
             if let CoreBlockId::Slot(slot) = block_id.0 {
                 if expected.is_none() {
@@ -1349,7 +1349,7 @@ impl ApiTester {
             let expected = block_id
                 .blinded_block(&self.chain)
                 .ok()
-                .map(|(block, _execution_optimistic)| block);
+                .map(|(block, _execution_optimistic, _finalized)| block);
 
             if let CoreBlockId::Slot(slot) = block_id.0 {
                 if expected.is_none() {
@@ -1430,7 +1430,7 @@ impl ApiTester {
                 .map(|res| res.data);
 
             let expected = block_id.full_block(&self.chain).await.ok().map(
-                |(block, _execution_optimistic)| {
+                |(block, _execution_optimistic, _finalized)| {
                     block.message().body().attestations().clone().into()
                 },
             );
