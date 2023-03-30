@@ -197,7 +197,7 @@ impl<T: BeaconChainTypes> Router<T> {
                 BeaconWorkEvent::blocks_by_roots_request(peer_id, request_id, request),
             ),
             Request::LightClientBootstrap(request) => self.send_beacon_processor_work(
-                BeaconWorkEvent::lightclient_bootstrap_request(peer_id, request_id, request),
+                BeaconWorkEvent::light_client_bootstrap_request(peer_id, request_id, request),
             ),
             Request::LightClientOptimisticUpdate => self.send_beacon_processor_work(
                 BeaconWorkEvent::light_client_optimistic_update_request(peer_id, request_id),

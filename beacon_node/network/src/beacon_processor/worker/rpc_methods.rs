@@ -12,6 +12,7 @@ use slot_clock::SlotClock;
 use task_executor::TaskExecutor;
 use tokio_stream::StreamExt;
 use types::{Epoch, EthSpec, Hash256, LightClientBootstrap, Slot};
+use std::sync::Arc;
 
 use super::Worker;
 

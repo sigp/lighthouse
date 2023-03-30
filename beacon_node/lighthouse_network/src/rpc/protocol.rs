@@ -379,6 +379,12 @@ impl ProtocolId {
             Protocol::LightClientBootstrap => match self.version {
                 Version::V2 | Version::V1 => true,
             },
+            Protocol::LightClientOptimisticUpdate => match self.version {
+                Version::V2 | Version::V1 => true,
+            },
+            Protocol::LightClientFinalityUpdate => match self.version {
+                Version::V2 | Version::V1 => true,
+            },
             Protocol::Goodbye | Protocol::Ping | Protocol::Status | Protocol::MetaData => false,
         }
     }
