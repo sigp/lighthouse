@@ -126,7 +126,14 @@ impl BlockId {
     pub fn blinded_block<T: BeaconChainTypes>(
         &self,
         chain: &BeaconChain<T>,
-    ) -> Result<(SignedBlindedBeaconBlock<T::EthSpec>, ExecutionOptimistic), warp::Rejection> {
+    ) -> Result<
+        (
+            SignedBlindedBeaconBlock<T::EthSpec>,
+            ExecutionOptimistic,
+            Finalized,
+        ),
+        warp::Rejection,
+    > {
         match &self.0 {
             CoreBlockId::Head => {
                 let (cached_head, execution_status) = chain
@@ -136,10 +143,11 @@ impl BlockId {
                 Ok((
                     cached_head.snapshot.beacon_block.clone_as_blinded(),
                     execution_status.is_optimistic_or_invalid(),
+                    false,
                 ))
             }
             CoreBlockId::Slot(slot) => {
-                let (root, execution_optimistic, _finalized) = self.root(chain)?;
+                let (root, execution_optimistic, finalized) = self.root(chain)?;
                 chain
                     .get_blinded_block(&root)
                     .map_err(warp_utils::reject::beacon_chain_error)
@@ -151,7 +159,7 @@ impl BlockId {
                                     slot
                                 )));
                             }
-                            Ok((block, execution_optimistic))
+                            Ok((block, execution_optimistic, finalized))
                         }
                         None => Err(warp_utils::reject::custom_not_found(format!(
                             "beacon block with root {}",
@@ -160,7 +168,7 @@ impl BlockId {
                     })
             }
             _ => {
-                let (root, execution_optimistic, _finalized) = self.root(chain)?;
+                let (root, execution_optimistic, finalized) = self.root(chain)?;
                 let block = chain
                     .get_blinded_block(&root)
                     .map_err(warp_utils::reject::beacon_chain_error)
@@ -172,7 +180,7 @@ impl BlockId {
                             ))
                         })
                     })?;
-                Ok((block, execution_optimistic))
+                Ok((block, execution_optimistic, finalized))
             }
         }
     }
@@ -181,7 +189,14 @@ impl BlockId {
     pub async fn full_block<T: BeaconChainTypes>(
         &self,
         chain: &BeaconChain<T>,
-    ) -> Result<(Arc<SignedBeaconBlock<T::EthSpec>>, ExecutionOptimistic), warp::Rejection> {
+    ) -> Result<
+        (
+            Arc<SignedBeaconBlock<T::EthSpec>>,
+            ExecutionOptimistic,
+            Finalized,
+        ),
+        warp::Rejection,
+    > {
         match &self.0 {
             CoreBlockId::Head => {
                 let (cached_head, execution_status) = chain
@@ -191,10 +206,11 @@ impl BlockId {
                 Ok((
                     cached_head.snapshot.beacon_block.clone(),
                     execution_status.is_optimistic_or_invalid(),
+                    false,
                 ))
             }
             CoreBlockId::Slot(slot) => {
-                let (root, execution_optimistic, _finalized) = self.root(chain)?;
+                let (root, execution_optimistic, finalized) = self.root(chain)?;
                 chain
                     .get_block(&root)
                     .await
@@ -207,7 +223,7 @@ impl BlockId {
                                     slot
                                 )));
                             }
-                            Ok((Arc::new(block), execution_optimistic))
+                            Ok((Arc::new(block), execution_optimistic, finalized))
                         }
                         None => Err(warp_utils::reject::custom_not_found(format!(
                             "beacon block with root {}",
@@ -216,14 +232,14 @@ impl BlockId {
                     })
             }
             _ => {
-                let (root, execution_optimistic, _finalized) = self.root(chain)?;
+                let (root, execution_optimistic, finalized) = self.root(chain)?;
                 chain
                     .get_block(&root)
                     .await
                     .map_err(warp_utils::reject::beacon_chain_error)
                     .and_then(|block_opt| {
                         block_opt
-                            .map(|block| (Arc::new(block), execution_optimistic))
+                            .map(|block| (Arc::new(block), execution_optimistic, finalized))
                             .ok_or_else(|| {
                                 warp_utils::reject::custom_not_found(format!(
                                     "beacon block with root {}",
