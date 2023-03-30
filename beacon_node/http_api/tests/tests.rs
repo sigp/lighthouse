@@ -462,6 +462,264 @@ impl ApiTester {
         self
     }
 
+    // finalization tests
+    pub async fn test_beacon_states_root_finalized(self) -> Self {
+        for state_id in self.interesting_state_ids() {
+            let state_root = state_id.root(&self.chain);
+            let state = state_id.state(&self.chain);
+
+            // if .root or .state fail, skip the test. those would be errors outside the scope
+            // of this test, here we're testing the finalized field assuming the call to .is_finalized_state
+            // occurs after the state_root and state calls, and that the state_root and state calls
+            // were correct.
+            if state_root.is_err() || state.is_err() {
+                continue;
+            }
+
+            // now that we know the state is valid, we can unwrap() everything we need
+            let result = self
+                .client
+                .get_beacon_states_root(state_id.0)
+                .await
+                .unwrap()
+                .unwrap()
+                .finalized
+                .unwrap();
+
+            let (state_root, _, _) = state_root.unwrap();
+            let (state, _, _) = state.unwrap();
+            let state_slot = state.slot();
+            let expected = self
+                .chain
+                .is_finalized_state(&state_root, state_slot)
+                .unwrap();
+
+            assert_eq!(result, expected, "{:?}", state_id);
+        }
+
+        self
+    }
+
+    pub async fn test_beacon_states_fork_finalized(self) -> Self {
+        for state_id in self.interesting_state_ids() {
+            let state_root = state_id.root(&self.chain);
+            let state = state_id.state(&self.chain);
+
+            // if .root or .state fail, skip the test. those would be errors outside the scope
+            // of this test, here we're testing the finalized field assuming the call to .is_finalized_state
+            // occurs after the state_root and state calls, and that the state_root and state calls
+            // were correct.
+            if state_root.is_err() || state.is_err() {
+                continue;
+            }
+
+            // now that we know the state is valid, we can unwrap() everything we need
+            let result = self
+                .client
+                .get_beacon_states_fork(state_id.0)
+                .await
+                .unwrap()
+                .unwrap()
+                .finalized
+                .unwrap();
+
+            let (state_root, _, _) = state_root.unwrap();
+            let (state, _, _) = state.unwrap();
+            let state_slot = state.slot();
+            let expected = self
+                .chain
+                .is_finalized_state(&state_root, state_slot)
+                .unwrap();
+
+            assert_eq!(result, expected, "{:?}", state_id);
+        }
+
+        self
+    }
+
+    pub async fn test_beacon_states_finality_checkpoints_finalized(self) -> Self {
+        for state_id in self.interesting_state_ids() {
+            let state_root = state_id.root(&self.chain);
+            let state = state_id.state(&self.chain);
+
+            // if .root or .state fail, skip the test. those would be errors outside the scope
+            // of this test, here we're testing the finalized field assuming the call to .is_finalized_state
+            // occurs after the state_root and state calls, and that the state_root and state calls
+            // were correct.
+            if state_root.is_err() || state.is_err() {
+                continue;
+            }
+
+            // now that we know the state is valid, we can unwrap() everything we need
+            let result = self
+                .client
+                .get_beacon_states_finality_checkpoints(state_id.0)
+                .await
+                .unwrap()
+                .unwrap()
+                .finalized
+                .unwrap();
+
+            let (state_root, _, _) = state_root.unwrap();
+            let (state, _, _) = state.unwrap();
+            let state_slot = state.slot();
+            let expected = self
+                .chain
+                .is_finalized_state(&state_root, state_slot)
+                .unwrap();
+
+            assert_eq!(result, expected, "{:?}", state_id);
+        }
+
+        self
+    }
+
+    pub async fn test_beacon_headers_block_id_finalized(self) -> Self {
+        for block_id in self.interesting_block_ids() {
+            let block_root = block_id.root(&self.chain);
+            let block = block_id.full_block(&self.chain).await;
+
+            // if .root or .state fail, skip the test. those would be errors outside the scope
+            // of this test, here we're testing the finalized field assuming the call to .is_finalized_state
+            // occurs after the state_root and state calls, and that the state_root and state calls
+            // were correct.
+            if block_root.is_err() || block.is_err() {
+                continue;
+            }
+
+            // now that we know the block is valid, we can unwrap() everything we need
+            let result = self
+                .client
+                .get_beacon_headers_block_id(block_id.0)
+                .await
+                .unwrap()
+                .unwrap()
+                .finalized
+                .unwrap();
+
+            let (block_root, _, _) = block_root.unwrap();
+            let (block, _, _) = block.unwrap();
+            let block_slot = block.slot();
+            let expected = self
+                .chain
+                .is_finalized_block(&block_root, block_slot)
+                .unwrap();
+
+            assert_eq!(result, expected, "{:?}", block_id);
+        }
+
+        self
+    }
+
+    pub async fn test_beacon_blocks_finalized<T: EthSpec>(self) -> Self {
+        for block_id in self.interesting_block_ids() {
+            let block_root = block_id.root(&self.chain);
+            let block = block_id.full_block(&self.chain).await;
+
+            // if .root or .full_block fail, skip the test. those would be errors outside the scope
+            // of this test, here we're testing the finalized field assuming the call to .is_finalized_block
+            // occurs after those calls, and that they were correct.
+            if block_root.is_err() || block.is_err() {
+                continue;
+            }
+
+            // now that we know the block is valid, we can unwrap() everything we need
+            let result = self
+                .client
+                .get_beacon_blocks::<MainnetEthSpec>(block_id.0)
+                .await
+                .unwrap()
+                .unwrap()
+                .finalized
+                .unwrap();
+
+            let (block_root, _, _) = block_root.unwrap();
+            let (block, _, _) = block.unwrap();
+            let block_slot = block.slot();
+            let expected = self
+                .chain
+                .is_finalized_block(&block_root, block_slot)
+                .unwrap();
+
+            assert_eq!(result, expected, "{:?}", block_id);
+        }
+
+        self
+    }
+
+    pub async fn test_beacon_blinded_blocks_finalized<T: EthSpec>(self) -> Self {
+        for block_id in self.interesting_block_ids() {
+            let block_root = block_id.root(&self.chain);
+            let block = block_id.full_block(&self.chain).await;
+
+            // if .root or .full_block fail, skip the test. those would be errors outside the scope
+            // of this test, here we're testing the finalized field assuming the call to .is_finalized_block
+            // occurs after those calls, and that they were correct.
+            if block_root.is_err() || block.is_err() {
+                continue;
+            }
+
+            // now that we know the block is valid, we can unwrap() everything we need
+            let result = self
+                .client
+                .get_beacon_blinded_blocks::<MainnetEthSpec>(block_id.0)
+                .await
+                .unwrap()
+                .unwrap()
+                .finalized
+                .unwrap();
+
+            let (block_root, _, _) = block_root.unwrap();
+            let (block, _, _) = block.unwrap();
+            let block_slot = block.slot();
+            let expected = self
+                .chain
+                .is_finalized_block(&block_root, block_slot)
+                .unwrap();
+
+            assert_eq!(result, expected, "{:?}", block_id);
+        }
+
+        self
+    }
+
+    pub async fn test_debug_beacon_states_finalized(self) -> Self {
+        for state_id in self.interesting_state_ids() {
+            let state_root = state_id.root(&self.chain);
+            let state = state_id.state(&self.chain);
+
+            // if .root or .state fail, skip the test. those would be errors outside the scope
+            // of this test, here we're testing the finalized field assuming the call to .is_finalized_state
+            // occurs after the state_root and state calls, and that the state_root and state calls
+            // were correct.
+            if state_root.is_err() || state.is_err() {
+                continue;
+            }
+
+            // now that we know the state is valid, we can unwrap() everything we need
+            let result = self
+                .client
+                .get_debug_beacon_states::<MainnetEthSpec>(state_id.0)
+                .await
+                .unwrap()
+                .unwrap()
+                .finalized
+                .unwrap();
+
+            let (state_root, _, _) = state_root.unwrap();
+            let (state, _, _) = state.unwrap();
+            let state_slot = state.slot();
+            let expected = self
+                .chain
+                .is_finalized_state(&state_root, state_slot)
+                .unwrap();
+
+            assert_eq!(result, expected, "{:?}", state_id);
+        }
+
+        self
+    }
+
     pub async fn test_beacon_states_root(self) -> Self {
         for state_id in self.interesting_state_ids() {
             let result = self
@@ -474,7 +732,7 @@ impl ApiTester {
             let expected = state_id
                 .root(&self.chain)
                 .ok()
-                .map(|(root, _execution_optimistic)| root);
+                .map(|(root, _execution_optimistic, _finalized)| root);
 
             assert_eq!(result, expected, "{:?}", state_id);
         }
@@ -508,15 +766,13 @@ impl ApiTester {
                 .unwrap()
                 .map(|res| res.data);
 
-            let expected =
-                state_id
-                    .state(&self.chain)
-                    .ok()
-                    .map(|(state, _execution_optimistic)| FinalityCheckpointsData {
-                        previous_justified: state.previous_justified_checkpoint(),
-                        current_justified: state.current_justified_checkpoint(),
-                        finalized: state.finalized_checkpoint(),
-                    });
+            let expected = state_id.state(&self.chain).ok().map(
+                |(state, _execution_optimistic, _finalized)| FinalityCheckpointsData {
+                    previous_justified: state.previous_justified_checkpoint(),
+                    current_justified: state.current_justified_checkpoint(),
+                    finalized: state.finalized_checkpoint(),
+                },
+            );
 
             assert_eq!(result, expected, "{:?}", state_id);
         }
@@ -529,7 +785,9 @@ impl ApiTester {
             for validator_indices in self.interesting_validator_indices() {
                 let state_opt = state_id.state(&self.chain).ok();
                 let validators: Vec<Validator> = match state_opt.as_ref() {
-                    Some((state, _execution_optimistic)) => state.validators().clone().into(),
+                    Some((state, _execution_optimistic, _finalized)) => {
+                        state.validators().clone().into()
+                    }
                     None => vec![],
                 };
                 let validator_index_ids = validator_indices
@@ -568,7 +826,7 @@ impl ApiTester {
                     .unwrap()
                     .map(|res| res.data);
 
-                let expected = state_opt.map(|(state, _execution_optimistic)| {
+                let expected = state_opt.map(|(state, _execution_optimistic, _finalized)| {
                     let mut validators = Vec::with_capacity(validator_indices.len());
 
                     for i in validator_indices {
@@ -598,7 +856,7 @@ impl ApiTester {
                     let state_opt = state_id
                         .state(&self.chain)
                         .ok()
-                        .map(|(state, _execution_optimistic)| state);
+                        .map(|(state, _execution_optimistic, _finalized)| state);
                     let validators: Vec<Validator> = match state_opt.as_ref() {
                         Some(state) => state.validators().clone().into(),
                         None => vec![],
@@ -688,7 +946,7 @@ impl ApiTester {
             let state_opt = state_id
                 .state(&self.chain)
                 .ok()
-                .map(|(state, _execution_optimistic)| state);
+                .map(|(state, _execution_optimistic, _finalized)| state);
             let validators = match state_opt.as_ref() {
                 Some(state) => state.validators().clone().into(),
                 None => vec![],
@@ -743,7 +1001,7 @@ impl ApiTester {
             let mut state_opt = state_id
                 .state(&self.chain)
                 .ok()
-                .map(|(state, _execution_optimistic)| state);
+                .map(|(state, _execution_optimistic, _finalized)| state);
 
             let epoch_opt = state_opt.as_ref().map(|state| state.current_epoch());
             let results = self
@@ -790,7 +1048,7 @@ impl ApiTester {
             let mut state_opt = state_id
                 .state(&self.chain)
                 .ok()
-                .map(|(state, _execution_optimistic)| state);
+                .map(|(state, _execution_optimistic, _finalized)| state);
 
             let epoch_opt = state_opt.as_ref().map(|state| state.current_epoch());
             let result = self
@@ -900,7 +1158,7 @@ impl ApiTester {
             let block_root_opt = block_id
                 .root(&self.chain)
                 .ok()
-                .map(|(root, _execution_optimistic)| root);
+                .map(|(root, _execution_optimistic, _finalized)| root);
 
             if let CoreBlockId::Slot(slot) = block_id.0 {
                 if block_root_opt.is_none() {
@@ -914,7 +1172,7 @@ impl ApiTester {
                 .full_block(&self.chain)
                 .await
                 .ok()
-                .map(|(block, _execution_optimistic)| block);
+                .map(|(block, _execution_optimistic, _finalized)| block);
 
             if block_opt.is_none() && result.is_none() {
                 continue;
@@ -960,7 +1218,7 @@ impl ApiTester {
             let expected = block_id
                 .root(&self.chain)
                 .ok()
-                .map(|(root, _execution_optimistic)| root);
+                .map(|(root, _execution_optimistic, _finalized)| root);
             if let CoreBlockId::Slot(slot) = block_id.0 {
                 if expected.is_none() {
                     assert!(SKIPPED_SLOTS.contains(&slot.as_u64()));
@@ -1007,7 +1265,7 @@ impl ApiTester {
                 .full_block(&self.chain)
                 .await
                 .ok()
-                .map(|(block, _execution_optimistic)| block);
+                .map(|(block, _execution_optimistic, _finalized)| block);
 
             if let CoreBlockId::Slot(slot) = block_id.0 {
                 if expected.is_none() {
@@ -1091,7 +1349,7 @@ impl ApiTester {
             let expected = block_id
                 .blinded_block(&self.chain)
                 .ok()
-                .map(|(block, _execution_optimistic)| block);
+                .map(|(block, _execution_optimistic, _finalized)| block);
 
             if let CoreBlockId::Slot(slot) = block_id.0 {
                 if expected.is_none() {
@@ -1172,7 +1430,7 @@ impl ApiTester {
                 .map(|res| res.data);
 
             let expected = block_id.full_block(&self.chain).await.ok().map(
-                |(block, _execution_optimistic)| {
+                |(block, _execution_optimistic, _finalized)| {
                     block.message().body().attestations().clone().into()
                 },
             );
@@ -1593,7 +1851,7 @@ impl ApiTester {
             let mut expected = state_id
                 .state(&self.chain)
                 .ok()
-                .map(|(state, _execution_optimistic)| state);
+                .map(|(state, _execution_optimistic, _finalized)| state);
             expected.as_mut().map(|state| state.drop_all_caches());
 
             if let (Some(json), Some(expected)) = (&result_json, &expected) {
@@ -3657,7 +3915,7 @@ impl ApiTester {
             let mut expected = state_id
                 .state(&self.chain)
                 .ok()
-                .map(|(state, _execution_optimistic)| state);
+                .map(|(state, _execution_optimistic, _finalized)| state);
             expected.as_mut().map(|state| state.drop_all_caches());
 
             assert_eq!(result, expected, "{:?}", state_id);
@@ -4064,6 +4322,20 @@ async fn beacon_get() {
     ApiTester::new()
         .await
         .test_beacon_genesis()
+        .await
+        .test_beacon_states_root_finalized()
+        .await
+        .test_beacon_states_fork_finalized()
+        .await
+        .test_beacon_states_finality_checkpoints_finalized()
+        .await
+        .test_beacon_headers_block_id_finalized()
+        .await
+        .test_beacon_blocks_finalized::<MainnetEthSpec>()
+        .await
+        .test_beacon_blinded_blocks_finalized::<MainnetEthSpec>()
+        .await
+        .test_debug_beacon_states_finalized()
         .await
         .test_beacon_states_root()
         .await

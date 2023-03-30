@@ -6,6 +6,46 @@ use std::sync::Arc;
 
 // Deserialize is only implemented for types that implement ForkVersionDeserialize
 #[derive(Debug, PartialEq, Clone, Serialize)]
+pub struct ExecutionOptimisticFinalizedForkVersionedResponse<T> {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub version: Option<ForkName>,
+    pub execution_optimistic: Option<bool>,
+    pub finalized: Option<bool>,
+    pub data: T,
+}
+
+impl<'de, F> serde::Deserialize<'de> for ExecutionOptimisticFinalizedForkVersionedResponse<F>
+where
+    F: ForkVersionDeserialize,
+{
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        struct Helper {
+            version: Option<ForkName>,
+            execution_optimistic: Option<bool>,
+            finalized: Option<bool>,
+            data: serde_json::Value,
+        }
+
+        let helper = Helper::deserialize(deserializer)?;
+        let data = match helper.version {
+            Some(fork_name) => F::deserialize_by_fork::<'de, D>(helper.data, fork_name)?,
+            None => serde_json::from_value(helper.data).map_err(serde::de::Error::custom)?,
+        };
+
+        Ok(ExecutionOptimisticFinalizedForkVersionedResponse {
+            version: helper.version,
+            execution_optimistic: helper.execution_optimistic,
+            finalized: helper.finalized,
+            data,
+        })
+    }
+}
+
+#[derive(Debug, PartialEq, Clone, Serialize)]
 pub struct ExecutionOptimisticForkVersionedResponse<T> {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub version: Option<ForkName>,
