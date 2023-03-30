@@ -447,10 +447,10 @@ pub struct JsonDepositReceipt {
 impl From<DepositReceipt> for JsonDepositReceipt {
     fn from(deposit_receipt: DepositReceipt) -> Self {
         Self {
-            pubkey: deposit_receipt.pubkey.decompress().unwrap().into(), // Convert PublicKeyBytes to PublicKey
+            pubkey: deposit_receipt.pubkey.decompress().unwrap().into(),
             withdrawal_credentials: deposit_receipt.withdrawal_credentials,
             amount: deposit_receipt.amount,
-            signature: (deposit_receipt.signature).try_into().unwrap(), // Convert SignatureBytes to Signature
+            signature: deposit_receipt.signature,
             index: deposit_receipt.index,
         }
     }
@@ -459,10 +459,10 @@ impl From<DepositReceipt> for JsonDepositReceipt {
 impl From<JsonDepositReceipt> for DepositReceipt {
     fn from(json_deposit_receipt: JsonDepositReceipt) -> Self {
         Self {
-            pubkey: json_deposit_receipt.pubkey.into(),
+            pubkey: json_deposit_receipt.pubkey,
             withdrawal_credentials: json_deposit_receipt.withdrawal_credentials,
             amount: json_deposit_receipt.amount,
-            signature: json_deposit_receipt.signature.into(),
+            signature: json_deposit_receipt.signature,
             index: json_deposit_receipt.index,
         }
     }
