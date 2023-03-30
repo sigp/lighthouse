@@ -199,6 +199,12 @@ impl<T: BeaconChainTypes> Router<T> {
             Request::LightClientBootstrap(request) => self.send_beacon_processor_work(
                 BeaconWorkEvent::lightclient_bootstrap_request(peer_id, request_id, request),
             ),
+            Request::LightClientOptimisticUpdate => self.send_beacon_processor_work(
+                BeaconWorkEvent::light_client_optimistic_update_request(peer_id, request_id),
+            ),
+            Request::LightClientFinalityUpdate => self.send_beacon_processor_work(
+                BeaconWorkEvent::light_client_finality_update_request(peer_id, request_id),
+            ),
         }
     }
 
@@ -223,7 +229,10 @@ impl<T: BeaconChainTypes> Router<T> {
             Response::BlocksByRoot(beacon_block) => {
                 self.on_blocks_by_root_response(peer_id, request_id, beacon_block);
             }
-            Response::LightClientBootstrap(_) => unreachable!(),
+            // Light client responses should not be received
+            Response::LightClientBootstrap(_)
+            | Response::LightClientOptimisticUpdate(_) 
+            | Response::LightClientFinalityUpdate(_) => unreachable!(),
         }
     }
 
