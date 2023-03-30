@@ -156,6 +156,14 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         self.validators.clone()
     }
 
+    /// Indicates if the `voting_public_key` exists in self and is enabled.
+    pub fn has_validator(&self, voting_public_key: &PublicKeyBytes) -> bool {
+        self.validators
+            .read()
+            .validator(voting_public_key)
+            .is_some()
+    }
+
     /// Insert a new validator to `self`, where the validator is represented by an EIP-2335
     /// keystore on the filesystem.
     #[allow(clippy::too_many_arguments)]

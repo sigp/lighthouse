@@ -20,11 +20,20 @@ pub async fn create_signed_voluntary_exit<T: 'static + SlotClock + Clone, E: Eth
     };
 
     let pubkey_bytes = PublicKeyBytes::from(pubkey);
+    if !validator_store.has_validator(&pubkey_bytes) {
+        return Err(warp_utils::reject::custom_not_found(format!(
+            "{} is disabled or not managed by this validator client",
+            pubkey_bytes.as_hex_string()
+        )));
+    }
+
     let validator_index = validator_store
         .validator_index(&pubkey_bytes)
         .ok_or_else(|| {
             warp_utils::reject::custom_not_found(format!(
-                "Unable to find validator with public key: {}",
+                "The validator index for {} is not known. The validator client \
+                may still be initializing or the validator has not yet had a \
+                deposit processed.",
                 pubkey_bytes.as_hex_string()
             ))
         })?;
