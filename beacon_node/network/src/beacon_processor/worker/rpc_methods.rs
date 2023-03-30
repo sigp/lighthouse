@@ -9,10 +9,10 @@ use lighthouse_network::rpc::*;
 use lighthouse_network::{PeerId, PeerRequestId, ReportSource, Response, SyncInfo};
 use slog::{debug, error, warn};
 use slot_clock::SlotClock;
+use std::sync::Arc;
 use task_executor::TaskExecutor;
 use tokio_stream::StreamExt;
 use types::{Epoch, EthSpec, Hash256, LightClientBootstrap, Slot};
-use std::sync::Arc;
 
 use super::Worker;
 
