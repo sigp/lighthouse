@@ -4,6 +4,7 @@ use crate::attestation_verification::{
     VerifiedUnaggregatedAttestation,
 };
 use crate::attester_cache::{AttesterCache, AttesterCacheKey};
+use crate::beacon_block_streamer::{BeaconBlockStreamer, CheckEarlyAttesterCache};
 use crate::beacon_proposer_cache::compute_proposer_duties_from_head;
 use crate::beacon_proposer_cache::BeaconProposerCache;
 use crate::block_times_cache::BlockTimesCache;
@@ -72,7 +73,7 @@ use itertools::process_results;
 use itertools::Itertools;
 use operation_pool::{AttestationRef, OperationPool, PersistedOperationPool, ReceivedPreCapella};
 use parking_lot::{Mutex, RwLock};
-use proto_array::{CountUnrealizedFull, DoNotReOrg, ProposerHeadError};
+use proto_array::{DoNotReOrg, ProposerHeadError};
 use safe_arith::SafeArith;
 use slasher::Slasher;
 use slog::{crit, debug, error, info, trace, warn, Logger};
@@ -102,6 +103,7 @@ use store::{
     DatabaseBlock, Error as DBError, HotColdDB, KeyValueStore, KeyValueStoreOp, StoreItem, StoreOp,
 };
 use task_executor::{ShutdownReason, TaskExecutor};
+use tokio_stream::Stream;
 use tree_hash::TreeHash;
 use types::beacon_state::CloneConfig;
 use types::consts::merge::INTERVALS_PER_SLOT;
@@ -197,6 +199,9 @@ pub enum ProduceBlockVerification {
 pub struct PrePayloadAttributes {
     pub proposer_index: u64,
     pub prev_randao: Hash256,
+    /// The parent block number is not part of the payload attributes sent to the EL, but *is*
+    /// sent to builders via SSE.
+    pub parent_block_number: u64,
 }
 
 /// Define whether a forkchoiceUpdate needs to be checked for an override (`Yes`) or has already
@@ -474,7 +479,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn load_fork_choice(
         store: BeaconStore<T>,
         reset_payload_statuses: ResetPayloadStatuses,
-        count_unrealized_full: CountUnrealizedFull,
         spec: &ChainSpec,
         log: &Logger,
     ) -> Result<Option<BeaconForkChoice<T>>, Error> {
@@ -491,7 +495,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             persisted_fork_choice.fork_choice,
             reset_payload_statuses,
             fc_store,
-            count_unrealized_full,
             spec,
             log,
         )?))
@@ -938,14 +941,42 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// ## Errors
     ///
     /// May return a database error.
-    pub async fn get_block_checking_early_attester_cache(
-        &self,
-        block_root: &Hash256,
-    ) -> Result<Option<Arc<SignedBeaconBlock<T::EthSpec>>>, Error> {
-        if let Some(block) = self.early_attester_cache.get_block(*block_root) {
-            return Ok(Some(block));
-        }
-        Ok(self.get_block(block_root).await?.map(Arc::new))
+    pub fn get_blocks_checking_early_attester_cache(
+        self: &Arc<Self>,
+        block_roots: Vec<Hash256>,
+        executor: &TaskExecutor,
+    ) -> Result<
+        impl Stream<
+            Item = (
+                Hash256,
+                Arc<Result<Option<Arc<SignedBeaconBlock<T::EthSpec>>>, Error>>,
+            ),
+        >,
+        Error,
+    > {
+        Ok(
+            BeaconBlockStreamer::<T>::new(self, CheckEarlyAttesterCache::Yes)?
+                .launch_stream(block_roots, executor),
+        )
+    }
+
+    pub fn get_blocks(
+        self: &Arc<Self>,
+        block_roots: Vec<Hash256>,
+        executor: &TaskExecutor,
+    ) -> Result<
+        impl Stream<
+            Item = (
+                Hash256,
+                Arc<Result<Option<Arc<SignedBeaconBlock<T::EthSpec>>>, Error>>,
+            ),
+        >,
+        Error,
+    > {
+        Ok(
+            BeaconBlockStreamer::<T>::new(self, CheckEarlyAttesterCache::No)?
+                .launch_stream(block_roots, executor),
+        )
     }
 
     /// Returns the block at the given root, if any.
@@ -1867,7 +1898,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 self.slot()?,
                 verified.indexed_attestation(),
                 AttestationFromBlock::False,
-                &self.spec,
             )
             .map_err(Into::into)
     }
@@ -2835,7 +2865,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     &state,
                     payload_verification_status,
                     &self.spec,
-                    count_unrealized.and(self.config.count_unrealized.into()),
+                    count_unrealized,
                 )
                 .map_err(|e| BlockError::BeaconChainError(e.into()))?;
         }
@@ -2954,7 +2984,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 ResetPayloadStatuses::always_reset_conditionally(
                     self.config.always_reset_payload_statuses,
                 ),
-                self.config.count_unrealized_full,
                 &self.store,
                 &self.spec,
                 &self.log,
@@ -3866,16 +3895,21 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             proposer as u64
         };
 
-        // Get the `prev_randao` value.
-        let prev_randao = if proposer_head == parent_block_root {
-            cached_head.parent_random()
+        // Get the `prev_randao` and parent block number.
+        let head_block_number = cached_head.head_block_number()?;
+        let (prev_randao, parent_block_number) = if proposer_head == parent_block_root {
+            (
+                cached_head.parent_random()?,
+                head_block_number.saturating_sub(1),
+            )
         } else {
-            cached_head.head_random()
-        }?;
+            (cached_head.head_random()?, head_block_number)
+        };
 
         Ok(Some(PrePayloadAttributes {
             proposer_index,
             prev_randao,
+            parent_block_number,
         }))
     }
 
@@ -4865,6 +4899,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         proposal_slot: prepare_slot,
                         proposer_index: proposer,
                         parent_block_root: head_root,
+                        parent_block_number: pre_payload_attributes.parent_block_number,
                         parent_block_hash: forkchoice_update_params.head_hash.unwrap_or_default(),
                         payload_attributes: payload_attributes.into(),
                     },
@@ -5088,7 +5123,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     latest_valid_hash,
                     ref validation_error,
                 } => {
-                    debug!(
+                    warn!(
                         self.log,
                         "Invalid execution payload";
                         "validation_error" => ?validation_error,
@@ -5096,11 +5131,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         "head_hash" => ?head_hash,
                         "head_block_root" => ?head_block_root,
                         "method" => "fcU",
-                    );
-                    warn!(
-                        self.log,
-                        "Fork choice update invalidated payload";
-                        "status" => ?status
                     );
 
                     match latest_valid_hash {
@@ -5147,18 +5177,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 PayloadStatus::InvalidBlockHash {
                     ref validation_error,
                 } => {
-                    debug!(
+                    warn!(
                         self.log,
                         "Invalid execution payload block hash";
                         "validation_error" => ?validation_error,
                         "head_hash" => ?head_hash,
                         "head_block_root" => ?head_block_root,
                         "method" => "fcU",
-                    );
-                    warn!(
-                        self.log,
-                        "Fork choice update invalidated payload";
-                        "status" => ?status
                     );
                     // The execution engine has stated that the head block is invalid, however it
                     // hasn't returned a latest valid ancestor.

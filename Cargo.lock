@@ -211,8 +211,8 @@ checksum = "224afbd727c3d6e4b90103ece64b8d1b67fbb1973b1046c2281eed3f3803f800"
 
 [[package]]
 name = "arbitrary"
-version = "1.2.2"
-source = "git+https://github.com/michaelsproul/arbitrary?rev=a572fd8743012a4f1ada5ee5968b1b3619c427ba#a572fd8743012a4f1ada5ee5968b1b3619c427ba"
+version = "1.3.0"
+source = "git+https://github.com/michaelsproul/arbitrary?rev=f002b99989b561ddce62e4cf2887b0f8860ae991#f002b99989b561ddce62e4cf2887b0f8860ae991"
 dependencies = [
  "derive_arbitrary",
 ]
@@ -610,6 +610,7 @@ dependencies = [
  "task_executor",
  "tempfile",
  "tokio",
+ "tokio-stream",
  "tree_hash",
  "types",
  "unused_port",
@@ -617,7 +618,7 @@ dependencies = [
 
 [[package]]
 name = "beacon_node"
-version = "3.5.1"
+version = "4.0.1"
 dependencies = [
  "beacon_chain",
  "clap",
@@ -785,7 +786,7 @@ dependencies = [
 
 [[package]]
 name = "boot_node"
-version = "3.5.1"
+version = "4.0.1"
 dependencies = [
  "beacon_node",
  "clap",
@@ -1596,12 +1597,12 @@ checksum = "b72465f46d518f6015d9cf07f7f3013a95dd6b9c2747c3d65ae0cce43929d14f"
 
 [[package]]
 name = "delay_map"
-version = "0.1.2"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9c4d75d3abfe4830dcbf9bcb1b926954e121669f74dd1ca7aa0183b1755d83f6"
+checksum = "e4355c25cbf99edcb6b4a0e906f6bdc6956eda149e84455bea49696429b2f8e8"
 dependencies = [
  "futures",
- "tokio-util 0.6.10",
+ "tokio-util 0.7.7",
 ]
 
 [[package]]
@@ -1670,10 +1671,9 @@ dependencies = [
 
 [[package]]
 name = "derive_arbitrary"
-version = "1.2.2"
-source = "git+https://github.com/michaelsproul/arbitrary?rev=a572fd8743012a4f1ada5ee5968b1b3619c427ba#a572fd8743012a4f1ada5ee5968b1b3619c427ba"
+version = "1.3.0"
+source = "git+https://github.com/michaelsproul/arbitrary?rev=f002b99989b561ddce62e4cf2887b0f8860ae991#f002b99989b561ddce62e4cf2887b0f8860ae991"
 dependencies = [
- "darling 0.14.3",
  "proc-macro2",
  "quote",
  "syn",
@@ -1795,15 +1795,15 @@ dependencies = [
 
 [[package]]
 name = "discv5"
-version = "0.1.0"
+version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d767c0e59b3e8d65222d95df723cc2ea1da92bb0f27c563607e6f0bde064f255"
+checksum = "b009a99b85b58900df46435307fc5c4c845af7e182582b1fbf869572fa9fce69"
 dependencies = [
  "aes 0.7.5",
  "aes-gcm 0.9.4",
  "arrayvec",
  "delay_map",
- "enr",
+ "enr 0.7.0",
  "fnv",
  "futures",
  "hashlink 0.7.0",
@@ -1952,6 +1952,25 @@ name = "enr"
 version = "0.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "26fa0a0be8915790626d5759eb51fe47435a8eac92c2f212bd2da9aa7f30ea56"
+dependencies = [
+ "base64 0.13.1",
+ "bs58",
+ "bytes",
+ "hex",
+ "k256",
+ "log",
+ "rand 0.8.5",
+ "rlp",
+ "serde",
+ "sha3 0.10.6",
+ "zeroize",
+]
+
+[[package]]
+name = "enr"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "492a7e5fc2504d5fdce8e124d3e263b244a68b283cac67a69eda0cd43e0aebad"
 dependencies = [
  "base64 0.13.1",
  "bs58",
@@ -2188,7 +2207,7 @@ dependencies = [
 name = "eth2_network_config"
 version = "0.2.0"
 dependencies = [
- "enr",
+ "discv5",
  "eth2_config",
  "ethereum_ssz",
  "serde_yaml",
@@ -2290,7 +2309,7 @@ dependencies = [
  "async-stream",
  "blst",
  "bs58",
- "enr",
+ "enr 0.6.2",
  "hex",
  "integer-sqrt",
  "multiaddr 0.14.0",
@@ -3727,7 +3746,7 @@ checksum = "830d08ce1d1d941e6b30645f1a0eb5643013d835ce3779a5fc208261dbe10f55"
 
 [[package]]
 name = "lcli"
-version = "3.5.1"
+version = "4.0.1"
 dependencies = [
  "account_utils",
  "beacon_chain",
@@ -4331,7 +4350,7 @@ dependencies = [
 
 [[package]]
 name = "lighthouse"
-version = "3.5.1"
+version = "4.0.1"
 dependencies = [
  "account_manager",
  "account_utils",
@@ -5290,9 +5309,9 @@ dependencies = [
 
 [[package]]
 name = "openssl"
-version = "0.10.45"
+version = "0.10.48"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b102428fd03bc5edf97f62620f7298614c45cedf287c271e7ed450bbaf83f2e1"
+checksum = "518915b97df115dd36109bfa429a48b8f737bd05508cf9588977b599648926d2"
 dependencies = [
  "bitflags",
  "cfg-if",
@@ -5331,9 +5350,9 @@ dependencies = [
 
 [[package]]
 name = "openssl-sys"
-version = "0.9.80"
+version = "0.9.83"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "23bbbf7854cd45b83958ebe919f0e8e516793727652e27fda10a8384cfc790b7"
+checksum = "666416d899cf077260dac8698d60a60b435a46d57e82acb1be3d0dad87284e5b"
 dependencies = [
  "autocfg 1.1.0",
  "cc",
@@ -7980,6 +7999,7 @@ dependencies = [
  "futures-io",
  "futures-sink",
  "pin-project-lite 0.2.9",
+ "slab",
  "tokio",
  "tracing",
 ]

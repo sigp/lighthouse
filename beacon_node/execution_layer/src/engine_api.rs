@@ -1,7 +1,8 @@
 use crate::engines::ForkchoiceState;
 use crate::http::{
     ENGINE_EXCHANGE_TRANSITION_CONFIGURATION_V1, ENGINE_FORKCHOICE_UPDATED_V1,
-    ENGINE_FORKCHOICE_UPDATED_V2, ENGINE_GET_PAYLOAD_V1, ENGINE_GET_PAYLOAD_V2,
+    ENGINE_FORKCHOICE_UPDATED_V2, ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1,
+    ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1, ENGINE_GET_PAYLOAD_V1, ENGINE_GET_PAYLOAD_V2,
     ENGINE_NEW_PAYLOAD_V1, ENGINE_NEW_PAYLOAD_V2,
 };
 use eth2::types::{SsePayloadAttributes, SsePayloadAttributesV1, SsePayloadAttributesV2};
@@ -16,7 +17,8 @@ use strum::IntoStaticStr;
 use superstruct::superstruct;
 pub use types::{
     Address, EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadHeader,
-    ExecutionPayloadRef, FixedVector, ForkName, Hash256, Uint256, VariableList, Withdrawal,
+    ExecutionPayloadRef, FixedVector, ForkName, Hash256, Transactions, Uint256, VariableList,
+    Withdrawal, Withdrawals,
 };
 use types::{ExecutionPayloadCapella, ExecutionPayloadMerge};
 
@@ -371,12 +373,80 @@ impl<T: EthSpec> GetPayloadResponse<T> {
     }
 }
 
+#[derive(Clone, Debug)]
+pub struct ExecutionPayloadBodyV1<E: EthSpec> {
+    pub transactions: Transactions<E>,
+    pub withdrawals: Option<Withdrawals<E>>,
+}
+
+impl<E: EthSpec> ExecutionPayloadBodyV1<E> {
+    pub fn to_payload(
+        self,
+        header: ExecutionPayloadHeader<E>,
+    ) -> Result<ExecutionPayload<E>, String> {
+        match header {
+            ExecutionPayloadHeader::Merge(header) => {
+                if self.withdrawals.is_some() {
+                    return Err(format!(
+                        "block {} is merge but payload body has withdrawals",
+                        header.block_hash
+                    ));
+                }
+                Ok(ExecutionPayload::Merge(ExecutionPayloadMerge {
+                    parent_hash: header.parent_hash,
+                    fee_recipient: header.fee_recipient,
+                    state_root: header.state_root,
+                    receipts_root: header.receipts_root,
+                    logs_bloom: header.logs_bloom,
+                    prev_randao: header.prev_randao,
+                    block_number: header.block_number,
+                    gas_limit: header.gas_limit,
+                    gas_used: header.gas_used,
+                    timestamp: header.timestamp,
+                    extra_data: header.extra_data,
+                    base_fee_per_gas: header.base_fee_per_gas,
+                    block_hash: header.block_hash,
+                    transactions: self.transactions,
+                }))
+            }
+            ExecutionPayloadHeader::Capella(header) => {
+                if let Some(withdrawals) = self.withdrawals {
+                    Ok(ExecutionPayload::Capella(ExecutionPayloadCapella {
+                        parent_hash: header.parent_hash,
+                        fee_recipient: header.fee_recipient,
+                        state_root: header.state_root,
+                        receipts_root: header.receipts_root,
+                        logs_bloom: header.logs_bloom,
+                        prev_randao: header.prev_randao,
+                        block_number: header.block_number,
+                        gas_limit: header.gas_limit,
+                        gas_used: header.gas_used,
+                        timestamp: header.timestamp,
+                        extra_data: header.extra_data,
+                        base_fee_per_gas: header.base_fee_per_gas,
+                        block_hash: header.block_hash,
+                        transactions: self.transactions,
+                        withdrawals,
+                    }))
+                } else {
+                    Err(format!(
+                        "block {} is capella but payload body doesn't have withdrawals",
+                        header.block_hash
+                    ))
+                }
+            }
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 pub struct EngineCapabilities {
     pub new_payload_v1: bool,
     pub new_payload_v2: bool,
     pub forkchoice_updated_v1: bool,
     pub forkchoice_updated_v2: bool,
+    pub get_payload_bodies_by_hash_v1: bool,
+    pub get_payload_bodies_by_range_v1: bool,
     pub get_payload_v1: bool,
     pub get_payload_v2: bool,
     pub exchange_transition_configuration_v1: bool,
@@ -396,6 +466,12 @@ impl EngineCapabilities {
         }
         if self.forkchoice_updated_v2 {
             response.push(ENGINE_FORKCHOICE_UPDATED_V2);
+        }
+        if self.get_payload_bodies_by_hash_v1 {
+            response.push(ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1);
+        }
+        if self.get_payload_bodies_by_range_v1 {
+            response.push(ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1);
         }
         if self.get_payload_v1 {
             response.push(ENGINE_GET_PAYLOAD_V1);

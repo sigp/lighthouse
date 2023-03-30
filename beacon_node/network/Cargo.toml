@@ -43,7 +43,7 @@ if-addrs = "0.6.4"
 strum = "0.24.0"
 tokio-util = { version = "0.6.3", features = ["time"] }
 derivative = "2.2.0"
-delay_map = "0.1.1"
+delay_map = "0.3.0"
 ethereum-types = { version = "0.14.1", optional = true }
 operation_pool =  { path = "../operation_pool" }
 execution_layer =  { path = "../execution_layer" }
