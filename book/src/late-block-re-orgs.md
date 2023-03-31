@@ -14,6 +14,11 @@ There are three flags which control the re-orging behaviour:
 * `--proposer-reorg-threshold N`: attempt to orphan blocks with less than N% of the committee vote. If this parameter isn't set then N defaults to 20% when the feature is enabled.
 * `--proposer-reorg-epochs-since-finalization N`: only attempt to re-org late blocks when the number of epochs since finalization is less than or equal to N. The default is 2 epochs,
   meaning re-orgs will only be attempted when the chain is finalizing optimally.
+* `--proposer-reorg-cutoff T`: only attempt to re-org late blocks when the proposal is being made
+  before T milliseconds into the slot. Delays between the validator client and the beacon node can
+  cause some blocks to be requested later than the start of the slot, which makes them more likely
+  to fail. The default cutoff is 1500ms on mainnet, which gives blocks 2500ms to be signed and
+  propagated before the attestation deadline at 4000ms.
 
 All flags should be applied to `lighthouse bn`. The default configuration is recommended as it
 balances the chance of the re-org succeeding against the chance of failure due to attestations
