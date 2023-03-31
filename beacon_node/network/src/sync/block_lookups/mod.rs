@@ -1,11 +1,12 @@
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::thread::sleep;
 use std::time::Duration;
 
 use beacon_chain::blob_verification::AsBlock;
 use beacon_chain::blob_verification::BlockWrapper;
-use beacon_chain::{BeaconChainTypes, BlockError};
+use beacon_chain::{AvailabilityProcessingStatus, BeaconChainTypes, BlockError};
 use fnv::FnvHashMap;
 use lighthouse_network::rpc::{RPCError, RPCResponseErrorCode};
 use lighthouse_network::{PeerAction, PeerId};
@@ -14,6 +15,7 @@ use slog::{debug, error, trace, warn, Logger};
 use smallvec::SmallVec;
 use store::Hash256;
 use types::blob_sidecar::BlobIdentifier;
+use types::{BlobSidecar, SignedBeaconBlock};
 
 use crate::beacon_processor::{ChainSegmentProcessId, WorkEvent};
 use crate::metrics;
@@ -36,7 +38,7 @@ mod single_block_lookup;
 #[cfg(test)]
 mod tests;
 
-pub type RootBlockTuple<T> = (Hash256, BlockWrapper<T>);
+pub type RootBlockTuple<T> = (Hash256, Arc<SignedBeaconBlock<T>>);
 
 const FAILED_CHAINS_CACHE_EXPIRY_SECONDS: u64 = 60;
 const SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS: u8 = 3;
@@ -145,6 +147,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         cx: &mut SyncNetworkContext<T>,
     ) {
         //TODO(sean) handle delay
+        //TODO(sean) cannot use peer id here cause it assumes it has the block, this is from gossip so not true
         self.search_block(hash, peer_id, cx);
     }
 
@@ -206,7 +209,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         &mut self,
         id: Id,
         peer_id: PeerId,
-        block: Option<BlockWrapper<T::EthSpec>>,
+        block: Option<Arc<SignedBeaconBlock<T::EthSpec>>>,
         seen_timestamp: Duration,
         cx: &mut SyncNetworkContext<T>,
     ) {
@@ -271,7 +274,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         &mut self,
         id: Id,
         peer_id: PeerId,
-        block: Option<BlockWrapper<T::EthSpec>>,
+        block: Option<Arc<SignedBeaconBlock<T::EthSpec>>>,
         seen_timestamp: Duration,
         cx: &mut SyncNetworkContext<T>,
     ) {
@@ -347,6 +350,28 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             &metrics::SYNC_PARENT_BLOCK_LOOKUPS,
             self.parent_lookups.len() as i64,
         );
+    }
+
+    pub fn single_lookup_blob_response(
+        &mut self,
+        id: Id,
+        peer_id: PeerId,
+        block: Option<Arc<BlobSidecar<T::EthSpec>>>,
+        seen_timestamp: Duration,
+        cx: &mut SyncNetworkContext<T>,
+    ) {
+        todo!()
+    }
+
+    pub fn parent_lookup_blob_response(
+        &mut self,
+        id: Id,
+        peer_id: PeerId,
+        block: Option<Arc<BlobSidecar<T::EthSpec>>>,
+        seen_timestamp: Duration,
+        cx: &mut SyncNetworkContext<T>,
+    ) {
+        todo!()
     }
 
     /* Error responses */
@@ -472,11 +497,18 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         };
 
         match result {
-            BlockProcessResult::Ok => {
-                trace!(self.log, "Single block processing succeeded"; "block" => %root);
-            }
-            BlockProcessResult::MissingBlobs(blobs) => {
-                todo!()
+            BlockProcessResult::Ok(status) => {
+                match status {
+                    AvailabilityProcessingStatus::Imported(hash) => {
+                        trace!(self.log, "Single block processing succeeded"; "block" => %root);
+                    }
+                    AvailabilityProcessingStatus::PendingBlobs(blobs) => {
+                        // trigger?
+                    }
+                    AvailabilityProcessingStatus::PendingBlock(hash) => {
+                        // logic error
+                    }
+                }
             }
             BlockProcessResult::Ignored => {
                 // Beacon processor signalled to ignore the block processing result.
@@ -558,11 +590,18 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         };
 
         match &result {
-            BlockProcessResult::Ok => {
-                trace!(self.log, "Parent block processing succeeded"; &parent_lookup)
-            }
-            BlockProcessResult::MissingBlobs(blobs) => {
-                todo!()
+            BlockProcessResult::Ok(status) => {
+                match status {
+                    AvailabilityProcessingStatus::Imported(hash) => {
+                        trace!(self.log, "Parent block processing succeeded"; &parent_lookup)
+                    }
+                    AvailabilityProcessingStatus::PendingBlobs(blobs) => {
+                        // trigger?
+                    }
+                    AvailabilityProcessingStatus::PendingBlock(hash) => {
+                        // logic error
+                    }
+                }
             }
             BlockProcessResult::Err(e) => {
                 trace!(self.log, "Parent block processing failed"; &parent_lookup, "error" => %e)
@@ -578,8 +617,11 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         }
 
         match result {
-            BlockProcessResult::MissingBlobs(blobs) => {
-                todo!()
+            BlockProcessResult::Ok(AvailabilityProcessingStatus::PendingBlock(_)) => {
+                // doesn't make sense
+            }
+            BlockProcessResult::Ok(AvailabilityProcessingStatus::PendingBlobs(blobs)) => {
+                // trigger
             }
             BlockProcessResult::Err(BlockError::ParentUnknown(block)) => {
                 // need to keep looking for parents
@@ -587,7 +629,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 parent_lookup.add_block(block);
                 self.request_parent(parent_lookup, cx);
             }
-            BlockProcessResult::Ok
+            BlockProcessResult::Ok(AvailabilityProcessingStatus::Imported(_))
             | BlockProcessResult::Err(BlockError::BlockIsAlreadyKnown { .. }) => {
                 // Check if the beacon processor is available
                 let beacon_processor_send = match cx.processor_channel_if_enabled() {
@@ -666,6 +708,24 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         );
     }
 
+    pub fn single_blob_processed(
+        &mut self,
+        id: Id,
+        result: BlockProcessResult<T::EthSpec>,
+        cx: &mut SyncNetworkContext<T>,
+    ) {
+        todo!()
+    }
+
+    pub fn parent_blob_processed(
+        &mut self,
+        chain_hash: Hash256,
+        result: BlockProcessResult<T::EthSpec>,
+        cx: &mut SyncNetworkContext<T>,
+    ) {
+        todo!()
+    }
+
     pub fn parent_chain_processed(
         &mut self,
         chain_hash: Hash256,
@@ -709,7 +769,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     fn send_block_for_processing(
         &mut self,
         block_root: Hash256,
-        block: BlockWrapper<T::EthSpec>,
+        block: Arc<SignedBeaconBlock<T::EthSpec>>,
         duration: Duration,
         process_type: BlockProcessType,
         cx: &mut SyncNetworkContext<T>,

@@ -11,7 +11,9 @@ use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
 /// Container of the data that identifies an individual blob.
-#[derive(Serialize, Deserialize, Encode, Decode, TreeHash, Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(
+    Serialize, Deserialize, Encode, Decode, TreeHash, Copy, Clone, Debug, PartialEq, Eq, Hash,
+)]
 pub struct BlobIdentifier {
     pub block_root: Hash256,
     pub index: u64,

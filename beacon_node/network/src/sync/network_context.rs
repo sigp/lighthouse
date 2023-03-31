@@ -186,7 +186,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
 
                 // create the shared request id. This is fine since the rpc handles substream ids.
                 let id = self.next_id();
-                let request_id = RequestId::Sync(SyncRequestId::RangeBlobs { id });
+                let request_id = RequestId::Sync(SyncRequestId::RangeBlockAndBlobs { id });
 
                 // Create the blob request based on the blob request.
                 let blobs_request = Request::BlobsByRange(BlobsByRangeRequest {
@@ -259,7 +259,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
 
                 // create the shared request id. This is fine since the rpc handles substream ids.
                 let id = self.next_id();
-                let request_id = RequestId::Sync(SyncRequestId::BackFillBlobs { id });
+                let request_id = RequestId::Sync(SyncRequestId::BackFillBlockAndBlobs { id });
 
                 // Create the blob request based on the blob request.
                 let blobs_request = Request::BlobsByRange(BlobsByRangeRequest {
@@ -288,7 +288,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
     }
 
     /// Response for a request that is only for blocks.
-    pub fn range_sync_block_response(
+    pub fn range_sync_block_only_response(
         &mut self,
         request_id: Id,
         is_stream_terminator: bool,

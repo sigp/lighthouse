@@ -7,8 +7,10 @@ use beacon_chain::blob_verification::AsBlock;
 use beacon_chain::blob_verification::BlockWrapper;
 use beacon_chain::BeaconChainTypes;
 use lighthouse_network::PeerId;
+use std::sync::Arc;
 use store::Hash256;
 use strum::IntoStaticStr;
+use types::{BlobSidecar, SignedBeaconBlock};
 
 use super::single_block_lookup::{self, SingleBlockRequest};
 
@@ -25,6 +27,7 @@ pub(crate) struct ParentLookup<T: BeaconChainTypes> {
     chain_hash: Hash256,
     /// The blocks that have currently been downloaded.
     downloaded_blocks: Vec<RootBlockTuple<T::EthSpec>>,
+    downloaded_blobs: Vec<Option<Vec<Arc<BlobSidecar<T::EthSpec>>>>>,
     /// Request of the last parent.
     current_parent_request: SingleBlockRequest<PARENT_FAIL_TOLERANCE>,
     /// Id of the last parent request.
@@ -59,12 +62,18 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
             .any(|(root, _d_block)| root == block_root)
     }
 
-    pub fn new(block_root: Hash256, block: BlockWrapper<T::EthSpec>, peer_id: PeerId) -> Self {
+    pub fn new(
+        block_root: Hash256,
+        block_wrapper: BlockWrapper<T::EthSpec>,
+        peer_id: PeerId,
+    ) -> Self {
+        let (block, blobs) = block_wrapper.deconstruct();
         let current_parent_request = SingleBlockRequest::new(block.parent_root(), peer_id);
 
         Self {
             chain_hash: block_root,
             downloaded_blocks: vec![(block_root, block)],
+            downloaded_blobs: vec![blobs],
             current_parent_request,
             current_parent_request_id: None,
         }
@@ -94,10 +103,12 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
         self.current_parent_request.check_peer_disconnected(peer_id)
     }
 
-    pub fn add_block(&mut self, block: BlockWrapper<T::EthSpec>) {
-        let next_parent = block.parent_root();
+    pub fn add_block(&mut self, block_wrapper: BlockWrapper<T::EthSpec>) {
+        let next_parent = block_wrapper.parent_root();
         let current_root = self.current_parent_request.hash;
+        let (block, blobs) = block_wrapper.deconstruct();
         self.downloaded_blocks.push((current_root, block));
+        self.downloaded_blobs.push(blobs);
         self.current_parent_request.hash = next_parent;
         self.current_parent_request.state = single_block_lookup::State::AwaitingDownload;
         self.current_parent_request_id = None;
@@ -120,14 +131,23 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
         let ParentLookup {
             chain_hash,
             downloaded_blocks,
+            downloaded_blobs,
             current_parent_request,
             current_parent_request_id: _,
         } = self;
         let block_count = downloaded_blocks.len();
         let mut blocks = Vec::with_capacity(block_count);
         let mut hashes = Vec::with_capacity(block_count);
-        for (hash, block) in downloaded_blocks {
-            blocks.push(block);
+        for ((hash, block), blobs) in downloaded_blocks
+            .into_iter()
+            .zip(downloaded_blobs.into_iter())
+        {
+            let wrapped_block = if let Some(blobs) = blobs {
+                BlockWrapper::BlockAndBlobs(block, blobs)
+            } else {
+                BlockWrapper::Block(block)
+            };
+            blocks.push(wrapped_block);
             hashes.push(hash);
         }
         (chain_hash, blocks, hashes, current_parent_request)
@@ -152,7 +172,7 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
     /// the processing result of the block.
     pub fn verify_block(
         &mut self,
-        block: Option<BlockWrapper<T::EthSpec>>,
+        block: Option<Arc<SignedBeaconBlock<T::EthSpec>>>,
         failed_chains: &mut lru_cache::LRUTimeCache<Hash256>,
     ) -> Result<Option<RootBlockTuple<T::EthSpec>>, VerifyError> {
         let root_and_block = self.current_parent_request.verify_block(block)?;

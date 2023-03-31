@@ -6,10 +6,15 @@ use lighthouse_network::{rpc::BlocksByRootRequest, PeerId};
 use rand::seq::IteratorRandom;
 use ssz_types::VariableList;
 use std::collections::HashSet;
+use std::sync::Arc;
 use store::{EthSpec, Hash256};
 use strum::IntoStaticStr;
+use types::blob_sidecar::BlobIdentifier;
+use types::SignedBeaconBlock;
 
 /// Object representing a single block lookup request.
+///
+//previously assumed we would have a single block. Now we may have the block but not the blobs
 #[derive(PartialEq, Eq)]
 pub struct SingleBlockRequest<const MAX_ATTEMPTS: u8> {
     /// The hash of the requested block.
@@ -24,6 +29,7 @@ pub struct SingleBlockRequest<const MAX_ATTEMPTS: u8> {
     failed_processing: u8,
     /// How many times have we attempted to download this block.
     failed_downloading: u8,
+    missing_blobs: Vec<BlobIdentifier>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -59,6 +65,7 @@ impl<const MAX_ATTEMPTS: u8> SingleBlockRequest<MAX_ATTEMPTS> {
             used_peers: HashSet::default(),
             failed_processing: 0,
             failed_downloading: 0,
+            missing_blobs: vec![],
         }
     }
 
@@ -105,7 +112,7 @@ impl<const MAX_ATTEMPTS: u8> SingleBlockRequest<MAX_ATTEMPTS> {
     /// Returns the block for processing if the response is what we expected.
     pub fn verify_block<T: EthSpec>(
         &mut self,
-        block: Option<BlockWrapper<T>>,
+        block: Option<Arc<SignedBeaconBlock<T>>>,
     ) -> Result<Option<RootBlockTuple<T>>, VerifyError> {
         match self.state {
             State::AwaitingDownload => {
@@ -116,7 +123,7 @@ impl<const MAX_ATTEMPTS: u8> SingleBlockRequest<MAX_ATTEMPTS> {
                 Some(block) => {
                     // Compute the block root using this specific function so that we can get timing
                     // metrics.
-                    let block_root = get_block_root(block.as_block());
+                    let block_root = get_block_root(&block);
                     if block_root != self.hash {
                         // return an error and drop the block
                         // NOTE: we take this is as a download failure to prevent counting the

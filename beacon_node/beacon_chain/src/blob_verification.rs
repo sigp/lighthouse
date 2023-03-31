@@ -12,6 +12,7 @@ use crate::data_availability_checker::{
 use crate::kzg_utils::{validate_blob, validate_blobs};
 use crate::BeaconChainError;
 use kzg::Kzg;
+use types::blob_sidecar::BlobIdentifier;
 use types::{
     BeaconBlockRef, BeaconStateError, BlobSidecar, BlobSidecarList, Epoch, EthSpec, Hash256,
     KzgCommitment, SignedBeaconBlock, SignedBeaconBlockHeader, SignedBlobSidecar, Slot,
@@ -136,8 +137,14 @@ pub struct GossipVerifiedBlob<T: EthSpec> {
 }
 
 impl<T: EthSpec> GossipVerifiedBlob<T> {
+    pub fn id(&self) -> BlobIdentifier {
+        self.blob.id()
+    }
     pub fn block_root(&self) -> Hash256 {
         self.blob.block_root
+    }
+    pub fn to_blob(self) -> Arc<BlobSidecar<T>> {
+        self.blob
     }
 }
 
@@ -287,19 +294,14 @@ impl<T: EthSpec> KzgVerifiedBlob<T> {
 }
 
 pub fn verify_kzg_for_blob<T: EthSpec>(
-    blob: GossipVerifiedBlob<T>,
+    blob: Arc<BlobSidecar<T>>,
     kzg: &Kzg,
 ) -> Result<KzgVerifiedBlob<T>, AvailabilityCheckError> {
     //TODO(sean) remove clone
-    if validate_blob::<T>(
-        kzg,
-        blob.blob.blob.clone(),
-        blob.blob.kzg_commitment,
-        blob.blob.kzg_proof,
-    )
-    .map_err(AvailabilityCheckError::Kzg)?
+    if validate_blob::<T>(kzg, blob.blob.clone(), blob.kzg_commitment, blob.kzg_proof)
+        .map_err(AvailabilityCheckError::Kzg)?
     {
-        Ok(KzgVerifiedBlob { blob: blob.blob })
+        Ok(KzgVerifiedBlob { blob })
     } else {
         Err(AvailabilityCheckError::KzgVerificationFailed)
     }
@@ -447,6 +449,15 @@ impl<E: EthSpec> AsBlock<E> for &MaybeAvailableBlock<E> {
 pub enum BlockWrapper<E: EthSpec> {
     Block(Arc<SignedBeaconBlock<E>>),
     BlockAndBlobs(Arc<SignedBeaconBlock<E>>, Vec<Arc<BlobSidecar<E>>>),
+}
+
+impl<E: EthSpec> BlockWrapper<E> {
+    pub fn deconstruct(self) -> (Arc<SignedBeaconBlock<E>>, Option<Vec<Arc<BlobSidecar<E>>>>) {
+        match self {
+            BlockWrapper::Block(block) => (block, None),
+            BlockWrapper::BlockAndBlobs(block, blobs) => (block, Some(blobs)),
+        }
+    }
 }
 
 impl<E: EthSpec> AsBlock<E> for BlockWrapper<E> {

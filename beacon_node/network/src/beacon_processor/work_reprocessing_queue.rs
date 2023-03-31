@@ -14,7 +14,6 @@ use super::MAX_SCHEDULED_WORK_QUEUE_LEN;
 use crate::metrics;
 use crate::sync::manager::BlockProcessType;
 use beacon_chain::blob_verification::AsBlock;
-use beacon_chain::blob_verification::BlockWrapper;
 use beacon_chain::{BeaconChainTypes, GossipVerifiedBlock, MAXIMUM_GOSSIP_CLOCK_DISPARITY};
 use fnv::FnvHashMap;
 use futures::task::Poll;
@@ -25,13 +24,15 @@ use slog::{debug, error, trace, warn, Logger};
 use slot_clock::SlotClock;
 use std::collections::{HashMap, HashSet};
 use std::pin::Pin;
+use std::sync::Arc;
 use std::task::Context;
 use std::time::Duration;
 use task_executor::TaskExecutor;
 use tokio::sync::mpsc::{self, Receiver, Sender};
 use tokio_util::time::delay_queue::{DelayQueue, Key as DelayKey};
 use types::{
-    Attestation, EthSpec, Hash256, LightClientOptimisticUpdate, SignedAggregateAndProof, SubnetId,
+    Attestation, EthSpec, Hash256, LightClientOptimisticUpdate, SignedAggregateAndProof,
+    SignedBeaconBlock, SubnetId,
 };
 
 const TASK_NAME: &str = "beacon_processor_reprocess_queue";
@@ -135,7 +136,7 @@ pub struct QueuedGossipBlock<T: BeaconChainTypes> {
 /// It is queued for later import.
 pub struct QueuedRpcBlock<T: EthSpec> {
     pub block_root: Hash256,
-    pub block: BlockWrapper<T>,
+    pub block: Arc<SignedBeaconBlock<T>>,
     pub process_type: BlockProcessType,
     pub seen_timestamp: Duration,
     /// Indicates if the beacon chain should process this block or not.

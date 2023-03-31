@@ -63,6 +63,7 @@ pub struct DataAvailabilityChecker<T: EthSpec, S: SlotClock> {
 struct GossipBlobCache<T: EthSpec> {
     verified_blobs: Vec<KzgVerifiedBlob<T>>,
     executed_block: Option<AvailabilityPendingExecutedBlock<T>>,
+    missing_blob_ids: Vec<BlobIdentifier>,
 }
 
 impl<T: EthSpec> GossipBlobCache<T> {
@@ -70,13 +71,16 @@ impl<T: EthSpec> GossipBlobCache<T> {
         Self {
             verified_blobs: vec![blob],
             executed_block: None,
+            missing_blob_ids: vec![],
         }
     }
 
     fn new_from_block(block: AvailabilityPendingExecutedBlock<T>) -> Self {
+        let missing_blob_ids = block.get_all_blob_ids();
         Self {
             verified_blobs: vec![],
             executed_block: Some(block),
+            missing_blob_ids,
         }
     }
 
@@ -117,6 +121,22 @@ impl<T: EthSpec, S: SlotClock> DataAvailabilityChecker<T, S> {
         self.rpc_blob_cache.read().get(blob_id).cloned()
     }
 
+    pub fn put_rpc_blob(
+        &self,
+        blob: Arc<BlobSidecar<T>>,
+    ) -> Result<Availability<T>, AvailabilityCheckError> {
+        // Verify the KZG commitment.
+        let kzg_verified_blob = if let Some(kzg) = self.kzg.as_ref() {
+            verify_kzg_for_blob(blob, kzg)?
+        } else {
+            return Err(AvailabilityCheckError::KzgNotInitialized);
+        };
+
+        self.put_kzg_verified_blob(kzg_verified_blob, |blob_id, missing_blob_ids| {
+            missing_blob_ids.contains(&blob_id)
+        })
+    }
+
     /// This first validate the KZG commitments included in the blob sidecar.
     /// Check if we've cached other blobs for this block. If it completes a set and we also
     /// have a block cached, return the Availability variant triggering block import.
@@ -127,17 +147,23 @@ impl<T: EthSpec, S: SlotClock> DataAvailabilityChecker<T, S> {
         &self,
         gossip_blob: GossipVerifiedBlob<T>,
     ) -> Result<Availability<T>, AvailabilityCheckError> {
-        let block_root = gossip_blob.block_root();
-
         // Verify the KZG commitments.
         let kzg_verified_blob = if let Some(kzg) = self.kzg.as_ref() {
-            verify_kzg_for_blob(gossip_blob, kzg)?
+            verify_kzg_for_blob(gossip_blob.to_blob(), kzg)?
         } else {
             return Err(AvailabilityCheckError::KzgNotInitialized);
         };
 
-        let blob = kzg_verified_blob.clone_blob();
+        self.put_kzg_verified_blob(kzg_verified_blob, |_, _| true)
+    }
 
+    fn put_kzg_verified_blob(
+        &self,
+        kzg_verified_blob: KzgVerifiedBlob<T>,
+        predicate: impl FnOnce(BlobIdentifier, &[BlobIdentifier]) -> bool,
+    ) -> Result<Availability<T>, AvailabilityCheckError> {
+        let blob = kzg_verified_blob.clone_blob();
+        let blob_id = blob.id();
         let mut blob_cache = self.gossip_blob_cache.lock();
 
         // Gossip cache.
@@ -147,6 +173,10 @@ impl<T: EthSpec, S: SlotClock> DataAvailabilityChecker<T, S> {
                 // should filter duplicates, as well as validate indices.
                 let cache = occupied_entry.get_mut();
 
+                if !predicate(blob_id, cache.missing_blob_ids.as_slice()) {
+                    // ignore this blob
+                }
+
                 cache
                     .verified_blobs
                     .insert(blob.index as usize, kzg_verified_blob);
@@ -154,7 +184,7 @@ impl<T: EthSpec, S: SlotClock> DataAvailabilityChecker<T, S> {
                 if let Some(executed_block) = cache.executed_block.take() {
                     self.check_block_availability_maybe_cache(occupied_entry, executed_block)?
                 } else {
-                    Availability::PendingBlock(block_root)
+                    Availability::PendingBlock(blob.block_root)
                 }
             }
             Entry::Vacant(vacant_entry) => {
@@ -169,9 +199,8 @@ impl<T: EthSpec, S: SlotClock> DataAvailabilityChecker<T, S> {
         if let Some(blob_ids) = availability.get_available_blob_ids() {
             self.prune_rpc_blob_cache(&blob_ids);
         } else {
-            self.rpc_blob_cache.write().insert(blob.id(), blob.clone());
+            self.rpc_blob_cache.write().insert(blob_id, blob);
         }
-
         Ok(availability)
     }
 
@@ -233,6 +262,7 @@ impl<T: EthSpec, S: SlotClock> DataAvailabilityChecker<T, S> {
                 .get_filtered_blob_ids(|index| cache.verified_blobs.get(index).is_none());
 
             let _ = cache.executed_block.insert(executed_block);
+            cache.missing_blob_ids = missing_blob_ids.clone();
 
             Ok(Availability::PendingBlobs(missing_blob_ids))
         }

@@ -1939,8 +1939,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self: &Arc<Self>,
         blob_sidecar: SignedBlobSidecar<T::EthSpec>,
         subnet_id: u64,
-    ) -> Result<GossipVerifiedBlob<T::EthSpec>, BlobError> // TODO(pawan): make a GossipVerifedBlob type
-    {
+    ) -> Result<GossipVerifiedBlob<T::EthSpec>, BlobError> {
         blob_verification::validate_blob_sidecar_for_gossip(blob_sidecar, subnet_id, self)
     }
 
@@ -2626,7 +2625,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     )
                     .await
                 {
-                    Ok(_) => imported_blocks += 1,
+                    Ok(status) => {
+                        imported_blocks += 1;
+                        match status {
+                            AvailabilityProcessingStatus::Imported(_) => {
+                                // The block was imported successfully.
+                            }
+                            AvailabilityProcessingStatus::PendingBlobs(blobs) => {}
+                            AvailabilityProcessingStatus::PendingBlock(_) => {
+                                // doesn't makes sense
+                            }
+                        }
+                    }
                     Err(error) => {
                         return ChainSegmentResult::Failed {
                             imported_blocks,

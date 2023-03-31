@@ -64,10 +64,10 @@ use std::{cmp, collections::HashSet};
 use task_executor::TaskExecutor;
 use tokio::sync::mpsc;
 use types::{
-    Attestation, AttesterSlashing, Hash256, LightClientFinalityUpdate, LightClientOptimisticUpdate,
-    ProposerSlashing, SignedAggregateAndProof, SignedBeaconBlock, SignedBlobSidecar,
-    SignedBlsToExecutionChange, SignedContributionAndProof, SignedVoluntaryExit, SubnetId,
-    SyncCommitteeMessage, SyncSubnetId,
+    Attestation, AttesterSlashing, BlobSidecar, Hash256, LightClientFinalityUpdate,
+    LightClientOptimisticUpdate, ProposerSlashing, SignedAggregateAndProof, SignedBeaconBlock,
+    SignedBlobSidecar, SignedBlsToExecutionChange, SignedContributionAndProof, SignedVoluntaryExit,
+    SubnetId, SyncCommitteeMessage, SyncSubnetId,
 };
 use work_reprocessing_queue::{
     spawn_reprocess_scheduler, QueuedAggregate, QueuedLightClientUpdate, QueuedRpcBlock,
@@ -119,7 +119,7 @@ const MAX_GOSSIP_BLOCK_QUEUE_LEN: usize = 1_024;
 
 /// The maximum number of queued `SignedBeaconBlockAndBlobsSidecar` objects received on gossip that
 /// will be stored before we start dropping them.
-const MAX_GOSSIP_BLOCK_AND_BLOB_QUEUE_LEN: usize = 1_024;
+const MAX_GOSSIP_BLOB_QUEUE_LEN: usize = 1_024;
 
 /// The maximum number of queued `SignedBeaconBlock` objects received prior to their slot (but
 /// within acceptable clock disparity) that will be queued before we start dropping them.
@@ -160,6 +160,7 @@ const MAX_SYNC_CONTRIBUTION_QUEUE_LEN: usize = 1024;
 /// The maximum number of queued `SignedBeaconBlock` objects received from the network RPC that
 /// will be stored before we start dropping them.
 const MAX_RPC_BLOCK_QUEUE_LEN: usize = 1_024;
+const MAX_RPC_BLOB_QUEUE_LEN: usize = 1_024 * 4; // TODO(sean) make function of max blobs per block? or is this just too big?
 
 /// The maximum number of queued `Vec<SignedBeaconBlock>` objects received during syncing that will
 /// be stored before we start dropping them.
@@ -229,6 +230,7 @@ pub const GOSSIP_SYNC_CONTRIBUTION: &str = "gossip_sync_contribution";
 pub const GOSSIP_LIGHT_CLIENT_FINALITY_UPDATE: &str = "light_client_finality_update";
 pub const GOSSIP_LIGHT_CLIENT_OPTIMISTIC_UPDATE: &str = "light_client_optimistic_update";
 pub const RPC_BLOCK: &str = "rpc_block";
+pub const RPC_BLOB: &str = "rpc_blob";
 pub const CHAIN_SEGMENT: &str = "chain_segment";
 pub const STATUS_PROCESSING: &str = "status_processing";
 pub const BLOCKS_BY_RANGE_REQUEST: &str = "blocks_by_range_request";
@@ -607,7 +609,7 @@ impl<T: BeaconChainTypes> WorkEvent<T> {
     /// sent to the other side of `result_tx`.
     pub fn rpc_beacon_block(
         block_root: Hash256,
-        block: BlockWrapper<T::EthSpec>,
+        block: Arc<SignedBeaconBlock<T::EthSpec>>,
         seen_timestamp: Duration,
         process_type: BlockProcessType,
     ) -> Self {
@@ -619,6 +621,21 @@ impl<T: BeaconChainTypes> WorkEvent<T> {
                 seen_timestamp,
                 process_type,
                 should_process: true,
+            },
+        }
+    }
+
+    pub fn rpc_blob(
+        blob: Arc<BlobSidecar<T::EthSpec>>,
+        seen_timestamp: Duration,
+        process_type: BlockProcessType,
+    ) -> Self {
+        Self {
+            drop_during_sync: false,
+            work: Work::RpcBlob {
+                block: blob,
+                seen_timestamp,
+                process_type,
             },
         }
     }
@@ -914,10 +931,15 @@ pub enum Work<T: BeaconChainTypes> {
     },
     RpcBlock {
         block_root: Hash256,
-        block: BlockWrapper<T::EthSpec>,
+        block: Arc<SignedBeaconBlock<T::EthSpec>>,
         seen_timestamp: Duration,
         process_type: BlockProcessType,
         should_process: bool,
+    },
+    RpcBlob {
+        block: Arc<BlobSidecar<T::EthSpec>>,
+        seen_timestamp: Duration,
+        process_type: BlockProcessType,
     },
     ChainSegment {
         process_id: ChainSegmentProcessId,
@@ -978,6 +1000,7 @@ impl<T: BeaconChainTypes> Work<T> {
             Work::GossipLightClientFinalityUpdate { .. } => GOSSIP_LIGHT_CLIENT_FINALITY_UPDATE,
             Work::GossipLightClientOptimisticUpdate { .. } => GOSSIP_LIGHT_CLIENT_OPTIMISTIC_UPDATE,
             Work::RpcBlock { .. } => RPC_BLOCK,
+            Work::RpcBlob { .. } => RPC_BLOB,
             Work::ChainSegment { .. } => CHAIN_SEGMENT,
             Work::Status { .. } => STATUS_PROCESSING,
             Work::BlocksByRangeRequest { .. } => BLOCKS_BY_RANGE_REQUEST,
@@ -1128,11 +1151,11 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
 
         // Using a FIFO queue since blocks need to be imported sequentially.
         let mut rpc_block_queue = FifoQueue::new(MAX_RPC_BLOCK_QUEUE_LEN);
+        let mut rpc_blob_queue = FifoQueue::new(MAX_RPC_BLOB_QUEUE_LEN);
         let mut chain_segment_queue = FifoQueue::new(MAX_CHAIN_SEGMENT_QUEUE_LEN);
         let mut backfill_chain_segment = FifoQueue::new(MAX_CHAIN_SEGMENT_QUEUE_LEN);
         let mut gossip_block_queue = FifoQueue::new(MAX_GOSSIP_BLOCK_QUEUE_LEN);
-        let mut gossip_block_and_blobs_sidecar_queue =
-            FifoQueue::new(MAX_GOSSIP_BLOCK_AND_BLOB_QUEUE_LEN);
+        let mut gossip_blob_queue = FifoQueue::new(MAX_GOSSIP_BLOB_QUEUE_LEN);
         let mut delayed_block_queue = FifoQueue::new(MAX_DELAYED_BLOCK_QUEUE_LEN);
 
         let mut status_queue = FifoQueue::new(MAX_STATUS_QUEUE_LEN);
@@ -1239,6 +1262,8 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                         // evolves.
                         } else if let Some(item) = rpc_block_queue.pop() {
                             self.spawn_worker(item, toolbox);
+                        } else if let Some(item) = rpc_blob_queue.pop() {
+                            self.spawn_worker(item, toolbox);
                         // Check delayed blocks before gossip blocks, the gossip blocks might rely
                         // on the delayed ones.
                         } else if let Some(item) = delayed_block_queue.pop() {
@@ -1247,7 +1272,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                         // required to verify some attestations.
                         } else if let Some(item) = gossip_block_queue.pop() {
                             self.spawn_worker(item, toolbox);
-                        } else if let Some(item) = gossip_block_and_blobs_sidecar_queue.pop() {
+                        } else if let Some(item) = gossip_blob_queue.pop() {
                             self.spawn_worker(item, toolbox);
                         // Check the aggregates, *then* the unaggregates since we assume that
                         // aggregates are more valuable to local validators and effectively give us
@@ -1463,7 +1488,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                                 gossip_block_queue.push(work, work_id, &self.log)
                             }
                             Work::GossipSignedBlobSidecar { .. } => {
-                                gossip_block_and_blobs_sidecar_queue.push(work, work_id, &self.log)
+                                gossip_blob_queue.push(work, work_id, &self.log)
                             }
                             Work::DelayedImportBlock { .. } => {
                                 delayed_block_queue.push(work, work_id, &self.log)
@@ -1488,6 +1513,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                                 optimistic_update_queue.push(work, work_id, &self.log)
                             }
                             Work::RpcBlock { .. } => rpc_block_queue.push(work, work_id, &self.log),
+                            Work::RpcBlob { .. } => rpc_blob_queue.push(work, work_id, &self.log),
                             Work::ChainSegment { ref process_id, .. } => match process_id {
                                 ChainSegmentProcessId::RangeBatchId { .. }
                                 | ChainSegmentProcessId::ParentLookup { .. } => {
@@ -1556,6 +1582,10 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                 metrics::set_gauge(
                     &metrics::BEACON_PROCESSOR_RPC_BLOCK_QUEUE_TOTAL,
                     rpc_block_queue.len() as i64,
+                );
+                metrics::set_gauge(
+                    &metrics::BEACON_PROCESSOR_RPC_BLOB_QUEUE_TOTAL,
+                    rpc_blob_queue.len() as i64,
                 );
                 metrics::set_gauge(
                     &metrics::BEACON_PROCESSOR_CHAIN_SEGMENT_QUEUE_TOTAL,
@@ -1905,6 +1935,15 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                 work_reprocessing_tx,
                 duplicate_cache,
                 should_process,
+            )),
+            Work::RpcBlob {
+                block,
+                seen_timestamp,
+                process_type,
+            } => task_spawner.spawn_async(worker.process_rpc_blob(
+                block,
+                seen_timestamp,
+                process_type,
             )),
             /*
              * Verification for a chain segment (multiple blocks).

@@ -685,7 +685,7 @@ mod tests {
         range.add_peer(&mut rig.cx, local_info, peer1, head_info);
         let ((chain1, batch1), id1) = match rig.grab_request(&peer1).0 {
             RequestId::Sync(crate::sync::manager::RequestId::RangeBlocks { id }) => {
-                (rig.cx.range_sync_block_response(id, true).unwrap(), id)
+                (rig.cx.range_sync_block_only_response(id, true).unwrap(), id)
             }
             other => panic!("unexpected request {:?}", other),
         };
@@ -704,7 +704,7 @@ mod tests {
         range.add_peer(&mut rig.cx, local_info, peer2, finalized_info);
         let ((chain2, batch2), id2) = match rig.grab_request(&peer2).0 {
             RequestId::Sync(crate::sync::manager::RequestId::RangeBlocks { id }) => {
-                (rig.cx.range_sync_block_response(id, true).unwrap(), id)
+                (rig.cx.range_sync_block_only_response(id, true).unwrap(), id)
             }
             other => panic!("unexpected request {:?}", other),
         };

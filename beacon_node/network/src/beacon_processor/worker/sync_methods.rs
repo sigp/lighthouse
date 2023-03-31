@@ -18,7 +18,7 @@ use lighthouse_network::PeerAction;
 use slog::{debug, error, info, warn};
 use std::sync::Arc;
 use tokio::sync::mpsc;
-use types::{Epoch, Hash256, SignedBeaconBlock};
+use types::{BlobSidecar, Epoch, Hash256, SignedBeaconBlock};
 
 /// Id associated to a batch processing request, either a sync batch or a parent lookup.
 #[derive(Clone, Debug, PartialEq)]
@@ -45,7 +45,7 @@ impl<T: BeaconChainTypes> Worker<T> {
     pub async fn process_rpc_block(
         self,
         block_root: Hash256,
-        block: BlockWrapper<T::EthSpec>,
+        block: Arc<SignedBeaconBlock<T::EthSpec>>,
         seen_timestamp: Duration,
         process_type: BlockProcessType,
         reprocess_tx: mpsc::Sender<ReprocessQueueMessage<T>>,
@@ -134,6 +134,27 @@ impl<T: BeaconChainTypes> Worker<T> {
 
         // Drop the handle to remove the entry from the cache
         drop(handle);
+    }
+
+    pub async fn process_rpc_blob(
+        self,
+        blob: Arc<BlobSidecar<T::EthSpec>>,
+        seen_timestamp: Duration,
+        process_type: BlockProcessType,
+    ) {
+        let result = self
+            .chain
+            .check_availability_and_maybe_import(
+                |chain| chain.data_availability_checker.put_rpc_blob(blob),
+                CountUnrealized::True,
+            )
+            .await;
+
+        // Sync handles these results
+        self.send_sync_message(SyncMessage::BlobProcessed {
+            process_type,
+            result,
+        });
     }
 
     /// Attempt to import the chain segment (`blocks`) to the beacon chain, informing the sync
