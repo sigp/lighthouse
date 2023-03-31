@@ -2,7 +2,8 @@ use beacon_node::ClientConfig as Config;
 
 use crate::exec::{CommandLineTestExec, CompletedTest};
 use beacon_node::beacon_chain::chain_config::{
-    DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION, DEFAULT_RE_ORG_THRESHOLD,
+    DEFAULT_RE_ORG_CUTOFF_DENOMINATOR, DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION,
+    DEFAULT_RE_ORG_THRESHOLD,
 };
 use eth1::Eth1Endpoint;
 use lighthouse_network::PeerId;
@@ -1868,6 +1869,10 @@ fn enable_proposer_re_orgs_default() {
                 config.chain.re_org_max_epochs_since_finalization,
                 DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION,
             );
+            assert_eq!(
+                config.chain.re_org_cutoff(12),
+                Duration::from_secs(12) / DEFAULT_RE_ORG_CUTOFF_DENOMINATOR
+            );
         });
 }
 
@@ -1897,6 +1902,16 @@ fn proposer_re_org_max_epochs_since_finalization() {
                 config.chain.re_org_max_epochs_since_finalization.as_u64(),
                 8
             )
+        });
+}
+
+#[test]
+fn proposer_re_org_cutoff() {
+    CommandLineTest::new()
+        .flag("proposer-reorg-cutoff", Some("1000"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(config.chain.re_org_cutoff(12), Duration::from_millis(1000))
         });
 }
 

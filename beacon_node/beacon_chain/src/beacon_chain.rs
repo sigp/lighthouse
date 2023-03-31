@@ -106,7 +106,6 @@ use task_executor::{ShutdownReason, TaskExecutor};
 use tokio_stream::Stream;
 use tree_hash::TreeHash;
 use types::beacon_state::CloneConfig;
-use types::consts::merge::INTERVALS_PER_SLOT;
 use types::*;
 
 pub type ForkChoiceError = fork_choice::Error<crate::ForkChoiceStoreError>;
@@ -127,12 +126,6 @@ pub const VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT: Duration = Duration::from_secs(1)
 
 /// The timeout for the eth1 finalization cache
 pub const ETH1_FINALIZATION_CACHE_LOCK_TIMEOUT: Duration = Duration::from_millis(200);
-
-/// The latest delay from the start of the slot at which to attempt a 1-slot re-org.
-fn max_re_org_slot_delay(seconds_per_slot: u64) -> Duration {
-    // Allow at least half of the attestation deadline for the block to propagate.
-    Duration::from_secs(seconds_per_slot) / INTERVALS_PER_SLOT as u32 / 2
-}
 
 // These keys are all zero because they get stored in different columns, see `DBColumn` type.
 pub const BEACON_CHAIN_DB_KEY: Hash256 = Hash256::zero();
@@ -3761,7 +3754,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // 1. It seems we have time to propagate and still receive the proposer boost.
         // 2. The current head block was seen late.
         // 3. The `get_proposer_head` conditions from fork choice pass.
-        let proposing_on_time = slot_delay < max_re_org_slot_delay(self.spec.seconds_per_slot);
+        let proposing_on_time = slot_delay < self.config.re_org_cutoff(self.spec.seconds_per_slot);
         if !proposing_on_time {
             debug!(
                 self.log,
@@ -4079,7 +4072,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let re_org_block_slot = head_slot + 1;
         let fork_choice_slot = info.current_slot;
 
-        // If a re-orging proposal isn't made by the `max_re_org_slot_delay` then we give up
+        // If a re-orging proposal isn't made by the `re_org_cutoff` then we give up
         // and allow the fork choice update for the canonical head through so that we may attest
         // correctly.
         let current_slot_ok = if head_slot == fork_choice_slot {
@@ -4090,7 +4083,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .and_then(|slot_start| {
                     let now = self.slot_clock.now_duration()?;
                     let slot_delay = now.saturating_sub(slot_start);
-                    Some(slot_delay <= max_re_org_slot_delay(self.spec.seconds_per_slot))
+                    Some(slot_delay <= self.config.re_org_cutoff(self.spec.seconds_per_slot))
                 })
                 .unwrap_or(false)
         } else {

@@ -686,6 +686,8 @@ pub fn get_config<E: EthSpec>(
         client_config.chain.re_org_max_epochs_since_finalization =
             clap_utils::parse_optional(cli_args, "proposer-reorg-epochs-since-finalization")?
                 .unwrap_or(DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION);
+        client_config.chain.re_org_cutoff_millis =
+            clap_utils::parse_optional(cli_args, "proposer-reorg-cutoff")?;
     }
 
     // Note: This overrides any previous flags that enable this option.

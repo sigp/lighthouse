@@ -870,6 +870,16 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .conflicts_with("disable-proposer-reorgs")
         )
         .arg(
+            Arg::with_name("proposer-reorg-cutoff")
+                .long("proposer-reorg-cutoff")
+                .value_name("MILLISECONDS")
+                .help("Maximum delay after the start of the slot at which to propose a reorging \
+                       block. Lower values can prevent failed reorgs by ensuring the block has \
+                       ample time to propagate and be processed by the network. The default is \
+                       1/8th of a slot (1.5 seconds on mainnet)")
+                .conflicts_with("disable-proposer-reorgs")
+        )
+        .arg(
             Arg::with_name("prepare-payload-lookahead")
                 .long("prepare-payload-lookahead")
                 .value_name("MILLISECONDS")
