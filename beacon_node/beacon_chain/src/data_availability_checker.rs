@@ -96,7 +96,7 @@ impl<T: EthSpec> GossipAvailabilityCache<T> {
 }
 
 /// This type is returned after adding a block / blob to the `DataAvailabilityChecker`.
-/// 
+///
 /// Indicates if the block is fully `Available` or if we need blobs or blocks
 ///  to "complete" the requirements for an `AvailableBlock`.
 pub enum Availability<T: EthSpec> {
@@ -222,9 +222,9 @@ impl<T: EthSpec, S: SlotClock> DataAvailabilityChecker<T, S> {
 
     /// Checks if the provided `executed_block` contains all required blobs to be considered an
     /// `AvailableBlock` based on blobs that are cached.
-    /// 
-    /// Returns an error if there was an error when matching the block commitments against blob commitments. 
-    /// 
+    ///
+    /// Returns an error if there was an error when matching the block commitments against blob commitments.
+    ///
     /// Returns `Ok(Availability::Available(_))` if all blobs for the block are present in cache.
     /// Returns `Ok(Availability::PendingBlobs(_))` if all corresponding blobs have not been received in the cache.
     fn check_block_availability_maybe_cache(
@@ -457,7 +457,7 @@ pub enum BlobRequirements {
 
 /// A wrapper over a `SignedBeaconBlock` where we have not verified availability of
 /// corresponding `BlobSidecar`s and hence, is not ready for import into fork choice.
-/// 
+///
 /// Note: This wrapper does not necessarily correspond to a pre-deneb block as a pre-deneb
 /// block that is ready for import will be of type `AvailableBlock` with its `blobs` field
 /// set to `VerifiedBlobs::PreDeneb`.
