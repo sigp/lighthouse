@@ -784,14 +784,14 @@ impl<E: EthSpec> AvailabilityPendingExecutedBlock<E> {
         self.get_filtered_blob_ids(|_| true)
     }
 
-    pub fn get_filtered_blob_ids(&self, filter: impl Fn(usize) -> bool) -> Vec<BlobIdentifier> {
+    pub fn get_filtered_blob_ids(&self, filter: impl Fn(u64) -> bool) -> Vec<BlobIdentifier> {
         let num_blobs_expected = self.num_blobs_expected();
         let mut blob_ids = Vec::with_capacity(num_blobs_expected);
-        for i in 0..num_blobs_expected {
+        for i in 0..num_blobs_expected as u64 {
             if filter(i) {
                 blob_ids.push(BlobIdentifier {
                     block_root: self.import_data.block_root,
-                    index: i as u64,
+                    index: i,
                 });
             }
         }
