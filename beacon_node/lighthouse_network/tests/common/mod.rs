@@ -244,7 +244,7 @@ pub async fn build_mock_libp2p_light_client_instance(
     log: slog::Logger,
     fork_name: ForkName,
 ) -> MockLibp2pLightClientInstance {
-    let port = unused_tcp_port().unwrap();
+    let port = unused_tcp4_port().unwrap();
     let config = build_config(port, boot_nodes);
 
     let (signal, exit) = exit_future::signal();
