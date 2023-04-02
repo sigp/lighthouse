@@ -164,12 +164,12 @@ consider using it for the chance of out-sized rewards, this flag may be useful:
 
 `--builder-profit-threshold <WEI_VALUE>`
 
-The number provided indicates the minimum reward that an external payload must provide the proposer for it to be considered
-for inclusion in a proposal. For example, if you'd only like to use an external payload for a reward of >= 0.25 ETH, you
-would provide your beacon node with `--builder-profit-threshold 250000000000000000`. If it's your turn to propose and the
-most valuable payload offered by builders is only 0.1 ETH, the local execution engine's payload will be used. Currently,
-this threshold just looks at the value of the external payload. No comparison to the local payload is made, although
-this feature will likely be added in the future.
+The number provided indicates the minimum reward that an external payload must provide the proposer in excess of the 
+local payload for it to be considered for inclusion in a proposal. For example, if you'd only like to use an external 
+payload for a reward of >= 0.25 ETH + local payaload reward, you would provide your beacon node with 
+`--builder-profit-threshold 250000000000000000`. If it's your turn to propose and the
+most valuable payload offered by builders is only 0.1 ETH greater than the local execution payloads value, the local 
+execution engine's payload will be used. 
 
 ## Checking your builder config
 

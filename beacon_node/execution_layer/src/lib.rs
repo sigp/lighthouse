@@ -791,23 +791,31 @@ impl<T: EthSpec> ExecutionLayer<T> {
                         (Ok(Some(relay)), Ok(local)) => {
                             let header = &relay.data.message.header;
 
+                            let relay_value = relay.data.message.value;
+                            let local_value = *local.block_value();
+                            let profit_threshold = self.inner.builder_profit_threshold;
+
                             info!(
                                 self.log(),
                                 "Received local and builder payloads";
                                 "relay_block_hash" => ?header.block_hash(),
                                 "local_block_hash" => ?local.payload().block_hash(),
                                 "parent_hash" => ?parent_hash,
+                                "local_block_value" => %local_value,
+                                "relay_value" => %relay_value,
+                                "profit_threshold" => %profit_threshold
                             );
 
-                            let relay_value = relay.data.message.value;
-                            let local_value = *local.block_value();
+                            let boosted_local = local_value + profit_threshold;
+
                             if !self.inner.always_prefer_builder_payload
-                                && local_value >= relay_value
+                                && boosted_local >= relay_value
                             {
                                 info!(
                                     self.log(),
-                                    "Local block is more profitable than relay block";
+                                    "Local block plus profit threshold is more profitable than relay block";
                                     "local_block_value" => %local_value,
+                                    "local_boosted_value" => %boosted_local,
                                     "relay_value" => %relay_value
                                 );
                                 return Ok(ProvenancedPayload::Local(local));
@@ -818,7 +826,6 @@ impl<T: EthSpec> ExecutionLayer<T> {
                                 parent_hash,
                                 payload_attributes,
                                 Some(local.payload().block_number()),
-                                self.inner.builder_profit_threshold,
                                 current_fork,
                                 spec,
                             ) {
@@ -873,7 +880,6 @@ impl<T: EthSpec> ExecutionLayer<T> {
                                 parent_hash,
                                 payload_attributes,
                                 None,
-                                self.inner.builder_profit_threshold,
                                 current_fork,
                                 spec,
                             ) {
@@ -1775,10 +1781,6 @@ impl<T: EthSpec> ExecutionLayer<T> {
 #[derive(AsRefStr)]
 #[strum(serialize_all = "snake_case")]
 enum InvalidBuilderPayload {
-    LowValue {
-        profit_threshold: Uint256,
-        payload_value: Uint256,
-    },
     ParentHash {
         payload: ExecutionBlockHash,
         expected: ExecutionBlockHash,
@@ -1813,8 +1815,6 @@ impl InvalidBuilderPayload {
     /// Returns `true` if a payload is objectively invalid and should never be included on chain.
     fn payload_invalid(&self) -> bool {
         match self {
-            // A low-value payload isn't invalid, it should just be avoided if possible.
-            InvalidBuilderPayload::LowValue { .. } => false,
             InvalidBuilderPayload::ParentHash { .. } => true,
             InvalidBuilderPayload::PrevRandao { .. } => true,
             InvalidBuilderPayload::Timestamp { .. } => true,
@@ -1829,14 +1829,6 @@ impl InvalidBuilderPayload {
 impl fmt::Display for InvalidBuilderPayload {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            InvalidBuilderPayload::LowValue {
-                profit_threshold,
-                payload_value,
-            } => write!(
-                f,
-                "payload value of {} does not meet user-configured profit-threshold of {}",
-                payload_value, profit_threshold
-            ),
             InvalidBuilderPayload::ParentHash { payload, expected } => {
                 write!(f, "payload block hash was {} not {}", payload, expected)
             }
@@ -1880,13 +1872,11 @@ fn verify_builder_bid<T: EthSpec, Payload: AbstractExecPayload<T>>(
     parent_hash: ExecutionBlockHash,
     payload_attributes: &PayloadAttributes,
     block_number: Option<u64>,
-    profit_threshold: Uint256,
     current_fork: ForkName,
     spec: &ChainSpec,
 ) -> Result<(), Box<InvalidBuilderPayload>> {
     let is_signature_valid = bid.data.verify_signature(spec);
     let header = &bid.data.message.header;
-    let payload_value = bid.data.message.value;
 
     // Avoid logging values that we can't represent with our Prometheus library.
     let payload_value_gwei = bid.data.message.value / 1_000_000_000;
@@ -1905,12 +1895,7 @@ fn verify_builder_bid<T: EthSpec, Payload: AbstractExecPayload<T>>(
         .map(|withdrawals| Withdrawals::<T>::from(withdrawals).tree_hash_root());
     let payload_withdrawals_root = header.withdrawals_root().ok();
 
-    if payload_value < profit_threshold {
-        Err(Box::new(InvalidBuilderPayload::LowValue {
-            profit_threshold,
-            payload_value,
-        }))
-    } else if header.parent_hash() != parent_hash {
+    if header.parent_hash() != parent_hash {
         Err(Box::new(InvalidBuilderPayload::ParentHash {
             payload: header.parent_hash(),
             expected: parent_hash,
