@@ -16,7 +16,7 @@ serde_derive = "1.0.116"
 eth2_serde_utils = "0.1.1"
 hex = "0.4.2"
 eth2_hashing = "0.3.0"
-c-kzg = {git = "https://github.com/divagant-martian/c-kzg-4844", branch = "windows-bindings-trial-hack" }
+c-kzg = {git = "https://github.com/divagant-martian/c-kzg-4844", rev = "62e62987edab10aefef85e280093034577d00dea" }
 arbitrary = { version = "1.0", features = ["derive"], optional = true }
 
 [features]
