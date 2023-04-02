@@ -815,7 +815,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                                     self.log(),
                                     "Local block plus profit threshold is more profitable than relay block";
                                     "local_block_value" => %local_value,
-                                    "profit_threshold" => %profit_threshold
+                                    "profit_threshold" => %profit_threshold,
                                     "relay_value" => %relay_value
                                 );
                                 return Ok(ProvenancedPayload::Local(local));
