@@ -5,7 +5,6 @@ use futures::prelude::*;
 use libp2p::core::connection::ConnectionId;
 use libp2p::core::upgrade::{NegotiationError, ProtocolError};
 use libp2p::core::{PeerId, UpgradeError, UpgradeInfo};
-use libp2p::multiaddr::{Multiaddr, Protocol as MProtocol};
 use libp2p::swarm::handler::SubstreamProtocol;
 use libp2p::swarm::{
     ConnectionHandler, ConnectionHandlerEvent, ConnectionHandlerUpgrErr, KeepAlive,
@@ -95,16 +94,13 @@ impl<Id: ReqId, TSpec: EthSpec> MockLibP2PLightClientService<Id, TSpec> {
     }
 
     async fn start(&mut self, config: &NetworkConfig) -> error::Result<()> {
-        let listen_multiaddr = {
-            let mut m = Multiaddr::from(config.listen_address);
-            m.push(MProtocol::Tcp(config.libp2p_port));
-            m
-        };
-
-        if let Err(_) = self.swarm.listen_on(listen_multiaddr.clone()) {
-            return Err("Libp2p was unable to listen on the given listen address.".into());
-        };
-
+        for listen_multiaddr in config.listen_addrs().tcp_addresses() {
+            self.swarm
+                .listen_on(listen_multiaddr.clone())
+                .map_err(|_| {
+                    "Libp2p was unable to listen on the given listen address.".to_string()
+                })?;
+        }
         Ok(())
     }
 

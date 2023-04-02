@@ -408,27 +408,39 @@ fn context_bytes<T: EthSpec>(
     // Add the context bytes if required
     if protocol.has_context_bytes() {
         if let RPCCodedResponse::Success(rpc_variant) = resp {
-            if let RPCResponse::BlocksByRange(ref_box_block)
-            | RPCResponse::BlocksByRoot(ref_box_block) = rpc_variant
-            {
-                return match **ref_box_block {
-                    // NOTE: If you are adding another fork type here, be sure to modify the
-                    //       `fork_context.to_context_bytes()` function to support it as well!
-                    SignedBeaconBlock::Capella { .. } => {
-                        // Capella context being `None` implies that "merge never happened".
-                        fork_context.to_context_bytes(ForkName::Capella)
-                    }
-                    SignedBeaconBlock::Merge { .. } => {
-                        // Merge context being `None` implies that "merge never happened".
-                        fork_context.to_context_bytes(ForkName::Merge)
-                    }
-                    SignedBeaconBlock::Altair { .. } => {
-                        // Altair context being `None` implies that "altair never happened".
-                        // This code should be unreachable if altair is disabled since only Version::V1 would be valid in that case.
-                        fork_context.to_context_bytes(ForkName::Altair)
-                    }
-                    SignedBeaconBlock::Base { .. } => Some(fork_context.genesis_context_bytes()),
-                };
+            match rpc_variant {
+                RPCResponse::BlocksByRange(ref_box_block)
+                | RPCResponse::BlocksByRoot(ref_box_block) => {
+                    return match **ref_box_block {
+                        // NOTE: If you are adding another fork type here, be sure to modify the
+                        //       `fork_context.to_context_bytes()` function to support it as well!
+                        SignedBeaconBlock::Capella { .. } => {
+                            // Capella context being `None` implies that "merge never happened".
+                            fork_context.to_context_bytes(ForkName::Capella)
+                        }
+                        SignedBeaconBlock::Merge { .. } => {
+                            // Merge context being `None` implies that "merge never happened".
+                            fork_context.to_context_bytes(ForkName::Merge)
+                        }
+                        SignedBeaconBlock::Altair { .. } => {
+                            // Altair context being `None` implies that "altair never happened".
+                            // This code should be unreachable if altair is disabled since only Version::V1 would be valid in that case.
+                            fork_context.to_context_bytes(ForkName::Altair)
+                        }
+                        SignedBeaconBlock::Base { .. } => {
+                            Some(fork_context.genesis_context_bytes())
+                        }
+                    };
+                }
+                RPCResponse::LightClientBootstrap(_)
+                | RPCResponse::LightClientOptimisticUpdate(_)
+                | RPCResponse::LightClientFinalityUpdate(_) => {
+                    return fork_context.to_context_bytes(fork_context.current_fork());
+                }
+                // These will not pass the has_context_bytes() check
+                RPCResponse::Status(_) | RPCResponse::Pong(_) | RPCResponse::MetaData(_) => {
+                    unreachable!()
+                }
             }
         }
     }
