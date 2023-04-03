@@ -22,8 +22,9 @@ use types::{
     AggregateAndProof, Attestation, BeaconBlock, BlindedPayload, ChainSpec, ContributionAndProof,
     Domain, Epoch, EthSpec, Fork, Graffiti, Hash256, Keypair, PublicKeyBytes, SelectionProof,
     Signature, SignedAggregateAndProof, SignedBeaconBlock, SignedContributionAndProof, SignedRoot,
-    SignedValidatorRegistrationData, Slot, SyncAggregatorSelectionData, SyncCommitteeContribution,
-    SyncCommitteeMessage, SyncSelectionProof, SyncSubnetId, ValidatorRegistrationData,
+    SignedValidatorRegistrationData, SignedVoluntaryExit, Slot, SyncAggregatorSelectionData,
+    SyncCommitteeContribution, SyncCommitteeMessage, SyncSelectionProof, SyncSubnetId,
+    ValidatorRegistrationData, VoluntaryExit,
 };
 use validator_dir::ValidatorDir;
 
@@ -153,6 +154,14 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
 
     pub fn initialized_validators(&self) -> Arc<RwLock<InitializedValidators>> {
         self.validators.clone()
+    }
+
+    /// Indicates if the `voting_public_key` exists in self and is enabled.
+    pub fn has_validator(&self, voting_public_key: &PublicKeyBytes) -> bool {
+        self.validators
+            .read()
+            .validator(voting_public_key)
+            .is_some()
     }
 
     /// Insert a new validator to `self`, where the validator is represented by an EIP-2335
@@ -614,6 +623,32 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
                 Err(Error::Slashable(e))
             }
         }
+    }
+
+    pub async fn sign_voluntary_exit(
+        &self,
+        validator_pubkey: PublicKeyBytes,
+        voluntary_exit: VoluntaryExit,
+    ) -> Result<SignedVoluntaryExit, Error> {
+        let signing_epoch = voluntary_exit.epoch;
+        let signing_context = self.signing_context(Domain::VoluntaryExit, signing_epoch);
+        let signing_method = self.doppelganger_bypassed_signing_method(validator_pubkey)?;
+
+        let signature = signing_method
+            .get_signature::<E, BlindedPayload<E>>(
+                SignableMessage::VoluntaryExit(&voluntary_exit),
+                signing_context,
+                &self.spec,
+                &self.task_executor,
+            )
+            .await?;
+
+        metrics::inc_counter_vec(&metrics::SIGNED_VOLUNTARY_EXITS_TOTAL, &[metrics::SUCCESS]);
+
+        Ok(SignedVoluntaryExit {
+            message: voluntary_exit,
+            signature,
+        })
     }
 
     pub async fn sign_validator_registration_data(

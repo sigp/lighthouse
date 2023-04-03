@@ -144,3 +144,8 @@ pub struct UpdateGasLimitRequest {
     #[serde(with = "eth2_serde_utils::quoted_u64")]
     pub gas_limit: u64,
 }
+
+#[derive(Deserialize)]
+pub struct VoluntaryExitQuery {
+    pub epoch: Option<Epoch>,
+}
