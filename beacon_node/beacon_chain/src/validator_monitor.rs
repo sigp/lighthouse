@@ -199,7 +199,7 @@ pub struct ValidatorMetrics {
     pub attestation_head_misses: u64,
     pub attestation_target_hits: u64,
     pub attestation_target_misses: u64,
-    pub attestation_inclusion_distance: u64,
+    pub latest_attestation_inclusion_distance: u64,
 }
 
 impl ValidatorMetrics {
@@ -227,8 +227,8 @@ impl ValidatorMetrics {
         self.attestation_head_misses += 1;
     }
 
-    pub fn set_inclusion_distance(&mut self, distance: u64) {
-        self.attestation_inclusion_distance = distance;
+    pub fn set_latest_inclusion_distance(&mut self, distance: u64) {
+        self.latest_attestation_inclusion_distance = distance;
     }
 }
 
@@ -697,7 +697,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                             &[id],
                             inclusion_delay as i64,
                         );
-                        validator_metrics.set_inclusion_distance(inclusion_delay);
+                        validator_metrics.set_latest_inclusion_distance(inclusion_delay);
                     }
                 }
                 drop(validator_metrics);
