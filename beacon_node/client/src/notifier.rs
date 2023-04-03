@@ -143,7 +143,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                             .map(|ai| ai.oldest_block_slot)
                         {
                             sync_distance = current_anchor_slot
-                                .saturating_sub(beacon_chain.genesis_backfill_slot);
+                                .saturating_sub(*beacon_chain.oldest_block_target_slot.read());
                             speedo
                                 // For backfill sync use a fake slot which is the distance we've progressed from the starting `oldest_block_slot`.
                                 .observe(
@@ -208,14 +208,14 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                         "Downloading historical blocks";
                         "distance" => distance,
                         "speed" => sync_speed_pretty(speed),
-                        "est_time" => estimated_time_pretty(speedo.estimated_time_till_slot(original_anchor_slot.unwrap_or(current_slot).saturating_sub(beacon_chain.genesis_backfill_slot))),
+                        "est_time" => estimated_time_pretty(speedo.estimated_time_till_slot(original_anchor_slot.unwrap_or(current_slot).saturating_sub(*beacon_chain.oldest_block_target_slot.read()))),
                     );
                 } else {
                     info!(
                         log,
                         "Downloading historical blocks";
                         "distance" => distance,
-                        "est_time" => estimated_time_pretty(speedo.estimated_time_till_slot(original_anchor_slot.unwrap_or(current_slot).saturating_sub(beacon_chain.genesis_backfill_slot))),
+                        "est_time" => estimated_time_pretty(speedo.estimated_time_till_slot(original_anchor_slot.unwrap_or(current_slot).saturating_sub(*beacon_chain.oldest_block_target_slot.read()))),
                     );
                 }
             } else if !is_backfilling && last_backfill_log_slot.is_some() {

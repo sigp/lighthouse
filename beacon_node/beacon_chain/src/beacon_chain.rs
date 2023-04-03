@@ -316,7 +316,7 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     /// Used for spawning async and blocking tasks.
     pub task_executor: TaskExecutor,
     /// Database migrator for running background maintenance on the store.
-    pub store_migrator: BackgroundMigrator<T::EthSpec, T::HotStore, T::ColdStore>,
+    pub store_migrator: BackgroundMigrator<T>,
     /// Reports the current slot, typically based upon the system clock.
     pub slot_clock: T::SlotClock,
     /// Stores all operations (e.g., `Attestation`, `Deposit`, etc) that are candidates for
@@ -423,7 +423,7 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     /// Provides monitoring of a set of explicitly defined validators.
     pub validator_monitor: RwLock<ValidatorMonitor<T::EthSpec>>,
     /// The slot at which blocks are downloaded back to.
-    pub genesis_backfill_slot: Slot,
+    pub oldest_block_target_slot: RwLock<Slot>,
 }
 
 type BeaconBlockAndState<T, Payload> = (BeaconBlock<T, Payload>, BeaconState<T>);

@@ -717,12 +717,7 @@ where
         })?;
 
         let migrator_config = self.store_migrator_config.unwrap_or_default();
-        let store_migrator = BackgroundMigrator::new(
-            store.clone(),
-            migrator_config,
-            genesis_block_root,
-            log.clone(),
-        );
+        let store_migrator = BackgroundMigrator::new(store.clone(), migrator_config, log.clone());
 
         if let Some(slot) = slot_clock.now() {
             validator_monitor.process_valid_state(
@@ -767,27 +762,10 @@ where
         let canonical_head = CanonicalHead::new(fork_choice, Arc::new(head_snapshot));
 
         // Calculate the weak subjectivity point in which to backfill blocks to.
-        let genesis_backfill_slot = if self.chain_config.genesis_backfill {
-            Slot::new(0)
-        } else {
-            let backfill_epoch_range = (self.spec.min_validator_withdrawability_delay
-                + self.spec.churn_limit_quotient)
-                .as_u64()
-                / 2;
-            match slot_clock.now() {
-                Some(current_slot) => {
-                    let genesis_backfill_epoch = current_slot
-                        .epoch(TEthSpec::slots_per_epoch())
-                        .saturating_sub(backfill_epoch_range);
-                    genesis_backfill_epoch.start_slot(TEthSpec::slots_per_epoch())
-                }
-                None => {
-                    // The slot clock cannot derive the current slot. We therefore assume we are
-                    // at or prior to genesis and backfill should sync all the way to genesis.
-                    Slot::new(0)
-                }
-            }
-        };
+        let oldest_block_target_slot = RwLock::new(
+            self.chain_config
+                .compute_oldest_block_target_slot::<TEthSpec, _>(&slot_clock, &self.spec),
+        );
 
         let beacon_chain = BeaconChain {
             spec: self.spec,
@@ -856,7 +834,7 @@ where
             graffiti: self.graffiti,
             slasher: self.slasher.clone(),
             validator_monitor: RwLock::new(validator_monitor),
-            genesis_backfill_slot,
+            oldest_block_target_slot,
         };
 
         let head = beacon_chain.head_snapshot();

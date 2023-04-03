@@ -189,7 +189,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             oldest_block_parent: expected_block_root,
             ..anchor_info
         };
-        let backfill_complete = new_anchor.block_backfill_complete(self.genesis_backfill_slot);
+        let backfill_complete =
+            new_anchor.block_backfill_complete(*self.oldest_block_target_slot.read());
         self.store
             .compare_and_set_anchor_info_with_write(Some(anchor_info), Some(new_anchor))?;
 
@@ -197,7 +198,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // send a message to the background migrator instructing it to begin reconstruction.
         // This can only happen if we have backfilled all the way to genesis.
         if backfill_complete
-            && self.genesis_backfill_slot == Slot::new(0)
+            && *self.oldest_block_target_slot.read() == Slot::new(0)
             && self.config.reconstruct_historic_states
         {
             self.store_migrator.process_reconstruction();

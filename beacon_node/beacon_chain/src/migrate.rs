@@ -1,4 +1,4 @@
-use crate::beacon_chain::BEACON_CHAIN_DB_KEY;
+use crate::beacon_chain::{BeaconChain, BeaconChainTypes, BeaconStore, BEACON_CHAIN_DB_KEY};
 use crate::errors::BeaconChainError;
 use crate::head_tracker::{HeadTracker, SszHeadTracker};
 use crate::persisted_beacon_chain::{PersistedBeaconChain, DUMMY_CANONICAL_HEAD_BLOCK_ROOT};
@@ -11,7 +11,7 @@ use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use store::hot_cold_store::{migrate_database, HotColdDBError};
 use store::iter::RootsIterator;
-use store::{Error, ItemStore, StoreItem, StoreOp};
+use store::{Error, KeyValueStore, StoreItem, StoreOp};
 pub use store::{HotColdDB, MemoryStore};
 use types::{
     BeaconState, BeaconStateError, BeaconStateHash, Checkpoint, Epoch, EthSpec, Hash256,
@@ -27,12 +27,10 @@ const COMPACTION_FINALITY_DISTANCE: u64 = 1024;
 
 /// The background migrator runs a thread to perform pruning and migrate state from the hot
 /// to the cold database.
-pub struct BackgroundMigrator<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> {
-    db: Arc<HotColdDB<E, Hot, Cold>>,
+pub struct BackgroundMigrator<T: BeaconChainTypes> {
+    db: BeaconStore<T>,
     #[allow(clippy::type_complexity)]
-    tx_thread: Option<Mutex<(mpsc::Sender<Notification>, thread::JoinHandle<()>)>>,
-    /// Genesis block root, for persisting the `PersistedBeaconChain`.
-    genesis_block_root: Hash256,
+    tx_thread: Option<Mutex<(mpsc::Sender<Notification<T>>, thread::JoinHandle<()>)>>,
     log: Logger,
 }
 
@@ -83,37 +81,26 @@ pub enum PruningError {
 }
 
 /// Message sent to the migration thread containing the information it needs to run.
-pub enum Notification {
-    Finalization(FinalizationNotification),
+pub enum Notification<T: BeaconChainTypes> {
+    Finalization(FinalizationNotification<T>),
     Reconstruction,
 }
 
-pub struct FinalizationNotification {
+pub struct FinalizationNotification<T: BeaconChainTypes> {
     finalized_state_root: BeaconStateHash,
     finalized_checkpoint: Checkpoint,
-    head_tracker: Arc<HeadTracker>,
-    genesis_block_root: Hash256,
+    beacon_chain: Arc<BeaconChain<T>>,
 }
 
-impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Hot, Cold> {
+impl<T: BeaconChainTypes> BackgroundMigrator<T> {
     /// Create a new `BackgroundMigrator` and spawn its thread if necessary.
-    pub fn new(
-        db: Arc<HotColdDB<E, Hot, Cold>>,
-        config: MigratorConfig,
-        genesis_block_root: Hash256,
-        log: Logger,
-    ) -> Self {
+    pub fn new(db: BeaconStore<T>, config: MigratorConfig, log: Logger) -> Self {
         let tx_thread = if config.blocking {
             None
         } else {
             Some(Mutex::new(Self::spawn_thread(db.clone(), log.clone())))
         };
-        Self {
-            db,
-            tx_thread,
-            genesis_block_root,
-            log,
-        }
+        Self { db, tx_thread, log }
     }
 
     /// Process a finalized checkpoint from the `BeaconChain`.
@@ -125,13 +112,12 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
         &self,
         finalized_state_root: BeaconStateHash,
         finalized_checkpoint: Checkpoint,
-        head_tracker: Arc<HeadTracker>,
+        beacon_chain: Arc<BeaconChain<T>>,
     ) -> Result<(), BeaconChainError> {
         let notif = FinalizationNotification {
             finalized_state_root,
             finalized_checkpoint,
-            head_tracker,
-            genesis_block_root: self.genesis_block_root,
+            beacon_chain,
         };
 
         // Send to background thread if configured, otherwise run in foreground.
@@ -152,7 +138,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
         }
     }
 
-    pub fn run_reconstruction(db: Arc<HotColdDB<E, Hot, Cold>>, log: &Logger) {
+    pub fn run_reconstruction(db: BeaconStore<T>, log: &Logger) {
         if let Err(e) = db.reconstruct_historic_states() {
             error!(
                 log,
@@ -166,7 +152,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
     ///
     /// Return `None` if the message was sent to the background thread, `Some(notif)` otherwise.
     #[must_use = "Message is not processed when this function returns `Some`"]
-    fn send_background_notification(&self, notif: Notification) -> Option<Notification> {
+    fn send_background_notification(&self, notif: Notification<T>) -> Option<Notification<T>> {
         // Async path, on the background thread.
         if let Some(tx_thread) = &self.tx_thread {
             let (ref mut tx, ref mut thread) = *tx_thread.lock();
@@ -199,13 +185,10 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
     }
 
     /// Perform the actual work of `process_finalization`.
-    fn run_migration(
-        db: Arc<HotColdDB<E, Hot, Cold>>,
-        notif: FinalizationNotification,
-        log: &Logger,
-    ) {
+    fn run_migration(db: BeaconStore<T>, notif: FinalizationNotification<T>, log: &Logger) {
         debug!(log, "Database consolidation started");
 
+        let chain = &notif.beacon_chain;
         let finalized_state_root = notif.finalized_state_root;
 
         let finalized_state = match db.get_state(&finalized_state_root.into(), None) {
@@ -223,11 +206,11 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
 
         let old_finalized_checkpoint = match Self::prune_abandoned_forks(
             db.clone(),
-            notif.head_tracker,
+            chain.head_tracker.clone(),
             finalized_state_root,
             &finalized_state,
             notif.finalized_checkpoint,
-            notif.genesis_block_root,
+            chain.genesis_block_root,
             log,
         ) {
             Ok(PruningOutcome::Successful {
@@ -279,6 +262,15 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
             }
         };
 
+        // Delete old blocks that are no longer required.
+        if let Err(e) = chain.prune_blocks() {
+            error!(
+                log,
+                "Error pruning blocks";
+                "error" => ?e,
+            );
+        }
+
         // Finally, compact the database so that new free space is properly reclaimed.
         if let Err(e) = Self::run_compaction(
             db,
@@ -296,31 +288,28 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
     ///
     /// Return a channel handle for sending requests to the thread.
     fn spawn_thread(
-        db: Arc<HotColdDB<E, Hot, Cold>>,
+        db: BeaconStore<T>,
         log: Logger,
-    ) -> (mpsc::Sender<Notification>, thread::JoinHandle<()>) {
+    ) -> (mpsc::Sender<Notification<T>>, thread::JoinHandle<()>) {
         let (tx, rx) = mpsc::channel();
         let thread = thread::spawn(move || {
             while let Ok(notif) = rx.recv() {
                 // Read the rest of the messages in the channel, preferring any reconstruction
                 // notification, or the finalization notification with the greatest finalized epoch.
-                let notif =
-                    rx.try_iter()
-                        .fold(notif, |best, other: Notification| match (&best, &other) {
-                            (Notification::Reconstruction, _)
-                            | (_, Notification::Reconstruction) => Notification::Reconstruction,
-                            (
-                                Notification::Finalization(fin1),
-                                Notification::Finalization(fin2),
-                            ) => {
-                                if fin2.finalized_checkpoint.epoch > fin1.finalized_checkpoint.epoch
-                                {
-                                    other
-                                } else {
-                                    best
-                                }
+                let notif = rx.try_iter().fold(notif, |best, other: Notification<T>| {
+                    match (&best, &other) {
+                        (Notification::Reconstruction, _) | (_, Notification::Reconstruction) => {
+                            Notification::Reconstruction
+                        }
+                        (Notification::Finalization(fin1), Notification::Finalization(fin2)) => {
+                            if fin2.finalized_checkpoint.epoch > fin1.finalized_checkpoint.epoch {
+                                other
+                            } else {
+                                best
                             }
-                        });
+                        }
+                    }
+                });
 
                 match notif {
                     Notification::Reconstruction => Self::run_reconstruction(db.clone(), &log),
@@ -336,10 +325,10 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
     /// space.
     #[allow(clippy::too_many_arguments)]
     fn prune_abandoned_forks(
-        store: Arc<HotColdDB<E, Hot, Cold>>,
+        store: BeaconStore<T>,
         head_tracker: Arc<HeadTracker>,
         new_finalized_state_hash: BeaconStateHash,
-        new_finalized_state: &BeaconState<E>,
+        new_finalized_state: &BeaconState<T::EthSpec>,
         new_finalized_checkpoint: Checkpoint,
         genesis_block_root: Hash256,
         log: &Logger,
@@ -354,10 +343,10 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
 
         let old_finalized_slot = old_finalized_checkpoint
             .epoch
-            .start_slot(E::slots_per_epoch());
+            .start_slot(T::EthSpec::slots_per_epoch());
         let new_finalized_slot = new_finalized_checkpoint
             .epoch
-            .start_slot(E::slots_per_epoch());
+            .start_slot(T::EthSpec::slots_per_epoch());
         let new_finalized_block_hash = new_finalized_checkpoint.root.into();
 
         // The finalized state must be for the epoch boundary slot, not the slot of the finalized
@@ -565,7 +554,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
             head_tracker_lock.remove(&head_hash);
         }
 
-        let batch: Vec<StoreOp<E>> = abandoned_blocks
+        let batch: Vec<StoreOp<_>> = abandoned_blocks
             .into_iter()
             .map(Into::into)
             .flat_map(|block_root: Hash256| {
@@ -607,7 +596,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
     /// Compact the database if it has been more than `COMPACTION_PERIOD_SECONDS` since it
     /// was last compacted.
     pub fn run_compaction(
-        db: Arc<HotColdDB<E, Hot, Cold>>,
+        db: BeaconStore<T>,
         old_finalized_epoch: Epoch,
         new_finalized_epoch: Epoch,
         log: &Logger,

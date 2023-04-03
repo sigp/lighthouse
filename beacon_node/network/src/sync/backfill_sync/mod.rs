@@ -161,7 +161,9 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
 
         let (state, current_start) = match beacon_chain.store.get_anchor_info() {
             Some(anchor_info) => {
-                if anchor_info.block_backfill_complete(beacon_chain.genesis_backfill_slot) {
+                if anchor_info
+                    .block_backfill_complete(*beacon_chain.oldest_block_target_slot.read())
+                {
                     (BackFillState::Completed, Epoch::new(0))
                 } else {
                     (
@@ -287,7 +289,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
             remaining: self
                 .current_start
                 .start_slot(T::EthSpec::slots_per_epoch())
-                .saturating_sub(self.beacon_chain.genesis_backfill_slot)
+                .saturating_sub(*self.beacon_chain.oldest_block_target_slot.read())
                 .as_usize(),
         })
     }
@@ -1101,7 +1103,8 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                 if batch_id
                     == self
                         .beacon_chain
-                        .genesis_backfill_slot
+                        .oldest_block_target_slot
+                        .read()
                         .epoch(T::EthSpec::slots_per_epoch())
                 {
                     self.last_batch_downloaded = true;
@@ -1117,7 +1120,8 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                 if batch_id
                     == self
                         .beacon_chain
-                        .genesis_backfill_slot
+                        .oldest_block_target_slot
+                        .read()
                         .epoch(T::EthSpec::slots_per_epoch())
                 {
                     self.last_batch_downloaded = true;
@@ -1136,7 +1140,9 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
     /// not required.
     fn reset_start_epoch(&mut self) -> Result<(), ResetEpochError> {
         if let Some(anchor_info) = self.beacon_chain.store.get_anchor_info() {
-            if anchor_info.block_backfill_complete(self.beacon_chain.genesis_backfill_slot) {
+            if anchor_info
+                .block_backfill_complete(*self.beacon_chain.oldest_block_target_slot.read())
+            {
                 Err(ResetEpochError::SyncCompleted)
             } else {
                 self.current_start = anchor_info
@@ -1154,14 +1160,17 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
         if self.current_start
             == self
                 .beacon_chain
-                .genesis_backfill_slot
+                .oldest_block_target_slot
+                .read()
                 .epoch(T::EthSpec::slots_per_epoch())
         {
             // Check that the beacon chain agrees
 
             if let Some(anchor_info) = self.beacon_chain.store.get_anchor_info() {
                 // Conditions that we have completed a backfill sync
-                if anchor_info.block_backfill_complete(self.beacon_chain.genesis_backfill_slot) {
+                if anchor_info
+                    .block_backfill_complete(*self.beacon_chain.oldest_block_target_slot.read())
+                {
                     return true;
                 } else {
                     error!(self.log, "Backfill out of sync with beacon chain");

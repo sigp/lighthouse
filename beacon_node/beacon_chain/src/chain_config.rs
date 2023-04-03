@@ -1,7 +1,8 @@
 pub use proto_array::{CountUnrealizedFull, ReOrgThreshold};
 use serde_derive::{Deserialize, Serialize};
+use slot_clock::SlotClock;
 use std::time::Duration;
-use types::{Checkpoint, Epoch};
+use types::{ChainSpec, Checkpoint, Epoch, EthSpec, Slot};
 
 pub const DEFAULT_RE_ORG_THRESHOLD: ReOrgThreshold = ReOrgThreshold(20);
 pub const DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION: Epoch = Epoch::new(2);
@@ -102,6 +103,42 @@ impl Default for ChainConfig {
             optimistic_finalized_sync: true,
             genesis_backfill: false,
             always_prepare_payload: false,
+        }
+    }
+}
+
+impl ChainConfig {
+    /// Return the slot of the oldest block to backfill, or to retain if backfill is complete.
+    ///
+    /// If running with block pruning enabled, this function will *recompute* the oldest block to
+    /// retain, which can then be used to prune. If starting fresh, this target can be used as the
+    /// limit for backfill. The target is computed based on an approximation of the weak
+    /// subjectivity period.
+    ///
+    /// If block pruning is disabled, slot 0 is returned.
+    pub fn compute_oldest_block_target_slot<E: EthSpec, S: SlotClock>(
+        &self,
+        slot_clock: &S,
+        spec: &ChainSpec,
+    ) -> Slot {
+        if self.genesis_backfill {
+            Slot::new(0)
+        } else {
+            let backfill_epoch_range =
+                (spec.min_validator_withdrawability_delay + spec.churn_limit_quotient).as_u64() / 2;
+            match slot_clock.now() {
+                Some(current_slot) => {
+                    let backfill_epoch = current_slot
+                        .epoch(E::slots_per_epoch())
+                        .saturating_sub(backfill_epoch_range);
+                    backfill_epoch.start_slot(E::slots_per_epoch())
+                }
+                None => {
+                    // The slot clock cannot derive the current slot. We therefore assume we are
+                    // at or prior to genesis and backfill should sync all the way to genesis.
+                    Slot::new(0)
+                }
+            }
         }
     }
 }
