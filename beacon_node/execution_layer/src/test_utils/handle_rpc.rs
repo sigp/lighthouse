@@ -112,8 +112,8 @@ pub async fn handle_rpc<T: EthSpec>(
                             })
                     })
                     .map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?,
-                ENGINE_NEW_PAYLOAD_V4 => get_param::<JsonExecutionPayloadV4<T>>(params, 0)
-                    .map(|jep| JsonExecutionPayload::V4(jep))
+                ENGINE_NEW_PAYLOAD_V6110 => get_param::<JsonExecutionPayloadV6110<T>>(params, 0)
+                    .map(|jep| JsonExecutionPayload::V6110(jep))
                     .or_else(|_| {
                         get_param::<JsonExecutionPayloadV3<T>>(params, 0)
                             .map(|jep| JsonExecutionPayload::V3(jep))
@@ -264,7 +264,7 @@ pub async fn handle_rpc<T: EthSpec>(
         ENGINE_GET_PAYLOAD_V1
         | ENGINE_GET_PAYLOAD_V2
         | ENGINE_GET_PAYLOAD_V3
-        | ENGINE_GET_PAYLOAD_V4 => {
+        | ENGINE_GET_PAYLOAD_V6110 => {
             let request: JsonPayloadIdRequest =
                 get_param(params, 0).map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?;
             let id = request.into();
@@ -350,15 +350,15 @@ pub async fn handle_rpc<T: EthSpec>(
                         })
                         .unwrap()
                     }
-                    JsonExecutionPayload::V4(execution_payload) => {
-                        serde_json::to_value(JsonGetPayloadResponseV4 {
+                    JsonExecutionPayload::V6110(execution_payload) => {
+                        serde_json::to_value(JsonGetPayloadResponseV6110 {
                             execution_payload,
                             block_value: DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI.into(),
                         })
                         .unwrap()
                     }
                 }),
-                ENGINE_GET_PAYLOAD_V4 => Ok(match JsonExecutionPayload::from(response) {
+                ENGINE_GET_PAYLOAD_V6110 => Ok(match JsonExecutionPayload::from(response) {
                     JsonExecutionPayload::V1(execution_payload) => {
                         serde_json::to_value(JsonGetPayloadResponseV1 {
                             execution_payload,
@@ -380,8 +380,8 @@ pub async fn handle_rpc<T: EthSpec>(
                         })
                         .unwrap()
                     }
-                    JsonExecutionPayload::V4(execution_payload) => {
-                        serde_json::to_value(JsonGetPayloadResponseV4 {
+                    JsonExecutionPayload::V6110(execution_payload) => {
+                        serde_json::to_value(JsonGetPayloadResponseV6110 {
                             execution_payload,
                             block_value: DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI.into(),
                         })

@@ -65,7 +65,7 @@ pub struct JsonPayloadIdResponse {
 }
 
 #[superstruct(
-    variants(V1, V2, V3, V4),
+    variants(V1, V2, V3, V6110),
     variant_attributes(
         derive(Debug, PartialEq, Default, Serialize, Deserialize,),
         serde(bound = "T: EthSpec", rename_all = "camelCase"),
@@ -95,16 +95,17 @@ pub struct JsonExecutionPayload<T: EthSpec> {
     pub extra_data: VariableList<u8, T::MaxExtraDataBytes>,
     #[serde(with = "eth2_serde_utils::u256_hex_be")]
     pub base_fee_per_gas: Uint256,
-    #[superstruct(only(V3, V4))]
+    #[superstruct(only(V3, V6110))]
     #[serde(with = "eth2_serde_utils::u256_hex_be")]
     pub excess_data_gas: Uint256,
     pub block_hash: ExecutionBlockHash,
     #[serde(with = "ssz_types::serde_utils::list_of_hex_var_list")]
     pub transactions: VariableList<Transaction<T::MaxBytesPerTransaction>, T::MaxTransactionsPerPayload>,
-    #[superstruct(only(V2, V3, V4))]
+    #[superstruct(only(V2, V3, V6110))]
     pub withdrawals: VariableList<JsonWithdrawal, T::MaxWithdrawalsPerPayload>,
-    #[superstruct(only(V4))]
-    pub deposit_receipts: VariableList<JsonDepositReceipt, T::MaxDepositReceiptsPerPayload>,    
+    #[superstruct(only(V6110))]
+    pub deposit_receipts: VariableList<JsonDepositReceipt, T::MaxDepositReceiptsPerPayload>,
+
 }
 
 impl<T: EthSpec> From<ExecutionPayloadMerge<T>> for JsonExecutionPayloadV1<T> {
@@ -180,9 +181,9 @@ impl<T: EthSpec> From<ExecutionPayloadEip4844<T>> for JsonExecutionPayloadV3<T> 
         }
     }
 }
-impl<T: EthSpec> From<ExecutionPayloadEip6110<T>> for JsonExecutionPayloadV4<T> {
+impl<T: EthSpec> From<ExecutionPayloadEip6110<T>> for JsonExecutionPayloadV6110<T> {
     fn from(payload: ExecutionPayloadEip6110<T>) -> Self {
-        JsonExecutionPayloadV4 {
+        JsonExecutionPayloadV6110 {
             parent_hash: payload.parent_hash,
             fee_recipient: payload.fee_recipient,
             state_root: payload.state_root,
@@ -220,7 +221,7 @@ impl<T: EthSpec> From<ExecutionPayload<T>> for JsonExecutionPayload<T> {
             ExecutionPayload::Merge(payload) => JsonExecutionPayload::V1(payload.into()),
             ExecutionPayload::Capella(payload) => JsonExecutionPayload::V2(payload.into()),
             ExecutionPayload::Eip4844(payload) => JsonExecutionPayload::V3(payload.into()),
-            ExecutionPayload::Eip6110(payload) => JsonExecutionPayload::V4(payload.into()),
+            ExecutionPayload::Eip6110(payload) => JsonExecutionPayload::V6110(payload.into()),
         }
     }
 }
@@ -298,8 +299,8 @@ impl<T: EthSpec> From<JsonExecutionPayloadV3<T>> for ExecutionPayloadEip4844<T> 
         }
     }
 }
-impl<T: EthSpec> From<JsonExecutionPayloadV4<T>> for ExecutionPayloadEip6110<T> {
-    fn from(payload: JsonExecutionPayloadV4<T>) -> Self {
+impl<T: EthSpec> From<JsonExecutionPayloadV6110<T>> for ExecutionPayloadEip6110<T> {
+    fn from(payload: JsonExecutionPayloadV6110<T>) -> Self {
         ExecutionPayloadEip6110 {
             parent_hash: payload.parent_hash,
             fee_recipient: payload.fee_recipient,
@@ -338,13 +339,13 @@ impl<T: EthSpec> From<JsonExecutionPayload<T>> for ExecutionPayload<T> {
             JsonExecutionPayload::V1(payload) => ExecutionPayload::Merge(payload.into()),
             JsonExecutionPayload::V2(payload) => ExecutionPayload::Capella(payload.into()),
             JsonExecutionPayload::V3(payload) => ExecutionPayload::Eip4844(payload.into()),
-            JsonExecutionPayload::V4(payload) => ExecutionPayload::Eip6110(payload.into()),
+            JsonExecutionPayload::V6110(payload) => ExecutionPayload::Eip6110(payload.into()),
         }
     }
 }
 
 #[superstruct(
-    variants(V1, V2, V3, V4),
+    variants(V1, V2, V3, V6110),
     variant_attributes(
         derive(Debug, PartialEq, Serialize, Deserialize),
         serde(bound = "T: EthSpec", rename_all = "camelCase")
@@ -361,8 +362,8 @@ pub struct JsonGetPayloadResponse<T: EthSpec> {
     pub execution_payload: JsonExecutionPayloadV2<T>,
     #[superstruct(only(V3), partial_getter(rename = "execution_payload_v3"))]
     pub execution_payload: JsonExecutionPayloadV3<T>,
-    #[superstruct(only(V4), partial_getter(rename = "execution_payload_v4"))]
-    pub execution_payload: JsonExecutionPayloadV4<T>,
+    #[superstruct(only(V6110), partial_getter(rename = "execution_payload_v6110"))]
+    pub execution_payload: JsonExecutionPayloadV6110<T>,
     #[serde(with = "eth2_serde_utils::u256_hex_be")]
     pub block_value: Uint256,
 }
@@ -388,7 +389,7 @@ impl<T: EthSpec> From<JsonGetPayloadResponse<T>> for GetPayloadResponse<T> {
                     block_value: response.block_value,
                 })
             }
-            JsonGetPayloadResponse::V4(response) => {
+            JsonGetPayloadResponse::V6110(response) => {
                 GetPayloadResponse::Eip6110(GetPayloadResponseEip6110 {
                     execution_payload: response.execution_payload.into(),
                     block_value: response.block_value,

@@ -33,13 +33,13 @@ pub const ETH_SYNCING_TIMEOUT: Duration = Duration::from_secs(1);
 pub const ENGINE_NEW_PAYLOAD_V1: &str = "engine_newPayloadV1";
 pub const ENGINE_NEW_PAYLOAD_V2: &str = "engine_newPayloadV2";
 pub const ENGINE_NEW_PAYLOAD_V3: &str = "engine_newPayloadV3";
-pub const ENGINE_NEW_PAYLOAD_V4: &str = "engine_newPayloadV4";
+pub const ENGINE_NEW_PAYLOAD_V6110: &str = "engine_newPayloadV6110";
 pub const ENGINE_NEW_PAYLOAD_TIMEOUT: Duration = Duration::from_secs(8);
 
 pub const ENGINE_GET_PAYLOAD_V1: &str = "engine_getPayloadV1";
 pub const ENGINE_GET_PAYLOAD_V2: &str = "engine_getPayloadV2";
 pub const ENGINE_GET_PAYLOAD_V3: &str = "engine_getPayloadV3";
-pub const ENGINE_GET_PAYLOAD_V4: &str = "engine_getPayloadV4";
+pub const ENGINE_GET_PAYLOAD_V6110: &str = "engine_getPayloadV6110";
 pub const ENGINE_GET_PAYLOAD_TIMEOUT: Duration = Duration::from_secs(2);
 
 pub const ENGINE_GET_BLOBS_BUNDLE_V1: &str = "engine_getBlobsBundleV1";
@@ -897,14 +897,14 @@ impl HttpJsonRpc {
                 Ok(JsonGetPayloadResponse::V3(response).into())
             }
             ForkName::Eip6110 => {
-                let response: JsonGetPayloadResponseV4<T> = self
+                let response: JsonGetPayloadResponseV6110<T> = self
                     .rpc_request(
                         ENGINE_GET_PAYLOAD_V2,
                         params,
                         ENGINE_GET_PAYLOAD_TIMEOUT * self.execution_timeout_multiplier,
                     )
                     .await?;
-                Ok(JsonGetPayloadResponse::V4(response).into())
+                Ok(JsonGetPayloadResponse::V6110(response).into())
             }
             ForkName::Base | ForkName::Altair => Err(Error::UnsupportedForkVariant(format!(
                 "called get_payload_v2 with {}",
@@ -952,14 +952,14 @@ impl HttpJsonRpc {
                 Ok(JsonGetPayloadResponse::V3(response).into())
             }
             ForkName::Eip6110 => {
-                let response: JsonGetPayloadResponseV4<T> = self
+                let response: JsonGetPayloadResponseV6110<T> = self
                     .rpc_request(
-                        ENGINE_GET_PAYLOAD_V4,
+                        ENGINE_GET_PAYLOAD_V6110,
                         params,
                         ENGINE_GET_PAYLOAD_TIMEOUT * self.execution_timeout_multiplier,
                     )
                     .await?;
-                Ok(JsonGetPayloadResponse::V4(response).into())
+                Ok(JsonGetPayloadResponse::V6110(response).into())
             }
             ForkName::Base | ForkName::Altair => Err(Error::UnsupportedForkVariant(format!(
                 "called get_payload_v3 with {}",
