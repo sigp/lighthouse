@@ -1,11 +1,11 @@
 //! Tests for API behaviour across fork boundaries.
-use crate::common::*;
 use beacon_chain::{
     test_utils::{RelativeSyncCommittee, DEFAULT_ETH1_BLOCK_HASH, HARNESS_GENESIS_TIME},
     StateSkipConfig,
 };
 use eth2::types::{IndexedErrorMessage, StateId, SyncSubcommittee};
 use genesis::{bls_withdrawal_credentials, interop_genesis_state_with_withdrawal_credentials};
+use http_api::test_utils::*;
 use std::collections::HashSet;
 use types::{
     test_utils::{generate_deterministic_keypair, generate_deterministic_keypairs},
