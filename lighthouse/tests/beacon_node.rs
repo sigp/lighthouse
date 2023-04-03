@@ -1052,6 +1052,19 @@ fn disable_upnp_flag() {
         .with_config(|config| assert!(!config.network.upnp_enabled));
 }
 #[test]
+fn disable_backfill_rate_limiting_flag() {
+    CommandLineTest::new()
+        .flag("disable-backfill-rate-limiting", None)
+        .run_with_zero_port()
+        .with_config(|config| assert!(!config.chain.enable_backfill_rate_limiting));
+}
+#[test]
+fn default_backfill_rate_limiting_flag() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| assert!(config.chain.enable_backfill_rate_limiting));
+}
+#[test]
 fn default_boot_nodes() {
     let mainnet = vec![
     // Lighthouse Team (Sigma Prime)
