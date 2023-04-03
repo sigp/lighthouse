@@ -965,7 +965,9 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                     .read()
                     .worst_connected_peers()
                     .iter()
-                    .filter(|(_, info)| !info.has_future_duty() && !info.is_trusted() && $filter(*info))
+                    .filter(|(_, info)| {
+                        !info.has_future_duty() && !info.is_trusted() && $filter(*info)
+                    })
                 {
                     if peers_to_prune.len()
                         >= connected_peer_count.saturating_sub(self.target_peers)
@@ -1019,7 +1021,6 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                 if info.is_trusted() || peers_to_prune.contains(peer_id) {
                     continue;
                 }
-
 
                 // Count based on long-lived subnets not short-lived subnets
                 // NOTE: There are only 4 sync committees. These are likely to be denser than the
@@ -1318,7 +1319,10 @@ mod tests {
         PeerManager::new(config, Arc::new(globals), &log).unwrap()
     }
 
-    async fn build_peer_manager_with_trusted_peers(trusted_peers: Vec<PeerId>, target_peer_count: usize) -> PeerManager<E> {
+    async fn build_peer_manager_with_trusted_peers(
+        trusted_peers: Vec<PeerId>,
+        target_peer_count: usize,
+    ) -> PeerManager<E> {
         let config = config::Config {
             target_peer_count,
             discovery_enabled: false,
@@ -1331,7 +1335,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_peer_manager_disconnects_correctly_during_heartbeat() {
-
         // Create 6 peers to connect to with a target of 3.
         // 2 will be outbound-only, and have the lowest score.
         // 1 will be a trusted peer.
@@ -1347,7 +1350,8 @@ mod tests {
         let outbound_only_peer2 = PeerId::random();
         let trusted_peer = PeerId::random();
 
-        let mut peer_manager = build_peer_manager_with_trusted_peers(vec![trusted_peer.clone()],3).await;
+        let mut peer_manager =
+            build_peer_manager_with_trusted_peers(vec![trusted_peer.clone()], 3).await;
 
         peer_manager.inject_connect_ingoing(&peer0, "/ip4/0.0.0.0".parse().unwrap(), None);
         peer_manager.inject_connect_ingoing(&peer1, "/ip4/0.0.0.0".parse().unwrap(), None);
@@ -1400,7 +1404,6 @@ mod tests {
             .peers
             .read()
             .is_connected(&outbound_only_peer2));
-        
 
         // The trusted peer remains connected
         assert!(peer_manager
@@ -1408,7 +1411,6 @@ mod tests {
             .peers
             .read()
             .is_connected(&trusted_peer));
-
 
         peer_manager.heartbeat();
 
@@ -2221,19 +2223,27 @@ mod tests {
             if peer_conditions.len() < target_peer_count {
                 return TestResult::discard();
             }
-            let trusted_peers: Vec<_> = peer_conditions.iter().filter_map(|p| if p.trusted {
-                Some(p.peer_id.clone()) } else { None }).collect();
+            let trusted_peers: Vec<_> = peer_conditions
+                .iter()
+                .filter_map(|p| {
+                    if p.trusted {
+                        Some(p.peer_id.clone())
+                    } else {
+                        None
+                    }
+                })
+                .collect();
             // If we have a high percentage of trusted peers, it is very difficult to reason about
             // the expected results of the pruning.
-            if trusted_peers.len() > peer_conditions.len()/3 as usize {
+            if trusted_peers.len() > peer_conditions.len() / 3 as usize {
                 return TestResult::discard();
             }
             let rt = Runtime::new().unwrap();
 
             rt.block_on(async move {
-
                 // Collect all the trusted peers
-                let mut peer_manager = build_peer_manager_with_trusted_peers(trusted_peers,target_peer_count).await;
+                let mut peer_manager =
+                    build_peer_manager_with_trusted_peers(trusted_peers, target_peer_count).await;
 
                 // Create peers based on the randomly generated conditions.
                 for condition in &peer_conditions {
@@ -2287,29 +2297,42 @@ mod tests {
 
                 let expected_peer_count = target_peer_count.min(peer_conditions.len());
                 // Trust peers could make this larger however.
-                let no_of_trusted_peers = peer_conditions.iter().fold(0, |acc, condition| {
-                    if condition.trusted {
-                        acc + 1
-                    } else {
-                        acc
-                    }
-                });
+                let no_of_trusted_peers =
+                    peer_conditions.iter().fold(
+                        0,
+                        |acc, condition| {
+                            if condition.trusted {
+                                acc + 1
+                            } else {
+                                acc
+                            }
+                        },
+                    );
                 let expected_peer_count = expected_peer_count.max(no_of_trusted_peers);
 
-                let target_peer_condition = peer_manager.network_globals.connected_or_dialing_peers()
+                let target_peer_condition =
+                    peer_manager.network_globals.connected_or_dialing_peers()
                         == expected_peer_count;
 
                 // It could be that we reach our target outbound limit and are unable to prune any
                 // extra, which violates the target_peer_condition.
                 let outbound_peers = peer_manager.network_globals.connected_outbound_only_peers();
-                let hit_outbound_limit = outbound_peers == peer_manager.target_outbound_peers(); 
+                let hit_outbound_limit = outbound_peers == peer_manager.target_outbound_peers();
 
                 // No trusted peers should be disconnected
-                let trusted_peer_disconnected = peer_conditions.iter().fold(false, |acc, condition| {
-                    acc && (condition.trusted && !peer_manager.network_globals.peers.read().is_connected(&condition.peer_id))
-                });
+                let trusted_peer_disconnected =
+                    peer_conditions.iter().fold(false, |acc, condition| {
+                        acc && (condition.trusted
+                            && !peer_manager
+                                .network_globals
+                                .peers
+                                .read()
+                                .is_connected(&condition.peer_id))
+                    });
 
-                TestResult::from_bool((target_peer_condition || hit_outbound_limit) && !trusted_peer_disconnected)
+                TestResult::from_bool(
+                    (target_peer_condition || hit_outbound_limit) && !trusted_peer_disconnected,
+                )
             })
         }
     }
