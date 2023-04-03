@@ -371,7 +371,7 @@ impl ApiTester {
             .unwrap()
             .builder
             .add_operation(Operation::Value(Uint256::from(
-                DEFAULT_BUILDER_THRESHOLD_WEI,
+                DEFAULT_BUILDER_THRESHOLD_WEI + DEFAULT_BUILDER_PAYLOAD_VALUE_WEI + 1,
             )));
         tester
     }
