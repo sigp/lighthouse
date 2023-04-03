@@ -43,7 +43,12 @@ pub async fn create_signed_voluntary_exit<T: 'static + SlotClock + Clone, E: Eth
         validator_index,
     };
 
-    info!(log, "Signing voluntary exit"; "validator" => pubkey_bytes.as_hex_string());
+    info!(
+        log,
+        "Signing voluntary exit";
+        "validator" => pubkey_bytes.as_hex_string(),
+        "epoch" => epoch
+    );
 
     let signed_voluntary_exit = validator_store
         .sign_voluntary_exit(pubkey_bytes, voluntary_exit)
