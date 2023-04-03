@@ -857,12 +857,14 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                 }
             }
             InboundEvent::ReadyBackfillSync(queued_backfill_batch) => {
-                let duration_from_slot_start = slot_clock.millis_from_current_slot_start();
+                let millis_from_slot_start = slot_clock
+                    .millis_from_current_slot_start()
+                    .map(|duration| duration.as_millis());
 
                 debug!(
                     log,
                     "Sending scheduled backfill work";
-                    "duration_from_slot_start" => format!("{:?}", duration_from_slot_start)
+                    "millis_from_slot_start" => format!("{:?}", millis_from_slot_start)
                 );
 
                 if self
