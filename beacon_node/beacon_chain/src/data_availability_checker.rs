@@ -140,7 +140,7 @@ impl<T: EthSpec, S: SlotClock> DataAvailabilityChecker<T, S> {
         }
     }
 
-    /// Get a blob from the RPC cache.
+    /// Get a blob from the availability cache.
     pub fn get_blob(&self, blob_id: &BlobIdentifier) -> Option<Arc<BlobSidecar<T>>> {
         self.availability_cache
             .read()
