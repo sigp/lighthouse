@@ -28,6 +28,7 @@ validator client or the slasher**.
 | v3.3.0             | Nov 2022     | v13            | yes                  |
 | v3.4.0             | Jan 2023     | v13            | yes                  |
 | v3.5.0             | Feb 2023     | v15            | yes before Capella   |
+| v4.0.1             | Mar 2023     | v16            | yes before Capella   |
 
 > **Note**: All point releases (e.g. v2.3.1) are schema-compatible with the prior minor release
 > (e.g. v2.3.0).
