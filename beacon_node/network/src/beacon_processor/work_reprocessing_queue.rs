@@ -168,7 +168,7 @@ pub struct QueuedRpcBlock<T: EthSpec> {
 #[derive(Clone)]
 pub struct QueuedBackfillBatch<E: EthSpec> {
     pub process_id: ChainSegmentProcessId,
-    pub blocks: Vec<Arc<SignedBeaconBlock<E>>>,
+    pub blocks: Vec<BlockWrapper<E>>,
 }
 
 impl<T: BeaconChainTypes> TryFrom<WorkEvent<T>> for QueuedBackfillBatch<T::EthSpec> {
