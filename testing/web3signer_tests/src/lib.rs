@@ -11,14 +11,18 @@
 //!
 //! There is a build script in this crate which obtains the latest version of Web3Signer and makes
 //! it available via the `OUT_DIR`.
+#![cfg(all(test, unix, not(debug_assertions)))]
 
-#[cfg(all(test, unix, not(debug_assertions)))]
+mod get_web3signer;
+
 mod tests {
+    use crate::get_web3signer::download_binary;
     use account_utils::validator_definitions::{
         SigningDefinition, ValidatorDefinition, ValidatorDefinitions, Web3SignerDefinition,
     };
     use eth2_keystore::KeystoreBuilder;
     use eth2_network_config::Eth2NetworkConfig;
+    use lazy_static::lazy_static;
     use reqwest::Client;
     use serde::Serialize;
     use slot_clock::{SlotClock, TestingSlotClock};
@@ -32,6 +36,7 @@ mod tests {
     use std::time::{Duration, Instant};
     use task_executor::TaskExecutor;
     use tempfile::TempDir;
+    use tokio::sync::OnceCell;
     use tokio::time::sleep;
     use types::*;
     use url::Url;
@@ -50,6 +55,10 @@ mod tests {
     /// Set to `false` to send the Web3Signer logs to the console during tests. Logs are useful when
     /// debugging.
     const SUPPRESS_WEB3SIGNER_LOGS: bool = true;
+
+    lazy_static! {
+        static ref GET_WEB3SIGNER_BIN: OnceCell<()> = OnceCell::new();
+    }
 
     type E = MainnetEthSpec;
 
@@ -143,6 +152,16 @@ mod tests {
 
     impl Web3SignerRig {
         pub async fn new(network: &str, listen_address: &str, listen_port: u16) -> Self {
+            GET_WEB3SIGNER_BIN
+                .get_or_init(|| async {
+                    let out_dir = env::var("OUT_DIR").unwrap();
+                    // Read a Github API token from the environment. This is intended to prevent rate-limits on CI.
+                    // We use a name that is unlikely to accidentally collide with anything the user has configured.
+                    let github_token = env::var("LIGHTHOUSE_GITHUB_TOKEN");
+                    download_binary(out_dir.into(), github_token.as_deref().unwrap_or("")).await;
+                })
+                .await;
+
             let keystore_dir = TempDir::new().unwrap();
             let keypair = testing_keypair();
             let keystore =
