@@ -136,16 +136,21 @@ impl<T: BeaconChainTypes> Worker<T> {
         drop(handle);
     }
 
-    pub async fn process_rpc_blob(
+    pub async fn process_rpc_blobs(
         self,
-        blob: Arc<BlobSidecar<T::EthSpec>>,
+        block_root: Hash256,
+        blobs: Vec<Arc<BlobSidecar<T::EthSpec>>>,
         seen_timestamp: Duration,
         process_type: BlockProcessType,
     ) {
         let result = self
             .chain
             .check_availability_and_maybe_import(
-                |chain| chain.data_availability_checker.put_rpc_blob(blob),
+                |chain| {
+                    chain
+                        .data_availability_checker
+                        .put_rpc_blobs(block_root, blobs)
+                },
                 CountUnrealized::True,
             )
             .await;

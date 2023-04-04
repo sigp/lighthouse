@@ -625,15 +625,17 @@ impl<T: BeaconChainTypes> WorkEvent<T> {
         }
     }
 
-    pub fn rpc_blob(
-        blob: Arc<BlobSidecar<T::EthSpec>>,
+    pub fn rpc_blobs(
+        block_root: Hash256,
+        blobs: Vec<Arc<BlobSidecar<T::EthSpec>>>,
         seen_timestamp: Duration,
         process_type: BlockProcessType,
     ) -> Self {
         Self {
             drop_during_sync: false,
-            work: Work::RpcBlob {
-                block: blob,
+            work: Work::RpcBlobs {
+                block_root,
+                blobs,
                 seen_timestamp,
                 process_type,
             },
@@ -936,8 +938,9 @@ pub enum Work<T: BeaconChainTypes> {
         process_type: BlockProcessType,
         should_process: bool,
     },
-    RpcBlob {
-        block: Arc<BlobSidecar<T::EthSpec>>,
+    RpcBlobs {
+        block_root: Hash256,
+        blobs: Vec<Arc<BlobSidecar<T::EthSpec>>>,
         seen_timestamp: Duration,
         process_type: BlockProcessType,
     },
@@ -1000,7 +1003,7 @@ impl<T: BeaconChainTypes> Work<T> {
             Work::GossipLightClientFinalityUpdate { .. } => GOSSIP_LIGHT_CLIENT_FINALITY_UPDATE,
             Work::GossipLightClientOptimisticUpdate { .. } => GOSSIP_LIGHT_CLIENT_OPTIMISTIC_UPDATE,
             Work::RpcBlock { .. } => RPC_BLOCK,
-            Work::RpcBlob { .. } => RPC_BLOB,
+            Work::RpcBlobs { .. } => RPC_BLOB,
             Work::ChainSegment { .. } => CHAIN_SEGMENT,
             Work::Status { .. } => STATUS_PROCESSING,
             Work::BlocksByRangeRequest { .. } => BLOCKS_BY_RANGE_REQUEST,
@@ -1513,7 +1516,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                                 optimistic_update_queue.push(work, work_id, &self.log)
                             }
                             Work::RpcBlock { .. } => rpc_block_queue.push(work, work_id, &self.log),
-                            Work::RpcBlob { .. } => rpc_blob_queue.push(work, work_id, &self.log),
+                            Work::RpcBlobs { .. } => rpc_blob_queue.push(work, work_id, &self.log),
                             Work::ChainSegment { ref process_id, .. } => match process_id {
                                 ChainSegmentProcessId::RangeBatchId { .. }
                                 | ChainSegmentProcessId::ParentLookup { .. } => {
@@ -1936,12 +1939,14 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                 duplicate_cache,
                 should_process,
             )),
-            Work::RpcBlob {
-                block,
+            Work::RpcBlobs {
+                block_root,
+                blobs,
                 seen_timestamp,
                 process_type,
-            } => task_spawner.spawn_async(worker.process_rpc_blob(
-                block,
+            } => task_spawner.spawn_async(worker.process_rpc_blobs(
+                block_root,
+                blobs,
                 seen_timestamp,
                 process_type,
             )),

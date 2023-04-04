@@ -64,7 +64,7 @@ pub struct SyncNetworkContext<T: BeaconChainTypes> {
     /// Channel to send work to the beacon processor.
     beacon_processor_send: mpsc::Sender<WorkEvent<T>>,
 
-    chain: Arc<BeaconChain<T>>,
+    pub chain: Arc<BeaconChain<T>>,
 
     /// Logger for the `SyncNetworkContext`.
     log: slog::Logger,
@@ -410,6 +410,8 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             Entry::Vacant(_) => None,
         }
     }
+
+    // TODO(sean) add single blob lookup + parent lookup request methods
 
     /// Sends a blocks by root request for a single block lookup.
     pub fn single_block_lookup_request(

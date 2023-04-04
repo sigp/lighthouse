@@ -334,7 +334,7 @@ pub fn verify_kzg_for_blob<T: EthSpec>(
 /// Note: This function should be preferred over calling `verify_kzg_for_blob`
 /// in a loop since this function kzg verifies a list of blobs more efficiently.
 pub fn verify_kzg_for_blob_list<T: EthSpec>(
-    blob_list: BlobSidecarList<T>,
+    blob_list: Vec<Arc<BlobSidecar<T>>>,
     kzg: &Kzg,
 ) -> Result<KzgVerifiedBlobList<T>, AvailabilityCheckError> {
     let (blobs, (commitments, proofs)): (Vec<_>, (Vec<_>, Vec<_>)) = blob_list

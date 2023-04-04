@@ -29,7 +29,23 @@ pub struct SingleBlockRequest<const MAX_ATTEMPTS: u8> {
     failed_processing: u8,
     /// How many times have we attempted to download this block.
     failed_downloading: u8,
-    missing_blobs: Vec<BlobIdentifier>,
+}
+
+#[derive(PartialEq, Eq)]
+pub struct SingleBlobRequest<const MAX_ATTEMPTS: u8> {
+    /// The hash of the requested block.
+    pub hash: Hash256,
+    pub blob_ids: Vec<BlobIdentifier>,
+    /// State of this request.
+    pub state: State,
+    /// Peers that should have this block.
+    pub available_peers: HashSet<PeerId>,
+    /// Peers from which we have requested this block.
+    pub used_peers: HashSet<PeerId>,
+    /// How many times have we attempted to process this block.
+    failed_processing: u8,
+    /// How many times have we attempted to download this block.
+    failed_downloading: u8,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -65,7 +81,6 @@ impl<const MAX_ATTEMPTS: u8> SingleBlockRequest<MAX_ATTEMPTS> {
             used_peers: HashSet::default(),
             failed_processing: 0,
             failed_downloading: 0,
-            missing_blobs: vec![],
         }
     }
 
