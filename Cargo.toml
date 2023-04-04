@@ -102,7 +102,7 @@ eth2_hashing = { path = "crypto/eth2_hashing" }
 tree_hash = { path = "consensus/tree_hash" }
 tree_hash_derive = { path = "consensus/tree_hash_derive" }
 eth2_serde_utils = { path = "consensus/serde_utils" }
-arbitrary = { git = "https://github.com/michaelsproul/arbitrary", rev="a572fd8743012a4f1ada5ee5968b1b3619c427ba" }
+arbitrary = { git = "https://github.com/michaelsproul/arbitrary", rev="f002b99989b561ddce62e4cf2887b0f8860ae991" }
 
 [patch."https://github.com/ralexstokes/mev-rs"]
 mev-rs = { git = "https://github.com/ralexstokes//mev-rs", rev = "7813d4a4a564e0754e9aaab2d95520ba437c3889" }

@@ -2179,7 +2179,7 @@ fn no_state_root_iter() -> Option<std::iter::Empty<Result<(Hash256, Slot), Error
 /// Allows full reconstruction by replaying blocks.
 #[derive(Debug, Clone, Copy, Default, Encode, Decode)]
 pub struct HotStateSummary {
-    slot: Slot,
+    pub slot: Slot,
     pub latest_block_root: Hash256,
     epoch_boundary_state_root: Hash256,
 }
