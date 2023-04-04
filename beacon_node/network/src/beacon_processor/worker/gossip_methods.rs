@@ -691,9 +691,10 @@ impl<T: BeaconChainTypes> Worker<T> {
                 // add to metrics
                 // logging
             }
-            Ok(AvailabilityProcessingStatus::PendingBlobs(pending_blobs)) => self
+            Ok(AvailabilityProcessingStatus::PendingBlobs(block_root, pending_blobs)) => self
                 .send_sync_message(SyncMessage::MissingBlobs {
                     peer_id,
+                    block_root,
                     pending_blobs,
                     search_delay: Duration::from_secs(0), //TODO(sean) update
                 }),
@@ -1064,10 +1065,11 @@ impl<T: BeaconChainTypes> Worker<T> {
                     "block_root" => %block_root
                 );
             }
-            Ok(AvailabilityProcessingStatus::PendingBlobs(pending_blobs)) => {
+            Ok(AvailabilityProcessingStatus::PendingBlobs(block_rooot, pending_blobs)) => {
                 // make rpc request for blob
                 self.send_sync_message(SyncMessage::MissingBlobs {
                     peer_id,
+                    block_root,
                     pending_blobs,
                     search_delay: Duration::from_secs(0), //TODO(sean) update
                 });

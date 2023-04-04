@@ -11,6 +11,7 @@ use std::sync::Arc;
 use store::Hash256;
 use strum::IntoStaticStr;
 use types::{BlobSidecar, SignedBeaconBlock};
+use crate::sync::block_lookups::single_block_lookup::SingleBlobRequest;
 
 use super::single_block_lookup::{self, SingleBlockRequest};
 
@@ -30,6 +31,7 @@ pub(crate) struct ParentLookup<T: BeaconChainTypes> {
     downloaded_blobs: Vec<Option<Vec<Arc<BlobSidecar<T::EthSpec>>>>>,
     /// Request of the last parent.
     current_parent_request: SingleBlockRequest<PARENT_FAIL_TOLERANCE>,
+    current_parent_blobs_request: SingleBlobRequest<PARENT_FAIL_TOLERANCE>,
     /// Id of the last parent request.
     current_parent_request_id: Option<Id>,
 }
@@ -69,12 +71,14 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
     ) -> Self {
         let (block, blobs) = block_wrapper.deconstruct();
         let current_parent_request = SingleBlockRequest::new(block.parent_root(), peer_id);
+        let current_parent_blobs_request = todo!();
 
         Self {
             chain_hash: block_root,
             downloaded_blocks: vec![(block_root, block)],
             downloaded_blobs: vec![blobs],
             current_parent_request,
+            current_parent_blobs_request,
             current_parent_request_id: None,
         }
     }
@@ -105,11 +109,11 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
 
     pub fn add_block(&mut self, block_wrapper: BlockWrapper<T::EthSpec>) {
         let next_parent = block_wrapper.parent_root();
-        let current_root = self.current_parent_request.hash;
+        let current_root = self.current_parent_request.requested_thing;
         let (block, blobs) = block_wrapper.deconstruct();
         self.downloaded_blocks.push((current_root, block));
         self.downloaded_blobs.push(blobs);
-        self.current_parent_request.hash = next_parent;
+        self.current_parent_request.requested_thing = next_parent;
         self.current_parent_request.state = single_block_lookup::State::AwaitingDownload;
         self.current_parent_request_id = None;
     }
@@ -133,7 +137,7 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
             downloaded_blocks,
             downloaded_blobs,
             current_parent_request,
-            current_parent_request_id: _,
+            current_parent_blobs_request, current_parent_request_id: _,
         } = self;
         let block_count = downloaded_blocks.len();
         let mut blocks = Vec::with_capacity(block_count);

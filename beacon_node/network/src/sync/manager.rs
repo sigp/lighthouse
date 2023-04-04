@@ -132,6 +132,7 @@ pub enum SyncMessage<T: EthSpec> {
     /// delay expires.
     MissingBlobs {
         peer_id: PeerId,
+        block_root: Hash256,
         pending_blobs: Vec<BlobIdentifier>,
         search_delay: Duration,
     },
@@ -632,6 +633,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             }
             SyncMessage::MissingBlobs {
                 peer_id,
+                block_root,
                 pending_blobs,
                 search_delay,
             } => {
@@ -639,6 +641,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 if self.synced_and_connected(&peer_id) {
                     self.block_lookups.search_blobs_delayed(
                         peer_id,
+                        block_root,
                         pending_blobs,
                         search_delay,
                         &mut self.network,

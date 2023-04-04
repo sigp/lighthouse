@@ -2,23 +2,27 @@ use super::RootBlockTuple;
 use beacon_chain::blob_verification::AsBlock;
 use beacon_chain::blob_verification::BlockWrapper;
 use beacon_chain::get_block_root;
-use lighthouse_network::{rpc::BlocksByRootRequest, PeerId};
+use lighthouse_network::{rpc::BlocksByRootRequest, PeerId, Request};
 use rand::seq::IteratorRandom;
 use ssz_types::VariableList;
 use std::collections::HashSet;
 use std::sync::Arc;
 use store::{EthSpec, Hash256};
 use strum::IntoStaticStr;
+use lighthouse_network::rpc::methods::BlobsByRootRequest;
 use types::blob_sidecar::BlobIdentifier;
-use types::SignedBeaconBlock;
+use types::{BlobSidecar, SignedBeaconBlock};
+
+pub type SingleBlockRequest<const MAX_ATTEMPTS: u8> = SingleLookupRequest<MAX_ATTEMPTS, Hash256>;
+pub type SingleBlobRequest<const MAX_ATTEMPTS: u8> = SingleLookupRequest<MAX_ATTEMPTS, Vec<BlobIdentifier>>;
 
 /// Object representing a single block lookup request.
 ///
 //previously assumed we would have a single block. Now we may have the block but not the blobs
 #[derive(PartialEq, Eq)]
-pub struct SingleBlockRequest<const MAX_ATTEMPTS: u8> {
+pub struct SingleLookupRequest<const MAX_ATTEMPTS: u8, T: RequestableThing> {
     /// The hash of the requested block.
-    pub hash: Hash256,
+    pub requested_thing: T,
     /// State of this request.
     pub state: State,
     /// Peers that should have this block.
@@ -31,21 +35,60 @@ pub struct SingleBlockRequest<const MAX_ATTEMPTS: u8> {
     failed_downloading: u8,
 }
 
-#[derive(PartialEq, Eq)]
-pub struct SingleBlobRequest<const MAX_ATTEMPTS: u8> {
-    /// The hash of the requested block.
-    pub hash: Hash256,
-    pub blob_ids: Vec<BlobIdentifier>,
-    /// State of this request.
-    pub state: State,
-    /// Peers that should have this block.
-    pub available_peers: HashSet<PeerId>,
-    /// Peers from which we have requested this block.
-    pub used_peers: HashSet<PeerId>,
-    /// How many times have we attempted to process this block.
-    failed_processing: u8,
-    /// How many times have we attempted to download this block.
-    failed_downloading: u8,
+pub trait RequestableThing {
+    type Request;
+    type Response<T: EthSpec>;
+    type WrappedResponse<T: EthSpec>;
+    fn verify_response<T: EthSpec>(&self, response: &Self::Response<T>) -> bool;
+    fn make_request(&self) -> Self::Request;
+    fn wrapped_response<T: EthSpec>(&self,  response: Self::Response<T>) -> Self::WrappedResponse<T>;
+    fn is_useful(&self, other: &Self) -> bool;
+}
+
+impl RequestableThing for Hash256 {
+    type Request = BlocksByRootRequest;
+    type Response<T: EthSpec> = Arc<SignedBeaconBlock<T>>;
+    type WrappedResponse<T: EthSpec> = RootBlockTuple<T>;
+    fn verify_response<T: EthSpec>(&self, response: &Self::Response<T>) -> bool{
+        // Compute the block root using this specific function so that we can get timing
+        // metrics.
+        let block_root = get_block_root(response);
+        *self == block_root
+    }
+    fn make_request(&self) -> Self::Request{
+        let request = BlocksByRootRequest {
+            block_roots: VariableList::from(vec![*self]),
+        };
+        request
+    }
+    fn wrapped_response<T: EthSpec>(&self, response: Self::Response<T>) -> Self::WrappedResponse<T> {
+        (*self, response)
+    }
+
+    fn is_useful(&self, other: &Self) -> bool {
+       self == other
+    }
+}
+
+impl RequestableThing for Vec<BlobIdentifier>{
+    type Request = BlobsByRootRequest;
+    type Response<T: EthSpec> = Arc<BlobSidecar<T>>;
+    type WrappedResponse<T: EthSpec> = Arc<BlobSidecar<T>>;
+
+    fn verify_response<T: EthSpec>(&self, response: &Self::Response<T>) -> bool{
+        true
+    }
+    fn make_request(&self) -> Self::Request{
+        todo!()
+    }
+
+    fn wrapped_response<T: EthSpec>(&self, response: Self::Response<T>) -> Self::WrappedResponse<T> {
+       response
+    }
+
+    fn is_useful(&self, other: &Self) -> bool {
+       todo!()
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -72,10 +115,10 @@ pub enum LookupRequestError {
     NoPeers,
 }
 
-impl<const MAX_ATTEMPTS: u8> SingleBlockRequest<MAX_ATTEMPTS> {
-    pub fn new(hash: Hash256, peer_id: PeerId) -> Self {
+impl<const MAX_ATTEMPTS: u8, T: RequestableThing> SingleLookupRequest<MAX_ATTEMPTS, T> {
+    pub fn new(requested_thing: T, peer_id: PeerId) -> Self {
         Self {
-            hash,
+            requested_thing,
             state: State::AwaitingDownload,
             available_peers: HashSet::from([peer_id]),
             used_peers: HashSet::default(),
@@ -102,8 +145,8 @@ impl<const MAX_ATTEMPTS: u8> SingleBlockRequest<MAX_ATTEMPTS> {
         self.failed_processing + self.failed_downloading
     }
 
-    pub fn add_peer(&mut self, hash: &Hash256, peer_id: &PeerId) -> bool {
-        let is_useful = &self.hash == hash;
+    pub fn add_peer(&mut self, requested_thing: &T, peer_id: &PeerId) -> bool {
+        let is_useful = self.requested_thing.is_useful(requested_thing);
         if is_useful {
             self.available_peers.insert(*peer_id);
         }
@@ -125,10 +168,10 @@ impl<const MAX_ATTEMPTS: u8> SingleBlockRequest<MAX_ATTEMPTS> {
 
     /// Verifies if the received block matches the requested one.
     /// Returns the block for processing if the response is what we expected.
-    pub fn verify_block<T: EthSpec>(
+    pub fn verify_block<E: EthSpec>(
         &mut self,
-        block: Option<Arc<SignedBeaconBlock<T>>>,
-    ) -> Result<Option<RootBlockTuple<T>>, VerifyError> {
+        block: Option<T::Response<E>>,
+    ) -> Result<Option<T::WrappedResponse<E>>, VerifyError> {
         match self.state {
             State::AwaitingDownload => {
                 self.register_failure_downloading();
@@ -136,10 +179,7 @@ impl<const MAX_ATTEMPTS: u8> SingleBlockRequest<MAX_ATTEMPTS> {
             }
             State::Downloading { peer_id } => match block {
                 Some(block) => {
-                    // Compute the block root using this specific function so that we can get timing
-                    // metrics.
-                    let block_root = get_block_root(&block);
-                    if block_root != self.hash {
+                    if self.requested_thing.verify_response(&block) {
                         // return an error and drop the block
                         // NOTE: we take this is as a download failure to prevent counting the
                         // attempt as a chain failure, but simply a peer failure.
@@ -148,7 +188,7 @@ impl<const MAX_ATTEMPTS: u8> SingleBlockRequest<MAX_ATTEMPTS> {
                     } else {
                         // Return the block for processing.
                         self.state = State::Processing { peer_id };
-                        Ok(Some((block_root, block)))
+                        Ok(Some(self.requested_thing.wrapped_response(block)))
                     }
                 }
                 None => {
@@ -171,16 +211,15 @@ impl<const MAX_ATTEMPTS: u8> SingleBlockRequest<MAX_ATTEMPTS> {
         }
     }
 
-    pub fn request_block(&mut self) -> Result<(PeerId, BlocksByRootRequest), LookupRequestError> {
+    pub fn request_block(&mut self) -> Result<(PeerId, T::Request), LookupRequestError> {
         debug_assert!(matches!(self.state, State::AwaitingDownload));
         if self.failed_attempts() >= MAX_ATTEMPTS {
             Err(LookupRequestError::TooManyAttempts {
                 cannot_process: self.failed_processing >= self.failed_downloading,
             })
         } else if let Some(&peer_id) = self.available_peers.iter().choose(&mut rand::thread_rng()) {
-            let request = BlocksByRootRequest {
-                block_roots: VariableList::from(vec![self.hash]),
-            };
+            let request = self.requested_thing.make_request();
+
             self.state = State::Downloading { peer_id };
             self.used_peers.insert(peer_id);
             Ok((peer_id, request))
@@ -206,7 +245,7 @@ impl<const MAX_ATTEMPTS: u8> slog::Value for SingleBlockRequest<MAX_ATTEMPTS> {
         serializer: &mut dyn slog::Serializer,
     ) -> slog::Result {
         serializer.emit_str("request", key)?;
-        serializer.emit_arguments("hash", &format_args!("{}", self.hash))?;
+        serializer.emit_arguments("hash", &format_args!("{}", self.requested_thing))?;
         match &self.state {
             State::AwaitingDownload => {
                 "awaiting_download".serialize(record, "state", serializer)?

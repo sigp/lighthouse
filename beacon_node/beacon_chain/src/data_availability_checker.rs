@@ -120,7 +120,7 @@ impl<T: EthSpec> ReceivedComponents<T> {
 /// Indicates if the block is fully `Available` or if we need blobs or blocks
 ///  to "complete" the requirements for an `AvailableBlock`.
 pub enum Availability<T: EthSpec> {
-    PendingBlobs(Vec<BlobIdentifier>),
+    PendingBlobs(Hash256, Vec<BlobIdentifier>),
     PendingBlock(Hash256),
     Available(Box<AvailableExecutedBlock<T>>),
 }
@@ -254,8 +254,9 @@ impl<T: EthSpec, S: SlotClock> DataAvailabilityChecker<T, S> {
             }
             Entry::Vacant(vacant_entry) => {
                 let all_blob_ids = executed_block.get_all_blob_ids();
+                let block_root = executed_block.import_data.block_root;
                 vacant_entry.insert(ReceivedComponents::new_from_block(executed_block));
-                Availability::PendingBlobs(all_blob_ids)
+                Availability::PendingBlobs(block_root, all_blob_ids)
             }
         };
 
@@ -312,9 +313,11 @@ impl<T: EthSpec, S: SlotClock> DataAvailabilityChecker<T, S> {
                     .unwrap_or(true)
             });
 
+            let block_root = executed_block.import_data.block_root;
+
             let _ = received_components.executed_block.insert(executed_block);
 
-            Ok(Availability::PendingBlobs(missing_blob_ids))
+            Ok(Availability::PendingBlobs(block_root, missing_blob_ids))
         }
     }
 

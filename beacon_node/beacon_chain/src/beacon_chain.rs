@@ -190,7 +190,7 @@ pub enum WhenSlotSkipped {
 
 #[derive(Debug, PartialEq)]
 pub enum AvailabilityProcessingStatus {
-    PendingBlobs(Vec<BlobIdentifier>),
+    PendingBlobs(Hash256, Vec<BlobIdentifier>),
     PendingBlock(Hash256),
     Imported(Hash256),
 }
@@ -2631,7 +2631,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             AvailabilityProcessingStatus::Imported(_) => {
                                 // The block was imported successfully.
                             }
-                            AvailabilityProcessingStatus::PendingBlobs(blobs) => {}
+                            AvailabilityProcessingStatus::PendingBlobs(block_root, blobs) => {}
                             AvailabilityProcessingStatus::PendingBlock(_) => {
                                 // doesn't makes sense
                             }
@@ -2880,8 +2880,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             Availability::PendingBlock(block_root) => {
                 Ok(AvailabilityProcessingStatus::PendingBlock(block_root))
             }
-            Availability::PendingBlobs(blob_ids) => {
-                Ok(AvailabilityProcessingStatus::PendingBlobs(blob_ids))
+            Availability::PendingBlobs(block_root, blob_ids) => {
+                Ok(AvailabilityProcessingStatus::PendingBlobs(block_root, blob_ids))
             }
         }
     }

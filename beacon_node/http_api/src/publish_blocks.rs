@@ -145,7 +145,7 @@ pub async fn publish_block<T: BeaconChainTypes>(
             );
             Err(warp_utils::reject::broadcast_without_import(msg))
         }
-        Ok(AvailabilityProcessingStatus::PendingBlobs(blob_ids)) => {
+        Ok(AvailabilityProcessingStatus::PendingBlobs(_, blob_ids)) => {
             let msg = format!("Missing blobs {:?}", blob_ids);
             error!(
                 log,
