@@ -270,9 +270,24 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
     })
 }
 
-#[derive(Debug, Clone)]
+/// Wrapper over a `BlobSidecar` for which we have completed kzg verification.
+/// i.e. `verify_blob_kzg_proof(blob, commitment, proof) == true`.
+#[derive(Debug, Derivative, Clone)]
+#[derivative(PartialEq, Eq)]
 pub struct KzgVerifiedBlob<T: EthSpec> {
     blob: Arc<BlobSidecar<T>>,
+}
+
+impl<T: EthSpec> PartialOrd for KzgVerifiedBlob<T> {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        self.blob.partial_cmp(&other.blob)
+    }
+}
+
+impl<T: EthSpec> Ord for KzgVerifiedBlob<T> {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.blob.cmp(&other.blob)
+    }
 }
 
 impl<T: EthSpec> KzgVerifiedBlob<T> {
@@ -291,8 +306,14 @@ impl<T: EthSpec> KzgVerifiedBlob<T> {
     pub fn block_root(&self) -> Hash256 {
         self.blob.block_root
     }
+    pub fn blob_index(&self) -> u64 {
+        self.blob.index
+    }
 }
 
+/// Complete kzg verification for a `GossipVerifiedBlob`.
+///
+/// Returns an error if the kzg verification check fails.
 pub fn verify_kzg_for_blob<T: EthSpec>(
     blob: Arc<BlobSidecar<T>>,
     kzg: &Kzg,
@@ -307,6 +328,11 @@ pub fn verify_kzg_for_blob<T: EthSpec>(
     }
 }
 
+/// Complete kzg verification for a list of `BlobSidecar`s.
+/// Returns an error if any of the `BlobSidecar`s fails kzg verification.
+///
+/// Note: This function should be preferred over calling `verify_kzg_for_blob`
+/// in a loop since this function kzg verifies a list of blobs more efficiently.
 pub fn verify_kzg_for_blob_list<T: EthSpec>(
     blob_list: BlobSidecarList<T>,
     kzg: &Kzg,
@@ -346,6 +372,7 @@ pub enum MaybeAvailableBlock<E: EthSpec> {
     AvailabilityPending(AvailabilityPendingBlock<E>),
 }
 
+/// Trait for common block operations.
 pub trait AsBlock<E: EthSpec> {
     fn slot(&self) -> Slot;
     fn epoch(&self) -> Epoch;

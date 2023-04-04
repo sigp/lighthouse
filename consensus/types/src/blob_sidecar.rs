@@ -19,6 +19,18 @@ pub struct BlobIdentifier {
     pub index: u64,
 }
 
+impl PartialOrd for BlobIdentifier {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        self.index.partial_cmp(&other.index)
+    }
+}
+
+impl Ord for BlobIdentifier {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.index.cmp(&other.index)
+    }
+}
+
 #[derive(
     Debug,
     Clone,
@@ -34,7 +46,7 @@ pub struct BlobIdentifier {
 )]
 #[serde(bound = "T: EthSpec")]
 #[arbitrary(bound = "T: EthSpec")]
-#[derivative(PartialEq, Hash(bound = "T: EthSpec"))]
+#[derivative(PartialEq, Eq, Hash(bound = "T: EthSpec"))]
 pub struct BlobSidecar<T: EthSpec> {
     pub block_root: Hash256,
     #[serde(with = "eth2_serde_utils::quoted_u64")]
@@ -47,6 +59,18 @@ pub struct BlobSidecar<T: EthSpec> {
     pub blob: Blob<T>,
     pub kzg_commitment: KzgCommitment,
     pub kzg_proof: KzgProof,
+}
+
+impl<T: EthSpec> PartialOrd for BlobSidecar<T> {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        self.index.partial_cmp(&other.index)
+    }
+}
+
+impl<T: EthSpec> Ord for BlobSidecar<T> {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.index.cmp(&other.index)
+    }
 }
 
 pub type BlobSidecarList<T> = VariableList<Arc<BlobSidecar<T>>, <T as EthSpec>::MaxBlobsPerBlock>;
