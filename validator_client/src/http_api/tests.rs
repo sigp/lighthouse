@@ -45,6 +45,7 @@ struct ApiTester {
     initialized_validators: Arc<RwLock<InitializedValidators>>,
     validator_store: Arc<ValidatorStore<TestingSlotClock, E>>,
     url: SensitiveUrl,
+    slot_clock: TestingSlotClock,
     _server_shutdown: oneshot::Sender<()>,
     _validator_dir: TempDir,
     _runtime_shutdown: exit_future::Signal,
@@ -90,8 +91,12 @@ impl ApiTester {
         let slashing_db_path = config.validator_dir.join(SLASHING_PROTECTION_FILENAME);
         let slashing_protection = SlashingDatabase::open_or_create(&slashing_db_path).unwrap();
 
-        let slot_clock =
-            TestingSlotClock::new(Slot::new(0), Duration::from_secs(0), Duration::from_secs(1));
+        let genesis_time: u64 = 0;
+        let slot_clock = TestingSlotClock::new(
+            Slot::new(0),
+            Duration::from_secs(genesis_time),
+            Duration::from_secs(1),
+        );
 
         let (runtime_shutdown, exit) = exit_future::signal();
         let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
@@ -101,9 +106,9 @@ impl ApiTester {
             initialized_validators,
             slashing_protection,
             Hash256::repeat_byte(42),
-            spec,
+            spec.clone(),
             Some(Arc::new(DoppelgangerService::new(log.clone()))),
-            slot_clock,
+            slot_clock.clone(),
             &config,
             executor.clone(),
             log.clone(),
@@ -129,7 +134,8 @@ impl ApiTester {
                 listen_port: 0,
                 allow_origin: None,
             },
-            log,
+            log: log.clone(),
+            slot_clock: slot_clock.clone(),
             _phantom: PhantomData,
         });
         let ctx = context.clone();
@@ -156,6 +162,7 @@ impl ApiTester {
             initialized_validators,
             validator_store,
             url,
+            slot_clock,
             _server_shutdown: shutdown_tx,
             _validator_dir: validator_dir,
             _runtime_shutdown: runtime_shutdown,
@@ -494,6 +501,33 @@ impl ApiTester {
         self
     }
 
+    pub async fn test_sign_voluntary_exits(self, index: usize, maybe_epoch: Option<Epoch>) -> Self {
+        let validator = &self.client.get_lighthouse_validators().await.unwrap().data[index];
+        // manually setting validator index in `ValidatorStore`
+        self.initialized_validators
+            .write()
+            .set_index(&validator.voting_pubkey, 0);
+
+        let expected_exit_epoch = maybe_epoch.unwrap_or_else(|| self.get_current_epoch());
+
+        let resp = self
+            .client
+            .post_validator_voluntary_exit(&validator.voting_pubkey, maybe_epoch)
+            .await;
+
+        assert!(resp.is_ok());
+        assert_eq!(resp.unwrap().message.epoch, expected_exit_epoch);
+
+        self
+    }
+
+    fn get_current_epoch(&self) -> Epoch {
+        self.slot_clock
+            .now()
+            .map(|s| s.epoch(E::slots_per_epoch()))
+            .unwrap()
+    }
+
     pub async fn set_validator_enabled(self, index: usize, enabled: bool) -> Self {
         let validator = &self.client.get_lighthouse_validators().await.unwrap().data[index];
 
@@ -775,6 +809,29 @@ fn hd_validator_creation() {
             .await
             .assert_enabled_validators_count(2)
             .assert_validators_count(3);
+    });
+}
+
+#[test]
+fn validator_exit() {
+    let runtime = build_runtime();
+    let weak_runtime = Arc::downgrade(&runtime);
+    runtime.block_on(async {
+        ApiTester::new(weak_runtime)
+            .await
+            .create_hd_validators(HdValidatorScenario {
+                count: 2,
+                specify_mnemonic: false,
+                key_derivation_path_offset: 0,
+                disabled: vec![],
+            })
+            .await
+            .assert_enabled_validators_count(2)
+            .assert_validators_count(2)
+            .test_sign_voluntary_exits(0, None)
+            .await
+            .test_sign_voluntary_exits(0, Some(Epoch::new(256)))
+            .await;
     });
 }
 

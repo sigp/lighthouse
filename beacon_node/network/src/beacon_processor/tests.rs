@@ -9,7 +9,7 @@ use crate::{service::NetworkMessage, sync::SyncMessage};
 use beacon_chain::test_utils::{
     AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
 };
-use beacon_chain::{BeaconChain, MAXIMUM_GOSSIP_CLOCK_DISPARITY};
+use beacon_chain::{BeaconChain, ChainConfig, MAXIMUM_GOSSIP_CLOCK_DISPARITY};
 use lighthouse_network::{
     discv5::enr::{CombinedKey, EnrBuilder},
     rpc::methods::{MetaData, MetaDataV2},
@@ -23,8 +23,8 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
 use types::{
-    Attestation, AttesterSlashing, EthSpec, MainnetEthSpec, ProposerSlashing, SignedBeaconBlock,
-    SignedVoluntaryExit, SubnetId,
+    Attestation, AttesterSlashing, Epoch, EthSpec, MainnetEthSpec, ProposerSlashing,
+    SignedBeaconBlock, SignedVoluntaryExit, SubnetId,
 };
 
 type E = MainnetEthSpec;
@@ -70,6 +70,10 @@ impl Drop for TestRig {
 
 impl TestRig {
     pub async fn new(chain_length: u64) -> Self {
+        Self::new_with_chain_config(chain_length, ChainConfig::default()).await
+    }
+
+    pub async fn new_with_chain_config(chain_length: u64, chain_config: ChainConfig) -> Self {
         // This allows for testing voluntary exits without building out a massive chain.
         let mut spec = E::default_spec();
         spec.shard_committee_period = 2;
@@ -78,6 +82,7 @@ impl TestRig {
             .spec(spec)
             .deterministic_keypairs(VALIDATOR_COUNT)
             .fresh_ephemeral_store()
+            .chain_config(chain_config)
             .build();
 
         harness.advance_slot();
@@ -257,6 +262,14 @@ impl TestRig {
             self.next_block.clone().into(),
             std::time::Duration::default(),
             BlockProcessType::SingleBlock { id: 1 },
+        );
+        self.beacon_processor_tx.try_send(event).unwrap();
+    }
+
+    pub fn enqueue_backfill_batch(&self) {
+        let event = WorkEvent::chain_segment(
+            ChainSegmentProcessId::BackSyncBatchId(Epoch::default()),
+            Vec::default(),
         );
         self.beacon_processor_tx.try_send(event).unwrap();
     }
@@ -872,4 +885,50 @@ async fn test_rpc_block_reprocessing() {
     // head should update to next block now since the duplicate
     // cache handle was dropped.
     assert_eq!(next_block_root, rig.head_root());
+}
+
+/// Ensure that backfill batches get rate-limited and processing is scheduled at specified intervals.
+#[tokio::test]
+async fn test_backfill_sync_processing() {
+    let mut rig = TestRig::new(SMALL_CHAIN).await;
+    // Note: to verify the exact event times in an integration test is not straight forward here
+    // (not straight forward to manipulate `TestingSlotClock` due to cloning of `SlotClock` in code)
+    // and makes the test very slow, hence timing calculation is unit tested separately in
+    // `work_reprocessing_queue`.
+    for _ in 0..1 {
+        rig.enqueue_backfill_batch();
+        // ensure queued batch is not processed until later
+        rig.assert_no_events_for(Duration::from_millis(100)).await;
+        // A new batch should be processed within a slot.
+        rig.assert_event_journal_with_timeout(
+            &[CHAIN_SEGMENT_BACKFILL, WORKER_FREED, NOTHING_TO_DO],
+            rig.chain.slot_clock.slot_duration(),
+        )
+        .await;
+    }
+}
+
+/// Ensure that backfill batches get processed as fast as they can when rate-limiting is disabled.
+#[tokio::test]
+async fn test_backfill_sync_processing_rate_limiting_disabled() {
+    let chain_config = ChainConfig {
+        enable_backfill_rate_limiting: false,
+        ..Default::default()
+    };
+    let mut rig = TestRig::new_with_chain_config(SMALL_CHAIN, chain_config).await;
+
+    for _ in 0..3 {
+        rig.enqueue_backfill_batch();
+    }
+
+    // ensure all batches are processed
+    rig.assert_event_journal_with_timeout(
+        &[
+            CHAIN_SEGMENT_BACKFILL,
+            CHAIN_SEGMENT_BACKFILL,
+            CHAIN_SEGMENT_BACKFILL,
+        ],
+        Duration::from_millis(100),
+    )
+    .await;
 }
