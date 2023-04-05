@@ -151,6 +151,21 @@ impl<T: EthSpec, S: SlotClock> DataAvailabilityChecker<T, S> {
             .map(|kzg_verified_blob| kzg_verified_blob.clone_blob())
     }
 
+    /// Returns `true` if the given `blob_id` already exists in the cache and false otherwise.
+    pub fn is_duplicate(&self, blob_id: &BlobIdentifier) -> bool {
+        let cache = self.availability_cache.read();
+        if let Some(received_component) = cache.get(&blob_id.block_root) {
+            !received_component
+                .verified_blobs
+                .get(blob_id.index as usize)
+                .map_or(true, |blob| blob.is_none())
+        }
+        // No entry for given block root
+        else {
+            false
+        }
+    }
+
     /// This first validates the KZG commitments included in the blob sidecar.
     /// Check if we've cached other blobs for this block. If it completes a set and we also
     /// have a block cached, return the `Availability` variant triggering block import.

@@ -30,31 +30,6 @@ pub enum BlobError {
         latest_permissible_slot: Slot,
     },
 
-    /// The blob sidecar has a different slot than the block.
-    ///
-    /// ## Peer scoring
-    ///
-    /// Assuming the local clock is correct, the peer has sent an invalid message.
-    SlotMismatch {
-        blob_slot: Slot,
-        block_slot: Slot,
-    },
-
-    /// No kzg ccommitment associated with blob sidecar.
-    KzgCommitmentMissing,
-
-    /// No transactions in block
-    TransactionsMissing,
-
-    /// Blob transactions in the block do not correspond to the kzg commitments.
-    TransactionCommitmentMismatch,
-
-    TrustedSetupNotInitialized,
-
-    InvalidKzgProof,
-
-    KzgError(kzg::Error),
-
     /// There was an error whilst processing the sync contribution. It is not known if it is valid or invalid.
     ///
     /// ## Peer scoring
@@ -62,28 +37,20 @@ pub enum BlobError {
     /// We were unable to process this sync committee message due to an internal error. It's unclear if the
     /// sync committee message is valid.
     BeaconChainError(BeaconChainError),
-    /// No blobs for the specified block where we would expect blobs.
-    UnavailableBlobs,
-    /// Blobs provided for a pre-Deneb fork.
-    InconsistentFork,
 
-    /// The `blobs_sidecar.message.beacon_block_root` block is unknown.
+    /// The `BlobSidecar` was gossiped over an incorrect subnet.
     ///
     /// ## Peer scoring
     ///
-    /// The blob points to a block we have not yet imported. The blob cannot be imported
-    /// into fork choice yet
-    UnknownHeadBlock {
-        beacon_block_root: Hash256,
-    },
-
-    /// The `BlobSidecar` was gossiped over an incorrect subnet.
-    InvalidSubnet {
-        expected: u64,
-        received: u64,
-    },
+    /// The blob is invalid or the peer is faulty.
+    InvalidSubnet { expected: u64, received: u64 },
 
     /// The sidecar corresponds to a slot older than the finalized head slot.
+    ///
+    /// ## Peer scoring
+    ///
+    /// It's unclear if this blob is valid, but this blob is for a finalized slot and is
+    /// therefore useless to us.
     PastFinalizedSlot {
         blob_slot: Slot,
         finalized_slot: Slot,
@@ -91,20 +58,18 @@ pub enum BlobError {
 
     /// The proposer index specified in the sidecar does not match the locally computed
     /// proposer index.
-    ProposerIndexMismatch {
-        sidecar: usize,
-        local: usize,
-    },
+    ///
+    /// ## Peer scoring
+    ///
+    /// The blob is invalid and the peer is faulty.
+    ProposerIndexMismatch { sidecar: usize, local: usize },
 
+    /// The proposal signature in invalid.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The blob is invalid and the peer is faulty.
     ProposerSignatureInvalid,
-
-    /// A sidecar with same slot, beacon_block_root and proposer_index but different blob is received for
-    /// the same blob index.
-    RepeatSidecar {
-        proposer: usize,
-        slot: Slot,
-        blob_index: usize,
-    },
 
     /// The proposal_index corresponding to blob.beacon_block_root is not known.
     ///
@@ -113,7 +78,34 @@ pub enum BlobError {
     /// The block is invalid and the peer is faulty.
     UnknownValidator(u64),
 
-    BlobCacheError(AvailabilityCheckError),
+    /// The provided blob is not from a later slot than its parent.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The blob is invalid and the peer is faulty.
+    BlobIsNotLaterThanParent { blob_slot: Slot, parent_slot: Slot },
+
+    /// The provided blob's parent block is unknown.
+    ///
+    /// ## Peer scoring
+    ///
+    /// We cannot process the blob without validating its parent, the peer isn't necessarily faulty.
+    BlobParentUnknown {
+        blob_root: Hash256,
+        blob_parent_root: Hash256,
+    },
+
+    /// The given blob has already been seen for the given `(sidecar.block_root, sidecar.index)` tuple
+    /// over gossip or no gossip sources.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The peer isn't faulty, but we do not forward it over gossip.
+    RepeatBlob {
+        proposer: u64,
+        slot: Slot,
+        index: u64,
+    },
 }
 
 impl From<BeaconChainError> for BlobError {
@@ -149,6 +141,7 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
     let blob_slot = signed_blob_sidecar.message.slot;
     let blob_index = signed_blob_sidecar.message.index;
     let block_root = signed_blob_sidecar.message.block_root;
+    let block_parent_root = signed_blob_sidecar.message.block_parent_root;
 
     // Verify that the blob_sidecar was received on the correct subnet.
     if blob_index != subnet {
@@ -170,8 +163,6 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
         });
     }
 
-    // TODO(pawan): Verify not from a past slot?
-
     // Verify that the sidecar slot is greater than the latest finalized slot
     let latest_finalized_slot = chain
         .head()
@@ -185,8 +176,32 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
         });
     }
 
-    // TODO(pawan): should we verify locally that the parent root is correct
-    // or just use whatever the proposer gives us?
+    // We have already verified that the blob is past finalization, so we can
+    // just check fork choice for the block's parent.
+    if let Some(parent_block) = chain
+        .canonical_head
+        .fork_choice_read_lock()
+        .get_block(&block_parent_root)
+    {
+        if parent_block.slot >= blob_slot {
+            return Err(BlobError::BlobIsNotLaterThanParent {
+                blob_slot,
+                parent_slot: parent_block.slot,
+            });
+        }
+    } else {
+        return Err(BlobError::BlobParentUnknown {
+            blob_root: block_root,
+            blob_parent_root: block_parent_root,
+        });
+    }
+
+    // Note: The spec checks the signature directly against `blob_sidecar.message.proposer_index`
+    // before checking that the provided proposer index is valid w.r.t the current shuffling.
+    //
+    // However, we check that the proposer_index matches against the shuffling first to avoid
+    // signature verification against an invalid proposer_index.
+    // TODO: check if getting the shuffling more expensive than signature verification in any scenario?
     let proposer_shuffling_root = signed_blob_sidecar.message.block_parent_root;
 
     let (proposer_index, fork) = match chain
@@ -212,6 +227,7 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
         });
     }
 
+    // Signature verification
     let signature_is_valid = {
         let pubkey_cache = chain
             .validator_pubkey_cache
@@ -236,25 +252,15 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
         return Err(BlobError::ProposerSignatureInvalid);
     }
 
-    // TODO(pawan): kzg validations.
-
-    // TODO(pawan): Check if other blobs for the same proposer index and blob index have been
-    // received and drop if required.
-
-    // Verify if the corresponding block for this blob has been received.
-    // Note: this should be the last gossip check so that we can forward the blob
-    // over the gossip network even if we haven't received the corresponding block yet
-    // as all other validations have passed.
-    let block_opt = chain
-        .canonical_head
-        .fork_choice_read_lock()
-        .get_block(&block_root)
-        .or_else(|| chain.early_attester_cache.get_proto_block(block_root)); // TODO(pawan): should we be checking this cache?
-
-    // TODO(pawan): this may be redundant with the new `AvailabilityProcessingStatus::PendingBlock variant`
-    if block_opt.is_none() {
-        return Err(BlobError::UnknownHeadBlock {
-            beacon_block_root: block_root,
+    // Verify that this is the first blob sidecar received for the (sidecar.block_root, sidecar.index) tuple
+    if chain
+        .data_availability_checker
+        .is_duplicate(&signed_blob_sidecar.message.id())
+    {
+        return Err(BlobError::RepeatBlob {
+            proposer: blob_proposer_index,
+            slot: blob_slot,
+            index: blob_index,
         });
     }
 
