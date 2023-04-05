@@ -21,20 +21,13 @@ Additionally, there are two extra guides for specific uses:
 
 ## System Requirements
 
-Lighthouse is able to run on most low to mid-range consumer hardware, but will perform best when
-provided with ample system resources. The following system requirements are for running a beacon
-node and a validator client with a modest number of validator keys (less than 100).
+Before [The Merge](https://ethereum.org/en/roadmap/merge/), Lighthouse is able to run on its own with low to mid-range consumer hardware, but will perform best when provided with ample system resources. 
 
-## Minimum
+After [The Merge](https://ethereum.org/en/roadmap/merge/) on 15<sup>th</sup> September 2022, it is necessary to run Lighthouse together with an execution client ([Nethermind](https://nethermind.io/), [Besu](https://www.hyperledger.org/use/besu), [Erigon](https://github.com/ledgerwatch/erigon),[Geth](https://geth.ethereum.org/)). The following system requirements listed are therefore for running a Lighthouse beacon node combined with an execution client , and a validator client with a modest number of validator keys (less than 100).
 
-* Dual-core CPU, 2015 or newer
-* 8 GB RAM
-* 256 GB solid state storage
-* 10 Mb/s download, 5 Mb/s upload broadband connection
+## Recommended system requirements
 
-## Recommended
-
-* Quad-core AMD Ryzen, Intel Broadwell, ARMv8 or newer
-* 16 GB RAM
-* 512 GB solid state storage
-* 100 Mb/s download, 20 Mb/s upload broadband connection
+* CPU: Quad-core AMD Ryzen, Intel Broadwell, ARMv8 or newer
+* Memory: 16 GB RAM
+* Storage: 2 TB solid state storage
+* Network: 100 Mb/s download, 20 Mb/s upload broadband connection
