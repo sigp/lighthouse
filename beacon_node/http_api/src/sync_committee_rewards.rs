@@ -13,8 +13,8 @@ pub fn compute_sync_committee_rewards<T: BeaconChainTypes>(
     block_id: BlockId,
     validators: Vec<ValidatorId>,
     log: Logger,
-) -> Result<(Option<Vec<SyncCommitteeReward>>, ExecutionOptimistic), warp::Rejection> {
-    let (block, execution_optimistic) = block_id.blinded_block(&chain)?;
+) -> Result<(Option<Vec<SyncCommitteeReward>>, ExecutionOptimistic, bool), warp::Rejection> {
+    let (block, execution_optimistic, finalized) = block_id.blinded_block(&chain)?;
 
     let mut state = get_state_before_applying_block(chain.clone(), &block)?;
 
@@ -44,7 +44,7 @@ pub fn compute_sync_committee_rewards<T: BeaconChainTypes>(
         )
     };
 
-    Ok((data, execution_optimistic))
+    Ok((data, execution_optimistic, finalized))
 }
 
 pub fn get_state_before_applying_block<T: BeaconChainTypes>(

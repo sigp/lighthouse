@@ -20,7 +20,7 @@ Modify `vars.env` as desired.
 Start a local eth1 ganache server plus boot node along with `BN_COUNT`
 number of beacon nodes and `VC_COUNT` validator clients.
 
-The `start_local_testnet.sh` script takes three options `-v VC_COUNT`, `-d DEBUG_LEVEL` and `-h` for help.
+The `start_local_testnet.sh` script takes four options `-v VC_COUNT`, `-d DEBUG_LEVEL`, `-p` to enable builder proposals and `-h` for help.
 The options may be in any order or absent in which case they take the default value specified.
 - VC_COUNT: the number of validator clients to create, default: `BN_COUNT`
 - DEBUG_LEVEL: one of { error, warn, info, debug, trace }, default: `info`
