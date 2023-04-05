@@ -305,6 +305,7 @@ pub enum BlockError<T: EthSpec> {
         parent_root: Hash256,
     },
     PublishError,
+    SlashablePublish,
 }
 
 /// Returned when block validation failed due to some issue verifying

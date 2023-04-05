@@ -780,7 +780,7 @@ impl<T: BeaconChainTypes> Worker<T> {
 
                 verified_block
             }
-            Err(BlockError::PublishError) => {
+            Err(BlockError::PublishError) | Err(BlockError::SlashablePublish) => {
                 error!(self.log, "Gossip block triggered publish error");
                 return None;
             }

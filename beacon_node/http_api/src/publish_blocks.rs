@@ -61,7 +61,7 @@ pub async fn publish_block<T: BeaconChainTypes>(
             .observe_proposal(block_clone.message(), block_root)
             .map_err(|e| BlockError::BeaconChainError(e.into()))?
         {
-            return Err(BlockError::PublishError);
+            return Err(BlockError::SlashablePublish);
         }
 
         let message = PubsubMessage::BeaconBlock(block_clone);
@@ -111,6 +111,9 @@ pub async fn publish_block<T: BeaconChainTypes>(
         }
         Err(BlockError::PublishError) => Err(warp_utils::reject::custom_server_error(
             "unable to publish to network channel".to_string(),
+        )),
+        Err(BlockError::SlashablePublish) => Err(warp_utils::reject::custom_server_error(
+            "proposal for this slot and proposer has already been seen".to_string(),
         )),
         Err(BlockError::BlockIsAlreadyKnown) => {
             info!(
