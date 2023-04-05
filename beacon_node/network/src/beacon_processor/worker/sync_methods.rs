@@ -92,6 +92,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                 block,
                 CountUnrealized::True,
                 NotifyExecutionLayer::Yes,
+                || Ok(()),
             )
             .await;
 

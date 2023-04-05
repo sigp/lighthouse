@@ -1658,6 +1658,7 @@ where
                 Arc::new(block),
                 CountUnrealized::True,
                 NotifyExecutionLayer::Yes,
+                || Ok(()),
             )
             .await?
             .into();
@@ -1676,6 +1677,7 @@ where
                 Arc::new(block),
                 CountUnrealized::True,
                 NotifyExecutionLayer::Yes,
+                || Ok(()),
             )
             .await?
             .into();

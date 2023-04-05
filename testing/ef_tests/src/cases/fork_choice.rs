@@ -383,6 +383,7 @@ impl<E: EthSpec> Tester<E> {
             block.clone(),
             CountUnrealized::True,
             NotifyExecutionLayer::Yes,
+            || Ok(()),
         ))?;
         if result.is_ok() != valid {
             return Err(Error::DidntFail(format!(

@@ -41,19 +41,22 @@ pub async fn publish_block<T: BeaconChainTypes>(
     };
     let delay = get_block_delay_ms(seen_timestamp, block.message(), &chain.slot_clock);
 
-    debug!(
-        log,
-        "Signed block published to HTTP API";
-        "slot" => block.slot()
-    );
-
-    // Send the block, regardless of whether or not it is valid. The API
-    // specification is very clear that this is the desired behaviour.
-
-    let message = PubsubMessage::BeaconBlock(block.clone());
-    crate::publish_pubsub_message(network_tx, message)?;
-
     let block_root = block_root.unwrap_or_else(|| block.canonical_root());
+
+    let block_clone = block.clone();
+    let log_clone = log.clone();
+    let sender_clone = network_tx.clone();
+
+    let publish_fn = move || {
+        debug!(
+            log_clone,
+            "Signed block published to HTTP API";
+            "slot" => block_clone.slot()
+        );
+
+        let message = PubsubMessage::BeaconBlock(block_clone);
+        crate::publish_pubsub_message(&sender_clone, message).map_err(|_| BlockError::PublishError)
+    };
 
     match chain
         .process_block(
@@ -61,6 +64,7 @@ pub async fn publish_block<T: BeaconChainTypes>(
             block.clone(),
             CountUnrealized::True,
             NotifyExecutionLayer::Yes,
+            publish_fn,
         )
         .await
     {
@@ -95,6 +99,9 @@ pub async fn publish_block<T: BeaconChainTypes>(
 
             Ok(())
         }
+        Err(BlockError::PublishError) => Err(warp_utils::reject::custom_server_error(format!(
+            "unable to publish to network channel",
+        ))),
         Err(BlockError::BlockIsAlreadyKnown) => {
             info!(
                 log,

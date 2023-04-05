@@ -2543,6 +2543,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         signature_verified_block,
                         count_unrealized,
                         notify_execution_layer,
+                        || Ok(()),
                     )
                     .await
                 {
@@ -2632,6 +2633,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         unverified_block: B,
         count_unrealized: CountUnrealized,
         notify_execution_layer: NotifyExecutionLayer,
+        publish_fn: impl FnOnce() -> Result<(), BlockError<T::EthSpec>> + Send + 'static,
     ) -> Result<Hash256, BlockError<T::EthSpec>> {
         // Start the Prometheus timer.
         let _full_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_TIMES);
@@ -2651,7 +2653,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 notify_execution_layer,
             )?;
             chain
-                .import_execution_pending_block(execution_pending, count_unrealized)
+                .import_execution_pending_block(execution_pending, count_unrealized, publish_fn)
                 .await
         };
 
@@ -2710,6 +2712,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self: Arc<Self>,
         execution_pending_block: ExecutionPendingBlock<T>,
         count_unrealized: CountUnrealized,
+        publish_fn: impl FnOnce() -> Result<(), BlockError<T::EthSpec>> + Send + 'static,
     ) -> Result<Hash256, BlockError<T::EthSpec>> {
         let ExecutionPendingBlock {
             block,
@@ -2774,6 +2777,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         parent_block,
                         parent_eth1_finalization_data,
                         consensus_context,
+                        publish_fn,
                     )
                 },
                 "payload_verification_handle",
@@ -2800,6 +2804,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         parent_block: SignedBlindedBeaconBlock<T::EthSpec>,
         parent_eth1_finalization_data: Eth1FinalizationData,
         mut consensus_context: ConsensusContext<T::EthSpec>,
+        publish_fn: impl FnOnce() -> Result<(), BlockError<T::EthSpec>> + Send + 'static,
     ) -> Result<Hash256, BlockError<T::EthSpec>> {
         // ----------------------------- BLOCK NOT YET ATTESTABLE ----------------------------------
         // Everything in this initial section is on the hot path between processing the block and
@@ -2931,6 +2936,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // state if we returned early without committing. In other words, an error here would
         // corrupt the node's database permanently.
         // -----------------------------------------------------------------------------------------
+
+        publish_fn()?;
 
         self.import_block_update_shuffling_cache(block_root, &mut state);
         self.import_block_observe_attestations(
