@@ -40,7 +40,6 @@ mod tests {
     use tokio::sync::OnceCell;
     use tokio::time::sleep;
     use types::*;
-    use unused_port::unused_tcp4_port;
     use url::Url;
     use validator_client::{
         initialized_validators::{

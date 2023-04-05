@@ -9239,7 +9239,6 @@ dependencies = [
  "tempfile",
  "tokio",
  "types",
- "unused_port",
  "url",
  "validator_client",
  "zip",
