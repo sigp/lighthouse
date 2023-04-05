@@ -1498,6 +1498,18 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
         }
         drop(fork_choice);
 
+        if chain
+            .observed_block_producers
+            .write()
+            .observe_proposer(block.message())
+            .map_err(|e| BlockError::BeaconChainError(e.into()))?
+        {
+            return Err(BlockError::RepeatProposal {
+                proposer: block.message().proposer_index(),
+                slot: block.slot(),
+            });
+        }
+
         Ok(Self {
             block,
             block_root,
