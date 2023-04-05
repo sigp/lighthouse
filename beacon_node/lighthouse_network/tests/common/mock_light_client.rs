@@ -713,26 +713,8 @@ where
                         Poll::Ready(_) => {
                             // drop the stream and its corresponding timeout
                             let delay_key = &entry.get().delay_key;
-                            let protocol = entry.get().proto;
-                            let request_id = entry.get().req_id;
                             self.outbound_substreams_delay.remove(delay_key);
                             entry.remove_entry();
-
-                            // report the stream termination to the user
-                            //
-                            // Streams can be terminated here if a responder tries to
-                            // continue sending responses beyond what we would expect. Here
-                            // we simply terminate the stream and report a stream
-                            // termination to the application
-                            let termination = match protocol {
-                                _ => None, // all other protocols are do not have multiple responses and we do not inform the user, we simply drop the stream.
-                            };
-
-                            if let Some(termination) = termination {
-                                return Poll::Ready(ConnectionHandlerEvent::Custom(Ok(
-                                    RPCReceived::EndOfStream(request_id, termination),
-                                )));
-                            }
                         }
                         Poll::Pending => {
                             entry.get_mut().state = OutboundSubstreamState::Closing(substream);
