@@ -1,11 +1,11 @@
 //! Generic tests that make use of the (newer) `InteractiveApiTester`
-use crate::common::*;
 use beacon_chain::{
     chain_config::ReOrgThreshold,
     test_utils::{AttestationStrategy, BlockStrategy, SyncCommitteeStrategy},
 };
 use eth2::types::DepositContractData;
 use execution_layer::{ForkchoiceState, PayloadAttributes};
+use http_api::test_utils::InteractiveTester;
 use parking_lot::Mutex;
 use slot_clock::SlotClock;
 use state_processing::{

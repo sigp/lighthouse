@@ -68,6 +68,8 @@ pub struct ChainConfig {
     ///
     /// This is useful for block builders and testing.
     pub always_prepare_payload: bool,
+    /// Whether backfill sync processing should be rate-limited.
+    pub enable_backfill_rate_limiting: bool,
 }
 
 impl Default for ChainConfig {
@@ -94,6 +96,7 @@ impl Default for ChainConfig {
             optimistic_finalized_sync: true,
             shuffling_cache_size: crate::shuffling_cache::DEFAULT_CACHE_SIZE,
             always_prepare_payload: false,
+            enable_backfill_rate_limiting: true,
         }
     }
 }
