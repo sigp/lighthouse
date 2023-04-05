@@ -780,10 +780,6 @@ impl<T: BeaconChainTypes> Worker<T> {
 
                 verified_block
             }
-            Err(BlockError::PublishError) => {
-                error!(self.log, "Gossip block triggered publish error");
-                return None;
-            }
             Err(BlockError::ParentUnknown(block)) => {
                 debug!(
                     self.log,
@@ -952,7 +948,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                 verified_block,
                 CountUnrealized::True,
                 NotifyExecutionLayer::Yes,
-                || Ok(()),
+                || (),
             )
             .await
         {

@@ -362,7 +362,7 @@ async fn assert_invalid_signature(
             snapshots[block_index].beacon_block.clone(),
             CountUnrealized::True,
             NotifyExecutionLayer::Yes,
-            || Ok(()),
+            || (),
         )
         .await;
     assert!(
@@ -745,7 +745,7 @@ async fn block_gossip_verification() {
                 gossip_verified,
                 CountUnrealized::True,
                 NotifyExecutionLayer::Yes,
-                || Ok(()),
+                || (),
             )
             .await
             .expect("should import valid gossip verified block");
@@ -1018,7 +1018,7 @@ async fn verify_block_for_gossip_slashing_detection() {
             verified_block,
             CountUnrealized::True,
             NotifyExecutionLayer::Yes,
-            || Ok(()),
+            || (),
         )
         .await
         .unwrap();
@@ -1059,7 +1059,7 @@ async fn verify_block_for_gossip_doppelganger_detection() {
             verified_block,
             CountUnrealized::True,
             NotifyExecutionLayer::Yes,
-            || Ok(()),
+            || (),
         )
         .await
         .unwrap();
