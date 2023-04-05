@@ -700,6 +700,7 @@ async fn invalidates_all_descendants() {
             Arc::new(fork_block),
             CountUnrealized::True,
             NotifyExecutionLayer::Yes,
+            || Ok(()),
         )
         .await
         .unwrap();
@@ -797,6 +798,7 @@ async fn switches_heads() {
             Arc::new(fork_block),
             CountUnrealized::True,
             NotifyExecutionLayer::Yes,
+            || Ok(()),
         )
         .await
         .unwrap();
@@ -1047,7 +1049,9 @@ async fn invalid_parent() {
 
     // Ensure the block built atop an invalid payload is invalid for import.
     assert!(matches!(
-        rig.harness.chain.process_block(block.canonical_root(), block.clone(), CountUnrealized::True, NotifyExecutionLayer::Yes).await,
+        rig.harness.chain.process_block(block.canonical_root(), block.clone(), CountUnrealized::True, NotifyExecutionLayer::Yes,
+            || Ok(()),
+        ).await,
         Err(BlockError::ParentExecutionPayloadInvalid { parent_root: invalid_root })
         if invalid_root == parent_root
     ));
@@ -1338,6 +1342,7 @@ async fn build_optimistic_chain(
                 block,
                 CountUnrealized::True,
                 NotifyExecutionLayer::Yes,
+                || Ok(()),
             )
             .await
             .unwrap();

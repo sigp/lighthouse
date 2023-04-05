@@ -432,6 +432,7 @@ async fn invalid_signature_gossip_block() {
                         Arc::new(signed_block),
                         CountUnrealized::True,
                         NotifyExecutionLayer::Yes,
+                        || Ok(()),
                     )
                     .await,
                 Err(BlockError::InvalidSignature)
@@ -1207,6 +1208,7 @@ async fn add_base_block_to_altair_chain() {
                 Arc::new(base_block.clone()),
                 CountUnrealized::True,
                 NotifyExecutionLayer::Yes,
+                || Ok(()),
             )
             .await
             .err()
@@ -1345,6 +1347,7 @@ async fn add_altair_block_to_base_chain() {
                 Arc::new(altair_block.clone()),
                 CountUnrealized::True,
                 NotifyExecutionLayer::Yes,
+                || Ok(()),
             )
             .await
             .err()
