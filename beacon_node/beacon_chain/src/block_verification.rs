@@ -892,6 +892,12 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
             });
         }
 
+        let _ = chain
+            .observed_proposals
+            .write()
+            .observe_proposal(block.message(), block_root)
+            .map_err(|e| BlockError::BeaconChainError(e.into()))?;
+
         if block.message().proposer_index() != expected_proposer as u64 {
             return Err(BlockError::IncorrectBlockProposer {
                 block: block.message().proposer_index(),
@@ -1498,17 +1504,11 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
         }
         drop(fork_choice);
 
-        if chain
-            .observed_block_producers
+        chain
+            .observed_proposals
             .write()
-            .observe_proposer(block.message())
-            .map_err(|e| BlockError::BeaconChainError(e.into()))?
-        {
-            return Err(BlockError::RepeatProposal {
-                proposer: block.message().proposer_index(),
-                slot: block.slot(),
-            });
-        }
+            .observe_proposal(block.message(), block_root)
+            .map_err(|e| BlockError::BeaconChainError(e.into()))?;
 
         Ok(Self {
             block,

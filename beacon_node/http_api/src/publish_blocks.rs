@@ -43,6 +43,7 @@ pub async fn publish_block<T: BeaconChainTypes>(
 
     let block_root = block_root.unwrap_or_else(|| block.canonical_root());
 
+    let chain_clone = chain.clone();
     let block_clone = block.clone();
     let log_clone = log.clone();
     let sender_clone = network_tx.clone();
@@ -53,6 +54,15 @@ pub async fn publish_block<T: BeaconChainTypes>(
             "Signed block published to HTTP API";
             "slot" => block_clone.slot()
         );
+
+        if chain_clone
+            .observed_proposals
+            .write()
+            .observe_proposal(block_clone.message(), block_root)
+            .map_err(|e| BlockError::BeaconChainError(e.into()))?
+        {
+            return Err(BlockError::PublishError);
+        }
 
         let message = PubsubMessage::BeaconBlock(block_clone);
         crate::publish_pubsub_message(&sender_clone, message).map_err(|_| BlockError::PublishError)
