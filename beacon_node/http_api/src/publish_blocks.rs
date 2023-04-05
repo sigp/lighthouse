@@ -99,9 +99,9 @@ pub async fn publish_block<T: BeaconChainTypes>(
 
             Ok(())
         }
-        Err(BlockError::PublishError) => Err(warp_utils::reject::custom_server_error(format!(
-            "unable to publish to network channel",
-        ))),
+        Err(BlockError::PublishError) => Err(warp_utils::reject::custom_server_error(
+            "unable to publish to network channel".to_string(),
+        )),
         Err(BlockError::BlockIsAlreadyKnown) => {
             info!(
                 log,
