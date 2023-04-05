@@ -1899,7 +1899,7 @@ async fn recover_from_invalid_head_by_importing_blocks() {
             fork_block.clone(),
             CountUnrealized::True,
             NotifyExecutionLayer::Yes,
-            || (),
+            || Ok(()),
         )
         .await
         .unwrap();

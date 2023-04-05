@@ -55,9 +55,7 @@ pub async fn publish_block<T: BeaconChainTypes>(
         );
 
         let message = PubsubMessage::BeaconBlock(block_clone);
-        if let Err(e) = crate::publish_pubsub_message(&sender_clone, message) {
-            error!(log_clone, "Unable to publish block"; "error" => ?e);
-        }
+        crate::publish_pubsub_message(&sender_clone, message).map_err(|_| BlockError::PublishError)
     };
 
     match chain
@@ -101,6 +99,9 @@ pub async fn publish_block<T: BeaconChainTypes>(
 
             Ok(())
         }
+        Err(BlockError::PublishError) => Err(warp_utils::reject::custom_server_error(format!(
+            "unable to publish to network channel",
+        ))),
         Err(BlockError::BlockIsAlreadyKnown) => {
             info!(
                 log,
