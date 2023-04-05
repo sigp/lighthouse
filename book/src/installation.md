@@ -41,9 +41,3 @@ period of non-finality, it is **strongly recommended** that at least 128 GB is a
 * 16 GB RAM
 * 256 GB solid state storage
 * 100 Mb/s download, 20 Mb/s upload broadband connection
-
-
-* Dual-core CPU, 2015 or newer
-* 8 GB RAM
-* 128 GB solid state storage
-* 10 Mb/s download, 5 Mb/s upload broadband connection
