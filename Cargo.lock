@@ -5232,7 +5232,7 @@ dependencies = [
  "task_executor",
  "tokio",
  "tokio-stream",
- "tokio-util 0.7.7",
+ "tokio-util 0.6.10",
  "types",
 ]
 
