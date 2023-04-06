@@ -1870,3 +1870,100 @@ impl<T: EthSpec> ForkVersionDeserialize for BeaconState<T> {
         ))
     }
 }
+
+/// This module can be used to encode and decode a `BeaconState` the same way it
+/// would be done if we had tagged the superstruct enum with
+/// `#[ssz(enum_behaviour = "Union")]`
+/// This should _only_ be used for storing these objects in the database and _NEVER_
+/// for encoding / decoding states sent over the network!
+pub mod ssz_tagged_beacon_state {
+    use super::*;
+    pub mod encode {
+        use super::*;
+        #[allow(unused_imports)]
+        use ssz::*;
+
+        pub fn is_ssz_fixed_len() -> bool {
+            false
+        }
+
+        pub fn ssz_fixed_len() -> usize {
+            BYTES_PER_LENGTH_OFFSET
+        }
+
+        pub fn ssz_bytes_len<E: EthSpec>(state: &BeaconState<E>) -> usize {
+            state.ssz_bytes_len() + 1
+        }
+
+        pub fn ssz_append<E: EthSpec>(state: &BeaconState<E>, buf: &mut Vec<u8>) {
+            match &state {
+                BeaconState::Base(inner) => {
+                    buf.push(0x0u8);
+                    inner.ssz_append(buf);
+                }
+                BeaconState::Altair(inner) => {
+                    buf.push(0x1u8);
+                    inner.ssz_append(buf);
+                }
+                BeaconState::Merge(inner) => {
+                    buf.push(0x2u8);
+                    inner.ssz_append(buf);
+                }
+                BeaconState::Capella(inner) => {
+                    buf.push(0x3u8);
+                    inner.ssz_append(buf);
+                }
+                BeaconState::Deneb(inner) => {
+                    buf.push(0x4u8);
+                    inner.ssz_append(buf);
+                }
+            }
+        }
+
+        pub fn as_ssz_bytes<E: EthSpec>(state: &BeaconState<E>) -> Vec<u8> {
+            let mut buf = vec![];
+            ssz_append(state, &mut buf);
+
+            buf
+        }
+    }
+
+    pub mod decode {
+        use super::*;
+        #[allow(unused_imports)]
+        use ssz::*;
+
+        pub fn is_ssz_fixed_len() -> bool {
+            false
+        }
+
+        pub fn ssz_fixed_len() -> usize {
+            BYTES_PER_LENGTH_OFFSET
+        }
+
+        pub fn from_ssz_bytes<E: EthSpec>(bytes: &[u8]) -> Result<BeaconState<E>, DecodeError> {
+            let selector = bytes
+                .first()
+                .copied()
+                .ok_or(DecodeError::OutOfBoundsByte { i: 0 })?;
+            let body = bytes
+                .get(1..)
+                .ok_or(DecodeError::OutOfBoundsByte { i: 1 })?;
+            match selector {
+                0x0 => Ok(BeaconState::Base(BeaconStateBase::from_ssz_bytes(body)?)),
+                0x1 => Ok(BeaconState::Altair(BeaconStateAltair::from_ssz_bytes(
+                    body,
+                )?)),
+                0x2 => Ok(BeaconState::Merge(BeaconStateMerge::from_ssz_bytes(body)?)),
+                0x3 => Ok(BeaconState::Capella(BeaconStateCapella::from_ssz_bytes(
+                    body,
+                )?)),
+                0x4 => Ok(BeaconState::Deneb(BeaconStateDeneb::from_ssz_bytes(body)?)),
+                byte => Err(DecodeError::BytesInvalid(format!(
+                    "byte {} is invalid selector for BeaconState",
+                    byte
+                ))),
+            }
+        }
+    }
+}

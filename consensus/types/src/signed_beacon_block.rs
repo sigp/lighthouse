@@ -510,6 +510,118 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> ForkVersionDeserialize
     }
 }
 
+/// This module can be used to encode and decode a `SignedBeaconBlock` the same way it
+/// would be done if we had tagged the superstruct enum with
+/// `#[ssz(enum_behaviour = "Union")]`
+/// This should _only_ be used for storing these objects in the database and _NEVER_
+/// for encoding / decoding blocks sent over the network!
+pub mod ssz_tagged_signed_beacon_block {
+    use super::*;
+    pub mod encode {
+        use super::*;
+        #[allow(unused_imports)]
+        use ssz::*;
+
+        pub fn is_ssz_fixed_len() -> bool {
+            false
+        }
+
+        pub fn ssz_fixed_len() -> usize {
+            BYTES_PER_LENGTH_OFFSET
+        }
+
+        pub fn ssz_bytes_len<E: EthSpec, Payload: AbstractExecPayload<E>>(
+            block: &SignedBeaconBlock<E, Payload>,
+        ) -> usize {
+            block.ssz_bytes_len() + 1
+        }
+
+        pub fn ssz_append<E: EthSpec, Payload: AbstractExecPayload<E>>(
+            block: &SignedBeaconBlock<E, Payload>,
+            buf: &mut Vec<u8>,
+        ) {
+            match &block {
+                SignedBeaconBlock::Base(inner) => {
+                    buf.push(0x0u8);
+                    inner.ssz_append(buf);
+                }
+                SignedBeaconBlock::Altair(inner) => {
+                    buf.push(0x1u8);
+                    inner.ssz_append(buf);
+                }
+                SignedBeaconBlock::Merge(inner) => {
+                    buf.push(0x2u8);
+                    inner.ssz_append(buf);
+                }
+                SignedBeaconBlock::Capella(inner) => {
+                    buf.push(0x3u8);
+                    inner.ssz_append(buf);
+                }
+                SignedBeaconBlock::Deneb(inner) => {
+                    buf.push(0x4u8);
+                    inner.ssz_append(buf);
+                }
+            }
+        }
+
+        pub fn as_ssz_bytes<E: EthSpec, Payload: AbstractExecPayload<E>>(
+            block: &SignedBeaconBlock<E, Payload>,
+        ) -> Vec<u8> {
+            let mut buf = vec![];
+            ssz_append(block, &mut buf);
+
+            buf
+        }
+    }
+
+    pub mod decode {
+        use super::*;
+        #[allow(unused_imports)]
+        use ssz::*;
+
+        pub fn is_ssz_fixed_len() -> bool {
+            false
+        }
+
+        pub fn ssz_fixed_len() -> usize {
+            BYTES_PER_LENGTH_OFFSET
+        }
+
+        pub fn from_ssz_bytes<E: EthSpec, Payload: AbstractExecPayload<E>>(
+            bytes: &[u8],
+        ) -> Result<SignedBeaconBlock<E, Payload>, DecodeError> {
+            let selector = bytes
+                .first()
+                .copied()
+                .ok_or(DecodeError::OutOfBoundsByte { i: 0 })?;
+            let body = bytes
+                .get(1..)
+                .ok_or(DecodeError::OutOfBoundsByte { i: 1 })?;
+            match selector {
+                0x0 => Ok(SignedBeaconBlock::Base(
+                    SignedBeaconBlockBase::from_ssz_bytes(body)?,
+                )),
+                0x1 => Ok(SignedBeaconBlock::Altair(
+                    SignedBeaconBlockAltair::from_ssz_bytes(body)?,
+                )),
+                0x2 => Ok(SignedBeaconBlock::Merge(
+                    SignedBeaconBlockMerge::from_ssz_bytes(body)?,
+                )),
+                0x3 => Ok(SignedBeaconBlock::Capella(
+                    SignedBeaconBlockCapella::from_ssz_bytes(body)?,
+                )),
+                0x4 => Ok(SignedBeaconBlock::Deneb(
+                    SignedBeaconBlockDeneb::from_ssz_bytes(body)?,
+                )),
+                byte => Err(DecodeError::BytesInvalid(format!(
+                    "byte {} is invalid selector for SignedBeaconBlock",
+                    byte
+                ))),
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;

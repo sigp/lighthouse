@@ -8,6 +8,7 @@ use kzg::Error as KzgError;
 use kzg::Kzg;
 use parking_lot::RwLock;
 use slot_clock::SlotClock;
+use ssz_derive::{Decode, Encode};
 use ssz_types::{Error, FixedVector, VariableList};
 use state_processing::per_block_processing::deneb::deneb::verify_kzg_commitments_against_transactions;
 use std::collections::hash_map::{Entry, OccupiedEntry};
@@ -16,10 +17,13 @@ use std::sync::Arc;
 use types::beacon_block_body::KzgCommitments;
 use types::blob_sidecar::{BlobIdentifier, BlobSidecar};
 use types::consts::deneb::MIN_EPOCHS_FOR_BLOB_SIDECARS_REQUESTS;
+use types::ssz_tagged_signed_beacon_block;
 use types::{
     BeaconBlockRef, BlobSidecarList, ChainSpec, Epoch, EthSpec, ExecPayload, FullPayload, Hash256,
     SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
 };
+
+mod overflow_lru_cache;
 
 #[derive(Debug)]
 pub enum AvailabilityCheckError {
@@ -64,6 +68,7 @@ pub struct DataAvailabilityChecker<T: EthSpec, S: SlotClock> {
 ///
 /// The blobs are all gossip and kzg verified.
 /// The block has completed all verifications except the availability check.
+#[derive(Encode, Decode)]
 struct ReceivedComponents<T: EthSpec> {
     verified_blobs: FixedVector<Option<KzgVerifiedBlob<T>>, T::MaxBlobsPerBlock>,
     executed_block: Option<AvailabilityPendingExecutedBlock<T>>,
@@ -574,5 +579,48 @@ impl<E: EthSpec> AsBlock<E> for AvailableBlock<E> {
         } else {
             BlockWrapper::Block(block)
         }
+    }
+}
+
+// The standard implementation of Encode for SignedBeaconBlock
+// requires us to use ssz(enum_behaviour = "transparent"). This
+// prevents us from implementing Decode. We need to use a
+// custom Encode and Decode in this wrapper object that essentially
+// encodes it as if it were ssz(enum_behaviour = "union")
+impl<E: EthSpec> ssz::Encode for AvailabilityPendingBlock<E> {
+    fn is_ssz_fixed_len() -> bool {
+        ssz_tagged_signed_beacon_block::encode::is_ssz_fixed_len()
+    }
+
+    fn ssz_append(&self, buf: &mut Vec<u8>) {
+        ssz_tagged_signed_beacon_block::encode::ssz_append(self.block.as_ref(), buf);
+    }
+
+    fn ssz_bytes_len(&self) -> usize {
+        ssz_tagged_signed_beacon_block::encode::ssz_bytes_len(self.block.as_ref())
+    }
+}
+
+impl<E: EthSpec> ssz::Decode for AvailabilityPendingBlock<E> {
+    fn is_ssz_fixed_len() -> bool {
+        ssz_tagged_signed_beacon_block::decode::is_ssz_fixed_len()
+    }
+
+    fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, ssz::DecodeError> {
+        Ok(Self {
+            block: Arc::new(ssz_tagged_signed_beacon_block::decode::from_ssz_bytes(
+                bytes,
+            )?),
+        })
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn check_encode_decode_availability_pending_block() {
+        // todo.. (difficult to create default beacon blocks to test)
     }
 }
