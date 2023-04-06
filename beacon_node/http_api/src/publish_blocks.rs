@@ -40,7 +40,7 @@ pub async fn publish_block<T: BeaconChainTypes>(
         ProvenancedBlock::Builder(block) => (block, false),
     };
     let delay = get_block_delay_ms(seen_timestamp, block.message(), &chain.slot_clock);
-    debug!(log_clone, "Signed block received in HTTP API"; "slot" => block_clone.slot());
+    debug!(log, "Signed block received in HTTP API"; "slot" => block.slot());
 
     let block_root = block_root.unwrap_or_else(|| block.canonical_root());
 
