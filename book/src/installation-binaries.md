@@ -29,7 +29,7 @@ a portable `x86_64` binary.
 
 1. Go to the [Releases](https://github.com/sigp/lighthouse/releases) page and
    select the latest release.
-1. Download the `lighthouse-${VERSION}-x86_64-unknown-linux-gnu-portable.tar.gz` binary.
+1. Download the `lighthouse-${VERSION}-x86_64-unknown-linux-gnu.tar.gz` binary.
 1. Extract the archive:
     1. `cd Downloads`
     1. `tar -xvf lighthouse-${VERSION}-x86_64-unknown-linux-gnu.tar.gz`
@@ -64,4 +64,4 @@ WARN CPU seems incompatible with optimized Lighthouse build, advice: If you get 
 
 On some VPS providers, the virtualization can make it appear as if CPU features are not available,
 even when they are. In this case you might see the warning above, but so long as the client
-continues to function it's nothing to worry about.
+continues to function, it's nothing to worry about.
