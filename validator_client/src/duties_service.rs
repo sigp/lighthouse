@@ -688,7 +688,7 @@ async fn poll_beacon_attesters_for_epoch<T: SlotClock + 'static, E: EthSpec>(
     // request for extra data unless necessary in order to save on network bandwidth.
     let uninitialized_validators =
         get_uninitialized_validators(duties_service, &epoch, local_pubkeys);
-    let indices_to_request = if uninitialized_validators.len() > INITIAL_DUTIES_QUERY_SIZE {
+    let indices_to_request = if uninitialized_validators.len() >= INITIAL_DUTIES_QUERY_SIZE {
         uninitialized_validators.as_slice()
     } else {
         &local_indices[0..min(INITIAL_DUTIES_QUERY_SIZE, local_indices.len())]
