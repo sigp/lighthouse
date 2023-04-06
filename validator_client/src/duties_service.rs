@@ -702,9 +702,6 @@ async fn poll_beacon_attesters_for_epoch<T: SlotClock + 'static, E: EthSpec>(
     let validators_to_update: Vec<_> = {
         // Avoid holding the read-lock for any longer than required.
         let attesters = duties_service.attesters.read();
-        // Only request duties if
-        // - There were no known duties for this epoch.
-        // - The dependent root has changed, signalling a re-org.
         local_pubkeys
             .iter()
             .filter(|pubkey| {
