@@ -40,6 +40,7 @@ pub async fn publish_block<T: BeaconChainTypes>(
         ProvenancedBlock::Builder(block) => (block, false),
     };
     let delay = get_block_delay_ms(seen_timestamp, block.message(), &chain.slot_clock);
+    debug!(log_clone, "Signed block received in HTTP API"; "slot" => block_clone.slot());
 
     let block_root = block_root.unwrap_or_else(|| block.canonical_root());
 
@@ -49,20 +50,21 @@ pub async fn publish_block<T: BeaconChainTypes>(
     let sender_clone = network_tx.clone();
 
     let publish_fn = move || {
-        debug!(
-            log_clone,
-            "Signed block published to HTTP API";
-            "slot" => block_clone.slot()
-        );
-
         if chain_clone
             .observed_proposals
             .write()
             .observe_proposal(block_clone.message(), block_root)
             .map_err(|e| BlockError::BeaconChainError(e.into()))?
         {
+            warn!(
+                log_clone,
+                "Not publishing block, another block detected";
+                "slot" => block_clone.slot()
+            );
             return Err(BlockError::SlashablePublish);
         }
+
+        info!(log_clone, "Signed block published to network via HTTP API"; "slot" => block_clone.slot());
 
         let message = PubsubMessage::BeaconBlock(block_clone);
         crate::publish_pubsub_message(&sender_clone, message).map_err(|_| BlockError::PublishError)
