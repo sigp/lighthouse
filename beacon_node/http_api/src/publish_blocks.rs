@@ -51,10 +51,11 @@ pub async fn publish_block<T: BeaconChainTypes>(
 
     let publish_fn = move || {
         if chain_clone
-            .observed_proposals
+            .observed_block_producers
             .write()
-            .observe_proposal(block_clone.message(), block_root)
+            .observe_proposal(block_root, block_clone.message())
             .map_err(|e| BlockError::BeaconChainError(e.into()))?
+            .is_slashable()
         {
             warn!(
                 log_clone,

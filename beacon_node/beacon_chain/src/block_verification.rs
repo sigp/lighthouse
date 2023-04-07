@@ -884,20 +884,15 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         if chain
             .observed_block_producers
             .write()
-            .observe_proposer(block.message())
+            .observe_proposal(block_root, block.message())
             .map_err(|e| BlockError::BeaconChainError(e.into()))?
+            .proposer_previously_observed()
         {
             return Err(BlockError::RepeatProposal {
                 proposer: block.message().proposer_index(),
                 slot: block.slot(),
             });
         }
-
-        let _ = chain
-            .observed_proposals
-            .write()
-            .observe_proposal(block.message(), block_root)
-            .map_err(|e| BlockError::BeaconChainError(e.into()))?;
 
         if block.message().proposer_index() != expected_proposer as u64 {
             return Err(BlockError::IncorrectBlockProposer {
@@ -1136,6 +1131,12 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
         chain: &Arc<BeaconChain<T>>,
         notify_execution_layer: NotifyExecutionLayer,
     ) -> Result<Self, BlockError<T::EthSpec>> {
+        chain
+            .observed_block_producers
+            .write()
+            .observe_proposal(block_root, block.message())
+            .map_err(|e| BlockError::BeaconChainError(e.into()))?;
+
         if let Some(parent) = chain
             .canonical_head
             .fork_choice_read_lock()
@@ -1504,12 +1505,6 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
             }?;
         }
         drop(fork_choice);
-
-        chain
-            .observed_proposals
-            .write()
-            .observe_proposal(block.message(), block_root)
-            .map_err(|e| BlockError::BeaconChainError(e.into()))?;
 
         Ok(Self {
             block,
