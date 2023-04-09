@@ -31,6 +31,11 @@ Install the following packages:
 sudo apt install -y git gcc g++ make cmake pkg-config llvm-dev libclang-dev clang protobuf-compiler
 ```
 
+> Tips:
+>
+> - If there are difficulties, try updating the package manager with `sudo apt
+>   update`.
+
 > Note: Lighthouse requires CMake v3.12 or newer, which isn't available in the package repositories
 > of Ubuntu 18.04 or earlier. On these distributions CMake can still be installed via PPA:
 > [https://apt.kitware.com/](https://apt.kitware.com)
