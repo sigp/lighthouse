@@ -13,7 +13,7 @@ Additionally, there are two extra guides for specific uses:
 - [Raspberry Pi 4 guide](./pi.md).
 - [Cross-compiling guide for developers](./cross-compiling.md).
 
-Community-maintained additional installation methods:
+There are also community-maintained installation methods:
 
 - [Homebrew package](./homebrew.md).
 - Arch Linux AUR packages: [source](https://aur.archlinux.org/packages/lighthouse-ethereum),
