@@ -17,7 +17,7 @@ The rustup installer provides an easy way to update the Rust compiler, and works
 >
 > - When prompted, enter `1` for the default installation.
 > - Try running `cargo version` after Rust installation completes. If it cannot
->   be found, run `source $HOME/.cargo/env`. After that, running `cargo version` should return the version, for example `cargo 1.68.2`
+>   be found, run `source $HOME/.cargo/env`. After that, running `cargo version` should return the version, for example `cargo 1.68.2`.
 > - It's generally advisable to append `source $HOME/.cargo/env` to `~/.bashrc`.
 
 With Rust installed, follow the instructions below to install dependencies relevant to your
@@ -35,6 +35,8 @@ sudo apt install -y git gcc g++ make cmake pkg-config llvm-dev libclang-dev clan
 > of Ubuntu 18.04 or earlier. On these distributions CMake can still be installed via PPA:
 > [https://apt.kitware.com/](https://apt.kitware.com)
 
+After this, you are ready to [build Lighthouse](#build-lighthouse).
+
 #### macOS
 
 1. Install the [Homebrew][] package manager.
@@ -50,6 +52,8 @@ brew install protobuf
 ```
 
 [Homebrew]: https://brew.sh/
+
+After this, you are ready to [build Lighthouse](#build-lighthouse).
 
 #### Windows
 
@@ -78,6 +82,8 @@ successfully under the [Windows Subsystem for Linux (WSL)][WSL]. If using Ubuntu
 should follow the instructions for Ubuntu listed in the [Dependencies (Ubuntu)](#ubuntu) section.
 
 [WSL]: https://docs.microsoft.com/en-us/windows/wsl/about
+
+After this, you are ready to [build Lighthouse](#build-lighthouse).
 
 ## Build Lighthouse
 
