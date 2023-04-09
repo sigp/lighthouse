@@ -8,16 +8,18 @@ There are three core methods to obtain the Lighthouse application:
 - [Docker images](./docker.md).
 - [Building from source](./installation-source.md).
 
+Additionally, there are two extra guides for specific uses:
+
+- [Raspberry Pi 4 guide](./pi.md).
+- [Cross-compiling guide for developers](./cross-compiling.md).
+
 Community-maintained additional installation methods:
 
 - [Homebrew package](./homebrew.md).
 - Arch Linux AUR packages: [source](https://aur.archlinux.org/packages/lighthouse-ethereum),
   [binary](https://aur.archlinux.org/packages/lighthouse-ethereum-bin).
 
-Additionally, there are two extra guides for specific uses:
 
-- [Raspberry Pi 4 guide](./pi.md).
-- [Cross-compiling guide for developers](./cross-compiling.md).
 
 ## Recommended System Requirements
 
