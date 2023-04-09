@@ -60,8 +60,11 @@ After this, you are ready to [build Lighthouse](#build-lighthouse).
 1. Install [Git](https://git-scm.com/download/win).
 1. Install the [Chocolatey](https://chocolatey.org/install) package manager for Windows.
     > Tips: 
-    > - Use PowerShell to install
-    > - You must ensure `Get-ExecutionPolicy` is not Restricted. To test this, run `Get-ExecutionPolicy` in PowerShell. If it returns `restricted`, then run `Set-ExecutionPolicy AllSigned`, and then run `Set-ExecutionPolicy Bypass -Scope Process -Force; [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072; iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))`
+    > - Use PowerShell to install. In Windows, search for PowerShell and run as administrator.
+    > - You must ensure `Get-ExecutionPolicy` is not Restricted. To test this, run `Get-ExecutionPolicy` in PowerShell. If it returns `restricted`, then run `Set-ExecutionPolicy AllSigned`, and then run
+    ```bash 
+    Set-ExecutionPolicy Bypass -Scope Process -Force; [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072; iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
+    ```
     > - To verify that Chocolatey is ready, run `choco` and it should return the version.
 1. Install Make, CMake, LLVM and protoc using Chocolatey:
 
