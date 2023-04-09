@@ -5,8 +5,20 @@ the instructions below, and then proceed to [Building Lighthouse](#build-lightho
 
 ## Dependencies
 
-First, **install Rust** using [rustup](https://rustup.rs/). The rustup installer provides an easy way
-to update the Rust compiler, and works on all platforms.
+First, **install Rust** using [rustup](https://rustup.rs/)： 
+
+```bash
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+```
+
+The rustup installer provides an easy way to update the Rust compiler, and works on all platforms.
+
+> Tips:
+>
+> - When prompted, enter `1` for the default installation.
+> - Try running `cargo version` after Rust installation completes. If it cannot
+>   be found, run `source $HOME/.cargo/env`. After that, running `cargo version` should return the version, for example `cargo 1.68.2`
+> - It's generally advisable to append `source $HOME/.cargo/env` to `~/.bashrc`.
 
 With Rust installed, follow the instructions below to install dependencies relevant to your
 operating system.
@@ -136,7 +148,7 @@ Commonly used features include:
 * `spec-minimal`: support for the minimal preset (useful for testing).
 
 Default features (e.g. `slasher-mdbx`) may be opted out of using the `--no-default-features`
-argument for `cargo`, which can plumbed in via the `CARGO_INSTALL_EXTRA_FLAGS` environment variable.
+argument for `cargo`, which can be plumbed in via the `CARGO_INSTALL_EXTRA_FLAGS` environment variable.
 E.g.
 
 ```
@@ -185,7 +197,7 @@ Rust Version (MSRV) which is listed under the `rust-version` key in Lighthouse's
 If compilation fails with `(signal: 9, SIGKILL: kill)`, this could mean your machine ran out of
 memory during compilation. If you are on a resource-constrained device you can
 look into [cross compilation](./cross-compiling.md), or use a [pre-built
-binary](./installation-binaries.md).
+binary](https://github.com/sigp/lighthouse/releases).
 
 If compilation fails with `error: linking with cc failed: exit code: 1`, try running `cargo clean`.
 
