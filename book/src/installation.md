@@ -29,6 +29,6 @@ After [The Merge](https://ethereum.org/en/roadmap/merge/) on 15<sup>th</sup> Sep
 
 
 * CPU: Quad-core AMD Ryzen, Intel Broadwell, ARMv8 or newer
-* Memory: 16 GB RAM
+* Memory: 16 GB RAM or more
 * Storage: 2 TB solid state storage
 * Network: 100 Mb/s download, 20 Mb/s upload broadband connection
