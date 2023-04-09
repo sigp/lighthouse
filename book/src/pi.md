@@ -40,10 +40,10 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 
 > Tips:
 >
-> - When prompted, enter `1` for the default installation.
-> - Try running `cargo version` after Rust installation completes. If it cannot
+> - During installation, when prompted, enter `1` for the default installation.
+> - After Rust installation completes, try running `cargo version` . If it cannot
 >   be found, run `source $HOME/.cargo/env`. After that, running `cargo version` should return the version, for example `cargo 1.68.2`.
-> - It's generally advised to append `source $HOME/.cargo/env` to `~/.bashrc`.
+> - It's generally advisable to append `source $HOME/.cargo/env` to `~/.bashrc`.
 
 ### 4. Install Lighthouse
 
