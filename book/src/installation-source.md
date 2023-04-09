@@ -196,12 +196,11 @@ PROFILE=maxperf make
 Lighthouse will be installed to `CARGO_HOME` or `$HOME/.cargo`. This directory
 needs to be on your `PATH` before you can run `$ lighthouse`.
 
-See ["Configuring the `PATH` environment variable"
-(rust-lang.org)](https://www.rust-lang.org/tools/install) for more information.
+See ["Configuring the `PATH` environment variable"](https://www.rust-lang.org/tools/install) for more information.
 
 ### Compilation error
 
-Make sure you are running the latest version of Rust. If you have installed Rust using rustup, simply type `rustup update`.
+Make sure you are running the latest version of Rust. If you have installed Rust using rustup, simply run `rustup update`.
 
 If you can't install the latest version of Rust you can instead compile using the Minimum Supported
 Rust Version (MSRV) which is listed under the `rust-version` key in Lighthouse's
