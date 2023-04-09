@@ -16,13 +16,13 @@ way to run Lighthouse without building the image yourself.
 Obtain the latest image with:
 
 ```bash
-$ docker pull sigp/lighthouse
+docker pull sigp/lighthouse
 ```
 
 Download and test the image with:
 
 ```bash
-$ docker run sigp/lighthouse lighthouse --version
+docker run sigp/lighthouse lighthouse --version
 ```
 
 If you can see the latest [Lighthouse release](https://github.com/sigp/lighthouse/releases) version
@@ -50,7 +50,7 @@ compatibility (see [Portability](./installation-binaries.md#portability)).
 To install a specific tag (in this case `latest-modern`), add the tag name to your `docker` commands:
 
 ```
-$ docker pull sigp/lighthouse:latest-modern
+docker pull sigp/lighthouse:latest-modern
 ```
 
 Image tags follow this format:
@@ -98,13 +98,13 @@ To build the image from source, navigate to
 the root of the repository and run:
 
 ```bash
-$ docker build . -t lighthouse:local
+docker build . -t lighthouse:local
 ```
 
 The build will likely take several minutes. Once it's built, test it with:
 
 ```bash
-$ docker run lighthouse:local lighthouse --help
+docker run lighthouse:local lighthouse --help
 ```
 
 ## Using the Docker image
@@ -112,7 +112,7 @@ $ docker run lighthouse:local lighthouse --help
 You can run a Docker beacon node with the following command:
 
 ```bash
-$ docker run -p 9000:9000/tcp -p 9000:9000/udp -p 127.0.0.1:5052:5052 -v $HOME/.lighthouse:/root/.lighthouse sigp/lighthouse lighthouse --network mainnet beacon --http --http-address 0.0.0.0
+docker run -p 9000:9000/tcp -p 9000:9000/udp -p 127.0.0.1:5052:5052 -v $HOME/.lighthouse:/root/.lighthouse sigp/lighthouse lighthouse --network mainnet beacon --http --http-address 0.0.0.0
 ```
 
 > To join the goerli testnet, use `--network goerli` instead.
@@ -130,7 +130,7 @@ The following example runs a beacon node with the data directory
 mapped to the users home directory:
 
 ```bash
-$ docker run -v $HOME/.lighthouse:/root/.lighthouse sigp/lighthouse lighthouse beacon
+docker run -v $HOME/.lighthouse:/root/.lighthouse sigp/lighthouse lighthouse beacon
 ```
 
 ### Ports
@@ -139,14 +139,14 @@ In order to be a good peer and serve other peers you should expose port `9000` f
 Use the `-p` flag to do this:
 
 ```bash
-$ docker run -p 9000:9000/tcp -p 9000:9000/udp sigp/lighthouse lighthouse beacon
+docker run -p 9000:9000/tcp -p 9000:9000/udp sigp/lighthouse lighthouse beacon
 ```
 
 If you use the `--http` flag you may also want to expose the HTTP port with `-p
 127.0.0.1:5052:5052`.
 
 ```bash
-$ docker run -p 9000:9000/tcp -p 9000:9000/udp -p 127.0.0.1:5052:5052 sigp/lighthouse lighthouse beacon --http --http-address 0.0.0.0
+docker run -p 9000:9000/tcp -p 9000:9000/udp -p 127.0.0.1:5052:5052 sigp/lighthouse lighthouse beacon --http --http-address 0.0.0.0
 ```
 
 [docker_hub]: https://hub.docker.com/repository/docker/sigp/lighthouse/
