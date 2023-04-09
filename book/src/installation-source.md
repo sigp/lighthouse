@@ -15,8 +15,8 @@ The rustup installer provides an easy way to update the Rust compiler, and works
 
 > Tips:
 >
-> - When prompted, enter `1` for the default installation.
-> - Try running `cargo version` after Rust installation completes. If it cannot
+> - During installation, when prompted, enter `1` for the default installation.
+> - After Rust installation completes, try running `cargo version` . If it cannot
 >   be found, run `source $HOME/.cargo/env`. After that, running `cargo version` should return the version, for example `cargo 1.68.2`.
 > - It's generally advisable to append `source $HOME/.cargo/env` to `~/.bashrc`.
 
@@ -57,8 +57,12 @@ After this, you are ready to [build Lighthouse](#build-lighthouse).
 
 #### Windows
 
-1. Install [Git](https://git-scm.com/book/en/v2/Getting-Started-Installing-Git).
+1. Install [Git](https://git-scm.com/download/win).
 1. Install the [Chocolatey](https://chocolatey.org/install) package manager for Windows.
+    > Tips: 
+    > - Use PowerShell to install
+    > - You must ensure `Get-ExecutionPolicy` is not Restricted. To test this, run `Get-ExecutionPolicy` in PowerShell. If it returns `restricted`, then run `Set-ExecutionPolicy AllSigned`, and then run `Set-ExecutionPolicy Bypass -Scope Process -Force; [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072; iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))`
+    > - To verify that Chocolatey is ready, run `choco` and it should return the version.
 1. Install Make, CMake, LLVM and protoc using Chocolatey:
 
 ```
