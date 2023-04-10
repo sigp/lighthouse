@@ -95,7 +95,7 @@ pub enum BlobError {
         blob_parent_root: Hash256,
     },
 
-    /// The given blob has already been seen for the given `(sidecar.block_root, sidecar.index)` tuple
+    /// A blob has already been seen for the given `(sidecar.block_root, sidecar.index)` tuple
     /// over gossip or no gossip sources.
     ///
     /// ## Peer scoring
