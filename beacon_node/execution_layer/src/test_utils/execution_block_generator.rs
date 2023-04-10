@@ -582,7 +582,7 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
                                     block_hash: ExecutionBlockHash::zero(),
                                     transactions: vec![].into(),
                                     withdrawals: pa.withdrawals.clone().into(),
-                                    deposit_receipts: pa.deposit_receipts.clone().into(),
+                                    deposit_receipts: vec![].into(),
                                 })
                             }
                             _ => unreachable!(),

@@ -487,8 +487,6 @@ pub struct JsonPayloadAttributes {
     pub suggested_fee_recipient: Address,
     #[superstruct(only(V2))]
     pub withdrawals: Vec<JsonWithdrawal>,
-    #[superstruct(only(V2))]
-    pub deposit_receipts: Vec<JsonDepositReceipt>,
 }
 
 impl From<PayloadAttributes> for JsonPayloadAttributes {
@@ -504,7 +502,6 @@ impl From<PayloadAttributes> for JsonPayloadAttributes {
                 prev_randao: pa.prev_randao,
                 suggested_fee_recipient: pa.suggested_fee_recipient,
                 withdrawals: pa.withdrawals.into_iter().map(Into::into).collect(),
-                deposit_receipts: pa.deposit_receipts.into_iter().map(Into::into).collect(),
             }),
         }
     }
@@ -523,7 +520,6 @@ impl From<JsonPayloadAttributes> for PayloadAttributes {
                 prev_randao: jpa.prev_randao,
                 suggested_fee_recipient: jpa.suggested_fee_recipient,
                 withdrawals: jpa.withdrawals.into_iter().map(Into::into).collect(),
-                deposit_receipts: jpa.deposit_receipts.into_iter().map(Into::into).collect(),
             }),
         }
     }

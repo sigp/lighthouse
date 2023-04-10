@@ -22,7 +22,7 @@ pub use types::{
     Withdrawal, Withdrawals,
 };
 use types::{
-    DepositReceipt, ExecutionPayloadCapella, ExecutionPayloadEip4844, ExecutionPayloadEip6110,
+    ExecutionPayloadCapella, ExecutionPayloadEip4844, ExecutionPayloadEip6110,
     ExecutionPayloadMerge,
 };
 
@@ -327,8 +327,6 @@ pub struct PayloadAttributes {
     pub suggested_fee_recipient: Address,
     #[superstruct(only(V2))]
     pub withdrawals: Vec<Withdrawal>,
-    #[superstruct(only(V2))]
-    pub deposit_receipts: Vec<DepositReceipt>,
 }
 
 impl PayloadAttributes {
@@ -344,7 +342,6 @@ impl PayloadAttributes {
                 prev_randao,
                 suggested_fee_recipient,
                 withdrawals,
-                deposit_receipts: Vec::new(),
             }),
             None => PayloadAttributes::V1(PayloadAttributesV1 {
                 timestamp,
@@ -372,7 +369,6 @@ impl From<PayloadAttributes> for SsePayloadAttributes {
                 prev_randao,
                 suggested_fee_recipient,
                 withdrawals,
-                deposit_receipts: _,
             }) => Self::V2(SsePayloadAttributesV2 {
                 timestamp,
                 prev_randao,
