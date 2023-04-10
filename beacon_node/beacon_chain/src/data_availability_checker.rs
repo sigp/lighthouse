@@ -57,7 +57,7 @@ impl From<ssz_types::Error> for AvailabilityCheckError {
 ///    have not been verified against blobs
 ///  - blocks that have been fully verified and only require a data availability check
 pub struct DataAvailabilityChecker<T: EthSpec, S: SlotClock> {
-    availability_cache: RwLock<HashMap<Hash256, ReceivedComponents<T>>>,
+    availability_cache: RwLock<HashMap<Hash256, PendingComponents<T>>>,
     slot_clock: S,
     kzg: Option<Arc<Kzg>>,
     spec: ChainSpec,
@@ -74,7 +74,7 @@ struct ReceivedComponents<T: EthSpec> {
     executed_block: Option<AvailabilityPendingExecutedBlock<T>>,
 }
 
-impl<T: EthSpec> ReceivedComponents<T> {
+impl<T: EthSpec> PendingComponents<T> {
     fn new_from_blob(blob: KzgVerifiedBlob<T>) -> Self {
         let mut verified_blobs = FixedVector::<_, _>::default();
         // TODO: verify that we've already ensured the blob index < T::MaxBlobsPerBlock
@@ -182,16 +182,16 @@ impl<T: EthSpec, S: SlotClock> DataAvailabilityChecker<T, S> {
             Entry::Occupied(mut occupied_entry) => {
                 // All blobs reaching this cache should be gossip verified and gossip verification
                 // should filter duplicates, as well as validate indices.
-                let received_components = occupied_entry.get_mut();
+                let pending_components = occupied_entry.get_mut();
 
-                if let Some(maybe_verified_blob) = received_components
+                if let Some(maybe_verified_blob) = pending_components
                     .verified_blobs
                     .get_mut(kzg_verified_blob.blob_index() as usize)
                 {
                     *maybe_verified_blob = Some(kzg_verified_blob)
                 }
 
-                if let Some(executed_block) = received_components.executed_block.take() {
+                if let Some(executed_block) = pending_components.executed_block.take() {
                     self.check_block_availability_maybe_cache(occupied_entry, executed_block)?
                 } else {
                     Availability::PendingBlock(block_root)
@@ -199,7 +199,7 @@ impl<T: EthSpec, S: SlotClock> DataAvailabilityChecker<T, S> {
             }
             Entry::Vacant(vacant_entry) => {
                 let block_root = kzg_verified_blob.block_root();
-                vacant_entry.insert(ReceivedComponents::new_from_blob(kzg_verified_blob));
+                vacant_entry.insert(PendingComponents::new_from_blob(kzg_verified_blob));
                 Availability::PendingBlock(block_root)
             }
         };
@@ -223,7 +223,7 @@ impl<T: EthSpec, S: SlotClock> DataAvailabilityChecker<T, S> {
             }
             Entry::Vacant(vacant_entry) => {
                 let all_blob_ids = executed_block.get_all_blob_ids();
-                vacant_entry.insert(ReceivedComponents::new_from_block(executed_block));
+                vacant_entry.insert(PendingComponents::new_from_block(executed_block));
                 Availability::PendingBlobs(all_blob_ids)
             }
         };
@@ -240,7 +240,7 @@ impl<T: EthSpec, S: SlotClock> DataAvailabilityChecker<T, S> {
     /// Returns `Ok(Availability::PendingBlobs(_))` if all corresponding blobs have not been received in the cache.
     fn check_block_availability_maybe_cache(
         &self,
-        mut occupied_entry: OccupiedEntry<Hash256, ReceivedComponents<T>>,
+        mut occupied_entry: OccupiedEntry<Hash256, PendingComponents<T>>,
         executed_block: AvailabilityPendingExecutedBlock<T>,
     ) -> Result<Availability<T>, AvailabilityCheckError> {
         if occupied_entry.get().has_all_blobs(&executed_block) {
@@ -251,7 +251,7 @@ impl<T: EthSpec, S: SlotClock> DataAvailabilityChecker<T, S> {
                 payload_verification_outcome,
             } = executed_block;
 
-            let ReceivedComponents {
+            let PendingComponents {
                 verified_blobs,
                 executed_block: _,
             } = occupied_entry.remove();
@@ -262,7 +262,7 @@ impl<T: EthSpec, S: SlotClock> DataAvailabilityChecker<T, S> {
                 .map(|maybe_blob| maybe_blob.ok_or(AvailabilityCheckError::MissingBlobs))
                 .collect::<Result<Vec<_>, _>>()?;
 
-            let available_block = self.make_available(block, verified_blobs)?;
+            let available_block = block.make_available(verified_blobs)?;
             Ok(Availability::Available(Box::new(
                 AvailableExecutedBlock::new(
                     available_block,
@@ -271,17 +271,17 @@ impl<T: EthSpec, S: SlotClock> DataAvailabilityChecker<T, S> {
                 ),
             )))
         } else {
-            let received_components = occupied_entry.get_mut();
+            let pending_components = occupied_entry.get_mut();
 
             let missing_blob_ids = executed_block.get_filtered_blob_ids(|index| {
-                received_components
+                pending_components
                     .verified_blobs
                     .get(index as usize)
                     .map(|maybe_blob| maybe_blob.is_none())
                     .unwrap_or(true)
             });
 
-            let _ = received_components.executed_block.insert(executed_block);
+            let _ = pending_components.executed_block.insert(executed_block);
 
             Ok(Availability::PendingBlobs(missing_blob_ids))
         }
@@ -340,7 +340,7 @@ impl<T: EthSpec, S: SlotClock> DataAvailabilityChecker<T, S> {
         match self.check_availability_without_blobs(block)? {
             MaybeAvailableBlock::Available(block) => Ok(block),
             MaybeAvailableBlock::AvailabilityPending(pending_block) => {
-                self.make_available(pending_block, blobs)
+                pending_block.make_available(blobs)
             }
         }
     }
@@ -366,38 +366,6 @@ impl<T: EthSpec, S: SlotClock> DataAvailabilityChecker<T, S> {
             block,
             blobs,
         }))
-    }
-
-    /// Verifies an AvailabilityPendingBlock against a set of KZG verified blobs.
-    /// This does not check whether a block *should* have blobs, these checks should must have been
-    /// completed when producing the `AvailabilityPendingBlock`.
-    pub fn make_available(
-        &self,
-        block: AvailabilityPendingBlock<T>,
-        blobs: Vec<KzgVerifiedBlob<T>>,
-    ) -> Result<AvailableBlock<T>, AvailabilityCheckError> {
-        let block_kzg_commitments = block.kzg_commitments()?;
-        if blobs.len() != block_kzg_commitments.len() {
-            return Err(AvailabilityCheckError::NumBlobsMismatch {
-                num_kzg_commitments: block_kzg_commitments.len(),
-                num_blobs: blobs.len(),
-            });
-        }
-
-        for (block_commitment, blob) in block_kzg_commitments.iter().zip(blobs.iter()) {
-            if *block_commitment != blob.kzg_commitment() {
-                return Err(AvailabilityCheckError::KzgCommitmentMismatch {
-                    blob_index: blob.as_blob().index,
-                });
-            }
-        }
-
-        let blobs = VariableList::new(blobs.into_iter().map(|blob| blob.to_blob()).collect())?;
-
-        Ok(AvailableBlock {
-            block: block.block,
-            blobs: VerifiedBlobs::Available(blobs),
-        })
     }
 
     /// Determines the blob requirements for a block. Answers the question: "Does this block require
@@ -497,6 +465,37 @@ impl<E: EthSpec> AvailabilityPendingBlock<E> {
             .body()
             .blob_kzg_commitments()
             .map_err(|_| AvailabilityCheckError::IncorrectFork)
+    }
+
+    /// Verifies an AvailabilityPendingBlock against a set of KZG verified blobs.
+    /// This does not check whether a block *should* have blobs, these checks should must have been
+    /// completed when producing the `AvailabilityPendingBlock`.
+    pub fn make_available(
+        self,
+        blobs: Vec<KzgVerifiedBlob<E>>,
+    ) -> Result<AvailableBlock<E>, AvailabilityCheckError> {
+        let block_kzg_commitments = self.kzg_commitments()?;
+        if blobs.len() != block_kzg_commitments.len() {
+            return Err(AvailabilityCheckError::NumBlobsMismatch {
+                num_kzg_commitments: block_kzg_commitments.len(),
+                num_blobs: blobs.len(),
+            });
+        }
+
+        for (block_commitment, blob) in block_kzg_commitments.iter().zip(blobs.iter()) {
+            if *block_commitment != blob.kzg_commitment() {
+                return Err(AvailabilityCheckError::KzgCommitmentMismatch {
+                    blob_index: blob.as_blob().index,
+                });
+            }
+        }
+
+        let blobs = VariableList::new(blobs.into_iter().map(|blob| blob.to_blob()).collect())?;
+
+        Ok(AvailableBlock {
+            block: self.block,
+            blobs: VerifiedBlobs::Available(blobs),
+        })
     }
 }
 
