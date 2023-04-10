@@ -465,7 +465,7 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     /// Provides monitoring of a set of explicitly defined validators.
     pub validator_monitor: RwLock<ValidatorMonitor<T::EthSpec>>,
     pub proposal_blob_cache: BlobCache<T::EthSpec>,
-    pub data_availability_checker: DataAvailabilityChecker<T::EthSpec, T::SlotClock>,
+    pub data_availability_checker: DataAvailabilityChecker<T>,
     pub kzg: Option<Arc<Kzg>>,
 }
 

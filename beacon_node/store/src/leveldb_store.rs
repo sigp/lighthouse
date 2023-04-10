@@ -198,6 +198,28 @@ impl<E: EthSpec> KeyValueStore<E> for LevelDB<E> {
         )
     }
 
+    fn iter_raw_entries(&self, column: DBColumn, prefix: &[u8]) -> RawEntryIter {
+        // TODO: does this require prefix to be as long as the longest key in the group?
+        //       example:
+        //           prefix = 0010
+        //       will this match:
+        //           key = 00100000
+        //                 00100110
+        //           ...
+        let start_key = BytesKey::from_vec(get_key_for_col(column.into(), prefix));
+
+        let iter = self.db.iter(self.read_options());
+        iter.seek(&start_key);
+
+        Box::new(
+            iter.take_while(move |(key, _)| key.key.starts_with(start_key.key.as_slice()))
+                .map(move |(bytes_key, value)| {
+                    let subkey = &bytes_key.key[column.as_bytes().len()..];
+                    Ok((Vec::from(subkey), value))
+                }),
+        )
+    }
+
     /// Iterate through all keys and values in a particular column.
     fn iter_column_keys(&self, column: DBColumn) -> ColumnKeyIter {
         let start_key =

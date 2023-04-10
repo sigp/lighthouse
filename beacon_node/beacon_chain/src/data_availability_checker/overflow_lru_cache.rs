@@ -1,46 +1,182 @@
 use crate::beacon_chain::BeaconStore;
 use crate::blob_verification::KzgVerifiedBlob;
 use crate::block_verification::{AvailabilityPendingExecutedBlock, AvailableExecutedBlock};
-use crate::data_availability_checker::{Availability, AvailabilityCheckError, PendingComponents};
+use crate::data_availability_checker::{Availability, AvailabilityCheckError};
 use crate::store::{DBColumn, KeyValueStore};
 use crate::BeaconChainTypes;
 use lru::LruCache;
-use parking_lot::{RawRwLock, RwLock, RwLockWriteGuard};
+use parking_lot::{RwLock, RwLockWriteGuard};
+use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
-use std::collections::HashSet;
-use types::{EthSpec, Hash256};
+use ssz_types::FixedVector;
+use std::{collections::HashSet, sync::Arc};
+use types::blob_sidecar::BlobIdentifier;
+use types::{BlobSidecar, EthSpec, Hash256};
 
 // A wrapper around BeaconStore<T> that implements various
 // methods used for saving and retrieving objects from the
 // store (for organization)
 struct OverflowStore<T: BeaconChainTypes>(BeaconStore<T>);
 
+/// Caches partially available blobs and execution verified blocks corresponding
+/// to a given `block_hash` that are received over gossip.
+///
+/// The blobs are all gossip and kzg verified.
+/// The block has completed all verifications except the availability check.
 #[derive(Encode, Decode)]
-#[ssz(enum_behaviour = "union")]
-enum OverflowValue<E: EthSpec> {
-    Block(AvailabilityPendingExecutedBlock<E>),
-    Blob(KzgVerifiedBlob<E>),
+pub struct PendingComponents<T: EthSpec> {
+    /// We use a `BTreeMap` here to maintain the order of `BlobSidecar`s based on index.
+    verified_blobs: FixedVector<Option<KzgVerifiedBlob<T>>, T::MaxBlobsPerBlock>,
+    executed_block: Option<AvailabilityPendingExecutedBlock<T>>,
+}
+
+impl<T: EthSpec> PendingComponents<T> {
+    fn new_from_blob(blob: KzgVerifiedBlob<T>) -> Self {
+        let mut verified_blobs = FixedVector::<_, _>::default();
+        // TODO: verify that we've already ensured the blob index < T::MaxBlobsPerBlock
+        if let Some(mut_maybe_blob) = verified_blobs.get_mut(blob.blob_index() as usize) {
+            *mut_maybe_blob = Some(blob);
+        }
+
+        Self {
+            verified_blobs,
+            executed_block: None,
+        }
+    }
+
+    fn new_from_block(block: AvailabilityPendingExecutedBlock<T>) -> Self {
+        Self {
+            verified_blobs: <_>::default(),
+            executed_block: Some(block),
+        }
+    }
+
+    /// Returns `true` if the cache has all blobs corresponding to the
+    /// kzg commitments in the block.
+    fn has_all_blobs(&self, block: &AvailabilityPendingExecutedBlock<T>) -> bool {
+        for i in 0..block.num_blobs_expected() {
+            if self
+                .verified_blobs
+                .get(i)
+                .map(|maybe_blob| maybe_blob.is_none())
+                .unwrap_or(true)
+            {
+                return false;
+            }
+        }
+        true
+    }
+
+    fn empty() -> Self {
+        Self {
+            verified_blobs: <_>::default(),
+            executed_block: None,
+        }
+    }
+}
+
+#[derive(PartialEq)]
+enum OverflowKey {
+    Block(Hash256),
+    Blob(Hash256, u8),
+}
+
+impl OverflowKey {
+    pub fn from_block_root(block_root: Hash256) -> Self {
+        Self::Block(block_root)
+    }
+
+    pub fn from_blob_id<E: EthSpec>(
+        blob_id: BlobIdentifier,
+    ) -> Result<Self, AvailabilityCheckError> {
+        if blob_id.index > E::max_blobs_per_block() as u64 || blob_id.index > u8::MAX as u64 {
+            return Err(AvailabilityCheckError::BlobIndexInvalid(blob_id.index));
+        }
+        Ok(Self::Blob(blob_id.block_root, blob_id.index as u8))
+    }
 }
 
 impl<T: BeaconChainTypes> OverflowStore<T> {
     pub fn persist_pending_components(
         &self,
-        _block_root: Hash256,
-        _pending_components: PendingComponents<T::EthSpec>,
-    ) {
-        // write this to disk
-        // let col = DBColumn::OverflowLRUCache;
-        // fn put_bytes(&self, column: &str, key: &[u8], value: &[u8]) -> Result<(), Error>;
-        // self.0.hot_db.put_bytes()
-        todo!()
+        block_root: Hash256,
+        mut pending_components: PendingComponents<T::EthSpec>,
+    ) -> Result<(), AvailabilityCheckError> {
+        let col = DBColumn::OverflowLRUCache;
+
+        if let Some(block) = pending_components.executed_block.take() {
+            let key = OverflowKey::from_block_root(block_root);
+            self.0
+                .hot_db
+                .put_bytes(col.as_str(), &key.as_ssz_bytes(), &block.as_ssz_bytes())?
+        }
+
+        for maybe_blob in Vec::from(pending_components.verified_blobs) {
+            if let Some(blob) = maybe_blob {
+                let key = OverflowKey::from_blob_id::<T::EthSpec>(BlobIdentifier {
+                    block_root,
+                    index: blob.blob_index(),
+                })?;
+
+                self.0
+                    .hot_db
+                    .put_bytes(col.as_str(), &key.as_ssz_bytes(), &blob.as_ssz_bytes())?
+            }
+        }
+
+        Ok(())
     }
 
     pub fn get_pending_components(
         &self,
-        _block_root: Hash256,
-    ) -> Option<PendingComponents<T::EthSpec>> {
+        block_root: Hash256,
+    ) -> Result<Option<PendingComponents<T::EthSpec>>, AvailabilityCheckError> {
         // read everything from disk and reconstruct
-        todo!()
+        let mut maybe_pending_components = None;
+        for res in self
+            .0
+            .hot_db
+            .iter_raw_entries(DBColumn::OverflowLRUCache, block_root.as_bytes())
+        {
+            let (key_bytes, value_bytes) = res?;
+            match OverflowKey::from_ssz_bytes(&key_bytes)? {
+                OverflowKey::Block(_) => {
+                    maybe_pending_components
+                        .get_or_insert_with(|| PendingComponents::empty())
+                        .executed_block = Some(AvailabilityPendingExecutedBlock::from_ssz_bytes(
+                        value_bytes.as_slice(),
+                    )?);
+                }
+                OverflowKey::Blob(_, index) => {
+                    *maybe_pending_components
+                        .get_or_insert_with(|| PendingComponents::empty())
+                        .verified_blobs
+                        .get_mut(index as usize)
+                        .ok_or(AvailabilityCheckError::BlobIndexInvalid(index as u64))? =
+                        Some(KzgVerifiedBlob::from_ssz_bytes(value_bytes.as_slice())?);
+                }
+            }
+        }
+
+        Ok(maybe_pending_components)
+    }
+
+    pub fn load_blob(
+        &self,
+        blob_id: &BlobIdentifier,
+    ) -> Result<Option<Arc<BlobSidecar<T::EthSpec>>>, AvailabilityCheckError> {
+        let key = OverflowKey::from_blob_id::<T::EthSpec>(blob_id.clone())?;
+
+        self.0
+            .hot_db
+            .get_bytes(DBColumn::OverflowLRUCache.as_str(), &key.as_ssz_bytes())?
+            .and_then(|blob_bytes| {
+                Some(Arc::<BlobSidecar<T::EthSpec>>::from_ssz_bytes(
+                    blob_bytes.as_slice(),
+                ))
+            })
+            .transpose()
+            .map_err(|e| e.into())
     }
 }
 
@@ -58,6 +194,22 @@ impl<T: BeaconChainTypes> Critical<T> {
         }
     }
 
+    pub fn peek_blob(
+        &self,
+        blob_id: &BlobIdentifier,
+    ) -> Result<Option<Arc<BlobSidecar<T::EthSpec>>>, AvailabilityCheckError> {
+        if let Some(pending_components) = self.in_memory.peek(&blob_id.block_root) {
+            Ok(pending_components
+                .verified_blobs
+                .get(blob_id.index as usize)
+                .ok_or(AvailabilityCheckError::BlobIndexInvalid(blob_id.index))?
+                .as_ref()
+                .map(|blob| blob.clone_blob()))
+        } else {
+            Ok(None)
+        }
+    }
+
     /// Puts the pending components in the LRU cache. If the cache
     /// is at capacity, the LRU entry is written to the store first
     pub fn put_pending_components(
@@ -65,15 +217,16 @@ impl<T: BeaconChainTypes> Critical<T> {
         block_root: Hash256,
         pending_components: PendingComponents<T::EthSpec>,
         overflow_store: &OverflowStore<T>,
-    ) {
+    ) -> Result<(), AvailabilityCheckError> {
         if self.in_memory.len() == self.in_memory.cap() {
             // cache will overflow, must write lru entry to disk
             if let Some((lru_key, lru_value)) = self.in_memory.pop_lru() {
-                overflow_store.persist_pending_components(lru_key, lru_value);
+                overflow_store.persist_pending_components(lru_key, lru_value)?;
                 self.store_keys.insert(lru_key);
             }
         }
         self.in_memory.put(block_root, pending_components);
+        Ok(())
     }
 
     /// Removes and returns the pending_components corresponding to
@@ -82,15 +235,15 @@ impl<T: BeaconChainTypes> Critical<T> {
         &mut self,
         block_root: Hash256,
         store: &OverflowStore<T>,
-    ) -> Option<PendingComponents<T::EthSpec>> {
+    ) -> Result<Option<PendingComponents<T::EthSpec>>, AvailabilityCheckError> {
         match self.in_memory.pop_entry(&block_root) {
-            Some((_, pending_components)) => Some(pending_components),
+            Some((_, pending_components)) => Ok(Some(pending_components)),
             None => {
                 // not in memory, is it in the store?
                 if self.store_keys.remove(&block_root) {
                     store.get_pending_components(block_root)
                 } else {
-                    None
+                    Ok(None)
                 }
             }
         }
@@ -110,6 +263,21 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
         }
     }
 
+    pub fn peek_blob(
+        &self,
+        blob_id: &BlobIdentifier,
+    ) -> Result<Option<Arc<BlobSidecar<T::EthSpec>>>, AvailabilityCheckError> {
+        let read_lock = self.critical.read();
+        if let Some(blob) = read_lock.peek_blob(blob_id)? {
+            Ok(Some(blob))
+        } else if read_lock.store_keys.contains(&blob_id.block_root) {
+            drop(read_lock);
+            self.store.load_blob(blob_id)
+        } else {
+            Ok(None)
+        }
+    }
+
     pub fn put_kzg_verified_blob(
         &self,
         kzg_verified_blob: KzgVerifiedBlob<T::EthSpec>,
@@ -118,14 +286,14 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
         let block_root = kzg_verified_blob.block_root();
 
         let availability = if let Some(mut pending_components) =
-            write_lock.pop_pending_components(block_root, &self.store)
+            write_lock.pop_pending_components(block_root, &self.store)?
         {
-            if let Some(maybe_verified_blob) = pending_components
+            let blob_index = kzg_verified_blob.blob_index();
+            *pending_components
                 .verified_blobs
-                .get_mut(kzg_verified_blob.blob_index() as usize)
-            {
-                *maybe_verified_blob = Some(kzg_verified_blob)
-            }
+                .get_mut(blob_index as usize)
+                .ok_or(AvailabilityCheckError::BlobIndexInvalid(blob_index))? =
+                Some(kzg_verified_blob);
 
             if let Some(executed_block) = pending_components.executed_block.take() {
                 self.check_block_availability_maybe_cache(
@@ -135,13 +303,13 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
                     executed_block,
                 )?
             } else {
-                write_lock.put_pending_components(block_root, pending_components, &self.store);
+                write_lock.put_pending_components(block_root, pending_components, &self.store)?;
                 Availability::PendingBlock(block_root)
             }
         } else {
             // not in memory or store -> put new in memory
             let new_pending_components = PendingComponents::new_from_blob(kzg_verified_blob);
-            write_lock.put_pending_components(block_root, new_pending_components, &self.store);
+            write_lock.put_pending_components(block_root, new_pending_components, &self.store)?;
             Availability::PendingBlock(block_root)
         };
 
@@ -157,7 +325,7 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
         let mut write_lock = self.critical.write();
         let block_root = executed_block.import_data.block_root;
 
-        let availability = match write_lock.pop_pending_components(block_root, &self.store) {
+        let availability = match write_lock.pop_pending_components(block_root, &self.store)? {
             Some(pending_components) => self.check_block_availability_maybe_cache(
                 write_lock,
                 block_root,
@@ -167,7 +335,11 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
             None => {
                 let all_blob_ids = executed_block.get_all_blob_ids();
                 let new_pending_components = PendingComponents::new_from_block(executed_block);
-                write_lock.put_pending_components(block_root, new_pending_components, &self.store);
+                write_lock.put_pending_components(
+                    block_root,
+                    new_pending_components,
+                    &self.store,
+                )?;
                 Availability::PendingBlobs(all_blob_ids)
             }
         };
@@ -175,6 +347,13 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
         Ok(availability)
     }
 
+    /// Checks if the provided `executed_block` contains all required blobs to be considered an
+    /// `AvailableBlock` based on blobs that are cached.
+    ///
+    /// Returns an error if there was an error when matching the block commitments against blob commitments.
+    ///
+    /// Returns `Ok(Availability::Available(_))` if all blobs for the block are present in cache.
+    /// Returns `Ok(Availability::PendingBlobs(_))` if all corresponding blobs have not been received in the cache.
     fn check_block_availability_maybe_cache(
         &self,
         mut write_lock: RwLockWriteGuard<Critical<T>>,
@@ -214,9 +393,76 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
             });
 
             let _ = pending_components.executed_block.insert(executed_block);
-            write_lock.put_pending_components(block_root, pending_components, &self.store);
+            write_lock.put_pending_components(block_root, pending_components, &self.store)?;
 
             Ok(Availability::PendingBlobs(missing_blob_ids))
+        }
+    }
+
+    // maintain the cache
+    pub fn do_maintenance(&self) {
+        // clean up any keys in the database that shouldn't be there
+    }
+}
+
+impl ssz::Encode for OverflowKey {
+    fn is_ssz_fixed_len() -> bool {
+        true
+    }
+
+    fn ssz_append(&self, buf: &mut Vec<u8>) {
+        match self {
+            OverflowKey::Block(block_hash) => {
+                block_hash.ssz_append(buf);
+                buf.push(0u8)
+            }
+            OverflowKey::Blob(block_hash, index) => {
+                block_hash.ssz_append(buf);
+                buf.push(*index + 1)
+            }
+        }
+    }
+
+    fn ssz_fixed_len() -> usize {
+        <Hash256 as Encode>::ssz_fixed_len() + 1
+    }
+
+    fn ssz_bytes_len(&self) -> usize {
+        match self {
+            Self::Block(root) => root.ssz_bytes_len() + 1,
+            Self::Blob(root, _) => root.ssz_bytes_len() + 1,
+        }
+    }
+}
+
+impl ssz::Decode for OverflowKey {
+    fn is_ssz_fixed_len() -> bool {
+        true
+    }
+
+    fn ssz_fixed_len() -> usize {
+        <Hash256 as Decode>::ssz_fixed_len() + 1
+    }
+
+    fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, ssz::DecodeError> {
+        let len = bytes.len();
+        let h256_len = <Hash256 as Decode>::ssz_fixed_len();
+        let expected = h256_len + 1;
+
+        if len != expected {
+            Err(ssz::DecodeError::InvalidByteLength { len, expected })
+        } else {
+            let root_bytes = bytes
+                .get(..h256_len)
+                .ok_or(ssz::DecodeError::OutOfBoundsByte { i: 0 })?;
+            let block_root = Hash256::from_ssz_bytes(root_bytes)?;
+            let id_byte = *bytes
+                .get(h256_len)
+                .ok_or(ssz::DecodeError::OutOfBoundsByte { i: h256_len })?;
+            match id_byte {
+                0 => Ok(OverflowKey::Block(block_root)),
+                n => Ok(OverflowKey::Blob(block_root, n - 1)),
+            }
         }
     }
 }

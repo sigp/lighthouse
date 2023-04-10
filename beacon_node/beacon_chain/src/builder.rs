@@ -794,7 +794,7 @@ where
         let beacon_chain = BeaconChain {
             spec: self.spec.clone(),
             config: self.chain_config,
-            store,
+            store: store.clone(),
             task_executor: self
                 .task_executor
                 .ok_or("Cannot build without task executor")?,
@@ -864,6 +864,7 @@ where
             data_availability_checker: DataAvailabilityChecker::new(
                 slot_clock,
                 kzg.clone(),
+                store,
                 self.spec,
             ),
             proposal_blob_cache: BlobCache::default(),

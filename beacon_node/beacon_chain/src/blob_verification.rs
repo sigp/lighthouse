@@ -401,6 +401,7 @@ fn cheap_state_advance_to_obtain_committees<'a, E: EthSpec>(
 /// i.e. `verify_blob_kzg_proof(blob, commitment, proof) == true`.
 #[derive(Debug, Derivative, Clone, Encode, Decode)]
 #[derivative(PartialEq, Eq)]
+#[ssz(struct_behaviour = "transparent")]
 pub struct KzgVerifiedBlob<T: EthSpec> {
     blob: Arc<BlobSidecar<T>>,
 }
