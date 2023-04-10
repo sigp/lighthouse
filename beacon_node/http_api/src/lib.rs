@@ -32,8 +32,8 @@ use beacon_chain::{
 pub use block_id::BlockId;
 use directory::DEFAULT_ROOT_DIR;
 use eth2::types::{
-    self as api_types, EndpointVersion, SignedBlockContents, ForkChoice, ForkChoiceNode, SkipRandaoVerification,
-    ValidatorId, ValidatorStatus,
+    self as api_types, EndpointVersion, ForkChoice, ForkChoiceNode, SignedBlockContents,
+    SkipRandaoVerification, ValidatorId, ValidatorStatus,
 };
 use lighthouse_network::{types::SyncState, EnrExt, NetworkGlobals, PeerId, PubsubMessage};
 use lighthouse_version::version_with_platform;

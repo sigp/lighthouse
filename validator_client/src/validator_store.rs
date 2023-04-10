@@ -24,8 +24,9 @@ use types::{
     ContributionAndProof, Domain, Epoch, EthSpec, Fork, Graffiti, Hash256, Keypair, PublicKeyBytes,
     SelectionProof, Signature, SignedAggregateAndProof, SignedBeaconBlock, SignedBlobSidecar,
     SignedBlobSidecarList, SignedContributionAndProof, SignedRoot, SignedValidatorRegistrationData,
-    Slot, SyncAggregatorSelectionData, SyncCommitteeContribution, SyncCommitteeMessage,
-    SyncSelectionProof, SyncSubnetId, ValidatorRegistrationData,  SignedVoluntaryExit, VoluntaryExit,
+    SignedVoluntaryExit, Slot, SyncAggregatorSelectionData, SyncCommitteeContribution,
+    SyncCommitteeMessage, SyncSelectionProof, SyncSubnetId, ValidatorRegistrationData,
+    VoluntaryExit,
 };
 use validator_dir::ValidatorDir;
 
