@@ -210,7 +210,7 @@ If the reason for the error message is caused by no. 1 above, you may want to lo
 
 ### How do I check or update my withdrawal credentials? 
 Withdrawals will be available after the Capella/Shanghai upgrades on 12<sup>th</sup> April 2023. To check that if you are eligible for withdrawals, go to [Staking launchpad](https://launchpad.ethereum.org/en/withdrawals), enter your validator index and click `verify on mainnet`:
-- `withdrawals enabled` means you will automatically receive withdrawals to the withdrawal address that you set. If it says
+- `withdrawals enabled` means you will automatically receive withdrawals to the withdrawal address that you set.
 - `withdrawals not enabled` means you will need to update your withdrawal credentials from `0x00` type to `0x01` type. The common way to do this is using `Staking deposit CLI` or `ethdo`, with the instructions available [here](https://launchpad.ethereum.org/en/withdrawals#update-your-keys). 
 
 For the case of `withdrawals not enabled`, you can update your withdrawal credentials **anytime**, and there is no deadline for that. The catch is that as long as you do not update your withdrawal credentials, your rewards in the beacon chain will continue to be locked in the beacon chain. Only after you update the withdrawal credentials, the rewards will be withdrawn to the withdrawal address.
