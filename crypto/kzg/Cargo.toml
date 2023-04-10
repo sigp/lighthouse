@@ -16,7 +16,7 @@ serde_derive = "1.0.116"
 eth2_serde_utils = "0.1.1"
 hex = "0.4.2"
 eth2_hashing = "0.3.0"
-c-kzg = {git = "https://github.com/divagant-martian/c-kzg-4844", rev = "271d30a8266d9eb16b5a74bd0936dcf622e68330" }
+c-kzg = {git = "https://github.com/ethereum/c-kzg-4844", rev = "fd24cf8e1e2f09a96b4e62a595b4e49f046ce6cf" }
 arbitrary = { version = "1.0", features = ["derive"], optional = true }
 
 [features]
