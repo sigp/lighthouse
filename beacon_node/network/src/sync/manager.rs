@@ -42,8 +42,8 @@ use crate::beacon_processor::{ChainSegmentProcessId, WorkEvent as BeaconWorkEven
 use crate::service::NetworkMessage;
 use crate::status::ToStatusMessage;
 use crate::sync::range_sync::ByRangeRequestType;
-use beacon_chain::blob_verification::AsBlock;
 use beacon_chain::blob_verification::BlockWrapper;
+use beacon_chain::blob_verification::{AsBlock, MaybeAvailableBlock};
 use beacon_chain::{
     AvailabilityProcessingStatus, BeaconChain, BeaconChainTypes, BlockError, EngineState,
 };
@@ -117,7 +117,7 @@ pub enum SyncMessage<T: EthSpec> {
     },
 
     /// A block with an unknown parent has been received.
-    UnknownBlock(PeerId, BlockWrapper<T>, Hash256),
+    UnknownBlock(PeerId, MaybeAvailableBlock<T>, Hash256),
 
     /// A peer has sent an attestation that references a block that is unknown. This triggers the
     /// manager to attempt to find the block matching the unknown hash.
@@ -154,15 +154,9 @@ pub enum SyncMessage<T: EthSpec> {
     },
 
     /// Block processed
-    BlockProcessed {
+    BlockOrBlobProcessed {
         process_type: BlockProcessType,
-        result: BlockProcessResult<T>,
-    },
-
-    /// Block processed
-    BlobProcessed {
-        process_type: BlockProcessType,
-        result: Result<AvailabilityProcessingStatus, BlockError<T>>,
+        result: BlockOrBlobProcessResult<T>,
     },
 }
 
@@ -174,7 +168,7 @@ pub enum BlockProcessType {
 }
 
 #[derive(Debug)]
-pub enum BlockProcessResult<T: EthSpec> {
+pub enum BlockOrBlobProcessResult<T: EthSpec> {
     Ok(AvailabilityProcessingStatus),
     Err(BlockError<T>),
     Ignored,
@@ -311,7 +305,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             }
             RequestId::ParentLookup { id } => {
                 self.block_lookups
-                    .parent_lookup_failed(id, peer_id, &mut self.network, error);
+                    .parent_lookup_failed(id, peer_id, &mut self.network, eror);
             }
             RequestId::BackFillBlocks { id } => {
                 if let Some(batch_id) = self
@@ -618,6 +612,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 if self.synced_and_connected(&peer_id) {
                     self.block_lookups
                         .search_block(block_hash, peer_id, &mut self.network);
+                    //TODO(sean) we could always request all blobs at this point
                 }
             }
             SyncMessage::UnknownBlockHashFromGossipBlob(peer_id, block_hash, delay) => {
@@ -656,7 +651,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 request_id,
                 error,
             } => self.inject_error(peer_id, request_id, error),
-            SyncMessage::BlockProcessed {
+            SyncMessage::BlockOrBlobProcessed {
                 process_type,
                 result,
             } => match process_type {
@@ -667,18 +662,6 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 BlockProcessType::ParentLookup { chain_hash } => self
                     .block_lookups
                     .parent_block_processed(chain_hash, result, &mut self.network),
-            },
-            SyncMessage::BlobProcessed {
-                process_type,
-                result,
-            } => match process_type {
-                BlockProcessType::SingleBlock { id } => {
-                    self.block_lookups
-                        .single_blob_processed(id, result.into(), &mut self.network)
-                }
-                BlockProcessType::ParentLookup { chain_hash } => self
-                    .block_lookups
-                    .parent_blob_processed(chain_hash, result.into(), &mut self.network),
             },
             SyncMessage::BatchProcessed { sync_type, result } => match sync_type {
                 ChainSegmentProcessId::RangeBatchId(chain_id, epoch, _) => {
@@ -981,18 +964,18 @@ impl<T: BeaconChainTypes> SyncManager<T> {
 }
 
 impl<T: EthSpec> From<Result<AvailabilityProcessingStatus, BlockError<T>>>
-    for BlockProcessResult<T>
+    for BlockOrBlobProcessResult<T>
 {
     fn from(result: Result<AvailabilityProcessingStatus, BlockError<T>>) -> Self {
         match result {
-            Ok(status) => BlockProcessResult::Ok(status),
-            Err(e) => BlockProcessResult::Err(e),
+            Ok(status) => BlockOrBlobProcessResult::Ok(status),
+            Err(e) => BlockOrBlobProcessResult::Err(e),
         }
     }
 }
 
-impl<T: EthSpec> From<BlockError<T>> for BlockProcessResult<T> {
+impl<T: EthSpec> From<BlockError<T>> for BlockOrBlobProcessResult<T> {
     fn from(e: BlockError<T>) -> Self {
-        BlockProcessResult::Err(e)
+        BlockOrBlobProcessResult::Err(e)
     }
 }

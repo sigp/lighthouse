@@ -426,7 +426,7 @@ impl<T: EthSpec, S: SlotClock> DataAvailabilityChecker<T, S> {
             BlobRequirements::PreDeneb => VerifiedBlobs::PreDeneb,
             BlobRequirements::Required => {
                 return Ok(MaybeAvailableBlock::AvailabilityPending(
-                    AvailabilityPendingBlock { block },
+                    AvailabilityPendingBlock { block, blobs },
                 ))
             }
         };
@@ -547,9 +547,22 @@ pub enum BlobRequirements {
 #[derive(Clone, Debug, PartialEq)]
 pub struct AvailabilityPendingBlock<E: EthSpec> {
     block: Arc<SignedBeaconBlock<E>>,
+    missing_blob_ids: Vec<BlobIdentifier>,
 }
 
 impl<E: EthSpec> AvailabilityPendingBlock<E> {
+    pub fn get_missing_blob_ids(&self) -> &Vec<BlobIdentifier> {
+        &self.missing_blob_ids
+    }
+
+    pub fn has_blob(mut self, blob_id: &BlobIdentifier) -> bool {
+        if let Some(Some(blob)) = self.blobs.get(blob_id.index as usize) {
+            blob.block_root == blob_id.block_root
+        } else {
+            false
+        }
+    }
+
     pub fn num_blobs_expected(&self) -> usize {
         self.kzg_commitments()
             .map_or(0, |commitments| commitments.len())
@@ -621,6 +634,13 @@ pub struct AvailableBlock<E: EthSpec> {
 impl<E: EthSpec> AvailableBlock<E> {
     pub fn block(&self) -> &SignedBeaconBlock<E> {
         &self.block
+    }
+
+    pub fn da_check_required(&self) -> bool {
+        match self.blobs {
+            VerifiedBlobs::PreDeneb | VerifiedBlobs::NotRequired => false,
+            VerifiedBlobs::EmptyBlobs | VerifiedBlobs::Available(_) => true,
+        }
     }
 
     pub fn deconstruct(self) -> (Arc<SignedBeaconBlock<E>>, Option<BlobSidecarList<E>>) {

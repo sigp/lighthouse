@@ -2880,9 +2880,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             Availability::PendingBlock(block_root) => {
                 Ok(AvailabilityProcessingStatus::PendingBlock(block_root))
             }
-            Availability::PendingBlobs(block_root, blob_ids) => {
-                Ok(AvailabilityProcessingStatus::PendingBlobs(block_root, blob_ids))
-            }
+            Availability::PendingBlobs(block_root, blob_ids) => Ok(
+                AvailabilityProcessingStatus::PendingBlobs(block_root, blob_ids),
+            ),
         }
     }
 

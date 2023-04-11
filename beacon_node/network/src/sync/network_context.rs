@@ -20,7 +20,7 @@ use std::collections::hash_map::Entry;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use types::blob_sidecar::BlobIdentifier;
-use types::{BlobSidecar, EthSpec, SignedBeaconBlock};
+use types::{BlobSidecar, EthSpec, Hash256, SignedBeaconBlock};
 
 pub struct BlocksAndBlobsByRangeResponse<T: EthSpec> {
     pub batch_id: BatchId,
@@ -411,9 +411,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         }
     }
 
-    // TODO(sean) add single blob lookup + parent lookup request methods
-
-    /// Sends a blocks by root request for a single block lookup.
+    /// Sends a blocks by root request for a parent request.
     pub fn single_block_lookup_request(
         &mut self,
         peer_id: PeerId,
@@ -421,42 +419,6 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
     ) -> Result<Id, &'static str> {
         let id = self.next_id();
         let request_id = RequestId::Sync(SyncRequestId::SingleBlock { id });
-        if self
-            .chain
-            .is_data_availability_check_required()
-            .map_err(|_| "Unable to read slot clock")?
-        {
-            let mut blob_ids =
-                VariableList::new(vec![]).map_err(|_| "could not create blob request list")?;
-            for block_root in request.block_roots.iter() {
-                // Request all blobs because we have no way of knowing how many blobs exist for a block
-                // until we have the block.
-                let blobs_per_block = T::EthSpec::max_blobs_per_block();
-                for i in 0..blobs_per_block {
-                    blob_ids
-                        .push(BlobIdentifier {
-                            block_root: *block_root,
-                            index: i as u64,
-                        })
-                        .map_err(|_| "too many blobs in by root request")?;
-                }
-            }
-
-            let blobs_count = blob_ids.len();
-            let blob_request = Request::BlobsByRoot(BlobsByRootRequest { blob_ids });
-            self.send_network_msg(NetworkMessage::SendRequest {
-                peer_id,
-                request: blob_request,
-                request_id,
-            })?;
-            trace!(
-                self.log,
-                "Sending BlobsByRoot Request";
-                "method" => "BlobsByRoot",
-                "count" => blobs_count,
-                "peer" => %peer_id
-            );
-        }
 
         trace!(
             self.log,
@@ -474,54 +436,43 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         Ok(id)
     }
 
+    /// Sends a blobs by root request for a parent request.
+    pub fn single_blobs_lookup_request(
+        &mut self,
+        peer_id: PeerId,
+        request: BlobsByRootRequest,
+    ) -> Result<Id, &'static str> {
+        let id = self.next_id();
+        let request_id = RequestId::Sync(SyncRequestId::SingleBlock { id });
+
+        trace!(
+            self.log,
+            "Sending BlobsByRoot Request";
+            "method" => "BlobsByRoot",
+            "count" => request.blob_ids.len(),
+            "peer" => %peer_id
+        );
+
+        self.send_network_msg(NetworkMessage::SendRequest {
+            peer_id,
+            request: Request::BlobsByRoot(request),
+            request_id,
+        })?;
+        Ok(id)
+    }
+
     /// Sends a blocks by root request for a parent request.
-    pub fn parent_lookup_request(
+    pub fn parent_lookup_block_request(
         &mut self,
         peer_id: PeerId,
         request: BlocksByRootRequest,
     ) -> Result<Id, &'static str> {
         let id = self.next_id();
         let request_id = RequestId::Sync(SyncRequestId::ParentLookup { id });
-        if self
-            .chain
-            .is_data_availability_check_required()
-            .map_err(|_| "Unable to read slot clock")?
-        {
-            let mut blob_ids =
-                VariableList::new(vec![]).map_err(|e| "could not create blob request list")?;
-            for block_root in request.block_roots.iter() {
-                // Request all blobs because we have no way of knowing how many blobs exist for a block
-                // until we have the block.
-                let blobs_per_block = T::EthSpec::max_blobs_per_block();
-                for i in 0..blobs_per_block {
-                    blob_ids
-                        .push(BlobIdentifier {
-                            block_root: *block_root,
-                            index: i as u64,
-                        })
-                        .map_err(|_| "too many blobs in by root request")?;
-                }
-            }
-
-            let blobs_count = blob_ids.len();
-            let blob_request = Request::BlobsByRoot(BlobsByRootRequest { blob_ids });
-            self.send_network_msg(NetworkMessage::SendRequest {
-                peer_id,
-                request: blob_request,
-                request_id,
-            })?;
-            trace!(
-                self.log,
-                "Sending BlobsByRoot Request";
-                "method" => "BlobsByRoot",
-                "count" => blobs_count,
-                "peer" => %peer_id
-            );
-        }
 
         trace!(
             self.log,
-            "Sending BlocksByRoot Request";
+            "Sending parent BlocksByRoot Request";
             "method" => "BlocksByRoot",
             "count" => request.block_roots.len(),
             "peer" => %peer_id
@@ -530,6 +481,31 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         self.send_network_msg(NetworkMessage::SendRequest {
             peer_id,
             request: Request::BlocksByRoot(request),
+            request_id,
+        })?;
+        Ok(id)
+    }
+
+    /// Sends a blocks by root request for a parent request.
+    pub fn parent_lookup_blobs_request(
+        &mut self,
+        peer_id: PeerId,
+        request: BlobsByRootRequest,
+    ) -> Result<Id, &'static str> {
+        let id = self.next_id();
+        let request_id = RequestId::Sync(SyncRequestId::ParentLookup { id });
+
+        trace!(
+            self.log,
+            "Sending BlobsByRoot Request";
+            "method" => "BlobsByRoot",
+            "count" => request.blob_ids.len(),
+            "peer" => %peer_id
+        );
+
+        self.send_network_msg(NetworkMessage::SendRequest {
+            peer_id,
+            request: Request::BlobsByRoot(request),
             request_id,
         })?;
         Ok(id)

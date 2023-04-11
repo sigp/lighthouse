@@ -1,7 +1,10 @@
-use super::RootBlockTuple;
-use beacon_chain::blob_verification::AsBlock;
+use super::DownlodedBlocks;
+use crate::sync::block_lookups::RootBlockTuple;
+use crate::sync::network_context::SyncNetworkContext;
 use beacon_chain::blob_verification::BlockWrapper;
+use beacon_chain::blob_verification::{AsBlock, MaybeAvailableBlock};
 use beacon_chain::get_block_root;
+use lighthouse_network::rpc::methods::BlobsByRootRequest;
 use lighthouse_network::{rpc::BlocksByRootRequest, PeerId, Request};
 use rand::seq::IteratorRandom;
 use ssz_types::VariableList;
@@ -9,20 +12,26 @@ use std::collections::HashSet;
 use std::sync::Arc;
 use store::{EthSpec, Hash256};
 use strum::IntoStaticStr;
-use lighthouse_network::rpc::methods::BlobsByRootRequest;
 use types::blob_sidecar::BlobIdentifier;
 use types::{BlobSidecar, SignedBeaconBlock};
 
-pub type SingleBlockRequest<const MAX_ATTEMPTS: u8> = SingleLookupRequest<MAX_ATTEMPTS, Hash256>;
-pub type SingleBlobRequest<const MAX_ATTEMPTS: u8> = SingleLookupRequest<MAX_ATTEMPTS, Vec<BlobIdentifier>>;
+pub struct SingleBlockRequest<const MAX_ATTEMPTS: u8, T: EthSpec> {
+    pub requested_block_root: Hash256,
+    pub downloaded_block: Option<(Hash256, MaybeAvailableBlock<T>)>,
+    pub request_state: SingleLookupRequestState<MAX_ATTEMPTS>,
+}
+
+pub struct SingleBlobsRequest<const MAX_ATTEMPTS: u8, T: EthSpec> {
+    pub requested_ids: Vec<BlobIdentifier>,
+    pub downloaded_blobs: Vec<Arc<BlobSidecar<T>>>,
+    pub request_state: SingleLookupRequestState<MAX_ATTEMPTS>,
+}
 
 /// Object representing a single block lookup request.
 ///
 //previously assumed we would have a single block. Now we may have the block but not the blobs
 #[derive(PartialEq, Eq)]
-pub struct SingleLookupRequest<const MAX_ATTEMPTS: u8, T: RequestableThing> {
-    /// The hash of the requested block.
-    pub requested_thing: T,
+pub struct SingleLookupRequestState<const MAX_ATTEMPTS: u8> {
     /// State of this request.
     pub state: State,
     /// Peers that should have this block.
@@ -33,62 +42,6 @@ pub struct SingleLookupRequest<const MAX_ATTEMPTS: u8, T: RequestableThing> {
     failed_processing: u8,
     /// How many times have we attempted to download this block.
     failed_downloading: u8,
-}
-
-pub trait RequestableThing {
-    type Request;
-    type Response<T: EthSpec>;
-    type WrappedResponse<T: EthSpec>;
-    fn verify_response<T: EthSpec>(&self, response: &Self::Response<T>) -> bool;
-    fn make_request(&self) -> Self::Request;
-    fn wrapped_response<T: EthSpec>(&self,  response: Self::Response<T>) -> Self::WrappedResponse<T>;
-    fn is_useful(&self, other: &Self) -> bool;
-}
-
-impl RequestableThing for Hash256 {
-    type Request = BlocksByRootRequest;
-    type Response<T: EthSpec> = Arc<SignedBeaconBlock<T>>;
-    type WrappedResponse<T: EthSpec> = RootBlockTuple<T>;
-    fn verify_response<T: EthSpec>(&self, response: &Self::Response<T>) -> bool{
-        // Compute the block root using this specific function so that we can get timing
-        // metrics.
-        let block_root = get_block_root(response);
-        *self == block_root
-    }
-    fn make_request(&self) -> Self::Request{
-        let request = BlocksByRootRequest {
-            block_roots: VariableList::from(vec![*self]),
-        };
-        request
-    }
-    fn wrapped_response<T: EthSpec>(&self, response: Self::Response<T>) -> Self::WrappedResponse<T> {
-        (*self, response)
-    }
-
-    fn is_useful(&self, other: &Self) -> bool {
-       self == other
-    }
-}
-
-impl RequestableThing for Vec<BlobIdentifier>{
-    type Request = BlobsByRootRequest;
-    type Response<T: EthSpec> = Arc<BlobSidecar<T>>;
-    type WrappedResponse<T: EthSpec> = Arc<BlobSidecar<T>>;
-
-    fn verify_response<T: EthSpec>(&self, response: &Self::Response<T>) -> bool{
-        true
-    }
-    fn make_request(&self) -> Self::Request{
-        todo!()
-    }
-
-    fn wrapped_response<T: EthSpec>(&self, response: Self::Response<T>) -> Self::WrappedResponse<T> {
-       response
-    }
-
-    fn is_useful(&self, other: &Self) -> bool {
-       todo!()
-    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -115,10 +68,198 @@ pub enum LookupRequestError {
     NoPeers,
 }
 
-impl<const MAX_ATTEMPTS: u8, T: RequestableThing> SingleLookupRequest<MAX_ATTEMPTS, T> {
-    pub fn new(requested_thing: T, peer_id: PeerId) -> Self {
+impl<const MAX_ATTEMPTS: u8, T: EthSpec> SingleBlockRequest<MAX_ATTEMPTS, T> {
+    pub fn new(requested_block_root: Hash256, peer_id: PeerId) -> Self {
         Self {
-            requested_thing,
+            requested_block_root,
+            downloaded_block: None,
+            request_state: SingleLookupRequestState::new(peer_id),
+        }
+    }
+
+    /// Verifies if the received block matches the requested one.
+    /// Returns the block for processing if the response is what we expected.
+    pub fn verify_block(
+        &mut self,
+        block: Option<Arc<SignedBeaconBlock<T>>>,
+    ) -> Result<Option<RootBlockTuple<T>>, VerifyError> {
+        match self.request_state.state {
+            State::AwaitingDownload => {
+                self.request_state.register_failure_downloading();
+                Err(VerifyError::ExtraBlocksReturned)
+            }
+            State::Downloading { peer_id } => match block {
+                Some(block) => {
+                    // Compute the block root using this specific function so that we can get timing
+                    // metrics.
+                    let block_root = get_block_root(&block);
+                    if block_root != self.requested_block_root {
+                        // return an error and drop the block
+                        // NOTE: we take this is as a download failure to prevent counting the
+                        // attempt as a chain failure, but simply a peer failure.
+                        self.request_state.register_failure_downloading();
+                        Err(VerifyError::RootMismatch)
+                    } else {
+                        // Return the block for processing.
+                        self.request_state.state = State::Processing { peer_id };
+                        Ok(Some((block_root, block)))
+                    }
+                }
+                None => {
+                    self.register_failure_downloading();
+                    Err(VerifyError::NoBlockReturned)
+                }
+            },
+            State::Processing { peer_id: _ } => match block {
+                Some(_) => {
+                    // We sent the block for processing and received an extra block.
+                    self.request_state.register_failure_downloading();
+                    Err(VerifyError::ExtraBlocksReturned)
+                }
+                None => {
+                    // This is simply the stream termination and we are already processing the
+                    // block
+                    Ok(None)
+                }
+            },
+        }
+    }
+
+    pub fn request_block(&mut self) -> Result<(PeerId, BlocksByRootRequest), LookupRequestError> {
+        debug_assert!(matches!(self.request_state.state, State::AwaitingDownload));
+        if self.failed_attempts() >= MAX_ATTEMPTS {
+            Err(LookupRequestError::TooManyAttempts {
+                cannot_process: self.request_state.failed_processing
+                    >= self.request_state.failed_downloading,
+            })
+        } else if let Some(&peer_id) = self
+            .request_state
+            .available_peers
+            .iter()
+            .choose(&mut rand::thread_rng())
+        {
+            let request = BlocksByRootRequest {
+                block_roots: VariableList::from(vec![self.requested_block_root]),
+            };
+            self.request_state.state = State::Downloading { peer_id };
+            self.request_state.used_peers.insert(peer_id);
+            Ok((peer_id, request))
+        } else {
+            Err(LookupRequestError::NoPeers)
+        }
+    }
+
+    pub fn add_peer_if_useful(&mut self, block_root: &Hash256, peer_id: &PeerId) -> bool {
+        let is_useful = self.requested_block_root == *block_root;
+        if is_useful {
+            self.request_state.add_peer(peer_id);
+        }
+        is_useful
+    }
+}
+
+impl<const MAX_ATTEMPTS: u8, T: EthSpec> SingleBlobsRequest<MAX_ATTEMPTS, T> {
+    pub fn new(blob_ids: Vec<BlobIdentifier>, peer_id: PeerId) -> Self {
+        Self {
+            requested_ids: blob_ids,
+            downloaded_blobs: vec![],
+            request_state: SingleLookupRequestState::new(peer_id),
+        }
+    }
+
+    pub fn new_with_all_ids(block_root: Hash256, peer_id: PeerId) -> Self {
+        let mut ids = Vec::with_capacity(T::max_blobs_per_block());
+        for i in 0..T::max_blobs_per_block() {
+            ids.push(BlobIdentifier {
+                block_root,
+                index: i as u64,
+            });
+        }
+
+        Self {
+            requested_ids: ids,
+            downloaded_blobs: vec![],
+            request_state: SingleLookupRequestState::new(peer_id),
+        }
+    }
+
+    pub fn verify_blob<T: EthSpec>(
+        &mut self,
+        blob: Option<Arc<BlobSidecar<T>>>,
+    ) -> Result<Option<Vec<Arc<BlobSidecar<T>>>>, VerifyError> {
+        match self.request_state.state {
+            State::AwaitingDownload => {
+                self.request_state.register_failure_downloading();
+                Err(VerifyError::ExtraBlocksReturned)
+            }
+            State::Downloading { peer_id } => match blob {
+                Some(blob) => {
+                    let received_id = blob.id();
+                    if !self.requested_ids.contains(&received_id) {
+                        self.request_state.register_failure_downloading();
+                        Err(VerifyError::RootMismatch)
+                    } else {
+                        // state should still be downloading
+                        self.requested_ids.retain(|id| id != received_id);
+                        self.downloaded_blobs.push(blob)
+                    }
+                }
+                None => {
+                    self.request_state.state = State::Processing { peer_id };
+                    Ok(Some(self.downloaded_blobs.clone()))
+                }
+            },
+            State::Processing { peer_id: _ } => match block {
+                Some(_) => {
+                    // We sent the block for processing and received an extra block.
+                    self.request_state.register_failure_downloading();
+                    Err(VerifyError::ExtraBlocksReturned)
+                }
+                None => {
+                    // This is simply the stream termination and we are already processing the
+                    // block
+                    Ok(None)
+                }
+            },
+        }
+    }
+
+    pub fn request_blobs(&mut self) -> Result<(PeerId, BlobsByRootRequest), LookupRequestError> {
+        debug_assert!(matches!(self.request_state.state, State::AwaitingDownload));
+        if self.failed_attempts() >= MAX_ATTEMPTS {
+            Err(LookupRequestError::TooManyAttempts {
+                cannot_process: self.request_state.failed_processing
+                    >= self.request_state.failed_downloading,
+            })
+        } else if let Some(&peer_id) = self
+            .request_state
+            .available_peers
+            .iter()
+            .choose(&mut rand::thread_rng())
+        {
+            let request = BlobsByRootRequest {
+                blob_ids: VariableList::from(self.requested_ids),
+            };
+            self.request_state.state = State::Downloading { peer_id };
+            self.request_state.used_peers.insert(peer_id);
+            Ok((peer_id, request))
+        } else {
+            Err(LookupRequestError::NoPeers)
+        }
+    }
+
+    pub fn add_peer_if_useful(&mut self, blob_id: &BlobIdentifier, peer_id: &PeerId) -> bool {
+        let is_useful = self.requested_ids.contains(blob_id);
+        if is_useful {
+            self.request_state.add_peer(peer_id);
+        }
+        is_useful
+    }
+}
+
+impl<const MAX_ATTEMPTS: u8> SingleLookupRequestState<MAX_ATTEMPTS> {
+    pub fn new(peer_id: PeerId) -> Self {
+        Self {
             state: State::AwaitingDownload,
             available_peers: HashSet::from([peer_id]),
             used_peers: HashSet::default(),
@@ -145,12 +286,8 @@ impl<const MAX_ATTEMPTS: u8, T: RequestableThing> SingleLookupRequest<MAX_ATTEMP
         self.failed_processing + self.failed_downloading
     }
 
-    pub fn add_peer(&mut self, requested_thing: &T, peer_id: &PeerId) -> bool {
-        let is_useful = self.requested_thing.is_useful(requested_thing);
-        if is_useful {
-            self.available_peers.insert(*peer_id);
-        }
-        is_useful
+    pub fn add_peer(&mut self, peer_id: &PeerId) -> bool {
+        self.available_peers.insert(*peer_id)
     }
 
     /// If a peer disconnects, this request could be failed. If so, an error is returned
@@ -164,68 +301,6 @@ impl<const MAX_ATTEMPTS: u8, T: RequestableThing> SingleLookupRequest<MAX_ATTEMP
             }
         }
         Ok(())
-    }
-
-    /// Verifies if the received block matches the requested one.
-    /// Returns the block for processing if the response is what we expected.
-    pub fn verify_block<E: EthSpec>(
-        &mut self,
-        block: Option<T::Response<E>>,
-    ) -> Result<Option<T::WrappedResponse<E>>, VerifyError> {
-        match self.state {
-            State::AwaitingDownload => {
-                self.register_failure_downloading();
-                Err(VerifyError::ExtraBlocksReturned)
-            }
-            State::Downloading { peer_id } => match block {
-                Some(block) => {
-                    if self.requested_thing.verify_response(&block) {
-                        // return an error and drop the block
-                        // NOTE: we take this is as a download failure to prevent counting the
-                        // attempt as a chain failure, but simply a peer failure.
-                        self.register_failure_downloading();
-                        Err(VerifyError::RootMismatch)
-                    } else {
-                        // Return the block for processing.
-                        self.state = State::Processing { peer_id };
-                        Ok(Some(self.requested_thing.wrapped_response(block)))
-                    }
-                }
-                None => {
-                    self.register_failure_downloading();
-                    Err(VerifyError::NoBlockReturned)
-                }
-            },
-            State::Processing { peer_id: _ } => match block {
-                Some(_) => {
-                    // We sent the block for processing and received an extra block.
-                    self.register_failure_downloading();
-                    Err(VerifyError::ExtraBlocksReturned)
-                }
-                None => {
-                    // This is simply the stream termination and we are already processing the
-                    // block
-                    Ok(None)
-                }
-            },
-        }
-    }
-
-    pub fn request_block(&mut self) -> Result<(PeerId, T::Request), LookupRequestError> {
-        debug_assert!(matches!(self.state, State::AwaitingDownload));
-        if self.failed_attempts() >= MAX_ATTEMPTS {
-            Err(LookupRequestError::TooManyAttempts {
-                cannot_process: self.failed_processing >= self.failed_downloading,
-            })
-        } else if let Some(&peer_id) = self.available_peers.iter().choose(&mut rand::thread_rng()) {
-            let request = self.requested_thing.make_request();
-
-            self.state = State::Downloading { peer_id };
-            self.used_peers.insert(peer_id);
-            Ok((peer_id, request))
-        } else {
-            Err(LookupRequestError::NoPeers)
-        }
     }
 
     pub fn processing_peer(&self) -> Result<PeerId, ()> {
@@ -287,8 +362,8 @@ mod tests {
         let block = rand_block();
 
         let mut sl = SingleBlockRequest::<4>::new(block.canonical_root(), peer_id);
-        sl.request_block().unwrap();
-        sl.verify_block(Some(block.into())).unwrap().unwrap();
+        sl.make_request().unwrap();
+        sl.verify_response(Some(block.into())).unwrap().unwrap();
     }
 
     #[test]
@@ -299,18 +374,18 @@ mod tests {
 
         let mut sl = SingleBlockRequest::<FAILURES>::new(block.canonical_root(), peer_id);
         for _ in 1..FAILURES {
-            sl.request_block().unwrap();
+            sl.make_request().unwrap();
             sl.register_failure_downloading();
         }
 
         // Now we receive the block and send it for processing
-        sl.request_block().unwrap();
-        sl.verify_block(Some(block.into())).unwrap().unwrap();
+        sl.make_request().unwrap();
+        sl.verify_response(Some(block.into())).unwrap().unwrap();
 
         // One processing failure maxes the available attempts
         sl.register_failure_processing();
         assert_eq!(
-            sl.request_block(),
+            sl.make_request(),
             Err(LookupRequestError::TooManyAttempts {
                 cannot_process: false
             })

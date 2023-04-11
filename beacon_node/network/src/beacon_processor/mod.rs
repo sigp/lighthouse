@@ -609,7 +609,7 @@ impl<T: BeaconChainTypes> WorkEvent<T> {
     /// sent to the other side of `result_tx`.
     pub fn rpc_beacon_block(
         block_root: Hash256,
-        block: Arc<SignedBeaconBlock<T::EthSpec>>,
+        block: BlockWrapper<T::EthSpec>,
         seen_timestamp: Duration,
         process_type: BlockProcessType,
     ) -> Self {
@@ -933,7 +933,7 @@ pub enum Work<T: BeaconChainTypes> {
     },
     RpcBlock {
         block_root: Hash256,
-        block: Arc<SignedBeaconBlock<T::EthSpec>>,
+        block: BlockWrapper<T::EthSpec>,
         seen_timestamp: Duration,
         process_type: BlockProcessType,
         should_process: bool,

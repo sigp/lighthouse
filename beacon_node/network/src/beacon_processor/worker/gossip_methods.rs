@@ -845,9 +845,6 @@ impl<T: BeaconChainTypes> Worker<T> {
 
                 verified_block
             }
-            Err(BlockError::AvailabilityCheck(_err)) => {
-                todo!()
-            }
             Err(BlockError::ParentUnknown(block)) => {
                 debug!(
                     self.log,
@@ -1073,9 +1070,6 @@ impl<T: BeaconChainTypes> Worker<T> {
                     pending_blobs,
                     search_delay: Duration::from_secs(0), //TODO(sean) update
                 });
-            }
-            Err(BlockError::AvailabilityCheck(_)) => {
-                todo!()
             }
             Err(BlockError::ParentUnknown(block)) => {
                 // Inform the sync manager to find parents for this block

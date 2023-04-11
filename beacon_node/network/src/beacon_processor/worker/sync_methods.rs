@@ -45,7 +45,7 @@ impl<T: BeaconChainTypes> Worker<T> {
     pub async fn process_rpc_block(
         self,
         block_root: Hash256,
-        block: Arc<SignedBeaconBlock<T::EthSpec>>,
+        block: BlockWrapper<T::EthSpec>,
         seen_timestamp: Duration,
         process_type: BlockProcessType,
         reprocess_tx: mpsc::Sender<ReprocessQueueMessage<T>>,
@@ -54,9 +54,9 @@ impl<T: BeaconChainTypes> Worker<T> {
     ) {
         if !should_process {
             // Sync handles these results
-            self.send_sync_message(SyncMessage::BlockProcessed {
+            self.send_sync_message(SyncMessage::BlockOrBlobProcessed {
                 process_type,
-                result: crate::sync::manager::BlockProcessResult::Ignored,
+                result: crate::sync::manager::BlockOrBlobProcessResult::Ignored,
             });
             return;
         }
@@ -87,6 +87,8 @@ impl<T: BeaconChainTypes> Worker<T> {
         };
         let slot = block.slot();
         let parent_root = block.message().parent_root();
+
+        // TODO(sean) check availability here and send information to sync?
 
         let result = self
             .chain
@@ -127,7 +129,7 @@ impl<T: BeaconChainTypes> Worker<T> {
             }
         }
         // Sync handles these results
-        self.send_sync_message(SyncMessage::BlockProcessed {
+        self.send_sync_message(SyncMessage::BlockOrBlobProcessed {
             process_type,
             result: result.into(),
         });
@@ -156,9 +158,9 @@ impl<T: BeaconChainTypes> Worker<T> {
             .await;
 
         // Sync handles these results
-        self.send_sync_message(SyncMessage::BlobProcessed {
+        self.send_sync_message(SyncMessage::BlockOrBlobProcessed {
             process_type,
-            result,
+            result: result.into(),
         });
     }
 
