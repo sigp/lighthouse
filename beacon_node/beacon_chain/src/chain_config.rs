@@ -1,4 +1,4 @@
-pub use proto_array::ReOrgThreshold;
+pub use proto_array::{DisallowedReOrgOffsets, ReOrgThreshold};
 use serde_derive::{Deserialize, Serialize};
 use std::time::Duration;
 use types::{Checkpoint, Epoch};
@@ -38,6 +38,11 @@ pub struct ChainConfig {
     pub re_org_max_epochs_since_finalization: Epoch,
     /// Maximum delay after the start of the slot at which to propose a reorging block.
     pub re_org_cutoff_millis: Option<u64>,
+    /// Additional epoch offsets at which re-orging block proposals are not permitted.
+    ///
+    /// By default this list is empty, but it can be useful for reacting to network conditions, e.g.
+    /// slow gossip of re-org blocks at slot 1 in the epoch.
+    pub re_org_disallowed_offsets: DisallowedReOrgOffsets,
     /// Number of milliseconds to wait for fork choice before proposing a block.
     ///
     /// If set to 0 then block proposal will not wait for fork choice at all.
@@ -85,6 +90,7 @@ impl Default for ChainConfig {
             re_org_threshold: Some(DEFAULT_RE_ORG_THRESHOLD),
             re_org_max_epochs_since_finalization: DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION,
             re_org_cutoff_millis: None,
+            re_org_disallowed_offsets: DisallowedReOrgOffsets::default(),
             fork_choice_before_proposal_timeout_ms: DEFAULT_FORK_CHOICE_BEFORE_PROPOSAL_TIMEOUT,
             // Builder fallback configs that are set in `clap` will override these.
             builder_fallback_skips: 3,

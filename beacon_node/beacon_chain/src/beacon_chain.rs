@@ -3784,6 +3784,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 slot,
                 canonical_head,
                 re_org_threshold,
+                &self.config.re_org_disallowed_offsets,
                 self.config.re_org_max_epochs_since_finalization,
             )
             .map_err(|e| match e {
@@ -4062,6 +4063,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .get_preliminary_proposer_head(
                 head_block_root,
                 re_org_threshold,
+                &self.config.re_org_disallowed_offsets,
                 self.config.re_org_max_epochs_since_finalization,
             )
             .map_err(|e| e.map_inner_error(Error::ProposerHeadForkChoiceError))?;
