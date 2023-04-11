@@ -13,6 +13,7 @@
 - [How do I check or update my withdrawal credentials?](#how-do-i-check-or-update-my-withdrawal-credentials)
 - [I am missing attestations. Why?](#i-am-missing-attestations-why)
 - [Sometimes I miss the attestation head vote, resulting in penalty. Is this normal?](#sometimes-i-miss-the-attestation-head-vote-resulting-in-penalty-is-this-normal)
+- [My beacon node is stuck at downloading historical block using checkpoing sync. What can I do?](#my-beacon-node-is-stuck-at-downloading-historical-block-using-checkpoing-sync-what-can-i-do)
 
 ### Why does it take so long for a validator to be activated?
 
@@ -228,3 +229,8 @@ You can see more information on the [Ethstaker KB](https://ethstaker.gitbook.io/
 ### Sometimes I miss the attestation head vote, resulting in penalty. Is this normal?
 
 In general it is unavoiadable to have some penalties occasionally. This is particularly the case when you are assigned to attest on the first slot of an epoch and if the proposer of that slot releases the block late, then you will get penalised for missing the target and head votes. Your attestation performance does not only depend on your own setup, but also on everyone else's performance.
+
+
+### My beacon node is stuck at downloading historical block using checkpoing sync. What can I do?
+
+Check the number of peers you are connected to. If you have low peers, try to do port forwarding on the port 9000 TCP/UDP to increase peer count.
