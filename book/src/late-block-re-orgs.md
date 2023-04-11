@@ -17,7 +17,7 @@ There are three flags which control the re-orging behaviour:
 * `--proposer-reorg-cutoff T`: only attempt to re-org late blocks when the proposal is being made
   before T milliseconds into the slot. Delays between the validator client and the beacon node can
   cause some blocks to be requested later than the start of the slot, which makes them more likely
-  to fail. The default cutoff is 1500ms on mainnet, which gives blocks 2500ms to be signed and
+  to fail. The default cutoff is 1000ms on mainnet, which gives blocks 3000ms to be signed and
   propagated before the attestation deadline at 4000ms.
 
 All flags should be applied to `lighthouse bn`. The default configuration is recommended as it

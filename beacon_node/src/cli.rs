@@ -876,7 +876,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .help("Maximum delay after the start of the slot at which to propose a reorging \
                        block. Lower values can prevent failed reorgs by ensuring the block has \
                        ample time to propagate and be processed by the network. The default is \
-                       1/8th of a slot (1.5 seconds on mainnet)")
+                       1/12th of a slot (1 second on mainnet)")
                 .conflicts_with("disable-proposer-reorgs")
         )
         .arg(

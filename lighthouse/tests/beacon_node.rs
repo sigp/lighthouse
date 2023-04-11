@@ -1908,10 +1908,10 @@ fn proposer_re_org_max_epochs_since_finalization() {
 #[test]
 fn proposer_re_org_cutoff() {
     CommandLineTest::new()
-        .flag("proposer-reorg-cutoff", Some("1000"))
+        .flag("proposer-reorg-cutoff", Some("500"))
         .run_with_zero_port()
         .with_config(|config| {
-            assert_eq!(config.chain.re_org_cutoff(12), Duration::from_millis(1000))
+            assert_eq!(config.chain.re_org_cutoff(12), Duration::from_millis(500))
         });
 }
 
