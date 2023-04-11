@@ -705,6 +705,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "bindgen"
+version = "0.64.0"
+source = "git+https://github.com/rust-lang/rust-bindgen?rev=0de11f0a521611ac8738b7b01d19dddaf3899e66#0de11f0a521611ac8738b7b01d19dddaf3899e66"
+dependencies = [
+ "bitflags",
+ "cexpr",
+ "clang-sys",
+ "lazy_static",
+ "lazycell",
+ "log",
+ "peeking_take_while",
+ "proc-macro2",
+ "quote",
+ "regex",
+ "rustc-hash",
+ "shlex",
+ "syn 2.0.13",
+ "which",
+]
+
+[[package]]
 name = "bitflags"
 version = "1.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -925,8 +946,11 @@ dependencies = [
 [[package]]
 name = "c-kzg"
 version = "0.1.0"
-source = "git+https://github.com/ethereum/c-kzg-4844?rev=549739fcb3aaec6fe5651e1912f05c604b45621b#549739fcb3aaec6fe5651e1912f05c604b45621b"
+source = "git+https://github.com/ethereum/c-kzg-4844?rev=fd24cf8e1e2f09a96b4e62a595b4e49f046ce6cf#fd24cf8e1e2f09a96b4e62a595b4e49f046ce6cf"
 dependencies = [
+ "bindgen 0.64.0",
+ "cc",
+ "glob",
  "hex",
  "libc",
  "serde",
@@ -4816,7 +4840,7 @@ name = "mdbx-sys"
 version = "0.11.6-4"
 source = "git+https://github.com/sigp/libmdbx-rs?tag=v0.1.4#096da80a83d14343f8df833006483f48075cd135"
 dependencies = [
- "bindgen",
+ "bindgen 0.59.2",
  "cc",
  "cmake",
  "libc",
