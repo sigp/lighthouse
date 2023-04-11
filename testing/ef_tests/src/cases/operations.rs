@@ -19,9 +19,9 @@ use state_processing::{
 use std::fmt::Debug;
 use std::path::Path;
 use types::{
-    Attestation, AttesterSlashing, BeaconBlock, BeaconState, BlindedPayload, ChainSpec, Deposit, DepositReceipt,
-    EthSpec, ExecutionPayload, ForkName, FullPayload, ProposerSlashing, SignedBlsToExecutionChange,
-    SignedVoluntaryExit, SyncAggregate,
+    Attestation, AttesterSlashing, BeaconBlock, BeaconState, BlindedPayload, ChainSpec, Deposit,
+    DepositReceipt, EthSpec, ExecutionPayload, ForkName, FullPayload, ProposerSlashing,
+    SignedBlsToExecutionChange, SignedVoluntaryExit, SyncAggregate,
 };
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -377,7 +377,11 @@ impl<E: EthSpec> Operation<E> for DepositReceipt {
     }
 
     fn is_enabled_for_fork(fork_name: ForkName) -> bool {
-        fork_name != ForkName::Base && fork_name != ForkName::Altair && fork_name != ForkName::Merge && fork_name != ForkName::Capella && fork_name != ForkName::Eip4844
+        fork_name != ForkName::Base
+            && fork_name != ForkName::Altair
+            && fork_name != ForkName::Merge
+            && fork_name != ForkName::Capella
+            && fork_name != ForkName::Eip4844
     }
 
     fn decode(path: &Path, _fork_name: ForkName, _spec: &ChainSpec) -> Result<Self, Error> {
@@ -385,14 +389,14 @@ impl<E: EthSpec> Operation<E> for DepositReceipt {
     }
 
     fn apply_to(
-            &self,
-            state: &mut BeaconState<E>,
-            spec: &ChainSpec,
-            _: &Operations<E, Self>,
-        ) -> Result<(), BlockProcessingError> {
-            process_deposit_receipt(state, self, spec)
-        }
+        &self,
+        state: &mut BeaconState<E>,
+        spec: &ChainSpec,
+        _: &Operations<E, Self>,
+    ) -> Result<(), BlockProcessingError> {
+        process_deposit_receipt(state, self, spec)
     }
+}
 
 impl<E: EthSpec> Operation<E> for SignedBlsToExecutionChange {
     fn handler_name() -> String {

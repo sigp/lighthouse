@@ -173,6 +173,7 @@ impl<T: EthSpec> MockServer<T> {
         *self.ctx.engine_capabilities.write() = engine_capabilities;
     }
 
+    #[allow(clippy::too_many_arguments)] // FIXME: refactor
     pub fn new(
         handle: &runtime::Handle,
         jwt_key: JwtKey,
