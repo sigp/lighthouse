@@ -55,6 +55,7 @@ type_name_generic!(BlobsSidecar);
 type_name!(Checkpoint);
 type_name_generic!(ContributionAndProof);
 type_name!(Deposit);
+type_name!(DepositReceipt);
 type_name!(DepositData);
 type_name!(DepositMessage);
 type_name!(Eth1Data);

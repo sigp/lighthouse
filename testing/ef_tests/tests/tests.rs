@@ -35,6 +35,12 @@ fn operations_deposit() {
 }
 
 #[test]
+fn operations_deposit_receipt() {
+    OperationsHandler::<MinimalEthSpec, DepositReceipt>::default().run();
+    OperationsHandler::<MainnetEthSpec, DepositReceipt>::default().run();
+}
+
+#[test]
 fn operations_exit() {
     OperationsHandler::<MinimalEthSpec, SignedVoluntaryExit>::default().run();
     OperationsHandler::<MainnetEthSpec, SignedVoluntaryExit>::default().run();

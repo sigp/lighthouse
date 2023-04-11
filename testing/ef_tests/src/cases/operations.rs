@@ -7,7 +7,7 @@ use serde_derive::Deserialize;
 use state_processing::{
     per_block_processing::{
         errors::BlockProcessingError,
-        process_block_header, process_execution_payload,
+        process_block_header, process_deposit_receipt, process_execution_payload,
         process_operations::{
             altair, base, process_attester_slashings, process_bls_to_execution_changes,
             process_deposits, process_exits, process_proposer_slashings,
@@ -19,7 +19,7 @@ use state_processing::{
 use std::fmt::Debug;
 use std::path::Path;
 use types::{
-    Attestation, AttesterSlashing, BeaconBlock, BeaconState, BlindedPayload, ChainSpec, Deposit,
+    Attestation, AttesterSlashing, BeaconBlock, BeaconState, BlindedPayload, ChainSpec, Deposit, DepositReceipt,
     EthSpec, ExecutionPayload, ForkName, FullPayload, ProposerSlashing, SignedBlsToExecutionChange,
     SignedVoluntaryExit, SyncAggregate,
 };
@@ -366,6 +366,33 @@ impl<E: EthSpec> Operation<E> for WithdrawalsPayload<E> {
         process_withdrawals::<_, FullPayload<_>>(state, self.payload.to_ref(), spec)
     }
 }
+
+impl<E: EthSpec> Operation<E> for DepositReceipt {
+    fn handler_name() -> String {
+        "deposit_receipt".into()
+    }
+
+    fn filename() -> String {
+        "deposit_receipt.ssz_snappy".into()
+    }
+
+    fn is_enabled_for_fork(fork_name: ForkName) -> bool {
+        fork_name != ForkName::Base && fork_name != ForkName::Altair && fork_name != ForkName::Merge && fork_name != ForkName::Capella && fork_name != ForkName::Eip4844
+    }
+
+    fn decode(path: &Path, _fork_name: ForkName, _spec: &ChainSpec) -> Result<Self, Error> {
+        ssz_decode_file(path)
+    }
+
+    fn apply_to(
+            &self,
+            state: &mut BeaconState<E>,
+            spec: &ChainSpec,
+            _: &Operations<E, Self>,
+        ) -> Result<(), BlockProcessingError> {
+            process_deposit_receipt(state, self, spec)
+        }
+    }
 
 impl<E: EthSpec> Operation<E> for SignedBlsToExecutionChange {
     fn handler_name() -> String {
