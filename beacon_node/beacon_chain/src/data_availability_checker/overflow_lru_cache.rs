@@ -5,7 +5,7 @@ use crate::data_availability_checker::{Availability, AvailabilityCheckError};
 use crate::store::{DBColumn, KeyValueStore};
 use crate::BeaconChainTypes;
 use lru::LruCache;
-use parking_lot::{RwLock, RwLockWriteGuard};
+use parking_lot::{Mutex, RwLock, RwLockWriteGuard};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use ssz_types::FixedVector;
@@ -13,17 +13,12 @@ use std::{collections::HashSet, sync::Arc};
 use types::blob_sidecar::BlobIdentifier;
 use types::{BlobSidecar, EthSpec, Hash256};
 
-// A wrapper around BeaconStore<T> that implements various
-// methods used for saving and retrieving objects from the
-// store (for organization)
-struct OverflowStore<T: BeaconChainTypes>(BeaconStore<T>);
-
 /// Caches partially available blobs and execution verified blocks corresponding
 /// to a given `block_hash` that are received over gossip.
 ///
 /// The blobs are all gossip and kzg verified.
 /// The block has completed all verifications except the availability check.
-#[derive(Encode, Decode)]
+#[derive(Encode, Decode, Clone)]
 pub struct PendingComponents<T: EthSpec> {
     /// We use a `BTreeMap` here to maintain the order of `BlobSidecar`s based on index.
     verified_blobs: FixedVector<Option<KzgVerifiedBlob<T>>, T::MaxBlobsPerBlock>,
@@ -94,7 +89,19 @@ impl OverflowKey {
         }
         Ok(Self::Blob(blob_id.block_root, blob_id.index as u8))
     }
+
+    pub fn root(&self) -> &Hash256 {
+        match self {
+            Self::Block(root) => root,
+            Self::Blob(root, _) => root,
+        }
+    }
 }
+
+/// A wrapper around BeaconStore<T> that implements various
+/// methods used for saving and retrieving blocks / blobs
+/// from the store (for organization)
+struct OverflowStore<T: BeaconChainTypes>(BeaconStore<T>);
 
 impl<T: BeaconChainTypes> OverflowStore<T> {
     pub fn persist_pending_components(
@@ -178,6 +185,15 @@ impl<T: BeaconChainTypes> OverflowStore<T> {
             .transpose()
             .map_err(|e| e.into())
     }
+
+    pub fn delete_keys(&self, keys: &Vec<OverflowKey>) -> Result<(), AvailabilityCheckError> {
+        for key in keys {
+            self.0
+                .hot_db
+                .key_delete(DBColumn::OverflowLRUCache.as_str(), &key.as_ssz_bytes())?;
+        }
+        Ok(())
+    }
 }
 
 // This data is protected by an RwLock
@@ -194,6 +210,7 @@ impl<T: BeaconChainTypes> Critical<T> {
         }
     }
 
+    /// This only checks for the blobs in memory
     pub fn peek_blob(
         &self,
         blob_id: &BlobIdentifier,
@@ -253,6 +270,8 @@ impl<T: BeaconChainTypes> Critical<T> {
 pub struct OverflowLRUCache<T: BeaconChainTypes> {
     critical: RwLock<Critical<T>>,
     store: OverflowStore<T>,
+    maintenance_lock: Mutex<()>,
+    capacity: usize,
 }
 
 impl<T: BeaconChainTypes> OverflowLRUCache<T> {
@@ -260,6 +279,8 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
         Self {
             critical: RwLock::new(Critical::new(capacity)),
             store: OverflowStore(store),
+            maintenance_lock: Mutex::new(()),
+            capacity,
         }
     }
 
@@ -400,8 +421,92 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
     }
 
     // maintain the cache
-    pub fn do_maintenance(&self) {
-        // clean up any keys in the database that shouldn't be there
+    pub fn do_maintenance(&self) -> Result<(), AvailabilityCheckError> {
+        // ensure memory usage is below threshold
+        let threshold = self.capacity * 3 / 4;
+        self.maintain_threshold(threshold)?;
+        // clean up any keys on the disk that shouldn't be there
+        self.prune_disk()?;
+        Ok(())
+    }
+
+    fn maintain_threshold(&self, threshold: usize) -> Result<(), AvailabilityCheckError> {
+        // ensure only one thread at a time can be deleting things from the disk or
+        // moving things between memory and storage
+        let maintenance_lock = self.maintenance_lock.lock();
+
+        let mut stored = self.critical.read().in_memory.len();
+        while stored > threshold {
+            // hold the read lock only as long as it takes to clone the LRU component
+            let read_lock = self.critical.read();
+            let lru_entry = read_lock
+                .in_memory
+                .peek_lru()
+                .map(|(key, value)| (key.clone(), value.clone()));
+            drop(read_lock);
+
+            let (root, pending_components) = match lru_entry {
+                Some((r, p)) => (r, p),
+                None => break,
+            };
+
+            // write the lru entry to disk (we aren't holding any critical locks while we do this)
+            self.store
+                .persist_pending_components(root, pending_components)?;
+            // now that we've written to disk, grab the critical write lock
+            let mut write_lock = self.critical.write();
+            if let Some((lru_root_ref, _)) = write_lock.in_memory.peek_lru() {
+                // need to ensure the entry we just wrote to disk wasn't updated
+                // while we were writing and is still the LRU entry
+                if *lru_root_ref == root {
+                    // it is still LRU entry -> delete it from memory & record that it's on disk
+                    write_lock.in_memory.pop_lru();
+                    write_lock.store_keys.insert(root);
+                    stored = write_lock.in_memory.len();
+                }
+            }
+            drop(write_lock);
+        }
+
+        drop(maintenance_lock);
+        Ok(())
+    }
+
+    fn prune_disk(&self) -> Result<(), AvailabilityCheckError> {
+        // ensure only one thread at a time can be deleting things from the disk or
+        // moving things between memory and storage
+        let maintenance_lock = self.maintenance_lock.lock();
+
+        let mut block_keys = vec![];
+        let mut current_block = None;
+        for res in self
+            .store
+            .0
+            .hot_db
+            .iter_raw_entries(DBColumn::OverflowLRUCache, &[])
+        {
+            let (key_bytes, _) = res?;
+            let overflow_key = OverflowKey::from_ssz_bytes(&key_bytes)?;
+
+            if current_block == Some(*overflow_key.root()) {
+                block_keys.push(overflow_key);
+            } else {
+                if let Some(previous_block_root) = current_block {
+                    let read_lock = self.critical.read();
+                    if !read_lock.store_keys.contains(&previous_block_root) {
+                        // these keys aren't supposed to be in the store
+                        self.store.delete_keys(&block_keys)?;
+                    } else {
+                        // TODO: check that this doesn't conflict with finalized block
+                    }
+                }
+                current_block = Some(*overflow_key.root());
+                block_keys = vec![overflow_key];
+            }
+        }
+
+        drop(maintenance_lock);
+        Ok(())
     }
 }
 

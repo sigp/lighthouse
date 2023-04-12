@@ -757,7 +757,7 @@ impl<E: EthSpec> AvailableExecutedBlock<E> {
     }
 }
 
-#[derive(Encode, Decode)]
+#[derive(Encode, Decode, Clone)]
 pub struct AvailabilityPendingExecutedBlock<E: EthSpec> {
     pub block: AvailabilityPendingBlock<E>,
     pub import_data: BlockImportData<E>,
@@ -802,7 +802,9 @@ impl<E: EthSpec> AvailabilityPendingExecutedBlock<E> {
     }
 }
 
-#[derive(Encode, Decode)]
+#[derive(Encode, Decode, Clone)]
+// TODO (mark): investigate using an Arc<state> / Arc<parent_block>
+//              here to make this cheaper to clone
 pub struct BlockImportData<E: EthSpec> {
     pub block_root: Hash256,
     #[ssz(with = "ssz_tagged_beacon_state")]

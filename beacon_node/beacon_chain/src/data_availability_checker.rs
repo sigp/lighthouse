@@ -23,7 +23,7 @@ use types::{
 
 mod overflow_lru_cache;
 
-pub const OVERFLOW_LRU_CAPACITY: usize = 64;
+pub const OVERFLOW_LRU_CAPACITY: usize = 1024;
 
 #[derive(Debug)]
 pub enum AvailabilityCheckError {
