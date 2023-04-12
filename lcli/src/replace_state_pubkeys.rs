@@ -3,6 +3,7 @@ use clap::ArgMatches;
 use eth2_network_config::Eth2NetworkConfig;
 use eth2_wallet::bip39::Seed;
 use eth2_wallet::{recover_validator_secret_from_mnemonic, KeyType};
+use genesis::bls_withdrawal_credentials;
 use ssz::Encode;
 use state_processing::common::DepositDataTree;
 use std::fs::File;
@@ -54,12 +55,22 @@ pub fn run<T: EthSpec>(testnet_dir: PathBuf, matches: &ArgMatches) -> Result<(),
 
         validator.pubkey = keypair.pk.into();
 
+        validator.withdrawal_credentials = {
+            let (withdrawal_secret, _) = recover_validator_secret_from_mnemonic(
+                seed.as_bytes(),
+                index as u32,
+                KeyType::Withdrawal,
+            )
+            .map_err(|e| format!("Unable to generate withdrawal key: {:?}", e))?;
+            let withdrawal_keypair = keypair_from_secret(withdrawal_secret.as_bytes())
+                .map_err(|e| format!("Unable build withdrawal keystore: {:?}", e))?;
+            bls_withdrawal_credentials(&withdrawal_keypair.pk, spec)
+        };
+
         // Update the deposit tree.
         let mut deposit_data = DepositData {
             pubkey: validator.pubkey,
-            // Set this to a junk value since it's very time consuming to generate the withdrawal
-            // keys and it's not useful for the time being.
-            withdrawal_credentials: Hash256::zero(),
+            withdrawal_credentials: validator.withdrawal_credentials,
             amount: spec.min_deposit_amount,
             signature: SignatureBytes::empty(),
         };
