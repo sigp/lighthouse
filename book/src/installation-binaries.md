@@ -36,11 +36,10 @@ a `x86_64` binary.
     tar -xvf lighthouse-v4.0.1-x86_64-unknown-linux-gnu.tar.gz
     ```
 1. Test the binary with `./lighthouse --version` (it should print the version).
-1. (Optional) Move the `lighthouse` binary to a location in your `PATH`, so the `lighthouse` command can be called from anywhere. For example,
-```bash
-cp lighthouse /usr/bin
-```
-will copy `lighthouse` from the current directory to `/usr/bin`
+1. (Optional) Move the `lighthouse` binary to a location in your `PATH`, so the `lighthouse` command can be called from anywhere. For example, to copy `lighthouse` from the current directory to `usr/bin`, run `cp lighthouse /usr/bin`.
+
+
+
 > Windows users will need to execute the commands in Step 2 from PowerShell.
 
 ## Portability
