@@ -452,8 +452,14 @@ pub fn process_deposit_receipt<T: EthSpec>(
         data: deposit_data,
     };
 
+    // Store the current eth1_deposit_index
+    let current_eth1_deposit_index = state.eth1_deposit_index();
+
     // Call process_deposit with the created Deposit object
     process_deposit(state, &deposit, spec, false)?;
+
+    // Set eth1_deposit_index back to the original value
+    *state.eth1_deposit_index_mut() = current_eth1_deposit_index;
 
     Ok(())
 }
