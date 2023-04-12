@@ -42,7 +42,7 @@ in `lighthouse/target/aarch64-unknown-linux-gnu/release`.
 ## Feature Flags
 
 When using the makefile the set of features used for building can be controlled with
-the environment variable `FEATURES`. See [Feature
+the environment variable `CROSS_FEATURES`. See [Feature
  Flags](./installation-source.md#feature-flags) for available features.
 
 ## Compilation Profiles
