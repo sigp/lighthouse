@@ -453,7 +453,7 @@ pub fn process_deposit_receipt<T: EthSpec>(
     };
 
     // Call process_deposit with the created Deposit object
-    process_deposit(state, &deposit, spec, true)?;
+    process_deposit(state, &deposit, spec, false)?;
 
     Ok(())
 }
