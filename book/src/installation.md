@@ -23,7 +23,7 @@ There are also community-maintained installation methods:
 
 ## Recommended System Requirements
 
-Before [The Merge](https://ethereum.org/en/roadmap/merge/), Lighthouse is able to run on its own with low to mid-range consumer hardware, but will perform best when provided with ample system resources. 
+Before [The Merge](https://ethereum.org/en/roadmap/merge/), Lighthouse was able to run on its own with low to mid-range consumer hardware, but would perform best when provided with ample system resources. 
 
 After [The Merge](https://ethereum.org/en/roadmap/merge/) on 15<sup>th</sup> September 2022, it is necessary to run Lighthouse together with an execution client ([Nethermind](https://nethermind.io/), [Besu](https://www.hyperledger.org/use/besu), [Erigon](https://github.com/ledgerwatch/erigon), [Geth](https://geth.ethereum.org/)). The following system requirements listed are therefore for running a Lighthouse beacon node combined with an execution client , and a validator client with a modest number of validator keys (less than 100):
 
