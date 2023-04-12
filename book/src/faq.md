@@ -220,7 +220,7 @@ For the case of `withdrawals not enabled`, you can update your withdrawal creden
 ### I am missing attestations. Why? 
 The first thing is to ensure both consensus and execution clients are synced with the network. If they are synced, there may still be some issues with the node setup itself that is causing the missed attestations. Check the setup to ensure that:
 - the clock is synced
-- the computer has sufficient resource and is not overloaded
+- the computer has sufficient resources and is not overloaded
 - the internet is working well
 - you have sufficient peers
 
