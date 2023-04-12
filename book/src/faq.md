@@ -201,7 +201,7 @@ The `WARN Execution engine called failed` log is shown when the beacon node cann
 which says `TimeOut` at the end of the message. This means that the execution engine has not responded in time to the beacon node. There are a few possibilities that this can occur:
 1. The execution engine is not synced. Check the log of the execution engine to make sure that it is synced. If it is syncing, wait until it is synced and the error will disappear. You will see the beacon node logs `INFO Execution engine online` when it is synced. 
 1. The computer is overloaded. Check the CPU and RAM usage to see if it has overloaded. You can use `htop` to check for CPU and RAM usage.
-1. Your SSD is slow in response which is causing the issue. Check that if your SSD is in "The Bad" list [here](https://gist.github.com/yorickdowne/f3a3e79a573bf35767cd002cc977b038). If your SSD is in "The Bad" list, it means it cannot keep up in sync to the network and you may want to consider upgrading to a better SSD.
+1. Your SSD is slow. Check if your SSD is in "The Bad" list [here](https://gist.github.com/yorickdowne/f3a3e79a573bf35767cd002cc977b038). If your SSD is in "The Bad" list, it means it cannot keep in sync to the network and you may want to consider upgrading to a better SSD.
 
 If the reason for the error message is caused by no. 1 above, you may want to look further. If the execution engine is out of sync suddenly, it is usually caused by ungraceful shutdown. The common causes for ungraceful shutdown are:
 - Power outage. If power outage is an issue in your place, consider getting a UPS to avoid ungraceful shutdown of services. 
