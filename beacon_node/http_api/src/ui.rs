@@ -211,7 +211,8 @@ pub fn post_validator_monitor_metrics<T: BeaconChainTypes>(
                 let attestation_head_misses = val_metrics.attestation_head_misses;
                 let attestation_target_hits = val_metrics.attestation_target_hits;
                 let attestation_target_misses = val_metrics.attestation_target_misses;
-                let latest_attestation_inclusion_distance = val_metrics.latest_attestation_inclusion_distance;
+                let latest_attestation_inclusion_distance =
+                    val_metrics.latest_attestation_inclusion_distance;
                 drop(val_metrics);
 
                 let attestations = attestation_hits + attestation_misses;
