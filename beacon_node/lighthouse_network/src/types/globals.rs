@@ -39,6 +39,7 @@ impl<TSpec: EthSpec> NetworkGlobals<TSpec> {
         listen_port_tcp6: Option<u16>,
         local_metadata: MetaData<TSpec>,
         trusted_peers: Vec<PeerId>,
+        disable_peer_scoring: bool,
         log: &slog::Logger,
     ) -> Self {
         NetworkGlobals {
@@ -48,7 +49,7 @@ impl<TSpec: EthSpec> NetworkGlobals<TSpec> {
             listen_port_tcp4,
             listen_port_tcp6,
             local_metadata: RwLock::new(local_metadata),
-            peers: RwLock::new(PeerDB::new(trusted_peers, log)),
+            peers: RwLock::new(PeerDB::new(trusted_peers, disable_peer_scoring, log)),
             gossipsub_subscriptions: RwLock::new(HashSet::new()),
             sync_state: RwLock::new(SyncState::Stalled),
             backfill_state: RwLock::new(BackFillState::NotRequired),
@@ -144,6 +145,7 @@ impl<TSpec: EthSpec> NetworkGlobals<TSpec> {
                 syncnets: Default::default(),
             }),
             vec![],
+            false,
             log,
         )
     }

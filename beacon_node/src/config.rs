@@ -1008,6 +1008,10 @@ pub fn set_network_config(
             .collect::<Result<Vec<Multiaddr>, _>>()?;
     }
 
+    if cli_args.is_present("disable-peer-scoring") {
+        config.disable_peer_scoring = true;
+    }
+
     if let Some(trusted_peers_str) = cli_args.value_of("trusted-peers") {
         config.trusted_peers = trusted_peers_str
             .split(',')

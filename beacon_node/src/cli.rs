@@ -234,6 +234,14 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(false),
         )
         .arg(
+            Arg::with_name("disable-peer-scoring")
+                .long("disable-peer-scoring")
+                .help("Disables peer scoring in lighthouse. WARNING: This is a dev only flag is only meant to be used in local testing scenarios \
+                        Using this flag on a real network may cause your node to become eclipsed and see a different view of the network")
+                .takes_value(false)
+                .hidden(true),
+        )
+        .arg(
             Arg::with_name("trusted-peers")
                 .long("trusted-peers")
                 .value_name("TRUSTED_PEERS")

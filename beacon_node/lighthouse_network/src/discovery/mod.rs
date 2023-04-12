@@ -1162,6 +1162,7 @@ mod tests {
                 syncnets: Default::default(),
             }),
             vec![],
+            false,
             &log,
         );
         Discovery::new(&keypair, &config, Arc::new(globals), &log)
