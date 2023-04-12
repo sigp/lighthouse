@@ -15,6 +15,7 @@ use std::io;
 use std::marker::PhantomData;
 use std::str::Utf8Error;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use store::AbstractExecPayload;
 use types::{
     AttesterSlashing, BeaconBlockRef, BeaconState, ChainSpec, Epoch, EthSpec, Hash256,
     IndexedAttestation, ProposerSlashing, PublicKeyBytes, SignedAggregateAndProof,
@@ -1736,9 +1737,9 @@ fn u64_to_i64(n: impl Into<u64>) -> i64 {
 }
 
 /// Returns the delay between the start of `block.slot` and `seen_timestamp`.
-pub fn get_block_delay_ms<T: EthSpec, S: SlotClock>(
+pub fn get_block_delay_ms<T: EthSpec, S: SlotClock, P: AbstractExecPayload<T>>(
     seen_timestamp: Duration,
-    block: BeaconBlockRef<'_, T>,
+    block: BeaconBlockRef<'_, T, P>,
     slot_clock: &S,
 ) -> Duration {
     get_slot_delay_ms::<S>(seen_timestamp, block.slot(), slot_clock)

@@ -202,6 +202,14 @@ pub struct ExecutionOptimisticResponse<T: Serialize + serde::de::DeserializeOwne
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 #[serde(bound = "T: Serialize + serde::de::DeserializeOwned")]
+pub struct ExecutionOptimisticFinalizedResponse<T: Serialize + serde::de::DeserializeOwned> {
+    pub execution_optimistic: Option<bool>,
+    pub finalized: Option<bool>,
+    pub data: T,
+}
+
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[serde(bound = "T: Serialize + serde::de::DeserializeOwned")]
 pub struct GenericResponse<T: Serialize + serde::de::DeserializeOwned> {
     pub data: T,
 }
@@ -219,6 +227,18 @@ impl<T: Serialize + serde::de::DeserializeOwned> GenericResponse<T> {
     ) -> ExecutionOptimisticResponse<T> {
         ExecutionOptimisticResponse {
             execution_optimistic: Some(execution_optimistic),
+            data: self.data,
+        }
+    }
+
+    pub fn add_execution_optimistic_finalized(
+        self,
+        execution_optimistic: bool,
+        finalized: bool,
+    ) -> ExecutionOptimisticFinalizedResponse<T> {
+        ExecutionOptimisticFinalizedResponse {
+            execution_optimistic: Some(execution_optimistic),
+            finalized: Some(finalized),
             data: self.data,
         }
     }
@@ -921,6 +941,8 @@ pub struct SseExtendedPayloadAttributesGeneric<T> {
     #[serde(with = "eth2_serde_utils::quoted_u64")]
     pub proposer_index: u64,
     pub parent_block_root: Hash256,
+    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    pub parent_block_number: u64,
     pub parent_block_hash: ExecutionBlockHash,
     pub payload_attributes: T,
 }
@@ -958,6 +980,7 @@ impl ForkVersionDeserialize for SseExtendedPayloadAttributes {
             proposal_slot: helper.proposal_slot,
             proposer_index: helper.proposer_index,
             parent_block_root: helper.parent_block_root,
+            parent_block_number: helper.parent_block_number,
             parent_block_hash: helper.parent_block_hash,
             payload_attributes: SsePayloadAttributes::deserialize_by_fork::<D>(
                 helper.payload_attributes,
@@ -1192,6 +1215,26 @@ pub struct LivenessResponseData {
     pub index: u64,
     pub epoch: Epoch,
     pub is_live: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ForkChoice {
+    pub justified_checkpoint: Checkpoint,
+    pub finalized_checkpoint: Checkpoint,
+    pub fork_choice_nodes: Vec<ForkChoiceNode>,
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ForkChoiceNode {
+    pub slot: Slot,
+    pub block_root: Hash256,
+    pub parent_root: Option<Hash256>,
+    pub justified_epoch: Option<Epoch>,
+    pub finalized_epoch: Option<Epoch>,
+    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    pub weight: u64,
+    pub validity: Option<String>,
+    pub execution_block_hash: Option<Hash256>,
 }
 
 #[cfg(test)]

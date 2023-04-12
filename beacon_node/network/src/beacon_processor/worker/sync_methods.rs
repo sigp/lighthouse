@@ -513,6 +513,21 @@ impl<T: BeaconChainTypes> Worker<T> {
                     })
                 }
             }
+            ref err @ BlockError::ParentExecutionPayloadInvalid { ref parent_root } => {
+                warn!(
+                    self.log,
+                    "Failed to sync chain built on invalid parent";
+                    "parent_root" => ?parent_root,
+                    "advice" => "check execution node for corruption then restart it and Lighthouse",
+                );
+                Err(ChainSegmentFailed {
+                    message: format!("Peer sent invalid block. Reason: {err:?}"),
+                    // We need to penalise harshly in case this represents an actual attack. In case
+                    // of a faulty EL it will usually require manual intervention to fix anyway, so
+                    // it's not too bad if we drop most of our peers.
+                    peer_action: Some(PeerAction::LowToleranceError),
+                })
+            }
             other => {
                 debug!(
                     self.log, "Invalid block received";
