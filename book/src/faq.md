@@ -233,4 +233,4 @@ In general it is unavoiadable to have some penalties occasionally. This is parti
 
 ### My beacon node is stuck at downloading historical block using checkpoing sync. What can I do?
 
-Check the number of peers you are connected to. If you have low peers, try to do port forwarding on the port 9000 TCP/UDP to increase peer count.
+Check the number of peers you are connected to. If you have low peers (less than 50), try to do port forwarding on the port 9000 TCP/UDP to increase peer count.
