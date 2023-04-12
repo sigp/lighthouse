@@ -7,8 +7,8 @@ use superstruct::superstruct;
 use types::blobs_sidecar::KzgCommitments;
 use types::{
     Blobs, DepositReceipt, EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadCapella,
-    ExecutionPayloadEip4844, ExecutionPayloadEip6110, ExecutionPayloadMerge, FixedVector, Transactions, Transaction, Unsigned,
-    VariableList, Withdrawal,
+    ExecutionPayloadEip4844, ExecutionPayloadEip6110, ExecutionPayloadMerge, FixedVector,
+    Transaction, Transactions, Unsigned, VariableList, Withdrawal,
 };
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
@@ -100,12 +100,12 @@ pub struct JsonExecutionPayload<T: EthSpec> {
     pub excess_data_gas: Uint256,
     pub block_hash: ExecutionBlockHash,
     #[serde(with = "ssz_types::serde_utils::list_of_hex_var_list")]
-    pub transactions: VariableList<Transaction<T::MaxBytesPerTransaction>, T::MaxTransactionsPerPayload>,
+    pub transactions:
+        VariableList<Transaction<T::MaxBytesPerTransaction>, T::MaxTransactionsPerPayload>,
     #[superstruct(only(V2, V3, V6110))]
     pub withdrawals: VariableList<JsonWithdrawal, T::MaxWithdrawalsPerPayload>,
     #[superstruct(only(V6110))]
     pub deposit_receipts: VariableList<JsonDepositReceipt, T::MaxDepositReceiptsPerPayload>,
-
 }
 
 impl<T: EthSpec> From<ExecutionPayloadMerge<T>> for JsonExecutionPayloadV1<T> {
