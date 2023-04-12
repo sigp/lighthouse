@@ -759,6 +759,10 @@ pub fn get_config<E: EthSpec>(
         client_config.always_prefer_builder_payload = true;
     }
 
+    // Backfill sync rate-limiting
+    client_config.chain.enable_backfill_rate_limiting =
+        !cli_args.is_present("disable-backfill-rate-limiting");
+
     Ok(client_config)
 }
 
@@ -1002,6 +1006,10 @@ pub fn set_network_config(
                     .map_err(|_| format!("Invalid Multiaddr: {}", multiaddr))
             })
             .collect::<Result<Vec<Multiaddr>, _>>()?;
+    }
+
+    if cli_args.is_present("disable-peer-scoring") {
+        config.disable_peer_scoring = true;
     }
 
     if let Some(trusted_peers_str) = cli_args.value_of("trusted-peers") {

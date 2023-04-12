@@ -156,8 +156,10 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             BanResult::BadScore => {
                 // This is a faulty state
                 error!(self.log, "Connected to a banned peer. Re-banning"; "peer_id" => %peer_id);
-                // Reban the peer
+                // Disconnect the peer.
                 self.goodbye_peer(&peer_id, GoodbyeReason::Banned, ReportSource::PeerManager);
+                // Re-ban the peer to prevent repeated errors.
+                self.events.push(PeerManagerEvent::Banned(peer_id, vec![]));
                 return;
             }
             BanResult::BannedIp(ip_addr) => {
