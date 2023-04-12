@@ -48,5 +48,5 @@ the environment variable `CROSS_FEATURES`. See [Feature
 ## Compilation Profiles
 
 When using the makefile the build profile can be controlled with the environment variable
-`PROFILE`. See [Compilation Profiles](./installation-source.md#compilation-profiles) for
+`CROSS_PROFILE`. See [Compilation Profiles](./installation-source.md#compilation-profiles) for
 available profiles.
