@@ -23,7 +23,7 @@ For details, see [Portability](#portability).
 ## Usage
 
 Each binary is contained in a `.tar.gz` archive. For this example, lets assume the user needs
-a portable `x86_64` binary.
+a `x86_64` binary.
 
 ### Steps
 
