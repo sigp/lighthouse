@@ -796,6 +796,10 @@ pub fn get_config<E: EthSpec>(
         client_config.always_prefer_builder_payload = true;
     }
 
+    // Backfill sync rate-limiting
+    client_config.chain.enable_backfill_rate_limiting =
+        !cli_args.is_present("disable-backfill-rate-limiting");
+
     Ok(client_config)
 }
 
