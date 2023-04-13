@@ -886,6 +886,28 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .conflicts_with("disable-proposer-reorgs")
         )
         .arg(
+            Arg::with_name("proposer-reorg-cutoff")
+                .long("proposer-reorg-cutoff")
+                .value_name("MILLISECONDS")
+                .help("Maximum delay after the start of the slot at which to propose a reorging \
+                       block. Lower values can prevent failed reorgs by ensuring the block has \
+                       ample time to propagate and be processed by the network. The default is \
+                       1/12th of a slot (1 second on mainnet)")
+                .conflicts_with("disable-proposer-reorgs")
+        )
+        .arg(
+            Arg::with_name("proposer-reorg-disallowed-offsets")
+                .long("proposer-reorg-disallowed-offsets")
+                .value_name("N1,N2,...")
+                .help("Comma-separated list of integer offsets which can be used to avoid \
+                       proposing reorging blocks at certain slots. An offset of N means that \
+                       reorging proposals will not be attempted at any slot such that \
+                       `slot % SLOTS_PER_EPOCH == N`. By default only re-orgs at offset 0 will be \
+                       avoided. Any offsets supplied with this flag will impose additional \
+                       restrictions.")
+                .conflicts_with("disable-proposer-reorgs")
+        )
+        .arg(
             Arg::with_name("prepare-payload-lookahead")
                 .long("prepare-payload-lookahead")
                 .value_name("MILLISECONDS")
