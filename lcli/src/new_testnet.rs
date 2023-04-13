@@ -81,6 +81,10 @@ pub fn run<T: EthSpec>(testnet_dir_path: PathBuf, matches: &ArgMatches) -> Resul
         spec.bellatrix_fork_epoch = Some(fork_epoch);
     }
 
+    if let Some(fork_epoch) = parse_optional(matches, "capella-fork-epoch")? {
+        spec.capella_fork_epoch = Some(fork_epoch);
+    }
+
     if let Some(ttd) = parse_optional(matches, "ttd")? {
         spec.terminal_total_difficulty = ttd;
     }
