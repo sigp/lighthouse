@@ -34,4 +34,6 @@ where
     pub identify: Identify,
     /// The peer manager that keeps track of peer's reputation and status.
     pub peer_manager: PeerManager<TSpec>,
+    /// Keep track of active and pending connections to enforce hard limits.
+    pub connection_limits: libp2p::connection_limits::Behaviour,
 }

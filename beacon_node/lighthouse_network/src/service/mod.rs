@@ -31,7 +31,7 @@ use libp2p::gossipsub::{
 };
 use libp2p::identify::{Behaviour as Identify, Config as IdentifyConfig, Event as IdentifyEvent};
 use libp2p::multiaddr::{Multiaddr, Protocol as MProtocol};
-use libp2p::swarm::{ConnectionLimits, Swarm, SwarmBuilder, SwarmEvent};
+use libp2p::swarm::{Swarm, SwarmBuilder, SwarmEvent};
 use libp2p::PeerId;
 use slog::{crit, debug, info, o, trace, warn};
 use std::path::PathBuf;
@@ -304,6 +304,27 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
             PeerManager::new(peer_manager_cfg, network_globals.clone(), &log)?
         };
 
+        let connection_limits = {
+            let limits = libp2p::connection_limits::ConnectionLimits::default()
+                .with_max_pending_incoming(Some(5))
+                .with_max_pending_outgoing(Some(16))
+                .with_max_established_incoming(Some(
+                    (config.target_peers as f32
+                        * (1.0 + PEER_EXCESS_FACTOR - MIN_OUTBOUND_ONLY_FACTOR))
+                        .ceil() as u32,
+                ))
+                .with_max_established_outgoing(Some(
+                    (config.target_peers as f32 * (1.0 + PEER_EXCESS_FACTOR)).ceil() as u32,
+                ))
+                .with_max_established(Some(
+                    (config.target_peers as f32 * (1.0 + PEER_EXCESS_FACTOR + PRIORITY_PEER_EXCESS))
+                        .ceil() as u32,
+                ))
+                .with_max_established_per_peer(Some(MAX_CONNECTIONS_PER_PEER));
+
+            libp2p::connection_limits::Behaviour::new(limits)
+        };
+
         let behaviour = {
             Behaviour {
                 gossipsub,
@@ -311,6 +332,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                 discovery,
                 identify,
                 peer_manager,
+                connection_limits,
             }
         };
 
@@ -328,22 +350,6 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
             }
 
             // sets up the libp2p connection limits
-            let limits = ConnectionLimits::default()
-                .with_max_pending_incoming(Some(5))
-                .with_max_pending_outgoing(Some(16))
-                .with_max_established_incoming(Some(
-                    (config.target_peers as f32
-                        * (1.0 + PEER_EXCESS_FACTOR - MIN_OUTBOUND_ONLY_FACTOR))
-                        .ceil() as u32,
-                ))
-                .with_max_established_outgoing(Some(
-                    (config.target_peers as f32 * (1.0 + PEER_EXCESS_FACTOR)).ceil() as u32,
-                ))
-                .with_max_established(Some(
-                    (config.target_peers as f32 * (1.0 + PEER_EXCESS_FACTOR + PRIORITY_PEER_EXCESS))
-                        .ceil() as u32,
-                ))
-                .with_max_established_per_peer(Some(MAX_CONNECTIONS_PER_PEER));
 
             (
                 SwarmBuilder::with_executor(
@@ -354,7 +360,6 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                 )
                 .notify_handler_buffer_size(std::num::NonZeroUsize::new(7).expect("Not zero"))
                 .per_connection_event_buffer_size(4)
-                .connection_limits(limits)
                 .build(),
                 bandwidth,
             )
@@ -1426,6 +1431,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                     BehaviourEvent::Discovery(de) => self.inject_discovery_event(de),
                     BehaviourEvent::Identify(ie) => self.inject_identify_event(ie),
                     BehaviourEvent::PeerManager(pe) => self.inject_pm_event(pe),
+                    BehaviourEvent::ConnectionLimits(le) => void::unreachable(le),
                 },
                 SwarmEvent::ConnectionEstablished { .. } => None,
                 SwarmEvent::ConnectionClosed { .. } => None,
