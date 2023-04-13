@@ -87,12 +87,16 @@ impl<E: EthSpec> ObservableOperation<E> for SignedBlsToExecutionChange {
 }
 
 impl<T: ObservableOperation<E>, E: EthSpec> ObservedOperations<T, E> {
-    pub fn verify_and_observe(
+    pub fn verify_and_observe_parametric<F>(
         &mut self,
         op: T,
+        validate: F,
         head_state: &BeaconState<E>,
         spec: &ChainSpec,
-    ) -> Result<ObservationOutcome<T, E>, T::Error> {
+    ) -> Result<ObservationOutcome<T, E>, T::Error>
+    where
+        F: Fn(T) -> Result<SigVerifiedOp<T, E>, T::Error>,
+    {
         self.reset_at_fork_boundary(head_state.slot(), spec);
 
         let observed_validator_indices = &mut self.observed_validator_indices;
@@ -112,13 +116,23 @@ impl<T: ObservableOperation<E>, E: EthSpec> ObservedOperations<T, E> {
         }
 
         // Validate the op using operation-specific logic (`verify_attester_slashing`, etc).
-        let verified_op = op.validate(head_state, spec)?;
+        let verified_op = validate(op)?;
 
         // Add the relevant indices to the set of known indices to prevent processing of duplicates
         // in the future.
         observed_validator_indices.extend(new_validator_indices);
 
         Ok(ObservationOutcome::New(verified_op))
+    }
+
+    pub fn verify_and_observe(
+        &mut self,
+        op: T,
+        head_state: &BeaconState<E>,
+        spec: &ChainSpec,
+    ) -> Result<ObservationOutcome<T, E>, T::Error> {
+        let validate = |op: T| op.validate(head_state, spec);
+        self.verify_and_observe_parametric(op, validate, head_state, spec)
     }
 
     /// Reset the cache when crossing a fork boundary.
@@ -149,31 +163,7 @@ impl<T: ObservableOperation<E> + VerifyOperationAt<E>, E: EthSpec> ObservedOpera
         head_state: &BeaconState<E>,
         spec: &ChainSpec,
     ) -> Result<ObservationOutcome<T, E>, T::Error> {
-        self.reset_at_fork_boundary(head_state.slot(), spec);
-
-        let observed_validator_indices = &mut self.observed_validator_indices;
-        let new_validator_indices = op.observed_validators();
-
-        // If all of the new validator indices have been previously observed, short-circuit
-        // the validation. This implements the uniqueness check part of the spec, which for attester
-        // slashings reads:
-        //
-        // At least one index in the intersection of the attesting indices of each attestation has
-        // not yet been seen in any prior attester_slashing.
-        if new_validator_indices
-            .iter()
-            .all(|index| observed_validator_indices.contains(index))
-        {
-            return Ok(ObservationOutcome::AlreadyKnown);
-        }
-
-        // Validate the op using operation-specific logic (`verify_attester_slashing`, etc).
-        let verified_op = op.validate_at(head_state, verify_at_epoch, spec)?;
-
-        // Add the relevant indices to the set of known indices to prevent processing of duplicates
-        // in the future.
-        observed_validator_indices.extend(new_validator_indices);
-
-        Ok(ObservationOutcome::New(verified_op))
+        let validate = |op: T| op.validate_at(head_state, verify_at_epoch, spec);
+        self.verify_and_observe_parametric(op, validate, head_state, spec)
     }
 }
