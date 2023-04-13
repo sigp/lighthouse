@@ -83,6 +83,52 @@ impl<T: BeaconChainTypes> Worker<T> {
                 return;
             }
         };
+        // Check if a block from this proposer is already known. If so, defer processing until later
+        // to avoid wasting time processing duplicates.
+        let proposal_already_known = self
+            .chain
+            .observed_block_producers
+            .read()
+            .proposer_has_been_observed(block.message())
+            .map_err(|e| {
+                error!(
+                    self.log,
+                    "Failed to check observed proposers";
+                    "error" => ?e,
+                    "source" => "rpc",
+                    "block_root" => %block_root
+                );
+            })
+            .unwrap_or(true);
+        if proposal_already_known {
+            debug!(
+                self.log,
+                "Delaying processing of duplicate RPC block";
+                "block_root" => ?block_root,
+                "proposer" => block.message().proposer_index(),
+                "slot" => block.slot()
+            );
+
+            // Send message to work reprocess queue to retry the block
+            let reprocess_msg = ReprocessQueueMessage::RpcBlock(QueuedRpcBlock {
+                block_root,
+                block: block.clone(),
+                process_type,
+                seen_timestamp,
+                should_process: true,
+            });
+
+            if reprocess_tx.try_send(reprocess_msg).is_err() {
+                error!(
+                    self.log,
+                    "Failed to inform block import";
+                    "source" => "rpc",
+                    "block_root" => %block_root
+                );
+            }
+            return;
+        }
+
         let slot = block.slot();
         let parent_root = block.message().parent_root();
         let result = self
