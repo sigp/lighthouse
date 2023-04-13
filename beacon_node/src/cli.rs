@@ -264,7 +264,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("proposer-only")
                 .long("proposer-only")
                 .help("Sets this beacon node at be a block proposer only node. \
-                       This will run the beacon node in a minimal configuration that is sufficient for block production only. This flag should be used \
+                       This will run the beacon node in a minimal configuration that is sufficient for block publishing only. This flag should be used \
                        for a beacon node being referenced by validator client using the --proposer-node flag. This configuration is for enabling more secure setups.")
                 .takes_value(false),
         )
