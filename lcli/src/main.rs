@@ -10,6 +10,7 @@ mod generate_bootnode_enr;
 mod indexed_attestations;
 mod insecure_validators;
 mod interop_genesis;
+mod mnemonics_validators;
 mod new_testnet;
 mod parse_ssz;
 mod replace_state_pubkeys;
@@ -450,6 +451,22 @@ fn main() {
                         ),
                 )
                 .arg(
+                    Arg::with_name("derived-genesis-state")
+                        .long("derived-genesis-state")
+                        .takes_value(false)
+                        .help(
+                            "If present, a genesis.ssz file will be generated with keys generated from a given mnemonic.",
+                        ),
+                )
+                .arg(
+                    Arg::with_name("mnemonics-phrase")
+                        .long("mnemonics-phrase")
+                        .value_name("MNEMONICS_PHRASE")
+                        .takes_value(true)
+                        .requires("derived-genesis-state")
+                        .help("The mnemonic with which we generate the validator keys for a derived genesis state"),
+                )
+                .arg(
                     Arg::with_name("min-genesis-time")
                         .long("min-genesis-time")
                         .value_name("UNIX_SECONDS")
@@ -722,6 +739,38 @@ fn main() {
                 )
         )
         .subcommand(
+            SubCommand::with_name("mnemonics-validators")
+                .about("Produces validator directories by deriving the keys from a mnemonic.")
+                .arg(
+                    Arg::with_name("count")
+                        .long("count")
+                        .value_name("COUNT")
+                        .takes_value(true)
+                        .help("Produces validators in the range of 0..count."),
+                )
+                .arg(
+                    Arg::with_name("base-dir")
+                        .long("base-dir")
+                        .value_name("BASE_DIR")
+                        .takes_value(true)
+                        .help("The base directory where validator keypairs and secrets are stored"),
+                )
+                .arg(
+                    Arg::with_name("node-count")
+                        .long("node-count")
+                        .value_name("NODE_COUNT")
+                        .takes_value(true)
+                        .help("The number of nodes to divide the validator keys to"),
+                )
+                .arg(
+                    Arg::with_name("mnemonics-phrase")
+                        .long("mnemonics-phrase")
+                        .value_name("MNEMONICS_PHRASE")
+                        .takes_value(true)
+                        .help("The mnemonic with which we generate the validator keys"),
+                )
+        )
+        .subcommand(
             SubCommand::with_name("indexed-attestations")
                 .about("Convert attestations to indexed form, using the committees from a state.")
                 .arg(
@@ -862,6 +911,8 @@ fn run<T: EthSpec>(
             .map_err(|e| format!("Failed to run generate-bootnode-enr command: {}", e)),
         ("insecure-validators", Some(matches)) => insecure_validators::run(matches)
             .map_err(|e| format!("Failed to run insecure-validators command: {}", e)),
+        ("mnemonics-validators", Some(matches)) => mnemonics_validators::run(matches)
+            .map_err(|e| format!("Failed to run mnemonics-validators command: {}", e)),
         ("indexed-attestations", Some(matches)) => indexed_attestations::run::<T>(matches)
             .map_err(|e| format!("Failed to run indexed-attestations command: {}", e)),
         ("block-root", Some(matches)) => block_root::run::<T>(env, matches)
