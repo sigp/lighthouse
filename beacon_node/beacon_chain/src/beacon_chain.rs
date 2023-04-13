@@ -202,6 +202,9 @@ pub struct PrePayloadAttributes {
     /// The parent block number is not part of the payload attributes sent to the EL, but *is*
     /// sent to builders via SSE.
     pub parent_block_number: u64,
+    /// The parent block slot is not part of the payload attributes either but is useful for
+    /// deciding whether or not to actually send the payload attributes to the EL.
+    pub parent_block_slot: Slot,
 }
 
 /// Define whether a forkchoiceUpdate needs to be checked for an override (`Yes`) or has already
@@ -3869,7 +3872,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         // Compute the proposer index.
-        let head_epoch = cached_head.head_slot().epoch(T::EthSpec::slots_per_epoch());
+        let head_slot = cached_head.head_slot();
+        let head_epoch = head_slot.epoch(T::EthSpec::slots_per_epoch());
         let shuffling_decision_root = if head_epoch == proposal_epoch {
             cached_head
                 .snapshot
@@ -3937,19 +3941,22 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Get the `prev_randao` and parent block number.
         let head_block_number = cached_head.head_block_number()?;
-        let (prev_randao, parent_block_number) = if proposer_head == parent_block_root {
-            (
-                cached_head.parent_random()?,
-                head_block_number.saturating_sub(1),
-            )
-        } else {
-            (cached_head.head_random()?, head_block_number)
-        };
+        let (prev_randao, parent_block_number, parent_block_slot) =
+            if proposer_head == parent_block_root {
+                (
+                    cached_head.parent_random()?,
+                    head_block_number.saturating_sub(1),
+                    head_slot - 1,
+                )
+            } else {
+                (cached_head.head_random()?, head_block_number, head_slot)
+            };
 
         Ok(Some(PrePayloadAttributes {
             proposer_index,
             prev_randao,
             parent_block_number,
+            parent_block_slot,
         }))
     }
 
@@ -4101,7 +4108,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         // Only attempt a re-org if we have a proposer registered for the re-org slot.
-        let proposing_at_re_org_slot = {
+        let proposing_at_re_org_slot = self.config.always_prepare_payload || {
             // The proposer shuffling has the same decision root as the next epoch attestation
             // shuffling. We know our re-org block is not on the epoch boundary, so it has the
             // same proposer shuffling as the head (but not necessarily the parent which may lie
@@ -4931,23 +4938,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             payload_attributes
         };
 
-        // Push a server-sent event (probably to a block builder or relay).
-        if let Some(event_handler) = &self.event_handler {
-            if event_handler.has_payload_attributes_subscribers() {
-                event_handler.register(EventKind::PayloadAttributes(ForkVersionedResponse {
-                    data: SseExtendedPayloadAttributes {
-                        proposal_slot: prepare_slot,
-                        proposer_index: proposer,
-                        parent_block_root: head_root,
-                        parent_block_number: pre_payload_attributes.parent_block_number,
-                        parent_block_hash: forkchoice_update_params.head_hash.unwrap_or_default(),
-                        payload_attributes: payload_attributes.into(),
-                    },
-                    version: Some(self.spec.fork_name_at_slot::<T::EthSpec>(prepare_slot)),
-                }));
-            }
-        }
-
         let till_prepare_slot =
             if let Some(duration) = self.slot_clock.duration_to_slot(prepare_slot) {
                 duration
@@ -4968,8 +4958,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // If we are close enough to the proposal slot, send an fcU, which will have payload
         // attributes filled in by the execution layer cache we just primed.
-        if self.config.always_prepare_payload
-            || till_prepare_slot <= self.config.prepare_payload_lookahead
+        //
+        // Send an fcU *earlier* than the lookahead *if* the block being built upon is one slot
+        // prior to the prepare slot. This covers the happy case where a block arrives on-time and
+        // we want to build upon it immediately in the next slot. If re-orgs are enabled and we are
+        // planning to build upon the parent of the head then we will wait until the configured
+        // lookahead before sending the fcU.
+        if till_prepare_slot <= self.config.prepare_payload_lookahead
+            || pre_payload_attributes.parent_block_slot + 1 == prepare_slot
         {
             debug!(
                 self.log,
@@ -4977,6 +4973,25 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 "till_prepare_slot" => ?till_prepare_slot,
                 "prepare_slot" => prepare_slot
             );
+
+            // Push a server-sent event (probably to a block builder or relay).
+            if let Some(event_handler) = &self.event_handler {
+                if event_handler.has_payload_attributes_subscribers() {
+                    event_handler.register(EventKind::PayloadAttributes(ForkVersionedResponse {
+                        data: SseExtendedPayloadAttributes {
+                            proposal_slot: prepare_slot,
+                            proposer_index: proposer,
+                            parent_block_root: head_root,
+                            parent_block_number: pre_payload_attributes.parent_block_number,
+                            parent_block_hash: forkchoice_update_params
+                                .head_hash
+                                .unwrap_or_default(),
+                            payload_attributes: payload_attributes.into(),
+                        },
+                        version: Some(self.spec.fork_name_at_slot::<T::EthSpec>(prepare_slot)),
+                    }));
+                }
+            }
 
             self.update_execution_engine_forkchoice(
                 current_slot,
