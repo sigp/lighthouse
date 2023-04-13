@@ -38,6 +38,7 @@ state_processing = { path = "../../consensus/state_processing" }
 tree_hash = "0.4.1"
 types = { path = "../../consensus/types" }
 tokio = "1.14.0"
+tokio-stream = "0.1.3"
 eth1 = { path = "../eth1" }
 futures = "0.3.7"
 genesis = { path = "../genesis" }

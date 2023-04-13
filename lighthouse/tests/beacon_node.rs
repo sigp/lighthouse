@@ -1,4 +1,4 @@
-use beacon_node::{beacon_chain::CountUnrealizedFull, ClientConfig as Config};
+use beacon_node::ClientConfig as Config;
 
 use crate::exec::{CommandLineTestExec, CompletedTest};
 use beacon_node::beacon_chain::chain_config::{
@@ -119,6 +119,26 @@ fn disable_lock_timeouts_flag() {
 }
 
 #[test]
+fn shuffling_cache_default() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config.chain.shuffling_cache_size,
+                beacon_node::beacon_chain::shuffling_cache::DEFAULT_CACHE_SIZE
+            )
+        });
+}
+
+#[test]
+fn shuffling_cache_set() {
+    CommandLineTest::new()
+        .flag("shuffling-cache-size", Some("500"))
+        .run_with_zero_port()
+        .with_config(|config| assert_eq!(config.chain.shuffling_cache_size, 500));
+}
+
+#[test]
 fn fork_choice_before_proposal_timeout_default() {
     CommandLineTest::new()
         .run_with_zero_port()
@@ -213,73 +233,57 @@ fn paranoid_block_proposal_on() {
 }
 
 #[test]
-fn count_unrealized_default() {
-    CommandLineTest::new()
-        .run_with_zero_port()
-        .with_config(|config| assert!(config.chain.count_unrealized));
-}
-
-#[test]
 fn count_unrealized_no_arg() {
     CommandLineTest::new()
         .flag("count-unrealized", None)
-        .run_with_zero_port()
-        .with_config(|config| assert!(config.chain.count_unrealized));
+        // This flag should be ignored, so there's nothing to test but that the
+        // client starts with the flag present.
+        .run_with_zero_port();
 }
 
 #[test]
 fn count_unrealized_false() {
     CommandLineTest::new()
         .flag("count-unrealized", Some("false"))
-        .run_with_zero_port()
-        .with_config(|config| assert!(!config.chain.count_unrealized));
+        // This flag should be ignored, so there's nothing to test but that the
+        // client starts with the flag present.
+        .run_with_zero_port();
 }
 
 #[test]
 fn count_unrealized_true() {
     CommandLineTest::new()
         .flag("count-unrealized", Some("true"))
-        .run_with_zero_port()
-        .with_config(|config| assert!(config.chain.count_unrealized));
+        // This flag should be ignored, so there's nothing to test but that the
+        // client starts with the flag present.
+        .run_with_zero_port();
 }
 
 #[test]
 fn count_unrealized_full_no_arg() {
     CommandLineTest::new()
         .flag("count-unrealized-full", None)
-        .run_with_zero_port()
-        .with_config(|config| {
-            assert_eq!(
-                config.chain.count_unrealized_full,
-                CountUnrealizedFull::False
-            )
-        });
+        // This flag should be ignored, so there's nothing to test but that the
+        // client starts with the flag present.
+        .run_with_zero_port();
 }
 
 #[test]
 fn count_unrealized_full_false() {
     CommandLineTest::new()
         .flag("count-unrealized-full", Some("false"))
-        .run_with_zero_port()
-        .with_config(|config| {
-            assert_eq!(
-                config.chain.count_unrealized_full,
-                CountUnrealizedFull::False
-            )
-        });
+        // This flag should be ignored, so there's nothing to test but that the
+        // client starts with the flag present.
+        .run_with_zero_port();
 }
 
 #[test]
 fn count_unrealized_full_true() {
     CommandLineTest::new()
         .flag("count-unrealized-full", Some("true"))
-        .run_with_zero_port()
-        .with_config(|config| {
-            assert_eq!(
-                config.chain.count_unrealized_full,
-                CountUnrealizedFull::True
-            )
-        });
+        // This flag should be ignored, so there's nothing to test but that the
+        // client starts with the flag present.
+        .run_with_zero_port();
 }
 
 #[test]
@@ -1041,11 +1045,31 @@ fn disable_discovery_flag() {
         .with_config(|config| assert!(config.network.disable_discovery));
 }
 #[test]
+fn disable_peer_scoring_flag() {
+    CommandLineTest::new()
+        .flag("disable-peer-scoring", None)
+        .run_with_zero_port()
+        .with_config(|config| assert!(config.network.disable_peer_scoring));
+}
+#[test]
 fn disable_upnp_flag() {
     CommandLineTest::new()
         .flag("disable-upnp", None)
         .run_with_zero_port()
         .with_config(|config| assert!(!config.network.upnp_enabled));
+}
+#[test]
+fn disable_backfill_rate_limiting_flag() {
+    CommandLineTest::new()
+        .flag("disable-backfill-rate-limiting", None)
+        .run_with_zero_port()
+        .with_config(|config| assert!(!config.chain.enable_backfill_rate_limiting));
+}
+#[test]
+fn default_backfill_rate_limiting_flag() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| assert!(config.chain.enable_backfill_rate_limiting));
 }
 #[test]
 fn default_boot_nodes() {

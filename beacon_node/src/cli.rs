@@ -233,6 +233,14 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(false),
         )
         .arg(
+            Arg::with_name("disable-peer-scoring")
+                .long("disable-peer-scoring")
+                .help("Disables peer scoring in lighthouse. WARNING: This is a dev only flag is only meant to be used in local testing scenarios \
+                        Using this flag on a real network may cause your node to become eclipsed and see a different view of the network")
+                .takes_value(false)
+                .hidden(true),
+        )
+        .arg(
             Arg::with_name("trusted-peers")
                 .long("trusted-peers")
                 .value_name("TRUSTED_PEERS")
@@ -266,6 +274,15 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .help("Sets this beacon node at be a block proposer only node. \
                        This will run the beacon node in a minimal configuration that is sufficient for block publishing only. This flag should be used \
                        for a beacon node being referenced by validator client using the --proposer-node flag. This configuration is for enabling more secure setups.")
+                .takes_value(false),
+        )
+
+        .arg(
+            Arg::with_name("disable-backfill-rate-limiting")
+                .long("disable-backfill-rate-limiting")
+                .help("Disable the backfill sync rate-limiting. This allow users to just sync the entire chain as fast \
+                    as possible, however it can result in resource contention which degrades staking performance. Stakers \
+                    should generally choose to avoid this flag since backfill sync is not required for staking.")
                 .takes_value(false),
         )
         /* REST API related arguments */
@@ -376,6 +393,14 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     If no value is supplied, the CORS allowed origin is set to the listen \
                     address of this server (e.g., http://localhost:5054).")
                 .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("shuffling-cache-size")
+            .long("shuffling-cache-size")
+            .help("Some HTTP API requests can be optimised by caching the shufflings at each epoch. \
+            This flag allows the user to set the shuffling cache size in epochs. \
+            Shufflings are dependent on validator count and setting this value to a large number can consume a large amount of memory.")
+            .takes_value(true)
         )
 
         /*
@@ -965,8 +990,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("count-unrealized")
                 .long("count-unrealized")
                 .hidden(true)
-                .help("Enables an alternative, potentially more performant FFG \
-                       vote tracking method.")
+                .help("This flag is deprecated and has no effect.")
                 .takes_value(true)
                 .default_value("true")
         )
@@ -974,7 +998,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("count-unrealized-full")
                 .long("count-unrealized-full")
                 .hidden(true)
-                .help("Stricter version of `count-unrealized`.")
+                .help("This flag is deprecated and has no effect.")
                 .takes_value(true)
                 .default_value("false")
         )

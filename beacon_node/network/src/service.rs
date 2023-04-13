@@ -472,7 +472,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
     ) {
         match ev {
             NetworkEvent::PeerConnectedOutgoing(peer_id) => {
-                self.send_to_router(RouterMessage::PeerDialed(peer_id));
+                self.send_to_router(RouterMessage::StatusPeer(peer_id));
             }
             NetworkEvent::PeerConnectedIncoming(_)
             | NetworkEvent::PeerBanned(_)

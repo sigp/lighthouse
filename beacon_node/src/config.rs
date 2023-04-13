@@ -148,6 +148,10 @@ pub fn get_config<E: EthSpec>(
         client_config.http_api.allow_sync_stalled = true;
     }
 
+    if let Some(cache_size) = clap_utils::parse_optional(cli_args, "shuffling-cache-size")? {
+        client_config.chain.shuffling_cache_size = cache_size;
+    }
+
     /*
      * Prometheus metrics HTTP server
      */
@@ -705,10 +709,21 @@ pub fn get_config<E: EthSpec>(
         client_config.chain.fork_choice_before_proposal_timeout_ms = timeout;
     }
 
-    client_config.chain.count_unrealized =
-        clap_utils::parse_required(cli_args, "count-unrealized")?;
-    client_config.chain.count_unrealized_full =
-        clap_utils::parse_required::<bool>(cli_args, "count-unrealized-full")?.into();
+    if !clap_utils::parse_required::<bool>(cli_args, "count-unrealized")? {
+        warn!(
+            log,
+            "The flag --count-unrealized is deprecated and will be removed";
+            "info" => "any use of the flag will have no effect"
+        );
+    }
+
+    if clap_utils::parse_required::<bool>(cli_args, "count-unrealized-full")? {
+        warn!(
+            log,
+            "The flag --count-unrealized-full is deprecated and will be removed";
+            "info" => "setting it to `true` has no effect"
+        );
+    }
 
     client_config.chain.always_reset_payload_statuses =
         cli_args.is_present("reset-payload-statuses");
@@ -743,6 +758,10 @@ pub fn get_config<E: EthSpec>(
     if cli_args.is_present("always-prefer-builder-payload") {
         client_config.always_prefer_builder_payload = true;
     }
+
+    // Backfill sync rate-limiting
+    client_config.chain.enable_backfill_rate_limiting =
+        !cli_args.is_present("disable-backfill-rate-limiting");
 
     Ok(client_config)
 }
@@ -990,6 +1009,10 @@ pub fn set_network_config(
                     .map_err(|_| format!("Invalid Multiaddr: {}", multiaddr))
             })
             .collect::<Result<Vec<Multiaddr>, _>>()?;
+    }
+
+    if cli_args.is_present("disable-peer-scoring") {
+        config.disable_peer_scoring = true;
     }
 
     if let Some(trusted_peers_str) = cli_args.value_of("trusted-peers") {

@@ -95,6 +95,7 @@ pub struct ProductionValidatorClient<T: EthSpec> {
     doppelganger_service: Option<Arc<DoppelgangerService>>,
     preparation_service: PreparationService<SystemTimeSlotClock, T>,
     validator_store: Arc<ValidatorStore<SystemTimeSlotClock, T>>,
+    slot_clock: SystemTimeSlotClock,
     http_api_listen_addr: Option<SocketAddr>,
     config: Config,
 }
@@ -496,7 +497,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
         let sync_committee_service = SyncCommitteeService::new(
             duties_service.clone(),
             validator_store.clone(),
-            slot_clock,
+            slot_clock.clone(),
             beacon_nodes.clone(),
             context.service_context("sync_committee".into()),
         );
@@ -517,6 +518,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             preparation_service,
             validator_store,
             config,
+            slot_clock,
             http_api_listen_addr: None,
         })
     }
@@ -579,6 +581,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
                 graffiti_flag: self.config.graffiti,
                 spec: self.context.eth2_config.spec.clone(),
                 config: self.config.http_api.clone(),
+                slot_clock: self.slot_clock.clone(),
                 log: log.clone(),
                 _phantom: PhantomData,
             });
