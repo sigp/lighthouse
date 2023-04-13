@@ -259,8 +259,11 @@ jobs:
       uses: arduino/setup-protoc@e52d9eb8f7b63115df1ac544a1376fdbf5a39612
       with:
         repo-token: ${{ secrets.GITHUB_TOKEN }}
-    - name: Install ganache
-      run: sudo npm install -g ganache
+    - name: Install geth
+      run: |
+          sudo add-apt-repository -y ppa:ethereum/ethereum
+          sudo apt-get update
+          sudo apt-get install ethereum
     - name: Install lighthouse and lcli
       run: |
           make
@@ -268,11 +271,11 @@ jobs:
     - name: Run the doppelganger protection success test script
       run: |
           cd scripts/tests
-          ./doppelganger_protection.sh success
+          ./doppelganger_protection.sh success ../../genesis.json
     - name: Run the doppelganger protection failure test script
       run: |
           cd scripts/tests
-          ./doppelganger_protection.sh failure
+          ./doppelganger_protection.sh failure genesis.json
   execution-engine-integration-ubuntu:
     name: execution-engine-integration-ubuntu
     runs-on: ubuntu-latest
