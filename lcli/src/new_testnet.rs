@@ -13,8 +13,10 @@ use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
 use types::ExecutionBlockHash;
 use types::{
-    test_utils::generate_deterministic_keypairs, Address, BeaconState, ChainSpec, Config, Eth1Data,
-    EthSpec, ExecutionPayloadHeader, Hash256, Keypair, PublicKey, Validator,
+    test_utils::generate_deterministic_keypairs, Address, BeaconState, ChainSpec, Config, Epoch,
+    Eth1Data, EthSpec, ExecutionPayloadHeader, ExecutionPayloadHeaderCapella,
+    ExecutionPayloadHeaderMerge, ExecutionPayloadHeaderRefMut, ForkName, Hash256, Keypair,
+    PublicKey, Validator,
 };
 
 pub fn run<T: EthSpec>(testnet_dir_path: PathBuf, matches: &ArgMatches) -> Result<(), String> {
@@ -88,8 +90,21 @@ pub fn run<T: EthSpec>(testnet_dir_path: PathBuf, matches: &ArgMatches) -> Resul
                         .map_err(|e| format!("Unable to open {}: {}", filename, e))?;
                     file.read_to_end(&mut bytes)
                         .map_err(|e| format!("Unable to read {}: {}", filename, e))?;
-                    ExecutionPayloadHeader::<T>::from_ssz_bytes(bytes.as_slice())
-                        .map_err(|e| format!("SSZ decode failed: {:?}", e))
+                    let fork_name = spec.fork_name_at_epoch(Epoch::new(0));
+                    match fork_name {
+                        ForkName::Base | ForkName::Altair => Err(ssz::DecodeError::BytesInvalid(
+                            "genesis fork must be post-merge".to_string(),
+                        )),
+                        ForkName::Merge => {
+                            ExecutionPayloadHeaderMerge::<T>::from_ssz_bytes(bytes.as_slice())
+                                .map(ExecutionPayloadHeader::Merge)
+                        }
+                        ForkName::Capella => {
+                            ExecutionPayloadHeaderCapella::<T>::from_ssz_bytes(bytes.as_slice())
+                                .map(ExecutionPayloadHeader::Capella)
+                        }
+                    }
+                    .map_err(|e| format!("SSZ decode failed: {:?}", e))
                 })
                 .transpose()?;
 
@@ -97,9 +112,9 @@ pub fn run<T: EthSpec>(testnet_dir_path: PathBuf, matches: &ArgMatches) -> Resul
             execution_payload_header.as_ref()
         {
             let eth1_block_hash =
-                parse_optional(matches, "eth1-block-hash")?.unwrap_or(payload.block_hash);
+                parse_optional(matches, "eth1-block-hash")?.unwrap_or_else(|| payload.block_hash());
             let genesis_time =
-                parse_optional(matches, "genesis-time")?.unwrap_or(payload.timestamp);
+                parse_optional(matches, "genesis-time")?.unwrap_or_else(|| payload.timestamp());
             (eth1_block_hash, genesis_time)
         } else {
             let eth1_block_hash = parse_required(matches, "eth1-block-hash").map_err(|_| {
@@ -157,12 +172,14 @@ fn initialize_state_with_validators<T: EthSpec>(
     execution_payload_header: Option<ExecutionPayloadHeader<T>>,
     spec: &ChainSpec,
 ) -> Result<BeaconState<T>, String> {
-    let default_header: ExecutionPayloadHeader<T> = ExecutionPayloadHeader {
-        block_hash: ExecutionBlockHash(eth1_block_hash),
-        parent_hash: ExecutionBlockHash::zero(),
-        ..ExecutionPayloadHeader::default()
-    };
-    let execution_payload_header = execution_payload_header.or(Some(default_header));
+    // If no header is provided, then start from a Bellatrix state by default
+    let default_header: ExecutionPayloadHeader<T> =
+        ExecutionPayloadHeader::Merge(ExecutionPayloadHeaderMerge {
+            block_hash: ExecutionBlockHash(eth1_block_hash),
+            parent_hash: ExecutionBlockHash::zero(),
+            ..ExecutionPayloadHeaderMerge::default()
+        });
+    let execution_payload_header = execution_payload_header.or(Some(default_header)).unwrap();
     // Empty eth1 data
     let eth1_data = Eth1Data {
         block_hash: eth1_block_hash,
@@ -226,10 +243,21 @@ fn initialize_state_with_validators<T: EthSpec>(
         // Override latest execution payload header.
         // See https://github.com/ethereum/consensus-specs/blob/v1.1.0/specs/merge/beacon-chain.md#testing
 
-        if let Some(ref header) = execution_payload_header {
-            *state.latest_execution_payload_header_mut().map_err(|_| {
-                "State must contain bellatrix execution payload header".to_string()
-            })? = header.clone();
+        // Currently, we only support starting from a bellatrix state
+        match state
+            .latest_execution_payload_header_mut()
+            .map_err(|e| format!("Failed to get execution payload header: {:?}", e))?
+        {
+            ExecutionPayloadHeaderRefMut::Merge(header_mut) => {
+                if let ExecutionPayloadHeader::Merge(eph) = execution_payload_header {
+                    *header_mut = eph;
+                } else {
+                    return Err("Execution payload header must be a bellatrix header".to_string());
+                }
+            }
+            ExecutionPayloadHeaderRefMut::Capella(_) => {
+                return Err("Cannot start genesis from a capella state".to_string())
+            }
         }
     }
 

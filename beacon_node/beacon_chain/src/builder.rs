@@ -18,7 +18,7 @@ use crate::{
 };
 use eth1::Config as Eth1Config;
 use execution_layer::ExecutionLayer;
-use fork_choice::{ForkChoice, ResetPayloadStatuses};
+use fork_choice::{CountUnrealized, ForkChoice, ResetPayloadStatuses};
 use futures::channel::mpsc::Sender;
 use operation_pool::{OperationPool, PersistedOperationPool};
 use parking_lot::RwLock;
@@ -265,7 +265,6 @@ where
                 ResetPayloadStatuses::always_reset_conditionally(
                     self.chain_config.always_reset_payload_statuses,
                 ),
-                self.chain_config.count_unrealized_full,
                 &self.spec,
                 log,
             )
@@ -384,7 +383,6 @@ where
             &genesis.beacon_block,
             &genesis.beacon_state,
             current_slot,
-            self.chain_config.count_unrealized_full,
             &self.spec,
         )
         .map_err(|e| format!("Unable to initialize ForkChoice: {:?}", e))?;
@@ -503,7 +501,6 @@ where
             &snapshot.beacon_block,
             &snapshot.beacon_state,
             current_slot,
-            self.chain_config.count_unrealized_full,
             &self.spec,
         )
         .map_err(|e| format!("Unable to initialize ForkChoice: {:?}", e))?;
@@ -681,8 +678,7 @@ where
                 store.clone(),
                 Some(current_slot),
                 &self.spec,
-                self.chain_config.count_unrealized.into(),
-                self.chain_config.count_unrealized_full,
+                CountUnrealized::True,
             )?;
         }
 
@@ -765,6 +761,7 @@ where
         let genesis_time = head_snapshot.beacon_state.genesis_time();
         let head_for_snapshot_cache = head_snapshot.clone();
         let canonical_head = CanonicalHead::new(fork_choice, Arc::new(head_snapshot));
+        let shuffling_cache_size = self.chain_config.shuffling_cache_size;
 
         let beacon_chain = BeaconChain {
             spec: self.spec,
@@ -800,6 +797,7 @@ where
             observed_voluntary_exits: <_>::default(),
             observed_proposer_slashings: <_>::default(),
             observed_attester_slashings: <_>::default(),
+            observed_bls_to_execution_changes: <_>::default(),
             latest_seen_finality_update: <_>::default(),
             latest_seen_optimistic_update: <_>::default(),
             eth1_chain: self.eth1_chain,
@@ -817,7 +815,7 @@ where
                 DEFAULT_SNAPSHOT_CACHE_SIZE,
                 head_for_snapshot_cache,
             )),
-            shuffling_cache: TimeoutRwLock::new(ShufflingCache::new()),
+            shuffling_cache: TimeoutRwLock::new(ShufflingCache::new(shuffling_cache_size)),
             eth1_finalization_cache: TimeoutRwLock::new(Eth1FinalizationCache::new(log.clone())),
             beacon_proposer_cache: <_>::default(),
             block_times_cache: <_>::default(),

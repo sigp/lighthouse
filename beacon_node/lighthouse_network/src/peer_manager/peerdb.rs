@@ -41,12 +41,14 @@ pub struct PeerDB<TSpec: EthSpec> {
     disconnected_peers: usize,
     /// Counts banned peers in total and per ip
     banned_peers_count: BannedPeersCount,
+    /// Specifies if peer scoring is disabled.
+    disable_peer_scoring: bool,
     /// PeerDB's logger
     log: slog::Logger,
 }
 
 impl<TSpec: EthSpec> PeerDB<TSpec> {
-    pub fn new(trusted_peers: Vec<PeerId>, log: &slog::Logger) -> Self {
+    pub fn new(trusted_peers: Vec<PeerId>, disable_peer_scoring: bool, log: &slog::Logger) -> Self {
         // Initialize the peers hashmap with trusted peers
         let peers = trusted_peers
             .into_iter()
@@ -56,6 +58,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
             log: log.clone(),
             disconnected_peers: 0,
             banned_peers_count: BannedPeersCount::default(),
+            disable_peer_scoring,
             peers,
         }
     }
@@ -704,7 +707,11 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
                 warn!(log_ref, "Updating state of unknown peer";
                     "peer_id" => %peer_id, "new_state" => ?new_state);
             }
-            PeerInfo::default()
+            if self.disable_peer_scoring {
+                PeerInfo::trusted_peer_info()
+            } else {
+                PeerInfo::default()
+            }
         });
 
         // Ban the peer if the score is not already low enough.
@@ -844,8 +851,16 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
                             .collect::<Vec<_>>();
                         return Some(BanOperation::ReadyToBan(banned_ips));
                     }
-                    PeerConnectionStatus::Disconnecting { .. }
-                    | PeerConnectionStatus::Unknown
+                    PeerConnectionStatus::Disconnecting { .. } => {
+                        // The peer has been disconnected but not banned. Inform the peer manager
+                        // that this peer could be eligible for a temporary ban.
+                        self.disconnected_peers += 1;
+                        info.set_connection_status(PeerConnectionStatus::Disconnected {
+                            since: Instant::now(),
+                        });
+                        return Some(BanOperation::TemporaryBan);
+                    }
+                    PeerConnectionStatus::Unknown
                     | PeerConnectionStatus::Connected { .. }
                     | PeerConnectionStatus::Dialing { .. } => {
                         self.disconnected_peers += 1;
@@ -1177,6 +1192,9 @@ impl From<Option<BanOperation>> for ScoreUpdateResult {
 
 /// When attempting to ban a peer provides the peer manager with the operation that must be taken.
 pub enum BanOperation {
+    /// Optionally temporarily ban this peer to prevent instantaneous reconnection.
+    /// The peer manager will decide if temporary banning is required.
+    TemporaryBan,
     // The peer is currently connected. Perform a graceful disconnect before banning at the swarm
     // level.
     DisconnectThePeer,
@@ -1289,7 +1307,7 @@ mod tests {
 
     fn get_db() -> PeerDB<M> {
         let log = build_log(slog::Level::Debug, false);
-        PeerDB::new(vec![], &log)
+        PeerDB::new(vec![], false, &log)
     }
 
     #[test]
@@ -1988,7 +2006,7 @@ mod tests {
     fn test_trusted_peers_score() {
         let trusted_peer = PeerId::random();
         let log = build_log(slog::Level::Debug, false);
-        let mut pdb: PeerDB<M> = PeerDB::new(vec![trusted_peer], &log);
+        let mut pdb: PeerDB<M> = PeerDB::new(vec![trusted_peer], false, &log);
 
         pdb.connect_ingoing(&trusted_peer, "/ip4/0.0.0.0".parse().unwrap(), None);
 
@@ -2004,6 +2022,30 @@ mod tests {
 
         assert_eq!(
             pdb.peer_info(&trusted_peer).unwrap().score().score(),
+            Score::max_score().score()
+        );
+    }
+
+    #[test]
+    fn test_disable_peer_scoring() {
+        let peer = PeerId::random();
+        let log = build_log(slog::Level::Debug, false);
+        let mut pdb: PeerDB<M> = PeerDB::new(vec![], true, &log);
+
+        pdb.connect_ingoing(&peer, "/ip4/0.0.0.0".parse().unwrap(), None);
+
+        // Check trusted status and score
+        assert!(pdb.peer_info(&peer).unwrap().is_trusted());
+        assert_eq!(
+            pdb.peer_info(&peer).unwrap().score().score(),
+            Score::max_score().score()
+        );
+
+        // Adding/Subtracting score should have no effect on a trusted peer
+        add_score(&mut pdb, &peer, -50.0);
+
+        assert_eq!(
+            pdb.peer_info(&peer).unwrap().score().score(),
             Score::max_score().score()
         );
     }

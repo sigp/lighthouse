@@ -218,6 +218,10 @@ impl<T, E> SszStaticHandler<T, E> {
         Self::for_forks(vec![ForkName::Merge])
     }
 
+    pub fn capella_only() -> Self {
+        Self::for_forks(vec![ForkName::Capella])
+    }
+
     pub fn merge_and_later() -> Self {
         Self::for_forks(ForkName::list_all()[2..].to_vec())
     }
@@ -364,6 +368,11 @@ impl<E: EthSpec + TypeName> Handler for SanitySlotsHandler<E> {
 
     fn handler_name(&self) -> String {
         "slots".into()
+    }
+
+    fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
+        // Some sanity tests compute sync committees, which requires real crypto.
+        fork_name == ForkName::Base || cfg!(not(feature = "fake_crypto"))
     }
 }
 
@@ -533,10 +542,13 @@ impl<E: EthSpec + TypeName> Handler for ForkChoiceHandler<E> {
     }
 
     fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
-        // Merge block tests are only enabled for Bellatrix or later.
-        if self.handler_name == "on_merge_block"
-            && (fork_name == ForkName::Base || fork_name == ForkName::Altair)
-        {
+        // Merge block tests are only enabled for Bellatrix.
+        if self.handler_name == "on_merge_block" && fork_name != ForkName::Merge {
+            return false;
+        }
+
+        // Tests are no longer generated for the base/phase0 specification.
+        if fork_name == ForkName::Base {
             return false;
         }
 
@@ -638,6 +650,11 @@ impl<E: EthSpec + TypeName> Handler for MerkleProofValidityHandler<E> {
 
     fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
         fork_name != ForkName::Base
+            // Test is skipped due to some changes in the Capella light client
+            // spec.
+            //
+            // https://github.com/sigp/lighthouse/issues/4022
+            && fork_name != ForkName::Capella
     }
 }
 

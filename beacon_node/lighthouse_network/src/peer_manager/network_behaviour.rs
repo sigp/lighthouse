@@ -89,7 +89,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
             self.events.shrink_to_fit();
         }
 
-        if let Some((peer_id, maybe_enr)) = self.peers_to_dial.pop_front() {
+        if let Some((peer_id, maybe_enr)) = self.peers_to_dial.pop_first() {
             self.inject_peer_connection(&peer_id, ConnectingType::Dialing, maybe_enr);
             let handler = self.new_handler();
             return Poll::Ready(NetworkBehaviourAction::Dial {
@@ -156,8 +156,10 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             BanResult::BadScore => {
                 // This is a faulty state
                 error!(self.log, "Connected to a banned peer. Re-banning"; "peer_id" => %peer_id);
-                // Reban the peer
+                // Disconnect the peer.
                 self.goodbye_peer(&peer_id, GoodbyeReason::Banned, ReportSource::PeerManager);
+                // Re-ban the peer to prevent repeated errors.
+                self.events.push(PeerManagerEvent::Banned(peer_id, vec![]));
                 return;
             }
             BanResult::BannedIp(ip_addr) => {
@@ -170,7 +172,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             BanResult::NotBanned => {}
         }
 
-        // Count dialing peers in the limit if the peer dialied us.
+        // Count dialing peers in the limit if the peer dialed us.
         let count_dialing = endpoint.is_listener();
         // Check the connection limits
         if self.peer_limit_reached(count_dialing)

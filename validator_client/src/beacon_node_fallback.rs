@@ -7,16 +7,19 @@ use crate::http_metrics::metrics::{inc_counter_vec, ENDPOINT_ERRORS, ENDPOINT_RE
 use environment::RuntimeContext;
 use eth2::BeaconNodeHttpClient;
 use futures::future;
-use slog::{error, info, warn, Logger};
+use slog::{debug, error, info, warn, Logger};
 use slot_clock::SlotClock;
 use std::fmt;
 use std::fmt::Debug;
 use std::future::Future;
 use std::marker::PhantomData;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::{sync::RwLock, time::sleep};
 use types::{ChainSpec, Config, EthSpec};
+
+/// Message emitted when the VC detects the BN is using a different spec.
+const UPDATE_REQUIRED_LOG_HINT: &str = "this VC or the remote BN may need updating";
 
 /// The number of seconds *prior* to slot start that we will try and update the state of fallback
 /// nodes.
@@ -26,6 +29,14 @@ use types::{ChainSpec, Config, EthSpec};
 /// an aggregate; this may result in a missed aggregation. If we set this time too late, we risk not
 /// having the correct nodes up and running prior to the start of the slot.
 const SLOT_LOOKAHEAD: Duration = Duration::from_secs(1);
+
+/// Indicates a measurement of latency between the VC and a BN.
+pub struct LatencyMeasurement {
+    /// An identifier for the beacon node (e.g. the URL).
+    pub beacon_node_id: String,
+    /// The round-trip latency, if the BN responded successfully.
+    pub latency: Option<Duration>,
+}
 
 /// Starts a service that will routinely try and update the status of the provided `beacon_nodes`.
 ///
@@ -262,6 +273,7 @@ impl<E: EthSpec> CandidateBeaconNode<E> {
                 "Beacon node has mismatched Altair fork epoch";
                 "endpoint" => %self.beacon_node,
                 "endpoint_altair_fork_epoch" => ?beacon_node_spec.altair_fork_epoch,
+                "hint" => UPDATE_REQUIRED_LOG_HINT,
             );
         } else if beacon_node_spec.bellatrix_fork_epoch != spec.bellatrix_fork_epoch {
             warn!(
@@ -269,6 +281,15 @@ impl<E: EthSpec> CandidateBeaconNode<E> {
                 "Beacon node has mismatched Bellatrix fork epoch";
                 "endpoint" => %self.beacon_node,
                 "endpoint_bellatrix_fork_epoch" => ?beacon_node_spec.bellatrix_fork_epoch,
+                "hint" => UPDATE_REQUIRED_LOG_HINT,
+            );
+        } else if beacon_node_spec.capella_fork_epoch != spec.capella_fork_epoch {
+            warn!(
+                log,
+                "Beacon node has mismatched Capella fork epoch";
+                "endpoint" => %self.beacon_node,
+                "endpoint_capella_fork_epoch" => ?beacon_node_spec.capella_fork_epoch,
+                "hint" => UPDATE_REQUIRED_LOG_HINT,
             );
         }
 
@@ -394,6 +415,47 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
         let _ = future::join_all(futures).await;
     }
 
+    /// Concurrently send a request to all candidates (regardless of
+    /// offline/online) status and attempt to collect a rough reading on the
+    /// latency between the VC and candidate.
+    pub async fn measure_latency(&self) -> Vec<LatencyMeasurement> {
+        let futures: Vec<_> = self
+            .candidates
+            .iter()
+            .map(|candidate| async {
+                let beacon_node_id = candidate.beacon_node.to_string();
+                // The `node/version` endpoint is used since I imagine it would
+                // require the least processing in the BN and therefore measure
+                // the connection moreso than the BNs processing speed.
+                //
+                // I imagine all clients have the version string availble as a
+                // pre-computed string.
+                let response_instant = candidate
+                    .beacon_node
+                    .get_node_version()
+                    .await
+                    .ok()
+                    .map(|_| Instant::now());
+                (beacon_node_id, response_instant)
+            })
+            .collect();
+
+        let request_instant = Instant::now();
+
+        // Send the request to all BNs at the same time. This might involve some
+        // queueing on the sending host, however I hope it will avoid bias
+        // caused by sending requests at different times.
+        future::join_all(futures)
+            .await
+            .into_iter()
+            .map(|(beacon_node_id, response_instant)| LatencyMeasurement {
+                beacon_node_id,
+                latency: response_instant
+                    .and_then(|response| response.checked_duration_since(request_instant)),
+            })
+            .collect()
+    }
+
     /// Run `func` against each candidate in `self`, returning immediately if a result is found.
     /// Otherwise, return all the errors encountered along the way.
     ///
@@ -409,10 +471,12 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
     where
         F: Fn(&'a BeaconNodeHttpClient) -> R,
         R: Future<Output = Result<O, Err>>,
+        Err: Debug,
     {
         let mut errors = vec![];
         let mut to_retry = vec![];
         let mut retry_unsynced = vec![];
+        let log = &self.log.clone();
 
         // Run `func` using a `candidate`, returning the value or capturing errors.
         //
@@ -427,6 +491,12 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
                 match func(&$candidate.beacon_node).await {
                     Ok(val) => return Ok(val),
                     Err(e) => {
+                        debug!(
+                            log,
+                            "Request to beacon node failed";
+                            "node" => $candidate.beacon_node.to_string(),
+                            "error" => ?e,
+                        );
                         // If we have an error on this function, make the client as not-ready.
                         //
                         // There exists a race condition where the candidate may have been marked
@@ -626,6 +696,7 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
     where
         F: Fn(&'a BeaconNodeHttpClient) -> R,
         R: Future<Output = Result<(), Err>>,
+        Err: Debug,
     {
         if self.disable_run_on_all {
             self.first_success(require_synced, offline_on_failure, func)

@@ -18,7 +18,7 @@ fn end_of_epoch_state<T: BeaconChainTypes>(
     let target_slot = epoch.end_slot(T::EthSpec::slots_per_epoch());
     // The execution status is not returned, any functions which rely upon this method might return
     // optimistic information without explicitly declaring so.
-    let (state, _execution_status) = StateId::from_slot(target_slot).state(chain)?;
+    let (state, _execution_status, _finalized) = StateId::from_slot(target_slot).state(chain)?;
     Ok(state)
 }
 
