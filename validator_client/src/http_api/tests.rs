@@ -285,6 +285,7 @@ impl ApiTester {
                 suggested_fee_recipient: None,
                 gas_limit: None,
                 builder_proposals: None,
+                builder_pubkey_override: None,
                 deposit_gwei: E::default_spec().max_effective_balance,
             })
             .collect::<Vec<_>>();
@@ -418,6 +419,7 @@ impl ApiTester {
                 suggested_fee_recipient: None,
                 gas_limit: None,
                 builder_proposals: None,
+                builder_pubkey_override: None,
             };
 
             self.client
@@ -438,6 +440,7 @@ impl ApiTester {
             suggested_fee_recipient: None,
             gas_limit: None,
             builder_proposals: None,
+            builder_pubkey_override: None,
         };
 
         let response = self
@@ -476,6 +479,7 @@ impl ApiTester {
                     suggested_fee_recipient: None,
                     gas_limit: None,
                     builder_proposals: None,
+                    builder_pubkey_override: None,
                     voting_public_key: kp.pk,
                     url: format!("http://signer_{}.com/", i),
                     root_certificate_path: None,
@@ -601,6 +605,7 @@ impl ApiTester {
                 None,
                 None,
                 Some(builder_proposals),
+                None
             )
             .await
             .unwrap();
@@ -615,6 +620,36 @@ impl ApiTester {
             self.validator_store
                 .get_builder_proposals(&validator.voting_pubkey),
             builder_proposals
+        );
+
+        self
+    }
+
+    pub async fn set_builder_pubkey_override(self, index: usize, builder_pubkey_override: PublicKeyBytes) -> Self {
+        let validator = &self.client.get_lighthouse_validators().await.unwrap().data[index];
+
+        self.client
+            .patch_lighthouse_validators(
+                &validator.voting_pubkey,
+                None,
+                None,
+                None,
+                builder_pubkey_override
+            )
+            .await
+            .unwrap();
+
+        self
+    }
+
+    pub async fn assert_builder_pubkey_override(self, index: usize, builder_pubkey_override: PublicKeyBytes) -> Self {
+        let validator = &self.client.get_lighthouse_validators().await.unwrap().data[index];
+
+        assert_eq!(
+            self.validator_store
+                .get
+            //     .get_builder_proposals(&validator.voting_pubkey),
+            // builder_proposals
         );
 
         self

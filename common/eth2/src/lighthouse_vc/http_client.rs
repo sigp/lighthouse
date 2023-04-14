@@ -467,6 +467,8 @@ impl ValidatorClientHttpClient {
         enabled: Option<bool>,
         gas_limit: Option<u64>,
         builder_proposals: Option<bool>,
+        builder_pubkey_override: Option<PublicKeyBytes>,
+        builder_timestamp_override: Option<u64>
     ) -> Result<(), Error> {
         let mut path = self.server.full.clone();
 
@@ -482,6 +484,8 @@ impl ValidatorClientHttpClient {
                 enabled,
                 gas_limit,
                 builder_proposals,
+                builder_pubkey_override,
+                builder_timestamp_override,
             },
         )
         .await

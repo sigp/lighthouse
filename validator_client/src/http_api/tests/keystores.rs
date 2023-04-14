@@ -42,6 +42,7 @@ fn web3signer_validator_with_pubkey(pubkey: PublicKey) -> Web3SignerValidatorReq
         suggested_fee_recipient: None,
         gas_limit: None,
         builder_proposals: None,
+        builder_pubkey_override: None,
         voting_public_key: pubkey,
         url: web3_signer_url(),
         root_certificate_path: None,

@@ -14,6 +14,7 @@ use std::fs;
 use std::net::IpAddr;
 use std::path::PathBuf;
 use std::time::Duration;
+use bls::blst_implementations::PublicKeyBytes;
 use types::{Address, GRAFFITI_BYTES_LEN};
 
 pub const DEFAULT_BEACON_NODE: &str = "http://localhost:5052/";
@@ -62,6 +63,8 @@ pub struct Config {
     pub builder_proposals: bool,
     /// Overrides the timestamp field in builder api ValidatorRegistrationV1
     pub builder_registration_timestamp_override: Option<u64>,
+    /// Overrides the pubkey field in builder api ValidatorRegistrationV1
+    pub builder_registration_pubkey_override: Option<PublicKeyBytes>,
     /// Fallback gas limit.
     pub gas_limit: Option<u64>,
     /// A list of custom certificates that the validator client will additionally use when
@@ -111,6 +114,7 @@ impl Default for Config {
             block_delay: None,
             builder_proposals: false,
             builder_registration_timestamp_override: None,
+            builder_registration_pubkey_override: None,
             gas_limit: None,
             disable_run_on_all: false,
             enable_latency_measurement_service: true,
@@ -349,6 +353,16 @@ impl Config {
                 registration_timestamp_override
                     .parse::<u64>()
                     .map_err(|_| "builder-registration-timestamp-override is not a valid u64.")?,
+            );
+        }
+
+        if let Some(registration_pubkey_override) =
+            cli_args.value_of("builder-registration-pubkey-override")
+        {
+            config.builder_registration_pubkey_override = Some(
+                registration_pubkey_override
+                    .parse::<PublicKeyBytes>()
+                    .map_err(|_| "builder-pubkey-override is not a valid PublicKeyBytes.")?,
             );
         }
 

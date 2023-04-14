@@ -176,14 +176,18 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         suggested_fee_recipient: Option<Address>,
         gas_limit: Option<u64>,
         builder_proposals: Option<bool>,
+        builder_pubkey_override: Option<PublicKeyBytes>,
+        builder_timestamp_override: Option<u64>,
     ) -> Result<ValidatorDefinition, String> {
         let mut validator_def = ValidatorDefinition::new_keystore_with_password(
             voting_keystore_path,
             Some(password),
-            graffiti.map(Into::into),
+            graffiti,
             suggested_fee_recipient,
             gas_limit,
             builder_proposals,
+            builder_pubkey_override,
+            builder_timestamp_override
         )
         .map_err(|e| format!("failed to create validator definitions: {:?}", e))?;
 
@@ -461,6 +465,15 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         builder_proposals
             // If there's nothing in the file, try the process-level default value.
             .unwrap_or(self.builder_proposals)
+    }
+
+    pub fn get_builder_pubkey_override(&self, validator_pubkey: &PublicKeyBytes) -> PublicKeyBytes {
+        self.g
+    }
+
+    pub fn get_builder_pubkey_override_defaulting(&self, builder_pubkey_override: Option<PublicKeyBytes>) -> PublicKeyBytes {
+        builder_pubkey_override
+            .unwrap_or(self.bui)
     }
 
     pub async fn sign_block<Payload: AbstractExecPayload<E>>(

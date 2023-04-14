@@ -207,6 +207,7 @@ fn import_single_keystore<T: SlotClock + 'static, E: EthSpec>(
             None,
             None,
             None,
+            None,
         ))
         .map_err(|e| format!("failed to initialize validator: {:?}", e))?;
 
