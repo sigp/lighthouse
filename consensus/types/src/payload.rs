@@ -621,7 +621,8 @@ impl<T: EthSpec> ExecPayload<T> for BlindedPayload<T> {
                 // Return an "empty" or "default" value for the EIP-4844 variant
                 Ok(Vec::new().into())
             }
-            BlindedPayload::Eip6110(ref inner) => Ok(inner.deposit_receipts()?.clone()),
+            BlindedPayload::Eip6110(ref inner) => Ok(inner.deposit_receipts()?),
+            
         }
     }
 }
