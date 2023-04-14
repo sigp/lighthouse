@@ -12,6 +12,7 @@
     "berlinBlock": 0,
     "londonBlock": 0,
     "mergeForkBlock": 0,
+    "shanghaiTime": 0,
     "terminalTotalDifficulty": 0
   },
   "alloc": {
