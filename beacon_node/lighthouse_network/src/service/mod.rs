@@ -1454,6 +1454,8 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                     debug!(self.log, "Failed to dial address"; "peer_id" => ?peer_id,  "error" => %error);
                     None
                 }
+                // We still need to handle this during the deprecation period anyway.
+                #[allow(deprecated)]
                 SwarmEvent::BannedPeer {
                     peer_id,
                     endpoint: _,
