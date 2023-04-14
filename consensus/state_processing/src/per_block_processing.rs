@@ -7,7 +7,7 @@ use std::borrow::Cow;
 use tree_hash::TreeHash;
 use types::*;
 
-use self::process_operations::process_deposit;
+use self::process_operations::apply_deposit;
 pub use self::verify_attester_slashing::{
     get_slashable_indices, get_slashable_indices_modular, verify_attester_slashing,
 };
@@ -451,15 +451,8 @@ pub fn process_deposit_receipt<T: EthSpec>(
         data: deposit_data,
     };
 
-    // Store the current eth1_deposit_index
-    let current_eth1_deposit_index = state.eth1_deposit_index();
-
-    // FIXME: This is a workaround to apply_deposit()
-    // Call process_deposit with the created Deposit object
-    process_deposit(state, &deposit, spec, false)?;
-
-    // Set eth1_deposit_index back to the original value
-    *state.eth1_deposit_index_mut() = current_eth1_deposit_index;
+    // Call apply with the created Deposit object
+    apply_deposit(state, &deposit, spec)?;
 
     Ok(())
 }

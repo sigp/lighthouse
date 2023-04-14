@@ -450,3 +450,51 @@ pub fn process_deposit<T: EthSpec>(
 
     Ok(())
 }
+
+pub fn apply_deposit<T: EthSpec>(
+    state: &mut BeaconState<T>,
+    deposit: &Deposit,
+    spec: &ChainSpec,
+) -> Result<(), BlockProcessingError> {
+    let amount = deposit.data.amount;
+
+    if let Ok(Some(index)) = get_existing_validator_index(state, &deposit.data.pubkey) {
+        // Update the existing validator balance.
+        increase_balance(state, index as usize, amount)?;
+    } else {
+        // The signature should be checked for new validators. Return early for a bad signature.
+        if verify_deposit_signature(&deposit.data, spec).is_err() {
+            return Ok(());
+        }
+
+        // Create a new validator.
+        let validator = Validator {
+            pubkey: deposit.data.pubkey,
+            withdrawal_credentials: deposit.data.withdrawal_credentials,
+            activation_eligibility_epoch: spec.far_future_epoch,
+            activation_epoch: spec.far_future_epoch,
+            exit_epoch: spec.far_future_epoch,
+            withdrawable_epoch: spec.far_future_epoch,
+            effective_balance: std::cmp::min(
+                amount.safe_sub(amount.safe_rem(spec.effective_balance_increment)?)?,
+                spec.max_effective_balance,
+            ),
+            slashed: false,
+        };
+        state.validators_mut().push(validator)?;
+        state.balances_mut().push(deposit.data.amount)?;
+
+        // Altair or later initializations.
+        if let Ok(previous_epoch_participation) = state.previous_epoch_participation_mut() {
+            previous_epoch_participation.push(ParticipationFlags::default())?;
+        }
+        if let Ok(current_epoch_participation) = state.current_epoch_participation_mut() {
+            current_epoch_participation.push(ParticipationFlags::default())?;
+        }
+        if let Ok(inactivity_scores) = state.inactivity_scores_mut() {
+            inactivity_scores.push(0)?;
+        }
+    }
+
+    Ok(())
+}
