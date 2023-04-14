@@ -1519,7 +1519,7 @@ where
         let genesis_validators_root = self.chain.genesis_validators_root;
         BlsToExecutionChange {
             validator_index,
-            from_bls_pubkey: pubkey.compress(),
+            from_bls_pubkey: pubkey.clone(),
             to_execution_address: address,
         }
         .sign(secret_key, genesis_validators_root, &self.chain.spec)

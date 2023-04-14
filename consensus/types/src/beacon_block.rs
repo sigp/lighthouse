@@ -15,6 +15,12 @@ use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 
+const KNOWN_BLS_PUBLIC_KEY: [u8; 48] = [
+    0x91, 0x25, 0x97, 0x64, 0x04, 0x83, 0xeb, 0xe2, 0xdc, 0xee, 0x4b, 0xf0, 0x55, 0x38, 0x8c, 0xd4,
+    0xc3, 0x58, 0x84, 0x95, 0xd7, 0xd7, 0xb0, 0x41, 0xf4, 0x9f, 0x4d, 0x0d, 0xc9, 0x5b, 0xec, 0xd7,
+    0x41, 0x5d, 0x86, 0x05, 0x3c, 0x9d, 0x46, 0x2b, 0xbf, 0x65, 0x96, 0x09, 0xed, 0x9e, 0xf9, 0xd8,
+];
+
 /// A block of the `BeaconChain`.
 #[superstruct(
     variants(Base, Altair, Merge, Capella),
@@ -489,7 +495,8 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> BeaconBlockCapella<T, Payload>
             SignedBlsToExecutionChange {
                 message: BlsToExecutionChange {
                     validator_index: 0,
-                    from_bls_pubkey: PublicKeyBytes::empty(),
+                    from_bls_pubkey: PublicKey::deserialize(&KNOWN_BLS_PUBLIC_KEY)
+                        .expect("A known BLS public key should always be valid"),
                     to_execution_address: Address::zero(),
                 },
                 signature: Signature::empty()
@@ -865,5 +872,10 @@ mod tests {
             BeaconBlock::from_ssz_bytes(&bad_block.as_ssz_bytes(), &spec)
                 .expect_err("bad capella block cannot be decoded");
         }
+    }
+
+    #[test]
+    fn ensure_known_bls_public_key_does_not_panic() {
+        assert!(PublicKey::deserialize(&KNOWN_BLS_PUBLIC_KEY).is_ok());
     }
 }

@@ -167,13 +167,7 @@ pub fn bls_execution_change_signature_set<'a, T: EthSpec>(
         state.genesis_validators_root(),
     );
     let message = signed_address_change.message.signing_root(domain);
-    let signing_key = Cow::Owned(
-        signed_address_change
-            .message
-            .from_bls_pubkey
-            .decompress()
-            .map_err(|_| Error::PublicKeyDecompressionFailed)?,
-    );
+    let signing_key = Cow::Owned(signed_address_change.message.from_bls_pubkey.clone());
 
     Ok(SignatureSet::single_pubkey(
         &signed_address_change.signature,
