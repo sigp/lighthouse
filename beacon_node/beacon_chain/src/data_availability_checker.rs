@@ -2,7 +2,9 @@ use crate::blob_verification::{
     verify_kzg_for_blob, verify_kzg_for_blob_list, AsBlock, BlockWrapper, GossipVerifiedBlob,
     KzgVerifiedBlob, KzgVerifiedBlobList, MaybeAvailableBlock,
 };
-use crate::block_verification::{AvailabilityPendingExecutedBlock, AvailableExecutedBlock};
+use crate::block_verification::{
+    AvailabilityPendingExecutedBlock, AvailableExecutedBlock, IntoExecutionPendingBlock,
+};
 
 use kzg::Error as KzgError;
 use kzg::Kzg;
@@ -11,7 +13,7 @@ use slot_clock::SlotClock;
 use ssz_types::{Error, FixedVector, VariableList};
 use state_processing::per_block_processing::deneb::deneb::verify_kzg_commitments_against_transactions;
 use std::collections::hash_map::{Entry, OccupiedEntry};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::ops::Index;
 use std::sync::Arc;
 use types::beacon_block_body::KzgCommitments;
@@ -19,7 +21,7 @@ use types::blob_sidecar::{BlobIdentifier, BlobSidecar};
 use types::consts::deneb::MIN_EPOCHS_FOR_BLOBS_SIDECARS_REQUESTS;
 use types::{
     BeaconBlockRef, BlobSidecarList, ChainSpec, Epoch, EthSpec, ExecPayload, FullPayload, Hash256,
-    SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
+    SignedBeaconBlock, SignedBeaconBlockHeader, SignedBlobSidecar, Slot,
 };
 
 #[derive(Debug)]
@@ -145,6 +147,56 @@ impl<T: EthSpec, S: SlotClock> DataAvailabilityChecker<T, S> {
             kzg,
             spec,
         }
+    }
+
+    pub fn zip_block(
+        &self,
+        block_root: Hash256,
+        block: Arc<SignedBeaconBlock<T>>,
+        blobs: Vec<Arc<BlobSidecar<T>>>,
+    ) -> Result<BlockWrapper<T>, AvailabilityCheckError> {
+        Ok(match self.get_blob_requirements(&block)? {
+            BlobRequirements::EmptyBlobs => BlockWrapper::Block(block),
+            BlobRequirements::NotRequired => BlockWrapper::Block(block),
+            BlobRequirements::PreDeneb => BlockWrapper::Block(block),
+            BlobRequirements::Required => {
+                let expected_num_blobs = block
+                    .block()
+                    .message()
+                    .body()
+                    .blob_kzg_commitments()
+                    .map(|commitments| commitments.len())
+                    .unwrap_or(0);
+                let mut expected_indices: HashSet<usize> =
+                    (0..expected_num_blobs).into_iter().collect();
+                if blobs.len() < expected_num_blobs {
+                    return Err(AvailabilityCheckError::NumBlobsMismatch {
+                        num_kzg_commitments: expected_num_blobs,
+                        num_blobs: blobs.len(),
+                    });
+                }
+                for blob in blobs {
+                    if blob.block_root != block_root {
+                        return Err(AvailabilityCheckError::BlockBlobRootMismatch {
+                            block_root,
+                            blob_block_root: blob.block_root,
+                        });
+                    }
+                    let removed = expected_indices.remove(&(blob.index as usize));
+                    if !removed {
+                        return Err(AvailabilityCheckError::MissingBlobs);
+                    }
+                }
+
+                if !expected_indices.is_empty() {
+                    return Err(AvailabilityCheckError::DuplicateBlob(block_root));
+                }
+
+                //TODO(sean) do we re-order blobs here to the correct order?
+
+                BlockWrapper::BlockAndBlobs(block, blobs)
+            }
+        })
     }
 
     /// Get a blob from the availability cache.
@@ -426,7 +478,7 @@ impl<T: EthSpec, S: SlotClock> DataAvailabilityChecker<T, S> {
             BlobRequirements::PreDeneb => VerifiedBlobs::PreDeneb,
             BlobRequirements::Required => {
                 return Ok(MaybeAvailableBlock::AvailabilityPending(
-                    AvailabilityPendingBlock { block, blobs },
+                    AvailabilityPendingBlock { block },
                 ))
             }
         };
@@ -547,22 +599,9 @@ pub enum BlobRequirements {
 #[derive(Clone, Debug, PartialEq)]
 pub struct AvailabilityPendingBlock<E: EthSpec> {
     block: Arc<SignedBeaconBlock<E>>,
-    missing_blob_ids: Vec<BlobIdentifier>,
 }
 
 impl<E: EthSpec> AvailabilityPendingBlock<E> {
-    pub fn get_missing_blob_ids(&self) -> &Vec<BlobIdentifier> {
-        &self.missing_blob_ids
-    }
-
-    pub fn has_blob(mut self, blob_id: &BlobIdentifier) -> bool {
-        if let Some(Some(blob)) = self.blobs.get(blob_id.index as usize) {
-            blob.block_root == blob_id.block_root
-        } else {
-            false
-        }
-    }
-
     pub fn num_blobs_expected(&self) -> usize {
         self.kzg_commitments()
             .map_or(0, |commitments| commitments.len())

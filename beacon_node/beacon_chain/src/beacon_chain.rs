@@ -190,8 +190,7 @@ pub enum WhenSlotSkipped {
 
 #[derive(Debug, PartialEq)]
 pub enum AvailabilityProcessingStatus {
-    PendingBlobs(Hash256, Vec<BlobIdentifier>),
-    PendingBlock(Hash256),
+    MissingParts(Hash256),
     Imported(Hash256),
 }
 
@@ -2671,9 +2670,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             AvailabilityProcessingStatus::Imported(_) => {
                                 // The block was imported successfully.
                             }
-                            AvailabilityProcessingStatus::PendingBlobs(block_root, blobs) => {}
-                            AvailabilityProcessingStatus::PendingBlock(_) => {
-                                // doesn't makes sense
+                            AvailabilityProcessingStatus::MissingParts(block_root) => {
+                                //TODO(sean) fail
                             }
                         }
                     }
@@ -2777,8 +2775,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         block_root: Hash256,
         unverified_block: B,
         count_unrealized: CountUnrealized,
-        notify_execution_layer: NotifyExecutionLayer,
-    ) -> Result<AvailabilityProcessingStatus, BlockError<T::EthSpec>> {
+        notify_execution_layer: notifyexecutionlayer,
+    ) -> result<availabilityprocessingStatus, BlockError<T::EthSpec>> {
         // Start the Prometheus timer.
         let _full_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_TIMES);
 

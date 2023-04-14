@@ -136,17 +136,8 @@ pub async fn publish_block<T: BeaconChainTypes>(
 
             Ok(())
         }
-        Ok(AvailabilityProcessingStatus::PendingBlock(block_root)) => {
-            let msg = format!("Missing block with root {:?}", block_root);
-            error!(
-                log,
-                "Invalid block provided to HTTP API";
-                "reason" => &msg
-            );
-            Err(warp_utils::reject::broadcast_without_import(msg))
-        }
-        Ok(AvailabilityProcessingStatus::PendingBlobs(_, blob_ids)) => {
-            let msg = format!("Missing blobs {:?}", blob_ids);
+        Ok(AvailabilityProcessingStatus::MissingParts(block_root)) => {
+            let msg = format!("Missing parts of block with root {:?}", block_root);
             error!(
                 log,
                 "Invalid block provided to HTTP API";

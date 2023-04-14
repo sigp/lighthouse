@@ -691,18 +691,9 @@ impl<T: BeaconChainTypes> Worker<T> {
                 // add to metrics
                 // logging
             }
-            Ok(AvailabilityProcessingStatus::PendingBlobs(block_root, pending_blobs)) => self
-                .send_sync_message(SyncMessage::MissingBlobs {
-                    peer_id,
-                    block_root,
-                    pending_blobs,
-                    search_delay: Duration::from_secs(0), //TODO(sean) update
-                }),
-            Ok(AvailabilityProcessingStatus::PendingBlock(block_hash)) => {
+            Ok(AvailabilityProcessingStatus::MissingParts(block_hash)) => {
                 self.send_sync_message(SyncMessage::UnknownBlockHashFromGossipBlob(
-                    peer_id,
-                    block_hash,
-                    Duration::from_secs(0),
+                    peer_id, block_hash,
                 )); //TODO(sean) update
             }
             Err(_err) => {
@@ -1054,22 +1045,13 @@ impl<T: BeaconChainTypes> Worker<T> {
 
                 self.chain.recompute_head_at_current_slot().await;
             }
-            Ok(AvailabilityProcessingStatus::PendingBlock(block_root)) => {
-                // This error variant doesn't make any sense in this context
-                crit!(
-                    self.log,
-                    "Internal error. Cannot get AvailabilityProcessingStatus::PendingBlock on processing block";
-                    "block_root" => %block_root
-                );
-            }
-            Ok(AvailabilityProcessingStatus::PendingBlobs(block_rooot, pending_blobs)) => {
+            Ok(AvailabilityProcessingStatus::MissingParts(block_root)) => {
                 // make rpc request for blob
-                self.send_sync_message(SyncMessage::MissingBlobs {
+                self.send_sync_message(SyncMessage::UnknownBlockHashFromGossipBlob(
                     peer_id,
                     block_root,
-                    pending_blobs,
-                    search_delay: Duration::from_secs(0), //TODO(sean) update
-                });
+                    Duration::from_secs(0), //TODO(sean) update
+                ));
             }
             Err(BlockError::ParentUnknown(block)) => {
                 // Inform the sync manager to find parents for this block
