@@ -21,6 +21,23 @@ pub fn process_operations<T: EthSpec, Payload: AbstractExecPayload<T>>(
         .deposit_count
         .saturating_sub(state.eth1_deposit_index());
     let max_deposits = <T as EthSpec>::MaxDeposits::to_u64();
+    let eth1_deposit_index_limit = state
+        .deposit_receipts_start_index()
+        .unwrap_or_else(|_| state.eth1_data().deposit_count);
+
+    if state.eth1_deposit_index() < eth1_deposit_index_limit {
+        assert_eq!(
+            block_body.deposits().len(),
+            std::cmp::min(max_deposits as usize, unprocessed_deposits_count as usize),
+            "Number of deposits in block does not match the minimum of the maximum number of deposits and the number of unprocessed deposits"
+        );
+    } else {
+        assert_eq!(
+            block_body.deposits().len(),
+            0,
+            "Number of deposits in block must be zero when all prior deposits are processed"
+        );
+    }
 
     process_proposer_slashings(
         state,
@@ -37,11 +54,6 @@ pub fn process_operations<T: EthSpec, Payload: AbstractExecPayload<T>>(
         spec,
     )?;
     process_attestations(state, block_body, verify_signatures, ctxt, spec)?;
-    assert_eq!(
-        block_body.deposits().len(),
-        std::cmp::min(max_deposits as usize, unprocessed_deposits_count as usize),
-        "Number of deposits in block does not match the minimum of the maximum number of deposits and the number of unprocessed deposits"
-    );
     process_deposits(state, block_body.deposits(), spec)?;
     process_exits(state, block_body.voluntary_exits(), verify_signatures, spec)?;
 
@@ -56,6 +68,7 @@ pub fn process_operations<T: EthSpec, Payload: AbstractExecPayload<T>>(
 
     Ok(())
 }
+
 
 pub mod base {
     use super::*;

@@ -1,6 +1,5 @@
 use self::committee_cache::get_active_validator_indices;
 use self::exit_cache::ExitCache;
-use crate::execution_payload_header::ExecutionPayloadHeaderEip6110;
 use crate::test_utils::TestRandom;
 use crate::*;
 use compare_fields::CompareFields;

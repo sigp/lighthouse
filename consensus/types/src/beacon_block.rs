@@ -128,13 +128,13 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> BeaconBlock<T, Payload> {
     /// Usually it's better to prefer `from_ssz_bytes` which will decode the correct variant based
     /// on the fork slot.
     pub fn any_from_ssz_bytes(bytes: &[u8]) -> Result<Self, ssz::DecodeError> {
-        BeaconBlockEip4844::from_ssz_bytes(bytes)
-            .map(BeaconBlock::Eip4844)
+        BeaconBlockEip6110::from_ssz_bytes(bytes)
+            .map(BeaconBlock::Eip6110)
             .or_else(|_| BeaconBlockCapella::from_ssz_bytes(bytes).map(BeaconBlock::Capella))
             .or_else(|_| BeaconBlockMerge::from_ssz_bytes(bytes).map(BeaconBlock::Merge))
             .or_else(|_| BeaconBlockAltair::from_ssz_bytes(bytes).map(BeaconBlock::Altair))
             .or_else(|_| BeaconBlockBase::from_ssz_bytes(bytes).map(BeaconBlock::Base))
-            .or_else(|_| BeaconBlockEip6110::from_ssz_bytes(bytes).map(BeaconBlock::Eip6110))
+            .or_else(|_| BeaconBlockEip4844::from_ssz_bytes(bytes).map(BeaconBlock::Eip4844))
     }
 
     /// Convenience accessor for the `body` as a `BeaconBlockBodyRef`.

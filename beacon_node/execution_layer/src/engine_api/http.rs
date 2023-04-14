@@ -88,6 +88,7 @@ pub static PRE_CAPELLA_ENGINE_CAPABILITIES: EngineCapabilities = EngineCapabilit
     new_payload_v1: true,
     new_payload_v2: false,
     new_payload_v3: false,
+    new_payload_v6110: false,
     forkchoice_updated_v1: true,
     forkchoice_updated_v2: false,
     get_payload_bodies_by_hash_v1: false,
@@ -95,6 +96,7 @@ pub static PRE_CAPELLA_ENGINE_CAPABILITIES: EngineCapabilities = EngineCapabilit
     get_payload_v1: true,
     get_payload_v2: false,
     get_payload_v3: false,
+    get_payload_v6110: false,
     exchange_transition_configuration_v1: true,
 };
 
@@ -835,6 +837,23 @@ impl HttpJsonRpc {
         Ok(response.into())
     }
 
+    pub async fn new_payload_v6110<T: EthSpec>(
+        &self,
+        execution_payload: ExecutionPayload<T>,
+    ) -> Result<PayloadStatusV1, Error> {
+        let params = json!([JsonExecutionPayload::from(execution_payload)]);
+
+        let response: JsonPayloadStatusV1 = self
+            .rpc_request(
+                ENGINE_NEW_PAYLOAD_V6110,
+                params,
+                ENGINE_NEW_PAYLOAD_TIMEOUT * self.execution_timeout_multiplier,
+            )
+            .await?;
+
+        Ok(response.into())
+    }
+
     pub async fn get_payload_v1<T: EthSpec>(
         &self,
         payload_id: PayloadId,
@@ -919,7 +938,7 @@ impl HttpJsonRpc {
         payload_id: PayloadId,
     ) -> Result<GetPayloadResponse<T>, Error> {
         let params = json!([JsonPayloadIdRequest::from(payload_id)]);
-
+    
         match fork_name {
             ForkName::Merge => {
                 let response: JsonGetPayloadResponseV1<T> = self
@@ -951,22 +970,30 @@ impl HttpJsonRpc {
                     .await?;
                 Ok(JsonGetPayloadResponse::V3(response).into())
             }
-            ForkName::Eip6110 => {
-                let response: JsonGetPayloadResponseV6110<T> = self
-                    .rpc_request(
-                        ENGINE_GET_PAYLOAD_V6110,
-                        params,
-                        ENGINE_GET_PAYLOAD_TIMEOUT * self.execution_timeout_multiplier,
-                    )
-                    .await?;
-                Ok(JsonGetPayloadResponse::V6110(response).into())
-            }
+            ForkName::Eip6110 => self.get_payload_v6110(payload_id).await,
             ForkName::Base | ForkName::Altair => Err(Error::UnsupportedForkVariant(format!(
                 "called get_payload_v3 with {}",
                 fork_name
             ))),
         }
-    }
+    }    
+
+    pub async fn get_payload_v6110<T: EthSpec>(
+        &self,
+        payload_id: PayloadId,
+    ) -> Result<GetPayloadResponse<T>, Error> {
+        let params = json!([JsonPayloadIdRequest::from(payload_id)]);
+    
+        let response: JsonGetPayloadResponseV6110<T> = self
+            .rpc_request(
+                ENGINE_GET_PAYLOAD_V6110,
+                params,
+                ENGINE_GET_PAYLOAD_TIMEOUT * self.execution_timeout_multiplier,
+            )
+            .await?;
+    
+        Ok(JsonGetPayloadResponse::V6110(response).into())
+    }    
 
     pub async fn get_blobs_bundle_v1<T: EthSpec>(
         &self,
@@ -1112,6 +1139,7 @@ impl HttpJsonRpc {
                 new_payload_v1: capabilities.contains(ENGINE_NEW_PAYLOAD_V1),
                 new_payload_v2: capabilities.contains(ENGINE_NEW_PAYLOAD_V2),
                 new_payload_v3: capabilities.contains(ENGINE_NEW_PAYLOAD_V3),
+                new_payload_v6110: capabilities.contains(ENGINE_NEW_PAYLOAD_V6110),
                 forkchoice_updated_v1: capabilities.contains(ENGINE_FORKCHOICE_UPDATED_V1),
                 forkchoice_updated_v2: capabilities.contains(ENGINE_FORKCHOICE_UPDATED_V2),
                 get_payload_bodies_by_hash_v1: capabilities
@@ -1121,6 +1149,7 @@ impl HttpJsonRpc {
                 get_payload_v1: capabilities.contains(ENGINE_GET_PAYLOAD_V1),
                 get_payload_v2: capabilities.contains(ENGINE_GET_PAYLOAD_V2),
                 get_payload_v3: capabilities.contains(ENGINE_GET_PAYLOAD_V3),
+                get_payload_v6110: capabilities.contains(ENGINE_GET_PAYLOAD_V6110),
                 exchange_transition_configuration_v1: capabilities
                     .contains(ENGINE_EXCHANGE_TRANSITION_CONFIGURATION_V1),
             }),

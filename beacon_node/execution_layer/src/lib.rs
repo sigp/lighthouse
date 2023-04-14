@@ -1792,7 +1792,6 @@ impl<T: EthSpec> ExecutionLayer<T> {
                         .collect(),
                 )
                 .map_err(ApiError::DeserializeWithdrawals)?;
-
                 ExecutionPayload::Eip4844(ExecutionPayloadEip4844 {
                     parent_hash: eip4844_block.parent_hash,
                     fee_recipient: eip4844_block.fee_recipient,

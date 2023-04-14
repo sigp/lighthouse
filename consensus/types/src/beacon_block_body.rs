@@ -1,4 +1,3 @@
-use crate::payload::{BlindedPayloadEip6110, FullPayloadEip6110};
 use crate::*;
 use crate::{blobs_sidecar::KzgCommitments, test_utils::TestRandom};
 use derivative::Derivative;

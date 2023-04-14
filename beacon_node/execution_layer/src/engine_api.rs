@@ -564,6 +564,7 @@ pub struct EngineCapabilities {
     pub new_payload_v1: bool,
     pub new_payload_v2: bool,
     pub new_payload_v3: bool,
+    pub new_payload_v6110: bool,
     pub forkchoice_updated_v1: bool,
     pub forkchoice_updated_v2: bool,
     pub get_payload_bodies_by_hash_v1: bool,
@@ -571,6 +572,7 @@ pub struct EngineCapabilities {
     pub get_payload_v1: bool,
     pub get_payload_v2: bool,
     pub get_payload_v3: bool,
+    pub get_payload_v6110: bool,
     pub exchange_transition_configuration_v1: bool,
 }
 

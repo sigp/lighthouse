@@ -29,7 +29,6 @@ pub use verify_exit::verify_exit;
 pub mod altair;
 pub mod block_signature_verifier;
 pub mod eip4844;
-pub mod eip6110;
 pub mod errors;
 mod is_valid_indexed_attestation;
 pub mod process_operations;
@@ -455,6 +454,7 @@ pub fn process_deposit_receipt<T: EthSpec>(
     // Store the current eth1_deposit_index
     let current_eth1_deposit_index = state.eth1_deposit_index();
 
+    // FIXME: This is a workaround to apply_deposit()
     // Call process_deposit with the created Deposit object
     process_deposit(state, &deposit, spec, false)?;
 
