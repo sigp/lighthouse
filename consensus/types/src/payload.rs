@@ -622,7 +622,6 @@ impl<T: EthSpec> ExecPayload<T> for BlindedPayload<T> {
                 Ok(Vec::new().into())
             }
             BlindedPayload::Eip6110(ref inner) => Ok(inner.deposit_receipts()?),
-            
         }
     }
 }
