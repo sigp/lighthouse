@@ -608,7 +608,21 @@ impl<T: EthSpec> ExecPayload<T> for BlindedPayload<T> {
     }
 
     fn deposit_receipts(&self) -> Result<DepositReceipts<T>, Error> {
-        todo!()
+        match self {
+            BlindedPayload::Merge(_) => {
+                // Return an "empty" or "default" value for the Merge variant
+                Ok(Vec::new().into())
+            }
+            BlindedPayload::Capella(_) => {
+                // Return an "empty" or "default" value for the Capella variant
+                Ok(Vec::new().into())
+            }
+            BlindedPayload::Eip4844(_) => {
+                // Return an "empty" or "default" value for the EIP-4844 variant
+                Ok(Vec::new().into())
+            }
+            BlindedPayload::Eip6110(ref inner) => Ok(inner.deposit_receipts()?.clone()),
+        }
     }
 }
 
