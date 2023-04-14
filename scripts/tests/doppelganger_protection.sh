@@ -49,10 +49,6 @@ exit_if_fails ../local_testnet/geth.sh $HOME/.lighthouse/local-testnet/geth_data
 
 sleep 20
 
-# Reset the `genesis.json` config file fork times.
-sed -i 's/"shanghaiTime".*$/"shanghaiTime": 0,/g' genesis.json
-sed -i 's/"shardingForkTime".*$/"shardingForkTime": 0,/g' genesis.json
-
 echo "Starting local beacon nodes"
 
 exit_if_fails ../local_testnet/beacon_node.sh -t $PEER_ID -d debug $HOME/.lighthouse/local-testnet/node_1 9000 8000 http://localhost:5000 $HOME/.lighthouse/local-testnet/geth_datadir1/geth/jwtsecret &> beacon1.log &
@@ -100,7 +96,7 @@ if [[ "$BEHAVIOR" == "success" ]]; then
 
     echo "Starting the last validator client"
 
-    ../local_testnet/validator_client.sh $HOME/.lighthouse/local-testnet/node_4 http://localhost:8300 &
+    ../local_testnet/validator_client.sh $HOME/.lighthouse/local-testnet/node_4 http://localhost:8100 &
     DOPPELGANGER_FAILURE=0
 
     # Sleep three epochs, then make sure all validators were active in epoch 2. Use
