@@ -24,8 +24,6 @@ jobs:
         uses: arduino/setup-protoc@e52d9eb8f7b63115df1ac544a1376fdbf5a39612
         with:
             repo-token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Install ganache
-        run: npm install ganache@latest --global
       - name: Install geth
         run: |
           sudo add-apt-repository -y ppa:ethereum/ethereum
