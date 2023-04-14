@@ -938,7 +938,7 @@ impl HttpJsonRpc {
         payload_id: PayloadId,
     ) -> Result<GetPayloadResponse<T>, Error> {
         let params = json!([JsonPayloadIdRequest::from(payload_id)]);
-    
+
         match fork_name {
             ForkName::Merge => {
                 let response: JsonGetPayloadResponseV1<T> = self
@@ -976,14 +976,14 @@ impl HttpJsonRpc {
                 fork_name
             ))),
         }
-    }    
+    }
 
     pub async fn get_payload_v6110<T: EthSpec>(
         &self,
         payload_id: PayloadId,
     ) -> Result<GetPayloadResponse<T>, Error> {
         let params = json!([JsonPayloadIdRequest::from(payload_id)]);
-    
+
         let response: JsonGetPayloadResponseV6110<T> = self
             .rpc_request(
                 ENGINE_GET_PAYLOAD_V6110,
@@ -991,9 +991,9 @@ impl HttpJsonRpc {
                 ENGINE_GET_PAYLOAD_TIMEOUT * self.execution_timeout_multiplier,
             )
             .await?;
-    
+
         Ok(JsonGetPayloadResponse::V6110(response).into())
-    }    
+    }
 
     pub async fn get_blobs_bundle_v1<T: EthSpec>(
         &self,

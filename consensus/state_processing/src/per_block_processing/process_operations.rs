@@ -69,7 +69,6 @@ pub fn process_operations<T: EthSpec, Payload: AbstractExecPayload<T>>(
     Ok(())
 }
 
-
 pub mod base {
     use super::*;
 
