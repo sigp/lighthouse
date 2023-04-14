@@ -5,7 +5,7 @@ This setup can be useful for testing and development.
 
 ## Requirements
 
-The scripts require `lcli`, `lighthouse`, `geth` to be installed on `PATH`. From the
+The scripts require `lcli`, `lighthouse`, `geth`, `bootnode` to be installed on `PATH`. From the
 root of this repository, run:
 
 ```bash
@@ -21,7 +21,7 @@ The testnet starts with a post-merge genesis state.
 Start a consensus layer and execution layer boot node along with `BN_COUNT`
 number of beacon nodes each connected to a geth execution client and `VC_COUNT` validator clients.
 
-The `start_local_testnet.sh` script takes four options `-v VC_COUNT`, `-d DEBUG_LEVEL`, `-p` to enable builder proposals and `-h` for help. It also takes a mandatory `-g GENESIS_FILE` for initialising geth's state.
+The `start_local_testnet.sh` script takes four options `-v VC_COUNT`, `-d DEBUG_LEVEL`, `-p` to enable builder proposals and `-h` for help. It also takes a mandatory `GENESIS_FILE` for initialising geth's state.
 A sample `genesis.json` is provided in this directory.
 
 The `ETH1_BLOCK_HASH` environment variable is set to the block_hash of the genesis execution layer block which depends on the contents of `genesis.json`. Users of these scripts need to ensure that the `ETH1_BLOCK_HASH` variable is updated if genesis file is modified.
@@ -33,7 +33,7 @@ The options may be in any order or absent in which case they take the default va
 
 
 ```bash
-./start_local_testnet.sh -g genesis.json
+./start_local_testnet.sh genesis.json
 ```
 
 ## Stopping the testnet
@@ -56,7 +56,7 @@ create the testnet directory, genesis state and validator keys with:
 
 Note: The generated genesis validators are embedded into the genesis state as genesis validators and hence do not require manual deposits to activate.
 
-Generate bootnode enr and start a EL and CL bootnode so that multiple nodes can find each other
+Generate bootnode enr and start an EL and CL bootnode so that multiple nodes can find each other
 ```bash
 ./bootnode.sh
 ./el_bootnode.sh

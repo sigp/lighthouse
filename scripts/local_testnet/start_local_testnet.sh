@@ -126,7 +126,7 @@ done
 sleeping 20
 
 # Reset the `genesis.json` config file fork times.
-sed -i 's/"shanghaiTime".*$/"shanghaiTime": 0,/g' genesis.json
+sed -i 's/"shanghaiTime".*$/"shanghaiTime": 0,/g' $genesis_file
 
 for (( bn=1; bn<=$BN_COUNT; bn++ )); do
     secret=$DATADIR/geth_datadir$bn/geth/jwtsecret
