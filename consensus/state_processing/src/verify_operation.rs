@@ -134,7 +134,7 @@ impl<E: EthSpec> VerifyOperation<E> for SignedVoluntaryExit {
         state: &BeaconState<E>,
         spec: &ChainSpec,
     ) -> Result<SigVerifiedOp<Self, E>, Self::Error> {
-        verify_exit(state, &self, VerifySignatures::True, spec)?;
+        verify_exit(state, None, &self, VerifySignatures::True, spec)?;
         Ok(SigVerifiedOp::new(self, state))
     }
 
@@ -203,5 +203,37 @@ impl<E: EthSpec> VerifyOperation<E> for SignedBlsToExecutionChange {
     #[allow(clippy::integer_arithmetic)]
     fn verification_epochs(&self) -> SmallVec<[Epoch; MAX_FORKS_VERIFIED_AGAINST]> {
         smallvec![]
+    }
+}
+
+/// Trait for operations that can be verified and transformed into a
+/// `SigVerifiedOp`.
+///
+/// The `At` suffix indicates that we can specify a particular epoch at which to
+/// verify the operation.
+pub trait VerifyOperationAt<E: EthSpec>: VerifyOperation<E> + Sized {
+    fn validate_at(
+        self,
+        state: &BeaconState<E>,
+        validate_at_epoch: Epoch,
+        spec: &ChainSpec,
+    ) -> Result<SigVerifiedOp<Self, E>, Self::Error>;
+}
+
+impl<E: EthSpec> VerifyOperationAt<E> for SignedVoluntaryExit {
+    fn validate_at(
+        self,
+        state: &BeaconState<E>,
+        validate_at_epoch: Epoch,
+        spec: &ChainSpec,
+    ) -> Result<SigVerifiedOp<Self, E>, Self::Error> {
+        verify_exit(
+            state,
+            Some(validate_at_epoch),
+            &self,
+            VerifySignatures::True,
+            spec,
+        )?;
+        Ok(SigVerifiedOp::new(self, state))
     }
 }
