@@ -137,6 +137,7 @@ pub fn run<T: EthSpec>(testnet_dir_path: PathBuf, matches: &ArgMatches) -> Resul
 
     let genesis_state_bytes = if matches.is_present("interop-genesis-state") {
         let keypairs = generate_deterministic_keypairs(validator_count);
+        let keypairs: Vec<_> = keypairs.into_iter().map(|kp| (kp.clone(), kp)).collect();
 
         let genesis_state = initialize_state_with_validators::<T>(
             &keypairs,
@@ -163,8 +164,16 @@ pub fn run<T: EthSpec>(testnet_dir_path: PathBuf, matches: &ArgMatches) -> Resul
                     recover_validator_secret_from_mnemonic(seed.as_bytes(), index, KeyType::Voting)
                         .unwrap();
 
-                let keypair = keypair_from_secret(secret.as_bytes()).unwrap();
-                keypair
+                let voting_keypair = keypair_from_secret(secret.as_bytes()).unwrap();
+
+                let (secret, _) = recover_validator_secret_from_mnemonic(
+                    seed.as_bytes(),
+                    index,
+                    KeyType::Withdrawal,
+                )
+                .unwrap();
+                let withdrawal_keypair = keypair_from_secret(secret.as_bytes()).unwrap();
+                (voting_keypair, withdrawal_keypair)
             })
             .collect::<Vec<_>>();
         let genesis_state = initialize_state_with_validators::<T>(
@@ -199,7 +208,7 @@ pub fn run<T: EthSpec>(testnet_dir_path: PathBuf, matches: &ArgMatches) -> Resul
 /// We need to ensure that `eth1_block_hash` is equal to the genesis block hash that is
 /// generated from the execution side `genesis.json`.
 fn initialize_state_with_validators<T: EthSpec>(
-    keypairs: &[Keypair],
+    keypairs: &[(Keypair, Keypair)], // Voting and Withdrawal keypairs
     genesis_time: u64,
     eth1_block_hash: Hash256,
     execution_payload_header: Option<ExecutionPayloadHeader<T>>,
@@ -236,8 +245,8 @@ fn initialize_state_with_validators<T: EthSpec>(
         let amount = spec.max_effective_balance;
         // Create a new validator.
         let validator = Validator {
-            pubkey: keypair.pk.clone().into(),
-            withdrawal_credentials: withdrawal_credentials(&keypair.pk),
+            pubkey: keypair.0.pk.clone().into(),
+            withdrawal_credentials: withdrawal_credentials(&keypair.1.pk),
             activation_eligibility_epoch: spec.far_future_epoch,
             activation_epoch: spec.far_future_epoch,
             exit_epoch: spec.far_future_epoch,
