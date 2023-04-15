@@ -211,8 +211,8 @@ impl DepositContract {
             .interval(Duration::from_millis(10))
             .confirmations(0)
             .await
-            .unwrap()
-            .unwrap();
+            .map_err(|e| format!("Transaction failed to resolve: {:?}", e))?
+            .ok_or_else(|| "Transaction dropped from mempool".to_string())?;
         Ok(())
     }
 
