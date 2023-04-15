@@ -5,13 +5,13 @@ use crate::data_availability_checker::{Availability, AvailabilityCheckError};
 use crate::store::{DBColumn, KeyValueStore};
 use crate::BeaconChainTypes;
 use lru::LruCache;
-use parking_lot::{Mutex, RwLock, RwLockWriteGuard};
+use parking_lot::{Mutex, RwLock, RwLockUpgradableReadGuard, RwLockWriteGuard};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use ssz_types::FixedVector;
 use std::{collections::HashSet, sync::Arc};
 use types::blob_sidecar::BlobIdentifier;
-use types::{BlobSidecar, EthSpec, Hash256};
+use types::{BlobSidecar, Epoch, EthSpec, Hash256};
 
 /// Caches partially available blobs and execution verified blocks corresponding
 /// to a given `block_hash` that are received over gossip.
@@ -26,7 +26,7 @@ pub struct PendingComponents<T: EthSpec> {
 }
 
 impl<T: EthSpec> PendingComponents<T> {
-    fn new_from_blob(blob: KzgVerifiedBlob<T>) -> Self {
+    pub fn new_from_blob(blob: KzgVerifiedBlob<T>) -> Self {
         let mut verified_blobs = FixedVector::<_, _>::default();
         // TODO: verify that we've already ensured the blob index < T::MaxBlobsPerBlock
         if let Some(mut_maybe_blob) = verified_blobs.get_mut(blob.blob_index() as usize) {
@@ -39,7 +39,7 @@ impl<T: EthSpec> PendingComponents<T> {
         }
     }
 
-    fn new_from_block(block: AvailabilityPendingExecutedBlock<T>) -> Self {
+    pub fn new_from_block(block: AvailabilityPendingExecutedBlock<T>) -> Self {
         Self {
             verified_blobs: <_>::default(),
             executed_block: Some(block),
@@ -48,7 +48,7 @@ impl<T: EthSpec> PendingComponents<T> {
 
     /// Returns `true` if the cache has all blobs corresponding to the
     /// kzg commitments in the block.
-    fn has_all_blobs(&self, block: &AvailabilityPendingExecutedBlock<T>) -> bool {
+    pub fn has_all_blobs(&self, block: &AvailabilityPendingExecutedBlock<T>) -> bool {
         for i in 0..block.num_blobs_expected() {
             if self
                 .verified_blobs
@@ -62,11 +62,27 @@ impl<T: EthSpec> PendingComponents<T> {
         true
     }
 
-    fn empty() -> Self {
+    pub fn empty() -> Self {
         Self {
             verified_blobs: <_>::default(),
             executed_block: None,
         }
+    }
+
+    pub fn epoch(&self) -> Option<Epoch> {
+        self.executed_block
+            .as_ref()
+            .map(|pending_block| pending_block.block.as_block().epoch())
+            .or_else(|| {
+                for maybe_blob in self.verified_blobs.iter() {
+                    if maybe_blob.is_some() {
+                        return maybe_blob.as_ref().map(|kzg_verified_blob| {
+                            kzg_verified_blob.as_blob().slot.epoch(T::slots_per_epoch())
+                        });
+                    }
+                }
+                None
+            })
     }
 }
 
@@ -421,47 +437,63 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
     }
 
     // maintain the cache
-    pub fn do_maintenance(&self) -> Result<(), AvailabilityCheckError> {
+    pub fn do_maintenance(&self, cutoff_epoch: Epoch) -> Result<(), AvailabilityCheckError> {
         // ensure memory usage is below threshold
         let threshold = self.capacity * 3 / 4;
-        self.maintain_threshold(threshold)?;
+        self.maintain_threshold(threshold, cutoff_epoch)?;
         // clean up any keys on the disk that shouldn't be there
-        self.prune_disk()?;
+        self.prune_disk(cutoff_epoch)?;
         Ok(())
     }
 
-    fn maintain_threshold(&self, threshold: usize) -> Result<(), AvailabilityCheckError> {
+    fn maintain_threshold(
+        &self,
+        threshold: usize,
+        cutoff_epoch: Epoch,
+    ) -> Result<(), AvailabilityCheckError> {
         // ensure only one thread at a time can be deleting things from the disk or
         // moving things between memory and storage
         let maintenance_lock = self.maintenance_lock.lock();
 
         let mut stored = self.critical.read().in_memory.len();
         while stored > threshold {
-            // hold the read lock only as long as it takes to clone the LRU component
-            let read_lock = self.critical.read();
+            let read_lock = self.critical.upgradable_read();
             let lru_entry = read_lock
                 .in_memory
                 .peek_lru()
                 .map(|(key, value)| (key.clone(), value.clone()));
-            drop(read_lock);
 
-            let (root, pending_components) = match lru_entry {
+            let (lru_root, lru_pending_components) = match lru_entry {
                 Some((r, p)) => (r, p),
                 None => break,
             };
 
+            if lru_pending_components
+                .epoch()
+                .map(|epoch| epoch < cutoff_epoch)
+                .unwrap_or(true)
+            {
+                // this data is no longer needed -> delete it
+                let mut write_lock = RwLockUpgradableReadGuard::upgrade(read_lock);
+                write_lock.in_memory.pop_entry(&lru_root);
+                stored = write_lock.in_memory.len();
+                continue;
+            } else {
+                drop(read_lock);
+            }
+
             // write the lru entry to disk (we aren't holding any critical locks while we do this)
             self.store
-                .persist_pending_components(root, pending_components)?;
+                .persist_pending_components(lru_root, lru_pending_components)?;
             // now that we've written to disk, grab the critical write lock
             let mut write_lock = self.critical.write();
-            if let Some((lru_root_ref, _)) = write_lock.in_memory.peek_lru() {
+            if let Some((new_lru_root_ref, _)) = write_lock.in_memory.peek_lru() {
                 // need to ensure the entry we just wrote to disk wasn't updated
                 // while we were writing and is still the LRU entry
-                if *lru_root_ref == root {
+                if *new_lru_root_ref == lru_root {
                     // it is still LRU entry -> delete it from memory & record that it's on disk
-                    write_lock.in_memory.pop_lru();
-                    write_lock.store_keys.insert(root);
+                    write_lock.in_memory.pop_entry(&lru_root);
+                    write_lock.store_keys.insert(lru_root);
                     stored = write_lock.in_memory.len();
                 }
             }
@@ -472,38 +504,83 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
         Ok(())
     }
 
-    fn prune_disk(&self) -> Result<(), AvailabilityCheckError> {
+    fn prune_disk(&self, cutoff_epoch: Epoch) -> Result<(), AvailabilityCheckError> {
         // ensure only one thread at a time can be deleting things from the disk or
         // moving things between memory and storage
         let maintenance_lock = self.maintenance_lock.lock();
 
-        let mut block_keys = vec![];
-        let mut current_block = None;
+        struct BlockData {
+            keys: Vec<OverflowKey>,
+            root: Hash256,
+            epoch: Epoch,
+        }
+
+        let delete_if_outdated = |cache: &OverflowLRUCache<T>,
+                                  block_data: Option<BlockData>|
+         -> Result<(), AvailabilityCheckError> {
+            let block_data = match block_data {
+                Some(block_data) => block_data,
+                None => return Ok(()),
+            };
+            let not_in_store_keys = !cache.critical.read().store_keys.contains(&block_data.root);
+            if not_in_store_keys {
+                // these keys aren't supposed to be on disk
+                cache.store.delete_keys(&block_data.keys)?;
+            } else {
+                // check this data is still relevant
+                if block_data.epoch < cutoff_epoch {
+                    // this data is no longer needed -> delete it
+                    self.store.delete_keys(&block_data.keys)?;
+                }
+            }
+            Ok(())
+        };
+
+        let mut current_block_data: Option<BlockData> = None;
         for res in self
             .store
             .0
             .hot_db
             .iter_raw_entries(DBColumn::OverflowLRUCache, &[])
         {
-            let (key_bytes, _) = res?;
+            let (key_bytes, value_bytes) = res?;
             let overflow_key = OverflowKey::from_ssz_bytes(&key_bytes)?;
+            let current_root = *overflow_key.root();
 
-            if current_block == Some(*overflow_key.root()) {
-                block_keys.push(overflow_key);
-            } else {
-                if let Some(previous_block_root) = current_block {
-                    let read_lock = self.critical.read();
-                    if !read_lock.store_keys.contains(&previous_block_root) {
-                        // these keys aren't supposed to be in the store
-                        self.store.delete_keys(&block_keys)?;
-                    } else {
-                        // TODO: check that this doesn't conflict with finalized block
-                    }
+            match &mut current_block_data {
+                Some(block_data) if block_data.root == current_root => {
+                    // still dealing with the same block
+                    block_data.keys.push(overflow_key);
                 }
-                current_block = Some(*overflow_key.root());
-                block_keys = vec![overflow_key];
+                _ => {
+                    // first time encountering data for this block
+                    delete_if_outdated(&self, current_block_data)?;
+                    let current_epoch = match &overflow_key {
+                        OverflowKey::Block(_) => {
+                            AvailabilityPendingExecutedBlock::<T::EthSpec>::from_ssz_bytes(
+                                value_bytes.as_slice(),
+                            )?
+                            .block
+                            .as_block()
+                            .epoch()
+                        }
+                        OverflowKey::Blob(_, _) => {
+                            KzgVerifiedBlob::<T::EthSpec>::from_ssz_bytes(value_bytes.as_slice())?
+                                .as_blob()
+                                .slot
+                                .epoch(T::EthSpec::slots_per_epoch())
+                        }
+                    };
+                    current_block_data = Some(BlockData {
+                        keys: vec![overflow_key],
+                        root: current_root,
+                        epoch: current_epoch,
+                    });
+                }
             }
         }
+        // can't fall off the end
+        delete_if_outdated(&self, current_block_data)?;
 
         drop(maintenance_lock);
         Ok(())

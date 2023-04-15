@@ -5,13 +5,15 @@ use crate::blob_verification::{
 use crate::block_verification::{AvailabilityPendingExecutedBlock, AvailableExecutedBlock};
 
 use crate::data_availability_checker::overflow_lru_cache::OverflowLRUCache;
-use crate::{BeaconChainTypes, BeaconStore};
+use crate::{BeaconChain, BeaconChainTypes, BeaconStore};
 use kzg::Error as KzgError;
 use kzg::Kzg;
+use slog::{debug, error};
 use slot_clock::SlotClock;
 use ssz_types::{Error, VariableList};
 use state_processing::per_block_processing::deneb::deneb::verify_kzg_commitments_against_transactions;
 use std::sync::Arc;
+use task_executor::TaskExecutor;
 use types::beacon_block_body::KzgCommitments;
 use types::blob_sidecar::{BlobIdentifier, BlobSidecar};
 use types::consts::deneb::MIN_EPOCHS_FOR_BLOB_SIDECARS_REQUESTS;
@@ -72,7 +74,7 @@ impl From<ssz::DecodeError> for AvailabilityCheckError {
 ///    have not been verified against blobs
 ///  - blocks that have been fully verified and only require a data availability check
 pub struct DataAvailabilityChecker<T: BeaconChainTypes> {
-    availability_cache: OverflowLRUCache<T>,
+    availability_cache: Arc<OverflowLRUCache<T>>,
     slot_clock: T::SlotClock,
     kzg: Option<Arc<Kzg>>,
     spec: ChainSpec,
@@ -108,7 +110,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         spec: ChainSpec,
     ) -> Self {
         Self {
-            availability_cache: OverflowLRUCache::new(OVERFLOW_LRU_CAPACITY, store),
+            availability_cache: Arc::new(OverflowLRUCache::new(OVERFLOW_LRU_CAPACITY, store)),
             slot_clock,
             kzg,
             spec,
@@ -292,6 +294,84 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     pub fn da_check_required(&self, block_epoch: Epoch) -> bool {
         self.data_availability_boundary()
             .map_or(false, |da_epoch| block_epoch >= da_epoch)
+    }
+}
+
+pub fn start_availability_cache_maintenance_service<T: BeaconChainTypes>(
+    executor: TaskExecutor,
+    chain: Arc<BeaconChain<T>>,
+) {
+    // this cache only needs to be maintained if deneb is configured
+    if chain.spec.deneb_fork_epoch.is_some() {
+        let overflow_cache = chain.data_availability_checker.availability_cache.clone();
+        executor.spawn(
+            async move { availability_cache_maintenance_service(chain, overflow_cache).await },
+            "otb_verification_service",
+        );
+    }
+}
+
+async fn availability_cache_maintenance_service<T: BeaconChainTypes>(
+    chain: Arc<BeaconChain<T>>,
+    overflow_cache: Arc<OverflowLRUCache<T>>,
+) {
+    let epoch_duration = chain.slot_clock.slot_duration() * T::EthSpec::slots_per_epoch() as u32;
+    loop {
+        match chain
+            .slot_clock
+            .duration_to_next_epoch(T::EthSpec::slots_per_epoch())
+        {
+            Some(duration) => {
+                // this service should run 3/4 of the way through the epoch
+                let additional_delay = (epoch_duration * 3) / 4;
+                tokio::time::sleep(duration + additional_delay).await;
+                debug!(
+                    chain.log,
+                    "Availability cache maintenance service firing";
+                );
+
+                let deneb_fork_epoch = match chain.spec.deneb_fork_epoch {
+                    Some(epoch) => epoch,
+                    None => break, // shutdown service if deneb fork epoch not set
+                };
+                let current_epoch = match chain
+                    .slot_clock
+                    .now()
+                    .map(|slot| slot.epoch(T::EthSpec::slots_per_epoch()))
+                {
+                    Some(epoch) => epoch,
+                    None => continue, // we'll have to try again next time I suppose..
+                };
+
+                if current_epoch < deneb_fork_epoch {
+                    // we are not in deneb yet
+                    continue;
+                }
+
+                let finalized_epoch = chain
+                    .canonical_head
+                    .fork_choice_read_lock()
+                    .finalized_checkpoint()
+                    .epoch;
+                // any data belonging to an epoch before this should be pruned
+                let cutoff_epoch = std::cmp::max(
+                    finalized_epoch + 1,
+                    std::cmp::max(
+                        current_epoch - *MIN_EPOCHS_FOR_BLOBS_SIDECARS_REQUESTS,
+                        deneb_fork_epoch,
+                    ),
+                );
+
+                if let Err(e) = overflow_cache.do_maintenance(cutoff_epoch) {
+                    error!(chain.log, "Failed to maintain availability cache"; "error" => ?e);
+                }
+            }
+            None => {
+                error!(chain.log, "Failed to read slot clock");
+                // If we can't read the slot clock, just wait another slot.
+                tokio::time::sleep(chain.slot_clock.slot_duration()).await;
+            }
+        };
     }
 }
 
