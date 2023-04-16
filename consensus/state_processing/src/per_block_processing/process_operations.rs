@@ -26,17 +26,15 @@ pub fn process_operations<T: EthSpec, Payload: AbstractExecPayload<T>>(
         .unwrap_or_else(|_| state.eth1_data().deposit_count);
 
     if state.eth1_deposit_index() < eth1_deposit_index_limit {
-        assert_eq!(
-            block_body.deposits().len(),
-            std::cmp::min(max_deposits as usize, unprocessed_deposits_count as usize),
-            "Number of deposits in block does not match the minimum of the maximum number of deposits and the number of unprocessed deposits"
-        );
+        if block_body.deposits().len()
+            != std::cmp::min(max_deposits as usize, unprocessed_deposits_count as usize)
+        {
+            return Err(BlockProcessingError::DepositReceiptError);
+        }
     } else {
-        assert_eq!(
-            block_body.deposits().len(),
-            0,
-            "Number of deposits in block must be zero when all prior deposits are processed"
-        );
+        if block_body.deposits().len() != 0 {
+            return Err(BlockProcessingError::DepositReceiptError);
+        }
     }
 
     process_proposer_slashings(

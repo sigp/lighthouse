@@ -48,7 +48,7 @@ pub fn fork_core_topics(fork_name: &ForkName) -> Vec<GossipKind> {
         ForkName::Merge => vec![],
         ForkName::Capella => CAPELLA_CORE_TOPICS.to_vec(),
         ForkName::Eip4844 => vec![], // TODO
-        ForkName::Eip6110 => vec![], // TODO
+        ForkName::Eip6110 => vec![],
     }
 }
 

@@ -447,12 +447,15 @@ where
         let eip4844_time = spec.eip4844_fork_epoch.map(|epoch| {
             HARNESS_GENESIS_TIME + spec.seconds_per_slot * E::slots_per_epoch() * epoch.as_u64()
         });
+        let eip6110_time = spec.eip6110_fork_epoch.map(|epoch| {
+            HARNESS_GENESIS_TIME + spec.seconds_per_slot * E::slots_per_epoch() * epoch.as_u64()
+        });
         let mock = MockExecutionLayer::new(
             self.runtime.task_executor.clone(),
             DEFAULT_TERMINAL_BLOCK,
             shanghai_time,
             eip4844_time,
-            None,
+            eip6110_time,
             None,
             Some(JwtKey::from_slice(&DEFAULT_JWT_SECRET).unwrap()),
             spec,

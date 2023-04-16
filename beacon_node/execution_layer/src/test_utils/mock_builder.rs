@@ -442,17 +442,19 @@ impl<E: EthSpec> mev_rs::BlindedBlockProvider for MockBuilder<E> {
 
         let json_payload = serde_json::to_string(&payload).map_err(convert_err)?;
         let mut message = match fork {
-            ForkName::Capella => BuilderBid::Capella(BuilderBidCapella {
-                header: serde_json::from_str(json_payload.as_str()).map_err(convert_err)?,
-                value: to_ssz_rs(&Uint256::from(DEFAULT_BUILDER_PAYLOAD_VALUE_WEI))?,
-                public_key: self.builder_sk.public_key(),
-            }),
+            ForkName::Capella | ForkName::Eip4844 | ForkName::Eip6110 => {
+                BuilderBid::Capella(BuilderBidCapella {
+                    header: serde_json::from_str(json_payload.as_str()).map_err(convert_err)?,
+                    value: to_ssz_rs(&Uint256::from(DEFAULT_BUILDER_PAYLOAD_VALUE_WEI))?,
+                    public_key: self.builder_sk.public_key(),
+                })
+            }
             ForkName::Merge => BuilderBid::Bellatrix(BuilderBidBellatrix {
                 header: serde_json::from_str(json_payload.as_str()).map_err(convert_err)?,
                 value: to_ssz_rs(&Uint256::from(DEFAULT_BUILDER_PAYLOAD_VALUE_WEI))?,
                 public_key: self.builder_sk.public_key(),
             }),
-            ForkName::Base | ForkName::Altair | ForkName::Eip4844 | ForkName::Eip6110 => {
+            ForkName::Base | ForkName::Altair => {
                 return Err(BlindedBlockProviderError::Custom(format!(
                     "Unsupported fork: {}",
                     fork

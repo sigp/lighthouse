@@ -302,7 +302,7 @@ impl<T: EthSpec> TryFrom<ExecutionPayload<T>> for ExecutionBlockWithTransactions
                         .collect(),
                     deposit_receipts: Vec::from(block.deposit_receipts)
                         .into_iter()
-                        .map(|receipt| receipt.into())
+                        .map(|deposit_receipt| deposit_receipt.into())
                         .collect(),
                 })
             }
