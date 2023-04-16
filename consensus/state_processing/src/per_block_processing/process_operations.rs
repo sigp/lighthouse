@@ -31,10 +31,8 @@ pub fn process_operations<T: EthSpec, Payload: AbstractExecPayload<T>>(
         {
             return Err(BlockProcessingError::DepositReceiptError);
         }
-    } else {
-        if block_body.deposits().len() != 0 {
-            return Err(BlockProcessingError::DepositReceiptError);
-        }
+    } else if !block_body.deposits().is_empty() {
+        return Err(BlockProcessingError::DepositReceiptError);
     }
 
     process_proposer_slashings(
