@@ -626,34 +626,35 @@ async fn check_payload_reconstruction<E: GenericExecutionEngine>(
     ee: &ExecutionPair<E, MainnetEthSpec>,
     payload: &ExecutionPayload<MainnetEthSpec>,
 ) {
-    let reconstructed = ee
-        .execution_layer
-        .get_payload_by_block_hash(payload.block_hash(), payload.fork_name())
-        .await
-        .unwrap()
-        .unwrap();
-    assert_eq!(reconstructed, *payload);
-    // also check via payload bodies method
+    // check that the engine supports the payload bodies methods
     let capabilities = ee
         .execution_layer
         .get_engine_capabilities(None)
         .await
         .unwrap();
     assert!(
-        // if the engine doesn't have these capabilities, we need to update the client in our tests
         capabilities.get_payload_bodies_by_hash_v1 && capabilities.get_payload_bodies_by_range_v1,
         "Testing engine does not support payload bodies methods"
     );
-    let mut bodies = ee
-        .execution_layer
-        .get_payload_bodies_by_hash(vec![payload.block_hash()])
-        .await
-        .unwrap();
-    assert_eq!(bodies.len(), 1);
-    let body = bodies.pop().unwrap().unwrap();
+
+    // reconstruct using `get_payload_for_header`, which will use `getPayloadBodiesByRange`
     let header = ExecutionPayloadHeader::from(payload.to_ref());
-    let reconstructed_from_body = body.to_payload(header).unwrap();
-    assert_eq!(reconstructed_from_body, *payload);
+    let reconstructed = ee
+        .execution_layer
+        .get_payload_for_header(&header, payload.fork_name())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(reconstructed, *payload);
+
+    // also check via legacy `getBlockByHash` method
+    let reconstructed_by_hash = ee
+        .execution_layer
+        .get_payload_by_hash_legacy(payload.block_hash(), payload.fork_name())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(reconstructed_by_hash, *payload);
 }
 
 /// Returns the duration since the unix epoch.

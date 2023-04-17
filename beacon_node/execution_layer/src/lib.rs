@@ -1602,14 +1602,50 @@ impl<T: EthSpec> ExecutionLayer<T> {
             .map_err(Error::EngineError)
     }
 
-    pub async fn get_payload_by_block_hash(
+    pub async fn get_payload_for_header(
+        &self,
+        header: &ExecutionPayloadHeader<T>,
+        fork: ForkName,
+    ) -> Result<Option<ExecutionPayload<T>>, Error> {
+        let hash = header.block_hash();
+        let block_number = header.block_number();
+
+        // Use efficient payload bodies by range method if supported.
+        let capabilities = self.get_engine_capabilities(None).await?;
+        if capabilities.get_payload_bodies_by_range_v1 {
+            let mut payload_bodies = self.get_payload_bodies_by_range(block_number, 1).await?;
+
+            if payload_bodies.len() != 1 {
+                return Ok(None);
+            }
+
+            // FIXME(sproul): error properly
+            let opt_payload_body = payload_bodies.pop().flatten();
+            Ok(opt_payload_body.and_then(|body| {
+                body.to_payload(header.clone())
+                    .map_err(|e| {
+                        warn!(
+                            self.inner.log,
+                            "Payload reconstruction failed";
+                            "error" => e,
+                        );
+                    })
+                    .ok()
+            }))
+        } else {
+            // Fall back to eth_blockByHash.
+            self.get_payload_by_hash_legacy(hash, fork).await
+        }
+    }
+
+    pub async fn get_payload_by_hash_legacy(
         &self,
         hash: ExecutionBlockHash,
         fork: ForkName,
     ) -> Result<Option<ExecutionPayload<T>>, Error> {
         self.engine()
             .request(|engine| async move {
-                self.get_payload_by_block_hash_from_engine(engine, hash, fork)
+                self.get_payload_by_hash_from_engine(engine, hash, fork)
                     .await
             })
             .await
@@ -1617,7 +1653,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
             .map_err(Error::EngineError)
     }
 
-    async fn get_payload_by_block_hash_from_engine(
+    async fn get_payload_by_hash_from_engine(
         &self,
         engine: &Engine,
         hash: ExecutionBlockHash,
@@ -1630,7 +1666,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                 ForkName::Merge => Ok(Some(ExecutionPayloadMerge::default().into())),
                 ForkName::Capella => Ok(Some(ExecutionPayloadCapella::default().into())),
                 ForkName::Base | ForkName::Altair => Err(ApiError::UnsupportedForkVariant(
-                    format!("called get_payload_by_block_hash_from_engine with {}", fork),
+                    format!("called get_payload_by_hash_from_engine with {}", fork),
                 )),
             };
         }
