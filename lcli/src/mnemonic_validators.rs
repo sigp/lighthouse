@@ -77,7 +77,7 @@ pub fn run(matches: &ArgMatches) -> Result<(), String> {
     let validator_count: usize = clap_utils::parse_required(matches, "count")?;
     let base_dir: PathBuf = clap_utils::parse_required(matches, "base-dir")?;
     let node_count: Option<usize> = clap_utils::parse_optional(matches, "node-count")?;
-    let mnemonics_phrase: String = clap_utils::parse_required(matches, "mnemonics-phrase")?;
+    let mnemonic_phrase: String = clap_utils::parse_required(matches, "mnemonic-phrase")?;
     if let Some(node_count) = node_count {
         let validators_per_node = validator_count / node_count;
         let validator_range = (0..validator_count).collect::<Vec<_>>();
@@ -88,14 +88,14 @@ pub fn run(matches: &ArgMatches) -> Result<(), String> {
         for (i, indices) in indices_range.iter().enumerate() {
             let validators_dir = base_dir.join(format!("node_{}", i + 1)).join("validators");
             let secrets_dir = base_dir.join(format!("node_{}", i + 1)).join("secrets");
-            generate_validator_dirs(indices, &mnemonics_phrase, validators_dir, secrets_dir)?;
+            generate_validator_dirs(indices, &mnemonic_phrase, validators_dir, secrets_dir)?;
         }
     } else {
         let validators_dir = base_dir.join("validators");
         let secrets_dir = base_dir.join("secrets");
         generate_validator_dirs(
             (0..validator_count).collect::<Vec<_>>().as_slice(),
-            &mnemonics_phrase,
+            &mnemonic_phrase,
             validators_dir,
             secrets_dir,
         )?;

@@ -149,14 +149,13 @@ pub fn run<T: EthSpec>(testnet_dir_path: PathBuf, matches: &ArgMatches) -> Resul
 
         Some(genesis_state.as_ssz_bytes())
     } else if matches.is_present("derived-genesis-state") {
-        let mnemonics_phrase: String = clap_utils::parse_required(matches, "mnemonics-phrase")?;
-        let mnemonic =
-            Mnemonic::from_phrase(&mnemonics_phrase, Language::English).map_err(|e| {
-                format!(
-                    "Unable to derive mnemonic from string {:?}: {:?}",
-                    mnemonics_phrase, e
-                )
-            })?;
+        let mnemonic_phrase: String = clap_utils::parse_required(matches, "mnemonic-phrase")?;
+        let mnemonic = Mnemonic::from_phrase(&mnemonic_phrase, Language::English).map_err(|e| {
+            format!(
+                "Unable to derive mnemonic from string {:?}: {:?}",
+                mnemonic_phrase, e
+            )
+        })?;
         let seed = Seed::new(&mnemonic, "");
         let keypairs = (0..validator_count as u32)
             .map(|index| {

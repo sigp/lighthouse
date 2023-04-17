@@ -10,7 +10,7 @@ mod generate_bootnode_enr;
 mod indexed_attestations;
 mod insecure_validators;
 mod interop_genesis;
-mod mnemonics_validators;
+mod mnemonic_validators;
 mod new_testnet;
 mod parse_ssz;
 mod replace_state_pubkeys;
@@ -459,9 +459,9 @@ fn main() {
                         ),
                 )
                 .arg(
-                    Arg::with_name("mnemonics-phrase")
-                        .long("mnemonics-phrase")
-                        .value_name("MNEMONICS_PHRASE")
+                    Arg::with_name("mnemonic-phrase")
+                        .long("mnemonic-phrase")
+                        .value_name("MNEMONIC_PHRASE")
                         .takes_value(true)
                         .requires("derived-genesis-state")
                         .help("The mnemonic with which we generate the validator keys for a derived genesis state"),
@@ -920,7 +920,7 @@ fn run<T: EthSpec>(
             .map_err(|e| format!("Failed to run generate-bootnode-enr command: {}", e)),
         ("insecure-validators", Some(matches)) => insecure_validators::run(matches)
             .map_err(|e| format!("Failed to run insecure-validators command: {}", e)),
-        ("mnemonics-validators", Some(matches)) => mnemonics_validators::run(matches)
+        ("mnemonic-validators", Some(matches)) => mnemonic_validators::run(matches)
             .map_err(|e| format!("Failed to run mnemonics-validators command: {}", e)),
         ("indexed-attestations", Some(matches)) => indexed_attestations::run::<T>(matches)
             .map_err(|e| format!("Failed to run indexed-attestations command: {}", e)),
