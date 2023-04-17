@@ -35,7 +35,7 @@ pub(crate) struct ParentLookup<T: BeaconChainTypes> {
     /// The blocks that have currently been downloaded.
     downloaded_blocks: Vec<DownlodedBlocks<T::EthSpec>>,
     /// Request of the last parent.
-    pub current_parent_request: SingleBlockLookup<PARENT_FAIL_TOLERANCE, T::EthSpec>,
+    pub current_parent_request: SingleBlockLookup<PARENT_FAIL_TOLERANCE, T>,
     /// Id of the last parent request.
     current_parent_request_id: Option<Id>,
     current_parent_blob_request_id: Option<Id>,
@@ -101,30 +101,31 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
             return Err(RequestError::ChainTooLong);
         }
 
-        let (peer_id, request) = self.current_parent_request.make_request()?;
-        match cx.parent_lookup_block_request(peer_id, request) {
-            Ok(request_id) => {
-                self.current_parent_request_id = Some(request_id);
-                Ok(())
-            }
-            Err(reason) => {
-                self.current_parent_request_id = None;
-                Err(RequestError::SendFailed(reason))
+        if let Some((peer_id, request)) = self.current_parent_request.request_block()? {
+            match cx.parent_lookup_block_request(peer_id, request) {
+                Ok(request_id) => {
+                    self.current_parent_request_id = Some(request_id);
+                    Ok(())
+                }
+                Err(reason) => {
+                    self.current_parent_request_id = None;
+                    Err(RequestError::SendFailed(reason))
+                }
             }
         }
+        Ok(())
     }
 
     pub fn request_parent_blobs(
         &mut self,
         cx: &mut SyncNetworkContext<T>,
     ) -> Result<(), RequestError> {
-        if let Some(blob_req) = self.current_parent_request.as_mut() {
-            // check to make sure this request hasn't failed
-            if self.downloaded_blocks.len() >= PARENT_DEPTH_TOLERANCE {
-                return Err(RequestError::ChainTooLong);
-            }
+        // check to make sure this request hasn't failed
+        if self.downloaded_blocks.len() >= PARENT_DEPTH_TOLERANCE {
+            return Err(RequestError::ChainTooLong);
+        }
 
-            let (peer_id, request) = blob_req.request_blobs()?;
+        if let Some((peer_id, request)) = self.current_parent_request.request_blobs()? {
             match cx.parent_lookup_blobs_request(peer_id, request) {
                 Ok(request_id) => {
                     self.current_parent_blob_request_id = Some(request_id);
@@ -183,14 +184,13 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
         Hash256,
         Vec<MaybeAvailableBlock<T::EthSpec>>,
         Vec<Hash256>,
-        SingleBlockLookup<PARENT_FAIL_TOLERANCE>,
+        SingleBlockLookup<PARENT_FAIL_TOLERANCE, T>,
         Option<SingleBlobsRequest<PARENT_FAIL_TOLERANCE, T::EthSpec>>,
     ) {
         let ParentLookup {
             chain_hash,
             downloaded_blocks,
             current_parent_request,
-            current_parent_blob_request,
             current_parent_request_id: _,
             current_parent_blob_request_id: _,
         } = self;
@@ -253,7 +253,9 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
             .map(|(_, block)| block.parent_root())
         {
             if failed_chains.contains(&parent_root) {
-                self.current_parent_request.register_failure_downloading();
+                self.current_parent_request
+                    .block_request_state
+                    .register_failure_downloading();
                 self.current_parent_request_id = None;
                 return Err(VerifyError::PreviousFailure { parent_root });
             }
@@ -267,11 +269,7 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
         blob: Option<Arc<BlobSidecar<T::EthSpec>>>,
         failed_chains: &mut lru_cache::LRUTimeCache<Hash256>,
     ) -> Result<Option<Vec<Arc<BlobSidecar<T::EthSpec>>>>, VerifyError> {
-        let blobs = self
-            .current_parent_blob_request
-            .map(|mut req| req.verify_blob(blob))
-            .transpose()?
-            .flatten();
+        let blobs = self.current_parent_request.verify_blob(blob)?;
 
         // check if the parent of this block isn't in the failed cache. If it is, this chain should
         // be dropped and the peer downscored.
@@ -281,7 +279,8 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
             .map(|blob| blob.block_parent_root)
         {
             if failed_chains.contains(&parent_root) {
-                self.current_parent_blob_request
+                self.current_parent_request
+                    .blob_request_state
                     .register_failure_downloading();
                 self.current_parent_blob_request_id = None;
                 return Err(VerifyError::PreviousFailure { parent_root });

@@ -23,7 +23,7 @@ use types::{BlobSidecar, SignedBeaconBlock};
 pub struct SingleBlockLookup<const MAX_ATTEMPTS: u8, T: BeaconChainTypes> {
     pub requested_block_root: Hash256,
     pub requested_ids: Vec<BlobIdentifier>,
-    pub downloaded_blobs: Vec<Arc<BlobSidecar<T::EthSpec>>>,
+    pub downloaded_blobs: Vec<Option<Arc<BlobSidecar<T::EthSpec>>>>,
     pub downloaded_block: Option<Arc<BlobSidecar<T::EthSpec>>>,
     pub block_request_state: SingleLookupRequestState<MAX_ATTEMPTS>,
     pub blob_request_state: SingleLookupRequestState<MAX_ATTEMPTS>,
@@ -83,8 +83,6 @@ impl<const MAX_ATTEMPTS: u8, T: BeaconChainTypes> SingleBlockLookup<MAX_ATTEMPTS
         peer_id: PeerId,
         da_checker: Arc<DataAvailabilityChecker<T::EthSpec, T::SlotClock>>,
     ) -> Self {
-        da_checker.get_missing_parts_for_hash(&requested_block_root);
-
         Self {
             requested_block_root,
             requested_ids: vec![],
@@ -99,8 +97,8 @@ impl<const MAX_ATTEMPTS: u8, T: BeaconChainTypes> SingleBlockLookup<MAX_ATTEMPTS
     pub fn add_blobs(
         &mut self,
         block_root: Hash256,
-        blobs: Vec<Arc<BlobSidecar<T>>>,
-    ) -> RequestResult<T> {
+        blobs: Vec<Arc<BlobSidecar<T::EthSpec>>>,
+    ) -> RequestResult<T::EthSpec> {
         //TODO(sean) smart extend, we don't want dupes
         self.downloaded_blobs.extend(blobs);
 
@@ -118,10 +116,34 @@ impl<const MAX_ATTEMPTS: u8, T: BeaconChainTypes> SingleBlockLookup<MAX_ATTEMPTS
     pub fn add_block(
         &mut self,
         block_root: Hash256,
-        block: Arc<SignedBeaconBlock<T>>,
-    ) -> RequestResult<T> {
+        block: Arc<SignedBeaconBlock<T::EthSpec>>,
+    ) -> RequestResult<T::EthSpec> {
         //TODO(sean) check for existing block?
         self.downloaded_block = Some(block);
+
+        match self
+            .da_checker
+            .zip_block(block_root, block, self.downloaded_blobs)
+        {
+            Ok(wrapper) => RequestResult::Process(wrapper),
+            Err(AvailabilityCheckError::MissingBlobs) => RequestResult::SearchBlock(block_root),
+            _ => todo!(),
+        }
+    }
+
+    pub fn add_block_wrapper(
+        &mut self,
+        block_root: Hash256,
+        block: BlockWrapper<T::EthSpec>,
+    ) -> RequestResult<T::EthSpec> {
+        match block {
+            BlockWrapper::Block(block) => self.add_block(block_root, block),
+            BlockWrapper::BlockAndBlobs(block, blobs) => {
+                //TODO(sean) check for existing block?
+                self.downloaded_block = Some(block);
+                self.add_blobs(block_root, blobs)
+            }
+        }
 
         match self.da_checker.zip_block(block_root, block, blobs) {
             Ok(wrapper) => RequestResult::Process(wrapper),
@@ -134,8 +156,8 @@ impl<const MAX_ATTEMPTS: u8, T: BeaconChainTypes> SingleBlockLookup<MAX_ATTEMPTS
     /// Returns the block for processing if the response is what we expected.
     pub fn verify_block(
         &mut self,
-        block: Option<Arc<SignedBeaconBlock<T>>>,
-    ) -> Result<Option<RootBlockTuple<T>>, VerifyError> {
+        block: Option<Arc<SignedBeaconBlock<T::EthSpec>>>,
+    ) -> Result<Option<RootBlockTuple<T::EthSpec>>, VerifyError> {
         match self.block_request_state.state {
             State::AwaitingDownload => {
                 self.block_request_state.register_failure_downloading();
@@ -178,37 +200,10 @@ impl<const MAX_ATTEMPTS: u8, T: BeaconChainTypes> SingleBlockLookup<MAX_ATTEMPTS
         }
     }
 
-    pub fn request_block(&mut self) -> Result<(PeerId, BlocksByRootRequest), LookupRequestError> {
-        debug_assert!(matches!(
-            self.block_request_state.state,
-            State::AwaitingDownload
-        ));
-        if self.failed_attempts() >= MAX_ATTEMPTS {
-            Err(LookupRequestError::TooManyAttempts {
-                cannot_process: self.block_request_state.failed_processing
-                    >= self.block_request_state.failed_downloading,
-            })
-        } else if let Some(&peer_id) = self
-            .block_request_state
-            .available_peers
-            .iter()
-            .choose(&mut rand::thread_rng())
-        {
-            let request = BlocksByRootRequest {
-                block_roots: VariableList::from(vec![self.requested_block_root]),
-            };
-            self.block_request_state.state = State::Downloading { peer_id };
-            self.block_request_state.used_peers.insert(peer_id);
-            Ok((peer_id, request))
-        } else {
-            Err(LookupRequestError::NoPeers)
-        }
-    }
-
-    pub fn verify_blob<T: EthSpec>(
+    pub fn verify_blob(
         &mut self,
-        blob: Option<Arc<BlobSidecar<T>>>,
-    ) -> Result<Option<Vec<Arc<BlobSidecar<T>>>>, BlobVerifyError> {
+        blob: Option<Arc<BlobSidecar<T::EthSpec>>>,
+    ) -> Result<Option<Vec<Arc<BlobSidecar<T::EthSpec>>>>, BlobVerifyError> {
         match self.block_request_state.state {
             State::AwaitingDownload => {
                 self.blob_request_state.register_failure_downloading();
@@ -246,7 +241,46 @@ impl<const MAX_ATTEMPTS: u8, T: BeaconChainTypes> SingleBlockLookup<MAX_ATTEMPTS
         }
     }
 
-    pub fn request_blobs(&mut self) -> Result<(PeerId, BlobsByRootRequest), LookupRequestError> {
+    pub fn request_block(
+        &mut self,
+    ) -> Result<Option<(PeerId, BlocksByRootRequest)>, LookupRequestError> {
+        if self.da_checker.has_block(self.requested_block_root) || self.downloaded_block.is_some() {
+            return Ok(None);
+        }
+
+        debug_assert!(matches!(
+            self.block_request_state.state,
+            State::AwaitingDownload
+        ));
+        if self.failed_attempts() >= MAX_ATTEMPTS {
+            Err(LookupRequestError::TooManyAttempts {
+                cannot_process: self.block_request_state.failed_processing
+                    >= self.block_request_state.failed_downloading,
+            })
+        } else if let Some(&peer_id) = self
+            .block_request_state
+            .available_peers
+            .iter()
+            .choose(&mut rand::thread_rng())
+        {
+            let request = BlocksByRootRequest {
+                block_roots: VariableList::from(vec![self.requested_block_root]),
+            };
+            self.block_request_state.state = State::Downloading { peer_id };
+            self.block_request_state.used_peers.insert(peer_id);
+            Ok(Some((peer_id, request)))
+        } else {
+            Err(LookupRequestError::NoPeers)
+        }
+    }
+
+    pub fn request_blobs(
+        &mut self,
+    ) -> Result<Option<(PeerId, BlobsByRootRequest)>, LookupRequestError> {
+        if self.da_checker.has_block(self.requested_block_root) || self.downloaded_block.is_some() {
+            return Ok(None);
+        }
+
         debug_assert!(matches!(
             self.block_request_state.state,
             State::AwaitingDownload
@@ -267,7 +301,7 @@ impl<const MAX_ATTEMPTS: u8, T: BeaconChainTypes> SingleBlockLookup<MAX_ATTEMPTS
             };
             self.blob_request_state.state = State::Downloading { peer_id };
             self.blob_request_state.used_peers.insert(peer_id);
-            Ok((peer_id, request))
+            Ok(Some((peer_id, request)))
         } else {
             Err(LookupRequestError::NoPeers)
         }
@@ -338,7 +372,9 @@ impl<const MAX_ATTEMPTS: u8> SingleLookupRequestState<MAX_ATTEMPTS> {
     }
 }
 
-impl<const MAX_ATTEMPTS: u8> slog::Value for SingleBlockLookup<MAX_ATTEMPTS> {
+impl<const MAX_ATTEMPTS: u8, T: BeaconChainTypes> slog::Value
+    for SingleBlockLookup<MAX_ATTEMPTS, T>
+{
     fn serialize(
         &self,
         record: &slog::Record,

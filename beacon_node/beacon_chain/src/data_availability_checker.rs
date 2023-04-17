@@ -122,21 +122,8 @@ impl<T: EthSpec> ReceivedComponents<T> {
 /// Indicates if the block is fully `Available` or if we need blobs or blocks
 ///  to "complete" the requirements for an `AvailableBlock`.
 pub enum Availability<T: EthSpec> {
-    PendingBlobs(Hash256, Vec<BlobIdentifier>),
-    PendingBlock(Hash256),
+    MissingParts(Hash256),
     Available(Box<AvailableExecutedBlock<T>>),
-}
-
-impl<T: EthSpec> Availability<T> {
-    /// Returns all the blob identifiers associated with an  `AvailableBlock`.
-    /// Returns `None` if avaiability hasn't been fully satisfied yet.
-    pub fn get_available_blob_ids(&self) -> Option<Vec<BlobIdentifier>> {
-        if let Self::Available(block) = self {
-            Some(block.get_all_blob_ids())
-        } else {
-            None
-        }
-    }
 }
 
 impl<T: EthSpec, S: SlotClock> DataAvailabilityChecker<T, S> {
@@ -161,7 +148,6 @@ impl<T: EthSpec, S: SlotClock> DataAvailabilityChecker<T, S> {
             BlobRequirements::PreDeneb => BlockWrapper::Block(block),
             BlobRequirements::Required => {
                 let expected_num_blobs = block
-                    .block()
                     .message()
                     .body()
                     .blob_kzg_commitments()
@@ -175,7 +161,7 @@ impl<T: EthSpec, S: SlotClock> DataAvailabilityChecker<T, S> {
                         num_blobs: blobs.len(),
                     });
                 }
-                for blob in blobs {
+                for blob in blobs.iter() {
                     if blob.block_root != block_root {
                         return Err(AvailabilityCheckError::BlockBlobRootMismatch {
                             block_root,
@@ -278,12 +264,12 @@ impl<T: EthSpec, S: SlotClock> DataAvailabilityChecker<T, S> {
                 if let Some(executed_block) = received_components.executed_block.take() {
                     self.check_block_availability_maybe_cache(occupied_entry, executed_block)?
                 } else {
-                    Availability::PendingBlock(block_root)
+                    Availability::MissingParts(block_root)
                 }
             }
             Entry::Vacant(vacant_entry) => {
                 vacant_entry.insert(ReceivedComponents::new_from_blobs(kzg_verified_blobs));
-                Availability::PendingBlock(block_root)
+                Availability::MissingParts(block_root)
             }
         };
 
@@ -305,10 +291,9 @@ impl<T: EthSpec, S: SlotClock> DataAvailabilityChecker<T, S> {
                 self.check_block_availability_maybe_cache(occupied_entry, executed_block)?
             }
             Entry::Vacant(vacant_entry) => {
-                let all_blob_ids = executed_block.get_all_blob_ids();
                 let block_root = executed_block.import_data.block_root;
                 vacant_entry.insert(ReceivedComponents::new_from_block(executed_block));
-                Availability::PendingBlobs(block_root, all_blob_ids)
+                Availability::MissingParts(block_root)
             }
         };
 
@@ -357,19 +342,11 @@ impl<T: EthSpec, S: SlotClock> DataAvailabilityChecker<T, S> {
         } else {
             let received_components = occupied_entry.get_mut();
 
-            let missing_blob_ids = executed_block.get_filtered_blob_ids(|index, _| {
-                received_components
-                    .verified_blobs
-                    .get(index as usize)
-                    .map(|maybe_blob| maybe_blob.is_none())
-                    .unwrap_or(true)
-            });
-
             let block_root = executed_block.import_data.block_root;
 
             let _ = received_components.executed_block.insert(executed_block);
 
-            Ok(Availability::PendingBlobs(block_root, missing_blob_ids))
+            Ok(Availability::MissingParts(block_root))
         }
     }
 

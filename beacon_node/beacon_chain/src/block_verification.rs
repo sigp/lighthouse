@@ -146,7 +146,7 @@ pub enum BlockError<T: EthSpec> {
     ///
     /// It's unclear if this block is valid, but it cannot be processed without already knowing
     /// its parent.
-    ParentUnknown(MaybeAvailableBlock<T>),
+    ParentUnknown(BlockWrapper<T>),
     /// The block skips too many slots and is a DoS risk.
     TooManySkippedSlots {
         parent_slot: Slot,
@@ -311,6 +311,7 @@ pub enum BlockError<T: EthSpec> {
         parent_root: Hash256,
     },
     BlobValidation(BlobError),
+    AvailabilityCheck(AvailabilityCheckError),
 }
 
 impl<T: EthSpec> From<BlobError> for BlockError<T> {
@@ -1331,7 +1332,7 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
             //  because it will revert finalization. Note that the finalized block is stored in fork
             //  choice, so we will not reject any child of the finalized block (this is relevant during
             //  genesis).
-            return Err(BlockError::ParentUnknown(block));
+            return Err(BlockError::ParentUnknown(block.into_block_wrapper()));
         }
 
         // Reject any block that exceeds our limit on skipped slots.
@@ -1795,7 +1796,7 @@ pub fn check_block_is_finalized_checkpoint_or_descendant<
                 block_parent_root: block.parent_root(),
             })
         } else {
-            Err(BlockError::ParentUnknown(block))
+            Err(BlockError::ParentUnknown(block.into_block_wrapper()))
         }
     }
 }
@@ -1876,7 +1877,7 @@ fn verify_parent_block_is_known<T: BeaconChainTypes>(
     {
         Ok((proto_block, block))
     } else {
-        Err(BlockError::ParentUnknown(block))
+        Err(BlockError::ParentUnknown(block.into_block_wrapper()))
     }
 }
 
@@ -1907,7 +1908,7 @@ fn load_parent<T: BeaconChainTypes, B: AsBlock<T::EthSpec>>(
         .fork_choice_read_lock()
         .contains_block(&block.parent_root())
     {
-        return Err(BlockError::ParentUnknown(block));
+        return Err(BlockError::ParentUnknown(block.into_block_wrapper()));
     }
 
     let block_delay = chain

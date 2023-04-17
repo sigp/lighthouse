@@ -53,13 +53,8 @@ pub(crate) struct BlockLookups<T: BeaconChainTypes> {
     /// Parent chain lookups being downloaded.
     parent_lookups: SmallVec<[ParentLookup<T>; 3]>,
 
-    processing_parent_lookups: HashMap<
-        Hash256,
-        (
-            Vec<Hash256>,
-            SingleBlockLookup<PARENT_FAIL_TOLERANCE, T::EthSpec>,
-        ),
-    >,
+    processing_parent_lookups:
+        HashMap<Hash256, (Vec<Hash256>, SingleBlockLookup<PARENT_FAIL_TOLERANCE, T>)>,
 
     /// A cache of failed chain lookups to prevent duplicate searches.
     failed_chains: LRUTimeCache<Hash256>,
@@ -68,10 +63,11 @@ pub(crate) struct BlockLookups<T: BeaconChainTypes> {
     /// received or not.
     ///
     /// The flag allows us to determine if the peer returned data or sent us nothing.
-    single_block_lookups:
-        FnvHashMap<Id, SingleBlockLookup<SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS, T::EthSpec>>,
-
-    blob_ids_to_block_ids: HashMap<Id, Id>,
+    single_block_lookups: Vec<(
+        Option<Id>,
+        Option<Id>,
+        SingleBlockLookup<SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS, T>,
+    )>,
 
     da_checker: Arc<DataAvailabilityChecker<T::EthSpec, T::SlotClock>>,
 
@@ -96,7 +92,6 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             )),
             single_block_lookups: Default::default(),
             da_checker,
-            blob_ids_to_block_ids: Default::default(),
             log,
         }
     }
@@ -119,8 +114,10 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         // Do not re-request a block that is already being requested
         if self
             .single_block_lookups
-            .values_mut()
-            .any(|single_block_request| single_block_request.add_peer(&hash, &peer_id))
+            .iter_mut()
+            .any(|(block_id, blob_id, single_block_request)| {
+                single_block_request.add_peer(&hash, &peer_id)
+            })
         {
             return;
         }
@@ -152,27 +149,27 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         let mut single_block_request = SingleBlockLookup::new(hash, peer_id, da_checker);
         cache_fn(&mut single_block_request);
 
-        let (peer_id, block_request) = single_block_request
-            .request_block()
-            .expect("none of the possible failure cases apply for a newly created block lookup");
-        let (peer_id, blob_request) = single_block_request
-            .request_blobs()
-            .expect("none of the possible failure cases apply for a newly created blob lookup");
+        let block_request_id =
+            if let Ok(Some((peer_id, block_request))) = single_block_request.request_block() {
+                cx.single_block_lookup_request(peer_id, block_request).ok()
+            } else {
+                None
+            };
 
-        if let (Ok(request_id), Ok(blob_request_id)) = (
-            cx.single_block_lookup_request(peer_id, block_request),
-            cx.single_blobs_lookup_request(peer_id, blob_request),
-        ) {
-            self.single_block_lookups
-                .insert(request_id, single_block_request);
-            self.blob_ids_to_block_ids
-                .insert(blob_request_id, request_id);
+        let blob_request_id =
+            if let Ok(Some((peer_id, blob_request))) = single_block_request.request_blobs() {
+                cx.single_blobs_lookup_request(peer_id, blob_request).ok()
+            } else {
+                None
+            };
 
-            metrics::set_gauge(
-                &metrics::SYNC_SINGLE_BLOCK_LOOKUPS,
-                self.single_block_lookups.len() as i64,
-            );
-        }
+        self.single_block_lookups
+            .push((block_request_id, blob_request_id, single_block_request));
+
+        metrics::set_gauge(
+            &metrics::SYNC_SINGLE_BLOCK_LOOKUPS,
+            self.single_block_lookups.len() as i64,
+        );
     }
 
     pub fn search_current_unknown_parent(
@@ -182,7 +179,14 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         peer_id: PeerId,
         cx: &mut SyncNetworkContext<T>,
     ) {
-        self.search_block_with(|request| request.add_block(block), block_root, peer_id, cx);
+        self.search_block_with(
+            |request| {
+                let _ = request.add_block_wrapper(block_root, block);
+            },
+            block_root,
+            peer_id,
+            cx,
+        );
     }
 
     /// If a block is attempted to be processed but we do not know its parent, this function is
@@ -474,6 +478,10 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
 
         match parent_lookup.verify_blob(blob, &mut self.failed_chains) {
             Ok(Some(blobs)) => {
+                let block_root = blobs
+                    .first()
+                    .map(|blob| blob.block_root)
+                    .unwrap_or(parent_lookup.chain_hash());
                 let processed_or_search = parent_lookup.add_blobs(blobs);
 
                 match processed_or_search {
@@ -695,7 +703,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                         error!(self.log, "Beacon chain error processing single block"; "block_root" => %root, "error" => ?e);
                     }
                     BlockError::ParentUnknown(block) => {
-                        self.search_parent(root, block, peer_id, cx);
+                        self.search_parent(root, block.parent_root(), peer_id, cx);
                     }
                     ref e @ BlockError::ExecutionPayloadError(ref epe) if !epe.penalize_peer() => {
                         // These errors indicate that the execution layer is offline
@@ -964,13 +972,14 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         let response = parent_lookup
             .request_parent_block(cx)
             .and_then(|| parent_lookup.request_parent_blobs(cx));
-        self.handle_response(parent_lookup, response);
+        self.handle_response(parent_lookup, cx, response);
     }
 
     //TODO(sean) how should peer scoring work with failures in this method?
     fn handle_response(
         &mut self,
         mut parent_lookup: ParentLookup<T>,
+        cx: &mut SyncNetworkContext<T>,
         result: Result<(), parent_lookup::RequestError>,
     ) {
         match result {

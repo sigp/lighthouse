@@ -372,17 +372,6 @@ pub enum MaybeAvailableBlock<E: EthSpec> {
     AvailabilityPending(AvailabilityPendingBlock<E>),
 }
 
-impl<E: EthSpec> MaybeAvailableBlock<E> {
-    pub fn get_missing_blob_ids(&self) -> Option<&Vec<BlobIdentifier>> {
-        match self {
-            MaybeAvailableBlock::Available(_) => None,
-            MaybeAvailableBlock::AvailabilityPending(pending_block) => {
-                Some(pending_block.get_missing_blob_ids())
-            }
-        }
-    }
-}
-
 /// Trait for common block operations.
 pub trait AsBlock<E: EthSpec> {
     fn slot(&self) -> Slot;

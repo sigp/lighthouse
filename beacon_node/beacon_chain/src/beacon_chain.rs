@@ -468,7 +468,7 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     /// Provides monitoring of a set of explicitly defined validators.
     pub validator_monitor: RwLock<ValidatorMonitor<T::EthSpec>>,
     pub proposal_blob_cache: BlobCache<T::EthSpec>,
-    pub data_availability_checker: DataAvailabilityChecker<T::EthSpec, T::SlotClock>,
+    pub data_availability_checker: Arc<DataAvailabilityChecker<T::EthSpec, T::SlotClock>>,
     pub kzg: Option<Arc<Kzg>>,
 }
 
@@ -2775,8 +2775,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         block_root: Hash256,
         unverified_block: B,
         count_unrealized: CountUnrealized,
-        notify_execution_layer: notifyexecutionlayer,
-    ) -> result<availabilityprocessingStatus, BlockError<T::EthSpec>> {
+        notify_execution_layer: NotifyExecutionLayer,
+    ) -> Result<AvailabilityProcessingStatus, BlockError<T::EthSpec>> {
         // Start the Prometheus timer.
         let _full_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_TIMES);
 
@@ -2915,12 +2915,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             Availability::Available(block) => {
                 self.import_available_block(block, count_unrealized).await
             }
-            Availability::PendingBlock(block_root) => {
-                Ok(AvailabilityProcessingStatus::PendingBlock(block_root))
+            Availability::MissingParts(block_root) => {
+                Ok(AvailabilityProcessingStatus::MissingParts(block_root))
             }
-            Availability::PendingBlobs(block_root, blob_ids) => Ok(
-                AvailabilityProcessingStatus::PendingBlobs(block_root, blob_ids),
-            ),
         }
     }
 

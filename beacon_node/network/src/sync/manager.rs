@@ -120,7 +120,7 @@ pub enum SyncMessage<T: EthSpec> {
     },
 
     /// A block with an unknown parent has been received.
-    UnknownBlock(PeerId, MaybeAvailableBlock<T>, Hash256),
+    UnknownBlock(PeerId, BlockWrapper<T>, Hash256),
 
     /// A peer has sent an attestation that references a block that is unknown. This triggers the
     /// manager to attempt to find the block matching the unknown hash.
@@ -246,15 +246,18 @@ pub fn spawn<T: BeaconChainTypes>(
             log.clone(),
         ),
         range_sync: RangeSync::new(beacon_chain.clone(), log.clone()),
-        backfill_sync: BackFillSync::new(beacon_chain, network_globals, log.clone()),
-        block_lookups: BlockLookups::new(log.clone()),
+        backfill_sync: BackFillSync::new(beacon_chain.clone(), network_globals, log.clone()),
+        block_lookups: BlockLookups::new(
+            beacon_chain.data_availability_checker.clone(),
+            log.clone(),
+        ),
         delayed_lookups: delayed_lookups_send,
         log: log.clone(),
     };
 
     executor.spawn(
         async move {
-            let slot_duration = slot_clock.slot_duration();
+            let slot_duration = beacon_chain.slot_clock.slot_duration();
             // TODO(sean) think about what this should be
             let delay = beacon_chain.slot_clock.unagg_attestation_production_delay();
 
@@ -346,7 +349,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             }
             RequestId::ParentLookup { id } => {
                 self.block_lookups
-                    .parent_lookup_failed(id, peer_id, &mut self.network, eror);
+                    .parent_lookup_failed(id, peer_id, &mut self.network, error);
             }
             RequestId::BackFillBlocks { id } => {
                 if let Some(batch_id) = self
