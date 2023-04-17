@@ -730,6 +730,7 @@ fn main() {
                         .long("count")
                         .value_name("COUNT")
                         .takes_value(true)
+                        .required(true)
                         .help("Produces validators in the range of 0..count."),
                 )
                 .arg(
@@ -737,6 +738,7 @@ fn main() {
                         .long("base-dir")
                         .value_name("BASE_DIR")
                         .takes_value(true)
+                        .required(true)
                         .help("The base directory where validator keypairs and secrets are stored"),
                 )
                 .arg(
@@ -748,13 +750,14 @@ fn main() {
                 )
         )
         .subcommand(
-            SubCommand::with_name("mnemonics-validators")
+            SubCommand::with_name("mnemonic-validators")
                 .about("Produces validator directories by deriving the keys from a mnemonic.")
                 .arg(
                     Arg::with_name("count")
                         .long("count")
                         .value_name("COUNT")
                         .takes_value(true)
+                        .required(true)
                         .help("Produces validators in the range of 0..count."),
                 )
                 .arg(
@@ -762,6 +765,7 @@ fn main() {
                         .long("base-dir")
                         .value_name("BASE_DIR")
                         .takes_value(true)
+                        .required(true)
                         .help("The base directory where validator keypairs and secrets are stored"),
                 )
                 .arg(
@@ -772,10 +776,11 @@ fn main() {
                         .help("The number of nodes to divide the validator keys to"),
                 )
                 .arg(
-                    Arg::with_name("mnemonics-phrase")
-                        .long("mnemonics-phrase")
-                        .value_name("MNEMONICS_PHRASE")
+                    Arg::with_name("mnemonic-phrase")
+                        .long("mnemonic-phrase")
+                        .value_name("MNEMONIC_PHRASE")
                         .takes_value(true)
+                        .required(true)
                         .help("The mnemonic with which we generate the validator keys"),
                 )
         )
@@ -921,7 +926,7 @@ fn run<T: EthSpec>(
         ("insecure-validators", Some(matches)) => insecure_validators::run(matches)
             .map_err(|e| format!("Failed to run insecure-validators command: {}", e)),
         ("mnemonic-validators", Some(matches)) => mnemonic_validators::run(matches)
-            .map_err(|e| format!("Failed to run mnemonics-validators command: {}", e)),
+            .map_err(|e| format!("Failed to run mnemonic-validators command: {}", e)),
         ("indexed-attestations", Some(matches)) => indexed_attestations::run::<T>(matches)
             .map_err(|e| format!("Failed to run indexed-attestations command: {}", e)),
         ("block-root", Some(matches)) => block_root::run::<T>(env, matches)
