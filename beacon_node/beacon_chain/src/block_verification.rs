@@ -816,11 +816,6 @@ pub struct BlockImportData<E: EthSpec> {
     pub consensus_context: ConsensusContext<E>,
 }
 
-// BeaconState & SignedBeaconBlock cannot implement Decode because their
-// default implementation is ssz(enum_behaviour = "transparent") so we must
-// write a custom Decode implementation that effectively implements
-// enum_behaviour = union .. or maybe not
-
 /// Implemented on types that can be converted into a `ExecutionPendingBlock`.
 ///
 /// Used to allow functions to accept blocks at various stages of verification.

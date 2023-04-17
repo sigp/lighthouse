@@ -108,13 +108,14 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         kzg: Option<Arc<Kzg>>,
         store: BeaconStore<T>,
         spec: ChainSpec,
-    ) -> Self {
-        Self {
-            availability_cache: Arc::new(OverflowLRUCache::new(OVERFLOW_LRU_CAPACITY, store)),
+    ) -> Result<Self, AvailabilityCheckError> {
+        let overflow_cache = OverflowLRUCache::new(OVERFLOW_LRU_CAPACITY, store)?;
+        Ok(Self {
+            availability_cache: Arc::new(overflow_cache),
             slot_clock,
             kzg,
             spec,
-        }
+        })
     }
 
     /// Get a blob from the availability cache.
@@ -294,6 +295,11 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     pub fn da_check_required(&self, block_epoch: Epoch) -> bool {
         self.data_availability_boundary()
             .map_or(false, |da_epoch| block_epoch >= da_epoch)
+    }
+
+    /// Persist all in memory components to disk
+    pub fn persist_all(&self) -> Result<(), AvailabilityCheckError> {
+        self.availability_cache.write_all_to_disk()
     }
 }
 

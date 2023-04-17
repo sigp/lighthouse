@@ -866,7 +866,8 @@ where
                 kzg.clone(),
                 store,
                 self.spec,
-            ),
+            )
+            .map_err(|e| format!("Error initializing DataAvailabiltyChecker: {:?}", e))?,
             proposal_blob_cache: BlobCache::default(),
             kzg,
         };

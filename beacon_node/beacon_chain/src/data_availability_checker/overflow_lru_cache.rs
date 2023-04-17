@@ -184,6 +184,21 @@ impl<T: BeaconChainTypes> OverflowStore<T> {
         Ok(maybe_pending_components)
     }
 
+    // returns the hashes of all the blocks we have data for on disk
+    pub fn read_keys_on_disk(&self) -> Result<HashSet<Hash256>, AvailabilityCheckError> {
+        let mut disk_keys = HashSet::new();
+        for res in self
+            .0
+            .hot_db
+            // TODO: consider implementing iter_raw_keys so this is faster
+            .iter_raw_entries(DBColumn::OverflowLRUCache, &[])
+        {
+            let (key_bytes, _) = res?;
+            disk_keys.insert(*OverflowKey::from_ssz_bytes(&key_bytes)?.root());
+        }
+        Ok(disk_keys)
+    }
+
     pub fn load_blob(
         &self,
         blob_id: &BlobIdentifier,
@@ -224,6 +239,15 @@ impl<T: BeaconChainTypes> Critical<T> {
             in_memory: LruCache::new(capacity),
             store_keys: HashSet::new(),
         }
+    }
+
+    pub fn reload_store_keys(
+        &mut self,
+        overflow_store: &OverflowStore<T>,
+    ) -> Result<(), AvailabilityCheckError> {
+        let disk_keys = overflow_store.read_keys_on_disk()?;
+        self.store_keys = disk_keys;
+        Ok(())
     }
 
     /// This only checks for the blobs in memory
@@ -285,19 +309,25 @@ impl<T: BeaconChainTypes> Critical<T> {
 
 pub struct OverflowLRUCache<T: BeaconChainTypes> {
     critical: RwLock<Critical<T>>,
-    store: OverflowStore<T>,
+    overflow_store: OverflowStore<T>,
     maintenance_lock: Mutex<()>,
     capacity: usize,
 }
 
 impl<T: BeaconChainTypes> OverflowLRUCache<T> {
-    pub fn new(capacity: usize, store: BeaconStore<T>) -> Self {
-        Self {
-            critical: RwLock::new(Critical::new(capacity)),
-            store: OverflowStore(store),
+    pub fn new(
+        capacity: usize,
+        beacon_store: BeaconStore<T>,
+    ) -> Result<Self, AvailabilityCheckError> {
+        let overflow_store = OverflowStore(beacon_store);
+        let mut critical = Critical::new(capacity);
+        critical.reload_store_keys(&overflow_store)?;
+        Ok(Self {
+            critical: RwLock::new(critical),
+            overflow_store,
             maintenance_lock: Mutex::new(()),
             capacity,
-        }
+        })
     }
 
     pub fn peek_blob(
@@ -309,7 +339,7 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
             Ok(Some(blob))
         } else if read_lock.store_keys.contains(&blob_id.block_root) {
             drop(read_lock);
-            self.store.load_blob(blob_id)
+            self.overflow_store.load_blob(blob_id)
         } else {
             Ok(None)
         }
@@ -323,7 +353,7 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
         let block_root = kzg_verified_blob.block_root();
 
         let availability = if let Some(mut pending_components) =
-            write_lock.pop_pending_components(block_root, &self.store)?
+            write_lock.pop_pending_components(block_root, &self.overflow_store)?
         {
             let blob_index = kzg_verified_blob.blob_index();
             *pending_components
@@ -340,13 +370,21 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
                     executed_block,
                 )?
             } else {
-                write_lock.put_pending_components(block_root, pending_components, &self.store)?;
+                write_lock.put_pending_components(
+                    block_root,
+                    pending_components,
+                    &self.overflow_store,
+                )?;
                 Availability::PendingBlock(block_root)
             }
         } else {
             // not in memory or store -> put new in memory
             let new_pending_components = PendingComponents::new_from_blob(kzg_verified_blob);
-            write_lock.put_pending_components(block_root, new_pending_components, &self.store)?;
+            write_lock.put_pending_components(
+                block_root,
+                new_pending_components,
+                &self.overflow_store,
+            )?;
             Availability::PendingBlock(block_root)
         };
 
@@ -362,24 +400,25 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
         let mut write_lock = self.critical.write();
         let block_root = executed_block.import_data.block_root;
 
-        let availability = match write_lock.pop_pending_components(block_root, &self.store)? {
-            Some(pending_components) => self.check_block_availability_maybe_cache(
-                write_lock,
-                block_root,
-                pending_components,
-                executed_block,
-            )?,
-            None => {
-                let all_blob_ids = executed_block.get_all_blob_ids();
-                let new_pending_components = PendingComponents::new_from_block(executed_block);
-                write_lock.put_pending_components(
+        let availability =
+            match write_lock.pop_pending_components(block_root, &self.overflow_store)? {
+                Some(pending_components) => self.check_block_availability_maybe_cache(
+                    write_lock,
                     block_root,
-                    new_pending_components,
-                    &self.store,
-                )?;
-                Availability::PendingBlobs(all_blob_ids)
-            }
-        };
+                    pending_components,
+                    executed_block,
+                )?,
+                None => {
+                    let all_blob_ids = executed_block.get_all_blob_ids();
+                    let new_pending_components = PendingComponents::new_from_block(executed_block);
+                    write_lock.put_pending_components(
+                        block_root,
+                        new_pending_components,
+                        &self.overflow_store,
+                    )?;
+                    Availability::PendingBlobs(all_blob_ids)
+                }
+            };
 
         Ok(availability)
     }
@@ -430,10 +469,33 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
             });
 
             let _ = pending_components.executed_block.insert(executed_block);
-            write_lock.put_pending_components(block_root, pending_components, &self.store)?;
+            write_lock.put_pending_components(
+                block_root,
+                pending_components,
+                &self.overflow_store,
+            )?;
 
             Ok(Availability::PendingBlobs(missing_blob_ids))
         }
+    }
+
+    // writes all in_memory objects to disk
+    pub fn write_all_to_disk(&self) -> Result<(), AvailabilityCheckError> {
+        let maintenance_lock = self.maintenance_lock.lock();
+        let mut critical_lock = self.critical.write();
+
+        let mut swap_lru = LruCache::new(self.capacity);
+        std::mem::swap(&mut swap_lru, &mut critical_lock.in_memory);
+
+        for (root, pending_components) in swap_lru.into_iter() {
+            self.overflow_store
+                .persist_pending_components(root.clone(), pending_components)?;
+            critical_lock.store_keys.insert(root);
+        }
+
+        drop(critical_lock);
+        drop(maintenance_lock);
+        Ok(())
     }
 
     // maintain the cache
@@ -483,7 +545,7 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
             }
 
             // write the lru entry to disk (we aren't holding any critical locks while we do this)
-            self.store
+            self.overflow_store
                 .persist_pending_components(lru_root, lru_pending_components)?;
             // now that we've written to disk, grab the critical write lock
             let mut write_lock = self.critical.write();
@@ -525,12 +587,12 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
             let not_in_store_keys = !cache.critical.read().store_keys.contains(&block_data.root);
             if not_in_store_keys {
                 // these keys aren't supposed to be on disk
-                cache.store.delete_keys(&block_data.keys)?;
+                cache.overflow_store.delete_keys(&block_data.keys)?;
             } else {
                 // check this data is still relevant
                 if block_data.epoch < cutoff_epoch {
                     // this data is no longer needed -> delete it
-                    self.store.delete_keys(&block_data.keys)?;
+                    self.overflow_store.delete_keys(&block_data.keys)?;
                 }
             }
             Ok(())
@@ -538,7 +600,7 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
 
         let mut current_block_data: Option<BlockData> = None;
         for res in self
-            .store
+            .overflow_store
             .0
             .hot_db
             .iter_raw_entries(DBColumn::OverflowLRUCache, &[])
@@ -655,33 +717,6 @@ mod test {
 
     #[test]
     fn cache_added_entries_exist() {
-        let mut cache = LRUTimeCache::new(Duration::from_secs(10));
-
-        cache.insert("t");
-        cache.insert("e");
-
-        // Should report that 't' and 't' already exists
-        assert!(!cache.insert("t"));
-        assert!(!cache.insert("e"));
-    }
-
-    #[test]
-    fn test_reinsertion_updates_timeout() {
-        let mut cache = LRUTimeCache::new(Duration::from_millis(100));
-
-        cache.insert("a");
-        cache.insert("b");
-
-        std::thread::sleep(Duration::from_millis(20));
-        cache.insert("a");
-        // a is newer now
-
-        std::thread::sleep(Duration::from_millis(85));
-        assert!(cache.contains(&"a"),);
-        // b was inserted first but was not as recent it should have been removed
-        assert!(!cache.contains(&"b"));
-
-        std::thread::sleep(Duration::from_millis(16));
-        assert!(!cache.contains(&"a"));
+        todo!()
     }
 }
