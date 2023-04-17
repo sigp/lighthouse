@@ -228,6 +228,8 @@ pub struct Config {
     pub execution_endpoints: Vec<SensitiveUrl>,
     /// Endpoint urls for services providing the builder api.
     pub builder_url: Option<SensitiveUrl>,
+    /// User agent to send with requests to the builder API.
+    pub builder_user_agent: Option<String>,
     /// JWT secrets for the above endpoints running the engine api.
     pub secret_files: Vec<PathBuf>,
     /// The default fee recipient to use on the beacon node if none if provided from
@@ -258,6 +260,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
         let Config {
             execution_endpoints: urls,
             builder_url,
+            builder_user_agent,
             secret_files,
             suggested_fee_recipient,
             jwt_id,
@@ -318,12 +321,17 @@ impl<T: EthSpec> ExecutionLayer<T> {
 
         let builder = builder_url
             .map(|url| {
-                let builder_client = BuilderHttpClient::new(url.clone()).map_err(Error::Builder);
-                info!(log,
+                let builder_client = BuilderHttpClient::new(url.clone(), builder_user_agent)
+                    .map_err(Error::Builder)?;
+
+                info!(
+                    log,
                     "Connected to external block builder";
                     "builder_url" => ?url,
-                    "builder_profit_threshold" => builder_profit_threshold);
-                builder_client
+                    "builder_profit_threshold" => builder_profit_threshold,
+                    "user_agent" => builder_client.get_user_agent(),
+                );
+                Ok::<_, Error>(builder_client)
             })
             .transpose()?;
 
