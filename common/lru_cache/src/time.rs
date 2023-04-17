@@ -1,6 +1,5 @@
 ///! This implements a time-based LRU cache for fast checking of duplicates
-use fnv::FnvHashSet;
-use std::collections::VecDeque;
+use std::collections::{HashSet, VecDeque};
 use std::time::{Duration, Instant};
 
 struct Element<Key> {
@@ -12,7 +11,7 @@ struct Element<Key> {
 
 pub struct LRUTimeCache<Key> {
     /// The duplicate cache.
-    map: FnvHashSet<Key>,
+    map: HashSet<Key>,
     /// An ordered list of keys by insert time.
     list: VecDeque<Element<Key>>,
     /// The time elements remain in the cache.
@@ -25,7 +24,7 @@ where
 {
     pub fn new(ttl: Duration) -> Self {
         LRUTimeCache {
-            map: FnvHashSet::default(),
+            map: HashSet::default(),
             list: VecDeque::new(),
             ttl,
         }
