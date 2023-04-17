@@ -113,6 +113,7 @@ pub struct InitializedValidator {
     gas_limit: Option<u64>,
     builder_proposals: Option<bool>,
     builder_pubkey_override: Option<PublicKeyBytes>,
+    builder_timestamp_override: Option<u64>,
     /// The validators index in `state.validators`, to be updated by an external service.
     index: Option<u64>,
 }
@@ -146,6 +147,8 @@ impl InitializedValidator {
     }
 
     pub fn get_builder_pubkey_override(&self) -> Option<PublicKeyBytes> { self.builder_pubkey_override }
+
+    pub fn get_builder_timestamp_override(&self) -> Option<u64> { self.builder_timestamp_override }
 
     pub fn get_index(&self) -> Option<u64> {
         self.index
@@ -316,6 +319,7 @@ impl InitializedValidator {
             gas_limit: def.gas_limit,
             builder_proposals: def.builder_proposals,
             builder_pubkey_override: def.builder_pubkey_override,
+            builder_timestamp_override: def.builder_timestamp_override,
             index: None,
         })
     }
@@ -675,6 +679,14 @@ impl InitializedValidators {
         self.validators
             .get(public_key)
             .and_then(|v| v.builder_pubkey_override)
+    }
+
+    /// Returns the `builder_timestamp_override` for a given public key specified in the
+    /// `ValidatorDefinitions`.
+    pub fn builder_timestamp_override(&self, public_key: &PublicKeyBytes) -> Option<u64> {
+        self.validators
+            .get(public_key)
+            .and_then(|v| v.builder_timestamp_override)
     }
 
     /// Returns an `Option` of a reference to an `InitializedValidator` for a given public key specified in the

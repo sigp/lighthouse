@@ -243,6 +243,8 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
                 gas_limit: self.get_gas_limit_defaulting(validator.get_gas_limit()),
                 builder_proposals: self
                     .get_builder_proposals_defaulting(validator.get_builder_proposals()),
+                builder_pubkey_override: validator.get_builder_pubkey_override(),
+                builder_timestamp_override: validator.get_builder_timestamp_override(),
             })
     }
 
@@ -448,7 +450,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             .unwrap_or(DEFAULT_GAS_LIMIT)
     }
 
-    /// Returns a `bool` for the given public key that denotes whther this validator should use the
+    /// Returns a `bool` for the given public key that denotes whether this validator should use the
     /// builder API. The priority order for fetching this value is:
     ///
     /// 1. validator_definitions.yml
@@ -463,17 +465,19 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
 
     fn get_builder_proposals_defaulting(&self, builder_proposals: Option<bool>) -> bool {
         builder_proposals
-            // If there's nothing in the file, try the process-level default value.
             .unwrap_or(self.builder_proposals)
     }
 
-    pub fn get_builder_pubkey_override(&self, validator_pubkey: &PublicKeyBytes) -> PublicKeyBytes {
-        self.g
+    /// Returns the public key override for the given public key that denotes whether this validator should override
+    /// the given public key with the returned value.
+    pub fn get_builder_pubkey_override(&self, validator_pubkey: &PublicKeyBytes) -> Option<PublicKeyBytes> {
+       self.validators.read().builder_pubkey_override(validator_pubkey)
     }
 
-    pub fn get_builder_pubkey_override_defaulting(&self, builder_pubkey_override: Option<PublicKeyBytes>) -> PublicKeyBytes {
-        builder_pubkey_override
-            .unwrap_or(self.bui)
+    /// Returns the timestamp override for the given public key that denotes whether this validator should override
+    /// the given timestamp with the returned value.
+    pub fn get_builder_timestamp_override(&self, validator_pubkey: &PublicKeyBytes) -> Option<u64> {
+        self.validators.read().builder_timestamp_override(validator_pubkey)
     }
 
     pub async fn sign_block<Payload: AbstractExecPayload<E>>(
@@ -666,13 +670,16 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
 
     pub async fn sign_validator_registration_data(
         &self,
+        signing_pubkey: PublicKeyBytes,
         validator_registration_data: ValidatorRegistrationData,
     ) -> Result<SignedValidatorRegistrationData, Error> {
         let domain_hash = self.spec.get_builder_domain();
         let signing_root = validator_registration_data.signing_root(domain_hash);
 
+        // Use the provided pubkey rather than the pubkey in the message itself. This is to support
+        // distributed validators who must sign with a partial key over the aggregate pubkey.
         let signing_method =
-            self.doppelganger_bypassed_signing_method(validator_registration_data.pubkey)?;
+            self.doppelganger_bypassed_signing_method(signing_pubkey)?;
         let signature = signing_method
             .get_signature_from_root::<E, BlindedPayload<E>>(
                 SignableMessage::ValidatorRegistration(&validator_registration_data),
