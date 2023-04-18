@@ -329,6 +329,9 @@ pub fn get_config<E: EthSpec>(
             let payload_builder =
                 parse_only_one_value(endpoint, SensitiveUrl::parse, "--builder", log)?;
             el_config.builder_url = Some(payload_builder);
+
+            el_config.builder_user_agent =
+                clap_utils::parse_optional(cli_args, "builder-user-agent")?;
         }
 
         // Set config values from parse values.

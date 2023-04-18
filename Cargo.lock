@@ -863,6 +863,7 @@ name = "builder_client"
 version = "0.1.0"
 dependencies = [
  "eth2",
+ "lighthouse_version",
  "reqwest",
  "sensitive_url",
  "serde",
