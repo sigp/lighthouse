@@ -86,7 +86,7 @@ impl<T: EthSpec> PendingComponents<T> {
     }
 }
 
-#[derive(PartialEq)]
+#[derive(Debug, PartialEq)]
 enum OverflowKey {
     Block(Hash256),
     Blob(Hash256, u8),
@@ -134,17 +134,18 @@ impl<T: BeaconChainTypes> OverflowStore<T> {
                 .put_bytes(col.as_str(), &key.as_ssz_bytes(), &block.as_ssz_bytes())?
         }
 
-        for maybe_blob in Vec::from(pending_components.verified_blobs) {
-            if let Some(blob) = maybe_blob {
-                let key = OverflowKey::from_blob_id::<T::EthSpec>(BlobIdentifier {
-                    block_root,
-                    index: blob.blob_index(),
-                })?;
+        for blob in Vec::from(pending_components.verified_blobs)
+            .into_iter()
+            .flatten()
+        {
+            let key = OverflowKey::from_blob_id::<T::EthSpec>(BlobIdentifier {
+                block_root,
+                index: blob.blob_index(),
+            })?;
 
-                self.0
-                    .hot_db
-                    .put_bytes(col.as_str(), &key.as_ssz_bytes(), &blob.as_ssz_bytes())?
-            }
+            self.0
+                .hot_db
+                .put_bytes(col.as_str(), &key.as_ssz_bytes(), &blob.as_ssz_bytes())?
         }
 
         Ok(())
@@ -165,14 +166,14 @@ impl<T: BeaconChainTypes> OverflowStore<T> {
             match OverflowKey::from_ssz_bytes(&key_bytes)? {
                 OverflowKey::Block(_) => {
                     maybe_pending_components
-                        .get_or_insert_with(|| PendingComponents::empty())
+                        .get_or_insert_with(PendingComponents::empty)
                         .executed_block = Some(AvailabilityPendingExecutedBlock::from_ssz_bytes(
                         value_bytes.as_slice(),
                     )?);
                 }
                 OverflowKey::Blob(_, index) => {
                     *maybe_pending_components
-                        .get_or_insert_with(|| PendingComponents::empty())
+                        .get_or_insert_with(PendingComponents::empty)
                         .verified_blobs
                         .get_mut(index as usize)
                         .ok_or(AvailabilityCheckError::BlobIndexInvalid(index as u64))? =
@@ -208,11 +209,7 @@ impl<T: BeaconChainTypes> OverflowStore<T> {
         self.0
             .hot_db
             .get_bytes(DBColumn::OverflowLRUCache.as_str(), &key.as_ssz_bytes())?
-            .and_then(|blob_bytes| {
-                Some(Arc::<BlobSidecar<T::EthSpec>>::from_ssz_bytes(
-                    blob_bytes.as_slice(),
-                ))
-            })
+            .map(|blob_bytes| Arc::<BlobSidecar<T::EthSpec>>::from_ssz_bytes(blob_bytes.as_slice()))
             .transpose()
             .map_err(|e| e.into())
     }
@@ -489,7 +486,7 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
 
         for (root, pending_components) in swap_lru.into_iter() {
             self.overflow_store
-                .persist_pending_components(root.clone(), pending_components)?;
+                .persist_pending_components(root, pending_components)?;
             critical_lock.store_keys.insert(root);
         }
 
@@ -523,7 +520,7 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
             let lru_entry = read_lock
                 .in_memory
                 .peek_lru()
-                .map(|(key, value)| (key.clone(), value.clone()));
+                .map(|(key, value)| (*key, value.clone()));
 
             let (lru_root, lru_pending_components) = match lru_entry {
                 Some((r, p)) => (r, p),
@@ -616,7 +613,7 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
                 }
                 _ => {
                     // first time encountering data for this block
-                    delete_if_outdated(&self, current_block_data)?;
+                    delete_if_outdated(self, current_block_data)?;
                     let current_epoch = match &overflow_key {
                         OverflowKey::Block(_) => {
                             AvailabilityPendingExecutedBlock::<T::EthSpec>::from_ssz_bytes(
@@ -642,7 +639,7 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
             }
         }
         // can't fall off the end
-        delete_if_outdated(&self, current_block_data)?;
+        delete_if_outdated(self, current_block_data)?;
 
         drop(maintenance_lock);
         Ok(())
@@ -713,7 +710,41 @@ impl ssz::Decode for OverflowKey {
 
 #[cfg(test)]
 mod test {
-    use super::*;
+    use super::{BlobIdentifier, Hash256, OverflowKey};
+    use ssz::{Decode, Encode};
+    use types::MainnetEthSpec;
+
+    #[test]
+    fn overflow_key_encode_decode_equality() {
+        let key_block = OverflowKey::Block(Hash256::random());
+        let key_blob_0 = OverflowKey::from_blob_id::<MainnetEthSpec>(BlobIdentifier {
+            block_root: Hash256::random(),
+            index: 0,
+        })
+        .expect("should create overflow key 0");
+        let key_blob_1 = OverflowKey::from_blob_id::<MainnetEthSpec>(BlobIdentifier {
+            block_root: Hash256::random(),
+            index: 1,
+        })
+        .expect("should create overflow key 1");
+        let key_blob_2 = OverflowKey::from_blob_id::<MainnetEthSpec>(BlobIdentifier {
+            block_root: Hash256::random(),
+            index: 2,
+        })
+        .expect("should create overflow key 2");
+        let key_blob_3 = OverflowKey::from_blob_id::<MainnetEthSpec>(BlobIdentifier {
+            block_root: Hash256::random(),
+            index: 3,
+        })
+        .expect("should create overflow key 3");
+
+        let keys = vec![key_block, key_blob_0, key_blob_1, key_blob_2, key_blob_3];
+        for key in keys {
+            let encoded = key.as_ssz_bytes();
+            let decoded = OverflowKey::from_ssz_bytes(&encoded).expect("should decode");
+            assert_eq!(key, decoded, "Encoded and decoded keys should be equal");
+        }
+    }
 
     #[test]
     fn cache_added_entries_exist() {

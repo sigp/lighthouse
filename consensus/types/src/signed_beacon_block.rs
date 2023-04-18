@@ -533,7 +533,10 @@ pub mod ssz_tagged_signed_beacon_block {
         pub fn ssz_bytes_len<E: EthSpec, Payload: AbstractExecPayload<E>>(
             block: &SignedBeaconBlock<E, Payload>,
         ) -> usize {
-            block.ssz_bytes_len() + 1
+            block
+                .ssz_bytes_len()
+                .checked_add(1)
+                .expect("encoded length must be less than usize::max")
         }
 
         pub fn ssz_append<E: EthSpec, Payload: AbstractExecPayload<E>>(

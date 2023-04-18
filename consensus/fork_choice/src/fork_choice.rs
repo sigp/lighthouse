@@ -229,7 +229,7 @@ impl ssz::Decode for PayloadVerificationStatus {
     }
 
     fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, ssz::DecodeError> {
-        match bytes.get(0) {
+        match bytes.first() {
             None => Err(ssz::DecodeError::ZeroLengthItem),
             Some(byte) => match byte {
                 0x0u8 => Ok(PayloadVerificationStatus::Verified),

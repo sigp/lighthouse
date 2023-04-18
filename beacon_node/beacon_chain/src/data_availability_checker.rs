@@ -143,9 +143,8 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             return Err(AvailabilityCheckError::KzgNotInitialized);
         };
 
-        Ok(self
-            .availability_cache
-            .put_kzg_verified_blob(kzg_verified_blob)?)
+        self.availability_cache
+            .put_kzg_verified_blob(kzg_verified_blob)
     }
 
     /// Check if we have all the blobs for a block. If we do, return the Availability variant that
@@ -570,8 +569,6 @@ impl<E: EthSpec> ssz::Decode for AvailabilityPendingBlock<E> {
 
 #[cfg(test)]
 mod test {
-    use super::*;
-
     #[test]
     fn check_encode_decode_availability_pending_block() {
         // todo.. (difficult to create default beacon blocks to test)
