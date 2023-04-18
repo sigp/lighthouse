@@ -1001,6 +1001,15 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true)
         )
         .arg(
+            Arg::with_name("builder-user-agent")
+                .long("builder-user-agent")
+                .value_name("STRING")
+                .help("The HTTP user agent to send alongside requests to the builder URL. The \
+                       default is Lighthouse's version string.")
+                .requires("builder")
+                .takes_value(true)
+        )
+        .arg(
             Arg::with_name("count-unrealized")
                 .long("count-unrealized")
                 .hidden(true)
