@@ -103,6 +103,8 @@ pub enum Error {
         transactions_root: Hash256,
     },
     InvalidJWTSecret(String),
+    InvalidForkForPayload,
+    InvalidPayloadBody(String),
     BeaconStateError(BeaconStateError),
 }
 
@@ -1602,6 +1604,9 @@ impl<T: EthSpec> ExecutionLayer<T> {
             .map_err(Error::EngineError)
     }
 
+    /// Fetch a full payload from the execution node.
+    ///
+    /// This will fail if the payload is not from the finalized portion of the chain.
     pub async fn get_payload_for_header(
         &self,
         header: &ExecutionPayloadHeader<T>,
@@ -1609,6 +1614,18 @@ impl<T: EthSpec> ExecutionLayer<T> {
     ) -> Result<Option<ExecutionPayload<T>>, Error> {
         let hash = header.block_hash();
         let block_number = header.block_number();
+
+        // Handle default payload body.
+        if header.block_hash() == ExecutionBlockHash::zero() {
+            let payload = match fork {
+                ForkName::Merge => ExecutionPayloadMerge::default().into(),
+                ForkName::Capella => ExecutionPayloadCapella::default().into(),
+                ForkName::Base | ForkName::Altair => {
+                    return Err(Error::InvalidForkForPayload);
+                }
+            };
+            return Ok(Some(payload));
+        }
 
         // Use efficient payload bodies by range method if supported.
         let capabilities = self.get_engine_capabilities(None).await?;
@@ -1619,19 +1636,13 @@ impl<T: EthSpec> ExecutionLayer<T> {
                 return Ok(None);
             }
 
-            // FIXME(sproul): error properly
             let opt_payload_body = payload_bodies.pop().flatten();
-            Ok(opt_payload_body.and_then(|body| {
-                body.to_payload(header.clone())
-                    .map_err(|e| {
-                        warn!(
-                            self.inner.log,
-                            "Payload reconstruction failed";
-                            "error" => e,
-                        );
-                    })
-                    .ok()
-            }))
+            opt_payload_body
+                .map(|body| {
+                    body.to_payload(header.clone())
+                        .map_err(Error::InvalidPayloadBody)
+                })
+                .transpose()
         } else {
             // Fall back to eth_blockByHash.
             self.get_payload_by_hash_legacy(hash, fork).await
