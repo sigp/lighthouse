@@ -415,13 +415,7 @@ impl<T: EthSpec> BeaconState<T> {
     /// dictated by `self.slot()`.
     pub fn fork_name(&self, spec: &ChainSpec) -> Result<ForkName, InconsistentFork> {
         let fork_at_slot = spec.fork_name_at_epoch(self.current_epoch());
-        let object_fork = match self {
-            BeaconState::Base { .. } => ForkName::Base,
-            BeaconState::Altair { .. } => ForkName::Altair,
-            BeaconState::Merge { .. } => ForkName::Merge,
-            BeaconState::Capella { .. } => ForkName::Capella,
-            BeaconState::Deneb { .. } => ForkName::Deneb,
-        };
+        let object_fork = self.fork_name_unchecked();
 
         if fork_at_slot == object_fork {
             Ok(object_fork)
@@ -430,6 +424,19 @@ impl<T: EthSpec> BeaconState<T> {
                 fork_at_slot,
                 object_fork,
             })
+        }
+    }
+
+    /// Returns the name of the fork pertaining to `self`.
+    ///
+    /// Does not check if `self` is consistent with the fork dictated by `self.slot()`.
+    pub fn fork_name_unchecked(&self) -> ForkName {
+        match self {
+            BeaconState::Base { .. } => ForkName::Base,
+            BeaconState::Altair { .. } => ForkName::Altair,
+            BeaconState::Merge { .. } => ForkName::Merge,
+            BeaconState::Capella { .. } => ForkName::Capella,
+            BeaconState::Deneb { .. } => ForkName::Deneb,
         }
     }
 
@@ -1873,9 +1880,9 @@ impl<T: EthSpec> ForkVersionDeserialize for BeaconState<T> {
 
 /// This module can be used to encode and decode a `BeaconState` the same way it
 /// would be done if we had tagged the superstruct enum with
-/// `#[ssz(enum_behaviour = "Union")]`
-/// This should _only_ be used for storing these objects in the database and _NEVER_
-/// for encoding / decoding states sent over the network!
+/// `#[ssz(enum_behaviour = "union")]`
+/// This should _only_ be used for *some* cases to store these objects in the
+/// database and _NEVER_ for encoding / decoding states sent over the network!
 pub mod ssz_tagged_beacon_state {
     use super::*;
     pub mod encode {
@@ -1899,28 +1906,9 @@ pub mod ssz_tagged_beacon_state {
         }
 
         pub fn ssz_append<E: EthSpec>(state: &BeaconState<E>, buf: &mut Vec<u8>) {
-            match &state {
-                BeaconState::Base(inner) => {
-                    buf.push(0x0u8);
-                    inner.ssz_append(buf);
-                }
-                BeaconState::Altair(inner) => {
-                    buf.push(0x1u8);
-                    inner.ssz_append(buf);
-                }
-                BeaconState::Merge(inner) => {
-                    buf.push(0x2u8);
-                    inner.ssz_append(buf);
-                }
-                BeaconState::Capella(inner) => {
-                    buf.push(0x3u8);
-                    inner.ssz_append(buf);
-                }
-                BeaconState::Deneb(inner) => {
-                    buf.push(0x4u8);
-                    inner.ssz_append(buf);
-                }
-            }
+            let fork_name = state.fork_name_unchecked();
+            fork_name.ssz_append(buf);
+            state.ssz_append(buf);
         }
 
         pub fn as_ssz_bytes<E: EthSpec>(state: &BeaconState<E>) -> Vec<u8> {
@@ -1945,27 +1933,23 @@ pub mod ssz_tagged_beacon_state {
         }
 
         pub fn from_ssz_bytes<E: EthSpec>(bytes: &[u8]) -> Result<BeaconState<E>, DecodeError> {
-            let selector = bytes
+            let fork_byte = bytes
                 .first()
                 .copied()
                 .ok_or(DecodeError::OutOfBoundsByte { i: 0 })?;
             let body = bytes
                 .get(1..)
                 .ok_or(DecodeError::OutOfBoundsByte { i: 1 })?;
-            match selector {
-                0x0 => Ok(BeaconState::Base(BeaconStateBase::from_ssz_bytes(body)?)),
-                0x1 => Ok(BeaconState::Altair(BeaconStateAltair::from_ssz_bytes(
+            match ForkName::from_ssz_bytes(&[fork_byte])? {
+                ForkName::Base => Ok(BeaconState::Base(BeaconStateBase::from_ssz_bytes(body)?)),
+                ForkName::Altair => Ok(BeaconState::Altair(BeaconStateAltair::from_ssz_bytes(
                     body,
                 )?)),
-                0x2 => Ok(BeaconState::Merge(BeaconStateMerge::from_ssz_bytes(body)?)),
-                0x3 => Ok(BeaconState::Capella(BeaconStateCapella::from_ssz_bytes(
+                ForkName::Merge => Ok(BeaconState::Merge(BeaconStateMerge::from_ssz_bytes(body)?)),
+                ForkName::Capella => Ok(BeaconState::Capella(BeaconStateCapella::from_ssz_bytes(
                     body,
                 )?)),
-                0x4 => Ok(BeaconState::Deneb(BeaconStateDeneb::from_ssz_bytes(body)?)),
-                byte => Err(DecodeError::BytesInvalid(format!(
-                    "byte {} is invalid selector for BeaconState",
-                    byte
-                ))),
+                ForkName::Deneb => Ok(BeaconState::Deneb(BeaconStateDeneb::from_ssz_bytes(body)?)),
             }
         }
     }

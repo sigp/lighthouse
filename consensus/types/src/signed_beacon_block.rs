@@ -92,6 +92,12 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> SignedBeaconBlock<E, Payload> 
         self.message().fork_name(spec)
     }
 
+    /// Returns the name of the fork pertaining to `self`
+    /// Does not check that the fork is consistent with the slot.
+    pub fn fork_name_unchecked(&self) -> ForkName {
+        self.message().fork_name_unchecked()
+    }
+
     /// SSZ decode with fork variant determined by slot.
     pub fn from_ssz_bytes(bytes: &[u8], spec: &ChainSpec) -> Result<Self, ssz::DecodeError> {
         Self::from_ssz_bytes_with(bytes, |bytes| BeaconBlock::from_ssz_bytes(bytes, spec))
@@ -512,9 +518,9 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> ForkVersionDeserialize
 
 /// This module can be used to encode and decode a `SignedBeaconBlock` the same way it
 /// would be done if we had tagged the superstruct enum with
-/// `#[ssz(enum_behaviour = "Union")]`
-/// This should _only_ be used for storing these objects in the database and _NEVER_
-/// for encoding / decoding blocks sent over the network!
+/// `#[ssz(enum_behaviour = "union")]`
+/// This should _only_ be used *some* cases when storing these objects in the database
+/// and _NEVER_ for encoding / decoding blocks sent over the network!
 pub mod ssz_tagged_signed_beacon_block {
     use super::*;
     pub mod encode {
@@ -543,28 +549,9 @@ pub mod ssz_tagged_signed_beacon_block {
             block: &SignedBeaconBlock<E, Payload>,
             buf: &mut Vec<u8>,
         ) {
-            match &block {
-                SignedBeaconBlock::Base(inner) => {
-                    buf.push(0x0u8);
-                    inner.ssz_append(buf);
-                }
-                SignedBeaconBlock::Altair(inner) => {
-                    buf.push(0x1u8);
-                    inner.ssz_append(buf);
-                }
-                SignedBeaconBlock::Merge(inner) => {
-                    buf.push(0x2u8);
-                    inner.ssz_append(buf);
-                }
-                SignedBeaconBlock::Capella(inner) => {
-                    buf.push(0x3u8);
-                    inner.ssz_append(buf);
-                }
-                SignedBeaconBlock::Deneb(inner) => {
-                    buf.push(0x4u8);
-                    inner.ssz_append(buf);
-                }
-            }
+            let fork_name = block.fork_name_unchecked();
+            fork_name.ssz_append(buf);
+            block.ssz_append(buf);
         }
 
         pub fn as_ssz_bytes<E: EthSpec, Payload: AbstractExecPayload<E>>(
@@ -593,33 +580,30 @@ pub mod ssz_tagged_signed_beacon_block {
         pub fn from_ssz_bytes<E: EthSpec, Payload: AbstractExecPayload<E>>(
             bytes: &[u8],
         ) -> Result<SignedBeaconBlock<E, Payload>, DecodeError> {
-            let selector = bytes
+            let fork_byte = bytes
                 .first()
                 .copied()
                 .ok_or(DecodeError::OutOfBoundsByte { i: 0 })?;
             let body = bytes
                 .get(1..)
                 .ok_or(DecodeError::OutOfBoundsByte { i: 1 })?;
-            match selector {
-                0x0 => Ok(SignedBeaconBlock::Base(
+
+            match ForkName::from_ssz_bytes(&[fork_byte])? {
+                ForkName::Base => Ok(SignedBeaconBlock::Base(
                     SignedBeaconBlockBase::from_ssz_bytes(body)?,
                 )),
-                0x1 => Ok(SignedBeaconBlock::Altair(
+                ForkName::Altair => Ok(SignedBeaconBlock::Altair(
                     SignedBeaconBlockAltair::from_ssz_bytes(body)?,
                 )),
-                0x2 => Ok(SignedBeaconBlock::Merge(
+                ForkName::Merge => Ok(SignedBeaconBlock::Merge(
                     SignedBeaconBlockMerge::from_ssz_bytes(body)?,
                 )),
-                0x3 => Ok(SignedBeaconBlock::Capella(
+                ForkName::Capella => Ok(SignedBeaconBlock::Capella(
                     SignedBeaconBlockCapella::from_ssz_bytes(body)?,
                 )),
-                0x4 => Ok(SignedBeaconBlock::Deneb(
+                ForkName::Deneb => Ok(SignedBeaconBlock::Deneb(
                     SignedBeaconBlockDeneb::from_ssz_bytes(body)?,
                 )),
-                byte => Err(DecodeError::BytesInvalid(format!(
-                    "byte {} is invalid selector for SignedBeaconBlock",
-                    byte
-                ))),
             }
         }
     }
@@ -664,6 +648,40 @@ mod test {
 
             let reconstructed = blinded_block.try_into_full_block(payload).unwrap();
             assert_eq!(reconstructed, block);
+        }
+    }
+
+    #[test]
+    fn test_ssz_tagged_signed_beacon_block() {
+        type E = MainnetEthSpec;
+
+        let spec = &E::default_spec();
+        let sig = Signature::empty();
+        let blocks = vec![
+            SignedBeaconBlock::<E>::from_block(
+                BeaconBlock::Base(BeaconBlockBase::empty(spec)),
+                sig.clone(),
+            ),
+            SignedBeaconBlock::from_block(
+                BeaconBlock::Altair(BeaconBlockAltair::empty(spec)),
+                sig.clone(),
+            ),
+            SignedBeaconBlock::from_block(
+                BeaconBlock::Merge(BeaconBlockMerge::empty(spec)),
+                sig.clone(),
+            ),
+            SignedBeaconBlock::from_block(
+                BeaconBlock::Capella(BeaconBlockCapella::empty(spec)),
+                sig.clone(),
+            ),
+            SignedBeaconBlock::from_block(BeaconBlock::Deneb(BeaconBlockDeneb::empty(spec)), sig),
+        ];
+
+        for block in blocks {
+            let encoded = ssz_tagged_signed_beacon_block::encode::as_ssz_bytes(&block);
+            let decoded = ssz_tagged_signed_beacon_block::decode::from_ssz_bytes::<E, _>(&encoded)
+                .expect("should decode");
+            assert_eq!(decoded, block);
         }
     }
 }

@@ -192,7 +192,8 @@ impl CountUnrealized {
 /// Indicates if a block has been verified by an execution payload.
 ///
 /// There is no variant for "invalid", since such a block should never be added to fork choice.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Encode, Decode)]
+#[ssz(enum_behaviour = "tag")]
 pub enum PayloadVerificationStatus {
     /// An EL has declared the execution payload to be valid.
     Verified,
@@ -200,48 +201,6 @@ pub enum PayloadVerificationStatus {
     Optimistic,
     /// The block is either pre-merge-fork, or prior to the terminal PoW block.
     Irrelevant,
-}
-
-// TODO (mark): add this ssz(enum_behaviour = "tag") to ssz_derive
-// encode and decode this enum as a single byte
-impl ssz::Encode for PayloadVerificationStatus {
-    fn is_ssz_fixed_len() -> bool {
-        true
-    }
-
-    fn ssz_append(&self, buf: &mut Vec<u8>) {
-        let byte = match self {
-            PayloadVerificationStatus::Verified => 0x0u8,
-            PayloadVerificationStatus::Optimistic => 0x1u8,
-            PayloadVerificationStatus::Irrelevant => 0x2u8,
-        };
-        buf.push(byte);
-    }
-
-    fn ssz_bytes_len(&self) -> usize {
-        1
-    }
-}
-
-impl ssz::Decode for PayloadVerificationStatus {
-    fn is_ssz_fixed_len() -> bool {
-        true
-    }
-
-    fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, ssz::DecodeError> {
-        match bytes.first() {
-            None => Err(ssz::DecodeError::ZeroLengthItem),
-            Some(byte) => match byte {
-                0x0u8 => Ok(PayloadVerificationStatus::Verified),
-                0x1u8 => Ok(PayloadVerificationStatus::Optimistic),
-                0x2u8 => Ok(PayloadVerificationStatus::Irrelevant),
-                byte => Err(ssz::DecodeError::BytesInvalid(format!(
-                    "byte {} is not valid PayloadVerificationStatus",
-                    byte
-                ))),
-            },
-        }
-    }
 }
 
 impl PayloadVerificationStatus {
