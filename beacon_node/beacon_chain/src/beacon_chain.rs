@@ -116,7 +116,7 @@ use tree_hash::TreeHash;
 use types::beacon_block_body::KzgCommitments;
 use types::beacon_state::CloneConfig;
 use types::blob_sidecar::{BlobIdentifier, BlobSidecarList, Blobs};
-use types::consts::deneb::MIN_EPOCHS_FOR_BLOBS_SIDECARS_REQUESTS;
+use types::consts::deneb::MIN_EPOCHS_FOR_BLOB_SIDECARS_REQUESTS;
 use types::consts::merge::INTERVALS_PER_SLOT;
 use types::*;
 
@@ -6231,7 +6231,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             self.epoch().ok().map(|current_epoch| {
                 std::cmp::max(
                     fork_epoch,
-                    current_epoch.saturating_sub(*MIN_EPOCHS_FOR_BLOBS_SIDECARS_REQUESTS),
+                    current_epoch.saturating_sub(*MIN_EPOCHS_FOR_BLOB_SIDECARS_REQUESTS),
                 )
             })
         })
