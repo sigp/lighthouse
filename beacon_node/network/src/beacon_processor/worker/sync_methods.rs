@@ -87,7 +87,7 @@ impl<T: BeaconChainTypes> Worker<T> {
             }
         };
 
-        // Returns `true` if the block has arrived after the 4s attestation deadline.
+        // Returns `true` if the time now is after the 4s attestation deadline.
         let block_is_late = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             // If we can't read the system time clock then indicate that the
