@@ -1,4 +1,4 @@
-# Key recovery
+# Key Recovery
 
 
 Generally, validator keystore files are generated alongside a *mnemonic*. If
