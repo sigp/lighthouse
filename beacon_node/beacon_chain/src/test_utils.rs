@@ -25,7 +25,7 @@ use fork_choice::CountUnrealized;
 use futures::channel::mpsc::Receiver;
 pub use genesis::{interop_genesis_state_with_eth1, DEFAULT_ETH1_BLOCK_HASH};
 use int_to_bytes::int_to_bytes32;
-use kzg::TrustedSetup;
+use kzg::{Kzg, TrustedSetup};
 use merkle_proof::MerkleTree;
 use parking_lot::Mutex;
 use parking_lot::RwLockWriteGuard;
@@ -446,6 +446,13 @@ where
         let deneb_time = spec.deneb_fork_epoch.map(|epoch| {
             HARNESS_GENESIS_TIME + spec.seconds_per_slot * E::slots_per_epoch() * epoch.as_u64()
         });
+
+        let trusted_setup: TrustedSetup =
+            serde_json::from_reader(eth2_network_config::TRUSTED_SETUP)
+                .map_err(|e| format!("Unable to read trusted setup file: {}", e))
+                .expect("should have trusted setup");
+        let kzg = Kzg::new_from_trusted_setup(trusted_setup).expect("should create kzg");
+
         let mock = MockExecutionLayer::new(
             self.runtime.task_executor.clone(),
             DEFAULT_TERMINAL_BLOCK,
@@ -455,6 +462,7 @@ where
             Some(JwtKey::from_slice(&DEFAULT_JWT_SECRET).unwrap()),
             spec,
             None,
+            Some(kzg),
         );
         self.execution_layer = Some(mock.el.clone());
         self.mock_execution_layer = Some(mock);
@@ -477,6 +485,11 @@ where
         let deneb_time = spec.deneb_fork_epoch.map(|epoch| {
             HARNESS_GENESIS_TIME + spec.seconds_per_slot * E::slots_per_epoch() * epoch.as_u64()
         });
+        let trusted_setup: TrustedSetup =
+            serde_json::from_reader(eth2_network_config::TRUSTED_SETUP)
+                .map_err(|e| format!("Unable to read trusted setup file: {}", e))
+                .expect("should have trusted setup");
+        let kzg = Kzg::new_from_trusted_setup(trusted_setup).expect("should create kzg");
         let mock_el = MockExecutionLayer::new(
             self.runtime.task_executor.clone(),
             DEFAULT_TERMINAL_BLOCK,
@@ -486,6 +499,7 @@ where
             Some(JwtKey::from_slice(&DEFAULT_JWT_SECRET).unwrap()),
             spec.clone(),
             Some(builder_url.clone()),
+            Some(kzg),
         )
         .move_to_terminal_block();
 

@@ -6,15 +6,18 @@ use crate::{
         },
         ExecutionBlock, PayloadAttributes, PayloadId, PayloadStatusV1, PayloadStatusV1Status,
     },
-    ExecutionBlockWithTransactions,
+    BlobsBundleV1, ExecutionBlockWithTransactions,
 };
+use kzg::{Kzg, BYTES_PER_BLOB};
+use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::sync::Arc;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 use types::{
-    EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadCapella, ExecutionPayloadDeneb,
-    ExecutionPayloadMerge, ForkName, Hash256, Uint256,
+    Blob, EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadCapella,
+    ExecutionPayloadDeneb, ExecutionPayloadMerge, ForkName, Hash256, Uint256,
 };
 
 const GAS_LIMIT: u64 = 16384;
@@ -119,6 +122,11 @@ pub struct ExecutionBlockGenerator<T: EthSpec> {
      */
     pub shanghai_time: Option<u64>, // withdrawals
     pub deneb_time: Option<u64>,    // 4844
+    /*
+     * deneb stuff
+     */
+    pub blobs_bundles: HashMap<PayloadId, BlobsBundleV1<T>>,
+    pub kzg: Option<Arc<Kzg>>,
 }
 
 impl<T: EthSpec> ExecutionBlockGenerator<T> {
@@ -128,6 +136,7 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
         terminal_block_hash: ExecutionBlockHash,
         shanghai_time: Option<u64>,
         deneb_time: Option<u64>,
+        kzg: Option<Kzg>,
     ) -> Self {
         let mut gen = Self {
             head_block: <_>::default(),
@@ -142,6 +151,8 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
             payload_ids: <_>::default(),
             shanghai_time,
             deneb_time,
+            blobs_bundles: <_>::default(),
+            kzg: kzg.map(Arc::new),
         };
 
         gen.insert_pow_block(0).unwrap();
@@ -394,6 +405,10 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
         self.payload_ids.get(id).cloned()
     }
 
+    pub fn get_blobs_bundle(&mut self, id: &PayloadId) -> Option<BlobsBundleV1<T>> {
+        self.blobs_bundles.get(id).cloned()
+    }
+
     pub fn new_payload(&mut self, payload: ExecutionPayload<T>) -> PayloadStatusV1 {
         let parent = if let Some(parent) = self.blocks.get(&payload.parent_hash()) {
             parent
@@ -561,6 +576,47 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
                     }
                 };
 
+                if execution_payload.fork_name() == ForkName::Deneb {
+                    let mut bundle = BlobsBundleV1::<T>::default();
+                    // get random number between 0 and 2
+                    let rand = rand::random::<usize>() % 3;
+                    for blob_index in 0..rand {
+                        // fill a vector with random bytes
+                        let mut blob_bytes = [0u8; BYTES_PER_BLOB];
+                        rand::thread_rng().fill_bytes(&mut blob_bytes);
+                        let blob = Blob::<T>::new(Vec::from(blob_bytes))
+                            .map_err(|e| format!("error constructing random blob: {:?}", e))?;
+
+                        let commitment = self
+                            .kzg
+                            .as_ref()
+                            .ok_or("kzg not initialized")?
+                            .blob_to_kzg_commitment(blob_bytes.into())
+                            .map_err(|e| format!("error computing kzg commitment: {:?}", e))?;
+
+                        let proof = self
+                            .kzg
+                            .as_ref()
+                            .ok_or("kzg not initialized")?
+                            .compute_blob_kzg_proof(blob_bytes.into(), commitment)
+                            .map_err(|e| format!("error computing kzg proof: {:?}", e))?;
+
+                        bundle
+                            .blobs
+                            .push(blob)
+                            .map_err(|_| format!("blobs are full, blob index: {:?}", blob_index))?;
+                        bundle
+                            .commitments
+                            .push(commitment)
+                            .map_err(|_| format!("blobs are full, blob index: {:?}", blob_index))?;
+                        bundle
+                            .proofs
+                            .push(proof)
+                            .map_err(|_| format!("blobs are full, blob index: {:?}", blob_index))?;
+                    }
+                    self.blobs_bundles.insert(id, bundle);
+                }
+
                 *execution_payload.block_hash_mut() =
                     ExecutionBlockHash::from_root(execution_payload.tree_hash_root());
 
@@ -648,6 +704,7 @@ mod test {
             TERMINAL_DIFFICULTY.into(),
             TERMINAL_BLOCK,
             ExecutionBlockHash::zero(),
+            None,
             None,
             None,
         );

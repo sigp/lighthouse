@@ -515,7 +515,7 @@ impl<E: EthSpec> ExecutionPayloadBodyV1<E> {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Default, Debug, PartialEq)]
 pub struct BlobsBundleV1<E: EthSpec> {
     pub commitments: KzgCommitments<E>,
     pub proofs: KzgProofs<E>,

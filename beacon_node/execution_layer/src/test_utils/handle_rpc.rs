@@ -324,7 +324,7 @@ pub async fn handle_rpc<T: EthSpec>(
                                             .map(|opt| opt.map(JsonPayloadAttributes::V1))
                                             .transpose()
                                     }
-                                    ForkName::Capella => {
+                                    ForkName::Capella | ForkName::Deneb => {
                                         get_param::<Option<JsonPayloadAttributesV2>>(params, 1)
                                             .map(|opt| opt.map(JsonPayloadAttributes::V2))
                                             .transpose()
@@ -483,6 +483,23 @@ pub async fn handle_rpc<T: EthSpec>(
             }
 
             Ok(serde_json::to_value(response).unwrap())
+        }
+        ENGINE_GET_BLOBS_BUNDLE_V1 => {
+            let request: JsonPayloadIdRequest =
+                get_param(params, 0).map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?;
+            let id = request.into();
+
+            let response = ctx
+                .execution_block_generator
+                .write()
+                .get_blobs_bundle(&id)
+                .ok_or_else(|| {
+                    (
+                        format!("no bundle for id {:?}", id),
+                        UNKNOWN_PAYLOAD_ERROR_CODE,
+                    )
+                })?;
+            Ok(serde_json::to_value(JsonBlobsBundleV1::from(response)).unwrap())
         }
         other => Err((
             format!("The method {} does not exist/is not available", other),
