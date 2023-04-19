@@ -710,29 +710,62 @@ impl ssz::Decode for OverflowKey {
 
 #[cfg(test)]
 mod test {
-    use super::{BlobIdentifier, Hash256, OverflowKey};
-    use ssz::{Decode, Encode};
-    use types::MainnetEthSpec;
+    use types::{ChainSpec, Eth1Data, MainnetEthSpec, MinimalEthSpec};
+    use crate::test_utils::{BaseHarnessType, BeaconChainHarness, DiskHarnessType};
+    use types::beacon_state::ssz_tagged_beacon_state;
+    use tempfile::{tempdir, TempDir};
+    use fork_choice::PayloadVerificationStatus;
+    use logging::test_logger;
+    use state_processing::ConsensusContext;
+    use store::{HotColdDB, ItemStore, LevelDB, StoreConfig};
+    use types::beacon_block_body::KzgCommitments;
+    use crate::block_verification::{BlockImportData, PayloadVerificationOutcome};
+    use crate::data_availability_checker::AvailabilityPendingBlock;
+    use crate::eth1_finalization_cache::Eth1FinalizationData;
+    use super::*;
+
+    const LOW_VALIDATOR_COUNT: usize = 32;
+
+    fn get_store_with_spec<E: EthSpec>(
+        db_path: &TempDir,
+        spec: ChainSpec,
+    ) -> Arc<HotColdDB<E, LevelDB<E>, LevelDB<E>>> {
+        let hot_path = db_path.path().join("hot_db");
+        let cold_path = db_path.path().join("cold_db");
+        let config = StoreConfig::default();
+        let log = test_logger();
+
+        HotColdDB::open(
+            &hot_path,
+            &cold_path,
+            None,
+            |_, _, _| Ok(()),
+            config,
+            spec,
+            log,
+        ).expect("disk store should initialize")
+    }
 
     #[test]
     fn overflow_key_encode_decode_equality() {
+        type E = MainnetEthSpec;
         let key_block = OverflowKey::Block(Hash256::random());
-        let key_blob_0 = OverflowKey::from_blob_id::<MainnetEthSpec>(BlobIdentifier {
+        let key_blob_0 = OverflowKey::from_blob_id::<E>(BlobIdentifier {
             block_root: Hash256::random(),
             index: 0,
         })
         .expect("should create overflow key 0");
-        let key_blob_1 = OverflowKey::from_blob_id::<MainnetEthSpec>(BlobIdentifier {
+        let key_blob_1 = OverflowKey::from_blob_id::<E>(BlobIdentifier {
             block_root: Hash256::random(),
             index: 1,
         })
         .expect("should create overflow key 1");
-        let key_blob_2 = OverflowKey::from_blob_id::<MainnetEthSpec>(BlobIdentifier {
+        let key_blob_2 = OverflowKey::from_blob_id::<E>(BlobIdentifier {
             block_root: Hash256::random(),
             index: 2,
         })
         .expect("should create overflow key 2");
-        let key_blob_3 = OverflowKey::from_blob_id::<MainnetEthSpec>(BlobIdentifier {
+        let key_blob_3 = OverflowKey::from_blob_id::<E>(BlobIdentifier {
             block_root: Hash256::random(),
             index: 3,
         })
@@ -746,8 +779,237 @@ mod test {
         }
     }
 
-    #[test]
-    fn cache_added_entries_exist() {
-        todo!()
+    // TODO(mark): where should I actually put this test?
+    #[tokio::test]
+    async fn ssz_tagged_beacon_state_encode_decode_equality() {
+        type E = MinimalEthSpec;
+        let altair_fork_epoch = Epoch::new(1);
+        let altair_fork_slot = altair_fork_epoch.start_slot(E::slots_per_epoch());
+        let bellatrix_fork_epoch = Epoch::new(2);
+        let merge_fork_slot = bellatrix_fork_epoch.start_slot(E::slots_per_epoch());
+        let capella_fork_epoch = Epoch::new(3);
+        let capella_fork_slot = capella_fork_epoch.start_slot(E::slots_per_epoch());
+        let deneb_fork_epoch = Epoch::new(4);
+        let deneb_fork_slot = deneb_fork_epoch.start_slot(E::slots_per_epoch());
+
+        let mut spec = E::default_spec();
+        spec.altair_fork_epoch = Some(altair_fork_epoch);
+        spec.bellatrix_fork_epoch = Some(bellatrix_fork_epoch);
+        spec.capella_fork_epoch = Some(capella_fork_epoch);
+        spec.deneb_fork_epoch = Some(deneb_fork_epoch);
+
+        let harness = BeaconChainHarness::builder(E::default())
+            .spec(spec)
+            .logger(logging::test_logger())
+            .deterministic_keypairs(LOW_VALIDATOR_COUNT)
+            .fresh_ephemeral_store()
+            .mock_execution_layer()
+            .build();
+
+        let mut state = harness.get_current_state();
+        assert!(state.as_base().is_ok());
+        let encoded = ssz_tagged_beacon_state::encode::as_ssz_bytes(&state);
+        let decoded = ssz_tagged_beacon_state::decode::from_ssz_bytes(&encoded).expect("should decode");
+        state.drop_all_caches().expect("should drop caches");
+        assert_eq!(state, decoded, "Encoded and decoded states should be equal");
+
+        harness.extend_to_slot(altair_fork_slot).await;
+
+        let mut state = harness.get_current_state();
+        assert!(state.as_altair().is_ok());
+        let encoded = ssz_tagged_beacon_state::encode::as_ssz_bytes(&state);
+        let decoded = ssz_tagged_beacon_state::decode::from_ssz_bytes(&encoded).expect("should decode");
+        state.drop_all_caches().expect("should drop caches");
+        assert_eq!(state, decoded, "Encoded and decoded states should be equal");
+
+        harness.extend_to_slot(merge_fork_slot).await;
+
+        let mut state = harness.get_current_state();
+        assert!(state.as_merge().is_ok());
+        let encoded = ssz_tagged_beacon_state::encode::as_ssz_bytes(&state);
+        let decoded = ssz_tagged_beacon_state::decode::from_ssz_bytes(&encoded).expect("should decode");
+        state.drop_all_caches().expect("should drop caches");
+        assert_eq!(state, decoded, "Encoded and decoded states should be equal");
+
+        harness.extend_to_slot(capella_fork_slot).await;
+
+        let mut state = harness.get_current_state();
+        assert!(state.as_capella().is_ok());
+        let encoded = ssz_tagged_beacon_state::encode::as_ssz_bytes(&state);
+        let decoded = ssz_tagged_beacon_state::decode::from_ssz_bytes(&encoded).expect("should decode");
+        state.drop_all_caches().expect("should drop caches");
+        assert_eq!(state, decoded, "Encoded and decoded states should be equal");
+
+        harness.extend_to_slot(deneb_fork_slot).await;
+
+        let mut state = harness.get_current_state();
+        assert!(state.as_deneb().is_ok());
+        let encoded = ssz_tagged_beacon_state::encode::as_ssz_bytes(&state);
+        let decoded = ssz_tagged_beacon_state::decode::from_ssz_bytes(&encoded).expect("should decode");
+        state.drop_all_caches().expect("should drop caches");
+        assert_eq!(state, decoded, "Encoded and decoded states should be equal");
+    }
+
+    async fn availability_pending_block<E, Hot, Cold>(harness: &BeaconChainHarness<BaseHarnessType<E, Hot, Cold>>) -> AvailabilityPendingExecutedBlock<E>
+        where
+            E: EthSpec,
+            Hot: ItemStore<E>,
+            Cold: ItemStore<E>,
+    {
+        let chain = &harness.chain;
+
+        let head = chain.head_snapshot();
+        let head_state_root = head.beacon_state_root();
+        let head_state = head.beacon_state.clone_with_only_committee_caches();
+
+        let target_slot = chain.slot().expect("should get slot") + 1;
+        let parent_root = head.beacon_block_root;
+        let parent_block = chain
+            .get_blinded_block(&parent_root)
+            .expect("should get block")
+            .expect("should have block");
+
+        let parent_eth1_data = parent_block.message().body().eth1_data();
+        let eth1_data = Eth1Data {
+            deposit_root: parent_eth1_data.deposit_root,
+            deposit_count: parent_eth1_data.deposit_count,
+            block_hash: parent_eth1_data.block_hash,
+        };
+        let parent_eth1_finalization_data = Eth1FinalizationData {
+            eth1_data,
+            eth1_deposit_index: 0,
+        };
+
+        let (signed_beacon_block_hash, state) = harness
+            .add_attested_block_at_slot(target_slot, head_state, head_state_root, &[])
+            .await
+            .expect("should add block");
+        let block_root = signed_beacon_block_hash.into();
+
+        let mut block = chain
+            .get_block(&block_root)
+            .await
+            .expect("should get block")
+            .expect("should have block");
+        assert_eq!(block.canonical_root(), block_root, "block root should match");
+
+        // add 2 kzg commitments
+        block
+            .message_mut()
+            .body_mut()
+            .blob_kzg_commitments_mut()
+            .expect("should be deneb fork")
+            .push(Default::default())
+            .expect("should push");
+        block
+            .message_mut()
+            .body_mut()
+            .blob_kzg_commitments_mut()
+            .expect("should be deneb fork")
+            .push(Default::default())
+            .expect("should push");
+
+        let block_root = block.canonical_root();
+        let slot = block.slot();
+        let apb: AvailabilityPendingBlock<E> = AvailabilityPendingBlock {
+            block: Arc::new(block),
+        };
+
+        let consensus_context = ConsensusContext::<E>::new(slot);
+        let import_data: BlockImportData<E> = BlockImportData {
+            block_root,
+            state,
+            parent_block,
+            parent_eth1_finalization_data,
+            confirmed_state_roots: vec![],
+            consensus_context,
+        };
+
+        let payload_verification_outcome = PayloadVerificationOutcome {
+            payload_verification_status: PayloadVerificationStatus::Verified,
+            is_valid_merge_transition_block: false,
+        };
+
+        AvailabilityPendingExecutedBlock {
+            block: apb,
+            import_data,
+            payload_verification_outcome,
+        }
+    }
+
+    #[tokio::test]
+    async fn overflow_cache_tests() {
+        type E = MinimalEthSpec;
+        type T = DiskHarnessType<E>;
+        let capacity = 4;
+
+        let altair_fork_epoch = Epoch::new(1);
+        let bellatrix_fork_epoch = Epoch::new(2);
+        let capella_fork_epoch = Epoch::new(3);
+        let deneb_fork_epoch = Epoch::new(4);
+        let deneb_fork_slot = deneb_fork_epoch.start_slot(E::slots_per_epoch());
+
+        let mut spec = E::default_spec();
+        spec.altair_fork_epoch = Some(altair_fork_epoch);
+        spec.bellatrix_fork_epoch = Some(bellatrix_fork_epoch);
+        spec.capella_fork_epoch = Some(capella_fork_epoch);
+        spec.deneb_fork_epoch = Some(deneb_fork_epoch);
+
+        let db_path = tempdir().expect("should get temp dir");
+        let store = get_store_with_spec::<E>(&db_path, spec.clone());
+        let validators_keypairs =
+            types::test_utils::generate_deterministic_keypairs(LOW_VALIDATOR_COUNT);
+        let harness = BeaconChainHarness::builder(MinimalEthSpec)
+            .spec(spec.clone())
+            .keypairs(validators_keypairs)
+            .fresh_disk_store(store)
+            .mock_execution_layer()
+            .build();
+
+        harness.extend_to_slot(deneb_fork_slot).await;
+
+        let beacon_store = harness.chain.store.clone();
+        let cache = Arc::new(OverflowLRUCache::<T>::new(capacity, beacon_store).expect("should create cache"));
+
+        let pending_block_0 = availability_pending_block(&harness).await;
+        let root_0 = pending_block_0.import_data.block_root;
+        cache.put_pending_executed_block(pending_block_0).expect("should put block");
+
+        assert_eq!(cache.critical.read().in_memory.len(), 1);
+        assert!(cache.critical.read().in_memory.peek(&root_0).is_some(), "we just inserted it so it should exist");
+        let pending_block_1 = availability_pending_block(&harness).await;
+        let root_1 = pending_block_1.block.block.canonical_root();
+        cache.put_pending_executed_block(pending_block_1).expect("should put block");
+
+        assert_eq!(cache.critical.read().in_memory.len(), 2);
+        let pending_block_2 = availability_pending_block(&harness).await;
+        let root_2 = pending_block_2.block.block.canonical_root();
+        cache.put_pending_executed_block(pending_block_2).expect("should put block");
+
+        assert_eq!(cache.critical.read().in_memory.len(), 3);
+        let pending_block_3 = availability_pending_block(&harness).await;
+        let root_3 = pending_block_3.block.block.canonical_root();
+        cache.put_pending_executed_block(pending_block_3).expect("should put block");
+
+        assert_eq!(cache.critical.read().in_memory.len(), 4);
+        assert!(cache.critical.read().in_memory.peek(&root_1).is_some());
+        assert_eq!(*cache.critical.read().in_memory.peek_lru().expect("should exist").0, root_0);
+
+        let pending_block_4 = availability_pending_block(&harness).await;
+        let root_4 = pending_block_4.block.block.canonical_root();
+        cache.put_pending_executed_block(pending_block_4).expect("should put block");
+
+        assert_eq!(cache.critical.read().in_memory.len(), 4, "cache should have overflowed");
+        assert!(cache.overflow_store.get_pending_components(root_0).expect("shouldn't error").is_some());
+
+        cache.maintain_threshold(3, Epoch::new(0)).expect("should maintain threshold");
+        assert_eq!(cache.critical.read().in_memory.len(), 3, "cache should have been maintained");
+
+        let store_keys = cache.overflow_store.read_keys_on_disk().expect("should read keys");
+        assert_eq!(store_keys.len(), 2);
+        assert!(store_keys.contains(&root_0));
+        assert!(store_keys.contains(&root_1));
+        assert!(cache.critical.read().store_keys.contains(&root_0));
+        assert!(cache.critical.read().store_keys.contains(&root_1));
     }
 }
