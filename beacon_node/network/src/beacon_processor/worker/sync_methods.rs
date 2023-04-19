@@ -116,7 +116,7 @@ impl<T: BeaconChainTypes> Worker<T> {
 
         // If we've already seen a block from this proposer *and* the block
         // arrived before the attestation deadline, requeue it to ensure it is
-        // imported so late that it won't receive a proposer boost.
+        // imported late enough that it won't receive a proposer boost.
         if !block_is_late && proposal_already_known() {
             debug!(
                 self.log,
