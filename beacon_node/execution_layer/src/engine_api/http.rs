@@ -76,6 +76,7 @@ pub static LIGHTHOUSE_CAPABILITIES: &[&str] = &[
     ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1,
     ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1,
     ENGINE_EXCHANGE_TRANSITION_CONFIGURATION_V1,
+    ENGINE_GET_BLOBS_BUNDLE_V1,
 ];
 
 /// This is necessary because a user might run a capella-enabled version of
@@ -94,6 +95,7 @@ pub static PRE_CAPELLA_ENGINE_CAPABILITIES: EngineCapabilities = EngineCapabilit
     get_payload_v2: false,
     get_payload_v3: false,
     exchange_transition_configuration_v1: true,
+    get_blobs_bundle_v1: false,
 };
 
 /// Contains methods to convert arbitrary bytes to an ETH2 deposit contract object.
@@ -930,10 +932,10 @@ impl HttpJsonRpc {
     pub async fn get_blobs_bundle_v1<T: EthSpec>(
         &self,
         payload_id: PayloadId,
-    ) -> Result<JsonBlobsBundle<T>, Error> {
+    ) -> Result<BlobsBundleV1<T>, Error> {
         let params = json!([JsonPayloadIdRequest::from(payload_id)]);
 
-        let response: JsonBlobsBundle<T> = self
+        let response: JsonBlobsBundleV1<T> = self
             .rpc_request(
                 ENGINE_GET_BLOBS_BUNDLE_V1,
                 params,
@@ -941,7 +943,7 @@ impl HttpJsonRpc {
             )
             .await?;
 
-        Ok(response)
+        Ok(response.into())
     }
 
     pub async fn forkchoice_updated_v1(
@@ -1082,6 +1084,7 @@ impl HttpJsonRpc {
                 get_payload_v3: capabilities.contains(ENGINE_GET_PAYLOAD_V3),
                 exchange_transition_configuration_v1: capabilities
                     .contains(ENGINE_EXCHANGE_TRANSITION_CONFIGURATION_V1),
+                get_blobs_bundle_v1: capabilities.contains(ENGINE_GET_BLOBS_BUNDLE_V1),
             }),
         }
     }

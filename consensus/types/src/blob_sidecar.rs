@@ -72,7 +72,7 @@ impl<T: EthSpec> Ord for BlobSidecar<T> {
 }
 
 pub type BlobSidecarList<T> = VariableList<Arc<BlobSidecar<T>>, <T as EthSpec>::MaxBlobsPerBlock>;
-pub type Blobs<T> = VariableList<Blob<T>, <T as EthSpec>::MaxExtraDataBytes>;
+pub type Blobs<T> = VariableList<Blob<T>, <T as EthSpec>::MaxBlobsPerBlock>;
 
 impl<T: EthSpec> SignedRoot for BlobSidecar<T> {}
 

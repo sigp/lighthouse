@@ -409,12 +409,31 @@ impl From<JsonPayloadAttributes> for PayloadAttributes {
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
-#[serde(bound = "T: EthSpec", rename_all = "camelCase")]
-pub struct JsonBlobsBundle<T: EthSpec> {
-    pub block_hash: ExecutionBlockHash,
-    pub kzgs: KzgCommitments<T>,
+#[serde(bound = "E: EthSpec", rename_all = "camelCase")]
+pub struct JsonBlobsBundleV1<E: EthSpec> {
+    pub commitments: KzgCommitments<E>,
+    pub proofs: KzgProofs<E>,
     #[serde(with = "ssz_types::serde_utils::list_of_hex_fixed_vec")]
-    pub blobs: Blobs<T>,
+    pub blobs: Blobs<E>,
+}
+
+impl<E: EthSpec> From<BlobsBundleV1<E>> for JsonBlobsBundleV1<E> {
+    fn from(blobs_bundle: BlobsBundleV1<E>) -> Self {
+        Self {
+            commitments: blobs_bundle.commitments,
+            proofs: blobs_bundle.proofs,
+            blobs: blobs_bundle.blobs,
+        }
+    }
+}
+impl<E: EthSpec> From<JsonBlobsBundleV1<E>> for BlobsBundleV1<E> {
+    fn from(json_blobs_bundle: JsonBlobsBundleV1<E>) -> Self {
+        Self {
+            commitments: json_blobs_bundle.commitments,
+            proofs: json_blobs_bundle.proofs,
+            blobs: json_blobs_bundle.blobs,
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]

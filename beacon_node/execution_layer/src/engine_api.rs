@@ -1,7 +1,7 @@
 use crate::engines::ForkchoiceState;
 use crate::http::{
     ENGINE_EXCHANGE_TRANSITION_CONFIGURATION_V1, ENGINE_FORKCHOICE_UPDATED_V1,
-    ENGINE_FORKCHOICE_UPDATED_V2, ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1,
+    ENGINE_FORKCHOICE_UPDATED_V2, ENGINE_GET_BLOBS_BUNDLE_V1, ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1,
     ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1, ENGINE_GET_PAYLOAD_V1, ENGINE_GET_PAYLOAD_V2,
     ENGINE_GET_PAYLOAD_V3, ENGINE_NEW_PAYLOAD_V1, ENGINE_NEW_PAYLOAD_V2, ENGINE_NEW_PAYLOAD_V3,
 };
@@ -16,12 +16,14 @@ use serde::{Deserialize, Serialize};
 use std::convert::TryFrom;
 use strum::IntoStaticStr;
 use superstruct::superstruct;
+use types::beacon_block_body::KzgCommitments;
+use types::blob_sidecar::Blobs;
 pub use types::{
     Address, EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadHeader,
     ExecutionPayloadRef, FixedVector, ForkName, Hash256, Transactions, Uint256, VariableList,
     Withdrawal, Withdrawals,
 };
-use types::{ExecutionPayloadCapella, ExecutionPayloadDeneb, ExecutionPayloadMerge};
+use types::{ExecutionPayloadCapella, ExecutionPayloadDeneb, ExecutionPayloadMerge, KzgProofs};
 
 pub mod auth;
 pub mod http;
@@ -513,6 +515,13 @@ impl<E: EthSpec> ExecutionPayloadBodyV1<E> {
     }
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct BlobsBundleV1<E: EthSpec> {
+    pub commitments: KzgCommitments<E>,
+    pub proofs: KzgProofs<E>,
+    pub blobs: Blobs<E>,
+}
+
 #[derive(Clone, Copy, Debug)]
 pub struct EngineCapabilities {
     pub new_payload_v1: bool,
@@ -526,6 +535,7 @@ pub struct EngineCapabilities {
     pub get_payload_v2: bool,
     pub get_payload_v3: bool,
     pub exchange_transition_configuration_v1: bool,
+    pub get_blobs_bundle_v1: bool,
 }
 
 impl EngineCapabilities {
@@ -563,6 +573,9 @@ impl EngineCapabilities {
         }
         if self.exchange_transition_configuration_v1 {
             response.push(ENGINE_EXCHANGE_TRANSITION_CONFIGURATION_V1);
+        }
+        if self.get_blobs_bundle_v1 {
+            response.push(ENGINE_GET_BLOBS_BUNDLE_V1);
         }
 
         response

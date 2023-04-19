@@ -45,12 +45,12 @@ use types::beacon_block_body::KzgCommitments;
 use types::blob_sidecar::Blobs;
 use types::consts::deneb::BLOB_TX_TYPE;
 use types::transaction::{AccessTuple, BlobTransaction, EcdsaSignature, SignedBlobTransaction};
-use types::Withdrawals;
 use types::{AbstractExecPayload, BeaconStateError, ExecPayload, VersionedHash};
 use types::{
     BlindedPayload, BlockType, ChainSpec, Epoch, ExecutionBlockHash, ExecutionPayload,
     ExecutionPayloadCapella, ExecutionPayloadDeneb, ExecutionPayloadMerge, ForkName,
 };
+use types::{KzgProofs, Withdrawals};
 use types::{
     ProposerPreparationData, PublicKeyBytes, Signature, SignedBeaconBlock, Slot, Transaction,
     Uint256,
@@ -141,22 +141,32 @@ pub enum BlockProposalContents<T: EthSpec, Payload: AbstractExecPayload<T>> {
         block_value: Uint256,
         kzg_commitments: KzgCommitments<T>,
         blobs: Blobs<T>,
+        proofs: KzgProofs<T>,
     },
 }
 
+#[allow(clippy::type_complexity)]
 impl<T: EthSpec, Payload: AbstractExecPayload<T>> BlockProposalContents<T, Payload> {
-    pub fn deconstruct(self) -> (Payload, Option<KzgCommitments<T>>, Option<Blobs<T>>) {
+    pub fn deconstruct(
+        self,
+    ) -> (
+        Payload,
+        Option<KzgCommitments<T>>,
+        Option<Blobs<T>>,
+        Option<KzgProofs<T>>,
+    ) {
         match self {
             Self::Payload {
                 payload,
                 block_value: _,
-            } => (payload, None, None),
+            } => (payload, None, None, None),
             Self::PayloadAndBlobs {
                 payload,
                 block_value: _,
                 kzg_commitments,
                 blobs,
-            } => (payload, Some(kzg_commitments), Some(blobs)),
+                proofs,
+            } => (payload, Some(kzg_commitments), Some(blobs), Some(proofs)),
         }
     }
 
@@ -171,6 +181,7 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> BlockProposalContents<T, Paylo
                 block_value: _,
                 kzg_commitments: _,
                 blobs: _,
+                proofs: _,
             } => payload,
         }
     }
@@ -185,6 +196,7 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> BlockProposalContents<T, Paylo
                 block_value: _,
                 kzg_commitments: _,
                 blobs: _,
+                proofs: _,
             } => payload,
         }
     }
@@ -199,6 +211,7 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> BlockProposalContents<T, Paylo
                 block_value,
                 kzg_commitments: _,
                 blobs: _,
+                proofs: _,
             } => block_value,
         }
     }
@@ -215,6 +228,7 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> BlockProposalContents<T, Paylo
                 block_value: Uint256::zero(),
                 blobs: VariableList::default(),
                 kzg_commitments: VariableList::default(),
+                proofs: VariableList::default(),
             },
         })
     }
@@ -1145,7 +1159,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                     );
                     engine.api.get_payload::<T>(current_fork, payload_id).await
                 };
-                let (blob, payload_response) = tokio::join!(blob_fut, payload_fut);
+                let (blobs_bundle, payload_response) = tokio::join!(blob_fut, payload_fut);
                 let (execution_payload, block_value) = payload_response.map(|payload_response| {
                     if payload_response.execution_payload_ref().fee_recipient() != payload_attributes.suggested_fee_recipient() {
                         error!(
@@ -1169,13 +1183,14 @@ impl<T: EthSpec> ExecutionLayer<T> {
                     }
                     payload_response.into()
                 })?;
-                if let Some(blob) = blob.transpose()? {
+                if let Some(bundle) = blobs_bundle.transpose()? {
                     // FIXME(sean) cache blobs
                     Ok(BlockProposalContents::PayloadAndBlobs {
                         payload: execution_payload.into(),
                         block_value,
-                        blobs: blob.blobs,
-                        kzg_commitments: blob.kzgs,
+                        blobs: bundle.blobs,
+                        kzg_commitments: bundle.commitments,
+                        proofs: bundle.proofs,
                     })
                 } else {
                     Ok(BlockProposalContents::Payload {
