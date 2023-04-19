@@ -607,7 +607,7 @@ fn test_single_block_lookup_ignored_response() {
     // after processing.
     bl.single_block_lookup_response(id, peer_id, None, D, &mut cx);
     // Send an Ignored response, the request should be dropped
-    bl.single_block_processed(id, BlockOrBlobProcessResult::Ignored, &mut cx);
+    bl.single_block_processed(id, BlockPartProcessingResult::Ignored, &mut cx);
     rig.expect_empty_network();
     assert_eq!(bl.single_block_lookups.len(), 0);
 }
@@ -631,7 +631,7 @@ fn test_parent_lookup_ignored_response() {
     rig.expect_empty_network();
 
     // Return an Ignored result. The request should be dropped
-    bl.parent_block_processed(chain_hash, BlockOrBlobProcessResult::Ignored, &mut cx);
+    bl.parent_block_processed(chain_hash, BlockPartProcessingResult::Ignored, &mut cx);
     rig.expect_empty_network();
     assert_eq!(bl.parent_lookups.len(), 0);
 }

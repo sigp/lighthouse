@@ -54,6 +54,7 @@ use lighthouse_network::{
 };
 use logging::TimeLatch;
 use slog::{crit, debug, error, trace, warn, Logger};
+use ssz_types::FixedVector;
 use std::collections::VecDeque;
 use std::future::Future;
 use std::pin::Pin;
@@ -631,7 +632,7 @@ impl<T: BeaconChainTypes> WorkEvent<T> {
 
     pub fn rpc_blobs(
         block_root: Hash256,
-        blobs: Vec<Arc<BlobSidecar<T::EthSpec>>>,
+        blobs: FixedVector<Option<Arc<BlobSidecar<T::EthSpec>>>, T::EthSpec::MaxBlobsPerBlock>,
         seen_timestamp: Duration,
         process_type: BlockProcessType,
     ) -> Self {
@@ -947,7 +948,7 @@ pub enum Work<T: BeaconChainTypes> {
     },
     RpcBlobs {
         block_root: Hash256,
-        blobs: Vec<Arc<BlobSidecar<T::EthSpec>>>,
+        blobs: FixedVector<Option<Arc<BlobSidecar<T::EthSpec>>>, T::EthSpec::MaxBlobsPerBlock>,
         seen_timestamp: Duration,
         process_type: BlockProcessType,
     },

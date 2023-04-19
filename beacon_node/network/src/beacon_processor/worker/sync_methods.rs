@@ -16,6 +16,7 @@ use beacon_chain::{
 };
 use lighthouse_network::PeerAction;
 use slog::{debug, error, info, warn};
+use ssz_types::FixedVector;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use types::{BlobSidecar, Epoch, Hash256, SignedBeaconBlock};
@@ -54,9 +55,10 @@ impl<T: BeaconChainTypes> Worker<T> {
     ) {
         if !should_process {
             // Sync handles these results
-            self.send_sync_message(SyncMessage::BlockOrBlobProcessed {
+            self.send_sync_message(SyncMessage::BlockPartProcessed {
                 process_type,
-                result: crate::sync::manager::BlockOrBlobProcessResult::Ignored,
+                result: crate::sync::manager::BlockPartProcessingResult::Ignored,
+                response_type: crate::sync::manager::ResponseType::Block,
             });
             return;
         }
@@ -129,9 +131,10 @@ impl<T: BeaconChainTypes> Worker<T> {
             }
         }
         // Sync handles these results
-        self.send_sync_message(SyncMessage::BlockOrBlobProcessed {
+        self.send_sync_message(SyncMessage::BlockPartProcessed {
             process_type,
             result: result.into(),
+            response_type: ResponseType::Block,
         });
 
         // Drop the handle to remove the entry from the cache
@@ -141,7 +144,7 @@ impl<T: BeaconChainTypes> Worker<T> {
     pub async fn process_rpc_blobs(
         self,
         block_root: Hash256,
-        blobs: Vec<Arc<BlobSidecar<T::EthSpec>>>,
+        blobs: FixedVector<Option<Arc<BlobSidecar<T::EthSpec>>>, T::EthSpec::MaxBlobsPerBlock>,
         seen_timestamp: Duration,
         process_type: BlockProcessType,
     ) {
@@ -158,9 +161,10 @@ impl<T: BeaconChainTypes> Worker<T> {
             .await;
 
         // Sync handles these results
-        self.send_sync_message(SyncMessage::BlockOrBlobProcessed {
+        self.send_sync_message(SyncMessage::BlockPartProcessed {
             process_type,
             result: result.into(),
+            response_type: ResponseType::Blobs,
         });
     }
 

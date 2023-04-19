@@ -46,6 +46,10 @@ pub enum AvailabilityCheckError {
         block_root: Hash256,
         blob_block_root: Hash256,
     },
+    UnorderedBlobs {
+        expected_index: u64,
+        blob_index: u64,
+    },
 }
 
 impl From<ssz_types::Error> for AvailabilityCheckError {
@@ -136,11 +140,11 @@ impl<T: EthSpec, S: SlotClock> DataAvailabilityChecker<T, S> {
         }
     }
 
-    pub fn zip_block(
+    pub fn wrap_block(
         &self,
         block_root: Hash256,
         block: Arc<SignedBeaconBlock<T>>,
-        blobs: Vec<Arc<BlobSidecar<T>>>,
+        blobs: FixedVector<Option<Arc<BlobSidecar<T>>>, T::MaxBlobsPerBlock>,
     ) -> Result<BlockWrapper<T>, AvailabilityCheckError> {
         Ok(match self.get_blob_requirements(&block)? {
             BlobRequirements::EmptyBlobs => BlockWrapper::Block(block),
@@ -153,32 +157,29 @@ impl<T: EthSpec, S: SlotClock> DataAvailabilityChecker<T, S> {
                     .blob_kzg_commitments()
                     .map(|commitments| commitments.len())
                     .unwrap_or(0);
-                let mut expected_indices: HashSet<usize> =
-                    (0..expected_num_blobs).into_iter().collect();
-                if blobs.len() < expected_num_blobs {
-                    return Err(AvailabilityCheckError::NumBlobsMismatch {
-                        num_kzg_commitments: expected_num_blobs,
-                        num_blobs: blobs.len(),
-                    });
-                }
-                for blob in blobs.iter() {
+
+                let mut blob_count = 0;
+                while let Some((index, Some(blob))) = blobs.iter().enumerate().next() {
+                    blob_count += 1;
                     if blob.block_root != block_root {
                         return Err(AvailabilityCheckError::BlockBlobRootMismatch {
                             block_root,
                             blob_block_root: blob.block_root,
                         });
                     }
-                    let removed = expected_indices.remove(&(blob.index as usize));
-                    if !removed {
-                        return Err(AvailabilityCheckError::MissingBlobs);
+
+                    let expected_index = index as u64;
+                    if expected_index != blob.index {
+                        return Err(AvailabilityCheckError::UnorderedBlobs {
+                            expected_index,
+                            blob_index: blob.index,
+                        });
                     }
                 }
 
-                if !expected_indices.is_empty() {
-                    return Err(AvailabilityCheckError::DuplicateBlob(block_root));
+                if blob_count < expected_num_blobs {
+                    return Err(AvailabilityCheckError::MissingBlobs);
                 }
-
-                //TODO(sean) do we re-order blobs here to the correct order?
 
                 BlockWrapper::BlockAndBlobs(block, blobs)
             }
@@ -199,8 +200,10 @@ impl<T: EthSpec, S: SlotClock> DataAvailabilityChecker<T, S> {
     pub fn put_rpc_blobs(
         &self,
         block_root: Hash256,
-        blobs: Vec<Arc<BlobSidecar<T>>>,
+        blobs: FixedVector<Option<Arc<BlobSidecar<T>>>, T::MaxBlobsPerBlock>,
     ) -> Result<Availability<T>, AvailabilityCheckError> {
+        //TODO(sean) merge with existing blobs, only kzg verify blobs we haven't yet verified
+
         // Verify the KZG commitment.
         let kzg_verified_blobs = if let Some(kzg) = self.kzg.as_ref() {
             verify_kzg_for_blob_list(blobs, kzg)?

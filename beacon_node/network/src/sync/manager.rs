@@ -41,6 +41,7 @@ use super::range_sync::{RangeSync, RangeSyncType, EPOCHS_PER_BATCH};
 use crate::beacon_processor::{ChainSegmentProcessId, WorkEvent as BeaconWorkEvent};
 use crate::service::NetworkMessage;
 use crate::status::ToStatusMessage;
+use crate::sync::block_lookups::ResponseType;
 use crate::sync::range_sync::ByRangeRequestType;
 use beacon_chain::blob_verification::BlockWrapper;
 use beacon_chain::blob_verification::{AsBlock, MaybeAvailableBlock};
@@ -147,9 +148,10 @@ pub enum SyncMessage<T: EthSpec> {
     },
 
     /// Block processed
-    BlockOrBlobProcessed {
+    BlockPartProcessed {
         process_type: BlockProcessType,
-        result: BlockOrBlobProcessResult<T>,
+        result: BlockPartProcessingResult<T>,
+        response_type: ResponseType,
     },
 }
 
@@ -161,7 +163,7 @@ pub enum BlockProcessType {
 }
 
 #[derive(Debug)]
-pub enum BlockOrBlobProcessResult<T: EthSpec> {
+pub enum BlockPartProcessingResult<T: EthSpec> {
     Ok(AvailabilityProcessingStatus),
     Err(BlockError<T>),
     Ignored,
@@ -649,9 +651,24 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 {
                     let parent_root = block.parent_root();
                     //TODO(sean) what about early blocks
+                    let slot = match self.chain.slot_clock.now() {
+                        Some(slot) => slot,
+                        None => {
+                            error!(
+                                self.log,
+                                "Could not read slot clock, dropping unknown block message"
+                            );
+                            return;
+                        }
+                    };
+
                     if block.slot() == self.chain.slot_clock.now() {
-                        self.delayed_lookups
-                            .send(SyncMessage::UnknownBlock(peer_id, block, block_root));
+                        if let Err(e) = self
+                            .delayed_lookups
+                            .send(SyncMessage::UnknownBlock(peer_id, block, block_root))
+                        {
+                            warn!(self.log, "Delayed lookups receiver dropped for block"; "block_root" => block_hash);
+                        }
                     } else {
                         self.block_lookups.search_current_unknown_parent(
                             block_root,
@@ -661,6 +678,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         );
                     }
                     self.block_lookups.search_parent(
+                        block.slot(),
                         block_root,
                         parent_root,
                         peer_id,
@@ -679,11 +697,27 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 // If we are not synced, ignore this block.
                 if self.synced_and_connected(&peer_id) {
                     //TODO(sean) what about early gossip messages?
-                    if Some(slot) == self.chain.slot_clock.now() {
-                        self.delayed_lookups
-                            .send(SyncMessage::UnknownBlockHashFromAttestation(
-                                peer_id, block_hash,
-                            ))
+                    let current_slot = match self.chain.slot_clock.now() {
+                        Some(slot) => slot,
+                        None => {
+                            error!(
+                                self.log,
+                                "Could not read slot clock, dropping unknown block message"
+                            );
+                            return;
+                        }
+                    };
+
+                    if slot == current_slot {
+                        if let Err(e) =
+                            self.delayed_lookups
+                                .send(SyncMessage::UnknownBlockHashFromAttestation(
+                                    peer_id, block_hash,
+                                ))
+                        {
+                            warn!(self.log, "Delayed lookups receiver dropped for block referenced by a blob";
+                                "block_root" => block_hash);
+                        }
                     } else {
                         self.block_lookups
                             .search_block(block_hash, peer_id, &mut self.network)
@@ -698,17 +732,20 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 request_id,
                 error,
             } => self.inject_error(peer_id, request_id, error),
-            SyncMessage::BlockOrBlobProcessed {
+            SyncMessage::BlockPartProcessed {
                 process_type,
                 result,
+                response_type,
             } => match process_type {
-                BlockProcessType::SingleBlock { id } => {
-                    self.block_lookups
-                        .single_block_processed(id, result, &mut self.network)
-                }
+                BlockProcessType::SingleBlock { id } => self.block_lookups.single_block_processed(
+                    id,
+                    result,
+                    response_type,
+                    &mut self.network,
+                ),
                 BlockProcessType::ParentLookup { chain_hash } => self
                     .block_lookups
-                    .parent_block_processed(chain_hash, result, &mut self.network),
+                    .parent_block_processed(chain_hash, result, response_type, &mut self.network),
             },
             SyncMessage::BatchProcessed { sync_type, result } => match sync_type {
                 ChainSegmentProcessId::RangeBatchId(chain_id, epoch, _) => {
@@ -1011,18 +1048,18 @@ impl<T: BeaconChainTypes> SyncManager<T> {
 }
 
 impl<T: EthSpec> From<Result<AvailabilityProcessingStatus, BlockError<T>>>
-    for BlockOrBlobProcessResult<T>
+    for BlockPartProcessingResult<T>
 {
     fn from(result: Result<AvailabilityProcessingStatus, BlockError<T>>) -> Self {
         match result {
-            Ok(status) => BlockOrBlobProcessResult::Ok(status),
-            Err(e) => BlockOrBlobProcessResult::Err(e),
+            Ok(status) => BlockPartProcessingResult::Ok(status),
+            Err(e) => BlockPartProcessingResult::Err(e),
         }
     }
 }
 
-impl<T: EthSpec> From<BlockError<T>> for BlockOrBlobProcessResult<T> {
+impl<T: EthSpec> From<BlockError<T>> for BlockPartProcessingResult<T> {
     fn from(e: BlockError<T>) -> Self {
-        BlockOrBlobProcessResult::Err(e)
+        BlockPartProcessingResult::Err(e)
     }
 }
