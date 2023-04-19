@@ -94,8 +94,8 @@ impl<T: BeaconChainTypes> Worker<T> {
             // block is late (and therefore should *not* be requeued). This
             // avoids infinite loops.
             .map_or(true, |now| {
-                let block_delay = get_block_delay_ms(now, block.message(), &self.chain.slot_clock);
-                block_delay > self.chain.slot_clock.unagg_attestation_production_delay()
+                get_block_delay_ms(now, block.message(), &self.chain.slot_clock)
+                    > self.chain.slot_clock.unagg_attestation_production_delay()
             });
 
         // Checks if a block from this proposer is already known.
