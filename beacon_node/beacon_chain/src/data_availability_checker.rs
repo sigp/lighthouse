@@ -2,9 +2,7 @@ use crate::blob_verification::{
     verify_kzg_for_blob, verify_kzg_for_blob_list, AsBlock, BlockWrapper, GossipVerifiedBlob,
     KzgVerifiedBlob, KzgVerifiedBlobList, MaybeAvailableBlock,
 };
-use crate::block_verification::{
-    AvailabilityPendingExecutedBlock, AvailableExecutedBlock, IntoExecutionPendingBlock,
-};
+use crate::block_verification::{AvailabilityPendingExecutedBlock, AvailableExecutedBlock};
 
 use kzg::Error as KzgError;
 use kzg::Kzg;
@@ -13,15 +11,14 @@ use slot_clock::SlotClock;
 use ssz_types::{Error, FixedVector, VariableList};
 use state_processing::per_block_processing::deneb::deneb::verify_kzg_commitments_against_transactions;
 use std::collections::hash_map::{Entry, OccupiedEntry};
-use std::collections::{HashMap, HashSet};
-use std::ops::Index;
+use std::collections::HashMap;
 use std::sync::Arc;
 use types::beacon_block_body::KzgCommitments;
 use types::blob_sidecar::{BlobIdentifier, BlobSidecar};
 use types::consts::deneb::MIN_EPOCHS_FOR_BLOBS_SIDECARS_REQUESTS;
 use types::{
     BeaconBlockRef, BlobSidecarList, ChainSpec, Epoch, EthSpec, ExecPayload, FullPayload, Hash256,
-    SignedBeaconBlock, SignedBeaconBlockHeader, SignedBlobSidecar, Slot,
+    SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
 };
 
 #[derive(Debug)]
@@ -202,16 +199,20 @@ impl<T: EthSpec, S: SlotClock> DataAvailabilityChecker<T, S> {
         block_root: Hash256,
         blobs: FixedVector<Option<Arc<BlobSidecar<T>>>, T::MaxBlobsPerBlock>,
     ) -> Result<Availability<T>, AvailabilityCheckError> {
-        //TODO(sean) merge with existing blobs, only kzg verify blobs we haven't yet verified
+        // TODO(sean) we may duplicated kzg verification on some blobs we already have cached so we could optimize this
 
-        // Verify the KZG commitment.
-        let kzg_verified_blobs = if let Some(kzg) = self.kzg.as_ref() {
-            verify_kzg_for_blob_list(blobs, kzg)?
+        let mut verified_blobs = vec![];
+        if let Some(kzg) = self.kzg.as_ref() {
+            for blob_opt in blobs.into_iter() {
+                if let Some(blob) = blob_opt {
+                    verified_blobs.push(verify_kzg_for_blob(blob.clone(), kzg)?)
+                }
+            }
         } else {
             return Err(AvailabilityCheckError::KzgNotInitialized);
         };
 
-        self.put_kzg_verified_blobs(block_root, &kzg_verified_blobs)
+        self.put_kzg_verified_blobs(block_root, &verified_blobs)
     }
 
     /// This first validates the KZG commitments included in the blob sidecar.
@@ -366,47 +367,18 @@ impl<T: EthSpec, S: SlotClock> DataAvailabilityChecker<T, S> {
                     .kzg
                     .as_ref()
                     .ok_or(AvailabilityCheckError::KzgNotInitialized)?;
-                let verified_blobs = verify_kzg_for_blob_list(blob_list, kzg)?;
+                let filtered_blobs = blob_list
+                    .to_vec()
+                    .into_iter()
+                    .filter_map(|blob| blob)
+                    .collect();
+                let verified_blobs = verify_kzg_for_blob_list(filtered_blobs, kzg)?;
 
                 Ok(MaybeAvailableBlock::Available(
                     self.check_availability_with_blobs(block, verified_blobs)?,
                 ))
             }
         }
-    }
-
-    /// For a given block wrapper, find the missing blobs. Useful for parent unknown blocks.
-    /// Because these don't otherwise hit the data availability caches.
-    pub fn get_missing_blob_ids(
-        &self,
-        block: BlockWrapper<T>,
-        block_root: Option<Hash256>,
-    ) -> Result<Vec<BlobIdentifier>, AvailabilityCheckError> {
-        let (block, blobs) = block.deconstruct();
-        let maybe_available = self.check_availability_without_blobs(block)?;
-        let blob_ids = match &maybe_available {
-            MaybeAvailableBlock::Available(_) => {
-                vec![]
-            }
-            MaybeAvailableBlock::AvailabilityPending(pending_block) => {
-                if let Some(blobs) = blobs {
-                    pending_block.get_filtered_blob_ids(block_root, |index_usize, block_root| {
-                        let index = index_usize as u64;
-                        let blob_in_wrapper = blobs
-                            .get(index_usize)
-                            .map(|blob| blob.index == index)
-                            .unwrap_or(false);
-                        let blob_in_cache = self
-                            .get_blob(&BlobIdentifier { block_root, index })
-                            .is_some();
-                        !blob_in_wrapper && !blob_in_cache
-                    })
-                } else {
-                    pending_block.get_all_blob_ids(block_root)
-                }
-            }
-        };
-        Ok(blob_ids)
     }
 
     /// Checks if a block is available, returning an error if the block is not immediately available.
@@ -582,6 +554,9 @@ pub struct AvailabilityPendingBlock<E: EthSpec> {
 }
 
 impl<E: EthSpec> AvailabilityPendingBlock<E> {
+    pub fn slot(&self) -> Slot {
+        self.block.slot()
+    }
     pub fn num_blobs_expected(&self) -> usize {
         self.kzg_commitments()
             .map_or(0, |commitments| commitments.len())
@@ -712,7 +687,12 @@ impl<E: EthSpec> AsBlock<E> for AvailableBlock<E> {
     fn into_block_wrapper(self) -> BlockWrapper<E> {
         let (block, blobs_opt) = self.deconstruct();
         if let Some(blobs) = blobs_opt {
-            BlockWrapper::BlockAndBlobs(block, blobs.to_vec())
+            let blobs_vec = blobs
+                .to_vec()
+                .into_iter()
+                .map(Option::Some)
+                .collect::<Vec<_>>();
+            BlockWrapper::BlockAndBlobs(block, FixedVector::from(blobs_vec))
         } else {
             BlockWrapper::Block(block)
         }

@@ -147,6 +147,9 @@ impl<T: EthSpec> GossipVerifiedBlob<T> {
     pub fn to_blob(self) -> Arc<BlobSidecar<T>> {
         self.blob
     }
+    pub fn slot(&self) -> Slot {
+        self.blob.slot
+    }
 }
 
 pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(

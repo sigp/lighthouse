@@ -5,7 +5,7 @@ use crate::beacon_processor::work_reprocessing_queue::QueuedRpcBlock;
 use crate::beacon_processor::worker::FUTURE_SLOT_TOLERANCE;
 use crate::beacon_processor::DuplicateCache;
 use crate::metrics;
-use crate::sync::manager::{BlockProcessType, SyncMessage};
+use crate::sync::manager::{BlockProcessType, ResponseType, SyncMessage};
 use crate::sync::{BatchProcessResult, ChainId};
 use beacon_chain::blob_verification::AsBlock;
 use beacon_chain::blob_verification::BlockWrapper;
@@ -144,7 +144,10 @@ impl<T: BeaconChainTypes> Worker<T> {
     pub async fn process_rpc_blobs(
         self,
         block_root: Hash256,
-        blobs: FixedVector<Option<Arc<BlobSidecar<T::EthSpec>>>, T::EthSpec::MaxBlobsPerBlock>,
+        blobs: FixedVector<
+            Option<Arc<BlobSidecar<T::EthSpec>>>,
+            <<T as BeaconChainTypes>::EthSpec as EthSpec>::MaxBlobsPerBlock,
+        >,
         seen_timestamp: Duration,
         process_type: BlockProcessType,
     ) {

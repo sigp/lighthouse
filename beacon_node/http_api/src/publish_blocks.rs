@@ -136,7 +136,7 @@ pub async fn publish_block<T: BeaconChainTypes>(
 
             Ok(())
         }
-        Ok(AvailabilityProcessingStatus::MissingParts(block_root)) => {
+        Ok(AvailabilityProcessingStatus::MissingParts(_, block_root)) => {
             let msg = format!("Missing parts of block with root {:?}", block_root);
             error!(
                 log,

@@ -192,7 +192,10 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
     pub fn add_blobs(
         &mut self,
         block_root: Hash256,
-        blobs: FixedVector<Option<Arc<BlobSidecar<T::EthSpec>>>, T::EthSpec::MaxBlobsPerBlock>,
+        blobs: FixedVector<
+            Option<Arc<BlobSidecar<T::EthSpec>>>,
+            <<T as BeaconChainTypes>::EthSpec as EthSpec>::MaxBlobsPerBlock,
+        >,
     ) -> Result<LookupDownloadStatus<T::EthSpec>, ParentVerifyError> {
         self.current_parent_blob_request_id = None;
         self.current_parent_request
@@ -302,7 +305,10 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
     ) -> Result<
         Option<(
             Hash256,
-            FixedVector<Option<Arc<BlobSidecar<T::EthSpec>>>, T::EthSpec::MaxBlobsPerBlock>,
+            FixedVector<
+                Option<Arc<BlobSidecar<T::EthSpec>>>,
+                <<T as BeaconChainTypes>::EthSpec as EthSpec>::MaxBlobsPerBlock,
+            >,
         )>,
         ParentVerifyError,
     > {

@@ -312,6 +312,7 @@ pub enum BlockError<T: EthSpec> {
     },
     BlobValidation(BlobError),
     AvailabilityCheck(AvailabilityCheckError),
+    MissingBlockParts(Slot, Hash256),
 }
 
 impl<T: EthSpec> From<BlobError> for BlockError<T> {

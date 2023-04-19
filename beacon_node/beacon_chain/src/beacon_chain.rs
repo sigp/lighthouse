@@ -115,7 +115,7 @@ use tokio_stream::Stream;
 use tree_hash::TreeHash;
 use types::beacon_block_body::KzgCommitments;
 use types::beacon_state::CloneConfig;
-use types::blob_sidecar::{BlobIdentifier, BlobSidecarList, Blobs};
+use types::blob_sidecar::{BlobSidecarList, Blobs};
 use types::consts::deneb::MIN_EPOCHS_FOR_BLOBS_SIDECARS_REQUESTS;
 use types::consts::merge::INTERVALS_PER_SLOT;
 use types::*;
@@ -190,7 +190,7 @@ pub enum WhenSlotSkipped {
 
 #[derive(Debug, PartialEq)]
 pub enum AvailabilityProcessingStatus {
-    MissingParts(Hash256),
+    MissingParts(Slot, Hash256),
     Imported(Hash256),
 }
 
@@ -2670,8 +2670,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             AvailabilityProcessingStatus::Imported(_) => {
                                 // The block was imported successfully.
                             }
-                            AvailabilityProcessingStatus::MissingParts(block_root) => {
-                                //TODO(sean) fail
+                            AvailabilityProcessingStatus::MissingParts(slot, block_root) => {
+                                return ChainSegmentResult::Failed {
+                                    imported_blocks,
+                                    error: BlockError::MissingBlockParts(slot, block_root),
+                                };
                             }
                         }
                     }
@@ -2748,6 +2751,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         count_unrealized: CountUnrealized,
     ) -> Result<AvailabilityProcessingStatus, BlockError<T::EthSpec>> {
         self.check_availability_and_maybe_import(
+            blob.slot(),
             |chain| chain.data_availability_checker.put_gossip_blob(blob),
             count_unrealized,
         )
@@ -2804,6 +2808,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
             ExecutedBlock::AvailabilityPending(block) => {
                 self.check_availability_and_maybe_import(
+                    block.block.slot(),
                     |chain| {
                         chain
                             .data_availability_checker
@@ -2907,6 +2912,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// (i.e., this function is not atomic).
     pub async fn check_availability_and_maybe_import(
         self: &Arc<Self>,
+        slot: Slot,
         cache_fn: impl FnOnce(Arc<Self>) -> Result<Availability<T::EthSpec>, AvailabilityCheckError>,
         count_unrealized: CountUnrealized,
     ) -> Result<AvailabilityProcessingStatus, BlockError<T::EthSpec>> {
@@ -2916,7 +2922,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 self.import_available_block(block, count_unrealized).await
             }
             Availability::MissingParts(block_root) => {
-                Ok(AvailabilityProcessingStatus::MissingParts(block_root))
+                Ok(AvailabilityProcessingStatus::MissingParts(slot, block_root))
             }
         }
     }

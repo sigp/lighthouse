@@ -680,21 +680,19 @@ impl<T: BeaconChainTypes> Worker<T> {
         // This value is not used presently, but it might come in handy for debugging.
         _seen_duration: Duration,
     ) {
-        // TODO
         match self
             .chain
             .process_blob(verified_blob, CountUnrealized::True)
             .await
         {
             Ok(AvailabilityProcessingStatus::Imported(_hash)) => {
-                todo!()
-                // add to metrics
-                // logging
+                //TODO(sean) add metrics and logging
+                self.chain.recompute_head_at_current_slot().await;
             }
-            Ok(AvailabilityProcessingStatus::MissingParts(block_hash)) => {
+            Ok(AvailabilityProcessingStatus::MissingParts(slot, block_hash)) => {
                 self.send_sync_message(SyncMessage::UnknownBlockHashFromGossipBlob(
-                    peer_id, block_hash,
-                )); //TODO(sean) update
+                    slot, peer_id, block_hash,
+                ));
             }
             Err(_err) => {
                 // handle errors
@@ -991,6 +989,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                 );
                 None
             }
+            _ => todo!(), //TODO(sean)
         }
     }
 
@@ -1045,12 +1044,10 @@ impl<T: BeaconChainTypes> Worker<T> {
 
                 self.chain.recompute_head_at_current_slot().await;
             }
-            Ok(AvailabilityProcessingStatus::MissingParts(block_root)) => {
+            Ok(AvailabilityProcessingStatus::MissingParts(slot, block_root)) => {
                 // make rpc request for blob
                 self.send_sync_message(SyncMessage::UnknownBlockHashFromGossipBlob(
-                    peer_id,
-                    block_root,
-                    Duration::from_secs(0), //TODO(sean) update
+                    slot, peer_id, block_root,
                 ));
             }
             Err(BlockError::ParentUnknown(block)) => {

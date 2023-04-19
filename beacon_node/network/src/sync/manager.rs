@@ -41,10 +41,10 @@ use super::range_sync::{RangeSync, RangeSyncType, EPOCHS_PER_BATCH};
 use crate::beacon_processor::{ChainSegmentProcessId, WorkEvent as BeaconWorkEvent};
 use crate::service::NetworkMessage;
 use crate::status::ToStatusMessage;
-use crate::sync::block_lookups::ResponseType;
+pub use crate::sync::block_lookups::ResponseType;
 use crate::sync::range_sync::ByRangeRequestType;
+use beacon_chain::blob_verification::AsBlock;
 use beacon_chain::blob_verification::BlockWrapper;
-use beacon_chain::blob_verification::{AsBlock, MaybeAvailableBlock};
 use beacon_chain::{
     AvailabilityProcessingStatus, BeaconChain, BeaconChainTypes, BlockError, EngineState,
 };
@@ -58,12 +58,10 @@ use slog::{crit, debug, error, info, trace, warn, Logger};
 use slot_clock::SlotClock;
 use std::boxed::Box;
 use std::ops::Sub;
-use std::sync::mpsc::TryRecvError;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio::time::sleep;
-use types::blob_sidecar::BlobIdentifier;
 use types::{BlobSidecar, EthSpec, Hash256, SignedBeaconBlock, Slot};
 
 /// The number of slots ahead of us that is allowed before requesting a long-range (batch)  Sync
@@ -662,12 +660,12 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         }
                     };
 
-                    if block.slot() == self.chain.slot_clock.now() {
+                    if block.slot() == slot {
                         if let Err(e) = self
                             .delayed_lookups
-                            .send(SyncMessage::UnknownBlock(peer_id, block, block_root))
+                            .try_send(SyncMessage::UnknownBlock(peer_id, block, block_root))
                         {
-                            warn!(self.log, "Delayed lookups receiver dropped for block"; "block_root" => block_hash);
+                            warn!(self.log, "Delayed lookups dropped for block"; "block_root" => ?block_root);
                         }
                     } else {
                         self.block_lookups.search_current_unknown_parent(
@@ -709,14 +707,11 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     };
 
                     if slot == current_slot {
-                        if let Err(e) =
-                            self.delayed_lookups
-                                .send(SyncMessage::UnknownBlockHashFromAttestation(
-                                    peer_id, block_hash,
-                                ))
-                        {
-                            warn!(self.log, "Delayed lookups receiver dropped for block referenced by a blob";
-                                "block_root" => block_hash);
+                        if let Err(e) = self.delayed_lookups.try_send(
+                            SyncMessage::UnknownBlockHashFromAttestation(peer_id, block_hash),
+                        ) {
+                            warn!(self.log, "Delayed lookup dropped for block referenced by a blob";
+                                "block_root" => ?block_hash);
                         }
                     } else {
                         self.block_lookups

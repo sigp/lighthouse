@@ -66,7 +66,7 @@ use task_executor::TaskExecutor;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TrySendError;
 use types::{
-    Attestation, AttesterSlashing, BlobSidecar, Hash256, LightClientFinalityUpdate,
+    Attestation, AttesterSlashing, BlobSidecar, EthSpec, Hash256, LightClientFinalityUpdate,
     LightClientOptimisticUpdate, ProposerSlashing, SignedAggregateAndProof, SignedBeaconBlock,
     SignedBlobSidecar, SignedBlsToExecutionChange, SignedContributionAndProof, SignedVoluntaryExit,
     SubnetId, SyncCommitteeMessage, SyncSubnetId,
@@ -632,7 +632,10 @@ impl<T: BeaconChainTypes> WorkEvent<T> {
 
     pub fn rpc_blobs(
         block_root: Hash256,
-        blobs: FixedVector<Option<Arc<BlobSidecar<T::EthSpec>>>, T::EthSpec::MaxBlobsPerBlock>,
+        blobs: FixedVector<
+            Option<Arc<BlobSidecar<T::EthSpec>>>,
+            <<T as BeaconChainTypes>::EthSpec as EthSpec>::MaxBlobsPerBlock,
+        >,
         seen_timestamp: Duration,
         process_type: BlockProcessType,
     ) -> Self {
@@ -948,7 +951,10 @@ pub enum Work<T: BeaconChainTypes> {
     },
     RpcBlobs {
         block_root: Hash256,
-        blobs: FixedVector<Option<Arc<BlobSidecar<T::EthSpec>>>, T::EthSpec::MaxBlobsPerBlock>,
+        blobs: FixedVector<
+            Option<Arc<BlobSidecar<T::EthSpec>>>,
+            <<T as BeaconChainTypes>::EthSpec as EthSpec>::MaxBlobsPerBlock,
+        >,
         seen_timestamp: Duration,
         process_type: BlockProcessType,
     },
