@@ -3,9 +3,9 @@
 
 use crate::Error as ServerError;
 use lighthouse_network::{ConnectionDirection, Enr, Multiaddr, PeerConnectionStatus};
-use mime::{Mime, APPLICATION, JSON, OCTET_STREAM, STAR};
+use mediatype::names::{APPLICATION, JSON, OCTET_STREAM, Q, _STAR};
+use mediatype::{MediaType, MediaTypeList};
 use serde::{Deserialize, Serialize};
-use std::cmp::Reverse;
 use std::convert::TryFrom;
 use std::fmt;
 use std::str::{from_utf8, FromStr};
@@ -1151,35 +1151,56 @@ impl FromStr for Accept {
     type Err = String;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let mut mimes = parse_accept(s)?;
+        let media_type_list = MediaTypeList::new(s);
 
-        // [q-factor weighting]: https://datatracker.ietf.org/doc/html/rfc7231#section-5.3.2
-        // find the highest q-factor supported accept type
-        mimes.sort_by_key(|m| {
-            Reverse(m.get_param("q").map_or(1000_u16, |n| {
-                (n.as_ref().parse::<f32>().unwrap_or(0_f32) * 1000_f32) as u16
-            }))
+        let mut highest_q = 0_u16;
+        let mut accept_type = None;
+
+        const _APPLICATION: &str = APPLICATION.as_str();
+        const _OCTET_STREAM: &str = OCTET_STREAM.as_str();
+        const _JSON: &str = JSON.as_str();
+        const __STAR: &str = _STAR.as_str();
+        const _Q: &str = Q.as_str();
+
+        media_type_list.into_iter().for_each(|item| {
+            if let Ok(MediaType {
+                ty,
+                subty,
+                suffix: _,
+                params,
+            }) = item
+            {
+                let q_accept = match (ty.as_str(), subty.as_str()) {
+                    (_APPLICATION, _OCTET_STREAM) => Some(Accept::Ssz),
+                    (_APPLICATION, _JSON) => Some(Accept::Json),
+                    (__STAR, __STAR) => Some(Accept::Any),
+                    _ => None,
+                }
+                .map(|item_accept_type| {
+                    let q_val = params
+                        .iter()
+                        .find_map(|(n, v)| match n.as_str() {
+                            _Q => {
+                                Some((v.as_str().parse::<f32>().unwrap_or(0_f32) * 1000_f32) as u16)
+                            }
+                            _ => None,
+                        })
+                        .or(Some(1000_u16));
+
+                    (q_val.unwrap(), item_accept_type)
+                });
+
+                match q_accept {
+                    Some((q, accept)) if q > highest_q => {
+                        highest_q = q;
+                        accept_type = Some(accept);
+                    }
+                    _ => (),
+                }
+            }
         });
-        mimes
-            .into_iter()
-            .find_map(|m| match (m.type_(), m.subtype()) {
-                (APPLICATION, OCTET_STREAM) => Some(Accept::Ssz),
-                (APPLICATION, JSON) => Some(Accept::Json),
-                (STAR, STAR) => Some(Accept::Any),
-                _ => None,
-            })
-            .ok_or_else(|| "accept header is not supported".to_string())
+        accept_type.ok_or_else(|| "accept header is not supported".to_string())
     }
-}
-
-fn parse_accept(accept: &str) -> Result<Vec<Mime>, String> {
-    accept
-        .split(',')
-        .map(|part| {
-            part.parse()
-                .map_err(|e| format!("error parsing Accept header: {}", e))
-        })
-        .collect()
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -1227,6 +1248,11 @@ mod tests {
         assert_eq!(
             Accept::from_str("text/plain"),
             Err("accept header is not supported".to_string())
-        )
+        );
+
+        assert_eq!(
+            Accept::from_str("application/json;message=\"Hello, world!\";q=0.3,*/*;q=0.6").unwrap(),
+            Accept::Any
+        );
     }
 }
