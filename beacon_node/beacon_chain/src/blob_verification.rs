@@ -1,5 +1,6 @@
 use derivative::Derivative;
 use slot_clock::SlotClock;
+use state_processing::state_advance::partial_state_advance;
 use std::sync::Arc;
 
 use crate::beacon_chain::{
@@ -12,9 +13,11 @@ use crate::data_availability_checker::{
 use crate::kzg_utils::{validate_blob, validate_blobs};
 use crate::BeaconChainError;
 use kzg::Kzg;
+use std::borrow::Cow;
 use types::{
-    BeaconBlockRef, BeaconStateError, BlobSidecar, BlobSidecarList, Epoch, EthSpec, Hash256,
-    KzgCommitment, SignedBeaconBlock, SignedBeaconBlockHeader, SignedBlobSidecar, Slot,
+    BeaconBlockRef, BeaconState, BeaconStateError, BlobSidecar, BlobSidecarList, ChainSpec,
+    CloneConfig, Epoch, EthSpec, Hash256, KzgCommitment, RelativeEpoch, SignedBeaconBlock,
+    SignedBeaconBlockHeader, SignedBlobSidecar, Slot,
 };
 
 #[derive(Debug)]
@@ -142,6 +145,7 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
     let blob_index = signed_blob_sidecar.message.index;
     let block_root = signed_blob_sidecar.message.block_root;
     let block_parent_root = signed_blob_sidecar.message.block_parent_root;
+    let blob_proposer_index = signed_blob_sidecar.message.proposer_index;
 
     // Verify that the blob_sidecar was received on the correct subnet.
     if blob_index != subnet {
@@ -176,6 +180,20 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
         });
     }
 
+    // Verify that this is the first blob sidecar received for the (sidecar.block_root, sidecar.index) tuple
+    if chain
+        .observed_blob_sidecars
+        .read()
+        .is_known(&signed_blob_sidecar.message)
+        .map_err(|e| BlobError::BeaconChainError(e.into()))?
+    {
+        return Err(BlobError::RepeatBlob {
+            proposer: blob_proposer_index,
+            slot: blob_slot,
+            index: blob_index,
+        });
+    }
+
     // We have already verified that the blob is past finalization, so we can
     // just check fork choice for the block's parent.
     if let Some(parent_block) = chain
@@ -201,25 +219,54 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
     //
     // However, we check that the proposer_index matches against the shuffling first to avoid
     // signature verification against an invalid proposer_index.
-    // TODO: check if getting the shuffling more expensive than signature verification in any scenario?
     let proposer_shuffling_root = signed_blob_sidecar.message.block_parent_root;
 
-    let (proposer_index, fork) = match chain
+    let proposer_opt = chain
         .beacon_proposer_cache
         .lock()
-        .get_slot::<T::EthSpec>(proposer_shuffling_root, blob_slot)
-    {
-        Some(proposer) => (proposer.index, proposer.fork),
-        None => {
-            let state = &chain.canonical_head.cached_head().snapshot.beacon_state;
+        .get_slot::<T::EthSpec>(proposer_shuffling_root, blob_slot);
+
+    let (proposer_index, fork) = if let Some(proposer) = proposer_opt {
+        (proposer.index, proposer.fork)
+    } else {
+        // The cached head state is in the same epoch as the blob or the state has already been
+        // advanced to the blob's epoch
+        let snapshot = &chain.canonical_head.cached_head().snapshot;
+        if snapshot.beacon_state.current_epoch() == blob_slot.epoch(T::EthSpec::slots_per_epoch()) {
             (
-                state.get_beacon_proposer_index(blob_slot, &chain.spec)?,
-                state.fork(),
+                snapshot
+                    .beacon_state
+                    .get_beacon_proposer_index(blob_slot, &chain.spec)?,
+                snapshot.beacon_state.fork(),
             )
+        }
+        // Need to advance the state to get the proposer index
+        else {
+            // The state produced is only valid for determining proposer/attester shuffling indices.
+            let mut cloned_state = snapshot.clone_with(CloneConfig::committee_caches_only());
+            let state = cheap_state_advance_to_obtain_committees(
+                &mut cloned_state.beacon_state,
+                None,
+                blob_slot,
+                &chain.spec,
+            )?;
+
+            let proposers = state.get_beacon_proposer_indices(&chain.spec)?;
+            let proposer_index = *proposers
+                .get(blob_slot.as_usize() % T::EthSpec::slots_per_epoch() as usize)
+                .ok_or_else(|| BeaconChainError::NoProposerForSlot(blob_slot))?;
+
+            // Prime the proposer shuffling cache with the newly-learned value.
+            chain.beacon_proposer_cache.lock().insert(
+                blob_slot.epoch(T::EthSpec::slots_per_epoch()),
+                proposer_shuffling_root,
+                proposers,
+                state.fork(),
+            )?;
+            (proposer_index, state.fork())
         }
     };
 
-    let blob_proposer_index = signed_blob_sidecar.message.proposer_index;
     if proposer_index != blob_proposer_index as usize {
         return Err(BlobError::ProposerIndexMismatch {
             sidecar: blob_proposer_index as usize,
@@ -252,13 +299,25 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
         return Err(BlobError::ProposerSignatureInvalid);
     }
 
-    // Verify that this is the first blob sidecar received for the (sidecar.block_root, sidecar.index) tuple
+    // Now the signature is valid, store the proposal so we don't accept another blob sidecar
+    // with the same `BlobIdentifier`.
+    // It's important to double-check that the proposer still hasn't been observed so we don't
+    // have a race-condition when verifying two blocks simultaneously.
+    //
+    // Note: If this BlobSidecar goes on to fail full verification, we do not evict it from the seen_cache
+    // as alternate blob_sidecars for the same identifier can still be retrieved
+    // over rpc. Evicting them from this cache would allow faster propagation over gossip. So we allow
+    // retreieval of potentially valid blocks over rpc, but try to punish the proposer for signing
+    // invalid messages. Issue for more background
+    // https://github.com/ethereum/consensus-specs/issues/3261
     if chain
-        .data_availability_checker
-        .is_duplicate(&signed_blob_sidecar.message.id())
+        .observed_blob_sidecars
+        .write()
+        .observe_sidecar(&signed_blob_sidecar.message)
+        .map_err(|e| BlobError::BeaconChainError(e.into()))?
     {
         return Err(BlobError::RepeatBlob {
-            proposer: blob_proposer_index,
+            proposer: proposer_index as u64,
             slot: blob_slot,
             index: blob_index,
         });
@@ -267,6 +326,57 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
     Ok(GossipVerifiedBlob {
         blob: signed_blob_sidecar.message,
     })
+}
+
+/// Performs a cheap (time-efficient) state advancement so the committees and proposer shuffling for
+/// `slot` can be obtained from `state`.
+///
+/// The state advancement is "cheap" since it does not generate state roots. As a result, the
+/// returned state might be holistically invalid but the committees/proposers will be correct (since
+/// they do not rely upon state roots).
+///
+/// If the given `state` can already serve the `slot`, the committees will be built on the `state`
+/// and `Cow::Borrowed(state)` will be returned. Otherwise, the state will be cloned, cheaply
+/// advanced and then returned as a `Cow::Owned`. The end result is that the given `state` is never
+/// mutated to be invalid (in fact, it is never changed beyond a simple committee cache build).
+///
+/// Note: This is a copy of the `block_verification::cheap_state_advance_to_obtain_committees` to return
+/// a BlobError error type instead.
+/// TODO(pawan): try to unify the 2 functions.
+fn cheap_state_advance_to_obtain_committees<'a, E: EthSpec>(
+    state: &'a mut BeaconState<E>,
+    state_root_opt: Option<Hash256>,
+    blob_slot: Slot,
+    spec: &ChainSpec,
+) -> Result<Cow<'a, BeaconState<E>>, BlobError> {
+    let block_epoch = blob_slot.epoch(E::slots_per_epoch());
+
+    if state.current_epoch() == block_epoch {
+        // Build both the current and previous epoch caches, as the previous epoch caches are
+        // useful for verifying attestations in blocks from the current epoch.
+        state.build_committee_cache(RelativeEpoch::Previous, spec)?;
+        state.build_committee_cache(RelativeEpoch::Current, spec)?;
+
+        Ok(Cow::Borrowed(state))
+    } else if state.slot() > blob_slot {
+        Err(BlobError::BlobIsNotLaterThanParent {
+            blob_slot,
+            parent_slot: state.slot(),
+        })
+    } else {
+        let mut state = state.clone_with(CloneConfig::committee_caches_only());
+        let target_slot = block_epoch.start_slot(E::slots_per_epoch());
+
+        // Advance the state into the same epoch as the block. Use the "partial" method since state
+        // roots are not important for proposer/attester shuffling.
+        partial_state_advance(&mut state, state_root_opt, target_slot, spec)
+            .map_err(|e| BlobError::BeaconChainError(BeaconChainError::from(e)))?;
+
+        state.build_committee_cache(RelativeEpoch::Previous, spec)?;
+        state.build_committee_cache(RelativeEpoch::Current, spec)?;
+
+        Ok(Cow::Owned(state))
+    }
 }
 
 /// Wrapper over a `BlobSidecar` for which we have completed kzg verification.

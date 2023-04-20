@@ -666,7 +666,7 @@ impl<T: BeaconChainTypes> Worker<T> {
             .verify_blob_sidecar_for_gossip(signed_blob, blob_index)
         {
             Ok(gossip_verified_blob) => {
-                info!(
+                debug!(
                     self.log,
                     "Successfully verified gossip blob";
                     "slot" => %slot,

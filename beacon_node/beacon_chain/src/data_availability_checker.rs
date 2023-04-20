@@ -65,7 +65,6 @@ pub struct DataAvailabilityChecker<T: EthSpec, S: SlotClock> {
 /// The blobs are all gossip and kzg verified.
 /// The block has completed all verifications except the availability check.
 struct ReceivedComponents<T: EthSpec> {
-    /// We use a `BTreeMap` here to maintain the order of `BlobSidecar`s based on index.
     verified_blobs: FixedVector<Option<KzgVerifiedBlob<T>>, T::MaxBlobsPerBlock>,
     executed_block: Option<AvailabilityPendingExecutedBlock<T>>,
 }
@@ -149,21 +148,6 @@ impl<T: EthSpec, S: SlotClock> DataAvailabilityChecker<T, S> {
             .get(blob_id.index as usize)?
             .as_ref()
             .map(|kzg_verified_blob| kzg_verified_blob.clone_blob())
-    }
-
-    /// Returns `true` if the given `blob_id` already exists in the cache and false otherwise.
-    pub fn is_duplicate(&self, blob_id: &BlobIdentifier) -> bool {
-        let cache = self.availability_cache.read();
-        if let Some(received_component) = cache.get(&blob_id.block_root) {
-            !received_component
-                .verified_blobs
-                .get(blob_id.index as usize)
-                .map_or(true, |blob| blob.is_none())
-        }
-        // No entry for given block root
-        else {
-            false
-        }
     }
 
     /// This first validates the KZG commitments included in the blob sidecar.
