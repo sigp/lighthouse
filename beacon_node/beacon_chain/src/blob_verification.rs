@@ -14,16 +14,16 @@ use crate::data_availability_checker::{
 use crate::kzg_utils::{validate_blob, validate_blobs};
 use crate::BeaconChainError;
 use kzg::Kzg;
-use types::blob_sidecar::BlobIdentifier;
 use std::borrow::Cow;
+use types::blob_sidecar::BlobIdentifier;
 use types::{
-    BeaconBlockRef, BeaconState, BeaconStateError, BlobSidecar, ChainSpec,
-    CloneConfig, Epoch, EthSpec, Hash256, KzgCommitment, RelativeEpoch, SignedBeaconBlock,
-    SignedBeaconBlockHeader, SignedBlobSidecar, Slot,
+    BeaconBlockRef, BeaconState, BeaconStateError, BlobSidecar, ChainSpec, CloneConfig, Epoch,
+    EthSpec, Hash256, KzgCommitment, RelativeEpoch, SignedBeaconBlock, SignedBeaconBlockHeader,
+    SignedBlobSidecar, Slot,
 };
 
 #[derive(Debug)]
-pub enum BlobError {
+pub enum BlobError<T: EthSpec> {
     /// The blob sidecar is from a slot that is later than the current slot (with respect to the
     /// gossip clock disparity).
     ///
@@ -95,10 +95,7 @@ pub enum BlobError {
     /// ## Peer scoring
     ///
     /// We cannot process the blob without validating its parent, the peer isn't necessarily faulty.
-    BlobParentUnknown {
-        blob_root: Hash256,
-        blob_parent_root: Hash256,
-    },
+    BlobParentUnknown(Arc<BlobSidecar<T>>),
 
     /// A blob has already been seen for the given `(sidecar.block_root, sidecar.index)` tuple
     /// over gossip or no gossip sources.
@@ -113,13 +110,13 @@ pub enum BlobError {
     },
 }
 
-impl From<BeaconChainError> for BlobError {
+impl<T: EthSpec> From<BeaconChainError> for BlobError<T> {
     fn from(e: BeaconChainError) -> Self {
         BlobError::BeaconChainError(e)
     }
 }
 
-impl From<BeaconStateError> for BlobError {
+impl<T: EthSpec> From<BeaconStateError> for BlobError<T> {
     fn from(e: BeaconStateError) -> Self {
         BlobError::BeaconChainError(BeaconChainError::BeaconStateError(e))
     }
@@ -127,7 +124,7 @@ impl From<BeaconStateError> for BlobError {
 
 /// A wrapper around a `BlobSidecar` that indicates it has been approved for re-gossiping on
 /// the p2p network.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct GossipVerifiedBlob<T: EthSpec> {
     blob: Arc<BlobSidecar<T>>,
 }
@@ -151,7 +148,7 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
     signed_blob_sidecar: SignedBlobSidecar<T::EthSpec>,
     subnet: u64,
     chain: &BeaconChain<T>,
-) -> Result<GossipVerifiedBlob<T::EthSpec>, BlobError> {
+) -> Result<GossipVerifiedBlob<T::EthSpec>, BlobError<T::EthSpec>> {
     let blob_slot = signed_blob_sidecar.message.slot;
     let blob_index = signed_blob_sidecar.message.index;
     let block_root = signed_blob_sidecar.message.block_root;
@@ -219,10 +216,7 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
             });
         }
     } else {
-        return Err(BlobError::BlobParentUnknown {
-            blob_root: block_root,
-            blob_parent_root: block_parent_root,
-        });
+        return Err(BlobError::BlobParentUnknown(signed_blob_sidecar.message));
     }
 
     // Note: The spec checks the signature directly against `blob_sidecar.message.proposer_index`
@@ -359,7 +353,7 @@ fn cheap_state_advance_to_obtain_committees<'a, E: EthSpec>(
     state_root_opt: Option<Hash256>,
     blob_slot: Slot,
     spec: &ChainSpec,
-) -> Result<Cow<'a, BeaconState<E>>, BlobError> {
+) -> Result<Cow<'a, BeaconState<E>>, BlobError<E>> {
     let block_epoch = blob_slot.epoch(E::slots_per_epoch());
 
     if state.current_epoch() == block_epoch {

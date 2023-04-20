@@ -101,6 +101,36 @@ impl<const MAX_ATTEMPTS: u8, T: BeaconChainTypes> SingleBlockLookup<MAX_ATTEMPTS
         None
     }
 
+    pub fn add_blob(
+        &mut self,
+        blob: Arc<BlobSidecar<T::EthSpec>>,
+    ) -> Result<LookupDownloadStatus<T::EthSpec>, LookupVerifyError> {
+        let block_root = blob.block_root;
+
+        if let Some(blob_opt) = self.downloaded_blobs.get_mut(blob.index as usize) {
+            //TODO(sean) should we log a warn if there is already a downloaded blob?
+            *blob_opt = Some(blob.clone());
+
+            if let Some(block) = self.downloaded_block.as_ref() {
+                match self.da_checker.wrap_block(
+                    block_root,
+                    block.clone(),
+                    self.downloaded_blobs.clone(),
+                ) {
+                    Ok(wrapper) => Ok(LookupDownloadStatus::Process(wrapper)),
+                    Err(AvailabilityCheckError::MissingBlobs) => {
+                        Ok(LookupDownloadStatus::SearchBlock(block_root))
+                    }
+                    Err(_e) => Err(LookupVerifyError::AvailabilityCheck),
+                }
+            } else {
+                Ok(LookupDownloadStatus::SearchBlock(block_root))
+            }
+        } else {
+            return Err(LookupVerifyError::InvalidIndex(blob.index));
+        }
+    }
+
     pub fn add_blobs(
         &mut self,
         block_root: Hash256,

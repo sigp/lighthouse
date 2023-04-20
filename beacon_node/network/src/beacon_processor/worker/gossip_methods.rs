@@ -679,19 +679,15 @@ impl<T: BeaconChainTypes> Worker<T> {
             }
             Err(err) => {
                 match err {
-                    BlobError::BlobParentUnknown {
-                        blob_root,
-                        blob_parent_root,
-                    } => {
+                    BlobError::BlobParentUnknown(blob) => {
                         debug!(
                             self.log,
                             "Unknown parent hash for blob";
                             "action" => "requesting parent",
-                            "blob_root" => %blob_root,
-                            "parent_root" => %blob_parent_root
+                            "blob_root" => %blob.block_root,
+                            "parent_root" => %blob.block_parent_root
                         );
-                        // TODO: send blob to reprocessing queue and queue a sync request for the blob.
-                        todo!();
+                        self.send_sync_message(SyncMessage::BlobParentUnknown(peer_id, blob));
                     }
                     BlobError::ProposerSignatureInvalid
                     | BlobError::UnknownValidator(_)
@@ -754,6 +750,9 @@ impl<T: BeaconChainTypes> Worker<T> {
         // This value is not used presently, but it might come in handy for debugging.
         _seen_duration: Duration,
     ) {
+        let blob_root = verified_blob.block_root();
+        let blob_slot = verified_blob.slot();
+        let blob_clone = verified_blob.clone().to_blob();
         match self
             .chain
             .process_blob(verified_blob, CountUnrealized::True)
@@ -768,9 +767,25 @@ impl<T: BeaconChainTypes> Worker<T> {
                     slot, peer_id, block_hash,
                 ));
             }
-            Err(_err) => {
-                // handle errors
-                todo!()
+            Err(err) => {
+                debug!(
+                    self.log,
+                    "Invalid gossip blob";
+                    "outcome" => ?err,
+                    "block root" => ?blob_root,
+                    "block slot" =>  blob_slot,
+                    "blob index" =>  blob_clone.index,
+                );
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::MidToleranceError,
+                    "bad_gossip_blob_ssz",
+                );
+                trace!(
+                    self.log,
+                    "Invalid gossip blob ssz";
+                    "ssz" => format_args!("0x{}", hex::encode(blob_clone.as_ssz_bytes())),
+                );
             }
         }
     }

@@ -26,6 +26,7 @@ use crate::beacon_processor::{ChainSegmentProcessId, WorkEvent};
 use crate::metrics;
 use crate::sync::block_lookups::single_block_lookup::LookupVerifyError;
 
+mod hg5e3wdtrfqa;
 mod parent_lookup;
 mod single_block_lookup;
 #[cfg(test)]
@@ -194,6 +195,23 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         self.search_block_with(
             |request| {
                 let _ = request.add_block_wrapper(block_root, block.clone());
+            },
+            block_root,
+            peer_id,
+            cx,
+        );
+    }
+
+    pub fn search_current_unknown_blob_parent(
+        &mut self,
+        blob: Arc<BlobSidecar<T::EthSpec>>,
+        peer_id: PeerId,
+        cx: &mut SyncNetworkContext<T>,
+    ) {
+        let block_root = blob.block_root;
+        self.search_block_with(
+            |request| {
+                let _ = request.add_blob(blob.clone());
             },
             block_root,
             peer_id,

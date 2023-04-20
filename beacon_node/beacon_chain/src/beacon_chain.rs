@@ -1981,7 +1981,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self: &Arc<Self>,
         blob_sidecar: SignedBlobSidecar<T::EthSpec>,
         subnet_id: u64,
-    ) -> Result<GossipVerifiedBlob<T::EthSpec>, BlobError> {
+    ) -> Result<GossipVerifiedBlob<T::EthSpec>, BlobError<T::EthSpec>> {
         blob_verification::validate_blob_sidecar_for_gossip(blob_sidecar, subnet_id, self)
     }
 

@@ -121,6 +121,8 @@ pub enum SyncMessage<T: EthSpec> {
     /// A block with an unknown parent has been received.
     UnknownBlock(PeerId, BlockWrapper<T>, Hash256),
 
+    BlobParentUnknown(PeerId, Arc<BlobSidecar<T>>),
+
     /// A peer has sent an attestation that references a block that is unknown. This triggers the
     /// manager to attempt to find the block matching the unknown hash.
     UnknownBlockHashFromAttestation(PeerId, Hash256),
@@ -631,24 +633,9 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 seen_timestamp,
             } => self.rpc_blob_received(request_id, peer_id, blob_sidecar, seen_timestamp),
             SyncMessage::UnknownBlock(peer_id, block, block_root) => {
-                // If we are not synced or within SLOT_IMPORT_TOLERANCE of the block, ignore
-                if !self.network_globals.sync_state.read().is_synced() {
-                    let head_slot = self.chain.canonical_head.cached_head().head_slot();
-                    let unknown_block_slot = block.slot();
+                let block_slot = block.slot();
 
-                    // if the block is far in the future, ignore it. If its within the slot tolerance of
-                    // our current head, regardless of the syncing state, fetch it.
-                    if (head_slot >= unknown_block_slot
-                        && head_slot.sub(unknown_block_slot).as_usize() > SLOT_IMPORT_TOLERANCE)
-                        || (head_slot < unknown_block_slot
-                            && unknown_block_slot.sub(head_slot).as_usize() > SLOT_IMPORT_TOLERANCE)
-                    {
-                        return;
-                    }
-                }
-                if self.network_globals.peers.read().is_connected(&peer_id)
-                    && self.network.is_execution_engine_online()
-                {
+                if self.synced_and_connected_within_tolerance(block_slot, &peer_id) {
                     let parent_root = block.parent_root();
                     //TODO(sean) what about early blocks
                     let slot = match self.chain.slot_clock.now() {
@@ -661,8 +648,6 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                             return;
                         }
                     };
-
-                    let block_slot = block.slot();
 
                     if block_slot == slot {
                         if let Err(e) = self
@@ -681,6 +666,47 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     }
                     self.block_lookups.search_parent(
                         block_slot,
+                        block_root,
+                        parent_root,
+                        peer_id,
+                        &mut self.network,
+                    );
+                }
+            }
+            SyncMessage::BlobParentUnknown(peer_id, blob) => {
+                let blob_slot = blob.slot;
+
+                if self.synced_and_connected_within_tolerance(blob_slot, &peer_id) {
+                    let block_root = blob.block_root;
+                    let parent_root = blob.block_parent_root;
+                    //TODO(sean) what about early blocks
+                    let slot = match self.chain.slot_clock.now() {
+                        Some(slot) => slot,
+                        None => {
+                            error!(
+                                self.log,
+                                "Could not read slot clock, dropping unknown blob parent message"
+                            );
+                            return;
+                        }
+                    };
+
+                    if blob_slot == slot {
+                        if let Err(e) = self
+                            .delayed_lookups
+                            .try_send(SyncMessage::BlobParentUnknown(peer_id, blob))
+                        {
+                            warn!(self.log, "Delayed lookups dropped for blob"; "block_root" => ?block_root);
+                        }
+                    } else {
+                        self.block_lookups.search_current_unknown_blob_parent(
+                            blob,
+                            peer_id,
+                            &mut self.network,
+                        );
+                    }
+                    self.block_lookups.search_parent(
+                        blob_slot,
                         block_root,
                         parent_root,
                         peer_id,
@@ -776,6 +802,29 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     .parent_chain_processed(chain_hash, result, &mut self.network),
             },
         }
+    }
+
+    fn synced_and_connected_within_tolerance(
+        &mut self,
+        block_slot: Slot,
+        peer_id: &PeerId,
+    ) -> bool {
+        if !self.network_globals.sync_state.read().is_synced() {
+            let head_slot = self.chain.canonical_head.cached_head().head_slot();
+
+            // if the block is far in the future, ignore it. If its within the slot tolerance of
+            // our current head, regardless of the syncing state, fetch it.
+            if (head_slot >= block_slot
+                && head_slot.sub(block_slot).as_usize() > SLOT_IMPORT_TOLERANCE)
+                || (head_slot < block_slot
+                    && block_slot.sub(head_slot).as_usize() > SLOT_IMPORT_TOLERANCE)
+            {
+                return false;
+            }
+        }
+
+        self.network_globals.peers.read().is_connected(&peer_id)
+            && self.network.is_execution_engine_online()
     }
 
     fn synced_and_connected(&mut self, peer_id: &PeerId) -> bool {

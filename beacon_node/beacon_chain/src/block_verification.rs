@@ -310,13 +310,13 @@ pub enum BlockError<T: EthSpec> {
     ParentExecutionPayloadInvalid {
         parent_root: Hash256,
     },
-    BlobValidation(BlobError),
+    BlobValidation(BlobError<T>),
     AvailabilityCheck(AvailabilityCheckError),
     MissingBlockParts(Slot, Hash256),
 }
 
-impl<T: EthSpec> From<BlobError> for BlockError<T> {
-    fn from(e: BlobError) -> Self {
+impl<T: EthSpec> From<BlobError<T>> for BlockError<T> {
+    fn from(e: BlobError<T>) -> Self {
         Self::BlobValidation(e)
     }
 }
