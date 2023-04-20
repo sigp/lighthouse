@@ -2080,7 +2080,7 @@ pub enum BlobTxConversionError {
     AccessListMissing,
     /// Missing the `max_fee_per_data_gas` field.
     MaxFeePerDataGasMissing,
-    /// Missing the `blob_versioned_hashes` field.
+    /// Missing the `versioned_hashes` field.
     BlobVersionedHashesMissing,
     /// `y_parity` field was greater than one.
     InvalidYParity,
@@ -2208,7 +2208,7 @@ fn ethers_tx_to_bytes<T: EthSpec>(
         .map_err(BlobTxConversionError::FromStrRadix)?;
 
         // blobVersionedHashes
-        let blob_versioned_hashes = other
+        let versioned_hashes = other
             .get("blobVersionedHashes")
             .ok_or(BlobTxConversionError::BlobVersionedHashesMissing)?
             .as_array()
@@ -2239,7 +2239,7 @@ fn ethers_tx_to_bytes<T: EthSpec>(
             data,
             access_list,
             max_fee_per_data_gas,
-            versioned_hashes: VariableList::new(blob_versioned_hashes)?,
+            versioned_hashes: VariableList::new(versioned_hashes)?,
         };
 
         // ******************** EcdsaSignature fields ********************
