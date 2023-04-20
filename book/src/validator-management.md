@@ -4,7 +4,7 @@ The `lighthouse vc` command starts a *validator client* instance which connects
 to a beacon node to perform the duties of a staked validator.
 
 This document provides information on how the validator client discovers the
-validators it will act for and how it obtain their cryptographic
+validators it will act for and how it obtains their cryptographic
 signatures.
 
 Users that create validators using the `lighthouse account` tool in the
@@ -89,7 +89,7 @@ name identical to the `voting_public_key` value.
 
 #### Discovery Example
 
-Lets assume the following directory structure:
+Let's assume the following directory structure:
 
 ```
 ~/.lighthouse/{network}/validators
@@ -158,7 +158,7 @@ start.
 
 If a validator client were to start using the [first example
 `validator_definitions.yml` file](#example) it would print the following log,
-acknowledging there there are two validators and one is disabled:
+acknowledging there are two validators and one is disabled:
 
 ```
 INFO Initialized validators                  enabled: 1, disabled: 1

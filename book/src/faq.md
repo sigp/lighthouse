@@ -13,6 +13,7 @@
 - [I am missing attestations. Why?](#i-am-missing-attestations-why)
 - [Sometimes I miss the attestation head vote, resulting in penalty. Is this normal?](#sometimes-i-miss-the-attestation-head-vote-resulting-in-penalty-is-this-normal)
 - [My beacon node is stuck at downloading historical block using checkpoint sync. What can I do?](#my-beacon-node-is-stuck-at-downloading-historical-block-using-checkpoint-sync-what-can-i-do)
+- [How do I check the version of Lighthouse that is running?](#how-do-i-check-the-version-of-lighthouse-that-is-running)
 
 ### Why does it take so long for a validator to be activated?
 
@@ -123,7 +124,7 @@ make your Lighthouse node maximally contactable.
 
 ### I have a low peer count and it is not increasing
 
-If you cannot find *ANY* peers at all. It is likely that you have incorrect
+If you cannot find *ANY* peers at all, it is likely that you have incorrect
 testnet configuration settings. Ensure that the network you wish to connect to
 is correct (the beacon node outputs the network it is connecting to in the
 initial boot-up log lines). On top of this, ensure that you are not using the
@@ -205,7 +206,7 @@ which says `TimedOut` at the end of the message. This means that the execution e
 If the reason for the error message is caused by no. 1 above, you may want to look further. If the execution engine is out of sync suddenly, it is usually caused by ungraceful shutdown. The common causes for ungraceful shutdown are:
 - Power outage. If power outages are an issue at your place, consider getting a UPS to avoid ungraceful shutdown of services. 
 - The service file is not stopped properly. To overcome this, make sure that the process is stop properly, e.g., during client updates. 
-- Out of memory (oom) error. This can happen when the system memory usage has reached its maximum and causes the execution engine to be killed. When this occurs, the log file will show `Main process exited, code=killed, status=9/KILL`.  You can also run `sudo journalctl -a --since "18 hours ago" | grep -i "killed process` to confirm that the execution client has been killed due to oom. If you are using geth as the execution client, a short term solution is to reduce the resources used, for example: (1) reduce the cache by adding the flag `--cache 2048` (2) connect to less peers using the flag `--maxpeers 10`. If the oom occurs rather frequently, a long term solution is to increase the memory capacity of the computer.
+- Out of memory (oom) error. This can happen when the system memory usage has reached its maximum and causes the execution engine to be killed. When this occurs, the log file will show `Main process exited, code=killed, status=9/KILL`.  You can also run `sudo journalctl -a --since "18 hours ago" | grep -i "killed process` to confirm that the execution client has been killed due to oom. If you are using geth as the execution client, a short term solution is to reduce the resources used, for example: (1) reduce the cache by adding the flag `--cache 2048` (2) connect to fewer peers using the flag `--maxpeers 10`. If the oom occurs rather frequently, a long term solution is to increase the memory capacity of the computer.
 
 
 
@@ -216,7 +217,7 @@ The first thing is to ensure both consensus and execution clients are synced wit
 - the internet is working well
 - you have sufficient peers
 
-You can see more information on the [Ethstaker KB](https://ethstaker.gitbook.io/ethstaker-knowledge-base/help/missed-attestations). Once the above points are good, missing attestation should be a rare occurance. 
+You can see more information on the [Ethstaker KB](https://ethstaker.gitbook.io/ethstaker-knowledge-base/help/missed-attestations). Once the above points are good, missing attestation should be a rare occurrence. 
 
 ### Sometimes I miss the attestation head vote, resulting in penalty. Is this normal?
 
@@ -231,7 +232,32 @@ After checkpoint forwards sync completes, the beacon node will start to download
 INFO Downloading historical blocks           est_time: --, distance: 4524545 slots (89 weeks 5 days), service: slot_notifier
 ```
 
-If the same log appears every minute and you do not see progress in downloading historical blocks, you can try one of the following:
+If the same log appears every minute and you do not see progress in downloading historical blocks, you can try one of the followings:
  
    - Check the number of peers you are connected to. If you have low peers (less than 50), try to do port forwarding on the port 9000 TCP/UDP to increase peer count.
-   - Try to restart the beacon node.
+   - Restart the beacon node.
+
+### How do I check the version of Lighthouse that is running?
+
+If you build Lighthouse from source, run `lighthouse --version`. Example of output:
+
+```bash
+Lighthouse v4.0.1-a53830f
+BLS library: blst-modern
+SHA256 hardware acceleration: false
+Allocator: jemalloc
+Specs: mainnet (true), minimal (false), gnosis (true)
+```
+
+If you download the binary file, navigate to the location of the directory, for example, the binary file is in `/usr/local/bin`, run `/usr/local/bin/lighthouse --version`, the example of output is the same as above.
+
+Alternatively, if you have Lighthouse running, on the same computer, you can run:
+```bash
+curl "http://127.0.0.1:5052/eth/v1/node/version"
+```
+
+Example of output:
+```bash
+{"data":{"version":"Lighthouse/v4.0.1-a53830f/x86_64-linux"}}
+```
+which says that the version if v4.0.1.

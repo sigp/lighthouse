@@ -12,10 +12,6 @@ Becoming an Ethereum consensus validator is rewarding, but it's not for the fain
 familiar with the rules of staking (e.g., rewards, penalties, etc.) and also configuring and
 managing servers. You'll also need at least 32 ETH!
 
-For those with an understanding of Ethereum consensus and server maintenance, you'll find that running Lighthouse
-is easy. Install it, start it, monitor it and keep it updated. You shouldn't need to interact
-with it on a day-to-day basis.
-
 Being educated is critical to a validator's success. Before submitting your mainnet deposit, we recommend:
 
 - Thoroughly exploring the [Staking Launchpad][launchpad] website, try running through the deposit process using a testnet launchpad such as the [Goerli staking launchpad](https://goerli.launchpad.ethereum.org/en/).
@@ -59,7 +55,7 @@ The Ethereum Foundation provides the [staking-deposit-cli](https://github.com/et
 ```
 and follow the instructions to generate the keys. When prompted for a network, select `mainnet` if you want to run a mainnet validator, or select `goerli` if you want to run a Goerli testnet validator. A new mnemonic will be generated in the process.
 
-> **Important note:** A mnemonic (or seed phrase) is a 24-word string randomly generated in the process. It is highly recommended to write down the mnemonic and keep it safe. It is important to ensure that the mnemonic is never stored in any digital form (computers, mobile phones etc) connected to the internet. Please also make one or more backups of the mnemonic to ensure your ETH is not lost in the case of data loss. It is very important to keep your mnemonic private as it represents the ultimate control of your ETH.
+> **Important note:** A mnemonic (or seed phrase) is a 24-word string randomly generated in the process. It is highly recommended writing down the mnemonic and keep it safe offline. It is important to ensure that the mnemonic is never stored in any digital form (computers, mobile phones etc) connected to the internet. Please also make one or more backups of the mnemonic to ensure your ETH is not lost in the case of data loss. It is very important to keep your mnemonic private as it represents the ultimate control of your ETH.
 
 Upon completing this step, the files `deposit_data-*.json` and `keystore-m_*.json` will be created. The keys that are generated from staking-deposit-cli can be easily loaded into a Lighthouse validator client (`lighthouse vc`) in [Step 3](#step-3-import-validator-keys-to-lighthouse). In fact, both of these programs are designed to work with each other.
 
@@ -144,10 +140,10 @@ lighthouse vc --network mainnet --suggested-fee-recipient YourFeeRecipientAddres
 
 Goerli testnet:
 ```bash
-lighthouse vc --network testnet --suggested-fee-recipient YourFeeRecipientAddress
+lighthouse vc --network goerli --suggested-fee-recipient YourFeeRecipientAddress
 ```
 
-The `validator client` manages validators using data obtained from the beacon node via a HTTP API. You are highly recommended entering a fee-recipient by changing `YourFeeRecipientAddress` to an Ethereum address under your control. See [Suggested Fee Recipient](./suggested-fee-recipient.md) for more info.
+The `validator client` manages validators using data obtained from the beacon node via a HTTP API. You are highly recommended entering a fee-recipient by changing `YourFeeRecipientAddress` to an Ethereum address under your control. 
 
 When `lighthouse vc` starts, check that the validator public key appears
 as a `voting_pubkey` as shown below:
@@ -180,7 +176,16 @@ If you propose a block, the log will look like:
 Dec 03 08:49:36.225 INFO Successfully published block            slot: 98, attestations: 2, deposits: 0, service: block
 ```
 
-Congratulations! Your validator is now performing its duties and you will receive rewards for securing the Ethereum network. Happy staking!
+Congratulations! Your validator is now performing its duties and you will receive rewards for securing the Ethereum network. 
+
+### What is next?
+After the validator is running and performing its duties, it is important to keep the validator online to continue accumulating rewards. However, there could be problems with the computer, the internet or other factors that is causing the validator to be offline. For this, it is best to subscribe to notifications, e.g., via [beaconcha.in](https://beaconcha.in/) which will send notifications about missed attestations and/or proposals. You will be notified about validator's offline status and react promptly. 
+
+The next important thing is to update Lighthouse and execution client. The update occurs from time to time, typically once or twice a month. For Lighthouse update, you can also subscribe to notification on [Github](https://github.com/sigp/lighthouse) by clicking on `Watch`. If you only want to receive notification on new releases, select `Custom`, then `Releases`. You could also join [Lighthouse Discord](https://discord.gg/cyAszAh) where we will make an announcement when there is a new release. 
+
+You may also want to try out [Siren](./lighthouse-ui.md), a UI developed by Lighthouse to monitor validator's performance.
+
+Once you familiarise with running a validator and server maintenance, you'll find that running Lighthouse is easy. Install it, start it, monitor it and keep it updated. You shouldn't need to interact with it on a day-to-day basis. Happy staking!
 
 ## Docker users
 

@@ -3,12 +3,12 @@
 [launchpad]: https://launchpad.ethereum.org/
 
 >
-> **Note: While Lighthouse is able to generate the validator keys and the deposit data file to submit to the deposit contract, we recommend using the [Staking launchpad][launchpad] to create validators keys and the deposit data file. This is because Lighthouse generates the deposit data file in the form of `*.rlp`, which cannot be uploaded to the [Staking launchpad][launchpad] that accepts only `*.json` file. This means that the user has to directly interact  with the deposit contract to be able to sumbit the deposit if the user were to generate the files using Lighthouse.**
+> **Note: While Lighthouse is able to generate the validator keys and the deposit data file to submit to the deposit contract, we recommend using the [Staking launchpad][launchpad] to create validators keys and the deposit data file. This is because Lighthouse generates the deposit data file in the form of `*.rlp`, which cannot be uploaded to the [Staking launchpad][launchpad] that accepts only `*.json` file. This means that the user has to directly interact with the deposit contract to be able to submit the deposit if the user were to generate the files using Lighthouse.**
 
 Lighthouse uses a _hierarchical_ key management system for producing validator
 keys. It is hierarchical because each validator key can be _derived_ from a
 master key, making the validators keys _children_ of the master key. This
-scheme means that a single 24-word mnemonic can be used to backup all of your
+scheme means that a single 24-word mnemonic can be used to back up all of your
 validator keys without providing any observable link between them (i.e., it is
 privacy-retaining). Hierarchical key derivation schemes are common-place in
 cryptocurrencies, they are already used by most hardware and software wallets
@@ -35,11 +35,11 @@ We defined some terms in the context of validator key management:
 	required _after_ Phase 0 to manage ETH once a validator has exited.
 
 ## Crate a validator
-There are 2 steps involved to create a validator keys using Lighthouse:
+There are 2 steps involved to create a validator key using Lighthouse:
  1. [Create a wallet](#step-1-create-a-wallet-and-record-the-mnemonic)
  1. [Create a validator](#step-2-create-a-validator)
 
-Let us create a single validator as an example.
+The following example demonstrates how to create a single validator key.
 
 ### Step 1: Create a wallet and record the mnemonic
 A wallet allows for generating practically unlimited validators from an
@@ -51,7 +51,7 @@ mnemonic is encrypted with a password. It is the responsibility of the user to
 define a strong password. The password is only required for interacting with
 the wallet, it is not required for recovering keys from a mnemonic.
 
-To create a wallet, use the `lighthouse account wallet` command. For example, if we wishes to create a new wallet for the Goerli testnet named `wally` and saves it in `~/.lighthouse/goerli/wallets` with a randomly generated password saved
+To create a wallet, use the `lighthouse account wallet` command. For example, if we wish to create a new wallet for the Goerli testnet named `wally` and saves it in `~/.lighthouse/goerli/wallets` with a randomly generated password saved
 to `./wallet.pass`:
 
 ```bash
@@ -59,11 +59,11 @@ lighthouse --network goerli account wallet create --name wally --password-file w
 ```
 Using the above command, a wallet will be created in `~/.lighthouse/goerli/wallets` with the name
 `wally`. It is encrypted using with password defined in the
-`wally.pass` file. It should be noted that when navigating to the directory `~/.lighthouse/goerli/wallets`, one will not see the wallet name `wally`, but a hexadecimal folder containing the wallet file. However, when interacting with `lighthouse` in the CLI, the name `wally` will be used.
+`wally.pass` file. 
 
 During the wallet creation process, a 24-word mnemonic will be displayed. Record the mnemonic because it allows you to recreate the files in the case of data loss.
 > Notes:
->
+> - When navigating to the directory `~/.lighthouse/goerli/wallets`, one will not see the wallet name `wally`, but a hexadecimal folder containing the wallet file. However, when interacting with `lighthouse` in the CLI, the name `wally` will be used.
 > - The password is not `wally.pass`, it is the _content_ of the
 >   `wally.pass` file.
 > - If `wally.pass` already exists, the wallet password will be set to the content
@@ -82,7 +82,7 @@ This command will:
     - An encrypted keystore file `voting-keystore.json` containing the validator's voting keypair.
 	- An `eth1_deposit_data.rlp` assuming the default deposit amount (`32 ETH`) which can be submitted to the deposit
 		contract for the Goerli testnet. Other networks can be set via the
-		`--network` paramater.
+		`--network` parameter.
 - Create a new directory `~/.lighthouse/goerli/secrets` which stores a password to the validator's voting keypair.
 
 
@@ -116,23 +116,3 @@ fails, it logs an error and moves onto the next keystore.
 The `validators/` and `secrets/` directories are kept separate to allow for
 ease-of-backup; you can safely backup `validators/` without worrying about
 leaking private key data.
-
-### Withdrawal Keypairs
-
-In Ethereum beacon chain, withdrawal keypairs do not serve any immediate purpose.
-However, they become very important _after_ Phase 0: they will provide the
-ultimate control of the ETH of withdrawn validators.
-
-This presents an interesting key management scenario: withdrawal keys are very
-important, but not right now. Considering this, Lighthouse has adopted a
-strategy where **we do not save withdrawal keypairs to disk by default** (it is
-opt-in). Instead, we assert that since the withdrawal keys can be regenerated
-from a mnemonic, having them lying around on the file-system only presents risk
-and complexity.
-
-At the time of writing, we do not expose the commands to regenerate keys from
-mnemonics. However, key regeneration is tested on the public Lighthouse
-repository and will be exposed prior to mainnet launch.
-
-So, in summary, withdrawal keypairs can be trivially regenerated from the
-mnemonic via EIP-2333 so they are not saved to disk like the voting keypairs.

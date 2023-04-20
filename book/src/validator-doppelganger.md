@@ -31,7 +31,7 @@ circumstances.**
 
 DP should be considered as a last-line-of-defence that *might* save a validator from being slashed due
 to operator error (i.e. running two instances of the same validator). Users should
-*never* rely upon DP and should practice the same caution with regards to duplicating validators as
+*never* rely upon DP and should practice the same caution with regard to duplicating validators as
 if it did not exist.
 
 **Remember: even with doppelganger protection enabled, it is not safe to run two instances of the

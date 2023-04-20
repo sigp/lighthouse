@@ -21,7 +21,7 @@ and carefully to keep your validators safe. See the [Troubleshooting](#troublesh
 
 The database will be automatically created, and your validators registered with it when:
 
-* Importing keys from another source (e.g. [staking-deposit-cli](https://github.com/ethereum/staking-deposit-cli/releases), Teku, Prysm, [ethdo](https://github.com/wealdtech/ethdo)).
+* Importing keys from another source (e.g. [staking-deposit-cli](https://github.com/ethereum/staking-deposit-cli/releases), Lodestar, Nimbus, Prysm, Teku, [ethdo](https://github.com/wealdtech/ethdo)).
   See [import validator keys](./mainnet-validator.md#step-3-import-validator-keys-to-lighthouse).
 * Creating keys using Lighthouse itself (`lighthouse account validator create`)
 * Creating keys via the [validator client API](./api-vc.md).
@@ -45,7 +45,7 @@ Examples of circumstances where the slashing protection database is effective ar
   your client to be imported into Lighthouse's slashing protection database. See
   [Import and Export](#import-and-export).
 * Misplacing `slashing_protection.sqlite` during a datadir change or migration between machines.
-  By default Lighthouse will refuse to start if it finds validator keys that are not registered
+  By default, Lighthouse will refuse to start if it finds validator keys that are not registered
   in the slashing protection database.
 
 Examples where it is **ineffective** are:
@@ -71,7 +71,7 @@ To import a slashing protection database to Lighthouse, you first need to export
 - [Teku](https://docs.teku.consensys.net/HowTo/Prevent-Slashing#export-a-slashing-protection-file)
 
 
-Once you have the slasing protection database from your existing client, you can now import the database to Lighthouse. With your validator client stopped, you can import a `.json` interchange file from another client
+Once you have the slashing protection database from your existing client, you can now import the database to Lighthouse. With your validator client stopped, you can import a `.json` interchange file from another client
 using this command:
 
 ```bash

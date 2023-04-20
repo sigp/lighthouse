@@ -146,13 +146,13 @@ as `verified` indicating that they have been processed successfully by the execu
 INFO Synced, slot: 3690668, block: 0x1244…cb92, epoch: 115333, finalized_epoch: 115331, finalized_root: 0x0764…2a3d, exec_hash: 0x929c…1ff6 (verified), peers: 78
 ```
 
-Once you see the above message - congratulations! This means that your node is synced and you have contributed to the decentralization and security of the Ethereum network.
+Once you see the above message - congratulations! This means that your node is synced and you have contributed to the decentralization and security of the Ethereum network. 
 
 ## Further readings
 
 Several other resources are the next logical step to explore after running your beacon node: 
 
-- Learn how to [become a validator](./mainnet-validator.md);
+- If you intend to run a validator, proceed to [become a validator](./mainnet-validator.md);
 - Explore how to [manage your keys](./key-management.md);
 - Research on [validator management](./validator-management.md);
 - Dig into the [APIs](./api.md) that the beacon node and validator client provide;
