@@ -5,7 +5,18 @@ This setup can be useful for testing and development.
 
 ## Requirements
 
-The scripts require `lcli`, `lighthouse`, `geth`, `bootnode` to be installed on `PATH`. From the
+The scripts require `lcli`, `lighthouse`, `geth`, `bootnode` to be installed on `PATH`.
+
+
+MacOS users need to install GNU `sed` and GNU `grep`, and add them both to `PATH` as well.
+
+```bash
+brew install gnu-sed grep
+echo "export PATH=\$PATH:$(brew --prefix)/opt/grep/libexec/gnubin" >> ~/.bash_profile
+echo "export PATH=\$PATH:$(brew --prefix)/opt/gnu-sed/libexec/gnubin" >> ~/.bash_profile
+```
+
+From the
 root of this repository, run:
 
 ```bash
