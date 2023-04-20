@@ -105,7 +105,7 @@ pub trait EthSpec:
     /*
      * New in Deneb
      */
-    type MaxBlobsPerBlock: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+    type MaxBlobsPerBlock: Unsigned + Clone + Sync + Send + Debug + PartialEq + Unpin;
     type FieldElementsPerBlob: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type BytesPerFieldElement: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     /*

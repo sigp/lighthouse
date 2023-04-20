@@ -30,7 +30,7 @@ pub struct SingleBlockLookup<const MAX_ATTEMPTS: u8, T: BeaconChainTypes> {
 /// Object representing a single block lookup request.
 ///
 //previously assumed we would have a single block. Now we may have the block but not the blobs
-#[derive(PartialEq, Eq)]
+#[derive(PartialEq, Eq, Debug)]
 pub struct SingleLookupRequestState<const MAX_ATTEMPTS: u8> {
     /// State of this request.
     pub state: State,
@@ -59,7 +59,7 @@ pub enum LookupVerifyError {
     UnrequestedBlobId,
     ExtraBlobsReturned,
     InvalidIndex(u64),
-    AvailabilityCheck(AvailabilityCheckError),
+    AvailabilityCheck, //TODO(sean) wrap the underlying error
 }
 
 #[derive(Debug, PartialEq, Eq, IntoStaticStr)]
@@ -112,17 +112,17 @@ impl<const MAX_ATTEMPTS: u8, T: BeaconChainTypes> SingleBlockLookup<MAX_ATTEMPTS
         for (index, blob_opt) in self.downloaded_blobs.iter_mut().enumerate() {
             if let Some(Some(downloaded_blob)) = blobs.get(index) {
                 //TODO(sean) should we log a warn if there is already a downloaded blob?
-                blob_opt = Some(downloaded_blob);
+                *blob_opt = Some(downloaded_blob.clone());
             }
         }
 
         if let Some(block) = self.downloaded_block.as_ref() {
-            match self.da_checker.wrap_block(block_root, block, blobs) {
+            match self.da_checker.wrap_block(block_root, block.clone(), blobs) {
                 Ok(wrapper) => Ok(LookupDownloadStatus::Process(wrapper)),
                 Err(AvailabilityCheckError::MissingBlobs) => {
                     Ok(LookupDownloadStatus::SearchBlock(block_root))
                 }
-                Err(e) => Err(LookupVerifyError::AvailabilityCheck(e)),
+                Err(_e) => Err(LookupVerifyError::AvailabilityCheck),
             }
         } else {
             Ok(LookupDownloadStatus::SearchBlock(block_root))
@@ -135,17 +135,17 @@ impl<const MAX_ATTEMPTS: u8, T: BeaconChainTypes> SingleBlockLookup<MAX_ATTEMPTS
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
     ) -> Result<LookupDownloadStatus<T::EthSpec>, LookupVerifyError> {
         //TODO(sean) check for existing block?
-        self.downloaded_block = Some(block);
+        self.downloaded_block = Some(block.clone());
 
         match self
             .da_checker
-            .wrap_block(block_root, block, self.downloaded_blobs)
+            .wrap_block(block_root, block, self.downloaded_blobs.clone())
         {
             Ok(wrapper) => Ok(LookupDownloadStatus::Process(wrapper)),
             Err(AvailabilityCheckError::MissingBlobs) => {
                 Ok(LookupDownloadStatus::SearchBlock(block_root))
             }
-            Err(e) => LookupVerifyError::AvailabilityCheck(e),
+            Err(_e) => Err(LookupVerifyError::AvailabilityCheck),
         }
     }
 
@@ -193,7 +193,7 @@ impl<const MAX_ATTEMPTS: u8, T: BeaconChainTypes> SingleBlockLookup<MAX_ATTEMPTS
                     }
                 }
                 None => {
-                    self.register_failure_downloading();
+                    self.block_request_state.register_failure_downloading();
                     Err(LookupVerifyError::NoBlockReturned)
                 }
             },
@@ -216,12 +216,13 @@ impl<const MAX_ATTEMPTS: u8, T: BeaconChainTypes> SingleBlockLookup<MAX_ATTEMPTS
         &mut self,
         blob: Option<Arc<BlobSidecar<T::EthSpec>>>,
     ) -> Result<
-        Option<
+        Option<(
+            Hash256,
             FixedVector<
                 Option<Arc<BlobSidecar<T::EthSpec>>>,
                 <<T as BeaconChainTypes>::EthSpec as EthSpec>::MaxBlobsPerBlock,
             >,
-        >,
+        )>,
         LookupVerifyError,
     > {
         match self.block_request_state.state {
@@ -237,9 +238,13 @@ impl<const MAX_ATTEMPTS: u8, T: BeaconChainTypes> SingleBlockLookup<MAX_ATTEMPTS
                         Err(LookupVerifyError::UnrequestedBlobId)
                     } else {
                         // State should remain downloading until we receive the stream terminator.
-                        self.requested_ids.retain(|id| id != received_id);
-                        if let Some(blob_opt) = self.downloaded_blobs.get_mut(blob.index) {
+                        self.requested_ids.retain(|id| *id != received_id);
+                        if let Some(blob_opt) = self.downloaded_blobs.get_mut(blob.index as usize) {
                             *blob_opt = Some(blob);
+                            Ok(Some((
+                                self.requested_block_root,
+                                self.downloaded_blobs.clone(),
+                            )))
                         } else {
                             return Err(LookupVerifyError::InvalidIndex(blob.index));
                         }
@@ -247,7 +252,10 @@ impl<const MAX_ATTEMPTS: u8, T: BeaconChainTypes> SingleBlockLookup<MAX_ATTEMPTS
                 }
                 None => {
                     self.blob_request_state.state = State::Processing { peer_id };
-                    Ok(Some(self.downloaded_blobs.clone()))
+                    Ok(Some((
+                        self.requested_block_root,
+                        self.downloaded_blobs.clone(),
+                    )))
                 }
             },
             State::Processing { peer_id: _ } => match blob {
@@ -268,7 +276,8 @@ impl<const MAX_ATTEMPTS: u8, T: BeaconChainTypes> SingleBlockLookup<MAX_ATTEMPTS
     pub fn request_block(
         &mut self,
     ) -> Result<Option<(PeerId, BlocksByRootRequest)>, LookupRequestError> {
-        if self.da_checker.has_block(self.requested_block_root) || self.downloaded_block.is_some() {
+        if self.da_checker.has_block(&self.requested_block_root) || self.downloaded_block.is_some()
+        {
             return Ok(None);
         }
 
@@ -276,7 +285,7 @@ impl<const MAX_ATTEMPTS: u8, T: BeaconChainTypes> SingleBlockLookup<MAX_ATTEMPTS
             self.block_request_state.state,
             State::AwaitingDownload
         ));
-        if self.failed_attempts() >= MAX_ATTEMPTS {
+        if self.block_request_state.failed_attempts() >= MAX_ATTEMPTS {
             Err(LookupRequestError::TooManyAttempts {
                 cannot_process: self.block_request_state.failed_processing
                     >= self.block_request_state.failed_downloading,
@@ -301,15 +310,18 @@ impl<const MAX_ATTEMPTS: u8, T: BeaconChainTypes> SingleBlockLookup<MAX_ATTEMPTS
     pub fn request_blobs(
         &mut self,
     ) -> Result<Option<(PeerId, BlobsByRootRequest)>, LookupRequestError> {
-        if self.da_checker.has_block(self.requested_block_root) || self.downloaded_block.is_some() {
+        let missing_ids = self
+            .da_checker
+            .get_missing_blob_ids(&self.requested_block_root);
+        if missing_ids.is_empty() || self.downloaded_block.is_some() {
             return Ok(None);
         }
 
         debug_assert!(matches!(
-            self.block_request_state.state,
+            self.blob_request_state.state,
             State::AwaitingDownload
         ));
-        if self.failed_attempts() >= MAX_ATTEMPTS {
+        if self.blob_request_state.failed_attempts() >= MAX_ATTEMPTS {
             Err(LookupRequestError::TooManyAttempts {
                 cannot_process: self.blob_request_state.failed_processing
                     >= self.blob_request_state.failed_downloading,
@@ -321,7 +333,7 @@ impl<const MAX_ATTEMPTS: u8, T: BeaconChainTypes> SingleBlockLookup<MAX_ATTEMPTS
             .choose(&mut rand::thread_rng())
         {
             let request = BlobsByRootRequest {
-                blob_ids: VariableList::from(self.requested_ids.clone()),
+                blob_ids: VariableList::from(missing_ids),
             };
             self.blob_request_state.state = State::Downloading { peer_id };
             self.blob_request_state.used_peers.insert(peer_id);
@@ -397,7 +409,28 @@ impl<const MAX_ATTEMPTS: u8, T: BeaconChainTypes> slog::Value
         serializer: &mut dyn slog::Serializer,
     ) -> slog::Result {
         serializer.emit_str("request", key)?;
-        serializer.emit_arguments("hash", &format_args!("{}", self.requested_thing))?;
+        serializer.emit_arguments("hash", &format_args!("{}", self.requested_block_root))?;
+        serializer.emit_arguments("blob_ids", &format_args!("{:?}", self.requested_ids))?;
+        serializer.emit_arguments(
+            "block_request_state",
+            &format_args!("{:?}", self.block_request_state),
+        )?;
+        serializer.emit_arguments(
+            "blob_request_state",
+            &format_args!("{:?}", self.blob_request_state),
+        )?;
+        slog::Result::Ok(())
+    }
+}
+
+impl<const MAX_ATTEMPTS: u8> slog::Value for SingleLookupRequestState<MAX_ATTEMPTS> {
+    fn serialize(
+        &self,
+        record: &slog::Record,
+        key: slog::Key,
+        serializer: &mut dyn slog::Serializer,
+    ) -> slog::Result {
+        serializer.emit_str("request_state", key)?;
         match &self.state {
             State::AwaitingDownload => {
                 "awaiting_download".serialize(record, "state", serializer)?

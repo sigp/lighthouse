@@ -911,6 +911,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                 );
                 return None;
             }
+            _ => todo!(), //TODO(sean)
         };
 
         metrics::inc_counter(&metrics::BEACON_PROCESSOR_GOSSIP_BLOCK_VERIFIED_TOTAL);

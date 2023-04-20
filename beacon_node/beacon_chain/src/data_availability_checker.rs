@@ -137,6 +137,40 @@ impl<T: EthSpec, S: SlotClock> DataAvailabilityChecker<T, S> {
         }
     }
 
+    pub fn has_block(&self, block_root: &Hash256) -> bool {
+        self.availability_cache
+            .read()
+            .get(block_root)
+            .map_or(false, |cache| cache.executed_block.is_some())
+    }
+
+    pub fn get_missing_blob_ids(&self, block_root: &Hash256) -> Vec<BlobIdentifier> {
+        let epoch = self.slot_clock.now().map(|s| s.epoch(T::slots_per_epoch()));
+        if epoch.map_or(false, |e| self.da_check_required(e)) {
+            self.availability_cache
+                .read()
+                .get(block_root)
+                .map_or(vec![], |cache| {
+                    if let Some(block) = cache.executed_block.as_ref() {
+                        block.get_filtered_blob_ids(|i, blob_root| {
+                            cache.verified_blobs.get(i).is_none()
+                        })
+                    } else {
+                        let mut blob_ids = Vec::with_capacity(T::max_blobs_per_block());
+                        for i in 0..T::max_blobs_per_block() {
+                            blob_ids.push(BlobIdentifier {
+                                block_root: *block_root,
+                                index: i as u64,
+                            });
+                        }
+                        blob_ids
+                    }
+                })
+        } else {
+            vec![]
+        }
+    }
+
     pub fn wrap_block(
         &self,
         block_root: Hash256,

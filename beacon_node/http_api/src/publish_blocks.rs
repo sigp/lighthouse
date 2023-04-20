@@ -12,6 +12,7 @@ use slog::{debug, error, info, warn, Logger};
 use slot_clock::SlotClock;
 use std::sync::Arc;
 use std::time::Duration;
+use store::FixedVector;
 use tokio::sync::mpsc::UnboundedSender;
 use tree_hash::TreeHash;
 use types::{
@@ -77,8 +78,11 @@ pub async fn publish_block<T: BeaconChainTypes>(
                         PubsubMessage::BlobSidecar(Box::new((blob_index as u64, blob))),
                     )?;
                 }
-                let blobs = signed_blobs.into_iter().map(|blob| blob.message).collect();
-                BlockWrapper::BlockAndBlobs(block, blobs)
+                let blobs = signed_blobs
+                    .into_iter()
+                    .map(|blob| Some(blob.message))
+                    .collect::<Vec<_>>();
+                BlockWrapper::BlockAndBlobs(block, FixedVector::from(blobs))
             } else {
                 block.into()
             }

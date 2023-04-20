@@ -60,7 +60,7 @@ impl<T: EthSpec> BlocksAndBlobsRequestInfo<T> {
                 for blob in blob_list {
                     let blob_index = blob.index as usize;
                     if blob_index >= T::max_blobs_per_block() {
-                        return Err(format!("Invalid blob index {blob_index:?}").as_str());
+                        return Err("Invalid blob index");
                     }
                     blobs_fixed.insert(blob_index, Some(blob));
                 }

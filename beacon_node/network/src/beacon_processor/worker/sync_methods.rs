@@ -19,7 +19,7 @@ use slog::{debug, error, info, warn};
 use ssz_types::FixedVector;
 use std::sync::Arc;
 use tokio::sync::mpsc;
-use types::{BlobSidecar, Epoch, Hash256, SignedBeaconBlock};
+use types::{BlobSidecar, Epoch, EthSpec, Hash256, SignedBeaconBlock};
 
 /// Id associated to a batch processing request, either a sync batch or a parent lookup.
 #[derive(Clone, Debug, PartialEq)]
@@ -90,8 +90,6 @@ impl<T: BeaconChainTypes> Worker<T> {
         let slot = block.slot();
         let parent_root = block.message().parent_root();
 
-        // TODO(sean) check availability here and send information to sync?
-
         let result = self
             .chain
             .process_block(
@@ -151,9 +149,20 @@ impl<T: BeaconChainTypes> Worker<T> {
         seen_timestamp: Duration,
         process_type: BlockProcessType,
     ) {
+        let Some(slot) = blobs.iter().find_map(|blob|{
+            if let Some(blob) = blob {
+                Some(blob.slot)
+            } else {
+                None
+            }
+        }) else {
+            return;
+        };
+
         let result = self
             .chain
             .check_availability_and_maybe_import(
+                slot,
                 |chain| {
                     chain
                         .data_availability_checker
@@ -167,7 +176,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         self.send_sync_message(SyncMessage::BlockPartProcessed {
             process_type,
             result: result.into(),
-            response_type: ResponseType::Blobs,
+            response_type: ResponseType::Blob,
         });
     }
 

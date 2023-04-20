@@ -255,6 +255,8 @@ pub fn spawn<T: BeaconChainTypes>(
         log: log.clone(),
     };
 
+    let log_clone = log.clone();
+    let sync_send_clone = sync_send.clone();
     executor.spawn(
         async move {
             let slot_duration = beacon_chain.slot_clock.slot_duration();
@@ -299,9 +301,9 @@ pub fn spawn<T: BeaconChainTypes>(
     );
 
     // spawn the sync manager thread
-    debug!(log, "Sync Manager started");
+    debug!(log_clone, "Sync Manager started");
     executor.spawn(async move { Box::pin(sync_manager.main()).await }, "sync");
-    sync_send
+    sync_send_clone
 }
 
 impl<T: BeaconChainTypes> SyncManager<T> {
@@ -660,7 +662,9 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         }
                     };
 
-                    if block.slot() == slot {
+                    let block_slot = block.slot();
+
+                    if block_slot == slot {
                         if let Err(e) = self
                             .delayed_lookups
                             .try_send(SyncMessage::UnknownBlock(peer_id, block, block_root))
@@ -676,7 +680,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         );
                     }
                     self.block_lookups.search_parent(
-                        block.slot(),
+                        block_slot,
                         block_root,
                         parent_root,
                         peer_id,

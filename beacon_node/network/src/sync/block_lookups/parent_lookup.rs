@@ -5,8 +5,8 @@ use crate::sync::{
     manager::{Id, SLOT_IMPORT_TOLERANCE},
     network_context::SyncNetworkContext,
 };
+use beacon_chain::blob_verification::AsBlock;
 use beacon_chain::blob_verification::BlockWrapper;
-use beacon_chain::blob_verification::{AsBlock, MaybeAvailableBlock};
 use beacon_chain::data_availability_checker::AvailabilityCheckError;
 use beacon_chain::data_availability_checker::DataAvailabilityChecker;
 use beacon_chain::BeaconChainTypes;
@@ -48,7 +48,7 @@ pub enum ParentVerifyError {
     ExtraBlobsReturned,
     InvalidIndex(u64),
     PreviousFailure { parent_root: Hash256 },
-    AvailabilityCheck(AvailabilityCheckError),
+    AvailabilityCheck, //TODO(sean) wrap the underlying error
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -107,11 +107,11 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
             match cx.parent_lookup_block_request(peer_id, request) {
                 Ok(request_id) => {
                     self.current_parent_request_id = Some(request_id);
-                    Ok(())
+                    return Ok(());
                 }
                 Err(reason) => {
                     self.current_parent_request_id = None;
-                    Err(RequestError::SendFailed(reason))
+                    return Err(RequestError::SendFailed(reason));
                 }
             }
         }
@@ -131,11 +131,11 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
             match cx.parent_lookup_blobs_request(peer_id, request) {
                 Ok(request_id) => {
                     self.current_parent_blob_request_id = Some(request_id);
-                    Ok(())
+                    return Ok(());
                 }
                 Err(reason) => {
                     self.current_parent_blob_request_id = None;
-                    Err(RequestError::SendFailed(reason))
+                    return Err(RequestError::SendFailed(reason));
                 }
             }
         }
@@ -161,15 +161,6 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
         self.downloaded_blocks.push((current_root, block));
         self.current_parent_request.requested_block_root = next_parent;
 
-        let mut blob_ids = Vec::with_capacity(T::EthSpec::max_blobs_per_block());
-        for i in 0..T::EthSpec::max_blobs_per_block() {
-            blob_ids.push(BlobIdentifier {
-                block_root: current_root,
-                index: i as u64,
-            });
-        }
-
-        self.current_parent_request.requested_ids = blob_ids;
         self.current_parent_request.block_request_state.state =
             single_block_lookup::State::AwaitingDownload;
         self.current_parent_request.blob_request_state.state =
@@ -312,15 +303,14 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
         )>,
         ParentVerifyError,
     > {
-        let block_root = self.current_parent_request.requested_block_root;
         let blobs = self.current_parent_request.verify_blob(blob)?;
 
         // check if the parent of this block isn't in the failed cache. If it is, this chain should
         // be dropped and the peer downscored.
         if let Some(parent_root) = blobs
             .as_ref()
-            .and_then(|blobs| blobs.first())
-            .map(|blob| blob.block_parent_root_id)
+            .and_then(|(_, blobs)| blobs.first())
+            .and_then(|blob| blob.as_ref().map(|b| b.block_parent_root))
         {
             if failed_chains.contains(&parent_root) {
                 self.current_parent_request
@@ -331,7 +321,7 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
             }
         }
 
-        Ok((block_root, blobs))
+        Ok(blobs)
     }
 
     pub fn get_block_processing_peer(&self, chain_hash: Hash256) -> Option<PeerId> {
@@ -361,28 +351,26 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
         self.current_parent_request.failed_attempts()
     }
 
-    pub fn add_block_peer(&mut self, block_root: &Hash256, peer_id: &PeerId) -> bool {
-        self.current_parent_request.add_peer(block_root, peer_id)
+    //TODO(sean) fix this up
+    pub fn add_peer(&mut self, block_root: &Hash256, peer_id: &PeerId) -> bool {
+        if block_root == &self.chain_hash {
+            return false;
+        }
+        self.current_parent_request
+            .block_request_state
+            .add_peer(peer_id);
+        self.current_parent_request
+            .blob_request_state
+            .add_peer(peer_id);
+        true
     }
 
+    //TODO(sean) fix this up
     pub fn used_block_peers(&self) -> impl Iterator<Item = &PeerId> + '_ {
-        self.current_parent_request.used_peers.iter()
-    }
-
-    #[cfg(test)]
-    pub fn failed_blob_attempts(&self) -> u8 {
-        self.current_parent_blob_request
-            .map_or(0, |req| req.failed_attempts())
-    }
-
-    pub fn add_blobs_peer(&mut self, blobs: &[BlobIdentifier], peer_id: &PeerId) -> bool {
-        self.current_parent_blob_request
-            .map_or(false, |mut req| req.add_peer(blobs, peer_id))
-    }
-
-    pub fn used_blob_peers(&self) -> impl Iterator<Item = &PeerId> + '_ {
-        self.current_parent_blob_request
-            .map_or(iter::empty(), |req| req.used_peers.iter())
+        self.current_parent_request
+            .block_request_state
+            .used_peers
+            .iter()
     }
 }
 
@@ -396,7 +384,7 @@ impl From<LookupVerifyError> for ParentVerifyError {
             E::UnrequestedBlobId => ParentVerifyError::UnrequestedBlobId,
             E::ExtraBlobsReturned => ParentVerifyError::ExtraBlobsReturned,
             E::InvalidIndex(index) => ParentVerifyError::InvalidIndex(index),
-            E::AvailabilityCheck(e) => ParentVerifyError::AvailabilityCheck(e),
+            E::AvailabilityCheck => ParentVerifyError::AvailabilityCheck,
         }
     }
 }

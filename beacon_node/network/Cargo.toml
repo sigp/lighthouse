@@ -19,7 +19,7 @@ store =  { path = "../store" }
 lighthouse_network =  { path = "../lighthouse_network" }
 types = { path = "../../consensus/types" }
 slot_clock = { path = "../../common/slot_clock" }
-slog = { version = "2.5.2", features = ["max_level_trace"] }
+slog = { version = "2.5.2", features = ["max_level_trace", "nested-values"] }
 hex = "0.4.2"
 eth2_ssz = "0.4.1"
 eth2_ssz_types = "0.2.2"
