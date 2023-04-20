@@ -242,7 +242,7 @@ If the same log appears every minute and you do not see progress in downloading 
 If you build Lighthouse from source, run `lighthouse --version`. Example of output:
 
 ```bash
-Lighthouse v4.0.1-a53830f
+Lighthouse v4.1.0-693886b
 BLS library: blst-modern
 SHA256 hardware acceleration: false
 Allocator: jemalloc
@@ -258,6 +258,6 @@ curl "http://127.0.0.1:5052/eth/v1/node/version"
 
 Example of output:
 ```bash
-{"data":{"version":"Lighthouse/v4.0.1-a53830f/x86_64-linux"}}
+{"data":{"version":"Lighthouse/v4.1.0-693886b/x86_64-linux"}}
 ```
 which says that the version if v4.0.1.
