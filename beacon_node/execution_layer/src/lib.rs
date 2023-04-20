@@ -2239,7 +2239,7 @@ fn ethers_tx_to_bytes<T: EthSpec>(
             data,
             access_list,
             max_fee_per_data_gas,
-            blob_versioned_hashes: VariableList::new(blob_versioned_hashes)?,
+            versioned_hashes: VariableList::new(blob_versioned_hashes)?,
         };
 
         // ******************** EcdsaSignature fields ********************
