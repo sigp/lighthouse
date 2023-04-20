@@ -1359,8 +1359,7 @@ mod tests {
         let outbound_only_peer2 = PeerId::random();
         let trusted_peer = PeerId::random();
 
-        let mut peer_manager =
-            build_peer_manager_with_trusted_peers(vec![trusted_peer], 3).await;
+        let mut peer_manager = build_peer_manager_with_trusted_peers(vec![trusted_peer], 3).await;
 
         peer_manager.inject_connect_ingoing(&peer0, "/ip4/0.0.0.0".parse().unwrap(), None);
         peer_manager.inject_connect_ingoing(&peer1, "/ip4/0.0.0.0".parse().unwrap(), None);
@@ -2234,17 +2233,11 @@ mod tests {
             }
             let trusted_peers: Vec<_> = peer_conditions
                 .iter()
-                .filter_map(|p| {
-                    if p.trusted {
-                        Some(p.peer_id)
-                    } else {
-                        None
-                    }
-                })
+                .filter_map(|p| if p.trusted { Some(p.peer_id) } else { None })
                 .collect();
             // If we have a high percentage of trusted peers, it is very difficult to reason about
             // the expected results of the pruning.
-            if trusted_peers.len() > peer_conditions.len() / 3_usize  {
+            if trusted_peers.len() > peer_conditions.len() / 3_usize {
                 return TestResult::discard();
             }
             let rt = Runtime::new().unwrap();
@@ -2306,7 +2299,10 @@ mod tests {
 
                 let expected_peer_count = target_peer_count.min(peer_conditions.len());
                 // Trusted peers could make this larger however.
-                let no_of_trusted_peers = peer_conditions.iter().filter(|condition| condition.trusted).count();
+                let no_of_trusted_peers = peer_conditions
+                    .iter()
+                    .filter(|condition| condition.trusted)
+                    .count();
                 let expected_peer_count = expected_peer_count.max(no_of_trusted_peers);
 
                 let target_peer_condition =
@@ -2319,14 +2315,14 @@ mod tests {
                 let hit_outbound_limit = outbound_peers == peer_manager.target_outbound_peers();
 
                 // No trusted peers should be disconnected
-                let trusted_peer_disconnected =
-                    peer_conditions.iter().any(|condition| { condition.trusted
-                            && !peer_manager
-                                .network_globals
-                                .peers
-                                .read()
-                                .is_connected(&condition.peer_id)
-                    });
+                let trusted_peer_disconnected = peer_conditions.iter().any(|condition| {
+                    condition.trusted
+                        && !peer_manager
+                            .network_globals
+                            .peers
+                            .read()
+                            .is_connected(&condition.peer_id)
+                });
 
                 TestResult::from_bool(
                     (target_peer_condition || hit_outbound_limit) && !trusted_peer_disconnected,
