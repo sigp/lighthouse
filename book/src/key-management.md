@@ -3,7 +3,7 @@
 [launchpad]: https://launchpad.ethereum.org/
 
 >
-> **Note: While Lighthouse is able to generate the validator keys and the deposit data file to submit to the deposit contract, we recommend using the [Staking launchpad][launchpad] to create validators keys and the deposit data file. This is because Lighthouse generates the deposit data file in the form of `*.rlp`, which cannot be uploaded to the [Staking launchpad][launchpad] that accepts `*.json`. This means that the user has to interact directly with the deposit contract to be able to sumbit the deposit if the user were to generate the files using Lighthouse.**
+> **Note: While Lighthouse is able to generate the validator keys and the deposit data file to submit to the deposit contract, we recommend using the [Staking launchpad][launchpad] to create validators keys and the deposit data file. This is because Lighthouse generates the deposit data file in the form of `*.rlp`, which cannot be uploaded to the [Staking launchpad][launchpad] that accepts only `*.json` file. This means that the user has to directly interact  with the deposit contract to be able to sumbit the deposit if the user were to generate the files using Lighthouse.**
 
 Lighthouse uses a _hierarchical_ key management system for producing validator
 keys. It is hierarchical because each validator key can be _derived_ from a

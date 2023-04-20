@@ -14,6 +14,7 @@
 * [Validator Management](./validator-management.md)
     * [Slashing Protection](./slashing-protection.md)
     * [Voluntary Exits](./voluntary-exit.md)
+    * [Partial Withdrawals](./partial-withdrawal.md)
     * [Validator Monitoring](./validator-monitoring.md)
     * [Doppelganger Protection](./validator-doppelganger.md)
     * [Suggested Fee Recipient](./suggested-fee-recipient.md)
