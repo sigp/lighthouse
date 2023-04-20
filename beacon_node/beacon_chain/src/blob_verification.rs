@@ -13,6 +13,7 @@ use crate::data_availability_checker::{
 use crate::kzg_utils::{validate_blob, validate_blobs};
 use crate::BeaconChainError;
 use kzg::Kzg;
+use slog::{debug, warn};
 use std::borrow::Cow;
 use types::{
     BeaconBlockRef, BeaconState, BeaconStateError, BlobSidecar, BlobSidecarList, ChainSpec,
@@ -214,10 +215,7 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
         });
     }
 
-    // Note: The spec checks the signature directly against `blob_sidecar.message.proposer_index`
-    // before checking that the provided proposer index is valid w.r.t the current shuffling.
-    //
-    // However, we check that the proposer_index matches against the shuffling first to avoid
+    // Note: We check that the proposer_index matches against the shuffling first to avoid
     // signature verification against an invalid proposer_index.
     let proposer_shuffling_root = signed_blob_sidecar.message.block_parent_root;
 
@@ -229,6 +227,12 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
     let (proposer_index, fork) = if let Some(proposer) = proposer_opt {
         (proposer.index, proposer.fork)
     } else {
+        debug!(
+            chain.log,
+            "Proposer shuffling cache mix for blob verification";
+            "block_root" => %block_root,
+            "index" => %blob_index,
+        );
         // The cached head state is in the same epoch as the blob or the state has already been
         // advanced to the blob's epoch
         let snapshot = &chain.canonical_head.cached_head().snapshot;
@@ -242,6 +246,18 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
         }
         // Need to advance the state to get the proposer index
         else {
+            // Reaching this condition too often might be an issue since we could theoretically have
+            // 5 threads (4 blob indices + 1 block) cloning the state.
+            // We shouldn't be seeing this condition a lot because we try to advance the state
+            // 3 seconds before the start of a slot. However, if this becomes an issue during testing, we should
+            // consider sending a blob for reprocessing to reduce the number of state clones.
+            warn!(
+                chain.log,
+                "Cached head not advanced for blob verification";
+                "block_root" => %block_root,
+                "index" => %blob_index,
+                "action" => "contact the devs if you see this msg too often"
+            );
             // The state produced is only valid for determining proposer/attester shuffling indices.
             let mut cloned_state = snapshot.clone_with(CloneConfig::committee_caches_only());
             let state = cheap_state_advance_to_obtain_committees(
