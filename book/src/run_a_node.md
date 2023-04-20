@@ -1,12 +1,12 @@
 # Run a Node
 
-This document provides detail for users who want to run a Lighthouse beacon node.
+This section provides the detail for users who want to run a Lighthouse beacon node.
 You should be finished with one [Installation](./installation.md) method of your choice to continue with the following steps:
 
 1. Create a [JWT secret file](#step-1-create-a-jwt-secret-file)
 1. Set up an [execution node](#step-2-set-up-an-execution-node);
 1. Set up a [beacon node](#step-3-set-up-a-beacon-node-using-lighthouse);
-1. [Check logs](#step-4-check-logs);
+1. [Check logs for sync status](#step-4-check-logs);
 
 
 
@@ -33,11 +33,11 @@ per beacon node. The reason for this is that the beacon node _controls_ the exec
 > Note: Each execution engine has its own flags for configuring the engine API and JWT secret to connect to a beacon node. Please consult the relevant page of your execution engine as above for the required flags.
 
 
-Once the execution client is up, just let it continue running. The execution cient will start syncing when it connects to a beacon node. Depending on the excecution client and computer hardware specifications, syncing can take from a few hours to a few days. You can safely proceed to Step 3 to setup a beacon node while the execution client is still syncing.
+Once the execution client is up, just let it continue running. The execution client will start syncing when it connects to a beacon node. Depending on the execution client and computer hardware specifications, syncing can take from a few hours to a few days. You can safely proceed to Step 3 to set up a beacon node while the execution client is still syncing.
 
 ## Step 3: Set up a beacon node using Lighthouse
 
-Next, we will setup a beacon node. Use the following command to start a beacon node that connects to your execution node:
+In this step, we will set up a beacon node. Use the following command to start a beacon node that connects to the execution node:
 
 ### Staking
 
@@ -50,7 +50,7 @@ lighthouse bn \
   --http
 ```
 
-> Note: If you download the binary file, you need to navigate to the directory of the binary file to run the above commands. 
+> Note: If you download the binary file, you need to navigate to the directory of the binary file to run the above command. 
 
 Notable flags: 
 - `--network` flag, which selects a network:
@@ -63,11 +63,11 @@ Notable flags:
     > Note:  Using the correct `--network` flag is very important; using the wrong flag can
 result in penalties, slashings or lost deposits. As a rule of thumb, *always*
 provide a `--network` flag instead of relying on the default.
-- `--execution-endpoint`: the *URL* of the execution engine API. If the execution engine is running on the same computer with the default port, it will be
+- `--execution-endpoint`: the URL of the execution engine API. If the execution engine is running on the same computer with the default port, this will be
   `http://localhost:8551`.
-- `--execution-jwt`: the *path* to the file containing the JWT secret shared by Lighthouse and the
+- `--execution-jwt`: the path to the JWT secret file shared by Lighthouse and the
   execution engine. This is a mandatory form of authentication which ensures that Lighthouse has the authority to control the execution engine.
-- `--checkpoint-sync-url`: Lighthouse supports fast sync from a recent finalized checkpoint. Checkpoint sync is *optional*; however, we **highly recommend** it since it is substantially faster than syncing from genesis while still providing the same functionality. The checkpoint sync is done using a [public endpoints](https://eth-clients.github.io/checkpoint-sync-endpoints/) provided by the Ethereum community. For example, in the above command, we use the URL for Sigma Prime's checkpoint sync server for mainnet `https://mainnet.checkpoint.sigp.io`.
+- `--checkpoint-sync-url`: Lighthouse supports fast sync from a recent finalized checkpoint. Checkpoint sync is *optional*; however, we **highly recommend** it since it is substantially faster than syncing from genesis while still providing the same functionality. The checkpoint sync is done using [public endpoints](https://eth-clients.github.io/checkpoint-sync-endpoints/) provided by the Ethereum community. For example, in the above command, we use the URL for Sigma Prime's checkpoint sync server for mainnet `https://mainnet.checkpoint.sigp.io`.
 - `--http`: to expose an HTTP server of the beacon chain. The default listening address is `http://localhost:5052`. The HTTP API is required for the beacon node to accept connections from the *validator client*, which manages keys.
 
 
@@ -94,7 +94,7 @@ Once Lighthouse runs, we can monitor the logs to see if it is syncing correctly.
 
 
 
-## Step 4: Check logs
+## Step 4: Check logs for sync status
 Several logs help you identify if Lighthouse is running correctly. 
 
 ### Logs - Checkpoint sync
@@ -113,9 +113,9 @@ INFO Loaded checkpoint block and state       state_root: 0xe8252c68784a8d5cc7e54
 
 Once the checkpoint is loaded, Lighthouse will sync forwards to the head of the chain.
 
-If a validator client is connected to the beacon nodem, it will be able to start its duties as soon as forwards sync completes, which typically takes 1-2 minutes.
+If a validator client is connected to the beacon node it will be able to start its duties as soon as forwards sync completes, which typically takes 1-2 minutes.
 
-> Note: If you have an existing Lighthouse database, you will need to delete the database by using the `--purge-db` flag or manually delete the database with `sudo bash -c "rm -r /path_to_database/beacon/*`. If you do use a `--purge-db` flag, once checkpoint sync is complete, you can remove the flag upon a restart.
+> Note: If you have an existing Lighthouse database, you will need to delete the database by using the `--purge-db` flag or manually delete the database with `sudo rm -r /path_to_database/beacon`. If you do use a `--purge-db` flag, once checkpoint sync is complete, you can remove the flag upon a restart.
 
 > **Security Note**: You should cross-reference the `block_root` and `slot` of the loaded checkpoint
 > against a trusted source like another [public endpoint](https://eth-clients.github.io/checkpoint-sync-endpoints/),

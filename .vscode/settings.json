@@ -1,0 +1,17 @@
+{
+    "cSpell.words": [
+        "Besu",
+        "Erigon",
+        "Nethermind",
+        "sepolia"
+    ],
+    "cSpell.language": "en",
+    "cSpell.customDictionaries": {
+        "custom-dictionary-workspace": {
+            "name": "custom-dictionary-workspace",
+            "path": "${workspaceFolder:lighthouse}/.cspell/custom-dictionary-workspace.txt",
+            "addWords": true,
+            "scope": "workspace"
+        }
+    }
+}

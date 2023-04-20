@@ -12,7 +12,7 @@
 - [I see beacon logs showing `WARN: Execution engine called failed`, what should I do?](#i-see-beacon-logs-showing-warn-execution-engine-called-failed-what-should-i-do)
 - [I am missing attestations. Why?](#i-am-missing-attestations-why)
 - [Sometimes I miss the attestation head vote, resulting in penalty. Is this normal?](#sometimes-i-miss-the-attestation-head-vote-resulting-in-penalty-is-this-normal)
-- [My beacon node is stuck at downloading historical block using checkpoing sync. What can I do?](#my-beacon-node-is-stuck-at-downloading-historical-block-using-checkpoing-sync-what-can-i-do)
+- [My beacon node is stuck at downloading historical block using checkpoint sync. What can I do?](#my-beacon-node-is-stuck-at-downloading-historical-block-using-checkpoint-sync-what-can-i-do)
 
 ### Why does it take so long for a validator to be activated?
 
@@ -220,7 +220,7 @@ You can see more information on the [Ethstaker KB](https://ethstaker.gitbook.io/
 
 ### Sometimes I miss the attestation head vote, resulting in penalty. Is this normal?
 
-In general it is unavoiadable to have some penalties occasionally. This is particularly the case when you are assigned to attest on the first slot of an epoch and if the proposer of that slot releases the block late, then you will get penalised for missing the target and head votes. Your attestation performance does not only depend on your own setup, but also on everyone else's performance.
+In general, it is unavoidable to have some penalties occasionally. This is particularly the case when you are assigned to attest on the first slot of an epoch and if the proposer of that slot releases the block late, then you will get penalised for missing the target and head votes. Your attestation performance does not only depend on your own setup, but also on everyone else's performance.
 
 
 ### My beacon node is stuck at downloading historical block using checkpoint sync. What can I do?
@@ -234,6 +234,4 @@ INFO Downloading historical blocks           est_time: --, distance: 4524545 slo
 If the same log appears every minute and you do not see progress in downloading historical blocks, you can try one of the following:
  
    - Check the number of peers you are connected to. If you have low peers (less than 50), try to do port forwarding on the port 9000 TCP/UDP to increase peer count.
-   - Try to resart beacon node.
-
-Lighthouse developers are aware of a few cases where downloading historical blocks can get stuck, the developers are working on fixing this issue.
+   - Try to restart the beacon node.

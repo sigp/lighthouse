@@ -43,8 +43,8 @@ There are five primary steps to become a validator:
 1. [Start Lighthouse validator client](#step-4-start-lighthouse-validator-client)
 1. [Submit deposit](#step-5-submit-deposit-32eth-per-validator)
 
-> **Important note**: The below guide is for mainnet. We highly recommend *all* users to **run a testnet validator** prior to staking mainnet ETH.  By far, the best technical learning experience is to run a testnet validator. You can get hands-on experience with all the tools and it's a great way to test your staking
-hardware. initially; 32 ETH is a significant outlay and joining a testnet is a great way to "try before you buy". 
+> **Important note**: The guide below contains both mainnet and testnet. We highly recommend *all* users to **run a testnet validator** prior to staking mainnet ETH.  By far, the best technical learning experience is to run a testnet validator. You can get hands-on experience with all the tools and it's a great way to test your staking
+hardware. 32 ETH is a significant outlay and joining a testnet is a great way to "try before you buy". 
 
 <!--To join a testnet, for example the Goerli testnet, select `Goerli` when you are prompted to select the network in the `staking-deposit-cli` in Step 1, replace `--network mainnet` with `--network goerli` in Steps 2-4, and visit [Goerli staking launchpad](https://goerli.launchpad.ethereum.org/en/) to deposit testnet ETH in Step 5.-->
 
@@ -53,15 +53,15 @@ hardware. initially; 32 ETH is a significant outlay and joining a testnet is a g
 
 ### Step 1. Create validator keys
 
-The Ethereum Foundation provides a [staking-deposit-cli](https://github.com/ethereum/staking-deposit-cli/releases) for creating validator keys. Download and run the `staking-deposit-cli` with the command:
+The Ethereum Foundation provides the [staking-deposit-cli](https://github.com/ethereum/staking-deposit-cli/releases) for creating validator keys. Download and run the `staking-deposit-cli` with the command:
 ```bash
 ./deposit new-mnemonic
 ```
-and follow the instruction to generate the keys. When prompted for the network, select `mainnet` if you want to run a mainnet validator, or select `goerli` if you want to run a Goerli testnet validator. A new mnemonic will be generated in the process.
+and follow the instructions to generate the keys. When prompted for a network, select `mainnet` if you want to run a mainnet validator, or select `goerli` if you want to run a Goerli testnet validator. A new mnemonic will be generated in the process.
 
 > **Important note:** A mnemonic (or seed phrase) is a 24-word string randomly generated in the process. It is highly recommended to write down the mnemonic and keep it safe. It is important to ensure that the mnemonic is never stored in any digital form (computers, mobile phones etc) connected to the internet. Please also make one or more backups of the mnemonic to ensure your ETH is not lost in the case of data loss. It is very important to keep your mnemonic private as it represents the ultimate control of your ETH.
 
-Upon completing this step, the files `deposit_data-*.json` and `keystore-m_*.json` will be generated. The keys that are generated from staking-deposit-cli can be easily loaded into a Lighthouse validator client (`lighthouse vc`) in [Step 3](#step-3-import-validator-keys-to-lighthouse). In fact, both of these programs are designed to work with each other.
+Upon completing this step, the files `deposit_data-*.json` and `keystore-m_*.json` will be created. The keys that are generated from staking-deposit-cli can be easily loaded into a Lighthouse validator client (`lighthouse vc`) in [Step 3](#step-3-import-validator-keys-to-lighthouse). In fact, both of these programs are designed to work with each other.
 
 
 > Lighthouse also supports creating validator keys, see [Key management](./key-management.md) for more info.
@@ -73,9 +73,9 @@ Start an execution client and Lighthouse beacon node according to [run a node](.
 ### Step 3. Import validator keys to Lighthouse
 
 In [Step 1](#step-1-create-validator-keys), the staking-deposit-cli will generate the validator keys into a `validator_keys` directory. Let's assume that 
-this directory is `$HOME/staking-deposit-cli/validator_keys`, using the default `validators` directory in Lighthouse (`~/.lighthouse/mainnet/validators`), run the following command to import validator keys:
+this directory is `$HOME/staking-deposit-cli/validator_keys`. Using the default `validators` directory in Lighthouse (`~/.lighthouse/mainnet/validators`), run the following command to import validator keys:
 
-Mainlet:
+Mainnet:
 ```bash
 lighthouse --network mainnet account validator import --directory $HOME/staking-deposit-cli/validator_keys
 ```
@@ -128,7 +128,7 @@ Successfully imported 1 validators (0 skipped).
 WARNING: DO NOT USE THE ORIGINAL KEYSTORES TO VALIDATE WITH ANOTHER CLIENT, OR YOU WILL GET SLASHED.
 ```
 
-Once you see the above message, you have successfully import the validator keys. You can now proceed to the next step to start the validator client.
+Once you see the above message, you have successfully imported the validator keys. You can now proceed to the next step to start the validator client.
 
 
 ### Step 4. Start Lighthouse validator client
@@ -147,7 +147,7 @@ Goerli testnet:
 lighthouse vc --network testnet --suggested-fee-recipient YourFeeRecipientAddress
 ```
 
-The `validator client` manages validators using data obtained from the beacon node via a HTTP API. You are required to enter a fee-recipient to receive tips from transactions. See [Suggested Fee Recipient](./suggested-fee-recipient.md) for more info.
+The `validator client` manages validators using data obtained from the beacon node via a HTTP API. You are highly recommended entering a fee-recipient by changing `YourFeeRecipientAddress` to an Ethereum address under your control. See [Suggested Fee Recipient](./suggested-fee-recipient.md) for more info.
 
 When `lighthouse vc` starts, check that the validator public key appears
 as a `voting_pubkey` as shown below:
@@ -162,11 +162,11 @@ by the protocol.
 
 ### Step 5: Submit deposit (32ETH per validator)
 
-After you have successfully run and sync the execution client, beacon node and validator client, you can now proceed to submit the deposit. Go to the mainnet [Staking launchpad](https://launchpad.ethereum.org/en/) (or [Goerli staking launchpad](https://goerli.launchpad.ethereum.org/en/) for testnet validator) and go through carefully the steps to becoming a validator. Once you are ready, you can submit the deposit by seding 32ETH per validator to the deposit contract. Upload the `deposit_data-*.json` file generated in [Step 1](#step-1-create-validator-keys) to the Staking launchpad.
+After you have successfully run and sync the execution client, beacon node and validator client, you can now proceed to submit the deposit. Go to the mainnet [Staking launchpad](https://launchpad.ethereum.org/en/) (or [Goerli staking launchpad](https://goerli.launchpad.ethereum.org/en/) for testnet validator) and go through carefully the steps to becoming a validator. Once you are ready, you can submit the deposit by sending 32ETH per validator to the deposit contract. Upload the `deposit_data-*.json` file generated in [Step 1](#step-1-create-validator-keys) to the Staking launchpad.
 
 > **Important note:** Double check that the deposit contract for mainnet is `0x00000000219ab540356cBB839Cbe05303d7705Fa` before you confirm the transaction. 
 
-Once the deposit transaction is confirmed, it will take a minimum of ~16 hours to a few days for the beacon chain to process and activate your validator, depending on the queue. Refer to our [FAQ - Why does it take so long for a validator to be activated](./faq.md#why-does-it-take-so-long-for-a-validator-to-be-activated) for more info. 
+Once the deposit transaction is confirmed, it will take a minimum of ~16 hours to a few days/weeks for the beacon chain to process and activate your validator, depending on the queue. Refer to our [FAQ - Why does it take so long for a validator to be activated](./faq.md#why-does-it-take-so-long-for-a-validator-to-be-activated) for more info. 
 
 Once your validator is activated, the validator client will start to publish attestations each epoch:
 
