@@ -1173,6 +1173,8 @@ impl FromStr for Accept {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let media_type_list = MediaTypeList::new(s);
 
+        // [q-factor weighting]: https://datatracker.ietf.org/doc/html/rfc7231#section-5.3.2
+        // find the highest q-factor supported accept type
         let mut highest_q = 0_u16;
         let mut accept_type = None;
 
