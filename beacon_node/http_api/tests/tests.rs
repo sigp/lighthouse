@@ -1,4 +1,3 @@
-use crate::common::{create_api_server, create_api_server_on_port, ApiServer};
 use beacon_chain::test_utils::RelativeSyncCommittee;
 use beacon_chain::{
     test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType},
@@ -18,7 +17,10 @@ use execution_layer::test_utils::{
 };
 use futures::stream::{Stream, StreamExt};
 use futures::FutureExt;
-use http_api::{BlockId, StateId};
+use http_api::{
+    test_utils::{create_api_server, create_api_server_on_port, ApiServer},
+    BlockId, StateId,
+};
 use lighthouse_network::{Enr, EnrExt, PeerId};
 use network::NetworkReceivers;
 use proto_array::ExecutionStatus;
@@ -1872,21 +1874,6 @@ impl ApiTester {
                 .await
                 .unwrap();
             assert_eq!(result_ssz, expected, "{:?}", state_id);
-
-            // Check legacy v1 API.
-            let result_v1 = self
-                .client
-                .get_debug_beacon_states_v1(state_id.0)
-                .await
-                .unwrap();
-
-            if let (Some(json), Some(expected)) = (&result_v1, &expected) {
-                assert_eq!(json.version, None);
-                assert_eq!(json.data, *expected, "{:?}", state_id);
-            } else {
-                assert_eq!(result_v1, None);
-                assert_eq!(expected, None);
-            }
 
             // Check that version headers are provided.
             let url = self

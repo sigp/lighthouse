@@ -497,7 +497,8 @@ impl<T: EthSpec> OperationPool<T> {
             |exit| {
                 filter(exit.as_inner())
                     && exit.signature_is_still_valid(&state.fork())
-                    && verify_exit(state, exit.as_inner(), VerifySignatures::False, spec).is_ok()
+                    && verify_exit(state, None, exit.as_inner(), VerifySignatures::False, spec)
+                        .is_ok()
             },
             |exit| exit.as_inner().clone(),
             T::MaxVoluntaryExits::to_usize(),

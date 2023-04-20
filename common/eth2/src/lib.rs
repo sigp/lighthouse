@@ -22,7 +22,7 @@ use lighthouse_network::PeerId;
 pub use reqwest;
 use reqwest::{IntoUrl, RequestBuilder, Response};
 pub use reqwest::{StatusCode, Url};
-pub use sensitive_url::SensitiveUrl;
+pub use sensitive_url::{SensitiveError, SensitiveUrl};
 use serde::{de::DeserializeOwned, Serialize};
 use std::convert::TryFrom;
 use std::fmt;
@@ -1277,23 +1277,6 @@ impl BeaconNodeHttpClient {
     ) -> Result<Option<ExecutionOptimisticFinalizedForkVersionedResponse<BeaconState<T>>>, Error>
     {
         let path = self.get_debug_beacon_states_path(state_id)?;
-        self.get_opt(path).await
-    }
-
-    /// `GET v1/debug/beacon/states/{state_id}` (LEGACY)
-    pub async fn get_debug_beacon_states_v1<T: EthSpec>(
-        &self,
-        state_id: StateId,
-    ) -> Result<Option<ExecutionOptimisticForkVersionedResponse<BeaconState<T>>>, Error> {
-        let mut path = self.eth_path(V1)?;
-
-        path.path_segments_mut()
-            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
-            .push("debug")
-            .push("beacon")
-            .push("states")
-            .push(&state_id.to_string());
-
         self.get_opt(path).await
     }
 

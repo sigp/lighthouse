@@ -20,10 +20,12 @@ fn error(reason: ExitInvalid) -> BlockOperationError<ExitInvalid> {
 /// Spec v0.12.1
 pub fn verify_exit<T: EthSpec>(
     state: &BeaconState<T>,
+    current_epoch: Option<Epoch>,
     signed_exit: &SignedVoluntaryExit,
     verify_signatures: VerifySignatures,
     spec: &ChainSpec,
 ) -> Result<()> {
+    let current_epoch = current_epoch.unwrap_or(state.current_epoch());
     let exit = &signed_exit.message;
 
     let validator = state
@@ -33,7 +35,7 @@ pub fn verify_exit<T: EthSpec>(
 
     // Verify the validator is active.
     verify!(
-        validator.is_active_at(state.current_epoch()),
+        validator.is_active_at(current_epoch),
         ExitInvalid::NotActive(exit.validator_index)
     );
 
@@ -45,9 +47,9 @@ pub fn verify_exit<T: EthSpec>(
 
     // Exits must specify an epoch when they become valid; they are not valid before then.
     verify!(
-        state.current_epoch() >= exit.epoch,
+        current_epoch >= exit.epoch,
         ExitInvalid::FutureEpoch {
-            state: state.current_epoch(),
+            state: current_epoch,
             exit: exit.epoch
         }
     );
@@ -57,9 +59,9 @@ pub fn verify_exit<T: EthSpec>(
         .activation_epoch
         .safe_add(spec.shard_committee_period)?;
     verify!(
-        state.current_epoch() >= earliest_exit_epoch,
+        current_epoch >= earliest_exit_epoch,
         ExitInvalid::TooYoungToExit {
-            current_epoch: state.current_epoch(),
+            current_epoch,
             earliest_exit_epoch,
         }
     );
