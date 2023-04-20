@@ -1,3 +1,0 @@
-# Custom Dictionary Words
-pubkey
-sigp
