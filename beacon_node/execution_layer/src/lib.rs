@@ -2081,7 +2081,7 @@ pub enum BlobTxConversionError {
     /// Missing the `max_fee_per_data_gas` field.
     MaxFeePerDataGasMissing,
     /// Missing the `versioned_hashes` field.
-    BlobVersionedHashesMissing,
+    VersionedHashesMissing,
     /// `y_parity` field was greater than one.
     InvalidYParity,
     /// There was an error converting the transaction to SSZ.
@@ -2207,18 +2207,18 @@ fn ethers_tx_to_bytes<T: EthSpec>(
         )
         .map_err(BlobTxConversionError::FromStrRadix)?;
 
-        // blobVersionedHashes
+        // versionedHashes
         let versioned_hashes = other
-            .get("blobVersionedHashes")
-            .ok_or(BlobTxConversionError::BlobVersionedHashesMissing)?
+            .get("versionedHashes")
+            .ok_or(BlobTxConversionError::VersionedHashesMissing)?
             .as_array()
-            .ok_or(BlobTxConversionError::BlobVersionedHashesMissing)?
+            .ok_or(BlobTxConversionError::VersionedHashesMissing)?
             .iter()
             .map(|versioned_hash| {
                 let hash_bytes = eth2_serde_utils::hex::decode(
                     versioned_hash
                         .as_str()
-                        .ok_or(BlobTxConversionError::BlobVersionedHashesMissing)?,
+                        .ok_or(BlobTxConversionError::VersionedHashesMissing)?,
                 )
                 .map_err(BlobTxConversionError::FromHex)?;
                 if hash_bytes.len() != Hash256::ssz_fixed_len() {
