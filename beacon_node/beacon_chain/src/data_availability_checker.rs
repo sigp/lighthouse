@@ -73,7 +73,6 @@ pub struct DataAvailabilityChecker<T: EthSpec, S: SlotClock> {
 /// The blobs are all gossip and kzg verified.
 /// The block has completed all verifications except the availability check.
 struct ReceivedComponents<T: EthSpec> {
-    /// We use a `BTreeMap` here to maintain the order of `BlobSidecar`s based on index.
     verified_blobs: FixedVector<Option<KzgVerifiedBlob<T>>, T::MaxBlobsPerBlock>,
     executed_block: Option<AvailabilityPendingExecutedBlock<T>>,
 }

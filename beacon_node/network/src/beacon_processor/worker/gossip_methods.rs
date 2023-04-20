@@ -1,6 +1,6 @@
 use crate::{metrics, service::NetworkMessage, sync::SyncMessage};
 
-use beacon_chain::blob_verification::{AsBlock, BlockWrapper, GossipVerifiedBlob};
+use beacon_chain::blob_verification::{AsBlock, BlobError, BlockWrapper, GossipVerifiedBlob};
 use beacon_chain::store::Error;
 use beacon_chain::{
     attestation_verification::{self, Error as AttnError, VerifiedAttestation},
@@ -651,24 +651,98 @@ impl<T: BeaconChainTypes> Worker<T> {
     #[allow(clippy::too_many_arguments)]
     pub async fn process_gossip_blob(
         self,
-        _message_id: MessageId,
+        message_id: MessageId,
         peer_id: PeerId,
         _peer_client: Client,
         blob_index: u64,
         signed_blob: SignedBlobSidecar<T::EthSpec>,
         _seen_duration: Duration,
     ) {
+        let slot = signed_blob.message.slot;
+        let root = signed_blob.message.block_root;
+        let index = signed_blob.message.index;
         match self
             .chain
             .verify_blob_sidecar_for_gossip(signed_blob, blob_index)
         {
             Ok(gossip_verified_blob) => {
+                debug!(
+                    self.log,
+                    "Successfully verified gossip blob";
+                    "slot" => %slot,
+                            "root" => %root,
+                            "index" => %index
+                );
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
                 self.process_gossip_verified_blob(peer_id, gossip_verified_blob, _seen_duration)
                     .await
             }
-            Err(_) => {
-                // TODO(pawan): handle all blob errors for peer scoring
-                todo!()
+            Err(err) => {
+                match err {
+                    BlobError::BlobParentUnknown {
+                        blob_root,
+                        blob_parent_root,
+                    } => {
+                        debug!(
+                            self.log,
+                            "Unknown parent hash for blob";
+                            "action" => "requesting parent",
+                            "blob_root" => %blob_root,
+                            "parent_root" => %blob_parent_root
+                        );
+                        // TODO: send blob to reprocessing queue and queue a sync request for the blob.
+                        todo!();
+                    }
+                    BlobError::ProposerSignatureInvalid
+                    | BlobError::UnknownValidator(_)
+                    | BlobError::ProposerIndexMismatch { .. }
+                    | BlobError::BlobIsNotLaterThanParent { .. }
+                    | BlobError::InvalidSubnet { .. } => {
+                        warn!(
+                            self.log,
+                            "Could not verify blob sidecar for gossip. Rejecting the blob sidecar";
+                            "error" => ?err,
+                            "slot" => %slot,
+                            "root" => %root,
+                            "index" => %index
+                        );
+                        // Prevent recurring behaviour by penalizing the peer slightly.
+                        self.gossip_penalize_peer(
+                            peer_id,
+                            PeerAction::LowToleranceError,
+                            "gossip_blob_low",
+                        );
+                        self.propagate_validation_result(
+                            message_id,
+                            peer_id,
+                            MessageAcceptance::Reject,
+                        );
+                    }
+                    BlobError::FutureSlot { .. }
+                    | BlobError::BeaconChainError(_)
+                    | BlobError::RepeatBlob { .. }
+                    | BlobError::PastFinalizedSlot { .. } => {
+                        warn!(
+                            self.log,
+                            "Could not verify blob sidecar for gossip. Ignoring the blob sidecar";
+                            "error" => ?err,
+                            "slot" => %slot,
+                            "root" => %root,
+                            "index" => %index
+                        );
+                        // Prevent recurring behaviour by penalizing the peer slightly.
+                        self.gossip_penalize_peer(
+                            peer_id,
+                            PeerAction::HighToleranceError,
+                            "gossip_blob_high",
+                        );
+                        self.propagate_validation_result(
+                            message_id,
+                            peer_id,
+                            MessageAcceptance::Ignore,
+                        );
+                    }
+                }
             }
         }
     }

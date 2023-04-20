@@ -1,6 +1,7 @@
 use derivative::Derivative;
 use slot_clock::SlotClock;
 use ssz_types::FixedVector;
+use state_processing::state_advance::partial_state_advance;
 use std::sync::Arc;
 
 use crate::beacon_chain::{
@@ -14,9 +15,11 @@ use crate::kzg_utils::{validate_blob, validate_blobs};
 use crate::BeaconChainError;
 use kzg::Kzg;
 use types::blob_sidecar::BlobIdentifier;
+use std::borrow::Cow;
 use types::{
-    BeaconBlockRef, BeaconStateError, BlobSidecar, Epoch, EthSpec, Hash256, KzgCommitment,
-    SignedBeaconBlock, SignedBeaconBlockHeader, SignedBlobSidecar, Slot,
+    BeaconBlockRef, BeaconState, BeaconStateError, BlobSidecar, ChainSpec,
+    CloneConfig, Epoch, EthSpec, Hash256, KzgCommitment, RelativeEpoch, SignedBeaconBlock,
+    SignedBeaconBlockHeader, SignedBlobSidecar, Slot,
 };
 
 #[derive(Debug)]
@@ -32,31 +35,6 @@ pub enum BlobError {
         latest_permissible_slot: Slot,
     },
 
-    /// The blob sidecar has a different slot than the block.
-    ///
-    /// ## Peer scoring
-    ///
-    /// Assuming the local clock is correct, the peer has sent an invalid message.
-    SlotMismatch {
-        blob_slot: Slot,
-        block_slot: Slot,
-    },
-
-    /// No kzg ccommitment associated with blob sidecar.
-    KzgCommitmentMissing,
-
-    /// No transactions in block
-    TransactionsMissing,
-
-    /// Blob transactions in the block do not correspond to the kzg commitments.
-    TransactionCommitmentMismatch,
-
-    TrustedSetupNotInitialized,
-
-    InvalidKzgProof,
-
-    KzgError(kzg::Error),
-
     /// There was an error whilst processing the sync contribution. It is not known if it is valid or invalid.
     ///
     /// ## Peer scoring
@@ -64,28 +42,20 @@ pub enum BlobError {
     /// We were unable to process this sync committee message due to an internal error. It's unclear if the
     /// sync committee message is valid.
     BeaconChainError(BeaconChainError),
-    /// No blobs for the specified block where we would expect blobs.
-    UnavailableBlobs,
-    /// Blobs provided for a pre-Deneb fork.
-    InconsistentFork,
 
-    /// The `blobs_sidecar.message.beacon_block_root` block is unknown.
+    /// The `BlobSidecar` was gossiped over an incorrect subnet.
     ///
     /// ## Peer scoring
     ///
-    /// The blob points to a block we have not yet imported. The blob cannot be imported
-    /// into fork choice yet
-    UnknownHeadBlock {
-        beacon_block_root: Hash256,
-    },
-
-    /// The `BlobSidecar` was gossiped over an incorrect subnet.
-    InvalidSubnet {
-        expected: u64,
-        received: u64,
-    },
+    /// The blob is invalid or the peer is faulty.
+    InvalidSubnet { expected: u64, received: u64 },
 
     /// The sidecar corresponds to a slot older than the finalized head slot.
+    ///
+    /// ## Peer scoring
+    ///
+    /// It's unclear if this blob is valid, but this blob is for a finalized slot and is
+    /// therefore useless to us.
     PastFinalizedSlot {
         blob_slot: Slot,
         finalized_slot: Slot,
@@ -93,20 +63,18 @@ pub enum BlobError {
 
     /// The proposer index specified in the sidecar does not match the locally computed
     /// proposer index.
-    ProposerIndexMismatch {
-        sidecar: usize,
-        local: usize,
-    },
+    ///
+    /// ## Peer scoring
+    ///
+    /// The blob is invalid and the peer is faulty.
+    ProposerIndexMismatch { sidecar: usize, local: usize },
 
+    /// The proposal signature in invalid.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The blob is invalid and the peer is faulty.
     ProposerSignatureInvalid,
-
-    /// A sidecar with same slot, beacon_block_root and proposer_index but different blob is received for
-    /// the same blob index.
-    RepeatSidecar {
-        proposer: usize,
-        slot: Slot,
-        blob_index: usize,
-    },
 
     /// The proposal_index corresponding to blob.beacon_block_root is not known.
     ///
@@ -115,7 +83,34 @@ pub enum BlobError {
     /// The block is invalid and the peer is faulty.
     UnknownValidator(u64),
 
-    BlobCacheError(AvailabilityCheckError),
+    /// The provided blob is not from a later slot than its parent.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The blob is invalid and the peer is faulty.
+    BlobIsNotLaterThanParent { blob_slot: Slot, parent_slot: Slot },
+
+    /// The provided blob's parent block is unknown.
+    ///
+    /// ## Peer scoring
+    ///
+    /// We cannot process the blob without validating its parent, the peer isn't necessarily faulty.
+    BlobParentUnknown {
+        blob_root: Hash256,
+        blob_parent_root: Hash256,
+    },
+
+    /// A blob has already been seen for the given `(sidecar.block_root, sidecar.index)` tuple
+    /// over gossip or no gossip sources.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The peer isn't faulty, but we do not forward it over gossip.
+    RepeatBlob {
+        proposer: u64,
+        slot: Slot,
+        index: u64,
+    },
 }
 
 impl From<BeaconChainError> for BlobError {
@@ -160,6 +155,8 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
     let blob_slot = signed_blob_sidecar.message.slot;
     let blob_index = signed_blob_sidecar.message.index;
     let block_root = signed_blob_sidecar.message.block_root;
+    let block_parent_root = signed_blob_sidecar.message.block_parent_root;
+    let blob_proposer_index = signed_blob_sidecar.message.proposer_index;
 
     // Verify that the blob_sidecar was received on the correct subnet.
     if blob_index != subnet {
@@ -181,8 +178,6 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
         });
     }
 
-    // TODO(pawan): Verify not from a past slot?
-
     // Verify that the sidecar slot is greater than the latest finalized slot
     let latest_finalized_slot = chain
         .head()
@@ -196,26 +191,93 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
         });
     }
 
-    // TODO(pawan): should we verify locally that the parent root is correct
-    // or just use whatever the proposer gives us?
+    // Verify that this is the first blob sidecar received for the (sidecar.block_root, sidecar.index) tuple
+    if chain
+        .observed_blob_sidecars
+        .read()
+        .is_known(&signed_blob_sidecar.message)
+        .map_err(|e| BlobError::BeaconChainError(e.into()))?
+    {
+        return Err(BlobError::RepeatBlob {
+            proposer: blob_proposer_index,
+            slot: blob_slot,
+            index: blob_index,
+        });
+    }
+
+    // We have already verified that the blob is past finalization, so we can
+    // just check fork choice for the block's parent.
+    if let Some(parent_block) = chain
+        .canonical_head
+        .fork_choice_read_lock()
+        .get_block(&block_parent_root)
+    {
+        if parent_block.slot >= blob_slot {
+            return Err(BlobError::BlobIsNotLaterThanParent {
+                blob_slot,
+                parent_slot: parent_block.slot,
+            });
+        }
+    } else {
+        return Err(BlobError::BlobParentUnknown {
+            blob_root: block_root,
+            blob_parent_root: block_parent_root,
+        });
+    }
+
+    // Note: The spec checks the signature directly against `blob_sidecar.message.proposer_index`
+    // before checking that the provided proposer index is valid w.r.t the current shuffling.
+    //
+    // However, we check that the proposer_index matches against the shuffling first to avoid
+    // signature verification against an invalid proposer_index.
     let proposer_shuffling_root = signed_blob_sidecar.message.block_parent_root;
 
-    let (proposer_index, fork) = match chain
+    let proposer_opt = chain
         .beacon_proposer_cache
         .lock()
-        .get_slot::<T::EthSpec>(proposer_shuffling_root, blob_slot)
-    {
-        Some(proposer) => (proposer.index, proposer.fork),
-        None => {
-            let state = &chain.canonical_head.cached_head().snapshot.beacon_state;
+        .get_slot::<T::EthSpec>(proposer_shuffling_root, blob_slot);
+
+    let (proposer_index, fork) = if let Some(proposer) = proposer_opt {
+        (proposer.index, proposer.fork)
+    } else {
+        // The cached head state is in the same epoch as the blob or the state has already been
+        // advanced to the blob's epoch
+        let snapshot = &chain.canonical_head.cached_head().snapshot;
+        if snapshot.beacon_state.current_epoch() == blob_slot.epoch(T::EthSpec::slots_per_epoch()) {
             (
-                state.get_beacon_proposer_index(blob_slot, &chain.spec)?,
-                state.fork(),
+                snapshot
+                    .beacon_state
+                    .get_beacon_proposer_index(blob_slot, &chain.spec)?,
+                snapshot.beacon_state.fork(),
             )
+        }
+        // Need to advance the state to get the proposer index
+        else {
+            // The state produced is only valid for determining proposer/attester shuffling indices.
+            let mut cloned_state = snapshot.clone_with(CloneConfig::committee_caches_only());
+            let state = cheap_state_advance_to_obtain_committees(
+                &mut cloned_state.beacon_state,
+                None,
+                blob_slot,
+                &chain.spec,
+            )?;
+
+            let proposers = state.get_beacon_proposer_indices(&chain.spec)?;
+            let proposer_index = *proposers
+                .get(blob_slot.as_usize() % T::EthSpec::slots_per_epoch() as usize)
+                .ok_or_else(|| BeaconChainError::NoProposerForSlot(blob_slot))?;
+
+            // Prime the proposer shuffling cache with the newly-learned value.
+            chain.beacon_proposer_cache.lock().insert(
+                blob_slot.epoch(T::EthSpec::slots_per_epoch()),
+                proposer_shuffling_root,
+                proposers,
+                state.fork(),
+            )?;
+            (proposer_index, state.fork())
         }
     };
 
-    let blob_proposer_index = signed_blob_sidecar.message.proposer_index;
     if proposer_index != blob_proposer_index as usize {
         return Err(BlobError::ProposerIndexMismatch {
             sidecar: blob_proposer_index as usize,
@@ -223,6 +285,7 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
         });
     }
 
+    // Signature verification
     let signature_is_valid = {
         let pubkey_cache = chain
             .validator_pubkey_cache
@@ -247,31 +310,84 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
         return Err(BlobError::ProposerSignatureInvalid);
     }
 
-    // TODO(pawan): kzg validations.
-
-    // TODO(pawan): Check if other blobs for the same proposer index and blob index have been
-    // received and drop if required.
-
-    // Verify if the corresponding block for this blob has been received.
-    // Note: this should be the last gossip check so that we can forward the blob
-    // over the gossip network even if we haven't received the corresponding block yet
-    // as all other validations have passed.
-    let block_opt = chain
-        .canonical_head
-        .fork_choice_read_lock()
-        .get_block(&block_root)
-        .or_else(|| chain.early_attester_cache.get_proto_block(block_root)); // TODO(pawan): should we be checking this cache?
-
-    // TODO(pawan): this may be redundant with the new `AvailabilityProcessingStatus::PendingBlock variant`
-    if block_opt.is_none() {
-        return Err(BlobError::UnknownHeadBlock {
-            beacon_block_root: block_root,
+    // Now the signature is valid, store the proposal so we don't accept another blob sidecar
+    // with the same `BlobIdentifier`.
+    // It's important to double-check that the proposer still hasn't been observed so we don't
+    // have a race-condition when verifying two blocks simultaneously.
+    //
+    // Note: If this BlobSidecar goes on to fail full verification, we do not evict it from the seen_cache
+    // as alternate blob_sidecars for the same identifier can still be retrieved
+    // over rpc. Evicting them from this cache would allow faster propagation over gossip. So we allow
+    // retreieval of potentially valid blocks over rpc, but try to punish the proposer for signing
+    // invalid messages. Issue for more background
+    // https://github.com/ethereum/consensus-specs/issues/3261
+    if chain
+        .observed_blob_sidecars
+        .write()
+        .observe_sidecar(&signed_blob_sidecar.message)
+        .map_err(|e| BlobError::BeaconChainError(e.into()))?
+    {
+        return Err(BlobError::RepeatBlob {
+            proposer: proposer_index as u64,
+            slot: blob_slot,
+            index: blob_index,
         });
     }
 
     Ok(GossipVerifiedBlob {
         blob: signed_blob_sidecar.message,
     })
+}
+
+/// Performs a cheap (time-efficient) state advancement so the committees and proposer shuffling for
+/// `slot` can be obtained from `state`.
+///
+/// The state advancement is "cheap" since it does not generate state roots. As a result, the
+/// returned state might be holistically invalid but the committees/proposers will be correct (since
+/// they do not rely upon state roots).
+///
+/// If the given `state` can already serve the `slot`, the committees will be built on the `state`
+/// and `Cow::Borrowed(state)` will be returned. Otherwise, the state will be cloned, cheaply
+/// advanced and then returned as a `Cow::Owned`. The end result is that the given `state` is never
+/// mutated to be invalid (in fact, it is never changed beyond a simple committee cache build).
+///
+/// Note: This is a copy of the `block_verification::cheap_state_advance_to_obtain_committees` to return
+/// a BlobError error type instead.
+/// TODO(pawan): try to unify the 2 functions.
+fn cheap_state_advance_to_obtain_committees<'a, E: EthSpec>(
+    state: &'a mut BeaconState<E>,
+    state_root_opt: Option<Hash256>,
+    blob_slot: Slot,
+    spec: &ChainSpec,
+) -> Result<Cow<'a, BeaconState<E>>, BlobError> {
+    let block_epoch = blob_slot.epoch(E::slots_per_epoch());
+
+    if state.current_epoch() == block_epoch {
+        // Build both the current and previous epoch caches, as the previous epoch caches are
+        // useful for verifying attestations in blocks from the current epoch.
+        state.build_committee_cache(RelativeEpoch::Previous, spec)?;
+        state.build_committee_cache(RelativeEpoch::Current, spec)?;
+
+        Ok(Cow::Borrowed(state))
+    } else if state.slot() > blob_slot {
+        Err(BlobError::BlobIsNotLaterThanParent {
+            blob_slot,
+            parent_slot: state.slot(),
+        })
+    } else {
+        let mut state = state.clone_with(CloneConfig::committee_caches_only());
+        let target_slot = block_epoch.start_slot(E::slots_per_epoch());
+
+        // Advance the state into the same epoch as the block. Use the "partial" method since state
+        // roots are not important for proposer/attester shuffling.
+        partial_state_advance(&mut state, state_root_opt, target_slot, spec)
+            .map_err(|e| BlobError::BeaconChainError(BeaconChainError::from(e)))?;
+
+        state.build_committee_cache(RelativeEpoch::Previous, spec)?;
+        state.build_committee_cache(RelativeEpoch::Current, spec)?;
+
+        Ok(Cow::Owned(state))
+    }
 }
 
 /// Wrapper over a `BlobSidecar` for which we have completed kzg verification.

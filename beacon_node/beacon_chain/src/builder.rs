@@ -813,6 +813,8 @@ where
             // TODO: allow for persisting and loading the pool from disk.
             observed_block_producers: <_>::default(),
             // TODO: allow for persisting and loading the pool from disk.
+            observed_blob_sidecars: <_>::default(),
+            // TODO: allow for persisting and loading the pool from disk.
             observed_voluntary_exits: <_>::default(),
             observed_proposer_slashings: <_>::default(),
             observed_attester_slashings: <_>::default(),
