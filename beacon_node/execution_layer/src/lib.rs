@@ -114,6 +114,8 @@ pub enum Error {
         transactions_root: Hash256,
     },
     InvalidJWTSecret(String),
+    InvalidForkForPayload,
+    InvalidPayloadBody(String),
     BeaconStateError(BeaconStateError),
 }
 
@@ -278,6 +280,8 @@ pub struct Config {
     pub execution_endpoints: Vec<SensitiveUrl>,
     /// Endpoint urls for services providing the builder api.
     pub builder_url: Option<SensitiveUrl>,
+    /// User agent to send with requests to the builder API.
+    pub builder_user_agent: Option<String>,
     /// JWT secrets for the above endpoints running the engine api.
     pub secret_files: Vec<PathBuf>,
     /// The default fee recipient to use on the beacon node if none if provided from
@@ -308,6 +312,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
         let Config {
             execution_endpoints: urls,
             builder_url,
+            builder_user_agent,
             secret_files,
             suggested_fee_recipient,
             jwt_id,
@@ -368,12 +373,17 @@ impl<T: EthSpec> ExecutionLayer<T> {
 
         let builder = builder_url
             .map(|url| {
-                let builder_client = BuilderHttpClient::new(url.clone()).map_err(Error::Builder);
-                info!(log,
+                let builder_client = BuilderHttpClient::new(url.clone(), builder_user_agent)
+                    .map_err(Error::Builder)?;
+
+                info!(
+                    log,
                     "Connected to external block builder";
                     "builder_url" => ?url,
-                    "builder_profit_threshold" => builder_profit_threshold);
-                builder_client
+                    "builder_profit_threshold" => builder_profit_threshold,
+                    "local_user_agent" => builder_client.get_user_agent(),
+                );
+                Ok::<_, Error>(builder_client)
             })
             .transpose()?;
 
@@ -1676,14 +1686,60 @@ impl<T: EthSpec> ExecutionLayer<T> {
             .map_err(Error::EngineError)
     }
 
-    pub async fn get_payload_by_block_hash(
+    /// Fetch a full payload from the execution node.
+    ///
+    /// This will fail if the payload is not from the finalized portion of the chain.
+    pub async fn get_payload_for_header(
+        &self,
+        header: &ExecutionPayloadHeader<T>,
+        fork: ForkName,
+    ) -> Result<Option<ExecutionPayload<T>>, Error> {
+        let hash = header.block_hash();
+        let block_number = header.block_number();
+
+        // Handle default payload body.
+        if header.block_hash() == ExecutionBlockHash::zero() {
+            let payload = match fork {
+                ForkName::Merge => ExecutionPayloadMerge::default().into(),
+                ForkName::Capella => ExecutionPayloadCapella::default().into(),
+                ForkName::Deneb => ExecutionPayloadDeneb::default().into(),
+                ForkName::Base | ForkName::Altair => {
+                    return Err(Error::InvalidForkForPayload);
+                }
+            };
+            return Ok(Some(payload));
+        }
+
+        // Use efficient payload bodies by range method if supported.
+        let capabilities = self.get_engine_capabilities(None).await?;
+        if capabilities.get_payload_bodies_by_range_v1 {
+            let mut payload_bodies = self.get_payload_bodies_by_range(block_number, 1).await?;
+
+            if payload_bodies.len() != 1 {
+                return Ok(None);
+            }
+
+            let opt_payload_body = payload_bodies.pop().flatten();
+            opt_payload_body
+                .map(|body| {
+                    body.to_payload(header.clone())
+                        .map_err(Error::InvalidPayloadBody)
+                })
+                .transpose()
+        } else {
+            // Fall back to eth_blockByHash.
+            self.get_payload_by_hash_legacy(hash, fork).await
+        }
+    }
+
+    pub async fn get_payload_by_hash_legacy(
         &self,
         hash: ExecutionBlockHash,
         fork: ForkName,
     ) -> Result<Option<ExecutionPayload<T>>, Error> {
         self.engine()
             .request(|engine| async move {
-                self.get_payload_by_block_hash_from_engine(engine, hash, fork)
+                self.get_payload_by_hash_from_engine(engine, hash, fork)
                     .await
             })
             .await
@@ -1691,7 +1747,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
             .map_err(Error::EngineError)
     }
 
-    async fn get_payload_by_block_hash_from_engine(
+    async fn get_payload_by_hash_from_engine(
         &self,
         engine: &Engine,
         hash: ExecutionBlockHash,
@@ -1705,7 +1761,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                 ForkName::Capella => Ok(Some(ExecutionPayloadCapella::default().into())),
                 ForkName::Deneb => Ok(Some(ExecutionPayloadDeneb::default().into())),
                 ForkName::Base | ForkName::Altair => Err(ApiError::UnsupportedForkVariant(
-                    format!("called get_payload_by_block_hash_from_engine with {}", fork),
+                    format!("called get_payload_by_hash_from_engine with {}", fork),
                 )),
             };
         }

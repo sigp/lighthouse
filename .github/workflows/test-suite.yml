@@ -14,7 +14,7 @@ env:
   # FIXME: temporarily allow warnings on 4844 branch. Revert to original later: RUSTFLAGS: "-D warnings -C debuginfo=0"
   RUSTFLAGS: "-C debuginfo=0"
   # The Nightly version used for cargo-udeps, might need updating from time to time.
-  PINNED_NIGHTLY: nightly-2022-12-15
+  PINNED_NIGHTLY: nightly-2023-04-16
   # Prevent Github API rate limiting.
   LIGHTHOUSE_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 jobs:
@@ -84,7 +84,7 @@ jobs:
       run: choco install -y make
     - uses: KyleMayes/install-llvm-action@v1
       with:
-        version: "13.0"
+        version: "15.0"
         directory: ${{ runner.temp }}/llvm
     - name: Set LIBCLANG_PATH
       run: echo "LIBCLANG_PATH=$((gcm clang).source -replace "clang.exe")" >> $env:GITHUB_ENV
