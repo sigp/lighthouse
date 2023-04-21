@@ -53,22 +53,9 @@ sleep 20
 sed -i 's/"shanghaiTime".*$/"shanghaiTime": 0,/g' genesis.json
 sed -i 's/"shardingForkTime".*$/"shardingForkTime": 0,/g' genesis.json
 
-# Manually set the network key for the BN that will be connected to the doppelganger validator
-# The hardcoded peer id is derived from the hardcoded secret key
-# We set this peer id as a trusted peer for the remaining BNs.
-# This is to ensure that the doppelganger BN doesn't get downscored by lighthouse's peer scoring system
-# which happens because of excessive posting of duplicate messages.
-PEER_ID='16Uiu2HAmTRYTvvc33UdwhJMRhkCeQZW6JVjzNCDPjNkdDncWX8LU'
-SECRET_KEY="\\x2e\\x31\\xf6\\x60\\x0c\\x30\\xbe\\x32\\x34\\x8d\\xff\\x4c\\xad\\x66\\x51\\x8e\\x23\\xd2\\x0e\\x18\\x09\\x76\\x87\\xd1\\x70\\xce\\x4b\\xab\\xdd\\x0f\\xfb\\x78"
-mkdir -p $HOME/.lighthouse/local-testnet/node_2/beacon/network
-
-echo -n -e $SECRET_KEY > $HOME/.lighthouse/local-testnet/node_2/beacon/network/key
-
-echo "Starting local beacon nodes"
-
-exit_if_fails ../local_testnet/beacon_node.sh -t $PEER_ID -d debug $HOME/.lighthouse/local-testnet/node_1 9000 8000 http://localhost:5000 $HOME/.lighthouse/local-testnet/geth_datadir1/geth/jwtsecret &> /dev/null &
-exit_if_fails ../local_testnet/beacon_node.sh -d debug $HOME/.lighthouse/local-testnet/node_2 9100 8100 http://localhost:5100 $HOME/.lighthouse/local-testnet/geth_datadir2/geth/jwtsecret &> beacon1.log &
-exit_if_fails ../local_testnet/beacon_node.sh -t $PEER_ID $HOME/.lighthouse/local-testnet/node_3 9200 8200 http://localhost:5200 $HOME/.lighthouse/local-testnet/geth_datadir3/geth/jwtsecret &> /dev/null &
+exit_if_fails ../local_testnet/beacon_node.sh $HOME/.lighthouse/local-testnet/node_1 9000 8000 http://localhost:5000 $HOME/.lighthouse/local-testnet/geth_datadir1/geth/jwtsecret &> /dev/null &
+exit_if_fails ../local_testnet/beacon_node.sh $HOME/.lighthouse/local-testnet/node_2 9100 8100 http://localhost:5100 $HOME/.lighthouse/local-testnet/geth_datadir2/geth/jwtsecret &> beacon1.log &
+exit_if_fails ../local_testnet/beacon_node.sh $HOME/.lighthouse/local-testnet/node_3 9200 8200 http://localhost:5200 $HOME/.lighthouse/local-testnet/geth_datadir3/geth/jwtsecret &> /dev/null &
 
 echo "Starting local validator clients"
 
