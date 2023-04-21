@@ -1310,23 +1310,6 @@ impl BeaconNodeHttpClient {
         self.get_opt(path).await
     }
 
-    /// `GET v1/debug/beacon/states/{state_id}` (LEGACY)
-    pub async fn get_debug_beacon_states_v1<T: EthSpec>(
-        &self,
-        state_id: StateId,
-    ) -> Result<Option<ExecutionOptimisticForkVersionedResponse<BeaconState<T>>>, Error> {
-        let mut path = self.eth_path(V1)?;
-
-        path.path_segments_mut()
-            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
-            .push("debug")
-            .push("beacon")
-            .push("states")
-            .push(&state_id.to_string());
-
-        self.get_opt(path).await
-    }
-
     /// `GET debug/beacon/states/{state_id}`
     /// `-H "accept: application/octet-stream"`
     pub async fn get_debug_beacon_states_ssz<T: EthSpec>(

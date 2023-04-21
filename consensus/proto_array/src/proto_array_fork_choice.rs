@@ -250,6 +250,9 @@ pub enum DoNotReOrg {
     ParentDistance,
     HeadDistance,
     ShufflingUnstable,
+    DisallowedOffset {
+        offset: u64,
+    },
     JustificationAndFinalizationNotCompetitive,
     ChainNotFinalizing {
         epochs_since_finalization: u64,
@@ -271,6 +274,9 @@ impl std::fmt::Display for DoNotReOrg {
             Self::ParentDistance => write!(f, "parent too far from head"),
             Self::HeadDistance => write!(f, "head too far from current slot"),
             Self::ShufflingUnstable => write!(f, "shuffling unstable at epoch boundary"),
+            Self::DisallowedOffset { offset } => {
+                write!(f, "re-orgs disabled at offset {offset}")
+            }
             Self::JustificationAndFinalizationNotCompetitive => {
                 write!(f, "justification or finalization not competitive")
             }
@@ -303,6 +309,31 @@ impl std::fmt::Display for DoNotReOrg {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct ReOrgThreshold(pub u64);
+
+/// New-type for disallowed re-org slots.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct DisallowedReOrgOffsets {
+    // Vecs are faster than hashmaps for small numbers of items.
+    offsets: Vec<u64>,
+}
+
+impl Default for DisallowedReOrgOffsets {
+    fn default() -> Self {
+        DisallowedReOrgOffsets { offsets: vec![0] }
+    }
+}
+
+impl DisallowedReOrgOffsets {
+    pub fn new<E: EthSpec>(offsets: Vec<u64>) -> Result<Self, Error> {
+        for &offset in &offsets {
+            if offset >= E::slots_per_epoch() {
+                return Err(Error::InvalidEpochOffset(offset));
+            }
+        }
+        Ok(Self { offsets })
+    }
+}
 
 #[derive(PartialEq)]
 pub struct ProtoArrayForkChoice {
@@ -460,6 +491,7 @@ impl ProtoArrayForkChoice {
         canonical_head: Hash256,
         justified_balances: &JustifiedBalances,
         re_org_threshold: ReOrgThreshold,
+        disallowed_offsets: &DisallowedReOrgOffsets,
         max_epochs_since_finalization: Epoch,
     ) -> Result<ProposerHeadInfo, ProposerHeadError<Error>> {
         let info = self.get_proposer_head_info::<E>(
@@ -467,6 +499,7 @@ impl ProtoArrayForkChoice {
             canonical_head,
             justified_balances,
             re_org_threshold,
+            disallowed_offsets,
             max_epochs_since_finalization,
         )?;
 
@@ -501,6 +534,7 @@ impl ProtoArrayForkChoice {
         canonical_head: Hash256,
         justified_balances: &JustifiedBalances,
         re_org_threshold: ReOrgThreshold,
+        disallowed_offsets: &DisallowedReOrgOffsets,
         max_epochs_since_finalization: Epoch,
     ) -> Result<ProposerHeadInfo, ProposerHeadError<Error>> {
         let mut nodes = self
@@ -543,6 +577,12 @@ impl ProtoArrayForkChoice {
         let shuffling_stable = re_org_block_slot % E::slots_per_epoch() != 0;
         if !shuffling_stable {
             return Err(DoNotReOrg::ShufflingUnstable.into());
+        }
+
+        // Check allowed slot offsets.
+        let offset = (re_org_block_slot % E::slots_per_epoch()).as_u64();
+        if disallowed_offsets.offsets.contains(&offset) {
+            return Err(DoNotReOrg::DisallowedOffset { offset }.into());
         }
 
         // Check FFG.

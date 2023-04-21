@@ -173,6 +173,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                     .iter()
                     .map(|x| PeerId::from(x.clone()))
                     .collect(),
+                config.disable_peer_scoring,
                 &log,
             );
             Arc::new(globals)
