@@ -379,6 +379,8 @@ pub struct GetPayloadResponse<T: EthSpec> {
     #[superstruct(only(Deneb), partial_getter(rename = "execution_payload_deneb"))]
     pub execution_payload: ExecutionPayloadDeneb<T>,
     pub block_value: Uint256,
+    #[superstruct(only(Deneb))]
+    pub blobs_bundle: BlobsBundleV1<T>,
 }
 
 impl<'a, T: EthSpec> From<GetPayloadResponseRef<'a, T>> for ExecutionPayloadRef<'a, T> {
@@ -397,20 +399,25 @@ impl<T: EthSpec> From<GetPayloadResponse<T>> for ExecutionPayload<T> {
     }
 }
 
-impl<T: EthSpec> From<GetPayloadResponse<T>> for (ExecutionPayload<T>, Uint256) {
+impl<T: EthSpec> From<GetPayloadResponse<T>>
+    for (ExecutionPayload<T>, Uint256, Option<BlobsBundleV1<T>>)
+{
     fn from(response: GetPayloadResponse<T>) -> Self {
         match response {
             GetPayloadResponse::Merge(inner) => (
                 ExecutionPayload::Merge(inner.execution_payload),
                 inner.block_value,
+                None,
             ),
             GetPayloadResponse::Capella(inner) => (
                 ExecutionPayload::Capella(inner.execution_payload),
                 inner.block_value,
+                None,
             ),
             GetPayloadResponse::Deneb(inner) => (
                 ExecutionPayload::Deneb(inner.execution_payload),
                 inner.block_value,
+                Some(inner.blobs_bundle),
             ),
         }
     }

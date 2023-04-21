@@ -145,6 +145,27 @@ pub enum BlockProposalContents<T: EthSpec, Payload: AbstractExecPayload<T>> {
     },
 }
 
+impl<E: EthSpec, Payload: AbstractExecPayload<E>> From<GetPayloadResponse<E>>
+    for BlockProposalContents<E, Payload>
+{
+    fn from(response: GetPayloadResponse<E>) -> Self {
+        let (execution_payload, block_value, maybe_bundle) = response.into();
+        match maybe_bundle {
+            Some(bundle) => Self::PayloadAndBlobs {
+                payload: execution_payload.into(),
+                block_value,
+                kzg_commitments: bundle.commitments,
+                blobs: bundle.blobs,
+                proofs: bundle.proofs,
+            },
+            None => Self::Payload {
+                payload: execution_payload.into(),
+                block_value,
+            },
+        }
+    }
+}
+
 #[allow(clippy::type_complexity)]
 impl<T: EthSpec, Payload: AbstractExecPayload<T>> BlockProposalContents<T, Payload> {
     pub fn deconstruct(
@@ -1130,25 +1151,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                     }
                 };
 
-                let blob_fut = async {
-                    match current_fork {
-                        ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {
-                            None
-                        }
-                        ForkName::Deneb => {
-                            debug!(
-                                self.log(),
-                                "Issuing engine_getBlobsBundle";
-                                "suggested_fee_recipient" => ?payload_attributes.suggested_fee_recipient(),
-                                "prev_randao" => ?payload_attributes.prev_randao(),
-                                "timestamp" => payload_attributes.timestamp(),
-                                "parent_hash" => ?parent_hash,
-                            );
-                            Some(engine.api.get_blobs_bundle_v1::<T>(payload_id).await)
-                        }
-                    }
-                };
-                let payload_fut = async {
+                let payload_response = async {
                     debug!(
                         self.log(),
                         "Issuing engine_getPayload";
@@ -1158,46 +1161,30 @@ impl<T: EthSpec> ExecutionLayer<T> {
                         "parent_hash" => ?parent_hash,
                     );
                     engine.api.get_payload::<T>(current_fork, payload_id).await
-                };
-                let (blobs_bundle, payload_response) = tokio::join!(blob_fut, payload_fut);
-                let (execution_payload, block_value) = payload_response.map(|payload_response| {
-                    if payload_response.execution_payload_ref().fee_recipient() != payload_attributes.suggested_fee_recipient() {
-                        error!(
-                            self.log(),
-                            "Inconsistent fee recipient";
-                            "msg" => "The fee recipient returned from the Execution Engine differs \
-                            from the suggested_fee_recipient set on the beacon node. This could \
-                            indicate that fees are being diverted to another address. Please \
-                            ensure that the value of suggested_fee_recipient is set correctly and \
-                            that the Execution Engine is trusted.",
-                            "fee_recipient" => ?payload_response.execution_payload_ref().fee_recipient(),
-                            "suggested_fee_recipient" => ?payload_attributes.suggested_fee_recipient(),
-                        );
-                    }
-                    if f(self, payload_response.execution_payload_ref()).is_some() {
-                        warn!(
-                            self.log(),
-                            "Duplicate payload cached, this might indicate redundant proposal \
-                                 attempts."
-                        );
-                    }
-                    payload_response.into()
-                })?;
-                if let Some(bundle) = blobs_bundle.transpose()? {
-                    // FIXME(sean) cache blobs
-                    Ok(BlockProposalContents::PayloadAndBlobs {
-                        payload: execution_payload.into(),
-                        block_value,
-                        blobs: bundle.blobs,
-                        kzg_commitments: bundle.commitments,
-                        proofs: bundle.proofs,
-                    })
-                } else {
-                    Ok(BlockProposalContents::Payload {
-                        payload: execution_payload.into(),
-                        block_value,
-                    })
+                }.await?;
+
+                if payload_response.execution_payload_ref().fee_recipient() != payload_attributes.suggested_fee_recipient() {
+                    error!(
+                        self.log(),
+                        "Inconsistent fee recipient";
+                        "msg" => "The fee recipient returned from the Execution Engine differs \
+                        from the suggested_fee_recipient set on the beacon node. This could \
+                        indicate that fees are being diverted to another address. Please \
+                        ensure that the value of suggested_fee_recipient is set correctly and \
+                        that the Execution Engine is trusted.",
+                        "fee_recipient" => ?payload_response.execution_payload_ref().fee_recipient(),
+                        "suggested_fee_recipient" => ?payload_attributes.suggested_fee_recipient(),
+                    );
                 }
+                if f(self, payload_response.execution_payload_ref()).is_some() {
+                    warn!(
+                        self.log(),
+                        "Duplicate payload cached, this might indicate redundant proposal \
+                             attempts."
+                    );
+                }
+
+                Ok(payload_response.into())
             })
             .await
             .map_err(Box::new)

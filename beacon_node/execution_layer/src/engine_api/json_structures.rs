@@ -291,6 +291,8 @@ pub struct JsonGetPayloadResponse<T: EthSpec> {
     pub execution_payload: JsonExecutionPayloadV3<T>,
     #[serde(with = "eth2_serde_utils::u256_hex_be")]
     pub block_value: Uint256,
+    #[superstruct(only(V3))]
+    pub blobs_bundle: JsonBlobsBundleV1<T>,
 }
 
 impl<T: EthSpec> From<JsonGetPayloadResponse<T>> for GetPayloadResponse<T> {
@@ -312,6 +314,7 @@ impl<T: EthSpec> From<JsonGetPayloadResponse<T>> for GetPayloadResponse<T> {
                 GetPayloadResponse::Deneb(GetPayloadResponseDeneb {
                     execution_payload: response.execution_payload.into(),
                     block_value: response.block_value,
+                    blobs_bundle: response.blobs_bundle.into(),
                 })
             }
         }
