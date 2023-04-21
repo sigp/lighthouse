@@ -1,3 +1,4 @@
+use crate::blob_verification::{AsBlock, BlockWrapper};
 pub use crate::persisted_beacon_chain::PersistedBeaconChain;
 pub use crate::{
     beacon_chain::{BEACON_CHAIN_DB_KEY, ETH1_CACHE_DB_KEY, FORK_CHOICE_DB_KEY, OP_POOL_DB_KEY},
@@ -769,7 +770,7 @@ where
         &self,
         mut state: BeaconState<E>,
         slot: Slot,
-    ) -> (SignedBeaconBlock<E>, BeaconState<E>) {
+    ) -> (BlockWrapper<E>, BeaconState<E>) {
         assert_ne!(slot, 0, "can't produce a block at slot 0");
         assert!(slot >= state.slot());
 
@@ -802,14 +803,33 @@ where
             .await
             .unwrap();
 
-        let signed_block = block.sign(
+        let signed_block = Arc::new(block.sign(
             &self.validator_keypairs[proposer_index].sk,
             &state.fork(),
             state.genesis_validators_root(),
             &self.spec,
-        );
+        ));
 
-        (signed_block, state)
+        let wrapped_block: BlockWrapper<E> = match signed_block.as_ref() {
+            SignedBeaconBlock::Base(_)
+            | SignedBeaconBlock::Altair(_)
+            | SignedBeaconBlock::Merge(_)
+            | SignedBeaconBlock::Capella(_) => signed_block.into(),
+            SignedBeaconBlock::Deneb(_) => {
+                if let Some(blobs) = self
+                    .chain
+                    .proposal_blob_cache
+                    .pop(&signed_block.canonical_root())
+                {
+                    BlockWrapper::BlockAndBlobs(signed_block, blobs.into())
+                } else {
+                    // idk what else to put here..
+                    signed_block.into()
+                }
+            }
+        };
+
+        (wrapped_block, state)
     }
 
     /// Useful for the `per_block_processing` tests. Creates a block, and returns the state after
@@ -1681,14 +1701,14 @@ where
         &self,
         slot: Slot,
         block_root: Hash256,
-        block: SignedBeaconBlock<E>,
+        block: BlockWrapper<E>,
     ) -> Result<SignedBeaconBlockHash, BlockError<E>> {
         self.set_current_slot(slot);
         let block_hash: SignedBeaconBlockHash = self
             .chain
             .process_block(
                 block_root,
-                Arc::new(block),
+                block,
                 CountUnrealized::True,
                 NotifyExecutionLayer::Yes,
             )
@@ -1773,11 +1793,11 @@ where
         &self,
         slot: Slot,
         state: BeaconState<E>,
-    ) -> Result<(SignedBeaconBlockHash, SignedBeaconBlock<E>, BeaconState<E>), BlockError<E>> {
+    ) -> Result<(SignedBeaconBlockHash, BlockWrapper<E>, BeaconState<E>), BlockError<E>> {
         self.set_current_slot(slot);
         let (block, new_state) = self.make_block(state, slot).await;
         let block_hash = self
-            .process_block(slot, block.canonical_root(), block.clone())
+            .process_block(slot, block.as_block().canonical_root(), block.clone())
             .await?;
         Ok((block_hash, block, new_state))
     }
@@ -1833,7 +1853,7 @@ where
         sync_committee_strategy: SyncCommitteeStrategy,
     ) -> Result<(SignedBeaconBlockHash, BeaconState<E>), BlockError<E>> {
         let (block_hash, block, state) = self.add_block_at_slot(slot, state).await?;
-        self.attest_block(&state, state_root, block_hash, &block, validators);
+        self.attest_block(&state, state_root, block_hash, block.as_block(), validators);
 
         if sync_committee_strategy == SyncCommitteeStrategy::AllValidators
             && state.current_sync_committee().is_ok()
@@ -2061,7 +2081,7 @@ where
         state: BeaconState<E>,
         slot: Slot,
         _block_strategy: BlockStrategy,
-    ) -> (SignedBeaconBlock<E>, BeaconState<E>) {
+    ) -> (BlockWrapper<E>, BeaconState<E>) {
         self.make_block(state, slot).await
     }
 
