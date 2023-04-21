@@ -40,9 +40,6 @@ pub const ENGINE_GET_PAYLOAD_V2: &str = "engine_getPayloadV2";
 pub const ENGINE_GET_PAYLOAD_V3: &str = "engine_getPayloadV3";
 pub const ENGINE_GET_PAYLOAD_TIMEOUT: Duration = Duration::from_secs(2);
 
-pub const ENGINE_GET_BLOBS_BUNDLE_V1: &str = "engine_getBlobsBundleV1";
-pub const ENGINE_GET_BLOBS_BUNDLE_TIMEOUT: Duration = Duration::from_secs(2);
-
 pub const ENGINE_FORKCHOICE_UPDATED_V1: &str = "engine_forkchoiceUpdatedV1";
 pub const ENGINE_FORKCHOICE_UPDATED_V2: &str = "engine_forkchoiceUpdatedV2";
 pub const ENGINE_FORKCHOICE_UPDATED_TIMEOUT: Duration = Duration::from_secs(8);
@@ -76,7 +73,6 @@ pub static LIGHTHOUSE_CAPABILITIES: &[&str] = &[
     ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1,
     ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1,
     ENGINE_EXCHANGE_TRANSITION_CONFIGURATION_V1,
-    ENGINE_GET_BLOBS_BUNDLE_V1,
 ];
 
 /// This is necessary because a user might run a capella-enabled version of
@@ -95,7 +91,6 @@ pub static PRE_CAPELLA_ENGINE_CAPABILITIES: EngineCapabilities = EngineCapabilit
     get_payload_v2: false,
     get_payload_v3: false,
     exchange_transition_configuration_v1: true,
-    get_blobs_bundle_v1: false,
 };
 
 /// Contains methods to convert arbitrary bytes to an ETH2 deposit contract object.
@@ -929,23 +924,6 @@ impl HttpJsonRpc {
         }
     }
 
-    pub async fn get_blobs_bundle_v1<T: EthSpec>(
-        &self,
-        payload_id: PayloadId,
-    ) -> Result<BlobsBundleV1<T>, Error> {
-        let params = json!([JsonPayloadIdRequest::from(payload_id)]);
-
-        let response: JsonBlobsBundleV1<T> = self
-            .rpc_request(
-                ENGINE_GET_BLOBS_BUNDLE_V1,
-                params,
-                ENGINE_GET_BLOBS_BUNDLE_TIMEOUT,
-            )
-            .await?;
-
-        Ok(response.into())
-    }
-
     pub async fn forkchoice_updated_v1(
         &self,
         forkchoice_state: ForkchoiceState,
@@ -1084,7 +1062,6 @@ impl HttpJsonRpc {
                 get_payload_v3: capabilities.contains(ENGINE_GET_PAYLOAD_V3),
                 exchange_transition_configuration_v1: capabilities
                     .contains(ENGINE_EXCHANGE_TRANSITION_CONFIGURATION_V1),
-                get_blobs_bundle_v1: capabilities.contains(ENGINE_GET_BLOBS_BUNDLE_V1),
             }),
         }
     }

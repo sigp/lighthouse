@@ -47,7 +47,6 @@ pub const DEFAULT_ENGINE_CAPABILITIES: EngineCapabilities = EngineCapabilities {
     get_payload_v2: true,
     get_payload_v3: true,
     exchange_transition_configuration_v1: true,
-    get_blobs_bundle_v1: true,
 };
 
 mod execution_block_generator;
