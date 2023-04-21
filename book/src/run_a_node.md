@@ -159,4 +159,4 @@ Several other resources are the next logical step to explore after running your 
 - Study even more about [checkpoint sync](./checkpoint-sync.md); or
 - Investigate what steps had to be taken in the past to execute a smooth [merge migration](./merge-migration.md).
 
-Finally, if you a struggling with anything, join our [Discord](https://discord.gg/cyAszAh). We are happy to help!
+Finally, if you are struggling with anything, join our [Discord](https://discord.gg/cyAszAh). We are happy to help!
