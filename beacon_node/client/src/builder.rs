@@ -358,12 +358,6 @@ where
                     debug!(
                         context.log(),
                         "Searching for aligned checkpoint block";
-                        "block_slot" => block_slot,
-                    );
-
-                    debug!(
-                        context.log(),
-                        "Searching for aligned checkpoint block";
                         "block_slot" => block_slot
                     );
 

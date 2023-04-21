@@ -8,6 +8,7 @@ use crate::migrate::PruningError;
 use crate::naive_aggregation_pool::Error as NaiveAggregationError;
 use crate::observed_aggregates::Error as ObservedAttestationsError;
 use crate::observed_attesters::Error as ObservedAttestersError;
+use crate::observed_blob_sidecars::Error as ObservedBlobSidecarsError;
 use crate::observed_block_producers::Error as ObservedBlockProducersError;
 use execution_layer::PayloadStatus;
 use fork_choice::ExecutionStatus;
@@ -101,6 +102,7 @@ pub enum BeaconChainError {
     ObservedAttestationsError(ObservedAttestationsError),
     ObservedAttestersError(ObservedAttestersError),
     ObservedBlockProducersError(ObservedBlockProducersError),
+    ObservedBlobSidecarsError(ObservedBlobSidecarsError),
     AttesterCacheError(AttesterCacheError),
     PruningError(PruningError),
     ArithError(ArithError),
@@ -213,9 +215,6 @@ pub enum BeaconChainError {
     BlsToExecutionConflictsWithPool,
     InconsistentFork(InconsistentFork),
     ProposerHeadForkChoiceError(fork_choice::Error<proto_array::Error>),
-    BlobsUnavailable,
-    NoKzgCommitmentsFieldOnBlock,
-    BlobsOlderThanDataAvailabilityBoundary(Epoch),
 }
 
 easy_from_to!(SlotProcessingError, BeaconChainError);
@@ -231,6 +230,7 @@ easy_from_to!(NaiveAggregationError, BeaconChainError);
 easy_from_to!(ObservedAttestationsError, BeaconChainError);
 easy_from_to!(ObservedAttestersError, BeaconChainError);
 easy_from_to!(ObservedBlockProducersError, BeaconChainError);
+easy_from_to!(ObservedBlobSidecarsError, BeaconChainError);
 easy_from_to!(AttesterCacheError, BeaconChainError);
 easy_from_to!(BlockSignatureVerifierError, BeaconChainError);
 easy_from_to!(PruningError, BeaconChainError);

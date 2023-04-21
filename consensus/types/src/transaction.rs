@@ -1,13 +1,13 @@
 use crate::{Hash256, Uint256, VersionedHash};
 use ethereum_types::Address;
 use ssz_derive::{Decode, Encode};
-use ssz_types::typenum::U16777216;
+use ssz_types::typenum::{U16777216, U4096};
 use ssz_types::VariableList;
 
 pub type MaxCalldataSize = U16777216;
 pub type MaxAccessListSize = U16777216;
-pub type MaxVersionedHashesListSize = U16777216;
 pub type MaxAccessListStorageKeys = U16777216;
+pub type MaxVersionedHashesListSize = U4096;
 
 #[derive(Debug, Clone, PartialEq, Encode, Decode)]
 pub struct SignedBlobTransaction {
@@ -27,7 +27,7 @@ pub struct BlobTransaction {
     pub data: VariableList<u8, MaxCalldataSize>,
     pub access_list: VariableList<AccessTuple, MaxAccessListSize>,
     pub max_fee_per_data_gas: Uint256,
-    pub blob_versioned_hashes: VariableList<VersionedHash, MaxVersionedHashesListSize>,
+    pub versioned_hashes: VariableList<VersionedHash, MaxVersionedHashesListSize>,
 }
 
 #[derive(Debug, Clone, PartialEq, Encode, Decode)]

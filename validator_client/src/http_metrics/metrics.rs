@@ -93,6 +93,11 @@ lazy_static::lazy_static! {
         "Total count of attempted SyncSelectionProof signings",
         &["status"]
     );
+    pub static ref SIGNED_VOLUNTARY_EXITS_TOTAL: Result<IntCounterVec> = try_create_int_counter_vec(
+        "vc_signed_voluntary_exits_total",
+        "Total count of VoluntaryExit signings",
+        &["status"]
+    );
     pub static ref SIGNED_VALIDATOR_REGISTRATIONS_TOTAL: Result<IntCounterVec> = try_create_int_counter_vec(
         "builder_validator_registrations_total",
         "Total count of ValidatorRegistrationData signings",

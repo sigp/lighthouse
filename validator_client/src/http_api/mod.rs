@@ -1,9 +1,11 @@
 mod api_secret;
+mod create_signed_voluntary_exit;
 mod create_validator;
 mod keystores;
 mod remotekeys;
 mod tests;
 
+use crate::http_api::create_signed_voluntary_exit::create_signed_voluntary_exit;
 use crate::{determine_graffiti, GraffitiFile, ValidatorStore};
 use account_utils::{
     mnemonic_from_phrase,
@@ -71,6 +73,7 @@ pub struct Context<T: SlotClock, E: EthSpec> {
     pub spec: ChainSpec,
     pub config: Config,
     pub log: Logger,
+    pub slot_clock: T,
     pub _phantom: PhantomData<E>,
 }
 
@@ -188,6 +191,9 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
 
     let inner_ctx = ctx.clone();
     let log_filter = warp::any().map(move || inner_ctx.log.clone());
+
+    let inner_slot_clock = ctx.slot_clock.clone();
+    let slot_clock_filter = warp::any().map(move || inner_slot_clock.clone());
 
     let inner_spec = Arc::new(ctx.spec.clone());
     let spec_filter = warp::any().map(move || inner_spec.clone());
@@ -904,6 +910,46 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         )
         .map(|reply| warp::reply::with_status(reply, warp::http::StatusCode::NO_CONTENT));
 
+    // POST /eth/v1/validator/{pubkey}/voluntary_exit
+    let post_validators_voluntary_exits = eth_v1
+        .and(warp::path("validator"))
+        .and(warp::path::param::<PublicKey>())
+        .and(warp::path("voluntary_exit"))
+        .and(warp::query::<api_types::VoluntaryExitQuery>())
+        .and(warp::path::end())
+        .and(validator_store_filter.clone())
+        .and(slot_clock_filter)
+        .and(log_filter.clone())
+        .and(signer.clone())
+        .and(task_executor_filter.clone())
+        .and_then(
+            |pubkey: PublicKey,
+             query: api_types::VoluntaryExitQuery,
+             validator_store: Arc<ValidatorStore<T, E>>,
+             slot_clock: T,
+             log,
+             signer,
+             task_executor: TaskExecutor| {
+                blocking_signed_json_task(signer, move || {
+                    if let Some(handle) = task_executor.handle() {
+                        let signed_voluntary_exit =
+                            handle.block_on(create_signed_voluntary_exit(
+                                pubkey,
+                                query.epoch,
+                                validator_store,
+                                slot_clock,
+                                log,
+                            ))?;
+                        Ok(signed_voluntary_exit)
+                    } else {
+                        Err(warp_utils::reject::custom_server_error(
+                            "Lighthouse shutting down".into(),
+                        ))
+                    }
+                })
+            },
+        );
+
     // GET /eth/v1/keystores
     let get_std_keystores = std_keystores
         .and(signer.clone())
@@ -1001,6 +1047,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                         .or(post_validators_keystore)
                         .or(post_validators_mnemonic)
                         .or(post_validators_web3signer)
+                        .or(post_validators_voluntary_exits)
                         .or(post_fee_recipient)
                         .or(post_gas_limit)
                         .or(post_std_keystores)

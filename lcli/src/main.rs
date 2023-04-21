@@ -874,7 +874,7 @@ fn run<T: EthSpec>(
         }
         ("new-testnet", Some(matches)) => new_testnet::run::<T>(testnet_dir, matches)
             .map_err(|e| format!("Failed to run new_testnet command: {}", e)),
-        ("check-deposit-data", Some(matches)) => check_deposit_data::run::<T>(matches)
+        ("check-deposit-data", Some(matches)) => check_deposit_data::run(matches)
             .map_err(|e| format!("Failed to run check-deposit-data command: {}", e)),
         ("generate-bootnode-enr", Some(matches)) => generate_bootnode_enr::run::<T>(matches)
             .map_err(|e| format!("Failed to run generate-bootnode-enr command: {}", e)),
