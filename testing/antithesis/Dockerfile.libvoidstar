@@ -1,5 +1,5 @@
-FROM rust:1.66.1-bullseye AS builder
-RUN apt-get update && apt-get -y upgrade && apt-get install -y cmake libclang-dev clang protobuf-compiler
+FROM rust:1.68.2-bullseye AS builder
+RUN apt-get update && apt-get -y upgrade && apt-get install -y cmake clang libclang-dev protobuf-compiler
 COPY . lighthouse
 
 # Build lighthouse directly with a cargo build command, bypassing the Makefile.
