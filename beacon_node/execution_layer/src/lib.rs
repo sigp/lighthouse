@@ -1701,6 +1701,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
             let payload = match fork {
                 ForkName::Merge => ExecutionPayloadMerge::default().into(),
                 ForkName::Capella => ExecutionPayloadCapella::default().into(),
+                ForkName::Eip4844 => ExecutionPayloadEip4844::default().into(),
                 ForkName::Base | ForkName::Altair => {
                     return Err(Error::InvalidForkForPayload);
                 }
