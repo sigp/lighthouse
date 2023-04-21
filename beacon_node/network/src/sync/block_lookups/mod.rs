@@ -7,7 +7,7 @@ use lru_cache::LRUTimeCache;
 use slog::{debug, error, trace, warn, Logger};
 use smallvec::SmallVec;
 use ssz_types::FixedVector;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use store::Hash256;
@@ -26,7 +26,6 @@ use crate::beacon_processor::{ChainSegmentProcessId, WorkEvent};
 use crate::metrics;
 use crate::sync::block_lookups::single_block_lookup::LookupVerifyError;
 
-mod hg5e3wdtrfqa;
 mod parent_lookup;
 mod single_block_lookup;
 #[cfg(test)]
@@ -122,7 +121,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         if self
             .single_block_lookups
             .iter_mut()
-            .any(|(block_id, blob_id, single_block_request)| {
+            .any(|(_, _, single_block_request)| {
                 if single_block_request.requested_block_root == hash {
                     single_block_request.block_request_state.add_peer(&peer_id);
                     single_block_request.blob_request_state.add_peer(&peer_id);
@@ -283,7 +282,6 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                     // is complete before processing the block.
                     if let Err(e) = request_ref.add_block(root, block) {
                         Self::handle_block_lookup_verify_error(
-                            id,
                             peer_id,
                             cx,
                             request_id_ref,
@@ -307,8 +305,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 }
             }
             Ok(None) => false,
-            Err(e) => Self::handle_blob_lookup_verify_error(
-                id,
+            Err(e) => Self::handle_block_lookup_verify_error(
                 peer_id,
                 cx,
                 request_id_ref,
@@ -353,7 +350,6 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                     // is complete before processing the block.
                     if let Err(e) = request_ref.add_blobs(block_root, blobs) {
                         Self::handle_blob_lookup_verify_error(
-                            id,
                             peer_id,
                             cx,
                             request_id_ref,
@@ -378,7 +374,6 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             }
             Ok(None) => false,
             Err(e) => Self::handle_blob_lookup_verify_error(
-                id,
                 peer_id,
                 cx,
                 request_id_ref,
@@ -401,7 +396,6 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
 
     //TODO(sean) reduce duplicate code
     fn handle_block_lookup_verify_error(
-        id: Id,
         peer_id: PeerId,
         cx: &mut SyncNetworkContext<T>,
         request_id_ref: &mut Id,
@@ -436,7 +430,6 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     }
 
     fn handle_blob_lookup_verify_error(
-        id: Id,
         peer_id: PeerId,
         cx: &mut SyncNetworkContext<T>,
         request_id_ref: &mut Id,
@@ -512,7 +505,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 (triggered_parent_request, id_ref, req)
             }
             None => {
-                if matches!(StreamTerminator::False, stream_terminator) {
+                if matches!(stream_terminator, StreamTerminator::False,) {
                     debug!(
                         self.log,
                         "Block returned for single block lookup not present";
@@ -803,7 +796,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         cx: &mut SyncNetworkContext<T>,
         error: RPCError,
     ) {
-        // check if there's a pending blob response when deciding whether to drop
+        //TODO(sean) check if there's a pending blob response when deciding whether to drop?
 
         if let Some(pos) = self
             .parent_lookups

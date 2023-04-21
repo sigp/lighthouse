@@ -146,7 +146,7 @@ impl<T: BeaconChainTypes> Worker<T> {
             Option<Arc<BlobSidecar<T::EthSpec>>>,
             <<T as BeaconChainTypes>::EthSpec as EthSpec>::MaxBlobsPerBlock,
         >,
-        seen_timestamp: Duration,
+        _seen_timestamp: Duration,
         process_type: BlockProcessType,
     ) {
         let Some(slot) = blobs.iter().find_map(|blob|{

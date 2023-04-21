@@ -151,9 +151,7 @@ impl<T: EthSpec, S: SlotClock> DataAvailabilityChecker<T, S> {
                 .get(block_root)
                 .map_or(vec![], |cache| {
                     if let Some(block) = cache.executed_block.as_ref() {
-                        block.get_filtered_blob_ids(|i, blob_root| {
-                            cache.verified_blobs.get(i).is_none()
-                        })
+                        block.get_filtered_blob_ids(|i, _| cache.verified_blobs.get(i).is_none())
                     } else {
                         let mut blob_ids = Vec::with_capacity(T::max_blobs_per_block());
                         for i in 0..T::max_blobs_per_block() {

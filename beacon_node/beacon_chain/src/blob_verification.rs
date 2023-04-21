@@ -151,7 +151,6 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
 ) -> Result<GossipVerifiedBlob<T::EthSpec>, BlobError<T::EthSpec>> {
     let blob_slot = signed_blob_sidecar.message.slot;
     let blob_index = signed_blob_sidecar.message.index;
-    let block_root = signed_blob_sidecar.message.block_root;
     let block_parent_root = signed_blob_sidecar.message.block_parent_root;
     let blob_proposer_index = signed_blob_sidecar.message.proposer_index;
 

@@ -7,16 +7,13 @@ use crate::sync::{
 };
 use beacon_chain::blob_verification::AsBlock;
 use beacon_chain::blob_verification::BlockWrapper;
-use beacon_chain::data_availability_checker::AvailabilityCheckError;
 use beacon_chain::data_availability_checker::DataAvailabilityChecker;
 use beacon_chain::BeaconChainTypes;
 use lighthouse_network::PeerId;
 use ssz_types::FixedVector;
-use std::iter;
 use std::sync::Arc;
 use store::Hash256;
 use strum::IntoStaticStr;
-use types::blob_sidecar::BlobIdentifier;
 use types::{BlobSidecar, EthSpec, SignedBeaconBlock};
 
 /// How many attempts we try to find a parent of a block before we give up trying.

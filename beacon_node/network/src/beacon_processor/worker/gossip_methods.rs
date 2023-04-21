@@ -1079,7 +1079,6 @@ impl<T: BeaconChainTypes> Worker<T> {
                 );
                 None
             }
-            _ => todo!(), //TODO(sean)
         }
     }
 
