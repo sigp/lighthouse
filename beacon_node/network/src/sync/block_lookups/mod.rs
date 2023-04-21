@@ -26,7 +26,6 @@ use crate::beacon_processor::{ChainSegmentProcessId, WorkEvent};
 use crate::metrics;
 use crate::sync::block_lookups::single_block_lookup::LookupVerifyError;
 
-mod hg5e3wdtrfqa;
 mod parent_lookup;
 mod single_block_lookup;
 #[cfg(test)]
