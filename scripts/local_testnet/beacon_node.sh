@@ -9,7 +9,6 @@ set -Eeuo pipefail
 source ./vars.env
 
 SUBSCRIBE_ALL_SUBNETS=
-TRUSTED_PEERS=
 DEBUG_LEVEL=${DEBUG_LEVEL:-info}
 
 # Get options
@@ -25,7 +24,7 @@ while getopts "d:sh" flag; do
        echo "Options:"
        echo "   -s: pass --subscribe-all-subnets to 'lighthouse bn ...', default is not passed"
        echo "   -d: DEBUG_LEVEL, default info"
-       echo "   -h: this help"  
+       echo "   -h: this help"
        echo
        echo "Positional arguments:"
        echo "  DATADIR       Value for --datadir parameter"
