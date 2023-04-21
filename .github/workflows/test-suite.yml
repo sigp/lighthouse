@@ -83,7 +83,7 @@ jobs:
       run: choco install -y make
     - uses: KyleMayes/install-llvm-action@v1
       with:
-        version: "13.0"
+        version: "15.0"
         directory: ${{ runner.temp }}/llvm
     - name: Set LIBCLANG_PATH
       run: echo "LIBCLANG_PATH=$((gcm clang).source -replace "clang.exe")" >> $env:GITHUB_ENV
