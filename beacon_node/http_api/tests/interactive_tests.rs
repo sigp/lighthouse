@@ -1,6 +1,6 @@
 //! Generic tests that make use of the (newer) `InteractiveApiTester`
 use beacon_chain::{
-    chain_config::ReOrgThreshold,
+    chain_config::{DisallowedReOrgOffsets, ReOrgThreshold},
     test_utils::{AttestationStrategy, BlockStrategy, SyncCommitteeStrategy},
 };
 use eth2::types::DepositContractData;
@@ -110,6 +110,8 @@ pub struct ReOrgTest {
     misprediction: bool,
     /// Whether to expect withdrawals to change on epoch boundaries.
     expect_withdrawals_change_on_epoch: bool,
+    /// Epoch offsets to avoid proposing reorg blocks at.
+    disallowed_offsets: Vec<u64>,
 }
 
 impl Default for ReOrgTest {
@@ -127,6 +129,7 @@ impl Default for ReOrgTest {
             should_re_org: true,
             misprediction: false,
             expect_withdrawals_change_on_epoch: false,
+            disallowed_offsets: vec![],
         }
     }
 }
@@ -238,6 +241,32 @@ pub async fn proposer_boost_re_org_head_distance() {
     .await;
 }
 
+// Check that a re-org at a disallowed offset fails.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+pub async fn proposer_boost_re_org_disallowed_offset() {
+    let offset = 4;
+    proposer_boost_re_org_test(ReOrgTest {
+        head_slot: Slot::new(E::slots_per_epoch() + offset - 1),
+        disallowed_offsets: vec![offset],
+        should_re_org: false,
+        ..Default::default()
+    })
+    .await;
+}
+
+// Check that a re-org at the *only* allowed offset succeeds.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+pub async fn proposer_boost_re_org_disallowed_offset_exact() {
+    let offset = 4;
+    let disallowed_offsets = (0..E::slots_per_epoch()).filter(|o| *o != offset).collect();
+    proposer_boost_re_org_test(ReOrgTest {
+        head_slot: Slot::new(E::slots_per_epoch() + offset - 1),
+        disallowed_offsets,
+        ..Default::default()
+    })
+    .await;
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 pub async fn proposer_boost_re_org_very_unhealthy() {
     proposer_boost_re_org_test(ReOrgTest {
@@ -286,6 +315,7 @@ pub async fn proposer_boost_re_org_test(
         should_re_org,
         misprediction,
         expect_withdrawals_change_on_epoch,
+        disallowed_offsets,
     }: ReOrgTest,
 ) {
     assert!(head_slot > 0);
@@ -320,6 +350,9 @@ pub async fn proposer_boost_re_org_test(
                 .proposer_re_org_max_epochs_since_finalization(Epoch::new(
                     max_epochs_since_finalization,
                 ))
+                .proposer_re_org_disallowed_offsets(
+                    DisallowedReOrgOffsets::new::<E>(disallowed_offsets).unwrap(),
+                )
         })),
     )
     .await;

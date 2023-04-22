@@ -173,6 +173,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                     .iter()
                     .map(|x| PeerId::from(x.clone()))
                     .collect(),
+                config.disable_peer_scoring,
                 &log,
             );
             Arc::new(globals)
@@ -563,7 +564,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
         }
 
         // Subscribe to core topics for the new fork
-        for kind in fork_core_topics(&new_fork) {
+        for kind in fork_core_topics::<TSpec>(&new_fork) {
             let topic = GossipTopic::new(kind, GossipEncoding::default(), new_fork_digest);
             self.subscribe(topic);
         }

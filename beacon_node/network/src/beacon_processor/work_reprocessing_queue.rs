@@ -55,7 +55,7 @@ pub const QUEUED_ATTESTATION_DELAY: Duration = Duration::from_secs(12);
 pub const QUEUED_LIGHT_CLIENT_UPDATE_DELAY: Duration = Duration::from_secs(12);
 
 /// For how long to queue rpc blocks before sending them back for reprocessing.
-pub const QUEUED_RPC_BLOCK_DELAY: Duration = Duration::from_secs(3);
+pub const QUEUED_RPC_BLOCK_DELAY: Duration = Duration::from_secs(4);
 
 /// Set an arbitrary upper-bound on the number of queued blocks to avoid DoS attacks. The fact that
 /// we signature-verify blocks before putting them in the queue *should* protect against this, but
@@ -520,7 +520,7 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                     return;
                 }
 
-                // Queue the block for 1/4th of a slot
+                // Queue the block for 1/3rd of a slot
                 self.rpc_block_delay_queue
                     .insert(rpc_block, QUEUED_RPC_BLOCK_DELAY);
             }
