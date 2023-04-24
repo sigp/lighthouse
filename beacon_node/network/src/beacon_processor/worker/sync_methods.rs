@@ -17,8 +17,8 @@ use beacon_chain::{
 use beacon_chain::{AvailabilityProcessingStatus, CountUnrealized};
 use lighthouse_network::PeerAction;
 use slog::{debug, error, info, warn};
-use ssz_types::FixedVector;
 use slot_clock::SlotClock;
+use ssz_types::FixedVector;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc;

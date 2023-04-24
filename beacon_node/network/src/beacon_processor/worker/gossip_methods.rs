@@ -762,8 +762,8 @@ impl<T: BeaconChainTypes> Worker<T> {
                 //TODO(sean) add metrics and logging
                 self.chain.recompute_head_at_current_slot().await;
             }
-            Ok(AvailabilityProcessingStatus::MissingParts(slot, block_hash)) => {
-                self.send_sync_message(SyncMessage::UnknownBlockHashFromGossipBlob(
+            Ok(AvailabilityProcessingStatus::MissingComponents(slot, block_hash)) => {
+                self.send_sync_message(SyncMessage::MissingGossipBlockComponents(
                     slot, peer_id, block_hash,
                 ));
             }
@@ -1133,9 +1133,9 @@ impl<T: BeaconChainTypes> Worker<T> {
 
                 self.chain.recompute_head_at_current_slot().await;
             }
-            Ok(AvailabilityProcessingStatus::MissingParts(slot, block_root)) => {
+            Ok(AvailabilityProcessingStatus::MissingComponents(slot, block_root)) => {
                 // make rpc request for blob
-                self.send_sync_message(SyncMessage::UnknownBlockHashFromGossipBlob(
+                self.send_sync_message(SyncMessage::MissingGossipBlockComponents(
                     slot, peer_id, block_root,
                 ));
             }

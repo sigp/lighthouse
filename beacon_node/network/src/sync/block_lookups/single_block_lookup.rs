@@ -14,6 +14,8 @@ use strum::IntoStaticStr;
 use types::blob_sidecar::BlobIdentifier;
 use types::{BlobSidecar, EthSpec, SignedBeaconBlock};
 
+use super::PeerShouldHave;
+
 pub struct SingleBlockLookup<const MAX_ATTEMPTS: u8, T: BeaconChainTypes> {
     pub requested_block_root: Hash256,
     pub requested_ids: Vec<BlobIdentifier>,
@@ -371,6 +373,24 @@ impl<const MAX_ATTEMPTS: u8, T: BeaconChainTypes> SingleBlockLookup<MAX_ATTEMPTS
         } else {
             Err(LookupRequestError::NoPeers)
         }
+    }
+    pub fn add_peer_if_useful(
+        &mut self,
+        block_root: &Hash256,
+        peer_id: &PeerId,
+        peer_usefulness: PeerShouldHave,
+    ) -> bool {
+        if *block_root != self.requested_block_root {
+            return false;
+        }
+        match peer_usefulness {
+            PeerShouldHave::BlockAndBlobs => {
+                self.block_request_state.add_peer(peer_id);
+                self.blob_request_state.add_peer(peer_id);
+            }
+            PeerShouldHave::Neither => {}
+        }
+        true
     }
 }
 

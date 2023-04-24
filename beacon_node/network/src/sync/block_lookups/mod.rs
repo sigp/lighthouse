@@ -85,6 +85,12 @@ pub enum ResponseType {
     Blob,
 }
 
+#[derive(Debug, Copy, Clone)]
+pub enum PeerShouldHave {
+    BlockAndBlobs,
+    Neither,
+}
+
 impl<T: BeaconChainTypes> BlockLookups<T> {
     pub fn new(
         da_checker: Arc<DataAvailabilityChecker<T::EthSpec, T::SlotClock>>,
@@ -104,8 +110,14 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
 
     /* Lookup requests */
 
-    pub fn search_block(&mut self, hash: Hash256, peer_id: PeerId, cx: &mut SyncNetworkContext<T>) {
-        self.search_block_with(|_| {}, hash, peer_id, cx)
+    pub fn search_block(
+        &mut self,
+        hash: Hash256,
+        peer_id: PeerId,
+        peer_usefulness: PeerShouldHave,
+        cx: &mut SyncNetworkContext<T>,
+    ) {
+        self.search_block_with(|_| {}, hash, peer_id, peer_usefulness, cx)
     }
 
     /// Searches for a single block hash. If the blocks parent is unknown, a chain of blocks is
@@ -115,6 +127,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         cache_fn: impl Fn(&mut SingleBlockLookup<SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS, T>),
         hash: Hash256,
         peer_id: PeerId,
+        peer_usefulness: PeerShouldHave,
         cx: &mut SyncNetworkContext<T>,
     ) {
         // Do not re-request a block that is already being requested
@@ -122,19 +135,15 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             .single_block_lookups
             .iter_mut()
             .any(|(_, _, single_block_request)| {
-                if single_block_request.requested_block_root == hash {
-                    single_block_request.block_request_state.add_peer(&peer_id);
-                    single_block_request.blob_request_state.add_peer(&peer_id);
-                    return true;
-                }
-                false
+                single_block_request.add_peer_if_useful(&hash, &peer_id, peer_usefulness)
             })
         {
             return;
         }
 
         if self.parent_lookups.iter_mut().any(|parent_req| {
-            parent_req.add_peer(&hash, &peer_id) || parent_req.contains_block(&hash)
+            parent_req.add_peer_if_useful(&hash, &peer_id, peer_usefulness)
+                || parent_req.contains_block(&hash)
         }) {
             // If the block was already downloaded, or is being downloaded in this moment, do not
             // request it.
@@ -197,6 +206,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             },
             block_root,
             peer_id,
+            PeerShouldHave::Neither,
             cx,
         );
     }
@@ -214,6 +224,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             },
             block_root,
             peer_id,
+            PeerShouldHave::Neither,
             cx,
         );
     }
@@ -228,6 +239,9 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         peer_id: PeerId,
         cx: &mut SyncNetworkContext<T>,
     ) {
+        // Gossip blocks or blobs shouldn't be propogated if parents are unavailable.
+        let peer_usefulness = PeerShouldHave::BlockAndBlobs;
+
         // If this block or it's parent is part of a known failed chain, ignore it.
         if self.failed_chains.contains(&parent_root) || self.failed_chains.contains(&block_root) {
             debug!(self.log, "Block is from a past failed chain. Dropping";
@@ -238,7 +252,8 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         // Make sure this block is not already downloaded, and that neither it or its parent is
         // being searched for.
         if self.parent_lookups.iter_mut().any(|parent_req| {
-            parent_req.contains_block(&block_root) || parent_req.add_peer(&block_root, &peer_id)
+            parent_req.contains_block(&block_root)
+                || parent_req.add_peer_if_useful(&block_root, &peer_id, peer_usefulness)
         }) {
             // we are already searching for this block, ignore it
             return;
@@ -560,7 +575,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                         }
                     }
                     LookupDownloadStatus::SearchBlock(block_root) => {
-                        self.search_block(block_root, peer_id, cx);
+                        self.search_block(block_root, peer_id, PeerShouldHave::BlockAndBlobs, cx);
                         self.parent_lookups.push(parent_lookup)
                     }
                 }
@@ -654,7 +669,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                         }
                     }
                     LookupDownloadStatus::SearchBlock(block_root) => {
-                        self.search_block(block_root, peer_id, cx);
+                        self.search_block(block_root, peer_id, PeerShouldHave::BlockAndBlobs, cx);
                         self.parent_lookups.push(parent_lookup)
                     }
                 }
@@ -938,8 +953,9 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                     trace!(self.log, "Single block processing succeeded"; "block" => %root);
                     true
                 }
-                AvailabilityProcessingStatus::MissingParts(_, block_root) => {
-                    self.search_block(block_root, peer_id, cx);
+                AvailabilityProcessingStatus::MissingComponents(_, block_root) => {
+                    // At this point we don't know what the peer *should* have.
+                    self.search_block(block_root, peer_id, PeerShouldHave::Neither, cx);
                     false
                 }
             },
@@ -1080,7 +1096,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 AvailabilityProcessingStatus::Imported(hash) => {
                     trace!(self.log, "Parent block processing succeeded"; &parent_lookup)
                 }
-                AvailabilityProcessingStatus::MissingParts(_, block_root) => {
+                AvailabilityProcessingStatus::MissingComponents(_, block_root) => {
                     trace!(self.log, "Parent missing parts, triggering single block lookup "; &parent_lookup)
                 }
             },
@@ -1098,11 +1114,11 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         }
 
         match result {
-            BlockPartProcessingResult::Ok(AvailabilityProcessingStatus::MissingParts(
+            BlockPartProcessingResult::Ok(AvailabilityProcessingStatus::MissingComponents(
                 _,
                 block_root,
             )) => {
-                self.search_block(block_root, peer_id, cx);
+                self.search_block(block_root, peer_id, PeerShouldHave::BlockAndBlobs, cx);
             }
             BlockPartProcessingResult::Err(BlockError::ParentUnknown(block)) => {
                 parent_lookup.add_block_wrapper(block);

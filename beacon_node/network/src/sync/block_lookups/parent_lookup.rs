@@ -1,5 +1,5 @@
 use super::single_block_lookup::{LookupRequestError, LookupVerifyError, SingleBlockLookup};
-use super::DownloadedBlocks;
+use super::{DownloadedBlocks, PeerShouldHave};
 use crate::sync::block_lookups::{single_block_lookup, RootBlockTuple};
 use crate::sync::{
     manager::{Id, SLOT_IMPORT_TOLERANCE},
@@ -45,7 +45,7 @@ pub enum ParentVerifyError {
     ExtraBlobsReturned,
     InvalidIndex(u64),
     PreviousFailure { parent_root: Hash256 },
-    AvailabilityCheck, //TODO(sean) wrap the underlying error
+    AvailabilityCheck,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -348,18 +348,14 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
         self.current_parent_request.failed_attempts()
     }
 
-    //TODO(sean) fix this up
-    pub fn add_peer(&mut self, block_root: &Hash256, peer_id: &PeerId) -> bool {
-        if block_root == &self.chain_hash {
-            return false;
-        }
+    pub fn add_peer_if_useful(
+        &mut self,
+        block_root: &Hash256,
+        peer_id: &PeerId,
+        peer_usefulness: PeerShouldHave,
+    ) -> bool {
         self.current_parent_request
-            .block_request_state
-            .add_peer(peer_id);
-        self.current_parent_request
-            .blob_request_state
-            .add_peer(peer_id);
-        true
+            .add_peer_if_useful(block_root, peer_id, peer_usefulness)
     }
 
     //TODO(sean) fix this up

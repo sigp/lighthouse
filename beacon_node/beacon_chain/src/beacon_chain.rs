@@ -184,7 +184,7 @@ pub enum WhenSlotSkipped {
 
 #[derive(Debug, PartialEq)]
 pub enum AvailabilityProcessingStatus {
-    MissingParts(Slot, Hash256),
+    MissingComponents(Slot, Hash256),
     Imported(Hash256),
 }
 
@@ -2668,7 +2668,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             AvailabilityProcessingStatus::Imported(_) => {
                                 // The block was imported successfully.
                             }
-                            AvailabilityProcessingStatus::MissingParts(slot, block_root) => {
+                            AvailabilityProcessingStatus::MissingComponents(slot, block_root) => {
                                 return ChainSegmentResult::Failed {
                                     imported_blocks,
                                     error: BlockError::MissingBlockParts(slot, block_root),
@@ -2919,9 +2919,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             Availability::Available(block) => {
                 self.import_available_block(block, count_unrealized).await
             }
-            Availability::MissingParts(block_root) => {
-                Ok(AvailabilityProcessingStatus::MissingParts(slot, block_root))
-            }
+            Availability::MissingParts(block_root) => Ok(
+                AvailabilityProcessingStatus::MissingComponents(slot, block_root),
+            ),
         }
     }
 
