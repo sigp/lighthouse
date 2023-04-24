@@ -3,6 +3,10 @@ use super::per_block_processing::{
 };
 use crate::common::DepositDataTree;
 use crate::per_block_processing::UNSET_DEPOSIT_RECEIPTS_START_INDEX;
+use crate::upgrade::{
+    upgrade_to_altair, upgrade_to_bellatrix, upgrade_to_capella, upgrade_to_eip4844,
+    upgrade_to_eip6110,
+};
 use safe_arith::{ArithError, SafeArith};
 use tree_hash::TreeHash;
 use types::DEPOSIT_TREE_DEPTH;
@@ -51,29 +55,81 @@ pub fn initialize_beacon_state_from_eth1<T: EthSpec>(
     // Add deposit_receipts_start_index field with the value UNSET_DEPOSIT_RECEIPTS_START_INDEX
     *state.deposit_receipts_start_index_mut()? = UNSET_DEPOSIT_RECEIPTS_START_INDEX;
 
-    // Initialize the execution payload header
-    if let Some(header) = execution_payload_header {
-        match state.latest_execution_payload_header_mut()? {
-            ExecutionPayloadHeaderRefMut::Merge(header_mut) => {
-                if let ExecutionPayloadHeader::Merge(header) = header {
-                    *header_mut = header;
-                }
-            }
-            ExecutionPayloadHeaderRefMut::Capella(header_mut) => {
-                if let ExecutionPayloadHeader::Capella(header) = header {
-                    *header_mut = header;
-                }
-            }
-            ExecutionPayloadHeaderRefMut::Eip4844(header_mut) => {
-                if let ExecutionPayloadHeader::Eip4844(header) = header {
-                    *header_mut = header;
-                }
-            }
-            ExecutionPayloadHeaderRefMut::Eip6110(header_mut) => {
-                if let ExecutionPayloadHeader::Eip6110(header) = header {
-                    *header_mut = header;
-                }
-            }
+    if spec
+        .altair_fork_epoch
+        .map_or(false, |fork_epoch| fork_epoch == T::genesis_epoch())
+    {
+        upgrade_to_altair(&mut state, spec)?;
+
+        state.fork_mut().previous_version = spec.altair_fork_version;
+    }
+
+    // Similarly, perform an upgrade to the merge if configured from genesis.
+    if spec
+        .bellatrix_fork_epoch
+        .map_or(false, |fork_epoch| fork_epoch == T::genesis_epoch())
+    {
+        // this will set state.latest_execution_payload_header = ExecutionPayloadHeaderMerge::default()
+        upgrade_to_bellatrix(&mut state, spec)?;
+
+        // Remove intermediate Altair fork from `state.fork`.
+        state.fork_mut().previous_version = spec.bellatrix_fork_version;
+
+        // Override latest execution payload header.
+        // See https://github.com/ethereum/consensus-specs/blob/v1.1.0/specs/bellatrix/beacon-chain.md#testing
+        if let Some(ExecutionPayloadHeader::Merge(ref header)) = execution_payload_header {
+            *state.latest_execution_payload_header_merge_mut()? = header.clone();
+        }
+    }
+
+    // Upgrade to capella if configured from genesis
+    if spec
+        .capella_fork_epoch
+        .map_or(false, |fork_epoch| fork_epoch == T::genesis_epoch())
+    {
+        upgrade_to_capella(&mut state, spec)?;
+
+        // Remove intermediate Bellatrix fork from `state.fork`.
+        state.fork_mut().previous_version = spec.capella_fork_version;
+
+        // Override latest execution payload header.
+        // See https://github.com/ethereum/consensus-specs/blob/dev/specs/capella/beacon-chain.md#testing
+        if let Some(ExecutionPayloadHeader::Capella(ref header)) = execution_payload_header {
+            *state.latest_execution_payload_header_capella_mut()? = header.clone();
+        }
+    }
+
+    // Upgrade to eip4844 if configured from genesis
+    if spec
+        .eip4844_fork_epoch
+        .map_or(false, |fork_epoch| fork_epoch == T::genesis_epoch())
+    {
+        upgrade_to_eip4844(&mut state, spec)?;
+
+        // Remove intermediate Capella fork from `state.fork`.
+        state.fork_mut().previous_version = spec.eip4844_fork_version;
+
+        // Override latest execution payload header.
+        // See https://github.com/ethereum/consensus-specs/blob/dev/specs/eip4844/beacon-chain.md#testing
+        if let Some(ExecutionPayloadHeader::Eip4844(ref header)) = execution_payload_header {
+            *state.latest_execution_payload_header_eip4844_mut()? = header.clone();
+        }
+    }
+
+    // Upgrade to eip6110 if configured from genesis
+    if spec
+        .eip6110_fork_epoch
+        .map_or(false, |fork_epoch| fork_epoch == T::genesis_epoch())
+    {
+        upgrade_to_eip6110(&mut state, spec)?;
+
+        // Remove intermediate Eip4844 fork from `state.fork`.
+        state.fork_mut().previous_version = spec.eip6110_fork_version;
+
+        // Override latest execution payload header.
+        // See https://github.com/ethereum/consensus-specs/blob/dev/specs/_features/eip6110/beacon-chain.md#testing
+        if let Some(ExecutionPayloadHeader::Eip6110(header)) = execution_payload_header {
+            *state.latest_execution_payload_header_eip6110_mut()? = header;
         }
     }
 
