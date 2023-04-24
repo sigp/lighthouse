@@ -699,7 +699,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         /* Check disconnection for parent lookups */
         while let Some(pos) = self.parent_lookups.iter_mut().position(|req| {
             req.check_block_peer_disconnected(peer_id).is_err()
-                && req.check_blob_peer_disconnected(peer_id).is_err()
+                || req.check_blob_peer_disconnected(peer_id).is_err()
         }) {
             let parent_lookup = self.parent_lookups.remove(pos);
             trace!(self.log, "Parent lookup's peer disconnected"; &parent_lookup);
