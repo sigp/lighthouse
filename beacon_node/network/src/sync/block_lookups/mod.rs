@@ -434,32 +434,28 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         &mut Id,
         &mut SingleBlockLookup<SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS, T>,
     )> {
-        let lookup: Option<(
-            bool,
-            &mut Id,
-            &mut SingleBlockLookup<SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS, T>,
-        )> = self
-            .single_block_lookups
-            .iter_mut()
-            .find_map(|(block_id_opt, blob_id_opt, req)| {
-                let id_opt = match response_type {
-                    ResponseType::Block => block_id_opt,
-                    ResponseType::Blob => blob_id_opt,
-                };
-                if let Some(lookup_id) = id_opt {
-                    if *lookup_id == target_id {
-                        // Only send for processing if we don't have parent requests that were triggered by
-                        // this block.
-                        let triggered_parent_request = self
-                            .parent_lookups
-                            .iter()
-                            .any(|lookup| lookup.chain_hash() == req.requested_block_root);
+        let lookup =
+            self.single_block_lookups
+                .iter_mut()
+                .find_map(|(block_id_opt, blob_id_opt, req)| {
+                    let id_opt = match response_type {
+                        ResponseType::Block => block_id_opt,
+                        ResponseType::Blob => blob_id_opt,
+                    };
+                    if let Some(lookup_id) = id_opt {
+                        if *lookup_id == target_id {
+                            // Only send for processing if we don't have parent requests that were triggered by
+                            // this block.
+                            let triggered_parent_request = self
+                                .parent_lookups
+                                .iter()
+                                .any(|lookup| lookup.chain_hash() == req.requested_block_root);
 
-                        return Some((triggered_parent_request, lookup_id, req));
+                            return Some((triggered_parent_request, lookup_id, req));
+                        }
                     }
-                }
-                None
-            });
+                    None
+                });
 
         let (triggered_parent_request, id_ref, request) = match lookup {
             Some((triggered_parent_request, id_ref, req)) => {
@@ -672,70 +668,32 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
 
     pub fn peer_disconnected(&mut self, peer_id: &PeerId, cx: &mut SyncNetworkContext<T>) {
         self.single_block_lookups
-            .retain_mut(|(block_id, blob_id, req)| {
-                if req
-                    .block_request_state
+            .retain_mut(|(block_id_opt, blob_id_opt, req)| {
+            let should_remove_block = block_id_opt
+                .as_mut()
+                .filter(|_| req.block_request_state
                     .check_peer_disconnected(peer_id)
-                    .is_err()
-                {
-                    // retry the request
-                    match req.request_block() {
-                        Ok(Some((peer_id, block_request))) => {
-                            if let Ok(request_id) =
-                                cx.single_block_lookup_request(peer_id, block_request)
-                            {
-                                *block_id = Some(request_id);
-                                return true;
-                            }
-                        }
-                        Ok(None) => {
-                            // We've already successfully downloaded the block, we may be waiting
-                            // for blobs, so don't drop the lookup.
-                            return true;
-                        }
-                        Err(e) => {
-                            trace!(
-                                self.log,
-                                "Single block request failed on peer disconnection";
-                                "block_root" => %req.requested_block_root,
-                                "peer_id" => %peer_id,
-                                "reason" => <&str>::from(e),
-                            );
-                        }
-                    }
-                }
-                if req
-                    .blob_request_state
+                    .is_err())
+                .map(|block_id| {
+
+                    trace!(self.log, "Single block lookup failed on peer disconnection"; "block_root" => ?req.requested_block_root, );
+                    retry_request_after_failure(block_id, req, ResponseType::Block, peer_id, cx, &self.log)
+                })
+                .unwrap_or(ShouldRemoveLookup::False);
+
+            let should_remove_blob = blob_id_opt
+                .as_mut()
+                .filter(|_| req.blob_request_state
                     .check_peer_disconnected(peer_id)
-                    .is_err()
-                {
-                    // retry the request
-                    match req.request_blobs() {
-                        Ok(Some((peer_id, blobs_request))) => {
-                            if let Ok(request_id) =
-                                cx.single_blobs_lookup_request(peer_id, blobs_request)
-                            {
-                                *blob_id = Some(request_id);
-                                return true;
-                            }
-                        }
-                        Ok(None) => {
-                            // We've already successfully downloaded the blobs, we may be waiting
-                            // for block, so don't drop the lookup.
-                            return true;
-                        }
-                        Err(e) => {
-                            trace!(
-                                self.log,
-                                "Single blobs request failed on peer disconnection";
-                                "block_root" => %req.requested_block_root,
-                                "peer_id" => %peer_id,
-                                "reason" => <&str>::from(e),
-                            );
-                        }
-                    }
-                }
-                false
+                    .is_err())
+                .map(|blob_id| {
+
+                    trace!(self.log, "Single blob lookup failed on peer disconnection"; "block_root" => ?req.requested_block_root, );
+                    retry_request_after_failure(blob_id, req, ResponseType::Blob, peer_id, cx, &self.log)
+                })
+                .unwrap_or(ShouldRemoveLookup::False);
+
+            matches!(should_remove_block, ShouldRemoveLookup::False) && matches!(should_remove_blob, ShouldRemoveLookup::False)
             });
 
         /* Check disconnection for parent lookups */
@@ -757,8 +715,6 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         cx: &mut SyncNetworkContext<T>,
         error: RPCError,
     ) {
-        //TODO(sean) check if there's a pending blob response when deciding whether to drop?
-
         if let Some(pos) = self
             .parent_lookups
             .iter()
@@ -799,30 +755,29 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         cx: &mut SyncNetworkContext<T>,
         error: RPCError,
     ) {
+        let msg = error.as_static_str();
         self.single_block_lookups.retain_mut(|(block_id_opt, blob_id_opt, req)|{
-             let should_remove_block =  if let Some(block_id) = block_id_opt.as_mut() {
-                if *block_id == id {
-                    req.block_request_state.register_failure_downloading();
-                    trace!(self.log, "Single block lookup failed"; "block" => %req.requested_block_root);
-                    retry_request_after_failure(block_id, req, ResponseType::Block, peer_id, error.as_static_str(), cx, &self.log)
-                } else {
-                        ShouldRemoveLookup::False
-                }
-            } else {
-                ShouldRemoveLookup::False
-            };
 
-             let should_remove_blob = if let Some(blob_id) = blob_id_opt.as_mut() {
-                if *blob_id == id {
-                req.blob_request_state.register_failure_downloading();
-                trace!(self.log, "Single blob lookup failed"; "block" => %req.requested_block_root);
-                 retry_request_after_failure(blob_id, req, ResponseType::Block, peer_id,error.as_static_str(), cx, &self.log)
-                } else {
-                        ShouldRemoveLookup::False
-                }
-            } else {
-                ShouldRemoveLookup::False
-            };
+            let should_remove_block = block_id_opt
+                .as_mut()
+                .filter(|block_id| **block_id == id)
+                .map(|block_id| {
+                    req.block_request_state.register_failure_downloading();
+                    trace!(self.log, "Single block lookup failed"; "block" => %req.requested_block_root, "error" => msg);
+                    retry_request_after_failure(block_id, req, ResponseType::Block, peer_id, cx, &self.log)
+                })
+                .unwrap_or(ShouldRemoveLookup::False);
+
+            let should_remove_blob = blob_id_opt
+                .as_mut()
+                .filter(|blob_id| **blob_id == id)
+                .map(|blob_id| {
+                    req.blob_request_state.register_failure_downloading();
+                    trace!(self.log, "Single blob lookup failed"; "block" => %req.requested_block_root, "error" =>msg);
+                    retry_request_after_failure(blob_id, req, ResponseType::Block, peer_id, cx, &self.log)
+                })
+                .unwrap_or(ShouldRemoveLookup::False);
+
             matches!(should_remove_block, ShouldRemoveLookup::False) && matches!(should_remove_blob, ShouldRemoveLookup::False)
         });
 
@@ -1410,18 +1365,16 @@ fn handle_block_lookup_verify_error<T: BeaconChainTypes>(
         request_ref,
         response_type,
         &peer_id,
-        msg,
         cx,
         log,
     )
 }
 
-fn retry_request_after_failure<T: BeaconChainTypes, Err: Debug>(
+fn retry_request_after_failure<T: BeaconChainTypes>(
     request_id_ref: &mut u32,
     request_ref: &mut SingleBlockLookup<SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS, T>,
     response_type: ResponseType,
     initial_peer_id: &PeerId,
-    e: Err,
     cx: &mut SyncNetworkContext<T>,
     log: &Logger,
 ) -> ShouldRemoveLookup {
