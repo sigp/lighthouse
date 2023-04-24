@@ -1292,7 +1292,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         cx: &mut SyncNetworkContext<T>,
     ) {
         let response = parent_lookup.request_parent_block(cx);
-        self.handle_response(parent_lookup, cx, response);
+        self.handle_response(parent_lookup, cx, response, ResponseType::Block);
     }
 
     fn request_parent_blob(
@@ -1301,7 +1301,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         cx: &mut SyncNetworkContext<T>,
     ) {
         let response = parent_lookup.request_parent_blobs(cx);
-        self.handle_response(parent_lookup, cx, response);
+        self.handle_response(parent_lookup, cx, response, ResponseType::Blob);
     }
 
     fn request_parent_block_and_blobs(
@@ -1309,18 +1309,24 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         mut parent_lookup: ParentLookup<T>,
         cx: &mut SyncNetworkContext<T>,
     ) {
-        let response = parent_lookup
-            .request_parent_block(cx)
-            .and_then(|_| parent_lookup.request_parent_blobs(cx));
-        self.handle_response(parent_lookup, cx, response);
+        let block_res = parent_lookup.request_parent_block(cx);
+        match block_res {
+            Ok(()) => {
+                let blob_res = parent_lookup.request_parent_blobs(cx);
+                self.handle_response(parent_lookup, cx, blob_res, ResponseType::Blob)
+            }
+            Err(e) => {
+                self.handle_response(parent_lookup, cx, Err(e), ResponseType::Block);
+            }
+        }
     }
 
-    //TODO(sean) how should peer scoring work with failures in this method?
     fn handle_response(
         &mut self,
-        mut parent_lookup: ParentLookup<T>,
+        parent_lookup: ParentLookup<T>,
         cx: &mut SyncNetworkContext<T>,
         result: Result<(), parent_lookup::RequestError>,
+        response_type: ResponseType,
     ) {
         match result {
             Err(e) => {
@@ -1332,7 +1338,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                     parent_lookup::RequestError::ChainTooLong => {
                         self.failed_chains.insert(parent_lookup.chain_hash());
                         // This indicates faulty peers.
-                        for &peer_id in parent_lookup.used_block_peers() {
+                        for &peer_id in parent_lookup.used_peers(response_type) {
                             cx.report_peer(peer_id, PeerAction::LowToleranceError, e.as_static())
                         }
                     }
@@ -1345,7 +1351,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                             self.failed_chains.insert(parent_lookup.chain_hash());
                         }
                         // This indicates faulty peers.
-                        for &peer_id in parent_lookup.used_block_peers() {
+                        for &peer_id in parent_lookup.used_peers(response_type) {
                             cx.report_peer(peer_id, PeerAction::LowToleranceError, e.as_static())
                         }
                     }

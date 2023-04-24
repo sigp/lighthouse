@@ -1,5 +1,5 @@
 use super::single_block_lookup::{LookupRequestError, LookupVerifyError, SingleBlockLookup};
-use super::{DownloadedBlocks, PeerShouldHave};
+use super::{DownloadedBlocks, PeerShouldHave, ResponseType};
 use crate::sync::block_lookups::{single_block_lookup, RootBlockTuple};
 use crate::sync::{
     manager::{Id, SLOT_IMPORT_TOLERANCE},
@@ -358,12 +358,19 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
             .add_peer_if_useful(block_root, peer_id, peer_usefulness)
     }
 
-    //TODO(sean) fix this up
-    pub fn used_block_peers(&self) -> impl Iterator<Item = &PeerId> + '_ {
-        self.current_parent_request
-            .block_request_state
-            .used_peers
-            .iter()
+    pub fn used_peers(&self, response_type: ResponseType) -> impl Iterator<Item = &PeerId> + '_ {
+        match response_type {
+            ResponseType::Block => self
+                .current_parent_request
+                .block_request_state
+                .used_peers
+                .iter(),
+            ResponseType::Blob => self
+                .current_parent_request
+                .blob_request_state
+                .used_peers
+                .iter(),
+        }
     }
 }
 
