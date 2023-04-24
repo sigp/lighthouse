@@ -64,8 +64,12 @@ pub async fn publish_block<T: BeaconChainTypes>(
             );
             return Err(BlockError::SlashablePublish);
         }
+        let publish_timestamp = timestamp_now();
+        let publish_delay = publish_timestamp
+            .checked_sub(seen_timestamp)
+            .unwrap_or_else(|| Duration::from_secs(0));
 
-        info!(log_clone, "Signed block published to network via HTTP API"; "slot" => block_clone.slot());
+        info!(log_clone, "Signed block published to network via HTTP API"; "slot" => block_clone.slot(), "publish_delay" => ?publish_delay);
 
         let message = PubsubMessage::BeaconBlock(block_clone);
         crate::publish_pubsub_message(&sender_clone, message).map_err(|_| BlockError::PublishError)
