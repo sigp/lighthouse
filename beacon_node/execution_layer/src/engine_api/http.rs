@@ -1187,7 +1187,7 @@ mod test {
             transactions,
             ..<_>::default()
         });
-        let json = serde_json::to_value(&ep)?;
+        let json = serde_json::to_value(ep)?;
         Ok(json.get("transactions").unwrap().clone())
     }
 
