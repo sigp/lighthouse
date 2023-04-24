@@ -171,6 +171,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                     .iter()
                     .map(|x| PeerId::from(x.clone()))
                     .collect(),
+                config.disable_peer_scoring,
                 &log,
             );
             Arc::new(globals)
@@ -1119,7 +1120,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                 debug!(self.log, "Peer does not support gossipsub"; "peer_id" => %peer_id);
                 self.peer_manager_mut().report_peer(
                     &peer_id,
-                    PeerAction::LowToleranceError,
+                    PeerAction::Fatal,
                     ReportSource::Gossipsub,
                     Some(GoodbyeReason::Unknown),
                     "does_not_support_gossipsub",

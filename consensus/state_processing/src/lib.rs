@@ -41,4 +41,4 @@ pub use per_epoch_processing::{
     errors::EpochProcessingError, process_epoch as per_epoch_processing,
 };
 pub use per_slot_processing::{per_slot_processing, Error as SlotProcessingError};
-pub use verify_operation::{SigVerifiedOp, VerifyOperation};
+pub use verify_operation::{SigVerifiedOp, VerifyOperation, VerifyOperationAt};

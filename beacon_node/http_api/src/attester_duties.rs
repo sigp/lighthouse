@@ -114,8 +114,10 @@ fn compute_historic_attester_duties<T: BeaconChainTypes>(
             )?;
             (state, execution_optimistic)
         } else {
-            StateId::from_slot(request_epoch.start_slot(T::EthSpec::slots_per_epoch()))
-                .state(chain)?
+            let (state, execution_optimistic, _finalized) =
+                StateId::from_slot(request_epoch.start_slot(T::EthSpec::slots_per_epoch()))
+                    .state(chain)?;
+            (state, execution_optimistic)
         };
 
     // Sanity-check the state lookup.
