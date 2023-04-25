@@ -14,6 +14,7 @@
 - [Sometimes I miss the attestation head vote, resulting in penalty. Is this normal?](#sometimes-i-miss-the-attestation-head-vote-resulting-in-penalty-is-this-normal)
 - [My beacon node is stuck at downloading historical block using checkpoint sync. What can I do?](#my-beacon-node-is-stuck-at-downloading-historical-block-using-checkpoint-sync-what-can-i-do)
 - [How do I check the version of Lighthouse that is running?](#how-do-i-check-the-version-of-lighthouse-that-is-running)
+- [Can I submit a voluntary exit message without running a beacon node?](#can-i-submit-a-voluntary-exit-message-without-running-a-beacon-node)
 
 ### Why does it take so long for a validator to be activated?
 
@@ -205,7 +206,7 @@ which says `TimedOut` at the end of the message. This means that the execution e
 
 If the reason for the error message is caused by no. 1 above, you may want to look further. If the execution engine is out of sync suddenly, it is usually caused by ungraceful shutdown. The common causes for ungraceful shutdown are:
 - Power outage. If power outages are an issue at your place, consider getting a UPS to avoid ungraceful shutdown of services. 
-- The service file is not stopped properly. To overcome this, make sure that the process is stop properly, e.g., during client updates. 
+- The service file is not stopped properly. To overcome this, make sure that the process is stopped properly, e.g., during client updates. 
 - Out of memory (oom) error. This can happen when the system memory usage has reached its maximum and causes the execution engine to be killed. When this occurs, the log file will show `Main process exited, code=killed, status=9/KILL`.  You can also run `sudo journalctl -a --since "18 hours ago" | grep -i "killed process` to confirm that the execution client has been killed due to oom. If you are using geth as the execution client, a short term solution is to reduce the resources used, for example: (1) reduce the cache by adding the flag `--cache 2048` (2) connect to fewer peers using the flag `--maxpeers 10`. If the oom occurs rather frequently, a long term solution is to increase the memory capacity of the computer.
 
 
@@ -261,3 +262,9 @@ Example of output:
 {"data":{"version":"Lighthouse/v4.1.0-693886b/x86_64-linux"}}
 ```
 which says that the version if v4.0.1.
+
+### Can I submit a voluntary exit message without running a beacon node?
+
+Yes. Beaconcha.in provides the tool to broadcast the message. You can create the voluntary exit message file with [ethdo](https://github.com/wealdtech/ethdo/releases/tag/v1.30.0) and submit the message via the [beaconcha.in website](https://beaconcha.in/tools/broadcast)
+
+It is also noted that you can submit your BLS-to-execution-change message to update your withdrawal credentials from type `0x00` to `0x01` using the same link.
