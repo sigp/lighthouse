@@ -80,7 +80,7 @@ impl From<bool> for StreamTerminator {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub enum ResponseType {
     Block,
     Blob,
@@ -815,15 +815,11 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         };
 
         let root = request_ref.requested_block_root;
-        let peer_id = match response_type {
-            ResponseType::Block => match request_ref.block_request_state.processing_peer() {
-                Ok(peer) => peer,
-                Err(_) => return,
-            },
-            ResponseType::Blob => match request_ref.blob_request_state.processing_peer() {
-                Ok(peer) => peer,
-                Err(_) => return,
-            },
+        let peer_id = request_ref.processing_peer(response_type);
+
+        let peer_id = match peer_id {
+            Ok(peer) => peer,
+            Err(_) => return,
         };
 
         let should_remove_lookup = match result {
@@ -924,16 +920,9 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             return debug!(self.log, "Process response for a parent lookup request that was not found"; "chain_hash" => %chain_hash);
         };
 
-        let peer_id = match response_type {
-            ResponseType::Block => parent_lookup
-                .current_parent_request
-                .block_request_state
-                .processing_peer(),
-            ResponseType::Blob => parent_lookup
-                .current_parent_request
-                .blob_request_state
-                .processing_peer(),
-        };
+        let peer_id = parent_lookup
+            .current_parent_request
+            .processing_peer(response_type);
 
         let peer_id = match peer_id {
             Ok(peer) => peer,

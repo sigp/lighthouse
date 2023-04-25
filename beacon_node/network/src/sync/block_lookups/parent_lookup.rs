@@ -321,28 +321,6 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
         Ok(blobs)
     }
 
-    pub fn get_block_processing_peer(&self, chain_hash: Hash256) -> Option<PeerId> {
-        if self.chain_hash == chain_hash {
-            return self
-                .current_parent_request
-                .block_request_state
-                .processing_peer()
-                .ok();
-        }
-        None
-    }
-
-    pub fn get_blob_processing_peer(&self, chain_hash: Hash256) -> Option<PeerId> {
-        if self.chain_hash == chain_hash {
-            return self
-                .current_parent_request
-                .blob_request_state
-                .processing_peer()
-                .ok();
-        }
-        None
-    }
-
     #[cfg(test)]
     pub fn failed_block_attempts(&self) -> u8 {
         self.current_parent_request.failed_attempts()

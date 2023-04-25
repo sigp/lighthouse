@@ -14,7 +14,7 @@ use strum::IntoStaticStr;
 use types::blob_sidecar::BlobIdentifier;
 use types::{BlobSidecar, EthSpec, SignedBeaconBlock};
 
-use super::PeerShouldHave;
+use super::{PeerShouldHave, ResponseType};
 
 pub struct SingleBlockLookup<const MAX_ATTEMPTS: u8, T: BeaconChainTypes> {
     pub requested_block_root: Hash256,
@@ -391,6 +391,13 @@ impl<const MAX_ATTEMPTS: u8, T: BeaconChainTypes> SingleBlockLookup<MAX_ATTEMPTS
             PeerShouldHave::Neither => {}
         }
         true
+    }
+
+    pub fn processing_peer(&self, response_type: ResponseType) -> Result<PeerId, ()> {
+        match response_type {
+            ResponseType::Block => self.block_request_state.processing_peer(),
+            ResponseType::Blob => self.blob_request_state.processing_peer(),
+        }
     }
 }
 
