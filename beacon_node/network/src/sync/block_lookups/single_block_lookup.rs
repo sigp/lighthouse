@@ -461,7 +461,7 @@ impl<const MAX_ATTEMPTS: u8, T: BeaconChainTypes> slog::Value
 {
     fn serialize(
         &self,
-        record: &slog::Record,
+        _record: &slog::Record,
         key: slog::Key,
         serializer: &mut dyn slog::Serializer,
     ) -> slog::Result {

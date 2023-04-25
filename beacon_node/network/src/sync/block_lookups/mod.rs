@@ -715,6 +715,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         cx: &mut SyncNetworkContext<T>,
         error: RPCError,
     ) {
+        let msg = error.as_static_str();
         if let Some(pos) = self
             .parent_lookups
             .iter()
@@ -722,11 +723,11 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         {
             let mut parent_lookup = self.parent_lookups.remove(pos);
             parent_lookup.block_download_failed();
-            trace!(self.log, "Parent lookup block request failed"; &parent_lookup);
+            trace!(self.log, "Parent lookup block request failed"; &parent_lookup, "error" => msg);
 
             self.request_parent_block(parent_lookup, cx);
         } else {
-            return debug!(self.log, "RPC failure for a block parent lookup request that was not found"; "peer_id" => %peer_id);
+            return debug!(self.log, "RPC failure for a block parent lookup request that was not found"; "peer_id" => %peer_id, "error" => msg);
         };
 
         if let Some(pos) = self
@@ -736,11 +737,11 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         {
             let mut parent_lookup = self.parent_lookups.remove(pos);
             parent_lookup.blob_download_failed();
-            trace!(self.log, "Parent lookup blobs request failed"; &parent_lookup);
+            trace!(self.log, "Parent lookup blobs request failed"; &parent_lookup, "error" => msg);
 
             self.request_parent_blob(parent_lookup, cx);
         } else {
-            return debug!(self.log, "RPC failure for a blobs parent lookup request that was not found"; "peer_id" => %peer_id);
+            return debug!(self.log, "RPC failure for a blobs parent lookup request that was not found"; "peer_id" => %peer_id, "error" => msg);
         };
         metrics::set_gauge(
             &metrics::SYNC_PARENT_BLOCK_LOOKUPS,
