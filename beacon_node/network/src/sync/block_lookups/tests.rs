@@ -12,6 +12,7 @@ use beacon_chain::{
     test_utils::{build_log, BeaconChainHarness, EphemeralHarnessType},
 };
 pub use genesis::{interop_genesis_state, DEFAULT_ETH1_BLOCK_HASH};
+use lighthouse_network::rpc::RPCResponseErrorCode;
 use lighthouse_network::{NetworkGlobals, Request};
 use slot_clock::TestingSlotClock;
 use std::time::Duration;

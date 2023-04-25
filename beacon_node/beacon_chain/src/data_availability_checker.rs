@@ -14,7 +14,7 @@ use std::collections::hash_map::{Entry, OccupiedEntry};
 use std::collections::HashMap;
 use std::sync::Arc;
 use types::beacon_block_body::KzgCommitments;
-use types::blob_sidecar::{BlobIdentifier, BlobSidecar};
+use types::blob_sidecar::{BlobIdentifier, BlobSidecar, FixedBlobSidecarList};
 use types::consts::deneb::MIN_EPOCHS_FOR_BLOBS_SIDECARS_REQUESTS;
 use types::{
     BeaconBlockRef, BlobSidecarList, ChainSpec, Epoch, EthSpec, ExecPayload, FullPayload, Hash256,
@@ -170,7 +170,7 @@ impl<T: EthSpec, S: SlotClock> DataAvailabilityChecker<T, S> {
         &self,
         block_root: Hash256,
         block: Arc<SignedBeaconBlock<T>>,
-        blobs: FixedVector<Option<Arc<BlobSidecar<T>>>, T::MaxBlobsPerBlock>,
+        blobs: FixedBlobSidecarList<T>,
     ) -> Result<BlockWrapper<T>, AvailabilityCheckError> {
         Ok(match self.get_blob_requirements(&block)? {
             BlobRequirements::EmptyBlobs => BlockWrapper::Block(block),
@@ -226,16 +226,14 @@ impl<T: EthSpec, S: SlotClock> DataAvailabilityChecker<T, S> {
     pub fn put_rpc_blobs(
         &self,
         block_root: Hash256,
-        blobs: FixedVector<Option<Arc<BlobSidecar<T>>>, T::MaxBlobsPerBlock>,
+        blobs: FixedBlobSidecarList<T>,
     ) -> Result<Availability<T>, AvailabilityCheckError> {
         // TODO(sean) we may duplicated kzg verification on some blobs we already have cached so we could optimize this
 
         let mut verified_blobs = vec![];
         if let Some(kzg) = self.kzg.as_ref() {
-            for blob_opt in blobs.into_iter() {
-                if let Some(blob) = blob_opt {
-                    verified_blobs.push(verify_kzg_for_blob(blob.clone(), kzg)?)
-                }
+            for blob in blobs.iter().flatten() {
+                verified_blobs.push(verify_kzg_for_blob(blob.clone(), kzg)?)
             }
         } else {
             return Err(AvailabilityCheckError::KzgNotInitialized);
@@ -396,11 +394,7 @@ impl<T: EthSpec, S: SlotClock> DataAvailabilityChecker<T, S> {
                     .kzg
                     .as_ref()
                     .ok_or(AvailabilityCheckError::KzgNotInitialized)?;
-                let filtered_blobs = blob_list
-                    .to_vec()
-                    .into_iter()
-                    .filter_map(|blob| blob)
-                    .collect();
+                let filtered_blobs = blob_list.iter().flatten().cloned().collect();
                 let verified_blobs = verify_kzg_for_blob_list(filtered_blobs, kzg)?;
 
                 Ok(MaybeAvailableBlock::Available(
@@ -695,11 +689,7 @@ impl<E: EthSpec> AsBlock<E> for AvailableBlock<E> {
     fn into_block_wrapper(self) -> BlockWrapper<E> {
         let (block, blobs_opt) = self.deconstruct();
         if let Some(blobs) = blobs_opt {
-            let blobs_vec = blobs
-                .to_vec()
-                .into_iter()
-                .map(Option::Some)
-                .collect::<Vec<_>>();
+            let blobs_vec = blobs.iter().cloned().map(Option::Some).collect::<Vec<_>>();
             BlockWrapper::BlockAndBlobs(block, FixedVector::from(blobs_vec))
         } else {
             BlockWrapper::Block(block)

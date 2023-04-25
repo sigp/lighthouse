@@ -1,6 +1,5 @@
 use derivative::Derivative;
 use slot_clock::SlotClock;
-use ssz_types::FixedVector;
 use state_processing::state_advance::partial_state_advance;
 use std::sync::Arc;
 
@@ -15,7 +14,7 @@ use crate::kzg_utils::{validate_blob, validate_blobs};
 use crate::BeaconChainError;
 use kzg::Kzg;
 use std::borrow::Cow;
-use types::blob_sidecar::BlobIdentifier;
+use types::blob_sidecar::{BlobIdentifier, FixedBlobSidecarList};
 use types::{
     BeaconBlockRef, BeaconState, BeaconStateError, BlobSidecar, ChainSpec, CloneConfig, Epoch,
     EthSpec, Hash256, KzgCommitment, RelativeEpoch, SignedBeaconBlock, SignedBeaconBlockHeader,
@@ -588,19 +587,11 @@ impl<E: EthSpec> AsBlock<E> for &MaybeAvailableBlock<E> {
 #[derivative(Hash(bound = "E: EthSpec"))]
 pub enum BlockWrapper<E: EthSpec> {
     Block(Arc<SignedBeaconBlock<E>>),
-    BlockAndBlobs(
-        Arc<SignedBeaconBlock<E>>,
-        FixedVector<Option<Arc<BlobSidecar<E>>>, E::MaxBlobsPerBlock>,
-    ),
+    BlockAndBlobs(Arc<SignedBeaconBlock<E>>, FixedBlobSidecarList<E>),
 }
 
 impl<E: EthSpec> BlockWrapper<E> {
-    pub fn deconstruct(
-        self,
-    ) -> (
-        Arc<SignedBeaconBlock<E>>,
-        Option<FixedVector<Option<Arc<BlobSidecar<E>>>, E::MaxBlobsPerBlock>>,
-    ) {
+    pub fn deconstruct(self) -> (Arc<SignedBeaconBlock<E>>, Option<FixedBlobSidecarList<E>>) {
         match self {
             BlockWrapper::Block(block) => (block, None),
             BlockWrapper::BlockAndBlobs(block, blobs) => (block, Some(blobs)),
