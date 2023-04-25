@@ -6,7 +6,7 @@
 - [What should I do if I lose my slashing protection database?](#what-should-i-do-if-i-lose-my-slashing-protection-database)
 - [How do I update lighthouse?](#how-do-i-update-lighthouse)
 - [I can't compile lighthouse](#i-cant-compile-lighthouse)
-- [I see warning about "Syncing deposit contract block cache" or error about "updating deposit contract cache", what should I do?](#i-see-beacon-logs-showing-warn-execution-engine-called-failed-what-should-i-do)
+- [I see warning about "Syncing deposit contract block cache" or error about "updating deposit contract cache", what should I do?](#i-see-warning-about-syncing-deposit-contract-block-cache-or-error-about-updating-deposit-contract-cache-what-should-i-do)
 - [Can I use redundancy in my staking setup?](#can-i-use-redundancy-in-my-staking-setup)
 - [How can I monitor my validators?](#how-can-i-monitor-my-validators)
 - [I see beacon logs showing `WARN: Execution engine called failed`, what should I do?](#i-see-beacon-logs-showing-warn-execution-engine-called-failed-what-should-i-do)
@@ -278,7 +278,7 @@ which says that the version if v4.1.0.
 
 ### Can I submit a voluntary exit message without running a beacon node?
 
-Yes. Beaconcha.in provides the tool to broadcast the message. You can create the voluntary exit message file with [ethdo](https://github.com/wealdtech/ethdo/releases/tag/v1.30.0) and submit the message via the [beaconcha.in website](https://beaconcha.in/tools/broadcast)
+Yes. Beaconcha.in provides the tool to broadcast the message. You can create the voluntary exit message file with [ethdo](https://github.com/wealdtech/ethdo/releases/tag/v1.30.0) and submit the message via the [beaconcha.in](https://beaconcha.in/tools/broadcast) website.
 
 It is also noted that you can submit your BLS-to-execution-change message to update your withdrawal credentials from type `0x00` to `0x01` using the same link.
 
