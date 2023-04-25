@@ -672,7 +672,7 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
                 data: Default::default(),
                 access_list: Default::default(),
                 max_fee_per_data_gas: Default::default(),
-                blob_versioned_hashes: vec![versioned_hash].into(),
+                versioned_hashes: vec![versioned_hash].into(),
             };
             let bad_signature = EcdsaSignature {
                 y_parity: false,

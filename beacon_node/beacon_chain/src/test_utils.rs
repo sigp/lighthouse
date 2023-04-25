@@ -14,6 +14,7 @@ use crate::{
     StateSkipConfig,
 };
 use bls::get_withdrawal_credentials;
+use eth2::types::BlockContentsTuple;
 use execution_layer::{
     auth::JwtKey,
     test_utils::{
@@ -766,11 +767,11 @@ where
         state.get_block_root(slot).unwrap() == state.get_block_root(slot - 1).unwrap()
     }
 
-    pub async fn make_block(
+    pub async fn make_block<Payload: AbstractExecPayload<E> + 'static>(
         &self,
         mut state: BeaconState<E>,
         slot: Slot,
-    ) -> (BlockWrapper<E>, BeaconState<E>) {
+    ) -> (BlockContentsTuple<E, Payload>, BeaconState<E>) {
         assert_ne!(slot, 0, "can't produce a block at slot 0");
         assert!(slot >= state.slot());
 
@@ -803,33 +804,45 @@ where
             .await
             .unwrap();
 
-        let signed_block = Arc::new(block.sign(
+        let signed_block = block.sign(
             &self.validator_keypairs[proposer_index].sk,
             &state.fork(),
             state.genesis_validators_root(),
             &self.spec,
-        ));
+        );
 
-        let wrapped_block: BlockWrapper<E> = match signed_block.as_ref() {
+        let block_contents: BlockContentsTuple<E, Payload> = match &signed_block {
             SignedBeaconBlock::Base(_)
             | SignedBeaconBlock::Altair(_)
             | SignedBeaconBlock::Merge(_)
-            | SignedBeaconBlock::Capella(_) => signed_block.into(),
+            | SignedBeaconBlock::Capella(_) => BlockContentsTuple::from((signed_block, None)),
             SignedBeaconBlock::Deneb(_) => {
                 if let Some(blobs) = self
                     .chain
                     .proposal_blob_cache
                     .pop(&signed_block.canonical_root())
                 {
-                    BlockWrapper::BlockAndBlobs(signed_block, blobs.into())
+                    let signed_blobs = Vec::from(blobs)
+                        .into_iter()
+                        .map(|blob| {
+                            blob.sign(
+                                &self.validator_keypairs[proposer_index].sk,
+                                &state.fork(),
+                                state.genesis_validators_root(),
+                                &self.spec,
+                            )
+                        })
+                        .collect::<Vec<_>>()
+                        .into();
+                    BlockContentsTuple::from((signed_block, Some(signed_blobs)))
                 } else {
                     // idk what else to put here..
-                    signed_block.into()
+                    BlockContentsTuple::from((signed_block, None))
                 }
             }
         };
 
-        (wrapped_block, state)
+        (block_contents, state)
     }
 
     /// Useful for the `per_block_processing` tests. Creates a block, and returns the state after
@@ -1697,18 +1710,18 @@ where
         (deposits, state)
     }
 
-    pub async fn process_block(
+    pub async fn process_block<B: Into<BlockWrapper<E>>>(
         &self,
         slot: Slot,
         block_root: Hash256,
-        block: BlockWrapper<E>,
+        block: B,
     ) -> Result<SignedBeaconBlockHash, BlockError<E>> {
         self.set_current_slot(slot);
         let block_hash: SignedBeaconBlockHash = self
             .chain
             .process_block(
                 block_root,
-                block,
+                block.into(),
                 CountUnrealized::True,
                 NotifyExecutionLayer::Yes,
             )
@@ -1719,15 +1732,16 @@ where
         Ok(block_hash)
     }
 
-    pub async fn process_block_result(
+    pub async fn process_block_result<B: Into<BlockWrapper<E>>>(
         &self,
-        block: SignedBeaconBlock<E>,
+        block: B,
     ) -> Result<SignedBeaconBlockHash, BlockError<E>> {
+        let wrapped_block = block.into();
         let block_hash: SignedBeaconBlockHash = self
             .chain
             .process_block(
-                block.canonical_root(),
-                Arc::new(block),
+                wrapped_block.canonical_root(),
+                wrapped_block,
                 CountUnrealized::True,
                 NotifyExecutionLayer::Yes,
             )
@@ -1793,11 +1807,18 @@ where
         &self,
         slot: Slot,
         state: BeaconState<E>,
-    ) -> Result<(SignedBeaconBlockHash, BlockWrapper<E>, BeaconState<E>), BlockError<E>> {
+    ) -> Result<
+        (
+            SignedBeaconBlockHash,
+            BlockContentsTuple<E, FullPayload<E>>,
+            BeaconState<E>,
+        ),
+        BlockError<E>,
+    > {
         self.set_current_slot(slot);
         let (block, new_state) = self.make_block(state, slot).await;
         let block_hash = self
-            .process_block(slot, block.as_block().canonical_root(), block.clone())
+            .process_block(slot, block.0.canonical_root(), block.clone())
             .await?;
         Ok((block_hash, block, new_state))
     }
@@ -1853,7 +1874,7 @@ where
         sync_committee_strategy: SyncCommitteeStrategy,
     ) -> Result<(SignedBeaconBlockHash, BeaconState<E>), BlockError<E>> {
         let (block_hash, block, state) = self.add_block_at_slot(slot, state).await?;
-        self.attest_block(&state, state_root, block_hash, block.as_block(), validators);
+        self.attest_block(&state, state_root, block_hash, &block.0, validators);
 
         if sync_committee_strategy == SyncCommitteeStrategy::AllValidators
             && state.current_sync_committee().is_ok()
@@ -2076,12 +2097,12 @@ where
     /// Deprecated: Use make_block() instead
     ///
     /// Returns a newly created block, signed by the proposer for the given slot.
-    pub async fn build_block(
+    pub async fn build_block<Payload: AbstractExecPayload<E> + 'static>(
         &self,
         state: BeaconState<E>,
         slot: Slot,
         _block_strategy: BlockStrategy,
-    ) -> (BlockWrapper<E>, BeaconState<E>) {
+    ) -> (BlockContentsTuple<E, Payload>, BeaconState<E>) {
         self.make_block(state, slot).await
     }
 
