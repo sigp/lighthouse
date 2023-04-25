@@ -984,11 +984,11 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 seen_timestamp,
                 &mut self.network,
             ),
-            RequestId::BackFillBlocks { id } => {
-                todo!()
+            RequestId::BackFillBlocks { id: _ } => {
+                warn!(self.log, "Blob received during backfill block request"; "peer_id" => %peer_id  );
             }
-            RequestId::RangeBlocks { id } => {
-                todo!()
+            RequestId::RangeBlocks { id: _ } => {
+                warn!(self.log, "Blob received during range block request"; "peer_id" => %peer_id  );
             }
             RequestId::BackFillBlockAndBlobs { id } => {
                 self.backfill_block_and_blobs_response(id, peer_id, blob.into())

@@ -989,8 +989,10 @@ impl<T: BeaconChainTypes> Worker<T> {
                 );
                 return None;
             }
-            Err(e @ BlockError::BlobValidation(_)) => {
-                warn!(self.log, "Could not verify blob for gossip. Rejecting the block and blob";
+            Err(e @ BlockError::BlobValidation(_))
+            | Err(e @ BlockError::MissingBlockParts(_, _))
+            | Err(e @ BlockError::AvailabilityCheck(_)) => {
+                warn!(self.log, "Could not verify block against known blobs in gossip. Rejecting the block";
                             "error" => %e);
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
                 self.gossip_penalize_peer(
@@ -1000,7 +1002,6 @@ impl<T: BeaconChainTypes> Worker<T> {
                 );
                 return None;
             }
-            _ => todo!(), //TODO(sean)
         };
 
         metrics::inc_counter(&metrics::BEACON_PROCESSOR_GOSSIP_BLOCK_VERIFIED_TOTAL);

@@ -23,7 +23,6 @@ use types::{
 
 #[derive(Debug)]
 pub enum AvailabilityCheckError {
-    DuplicateBlob(Hash256),
     Kzg(KzgError),
     KzgVerificationFailed,
     KzgNotInitialized,
@@ -37,7 +36,6 @@ pub enum AvailabilityCheckError {
     KzgCommitmentMismatch {
         blob_index: u64,
     },
-    Pending,
     IncorrectFork,
     BlockBlobRootMismatch {
         block_root: Hash256,
@@ -409,27 +407,6 @@ impl<T: EthSpec, S: SlotClock> DataAvailabilityChecker<T, S> {
                     self.check_availability_with_blobs(block, verified_blobs)?,
                 ))
             }
-        }
-    }
-
-    /// Checks if a block is available, returning an error if the block is not immediately available.
-    /// Does not access the gossip cache.
-    pub fn try_check_availability(
-        &self,
-        block: BlockWrapper<T>,
-    ) -> Result<AvailableBlock<T>, AvailabilityCheckError> {
-        match block {
-            BlockWrapper::Block(block) => {
-                let blob_requirements = self.get_blob_requirements(&block)?;
-                let blobs = match blob_requirements {
-                    BlobRequirements::EmptyBlobs => VerifiedBlobs::EmptyBlobs,
-                    BlobRequirements::NotRequired => VerifiedBlobs::NotRequired,
-                    BlobRequirements::PreDeneb => VerifiedBlobs::PreDeneb,
-                    BlobRequirements::Required => return Err(AvailabilityCheckError::MissingBlobs),
-                };
-                Ok(AvailableBlock { block, blobs })
-            }
-            BlockWrapper::BlockAndBlobs(_, _) => Err(AvailabilityCheckError::Pending),
         }
     }
 
