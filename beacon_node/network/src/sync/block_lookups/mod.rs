@@ -824,7 +824,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
 
         let should_remove_lookup = match result {
             BlockPartProcessingResult::Ok(status) => match status {
-                AvailabilityProcessingStatus::Imported(hash) => {
+                AvailabilityProcessingStatus::Imported(root) => {
                     trace!(self.log, "Single block processing succeeded"; "block" => %root);
                     ShouldRemoveLookup::True
                 }
@@ -931,11 +931,11 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
 
         match &result {
             BlockPartProcessingResult::Ok(status) => match status {
-                AvailabilityProcessingStatus::Imported(hash) => {
-                    trace!(self.log, "Parent block processing succeeded"; &parent_lookup)
+                AvailabilityProcessingStatus::Imported(block_root) => {
+                    trace!(self.log, "Parent block processing succeeded"; &parent_lookup, "block_root" => ?block_root)
                 }
                 AvailabilityProcessingStatus::MissingComponents(_, block_root) => {
-                    trace!(self.log, "Parent missing parts, triggering single block lookup "; &parent_lookup)
+                    trace!(self.log, "Parent missing parts, triggering single block lookup "; &parent_lookup,"block_root" => ?block_root)
                 }
             },
             BlockPartProcessingResult::Err(e) => {
@@ -1066,11 +1066,11 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         debug!(self.log, "Parent chain processed"; "chain_hash" => %chain_hash, "result" => ?result);
         match result {
             BatchProcessResult::Success { .. } => {
-                if let Some((index, (_, _, req))) = self
+                if let Some((index, (_, _, _))) = self
                     .single_block_lookups
                     .iter()
                     .enumerate()
-                    .find(|(index, (_, _, req))| req.requested_block_root == chain_hash)
+                    .find(|(_, (_, _, req))| req.requested_block_root == chain_hash)
                 {
                     if let Some((block_id, blob_id, block_wrapper)) = self
                         .single_block_lookups
@@ -1107,9 +1107,8 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 imported_blocks: _,
                 penalty,
             } => {
-                //TODO(sean) improve peer scoring to block or blob granularity
                 self.failed_chains.insert(chain_hash);
-                let mut all_peers = request.blob_request_state.used_peers.clone();
+                let mut all_peers = request.block_request_state.used_peers.clone();
                 all_peers.extend(request.blob_request_state.used_peers);
                 for peer_id in all_peers {
                     cx.report_peer(peer_id, penalty, "parent_chain_failure")
