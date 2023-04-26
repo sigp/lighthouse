@@ -639,7 +639,6 @@ async fn init_from_beacon_node<E: EthSpec>(
                 "total_beacon_nodes" => num_total,
                 "available_beacon_nodes" => num_available,
             );
-            sleep(RETRY_DELAY).await;
         }
 
         if num_available > 0 && proposer_available == 0 {
