@@ -262,7 +262,7 @@ fn test_single_block_lookup_failure() {
 fn test_single_block_lookup_becomes_parent_request() {
     let (mut bl, mut cx, mut rig) = TestRig::test_setup(false);
 
-    let block = rig.rand_block();
+    let block = Arc::new(rig.rand_block());
     let peer_id = PeerId::random();
 
     // Trigger the request
@@ -276,7 +276,7 @@ fn test_single_block_lookup_becomes_parent_request() {
 
     // The peer provides the correct block, should not be penalized. Now the block should be sent
     // for processing.
-    bl.single_block_lookup_response(id, peer_id, Some(block.clone().into()), D, &mut cx);
+    bl.single_block_lookup_response(id, peer_id, Some(block.clone()), D, &mut cx);
     rig.expect_empty_network();
     rig.expect_block_process();
 
@@ -637,7 +637,7 @@ fn test_parent_lookup_too_deep() {
     for block in blocks.into_iter().rev() {
         let id = rig.expect_parent_request();
         // the block
-        bl.parent_lookup_response(id, peer_id, Some(block.clone().into()), D, &mut cx);
+        bl.parent_lookup_response(id, peer_id, Some(block.clone()), D, &mut cx);
         // the stream termination
         bl.parent_lookup_response(id, peer_id, None, D, &mut cx);
         // the processing request
@@ -798,7 +798,7 @@ fn test_same_chain_race_condition() {
     for (i, block) in blocks.into_iter().rev().enumerate() {
         let id = rig.expect_parent_request();
         // the block
-        bl.parent_lookup_response(id, peer_id, Some(block.clone().into()), D, &mut cx);
+        bl.parent_lookup_response(id, peer_id, Some(block.clone()), D, &mut cx);
         // the stream termination
         bl.parent_lookup_response(id, peer_id, None, D, &mut cx);
         // the processing request

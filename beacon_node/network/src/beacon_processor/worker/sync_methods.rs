@@ -22,6 +22,7 @@ use ssz_types::FixedVector;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc;
+use types::blob_sidecar::FixedBlobSidecarList;
 use types::{BlobSidecar, Epoch, EthSpec, Hash256, SignedBeaconBlock};
 
 /// Id associated to a batch processing request, either a sync batch or a parent lookup.
@@ -205,19 +206,12 @@ impl<T: BeaconChainTypes> Worker<T> {
     pub async fn process_rpc_blobs(
         self,
         block_root: Hash256,
-        blobs: FixedVector<
-            Option<Arc<BlobSidecar<T::EthSpec>>>,
-            <<T as BeaconChainTypes>::EthSpec as EthSpec>::MaxBlobsPerBlock,
-        >,
+        blobs: FixedBlobSidecarList<T::EthSpec>,
         _seen_timestamp: Duration,
         process_type: BlockProcessType,
     ) {
         let Some(slot) = blobs.iter().find_map(|blob|{
-            if let Some(blob) = blob {
-                Some(blob.slot)
-            } else {
-                None
-            }
+            blob.as_ref().map(|blob| blob.slot)
         }) else {
             return;
         };

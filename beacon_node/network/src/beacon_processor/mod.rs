@@ -65,6 +65,7 @@ use std::{cmp, collections::HashSet};
 use task_executor::TaskExecutor;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TrySendError;
+use types::blob_sidecar::FixedBlobSidecarList;
 use types::{
     Attestation, AttesterSlashing, BlobSidecar, EthSpec, Hash256, LightClientFinalityUpdate,
     LightClientOptimisticUpdate, ProposerSlashing, SignedAggregateAndProof, SignedBeaconBlock,
@@ -632,10 +633,7 @@ impl<T: BeaconChainTypes> WorkEvent<T> {
 
     pub fn rpc_blobs(
         block_root: Hash256,
-        blobs: FixedVector<
-            Option<Arc<BlobSidecar<T::EthSpec>>>,
-            <<T as BeaconChainTypes>::EthSpec as EthSpec>::MaxBlobsPerBlock,
-        >,
+        blobs: FixedBlobSidecarList<T::EthSpec>,
         seen_timestamp: Duration,
         process_type: BlockProcessType,
     ) -> Self {
@@ -951,10 +949,7 @@ pub enum Work<T: BeaconChainTypes> {
     },
     RpcBlobs {
         block_root: Hash256,
-        blobs: FixedVector<
-            Option<Arc<BlobSidecar<T::EthSpec>>>,
-            <<T as BeaconChainTypes>::EthSpec as EthSpec>::MaxBlobsPerBlock,
-        >,
+        blobs: FixedBlobSidecarList<T::EthSpec>,
         seen_timestamp: Duration,
         process_type: BlockProcessType,
     },

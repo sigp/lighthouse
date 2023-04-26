@@ -6,13 +6,13 @@ use lighthouse_network::{PeerAction, PeerId};
 use lru_cache::LRUTimeCache;
 use slog::{debug, error, trace, warn, Logger};
 use smallvec::SmallVec;
-use ssz_types::FixedVector;
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::sync::Arc;
 use std::time::Duration;
 use store::Hash256;
-use types::{BlobSidecar, EthSpec, SignedBeaconBlock, Slot};
+use types::blob_sidecar::FixedBlobSidecarList;
+use types::{BlobSidecar, SignedBeaconBlock, Slot};
 
 use self::parent_lookup::{LookupDownloadStatus, PARENT_FAIL_TOLERANCE};
 use self::parent_lookup::{ParentLookup, ParentVerifyError};
@@ -34,6 +34,7 @@ mod tests;
 
 pub type DownloadedBlocks<T> = (Hash256, BlockWrapper<T>);
 pub type RootBlockTuple<T> = (Hash256, Arc<SignedBeaconBlock<T>>);
+pub type RootBlobsTuple<T> = (Hash256, FixedBlobSidecarList<T>);
 
 const FAILED_CHAINS_CACHE_EXPIRY_SECONDS: u64 = 60;
 const SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS: u8 = 3;
@@ -802,7 +803,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 block_id_opt
                     .as_mut()
                     .or(blob_id_opt.as_mut())
-                    .and_then(|id_ref| (*id_ref != id).then(|| (index, id_ref, req)))
+                    .and_then(|id_ref| (*id_ref != id).then_some((index, id_ref, req)))
             },
         );
         let (index, request_id_ref, request_ref) = match lookup_components_opt {
@@ -1161,10 +1162,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     fn send_blobs_for_processing(
         &self,
         block_root: Hash256,
-        blobs: FixedVector<
-            Option<Arc<BlobSidecar<T::EthSpec>>>,
-            <<T as BeaconChainTypes>::EthSpec as EthSpec>::MaxBlobsPerBlock,
-        >,
+        blobs: FixedBlobSidecarList<T::EthSpec>,
         duration: Duration,
         process_type: BlockProcessType,
         cx: &mut SyncNetworkContext<T>,

@@ -1,6 +1,6 @@
 use super::single_block_lookup::{LookupRequestError, LookupVerifyError, SingleBlockLookup};
 use super::{DownloadedBlocks, PeerShouldHave, ResponseType};
-use crate::sync::block_lookups::{single_block_lookup, RootBlockTuple};
+use crate::sync::block_lookups::{single_block_lookup, RootBlobsTuple, RootBlockTuple};
 use crate::sync::{
     manager::{Id, SLOT_IMPORT_TOLERANCE},
     network_context::SyncNetworkContext,
@@ -10,10 +10,10 @@ use beacon_chain::blob_verification::BlockWrapper;
 use beacon_chain::data_availability_checker::DataAvailabilityChecker;
 use beacon_chain::BeaconChainTypes;
 use lighthouse_network::PeerId;
-use ssz_types::FixedVector;
 use std::sync::Arc;
 use store::Hash256;
 use strum::IntoStaticStr;
+use types::blob_sidecar::FixedBlobSidecarList;
 use types::{BlobSidecar, EthSpec, SignedBeaconBlock};
 
 /// How many attempts we try to find a parent of a block before we give up trying.
@@ -180,10 +180,7 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
     pub fn add_blobs(
         &mut self,
         block_root: Hash256,
-        blobs: FixedVector<
-            Option<Arc<BlobSidecar<T::EthSpec>>>,
-            <<T as BeaconChainTypes>::EthSpec as EthSpec>::MaxBlobsPerBlock,
-        >,
+        blobs: FixedBlobSidecarList<T::EthSpec>,
     ) -> Result<LookupDownloadStatus<T::EthSpec>, ParentVerifyError> {
         self.current_parent_blob_request_id = None;
         self.current_parent_request
@@ -290,16 +287,7 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
         &mut self,
         blob: Option<Arc<BlobSidecar<T::EthSpec>>>,
         failed_chains: &mut lru_cache::LRUTimeCache<Hash256>,
-    ) -> Result<
-        Option<(
-            Hash256,
-            FixedVector<
-                Option<Arc<BlobSidecar<T::EthSpec>>>,
-                <<T as BeaconChainTypes>::EthSpec as EthSpec>::MaxBlobsPerBlock,
-            >,
-        )>,
-        ParentVerifyError,
-    > {
+    ) -> Result<Option<RootBlobsTuple<T::EthSpec>>, ParentVerifyError> {
         let blobs = self.current_parent_request.verify_blob(blob)?;
 
         // check if the parent of this block isn't in the failed cache. If it is, this chain should

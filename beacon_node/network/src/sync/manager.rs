@@ -790,21 +790,19 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             .chain
             .slot_clock
             .now_with_future_tolerance(MAXIMUM_GOSSIP_CLOCK_DISPARITY);
-        let should_delay_lookup =
-            if let (Some(earliest_slot), Some(latest_slot)) = (earliest_slot, latest_slot) {
-                let msg_for_current_slot = slot >= earliest_slot && slot <= latest_slot;
-                let delay_threshold_unmet = self
-                    .chain
-                    .slot_clock
-                    .seconds_from_current_slot_start()
-                    .map_or(false, |secs_into_slot| {
-                        secs_into_slot < self.chain.slot_clock.unagg_attestation_production_delay()
-                    });
-                msg_for_current_slot && delay_threshold_unmet
-            } else {
-                false
-            };
-        should_delay_lookup
+        if let (Some(earliest_slot), Some(latest_slot)) = (earliest_slot, latest_slot) {
+            let msg_for_current_slot = slot >= earliest_slot && slot <= latest_slot;
+            let delay_threshold_unmet = self
+                .chain
+                .slot_clock
+                .seconds_from_current_slot_start()
+                .map_or(false, |secs_into_slot| {
+                    secs_into_slot < self.chain.slot_clock.unagg_attestation_production_delay()
+                });
+            msg_for_current_slot && delay_threshold_unmet
+        } else {
+            false
+        }
     }
 
     fn synced_and_connected_within_tolerance(
@@ -826,13 +824,13 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             }
         }
 
-        self.network_globals.peers.read().is_connected(&peer_id)
+        self.network_globals.peers.read().is_connected(peer_id)
             && self.network.is_execution_engine_online()
     }
 
     fn synced_and_connected(&mut self, peer_id: &PeerId) -> bool {
         self.network_globals.sync_state.read().is_synced()
-            && self.network_globals.peers.read().is_connected(&peer_id)
+            && self.network_globals.peers.read().is_connected(peer_id)
             && self.network.is_execution_engine_online()
     }
 

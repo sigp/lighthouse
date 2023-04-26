@@ -1,28 +1,25 @@
 use crate::sync::block_lookups::parent_lookup::LookupDownloadStatus;
-use crate::sync::block_lookups::RootBlockTuple;
+use crate::sync::block_lookups::{RootBlobsTuple, RootBlockTuple};
 use beacon_chain::blob_verification::BlockWrapper;
 use beacon_chain::data_availability_checker::{AvailabilityCheckError, DataAvailabilityChecker};
 use beacon_chain::{get_block_root, BeaconChainTypes};
 use lighthouse_network::rpc::methods::BlobsByRootRequest;
 use lighthouse_network::{rpc::BlocksByRootRequest, PeerId};
 use rand::seq::IteratorRandom;
-use ssz_types::{FixedVector, VariableList};
+use ssz_types::VariableList;
 use std::collections::HashSet;
 use std::sync::Arc;
 use store::Hash256;
 use strum::IntoStaticStr;
-use types::blob_sidecar::BlobIdentifier;
-use types::{BlobSidecar, EthSpec, SignedBeaconBlock};
+use types::blob_sidecar::{BlobIdentifier, FixedBlobSidecarList};
+use types::{BlobSidecar, SignedBeaconBlock};
 
 use super::{PeerShouldHave, ResponseType};
 
 pub struct SingleBlockLookup<const MAX_ATTEMPTS: u8, T: BeaconChainTypes> {
     pub requested_block_root: Hash256,
     pub requested_ids: Vec<BlobIdentifier>,
-    pub downloaded_blobs: FixedVector<
-        Option<Arc<BlobSidecar<T::EthSpec>>>,
-        <<T as BeaconChainTypes>::EthSpec as EthSpec>::MaxBlobsPerBlock,
-    >,
+    pub downloaded_blobs: FixedBlobSidecarList<T::EthSpec>,
     pub downloaded_block: Option<Arc<SignedBeaconBlock<T::EthSpec>>>,
     pub block_request_state: SingleLookupRequestState<MAX_ATTEMPTS>,
     pub blob_request_state: SingleLookupRequestState<MAX_ATTEMPTS>,
@@ -129,17 +126,14 @@ impl<const MAX_ATTEMPTS: u8, T: BeaconChainTypes> SingleBlockLookup<MAX_ATTEMPTS
                 Ok(LookupDownloadStatus::SearchBlock(block_root))
             }
         } else {
-            return Err(LookupVerifyError::InvalidIndex(blob.index));
+            Err(LookupVerifyError::InvalidIndex(blob.index))
         }
     }
 
     pub fn add_blobs(
         &mut self,
         block_root: Hash256,
-        blobs: FixedVector<
-            Option<Arc<BlobSidecar<T::EthSpec>>>,
-            <<T as BeaconChainTypes>::EthSpec as EthSpec>::MaxBlobsPerBlock,
-        >,
+        blobs: FixedBlobSidecarList<T::EthSpec>,
     ) -> Result<LookupDownloadStatus<T::EthSpec>, LookupVerifyError> {
         for (index, blob_opt) in self.downloaded_blobs.iter_mut().enumerate() {
             if let Some(Some(downloaded_blob)) = blobs.get(index) {
@@ -247,16 +241,7 @@ impl<const MAX_ATTEMPTS: u8, T: BeaconChainTypes> SingleBlockLookup<MAX_ATTEMPTS
     pub fn verify_blob(
         &mut self,
         blob: Option<Arc<BlobSidecar<T::EthSpec>>>,
-    ) -> Result<
-        Option<(
-            Hash256,
-            FixedVector<
-                Option<Arc<BlobSidecar<T::EthSpec>>>,
-                <<T as BeaconChainTypes>::EthSpec as EthSpec>::MaxBlobsPerBlock,
-            >,
-        )>,
-        LookupVerifyError,
-    > {
+    ) -> Result<Option<RootBlobsTuple<T::EthSpec>>, LookupVerifyError> {
         match self.block_request_state.state {
             State::AwaitingDownload => {
                 self.blob_request_state.register_failure_downloading();
@@ -278,7 +263,7 @@ impl<const MAX_ATTEMPTS: u8, T: BeaconChainTypes> SingleBlockLookup<MAX_ATTEMPTS
                                 self.downloaded_blobs.clone(),
                             )))
                         } else {
-                            return Err(LookupVerifyError::InvalidIndex(blob.index));
+                            Err(LookupVerifyError::InvalidIndex(blob.index))
                         }
                     }
                 }
@@ -515,7 +500,7 @@ mod tests {
     use store::MemoryStore;
     use types::{
         test_utils::{SeedableRng, TestRandom, XorShiftRng},
-        MinimalEthSpec as E, SignedBeaconBlock, Slot,
+        EthSpec, MinimalEthSpec as E, SignedBeaconBlock, Slot,
     };
 
     fn rand_block() -> SignedBeaconBlock<E> {
