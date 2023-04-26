@@ -53,6 +53,7 @@ exec $lighthouse_binary \
 	--datadir $data_dir \
 	--testnet-dir $TESTNET_DIR \
 	--enable-private-discovery \
+  --disable-peer-scoring \
 	--staking \
 	--enr-address 127.0.0.1 \
 	--enr-udp-port $network_port \
