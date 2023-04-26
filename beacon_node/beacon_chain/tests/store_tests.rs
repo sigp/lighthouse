@@ -445,50 +445,6 @@ async fn forwards_iter_block_and_state_roots_until() {
 }
 
 #[tokio::test]
-async fn block_replay_with_inaccurate_state_roots() {
-    let num_blocks_produced = E::slots_per_epoch() * 3 + 31;
-    let db_path = tempdir().unwrap();
-    let store = get_store(&db_path);
-    let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
-    let chain = &harness.chain;
-
-    harness
-        .extend_chain(
-            num_blocks_produced as usize,
-            BlockStrategy::OnCanonicalHead,
-            AttestationStrategy::AllValidators,
-        )
-        .await;
-
-    // Slot must not be 0 mod 32 or else no blocks will be replayed.
-    let (mut head_state, head_root) = harness.get_current_state_and_root();
-    assert_ne!(head_state.slot() % 32, 0);
-
-    let mut fast_head_state = store
-        .get_inconsistent_state_for_attestation_verification_only(
-            &head_root,
-            Some(head_state.slot()),
-        )
-        .unwrap()
-        .unwrap();
-    assert_eq!(head_state.validators(), fast_head_state.validators());
-
-    head_state.build_all_committee_caches(&chain.spec).unwrap();
-    fast_head_state
-        .build_all_committee_caches(&chain.spec)
-        .unwrap();
-
-    assert_eq!(
-        head_state
-            .get_cached_active_validator_indices(RelativeEpoch::Current)
-            .unwrap(),
-        fast_head_state
-            .get_cached_active_validator_indices(RelativeEpoch::Current)
-            .unwrap()
-    );
-}
-
-#[tokio::test]
 async fn block_replayer_hooks() {
     let db_path = tempdir().unwrap();
     let store = get_store(&db_path);
