@@ -5548,6 +5548,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let (mut state, state_root) = if let Some((state, state_root)) = head_state_opt {
                 (state, state_root)
             } else {
+                // There's no reason we'd want to load the shuffling for a cold
+                // state; attestation duties will never be pre-finalized and
+                // attestations to finalized blocks are useless.
+                let split_slot = self.store.get_split_slot();
+                if split_slot > target_block.slot {
+                    return Err(Error::RequestedColdShuffling {
+                        split_slot,
+                        request_slot: target_block.slot,
+                    });
+                }
+
                 // Load the state that is the target from the perspective of
                 // `head_block_root`. It has everything we need and is on an
                 // epoch boundary so it should be cheaper to load from the DB.
