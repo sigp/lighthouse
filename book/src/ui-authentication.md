@@ -1,6 +1,8 @@
 # Authentication
 
-To enhance the security of your account, we offer the option to set a session password. This additional layer of protection ensures that only authorized individuals can access your account, even in the event of unauthorized device access. In the absence of a session password, Siren will revert to the api-token specified in your configuration settings as the default security measure.
+To enhance the security of your account, we offer the option to set a session password. This allows the user to avoid re-entering the api-token when performing critical mutating operations on the validator. Instead a user can simply enter their session password. In the absence of a session password, Siren will revert to the api-token specified in your configuration settings as the default security measure.
+
+> This does not protect your validators from unauthorized device access. 
 
 ![](imgs/ui-session-auth.png)
 
