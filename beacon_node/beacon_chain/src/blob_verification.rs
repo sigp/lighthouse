@@ -501,6 +501,17 @@ pub enum MaybeAvailableBlock<E: EthSpec> {
     AvailabilityPending(AvailabilityPendingBlock<E>),
 }
 
+impl<T: EthSpec> TryInto<AvailableBlock<T>> for MaybeAvailableBlock<T> {
+    type Error = AvailabilityCheckError;
+
+    fn try_into(self) -> Result<AvailableBlock<T>, Self::Error> {
+        match self {
+            Self::Available(block) => Ok(block),
+            Self::AvailabilityPending(_) => Err(AvailabilityCheckError::MissingBlobs),
+        }
+    }
+}
+
 /// Trait for common block operations.
 pub trait AsBlock<E: EthSpec> {
     fn slot(&self) -> Slot;

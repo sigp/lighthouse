@@ -1,5 +1,4 @@
-#![cfg(not(debug_assertions))]
-
+#[cfg(not(debug_assertions))]
 use beacon_chain::blob_verification::BlockWrapper;
 use beacon_chain::test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy};
 use beacon_chain::{StateSkipConfig, WhenSlotSkipped};
@@ -135,7 +134,9 @@ async fn produces_attestations() {
             let block_wrapper: BlockWrapper<MainnetEthSpec> = Arc::new(block.clone()).into();
             let available_block = chain
                 .data_availability_checker
-                .try_check_availability(block_wrapper)
+                .check_availability(block_wrapper)
+                .unwrap()
+                .try_into()
                 .unwrap();
 
             let early_attestation = {
@@ -203,7 +204,9 @@ async fn early_attester_cache_old_request() {
     let available_block = harness
         .chain
         .data_availability_checker
-        .try_check_availability(block_wrapper)
+        .check_availability(block_wrapper)
+        .unwrap()
+        .try_into()
         .unwrap();
 
     harness
