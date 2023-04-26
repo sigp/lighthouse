@@ -5463,11 +5463,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     where
         F: Fn(&CommitteeCache, Hash256) -> Result<R, Error>,
     {
-        let head_block = self
-            .canonical_head
-            .fork_choice_read_lock()
-            .get_block(&head_block_root)
-            .ok_or(Error::MissingBeaconBlock(head_block_root))?;
+        let (head_block, target_block) = {
+            let fork_choice = self.canonical_head.fork_choice_read_lock();
+            let head_block = fork_choice
+                .get_block(&head_block_root)
+                .ok_or(Error::MissingBeaconBlock(head_block_root))?;
+            let target_block = fork_choice
+                .get_block(&head_block.target_root)
+                .ok_or(Error::MissingBeaconBlock(head_block.target_root))?;
+            (head_block, target_block)
+        };
 
         let shuffling_id = BlockShufflingIds {
             current: head_block.current_epoch_shuffling_id.clone(),
@@ -5543,13 +5548,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let (mut state, state_root) = if let Some((state, state_root)) = head_state_opt {
                 (state, state_root)
             } else {
-                let state_root = head_block.state_root;
+                // Load the state that is the target from the perspective of
+                // `head_block_root`. It has everything we need and is on an
+                // epoch boundary so it should be cheaper to load from the DB.
+                let state_root = target_block.state_root;
                 let state = self
                     .store
-                    .get_inconsistent_state_for_attestation_verification_only(
-                        &state_root,
-                        Some(head_block.slot),
-                    )?
+                    .get_state(&state_root, Some(target_block.slot))?
                     .ok_or(Error::MissingBeaconState(head_block.state_root))?;
                 (state, state_root)
             };
@@ -5557,14 +5562,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             /*
              * IMPORTANT
              *
-             * Since it's possible that
-             * `Store::get_inconsistent_state_for_attestation_verification_only` was used to obtain
-             * the state, we cannot rely upon the following fields:
+             * The state that we're using might not be at the same slot as
+             * `beacon_block_root`. It is only guaranteed to be in the same
+             * epoch.
              *
-             * - `state.state_roots`
-             * - `state.block_roots`
-             *
-             * These fields should not be used for the rest of this function.
              */
 
             metrics::stop_timer(state_read_timer);
