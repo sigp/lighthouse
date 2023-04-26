@@ -815,7 +815,7 @@ where
             SignedBeaconBlock::Base(_)
             | SignedBeaconBlock::Altair(_)
             | SignedBeaconBlock::Merge(_)
-            | SignedBeaconBlock::Capella(_) => BlockContentsTuple::from((signed_block, None)),
+            | SignedBeaconBlock::Capella(_) => (signed_block, None),
             SignedBeaconBlock::Deneb(_) => {
                 if let Some(blobs) = self
                     .chain
@@ -834,10 +834,10 @@ where
                         })
                         .collect::<Vec<_>>()
                         .into();
-                    BlockContentsTuple::from((signed_block, Some(signed_blobs)))
+                    (signed_block, Some(signed_blobs))
                 } else {
                     // idk what else to put here..
-                    BlockContentsTuple::from((signed_block, None))
+                    (signed_block, None)
                 }
             }
         };

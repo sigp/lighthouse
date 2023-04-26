@@ -590,7 +590,7 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
                             execution_payload
                                 .transactions_mut()
                                 .push(tx)
-                                .map_err(|_| format!("transactions are full"))?;
+                                .map_err(|_| "transactions are full".to_string())?;
                         }
                         self.blobs_bundles.insert(id, bundle);
                     }
