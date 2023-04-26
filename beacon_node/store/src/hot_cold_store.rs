@@ -537,6 +537,41 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         }
     }
 
+    /// Fetch a state from the store, but don't compute all of the values when replaying blocks
+    /// upon that state (e.g., state roots). Additionally, only states from the hot store are
+    /// returned.
+    ///
+    /// See `Self::get_state` for information about `slot`.
+    ///
+    /// ## Warning
+    ///
+    /// The returned state **is not a valid beacon state**, it can only be used for obtaining
+    /// shuffling to process attestations. At least the following components of the state will be
+    /// broken/invalid:
+    ///
+    /// - `state.state_roots`
+    /// - `state.block_roots`
+    pub fn get_inconsistent_state_for_attestation_verification_only(
+        &self,
+        state_root: &Hash256,
+        slot: Option<Slot>,
+    ) -> Result<Option<BeaconState<E>>, Error> {
+        metrics::inc_counter(&metrics::BEACON_STATE_GET_COUNT);
+
+        let split_slot = self.get_split_slot();
+
+        if slot.map_or(false, |slot| slot < split_slot) {
+            Err(HotColdDBError::AttestationStateIsFinalized {
+                split_slot,
+                request_slot: slot,
+                state_root: *state_root,
+            }
+            .into())
+        } else {
+            self.load_hot_state(state_root, StateRootStrategy::Inconsistent)
+        }
+    }
+
     /// Delete a state, ensuring it is removed from the LRU cache, as well as from on-disk.
     ///
     /// It is assumed that all states being deleted reside in the hot DB, even if their slot is less
