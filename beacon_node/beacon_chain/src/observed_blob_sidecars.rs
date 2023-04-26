@@ -97,3 +97,293 @@ impl<T: EthSpec> ObservedBlobSidecars<T> {
         self.items.retain(|k, _| k.1 > finalized_slot);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use types::{BlobSidecar, Hash256, MainnetEthSpec};
+
+    type E = MainnetEthSpec;
+
+    fn get_blob_sidecar(slot: u64, block_root: Hash256, index: u64) -> Arc<BlobSidecar<E>> {
+        let mut blob_sidecar = BlobSidecar::empty();
+        blob_sidecar.block_root = block_root;
+        blob_sidecar.slot = slot.into();
+        blob_sidecar.index = index;
+        Arc::new(blob_sidecar)
+    }
+
+    #[test]
+    fn pruning() {
+        let mut cache = ObservedBlobSidecars::default();
+
+        assert_eq!(cache.finalized_slot, 0, "finalized slot is zero");
+        assert_eq!(cache.items.len(), 0, "no slots should be present");
+
+        // Slot 0, index 0
+        let block_root_a = Hash256::random();
+        let sidecar_a = get_blob_sidecar(0, block_root_a, 0);
+
+        assert_eq!(
+            cache.observe_sidecar(&sidecar_a),
+            Ok(false),
+            "can observe proposer, indicates proposer unobserved"
+        );
+
+        /*
+         * Preconditions.
+         */
+
+        assert_eq!(cache.finalized_slot, 0, "finalized slot is zero");
+        assert_eq!(
+            cache.items.len(),
+            1,
+            "only one (slot, root) tuple should be present"
+        );
+        assert_eq!(
+            cache
+                .items
+                .get(&(block_root_a, Slot::new(0)))
+                .expect("slot zero should be present")
+                .len(),
+            1,
+            "only one item should be present"
+        );
+
+        /*
+         * Check that a prune at the genesis slot does nothing.
+         */
+
+        cache.prune(Slot::new(0));
+
+        assert_eq!(cache.finalized_slot, 0, "finalized slot is zero");
+        assert_eq!(cache.items.len(), 1, "only one slot should be present");
+        assert_eq!(
+            cache
+                .items
+                .get(&(block_root_a, Slot::new(0)))
+                .expect("slot zero should be present")
+                .len(),
+            1,
+            "only one item should be present"
+        );
+
+        /*
+         * Check that a prune empties the cache
+         */
+
+        cache.prune(E::slots_per_epoch().into());
+        assert_eq!(
+            cache.finalized_slot,
+            Slot::from(E::slots_per_epoch()),
+            "finalized slot is updated"
+        );
+        assert_eq!(cache.items.len(), 0, "no items left");
+
+        /*
+         * Check that we can't insert a finalized sidecar
+         */
+
+        // First slot of finalized epoch
+        let block_b = get_blob_sidecar(E::slots_per_epoch(), Hash256::random(), 0);
+
+        assert_eq!(
+            cache.observe_sidecar(&block_b),
+            Err(Error::FinalizedBlob {
+                slot: E::slots_per_epoch().into(),
+                finalized_slot: E::slots_per_epoch().into(),
+            }),
+            "cant insert finalized sidecar"
+        );
+
+        assert_eq!(cache.items.len(), 0, "sidecar was not added");
+
+        /*
+         * Check that we _can_ insert a non-finalized block
+         */
+
+        let three_epochs = E::slots_per_epoch() * 3;
+
+        // First slot of finalized epoch
+        let block_root_b = Hash256::random();
+        let block_b = get_blob_sidecar(three_epochs, block_root_b, 0);
+
+        assert_eq!(
+            cache.observe_sidecar(&block_b),
+            Ok(false),
+            "can insert non-finalized block"
+        );
+
+        assert_eq!(cache.items.len(), 1, "only one slot should be present");
+        assert_eq!(
+            cache
+                .items
+                .get(&(block_root_b, Slot::new(three_epochs)))
+                .expect("the three epochs slot should be present")
+                .len(),
+            1,
+            "only one proposer should be present"
+        );
+
+        /*
+         * Check that a prune doesnt wipe later blocks
+         */
+
+        let two_epochs = E::slots_per_epoch() * 2;
+        cache.prune(two_epochs.into());
+
+        assert_eq!(
+            cache.finalized_slot,
+            Slot::from(two_epochs),
+            "finalized slot is updated"
+        );
+
+        assert_eq!(cache.items.len(), 1, "only one slot should be present");
+        assert_eq!(
+            cache
+                .items
+                .get(&(block_root_b, Slot::new(three_epochs)))
+                .expect("the three epochs slot should be present")
+                .len(),
+            1,
+            "only one proposer should be present"
+        );
+    }
+
+    #[test]
+    fn simple_observations() {
+        let mut cache = ObservedBlobSidecars::default();
+
+        // Slot 0, index 0
+        let block_root_a = Hash256::random();
+        let sidecar_a = get_blob_sidecar(0, block_root_a, 0);
+
+        assert_eq!(
+            cache.is_known(&sidecar_a),
+            Ok(false),
+            "no observation in empty cache"
+        );
+
+        assert_eq!(
+            cache.observe_sidecar(&sidecar_a),
+            Ok(false),
+            "can observe proposer, indicates proposer unobserved"
+        );
+
+        assert_eq!(
+            cache.is_known(&sidecar_a),
+            Ok(true),
+            "observed block is indicated as true"
+        );
+
+        assert_eq!(
+            cache.observe_sidecar(&sidecar_a),
+            Ok(true),
+            "observing again indicates true"
+        );
+
+        assert_eq!(cache.finalized_slot, 0, "finalized slot is zero");
+        assert_eq!(cache.items.len(), 1, "only one slot should be present");
+        assert_eq!(
+            cache
+                .items
+                .get(&(block_root_a, Slot::new(0)))
+                .expect("slot zero should be present")
+                .len(),
+            1,
+            "only one proposer should be present"
+        );
+
+        // Slot 1, proposer 0
+
+        let block_root_b = Hash256::random();
+        let sidecar_b = get_blob_sidecar(1, block_root_b, 0);
+
+        assert_eq!(
+            cache.is_known(&sidecar_b),
+            Ok(false),
+            "no observation for new slot"
+        );
+        assert_eq!(
+            cache.observe_sidecar(&sidecar_b),
+            Ok(false),
+            "can observe proposer for new slot, indicates proposer unobserved"
+        );
+        assert_eq!(
+            cache.is_known(&sidecar_b),
+            Ok(true),
+            "observed block in slot 1 is indicated as true"
+        );
+        assert_eq!(
+            cache.observe_sidecar(&sidecar_b),
+            Ok(true),
+            "observing slot 1 again indicates true"
+        );
+
+        assert_eq!(cache.finalized_slot, 0, "finalized slot is zero");
+        assert_eq!(cache.items.len(), 2, "two slots should be present");
+        assert_eq!(
+            cache
+                .items
+                .get(&(block_root_a, Slot::new(0)))
+                .expect("slot zero should be present")
+                .len(),
+            1,
+            "only one proposer should be present in slot 0"
+        );
+        assert_eq!(
+            cache
+                .items
+                .get(&(block_root_b, Slot::new(1)))
+                .expect("slot zero should be present")
+                .len(),
+            1,
+            "only one proposer should be present in slot 1"
+        );
+
+        // Slot 0, index 1
+        let sidecar_c = get_blob_sidecar(0, block_root_a, 1);
+
+        assert_eq!(
+            cache.is_known(&sidecar_c),
+            Ok(false),
+            "no observation for new index"
+        );
+        assert_eq!(
+            cache.observe_sidecar(&sidecar_c),
+            Ok(false),
+            "can observe new index, indicates sidecar unobserved for new index"
+        );
+        assert_eq!(
+            cache.is_known(&sidecar_c),
+            Ok(true),
+            "observed new sidecar is indicated as true"
+        );
+        assert_eq!(
+            cache.observe_sidecar(&sidecar_c),
+            Ok(true),
+            "observing new sidecar again indicates true"
+        );
+
+        assert_eq!(cache.finalized_slot, 0, "finalized slot is zero");
+        assert_eq!(cache.items.len(), 2, "two slots should be present");
+        assert_eq!(
+            cache
+                .items
+                .get(&(block_root_a, Slot::new(0)))
+                .expect("slot zero should be present")
+                .len(),
+            2,
+            "two blob indices should be present in slot 0"
+        );
+
+        // Try adding an out of bounds index
+        let invalid_index = E::max_blobs_per_block() as u64;
+        let sidecar_d = get_blob_sidecar(0, block_root_a, 4);
+        assert_eq!(
+            cache.observe_sidecar(&sidecar_d),
+            Err(Error::InvalidBlobIndex(invalid_index)),
+            "cannot add an index > MaxBlobsPerBlock"
+        );
+    }
+}
