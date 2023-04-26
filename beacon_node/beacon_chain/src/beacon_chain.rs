@@ -5566,7 +5566,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 let state = self
                     .store
                     .get_state(&state_root, Some(target_block.slot))?
-                    .ok_or(Error::MissingBeaconState(head_block.state_root))?;
+                    .ok_or(Error::MissingBeaconState(state_root))?;
                 (state, state_root)
             };
 
