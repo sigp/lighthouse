@@ -120,7 +120,7 @@ impl<T: EthSpec> ReceivedComponents<T> {
 /// Indicates if the block is fully `Available` or if we need blobs or blocks
 ///  to "complete" the requirements for an `AvailableBlock`.
 pub enum Availability<T: EthSpec> {
-    MissingParts(Hash256),
+    MissingComponents(Hash256),
     Available(Box<AvailableExecutedBlock<T>>),
 }
 
@@ -295,12 +295,12 @@ impl<T: EthSpec, S: SlotClock> DataAvailabilityChecker<T, S> {
                 if let Some(executed_block) = received_components.executed_block.take() {
                     self.check_block_availability_maybe_cache(occupied_entry, executed_block)?
                 } else {
-                    Availability::MissingParts(block_root)
+                    Availability::MissingComponents(block_root)
                 }
             }
             Entry::Vacant(vacant_entry) => {
                 vacant_entry.insert(ReceivedComponents::new_from_blobs(kzg_verified_blobs));
-                Availability::MissingParts(block_root)
+                Availability::MissingComponents(block_root)
             }
         };
 
@@ -324,7 +324,7 @@ impl<T: EthSpec, S: SlotClock> DataAvailabilityChecker<T, S> {
             Entry::Vacant(vacant_entry) => {
                 let block_root = executed_block.import_data.block_root;
                 vacant_entry.insert(ReceivedComponents::new_from_block(executed_block));
-                Availability::MissingParts(block_root)
+                Availability::MissingComponents(block_root)
             }
         };
 
@@ -377,7 +377,7 @@ impl<T: EthSpec, S: SlotClock> DataAvailabilityChecker<T, S> {
 
             let _ = received_components.executed_block.insert(executed_block);
 
-            Ok(Availability::MissingParts(block_root))
+            Ok(Availability::MissingComponents(block_root))
         }
     }
 

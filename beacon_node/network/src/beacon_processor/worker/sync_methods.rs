@@ -60,7 +60,7 @@ impl<T: BeaconChainTypes> Worker<T> {
             // Sync handles these results
             self.send_sync_message(SyncMessage::BlockPartProcessed {
                 process_type,
-                result: crate::sync::manager::BlockPartProcessingResult::Ignored,
+                result: crate::sync::manager::BlockProcessingResult::Ignored,
                 response_type: crate::sync::manager::ResponseType::Block,
             });
             return;

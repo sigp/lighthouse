@@ -154,7 +154,7 @@ pub enum SyncMessage<T: EthSpec> {
     /// Block processed
     BlockPartProcessed {
         process_type: BlockProcessType,
-        result: BlockPartProcessingResult<T>,
+        result: BlockProcessingResult<T>,
         response_type: ResponseType,
     },
 }
@@ -167,7 +167,7 @@ pub enum BlockProcessType {
 }
 
 #[derive(Debug)]
-pub enum BlockPartProcessingResult<T: EthSpec> {
+pub enum BlockProcessingResult<T: EthSpec> {
     Ok(AvailabilityProcessingStatus),
     Err(BlockError<T>),
     Ignored,
@@ -1097,18 +1097,18 @@ impl<T: BeaconChainTypes> SyncManager<T> {
 }
 
 impl<T: EthSpec> From<Result<AvailabilityProcessingStatus, BlockError<T>>>
-    for BlockPartProcessingResult<T>
+    for BlockProcessingResult<T>
 {
     fn from(result: Result<AvailabilityProcessingStatus, BlockError<T>>) -> Self {
         match result {
-            Ok(status) => BlockPartProcessingResult::Ok(status),
-            Err(e) => BlockPartProcessingResult::Err(e),
+            Ok(status) => BlockProcessingResult::Ok(status),
+            Err(e) => BlockProcessingResult::Err(e),
         }
     }
 }
 
-impl<T: EthSpec> From<BlockError<T>> for BlockPartProcessingResult<T> {
+impl<T: EthSpec> From<BlockError<T>> for BlockProcessingResult<T> {
     fn from(e: BlockError<T>) -> Self {
-        BlockPartProcessingResult::Err(e)
+        BlockProcessingResult::Err(e)
     }
 }

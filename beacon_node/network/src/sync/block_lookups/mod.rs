@@ -17,7 +17,7 @@ use types::{BlobSidecar, SignedBeaconBlock, Slot};
 use self::parent_lookup::{LookupDownloadStatus, PARENT_FAIL_TOLERANCE};
 use self::parent_lookup::{ParentLookup, ParentVerifyError};
 use self::single_block_lookup::SingleBlockLookup;
-use super::manager::BlockPartProcessingResult;
+use super::manager::BlockProcessingResult;
 use super::BatchProcessResult;
 use super::{
     manager::{BlockProcessType, Id},
@@ -794,7 +794,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     pub fn single_block_processed(
         &mut self,
         id: Id,
-        result: BlockPartProcessingResult<T::EthSpec>,
+        result: BlockProcessingResult<T::EthSpec>,
         response_type: ResponseType,
         cx: &mut SyncNetworkContext<T>,
     ) {
@@ -825,7 +825,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         };
 
         let should_remove_lookup = match result {
-            BlockPartProcessingResult::Ok(status) => match status {
+            BlockProcessingResult::Ok(status) => match status {
                 AvailabilityProcessingStatus::Imported(root) => {
                     trace!(self.log, "Single block processing succeeded"; "block" => %root);
                     ShouldRemoveLookup::True
@@ -836,7 +836,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                     ShouldRemoveLookup::False
                 }
             },
-            BlockPartProcessingResult::Ignored => {
+            BlockProcessingResult::Ignored => {
                 // Beacon processor signalled to ignore the block processing result.
                 // This implies that the cpu is overloaded. Drop the request.
                 warn!(
@@ -846,7 +846,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 );
                 ShouldRemoveLookup::True
             }
-            BlockPartProcessingResult::Err(e) => {
+            BlockProcessingResult::Err(e) => {
                 trace!(self.log, "Single block processing failed"; "block" => %root, "error" => %e);
                 match e {
                     BlockError::BlockIsAlreadyKnown => {
@@ -907,7 +907,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     pub fn parent_block_processed(
         &mut self,
         chain_hash: Hash256,
-        result: BlockPartProcessingResult<T::EthSpec>,
+        result: BlockProcessingResult<T::EthSpec>,
         response_type: ResponseType,
         cx: &mut SyncNetworkContext<T>,
     ) {
@@ -932,7 +932,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         };
 
         match &result {
-            BlockPartProcessingResult::Ok(status) => match status {
+            BlockProcessingResult::Ok(status) => match status {
                 AvailabilityProcessingStatus::Imported(block_root) => {
                     trace!(self.log, "Parent block processing succeeded"; &parent_lookup, "block_root" => ?block_root)
                 }
@@ -940,10 +940,10 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                     trace!(self.log, "Parent missing parts, triggering single block lookup "; &parent_lookup,"block_root" => ?block_root)
                 }
             },
-            BlockPartProcessingResult::Err(e) => {
+            BlockProcessingResult::Err(e) => {
                 trace!(self.log, "Parent block processing failed"; &parent_lookup, "error" => %e)
             }
-            BlockPartProcessingResult::Ignored => {
+            BlockProcessingResult::Ignored => {
                 trace!(
                     self.log,
                     "Parent block processing job was ignored";
@@ -954,18 +954,18 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         }
 
         match result {
-            BlockPartProcessingResult::Ok(AvailabilityProcessingStatus::MissingComponents(
+            BlockProcessingResult::Ok(AvailabilityProcessingStatus::MissingComponents(
                 _,
                 block_root,
             )) => {
                 self.search_block(block_root, peer_id, PeerShouldHave::BlockAndBlobs, cx);
             }
-            BlockPartProcessingResult::Err(BlockError::ParentUnknown(block)) => {
+            BlockProcessingResult::Err(BlockError::ParentUnknown(block)) => {
                 parent_lookup.add_block_wrapper(block);
                 self.request_parent_block_and_blobs(parent_lookup, cx);
             }
-            BlockPartProcessingResult::Ok(AvailabilityProcessingStatus::Imported(_))
-            | BlockPartProcessingResult::Err(BlockError::BlockIsAlreadyKnown { .. }) => {
+            BlockProcessingResult::Ok(AvailabilityProcessingStatus::Imported(_))
+            | BlockProcessingResult::Err(BlockError::BlockIsAlreadyKnown { .. }) => {
                 // Check if the beacon processor is available
                 let beacon_processor_send = match cx.processor_channel_if_enabled() {
                     Some(channel) => channel,
@@ -997,7 +997,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                     }
                 }
             }
-            ref e @ BlockPartProcessingResult::Err(BlockError::ExecutionPayloadError(ref epe))
+            ref e @ BlockProcessingResult::Err(BlockError::ExecutionPayloadError(ref epe))
                 if !epe.penalize_peer() =>
             {
                 // These errors indicate that the execution layer is offline
@@ -1009,7 +1009,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                     "error" => ?e
                 );
             }
-            BlockPartProcessingResult::Err(outcome) => {
+            BlockProcessingResult::Err(outcome) => {
                 // all else we consider the chain a failure and downvote the peer that sent
                 // us the last block
                 warn!(
@@ -1035,7 +1035,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                     }
                 }
             }
-            BlockPartProcessingResult::Ignored => {
+            BlockProcessingResult::Ignored => {
                 // Beacon processor signalled to ignore the block processing result.
                 // This implies that the cpu is overloaded. Drop the request.
                 warn!(

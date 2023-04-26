@@ -2919,7 +2919,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             Availability::Available(block) => {
                 self.import_available_block(block, count_unrealized).await
             }
-            Availability::MissingParts(block_root) => Ok(
+            Availability::MissingComponents(block_root) => Ok(
                 AvailabilityProcessingStatus::MissingComponents(slot, block_root),
             ),
         }

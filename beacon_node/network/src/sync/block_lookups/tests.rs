@@ -188,7 +188,7 @@ fn test_single_block_lookup_happy_path() {
     bl.single_block_lookup_response(id, peer_id, None, D, &mut cx);
     bl.single_block_processed(
         id,
-        BlockPartProcessingResult::Ok(AvailabilityProcessingStatus::Imported(block_root)),
+        BlockProcessingResult::Ok(AvailabilityProcessingStatus::Imported(block_root)),
         ResponseType::Block,
         &mut cx,
     );
@@ -361,7 +361,7 @@ fn test_parent_lookup_wrong_response() {
     // Processing succeeds, now the rest of the chain should be sent for processing.
     bl.parent_block_processed(
         chain_hash,
-        BlockPartProcessingResult::Ok(AvailabilityProcessingStatus::Imported(block_root)),
+        BlockProcessingResult::Ok(AvailabilityProcessingStatus::Imported(block_root)),
         ResponseType::Block,
         &mut cx,
     );
@@ -401,7 +401,7 @@ fn test_parent_lookup_empty_response() {
     // Processing succeeds, now the rest of the chain should be sent for processing.
     bl.parent_block_processed(
         chain_hash,
-        BlockPartProcessingResult::Ok(AvailabilityProcessingStatus::Imported(block_root)),
+        BlockProcessingResult::Ok(AvailabilityProcessingStatus::Imported(block_root)),
         ResponseType::Block,
         &mut cx,
     );
@@ -448,7 +448,7 @@ fn test_parent_lookup_rpc_failure() {
     // Processing succeeds, now the rest of the chain should be sent for processing.
     bl.parent_block_processed(
         chain_hash,
-        BlockPartProcessingResult::Ok(AvailabilityProcessingStatus::Imported(block_root)),
+        BlockProcessingResult::Ok(AvailabilityProcessingStatus::Imported(block_root)),
         ResponseType::Block,
         &mut cx,
     );
@@ -700,7 +700,7 @@ fn test_single_block_lookup_ignored_response() {
     // Send an Ignored response, the request should be dropped
     bl.single_block_processed(
         id,
-        BlockPartProcessingResult::Ignored,
+        BlockProcessingResult::Ignored,
         ResponseType::Block,
         &mut cx,
     );
@@ -732,7 +732,7 @@ fn test_parent_lookup_ignored_response() {
     // Return an Ignored result. The request should be dropped
     bl.parent_block_processed(
         chain_hash,
-        BlockPartProcessingResult::Ignored,
+        BlockProcessingResult::Ignored,
         ResponseType::Block,
         &mut cx,
     );
