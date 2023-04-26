@@ -15,7 +15,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use types::beacon_block_body::KzgCommitments;
 use types::blob_sidecar::{BlobIdentifier, BlobSidecar};
-use types::consts::deneb::MIN_EPOCHS_FOR_BLOBS_SIDECARS_REQUESTS;
+use types::consts::deneb::MIN_EPOCHS_FOR_BLOB_SIDECARS_REQUESTS;
 use types::{
     BeaconBlockRef, BlobSidecarList, ChainSpec, Epoch, EthSpec, ExecPayload, FullPayload, Hash256,
     SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
@@ -441,7 +441,7 @@ impl<T: EthSpec, S: SlotClock> DataAvailabilityChecker<T, S> {
                 .map(|current_epoch| {
                     std::cmp::max(
                         fork_epoch,
-                        current_epoch.saturating_sub(*MIN_EPOCHS_FOR_BLOBS_SIDECARS_REQUESTS),
+                        current_epoch.saturating_sub(*MIN_EPOCHS_FOR_BLOB_SIDECARS_REQUESTS),
                     )
                 })
         })
