@@ -1,4 +1,5 @@
-#[cfg(not(debug_assertions))]
+#![cfg(not(debug_assertions))]
+
 use beacon_chain::blob_verification::BlockWrapper;
 use beacon_chain::test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy};
 use beacon_chain::{StateSkipConfig, WhenSlotSkipped};
