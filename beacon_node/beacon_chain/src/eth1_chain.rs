@@ -88,7 +88,7 @@ fn get_sync_status<T: EthSpec>(
         let period = T::SlotsPerEth1VotingPeriod::to_u64();
         let voting_period_start_slot = (current_slot / period) * period;
 
-        let period_start = slot_start_seconds::<T>(
+        let period_start = slot_start_seconds(
             genesis_time,
             spec.seconds_per_slot,
             voting_period_start_slot,
@@ -470,7 +470,7 @@ impl<T: EthSpec> Eth1ChainBackend<T> for CachingEth1Backend<T> {
     fn eth1_data(&self, state: &BeaconState<T>, spec: &ChainSpec) -> Result<Eth1Data, Error> {
         let period = T::SlotsPerEth1VotingPeriod::to_u64();
         let voting_period_start_slot = (state.slot() / period) * period;
-        let voting_period_start_seconds = slot_start_seconds::<T>(
+        let voting_period_start_seconds = slot_start_seconds(
             state.genesis_time(),
             spec.seconds_per_slot,
             voting_period_start_slot,
@@ -658,11 +658,7 @@ fn find_winning_vote(valid_votes: Eth1DataVoteCount) -> Option<Eth1Data> {
 }
 
 /// Returns the unix-epoch seconds at the start of the given `slot`.
-fn slot_start_seconds<T: EthSpec>(
-    genesis_unix_seconds: u64,
-    seconds_per_slot: u64,
-    slot: Slot,
-) -> u64 {
+fn slot_start_seconds(genesis_unix_seconds: u64, seconds_per_slot: u64, slot: Slot) -> u64 {
     genesis_unix_seconds + slot.as_u64() * seconds_per_slot
 }
 
@@ -698,7 +694,7 @@ mod test {
     fn get_voting_period_start_seconds(state: &BeaconState<E>, spec: &ChainSpec) -> u64 {
         let period = <E as EthSpec>::SlotsPerEth1VotingPeriod::to_u64();
         let voting_period_start_slot = (state.slot() / period) * period;
-        slot_start_seconds::<E>(
+        slot_start_seconds(
             state.genesis_time(),
             spec.seconds_per_slot,
             voting_period_start_slot,
@@ -708,23 +704,23 @@ mod test {
     #[test]
     fn slot_start_time() {
         let zero_sec = 0;
-        assert_eq!(slot_start_seconds::<E>(100, zero_sec, Slot::new(2)), 100);
+        assert_eq!(slot_start_seconds(100, zero_sec, Slot::new(2)), 100);
 
         let one_sec = 1;
-        assert_eq!(slot_start_seconds::<E>(100, one_sec, Slot::new(0)), 100);
-        assert_eq!(slot_start_seconds::<E>(100, one_sec, Slot::new(1)), 101);
-        assert_eq!(slot_start_seconds::<E>(100, one_sec, Slot::new(2)), 102);
+        assert_eq!(slot_start_seconds(100, one_sec, Slot::new(0)), 100);
+        assert_eq!(slot_start_seconds(100, one_sec, Slot::new(1)), 101);
+        assert_eq!(slot_start_seconds(100, one_sec, Slot::new(2)), 102);
 
         let three_sec = 3;
-        assert_eq!(slot_start_seconds::<E>(100, three_sec, Slot::new(0)), 100);
-        assert_eq!(slot_start_seconds::<E>(100, three_sec, Slot::new(1)), 103);
-        assert_eq!(slot_start_seconds::<E>(100, three_sec, Slot::new(2)), 106);
+        assert_eq!(slot_start_seconds(100, three_sec, Slot::new(0)), 100);
+        assert_eq!(slot_start_seconds(100, three_sec, Slot::new(1)), 103);
+        assert_eq!(slot_start_seconds(100, three_sec, Slot::new(2)), 106);
 
         let five_sec = 5;
-        assert_eq!(slot_start_seconds::<E>(100, five_sec, Slot::new(0)), 100);
-        assert_eq!(slot_start_seconds::<E>(100, five_sec, Slot::new(1)), 105);
-        assert_eq!(slot_start_seconds::<E>(100, five_sec, Slot::new(2)), 110);
-        assert_eq!(slot_start_seconds::<E>(100, five_sec, Slot::new(3)), 115);
+        assert_eq!(slot_start_seconds(100, five_sec, Slot::new(0)), 100);
+        assert_eq!(slot_start_seconds(100, five_sec, Slot::new(1)), 105);
+        assert_eq!(slot_start_seconds(100, five_sec, Slot::new(2)), 110);
+        assert_eq!(slot_start_seconds(100, five_sec, Slot::new(3)), 115);
     }
 
     fn get_eth1_block(timestamp: u64, number: u64) -> Eth1Block {

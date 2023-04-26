@@ -283,7 +283,8 @@ pub fn process_exits<T: EthSpec>(
     // Verify and apply each exit in series. We iterate in series because higher-index exits may
     // become invalid due to the application of lower-index ones.
     for (i, exit) in voluntary_exits.iter().enumerate() {
-        verify_exit(state, exit, verify_signatures, spec).map_err(|e| e.into_with_index(i))?;
+        verify_exit(state, None, exit, verify_signatures, spec)
+            .map_err(|e| e.into_with_index(i))?;
 
         initiate_validator_exit(state, exit.message.validator_index as usize, spec)?;
     }

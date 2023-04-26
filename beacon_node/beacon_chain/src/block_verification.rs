@@ -243,7 +243,7 @@ pub enum BlockError<T: EthSpec> {
     ///
     /// The block is invalid and the peer is faulty.
     InvalidSignature,
-    /// The provided block is from an later slot than its parent.
+    /// The provided block is not from a later slot than its parent.
     ///
     /// ## Peer scoring
     ///
