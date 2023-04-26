@@ -520,7 +520,7 @@ impl<T: EthSpec, S: SlotClock> DataAvailabilityChecker<T, S> {
                 .map(|current_epoch| {
                     std::cmp::max(
                         fork_epoch,
-                        current_epoch.saturating_sub(*MIN_EPOCHS_FOR_BLOBS_SIDECARS_REQUESTS),
+                        current_epoch.saturating_sub(*MIN_EPOCHS_FOR_BLOB_SIDECARS_REQUESTS),
                     )
                 })
         })

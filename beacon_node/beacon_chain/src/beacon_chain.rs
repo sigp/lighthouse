@@ -113,11 +113,10 @@ use store::{
 };
 use task_executor::{ShutdownReason, TaskExecutor};
 use tokio_stream::Stream;
-use tree_hash::TreeHash;
 use types::beacon_block_body::KzgCommitments;
 use types::beacon_state::CloneConfig;
-use types::blob_sidecar::{BlobSidecarList, Blobs};
 use types::consts::deneb::MIN_EPOCHS_FOR_BLOBS_SIDECARS_REQUESTS;
+use types::blob_sidecar::{BlobIdentifier, BlobSidecarList, Blobs};
 use types::*;
 
 pub type ForkChoiceError = fork_choice::Error<crate::ForkChoiceStoreError>;
@@ -6242,7 +6241,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             self.epoch().ok().map(|current_epoch| {
                 std::cmp::max(
                     fork_epoch,
-                    current_epoch.saturating_sub(*MIN_EPOCHS_FOR_BLOBS_SIDECARS_REQUESTS),
+                    current_epoch.saturating_sub(*MIN_EPOCHS_FOR_BLOB_SIDECARS_REQUESTS),
                 )
             })
         })

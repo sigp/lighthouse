@@ -39,7 +39,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 use types::blob_sidecar::BlobSidecarList;
-use types::consts::deneb::MIN_EPOCHS_FOR_BLOBS_SIDECARS_REQUESTS;
+use types::consts::deneb::MIN_EPOCHS_FOR_BLOB_SIDECARS_REQUESTS;
 use types::*;
 
 /// On-disk database that stores finalized states efficiently.
@@ -1866,7 +1866,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         let min_current_epoch = self.get_split_slot().epoch(E::slots_per_epoch()) + Epoch::new(2);
         let min_data_availability_boundary = std::cmp::max(
             deneb_fork,
-            min_current_epoch.saturating_sub(*MIN_EPOCHS_FOR_BLOBS_SIDECARS_REQUESTS),
+            min_current_epoch.saturating_sub(*MIN_EPOCHS_FOR_BLOB_SIDECARS_REQUESTS),
         );
 
         self.try_prune_blobs(force, Some(min_data_availability_boundary))
