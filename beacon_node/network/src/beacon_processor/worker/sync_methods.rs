@@ -18,12 +18,11 @@ use beacon_chain::{AvailabilityProcessingStatus, CountUnrealized};
 use lighthouse_network::PeerAction;
 use slog::{debug, error, info, warn};
 use slot_clock::SlotClock;
-use ssz_types::FixedVector;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc;
 use types::blob_sidecar::FixedBlobSidecarList;
-use types::{BlobSidecar, Epoch, EthSpec, Hash256, SignedBeaconBlock};
+use types::{Epoch, Hash256, SignedBeaconBlock};
 
 /// Id associated to a batch processing request, either a sync batch or a parent lookup.
 #[derive(Clone, Debug, PartialEq)]

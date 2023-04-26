@@ -54,7 +54,6 @@ use lighthouse_network::{
 };
 use logging::TimeLatch;
 use slog::{crit, debug, error, trace, warn, Logger};
-use ssz_types::FixedVector;
 use std::collections::VecDeque;
 use std::future::Future;
 use std::pin::Pin;
@@ -67,10 +66,10 @@ use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TrySendError;
 use types::blob_sidecar::FixedBlobSidecarList;
 use types::{
-    Attestation, AttesterSlashing, BlobSidecar, EthSpec, Hash256, LightClientFinalityUpdate,
-    LightClientOptimisticUpdate, ProposerSlashing, SignedAggregateAndProof, SignedBeaconBlock,
-    SignedBlobSidecar, SignedBlsToExecutionChange, SignedContributionAndProof, SignedVoluntaryExit,
-    SubnetId, SyncCommitteeMessage, SyncSubnetId,
+    Attestation, AttesterSlashing, Hash256, LightClientFinalityUpdate, LightClientOptimisticUpdate,
+    ProposerSlashing, SignedAggregateAndProof, SignedBeaconBlock, SignedBlobSidecar,
+    SignedBlsToExecutionChange, SignedContributionAndProof, SignedVoluntaryExit, SubnetId,
+    SyncCommitteeMessage, SyncSubnetId,
 };
 use work_reprocessing_queue::{
     spawn_reprocess_scheduler, QueuedAggregate, QueuedLightClientUpdate, QueuedRpcBlock,

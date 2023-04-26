@@ -244,12 +244,7 @@ fn test_single_block_lookup_failure() {
     let peer_id = PeerId::random();
 
     // Trigger the request
-    bl.search_block(
-        block_hash,
-        peer_id.clone(),
-        PeerShouldHave::BlockAndBlobs,
-        &mut cx,
-    );
+    bl.search_block(block_hash, peer_id, PeerShouldHave::BlockAndBlobs, &mut cx);
     let id = rig.expect_block_request();
 
     // The request fails. RPC failures are handled elsewhere so we should not penalize the peer.
@@ -591,7 +586,7 @@ fn test_parent_lookup_too_many_processing_attempts_must_blacklist() {
         let id = dbg!(rig.expect_parent_request());
         assert!(!bl.failed_chains.contains(&block_hash));
         // send the right parent but fail processing
-        bl.parent_lookup_response(id, peer_id, Some(parent.clone().into()), D, &mut cx);
+        bl.parent_lookup_response(id, peer_id, Some(parent.clone()), D, &mut cx);
         bl.parent_block_processed(
             block_hash,
             BlockError::InvalidSignature.into(),
@@ -610,13 +605,13 @@ fn test_parent_lookup_too_many_processing_attempts_must_blacklist() {
 fn test_parent_lookup_too_deep() {
     let (mut bl, mut cx, mut rig) = TestRig::test_setup(false);
     let mut blocks =
-        Vec::<SignedBeaconBlock<E>>::with_capacity(parent_lookup::PARENT_DEPTH_TOLERANCE);
+        Vec::<Arc<SignedBeaconBlock<E>>>::with_capacity(parent_lookup::PARENT_DEPTH_TOLERANCE);
     while blocks.len() < parent_lookup::PARENT_DEPTH_TOLERANCE {
         let parent = blocks
             .last()
             .map(|b| b.canonical_root())
             .unwrap_or_else(Hash256::random);
-        let block = rig.block_with_parent(parent);
+        let block = Arc::new(rig.block_with_parent(parent));
         blocks.push(block);
     }
 
