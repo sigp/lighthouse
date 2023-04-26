@@ -803,7 +803,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 block_id_opt
                     .as_mut()
                     .or(blob_id_opt.as_mut())
-                    .and_then(|id_ref| (*id_ref != id).then_some((index, id_ref, req)))
+                    .and_then(|id_ref| (*id_ref == id).then_some((index, id_ref, req)))
             },
         );
         let (index, request_id_ref, request_ref) = match lookup_components_opt {

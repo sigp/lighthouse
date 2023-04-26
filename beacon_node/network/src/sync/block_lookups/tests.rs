@@ -286,7 +286,7 @@ fn test_single_block_lookup_becomes_parent_request() {
         ResponseType::Block,
         &mut cx,
     );
-    assert_eq!(bl.single_block_lookups.len(), 0);
+    assert_eq!(bl.single_block_lookups.len(), 1);
     rig.expect_parent_request();
     rig.expect_empty_network();
     assert_eq!(bl.parent_lookups.len(), 1);
@@ -557,7 +557,6 @@ fn test_parent_lookup_too_many_processing_attempts_must_blacklist() {
 
     let parent = Arc::new(rig.rand_block());
     let block = rig.block_with_parent(parent.canonical_root());
-    let block_hash = block.canonical_root();
     let peer_id = PeerId::random();
     let block_root = block.canonical_root();
     let parent_root = block.parent_root();
@@ -584,11 +583,11 @@ fn test_parent_lookup_too_many_processing_attempts_must_blacklist() {
     // Now fail processing a block in the parent request
     for _ in 0..PROCESSING_FAILURES {
         let id = dbg!(rig.expect_parent_request());
-        assert!(!bl.failed_chains.contains(&block_hash));
+        assert!(!bl.failed_chains.contains(&block_root));
         // send the right parent but fail processing
         bl.parent_lookup_response(id, peer_id, Some(parent.clone()), D, &mut cx);
         bl.parent_block_processed(
-            block_hash,
+            block_root,
             BlockError::InvalidSignature.into(),
             ResponseType::Block,
             &mut cx,
@@ -597,7 +596,7 @@ fn test_parent_lookup_too_many_processing_attempts_must_blacklist() {
         rig.expect_penalty();
     }
 
-    assert!(bl.failed_chains.contains(&block_hash));
+    assert!(bl.failed_chains.contains(&block_root));
     assert_eq!(bl.parent_lookups.len(), 0);
 }
 

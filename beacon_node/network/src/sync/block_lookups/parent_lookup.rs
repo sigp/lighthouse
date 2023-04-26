@@ -96,7 +96,7 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
         cx: &mut SyncNetworkContext<T>,
     ) -> Result<(), RequestError> {
         // check to make sure this request hasn't failed
-        if self.downloaded_blocks.len() >= PARENT_DEPTH_TOLERANCE {
+        if self.downloaded_blocks.len() + 1 >= PARENT_DEPTH_TOLERANCE {
             return Err(RequestError::ChainTooLong);
         }
 
@@ -120,7 +120,7 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
         cx: &mut SyncNetworkContext<T>,
     ) -> Result<(), RequestError> {
         // check to make sure this request hasn't failed
-        if self.downloaded_blocks.len() >= PARENT_DEPTH_TOLERANCE {
+        if self.downloaded_blocks.len() + 1 >= PARENT_DEPTH_TOLERANCE {
             return Err(RequestError::ChainTooLong);
         }
 
@@ -164,6 +164,8 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
             single_block_lookup::State::AwaitingDownload;
         self.current_parent_request_id = None;
         self.current_parent_blob_request_id = None;
+        self.current_parent_request.downloaded_block = None;
+        self.current_parent_request.downloaded_blobs = <_>::default();
     }
 
     pub fn add_block(
@@ -246,6 +248,7 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
         self.current_parent_request
             .block_request_state
             .register_failure_processing();
+        self.current_parent_request.downloaded_block = None;
         self.current_parent_request_id = None;
     }
 
@@ -253,6 +256,8 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
         self.current_parent_request
             .blob_request_state
             .register_failure_processing();
+        //TODO(sean) can make this only clear the blobs that failed to process
+        self.current_parent_request.downloaded_blobs = <_>::default();
         self.current_parent_blob_request_id = None;
     }
 
