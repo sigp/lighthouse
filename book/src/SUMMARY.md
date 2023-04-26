@@ -41,6 +41,7 @@
     * [Checkpoint Sync](./checkpoint-sync.md)
     * [Custom Data Directories](./advanced-datadir.md)
     * [Validator Graffiti](./graffiti.md)
+    * [Proposer Only Beacon Nodes](./advanced-proposer-only.md)
     * [Remote Signing with Web3Signer](./validator-web3signer.md)
     * [Database Configuration](./advanced_database.md)
     * [Database Migrations](./database-migrations.md)

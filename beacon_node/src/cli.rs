@@ -123,7 +123,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("target-peers")
                 .long("target-peers")
                 .help("The target number of peers.")
-                .default_value("80")
                 .takes_value(true),
         )
         .arg(
@@ -269,6 +268,15 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             .min_values(0)
             .hidden(true)
         )
+        .arg(
+            Arg::with_name("proposer-only")
+                .long("proposer-only")
+                .help("Sets this beacon node at be a block proposer only node. \
+                       This will run the beacon node in a minimal configuration that is sufficient for block publishing only. This flag should be used \
+                       for a beacon node being referenced by validator client using the --proposer-node flag. This configuration is for enabling more secure setups.")
+                .takes_value(false),
+        )
+
         .arg(
             Arg::with_name("disable-backfill-rate-limiting")
                 .long("disable-backfill-rate-limiting")
