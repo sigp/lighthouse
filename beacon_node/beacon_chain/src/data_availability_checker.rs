@@ -15,7 +15,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use types::beacon_block_body::KzgCommitments;
 use types::blob_sidecar::{BlobIdentifier, BlobSidecar, FixedBlobSidecarList};
-use types::consts::deneb::MIN_EPOCHS_FOR_BLOBS_SIDECARS_REQUESTS;
+use types::consts::deneb::MIN_EPOCHS_FOR_BLOB_SIDECARS_REQUESTS;
 use types::{
     BeaconBlockRef, BlobSidecarList, ChainSpec, Epoch, EthSpec, ExecPayload, FullPayload, Hash256,
     SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
