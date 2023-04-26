@@ -153,6 +153,7 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
     let blob_index = signed_blob_sidecar.message.index;
     let block_parent_root = signed_blob_sidecar.message.block_parent_root;
     let blob_proposer_index = signed_blob_sidecar.message.proposer_index;
+    let block_root = signed_blob_sidecar.message.block_root;
 
     // Verify that the blob_sidecar was received on the correct subnet.
     if blob_index != subnet {
