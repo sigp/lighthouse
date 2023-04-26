@@ -323,7 +323,9 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
 
     #[cfg(test)]
     pub fn failed_block_attempts(&self) -> u8 {
-        self.current_parent_request.failed_attempts()
+        self.current_parent_request
+            .block_request_state
+            .failed_attempts()
     }
 
     pub fn add_peer_if_useful(

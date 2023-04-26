@@ -508,9 +508,14 @@ impl<const MAX_ATTEMPTS: u8> slog::Value for SingleLookupRequestState<MAX_ATTEMP
 #[cfg(test)]
 mod tests {
     use super::*;
+    use beacon_chain::builder::Witness;
+    use beacon_chain::eth1_chain::CachingEth1Backend;
+    use slot_clock::{SlotClock, TestingSlotClock};
+    use std::time::Duration;
+    use store::MemoryStore;
     use types::{
         test_utils::{SeedableRng, TestRandom, XorShiftRng},
-        MinimalEthSpec as E, SignedBeaconBlock,
+        MinimalEthSpec as E, SignedBeaconBlock, Slot,
     };
 
     fn rand_block() -> SignedBeaconBlock<E> {
@@ -522,15 +527,22 @@ mod tests {
             types::Signature::random_for_test(&mut rng),
         )
     }
+    type T = Witness<TestingSlotClock, CachingEth1Backend<E>, E, MemoryStore<E>, MemoryStore<E>>;
 
     #[test]
     fn test_happy_path() {
         let peer_id = PeerId::random();
         let block = rand_block();
-
-        let mut sl = SingleBlockLookup::<4>::new(block.canonical_root(), peer_id);
-        sl.make_request().unwrap();
-        sl.verify_response(Some(block.into())).unwrap().unwrap();
+        let spec = E::default_spec();
+        let slot_clock = TestingSlotClock::new(
+            Slot::new(0),
+            Duration::from_secs(0),
+            Duration::from_secs(spec.seconds_per_slot),
+        );
+        let da_checker = Arc::new(DataAvailabilityChecker::new(slot_clock, None, spec));
+        let mut sl = SingleBlockLookup::<4, T>::new(block.canonical_root(), peer_id, da_checker);
+        sl.request_block().unwrap();
+        sl.verify_block(Some(block.into())).unwrap().unwrap();
     }
 
     #[test]
@@ -538,21 +550,30 @@ mod tests {
         const FAILURES: u8 = 3;
         let peer_id = PeerId::random();
         let block = rand_block();
+        let spec = E::default_spec();
+        let slot_clock = TestingSlotClock::new(
+            Slot::new(0),
+            Duration::from_secs(0),
+            Duration::from_secs(spec.seconds_per_slot),
+        );
 
-        let mut sl = SingleBlockLookup::<FAILURES>::new(block.canonical_root(), peer_id);
+        let da_checker = Arc::new(DataAvailabilityChecker::new(slot_clock, None, spec));
+
+        let mut sl =
+            SingleBlockLookup::<FAILURES, T>::new(block.canonical_root(), peer_id, da_checker);
         for _ in 1..FAILURES {
-            sl.make_request().unwrap();
-            sl.register_failure_downloading();
+            sl.request_block().unwrap();
+            sl.block_request_state.register_failure_downloading();
         }
 
         // Now we receive the block and send it for processing
-        sl.make_request().unwrap();
-        sl.verify_response(Some(block.into())).unwrap().unwrap();
+        sl.request_block().unwrap();
+        sl.verify_block(Some(block.into())).unwrap().unwrap();
 
         // One processing failure maxes the available attempts
-        sl.register_failure_processing();
+        sl.block_request_state.register_failure_processing();
         assert_eq!(
-            sl.make_request(),
+            sl.request_block(),
             Err(LookupRequestError::TooManyAttempts {
                 cannot_process: false
             })
