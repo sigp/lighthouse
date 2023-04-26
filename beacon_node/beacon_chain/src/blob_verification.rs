@@ -229,7 +229,7 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
     } else {
         debug!(
             chain.log,
-            "Proposer shuffling cache mix for blob verification";
+            "Proposer shuffling cache miss for blob verification";
             "block_root" => %block_root,
             "index" => %blob_index,
         );
