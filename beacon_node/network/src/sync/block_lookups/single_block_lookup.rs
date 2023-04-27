@@ -58,7 +58,7 @@ pub enum LookupVerifyError {
     UnrequestedBlobId,
     ExtraBlobsReturned,
     InvalidIndex(u64),
-    AvailabilityCheck, //TODO(sean) wrap the underlying error
+    AvailabilityCheck(String),
 }
 
 #[derive(Debug, PartialEq, Eq, IntoStaticStr)]
@@ -120,7 +120,7 @@ impl<const MAX_ATTEMPTS: u8, T: BeaconChainTypes> SingleBlockLookup<MAX_ATTEMPTS
                     Err(AvailabilityCheckError::MissingBlobs) => {
                         Ok(LookupDownloadStatus::SearchBlock(block_root))
                     }
-                    Err(_e) => Err(LookupVerifyError::AvailabilityCheck),
+                    Err(e) => Err(LookupVerifyError::AvailabilityCheck(format!("{e:?}"))),
                 }
             } else {
                 Ok(LookupDownloadStatus::SearchBlock(block_root))
@@ -148,7 +148,7 @@ impl<const MAX_ATTEMPTS: u8, T: BeaconChainTypes> SingleBlockLookup<MAX_ATTEMPTS
                 Err(AvailabilityCheckError::MissingBlobs) => {
                     Ok(LookupDownloadStatus::SearchBlock(block_root))
                 }
-                Err(_e) => Err(LookupVerifyError::AvailabilityCheck),
+                Err(e) => Err(LookupVerifyError::AvailabilityCheck(format!("{e:?}"))),
             }
         } else {
             Ok(LookupDownloadStatus::SearchBlock(block_root))
@@ -171,7 +171,7 @@ impl<const MAX_ATTEMPTS: u8, T: BeaconChainTypes> SingleBlockLookup<MAX_ATTEMPTS
             Err(AvailabilityCheckError::MissingBlobs) => {
                 Ok(LookupDownloadStatus::SearchBlock(block_root))
             }
-            Err(_e) => Err(LookupVerifyError::AvailabilityCheck),
+            Err(e) => Err(LookupVerifyError::AvailabilityCheck(format!("{e:?}"))),
         }
     }
 

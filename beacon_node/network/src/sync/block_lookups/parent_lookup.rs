@@ -45,7 +45,7 @@ pub enum ParentVerifyError {
     ExtraBlobsReturned,
     InvalidIndex(u64),
     PreviousFailure { parent_root: Hash256 },
-    AvailabilityCheck,
+    AvailabilityCheck(String),
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -357,7 +357,7 @@ impl From<LookupVerifyError> for ParentVerifyError {
             E::UnrequestedBlobId => ParentVerifyError::UnrequestedBlobId,
             E::ExtraBlobsReturned => ParentVerifyError::ExtraBlobsReturned,
             E::InvalidIndex(index) => ParentVerifyError::InvalidIndex(index),
-            E::AvailabilityCheck => ParentVerifyError::AvailabilityCheck,
+            E::AvailabilityCheck(e) => ParentVerifyError::AvailabilityCheck(e),
         }
     }
 }

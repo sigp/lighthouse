@@ -535,7 +535,8 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 | ParentVerifyError::UnrequestedBlobId
                 | ParentVerifyError::ExtraBlobsReturned
                 | ParentVerifyError::InvalidIndex(_)
-                | ParentVerifyError::AvailabilityCheck => {
+                //TODO(sean) treat this differntly?
+                | ParentVerifyError::AvailabilityCheck(_) => {
                     let e = e.into();
                     warn!(self.log, "Peer sent invalid response to parent request.";
                         "peer_id" => %peer_id, "reason" => %e);
@@ -629,7 +630,8 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 | ParentVerifyError::UnrequestedBlobId
                 | ParentVerifyError::ExtraBlobsReturned
                 | ParentVerifyError::InvalidIndex(_)
-                | ParentVerifyError::AvailabilityCheck => {
+                //TODO(sean) treat differently?
+                | ParentVerifyError::AvailabilityCheck(_) => {
                     let e = e.into();
                     warn!(self.log, "Peer sent invalid response to parent request.";
                         "peer_id" => %peer_id, "reason" => %e);
