@@ -12,13 +12,14 @@ use crate::data_availability_checker::{
 };
 use crate::kzg_utils::{validate_blob, validate_blobs};
 use crate::BeaconChainError;
+use eth2::types::BlockContentsTuple;
 use kzg::Kzg;
 use slog::{debug, warn};
 use std::borrow::Cow;
 use types::{
     BeaconBlockRef, BeaconState, BeaconStateError, BlobSidecar, BlobSidecarList, ChainSpec,
-    CloneConfig, Epoch, EthSpec, Hash256, KzgCommitment, RelativeEpoch, SignedBeaconBlock,
-    SignedBeaconBlockHeader, SignedBlobSidecar, Slot,
+    CloneConfig, Epoch, EthSpec, FullPayload, Hash256, KzgCommitment, RelativeEpoch,
+    SignedBeaconBlock, SignedBeaconBlockHeader, SignedBlobSidecar, Slot,
 };
 
 #[derive(Debug)]
@@ -657,5 +658,20 @@ impl<E: EthSpec> From<Arc<SignedBeaconBlock<E>>> for BlockWrapper<E> {
 impl<E: EthSpec> From<SignedBeaconBlock<E>> for BlockWrapper<E> {
     fn from(value: SignedBeaconBlock<E>) -> Self {
         Self::Block(Arc::new(value))
+    }
+}
+
+impl<E: EthSpec> From<BlockContentsTuple<E, FullPayload<E>>> for BlockWrapper<E> {
+    fn from(value: BlockContentsTuple<E, FullPayload<E>>) -> Self {
+        match value.1 {
+            Some(variable_list) => Self::BlockAndBlobs(
+                Arc::new(value.0),
+                Vec::from(variable_list)
+                    .into_iter()
+                    .map(|signed_blob| signed_blob.message)
+                    .collect::<Vec<_>>(),
+            ),
+            None => Self::Block(Arc::new(value.0)),
+        }
     }
 }

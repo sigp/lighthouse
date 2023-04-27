@@ -25,6 +25,7 @@ hex = "0.4.2"
 eth2_ssz = "0.4.1"
 eth2_ssz_types = "0.2.2"
 eth2 = { path = "../../common/eth2" }
+kzg = { path = "../../crypto/kzg" }
 state_processing = { path = "../../consensus/state_processing" }
 superstruct = "0.6.0"
 lru = "0.7.1"

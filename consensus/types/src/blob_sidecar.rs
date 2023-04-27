@@ -1,5 +1,6 @@
 use crate::test_utils::TestRandom;
-use crate::{Blob, EthSpec, Hash256, SignedRoot, Slot};
+use crate::{Blob, ChainSpec, Domain, EthSpec, Fork, Hash256, SignedBlobSidecar, SignedRoot, Slot};
+use bls::SecretKey;
 use derivative::Derivative;
 use kzg::{KzgCommitment, KzgProof};
 use serde_derive::{Deserialize, Serialize};
@@ -72,7 +73,7 @@ impl<T: EthSpec> Ord for BlobSidecar<T> {
 }
 
 pub type BlobSidecarList<T> = VariableList<Arc<BlobSidecar<T>>, <T as EthSpec>::MaxBlobsPerBlock>;
-pub type Blobs<T> = VariableList<Blob<T>, <T as EthSpec>::MaxExtraDataBytes>;
+pub type Blobs<T> = VariableList<Blob<T>, <T as EthSpec>::MaxBlobsPerBlock>;
 
 impl<T: EthSpec> SignedRoot for BlobSidecar<T> {}
 
@@ -92,5 +93,29 @@ impl<T: EthSpec> BlobSidecar<T> {
     pub fn max_size() -> usize {
         // Fixed part
         Self::empty().as_ssz_bytes().len()
+    }
+
+    // this is mostly not used except for in testing
+    pub fn sign(
+        self: Arc<Self>,
+        secret_key: &SecretKey,
+        fork: &Fork,
+        genesis_validators_root: Hash256,
+        spec: &ChainSpec,
+    ) -> SignedBlobSidecar<T> {
+        let signing_epoch = self.slot.epoch(T::slots_per_epoch());
+        let domain = spec.get_domain(
+            signing_epoch,
+            Domain::BlobSidecar,
+            fork,
+            genesis_validators_root,
+        );
+        let message = self.signing_root(domain);
+        let signature = secret_key.sign(message);
+
+        SignedBlobSidecar {
+            message: self,
+            signature,
+        }
     }
 }

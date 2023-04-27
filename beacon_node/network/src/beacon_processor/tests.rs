@@ -107,7 +107,7 @@ impl TestRig {
             "precondition: current slot is one after head"
         );
 
-        let (next_block, next_state) = harness
+        let (next_block_tuple, next_state) = harness
             .make_block(head.beacon_state.clone(), harness.chain.slot().unwrap())
             .await;
 
@@ -133,9 +133,9 @@ impl TestRig {
             .get_unaggregated_attestations(
                 &AttestationStrategy::AllValidators,
                 &next_state,
-                next_block.state_root(),
-                next_block.canonical_root(),
-                next_block.slot(),
+                next_block_tuple.0.state_root(),
+                next_block_tuple.0.canonical_root(),
+                next_block_tuple.0.slot(),
             )
             .into_iter()
             .flatten()
@@ -145,9 +145,9 @@ impl TestRig {
             .make_attestations(
                 &harness.get_all_validators(),
                 &next_state,
-                next_block.state_root(),
-                next_block.canonical_root().into(),
-                next_block.slot(),
+                next_block_tuple.0.state_root(),
+                next_block_tuple.0.canonical_root().into(),
+                next_block_tuple.0.slot(),
             )
             .into_iter()
             .filter_map(|(_, aggregate_opt)| aggregate_opt)
@@ -209,7 +209,7 @@ impl TestRig {
 
         Self {
             chain,
-            next_block: Arc::new(next_block),
+            next_block: Arc::new(next_block_tuple.0),
             attestations,
             next_block_attestations,
             next_block_aggregate_attestations,

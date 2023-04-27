@@ -1,17 +1,28 @@
 use c_kzg::{Bytes48, BYTES_PER_COMMITMENT};
 use derivative::Derivative;
+use eth2_hashing::hash_fixed;
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
 use ssz_derive::{Decode, Encode};
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
 use std::str::FromStr;
-use tree_hash::{PackedEncoding, TreeHash};
+use tree_hash::{Hash256, PackedEncoding, TreeHash};
+
+pub const BLOB_COMMITMENT_VERSION_KZG: u8 = 0x01;
 
 #[derive(Derivative, Clone, Copy, Encode, Decode)]
 #[derivative(PartialEq, Eq, Hash)]
 #[ssz(struct_behaviour = "transparent")]
 pub struct KzgCommitment(pub [u8; BYTES_PER_COMMITMENT]);
+
+impl KzgCommitment {
+    pub fn calculate_versioned_hash(&self) -> Hash256 {
+        let mut versioned_hash = hash_fixed(&self.0);
+        versioned_hash[0] = BLOB_COMMITMENT_VERSION_KZG;
+        Hash256::from_slice(versioned_hash.as_slice())
+    }
+}
 
 impl From<KzgCommitment> for Bytes48 {
     fn from(value: KzgCommitment) -> Self {
