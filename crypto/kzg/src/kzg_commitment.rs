@@ -1,6 +1,6 @@
 use c_kzg::{Bytes48, BYTES_PER_COMMITMENT};
 use derivative::Derivative;
-use eth2_hashing::hash;
+use eth2_hashing::hash_fixed;
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
 use ssz_derive::{Decode, Encode};
@@ -18,11 +18,8 @@ pub struct KzgCommitment(pub [u8; BYTES_PER_COMMITMENT]);
 
 impl KzgCommitment {
     pub fn calculate_versioned_hash(&self) -> Hash256 {
-        let mut versioned_hash = hash(&self.0);
-        versioned_hash
-            .first_mut()
-            .map(|first_byte| *first_byte = BLOB_COMMITMENT_VERSION_KZG)
-            .expect("hash should have at least one byte");
+        let mut versioned_hash = hash_fixed(&self.0);
+        versioned_hash[0] = BLOB_COMMITMENT_VERSION_KZG;
         Hash256::from_slice(versioned_hash.as_slice())
     }
 }

@@ -767,11 +767,11 @@ where
         state.get_block_root(slot).unwrap() == state.get_block_root(slot - 1).unwrap()
     }
 
-    pub async fn make_block<Payload: AbstractExecPayload<E> + 'static>(
+    pub async fn make_block(
         &self,
         mut state: BeaconState<E>,
         slot: Slot,
-    ) -> (BlockContentsTuple<E, Payload>, BeaconState<E>) {
+    ) -> (BlockContentsTuple<E, FullPayload<E>>, BeaconState<E>) {
         assert_ne!(slot, 0, "can't produce a block at slot 0");
         assert!(slot >= state.slot());
 
@@ -811,7 +811,7 @@ where
             &self.spec,
         );
 
-        let block_contents: BlockContentsTuple<E, Payload> = match &signed_block {
+        let block_contents: BlockContentsTuple<E, FullPayload<E>> = match &signed_block {
             SignedBeaconBlock::Base(_)
             | SignedBeaconBlock::Altair(_)
             | SignedBeaconBlock::Merge(_)
@@ -836,7 +836,6 @@ where
                         .into();
                     (signed_block, Some(signed_blobs))
                 } else {
-                    // idk what else to put here..
                     (signed_block, None)
                 }
             }
@@ -2097,12 +2096,12 @@ where
     /// Deprecated: Use make_block() instead
     ///
     /// Returns a newly created block, signed by the proposer for the given slot.
-    pub async fn build_block<Payload: AbstractExecPayload<E> + 'static>(
+    pub async fn build_block(
         &self,
         state: BeaconState<E>,
         slot: Slot,
         _block_strategy: BlockStrategy,
-    ) -> (BlockContentsTuple<E, Payload>, BeaconState<E>) {
+    ) -> (BlockContentsTuple<E, FullPayload<E>>, BeaconState<E>) {
         self.make_block(state, slot).await
     }
 
