@@ -1875,21 +1875,6 @@ impl ApiTester {
                 .unwrap();
             assert_eq!(result_ssz, expected, "{:?}", state_id);
 
-            // Check legacy v1 API.
-            let result_v1 = self
-                .client
-                .get_debug_beacon_states_v1(state_id.0)
-                .await
-                .unwrap();
-
-            if let (Some(json), Some(expected)) = (&result_v1, &expected) {
-                assert_eq!(json.version, None);
-                assert_eq!(json.data, *expected, "{:?}", state_id);
-            } else {
-                assert_eq!(result_v1, None);
-                assert_eq!(expected, None);
-            }
-
             // Check that version headers are provided.
             let url = self
                 .client
