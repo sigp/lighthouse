@@ -32,7 +32,7 @@ pub enum AvailabilityCheckError {
         num_kzg_commitments: usize,
         num_blobs: usize,
     },
-    TxKzgCommitmentMismatch,
+    TxKzgCommitmentMismatch(String),
     KzgCommitmentMismatch {
         blob_index: u64,
     },
@@ -489,9 +489,11 @@ impl<T: EthSpec, S: SlotClock> DataAvailabilityChecker<T, S> {
                     transactions,
                     block_kzg_commitments,
                 )
-                .map_err(|_| AvailabilityCheckError::TxKzgCommitmentMismatch)?;
+                .map_err(|e| AvailabilityCheckError::TxKzgCommitmentMismatch(format!("{e:?}")))?;
                 if !verified {
-                    return Err(AvailabilityCheckError::TxKzgCommitmentMismatch);
+                    return Err(AvailabilityCheckError::TxKzgCommitmentMismatch(
+                        "a commitment and version didn't match".to_string(),
+                    ));
                 }
             }
 

@@ -50,4 +50,5 @@ execution_layer =  { path = "../execution_layer" }
 
 [features]
 deterministic_long_lived_attnets = [ "ethereum-types" ]
+spec-minimal = ["beacon_chain/spec-minimal"]
 # default = ["deterministic_long_lived_attnets"]

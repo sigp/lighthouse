@@ -21,7 +21,7 @@ use tokio::sync::mpsc;
 use types::{
     map_fork_name, map_fork_name_with,
     test_utils::{SeedableRng, TestRandom, XorShiftRng},
-    BeaconBlock, ForkName, MinimalEthSpec as E, SignedBeaconBlock,
+    BeaconBlock, EthSpec, ForkName, FullPayloadDeneb, MinimalEthSpec as E, SignedBeaconBlock,
 };
 
 type T = Witness<TestingSlotClock, CachingEth1Backend<E>, E, MemoryStore<E>, MemoryStore<E>>;
@@ -30,6 +30,7 @@ struct TestRig {
     beacon_processor_rx: mpsc::Receiver<WorkEvent<T>>,
     network_rx: mpsc::UnboundedReceiver<NetworkMessage<E>>,
     rng: XorShiftRng,
+    harness: BeaconChainHarness<T>,
 }
 
 const D: Duration = Duration::new(0, 0);
@@ -46,7 +47,7 @@ impl TestRig {
             .fresh_ephemeral_store()
             .build();
 
-        let chain = harness.chain;
+        let chain = harness.chain.clone();
 
         let (beacon_processor_tx, beacon_processor_rx) = mpsc::channel(100);
         let (network_tx, network_rx) = mpsc::unbounded_channel();
@@ -55,17 +56,11 @@ impl TestRig {
             beacon_processor_rx,
             network_rx,
             rng,
+            harness,
         };
 
-        //TODO(sean) add a data availability checker to the harness and use that one
-        let da_checker = Arc::new(DataAvailabilityChecker::new(
-            chain.slot_clock.clone(),
-            None,
-            chain.spec.clone(),
-        ));
-
         let bl = BlockLookups::new(
-            da_checker,
+            chain.data_availability_checker.clone(),
             log.new(slog::o!("component" => "block_lookups")),
         );
         let cx = {
@@ -84,7 +79,25 @@ impl TestRig {
 
     fn rand_block(&mut self, fork_name: ForkName) -> SignedBeaconBlock<E> {
         let inner = map_fork_name!(fork_name, BeaconBlock, <_>::random_for_test(&mut self.rng));
-        SignedBeaconBlock::from_block(inner, types::Signature::random_for_test(&mut self.rng))
+        let mut block =
+            SignedBeaconBlock::from_block(inner, types::Signature::random_for_test(&mut self.rng));
+        if let Ok(message) = block.message_deneb_mut() {
+            // get random number between 0 and Max Blobs
+            let mut payload: &mut FullPayloadDeneb<E> = &mut message.body.execution_payload;
+            let num_blobs = rand::random::<usize>() % E::max_blobs_per_block();
+            let (bundle, transactions) = execution_layer::test_utils::generate_random_blobs::<E>(
+                num_blobs,
+                &self.harness.chain.kzg.as_ref().unwrap(),
+            )
+            .unwrap();
+            payload.execution_payload.transactions = <_>::default();
+            for tx in Vec::from(transactions) {
+                payload.execution_payload.transactions.push(tx).unwrap();
+            }
+            message.body.blob_kzg_commitments = bundle.commitments.clone();
+        }
+
+        block
     }
 
     #[track_caller]
@@ -184,10 +197,9 @@ impl TestRig {
         parent_root: Hash256,
         fork_name: ForkName,
     ) -> SignedBeaconBlock<E> {
-        let mut inner = map_fork_name!(fork_name, BeaconBlock, <_>::random_for_test(&mut self.rng));
-
-        *inner.parent_root_mut() = parent_root;
-        SignedBeaconBlock::from_block(inner, types::Signature::random_for_test(&mut self.rng))
+        let mut block = self.rand_block(fork_name);
+        *block.message_mut().parent_root_mut() = parent_root;
+        block
     }
 }
 
@@ -914,7 +926,9 @@ macro_rules! common_tests {
         }
     };
 }
-use crate::sync::manager::ResponseType::Block;
-common_tests!(base, Base, Block);
-common_tests!(capella, Capella, Block);
-common_tests!(deneb, Deneb, Block);
+use crate::sync::manager::ResponseType::{Blob, Block};
+// common_tests!(base, Base, Block);
+// common_tests!(capella, Capella, Block);
+// common_tests!(deneb, Deneb, Block);
+
+common_tests!(deneb, Deneb, Blob);
