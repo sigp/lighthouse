@@ -19,8 +19,9 @@ use std::time::Duration;
 use store::MemoryStore;
 use tokio::sync::mpsc;
 use types::{
+    map_fork_name, map_fork_name_with,
     test_utils::{SeedableRng, TestRandom, XorShiftRng},
-    MinimalEthSpec as E, SignedBeaconBlock,
+    BeaconBlock, ForkName, MinimalEthSpec as E, SignedBeaconBlock,
 };
 
 type T = Witness<TestingSlotClock, CachingEth1Backend<E>, E, MemoryStore<E>, MemoryStore<E>>;
@@ -81,48 +82,74 @@ impl TestRig {
         (bl, cx, rig)
     }
 
-    fn rand_block(&mut self) -> SignedBeaconBlock<E> {
-        SignedBeaconBlock::from_block(
-            types::BeaconBlock::Base(types::BeaconBlockBase {
-                ..<_>::random_for_test(&mut self.rng)
-            }),
-            types::Signature::random_for_test(&mut self.rng),
-        )
+    fn rand_block(&mut self, fork_name: ForkName) -> SignedBeaconBlock<E> {
+        let inner = map_fork_name!(fork_name, BeaconBlock, <_>::random_for_test(&mut self.rng));
+        SignedBeaconBlock::from_block(inner, types::Signature::random_for_test(&mut self.rng))
     }
 
     #[track_caller]
-    fn expect_block_request(&mut self) -> Id {
-        match self.network_rx.try_recv() {
-            Ok(NetworkMessage::SendRequest {
-                peer_id: _,
-                request: Request::BlocksByRoot(_request),
-                request_id: RequestId::Sync(SyncId::SingleBlock { id }),
-            }) => id,
-            other => {
-                panic!("Expected block request, found {:?}", other);
-            }
+    fn expect_block_request(&mut self, response_type: ResponseType) -> Id {
+        match response_type {
+            ResponseType::Block => match self.network_rx.try_recv() {
+                Ok(NetworkMessage::SendRequest {
+                    peer_id: _,
+                    request: Request::BlocksByRoot(_request),
+                    request_id: RequestId::Sync(SyncId::SingleBlock { id }),
+                }) => id,
+                other => {
+                    panic!("Expected block request, found {:?}", other);
+                }
+            },
+            ResponseType::Blob => match self.network_rx.try_recv() {
+                Ok(NetworkMessage::SendRequest {
+                    peer_id: _,
+                    request: Request::BlobsByRoot(_request),
+                    request_id: RequestId::Sync(SyncId::SingleBlock { id }),
+                }) => id,
+                other => {
+                    panic!("Expected blob request, found {:?}", other);
+                }
+            },
         }
     }
 
     #[track_caller]
-    fn expect_parent_request(&mut self) -> Id {
-        match self.network_rx.try_recv() {
-            Ok(NetworkMessage::SendRequest {
-                peer_id: _,
-                request: Request::BlocksByRoot(_request),
-                request_id: RequestId::Sync(SyncId::ParentLookup { id }),
-            }) => id,
-            other => panic!("Expected parent request, found {:?}", other),
+    fn expect_parent_request(&mut self, response_type: ResponseType) -> Id {
+        match response_type {
+            ResponseType::Block => match self.network_rx.try_recv() {
+                Ok(NetworkMessage::SendRequest {
+                    peer_id: _,
+                    request: Request::BlocksByRoot(_request),
+                    request_id: RequestId::Sync(SyncId::ParentLookup { id }),
+                }) => id,
+                other => panic!("Expected parent request, found {:?}", other),
+            },
+            ResponseType::Blob => match self.network_rx.try_recv() {
+                Ok(NetworkMessage::SendRequest {
+                    peer_id: _,
+                    request: Request::BlobsByRoot(_request),
+                    request_id: RequestId::Sync(SyncId::ParentLookup { id }),
+                }) => id,
+                other => panic!("Expected parent blobs request, found {:?}", other),
+            },
         }
     }
 
     #[track_caller]
-    fn expect_block_process(&mut self) {
-        match self.beacon_processor_rx.try_recv() {
-            Ok(work) => {
-                assert_eq!(work.work_type(), crate::beacon_processor::RPC_BLOCK);
-            }
-            other => panic!("Expected block process, found {:?}", other),
+    fn expect_block_process(&mut self, response_type: ResponseType) {
+        match response_type {
+            ResponseType::Block => match self.beacon_processor_rx.try_recv() {
+                Ok(work) => {
+                    assert_eq!(work.work_type(), crate::beacon_processor::RPC_BLOCK);
+                }
+                other => panic!("Expected block process, found {:?}", other),
+            },
+            ResponseType::Blob => match self.beacon_processor_rx.try_recv() {
+                Ok(work) => {
+                    assert_eq!(work.work_type(), crate::beacon_processor::RPC_BLOB);
+                }
+                other => panic!("Expected blob process, found {:?}", other),
+            },
         }
     }
 
@@ -152,33 +179,36 @@ impl TestRig {
         }
     }
 
-    pub fn block_with_parent(&mut self, parent_root: Hash256) -> SignedBeaconBlock<E> {
-        SignedBeaconBlock::from_block(
-            types::BeaconBlock::Base(types::BeaconBlockBase {
-                parent_root,
-                ..<_>::random_for_test(&mut self.rng)
-            }),
-            types::Signature::random_for_test(&mut self.rng),
-        )
+    pub fn block_with_parent(
+        &mut self,
+        parent_root: Hash256,
+        fork_name: ForkName,
+    ) -> SignedBeaconBlock<E> {
+        let mut inner = map_fork_name!(fork_name, BeaconBlock, <_>::random_for_test(&mut self.rng));
+
+        *inner.parent_root_mut() = parent_root;
+        SignedBeaconBlock::from_block(inner, types::Signature::random_for_test(&mut self.rng))
     }
 }
 
 #[test]
 fn test_single_block_lookup_happy_path() {
+    let fork_name = ForkName::Base;
+    let response_type = ResponseType::Block;
     let (mut bl, mut cx, mut rig) = TestRig::test_setup(false);
 
-    let block = rig.rand_block();
+    let block = rig.rand_block(fork_name);
     let peer_id = PeerId::random();
     let block_root = block.canonical_root();
     // Trigger the request
     bl.search_block(block_root, peer_id, PeerShouldHave::BlockAndBlobs, &mut cx);
-    let id = rig.expect_block_request();
+    let id = rig.expect_block_request(response_type);
 
     // The peer provides the correct block, should not be penalized. Now the block should be sent
     // for processing.
     bl.single_block_lookup_response(id, peer_id, Some(block.into()), D, &mut cx);
     rig.expect_empty_network();
-    rig.expect_block_process();
+    rig.expect_block_process(response_type);
 
     // The request should still be active.
     assert_eq!(bl.single_block_lookups.len(), 1);
@@ -198,6 +228,7 @@ fn test_single_block_lookup_happy_path() {
 
 #[test]
 fn test_single_block_lookup_empty_response() {
+    let response_type = ResponseType::Block;
     let (mut bl, mut cx, mut rig) = TestRig::test_setup(false);
 
     let block_hash = Hash256::random();
@@ -205,17 +236,19 @@ fn test_single_block_lookup_empty_response() {
 
     // Trigger the request
     bl.search_block(block_hash, peer_id, PeerShouldHave::BlockAndBlobs, &mut cx);
-    let id = rig.expect_block_request();
+    let id = rig.expect_block_request(response_type);
 
     // The peer does not have the block. It should be penalized.
     bl.single_block_lookup_response(id, peer_id, None, D, &mut cx);
     rig.expect_penalty();
 
-    rig.expect_block_request(); // it should be retried
+    rig.expect_block_request(response_type); // it should be retried
 }
 
 #[test]
 fn test_single_block_lookup_wrong_response() {
+    let fork_name = ForkName::Base;
+    let response_type = ResponseType::Block;
     let (mut bl, mut cx, mut rig) = TestRig::test_setup(false);
 
     let block_hash = Hash256::random();
@@ -223,13 +256,13 @@ fn test_single_block_lookup_wrong_response() {
 
     // Trigger the request
     bl.search_block(block_hash, peer_id, PeerShouldHave::BlockAndBlobs, &mut cx);
-    let id = rig.expect_block_request();
+    let id = rig.expect_block_request(response_type);
 
     // Peer sends something else. It should be penalized.
-    let bad_block = rig.rand_block();
+    let bad_block = rig.rand_block(fork_name);
     bl.single_block_lookup_response(id, peer_id, Some(bad_block.into()), D, &mut cx);
     rig.expect_penalty();
-    rig.expect_block_request(); // should be retried
+    rig.expect_block_request(response_type); // should be retried
 
     // Send the stream termination. This should not produce an additional penalty.
     bl.single_block_lookup_response(id, peer_id, None, D, &mut cx);
@@ -238,6 +271,7 @@ fn test_single_block_lookup_wrong_response() {
 
 #[test]
 fn test_single_block_lookup_failure() {
+    let response_type = ResponseType::Block;
     let (mut bl, mut cx, mut rig) = TestRig::test_setup(false);
 
     let block_hash = Hash256::random();
@@ -245,19 +279,21 @@ fn test_single_block_lookup_failure() {
 
     // Trigger the request
     bl.search_block(block_hash, peer_id, PeerShouldHave::BlockAndBlobs, &mut cx);
-    let id = rig.expect_block_request();
+    let id = rig.expect_block_request(response_type);
 
     // The request fails. RPC failures are handled elsewhere so we should not penalize the peer.
     bl.single_block_lookup_failed(id, &peer_id, &mut cx, RPCError::UnsupportedProtocol);
-    rig.expect_block_request();
+    rig.expect_block_request(response_type);
     rig.expect_empty_network();
 }
 
 #[test]
 fn test_single_block_lookup_becomes_parent_request() {
+    let fork_name = ForkName::Base;
+    let response_type = ResponseType::Block;
     let (mut bl, mut cx, mut rig) = TestRig::test_setup(false);
 
-    let block = Arc::new(rig.rand_block());
+    let block = Arc::new(rig.rand_block(fork_name));
     let peer_id = PeerId::random();
 
     // Trigger the request
@@ -267,13 +303,13 @@ fn test_single_block_lookup_becomes_parent_request() {
         PeerShouldHave::BlockAndBlobs,
         &mut cx,
     );
-    let id = rig.expect_block_request();
+    let id = rig.expect_block_request(response_type);
 
     // The peer provides the correct block, should not be penalized. Now the block should be sent
     // for processing.
     bl.single_block_lookup_response(id, peer_id, Some(block.clone()), D, &mut cx);
     rig.expect_empty_network();
-    rig.expect_block_process();
+    rig.expect_block_process(response_type);
 
     // The request should still be active.
     assert_eq!(bl.single_block_lookups.len(), 1);
@@ -287,17 +323,19 @@ fn test_single_block_lookup_becomes_parent_request() {
         &mut cx,
     );
     assert_eq!(bl.single_block_lookups.len(), 1);
-    rig.expect_parent_request();
+    rig.expect_parent_request(response_type);
     rig.expect_empty_network();
     assert_eq!(bl.parent_lookups.len(), 1);
 }
 
 #[test]
 fn test_parent_lookup_happy_path() {
+    let fork_name = ForkName::Base;
+    let response_type = ResponseType::Block;
     let (mut bl, mut cx, mut rig) = TestRig::test_setup(false);
 
-    let parent = rig.rand_block();
-    let block = rig.block_with_parent(parent.canonical_root());
+    let parent = rig.rand_block(fork_name);
+    let block = rig.block_with_parent(parent.canonical_root(), fork_name);
     let chain_hash = block.canonical_root();
     let peer_id = PeerId::random();
     let block_root = block.canonical_root();
@@ -306,11 +344,11 @@ fn test_parent_lookup_happy_path() {
 
     // Trigger the request
     bl.search_parent(slot, block_root, parent_root, peer_id, &mut cx);
-    let id = rig.expect_parent_request();
+    let id = rig.expect_parent_request(response_type);
 
     // Peer sends the right block, it should be sent for processing. Peer should not be penalized.
     bl.parent_lookup_response(id, peer_id, Some(parent.into()), D, &mut cx);
-    rig.expect_block_process();
+    rig.expect_block_process(response_type);
     rig.expect_empty_network();
 
     // Processing succeeds, now the rest of the chain should be sent for processing.
@@ -330,10 +368,12 @@ fn test_parent_lookup_happy_path() {
 
 #[test]
 fn test_parent_lookup_wrong_response() {
+    let fork_name = ForkName::Base;
+    let response_type = ResponseType::Block;
     let (mut bl, mut cx, mut rig) = TestRig::test_setup(false);
 
-    let parent = rig.rand_block();
-    let block = rig.block_with_parent(parent.canonical_root());
+    let parent = rig.rand_block(fork_name);
+    let block = rig.block_with_parent(parent.canonical_root(), fork_name);
     let chain_hash = block.canonical_root();
     let peer_id = PeerId::random();
     let block_root = block.canonical_root();
@@ -342,13 +382,13 @@ fn test_parent_lookup_wrong_response() {
 
     // Trigger the request
     bl.search_parent(slot, block_root, parent_root, peer_id, &mut cx);
-    let id1 = rig.expect_parent_request();
+    let id1 = rig.expect_parent_request(response_type);
 
     // Peer sends the wrong block, peer should be penalized and the block re-requested.
-    let bad_block = rig.rand_block();
+    let bad_block = rig.rand_block(fork_name);
     bl.parent_lookup_response(id1, peer_id, Some(bad_block.into()), D, &mut cx);
     rig.expect_penalty();
-    let id2 = rig.expect_parent_request();
+    let id2 = rig.expect_parent_request(response_type);
 
     // Send the stream termination for the first request. This should not produce extra penalties.
     bl.parent_lookup_response(id1, peer_id, None, D, &mut cx);
@@ -356,7 +396,7 @@ fn test_parent_lookup_wrong_response() {
 
     // Send the right block this time.
     bl.parent_lookup_response(id2, peer_id, Some(parent.into()), D, &mut cx);
-    rig.expect_block_process();
+    rig.expect_block_process(response_type);
 
     // Processing succeeds, now the rest of the chain should be sent for processing.
     bl.parent_block_processed(
@@ -375,10 +415,12 @@ fn test_parent_lookup_wrong_response() {
 
 #[test]
 fn test_parent_lookup_empty_response() {
+    let fork_name = ForkName::Base;
+    let response_type = ResponseType::Block;
     let (mut bl, mut cx, mut rig) = TestRig::test_setup(false);
 
-    let parent = rig.rand_block();
-    let block = rig.block_with_parent(parent.canonical_root());
+    let parent = rig.rand_block(fork_name);
+    let block = rig.block_with_parent(parent.canonical_root(), fork_name);
     let chain_hash = block.canonical_root();
     let peer_id = PeerId::random();
     let block_root = block.canonical_root();
@@ -387,16 +429,16 @@ fn test_parent_lookup_empty_response() {
 
     // Trigger the request
     bl.search_parent(slot, block_root, parent_root, peer_id, &mut cx);
-    let id1 = rig.expect_parent_request();
+    let id1 = rig.expect_parent_request(response_type);
 
     // Peer sends an empty response, peer should be penalized and the block re-requested.
     bl.parent_lookup_response(id1, peer_id, None, D, &mut cx);
     rig.expect_penalty();
-    let id2 = rig.expect_parent_request();
+    let id2 = rig.expect_parent_request(response_type);
 
     // Send the right block this time.
     bl.parent_lookup_response(id2, peer_id, Some(parent.into()), D, &mut cx);
-    rig.expect_block_process();
+    rig.expect_block_process(response_type);
 
     // Processing succeeds, now the rest of the chain should be sent for processing.
     bl.parent_block_processed(
@@ -415,10 +457,12 @@ fn test_parent_lookup_empty_response() {
 
 #[test]
 fn test_parent_lookup_rpc_failure() {
+    let fork_name = ForkName::Base;
+    let response_type = ResponseType::Block;
     let (mut bl, mut cx, mut rig) = TestRig::test_setup(false);
 
-    let parent = rig.rand_block();
-    let block = rig.block_with_parent(parent.canonical_root());
+    let parent = rig.rand_block(fork_name);
+    let block = rig.block_with_parent(parent.canonical_root(), fork_name);
     let chain_hash = block.canonical_root();
     let peer_id = PeerId::random();
     let block_root = block.canonical_root();
@@ -427,7 +471,7 @@ fn test_parent_lookup_rpc_failure() {
 
     // Trigger the request
     bl.search_parent(slot, block_root, parent_root, peer_id, &mut cx);
-    let id1 = rig.expect_parent_request();
+    let id1 = rig.expect_parent_request(response_type);
 
     // The request fails. It should be tried again.
     bl.parent_lookup_failed(
@@ -439,11 +483,11 @@ fn test_parent_lookup_rpc_failure() {
             "older than deneb".into(),
         ),
     );
-    let id2 = rig.expect_parent_request();
+    let id2 = rig.expect_parent_request(response_type);
 
     // Send the right block this time.
     bl.parent_lookup_response(id2, peer_id, Some(parent.into()), D, &mut cx);
-    rig.expect_block_process();
+    rig.expect_block_process(response_type);
 
     // Processing succeeds, now the rest of the chain should be sent for processing.
     bl.parent_block_processed(
@@ -462,10 +506,12 @@ fn test_parent_lookup_rpc_failure() {
 
 #[test]
 fn test_parent_lookup_too_many_attempts() {
+    let fork_name = ForkName::Base;
+    let response_type = ResponseType::Block;
     let (mut bl, mut cx, mut rig) = TestRig::test_setup(false);
 
-    let parent = rig.rand_block();
-    let block = rig.block_with_parent(parent.canonical_root());
+    let parent = rig.rand_block(fork_name);
+    let block = rig.block_with_parent(parent.canonical_root(), fork_name);
     let peer_id = PeerId::random();
     let block_root = block.canonical_root();
     let parent_root = block.parent_root();
@@ -474,7 +520,7 @@ fn test_parent_lookup_too_many_attempts() {
     // Trigger the request
     bl.search_parent(slot, block_root, parent_root, peer_id, &mut cx);
     for i in 1..=parent_lookup::PARENT_FAIL_TOLERANCE {
-        let id = rig.expect_parent_request();
+        let id = rig.expect_parent_request(response_type);
         match i % 2 {
             // make sure every error is accounted for
             0 => {
@@ -491,7 +537,7 @@ fn test_parent_lookup_too_many_attempts() {
             }
             _ => {
                 // Send a bad block this time. It should be tried again.
-                let bad_block = rig.rand_block();
+                let bad_block = rig.rand_block(fork_name);
                 bl.parent_lookup_response(id, peer_id, Some(bad_block.into()), D, &mut cx);
                 // Send the stream termination
                 bl.parent_lookup_response(id, peer_id, None, D, &mut cx);
@@ -508,10 +554,12 @@ fn test_parent_lookup_too_many_attempts() {
 
 #[test]
 fn test_parent_lookup_too_many_download_attempts_no_blacklist() {
+    let fork_name = ForkName::Base;
+    let response_type = ResponseType::Block;
     let (mut bl, mut cx, mut rig) = TestRig::test_setup(false);
 
-    let parent = rig.rand_block();
-    let block = rig.block_with_parent(parent.canonical_root());
+    let parent = rig.rand_block(fork_name);
+    let block = rig.block_with_parent(parent.canonical_root(), fork_name);
     let block_hash = block.canonical_root();
     let peer_id = PeerId::random();
     let block_root = block.canonical_root();
@@ -522,7 +570,7 @@ fn test_parent_lookup_too_many_download_attempts_no_blacklist() {
     bl.search_parent(slot, block_root, parent_root, peer_id, &mut cx);
     for i in 1..=parent_lookup::PARENT_FAIL_TOLERANCE {
         assert!(!bl.failed_chains.contains(&block_hash));
-        let id = rig.expect_parent_request();
+        let id = rig.expect_parent_request(response_type);
         if i % 2 != 0 {
             // The request fails. It should be tried again.
             bl.parent_lookup_failed(
@@ -536,7 +584,7 @@ fn test_parent_lookup_too_many_download_attempts_no_blacklist() {
             );
         } else {
             // Send a bad block this time. It should be tried again.
-            let bad_block = rig.rand_block();
+            let bad_block = rig.rand_block(fork_name);
             bl.parent_lookup_response(id, peer_id, Some(bad_block.into()), D, &mut cx);
             rig.expect_penalty();
         }
@@ -552,11 +600,13 @@ fn test_parent_lookup_too_many_download_attempts_no_blacklist() {
 
 #[test]
 fn test_parent_lookup_too_many_processing_attempts_must_blacklist() {
+    let fork_name = ForkName::Base;
+    let response_type = ResponseType::Block;
     const PROCESSING_FAILURES: u8 = parent_lookup::PARENT_FAIL_TOLERANCE / 2 + 1;
     let (mut bl, mut cx, mut rig) = TestRig::test_setup(false);
 
-    let parent = Arc::new(rig.rand_block());
-    let block = rig.block_with_parent(parent.canonical_root());
+    let parent = Arc::new(rig.rand_block(fork_name));
+    let block = rig.block_with_parent(parent.canonical_root(), fork_name);
     let peer_id = PeerId::random();
     let block_root = block.canonical_root();
     let parent_root = block.parent_root();
@@ -567,7 +617,7 @@ fn test_parent_lookup_too_many_processing_attempts_must_blacklist() {
 
     // Fail downloading the block
     for _ in 0..(parent_lookup::PARENT_FAIL_TOLERANCE - PROCESSING_FAILURES) {
-        let id = rig.expect_parent_request();
+        let id = rig.expect_parent_request(response_type);
         // The request fails. It should be tried again.
         bl.parent_lookup_failed(
             id,
@@ -582,7 +632,7 @@ fn test_parent_lookup_too_many_processing_attempts_must_blacklist() {
 
     // Now fail processing a block in the parent request
     for _ in 0..PROCESSING_FAILURES {
-        let id = dbg!(rig.expect_parent_request());
+        let id = dbg!(rig.expect_parent_request(response_type));
         assert!(!bl.failed_chains.contains(&block_root));
         // send the right parent but fail processing
         bl.parent_lookup_response(id, peer_id, Some(parent.clone()), D, &mut cx);
@@ -602,6 +652,8 @@ fn test_parent_lookup_too_many_processing_attempts_must_blacklist() {
 
 #[test]
 fn test_parent_lookup_too_deep() {
+    let fork_name = ForkName::Base;
+    let response_type = ResponseType::Block;
     let (mut bl, mut cx, mut rig) = TestRig::test_setup(false);
     let mut blocks =
         Vec::<Arc<SignedBeaconBlock<E>>>::with_capacity(parent_lookup::PARENT_DEPTH_TOLERANCE);
@@ -610,7 +662,7 @@ fn test_parent_lookup_too_deep() {
             .last()
             .map(|b| b.canonical_root())
             .unwrap_or_else(Hash256::random);
-        let block = Arc::new(rig.block_with_parent(parent));
+        let block = Arc::new(rig.block_with_parent(parent, fork_name));
         blocks.push(block);
     }
 
@@ -629,13 +681,13 @@ fn test_parent_lookup_too_deep() {
     );
 
     for block in blocks.into_iter().rev() {
-        let id = rig.expect_parent_request();
+        let id = rig.expect_parent_request(response_type);
         // the block
         bl.parent_lookup_response(id, peer_id, Some(block.clone()), D, &mut cx);
         // the stream termination
         bl.parent_lookup_response(id, peer_id, None, D, &mut cx);
         // the processing request
-        rig.expect_block_process();
+        rig.expect_block_process(response_type);
         // the processing result
         bl.parent_block_processed(
             chain_hash,
@@ -651,9 +703,10 @@ fn test_parent_lookup_too_deep() {
 
 #[test]
 fn test_parent_lookup_disconnection() {
+    let fork_name = ForkName::Base;
     let (mut bl, mut cx, mut rig) = TestRig::test_setup(false);
     let peer_id = PeerId::random();
-    let trigger_block = rig.rand_block();
+    let trigger_block = rig.rand_block(fork_name);
     let trigger_block_root = trigger_block.canonical_root();
     let trigger_parent_root = trigger_block.parent_root();
     let trigger_slot = trigger_block.slot();
@@ -671,9 +724,11 @@ fn test_parent_lookup_disconnection() {
 
 #[test]
 fn test_single_block_lookup_ignored_response() {
+    let fork_name = ForkName::Base;
+    let response_type = ResponseType::Block;
     let (mut bl, mut cx, mut rig) = TestRig::test_setup(false);
 
-    let block = rig.rand_block();
+    let block = rig.rand_block(fork_name);
     let peer_id = PeerId::random();
 
     // Trigger the request
@@ -683,13 +738,13 @@ fn test_single_block_lookup_ignored_response() {
         PeerShouldHave::BlockAndBlobs,
         &mut cx,
     );
-    let id = rig.expect_block_request();
+    let id = rig.expect_block_request(response_type);
 
     // The peer provides the correct block, should not be penalized. Now the block should be sent
     // for processing.
     bl.single_block_lookup_response(id, peer_id, Some(block.into()), D, &mut cx);
     rig.expect_empty_network();
-    rig.expect_block_process();
+    rig.expect_block_process(response_type);
 
     // The request should still be active.
     assert_eq!(bl.single_block_lookups.len(), 1);
@@ -710,10 +765,12 @@ fn test_single_block_lookup_ignored_response() {
 
 #[test]
 fn test_parent_lookup_ignored_response() {
+    let fork_name = ForkName::Base;
+    let response_type = ResponseType::Block;
     let (mut bl, mut cx, mut rig) = TestRig::test_setup(false);
 
-    let parent = rig.rand_block();
-    let block = rig.block_with_parent(parent.canonical_root());
+    let parent = rig.rand_block(fork_name);
+    let block = rig.block_with_parent(parent.canonical_root(), fork_name);
     let chain_hash = block.canonical_root();
     let peer_id = PeerId::random();
     let block_root = block.canonical_root();
@@ -722,11 +779,11 @@ fn test_parent_lookup_ignored_response() {
 
     // Trigger the request
     bl.search_parent(slot, block_root, parent_root, peer_id, &mut cx);
-    let id = rig.expect_parent_request();
+    let id = rig.expect_parent_request(response_type);
 
     // Peer sends the right block, it should be sent for processing. Peer should not be penalized.
     bl.parent_lookup_response(id, peer_id, Some(parent.into()), D, &mut cx);
-    rig.expect_block_process();
+    rig.expect_block_process(response_type);
     rig.expect_empty_network();
 
     // Return an Ignored result. The request should be dropped
@@ -743,6 +800,8 @@ fn test_parent_lookup_ignored_response() {
 /// This is a regression test.
 #[test]
 fn test_same_chain_race_condition() {
+    let fork_name = ForkName::Base;
+    let response_type = ResponseType::Block;
     let (mut bl, mut cx, mut rig) = TestRig::test_setup(true);
 
     #[track_caller]
@@ -771,7 +830,7 @@ fn test_same_chain_race_condition() {
             .last()
             .map(|b| b.canonical_root())
             .unwrap_or_else(Hash256::random);
-        let block = Arc::new(rig.block_with_parent(parent));
+        let block = Arc::new(rig.block_with_parent(parent, fork_name));
         blocks.push(block);
     }
 
@@ -790,13 +849,13 @@ fn test_same_chain_race_condition() {
     );
 
     for (i, block) in blocks.into_iter().rev().enumerate() {
-        let id = rig.expect_parent_request();
+        let id = rig.expect_parent_request(response_type);
         // the block
         bl.parent_lookup_response(id, peer_id, Some(block.clone()), D, &mut cx);
         // the stream termination
         bl.parent_lookup_response(id, peer_id, None, D, &mut cx);
         // the processing request
-        rig.expect_block_process();
+        rig.expect_block_process(response_type);
         // the processing result
         if i + 2 == depth {
             // one block was removed
