@@ -15,12 +15,13 @@ use crate::BeaconChainError;
 use eth2::types::BlockContentsTuple;
 use kzg::Kzg;
 use slog::{debug, warn};
+use ssz_types::FixedVector;
 use std::borrow::Cow;
 use types::blob_sidecar::{BlobIdentifier, FixedBlobSidecarList};
 use types::{
-    BeaconBlockRef, BeaconState, BeaconStateError, BlobSidecar, BlobSidecarList, ChainSpec,
-    CloneConfig, Epoch, EthSpec, FullPayload, Hash256, KzgCommitment, RelativeEpoch,
-    SignedBeaconBlock, SignedBeaconBlockHeader, SignedBlobSidecar, Slot,
+    BeaconBlockRef, BeaconState, BeaconStateError, BlobSidecar, ChainSpec, CloneConfig, Epoch,
+    EthSpec, FullPayload, Hash256, KzgCommitment, RelativeEpoch, SignedBeaconBlock,
+    SignedBeaconBlockHeader, SignedBlobSidecar, Slot,
 };
 
 #[derive(Debug)]
@@ -683,13 +684,15 @@ impl<E: EthSpec> From<SignedBeaconBlock<E>> for BlockWrapper<E> {
 impl<E: EthSpec> From<BlockContentsTuple<E, FullPayload<E>>> for BlockWrapper<E> {
     fn from(value: BlockContentsTuple<E, FullPayload<E>>) -> Self {
         match value.1 {
-            Some(variable_list) => Self::BlockAndBlobs(
-                Arc::new(value.0),
-                Vec::from(variable_list)
-                    .into_iter()
-                    .map(|signed_blob| signed_blob.message)
-                    .collect::<Vec<_>>(),
-            ),
+            Some(variable_list) => {
+                let mut blobs = Vec::with_capacity(E::max_blobs_per_block());
+                for blob in variable_list {
+                    if blob.message.index < E::max_blobs_per_block() as u64 {
+                        blobs.insert(blob.message.index as usize, Some(blob.message));
+                    }
+                }
+                Self::BlockAndBlobs(Arc::new(value.0), FixedVector::from(blobs))
+            }
             None => Self::Block(Arc::new(value.0)),
         }
     }
