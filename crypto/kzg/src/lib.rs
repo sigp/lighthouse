@@ -20,6 +20,7 @@ pub enum Error {
 }
 
 /// A wrapper over a kzg library that holds the trusted setup parameters.
+#[derive(Debug)]
 pub struct Kzg {
     trusted_setup: KzgSettings,
 }

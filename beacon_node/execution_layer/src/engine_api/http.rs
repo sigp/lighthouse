@@ -40,9 +40,6 @@ pub const ENGINE_GET_PAYLOAD_V2: &str = "engine_getPayloadV2";
 pub const ENGINE_GET_PAYLOAD_V3: &str = "engine_getPayloadV3";
 pub const ENGINE_GET_PAYLOAD_TIMEOUT: Duration = Duration::from_secs(2);
 
-pub const ENGINE_GET_BLOBS_BUNDLE_V1: &str = "engine_getBlobsBundleV1";
-pub const ENGINE_GET_BLOBS_BUNDLE_TIMEOUT: Duration = Duration::from_secs(2);
-
 pub const ENGINE_FORKCHOICE_UPDATED_V1: &str = "engine_forkchoiceUpdatedV1";
 pub const ENGINE_FORKCHOICE_UPDATED_V2: &str = "engine_forkchoiceUpdatedV2";
 pub const ENGINE_FORKCHOICE_UPDATED_TIMEOUT: Duration = Duration::from_secs(8);
@@ -925,23 +922,6 @@ impl HttpJsonRpc {
                 fork_name
             ))),
         }
-    }
-
-    pub async fn get_blobs_bundle_v1<T: EthSpec>(
-        &self,
-        payload_id: PayloadId,
-    ) -> Result<JsonBlobsBundle<T>, Error> {
-        let params = json!([JsonPayloadIdRequest::from(payload_id)]);
-
-        let response: JsonBlobsBundle<T> = self
-            .rpc_request(
-                ENGINE_GET_BLOBS_BUNDLE_V1,
-                params,
-                ENGINE_GET_BLOBS_BUNDLE_TIMEOUT,
-            )
-            .await?;
-
-        Ok(response)
     }
 
     pub async fn forkchoice_updated_v1(

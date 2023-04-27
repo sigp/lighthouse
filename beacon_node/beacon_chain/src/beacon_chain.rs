@@ -4722,7 +4722,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             bls_to_execution_changes,
         } = partial_beacon_block;
 
-        let (inner_block, blobs_opt) = match &state {
+        let (inner_block, blobs_opt, proofs_opt) = match &state {
             BeaconState::Base(_) => (
                 BeaconBlock::Base(BeaconBlockBase {
                     slot,
@@ -4741,6 +4741,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         _phantom: PhantomData,
                     },
                 }),
+                None,
                 None,
             ),
             BeaconState::Altair(_) => (
@@ -4764,9 +4765,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     },
                 }),
                 None,
+                None,
             ),
             BeaconState::Merge(_) => {
-                let (payload, _, _) = block_contents
+                let (payload, _, _, _) = block_contents
                     .ok_or(BlockProductionError::MissingExecutionPayload)?
                     .deconstruct();
                 (
@@ -4792,10 +4794,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         },
                     }),
                     None,
+                    None,
                 )
             }
             BeaconState::Capella(_) => {
-                let (payload, _, _) = block_contents
+                let (payload, _, _, _) = block_contents
                     .ok_or(BlockProductionError::MissingExecutionPayload)?
                     .deconstruct();
                 (
@@ -4822,10 +4825,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         },
                     }),
                     None,
+                    None,
                 )
             }
             BeaconState::Deneb(_) => {
-                let (payload, kzg_commitments, blobs) = block_contents
+                let (payload, kzg_commitments, blobs, proofs) = block_contents
                     .ok_or(BlockProductionError::MissingExecutionPayload)?
                     .deconstruct();
                 (
@@ -4854,6 +4858,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         },
                     }),
                     blobs,
+                    proofs,
                 )
             }
         };
@@ -4926,8 +4931,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 )));
             }
 
-            let kzg_proofs =
-                Self::compute_blob_kzg_proofs(kzg, &blobs, expected_kzg_commitments, slot)?;
+            let kzg_proofs = if let Some(proofs) = proofs_opt {
+                Vec::from(proofs)
+            } else {
+                Self::compute_blob_kzg_proofs(kzg, &blobs, expected_kzg_commitments, slot)?
+            };
 
             kzg_utils::validate_blobs::<T::EthSpec>(
                 kzg,

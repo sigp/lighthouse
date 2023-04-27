@@ -8,6 +8,7 @@ use bytes::Bytes;
 use environment::null_logger;
 use execution_block_generator::PoWBlock;
 use handle_rpc::handle_rpc;
+use kzg::Kzg;
 use parking_lot::{Mutex, RwLock, RwLockWriteGuard};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -96,10 +97,15 @@ impl<T: EthSpec> MockServer<T> {
             ExecutionBlockHash::zero(),
             None, // FIXME(capella): should this be the default?
             None, // FIXME(deneb): should this be the default?
+            None, // FIXME(deneb): should this be the default?
         )
     }
 
-    pub fn new_with_config(handle: &runtime::Handle, config: MockExecutionConfig) -> Self {
+    pub fn new_with_config(
+        handle: &runtime::Handle,
+        config: MockExecutionConfig,
+        kzg: Option<Kzg>,
+    ) -> Self {
         let MockExecutionConfig {
             jwt_key,
             terminal_difficulty,
@@ -117,6 +123,7 @@ impl<T: EthSpec> MockServer<T> {
             terminal_block_hash,
             shanghai_time,
             deneb_time,
+            kzg,
         );
 
         let ctx: Arc<Context<T>> = Arc::new(Context {
@@ -168,6 +175,7 @@ impl<T: EthSpec> MockServer<T> {
         *self.ctx.engine_capabilities.write() = engine_capabilities;
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         handle: &runtime::Handle,
         jwt_key: JwtKey,
@@ -176,6 +184,7 @@ impl<T: EthSpec> MockServer<T> {
         terminal_block_hash: ExecutionBlockHash,
         shanghai_time: Option<u64>,
         deneb_time: Option<u64>,
+        kzg: Option<Kzg>,
     ) -> Self {
         Self::new_with_config(
             handle,
@@ -188,6 +197,7 @@ impl<T: EthSpec> MockServer<T> {
                 shanghai_time,
                 deneb_time,
             },
+            kzg,
         )
     }
 

@@ -236,7 +236,7 @@ impl<E: EthSpec> LocalExecutionNode<E> {
             panic!("Failed to write jwt file {}", e);
         }
         Self {
-            server: MockServer::new_with_config(&context.executor.handle().unwrap(), config),
+            server: MockServer::new_with_config(&context.executor.handle().unwrap(), config, None),
             datadir,
         }
     }

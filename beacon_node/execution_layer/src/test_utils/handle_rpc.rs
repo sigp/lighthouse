@@ -224,6 +224,8 @@ pub async fn handle_rpc<T: EthSpec>(
                     )
                 })?;
 
+            let maybe_blobs = ctx.execution_block_generator.write().get_blobs_bundle(&id);
+
             // validate method called correctly according to shanghai fork time
             if ctx
                 .execution_block_generator
@@ -291,6 +293,12 @@ pub async fn handle_rpc<T: EthSpec>(
                         serde_json::to_value(JsonGetPayloadResponseV3 {
                             execution_payload,
                             block_value: DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI.into(),
+                            blobs_bundle: maybe_blobs
+                                .ok_or((
+                                    "No blobs returned despite V3 Payload".to_string(),
+                                    GENERIC_ERROR_CODE,
+                                ))?
+                                .into(),
                         })
                         .unwrap()
                     }
@@ -324,7 +332,7 @@ pub async fn handle_rpc<T: EthSpec>(
                                             .map(|opt| opt.map(JsonPayloadAttributes::V1))
                                             .transpose()
                                     }
-                                    ForkName::Capella => {
+                                    ForkName::Capella | ForkName::Deneb => {
                                         get_param::<Option<JsonPayloadAttributesV2>>(params, 1)
                                             .map(|opt| opt.map(JsonPayloadAttributes::V2))
                                             .transpose()
