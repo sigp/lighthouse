@@ -642,6 +642,30 @@ impl ValidatorClientHttpClient {
         let url = self.make_gas_limit_url(pubkey)?;
         self.delete_with_raw_response(url, &()).await
     }
+
+    /// `POST /eth/v1/validator/{pubkey}/voluntary_exit`
+    pub async fn post_validator_voluntary_exit(
+        &self,
+        pubkey: &PublicKeyBytes,
+        epoch: Option<Epoch>,
+    ) -> Result<SignedVoluntaryExit, Error> {
+        let mut path = self.server.full.clone();
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("eth")
+            .push("v1")
+            .push("validator")
+            .push(&pubkey.to_string())
+            .push("voluntary_exit");
+
+        if let Some(epoch) = epoch {
+            path.query_pairs_mut()
+                .append_pair("epoch", &epoch.to_string());
+        }
+
+        self.post(path, &()).await
+    }
 }
 
 /// Returns `Ok(response)` if the response is a `200 OK` response or a

@@ -1,5 +1,5 @@
 use beacon_chain::chain_config::{
-    ReOrgThreshold, DEFAULT_PREPARE_PAYLOAD_LOOKAHEAD_FACTOR,
+    DisallowedReOrgOffsets, ReOrgThreshold, DEFAULT_PREPARE_PAYLOAD_LOOKAHEAD_FACTOR,
     DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION, DEFAULT_RE_ORG_THRESHOLD,
 };
 use clap::ArgMatches;
@@ -329,6 +329,9 @@ pub fn get_config<E: EthSpec>(
             let payload_builder =
                 parse_only_one_value(endpoint, SensitiveUrl::parse, "--builder", log)?;
             el_config.builder_url = Some(payload_builder);
+
+            el_config.builder_user_agent =
+                clap_utils::parse_optional(cli_args, "builder-user-agent")?;
         }
 
         // Set config values from parse values.
@@ -686,6 +689,23 @@ pub fn get_config<E: EthSpec>(
         client_config.chain.re_org_max_epochs_since_finalization =
             clap_utils::parse_optional(cli_args, "proposer-reorg-epochs-since-finalization")?
                 .unwrap_or(DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION);
+        client_config.chain.re_org_cutoff_millis =
+            clap_utils::parse_optional(cli_args, "proposer-reorg-cutoff")?;
+
+        if let Some(disallowed_offsets_str) =
+            clap_utils::parse_optional::<String>(cli_args, "proposer-reorg-disallowed-offsets")?
+        {
+            let disallowed_offsets = disallowed_offsets_str
+                .split(',')
+                .map(|s| {
+                    s.parse()
+                        .map_err(|e| format!("invalid disallowed-offsets: {e:?}"))
+                })
+                .collect::<Result<Vec<u64>, _>>()?;
+            client_config.chain.re_org_disallowed_offsets =
+                DisallowedReOrgOffsets::new::<E>(disallowed_offsets)
+                    .map_err(|e| format!("invalid disallowed-offsets: {e:?}"))?;
+        }
     }
 
     // Note: This overrides any previous flags that enable this option.
@@ -758,6 +778,10 @@ pub fn get_config<E: EthSpec>(
     if cli_args.is_present("always-prefer-builder-payload") {
         client_config.always_prefer_builder_payload = true;
     }
+
+    // Backfill sync rate-limiting
+    client_config.chain.enable_backfill_rate_limiting =
+        !cli_args.is_present("disable-backfill-rate-limiting");
 
     Ok(client_config)
 }
@@ -955,10 +979,13 @@ pub fn set_network_config(
 
     config.set_listening_addr(parse_listening_addresses(cli_args, log)?);
 
+    // A custom target-peers command will overwrite the --proposer-only default.
     if let Some(target_peers_str) = cli_args.value_of("target-peers") {
         config.target_peers = target_peers_str
             .parse::<usize>()
             .map_err(|_| format!("Invalid number of target peers: {}", target_peers_str))?;
+    } else {
+        config.target_peers = 80; // default value
     }
 
     if let Some(value) = cli_args.value_of("network-load") {
@@ -1002,6 +1029,10 @@ pub fn set_network_config(
                     .map_err(|_| format!("Invalid Multiaddr: {}", multiaddr))
             })
             .collect::<Result<Vec<Multiaddr>, _>>()?;
+    }
+
+    if cli_args.is_present("disable-peer-scoring") {
+        config.disable_peer_scoring = true;
     }
 
     if let Some(trusted_peers_str) = cli_args.value_of("trusted-peers") {
@@ -1188,6 +1219,20 @@ pub fn set_network_config(
     config.outbound_rate_limiter_config = clap_utils::parse_optional(cli_args, "self-limiter")?;
     if cli_args.is_present("self-limiter") && config.outbound_rate_limiter_config.is_none() {
         config.outbound_rate_limiter_config = Some(Default::default());
+    }
+
+    // Proposer-only mode overrides a number of previous configuration parameters.
+    // Specifically, we avoid subscribing to long-lived subnets and wish to maintain a minimal set
+    // of peers.
+    if cli_args.is_present("proposer-only") {
+        config.subscribe_all_subnets = false;
+
+        if cli_args.value_of("target-peers").is_none() {
+            // If a custom value is not set, change the default to 15
+            config.target_peers = 15;
+        }
+        config.proposer_only = true;
+        warn!(log, "Proposer-only mode enabled"; "info"=> "Do not connect a validator client to this node unless via the --proposer-nodes flag");
     }
 
     Ok(())

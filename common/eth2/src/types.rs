@@ -202,6 +202,14 @@ pub struct ExecutionOptimisticResponse<T: Serialize + serde::de::DeserializeOwne
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 #[serde(bound = "T: Serialize + serde::de::DeserializeOwned")]
+pub struct ExecutionOptimisticFinalizedResponse<T: Serialize + serde::de::DeserializeOwned> {
+    pub execution_optimistic: Option<bool>,
+    pub finalized: Option<bool>,
+    pub data: T,
+}
+
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[serde(bound = "T: Serialize + serde::de::DeserializeOwned")]
 pub struct GenericResponse<T: Serialize + serde::de::DeserializeOwned> {
     pub data: T,
 }
@@ -219,6 +227,18 @@ impl<T: Serialize + serde::de::DeserializeOwned> GenericResponse<T> {
     ) -> ExecutionOptimisticResponse<T> {
         ExecutionOptimisticResponse {
             execution_optimistic: Some(execution_optimistic),
+            data: self.data,
+        }
+    }
+
+    pub fn add_execution_optimistic_finalized(
+        self,
+        execution_optimistic: bool,
+        finalized: bool,
+    ) -> ExecutionOptimisticFinalizedResponse<T> {
+        ExecutionOptimisticFinalizedResponse {
+            execution_optimistic: Some(execution_optimistic),
+            finalized: Some(finalized),
             data: self.data,
         }
     }

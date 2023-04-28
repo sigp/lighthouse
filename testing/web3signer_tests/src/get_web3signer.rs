@@ -15,17 +15,6 @@ use zip::ZipArchive;
 /// Use `Some("21.8.1")` to download a specific version.
 const FIXED_VERSION_STRING: Option<&str> = None;
 
-#[tokio::main]
-async fn main() {
-    let out_dir = env::var("OUT_DIR").unwrap();
-
-    // Read a Github API token from the environment. This is intended to prevent rate-limits on CI.
-    // We use a name that is unlikely to accidentally collide with anything the user has configured.
-    let github_token = env::var("LIGHTHOUSE_GITHUB_TOKEN");
-
-    download_binary(out_dir.into(), github_token.as_deref().unwrap_or("")).await;
-}
-
 pub async fn download_binary(dest_dir: PathBuf, github_token: &str) {
     let version_file = dest_dir.join("version");
 

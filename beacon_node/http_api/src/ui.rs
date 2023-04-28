@@ -165,6 +165,7 @@ pub struct ValidatorMetrics {
     attestation_target_hits: u64,
     attestation_target_misses: u64,
     attestation_target_hit_percentage: f64,
+    latest_attestation_inclusion_distance: u64,
 }
 
 #[derive(PartialEq, Serialize, Deserialize)]
@@ -210,6 +211,8 @@ pub fn post_validator_monitor_metrics<T: BeaconChainTypes>(
                 let attestation_head_misses = val_metrics.attestation_head_misses;
                 let attestation_target_hits = val_metrics.attestation_target_hits;
                 let attestation_target_misses = val_metrics.attestation_target_misses;
+                let latest_attestation_inclusion_distance =
+                    val_metrics.latest_attestation_inclusion_distance;
                 drop(val_metrics);
 
                 let attestations = attestation_hits + attestation_misses;
@@ -242,6 +245,7 @@ pub fn post_validator_monitor_metrics<T: BeaconChainTypes>(
                     attestation_target_hits,
                     attestation_target_misses,
                     attestation_target_hit_percentage,
+                    latest_attestation_inclusion_distance,
                 };
 
                 validators.insert(id.clone(), metrics);

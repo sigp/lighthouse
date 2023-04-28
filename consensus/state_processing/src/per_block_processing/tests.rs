@@ -978,8 +978,14 @@ async fn fork_spanning_exit() {
     let head = harness.chain.canonical_head.cached_head();
     let head_state = &head.snapshot.beacon_state;
     assert!(head_state.current_epoch() < spec.altair_fork_epoch.unwrap());
-    verify_exit(head_state, &signed_exit, VerifySignatures::True, &spec)
-        .expect("phase0 exit verifies against phase0 state");
+    verify_exit(
+        head_state,
+        None,
+        &signed_exit,
+        VerifySignatures::True,
+        &spec,
+    )
+    .expect("phase0 exit verifies against phase0 state");
 
     /*
      * Ensure the exit verifies after Altair.
@@ -992,8 +998,14 @@ async fn fork_spanning_exit() {
     let head_state = &head.snapshot.beacon_state;
     assert!(head_state.current_epoch() >= spec.altair_fork_epoch.unwrap());
     assert!(head_state.current_epoch() < spec.bellatrix_fork_epoch.unwrap());
-    verify_exit(head_state, &signed_exit, VerifySignatures::True, &spec)
-        .expect("phase0 exit verifies against altair state");
+    verify_exit(
+        head_state,
+        None,
+        &signed_exit,
+        VerifySignatures::True,
+        &spec,
+    )
+    .expect("phase0 exit verifies against altair state");
 
     /*
      * Ensure the exit no longer verifies after Bellatrix.
@@ -1009,6 +1021,12 @@ async fn fork_spanning_exit() {
     let head = harness.chain.canonical_head.cached_head();
     let head_state = &head.snapshot.beacon_state;
     assert!(head_state.current_epoch() >= spec.bellatrix_fork_epoch.unwrap());
-    verify_exit(head_state, &signed_exit, VerifySignatures::True, &spec)
-        .expect_err("phase0 exit does not verify against bellatrix state");
+    verify_exit(
+        head_state,
+        None,
+        &signed_exit,
+        VerifySignatures::True,
+        &spec,
+    )
+    .expect_err("phase0 exit does not verify against bellatrix state");
 }
