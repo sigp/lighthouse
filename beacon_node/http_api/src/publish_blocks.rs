@@ -122,15 +122,9 @@ pub async fn publish_block<T: BeaconChainTypes>(
         Err(BlockError::SlashablePublish) => Err(warp_utils::reject::custom_server_error(
             "proposal for this slot and proposer has already been seen".to_string(),
         )),
-        Err(BlockError::BlockIsAlreadyKnown) => {
-            info!(
-                log,
-                "Block from HTTP API already known";
-                "block" => ?block.canonical_root(),
-                "slot" => block.slot(),
-            );
-            Ok(())
-        }
+        Err(BlockError::BlockIsAlreadyKnown) => Err(warp_utils::reject::custom_server_error(
+            "block already known".to_string(),
+        )),
         Err(BlockError::RepeatProposal { proposer, slot }) => {
             warn!(
                 log,
@@ -141,7 +135,9 @@ pub async fn publish_block<T: BeaconChainTypes>(
                 "slot" => slot,
                 "proposer" => proposer,
             );
-            Ok(())
+            Err(warp_utils::reject::custom_server_error(
+                "repeat proposal".to_string(),
+            ))
         }
         Err(e) => {
             let msg = format!("{:?}", e);
@@ -150,7 +146,9 @@ pub async fn publish_block<T: BeaconChainTypes>(
                 "Invalid block provided to HTTP API";
                 "reason" => &msg
             );
-            Err(warp_utils::reject::broadcast_without_import(msg))
+            Err(warp_utils::reject::custom_server_error(
+                "invalid block".to_string(),
+            ))
         }
     }
 }
