@@ -122,9 +122,7 @@ pub async fn publish_block<T: BeaconChainTypes>(
         Err(BlockError::SlashablePublish) => Err(warp_utils::reject::custom_server_error(
             "proposal for this slot and proposer has already been seen".to_string(),
         )),
-        Err(BlockError::BlockIsAlreadyKnown) => Err(warp_utils::reject::custom_server_error(
-            "block already known".to_string(),
-        )),
+        Err(BlockError::BlockIsAlreadyKnown) => Ok(()),
         Err(BlockError::RepeatProposal { proposer, slot }) => {
             warn!(
                 log,
@@ -135,9 +133,7 @@ pub async fn publish_block<T: BeaconChainTypes>(
                 "slot" => slot,
                 "proposer" => proposer,
             );
-            Err(warp_utils::reject::custom_server_error(
-                "repeat proposal".to_string(),
-            ))
+            Ok(())
         }
         Err(e) => {
             let msg = format!("{:?}", e);
