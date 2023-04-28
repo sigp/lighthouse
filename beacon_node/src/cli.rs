@@ -512,10 +512,10 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true)
         )
         .arg(
-            Arg::with_name("state-cache-size")
-                .long("state-cache-size")
+            Arg::with_name("historic-state-cache-size")
+                .long("historic-state-cache-size")
                 .value_name("SIZE")
-                .help("Specifies how many states the database should cache in memory [default: 1]")
+                .help("Specifies how many states from the freezer database should cache in memory [default: 1]")
                 .takes_value(true)
         )
         /*

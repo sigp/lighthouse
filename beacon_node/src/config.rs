@@ -380,10 +380,10 @@ pub fn get_config<E: EthSpec>(
             .map_err(|_| "block-cache-size is not a valid integer".to_string())?;
     }
 
-    if let Some(state_cache_size) = cli_args.value_of("state-cache-size") {
-        client_config.store.state_cache_size = state_cache_size
+    if let Some(historic_state_cache_size) = cli_args.value_of("historic-state-cache-size") {
+        client_config.store.historic_state_cache_size = historic_state_cache_size
             .parse()
-            .map_err(|_| "state-cache-size is not a valid integer".to_string())?;
+            .map_err(|_| "historic-state-cache-size is not a valid integer".to_string())?;
     }
 
     client_config.store.compact_on_init = cli_args.is_present("compact-db");

@@ -1634,11 +1634,11 @@ fn block_cache_size_flag() {
         .with_config(|config| assert_eq!(config.store.block_cache_size, 4_usize));
 }
 #[test]
-fn state_cache_size_flag() {
+fn historic_state_cache_size_flag() {
     CommandLineTest::new()
-        .flag("state-cache-size", Some("4"))
+        .flag("historic-state-cache-size", Some("4"))
         .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.store.state_cache_size, 4_usize));
+        .with_config(|config| assert_eq!(config.store.historic_state_cache_size, 4_usize));
 }
 #[test]
 fn auto_compact_db_flag() {
