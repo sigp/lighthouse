@@ -500,9 +500,9 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
 
         match parent_lookup.verify_block(block, &mut self.failed_chains) {
             Ok(Some((block_root, block))) => {
-                let process_or_search = parent_lookup.add_block(block_root, block).unwrap(); //TODO(sean) fix
+                let process_or_search = parent_lookup.add_block(block_root, block); //TODO(sean) fix
                 match process_or_search {
-                    LookupDownloadStatus::Process(wrapper) => {
+                    Ok(LookupDownloadStatus::Process(wrapper)) => {
                         let chain_hash = parent_lookup.chain_hash();
                         if self
                             .send_block_for_processing(
@@ -517,9 +517,12 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                             self.parent_lookups.push(parent_lookup)
                         }
                     }
-                    LookupDownloadStatus::SearchBlock(block_root) => {
+                    Ok(LookupDownloadStatus::SearchBlock(block_root)) => {
                         self.search_block(block_root, peer_id, PeerShouldHave::BlockAndBlobs, cx);
                         self.parent_lookups.push(parent_lookup)
+                    }
+                    Err(e) => {
+
                     }
                 }
             }

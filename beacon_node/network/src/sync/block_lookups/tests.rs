@@ -927,8 +927,8 @@ macro_rules! common_tests {
     };
 }
 use crate::sync::manager::ResponseType::{Blob, Block};
-// common_tests!(base, Base, Block);
-// common_tests!(capella, Capella, Block);
-// common_tests!(deneb, Deneb, Block);
+common_tests!(base, Base, Block);
+common_tests!(capella, Capella, Block);
+common_tests!(deneb, Deneb, Block);
 
-common_tests!(deneb, Deneb, Blob);
+// common_tests!(deneb, Deneb, Blob);
