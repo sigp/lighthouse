@@ -147,19 +147,20 @@ impl<T: EthSpec, S: SlotClock> DataAvailabilityChecker<T, S> {
             self.availability_cache
                 .read()
                 .get(block_root)
-                .map_or(vec![], |cache| {
-                    if let Some(block) = cache.executed_block.as_ref() {
+                .and_then(|cache| {
+                    cache.executed_block.as_ref().map(|block| {
                         block.get_filtered_blob_ids(|i, _| cache.verified_blobs.get(i).is_none())
-                    } else {
-                        let mut blob_ids = Vec::with_capacity(T::max_blobs_per_block());
-                        for i in 0..T::max_blobs_per_block() {
-                            blob_ids.push(BlobIdentifier {
-                                block_root: *block_root,
-                                index: i as u64,
-                            });
-                        }
-                        blob_ids
+                    })
+                })
+                .unwrap_or_else(|| {
+                    let mut blob_ids = Vec::with_capacity(T::max_blobs_per_block());
+                    for i in 0..T::max_blobs_per_block() {
+                        blob_ids.push(BlobIdentifier {
+                            block_root: *block_root,
+                            index: i as u64,
+                        });
                     }
+                    blob_ids
                 })
         } else {
             vec![]

@@ -521,9 +521,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                         self.search_block(block_root, peer_id, PeerShouldHave::BlockAndBlobs, cx);
                         self.parent_lookups.push(parent_lookup)
                     }
-                    Err(e) => {
-
-                    }
+                    Err(e) => {}
                 }
             }
             Ok(None) => {

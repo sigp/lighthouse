@@ -242,7 +242,7 @@ impl<const MAX_ATTEMPTS: u8, T: BeaconChainTypes> SingleBlockLookup<MAX_ATTEMPTS
         &mut self,
         blob: Option<Arc<BlobSidecar<T::EthSpec>>>,
     ) -> Result<Option<RootBlobsTuple<T::EthSpec>>, LookupVerifyError> {
-        match self.block_request_state.state {
+        match self.blob_request_state.state {
             State::AwaitingDownload => {
                 self.blob_request_state.register_failure_downloading();
                 Err(LookupVerifyError::ExtraBlobsReturned)
@@ -277,6 +277,7 @@ impl<const MAX_ATTEMPTS: u8, T: BeaconChainTypes> SingleBlockLookup<MAX_ATTEMPTS
             },
             State::Processing { peer_id: _ } => match blob {
                 Some(_) => {
+                    dbg!("here");
                     // We sent the blob for processing and received an extra blob.
                     self.blob_request_state.register_failure_downloading();
                     Err(LookupVerifyError::ExtraBlobsReturned)
@@ -350,8 +351,9 @@ impl<const MAX_ATTEMPTS: u8, T: BeaconChainTypes> SingleBlockLookup<MAX_ATTEMPTS
             .choose(&mut rand::thread_rng())
         {
             let request = BlobsByRootRequest {
-                blob_ids: VariableList::from(missing_ids),
+                blob_ids: VariableList::from(missing_ids.clone()),
             };
+            self.requested_ids = missing_ids;
             self.blob_request_state.state = State::Downloading { peer_id };
             self.blob_request_state.used_peers.insert(peer_id);
             Ok(Some((peer_id, request)))
