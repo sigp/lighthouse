@@ -27,7 +27,6 @@ pub const PASSWORD_PROMPT: &str = "Enter the keystore password";
 pub const DEFAULT_BEACON_NODE: &str = "http://localhost:5052/";
 pub const CONFIRMATION_PHRASE: &str = "Exit my validator";
 pub const WEBSITE_URL: &str = "https://lighthouse-book.sigmaprime.io/voluntary-exit.html";
-pub const PROMPT: &str = "WARNING: WITHDRAWING STAKED ETH IS NOT CURRENTLY POSSIBLE";
 
 pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
     App::new("exit")
@@ -161,7 +160,6 @@ async fn publish_voluntary_exit<E: EthSpec>(
     );
     if !no_confirmation {
         eprintln!("WARNING: THIS IS AN IRREVERSIBLE OPERATION\n");
-        eprintln!("{}\n", PROMPT);
         eprintln!(
             "PLEASE VISIT {} TO MAKE SURE YOU UNDERSTAND THE IMPLICATIONS OF A VOLUNTARY EXIT.",
             WEBSITE_URL
