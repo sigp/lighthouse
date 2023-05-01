@@ -21,8 +21,8 @@ types = { path = "../../consensus/types" }
 slot_clock = { path = "../../common/slot_clock" }
 slog = { version = "2.5.2", features = ["max_level_trace"] }
 hex = "0.4.2"
-eth2_ssz = "0.4.1"
-eth2_ssz_types = "0.2.2"
+ethereum_ssz = "0.5.0"
+ssz_types = "0.5.0"
 futures = "0.3.7"
 error-chain = "0.12.4"
 tokio = { version = "1.14.0", features = ["full"] }
