@@ -1,5 +1,6 @@
-#![cfg(not(debug_assertions))]
+// #![cfg(not(debug_assertions))]
 
+use beacon_chain::test_utils::HARNESS_GENESIS_TIME;
 use beacon_chain::{
     attestation_verification::Error as AttnError,
     test_utils::{
@@ -7,6 +8,7 @@ use beacon_chain::{
     },
     BeaconChain, BeaconChainError, BeaconChainTypes, WhenSlotSkipped,
 };
+use genesis::{interop_genesis_state, DEFAULT_ETH1_BLOCK_HASH};
 use int_to_bytes::int_to_bytes32;
 use lazy_static::lazy_static;
 use state_processing::{
@@ -14,9 +16,9 @@ use state_processing::{
 };
 use tree_hash::TreeHash;
 use types::{
-    test_utils::generate_deterministic_keypair, AggregateSignature, Attestation, BeaconStateError,
-    BitList, Epoch, EthSpec, Hash256, Keypair, MainnetEthSpec, SecretKey, SelectionProof,
-    SignedAggregateAndProof, Slot, SubnetId, Unsigned,
+    test_utils::generate_deterministic_keypair, Address, AggregateSignature, Attestation,
+    BeaconStateError, BitList, Epoch, EthSpec, Hash256, Keypair, MainnetEthSpec, SecretKey,
+    SelectionProof, SignedAggregateAndProof, Slot, SubnetId, Unsigned,
 };
 
 pub type E = MainnetEthSpec;
@@ -47,6 +49,47 @@ fn get_harness(validator_count: usize) -> BeaconChainHarness<EphemeralHarnessTyp
 
     harness.advance_slot();
 
+    harness
+}
+
+/// Returns a beacon chain harness with Capella fork enabled at epoch 1, and
+/// all genesis validators start with BLS withdrawal credentials.
+fn get_harness_capella_spec(validator_count: usize) -> BeaconChainHarness<EphemeralHarnessType<E>> {
+    let mut spec = E::default_spec();
+    spec.altair_fork_epoch = Some(Epoch::new(0));
+    spec.bellatrix_fork_epoch = Some(Epoch::new(0));
+    spec.capella_fork_epoch = Some(Epoch::new(1));
+
+    let validator_keypairs = KEYPAIRS[0..validator_count].to_vec();
+    let genesis_state = interop_genesis_state(
+        &validator_keypairs,
+        HARNESS_GENESIS_TIME,
+        Hash256::from_slice(DEFAULT_ETH1_BLOCK_HASH),
+        None,
+        &spec,
+    )
+    .unwrap();
+
+    let harness = BeaconChainHarness::builder(MainnetEthSpec)
+        .spec(spec)
+        .keypairs(validator_keypairs)
+        .withdrawal_keypairs(
+            KEYPAIRS[0..validator_count]
+                .to_vec()
+                .into_iter()
+                .map(Some)
+                .collect(),
+        )
+        .genesis_state_ephemeral_store(genesis_state)
+        .mock_execution_layer()
+        .build();
+
+    harness
+        .execution_block_generator()
+        .move_to_terminal_block()
+        .unwrap();
+
+    harness.advance_slot();
     harness
 }
 
@@ -996,6 +1039,81 @@ async fn attestation_that_skips_epochs() {
         .chain
         .verify_unaggregated_attestation_for_gossip(&attestation, Some(subnet_id))
         .expect("should gossip verify attestation that skips slots");
+}
+
+/// Ensures that an attestation can be processed when a validator receives proposer reward
+/// in an epoch _and_ is scheduled for a withdrawal. This is a regression test for a scenario where
+/// inconsistent state lookup could cause withdrawal root mismatch.
+#[tokio::test]
+async fn attestation_validator_receive_proposer_reward_and_withdrawals() {
+    let harness = get_harness_capella_spec(VALIDATOR_COUNT);
+
+    // Advance to the first Capella block.
+    harness
+        .extend_to_slot(Slot::from(MainnetEthSpec::slots_per_epoch() as usize * 1) + 1)
+        .await;
+
+    // Add BLS change for the block proposer at slot 32. This sets up a withdrawal for the block proposer.
+    let proposer_index = harness
+        .chain
+        .block_at_slot(harness.get_current_slot(), WhenSlotSkipped::None)
+        .expect("should not error getting block at slot")
+        .expect("should find block at slot")
+        .message()
+        .proposer_index();
+    harness
+        .add_bls_to_execution_change(proposer_index, Address::from_low_u64_be(proposer_index))
+        .unwrap();
+
+    // Apply two blocks: one to process the BLS change, and another to process the withdrawal.
+    harness.extend_slots(2).await;
+    let earlier_slot = harness.get_current_slot();
+    let earlier_block = harness
+        .chain
+        .block_at_slot(earlier_slot, WhenSlotSkipped::None)
+        .expect("should not error getting block at slot")
+        .expect("should find block at slot");
+
+    // Extend the chain out a few epochs so we have some chain depth to play with.
+    harness
+        .extend_slots(MainnetEthSpec::slots_per_epoch() as usize * 2)
+        .await;
+
+    let current_slot = harness.get_current_slot();
+    let mut state = harness
+        .chain
+        .get_state(&earlier_block.state_root(), Some(earlier_slot))
+        .expect("should not error getting state")
+        .expect("should find state");
+
+    while state.slot() < current_slot {
+        per_slot_processing(&mut state, None, &harness.spec).expect("should process slot");
+    }
+
+    let state_root = state.update_tree_hash_cache().unwrap();
+
+    // Get an attestation pointed to an old block (where we do not have its shuffling cached).
+    // This triggers an inconsistent state replay.
+    let (attestation, subnet_id) = harness
+        .get_unaggregated_attestations(
+            &AttestationStrategy::AllValidators,
+            &state,
+            state_root,
+            earlier_block.canonical_root(),
+            current_slot,
+        )
+        .first()
+        .expect("should have at least one committee")
+        .first()
+        .cloned()
+        .expect("should have at least one attestation in committee");
+
+    harness
+        .chain
+        .verify_unaggregated_attestation_for_gossip(&attestation, Some(subnet_id))
+        .expect(
+            "should gossip verify attestation without causing a `WithdrawalsRootMismatch` error",
+        );
 }
 
 #[tokio::test]

@@ -1,3 +1,4 @@
+use crate::observed_operations::ObservationOutcome;
 pub use crate::persisted_beacon_chain::PersistedBeaconChain;
 pub use crate::{
     beacon_chain::{BEACON_CHAIN_DB_KEY, ETH1_CACHE_DB_KEY, FORK_CHOICE_DB_KEY, OP_POOL_DB_KEY},
@@ -26,6 +27,7 @@ use futures::channel::mpsc::Receiver;
 pub use genesis::{interop_genesis_state_with_eth1, DEFAULT_ETH1_BLOCK_HASH};
 use int_to_bytes::int_to_bytes32;
 use merkle_proof::MerkleTree;
+use operation_pool::ReceivedPreCapella;
 use parking_lot::Mutex;
 use parking_lot::RwLockWriteGuard;
 use rand::rngs::StdRng;
@@ -1493,6 +1495,26 @@ where
             validator_index,
         }
         .sign(sk, &fork, genesis_validators_root, &self.chain.spec)
+    }
+
+    pub fn add_bls_to_execution_change(
+        &self,
+        validator_index: u64,
+        address: Address,
+    ) -> Result<(), String> {
+        let signed_bls_change = self.make_bls_to_execution_change(validator_index, address);
+        if let ObservationOutcome::New(verified_bls_change) = self
+            .chain
+            .verify_bls_to_execution_change_for_gossip(signed_bls_change)
+            .expect("should verify BLS to execution change for gossip")
+        {
+            self.chain
+                .import_bls_to_execution_change(verified_bls_change, ReceivedPreCapella::No)
+                .then_some(())
+                .ok_or("should import BLS to execution change to the op pool".to_string())
+        } else {
+            Err("should observe new BLS to execution change".to_string())
+        }
     }
 
     pub fn make_bls_to_execution_change(
