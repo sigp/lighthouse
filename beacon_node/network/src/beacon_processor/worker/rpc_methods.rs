@@ -625,7 +625,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         );
 
         // Should not send more than max request blocks
-        if req.count > MAX_REQUEST_BLOB_SIDECARS {
+        if req.count * T::EthSpec::max_blobs_per_block() as u64 > MAX_REQUEST_BLOB_SIDECARS {
             return self.send_error_response(
                 peer_id,
                 RPCResponseErrorCode::InvalidRequest,
@@ -808,28 +808,15 @@ impl<T: BeaconChainTypes> Worker<T> {
             .slot()
             .unwrap_or_else(|_| self.chain.slot_clock.genesis_slot());
 
-        if blobs_sent < (req.count as usize) {
-            debug!(
-                self.log,
-                "BlobsByRange Response processed";
-                "peer" => %peer_id,
-                "msg" => "Failed to return all requested blobs",
-                "start_slot" => req.start_slot,
-                "current_slot" => current_slot,
-                "requested" => req.count,
-                "returned" => blobs_sent
-            );
-        } else {
-            debug!(
-                self.log,
-                "BlobsByRange Response processed";
-                "peer" => %peer_id,
-                "start_slot" => req.start_slot,
-                "current_slot" => current_slot,
-                "requested" => req.count,
-                "returned" => blobs_sent
-            );
-        }
+        debug!(
+            self.log,
+            "BlobsByRange Response processed";
+            "peer" => %peer_id,
+            "start_slot" => req.start_slot,
+            "current_slot" => current_slot,
+            "requested" => req.count,
+            "returned" => blobs_sent
+        );
 
         if send_response {
             // send the stream terminator
