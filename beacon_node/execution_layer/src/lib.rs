@@ -1709,6 +1709,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                 ForkName::Merge => ExecutionPayloadMerge::default().into(),
                 ForkName::Capella => ExecutionPayloadCapella::default().into(),
                 ForkName::Eip4844 => ExecutionPayloadEip4844::default().into(),
+                ForkName::Eip6110 => ExecutionPayloadEip6110::default().into(),
                 ForkName::Base | ForkName::Altair => {
                     return Err(Error::InvalidForkForPayload);
                 }
