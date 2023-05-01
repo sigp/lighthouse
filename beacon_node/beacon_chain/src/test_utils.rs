@@ -40,7 +40,7 @@ use slot_clock::{SlotClock, TestingSlotClock};
 use state_processing::per_block_processing::compute_timestamp_at_slot;
 use state_processing::{
     state_advance::{complete_state_advance, partial_state_advance},
-    StateRootStrategy,
+    StateProcessingStrategy,
 };
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
@@ -711,7 +711,7 @@ where
     pub fn get_hot_state(&self, state_hash: BeaconStateHash) -> Option<BeaconState<E>> {
         self.chain
             .store
-            .load_hot_state(&state_hash.into(), StateRootStrategy::Accurate)
+            .load_hot_state(&state_hash.into(), StateProcessingStrategy::Accurate)
             .unwrap()
     }
 

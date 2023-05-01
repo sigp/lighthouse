@@ -1,4 +1,4 @@
-// #![cfg(not(debug_assertions))]
+#![cfg(not(debug_assertions))]
 
 use beacon_chain::test_utils::HARNESS_GENESIS_TIME;
 use beacon_chain::{
@@ -75,8 +75,8 @@ fn get_harness_capella_spec(validator_count: usize) -> BeaconChainHarness<Epheme
         .keypairs(validator_keypairs)
         .withdrawal_keypairs(
             KEYPAIRS[0..validator_count]
-                .to_vec()
-                .into_iter()
+                .iter()
+                .cloned()
                 .map(Some)
                 .collect(),
         )
@@ -90,6 +90,7 @@ fn get_harness_capella_spec(validator_count: usize) -> BeaconChainHarness<Epheme
         .unwrap();
 
     harness.advance_slot();
+
     harness
 }
 
@@ -1048,12 +1049,20 @@ async fn attestation_that_skips_epochs() {
 async fn attestation_validator_receive_proposer_reward_and_withdrawals() {
     let harness = get_harness_capella_spec(VALIDATOR_COUNT);
 
-    // Advance to the first Capella block.
+    // Advance to a Capella block. Make sure the blocks have attestations.
+    let two_thirds = (VALIDATOR_COUNT / 3) * 2;
+    let attesters = (0..two_thirds).collect();
     harness
-        .extend_to_slot(Slot::from(MainnetEthSpec::slots_per_epoch() as usize * 1) + 1)
+        .extend_chain(
+            // To trigger the bug we need the proposer attestation reward to be signed at a block
+            // that isn't the first in the epoch.
+            MainnetEthSpec::slots_per_epoch() as usize + 1,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::SomeValidators(attesters),
+        )
         .await;
 
-    // Add BLS change for the block proposer at slot 32. This sets up a withdrawal for the block proposer.
+    // Add BLS change for the block proposer at slot 33. This sets up a withdrawal for the block proposer.
     let proposer_index = harness
         .chain
         .block_at_slot(harness.get_current_slot(), WhenSlotSkipped::None)
@@ -1066,7 +1075,14 @@ async fn attestation_validator_receive_proposer_reward_and_withdrawals() {
         .unwrap();
 
     // Apply two blocks: one to process the BLS change, and another to process the withdrawal.
-    harness.extend_slots(2).await;
+    harness.advance_slot();
+    harness
+        .extend_chain(
+            2,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::SomeValidators(vec![]),
+        )
+        .await;
     let earlier_slot = harness.get_current_slot();
     let earlier_block = harness
         .chain
@@ -1075,8 +1091,13 @@ async fn attestation_validator_receive_proposer_reward_and_withdrawals() {
         .expect("should find block at slot");
 
     // Extend the chain out a few epochs so we have some chain depth to play with.
+    harness.advance_slot();
     harness
-        .extend_slots(MainnetEthSpec::slots_per_epoch() as usize * 2)
+        .extend_chain(
+            MainnetEthSpec::slots_per_epoch() as usize * 2,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::SomeValidators(vec![]),
+        )
         .await;
 
     let current_slot = harness.get_current_slot();
@@ -1093,10 +1114,11 @@ async fn attestation_validator_receive_proposer_reward_and_withdrawals() {
     let state_root = state.update_tree_hash_cache().unwrap();
 
     // Get an attestation pointed to an old block (where we do not have its shuffling cached).
-    // This triggers an inconsistent state replay.
+    // Verifying the attestation triggers an inconsistent state replay.
+    let remaining_attesters = (two_thirds..VALIDATOR_COUNT).collect();
     let (attestation, subnet_id) = harness
         .get_unaggregated_attestations(
-            &AttestationStrategy::AllValidators,
+            &AttestationStrategy::SomeValidators(remaining_attesters),
             &state,
             state_root,
             earlier_block.canonical_root(),
@@ -1111,9 +1133,7 @@ async fn attestation_validator_receive_proposer_reward_and_withdrawals() {
     harness
         .chain
         .verify_unaggregated_attestation_for_gossip(&attestation, Some(subnet_id))
-        .expect(
-            "should gossip verify attestation without causing a `WithdrawalsRootMismatch` error",
-        );
+        .expect("should gossip verify attestation without checking withdrawals root");
 }
 
 #[tokio::test]
