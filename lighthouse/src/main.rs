@@ -152,7 +152,8 @@ fn main() {
                 .help(
                     "If present, log files will be generated as world-readable meaning they can be read by \
                     any user on the machine. Note that logs can often contain sensitive information \
-                    about your validator and so this flag should be used with caution.")
+                    about your validator and so this flag should be used with caution. For Windows users, \
+                    the log file permissions will be inherited from the parent folder.")
                 .global(true),
         )
         .arg(
