@@ -241,6 +241,14 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(false),
         )
         .arg(
+            Arg::with_name("disable-peer-scoring")
+                .long("disable-peer-scoring")
+                .help("Disables peer scoring in lighthouse. WARNING: This is a dev only flag is only meant to be used in local testing scenarios \
+                        Using this flag on a real network may cause your node to become eclipsed and see a different view of the network")
+                .takes_value(false)
+                .hidden(true),
+        )
+        .arg(
             Arg::with_name("trusted-peers")
                 .long("trusted-peers")
                 .value_name("TRUSTED_PEERS")
@@ -920,6 +928,28 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .conflicts_with("disable-proposer-reorgs")
         )
         .arg(
+            Arg::with_name("proposer-reorg-cutoff")
+                .long("proposer-reorg-cutoff")
+                .value_name("MILLISECONDS")
+                .help("Maximum delay after the start of the slot at which to propose a reorging \
+                       block. Lower values can prevent failed reorgs by ensuring the block has \
+                       ample time to propagate and be processed by the network. The default is \
+                       1/12th of a slot (1 second on mainnet)")
+                .conflicts_with("disable-proposer-reorgs")
+        )
+        .arg(
+            Arg::with_name("proposer-reorg-disallowed-offsets")
+                .long("proposer-reorg-disallowed-offsets")
+                .value_name("N1,N2,...")
+                .help("Comma-separated list of integer offsets which can be used to avoid \
+                       proposing reorging blocks at certain slots. An offset of N means that \
+                       reorging proposals will not be attempted at any slot such that \
+                       `slot % SLOTS_PER_EPOCH == N`. By default only re-orgs at offset 0 will be \
+                       avoided. Any offsets supplied with this flag will impose additional \
+                       restrictions.")
+                .conflicts_with("disable-proposer-reorgs")
+        )
+        .arg(
             Arg::with_name("prepare-payload-lookahead")
                 .long("prepare-payload-lookahead")
                 .value_name("MILLISECONDS")
@@ -1010,6 +1040,15 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     likely to be added. Example: Use 250000000000000000 to set the threshold to \
                      0.25 ETH.")
                 .default_value("0")
+                .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("builder-user-agent")
+                .long("builder-user-agent")
+                .value_name("STRING")
+                .help("The HTTP user agent to send alongside requests to the builder URL. The \
+                       default is Lighthouse's version string.")
+                .requires("builder")
                 .takes_value(true)
         )
         .arg(

@@ -101,6 +101,9 @@ pub struct Config {
     /// List of trusted libp2p nodes which are not scored.
     pub trusted_peers: Vec<PeerIdSerialized>,
 
+    /// Disables peer scoring altogether.
+    pub disable_peer_scoring: bool,
+
     /// Client version
     pub client_version: String,
 
@@ -309,6 +312,7 @@ impl Default for Config {
             boot_nodes_multiaddr: vec![],
             libp2p_nodes: vec![],
             trusted_peers: vec![],
+            disable_peer_scoring: false,
             client_version: lighthouse_version::version_with_platform(),
             disable_discovery: false,
             upnp_enabled: true,

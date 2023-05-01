@@ -1,5 +1,5 @@
 use beacon_chain::chain_config::{
-    ReOrgThreshold, DEFAULT_PREPARE_PAYLOAD_LOOKAHEAD_FACTOR,
+    DisallowedReOrgOffsets, ReOrgThreshold, DEFAULT_PREPARE_PAYLOAD_LOOKAHEAD_FACTOR,
     DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION, DEFAULT_RE_ORG_THRESHOLD,
 };
 use beacon_chain::TrustedSetup;
@@ -330,6 +330,9 @@ pub fn get_config<E: EthSpec>(
             let payload_builder =
                 parse_only_one_value(endpoint, SensitiveUrl::parse, "--builder", log)?;
             el_config.builder_url = Some(payload_builder);
+
+            el_config.builder_user_agent =
+                clap_utils::parse_optional(cli_args, "builder-user-agent")?;
         }
 
         // Set config values from parse values.
@@ -723,6 +726,23 @@ pub fn get_config<E: EthSpec>(
         client_config.chain.re_org_max_epochs_since_finalization =
             clap_utils::parse_optional(cli_args, "proposer-reorg-epochs-since-finalization")?
                 .unwrap_or(DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION);
+        client_config.chain.re_org_cutoff_millis =
+            clap_utils::parse_optional(cli_args, "proposer-reorg-cutoff")?;
+
+        if let Some(disallowed_offsets_str) =
+            clap_utils::parse_optional::<String>(cli_args, "proposer-reorg-disallowed-offsets")?
+        {
+            let disallowed_offsets = disallowed_offsets_str
+                .split(',')
+                .map(|s| {
+                    s.parse()
+                        .map_err(|e| format!("invalid disallowed-offsets: {e:?}"))
+                })
+                .collect::<Result<Vec<u64>, _>>()?;
+            client_config.chain.re_org_disallowed_offsets =
+                DisallowedReOrgOffsets::new::<E>(disallowed_offsets)
+                    .map_err(|e| format!("invalid disallowed-offsets: {e:?}"))?;
+        }
     }
 
     // Note: This overrides any previous flags that enable this option.
@@ -1043,6 +1063,10 @@ pub fn set_network_config(
                     .map_err(|_| format!("Invalid Multiaddr: {}", multiaddr))
             })
             .collect::<Result<Vec<Multiaddr>, _>>()?;
+    }
+
+    if cli_args.is_present("disable-peer-scoring") {
+        config.disable_peer_scoring = true;
     }
 
     if let Some(trusted_peers_str) = cli_args.value_of("trusted-peers") {

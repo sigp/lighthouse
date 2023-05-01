@@ -24,7 +24,7 @@ use futures::channel::mpsc::Sender;
 use kzg::{Kzg, TrustedSetup};
 use operation_pool::{OperationPool, PersistedOperationPool};
 use parking_lot::RwLock;
-use proto_array::ReOrgThreshold;
+use proto_array::{DisallowedReOrgOffsets, ReOrgThreshold};
 use slasher::Slasher;
 use slog::{crit, error, info, Logger};
 use slot_clock::{SlotClock, TestingSlotClock};
@@ -176,6 +176,15 @@ where
         epochs_since_finalization: Epoch,
     ) -> Self {
         self.chain_config.re_org_max_epochs_since_finalization = epochs_since_finalization;
+        self
+    }
+
+    /// Sets the proposer re-org disallowed offsets list.
+    pub fn proposer_re_org_disallowed_offsets(
+        mut self,
+        disallowed_offsets: DisallowedReOrgOffsets,
+    ) -> Self {
+        self.chain_config.re_org_disallowed_offsets = disallowed_offsets;
         self
     }
 

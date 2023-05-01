@@ -35,7 +35,7 @@ pub mod migrate;
 mod naive_aggregation_pool;
 mod observed_aggregates;
 mod observed_attesters;
-mod observed_block_producers;
+pub mod observed_block_producers;
 pub mod observed_operations;
 pub mod otb_verification_service;
 mod persisted_beacon_chain;

@@ -1,7 +1,7 @@
 use crate::{ForkChoiceStore, InvalidationOperation};
 use proto_array::{
-    Block as ProtoBlock, ExecutionStatus, ProposerHeadError, ProposerHeadInfo,
-    ProtoArrayForkChoice, ReOrgThreshold,
+    Block as ProtoBlock, DisallowedReOrgOffsets, ExecutionStatus, ProposerHeadError,
+    ProposerHeadInfo, ProtoArrayForkChoice, ReOrgThreshold,
 };
 use slog::{crit, debug, warn, Logger};
 use ssz_derive::{Decode, Encode};
@@ -533,6 +533,7 @@ where
         current_slot: Slot,
         canonical_head: Hash256,
         re_org_threshold: ReOrgThreshold,
+        disallowed_offsets: &DisallowedReOrgOffsets,
         max_epochs_since_finalization: Epoch,
     ) -> Result<ProposerHeadInfo, ProposerHeadError<Error<proto_array::Error>>> {
         // Ensure that fork choice has already been updated for the current slot. This prevents
@@ -564,6 +565,7 @@ where
                 canonical_head,
                 self.fc_store.justified_balances(),
                 re_org_threshold,
+                disallowed_offsets,
                 max_epochs_since_finalization,
             )
             .map_err(ProposerHeadError::convert_inner_error)
@@ -573,6 +575,7 @@ where
         &self,
         canonical_head: Hash256,
         re_org_threshold: ReOrgThreshold,
+        disallowed_offsets: &DisallowedReOrgOffsets,
         max_epochs_since_finalization: Epoch,
     ) -> Result<ProposerHeadInfo, ProposerHeadError<Error<proto_array::Error>>> {
         let current_slot = self.fc_store.get_current_slot();
@@ -582,6 +585,7 @@ where
                 canonical_head,
                 self.fc_store.justified_balances(),
                 re_org_threshold,
+                disallowed_offsets,
                 max_epochs_since_finalization,
             )
             .map_err(ProposerHeadError::convert_inner_error)
