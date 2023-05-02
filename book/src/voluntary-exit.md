@@ -77,7 +77,7 @@ There are two types of withdrawal credentials, `0x00` and `0x01`. To check which
 
 ### 2. What if my validator is of type `0x00` and I do not update my withdrawal credentials after I initiated a voluntary exit?
 
-   Your staked fund will continue to be locked on the beacon chain. You can update your withdrawal credentials **anytime**, and there is no deadline for that. The catch is that as long as you do not update your withdrawal credentials, your staked fund in the beacon chain will continue to be locked in the beacon chain. Only after you update the withdrawal credentials, will the staked fund be withdrawn to the withdrawal address.
+   Your staked fund will continue to be locked on the beacon chain. You can update your withdrawal credentials **anytime**, and there is no deadline for that. The catch is that as long as you do not update your withdrawal credentials, your staked funds in the beacon chain will continue to be locked in the beacon chain. Only after you update the withdrawal credentials, will the staked funds be withdrawn to the withdrawal address.
 
 ### 3. How many times can I update my withdrawal credentials? 
     
