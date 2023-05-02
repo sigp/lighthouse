@@ -411,5 +411,5 @@ jobs:
     ]
     steps:
     - uses: actions/checkout@v3
-    - name: Check completeness
-      run: ./scripts/ci/check-success-job.sh ./github/workflows/test-suite.yml "${{ needs }}" test-suite-success
+    - name: Check that success job is dependent on all others
+      run: ./scripts/ci/check-success-job.sh ./github/workflows/test-suite.yml test-suite-success
