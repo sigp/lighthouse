@@ -3,7 +3,10 @@
 //! determines whether attestations should be aggregated and/or passed to the beacon node.
 
 use super::SubnetServiceMessage;
-#[cfg(any(test, feature = "deterministic_long_lived_attnets"))]
+#[cfg(any(
+    all(test, feature = "spec-mainnet"),
+    feature = "deterministic_long_lived_attnets"
+))]
 use std::collections::HashSet;
 use std::collections::{HashMap, VecDeque};
 use std::pin::Pin;
@@ -201,7 +204,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
     }
 
     /// Return count of all currently subscribed subnets (long-lived **and** short-lived).
-    #[cfg(test)]
+    #[cfg(all(test, feature = "spec-mainnet"))]
     pub fn subscription_count(&self) -> usize {
         if self.subscribe_all_subnets {
             self.beacon_chain.spec.attestation_subnet_count as usize
@@ -225,7 +228,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
     }
 
     /// Returns whether we are subscribed to a subnet for testing purposes.
-    #[cfg(test)]
+    #[cfg(all(test, feature = "spec-mainnet"))]
     pub(crate) fn is_subscribed(
         &self,
         subnet_id: &SubnetId,

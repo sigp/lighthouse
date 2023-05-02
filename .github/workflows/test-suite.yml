@@ -118,6 +118,20 @@ jobs:
         repo-token: ${{ secrets.GITHUB_TOKEN }}
     - name: Run operation_pool tests for all known forks
       run: make test-op-pool
+  network-minimal-tests:
+    name: network-minimal-tests
+    runs-on: ubuntu-latest
+    needs: cargo-fmt
+    steps:
+    - uses: actions/checkout@v3
+    - name: Get latest version of stable Rust
+      run: rustup update stable
+    - name: Install Protoc
+      uses: arduino/setup-protoc@e52d9eb8f7b63115df1ac544a1376fdbf5a39612
+      with:
+        repo-token: ${{ secrets.GITHUB_TOKEN }}
+    - name: Run network tests for all known forks using the minimal spec
+      run: make test-network-minimal
   slasher-tests:
     name: slasher-tests
     runs-on: ubuntu-latest
