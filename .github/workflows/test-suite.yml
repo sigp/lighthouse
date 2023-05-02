@@ -407,7 +407,31 @@ jobs:
     runs-on: ubuntu-latest
     needs: [
         'target-branch-check',
+        'extract-msrv',
         'cargo-fmt',
+        'release-tests-ubuntu',
+        'release-tests-windows',
+        'beacon-chain-tests',
+        'op-pool-tests',
+        'slasher-tests',
+        'debug-tests-ubuntu',
+        'state-transition-vectors-ubuntu',
+        'ef-tests-ubuntu',
+        'dockerfile-ubuntu',
+        'eth1-simulator-ubuntu',
+        'merge-transition-ubuntu',
+        'no-eth1-simulator-ubuntu',
+        'syncing-simulator-ubuntu',
+        'doppelganger-protection-test',
+        'execution-engine-integration-ubuntu',
+        'check-benchmarks',
+        'clippy',
+        'check-msrv',
+        'arbitrary-check',
+        'cargo-audit',
+        'cargo-vendor',
+        'cargo-udeps',
+        'compile-with-beta-compiler'
     ]
     steps:
     - uses: actions/checkout@v3
