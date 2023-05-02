@@ -99,7 +99,7 @@ There are two types of withdrawal credentials, `0x00` and `0x01`. To check which
 
    - A varying time of "validator sweep" that can take up to 5 days (at the time of writing with ~560,000 validators on the mainnet). The "validator sweep" is the process of skimming through all validators by index number for eligible withdrawals (those with type `0x01` and balance above 32ETH). Once the "validator sweep" reaches your validator's index, your staked fund will be fully withdrawn to the withdrawal address set. 
 
-   The total time taken is the summation of the above 3 waiting periods. After these waiting periods, you will receive the staked fund in your withdrawal address.
+   The total time taken is the summation of the above 3 waiting periods. After these waiting periods, you will receive the staked funds in your withdrawal address.
 
 The voluntary exit and full withdrawal process is summarized in the Figure below.
 
