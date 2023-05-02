@@ -1,4 +1,4 @@
-name: linkcheck
+name: linkcheck_workflow
 
 on:
   push:
@@ -29,4 +29,6 @@ jobs:
       - name: Run linkcheck
         run: docker run  --network book tennox/linkcheck:latest book:3000
   linkcheck_success:
-    needs: "*"
+    needs: "linkcheck_workflow"
+    # No-op
+    run: ":"
