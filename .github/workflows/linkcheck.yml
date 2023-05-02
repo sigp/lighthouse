@@ -29,7 +29,9 @@ jobs:
       - name: Run linkcheck
         run: docker run  --network book tennox/linkcheck:latest book:3000
   linkcheck_success:
+    name: All jobs completed successfully
     needs: "linkcheck_workflow"
+    runs-on: ubuntu-latest
     steps:
       - name: Noop
         run: ":"
