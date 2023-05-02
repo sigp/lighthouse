@@ -71,7 +71,7 @@ jobs:
         run: ./stop_local_testnet.sh
         working-directory: scripts/local_testnet
   local-testnet-success:
-    name: test-suite-success
+    name: local-testnet-success
     runs-on: ubuntu-latest
     needs: ["run-local-testnet"]
     steps:
