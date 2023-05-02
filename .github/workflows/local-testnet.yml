@@ -6,6 +6,7 @@ on:
     branches:
       - unstable
   pull_request:
+  merge_group:
 
 jobs:
   run-local-testnet:
