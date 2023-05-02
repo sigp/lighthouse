@@ -91,7 +91,7 @@ There are two types of withdrawal credentials, `0x00` and `0x01`. To check which
 
 ### 4. When will I get my staked fund after voluntary exit if my validator is of type `0x01`? 
    
-   There are 3 waiting periods until you get the staked fund in your withdrawal address:
+   There are 3 waiting periods until you get the staked funds in your withdrawal address:
 
    - An exit queue: a varying time that takes at a minimum 5 epochs (32 minutes) if there is no queue; or if there are many validators exiting at the same time, it has to go through the exit queue. The exit queue can be from hours to weeks, depending on the number of validators in the exit queue. During this time your validator has to stay online to perform its duties to avoid penalties.
    
