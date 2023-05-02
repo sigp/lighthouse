@@ -28,3 +28,5 @@ jobs:
 
       - name: Run linkcheck
         run: docker run  --network book tennox/linkcheck:latest book:3000
+  linkcheck_success:
+    needs: "*"
