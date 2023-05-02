@@ -58,7 +58,7 @@ to `./wallet.pass`:
 lighthouse --network goerli account wallet create --name wally --password-file wally.pass
 ```
 Using the above command, a wallet will be created in `~/.lighthouse/goerli/wallets` with the name
-`wally`. It is encrypted using with password defined in the
+`wally`. It is encrypted using the password defined in the
 `wally.pass` file. 
 
 During the wallet creation process, a 24-word mnemonic will be displayed. Record the mnemonic because it allows you to recreate the files in the case of data loss.
