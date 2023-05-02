@@ -614,7 +614,7 @@ mod tests {
 
     #[test]
     fn test_happy_path() {
-        let peer_id = PeerId::random();
+        let peer_id = PeerSource::Attestation(PeerId::random());
         let block = rand_block();
         let spec = E::default_spec();
         let slot_clock = TestingSlotClock::new(
@@ -631,7 +631,7 @@ mod tests {
     #[test]
     fn test_block_lookup_failures() {
         const FAILURES: u8 = 3;
-        let peer_id = PeerId::random();
+        let peer_id = PeerSource::Attestation(PeerId::random());
         let block = rand_block();
         let spec = E::default_spec();
         let slot_clock = TestingSlotClock::new(
