@@ -1,5 +1,7 @@
 # Lighthouse Book
 
+MEOW MEOW MEOW DELETE ME
+
 _Documentation for Lighthouse users and developers._
 
 [![Chat Badge]][Chat Link]
