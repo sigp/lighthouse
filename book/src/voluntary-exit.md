@@ -72,7 +72,7 @@ After the [Capella](https://ethereum.org/en/history/#capella) upgrade on 12<sup>
 There are two types of withdrawal credentials, `0x00` and `0x01`. To check which type is your validator, go to [Staking launchpad](https://launchpad.ethereum.org/en/withdrawals), enter your validator index and click `verify on mainnet`:
 
  - `withdrawals enabled` means your validator is of type `0x01`, and you will automatically receive the full withdrawal to the withdrawal address that you set.
-- `withdrawals not enabled` means your validator is of type `0x00`, and will need to update your withdrawal credentials from `0x00` type to `0x01` type (also known as BLS-to-execution-change, or BTEC) to receive the staked fund. The common way to do this is using `Staking deposit CLI` or `ethdo`, with the instructions available [here](https://launchpad.ethereum.org/en/withdrawals#update-your-keys). 
+- `withdrawals not enabled` means your validator is of type `0x00`, and will need to update your withdrawal credentials from `0x00` type to `0x01` type (also known as BLS-to-execution-change, or BTEC) to receive the staked funds. The common way to do this is using `Staking deposit CLI` or `ethdo`, with the instructions available [here](https://launchpad.ethereum.org/en/withdrawals#update-your-keys). 
 
 
 ### 2. What if my validator is of type `0x00` and I do not update my withdrawal credentials after I initiated a voluntary exit?
