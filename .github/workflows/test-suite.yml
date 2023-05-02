@@ -400,3 +400,42 @@ jobs:
       run: rustup override set beta
     - name: Run make
       run: make
+  # This job succeeds ONLY IF all others succeed. It is used by the merge queue to determine whether
+  # a PR is safe to merge. New jobs should be added here.
+  test-suite-success:
+    name: test-suite-success
+    runs-on: ubuntu-latest
+    needs: [
+        'target-branch-check',
+        'extract-msrv',
+        'cargo-fmt',
+        'release-tests-ubuntu',
+        'release-tests-windows',
+        'beacon-chain-tests',
+        'op-pool-tests',
+        'slasher-tests',
+        'debug-tests-ubuntu',
+        'state-transition-vectors-ubuntu',
+        'ef-tests-ubuntu',
+        'dockerfile-ubuntu',
+        'eth1-simulator-ubuntu',
+        'merge-transition-ubuntu',
+        'no-eth1-simulator-ubuntu',
+        'syncing-simulator-ubuntu',
+        'doppelganger-protection-test',
+        'execution-engine-integration-ubuntu',
+        'check-benchmarks',
+        'clippy',
+        'check-msrv',
+        'arbitrary-check',
+        'cargo-audit',
+        'cargo-vendor',
+        'cargo-udeps',
+        'compile-with-beta-compiler'
+    ]
+    steps:
+    - name: Check completeness
+      run: |
+        yq '... comments="" | .jobs | map(. | key)' < .github/workflows/test-suite.yml | grep -v "test-suite-success" | sort > all_jobs.txt
+        echo "${{ needs }}" | jq -r 'keys | join(",")' | tr "," "\n" | sort > dep_jobs.txt
+        diff all_jobs.txt dep_jobs.txt
