@@ -1,5 +1,5 @@
 use super::single_block_lookup::{LookupRequestError, LookupVerifyError, SingleBlockLookup};
-use super::{DownloadedBlocks, PeerShouldHave, ResponseType};
+use super::{DownloadedBlocks, PeerSource, ResponseType};
 use crate::sync::block_lookups::{single_block_lookup, RootBlobsTuple, RootBlockTuple};
 use crate::sync::{
     manager::{Id, SLOT_IMPORT_TOLERANCE},
@@ -76,7 +76,7 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
     pub fn new(
         block_root: Hash256,
         parent_root: Hash256,
-        peer_id: PeerId,
+        peer_id: PeerSource,
         da_checker: Arc<DataAvailabilityChecker<T::EthSpec, T::SlotClock>>,
     ) -> Self {
         let current_parent_request = SingleBlockLookup::new(parent_root, peer_id, da_checker);
@@ -321,14 +321,9 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
             .failed_attempts()
     }
 
-    pub fn add_peer_if_useful(
-        &mut self,
-        block_root: &Hash256,
-        peer_id: &PeerId,
-        peer_usefulness: PeerShouldHave,
-    ) -> bool {
+    pub fn add_peer_if_useful(&mut self, block_root: &Hash256, peer_source: PeerSource) -> bool {
         self.current_parent_request
-            .add_peer_if_useful(block_root, peer_id, peer_usefulness)
+            .add_peer_if_useful(block_root, peer_source)
     }
 
     pub fn used_peers(&self, response_type: ResponseType) -> impl Iterator<Item = &PeerId> + '_ {
@@ -344,6 +339,15 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
                 .used_peers
                 .iter(),
         }
+    }
+
+    pub(crate) fn peer_source(
+        &self,
+        response_type: ResponseType,
+        peer_id: PeerId,
+    ) -> Option<PeerSource> {
+        self.current_parent_request
+            .peer_source(response_type, peer_id)
     }
 }
 

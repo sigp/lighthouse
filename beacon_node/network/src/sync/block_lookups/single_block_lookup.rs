@@ -14,7 +14,7 @@ use strum::IntoStaticStr;
 use types::blob_sidecar::{BlobIdentifier, FixedBlobSidecarList};
 use types::{BlobSidecar, SignedBeaconBlock};
 
-use super::{PeerShouldHave, ResponseType};
+use super::{PeerSource, ResponseType};
 
 pub struct SingleBlockLookup<const MAX_ATTEMPTS: u8, T: BeaconChainTypes> {
     pub requested_block_root: Hash256,
@@ -33,21 +33,23 @@ pub struct SingleBlockLookup<const MAX_ATTEMPTS: u8, T: BeaconChainTypes> {
 pub struct SingleLookupRequestState<const MAX_ATTEMPTS: u8> {
     /// State of this request.
     pub state: State,
-    /// Peers that should have this block.
+    /// Peers that should have this block or blob.
     pub available_peers: HashSet<PeerId>,
+    /// Peers that mar or may not have this block or blob.
+    pub potential_peers: HashSet<PeerId>,
     /// Peers from which we have requested this block.
     pub used_peers: HashSet<PeerId>,
-    /// How many times have we attempted to process this block.
+    /// How many times have we attempted to process this block or blob.
     failed_processing: u8,
-    /// How many times have we attempted to download this block.
+    /// How many times have we attempted to download this block or blob.
     failed_downloading: u8,
 }
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum State {
     AwaitingDownload,
-    Downloading { peer_id: PeerId },
-    Processing { peer_id: PeerId },
+    Downloading { peer_id: PeerSource },
+    Processing { peer_id: PeerSource },
 }
 
 #[derive(Debug, PartialEq, Eq, IntoStaticStr)]
@@ -74,7 +76,7 @@ pub enum LookupRequestError {
 impl<const MAX_ATTEMPTS: u8, T: BeaconChainTypes> SingleBlockLookup<MAX_ATTEMPTS, T> {
     pub fn new(
         requested_block_root: Hash256,
-        peer_id: PeerId,
+        peer_source: PeerSource,
         da_checker: Arc<DataAvailabilityChecker<T::EthSpec, T::SlotClock>>,
     ) -> Self {
         Self {
@@ -82,8 +84,8 @@ impl<const MAX_ATTEMPTS: u8, T: BeaconChainTypes> SingleBlockLookup<MAX_ATTEMPTS
             requested_ids: <_>::default(),
             downloaded_block: None,
             downloaded_blobs: <_>::default(),
-            block_request_state: SingleLookupRequestState::new(peer_id),
-            blob_request_state: SingleLookupRequestState::new(peer_id),
+            block_request_state: SingleLookupRequestState::new(peer_source),
+            blob_request_state: SingleLookupRequestState::new(peer_source),
             da_checker,
         }
     }
@@ -277,7 +279,6 @@ impl<const MAX_ATTEMPTS: u8, T: BeaconChainTypes> SingleBlockLookup<MAX_ATTEMPTS
             },
             State::Processing { peer_id: _ } => match blob {
                 Some(_) => {
-                    dbg!("here");
                     // We sent the blob for processing and received an extra blob.
                     self.blob_request_state.register_failure_downloading();
                     Err(LookupVerifyError::ExtraBlobsReturned)
@@ -317,8 +318,26 @@ impl<const MAX_ATTEMPTS: u8, T: BeaconChainTypes> SingleBlockLookup<MAX_ATTEMPTS
             let request = BlocksByRootRequest {
                 block_roots: VariableList::from(vec![self.requested_block_root]),
             };
-            self.block_request_state.state = State::Downloading { peer_id };
             self.block_request_state.used_peers.insert(peer_id);
+            let peer_source = PeerSource::Attestation(peer_id);
+            self.block_request_state.state = State::Downloading {
+                peer_id: peer_source,
+            };
+            Ok(Some((peer_id, request)))
+        } else if let Some(&peer_id) = self
+            .block_request_state
+            .potential_peers
+            .iter()
+            .choose(&mut rand::thread_rng())
+        {
+            let request = BlocksByRootRequest {
+                block_roots: VariableList::from(vec![self.requested_block_root]),
+            };
+            self.block_request_state.used_peers.insert(peer_id);
+            let peer_source = PeerSource::Gossip(peer_id);
+            self.block_request_state.state = State::Downloading {
+                peer_id: peer_source,
+            };
             Ok(Some((peer_id, request)))
         } else {
             Err(LookupRequestError::NoPeers)
@@ -353,46 +372,96 @@ impl<const MAX_ATTEMPTS: u8, T: BeaconChainTypes> SingleBlockLookup<MAX_ATTEMPTS
             let request = BlobsByRootRequest {
                 blob_ids: VariableList::from(missing_ids.clone()),
             };
-            self.requested_ids = missing_ids;
-            self.blob_request_state.state = State::Downloading { peer_id };
             self.blob_request_state.used_peers.insert(peer_id);
+            let peer_source = PeerSource::Attestation(peer_id);
+            self.requested_ids = missing_ids;
+            self.blob_request_state.state = State::Downloading {
+                peer_id: peer_source,
+            };
+            Ok(Some((peer_id, request)))
+        } else if let Some(&peer_id) = self
+            .blob_request_state
+            .potential_peers
+            .iter()
+            .choose(&mut rand::thread_rng())
+        {
+            let request = BlobsByRootRequest {
+                blob_ids: VariableList::from(missing_ids.clone()),
+            };
+            self.blob_request_state.used_peers.insert(peer_id);
+            let peer_source = PeerSource::Gossip(peer_id);
+            self.requested_ids = missing_ids;
+            self.blob_request_state.state = State::Downloading {
+                peer_id: peer_source,
+            };
             Ok(Some((peer_id, request)))
         } else {
             Err(LookupRequestError::NoPeers)
         }
     }
-    pub fn add_peer_if_useful(
-        &mut self,
-        block_root: &Hash256,
-        peer_id: &PeerId,
-        peer_usefulness: PeerShouldHave,
-    ) -> bool {
+
+    pub fn add_peer_if_useful(&mut self, block_root: &Hash256, peer_source: PeerSource) -> bool {
         if *block_root != self.requested_block_root {
             return false;
         }
-        match peer_usefulness {
-            PeerShouldHave::BlockAndBlobs => {
-                self.block_request_state.add_peer(peer_id);
-                self.blob_request_state.add_peer(peer_id);
+        match peer_source {
+            PeerSource::Attestation(peer_id) => {
+                self.block_request_state.add_peer(&peer_id);
+                self.blob_request_state.add_peer(&peer_id);
             }
-            PeerShouldHave::Neither => {}
+            PeerSource::Gossip(peer_id) => {
+                self.block_request_state.add_potential_peer(&peer_id);
+                self.blob_request_state.add_potential_peer(&peer_id);
+            }
         }
         true
     }
 
-    pub fn processing_peer(&self, response_type: ResponseType) -> Result<PeerId, ()> {
+    pub fn processing_peer(&self, response_type: ResponseType) -> Result<PeerSource, ()> {
         match response_type {
             ResponseType::Block => self.block_request_state.processing_peer(),
             ResponseType::Blob => self.blob_request_state.processing_peer(),
         }
     }
+
+    pub(crate) fn peer_source(
+        &self,
+        response_type: ResponseType,
+        peer_id: PeerId,
+    ) -> Option<PeerSource> {
+        match response_type {
+            ResponseType::Block => {
+                if self.block_request_state.available_peers.contains(&peer_id) {
+                    Some(PeerSource::Attestation(peer_id))
+                } else if self.block_request_state.potential_peers.contains(&peer_id) {
+                    Some(PeerSource::Gossip(peer_id))
+                } else {
+                    None
+                }
+            }
+            ResponseType::Blob => {
+                if self.blob_request_state.available_peers.contains(&peer_id) {
+                    Some(PeerSource::Attestation(peer_id))
+                } else if self.blob_request_state.potential_peers.contains(&peer_id) {
+                    Some(PeerSource::Gossip(peer_id))
+                } else {
+                    None
+                }
+            }
+        }
+    }
 }
 
 impl<const MAX_ATTEMPTS: u8> SingleLookupRequestState<MAX_ATTEMPTS> {
-    pub fn new(peer_id: PeerId) -> Self {
+    pub fn new(peer_source: PeerSource) -> Self {
+        let (available_peers, potential_peers) = match peer_source {
+            PeerSource::Attestation(peer_id) => (HashSet::from([peer_id]), HashSet::default()),
+            PeerSource::Gossip(peer_id) => (HashSet::default(), HashSet::from([peer_id])),
+        };
         Self {
             state: State::AwaitingDownload,
-            available_peers: HashSet::from([peer_id]),
+            available_peers,
+            potential_peers,
             used_peers: HashSet::default(),
             failed_processing: 0,
             failed_downloading: 0,
@@ -417,15 +486,23 @@ impl<const MAX_ATTEMPTS: u8> SingleLookupRequestState<MAX_ATTEMPTS> {
         self.failed_processing + self.failed_downloading
     }
 
-    pub fn add_peer(&mut self, peer_id: &PeerId) -> bool {
-        self.available_peers.insert(*peer_id)
+    pub fn add_peer(&mut self, peer_id: &PeerId) {
+        self.potential_peers.remove(peer_id);
+        self.available_peers.insert(*peer_id);
+    }
+
+    pub fn add_potential_peer(&mut self, peer_id: &PeerId) {
+        if self.available_peers.contains(peer_id) {
+            self.potential_peers.insert(*peer_id);
+        }
     }
 
     /// If a peer disconnects, this request could be failed. If so, an error is returned
     pub fn check_peer_disconnected(&mut self, dc_peer_id: &PeerId) -> Result<(), ()> {
         self.available_peers.remove(dc_peer_id);
+        self.potential_peers.remove(dc_peer_id);
         if let State::Downloading { peer_id } = &self.state {
-            if peer_id == dc_peer_id {
+            if peer_id.as_peer_id() == dc_peer_id {
                 // Peer disconnected before providing a block
                 self.register_failure_downloading();
                 return Err(());
@@ -434,7 +511,7 @@ impl<const MAX_ATTEMPTS: u8> SingleLookupRequestState<MAX_ATTEMPTS> {
         Ok(())
     }
 
-    pub fn processing_peer(&self) -> Result<PeerId, ()> {
+    pub fn processing_peer(&self) -> Result<PeerSource, ()> {
         if let State::Processing { peer_id } = &self.state {
             Ok(*peer_id)
         } else {
