@@ -732,6 +732,7 @@ where
         state.get_block_root(slot).unwrap() == state.get_block_root(slot - 1).unwrap()
     }
 
+    /// Returns a newly created block, signed by the proposer for the given slot.
     pub async fn make_block(
         &self,
         mut state: BeaconState<E>,
@@ -2010,18 +2011,6 @@ where
     pub fn advance_to_slot_lookahead(&self, slot: Slot, lookahead: Duration) {
         let time = self.chain.slot_clock.start_of(slot).unwrap() - lookahead;
         self.chain.slot_clock.set_current_time(time);
-    }
-
-    /// Deprecated: Use make_block() instead
-    ///
-    /// Returns a newly created block, signed by the proposer for the given slot.
-    pub async fn build_block(
-        &self,
-        state: BeaconState<E>,
-        slot: Slot,
-        _block_strategy: BlockStrategy,
-    ) -> (SignedBeaconBlock<E>, BeaconState<E>) {
-        self.make_block(state, slot).await
     }
 
     /// Uses `Self::extend_chain` to build the chain out to the `target_slot`.
