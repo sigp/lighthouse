@@ -408,11 +408,8 @@ jobs:
     needs: [
         'target-branch-check',
         'cargo-fmt',
-        'clippy',
     ]
     steps:
+    - uses: actions/checkout@v3
     - name: Check completeness
-      run: |
-        yq '... comments="" | .jobs | map(. | key)' < .github/workflows/test-suite.yml | grep -v "test-suite-success" | sort > all_jobs.txt
-        echo "${{ needs }}" | jq -r 'keys | join(",")' | tr "," "\n" | sort > dep_jobs.txt
-        diff all_jobs.txt dep_jobs.txt
+      run: ./scripts/ci/check-success-job.sh ./github/workflows/test-suite.yml "${{ needs }}" test-suite-success
