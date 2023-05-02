@@ -15,8 +15,8 @@ use crate::BeaconChainError;
 use eth2::types::BlockContentsTuple;
 use kzg::Kzg;
 use slog::{debug, warn};
-use std::borrow::Cow;
 use ssz_derive::{Decode, Encode};
+use std::borrow::Cow;
 use types::{
     BeaconBlockRef, BeaconState, BeaconStateError, BlobSidecar, BlobSidecarList, ChainSpec,
     CloneConfig, Epoch, EthSpec, FullPayload, Hash256, KzgCommitment, RelativeEpoch,

@@ -329,7 +329,7 @@ impl EthSpec for MinimalEthSpec {
     type SlotsPerEth1VotingPeriod = U32; // 4 epochs * 8 slots per epoch
     type MaxWithdrawalsPerPayload = U4;
     type FieldElementsPerBlob = U4; //FIXME(sean) this is spec'd out currently but will likely change
-    type BytesPerBlob = U128; //FIXME(sean) this is spec'd out currently but will likely change
+    type BytesPerBlob = U131072; // U128; //FIXME this is supposed to be 128 but we can't run tests with that until the c-kzg library is fixed..
 
     params_from_eth_spec!(MainnetEthSpec {
         JustificationBitsLength,

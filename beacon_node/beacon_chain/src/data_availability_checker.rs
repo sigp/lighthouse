@@ -84,6 +84,7 @@ pub struct DataAvailabilityChecker<T: BeaconChainTypes> {
 ///
 /// Indicates if the block is fully `Available` or if we need blobs or blocks
 ///  to "complete" the requirements for an `AvailableBlock`.
+#[derive(Debug, PartialEq)]
 pub enum Availability<T: EthSpec> {
     PendingBlobs(Vec<BlobIdentifier>),
     PendingBlock(Hash256),
@@ -362,7 +363,7 @@ async fn availability_cache_maintenance_service<T: BeaconChainTypes>(
                 let cutoff_epoch = std::cmp::max(
                     finalized_epoch + 1,
                     std::cmp::max(
-                        current_epoch - *MIN_EPOCHS_FOR_BLOBS_SIDECARS_REQUESTS,
+                        current_epoch - *MIN_EPOCHS_FOR_BLOB_SIDECARS_REQUESTS,
                         deneb_fork_epoch,
                     ),
                 );

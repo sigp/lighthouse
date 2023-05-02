@@ -501,7 +501,7 @@ impl<T: EthSpec> From<ArithError> for BlockError<T> {
 }
 
 /// Stores information about verifying a payload against an execution engine.
-#[derive(Clone, Encode, Decode)]
+#[derive(Debug, PartialEq, Clone, Encode, Decode)]
 pub struct PayloadVerificationOutcome {
     pub payload_verification_status: PayloadVerificationStatus,
     pub is_valid_merge_transition_block: bool,
@@ -720,6 +720,7 @@ impl<E: EthSpec> ExecutedBlock<E> {
     }
 }
 
+#[derive(Debug, PartialEq)]
 pub struct AvailableExecutedBlock<E: EthSpec> {
     pub block: AvailableBlock<E>,
     pub import_data: BlockImportData<E>,
@@ -802,7 +803,7 @@ impl<E: EthSpec> AvailabilityPendingExecutedBlock<E> {
     }
 }
 
-#[derive(Encode, Decode, Clone)]
+#[derive(Debug, PartialEq, Encode, Decode, Clone)]
 // TODO (mark): investigate using an Arc<state> / Arc<parent_block>
 //              here to make this cheaper to clone
 pub struct BlockImportData<E: EthSpec> {
