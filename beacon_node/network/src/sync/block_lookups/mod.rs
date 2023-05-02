@@ -26,7 +26,6 @@ use super::{
 };
 use crate::beacon_processor::{ChainSegmentProcessId, WorkEvent};
 use crate::metrics;
-use crate::sync::block_lookups::single_block_lookup::LookupVerifyError;
 
 mod parent_lookup;
 mod single_block_lookup;
@@ -315,9 +314,9 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         let should_remove = match request_ref.verify_block(block) {
             Ok(Some((root, block))) => {
                 if triggered_parent_request {
-                    // The lookup status here is irrelevant because we wait until the parent chain
-                    // is complete before processing the block.
-                    if let Err(e) = request_ref.add_block(root, block) {
+                    if let LookupDownloadStatus::AvailabilityCheck(e) =
+                        request_ref.add_block(root, block)
+                    {
                         handle_block_lookup_verify_error(
                             request_id_ref,
                             request_ref,
@@ -387,9 +386,9 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         let should_remove = match request_ref.verify_blob(blob) {
             Ok(Some((block_root, blobs))) => {
                 if triggered_parent_request {
-                    // The lookup status here is irrelevant because we wait until the parent chain
-                    // is complete before processing the block.
-                    if let Err(e) = request_ref.add_blobs(block_root, blobs) {
+                    if let LookupDownloadStatus::AvailabilityCheck(e) =
+                        request_ref.add_blobs(block_root, blobs)
+                    {
                         handle_block_lookup_verify_error(
                             request_id_ref,
                             request_ref,
@@ -514,9 +513,9 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
 
         match parent_lookup.verify_block(block, &mut self.failed_chains) {
             Ok(Some((block_root, block))) => {
-                let process_or_search = parent_lookup.add_block(block_root, block); //TODO(sean) fix
+                let process_or_search = parent_lookup.add_block(block_root, block);
                 match process_or_search {
-                    Ok(LookupDownloadStatus::Process(wrapper)) => {
+                    LookupDownloadStatus::Process(wrapper) => {
                         let chain_hash = parent_lookup.chain_hash();
                         if self
                             .send_block_for_processing(
@@ -531,7 +530,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                             self.parent_lookups.push(parent_lookup)
                         }
                     }
-                    Ok(LookupDownloadStatus::SearchBlock(block_root)) => {
+                    LookupDownloadStatus::SearchBlock(block_root) => {
                         if let Some(peer_source) =
                             parent_lookup.peer_source(ResponseType::Block, peer_id)
                         {
@@ -541,7 +540,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                             warn!(self.log, "Response from untracked peer"; "peer_id" => %peer_id, "block_root" => ?block_root);
                         }
                     }
-                    Err(e) => {}
+                    LookupDownloadStatus::AvailabilityCheck(e) => {}
                 }
             }
             Ok(None) => {
@@ -555,9 +554,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 | ParentVerifyError::ExtraBlocksReturned
                 | ParentVerifyError::UnrequestedBlobId
                 | ParentVerifyError::ExtraBlobsReturned
-                | ParentVerifyError::InvalidIndex(_)
-                //TODO(sean) treat this differntly?
-                | ParentVerifyError::AvailabilityCheck(_) => {
+                | ParentVerifyError::InvalidIndex(_) => {
                     let e = e.into();
                     warn!(self.log, "Peer sent invalid response to parent request.";
                         "peer_id" => %peer_id, "reason" => %e);
@@ -616,7 +613,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
 
         match parent_lookup.verify_blob(blob, &mut self.failed_chains) {
             Ok(Some((block_root, blobs))) => {
-                let processed_or_search = parent_lookup.add_blobs(block_root, blobs).unwrap(); //TODO(sean) fix
+                let processed_or_search = parent_lookup.add_blobs(block_root, blobs);
                 match processed_or_search {
                     LookupDownloadStatus::Process(wrapper) => {
                         let chain_hash = parent_lookup.chain_hash();
@@ -643,6 +640,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                             warn!(self.log, "Response from untracked peer"; "peer_id" => %peer_id, "block_root" => ?block_root);
                         }
                     }
+                    LookupDownloadStatus::AvailabilityCheck(e) => {}
                 }
             }
             Ok(None) => {
@@ -656,9 +654,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 | ParentVerifyError::ExtraBlocksReturned
                 | ParentVerifyError::UnrequestedBlobId
                 | ParentVerifyError::ExtraBlobsReturned
-                | ParentVerifyError::InvalidIndex(_)
-                //TODO(sean) treat differently?
-                | ParentVerifyError::AvailabilityCheck(_) => {
+                | ParentVerifyError::InvalidIndex(_) => {
                     let e = e.into();
                     warn!(self.log, "Peer sent invalid response to parent request.";
                         "peer_id" => %peer_id, "reason" => %e);
@@ -1328,16 +1324,16 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     }
 }
 
-fn handle_block_lookup_verify_error<T: BeaconChainTypes>(
+fn handle_block_lookup_verify_error<T: BeaconChainTypes, Err: Into<&'static str>>(
     request_id_ref: &mut u32,
     request_ref: &mut SingleBlockLookup<SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS, T>,
     response_type: ResponseType,
     peer_id: PeerId,
-    error: LookupVerifyError,
+    e: Err,
     cx: &mut SyncNetworkContext<T>,
     log: &Logger,
 ) -> ShouldRemoveLookup {
-    let msg: &str = error.into();
+    let msg = e.into();
     cx.report_peer(peer_id, PeerAction::LowToleranceError, msg);
 
     debug!(log, "Single block lookup failed";

@@ -109,21 +109,15 @@ impl<const MAX_ATTEMPTS: u8, T: BeaconChainTypes> SingleBlockLookup<MAX_ATTEMPTS
         let block_root = blob.block_root;
 
         if let Some(blob_opt) = self.downloaded_blobs.get_mut(blob.index as usize) {
-            //TODO(sean) should we log a warn if there is already a downloaded blob?
             *blob_opt = Some(blob.clone());
 
             if let Some(block) = self.downloaded_block.as_ref() {
-                match self.da_checker.wrap_block(
+                let result = self.da_checker.wrap_block(
                     block_root,
                     block.clone(),
                     self.downloaded_blobs.clone(),
-                ) {
-                    Ok(wrapper) => Ok(LookupDownloadStatus::Process(wrapper)),
-                    Err(AvailabilityCheckError::MissingBlobs) => {
-                        Ok(LookupDownloadStatus::SearchBlock(block_root))
-                    }
-                    Err(e) => Err(LookupVerifyError::AvailabilityCheck(format!("{e:?}"))),
-                }
+                );
+                Ok(LookupDownloadStatus::from(result))
             } else {
                 Ok(LookupDownloadStatus::SearchBlock(block_root))
             }
@@ -136,24 +130,19 @@ impl<const MAX_ATTEMPTS: u8, T: BeaconChainTypes> SingleBlockLookup<MAX_ATTEMPTS
         &mut self,
         block_root: Hash256,
         blobs: FixedBlobSidecarList<T::EthSpec>,
-    ) -> Result<LookupDownloadStatus<T::EthSpec>, LookupVerifyError> {
+    ) -> LookupDownloadStatus<T::EthSpec> {
         for (index, blob_opt) in self.downloaded_blobs.iter_mut().enumerate() {
             if let Some(Some(downloaded_blob)) = blobs.get(index) {
-                //TODO(sean) should we log a warn if there is already a downloaded blob?
                 *blob_opt = Some(downloaded_blob.clone());
             }
         }
 
         if let Some(block) = self.downloaded_block.as_ref() {
-            match self.da_checker.wrap_block(block_root, block.clone(), blobs) {
-                Ok(wrapper) => Ok(LookupDownloadStatus::Process(wrapper)),
-                Err(AvailabilityCheckError::MissingBlobs) => {
-                    Ok(LookupDownloadStatus::SearchBlock(block_root))
-                }
-                Err(e) => Err(LookupVerifyError::AvailabilityCheck(format!("{e:?}"))),
-            }
+            self.da_checker
+                .wrap_block(block_root, block.clone(), blobs)
+                .into()
         } else {
-            Ok(LookupDownloadStatus::SearchBlock(block_root))
+            LookupDownloadStatus::SearchBlock(block_root)
         }
     }
 
@@ -161,31 +150,22 @@ impl<const MAX_ATTEMPTS: u8, T: BeaconChainTypes> SingleBlockLookup<MAX_ATTEMPTS
         &mut self,
         block_root: Hash256,
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
-    ) -> Result<LookupDownloadStatus<T::EthSpec>, LookupVerifyError> {
-        //TODO(sean) check for existing block?
+    ) -> LookupDownloadStatus<T::EthSpec> {
         self.downloaded_block = Some(block.clone());
 
-        match self
-            .da_checker
+        self.da_checker
             .wrap_block(block_root, block, self.downloaded_blobs.clone())
-        {
-            Ok(wrapper) => Ok(LookupDownloadStatus::Process(wrapper)),
-            Err(AvailabilityCheckError::MissingBlobs) => {
-                Ok(LookupDownloadStatus::SearchBlock(block_root))
-            }
-            Err(e) => Err(LookupVerifyError::AvailabilityCheck(format!("{e:?}"))),
-        }
+            .into()
     }
 
     pub fn add_block_wrapper(
         &mut self,
         block_root: Hash256,
         block: BlockWrapper<T::EthSpec>,
-    ) -> Result<LookupDownloadStatus<T::EthSpec>, LookupVerifyError> {
+    ) -> LookupDownloadStatus<T::EthSpec> {
         match block {
             BlockWrapper::Block(block) => self.add_block(block_root, block),
             BlockWrapper::BlockAndBlobs(block, blobs) => {
-                //TODO(sean) check for existing block?
                 self.downloaded_block = Some(block);
                 self.add_blobs(block_root, blobs)
             }

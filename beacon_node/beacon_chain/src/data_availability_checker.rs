@@ -13,6 +13,7 @@ use state_processing::per_block_processing::deneb::deneb::verify_kzg_commitments
 use std::collections::hash_map::{Entry, OccupiedEntry};
 use std::collections::HashMap;
 use std::sync::Arc;
+use strum::IntoStaticStr;
 use types::beacon_block_body::KzgCommitments;
 use types::blob_sidecar::{BlobIdentifier, BlobSidecar, FixedBlobSidecarList};
 use types::consts::deneb::MIN_EPOCHS_FOR_BLOB_SIDECARS_REQUESTS;
@@ -21,13 +22,13 @@ use types::{
     SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
 };
 
-#[derive(Debug)]
+#[derive(Debug, IntoStaticStr)]
 pub enum AvailabilityCheckError {
     Kzg(KzgError),
     KzgVerificationFailed,
     KzgNotInitialized,
     SszTypes(ssz_types::Error),
-    MissingBlobs,
+    MissingBlobs(Hash256),
     NumBlobsMismatch {
         num_kzg_commitments: usize,
         num_blobs: usize,
@@ -205,7 +206,7 @@ impl<T: EthSpec, S: SlotClock> DataAvailabilityChecker<T, S> {
                 }
 
                 if blob_count < expected_num_blobs {
-                    return Err(AvailabilityCheckError::MissingBlobs);
+                    return Err(AvailabilityCheckError::MissingBlobs(block_root));
                 }
 
                 BlockWrapper::BlockAndBlobs(block, blobs)
@@ -346,6 +347,7 @@ impl<T: EthSpec, S: SlotClock> DataAvailabilityChecker<T, S> {
     ) -> Result<Availability<T>, AvailabilityCheckError> {
         if occupied_entry.get().has_all_blobs(&executed_block) {
             let num_blobs_expected = executed_block.num_blobs_expected();
+            let block_root = executed_block.import_data.block_root;
             let AvailabilityPendingExecutedBlock {
                 block,
                 import_data,
@@ -360,7 +362,9 @@ impl<T: EthSpec, S: SlotClock> DataAvailabilityChecker<T, S> {
             let verified_blobs = Vec::from(verified_blobs)
                 .into_iter()
                 .take(num_blobs_expected)
-                .map(|maybe_blob| maybe_blob.ok_or(AvailabilityCheckError::MissingBlobs))
+                .map(|maybe_blob| {
+                    maybe_blob.ok_or(AvailabilityCheckError::MissingBlobs(block_root))
+                })
                 .collect::<Result<Vec<_>, _>>()?;
 
             let available_block = self.make_available(block, verified_blobs)?;

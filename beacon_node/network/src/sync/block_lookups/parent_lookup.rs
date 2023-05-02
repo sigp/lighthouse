@@ -7,7 +7,7 @@ use crate::sync::{
 };
 use beacon_chain::blob_verification::AsBlock;
 use beacon_chain::blob_verification::BlockWrapper;
-use beacon_chain::data_availability_checker::DataAvailabilityChecker;
+use beacon_chain::data_availability_checker::{AvailabilityCheckError, DataAvailabilityChecker};
 use beacon_chain::BeaconChainTypes;
 use lighthouse_network::PeerId;
 use std::sync::Arc;
@@ -45,7 +45,6 @@ pub enum ParentVerifyError {
     ExtraBlobsReturned,
     InvalidIndex(u64),
     PreviousFailure { parent_root: Hash256 },
-    AvailabilityCheck(String),
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -64,6 +63,19 @@ pub enum RequestError {
 pub enum LookupDownloadStatus<T: EthSpec> {
     Process(BlockWrapper<T>),
     SearchBlock(Hash256),
+    AvailabilityCheck(AvailabilityCheckError),
+}
+
+impl<T: EthSpec> From<Result<BlockWrapper<T>, AvailabilityCheckError>> for LookupDownloadStatus<T> {
+    fn from(value: Result<BlockWrapper<T>, AvailabilityCheckError>) -> Self {
+        match value {
+            Ok(wrapper) => LookupDownloadStatus::Process(wrapper),
+            Err(AvailabilityCheckError::MissingBlobs(block_root)) => {
+                LookupDownloadStatus::SearchBlock(block_root)
+            }
+            Err(e) => LookupDownloadStatus::AvailabilityCheck(e),
+        }
+    }
 }
 
 impl<T: BeaconChainTypes> ParentLookup<T> {
@@ -172,22 +184,18 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
         &mut self,
         block_root: Hash256,
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
-    ) -> Result<LookupDownloadStatus<T::EthSpec>, ParentVerifyError> {
+    ) -> LookupDownloadStatus<T::EthSpec> {
         self.current_parent_request_id = None;
-        self.current_parent_request
-            .add_block(block_root, block)
-            .map_err(Into::into)
+        self.current_parent_request.add_block(block_root, block)
     }
 
     pub fn add_blobs(
         &mut self,
         block_root: Hash256,
         blobs: FixedBlobSidecarList<T::EthSpec>,
-    ) -> Result<LookupDownloadStatus<T::EthSpec>, ParentVerifyError> {
+    ) -> LookupDownloadStatus<T::EthSpec> {
         self.current_parent_blob_request_id = None;
-        self.current_parent_request
-            .add_blobs(block_root, blobs)
-            .map_err(Into::into)
+        self.current_parent_request.add_blobs(block_root, blobs)
     }
 
     pub fn pending_block_response(&self, req_id: Id) -> bool {
@@ -361,7 +369,6 @@ impl From<LookupVerifyError> for ParentVerifyError {
             E::UnrequestedBlobId => ParentVerifyError::UnrequestedBlobId,
             E::ExtraBlobsReturned => ParentVerifyError::ExtraBlobsReturned,
             E::InvalidIndex(index) => ParentVerifyError::InvalidIndex(index),
-            E::AvailabilityCheck(e) => ParentVerifyError::AvailabilityCheck(e),
         }
     }
 }
