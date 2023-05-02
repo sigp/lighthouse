@@ -1,5 +1,5 @@
 use beacon_chain::blob_verification::{AsBlock, BlockWrapper};
-use beacon_chain::data_availability_checker::DataAvailabilityChecker;
+use beacon_chain::data_availability_checker::{AvailabilityCheckError, DataAvailabilityChecker};
 use beacon_chain::{AvailabilityProcessingStatus, BeaconChainTypes, BlockError};
 use lighthouse_network::rpc::RPCError;
 use lighthouse_network::{PeerAction, PeerId};
@@ -17,7 +17,7 @@ use types::{BlobSidecar, SignedBeaconBlock, Slot};
 
 use self::parent_lookup::{LookupDownloadStatus, PARENT_FAIL_TOLERANCE};
 use self::parent_lookup::{ParentLookup, ParentVerifyError};
-use self::single_block_lookup::SingleBlockLookup;
+use self::single_block_lookup::{LookupVerifyError, SingleBlockLookup};
 use super::manager::BlockProcessingResult;
 use super::BatchProcessResult;
 use super::{
@@ -103,6 +103,18 @@ impl PeerSource {
         match self {
             PeerSource::Attestation(id) => id,
             PeerSource::Gossip(id) => id,
+        }
+    }
+    fn should_have_block(&self) -> bool {
+        match self {
+            PeerSource::Attestation(_) => true,
+            PeerSource::Gossip(_) => false,
+        }
+    }
+    fn should_have_blobs(&self) -> bool {
+        match self {
+            PeerSource::Attestation(_) => true,
+            PeerSource::Gossip(_) => false,
         }
     }
 }
@@ -317,10 +329,10 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                     if let LookupDownloadStatus::AvailabilityCheck(e) =
                         request_ref.add_block(root, block)
                     {
-                        handle_block_lookup_verify_error(
+                        handle_availability_check_error(
                             request_id_ref,
                             request_ref,
-                            ResponseType::Block,
+                            ResponseType::Blob,
                             peer_id,
                             e,
                             cx,
@@ -389,7 +401,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                     if let LookupDownloadStatus::AvailabilityCheck(e) =
                         request_ref.add_blobs(block_root, blobs)
                     {
-                        handle_block_lookup_verify_error(
+                        handle_availability_check_error(
                             request_id_ref,
                             request_ref,
                             ResponseType::Blob,
@@ -540,7 +552,13 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                             warn!(self.log, "Response from untracked peer"; "peer_id" => %peer_id, "block_root" => ?block_root);
                         }
                     }
-                    LookupDownloadStatus::AvailabilityCheck(e) => {}
+                    LookupDownloadStatus::AvailabilityCheck(e) => self.handle_invalid_block(
+                        BlockError::AvailabilityCheck(e),
+                        peer_id,
+                        cx,
+                        ResponseType::Block,
+                        parent_lookup,
+                    ),
                 }
             }
             Ok(None) => {
@@ -551,6 +569,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             Err(e) => match e {
                 ParentVerifyError::RootMismatch
                 | ParentVerifyError::NoBlockReturned
+                | ParentVerifyError::NotEnoughBlobsReturned
                 | ParentVerifyError::ExtraBlocksReturned
                 | ParentVerifyError::UnrequestedBlobId
                 | ParentVerifyError::ExtraBlobsReturned
@@ -580,6 +599,18 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                         PeerAction::MidToleranceError,
                         "bbroot_failed_chains",
                     );
+                }
+                ParentVerifyError::BenignFailure => {
+                    trace!(
+                        self.log,
+                        "Requested peer could not respond to block request, requesting a new peer";
+                    );
+                    parent_lookup
+                        .current_parent_request
+                        .block_request_state
+                        .potential_peers
+                        .remove(&peer_id);
+                    self.request_parent_block(parent_lookup, cx);
                 }
             },
         };
@@ -640,7 +671,13 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                             warn!(self.log, "Response from untracked peer"; "peer_id" => %peer_id, "block_root" => ?block_root);
                         }
                     }
-                    LookupDownloadStatus::AvailabilityCheck(e) => {}
+                    LookupDownloadStatus::AvailabilityCheck(e) => self.handle_invalid_block(
+                        BlockError::AvailabilityCheck(e),
+                        peer_id,
+                        cx,
+                        ResponseType::Blob,
+                        parent_lookup,
+                    ),
                 }
             }
             Ok(None) => {
@@ -651,6 +688,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             Err(e) => match e {
                 ParentVerifyError::RootMismatch
                 | ParentVerifyError::NoBlockReturned
+                | ParentVerifyError::NotEnoughBlobsReturned
                 | ParentVerifyError::ExtraBlocksReturned
                 | ParentVerifyError::UnrequestedBlobId
                 | ParentVerifyError::ExtraBlobsReturned
@@ -680,6 +718,18 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                         PeerAction::MidToleranceError,
                         "bbroot_failed_chains",
                     );
+                }
+                ParentVerifyError::BenignFailure => {
+                    trace!(
+                        self.log,
+                        "Requested peer could not respond to blob request, requesting a new peer";
+                    );
+                    parent_lookup
+                        .current_parent_request
+                        .blob_request_state
+                        .potential_peers
+                        .remove(&peer_id);
+                    self.request_parent_blob(parent_lookup, cx);
                 }
             },
         };
@@ -1040,34 +1090,13 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 );
             }
             BlockProcessingResult::Err(outcome) => {
-                // all else we consider the chain a failure and downvote the peer that sent
-                // us the last block
-                warn!(
-                    self.log, "Invalid parent chain";
-                    "score_adjustment" => %PeerAction::MidToleranceError,
-                    "outcome" => ?outcome,
-                    "last_peer" => %peer_id,
-                );
-
-                // This currently can be a host of errors. We permit this due to the partial
-                // ambiguity.
-                cx.report_peer(
+                self.handle_invalid_block(
+                    outcome,
                     peer_id.to_peer_id(),
-                    PeerAction::MidToleranceError,
-                    "parent_request_err",
+                    cx,
+                    response_type,
+                    parent_lookup,
                 );
-
-                // Try again if possible
-                match response_type {
-                    ResponseType::Block => {
-                        parent_lookup.block_processing_failed();
-                        self.request_parent_block(parent_lookup, cx);
-                    }
-                    ResponseType::Blob => {
-                        parent_lookup.blob_processing_failed();
-                        self.request_parent_blob(parent_lookup, cx);
-                    }
-                }
             }
             BlockProcessingResult::Ignored => {
                 // Beacon processor signalled to ignore the block processing result.
@@ -1084,6 +1113,38 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             &metrics::SYNC_PARENT_BLOCK_LOOKUPS,
             self.parent_lookups.len() as i64,
         );
+    }
+
+    fn handle_invalid_block(
+        &mut self,
+        outcome: BlockError<<T as BeaconChainTypes>::EthSpec>,
+        peer_id: PeerId,
+        cx: &mut SyncNetworkContext<T>,
+        response_type: ResponseType,
+        mut parent_lookup: ParentLookup<T>,
+    ) {
+        // all else we consider the chain a failure and downvote the peer that sent
+        // us the last block
+        warn!(
+            self.log, "Invalid parent chain";
+            "score_adjustment" => %PeerAction::MidToleranceError,
+            "outcome" => ?outcome,
+            "last_peer" => %peer_id,
+        );
+        // This currently can be a host of errors. We permit this due to the partial
+        // ambiguity.
+        cx.report_peer(peer_id, PeerAction::MidToleranceError, "parent_request_err");
+        // Try again if possible
+        match response_type {
+            ResponseType::Block => {
+                parent_lookup.block_processing_failed();
+                self.request_parent_block(parent_lookup, cx);
+            }
+            ResponseType::Blob => {
+                parent_lookup.blob_processing_failed();
+                self.request_parent_blob(parent_lookup, cx);
+            }
+        }
     }
 
     pub fn parent_chain_processed(
@@ -1324,17 +1385,62 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     }
 }
 
-fn handle_block_lookup_verify_error<T: BeaconChainTypes, Err: Into<&'static str>>(
+fn handle_availability_check_error<T: BeaconChainTypes>(
     request_id_ref: &mut u32,
     request_ref: &mut SingleBlockLookup<SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS, T>,
     response_type: ResponseType,
     peer_id: PeerId,
-    e: Err,
+    e: AvailabilityCheckError,
     cx: &mut SyncNetworkContext<T>,
     log: &Logger,
 ) -> ShouldRemoveLookup {
-    let msg = e.into();
-    cx.report_peer(peer_id, PeerAction::LowToleranceError, msg);
+    warn!(log, "Peer sent message in single block lookup causing failed availability check";
+        "root" => ?request_ref.requested_block_root,
+        "error" => ?e,
+        "peer_id" => %peer_id,
+        "response_type" => ?response_type
+    );
+    cx.report_peer(
+        peer_id,
+        PeerAction::MidToleranceError,
+        "single_block_failure",
+    );
+    retry_request_after_failure(
+        request_id_ref,
+        request_ref,
+        ResponseType::Blob,
+        &peer_id,
+        cx,
+        log,
+    )
+}
+
+fn handle_block_lookup_verify_error<T: BeaconChainTypes>(
+    request_id_ref: &mut u32,
+    request_ref: &mut SingleBlockLookup<SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS, T>,
+    response_type: ResponseType,
+    peer_id: PeerId,
+    e: LookupVerifyError,
+    cx: &mut SyncNetworkContext<T>,
+    log: &Logger,
+) -> ShouldRemoveLookup {
+    let msg = if matches!(e, LookupVerifyError::BenignFailure) {
+        match response_type {
+            ResponseType::Block => request_ref
+                .block_request_state
+                .potential_peers
+                .remove(&peer_id),
+            ResponseType::Blob => request_ref
+                .blob_request_state
+                .potential_peers
+                .remove(&peer_id),
+        };
+        "peer could not response to request"
+    } else {
+        let msg = e.into();
+        cx.report_peer(peer_id, PeerAction::LowToleranceError, msg);
+        msg
+    };
 
     debug!(log, "Single block lookup failed";
         "peer_id" => %peer_id,

@@ -40,11 +40,13 @@ pub(crate) struct ParentLookup<T: BeaconChainTypes> {
 pub enum ParentVerifyError {
     RootMismatch,
     NoBlockReturned,
+    NotEnoughBlobsReturned,
     ExtraBlocksReturned,
     UnrequestedBlobId,
     ExtraBlobsReturned,
     InvalidIndex(u64),
     PreviousFailure { parent_root: Hash256 },
+    BenignFailure,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -369,6 +371,8 @@ impl From<LookupVerifyError> for ParentVerifyError {
             E::UnrequestedBlobId => ParentVerifyError::UnrequestedBlobId,
             E::ExtraBlobsReturned => ParentVerifyError::ExtraBlobsReturned,
             E::InvalidIndex(index) => ParentVerifyError::InvalidIndex(index),
+            E::NotEnoughBlobsReturned => ParentVerifyError::NotEnoughBlobsReturned,
+            E::BenignFailure => ParentVerifyError::BenignFailure,
         }
     }
 }

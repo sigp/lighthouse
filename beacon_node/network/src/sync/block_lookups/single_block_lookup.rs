@@ -1,7 +1,7 @@
 use crate::sync::block_lookups::parent_lookup::LookupDownloadStatus;
 use crate::sync::block_lookups::{RootBlobsTuple, RootBlockTuple};
 use beacon_chain::blob_verification::BlockWrapper;
-use beacon_chain::data_availability_checker::{AvailabilityCheckError, DataAvailabilityChecker};
+use beacon_chain::data_availability_checker::DataAvailabilityChecker;
 use beacon_chain::{get_block_root, BeaconChainTypes};
 use lighthouse_network::rpc::methods::BlobsByRootRequest;
 use lighthouse_network::{rpc::BlocksByRootRequest, PeerId};
@@ -59,8 +59,12 @@ pub enum LookupVerifyError {
     ExtraBlocksReturned,
     UnrequestedBlobId,
     ExtraBlobsReturned,
+    NotEnoughBlobsReturned,
     InvalidIndex(u64),
-    AvailabilityCheck(String),
+    /// We don't have enough information to know
+    /// whether the peer is at fault or simply missed
+    /// what was requested on gossip.
+    BenignFailure,
 }
 
 #[derive(Debug, PartialEq, Eq, IntoStaticStr)]
@@ -201,8 +205,12 @@ impl<const MAX_ATTEMPTS: u8, T: BeaconChainTypes> SingleBlockLookup<MAX_ATTEMPTS
                     }
                 }
                 None => {
-                    self.block_request_state.register_failure_downloading();
-                    Err(LookupVerifyError::NoBlockReturned)
+                    if peer_id.should_have_block() {
+                        self.block_request_state.register_failure_downloading();
+                        Err(LookupVerifyError::NoBlockReturned)
+                    } else {
+                        Err(LookupVerifyError::BenignFailure)
+                    }
                 }
             },
             State::Processing { peer_id: _ } => match block {
@@ -229,7 +237,9 @@ impl<const MAX_ATTEMPTS: u8, T: BeaconChainTypes> SingleBlockLookup<MAX_ATTEMPTS
                 self.blob_request_state.register_failure_downloading();
                 Err(LookupVerifyError::ExtraBlobsReturned)
             }
-            State::Downloading { peer_id } => match blob {
+            State::Downloading {
+                peer_id: peer_source,
+            } => match blob {
                 Some(blob) => {
                     let received_id = blob.id();
                     if !self.requested_ids.contains(&received_id) {
@@ -250,7 +260,15 @@ impl<const MAX_ATTEMPTS: u8, T: BeaconChainTypes> SingleBlockLookup<MAX_ATTEMPTS
                     }
                 }
                 None => {
-                    self.blob_request_state.state = State::Processing { peer_id };
+                    let downloaded_all_blobs = self.downloaded_all_blobs();
+                    if peer_source.should_have_blobs() && !downloaded_all_blobs {
+                        return Err(LookupVerifyError::NotEnoughBlobsReturned);
+                    } else if !downloaded_all_blobs {
+                        return Err(LookupVerifyError::BenignFailure);
+                    }
+                    self.blob_request_state.state = State::Processing {
+                        peer_id: peer_source,
+                    };
                     Ok(Some((
                         self.requested_block_root,
                         self.downloaded_blobs.clone(),
@@ -270,6 +288,27 @@ impl<const MAX_ATTEMPTS: u8, T: BeaconChainTypes> SingleBlockLookup<MAX_ATTEMPTS
                 }
             },
         }
+    }
+
+    fn downloaded_all_blobs(&self) -> bool {
+        let expected_num_blobs = self
+            .downloaded_block
+            .as_ref()
+            .map(|block| {
+                block
+                    .message()
+                    .body()
+                    .blob_kzg_commitments()
+                    .map_or(0, |commitments| commitments.len())
+            })
+            .unwrap_or(0);
+        let downloaded_enough_blobs = expected_num_blobs
+            == self
+                .downloaded_blobs
+                .iter()
+                .map(|blob_opt| blob_opt.is_some())
+                .count();
+        downloaded_enough_blobs
     }
 
     pub fn request_block(
