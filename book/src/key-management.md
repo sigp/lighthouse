@@ -34,7 +34,7 @@ We defined some terms in the context of validator key management:
 - **Withdrawal Keypair**: a BLS public and private keypair which will be
 	required _after_ Phase 0 to manage ETH once a validator has exited.
 
-## Crate a validator
+## Create a validator
 There are 2 steps involved to create a validator key using Lighthouse:
  1. [Create a wallet](#step-1-create-a-wallet-and-record-the-mnemonic)
  1. [Create a validator](#step-2-create-a-validator)
