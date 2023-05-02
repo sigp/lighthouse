@@ -83,7 +83,7 @@ pub type AddBlocksResult<E> = (
     BeaconState<E>,
 );
 
-/// Deprecated: Indicates how the `BeaconChainHarness` should produce blocks.
+/// Indicates how the `BeaconChainHarness` should produce blocks.
 #[derive(Clone, Copy, Debug)]
 pub enum BlockStrategy {
     /// Produce blocks upon the canonical head (normal case).
@@ -99,7 +99,7 @@ pub enum BlockStrategy {
     },
 }
 
-/// Deprecated: Indicates how the `BeaconChainHarness` should produce attestations.
+/// Indicates how the `BeaconChainHarness` should produce attestations.
 #[derive(Clone, Debug)]
 pub enum AttestationStrategy {
     /// All validators attest to whichever block the `BeaconChainHarness` has produced.
@@ -1095,8 +1095,6 @@ where
             .collect()
     }
 
-    /// Deprecated: Use make_unaggregated_attestations() instead.
-    ///
     /// A list of attestations for each committee for the given slot.
     ///
     /// The first layer of the Vec is organised per committee. For example, if the return value is
@@ -2001,9 +1999,6 @@ where
             .collect()
     }
 
-    /// Deprecated: Do not modify the slot clock manually; rely on add_attested_blocks_at_slots()
-    ///             instead
-    ///
     /// Advance the slot of the `BeaconChain`.
     ///
     /// Does not produce blocks or attestations.
@@ -2064,8 +2059,6 @@ where
         .await
     }
 
-    /// Deprecated: Use add_attested_blocks_at_slots() instead
-    ///
     /// Extend the `BeaconChain` with some blocks and attestations. Returns the root of the
     /// last-produced block (the head of the chain).
     ///
