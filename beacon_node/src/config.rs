@@ -1044,6 +1044,9 @@ pub fn set_network_config(
                     .map_err(|_| format!("Invalid trusted peer id: {}", peer_id))
             })
             .collect::<Result<Vec<PeerIdSerialized>, _>>()?;
+        if config.trusted_peers.len() >= config.target_peers {
+            slog::warn!(log, "More trusted peers than the target peer limit. This will prevent efficient peer selection criteria."; "target_peers" => config.target_peers, "trusted_peers" => config.trusted_peers.len());
+        }
     }
 
     if let Some(enr_udp_port_str) = cli_args.value_of("enr-udp-port") {
