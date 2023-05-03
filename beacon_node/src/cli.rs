@@ -71,7 +71,16 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("listen-address")
                 .long("listen-address")
                 .value_name("ADDRESS")
-                .help("The address lighthouse will listen for UDP and TCP connections.")
+                .help("The address lighthouse will listen for UDP and TCP connections. To listen \
+                      over IpV4 and IpV6 set this flag twice with the different values.\n\
+                      Examples:\n\
+                      - --listen-address '0.0.0.0' will listen over Ipv4.\n\
+                      - --listen-address '::' will listen over Ipv6.\n\
+                      - --listen-address '0.0.0.0' --listen-address '::' will listen over both \
+                      Ipv4 and Ipv6. The order of the given addresses is not relevant. However, \
+                      multiple Ipv4, or multiple Ipv6 addresses will not be accepted.")
+                .multiple(true)
+                .max_values(2)
                 .default_value("0.0.0.0")
                 .takes_value(true)
         )
@@ -79,8 +88,19 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("port")
                 .long("port")
                 .value_name("PORT")
-                .help("The TCP/UDP port to listen on. The UDP port can be modified by the --discovery-port flag.")
+                .help("The TCP/UDP port to listen on. The UDP port can be modified by the \
+                      --discovery-port flag. If listening over both Ipv4 and Ipv6 the --port flag \
+                      will apply to the Ipv4 address and --port6 to the Ipv6 address.")
                 .default_value("9000")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("port6")
+                .long("port6")
+                .value_name("PORT")
+                .help("The TCP/UDP port to listen on over IpV6 when listening over both Ipv4 and \
+                      Ipv6. Defaults to 9090 when required.")
+                .default_value("9090")
                 .takes_value(true),
         )
         .arg(
@@ -91,10 +111,18 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true),
         )
         .arg(
+            Arg::with_name("discovery-port6")
+                .long("discovery-port6")
+                .value_name("PORT")
+                .help("The UDP port that discovery will listen on over IpV6 if listening over \
+                      both Ipv4 and IpV6. Defaults to `port6`")
+                .hidden(true) // TODO: implement dual stack via two sockets in discv5.
+                .takes_value(true),
+        )
+        .arg(
             Arg::with_name("target-peers")
                 .long("target-peers")
                 .help("The target number of peers.")
-                .default_value("80")
                 .takes_value(true),
         )
         .arg(
@@ -130,27 +158,49 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("enr-udp-port")
                 .long("enr-udp-port")
                 .value_name("PORT")
-                .help("The UDP port of the local ENR. Set this only if you are sure other nodes can connect to your local node on this port.")
+                .help("The UDP4 port of the local ENR. Set this only if you are sure other nodes \
+                      can connect to your local node on this port over IpV4.")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("enr-udp6-port")
+                .long("enr-udp6-port")
+                .value_name("PORT")
+                .help("The UDP6 port of the local ENR. Set this only if you are sure other nodes \
+                      can connect to your local node on this port over IpV6.")
                 .takes_value(true),
         )
         .arg(
             Arg::with_name("enr-tcp-port")
                 .long("enr-tcp-port")
                 .value_name("PORT")
-                .help("The TCP port of the local ENR. Set this only if you are sure other nodes can connect to your local node on this port.\
-                    The --port flag is used if this is not set.")
+                .help("The TCP4 port of the local ENR. Set this only if you are sure other nodes \
+                      can connect to your local node on this port over IpV4. The --port flag is \
+                      used if this is not set.")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("enr-tcp6-port")
+                .long("enr-tcp6-port")
+                .value_name("PORT")
+                .help("The TCP6 port of the local ENR. Set this only if you are sure other nodes \
+                      can connect to your local node on this port over IpV6. The --port6 flag is \
+                      used if this is not set.")
                 .takes_value(true),
         )
         .arg(
             Arg::with_name("enr-address")
                 .long("enr-address")
                 .value_name("ADDRESS")
-                .help("The IP address/ DNS address to broadcast to other peers on how to reach this node. \
-                If a DNS address is provided, the enr-address is set to the IP address it resolves to and \
-                does not auto-update based on PONG responses in discovery. \
-                Set this only if you are sure other nodes can connect to your local node on this address. \
-                Discovery will automatically find your external address, if possible.")
+                .help("The IP address/ DNS address to broadcast to other peers on how to reach \
+                      this node. If a DNS address is provided, the enr-address is set to the IP \
+                      address it resolves to and does not auto-update based on PONG responses in \
+                      discovery. Set this only if you are sure other nodes can connect to your \
+                      local node on this address. This will update the `ip4` or `ip6` ENR fields \
+                      accordingly. To update both, set this flag twice with the different values.")
                 .requires("enr-udp-port")
+                .multiple(true)
+                .max_values(2)
                 .takes_value(true),
         )
         .arg(
@@ -158,7 +208,8 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .short("e")
                 .long("enr-match")
                 .help("Sets the local ENR IP address and port to match those set for lighthouse. \
-                Specifically, the IP address will be the value of --listen-address and the UDP port will be --discovery-port.")
+                      Specifically, the IP address will be the value of --listen-address and the \
+                      UDP port will be --discovery-port.")
         )
         .arg(
             Arg::with_name("disable-enr-auto-update")
@@ -180,6 +231,14 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .long("disable-discovery")
                 .help("Disables the discv5 discovery protocol. The node will not search for new peers or participate in the discovery protocol.")
                 .takes_value(false),
+        )
+        .arg(
+            Arg::with_name("disable-peer-scoring")
+                .long("disable-peer-scoring")
+                .help("Disables peer scoring in lighthouse. WARNING: This is a dev only flag is only meant to be used in local testing scenarios \
+                        Using this flag on a real network may cause your node to become eclipsed and see a different view of the network")
+                .takes_value(false)
+                .hidden(true),
         )
         .arg(
             Arg::with_name("trusted-peers")
@@ -208,6 +267,23 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             )
             .min_values(0)
             .hidden(true)
+        )
+        .arg(
+            Arg::with_name("proposer-only")
+                .long("proposer-only")
+                .help("Sets this beacon node at be a block proposer only node. \
+                       This will run the beacon node in a minimal configuration that is sufficient for block publishing only. This flag should be used \
+                       for a beacon node being referenced by validator client using the --proposer-node flag. This configuration is for enabling more secure setups.")
+                .takes_value(false),
+        )
+
+        .arg(
+            Arg::with_name("disable-backfill-rate-limiting")
+                .long("disable-backfill-rate-limiting")
+                .help("Disable the backfill sync rate-limiting. This allow users to just sync the entire chain as fast \
+                    as possible, however it can result in resource contention which degrades staking performance. Stakers \
+                    should generally choose to avoid this flag since backfill sync is not required for staking.")
+                .takes_value(false),
         )
         /* REST API related arguments */
         .arg(
@@ -317,6 +393,14 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     If no value is supplied, the CORS allowed origin is set to the listen \
                     address of this server (e.g., http://localhost:5054).")
                 .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("shuffling-cache-size")
+            .long("shuffling-cache-size")
+            .help("Some HTTP API requests can be optimised by caching the shufflings at each epoch. \
+            This flag allows the user to set the shuffling cache size in epochs. \
+            Shufflings are dependent on validator count and setting this value to a large number can consume a large amount of memory.")
+            .takes_value(true)
         )
 
         /*
@@ -810,6 +894,28 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .conflicts_with("disable-proposer-reorgs")
         )
         .arg(
+            Arg::with_name("proposer-reorg-cutoff")
+                .long("proposer-reorg-cutoff")
+                .value_name("MILLISECONDS")
+                .help("Maximum delay after the start of the slot at which to propose a reorging \
+                       block. Lower values can prevent failed reorgs by ensuring the block has \
+                       ample time to propagate and be processed by the network. The default is \
+                       1/12th of a slot (1 second on mainnet)")
+                .conflicts_with("disable-proposer-reorgs")
+        )
+        .arg(
+            Arg::with_name("proposer-reorg-disallowed-offsets")
+                .long("proposer-reorg-disallowed-offsets")
+                .value_name("N1,N2,...")
+                .help("Comma-separated list of integer offsets which can be used to avoid \
+                       proposing reorging blocks at certain slots. An offset of N means that \
+                       reorging proposals will not be attempted at any slot such that \
+                       `slot % SLOTS_PER_EPOCH == N`. By default only re-orgs at offset 0 will be \
+                       avoided. Any offsets supplied with this flag will impose additional \
+                       restrictions.")
+                .conflicts_with("disable-proposer-reorgs")
+        )
+        .arg(
             Arg::with_name("prepare-payload-lookahead")
                 .long("prepare-payload-lookahead")
                 .value_name("MILLISECONDS")
@@ -903,11 +1009,19 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true)
         )
         .arg(
+            Arg::with_name("builder-user-agent")
+                .long("builder-user-agent")
+                .value_name("STRING")
+                .help("The HTTP user agent to send alongside requests to the builder URL. The \
+                       default is Lighthouse's version string.")
+                .requires("builder")
+                .takes_value(true)
+        )
+        .arg(
             Arg::with_name("count-unrealized")
                 .long("count-unrealized")
                 .hidden(true)
-                .help("Enables an alternative, potentially more performant FFG \
-                       vote tracking method.")
+                .help("This flag is deprecated and has no effect.")
                 .takes_value(true)
                 .default_value("true")
         )
@@ -915,7 +1029,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("count-unrealized-full")
                 .long("count-unrealized-full")
                 .hidden(true)
-                .help("Stricter version of `count-unrealized`.")
+                .help("This flag is deprecated and has no effect.")
                 .takes_value(true)
                 .default_value("false")
         )

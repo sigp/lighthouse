@@ -6,8 +6,8 @@ use clap_utils::{flags::DISABLE_MALLOC_TUNING_FLAG, get_eth2_network_config};
 use directory::{parse_path_or_default, DEFAULT_BEACON_NODE_DIR, DEFAULT_VALIDATOR_DIR};
 use env_logger::{Builder, Env};
 use environment::{EnvironmentBuilder, LoggerConfig};
-use eth2_hashing::have_sha_extensions;
 use eth2_network_config::{Eth2NetworkConfig, DEFAULT_HARDCODED_NETWORK, HARDCODED_NET_NAMES};
+use ethereum_hashing::have_sha_extensions;
 use lighthouse_version::VERSION;
 use malloc_utils::configure_memory_allocator;
 use slog::{crit, info, warn};
@@ -152,7 +152,8 @@ fn main() {
                 .help(
                     "If present, log files will be generated as world-readable meaning they can be read by \
                     any user on the machine. Note that logs can often contain sensitive information \
-                    about your validator and so this flag should be used with caution.")
+                    about your validator and so this flag should be used with caution. For Windows users, \
+                    the log file permissions will be inherited from the parent folder.")
                 .global(true),
         )
         .arg(

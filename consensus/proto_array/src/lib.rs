@@ -6,12 +6,10 @@ mod proto_array_fork_choice;
 mod ssz_container;
 
 pub use crate::justified_balances::JustifiedBalances;
-pub use crate::proto_array::{
-    calculate_committee_fraction, CountUnrealizedFull, InvalidationOperation,
-};
+pub use crate::proto_array::{calculate_committee_fraction, InvalidationOperation};
 pub use crate::proto_array_fork_choice::{
-    Block, DoNotReOrg, ExecutionStatus, ProposerHeadError, ProposerHeadInfo, ProtoArrayForkChoice,
-    ReOrgThreshold,
+    Block, DisallowedReOrgOffsets, DoNotReOrg, ExecutionStatus, ProposerHeadError,
+    ProposerHeadInfo, ProtoArrayForkChoice, ReOrgThreshold,
 };
 pub use error::Error;
 

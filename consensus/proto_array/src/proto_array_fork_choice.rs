@@ -1,8 +1,8 @@
 use crate::{
     error::Error,
     proto_array::{
-        calculate_committee_fraction, CountUnrealizedFull, InvalidationOperation, Iter,
-        ProposerBoost, ProtoArray, ProtoNode,
+        calculate_committee_fraction, InvalidationOperation, Iter, ProposerBoost, ProtoArray,
+        ProtoNode,
     },
     ssz_container::SszContainer,
     JustifiedBalances,
@@ -10,7 +10,10 @@ use crate::{
 use serde_derive::{Deserialize, Serialize};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
-use std::collections::{BTreeSet, HashMap};
+use std::{
+    collections::{BTreeSet, HashMap},
+    fmt,
+};
 use types::{
     AttestationShufflingId, ChainSpec, Checkpoint, Epoch, EthSpec, ExecutionBlockHash, Hash256,
     Slot,
@@ -125,6 +128,17 @@ impl ExecutionStatus {
     }
 }
 
+impl fmt::Display for ExecutionStatus {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ExecutionStatus::Valid(_) => write!(f, "valid"),
+            ExecutionStatus::Invalid(_) => write!(f, "invalid"),
+            ExecutionStatus::Optimistic(_) => write!(f, "optimistic"),
+            ExecutionStatus::Irrelevant(_) => write!(f, "irrelevant"),
+        }
+    }
+}
+
 /// A block that is to be applied to the fork choice.
 ///
 /// A simplified version of `types::BeaconBlock`.
@@ -236,6 +250,9 @@ pub enum DoNotReOrg {
     ParentDistance,
     HeadDistance,
     ShufflingUnstable,
+    DisallowedOffset {
+        offset: u64,
+    },
     JustificationAndFinalizationNotCompetitive,
     ChainNotFinalizing {
         epochs_since_finalization: u64,
@@ -257,6 +274,9 @@ impl std::fmt::Display for DoNotReOrg {
             Self::ParentDistance => write!(f, "parent too far from head"),
             Self::HeadDistance => write!(f, "head too far from current slot"),
             Self::ShufflingUnstable => write!(f, "shuffling unstable at epoch boundary"),
+            Self::DisallowedOffset { offset } => {
+                write!(f, "re-orgs disabled at offset {offset}")
+            }
             Self::JustificationAndFinalizationNotCompetitive => {
                 write!(f, "justification or finalization not competitive")
             }
@@ -290,6 +310,31 @@ impl std::fmt::Display for DoNotReOrg {
 #[serde(transparent)]
 pub struct ReOrgThreshold(pub u64);
 
+/// New-type for disallowed re-org slots.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct DisallowedReOrgOffsets {
+    // Vecs are faster than hashmaps for small numbers of items.
+    offsets: Vec<u64>,
+}
+
+impl Default for DisallowedReOrgOffsets {
+    fn default() -> Self {
+        DisallowedReOrgOffsets { offsets: vec![0] }
+    }
+}
+
+impl DisallowedReOrgOffsets {
+    pub fn new<E: EthSpec>(offsets: Vec<u64>) -> Result<Self, Error> {
+        for &offset in &offsets {
+            if offset >= E::slots_per_epoch() {
+                return Err(Error::InvalidEpochOffset(offset));
+            }
+        }
+        Ok(Self { offsets })
+    }
+}
+
 #[derive(PartialEq)]
 pub struct ProtoArrayForkChoice {
     pub(crate) proto_array: ProtoArray,
@@ -307,7 +352,6 @@ impl ProtoArrayForkChoice {
         current_epoch_shuffling_id: AttestationShufflingId,
         next_epoch_shuffling_id: AttestationShufflingId,
         execution_status: ExecutionStatus,
-        count_unrealized_full: CountUnrealizedFull,
     ) -> Result<Self, String> {
         let mut proto_array = ProtoArray {
             prune_threshold: DEFAULT_PRUNE_THRESHOLD,
@@ -316,7 +360,6 @@ impl ProtoArrayForkChoice {
             nodes: Vec::with_capacity(1),
             indices: HashMap::with_capacity(1),
             previous_proposer_boost: ProposerBoost::default(),
-            count_unrealized_full,
         };
 
         let block = Block {
@@ -448,6 +491,7 @@ impl ProtoArrayForkChoice {
         canonical_head: Hash256,
         justified_balances: &JustifiedBalances,
         re_org_threshold: ReOrgThreshold,
+        disallowed_offsets: &DisallowedReOrgOffsets,
         max_epochs_since_finalization: Epoch,
     ) -> Result<ProposerHeadInfo, ProposerHeadError<Error>> {
         let info = self.get_proposer_head_info::<E>(
@@ -455,6 +499,7 @@ impl ProtoArrayForkChoice {
             canonical_head,
             justified_balances,
             re_org_threshold,
+            disallowed_offsets,
             max_epochs_since_finalization,
         )?;
 
@@ -489,6 +534,7 @@ impl ProtoArrayForkChoice {
         canonical_head: Hash256,
         justified_balances: &JustifiedBalances,
         re_org_threshold: ReOrgThreshold,
+        disallowed_offsets: &DisallowedReOrgOffsets,
         max_epochs_since_finalization: Epoch,
     ) -> Result<ProposerHeadInfo, ProposerHeadError<Error>> {
         let mut nodes = self
@@ -531,6 +577,12 @@ impl ProtoArrayForkChoice {
         let shuffling_stable = re_org_block_slot % E::slots_per_epoch() != 0;
         if !shuffling_stable {
             return Err(DoNotReOrg::ShufflingUnstable.into());
+        }
+
+        // Check allowed slot offsets.
+        let offset = (re_org_block_slot % E::slots_per_epoch()).as_u64();
+        if disallowed_offsets.offsets.contains(&offset) {
+            return Err(DoNotReOrg::DisallowedOffset { offset }.into());
         }
 
         // Check FFG.
@@ -780,13 +832,10 @@ impl ProtoArrayForkChoice {
         SszContainer::from(self).as_ssz_bytes()
     }
 
-    pub fn from_bytes(
-        bytes: &[u8],
-        count_unrealized_full: CountUnrealizedFull,
-    ) -> Result<Self, String> {
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, String> {
         let container = SszContainer::from_ssz_bytes(bytes)
             .map_err(|e| format!("Failed to decode ProtoArrayForkChoice: {:?}", e))?;
-        (container, count_unrealized_full)
+        container
             .try_into()
             .map_err(|e| format!("Failed to initialize ProtoArrayForkChoice: {e:?}"))
     }
@@ -950,7 +999,6 @@ mod test_compute_deltas {
             junk_shuffling_id.clone(),
             junk_shuffling_id.clone(),
             execution_status,
-            CountUnrealizedFull::default(),
         )
         .unwrap();
 
@@ -1076,7 +1124,6 @@ mod test_compute_deltas {
             junk_shuffling_id.clone(),
             junk_shuffling_id.clone(),
             execution_status,
-            CountUnrealizedFull::default(),
         )
         .unwrap();
 

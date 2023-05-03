@@ -18,11 +18,11 @@ use crate::{
 };
 use eth1::Config as Eth1Config;
 use execution_layer::ExecutionLayer;
-use fork_choice::{ForkChoice, ResetPayloadStatuses};
+use fork_choice::{CountUnrealized, ForkChoice, ResetPayloadStatuses};
 use futures::channel::mpsc::Sender;
 use operation_pool::{OperationPool, PersistedOperationPool};
 use parking_lot::RwLock;
-use proto_array::ReOrgThreshold;
+use proto_array::{DisallowedReOrgOffsets, ReOrgThreshold};
 use slasher::Slasher;
 use slog::{crit, error, info, Logger};
 use slot_clock::{SlotClock, TestingSlotClock};
@@ -175,6 +175,15 @@ where
         self
     }
 
+    /// Sets the proposer re-org disallowed offsets list.
+    pub fn proposer_re_org_disallowed_offsets(
+        mut self,
+        disallowed_offsets: DisallowedReOrgOffsets,
+    ) -> Self {
+        self.chain_config.re_org_disallowed_offsets = disallowed_offsets;
+        self
+    }
+
     /// Sets the store (database).
     ///
     /// Should generally be called early in the build chain.
@@ -265,7 +274,6 @@ where
                 ResetPayloadStatuses::always_reset_conditionally(
                     self.chain_config.always_reset_payload_statuses,
                 ),
-                self.chain_config.count_unrealized_full,
                 &self.spec,
                 log,
             )
@@ -384,7 +392,6 @@ where
             &genesis.beacon_block,
             &genesis.beacon_state,
             current_slot,
-            self.chain_config.count_unrealized_full,
             &self.spec,
         )
         .map_err(|e| format!("Unable to initialize ForkChoice: {:?}", e))?;
@@ -503,7 +510,6 @@ where
             &snapshot.beacon_block,
             &snapshot.beacon_state,
             current_slot,
-            self.chain_config.count_unrealized_full,
             &self.spec,
         )
         .map_err(|e| format!("Unable to initialize ForkChoice: {:?}", e))?;
@@ -681,8 +687,7 @@ where
                 store.clone(),
                 Some(current_slot),
                 &self.spec,
-                self.chain_config.count_unrealized.into(),
-                self.chain_config.count_unrealized_full,
+                CountUnrealized::True,
             )?;
         }
 
@@ -765,6 +770,7 @@ where
         let genesis_time = head_snapshot.beacon_state.genesis_time();
         let head_for_snapshot_cache = head_snapshot.clone();
         let canonical_head = CanonicalHead::new(fork_choice, Arc::new(head_snapshot));
+        let shuffling_cache_size = self.chain_config.shuffling_cache_size;
 
         let beacon_chain = BeaconChain {
             spec: self.spec,
@@ -818,7 +824,7 @@ where
                 DEFAULT_SNAPSHOT_CACHE_SIZE,
                 head_for_snapshot_cache,
             )),
-            shuffling_cache: TimeoutRwLock::new(ShufflingCache::new()),
+            shuffling_cache: TimeoutRwLock::new(ShufflingCache::new(shuffling_cache_size)),
             eth1_finalization_cache: TimeoutRwLock::new(Eth1FinalizationCache::new(log.clone())),
             beacon_proposer_cache: <_>::default(),
             block_times_cache: <_>::default(),
@@ -993,7 +999,7 @@ fn descriptive_db_error(item: &str, error: &StoreError) -> String {
 mod test {
     use super::*;
     use crate::validator_monitor::DEFAULT_INDIVIDUAL_TRACKING_THRESHOLD;
-    use eth2_hashing::hash;
+    use ethereum_hashing::hash;
     use genesis::{
         generate_deterministic_keypairs, interop_genesis_state, DEFAULT_ETH1_BLOCK_HASH,
     };

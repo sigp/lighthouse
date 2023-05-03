@@ -2,7 +2,6 @@
 
 * [Introduction](./intro.md)
 * [Installation](./installation.md)
-    * [System Requirements](./system-requirements.md)
     * [Pre-Built Binaries](./installation-binaries.md)
     * [Docker](./docker.md)
     * [Build from Source](./installation-source.md)
@@ -35,6 +34,7 @@
     * [Prometheus Metrics](./advanced_metrics.md)
 * [Lighthouse UI (Siren)](./lighthouse-ui.md)
 	* [Installation](./ui-installation.md)
+    * [Authentication](./ui-authentication.md)
 	* [Configuration](./ui-configuration.md)
 	* [Usage](./ui-usage.md)
 	* [FAQs](./ui-faqs.md)
@@ -42,6 +42,7 @@
     * [Checkpoint Sync](./checkpoint-sync.md)
     * [Custom Data Directories](./advanced-datadir.md)
     * [Validator Graffiti](./graffiti.md)
+    * [Proposer Only Beacon Nodes](./advanced-proposer-only.md)
     * [Remote Signing with Web3Signer](./validator-web3signer.md)
     * [Database Configuration](./advanced_database.md)
     * [Database Migrations](./database-migrations.md)
