@@ -179,7 +179,7 @@ Dec 03 08:49:36.225 INFO Successfully published block            slot: 98, attes
 Congratulations! Your validator is now performing its duties and you will receive rewards for securing the Ethereum network. 
 
 ### What is next?
-After the validator is running and performing its duties, it is important to keep the validator online to continue accumulating rewards. However, there could be problems with the computer, the internet or other factors that is causing the validator to be offline. For this, it is best to subscribe to notifications, e.g., via [beaconcha.in](https://beaconcha.in/) which will send notifications about missed attestations and/or proposals. You will be notified about validator's offline status and react promptly. 
+After the validator is running and performing its duties, it is important to keep the validator online to continue accumulating rewards. However, there could be problems with the computer, the internet or other factors that cause the validator to be offline. For this, it is best to subscribe to notifications, e.g., via [beaconcha.in](https://beaconcha.in/) which will send notifications about missed attestations and/or proposals. You will be notified about the validator's offline status and will be able to react promptly. 
 
 The next important thing is to update Lighthouse and execution client. The update occurs from time to time, typically once or twice a month. For Lighthouse update, you can also subscribe to notification on [Github](https://github.com/sigp/lighthouse) by clicking on `Watch`. If you only want to receive notification on new releases, select `Custom`, then `Releases`. You could also join [Lighthouse Discord](https://discord.gg/cyAszAh) where we will make an announcement when there is a new release. 
 
