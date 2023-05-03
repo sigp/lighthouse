@@ -158,7 +158,7 @@ by the protocol.
 
 ### Step 5: Submit deposit (32ETH per validator)
 
-After you have successfully run and sync the execution client, beacon node and validator client, you can now proceed to submit the deposit. Go to the mainnet [Staking launchpad](https://launchpad.ethereum.org/en/) (or [Goerli staking launchpad](https://goerli.launchpad.ethereum.org/en/) for testnet validator) and go through carefully the steps to becoming a validator. Once you are ready, you can submit the deposit by sending 32ETH per validator to the deposit contract. Upload the `deposit_data-*.json` file generated in [Step 1](#step-1-create-validator-keys) to the Staking launchpad.
+After you have successfully run and synced the execution client, beacon node and validator client, you can now proceed to submit the deposit. Go to the mainnet [Staking launchpad](https://launchpad.ethereum.org/en/) (or [Goerli staking launchpad](https://goerli.launchpad.ethereum.org/en/) for testnet validator) and carefully go through the steps to becoming a validator. Once you are ready, you can submit the deposit by sending 32ETH per validator to the deposit contract. Upload the `deposit_data-*.json` file generated in [Step 1](#step-1-create-validator-keys) to the Staking launchpad.
 
 > **Important note:** Double check that the deposit contract for mainnet is `0x00000000219ab540356cBB839Cbe05303d7705Fa` before you confirm the transaction. 
 
