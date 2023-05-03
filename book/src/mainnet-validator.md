@@ -109,7 +109,7 @@ password is *not* stored here, the validator client (`lighthouse vc`)
 application will ask for the password each time it starts. This might be nice
 for some users from a security perspective (i.e., if it is a shared computer),
 however it means that if the validator client restarts, the user will be liable
-to off-line penalties until they can enter the password. If the user trusts the
+to offline penalties until they can enter the password. If the user trusts the
 computer that is running the validator client and they are seeking maximum
 validator rewards, we recommend entering a password at this point.
 
