@@ -1091,7 +1091,6 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                         .or(get_fee_recipient)
                         .or(get_gas_limit)
                         .or(get_std_keystores)
-                        .or(get_log_events.boxed())
                         .or(get_std_remotekeys),
                 )
                 .or(warp::post().and(
@@ -1113,8 +1112,8 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                         .or(delete_std_remotekeys),
                 )),
         )
-        // The auth route is the only route that is allowed to be accessed without the API token.
-        .or(warp::get().and(get_auth))
+        // The auth route and logs  are the only routes that are allowed to be accessed without the API token.
+        .or(warp::get().and(get_auth.or(get_log_events.boxed())))
         // Maps errors into HTTP responses.
         .recover(warp_utils::reject::handle_rejection)
         // Add a `Server` header.
