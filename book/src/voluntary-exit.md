@@ -46,7 +46,7 @@ Publishing a voluntary exit for validator 0xabcd
 
 WARNING: WARNING: THIS IS AN IRREVERSIBLE OPERATION
 
-WARNING: WITHDRAWING STAKED ETH WILL NOT BE POSSIBLE UNTIL ETH1/ETH2 MERGE.
+
 
 PLEASE VISIT https://lighthouse-book.sigmaprime.io/voluntary-exit.html
 TO MAKE SURE YOU UNDERSTAND THE IMPLICATIONS OF A VOLUNTARY EXIT.
@@ -63,7 +63,7 @@ Exit epoch in approximately 1920 secs
 
 ## Full withdrawal of staked fund
 
-After the [Capella](https://ethereum.org/en/history/#capella) upgrade on 12<sup>th</sup> April 2023, if a user initiates a voluntary exit, they will receive the full staked funds to the withdrawal address, provided that the validator has withdrawal credentials of type `0x01`.
+After the [Capella](https://ethereum.org/en/history/#capella) upgrade on 12<sup>th</sup> April 2023, if a user initiates a voluntary exit, they will receive the full staked funds to the withdrawal address, provided that the validator has withdrawal credentials of type `0x01`. For more information on how fund withdrawal works, please visit [Ethereum.org](https://ethereum.org/en/staking/withdrawals/#how-do-withdrawals-work) website.
 
 ## FAQ
 
