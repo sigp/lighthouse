@@ -87,7 +87,7 @@ lighthouse --network goerli account validator import --directory $HOME/staking-d
 
 > Note: `~/.lighthouse/mainnet` is the default directory which contains the keys and database. To specify a custom directory, see [Custom Directories][advanced-datadir].
 
-> Docker users should use the command from the [Docker](#docker-users).
+> Docker users should use the command from the [Docker](#docker-users) documentation.
 
 
 The user will be prompted for a password for each keystore discovered:
