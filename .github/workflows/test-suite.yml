@@ -24,7 +24,7 @@ jobs:
     if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
     steps:
         - name: Check that the pull request is not targeting the stable branch
-          run: test ${{ github.base_ref }} != "stable"
+          run: test "${{ github.base_ref }}" != "stable"
   extract-msrv:
     runs-on: ubuntu-latest
     steps:
