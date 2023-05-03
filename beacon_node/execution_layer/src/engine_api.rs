@@ -17,9 +17,9 @@ use std::convert::TryFrom;
 use strum::IntoStaticStr;
 use superstruct::superstruct;
 pub use types::{
-    Address, EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadHeader,
-    ExecutionPayloadRef, FixedVector, ForkName, Hash256, Transactions, Uint256, VariableList,
-    Withdrawal, Withdrawals,
+    Address, DepositReceipt, DepositReceipts, EthSpec, ExecutionBlockHash, ExecutionPayload,
+    ExecutionPayloadHeader, ExecutionPayloadRef, FixedVector, ForkName, Hash256, Transactions,
+    Uint256, VariableList, Withdrawal, Withdrawals,
 };
 use types::{
     ExecutionPayloadCapella, ExecutionPayloadEip4844, ExecutionPayloadEip6110,
@@ -469,6 +469,7 @@ impl<T: EthSpec> GetPayloadResponse<T> {
 pub struct ExecutionPayloadBodyV1<E: EthSpec> {
     pub transactions: Transactions<E>,
     pub withdrawals: Option<Withdrawals<E>>,
+    pub deposit_receipts: Option<DepositReceipts<E>>,
 }
 
 impl<E: EthSpec> ExecutionPayloadBodyV1<E> {
