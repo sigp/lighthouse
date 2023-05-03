@@ -18,7 +18,7 @@ r2d2_sqlite = "0.21.0"
 serde = "1.0.116"
 serde_derive = "1.0.116"
 serde_json = "1.0.58"
-eth2_serde_utils = "0.1.1"
+ethereum_serde_utils = "0.5.0"
 filesystem = { path = "../../common/filesystem" }
 arbitrary = { version = "1.0", features = ["derive"], optional = true }
 

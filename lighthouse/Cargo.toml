@@ -33,7 +33,7 @@ slog = { version = "2.5.2", features = ["max_level_trace"] }
 sloggers = { version = "2.1.1", features = ["json"] }
 types = { "path" = "../consensus/types" }
 bls = { path = "../crypto/bls" }
-eth2_hashing = "0.3.0"
+ethereum_hashing = "1.0.0-beta.2"
 clap = "2.33.3"
 env_logger = "0.9.0"
 environment = { path = "./environment" }

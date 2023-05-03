@@ -23,7 +23,7 @@ use tree_hash_derive::TreeHash;
 pub struct SyncCommitteeMessage {
     pub slot: Slot,
     pub beacon_block_root: Hash256,
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub validator_index: u64,
     // Signature by the validator over `beacon_block_root`.
     pub signature: Signature,

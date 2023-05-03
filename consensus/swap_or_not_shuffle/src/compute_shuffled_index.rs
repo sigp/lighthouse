@@ -1,5 +1,5 @@
 use crate::Hash256;
-use eth2_hashing::{Context, Sha256Context};
+use ethereum_hashing::{Context, Sha256Context};
 use std::cmp::max;
 
 /// Return `p(index)` in a pseudorandom permutation `p` of `0...list_size-1` with ``seed`` as entropy.

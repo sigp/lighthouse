@@ -1055,13 +1055,9 @@ pub fn calculate_committee_fraction<E: EthSpec>(
     justified_balances: &JustifiedBalances,
     proposer_score_boost: u64,
 ) -> Option<u64> {
-    let average_balance = justified_balances
+    let committee_weight = justified_balances
         .total_effective_balance
-        .checked_div(justified_balances.num_active_validators)?;
-    let committee_size = justified_balances
-        .num_active_validators
         .checked_div(E::slots_per_epoch())?;
-    let committee_weight = committee_size.checked_mul(average_balance)?;
     committee_weight
         .checked_mul(proposer_score_boost)?
         .checked_div(100)

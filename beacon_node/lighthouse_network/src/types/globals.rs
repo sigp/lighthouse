@@ -129,7 +129,10 @@ impl<TSpec: EthSpec> NetworkGlobals<TSpec> {
     }
 
     /// TESTING ONLY. Build a dummy NetworkGlobals instance.
-    pub fn new_test_globals(log: &slog::Logger) -> NetworkGlobals<TSpec> {
+    pub fn new_test_globals(
+        trusted_peers: Vec<PeerId>,
+        log: &slog::Logger,
+    ) -> NetworkGlobals<TSpec> {
         use crate::CombinedKeyExt;
         let keypair = libp2p::identity::Keypair::generate_secp256k1();
         let enr_key: discv5::enr::CombinedKey =
@@ -144,7 +147,7 @@ impl<TSpec: EthSpec> NetworkGlobals<TSpec> {
                 attnets: Default::default(),
                 syncnets: Default::default(),
             }),
-            vec![],
+            trusted_peers,
             false,
             log,
         )

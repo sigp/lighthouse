@@ -3619,7 +3619,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let (state, state_root_opt) = self
             .task_executor
             .spawn_blocking_handle(
-                move || chain.load_state_for_block_production::<Payload>(slot),
+                move || chain.load_state_for_block_production(slot),
                 "produce_partial_beacon_block",
             )
             .ok_or(BlockProductionError::ShuttingDown)?
@@ -3642,7 +3642,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     /// Load a beacon state from the database for block production. This is a long-running process
     /// that should not be performed in an `async` context.
-    fn load_state_for_block_production<Payload: ExecPayload<T::EthSpec>>(
+    fn load_state_for_block_production(
         self: &Arc<Self>,
         slot: Slot,
     ) -> Result<(BeaconState<T::EthSpec>, Option<Hash256>), BlockProductionError> {
