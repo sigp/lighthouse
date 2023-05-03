@@ -83,7 +83,7 @@ lighthouse --network goerli account validator import --directory $HOME/staking-d
 
 > Note: The user must specify the consensus client network that they are importing the keys by using the `--network` flag.
 
-> Note: If the validator_keys is in a different path, modify the path accordingly.
+> Note: If the validator_keys directory is in a different location, modify the path accordingly.
 
 > Note: `~/.lighthouse/mainnet` is the default directory which contains the keys and database. To specify a custom directory, see [Custom Directories][advanced-datadir].
 
