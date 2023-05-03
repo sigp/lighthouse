@@ -3742,13 +3742,8 @@ pub fn serve<T: BeaconChainTypes>(
                                 Ok(data) => {
                                     // Serialize to json
                                     match data.to_json_string() {
-                                        // Send the json as a Server Sent Event
-                                        Ok(json) => Event::default().json_data(json).map_err(|e| {
-                                            warp_utils::reject::server_sent_event_error(format!(
-                                                "{:?}",
-                                                e
-                                            ))
-                                        }),
+                                        // Send the json as a Server Side Event
+                                        Ok(json) => Ok(Event::default().data(json)),
                                         Err(e) => Err(warp_utils::reject::server_sent_event_error(
                                             format!("Unable to serialize to JSON {}", e),
                                         )),
