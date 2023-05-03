@@ -752,7 +752,8 @@ macro_rules! impl_exec_payload_common {
      $block_type_variant:ident,     // Blinded                      |   Full
      $is_default_with_empty_roots:block,
      $f:block,
-     $g:block) => {
+     $g:block,
+     $h:block) => {
         impl<T: EthSpec> ExecPayload<T> for $wrapper_type<T> {
             fn block_type() -> BlockType {
                 BlockType::$block_type_variant
@@ -812,7 +813,8 @@ macro_rules! impl_exec_payload_common {
             }
 
             fn deposit_receipts(&self) -> Result<DepositReceipts<T>, Error> {
-                todo!()
+                let h = $h;
+                h(self)
             }
         }
 
@@ -850,6 +852,15 @@ macro_rules! impl_exec_payload_for_fork {
                         let wrapper_ref_type = BlindedPayloadRef::$fork_variant(&payload);
                         wrapper_ref_type.withdrawals_root()
                     };
+                c
+            },
+            {
+                let c: for<'a> fn(
+                    &'a $wrapper_type_header<T>,
+                ) -> Result<DepositReceipts<T>, Error> = |payload: &$wrapper_type_header<T>| {
+                    let wrapper_ref_type = BlindedPayloadRef::$fork_variant(&payload);
+                    wrapper_ref_type.deposit_receipts()
+                };
                 c
             }
         );
@@ -928,6 +939,14 @@ macro_rules! impl_exec_payload_for_fork {
                     |payload: &$wrapper_type_full<T>| {
                         let wrapper_ref_type = FullPayloadRef::$fork_variant(&payload);
                         wrapper_ref_type.withdrawals_root()
+                    };
+                c
+            },
+            {
+                let c: for<'a> fn(&'a $wrapper_type_full<T>) -> Result<DepositReceipts<T>, Error> =
+                    |payload: &$wrapper_type_full<T>| {
+                        let wrapper_ref_type = FullPayloadRef::$fork_variant(&payload);
+                        wrapper_ref_type.deposit_receipts()
                     };
                 c
             }
