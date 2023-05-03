@@ -143,7 +143,7 @@
 //! );
 //!
 //! /// Representated as an SSZ "uint8"
-//! #[derive!(Debug, PartialEq, Encode, Decode)]
+//! #[derive(Debug, PartialEq, Encode, Decode)]
 //! #[ssz(enum_behaviour = "tag")]
 //! enum TagEnum {
 //!     Foo,
