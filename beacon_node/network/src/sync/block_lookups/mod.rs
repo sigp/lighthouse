@@ -681,8 +681,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 }
             }
             Ok(None) => {
-                // Request finished successfully, nothing else to do. It will be removed after the
-                // processing result arrives.
+                // Waiting for more blobs to arrive
                 self.parent_lookups.push(parent_lookup);
             }
             Err(e) => match e {

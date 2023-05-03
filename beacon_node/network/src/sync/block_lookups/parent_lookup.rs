@@ -303,15 +303,12 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
         blob: Option<Arc<BlobSidecar<T::EthSpec>>>,
         failed_chains: &mut lru_cache::LRUTimeCache<Hash256>,
     ) -> Result<Option<RootBlobsTuple<T::EthSpec>>, ParentVerifyError> {
+        let parent_root_opt = blob.as_ref().map(|b| b.block_parent_root);
         let blobs = self.current_parent_request.verify_blob(blob)?;
 
         // check if the parent of this block isn't in the failed cache. If it is, this chain should
         // be dropped and the peer downscored.
-        if let Some(parent_root) = blobs
-            .as_ref()
-            .and_then(|(_, blobs)| blobs.first())
-            .and_then(|blob| blob.as_ref().map(|b| b.block_parent_root))
-        {
+        if let Some(parent_root) = parent_root_opt {
             if failed_chains.contains(&parent_root) {
                 self.current_parent_request
                     .blob_request_state

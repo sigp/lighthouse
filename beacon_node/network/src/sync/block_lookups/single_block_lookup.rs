@@ -250,10 +250,7 @@ impl<const MAX_ATTEMPTS: u8, T: BeaconChainTypes> SingleBlockLookup<MAX_ATTEMPTS
                         self.requested_ids.retain(|id| *id != received_id);
                         if let Some(blob_opt) = self.downloaded_blobs.get_mut(blob.index as usize) {
                             *blob_opt = Some(blob);
-                            Ok(Some((
-                                self.requested_block_root,
-                                self.downloaded_blobs.clone(),
-                            )))
+                            Ok(None)
                         } else {
                             Err(LookupVerifyError::InvalidIndex(blob.index))
                         }
@@ -269,6 +266,7 @@ impl<const MAX_ATTEMPTS: u8, T: BeaconChainTypes> SingleBlockLookup<MAX_ATTEMPTS
                     self.blob_request_state.state = State::Processing {
                         peer_id: peer_source,
                     };
+                    dbg!("sending blobs for processing");
                     Ok(Some((
                         self.requested_block_root,
                         self.downloaded_blobs.clone(),
@@ -291,24 +289,25 @@ impl<const MAX_ATTEMPTS: u8, T: BeaconChainTypes> SingleBlockLookup<MAX_ATTEMPTS
     }
 
     fn downloaded_all_blobs(&self) -> bool {
-        let expected_num_blobs = self
+        let Some(expected_num_blobs) = self
             .downloaded_block
             .as_ref()
-            .map(|block| {
+            .and_then(|block| {
                 block
                     .message()
                     .body()
-                    .blob_kzg_commitments()
-                    .map_or(0, |commitments| commitments.len())
-            })
-            .unwrap_or(0);
-        let downloaded_enough_blobs = expected_num_blobs
-            == self
-                .downloaded_blobs
-                .iter()
-                .map(|blob_opt| blob_opt.is_some())
-                .count();
-        downloaded_enough_blobs
+                    .blob_kzg_commitments().ok()
+                    .map(|commitments| commitments.len())
+            }) else {
+                return true
+            };
+
+        let downloaded_num_blobs = self
+            .downloaded_blobs
+            .iter()
+            .map(|blob_opt| blob_opt.is_some())
+            .count();
+        downloaded_num_blobs == expected_num_blobs
     }
 
     pub fn request_block(
