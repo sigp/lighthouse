@@ -64,7 +64,7 @@ Upon completing this step, the files `deposit_data-*.json` and `keystore-m_*.jso
 
 ### Step 2. Start an execution client and Lighthouse beacon node
 
-Start an execution client and Lighthouse beacon node according to [run a node](./run_a_node.md). Make sure that both execution client and consensus client are synced.
+Start an execution client and Lighthouse beacon node according to the [Run a Node](./run_a_node.md) guide. Make sure that both execution client and consensus client are synced.
 
 ### Step 3. Import validator keys to Lighthouse
 
