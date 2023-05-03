@@ -185,7 +185,7 @@ The next important thing is to stay up to date with updates to Lighthouse and th
 
 You may also want to try out [Siren](./lighthouse-ui.md), a UI developed by Lighthouse to monitor validator performance.
 
-Once you familiarise with running a validator and server maintenance, you'll find that running Lighthouse is easy. Install it, start it, monitor it and keep it updated. You shouldn't need to interact with it on a day-to-day basis. Happy staking!
+Once you are familiar with running a validator and server maintenance, you'll find that running Lighthouse is easy. Install it, start it, monitor it and keep it updated. You shouldn't need to interact with it on a day-to-day basis. Happy staking!
 
 ## Docker users
 
