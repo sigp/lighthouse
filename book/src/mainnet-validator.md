@@ -183,7 +183,7 @@ After the validator is running and performing its duties, it is important to kee
 
 The next important thing is to stay up to date with updates to Lighthouse and the execution client. Updates are released from time to time, typically once or twice a month. For Lighthouse updates, you can subscribe to notifications on [Github](https://github.com/sigp/lighthouse) by clicking on `Watch`. If you only want to receive notification on new releases, select `Custom`, then `Releases`. You could also join [Lighthouse Discord](https://discord.gg/cyAszAh) where we will make an announcement when there is a new release.
 
-You may also want to try out [Siren](./lighthouse-ui.md), a UI developed by Lighthouse to monitor validator's performance.
+You may also want to try out [Siren](./lighthouse-ui.md), a UI developed by Lighthouse to monitor validator performance.
 
 Once you familiarise with running a validator and server maintenance, you'll find that running Lighthouse is easy. Install it, start it, monitor it and keep it updated. You shouldn't need to interact with it on a day-to-day basis. Happy staking!
 
