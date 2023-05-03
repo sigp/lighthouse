@@ -53,6 +53,10 @@ pub fn process_operations<T: EthSpec, Payload: AbstractExecPayload<T>>(
     process_deposits(state, block_body.deposits(), spec)?;
     process_exits(state, block_body.voluntary_exits(), verify_signatures, spec)?;
 
+    if let Ok(bls_to_execution_changes) = block_body.bls_to_execution_changes() {
+        process_bls_to_execution_changes(state, bls_to_execution_changes, verify_signatures, spec)?;
+    }
+
     if let Ok(payload) = block_body.execution_payload() {
         if is_execution_enabled(state, block_body) {
             let deposit_receipts = payload.deposit_receipts()?;
