@@ -54,6 +54,9 @@ pub struct SyncCommitteeService<T: BeaconChainTypes> {
     /// We are always subscribed to all subnets.
     subscribe_all_subnets: bool,
 
+    /// Whether this node is a block proposer-only node.
+    proposer_only: bool,
+
     /// The logger for the attestation service.
     log: slog::Logger,
 }
@@ -82,6 +85,7 @@ impl<T: BeaconChainTypes> SyncCommitteeService<T> {
             waker: None,
             subscribe_all_subnets: config.subscribe_all_subnets,
             discovery_disabled: config.disable_discovery,
+            proposer_only: config.proposer_only,
             log,
         }
     }
@@ -110,6 +114,11 @@ impl<T: BeaconChainTypes> SyncCommitteeService<T> {
         &mut self,
         subscriptions: Vec<SyncCommitteeSubscription>,
     ) -> Result<(), String> {
+        // A proposer-only node does not subscribe to any sync-committees
+        if self.proposer_only {
+            return Ok(());
+        }
+
         let mut subnets_to_discover = Vec::new();
         for subscription in subscriptions {
             metrics::inc_counter(&metrics::SYNC_COMMITTEE_SUBSCRIPTION_REQUESTS);

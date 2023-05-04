@@ -362,7 +362,7 @@ pub async fn handle_rpc<T: EthSpec>(
         ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1 => {
             #[derive(Deserialize)]
             #[serde(transparent)]
-            struct Quantity(#[serde(with = "eth2_serde_utils::u64_hex_be")] pub u64);
+            struct Quantity(#[serde(with = "serde_utils::u64_hex_be")] pub u64);
 
             let start = get_param::<Quantity>(params, 0)
                 .map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?

@@ -599,7 +599,7 @@ mod tests {
             log.new(o!("component" => "range")),
         );
         let (network_tx, network_rx) = mpsc::unbounded_channel();
-        let globals = Arc::new(NetworkGlobals::new_test_globals(&log));
+        let globals = Arc::new(NetworkGlobals::new_test_globals(Vec::new(), &log));
         let cx = SyncNetworkContext::new(
             network_tx,
             globals.clone(),

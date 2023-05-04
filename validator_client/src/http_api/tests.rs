@@ -365,7 +365,7 @@ impl ApiTester {
             let withdrawal_keypair = keypairs.withdrawal.decrypt_keypair(PASSWORD_BYTES).unwrap();
 
             let deposit_bytes =
-                eth2_serde_utils::hex::decode(&response[i].eth1_deposit_tx_data).unwrap();
+                serde_utils::hex::decode(&response[i].eth1_deposit_tx_data).unwrap();
 
             let (deposit_data, _) =
                 decode_eth1_tx_data(&deposit_bytes, E::default_spec().max_effective_balance)

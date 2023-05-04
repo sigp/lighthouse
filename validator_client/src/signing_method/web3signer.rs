@@ -54,9 +54,9 @@ pub enum Web3SignerObject<'a, T: EthSpec, Payload: AbstractExecPayload<T>> {
     Deposit {
         pubkey: PublicKeyBytes,
         withdrawal_credentials: Hash256,
-        #[serde(with = "eth2_serde_utils::quoted_u64")]
+        #[serde(with = "serde_utils::quoted_u64")]
         amount: u64,
-        #[serde(with = "eth2_serde_utils::bytes_4_hex")]
+        #[serde(with = "serde_utils::bytes_4_hex")]
         genesis_fork_version: [u8; 4],
     },
     RandaoReveal {
