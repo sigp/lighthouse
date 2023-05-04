@@ -12,12 +12,9 @@ This number can be much higher depending on how many other validators are queued
 
 ## Withdrawal of exited funds
 
-Even though users can currently perform a voluntary exit, they **cannot withdraw their exited funds at this point in time**.
-This implies that the staked funds are effectively **frozen** until withdrawals are enabled in a future hard fork (Capella).
+In order to be eligible for fund withdrawal, the validator must have set a withdrawal address and fully exited the network.
 
-To understand the rollout strategy for Ethereum upgrades, please visit <https://ethereum.org/en/upgrades>.
-
-
+For more information on how fund withdrawal works, please visit <https://ethereum.org/en/staking/withdrawals/#how-do-withdrawals-work>
 
 ## Initiating a voluntary exit
 
@@ -54,8 +51,6 @@ Password is correct
 Publishing a voluntary exit for validator 0xabcd
 
 WARNING: WARNING: THIS IS AN IRREVERSIBLE OPERATION
-
-WARNING: WITHDRAWING STAKED ETH WILL NOT BE POSSIBLE UNTIL ETH1/ETH2 MERGE.
 
 PLEASE VISIT https://lighthouse-book.sigmaprime.io/voluntary-exit.html
 TO MAKE SURE YOU UNDERSTAND THE IMPLICATIONS OF A VOLUNTARY EXIT.

@@ -16,7 +16,7 @@ use tree_hash_derive::TreeHash;
 pub struct BuilderBid<E: EthSpec, Payload: AbstractExecPayload<E>> {
     #[serde_as(as = "BlindedPayloadAsHeader<E>")]
     pub header: Payload,
-    #[serde(with = "eth2_serde_utils::quoted_u256")]
+    #[serde(with = "serde_utils::quoted_u256")]
     pub value: Uint256,
     pub pubkey: PublicKeyBytes,
     #[serde(skip)]
@@ -50,7 +50,7 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> ForkVersionDeserialize
         #[derive(Deserialize)]
         struct Helper {
             header: serde_json::Value,
-            #[serde(with = "eth2_serde_utils::quoted_u256")]
+            #[serde(with = "serde_utils::quoted_u256")]
             value: Uint256,
             pubkey: PublicKeyBytes,
         }

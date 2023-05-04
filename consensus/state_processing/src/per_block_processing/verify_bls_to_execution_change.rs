@@ -1,7 +1,7 @@
 use super::errors::{BlockOperationError, BlsExecutionChangeInvalid as Invalid};
 use crate::per_block_processing::signature_sets::bls_execution_change_signature_set;
 use crate::VerifySignatures;
-use eth2_hashing::hash;
+use ethereum_hashing::hash;
 use types::*;
 
 type Result<T> = std::result::Result<T, BlockOperationError<Invalid>>;

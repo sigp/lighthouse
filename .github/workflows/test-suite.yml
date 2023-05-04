@@ -8,6 +8,7 @@ on:
       - trying
       - 'pr/*'
   pull_request:
+  merge_group:
 env:
   # Deny warnings in CI
   # Disable debug info (see https://github.com/sigp/lighthouse/issues/4005)
@@ -20,7 +21,7 @@ jobs:
   target-branch-check:
     name: target-branch-check
     runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
     steps:
         - name: Check that the pull request is not targeting the stable branch
           run: test ${{ github.base_ref }} != "stable"

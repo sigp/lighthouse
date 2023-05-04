@@ -21,7 +21,7 @@ lazy_static! {
 
 #[derive(arbitrary::Arbitrary, Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
-pub struct SyncSubnetId(#[serde(with = "eth2_serde_utils::quoted_u64")] u64);
+pub struct SyncSubnetId(#[serde(with = "serde_utils::quoted_u64")] u64);
 
 pub fn sync_subnet_id_to_string(i: u64) -> &'static str {
     if i < SYNC_COMMITTEE_SUBNET_COUNT {

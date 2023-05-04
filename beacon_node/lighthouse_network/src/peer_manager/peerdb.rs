@@ -1062,7 +1062,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
             if let Some(to_drop) = self
                 .peers
                 .iter()
-                .filter(|(_, info)| info.is_disconnected())
+                .filter(|(_, info)| info.is_disconnected() && !info.is_trusted())
                 .filter_map(|(id, info)| match info.connection_status() {
                     PeerConnectionStatus::Disconnected { since } => Some((id, since)),
                     _ => None,
