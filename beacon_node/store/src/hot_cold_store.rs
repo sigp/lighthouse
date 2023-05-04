@@ -40,7 +40,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use types::*;
 
-/// On-disk database that stores fnalized states efficiently.
+/// On-disk database that stores finalized states efficiently.
 ///
 /// Stores vector fields like the `block_roots` and `state_roots` separately, and only stores
 /// intermittent "restore point" states pre-finalization.
@@ -583,9 +583,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     /// (which are frozen, and won't be deleted), or valid descendents of the finalized checkpoint
     /// (which will be deleted by this function but shouldn't be).
     pub fn delete_state(&self, state_root: &Hash256, slot: Slot) -> Result<(), Error> {
-        // Delete the state from the cache.
-        self.state_cache.lock().pop(&slot);
-
         // Delete the state summary.
         self.hot_db
             .key_delete(DBColumn::BeaconStateSummary.into(), state_root.as_bytes())?;
@@ -1009,9 +1006,10 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         }
 
         // If low_state is still None, use load_restore_point_by_index to load the state.
-        if low_state.is_none() {
-            low_state = Some(self.load_restore_point_by_index(low_restore_point_idx)?);
-        }
+        let low_state = match low_state {
+            Some(state) => state,
+            None => self.load_restore_point_by_index(low_restore_point_idx)?,
+        };
 
         // Acquire the read lock, so that the split can't change while this is happening.
         let split = self.split.read_recursive();
@@ -1036,7 +1034,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         )?;
 
         let state = self.replay_blocks(
-            low_state.unwrap(),
+            low_state,
             blocks,
             slot,
             Some(state_root_iter),

@@ -1641,6 +1641,18 @@ fn historic_state_cache_size_flag() {
         .with_config(|config| assert_eq!(config.store.historic_state_cache_size, 4_usize));
 }
 #[test]
+fn historic_state_cache_size_default() {
+    use beacon_node::beacon_chain::store::config::DEFAULT_HISTORIC_STATE_CACHE_SIZE;
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config.store.historic_state_cache_size,
+                DEFAULT_HISTORIC_STATE_CACHE_SIZE
+            );
+        });
+}
+#[test]
 fn auto_compact_db_flag() {
     CommandLineTest::new()
         .flag("auto-compact-db", Some("false"))
