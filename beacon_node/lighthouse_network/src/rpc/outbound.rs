@@ -1,9 +1,8 @@
 use super::methods::*;
-use super::protocol::Protocol;
 use super::protocol::ProtocolId;
+use super::protocol::{Protocol, SupportedProtocol};
 use super::RPCError;
 use crate::rpc::protocol::Encoding;
-use crate::rpc::protocol::Version;
 use crate::rpc::{
     codec::{base::BaseOutboundCodec, ssz_snappy::SSZSnappyOutboundCodec, OutboundCodec},
     methods::ResponseTermination,
@@ -36,7 +35,6 @@ pub enum OutboundRequest<TSpec: EthSpec> {
     Goodbye(GoodbyeReason),
     BlocksByRange(OldBlocksByRangeRequest),
     BlocksByRoot(BlocksByRootRequest),
-    LightClientBootstrap(LightClientBootstrapRequest),
     Ping(Ping),
     MetaData(MetadataRequest<TSpec>),
 }
@@ -57,36 +55,29 @@ impl<TSpec: EthSpec> OutboundRequest<TSpec> {
         match self {
             // add more protocols when versions/encodings are supported
             OutboundRequest::Status(_) => vec![ProtocolId::new(
-                Protocol::Status,
-                Version::V1,
+                SupportedProtocol::StatusV1,
                 Encoding::SSZSnappy,
             )],
             OutboundRequest::Goodbye(_) => vec![ProtocolId::new(
-                Protocol::Goodbye,
-                Version::V1,
+                SupportedProtocol::GoodbyeV1,
                 Encoding::SSZSnappy,
             )],
             OutboundRequest::BlocksByRange(_) => vec![
-                ProtocolId::new(Protocol::BlocksByRange, Version::V2, Encoding::SSZSnappy),
-                ProtocolId::new(Protocol::BlocksByRange, Version::V1, Encoding::SSZSnappy),
+                ProtocolId::new(SupportedProtocol::BlocksByRangeV2, Encoding::SSZSnappy),
+                ProtocolId::new(SupportedProtocol::BlocksByRangeV1, Encoding::SSZSnappy),
             ],
             OutboundRequest::BlocksByRoot(_) => vec![
-                ProtocolId::new(Protocol::BlocksByRoot, Version::V2, Encoding::SSZSnappy),
-                ProtocolId::new(Protocol::BlocksByRoot, Version::V1, Encoding::SSZSnappy),
+                ProtocolId::new(SupportedProtocol::BlocksByRootV2, Encoding::SSZSnappy),
+                ProtocolId::new(SupportedProtocol::BlocksByRootV1, Encoding::SSZSnappy),
             ],
             OutboundRequest::Ping(_) => vec![ProtocolId::new(
-                Protocol::Ping,
-                Version::V1,
+                SupportedProtocol::PingV1,
                 Encoding::SSZSnappy,
             )],
             OutboundRequest::MetaData(_) => vec![
-                ProtocolId::new(Protocol::MetaData, Version::V2, Encoding::SSZSnappy),
-                ProtocolId::new(Protocol::MetaData, Version::V1, Encoding::SSZSnappy),
+                ProtocolId::new(SupportedProtocol::MetaDataV2, Encoding::SSZSnappy),
+                ProtocolId::new(SupportedProtocol::MetaDataV1, Encoding::SSZSnappy),
             ],
-            // Note: This match arm is technically unreachable as we only respond to light client requests
-            // that we generate from the beacon state.
-            // We do not make light client rpc requests from the beacon node
-            OutboundRequest::LightClientBootstrap(_) => vec![],
         }
     }
     /* These functions are used in the handler for stream management */
@@ -100,7 +91,6 @@ impl<TSpec: EthSpec> OutboundRequest<TSpec> {
             OutboundRequest::BlocksByRoot(req) => req.block_roots.len() as u64,
             OutboundRequest::Ping(_) => 1,
             OutboundRequest::MetaData(_) => 1,
-            OutboundRequest::LightClientBootstrap(_) => 1,
         }
     }
 
@@ -113,7 +103,6 @@ impl<TSpec: EthSpec> OutboundRequest<TSpec> {
             OutboundRequest::BlocksByRoot(_) => Protocol::BlocksByRoot,
             OutboundRequest::Ping(_) => Protocol::Ping,
             OutboundRequest::MetaData(_) => Protocol::MetaData,
-            OutboundRequest::LightClientBootstrap(_) => Protocol::LightClientBootstrap,
         }
     }
 
@@ -125,7 +114,6 @@ impl<TSpec: EthSpec> OutboundRequest<TSpec> {
             // variants that have `multiple_responses()` can have values.
             OutboundRequest::BlocksByRange(_) => ResponseTermination::BlocksByRange,
             OutboundRequest::BlocksByRoot(_) => ResponseTermination::BlocksByRoot,
-            OutboundRequest::LightClientBootstrap(_) => unreachable!(),
             OutboundRequest::Status(_) => unreachable!(),
             OutboundRequest::Goodbye(_) => unreachable!(),
             OutboundRequest::Ping(_) => unreachable!(),
@@ -183,9 +171,6 @@ impl<TSpec: EthSpec> std::fmt::Display for OutboundRequest<TSpec> {
             OutboundRequest::BlocksByRoot(req) => write!(f, "Blocks by root: {:?}", req),
             OutboundRequest::Ping(ping) => write!(f, "Ping: {}", ping.data),
             OutboundRequest::MetaData(_) => write!(f, "MetaData request"),
-            OutboundRequest::LightClientBootstrap(bootstrap) => {
-                write!(f, "Lightclient Bootstrap: {}", bootstrap.root)
-            }
         }
     }
 }

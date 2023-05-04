@@ -179,23 +179,15 @@ pub enum Protocol {
     LightClientBootstrap,
 }
 
-/// RPC Versions
-#[derive(Debug, Clone,Copy, PartialEq, Eq)]
-pub enum Version {
-    /// Version 1 of RPC
-    V1,
-    /// Version 2 of RPC
-    V2,
-}
-
 /// RPC Encondings supported.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Encoding {
     SSZSnappy,
 }
 
-/// The Encoding for all supported protocols is SSZSnappy.
-enum SupportedProtocol {
+/// All valid protocol name and version combinations.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum SupportedProtocol {
     StatusV1,
     GoodbyeV1,
     BlocksByRangeV1,
@@ -204,22 +196,53 @@ enum SupportedProtocol {
     BlocksByRootV2,
     PingV1,
     MetaDataV1,
+    MetaDataV2,
     LightClientBootstrapV1,
 }
 
 impl SupportedProtocol {
+    pub fn version_string(&self) -> &'static str {
+        match self {
+            SupportedProtocol::StatusV1 => "1",
+            SupportedProtocol::GoodbyeV1 => "1",
+            SupportedProtocol::BlocksByRangeV1 => "1",
+            SupportedProtocol::BlocksByRangeV2 => "2",
+            SupportedProtocol::BlocksByRootV1 => "1",
+            SupportedProtocol::BlocksByRootV2 => "2",
+            SupportedProtocol::PingV1 => "1",
+            SupportedProtocol::MetaDataV1 => "1",
+            SupportedProtocol::MetaDataV2 => "2",
+            SupportedProtocol::LightClientBootstrapV1 => "1",
+        }
+    }
+
+    pub fn protocol(&self) -> Protocol {
+        match self {
+            SupportedProtocol::StatusV1 => Protocol::Status,
+            SupportedProtocol::GoodbyeV1 => Protocol::Goodbye,
+            SupportedProtocol::BlocksByRangeV1 => Protocol::BlocksByRange,
+            SupportedProtocol::BlocksByRangeV2 => Protocol::BlocksByRange,
+            SupportedProtocol::BlocksByRootV1 => Protocol::BlocksByRoot,
+            SupportedProtocol::BlocksByRootV2 => Protocol::BlocksByRoot,
+            SupportedProtocol::PingV1 => Protocol::Ping,
+            SupportedProtocol::MetaDataV1 => Protocol::MetaData,
+            SupportedProtocol::MetaDataV2 => Protocol::MetaData,
+            SupportedProtocol::LightClientBootstrapV1 => Protocol::LightClientBootstrap,
+        }
+    }
+
     fn currently_supported() -> Vec<ProtocolId> {
         vec![
-            ProtocolId::new(Protocol::Status, Version::V1, Encoding::SSZSnappy),
-            ProtocolId::new(Protocol::Goodbye, Version::V1, Encoding::SSZSnappy),
+            ProtocolId::new(Self::StatusV1, Encoding::SSZSnappy),
+            ProtocolId::new(Self::GoodbyeV1, Encoding::SSZSnappy),
             // V2 variants have higher preference then V1
-            ProtocolId::new(Protocol::BlocksByRange, Version::V2, Encoding::SSZSnappy),
-            ProtocolId::new(Protocol::BlocksByRange, Version::V1, Encoding::SSZSnappy),
-            ProtocolId::new(Protocol::BlocksByRoot, Version::V2, Encoding::SSZSnappy),
-            ProtocolId::new(Protocol::BlocksByRoot, Version::V1, Encoding::SSZSnappy),
-            ProtocolId::new(Protocol::Ping, Version::V1, Encoding::SSZSnappy),
-            ProtocolId::new(Protocol::MetaData, Version::V2, Encoding::SSZSnappy),
-            ProtocolId::new(Protocol::MetaData, Version::V1, Encoding::SSZSnappy),
+            ProtocolId::new(Self::BlocksByRangeV2, Encoding::SSZSnappy),
+            ProtocolId::new(Self::BlocksByRangeV1, Encoding::SSZSnappy),
+            ProtocolId::new(Self::BlocksByRootV2, Encoding::SSZSnappy),
+            ProtocolId::new(Self::BlocksByRootV1, Encoding::SSZSnappy),
+            ProtocolId::new(Self::PingV1, Encoding::SSZSnappy),
+            ProtocolId::new(Self::MetaDataV2, Encoding::SSZSnappy),
+            ProtocolId::new(Self::MetaDataV1, Encoding::SSZSnappy),
         ]
     }
 }
@@ -228,16 +251,6 @@ impl std::fmt::Display for Encoding {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let repr = match self {
             Encoding::SSZSnappy => "ssz_snappy",
-        };
-        f.write_str(repr)
-    }
-}
-
-impl std::fmt::Display for Version {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let repr = match self {
-            Version::V1 => "1",
-            Version::V2 => "2",
         };
         f.write_str(repr)
     }
@@ -260,8 +273,7 @@ impl<TSpec: EthSpec> UpgradeInfo for RPCProtocol<TSpec> {
         let mut supported_protocols = SupportedProtocol::currently_supported();
         if self.enable_light_client_server {
             supported_protocols.push(ProtocolId::new(
-                Protocol::LightClientBootstrap,
-                Version::V1,
+                SupportedProtocol::LightClientBootstrapV1,
                 Encoding::SSZSnappy,
             ));
         }
@@ -291,11 +303,8 @@ impl RpcLimits {
 /// Tracks the types in a protocol id.
 #[derive(Clone, Debug)]
 pub struct ProtocolId {
-    /// The RPC message type/name.
-    pub message_name: Protocol,
-
-    /// The version of the RPC.
-    pub version: Version,
+    /// The protocol name and version
+    pub protocol: SupportedProtocol,
 
     /// The encoding of the RPC.
     pub encoding: Encoding,
@@ -305,26 +314,9 @@ pub struct ProtocolId {
 }
 
 impl ProtocolId {
-    fn supported_protocol(&self) -> SupportedProtocol {
-        match self.message_name {
-            Protocol::Status => SupportedProtocol::StatusV1,
-            Protocol::Goodbye => SupportedProtocol::GoodbyeV1,
-            Protocol::BlocksByRange => match self.version {
-                Version::V1 => SupportedProtocol::BlocksByRangeV1,
-                Version::V2 => SupportedProtocol::BlocksByRangeV2,
-            },
-            Protocol::BlocksByRoot => match self.version {
-                Version::V1 => SupportedProtocol::BlocksByRootV1,
-                Version::V2 => SupportedProtocol::BlocksByRootV2,
-            },
-            Protocol::Ping => SupportedProtocol::PingV1,
-            Protocol::MetaData => SupportedProtocol::MetaDataV1,
-            Protocol::LightClientBootstrap => SupportedProtocol::LightClientBootstrapV1,
-        }
-    }
     /// Returns min and max size for messages of given protocol id requests.
     pub fn rpc_request_limits(&self) -> RpcLimits {
-        match self.message_name {
+        match self.protocol.protocol() {
             Protocol::Status => RpcLimits::new(
                 <StatusMessage as Encode>::ssz_fixed_len(),
                 <StatusMessage as Encode>::ssz_fixed_len(),
@@ -354,7 +346,7 @@ impl ProtocolId {
 
     /// Returns min and max size for messages of given protocol id responses.
     pub fn rpc_response_limits<T: EthSpec>(&self, fork_context: &ForkContext) -> RpcLimits {
-        match self.message_name {
+        match self.protocol.protocol() {
             Protocol::Status => RpcLimits::new(
                 <StatusMessage as Encode>::ssz_fixed_len(),
                 <StatusMessage as Encode>::ssz_fixed_len(),
@@ -380,7 +372,7 @@ impl ProtocolId {
     /// Returns `true` if the given `ProtocolId` should expect `context_bytes` in the
     /// beginning of the stream, else returns `false`.
     pub fn has_context_bytes(&self) -> bool {
-        match self.supported_protocol() {
+        match self.protocol {
             SupportedProtocol::BlocksByRangeV2
             | SupportedProtocol::BlocksByRootV2
             | SupportedProtocol::LightClientBootstrapV1 => true,
@@ -389,6 +381,7 @@ impl ProtocolId {
             | SupportedProtocol::BlocksByRangeV1
             | SupportedProtocol::PingV1
             | SupportedProtocol::MetaDataV1
+            | SupportedProtocol::MetaDataV2
             | SupportedProtocol::GoodbyeV1 => false,
         }
     }
@@ -396,15 +389,17 @@ impl ProtocolId {
 
 /// An RPC protocol ID.
 impl ProtocolId {
-    pub fn new(message_name: Protocol, version: Version, encoding: Encoding) -> Self {
+    pub fn new(protocol: SupportedProtocol, encoding: Encoding) -> Self {
         let protocol_id = format!(
             "{}/{}/{}/{}",
-            PROTOCOL_PREFIX, message_name, version, encoding
+            PROTOCOL_PREFIX,
+            protocol.protocol(),
+            protocol.version_string(),
+            encoding
         );
 
         ProtocolId {
-            message_name,
-            version,
+            protocol,
             encoding,
             protocol_id,
         }
@@ -437,8 +432,7 @@ where
 
     fn upgrade_inbound(self, socket: TSocket, protocol: ProtocolId) -> Self::Future {
         async move {
-            let protocol_name = protocol.message_name;
-            let version = protocol.version;
+            let protocol_name = protocol.protocol;
             // convert the socket to tokio compatible socket
             let socket = socket.compat();
             let codec = match protocol.encoding {
@@ -458,16 +452,14 @@ where
 
             // MetaData requests should be empty, return the stream
             match protocol_name {
-                Protocol::MetaData => match version {
-                    Version::V1 => Ok((
-                        InboundRequest::MetaData(MetadataRequest::MetadataRequestV1(PhantomData)),
-                        socket,
-                    )),
-                    Version::V2 => Ok((
-                        InboundRequest::MetaData(MetadataRequest::MetadataRequestV2(PhantomData)),
-                        socket,
-                    )),
-                },
+                SupportedProtocol::MetaDataV1 => Ok((
+                    InboundRequest::MetaData(MetadataRequest::MetadataRequestV1(PhantomData)),
+                    socket,
+                )),
+                SupportedProtocol::MetaDataV2 => Ok((
+                    InboundRequest::MetaData(MetadataRequest::MetadataRequestV2(PhantomData)),
+                    socket,
+                )),
                 _ => {
                     match tokio::time::timeout(
                         Duration::from_secs(REQUEST_TIMEOUT),

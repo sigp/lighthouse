@@ -50,7 +50,9 @@ impl<TSpec: EthSpec> std::convert::From<Request> for OutboundRequest<TSpec> {
                     step: 1,
                 })
             }
-            Request::LightClientBootstrap(b) => OutboundRequest::LightClientBootstrap(b),
+            Request::LightClientBootstrap(_) => {
+                unreachable!("Lighthouse never makes an outbound light client request")
+            }
             Request::Status(s) => OutboundRequest::Status(s),
         }
     }
