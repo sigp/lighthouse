@@ -1,9 +1,9 @@
+use crate::rpc::methods::*;
 use crate::rpc::{
     codec::base::OutboundCodec,
     protocol::{Encoding, Protocol, ProtocolId, RPCError, Version, ERROR_TYPE_MAX, ERROR_TYPE_MIN},
 };
 use crate::rpc::{InboundRequest, OutboundRequest, RPCCodedResponse, RPCResponse};
-use crate::{rpc::methods::*, EnrSyncCommitteeBitfield};
 use libp2p::bytes::BytesMut;
 use snap::read::FrameDecoder;
 use snap::write::FrameEncoder;
@@ -73,32 +73,7 @@ impl<TSpec: EthSpec> Encoder<RPCCodedResponse<TSpec>> for SSZSnappyInboundCodec<
                 RPCResponse::BlocksByRoot(res) => res.as_ssz_bytes(),
                 RPCResponse::LightClientBootstrap(res) => res.as_ssz_bytes(),
                 RPCResponse::Pong(res) => res.data.as_ssz_bytes(),
-                RPCResponse::MetaData(res) =>
-                // Encode the correct version of the MetaData response based on the negotiated version.
-                {
-                    match self.protocol.version {
-                        Version::V1 => MetaData::<TSpec>::V1(MetaDataV1 {
-                            seq_number: *res.seq_number(),
-                            attnets: res.attnets().clone(),
-                        })
-                        .as_ssz_bytes(),
-                        Version::V2 => {
-                            // `res` is of type MetaDataV2, return the ssz bytes
-                            if res.syncnets().is_ok() {
-                                res.as_ssz_bytes()
-                            } else {
-                                // `res` is of type MetaDataV1, create a MetaDataV2 by adding a default syncnets field
-                                // Note: This code path is redundant as `res` would be always of type MetaDataV2
-                                MetaData::<TSpec>::V2(MetaDataV2 {
-                                    seq_number: *res.seq_number(),
-                                    attnets: res.attnets().clone(),
-                                    syncnets: EnrSyncCommitteeBitfield::<TSpec>::default(),
-                                })
-                                .as_ssz_bytes()
-                            }
-                        }
-                    }
-                }
+                RPCResponse::MetaData(res) => res.as_ssz_bytes(),
             },
             RPCCodedResponse::Error(_, err) => err.as_ssz_bytes(),
             RPCCodedResponse::StreamTermination(_) => {
@@ -139,9 +114,6 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyInboundCodec<TSpec> {
     type Error = RPCError;
 
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
-        if self.protocol.message_name == Protocol::MetaData {
-            return Ok(Some(InboundRequest::MetaData(PhantomData)));
-        }
         let length = match handle_length(&mut self.inner, &mut self.len, src)? {
             Some(len) => len,
             None => return Ok(None),
@@ -492,7 +464,9 @@ fn handle_v1_request<T: EthSpec>(
                     "Metadata requests shouldn't reach decoder",
                 ))
             } else {
-                Ok(Some(InboundRequest::MetaData(PhantomData)))
+                Ok(Some(InboundRequest::MetaData(
+                    MetadataRequest::MetadataRequestV1(PhantomData),
+                )))
             }
         }
     }
@@ -518,7 +492,9 @@ fn handle_v2_request<T: EthSpec>(
             if !decoded_buffer.is_empty() {
                 Err(RPCError::InvalidData("Metadata request".to_string()))
             } else {
-                Ok(Some(InboundRequest::MetaData(PhantomData)))
+                Ok(Some(InboundRequest::MetaData(
+                    MetadataRequest::MetadataRequestV2(PhantomData),
+                )))
             }
         }
         _ => Err(RPCError::ErrorResponse(

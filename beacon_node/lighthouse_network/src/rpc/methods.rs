@@ -8,6 +8,7 @@ use ssz_types::{
     typenum::{U1024, U256},
     VariableList,
 };
+use std::marker::PhantomData;
 use std::ops::Deref;
 use std::sync::Arc;
 use strum::IntoStaticStr;
@@ -86,6 +87,13 @@ pub struct Ping {
 }
 
 /// The METADATA response structure.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub enum MetadataRequest<T: EthSpec> {
+    MetadataRequestV1(PhantomData<T>),
+    MetadataRequestV2(PhantomData<T>),
+}
+
+/// The METADATA response structure.
 #[superstruct(
     variants(V1, V2),
     variant_attributes(
@@ -104,6 +112,18 @@ pub struct MetaData<T: EthSpec> {
     /// The persistent sync committee bitfield.
     #[superstruct(only(V2))]
     pub syncnets: EnrSyncCommitteeBitfield<T>,
+}
+
+impl<T: EthSpec> MetaData<T> {
+    pub fn metadata_v1(&self) -> Self {
+        match self {
+            md @ MetaData::V1(_) => md.clone(),
+            MetaData::V2(metadata) => MetaData::V1(MetaDataV1 {
+                seq_number: metadata.seq_number,
+                attnets: metadata.attnets.clone(),
+            }),
+        }
+    }
 }
 
 /// The reason given for a `Goodbye` message.

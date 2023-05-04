@@ -9,6 +9,7 @@ use crate::peer_manager::{
     ConnectionDirection, PeerManager, PeerManagerEvent,
 };
 use crate::peer_manager::{MIN_OUTBOUND_ONLY_FACTOR, PEER_EXCESS_FACTOR, PRIORITY_PEER_EXCESS};
+use crate::rpc::methods::MetadataRequest;
 use crate::rpc::*;
 use crate::service::behaviour::BehaviourEvent;
 pub use crate::service::behaviour::Gossipsub;
@@ -943,16 +944,25 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
 
     /// Sends a METADATA request to a peer.
     fn send_meta_data_request(&mut self, peer_id: PeerId) {
-        let event = OutboundRequest::MetaData(PhantomData);
+        // We always prefer sending V2 requests
+        let event = OutboundRequest::MetaData(MetadataRequest::MetadataRequestV2(PhantomData));
         self.eth2_rpc_mut()
             .send_request(peer_id, RequestId::Internal, event);
     }
 
     /// Sends a METADATA response to a peer.
-    fn send_meta_data_response(&mut self, id: PeerRequestId, peer_id: PeerId) {
-        let event = RPCCodedResponse::Success(RPCResponse::MetaData(
-            self.network_globals.local_metadata.read().clone(),
-        ));
+    fn send_meta_data_response(
+        &mut self,
+        req: MetadataRequest<TSpec>,
+        id: PeerRequestId,
+        peer_id: PeerId,
+    ) {
+        let metadata = self.network_globals.local_metadata.read().clone();
+        let metadata = match req {
+            MetadataRequest::MetadataRequestV1(_) => metadata.metadata_v1(),
+            MetadataRequest::MetadataRequestV2(_) => metadata,
+        };
+        let event = RPCCodedResponse::Success(RPCResponse::MetaData(metadata));
         self.eth2_rpc_mut().send_response(peer_id, id, event);
     }
 
@@ -1195,9 +1205,9 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                         self.pong(peer_request_id, peer_id);
                         None
                     }
-                    InboundRequest::MetaData(_) => {
+                    InboundRequest::MetaData(req) => {
                         // send the requested meta-data
-                        self.send_meta_data_response((handler_id, id), peer_id);
+                        self.send_meta_data_response(req, (handler_id, id), peer_id);
                         None
                     }
                     InboundRequest::Goodbye(reason) => {

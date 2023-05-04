@@ -1,5 +1,3 @@
-use std::marker::PhantomData;
-
 use super::methods::*;
 use super::protocol::Protocol;
 use super::protocol::ProtocolId;
@@ -40,7 +38,7 @@ pub enum OutboundRequest<TSpec: EthSpec> {
     BlocksByRoot(BlocksByRootRequest),
     LightClientBootstrap(LightClientBootstrapRequest),
     Ping(Ping),
-    MetaData(PhantomData<TSpec>),
+    MetaData(MetadataRequest<TSpec>),
 }
 
 impl<TSpec: EthSpec> UpgradeInfo for OutboundRequestContainer<TSpec> {

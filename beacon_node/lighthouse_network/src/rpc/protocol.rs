@@ -180,7 +180,7 @@ pub enum Protocol {
 }
 
 /// RPC Versions
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone,Copy, PartialEq, Eq)]
 pub enum Version {
     /// Version 1 of RPC
     V1,
@@ -438,6 +438,7 @@ where
     fn upgrade_inbound(self, socket: TSocket, protocol: ProtocolId) -> Self::Future {
         async move {
             let protocol_name = protocol.message_name;
+            let version = protocol.version;
             // convert the socket to tokio compatible socket
             let socket = socket.compat();
             let codec = match protocol.encoding {
@@ -457,7 +458,16 @@ where
 
             // MetaData requests should be empty, return the stream
             match protocol_name {
-                Protocol::MetaData => Ok((InboundRequest::MetaData(PhantomData), socket)),
+                Protocol::MetaData => match version {
+                    Version::V1 => Ok((
+                        InboundRequest::MetaData(MetadataRequest::MetadataRequestV1(PhantomData)),
+                        socket,
+                    )),
+                    Version::V2 => Ok((
+                        InboundRequest::MetaData(MetadataRequest::MetadataRequestV2(PhantomData)),
+                        socket,
+                    )),
+                },
                 _ => {
                     match tokio::time::timeout(
                         Duration::from_secs(REQUEST_TIMEOUT),
@@ -485,7 +495,7 @@ pub enum InboundRequest<TSpec: EthSpec> {
     BlocksByRoot(BlocksByRootRequest),
     LightClientBootstrap(LightClientBootstrapRequest),
     Ping(Ping),
-    MetaData(PhantomData<TSpec>),
+    MetaData(MetadataRequest<TSpec>),
 }
 
 /// Implements the encoding per supported protocol for `RPCRequest`.
