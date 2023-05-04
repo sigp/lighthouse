@@ -1224,11 +1224,12 @@ where
             block_hash,
             slot,
             None,
-            &fork,
+            fork,
         )
         .0
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn make_attestations_with_limit_and_fork(
         &self,
         attesting_validators: &[usize],
@@ -1272,7 +1273,7 @@ where
                                 let selection_proof = SelectionProof::new::<E>(
                                     slot,
                                     &self.validator_keypairs[*validator_index].sk,
-                                    &fork,
+                                    fork,
                                     state.genesis_validators_root(),
                                     &self.spec,
                                 );
@@ -1304,7 +1305,7 @@ where
                             aggregate,
                             None,
                             &self.validator_keypairs[aggregator_index].sk,
-                            &fork,
+                            fork,
                             state.genesis_validators_root(),
                             &self.spec,
                         );
