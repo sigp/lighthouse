@@ -1,6 +1,8 @@
 #![cfg(not(debug_assertions))]
 
-use beacon_chain::attestation_verification::batch_verify_unaggregated_attestations;
+use beacon_chain::attestation_verification::{
+    batch_verify_aggregated_attestations, batch_verify_unaggregated_attestations,
+};
 use beacon_chain::test_utils::HARNESS_GENESIS_TIME;
 use beacon_chain::{
     attestation_verification::Error as AttnError,
@@ -1301,15 +1303,15 @@ async fn attestation_verification_use_head_state_fork() {
     {
         let attesters = (VALIDATOR_COUNT / 2..VALIDATOR_COUNT).collect::<Vec<_>>();
         let merge_fork = spec.fork_for_name(ForkName::Merge).unwrap();
-        let res = harness.make_unaggregated_attestations_with_fork(
-            attesters.as_slice(),
-            &state,
-            state_root,
-            pre_capella_block.canonical_root().into(),
-            first_capella_slot,
-            &merge_fork,
-        );
-        let committee_attestations = res
+        let committee_attestations = harness
+            .make_unaggregated_attestations_with_fork(
+                attesters.as_slice(),
+                &state,
+                state_root,
+                pre_capella_block.canonical_root().into(),
+                first_capella_slot,
+                &merge_fork,
+            )
             .first()
             .cloned()
             .expect("should have at least one committee");
@@ -1320,6 +1322,85 @@ async fn attestation_verification_use_head_state_fork() {
         assert!(
             batch_verify_unaggregated_attestations(attestations_and_subnets, &harness.chain).is_err(),
             "should reject attestations with `data.slot` >= first capella slot signed using the pre-Capella fork"
+        );
+    }
+}
+
+#[tokio::test]
+async fn aggregated_attestation_verification_use_head_state_fork() {
+    let (harness, spec) = get_harness_capella_spec(VALIDATOR_COUNT);
+
+    // Advance to last block of the pre-Capella fork epoch. Capella is at slot 32.
+    harness
+        .extend_chain(
+            MainnetEthSpec::slots_per_epoch() as usize * CAPELLA_FORK_EPOCH - 1,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::SomeValidators(vec![]),
+        )
+        .await;
+
+    // Assert our head is a block at slot 31 in the pre-Capella fork epoch.
+    let pre_capella_slot = harness.get_current_slot();
+    let pre_capella_block = harness
+        .chain
+        .block_at_slot(pre_capella_slot, WhenSlotSkipped::Prev)
+        .expect("should not error getting block at slot")
+        .expect("should find block at slot");
+    assert_eq!(pre_capella_block.fork_name(&spec).unwrap(), ForkName::Merge);
+
+    // Advance slot clock to Capella fork.
+    harness.advance_slot();
+    let first_capella_slot = harness.get_current_slot();
+    assert_eq!(
+        spec.fork_name_at_slot::<E>(first_capella_slot),
+        ForkName::Capella
+    );
+
+    let (state, state_root) = harness.get_current_state_and_root();
+
+    // Scenario 1: other node signed attestation using the Capella fork epoch.
+    {
+        let attesters = (0..VALIDATOR_COUNT / 2).collect::<Vec<_>>();
+        let capella_fork = spec.fork_for_name(ForkName::Capella).unwrap();
+        let aggregates = harness
+            .make_attestations_with_fork(
+                attesters.as_slice(),
+                &state,
+                state_root,
+                pre_capella_block.canonical_root().into(),
+                first_capella_slot,
+                &capella_fork,
+            )
+            .into_iter()
+            .map(|(_, aggregate)| aggregate.expect("should have signed aggregate and proof"))
+            .collect::<Vec<_>>();
+
+        assert!(
+            batch_verify_aggregated_attestations(aggregates.iter(), &harness.chain).is_ok(),
+            "should accept aggregates with `data.slot` >= first capella slot signed using the Capella fork"
+        );
+    }
+
+    // Scenario 2: other node forgot to update their node and signed attestations using bellatrix fork
+    {
+        let attesters = (VALIDATOR_COUNT / 2..VALIDATOR_COUNT).collect::<Vec<_>>();
+        let merge_fork = spec.fork_for_name(ForkName::Merge).unwrap();
+        let aggregates = harness
+            .make_attestations_with_fork(
+                attesters.as_slice(),
+                &state,
+                state_root,
+                pre_capella_block.canonical_root().into(),
+                first_capella_slot,
+                &merge_fork,
+            )
+            .into_iter()
+            .map(|(_, aggregate)| aggregate.expect("should have signed aggregate and proof"))
+            .collect::<Vec<_>>();
+
+        assert!(
+            batch_verify_aggregated_attestations(aggregates.iter(), &harness.chain).is_err(),
+            "should reject aggregates with `data.slot` >= first capella slot signed using the pre-Capella fork"
         );
     }
 }

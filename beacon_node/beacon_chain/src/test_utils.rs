@@ -1196,6 +1196,49 @@ where
         slot: Slot,
         limit: Option<usize>,
     ) -> (HarnessAttestations<E>, Vec<usize>) {
+        let fork = self.spec.fork_at_epoch(slot.epoch(E::slots_per_epoch()));
+        self.make_attestations_with_limit_and_fork(
+            attesting_validators,
+            state,
+            state_root,
+            block_hash,
+            slot,
+            limit,
+            &fork,
+        )
+    }
+
+    pub fn make_attestations_with_fork(
+        &self,
+        attesting_validators: &[usize],
+        state: &BeaconState<E>,
+        state_root: Hash256,
+        block_hash: SignedBeaconBlockHash,
+        slot: Slot,
+        fork: &Fork,
+    ) -> HarnessAttestations<E> {
+        self.make_attestations_with_limit_and_fork(
+            attesting_validators,
+            state,
+            state_root,
+            block_hash,
+            slot,
+            None,
+            &fork,
+        )
+        .0
+    }
+
+    fn make_attestations_with_limit_and_fork(
+        &self,
+        attesting_validators: &[usize],
+        state: &BeaconState<E>,
+        state_root: Hash256,
+        block_hash: SignedBeaconBlockHash,
+        slot: Slot,
+        limit: Option<usize>,
+        fork: &Fork,
+    ) -> (HarnessAttestations<E>, Vec<usize>) {
         let (unaggregated_attestations, attesters) = self
             .make_unaggregated_attestations_with_limit(
                 attesting_validators,
@@ -1205,7 +1248,6 @@ where
                 slot,
                 limit,
             );
-        let fork = self.spec.fork_at_epoch(slot.epoch(E::slots_per_epoch()));
 
         let aggregated_attestations: Vec<Option<SignedAggregateAndProof<E>>> =
             unaggregated_attestations
