@@ -1,9 +1,9 @@
-#![cfg(not(debug_assertions))]
+// #![cfg(not(debug_assertions))]
 
 use beacon_chain::attestation_verification::{
     batch_verify_aggregated_attestations, batch_verify_unaggregated_attestations,
 };
-use beacon_chain::test_utils::HARNESS_GENESIS_TIME;
+use beacon_chain::test_utils::{MakeAttestationOptions, HARNESS_GENESIS_TIME};
 use beacon_chain::{
     attestation_verification::Error as AttnError,
     test_utils::{
@@ -1278,14 +1278,18 @@ async fn attestation_verification_use_head_state_fork() {
         let attesters = (0..VALIDATOR_COUNT / 2).collect::<Vec<_>>();
         let capella_fork = spec.fork_for_name(ForkName::Capella).unwrap();
         let committee_attestations = harness
-            .make_unaggregated_attestations_with_fork(
+            .make_unaggregated_attestations_with_opts(
                 attesters.as_slice(),
                 &state,
                 state_root,
                 pre_capella_block.canonical_root().into(),
                 first_capella_slot,
-                &capella_fork,
+                MakeAttestationOptions {
+                    fork: capella_fork,
+                    limit: None,
+                },
             )
+            .0
             .first()
             .cloned()
             .expect("should have at least one committee");
@@ -1304,14 +1308,18 @@ async fn attestation_verification_use_head_state_fork() {
         let attesters = (VALIDATOR_COUNT / 2..VALIDATOR_COUNT).collect::<Vec<_>>();
         let merge_fork = spec.fork_for_name(ForkName::Merge).unwrap();
         let committee_attestations = harness
-            .make_unaggregated_attestations_with_fork(
+            .make_unaggregated_attestations_with_opts(
                 attesters.as_slice(),
                 &state,
                 state_root,
                 pre_capella_block.canonical_root().into(),
                 first_capella_slot,
-                &merge_fork,
+                MakeAttestationOptions {
+                    fork: merge_fork,
+                    limit: None,
+                },
             )
+            .0
             .first()
             .cloned()
             .expect("should have at least one committee");
@@ -1363,14 +1371,18 @@ async fn aggregated_attestation_verification_use_head_state_fork() {
         let attesters = (0..VALIDATOR_COUNT / 2).collect::<Vec<_>>();
         let capella_fork = spec.fork_for_name(ForkName::Capella).unwrap();
         let aggregates = harness
-            .make_attestations_with_fork(
+            .make_attestations_with_opts(
                 attesters.as_slice(),
                 &state,
                 state_root,
                 pre_capella_block.canonical_root().into(),
                 first_capella_slot,
-                &capella_fork,
+                MakeAttestationOptions {
+                    fork: capella_fork,
+                    limit: None,
+                },
             )
+            .0
             .into_iter()
             .map(|(_, aggregate)| aggregate.expect("should have signed aggregate and proof"))
             .collect::<Vec<_>>();
@@ -1386,14 +1398,18 @@ async fn aggregated_attestation_verification_use_head_state_fork() {
         let attesters = (VALIDATOR_COUNT / 2..VALIDATOR_COUNT).collect::<Vec<_>>();
         let merge_fork = spec.fork_for_name(ForkName::Merge).unwrap();
         let aggregates = harness
-            .make_attestations_with_fork(
+            .make_attestations_with_opts(
                 attesters.as_slice(),
                 &state,
                 state_root,
                 pre_capella_block.canonical_root().into(),
                 first_capella_slot,
-                &merge_fork,
+                MakeAttestationOptions {
+                    fork: merge_fork,
+                    limit: None,
+                },
             )
+            .0
             .into_iter()
             .map(|(_, aggregate)| aggregate.expect("should have signed aggregate and proof"))
             .collect::<Vec<_>>();

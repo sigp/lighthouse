@@ -938,72 +938,30 @@ where
         head_block_root: SignedBeaconBlockHash,
         attestation_slot: Slot,
     ) -> Vec<CommitteeAttestations<E>> {
-        self.make_unaggregated_attestations_with_limit(
-            attesting_validators,
-            state,
-            state_root,
-            head_block_root,
-            attestation_slot,
-            None,
-        )
-        .0
-    }
-
-    pub fn make_unaggregated_attestations_with_fork(
-        &self,
-        attesting_validators: &[usize],
-        state: &BeaconState<E>,
-        state_root: Hash256,
-        head_block_root: SignedBeaconBlockHash,
-        attestation_slot: Slot,
-        fork: &Fork,
-    ) -> Vec<CommitteeAttestations<E>> {
-        self.make_unaggregated_attestations_with_limit_and_fork(
-            attesting_validators,
-            state,
-            state_root,
-            head_block_root,
-            attestation_slot,
-            None,
-            fork,
-        )
-        .0
-    }
-
-    pub fn make_unaggregated_attestations_with_limit(
-        &self,
-        attesting_validators: &[usize],
-        state: &BeaconState<E>,
-        state_root: Hash256,
-        head_block_root: SignedBeaconBlockHash,
-        attestation_slot: Slot,
-        limit: Option<usize>,
-    ) -> (Vec<CommitteeAttestations<E>>, Vec<usize>) {
         let fork = self
             .spec
             .fork_at_epoch(attestation_slot.epoch(E::slots_per_epoch()));
-        self.make_unaggregated_attestations_with_limit_and_fork(
+        self.make_unaggregated_attestations_with_opts(
             attesting_validators,
             state,
             state_root,
             head_block_root,
             attestation_slot,
-            limit,
-            &fork,
+            MakeAttestationOptions { limit: None, fork },
         )
+        .0
     }
 
-    #[allow(clippy::too_many_arguments)]
-    fn make_unaggregated_attestations_with_limit_and_fork(
+    pub fn make_unaggregated_attestations_with_opts(
         &self,
         attesting_validators: &[usize],
         state: &BeaconState<E>,
         state_root: Hash256,
         head_block_root: SignedBeaconBlockHash,
         attestation_slot: Slot,
-        limit: Option<usize>,
-        fork: &Fork,
+        opts: MakeAttestationOptions,
     ) -> (Vec<CommitteeAttestations<E>>, Vec<usize>) {
+        let MakeAttestationOptions { limit, fork } = opts;
         let committee_count = state.get_committee_count_at_slot(state.slot()).unwrap();
         let attesters = Mutex::new(vec![]);
 
@@ -1044,7 +1002,7 @@ where
                             let domain = self.spec.get_domain(
                                 attestation.data.target.epoch,
                                 Domain::BeaconAttester,
-                                fork,
+                                &fork,
                                 state.genesis_validators_root(),
                             );
 
@@ -1197,58 +1155,34 @@ where
         limit: Option<usize>,
     ) -> (HarnessAttestations<E>, Vec<usize>) {
         let fork = self.spec.fork_at_epoch(slot.epoch(E::slots_per_epoch()));
-        self.make_attestations_with_limit_and_fork(
+        self.make_attestations_with_opts(
             attesting_validators,
             state,
             state_root,
             block_hash,
             slot,
-            limit,
-            &fork,
+            MakeAttestationOptions { limit, fork },
         )
     }
 
-    pub fn make_attestations_with_fork(
+    pub fn make_attestations_with_opts(
         &self,
         attesting_validators: &[usize],
         state: &BeaconState<E>,
         state_root: Hash256,
         block_hash: SignedBeaconBlockHash,
         slot: Slot,
-        fork: &Fork,
-    ) -> HarnessAttestations<E> {
-        self.make_attestations_with_limit_and_fork(
-            attesting_validators,
-            state,
-            state_root,
-            block_hash,
-            slot,
-            None,
-            fork,
-        )
-        .0
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    fn make_attestations_with_limit_and_fork(
-        &self,
-        attesting_validators: &[usize],
-        state: &BeaconState<E>,
-        state_root: Hash256,
-        block_hash: SignedBeaconBlockHash,
-        slot: Slot,
-        limit: Option<usize>,
-        fork: &Fork,
+        opts: MakeAttestationOptions,
     ) -> (HarnessAttestations<E>, Vec<usize>) {
-        let (unaggregated_attestations, attesters) = self
-            .make_unaggregated_attestations_with_limit(
-                attesting_validators,
-                state,
-                state_root,
-                block_hash,
-                slot,
-                limit,
-            );
+        let MakeAttestationOptions { fork, .. } = opts;
+        let (unaggregated_attestations, attesters) = self.make_unaggregated_attestations_with_opts(
+            attesting_validators,
+            state,
+            state_root,
+            block_hash,
+            slot,
+            opts,
+        );
 
         let aggregated_attestations: Vec<Option<SignedAggregateAndProof<E>>> =
             unaggregated_attestations
@@ -1273,7 +1207,7 @@ where
                                 let selection_proof = SelectionProof::new::<E>(
                                     slot,
                                     &self.validator_keypairs[*validator_index].sk,
-                                    fork,
+                                    &fork,
                                     state.genesis_validators_root(),
                                     &self.spec,
                                 );
@@ -1305,7 +1239,7 @@ where
                             aggregate,
                             None,
                             &self.validator_keypairs[aggregator_index].sk,
-                            fork,
+                            &fork,
                             state.genesis_validators_root(),
                             &self.spec,
                         );
@@ -2303,4 +2237,11 @@ impl<T: BeaconChainTypes> fmt::Debug for BeaconChainHarness<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "BeaconChainHarness")
     }
+}
+
+pub struct MakeAttestationOptions {
+    /// Produce exactly `limit` attestations.
+    pub limit: Option<usize>,
+    /// Fork to use for signing attestations.
+    pub fork: Fork,
 }
