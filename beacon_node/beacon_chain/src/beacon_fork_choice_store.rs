@@ -354,6 +354,8 @@ where
     }
 }
 
+pub type PersistedForkChoiceStore = PersistedForkChoiceStoreV17;
+
 /// A container which allows persisting the `BeaconForkChoiceStore` to the on-disk database.
 #[superstruct(
     variants(V11, V17),
@@ -411,5 +413,3 @@ impl Into<PersistedForkChoiceStoreV11> for PersistedForkChoiceStore {
         }
     }
 }
-
-pub type PersistedForkChoiceStore = PersistedForkChoiceStoreV17;

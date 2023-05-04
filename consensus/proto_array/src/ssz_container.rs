@@ -22,7 +22,6 @@ pub type SszContainer = SszContainerV17;
     variant_attributes(derive(Encode, Decode)),
     no_enum
 )]
-#[derive(Encode, Decode)]
 pub struct SszContainer {
     pub votes: Vec<VoteTracker>,
     pub balances: Vec<u64>,
