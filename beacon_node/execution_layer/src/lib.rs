@@ -374,8 +374,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
 
     /// Attempt to retrieve a full payload from the payload cache by the payload root
     pub fn get_payload_by_root(&self, root: &Hash256) -> Option<ExecutionPayload<T>> {
-        let payload_cache = self.inner.payload_cache.clone();
-        payload_cache.pop(root)
+        self.inner.payload_cache.get(root)
     }
 
     pub fn executor(&self) -> &TaskExecutor {

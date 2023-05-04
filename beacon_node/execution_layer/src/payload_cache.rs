@@ -6,7 +6,6 @@ use types::{EthSpec, ExecutionPayload, Hash256};
 pub const DEFAULT_PAYLOAD_CACHE_SIZE: usize = 10;
 
 /// A cache mapping execution payloads by tree hash roots.
-#[derive(Clone)]
 pub struct PayloadCache<T: EthSpec> {
     payloads: Mutex<LruCache<PayloadCacheId, ExecutionPayload<T>>>,
 }
@@ -30,5 +29,9 @@ impl<T: EthSpec> PayloadCache<T> {
 
     pub fn pop(&self, root: &Hash256) -> Option<ExecutionPayload<T>> {
         self.payloads.lock().pop(&PayloadCacheId(*root))
+    }
+
+    pub fn get(&self, hash: &Hash256) -> Option<ExecutionPayload<T>> {
+        self.payloads.lock().get(&PayloadCacheId(*hash)).cloned()
     }
 }
