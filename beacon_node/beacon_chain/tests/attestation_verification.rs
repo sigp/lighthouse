@@ -1,4 +1,4 @@
-// #![cfg(not(debug_assertions))]
+#![cfg(not(debug_assertions))]
 
 use beacon_chain::attestation_verification::{
     batch_verify_aggregated_attestations, batch_verify_unaggregated_attestations,
