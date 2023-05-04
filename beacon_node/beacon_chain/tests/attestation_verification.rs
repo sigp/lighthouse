@@ -1,5 +1,7 @@
 #![cfg(not(debug_assertions))]
 
+use beacon_chain::attestation_verification::batch_verify_unaggregated_attestations;
+use beacon_chain::test_utils::HARNESS_GENESIS_TIME;
 use beacon_chain::{
     attestation_verification::Error as AttnError,
     test_utils::{
@@ -7,6 +9,7 @@ use beacon_chain::{
     },
     BeaconChain, BeaconChainError, BeaconChainTypes, WhenSlotSkipped,
 };
+use genesis::{interop_genesis_state, DEFAULT_ETH1_BLOCK_HASH};
 use int_to_bytes::int_to_bytes32;
 use lazy_static::lazy_static;
 use state_processing::{
@@ -15,8 +18,8 @@ use state_processing::{
 use tree_hash::TreeHash;
 use types::{
     test_utils::generate_deterministic_keypair, AggregateSignature, Attestation, BeaconStateError,
-    BitList, Epoch, EthSpec, Hash256, Keypair, MainnetEthSpec, SecretKey, SelectionProof,
-    SignedAggregateAndProof, Slot, SubnetId, Unsigned,
+    BitList, ChainSpec, Epoch, EthSpec, ForkName, Hash256, Keypair, MainnetEthSpec, SecretKey,
+    SelectionProof, SignedAggregateAndProof, Slot, SubnetId, Unsigned,
 };
 
 pub type E = MainnetEthSpec;
@@ -24,6 +27,8 @@ pub type E = MainnetEthSpec;
 /// The validator count needs to be relatively high compared to other tests to ensure that we can
 /// have committees where _some_ validators are aggregators but not _all_.
 pub const VALIDATOR_COUNT: usize = 256;
+
+pub const CAPELLA_FORK_EPOCH: usize = 1;
 
 lazy_static! {
     /// A cached set of keys.
@@ -48,6 +53,50 @@ fn get_harness(validator_count: usize) -> BeaconChainHarness<EphemeralHarnessTyp
     harness.advance_slot();
 
     harness
+}
+
+/// Returns a beacon chain harness with Capella fork enabled at epoch 1, and
+/// all genesis validators start with BLS withdrawal credentials.
+fn get_harness_capella_spec(
+    validator_count: usize,
+) -> (BeaconChainHarness<EphemeralHarnessType<E>>, ChainSpec) {
+    let mut spec = E::default_spec();
+    spec.altair_fork_epoch = Some(Epoch::new(0));
+    spec.bellatrix_fork_epoch = Some(Epoch::new(0));
+    spec.capella_fork_epoch = Some(Epoch::new(CAPELLA_FORK_EPOCH as u64));
+
+    let validator_keypairs = KEYPAIRS[0..validator_count].to_vec();
+    let genesis_state = interop_genesis_state(
+        &validator_keypairs,
+        HARNESS_GENESIS_TIME,
+        Hash256::from_slice(DEFAULT_ETH1_BLOCK_HASH),
+        None,
+        &spec,
+    )
+    .unwrap();
+
+    let harness = BeaconChainHarness::builder(MainnetEthSpec)
+        .spec(spec.clone())
+        .keypairs(validator_keypairs)
+        .withdrawal_keypairs(
+            KEYPAIRS[0..validator_count]
+                .iter()
+                .cloned()
+                .map(Some)
+                .collect(),
+        )
+        .genesis_state_ephemeral_store(genesis_state)
+        .mock_execution_layer()
+        .build();
+
+    harness
+        .execution_block_generator()
+        .move_to_terminal_block()
+        .unwrap();
+
+    harness.advance_slot();
+
+    (harness, spec)
 }
 
 /// Returns an attestation that is valid for some slot in the given `chain`.
@@ -1188,4 +1237,89 @@ async fn verify_attestation_for_gossip_doppelganger_detection() {
         .read()
         .validator_has_been_observed(epoch, index)
         .expect("should check if gossip aggregator was observed"));
+}
+
+#[tokio::test]
+async fn attestation_verification_use_head_state_fork() {
+    let (harness, spec) = get_harness_capella_spec(VALIDATOR_COUNT);
+
+    // Advance to last block of the pre-Capella fork epoch. Capella is at slot 32.
+    harness
+        .extend_chain(
+            MainnetEthSpec::slots_per_epoch() as usize * CAPELLA_FORK_EPOCH - 1,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::SomeValidators(vec![]),
+        )
+        .await;
+
+    // Assert our head is a block at slot 31 in the pre-Capella fork epoch.
+    let pre_capella_slot = harness.get_current_slot();
+    let pre_capella_block = harness
+        .chain
+        .block_at_slot(pre_capella_slot, WhenSlotSkipped::Prev)
+        .expect("should not error getting block at slot")
+        .expect("should find block at slot");
+    assert_eq!(pre_capella_block.fork_name(&spec).unwrap(), ForkName::Merge);
+
+    // Advance slot clock to Capella fork.
+    harness.advance_slot();
+    let first_capella_slot = harness.get_current_slot();
+    assert_eq!(
+        spec.fork_name_at_slot::<E>(first_capella_slot),
+        ForkName::Capella
+    );
+
+    let (state, state_root) = harness.get_current_state_and_root();
+
+    // Scenario 1: other node signed attestation using the Capella fork epoch.
+    {
+        let attesters = (0..VALIDATOR_COUNT / 2).collect::<Vec<_>>();
+        let capella_fork = spec.fork_for_name(ForkName::Capella).unwrap();
+        let committee_attestations = harness
+            .make_unaggregated_attestations_with_fork(
+                attesters.as_slice(),
+                &state,
+                state_root,
+                pre_capella_block.canonical_root().into(),
+                first_capella_slot,
+                &capella_fork,
+            )
+            .first()
+            .cloned()
+            .expect("should have at least one committee");
+        let attestations_and_subnets = committee_attestations
+            .iter()
+            .map(|(attestation, subnet_id)| (attestation, Some(*subnet_id)));
+
+        assert!(
+            batch_verify_unaggregated_attestations(attestations_and_subnets, &harness.chain).is_ok(),
+            "should accept attestations with `data.slot` >= first capella slot signed using the Capella fork"
+        );
+    }
+
+    // Scenario 2: other node forgot to update their node and signed attestations using bellatrix fork
+    {
+        let attesters = (VALIDATOR_COUNT / 2..VALIDATOR_COUNT).collect::<Vec<_>>();
+        let merge_fork = spec.fork_for_name(ForkName::Merge).unwrap();
+        let res = harness.make_unaggregated_attestations_with_fork(
+            attesters.as_slice(),
+            &state,
+            state_root,
+            pre_capella_block.canonical_root().into(),
+            first_capella_slot,
+            &merge_fork,
+        );
+        let committee_attestations = res
+            .first()
+            .cloned()
+            .expect("should have at least one committee");
+        let attestations_and_subnets = committee_attestations
+            .iter()
+            .map(|(attestation, subnet_id)| (attestation, Some(*subnet_id)));
+
+        assert!(
+            batch_verify_unaggregated_attestations(attestations_and_subnets, &harness.chain).is_err(),
+            "should reject attestations with `data.slot` >= first capella slot signed using the pre-Capella fork"
+        );
+    }
 }

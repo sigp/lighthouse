@@ -62,7 +62,7 @@ const FORK_NAME_ENV_VAR: &str = "FORK_NAME";
 //
 // You should mutate the `ChainSpec` prior to initialising the harness if you would like to use
 // a different value.
-pub const DEFAULT_TARGET_AGGREGATORS: u64 = u64::max_value();
+pub const DEFAULT_TARGET_AGGREGATORS: u64 = u64::MAX;
 
 pub type BaseHarnessType<TEthSpec, THotStore, TColdStore> =
     Witness<TestingSlotClock, CachingEth1Backend<TEthSpec>, TEthSpec, THotStore, TColdStore>;
@@ -949,6 +949,27 @@ where
         .0
     }
 
+    pub fn make_unaggregated_attestations_with_fork(
+        &self,
+        attesting_validators: &[usize],
+        state: &BeaconState<E>,
+        state_root: Hash256,
+        head_block_root: SignedBeaconBlockHash,
+        attestation_slot: Slot,
+        fork: &Fork,
+    ) -> Vec<CommitteeAttestations<E>> {
+        self.make_unaggregated_attestations_with_limit_and_fork(
+            attesting_validators,
+            state,
+            state_root,
+            head_block_root,
+            attestation_slot,
+            None,
+            fork,
+        )
+        .0
+    }
+
     pub fn make_unaggregated_attestations_with_limit(
         &self,
         attesting_validators: &[usize],
@@ -958,11 +979,32 @@ where
         attestation_slot: Slot,
         limit: Option<usize>,
     ) -> (Vec<CommitteeAttestations<E>>, Vec<usize>) {
-        let committee_count = state.get_committee_count_at_slot(state.slot()).unwrap();
         let fork = self
             .spec
             .fork_at_epoch(attestation_slot.epoch(E::slots_per_epoch()));
+        self.make_unaggregated_attestations_with_limit_and_fork(
+            attesting_validators,
+            state,
+            state_root,
+            head_block_root,
+            attestation_slot,
+            limit,
+            &fork,
+        )
+    }
 
+    #[allow(clippy::too_many_arguments)]
+    fn make_unaggregated_attestations_with_limit_and_fork(
+        &self,
+        attesting_validators: &[usize],
+        state: &BeaconState<E>,
+        state_root: Hash256,
+        head_block_root: SignedBeaconBlockHash,
+        attestation_slot: Slot,
+        limit: Option<usize>,
+        fork: &Fork,
+    ) -> (Vec<CommitteeAttestations<E>>, Vec<usize>) {
+        let committee_count = state.get_committee_count_at_slot(state.slot()).unwrap();
         let attesters = Mutex::new(vec![]);
 
         let attestations = state
@@ -1002,7 +1044,7 @@ where
                             let domain = self.spec.get_domain(
                                 attestation.data.target.epoch,
                                 Domain::BeaconAttester,
-                                &fork,
+                                fork,
                                 state.genesis_validators_root(),
                             );
 
