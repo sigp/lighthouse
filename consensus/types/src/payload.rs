@@ -39,7 +39,7 @@ pub trait ExecPayload<T: EthSpec>: Debug + Clone + PartialEq + Hash + TreeHash +
     fn transactions(&self) -> Option<&Transactions<T>>;
     /// fork-specific fields
     fn withdrawals_root(&self) -> Result<Hash256, Error>;
-    fn deposit_receipts(&self) -> Result<DepositReceipts<T>, Error>;
+    fn deposit_receipts_root(&self) -> Result<Hash256, Error>;
 
     /// Is this a default payload with 0x0 roots for transactions and withdrawals?
     fn is_default_with_zero_roots(&self) -> bool;
@@ -268,6 +268,17 @@ impl<T: EthSpec> ExecPayload<T> for FullPayload<T> {
         }
     }
 
+    fn deposit_receipts_root(&self) -> Result<Hash256, Error> {
+        match self {
+            FullPayload::Merge(_) => Err(Error::IncorrectStateVariant),
+            FullPayload::Capella(_) => Err(Error::IncorrectStateVariant),
+            FullPayload::Eip4844(_) => Err(Error::IncorrectStateVariant),
+            FullPayload::Eip6110(ref inner) => {
+                Ok(inner.execution_payload.deposit_receipts.tree_hash_root())
+            }
+        }
+    }
+
     fn is_default_with_zero_roots<'a>(&'a self) -> bool {
         map_full_payload_ref!(&'a _, self.to_ref(), move |payload, cons| {
             cons(payload);
@@ -278,24 +289,6 @@ impl<T: EthSpec> ExecPayload<T> for FullPayload<T> {
     fn is_default_with_empty_roots(&self) -> bool {
         // For full payloads the empty/zero distinction does not exist.
         self.is_default_with_zero_roots()
-    }
-
-    fn deposit_receipts(&self) -> Result<DepositReceipts<T>, Error> {
-        match self {
-            FullPayload::Merge(_) => {
-                // Return an "empty" or "default" value for the Merge variant
-                Ok(Vec::new().into())
-            }
-            FullPayload::Capella(_) => {
-                // Return an "empty" or "default" value for the Capella variant
-                Ok(Vec::new().into())
-            }
-            FullPayload::Eip4844(_) => {
-                // Return an "empty" or "default" value for the EIP-4844 variant
-                Ok(Vec::new().into())
-            }
-            FullPayload::Eip6110(ref inner) => Ok(inner.execution_payload.deposit_receipts.clone()),
-        }
     }
 }
 
@@ -398,6 +391,17 @@ impl<'b, T: EthSpec> ExecPayload<T> for FullPayloadRef<'b, T> {
         }
     }
 
+    fn deposit_receipts_root(&self) -> Result<Hash256, Error> {
+        match self {
+            FullPayloadRef::Merge(_) => Err(Error::IncorrectStateVariant),
+            FullPayloadRef::Capella(_) => Err(Error::IncorrectStateVariant),
+            FullPayloadRef::Eip4844(_) => Err(Error::IncorrectStateVariant),
+            FullPayloadRef::Eip6110(inner) => {
+                Ok(inner.execution_payload.deposit_receipts.tree_hash_root())
+            }
+        }
+    }
+
     fn is_default_with_zero_roots<'a>(&'a self) -> bool {
         map_full_payload_ref!(&'a _, self, move |payload, cons| {
             cons(payload);
@@ -408,24 +412,6 @@ impl<'b, T: EthSpec> ExecPayload<T> for FullPayloadRef<'b, T> {
     fn is_default_with_empty_roots(&self) -> bool {
         // For full payloads the empty/zero distinction does not exist.
         self.is_default_with_zero_roots()
-    }
-
-    fn deposit_receipts(&self) -> Result<DepositReceipts<T>, Error> {
-        match self {
-            FullPayloadRef::Merge(_) => {
-                // Return an "empty" or "default" value for the Merge variant
-                Ok(Vec::new().into())
-            }
-            FullPayloadRef::Capella(_) => {
-                // Return an "empty" or "default" value for the Capella variant
-                Ok(Vec::new().into())
-            }
-            FullPayloadRef::Eip4844(_) => {
-                // Return an "empty" or "default" value for the EIP-4844 variant
-                Ok(Vec::new().into())
-            }
-            FullPayloadRef::Eip6110(inner) => Ok(inner.execution_payload.deposit_receipts.clone()),
-        }
     }
 }
 
@@ -595,6 +581,17 @@ impl<T: EthSpec> ExecPayload<T> for BlindedPayload<T> {
         }
     }
 
+    fn deposit_receipts_root(&self) -> Result<Hash256, Error> {
+        match self {
+            BlindedPayload::Merge(_) => Err(Error::IncorrectStateVariant),
+            BlindedPayload::Capella(_) => Err(Error::IncorrectStateVariant),
+            BlindedPayload::Eip4844(_) => Err(Error::IncorrectStateVariant),
+            BlindedPayload::Eip6110(ref inner) => {
+                Ok(inner.execution_payload_header.deposit_receipts_root)
+            }
+        }
+    }
+
     fn is_default_with_zero_roots(&self) -> bool {
         self.to_ref().is_default_with_zero_roots()
     }
@@ -605,24 +602,6 @@ impl<T: EthSpec> ExecPayload<T> for BlindedPayload<T> {
     // should be the root of the empty list.
     fn is_default_with_empty_roots(&self) -> bool {
         self.to_ref().is_default_with_empty_roots()
-    }
-
-    fn deposit_receipts(&self) -> Result<DepositReceipts<T>, Error> {
-        match self {
-            BlindedPayload::Merge(_) => {
-                // Return an "empty" or "default" value for the Merge variant
-                Ok(Vec::new().into())
-            }
-            BlindedPayload::Capella(_) => {
-                // Return an "empty" or "default" value for the Capella variant
-                Ok(Vec::new().into())
-            }
-            BlindedPayload::Eip4844(_) => {
-                // Return an "empty" or "default" value for the EIP-4844 variant
-                Ok(Vec::new().into())
-            }
-            BlindedPayload::Eip6110(ref inner) => Ok(inner.deposit_receipts()?),
-        }
     }
 }
 
@@ -706,6 +685,17 @@ impl<'b, T: EthSpec> ExecPayload<T> for BlindedPayloadRef<'b, T> {
         }
     }
 
+    fn deposit_receipts_root(&self) -> Result<Hash256, Error> {
+        match self {
+            BlindedPayloadRef::Merge(_) => Err(Error::IncorrectStateVariant),
+            BlindedPayloadRef::Capella(_) => Err(Error::IncorrectStateVariant),
+            BlindedPayloadRef::Eip4844(_) => Err(Error::IncorrectStateVariant),
+            BlindedPayloadRef::Eip6110(inner) => {
+                Ok(inner.execution_payload_header.deposit_receipts_root)
+            }
+        }
+    }
+
     fn is_default_with_zero_roots<'a>(&'a self) -> bool {
         map_blinded_payload_ref!(&'b _, self, move |payload, cons| {
             cons(payload);
@@ -718,27 +708,6 @@ impl<'b, T: EthSpec> ExecPayload<T> for BlindedPayloadRef<'b, T> {
             cons(payload);
             payload.is_default_with_empty_roots()
         })
-    }
-
-    fn deposit_receipts(&self) -> Result<DepositReceipts<T>, Error> {
-        match self {
-            BlindedPayloadRef::Merge(_) => {
-                // Return an "empty" or "default" value for the Merge variant
-                Ok(Vec::new().into())
-            }
-            BlindedPayloadRef::Capella(_) => {
-                // Return an "empty" or "default" value for the Capella variant
-                Ok(Vec::new().into())
-            }
-            BlindedPayloadRef::Eip4844(_) => {
-                // Return an "empty" or "default" value for the Eip4844 variant
-                Ok(Vec::new().into())
-            }
-            BlindedPayloadRef::Eip6110(_) => {
-                // Return an "empty" or "default" value for the Eip6110 variant
-                Ok(Vec::new().into())
-            }
-        }
     }
 }
 
@@ -812,7 +781,7 @@ macro_rules! impl_exec_payload_common {
                 g(self)
             }
 
-            fn deposit_receipts(&self) -> Result<DepositReceipts<T>, Error> {
+            fn deposit_receipts_root(&self) -> Result<Hash256, Error> {
                 let h = $h;
                 h(self)
             }
@@ -855,12 +824,11 @@ macro_rules! impl_exec_payload_for_fork {
                 c
             },
             {
-                let c: for<'a> fn(
-                    &'a $wrapper_type_header<T>,
-                ) -> Result<DepositReceipts<T>, Error> = |payload: &$wrapper_type_header<T>| {
-                    let wrapper_ref_type = BlindedPayloadRef::$fork_variant(&payload);
-                    wrapper_ref_type.deposit_receipts()
-                };
+                let c: for<'a> fn(&'a $wrapper_type_header<T>) -> Result<Hash256, Error> =
+                    |payload: &$wrapper_type_header<T>| {
+                        let wrapper_ref_type = BlindedPayloadRef::$fork_variant(&payload);
+                        wrapper_ref_type.deposit_receipts_root()
+                    };
                 c
             }
         );
@@ -943,10 +911,10 @@ macro_rules! impl_exec_payload_for_fork {
                 c
             },
             {
-                let c: for<'a> fn(&'a $wrapper_type_full<T>) -> Result<DepositReceipts<T>, Error> =
+                let c: for<'a> fn(&'a $wrapper_type_full<T>) -> Result<Hash256, Error> =
                     |payload: &$wrapper_type_full<T>| {
                         let wrapper_ref_type = FullPayloadRef::$fork_variant(&payload);
-                        wrapper_ref_type.deposit_receipts()
+                        wrapper_ref_type.deposit_receipts_root()
                     };
                 c
             }

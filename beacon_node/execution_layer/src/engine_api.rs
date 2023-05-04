@@ -555,7 +555,36 @@ impl<E: EthSpec> ExecutionPayloadBodyV1<E> {
                     ))
                 }
             }
-            ExecutionPayloadHeader::Eip6110(_) => todo!(),
+            ExecutionPayloadHeader::Eip6110(header) => {
+                if let (Some(withdrawals), Some(deposit_receipts)) =
+                    (self.withdrawals, self.deposit_receipts)
+                {
+                    Ok(ExecutionPayload::Eip6110(ExecutionPayloadEip6110 {
+                        parent_hash: header.parent_hash,
+                        fee_recipient: header.fee_recipient,
+                        state_root: header.state_root,
+                        receipts_root: header.receipts_root,
+                        logs_bloom: header.logs_bloom,
+                        prev_randao: header.prev_randao,
+                        block_number: header.block_number,
+                        gas_limit: header.gas_limit,
+                        gas_used: header.gas_used,
+                        timestamp: header.timestamp,
+                        extra_data: header.extra_data,
+                        base_fee_per_gas: header.base_fee_per_gas,
+                        excess_data_gas: header.excess_data_gas,
+                        block_hash: header.block_hash,
+                        transactions: self.transactions,
+                        withdrawals,
+                        deposit_receipts,
+                    }))
+                } else {
+                    Err(format!(
+                        "block {} is eip6110 but payload body doesn't have withdrawals and deposit_receipts",
+                        header.block_hash
+                    ))
+                }
+            }
         }
     }
 }
