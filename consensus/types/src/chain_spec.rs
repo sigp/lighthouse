@@ -315,11 +315,6 @@ impl ChainSpec {
         }
     }
 
-    /// Returns a full `Fork` struct of the fork which is active at `slot`.
-    pub fn fork_at_slot<E: EthSpec>(&self, slot: Slot) -> Fork {
-        self.fork_at_epoch(slot.epoch(E::slots_per_epoch()))
-    }
-
     /// Returns a full `Fork` struct for a given epoch.
     pub fn fork_at_epoch(&self, epoch: Epoch) -> Fork {
         let current_fork_name = self.fork_name_at_epoch(epoch);
