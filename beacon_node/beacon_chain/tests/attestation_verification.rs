@@ -1,7 +1,7 @@
 #![cfg(not(debug_assertions))]
 
 use beacon_chain::attestation_verification::{
-    batch_verify_aggregated_attestations, batch_verify_unaggregated_attestations,
+    batch_verify_aggregated_attestations, batch_verify_unaggregated_attestations, Error,
 };
 use beacon_chain::test_utils::{MakeAttestationOptions, HARNESS_GENESIS_TIME};
 use beacon_chain::{
@@ -1327,8 +1327,16 @@ async fn attestation_verification_use_head_state_fork() {
             .iter()
             .map(|(attestation, subnet_id)| (attestation, Some(*subnet_id)));
 
+        let results =
+            batch_verify_unaggregated_attestations(attestations_and_subnets, &harness.chain)
+                .expect("should return attestation results");
+        let error = results
+            .into_iter()
+            .collect::<Result<Vec<_>, _>>()
+            .err()
+            .expect("should return an error");
         assert!(
-            batch_verify_unaggregated_attestations(attestations_and_subnets, &harness.chain).is_err(),
+            matches!(error, Error::InvalidSignature),
             "should reject attestations with `data.slot` >= first capella slot signed using the pre-Capella fork"
         );
     }
@@ -1414,8 +1422,15 @@ async fn aggregated_attestation_verification_use_head_state_fork() {
             .map(|(_, aggregate)| aggregate.expect("should have signed aggregate and proof"))
             .collect::<Vec<_>>();
 
+        let results = batch_verify_aggregated_attestations(aggregates.iter(), &harness.chain)
+            .expect("should return attestation results");
+        let error = results
+            .into_iter()
+            .collect::<Result<Vec<_>, _>>()
+            .err()
+            .expect("should return an error");
         assert!(
-            batch_verify_aggregated_attestations(aggregates.iter(), &harness.chain).is_err(),
+            matches!(error, Error::InvalidSignature),
             "should reject aggregates with `data.slot` >= first capella slot signed using the pre-Capella fork"
         );
     }
