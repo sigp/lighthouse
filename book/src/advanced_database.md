@@ -60,10 +60,9 @@ lighthouse beacon_node --slots-per-restore-point 32
 
 ### Historic state cache
 
-To avoid repeatedly reconstruct the states from the restore points when searching for sequential historical states.
-Lighthouse temporarily cache the reconstructed state which could prevent significant state reconstruction to optimize 
-this kind of requests. The historical state cache size could be specified with flag `--historic-state-cache-size` (default
-value is 1):
+Lighthouse includes a cache to avoid repeatedly replaying blocks when loading historic states. Lighthouse will cache a limited number of reconstructed states and will re-use them when serving requests for subsequent states at higher slots. This greatly reduces the cost of requesting several states in order, and we recommend that applications like block explorers take advantage of this cache.
+
+The historical state cache size can be specified with the flag `--historic-state-cache-size` (default value is 1):
 
 ```bash
 lighthouse beacon_node --historic-state-cache-size 4
