@@ -116,9 +116,11 @@ pub struct ProtoNode {
     pub unrealized_finalized_checkpoint: Option<Checkpoint>,
 }
 
-impl Into<ProtoNode> for ProtoNodeV16 {
-    fn into(self) -> ProtoNode {
-        ProtoNode {
+impl TryInto<ProtoNode> for ProtoNodeV16 {
+    type Error = Error;
+
+    fn try_into(self) -> Result<ProtoNode, Error> {
+        let result = ProtoNode {
             slot: self.slot,
             state_root: self.state_root,
             target_root: self.target_root,
@@ -128,17 +130,18 @@ impl Into<ProtoNode> for ProtoNodeV16 {
             parent: self.parent,
             justified_checkpoint: self
                 .justified_checkpoint
-                .expect("Justified checkpoint cannot be None."),
+                .ok_or(Error::MissingJustifiedCheckpoint)?,
             finalized_checkpoint: self
                 .finalized_checkpoint
-                .expect("Finalized checkpoint cannot be None."),
+                .ok_or(Error::MissingFinalizedCheckpoint)?,
             weight: self.weight,
             best_child: self.best_child,
             best_descendant: self.best_descendant,
             execution_status: self.execution_status,
             unrealized_justified_checkpoint: self.unrealized_justified_checkpoint,
             unrealized_finalized_checkpoint: self.unrealized_finalized_checkpoint,
-        }
+        };
+        Ok(result)
     }
 }
 

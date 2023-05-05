@@ -36,20 +36,23 @@ pub struct SszContainer {
     pub previous_proposer_boost: ProposerBoost,
 }
 
-impl Into<SszContainer> for SszContainerV16 {
-    fn into(self) -> SszContainer {
-        let nodes = self.nodes.into_iter().map(Into::into).collect();
+impl TryInto<SszContainer> for SszContainerV16 {
+    type Error = Error;
 
-        SszContainer {
+    fn try_into(self) -> Result<SszContainer, Error> {
+        let nodes: Result<Vec<ProtoNodeV17>, Error> =
+            self.nodes.into_iter().map(TryInto::try_into).collect();
+
+        Ok(SszContainer {
             votes: self.votes,
             balances: self.balances,
             prune_threshold: self.prune_threshold,
             justified_checkpoint: self.justified_checkpoint,
             finalized_checkpoint: self.finalized_checkpoint,
-            nodes,
+            nodes: nodes?,
             indices: self.indices,
             previous_proposer_boost: self.previous_proposer_boost,
-        }
+        })
     }
 }
 

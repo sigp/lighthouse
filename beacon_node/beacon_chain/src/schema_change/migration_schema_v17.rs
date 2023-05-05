@@ -19,7 +19,12 @@ pub fn upgrade_fork_choice(
         ))
     })?;
 
-    let ssz_container_v17: SszContainerV17 = ssz_container_v16.into();
+    let ssz_container_v17: SszContainerV17 = ssz_container_v16.try_into().map_err(|e| {
+        Error::SchemaMigrationError(format!(
+            "Missing checkpoint during schema migration: {:?}",
+            e
+        ))
+    })?;
     fork_choice.fork_choice.proto_array_bytes = ssz_container_v17.as_ssz_bytes();
 
     Ok(fork_choice.into())

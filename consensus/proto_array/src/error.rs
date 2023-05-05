@@ -14,6 +14,8 @@ pub enum Error {
     InvalidBestDescendant(usize),
     InvalidParentDelta(usize),
     InvalidNodeDelta(usize),
+    MissingJustifiedCheckpoint,
+    MissingFinalizedCheckpoint,
     DeltaOverflow(usize),
     ProposerBoostOverflow(usize),
     ReOrgThresholdOverflow,
