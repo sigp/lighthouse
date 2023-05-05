@@ -6,14 +6,27 @@
 - [What should I do if I lose my slashing protection database?](#what-should-i-do-if-i-lose-my-slashing-protection-database)
 - [How do I update lighthouse?](#how-do-i-update-lighthouse)
 - [I can't compile lighthouse](#i-cant-compile-lighthouse)
-- [What is "Syncing deposit contract block cache"?](#what-is-syncing-deposit-contract-block-cache)
+- [I see warning about "Syncing deposit contract block cache" or error about "updating deposit contract cache", what should I do?](#i-see-warning-about-syncing-deposit-contract-block-cache-or-error-about-updating-deposit-contract-cache-what-should-i-do)
 - [Can I use redundancy in my staking setup?](#can-i-use-redundancy-in-my-staking-setup)
 - [How can I monitor my validators?](#how-can-i-monitor-my-validators)
 - [I see beacon logs showing `WARN: Execution engine called failed`, what should I do?](#i-see-beacon-logs-showing-warn-execution-engine-called-failed-what-should-i-do)
-- [How do I check or update my withdrawal credentials?](#how-do-i-check-or-update-my-withdrawal-credentials)
 - [I am missing attestations. Why?](#i-am-missing-attestations-why)
 - [Sometimes I miss the attestation head vote, resulting in penalty. Is this normal?](#sometimes-i-miss-the-attestation-head-vote-resulting-in-penalty-is-this-normal)
-- [My beacon node is stuck at downloading historical block using checkpoing sync. What can I do?](#my-beacon-node-is-stuck-at-downloading-historical-block-using-checkpoing-sync-what-can-i-do)
+- [My beacon node is stuck at downloading historical block using checkpoint sync. What should I do?](#my-beacon-node-is-stuck-at-downloading-historical-block-using-checkpoint-sync-what-should-i-do)
+- [How do I check the version of Lighthouse that is running?](#how-do-i-check-the-version-of-lighthouse-that-is-running)
+- [Can I submit a voluntary exit message without a beacon node?](#can-i-submit-a-voluntary-exit-message-without-running-a-beacon-node)
+- [I proposed a block but the beacon node shows `could not publish message` with error `duplicate` as below, should I be worried?](#i-proposed-a-block-but-the-beacon-node-shows-could-not-publish-message-with-error-duplicate-as-below-should-i-be-worried)
+- [I see beacon node logs `Head is optimistic`, and I am missing attestations. What should I do](#i-see-beacon-node-logs-head-is-optimistic-and-i-am-missing-attestations-what-should-i-do)
+- [Does increasing the number of validators increase the CPU and other computer resources used?](#does-increasing-the-number-of-validators-increase-the-cpu-and-other-computer-resources-used)
+- [I want to add new validators. Do I have to re-import the keys that has been imported previously?](#i-want-to-add-new-validators-do-i-have-to-re-import-the-keys-that-has-been-imported-previously)
+- [Do I have to stop `lighthouse vc` when import new validator keys?](#do-i-have-to-stop-lighthouse-vc-when-import-new-validator-keys)
+- [My beacon node and validator client are on different servers. How can I point the validator client to the beacon node?](#my-beacon-node-and-validator-client-are-on-different-servers-how-can-i-point-the-validator-client-to-the-beacon-node)
+- [My beacon node logs `CRIT Beacon block processing error                  error: ValidatorPubkeyCacheLockTimeout, service: beacon`, what should I do? ](#my-beacon-node-logs-crit-beacon-block-processing-error-error-validatorpubkeycachelocktimeout-service-beacon-what-should-i-do)
+- [My beacon node logs `WARN BlockProcessingFailure outcome: MissingBeaconBlock`, what should I do?](#my-beacon-node-logs-warn-blockprocessingfailure-outcome-missingbeaconblock-what-should-i-do)
+- [Does Lighthouse have pruning function like the execution client to save disk space?](#does-lighthouse-have-pruning-function-like-the-execution-client-to-save-disk-space)
+- [Should I do anything to the beacon node or validator client settings if I have a relocation of the node / change of IP address?](#should-i-do-anything-to-the-beacon-node-or-validator-client-settings-if-i-have-a-relocation-of-the-node--change-of-ip-address)
+- [Can I use a HDD for the freezer database and only have the hot db on SSD?](#can-i-use-a-hdd-for-the-freezer-database-and-only-have-the-hot-db-on-ssd)
+- [After checkpoint sync, the progress of `downloading historical blocks` is slow. Why?](#after-checkpoint-sync-the-progress-of-downloading-historical-blocks-is-slow-why)
 
 ### Why does it take so long for a validator to be activated?
 
@@ -124,7 +137,7 @@ make your Lighthouse node maximally contactable.
 
 ### I have a low peer count and it is not increasing
 
-If you cannot find *ANY* peers at all. It is likely that you have incorrect
+If you cannot find *ANY* peers at all, it is likely that you have incorrect
 testnet configuration settings. Ensure that the network you wish to connect to
 is correct (the beacon node outputs the network it is connecting to in the
 initial boot-up log lines). On top of this, ensure that you are not using the
@@ -160,10 +173,18 @@ You will just also need to make sure the code you have checked out is up to date
 
 See [here.](./installation-source.md#troubleshooting)
 
-### What is "Syncing deposit contract block cache"?
+### I see warning about "Syncing deposit contract block cache" or error about "updating deposit contract cache", what should I do?
+
+The error can be a warning:
 
 ```
 Nov 30 21:04:28.268 WARN Syncing deposit contract block cache   est_blocks_remaining: initializing deposits, service: slot_notifier
+```
+
+or an error:
+
+```
+ERRO Error updating deposit contract cache   error: Failed to get remote head and new block ranges: EndpointError(FarBehind), retry_millis: 60000, service: deposit_contract_rpc
 ```
 
 This log indicates that your beacon node is downloading blocks and deposits
@@ -175,8 +196,7 @@ downloading, the `est_blocks_remaining` value will start decreasing.
 It is perfectly normal to see this log when starting a node for the first time
 or after being off for more than several minutes.
 
-If this log continues appearing sporadically during operation, there may be an
-issue with your execution client endpoint.
+If this log continues appearing during operation, it means your execution client is still syncing and it cannot provide Lighthouse the information about the deposit contract yet. What you need to do is to make sure that the execution client is up and syncing. Once the execution client is synced, the error will disappear.
 
 ### Can I use redundancy in my staking setup?
 
@@ -198,23 +218,16 @@ The `WARN Execution engine called failed` log is shown when the beacon node cann
 
 `error: Reqwest(reqwest::Error { kind: Request, url: Url { scheme: "http", cannot_be_a_base: false, username: "", password: None, host: Some(Ipv4(127.0.0.1)), port: Some(8551), path: "/", query: None, fragment: None }, source: TimedOut }), service: exec`
 
-which says `TimedOut` at the end of the message. This means that the execution engine has not responded in time to the beacon node. There are a few reasons why this can occur:
+which says `TimedOut` at the end of the message. This means that the execution engine has not responded in time to the beacon node. One option is to add the flag `--execution-timeout-multiplier 3` to the beacon node. However, if the error persists, it is worth digging further to find out the cause. There are a few reasons why this can occur:
 1. The execution engine is not synced. Check the log of the execution engine to make sure that it is synced. If it is syncing, wait until it is synced and the error will disappear. You will see the beacon node logs `INFO Execution engine online` when it is synced. 
 1. The computer is overloaded. Check the CPU and RAM usage to see if it has overloaded. You can use `htop` to check for CPU and RAM usage.
 1. Your SSD is slow. Check if your SSD is in "The Bad" list [here](https://gist.github.com/yorickdowne/f3a3e79a573bf35767cd002cc977b038). If your SSD is in "The Bad" list, it means it cannot keep in sync to the network and you may want to consider upgrading to a better SSD.
 
 If the reason for the error message is caused by no. 1 above, you may want to look further. If the execution engine is out of sync suddenly, it is usually caused by ungraceful shutdown. The common causes for ungraceful shutdown are:
 - Power outage. If power outages are an issue at your place, consider getting a UPS to avoid ungraceful shutdown of services. 
-- The service file is not stopped properly. To overcome this, make sure that the process is stop properly, e.g., during client updates. 
-- Out of memory (oom) error. This can happen when the system memory usage has reached its maximum and causes the execution engine to be killed. When this occurs, the log file will show `Main process exited, code=killed, status=9/KILL`.  You can also run `sudo journalctl -a --since "18 hours ago" | grep -i "killed process` to confirm that the execution client has been killed due to oom. If you are using geth as the execution client, a short term solution is to reduce the resources used, for example: (1) reduce the cache by adding the flag `--cache 2048` (2) connect to less peers using the flag `--maxpeers 10`. If the oom occurs rather frequently, a long term solution is to increase the memory capacity of the computer.
+- The service file is not stopped properly. To overcome this, make sure that the process is stopped properly, e.g., during client updates. 
+- Out of memory (oom) error. This can happen when the system memory usage has reached its maximum and causes the execution engine to be killed. When this occurs, the log file will show `Main process exited, code=killed, status=9/KILL`.  You can also run `sudo journalctl -a --since "18 hours ago" | grep -i "killed process` to confirm that the execution client has been killed due to oom. If you are using geth as the execution client, a short term solution is to reduce the resources used, for example: (1) reduce the cache by adding the flag `--cache 2048` (2) connect to fewer peers using the flag `--maxpeers 10`. If the oom occurs rather frequently, a long term solution is to increase the memory capacity of the computer.
 
-
-### How do I check or update my withdrawal credentials? 
-Withdrawals will be available after the Capella/Shanghai upgrades on 12<sup>th</sup> April 2023. To check that if you are eligible for withdrawals, go to [Staking launchpad](https://launchpad.ethereum.org/en/withdrawals), enter your validator index and click `verify on mainnet`:
-- `withdrawals enabled` means you will automatically receive withdrawals to the withdrawal address that you set.
-- `withdrawals not enabled` means you will need to update your withdrawal credentials from `0x00` type to `0x01` type. The common way to do this is using `Staking deposit CLI` or `ethdo`, with the instructions available [here](https://launchpad.ethereum.org/en/withdrawals#update-your-keys). 
-
-For the case of `withdrawals not enabled`, you can update your withdrawal credentials **anytime**, and there is no deadline for that. The catch is that as long as you do not update your withdrawal credentials, your rewards in the beacon chain will continue to be locked in the beacon chain. Only after you update the withdrawal credentials, will the rewards be withdrawn to the withdrawal address.
 
 
 ### I am missing attestations. Why? 
@@ -224,13 +237,126 @@ The first thing is to ensure both consensus and execution clients are synced wit
 - the internet is working well
 - you have sufficient peers
 
-You can see more information on the [Ethstaker KB](https://ethstaker.gitbook.io/ethstaker-knowledge-base/help/missed-attestations). Once the above points are good, missing attestation should be a rare occurance. 
+You can see more information on the [Ethstaker KB](https://ethstaker.gitbook.io/ethstaker-knowledge-base/help/missed-attestations). Once the above points are good, missing attestation should be a rare occurrence. 
 
 ### Sometimes I miss the attestation head vote, resulting in penalty. Is this normal?
 
-In general it is unavoiadable to have some penalties occasionally. This is particularly the case when you are assigned to attest on the first slot of an epoch and if the proposer of that slot releases the block late, then you will get penalised for missing the target and head votes. Your attestation performance does not only depend on your own setup, but also on everyone else's performance.
+In general, it is unavoidable to have some penalties occasionally. This is particularly the case when you are assigned to attest on the first slot of an epoch and if the proposer of that slot releases the block late, then you will get penalised for missing the target and head votes. Your attestation performance does not only depend on your own setup, but also on everyone else's performance.
 
 
-### My beacon node is stuck at downloading historical block using checkpoing sync. What can I do?
+### My beacon node is stuck at downloading historical block using checkpoint sync. What should I do?
 
-Check the number of peers you are connected to. If you have low peers (less than 50), try to do port forwarding on the port 9000 TCP/UDP to increase peer count.
+After checkpoint forwards sync completes, the beacon node will start to download historical blocks. The log will look like:
+
+```bash
+INFO Downloading historical blocks           est_time: --, distance: 4524545 slots (89 weeks 5 days), service: slot_notifier
+```
+
+If the same log appears every minute and you do not see progress in downloading historical blocks, you can try one of the followings:
+ 
+   - Check the number of peers you are connected to. If you have low peers (less than 50), try to do port forwarding on the port 9000 TCP/UDP to increase peer count.
+   - Restart the beacon node.
+
+### How do I check the version of Lighthouse that is running?
+
+If you build Lighthouse from source, run `lighthouse --version`. Example of output:
+
+```bash
+Lighthouse v4.1.0-693886b
+BLS library: blst-modern
+SHA256 hardware acceleration: false
+Allocator: jemalloc
+Specs: mainnet (true), minimal (false), gnosis (true)
+```
+
+If you download the binary file, navigate to the location of the directory, for example, the binary file is in `/usr/local/bin`, run `/usr/local/bin/lighthouse --version`, the example of output is the same as above.
+
+Alternatively, if you have Lighthouse running, on the same computer, you can run:
+```bash
+curl "http://127.0.0.1:5052/eth/v1/node/version"
+```
+
+Example of output:
+```bash
+{"data":{"version":"Lighthouse/v4.1.0-693886b/x86_64-linux"}}
+```
+which says that the version if v4.1.0.
+
+### Can I submit a voluntary exit message without a beacon node?
+
+Yes. Beaconcha.in provides the tool to broadcast the message. You can create the voluntary exit message file with [ethdo](https://github.com/wealdtech/ethdo/releases/tag/v1.30.0) and submit the message via the [beaconcha.in](https://beaconcha.in/tools/broadcast) website.
+
+It is also noted that you can submit your BLS-to-execution-change message to update your withdrawal credentials from type `0x00` to `0x01` using the same link.
+
+If you would like to still use Lighthouse to submit the message, you will need to run a beacon node and an execution client. For the beacon node, you can use checkpoint sync to quickly sync the chain under a minute. On the other hand, the execution client can be syncing and *needs not be synced*. This implies that it is possible to broadcast the voluntary exit message within a short time by quickly spinning up a node.
+
+### I proposed a block but the beacon node shows `could not publish message` with error `duplicate` as below, should I be worried?
+
+```
+INFO Block from HTTP API already known`
+WARN Could not publish message error: Duplicate, service: libp2p
+```
+
+This error usually happens when users are running mev-boost. The relay will publish the block on the network before returning it back to you. After the relay published the block on the network, it will propagate through nodes, and it happens quite often that your node will receive the block from your connected peers via gossip first, before getting the block from the relay, hence the message `duplicate`. 
+
+In short, it is nothing to worry about.
+
+### I see beacon node logs `Head is optimistic`, and I am missing attestations. What should I do?
+
+The log looks like:
+
+```
+WARN Head is optimistic       execution_block_hash: 0x47e7555f1d4215d1ad409b1ac188b008fcb286ed8f38d3a5e8078a0af6cbd6e1, info: chain not fully verified, block and attestation production disabled until execution engine syncs, service: slot_notifier
+```
+
+It means the beacon node will follow the chain, but it will not be able to attest or produce blocks. This is because the execution client is not synced, so the beacon chain cannot verify the authenticity of the chain head, hence the word `optimistic`. What you need to do is to make sure that the execution client is up and syncing. Once the execution client is synced, the error will disappear.
+
+### Does increasing the number of validators increase the CPU and other computer resources used?
+
+A computer with hardware specifications stated in the [Recommended System Requirements](./installation.md#recommended-system-requirements) can run hundreds validators with only marginal increase in cpu usage. When validators are active, there is a bit of an increase in resources used from validators 0-64, because you end up subscribed to more subnets. After that, the increase in resources plateaus when the number of validators goes from 64 to ~500.
+
+### I want to add new validators. Do I have to re-import the keys that has been imported previously?
+
+No. You can just import the new validator keys to the destination directory. If the `validator_keys` folder contains previously imported keys, that's fine as well because Lighthouse will skip the keys that have been imported. 
+
+### Do I have to stop `lighthouse vc` when import new validator keys?
+
+Generally yes.
+
+If you do not want to stop `lighthouse vc`, you can use the [key manager API](./api-vc-endpoints.md) to import keys.
+
+### My beacon node and validator client are on different servers. How can I point the validator client to the beacon node?
+
+If the beacon node and validator client are not on the same host, you can use `--beacon-nodes` flag on the validator client to point to the beacon node. For example, `--beacon-nodes http://local_IP:port` where `local_IP` is the local IP address of the beacon node and `port` is the `http-port` of the beacon node with a default port of 5052.
+
+It is also worth noting that this flag can also be used for redundancy of beacon nodes. For example, you have a beacon node and validator client running on the same host, and a second beacon node on another server as a backup. In this case, you can use `--beacon-nodes http://localhost:5052, http://local_IP:port`
+
+### My beacon node logs `CRIT Beacon block processing error                  error: ValidatorPubkeyCacheLockTimeout, service: beacon`, what should I do? 
+
+The error is a `Timeout` error, which suggests that the computer may be overloading at the moment, for example, the execution client is syncing as well. You may use the flag `--disable-lock-timeouts` to silence this error, although it will not fix the underlying slowness. Nevertheless, this is a relatively harmless log, and the error should go away once the resources used are back to normal. 
+
+### My beacon node logs `WARN BlockProcessingFailure outcome: MissingBeaconBlock`, what should I do?
+
+An example of the full log is shown below:
+`WARN BlockProcessingFailure                  outcome: MissingBeaconBlock(0xbdba211f8d72029554e405d8e4906690dca807d1d7b1bc8c9b88d7970f1648bc), msg: unexpected condition in processing block.`
+
+`MissingBeaconBlock` suggests that the database has corrupted. You should wide the database and use [Checkpoint Sync](./checkpoint-sync.md) to resync the beacon chain. 
+
+### Does Lighthouse have pruning function like the execution client to save disk space?
+
+There is no pruning of Lighthouse database for now. In the future, there may be a feature to add a mode to delete some historic blocks that are not necessary. 
+
+### Should I do anything to the beacon node or validator client settings if I have a relocation of the node / change of IP address?
+
+No. Lighthouse will auto-detect the change and update your Ethereum Node Record (ENR). You just need to make sure you are not manually setting the ENR with `--enr-address` (which, for common use cases, this flag is not used).
+
+### Can I use a HDD for the freezer database and only have the hot db on SSD?
+
+Yes, you can do so by using the flag `--freezer-dir /path/to/freezer_db` in your beacon node.
+
+### After checkpoint sync, the progress of `downloading historical blocks` is slow. Why?
+
+Since [v4.1.0](https://github.com/sigp/lighthouse/releases/tag/v4.1.0), Lighthouse implements rate-limited backfill sync to mitigate validator performance issues after a checkpoint sync. This is not something to worry because backfill sync / historical data is not required for staking. However, if you opt to sync the chain as fast as possible, you can add the flag `--disable-backfill-rate-limiting` to the beacon chain.
+
+
+
