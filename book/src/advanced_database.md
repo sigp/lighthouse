@@ -58,6 +58,16 @@ the `--slots-per-restore-point` flag:
 lighthouse beacon_node --slots-per-restore-point 32
 ```
 
+### Historic state cache
+
+Lighthouse includes a cache to avoid repeatedly replaying blocks when loading historic states. Lighthouse will cache a limited number of reconstructed states and will re-use them when serving requests for subsequent states at higher slots. This greatly reduces the cost of requesting several states in order, and we recommend that applications like block explorers take advantage of this cache.
+
+The historical state cache size can be specified with the flag `--historic-state-cache-size` (default value is 1):
+
+```bash
+lighthouse beacon_node --historic-state-cache-size 4
+```
+
 ## Glossary
 
 * _Freezer DB_: part of the database storing finalized states. States are stored in a sparser
