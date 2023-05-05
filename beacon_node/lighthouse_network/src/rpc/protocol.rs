@@ -453,11 +453,15 @@ where
             // MetaData requests should be empty, return the stream
             match protocol_name {
                 SupportedProtocol::MetaDataV1 => Ok((
-                    InboundRequest::MetaData(MetadataRequest::MetadataRequestV1(PhantomData)),
+                    InboundRequest::MetaData(
+                        MetadataRequest::new_v1()
+                    ),
                     socket,
                 )),
                 SupportedProtocol::MetaDataV2 => Ok((
-                    InboundRequest::MetaData(MetadataRequest::MetadataRequestV2(PhantomData)),
+                    InboundRequest::MetaData(
+                        MetadataRequest::new_v2()
+                    ),
                     socket,
                 )),
                 _ => {

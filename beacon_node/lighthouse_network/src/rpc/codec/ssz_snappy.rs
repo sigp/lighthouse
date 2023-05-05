@@ -464,7 +464,7 @@ fn handle_rpc_request<T: EthSpec>(
                 ))
             } else {
                 Ok(Some(InboundRequest::MetaData(
-                    MetadataRequest::MetadataRequestV1(PhantomData),
+                    MetadataRequest::new_v2()
                 )))
             }
         }
@@ -473,7 +473,7 @@ fn handle_rpc_request<T: EthSpec>(
                 Err(RPCError::InvalidData("Metadata request".to_string()))
             } else {
                 Ok(Some(InboundRequest::MetaData(
-                    MetadataRequest::MetadataRequestV2(PhantomData),
+                    MetadataRequest::new_v1()
                 )))
             }
         }

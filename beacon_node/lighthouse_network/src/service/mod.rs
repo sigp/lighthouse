@@ -9,7 +9,7 @@ use crate::peer_manager::{
     ConnectionDirection, PeerManager, PeerManagerEvent,
 };
 use crate::peer_manager::{MIN_OUTBOUND_ONLY_FACTOR, PEER_EXCESS_FACTOR, PRIORITY_PEER_EXCESS};
-use crate::rpc::methods::MetadataRequest;
+use crate::rpc::methods::{MetadataRequest};
 use crate::rpc::*;
 use crate::service::behaviour::BehaviourEvent;
 pub use crate::service::behaviour::Gossipsub;
@@ -38,7 +38,6 @@ use slog::{crit, debug, info, o, trace, warn};
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::{
-    marker::PhantomData,
     sync::Arc,
     task::{Context, Poll},
 };
@@ -945,7 +944,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
     /// Sends a METADATA request to a peer.
     fn send_meta_data_request(&mut self, peer_id: PeerId) {
         // We always prefer sending V2 requests
-        let event = OutboundRequest::MetaData(MetadataRequest::MetadataRequestV2(PhantomData));
+        let event = OutboundRequest::MetaData(MetadataRequest::new_v2());
         self.eth2_rpc_mut()
             .send_request(peer_id, RequestId::Internal, event);
     }
@@ -959,8 +958,8 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
     ) {
         let metadata = self.network_globals.local_metadata.read().clone();
         let metadata = match req {
-            MetadataRequest::MetadataRequestV1(_) => metadata.metadata_v1(),
-            MetadataRequest::MetadataRequestV2(_) => metadata,
+            MetadataRequest::V1(_) => metadata.metadata_v1(),
+            MetadataRequest::V2(_) => metadata,
         };
         let event = RPCCodedResponse::Success(RPCResponse::MetaData(metadata));
         self.eth2_rpc_mut().send_response(peer_id, id, event);

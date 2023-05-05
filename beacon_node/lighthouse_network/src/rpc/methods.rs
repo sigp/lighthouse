@@ -86,11 +86,30 @@ pub struct Ping {
     pub data: u64,
 }
 
-/// The METADATA response structure.
-#[derive(Clone, Debug, PartialEq, Serialize)]
-pub enum MetadataRequest<T: EthSpec> {
-    MetadataRequestV1(PhantomData<T>),
-    MetadataRequestV2(PhantomData<T>),
+/// The METADATA request structure.
+#[superstruct(
+variants(V1, V2),
+variant_attributes(
+    derive(Clone, Debug, PartialEq, Serialize),
+)
+)]
+#[derive(Clone, Debug, PartialEq)]
+pub struct MetadataRequest<T: EthSpec> {
+    _phantom_data: PhantomData<T>
+}
+
+impl<T: EthSpec> MetadataRequest<T> {
+    pub fn new_v1() -> Self {
+        Self::V1(MetadataRequestV1 {
+            _phantom_data: PhantomData,
+        })
+    }
+
+    pub fn new_v2() -> Self {
+        Self::V2(MetadataRequestV2 {
+            _phantom_data: PhantomData,
+        })
+    }
 }
 
 /// The METADATA response structure.
