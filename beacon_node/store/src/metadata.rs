@@ -99,8 +99,10 @@ pub struct AnchorInfo {
 
 impl AnchorInfo {
     /// Returns true if the block backfill has completed.
-    pub fn block_backfill_complete(&self) -> bool {
-        self.oldest_block_slot == 0
+    /// This is a comparison between the oldest block slot and the target backfill slot (which is
+    /// likely to be the closest WSP).
+    pub fn block_backfill_complete(&self, target_slot: Slot) -> bool {
+        self.oldest_block_slot <= target_slot
     }
 }
 

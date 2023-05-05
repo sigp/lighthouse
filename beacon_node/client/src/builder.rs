@@ -250,6 +250,12 @@ where
                 genesis_state_bytes,
             } => {
                 info!(context.log(), "Starting checkpoint sync");
+                if config.chain.genesis_backfill {
+                    info!(
+                        context.log(),
+                        "Blocks will downloaded all the way back to genesis"
+                    );
+                }
 
                 let anchor_state = BeaconState::from_ssz_bytes(&anchor_state_bytes, &spec)
                     .map_err(|e| format!("Unable to parse weak subj state SSZ: {:?}", e))?;
@@ -271,6 +277,12 @@ where
                     "Starting checkpoint sync";
                     "remote_url" => %url,
                 );
+                if config.chain.genesis_backfill {
+                    info!(
+                        context.log(),
+                        "Blocks will be downloaded all the way back to genesis"
+                    );
+                }
 
                 let remote = BeaconNodeHttpClient::new(
                     url,

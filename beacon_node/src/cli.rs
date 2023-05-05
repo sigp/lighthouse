@@ -248,6 +248,12 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true),
         )
         .arg(
+            Arg::with_name("genesis-backfill")
+                .long("genesis-backfill")
+                .help("Attempts to download blocks all the way back to genesis when checkpoint syncing.")
+                .takes_value(false),
+        )
+        .arg(
             Arg::with_name("enable-private-discovery")
                 .long("enable-private-discovery")
                 .help("Lighthouse by default does not discover private IP addresses. Set this flag to enable connection attempts to local addresses.")
@@ -831,7 +837,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .arg(
             Arg::with_name("reconstruct-historic-states")
                 .long("reconstruct-historic-states")
-                .help("After a checkpoint sync, reconstruct historic states in the database.")
+                .help("After a checkpoint sync, reconstruct historic states in the database. This requires syncing all the way back to genesis.")
                 .takes_value(false)
         )
         .arg(
