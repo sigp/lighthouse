@@ -35,7 +35,7 @@ rather it is the CPU load of processing the blocks themselves. Most of the
 time, the network is idle, waiting for blocks to be processed. Having a very
 large peer count will not speed up sync.
 
-For these reasons, we recommend users do not modify the `--target-peers` count
+For these reasons, we recommend users to not modify the `--target-peers` count
 drastically and use the (recommended) default.
 
 
