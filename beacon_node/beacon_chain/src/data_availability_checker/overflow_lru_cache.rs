@@ -727,26 +727,41 @@ impl ssz::Decode for OverflowKey {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::blob_verification::{
-        validate_blob_sidecar_for_gossip, verify_kzg_for_blob, GossipVerifiedBlob,
+    #[cfg(feature = "spec-minimal")]
+    use crate::{
+        blob_verification::{
+            validate_blob_sidecar_for_gossip, verify_kzg_for_blob, GossipVerifiedBlob,
+        },
+        block_verification::{BlockImportData, PayloadVerificationOutcome},
+        data_availability_checker::AvailabilityPendingBlock,
+        eth1_finalization_cache::Eth1FinalizationData,
+        test_utils::{BaseHarnessType, BeaconChainHarness, DiskHarnessType},
     };
-    use crate::block_verification::{BlockImportData, PayloadVerificationOutcome};
-    use crate::data_availability_checker::AvailabilityPendingBlock;
-    use crate::eth1_finalization_cache::Eth1FinalizationData;
-    use crate::test_utils::{BaseHarnessType, BeaconChainHarness, DiskHarnessType};
+    #[cfg(feature = "spec-minimal")]
     use fork_choice::PayloadVerificationStatus;
+    #[cfg(feature = "spec-minimal")]
     use logging::test_logger;
-    use slog::{info, warn, Logger};
+    #[cfg(feature = "spec-minimal")]
+    use slog::{info, Logger};
+    #[cfg(feature = "spec-minimal")]
     use state_processing::ConsensusContext;
+    #[cfg(feature = "spec-minimal")]
     use std::collections::{BTreeMap, HashMap, VecDeque};
+    #[cfg(feature = "spec-minimal")]
     use std::ops::AddAssign;
+    #[cfg(feature = "spec-minimal")]
     use store::{HotColdDB, ItemStore, LevelDB, StoreConfig};
+    #[cfg(feature = "spec-minimal")]
     use tempfile::{tempdir, TempDir};
+    #[cfg(feature = "spec-minimal")]
     use types::beacon_state::ssz_tagged_beacon_state;
-    use types::{ChainSpec, ExecPayload, MainnetEthSpec, MinimalEthSpec};
+    #[cfg(feature = "spec-minimal")]
+    use types::{ChainSpec, ExecPayload, MinimalEthSpec};
 
+    #[cfg(feature = "spec-minimal")]
     const LOW_VALIDATOR_COUNT: usize = 32;
 
+    #[cfg(feature = "spec-minimal")]
     fn get_store_with_spec<E: EthSpec>(
         db_path: &TempDir,
         spec: ChainSpec,
@@ -769,6 +784,7 @@ mod test {
     }
 
     // get a beacon chain harness advanced to just before deneb fork
+    #[cfg(feature = "spec-minimal")]
     async fn get_deneb_chain<E: EthSpec>(
         log: Logger,
         db_path: &TempDir,
@@ -824,7 +840,7 @@ mod test {
 
     #[test]
     fn overflow_key_encode_decode_equality() {
-        type E = MainnetEthSpec;
+        type E = types::MainnetEthSpec;
         let key_block = OverflowKey::Block(Hash256::random());
         let key_blob_0 = OverflowKey::from_blob_id::<E>(BlobIdentifier {
             block_root: Hash256::random(),
@@ -857,6 +873,7 @@ mod test {
 
     // TODO(mark): where should I actually put this test?
     #[tokio::test]
+    #[cfg(feature = "spec-minimal")]
     async fn ssz_tagged_beacon_state_encode_decode_equality() {
         type E = MinimalEthSpec;
         let altair_fork_epoch = Epoch::new(1);
@@ -931,6 +948,7 @@ mod test {
         assert_eq!(state, decoded, "Encoded and decoded states should be equal");
     }
 
+    #[cfg(feature = "spec-minimal")]
     async fn availability_pending_block<E, Hot, Cold>(
         harness: &BeaconChainHarness<BaseHarnessType<E, Hot, Cold>>,
         log: Logger,
@@ -1027,6 +1045,7 @@ mod test {
     }
 
     #[tokio::test]
+    #[cfg(feature = "spec-minimal")]
     async fn overflow_cache_test_insert_components() {
         type E = MinimalEthSpec;
         type T = DiskHarnessType<E>;
@@ -1143,6 +1162,7 @@ mod test {
     }
 
     #[tokio::test]
+    #[cfg(feature = "spec-minimal")]
     async fn overflow_cache_test_overflow() {
         type E = MinimalEthSpec;
         type T = DiskHarnessType<E>;
@@ -1300,6 +1320,7 @@ mod test {
     }
 
     #[tokio::test]
+    #[cfg(feature = "spec-minimal")]
     async fn overflow_cache_test_maintenance() {
         type E = MinimalEthSpec;
         type T = DiskHarnessType<E>;
@@ -1420,7 +1441,6 @@ mod test {
             "cache disk should have the rest"
         );
         let mut expected_length = n_epochs * capacity;
-        warn!(log, "EPOCH COUNT: {:?}", epoch_count);
         for (epoch, count) in epoch_count {
             cache
                 .do_maintenance(epoch + 1)
@@ -1439,7 +1459,7 @@ mod test {
                 disk_keys,
                 mem_keys,
                 (disk_keys + mem_keys),
-                expected_length
+                std::cmp::max(expected_length, capacity * 3 / 4),
             );
             assert_eq!(
                 (disk_keys + mem_keys),
@@ -1450,6 +1470,7 @@ mod test {
     }
 
     #[tokio::test]
+    #[cfg(feature = "spec-minimal")]
     async fn overflow_cache_test_persist_recover() {
         type E = MinimalEthSpec;
         type T = DiskHarnessType<E>;
