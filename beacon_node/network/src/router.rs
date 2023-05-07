@@ -19,6 +19,7 @@ use lighthouse_network::rpc::*;
 use lighthouse_network::{
     MessageId, NetworkGlobals, PeerId, PeerRequestId, PubsubMessage, Request, Response,
 };
+use logging::TimeLatch;
 use slog::{debug, o, trace};
 use slog::{error, warn};
 use std::cmp;
@@ -474,6 +475,8 @@ impl<T: BeaconChainTypes> Router<T> {
     }
 
     fn send_beacon_processor_work(&mut self, work: BeaconWorkEvent<T>) {
+        let mut error_debounce = TimeLatch::default();
+
         self.beacon_processor_send
             .try_send(work)
             .unwrap_or_else(|e| {
@@ -481,8 +484,11 @@ impl<T: BeaconChainTypes> Router<T> {
                     mpsc::error::TrySendError::Closed(work)
                     | mpsc::error::TrySendError::Full(work) => work.work_type(),
                 };
-                error!(&self.log, "Unable to send message to the beacon processor";
-                    "error" => %e, "type" => work_type)
+
+                if error_debounce.elapsed() {
+                    error!(&self.log, "Unable to send message to the beacon processor";
+                        "error" => %e, "type" => work_type)
+                }      
             })
     }
 }
