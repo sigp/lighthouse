@@ -18,7 +18,7 @@
 - [Sometimes I miss the attestation head vote, resulting in penalty. Is this normal?](#sometimes-i-miss-the-attestation-head-vote-resulting-in-penalty-is-this-normal)
 - [Can I submit a voluntary exit message without a beacon node?](#can-i-submit-a-voluntary-exit-message-without-running-a-beacon-node)
 - [Does increasing the number of validators increase the CPU and other computer resources used?](#does-increasing-the-number-of-validators-increase-the-cpu-and-other-computer-resources-used)
-- [I want to add new validators. Do I have to reimport the existing keys?](#i-want-to-add-new-validators-do-i-have-to-reimport-the-keys-that-were-imported-previously)
+- [I want to add new validators. Do I have to reimport the existing keys?](#i-want-to-add-new-validators-do-i-have-to-reimport-the-existing-keys)
 - [Do I have to stop `lighthouse vc` when import new validator keys?](#do-i-have-to-stop-lighthouse-vc-when-import-new-validator-keys)
 
 
