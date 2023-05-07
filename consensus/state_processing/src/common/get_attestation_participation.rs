@@ -30,14 +30,14 @@ pub fn get_attestation_participation_flag_indices<T: EthSpec>(
 
     // Matching roots.
     let is_matching_source = data.source == justified_checkpoint;
+    if !is_matching_source {
+        return Err(Error::IncorrectAttestationSource);
+    }
+
     let is_matching_target = is_matching_source
         && data.target.root == *state.get_block_root_at_epoch(data.target.epoch)?;
     let is_matching_head =
         is_matching_target && data.beacon_block_root == *state.get_block_root(data.slot)?;
-
-    if !is_matching_source {
-        return Err(Error::IncorrectAttestationSource);
-    }
 
     // Participation flag indices
     let mut participation_flag_indices = SmallVec::new();
