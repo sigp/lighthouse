@@ -21,6 +21,7 @@ pub struct SingleBlockLookup<const MAX_ATTEMPTS: u8, T: BeaconChainTypes> {
     pub requested_ids: Vec<BlobIdentifier>,
     pub downloaded_blobs: FixedBlobSidecarList<T::EthSpec>,
     pub downloaded_block: Option<Arc<SignedBeaconBlock<T::EthSpec>>>,
+    pub expected_num_blobs: Option<usize>,
     pub block_request_state: SingleLookupRequestState<MAX_ATTEMPTS>,
     pub blob_request_state: SingleLookupRequestState<MAX_ATTEMPTS>,
     pub da_checker: Arc<DataAvailabilityChecker<T::EthSpec, T::SlotClock>>,
@@ -88,6 +89,7 @@ impl<const MAX_ATTEMPTS: u8, T: BeaconChainTypes> SingleBlockLookup<MAX_ATTEMPTS
             requested_ids: <_>::default(),
             downloaded_block: None,
             downloaded_blobs: <_>::default(),
+            expected_num_blobs: None,
             block_request_state: SingleLookupRequestState::new(peer_source),
             blob_request_state: SingleLookupRequestState::new(peer_source),
             da_checker,
@@ -187,32 +189,40 @@ impl<const MAX_ATTEMPTS: u8, T: BeaconChainTypes> SingleBlockLookup<MAX_ATTEMPTS
                 self.block_request_state.register_failure_downloading();
                 Err(LookupVerifyError::ExtraBlocksReturned)
             }
-            State::Downloading { peer_id } => match block {
-                Some(block) => {
-                    // Compute the block root using this specific function so that we can get timing
-                    // metrics.
-                    let block_root = get_block_root(&block);
-                    if block_root != self.requested_block_root {
-                        // return an error and drop the block
-                        // NOTE: we take this is as a download failure to prevent counting the
-                        // attempt as a chain failure, but simply a peer failure.
-                        self.block_request_state.register_failure_downloading();
-                        Err(LookupVerifyError::RootMismatch)
-                    } else {
-                        // Return the block for processing.
-                        self.block_request_state.state = State::Processing { peer_id };
-                        Ok(Some((block_root, block)))
+            State::Downloading { peer_id } => {
+                match block {
+                    Some(block) => {
+                        // Compute the block root using this specific function so that we can get timing
+                        // metrics.
+                        let block_root = get_block_root(&block);
+                        if block_root != self.requested_block_root {
+                            // return an error and drop the block
+                            // NOTE: we take this is as a download failure to prevent counting the
+                            // attempt as a chain failure, but simply a peer failure.
+                            self.block_request_state.register_failure_downloading();
+                            Err(LookupVerifyError::RootMismatch)
+                        } else {
+                            self.expected_num_blobs =
+                                block.message().body().blob_kzg_commitments().ok().map(
+                                    |commitments| {
+                                        std::cmp::min(self.requested_ids.len(), commitments.len())
+                                    },
+                                );
+                            // Return the block for processing.
+                            self.block_request_state.state = State::Processing { peer_id };
+                            Ok(Some((block_root, block)))
+                        }
+                    }
+                    None => {
+                        if peer_id.should_have_block() {
+                            self.block_request_state.register_failure_downloading();
+                            Err(LookupVerifyError::NoBlockReturned)
+                        } else {
+                            Err(LookupVerifyError::BenignFailure)
+                        }
                     }
                 }
-                None => {
-                    if peer_id.should_have_block() {
-                        self.block_request_state.register_failure_downloading();
-                        Err(LookupVerifyError::NoBlockReturned)
-                    } else {
-                        Err(LookupVerifyError::BenignFailure)
-                    }
-                }
-            },
+            }
             State::Processing { peer_id: _ } => match block {
                 Some(_) => {
                     // We sent the block for processing and received an extra block.
@@ -257,16 +267,15 @@ impl<const MAX_ATTEMPTS: u8, T: BeaconChainTypes> SingleBlockLookup<MAX_ATTEMPTS
                     }
                 }
                 None => {
-                    let downloaded_all_blobs = self.downloaded_all_blobs();
-                    if peer_source.should_have_blobs() && !downloaded_all_blobs {
+                    let downloaded_expected_blobs = self.downloaded_expected_blobs();
+                    if peer_source.should_have_blobs() && !downloaded_expected_blobs {
                         return Err(LookupVerifyError::NotEnoughBlobsReturned);
-                    } else if !downloaded_all_blobs {
+                    } else if !downloaded_expected_blobs {
                         return Err(LookupVerifyError::BenignFailure);
                     }
                     self.blob_request_state.state = State::Processing {
                         peer_id: peer_source,
                     };
-                    dbg!("sending blobs for processing");
                     Ok(Some((
                         self.requested_block_root,
                         self.downloaded_blobs.clone(),
@@ -288,24 +297,15 @@ impl<const MAX_ATTEMPTS: u8, T: BeaconChainTypes> SingleBlockLookup<MAX_ATTEMPTS
         }
     }
 
-    fn downloaded_all_blobs(&self) -> bool {
-        let Some(expected_num_blobs) = self
-            .downloaded_block
-            .as_ref()
-            .and_then(|block| {
-                block
-                    .message()
-                    .body()
-                    .blob_kzg_commitments().ok()
-                    .map(|commitments| commitments.len())
-            }) else {
-                return true
-            };
+    fn downloaded_expected_blobs(&self) -> bool {
+        let Some(expected_num_blobs) = self.expected_num_blobs else {
+            return true;
+        };
 
         let downloaded_num_blobs = self
             .downloaded_blobs
             .iter()
-            .map(|blob_opt| blob_opt.is_some())
+            .filter(|blob_opt| blob_opt.is_some())
             .count();
         downloaded_num_blobs == expected_num_blobs
     }

@@ -1102,6 +1102,174 @@ mod deneb_only {
     use super::*;
     use std::str::FromStr;
 
+    struct DenebTester {
+        bl: BlockLookups<T>,
+        cx: SyncNetworkContext<T>,
+        rig: TestRig,
+        block: Option<Arc<SignedBeaconBlock<E>>>,
+        blobs: Vec<Arc<BlobSidecar<E>>>,
+        peer_id: PeerId,
+        block_req_id: u32,
+        blob_req_id: u32,
+        slot: Slot,
+        block_root: Hash256,
+    }
+
+    impl DenebTester {
+        fn new() -> Option<Self> {
+            let fork_name = get_fork_name();
+            if !matches!(fork_name, ForkName::Deneb) {
+                return None;
+            }
+            let (mut bl, mut cx, mut rig) = TestRig::test_setup(false);
+            rig.harness.chain.slot_clock.set_slot(
+                E::slots_per_epoch() * rig.harness.spec.deneb_fork_epoch.unwrap().as_u64(),
+            );
+            let (block, blobs) = rig.rand_block_and_blobs(fork_name, NumBlobs::Random);
+            let blobs = blobs.into_iter().map(Arc::new).collect::<Vec<_>>();
+
+            let peer_id = PeerId::random();
+            let slot = block.slot();
+            let block_root = block.canonical_root();
+
+            // Trigger the request
+            bl.search_block(block_root, PeerSource::Attestation(peer_id), &mut cx);
+            let block_req_id = rig.expect_block_request(ResponseType::Block);
+            let blob_req_id = rig.expect_block_request(ResponseType::Blob);
+
+            Some(Self {
+                bl,
+                cx,
+                rig,
+                block: Some(Arc::new(block)),
+                blobs,
+                peer_id,
+                block_req_id,
+                blob_req_id,
+                slot,
+                block_root,
+            })
+        }
+
+        fn block_response(mut self) -> Self {
+            // The peer provides the correct block, should not be penalized. Now the block should be sent
+            // for processing.
+            self.bl.single_block_lookup_response(
+                self.block_req_id,
+                self.peer_id,
+                self.block.clone(),
+                D,
+                &mut self.cx,
+            );
+            self.rig.expect_empty_network();
+            self.rig.expect_block_process(ResponseType::Block);
+
+            // The request should still be active.
+            assert_eq!(self.bl.single_block_lookups.len(), 1);
+            self
+        }
+
+        fn blobs_response(mut self) -> Self {
+            for blob in &self.blobs {
+                self.bl.single_blob_lookup_response(
+                    self.blob_req_id,
+                    self.peer_id,
+                    Some(blob.clone()),
+                    D,
+                    &mut self.cx,
+                );
+                self.rig.expect_empty_network();
+                assert_eq!(self.bl.single_block_lookups.len(), 1);
+            }
+            // Send the blob stream termination. Peer should have not been penalized.
+            self.bl.single_blob_lookup_response(
+                self.blob_req_id,
+                self.peer_id,
+                None,
+                D,
+                &mut self.cx,
+            );
+            self.rig.expect_empty_network();
+            self.rig.expect_block_process(ResponseType::Blob);
+            self
+        }
+
+        fn empty_block_response(mut self) -> Self {
+            self.bl.single_block_lookup_response(
+                self.block_req_id,
+                self.peer_id,
+                None,
+                D,
+                &mut self.cx,
+            );
+            self
+        }
+
+        fn empty_blobs_response(mut self) -> Self {
+            self.bl.single_blob_lookup_response(
+                self.blob_req_id,
+                self.peer_id,
+                None,
+                D,
+                &mut self.cx,
+            );
+            self
+        }
+
+        fn block_imported(mut self) -> Self {
+            // Missing blobs should be the request is not removed, the outstanding blobs request should
+            // mean we do not send a new request.
+            self.bl.single_block_processed(
+                self.block_req_id,
+                BlockProcessingResult::Ok(AvailabilityProcessingStatus::Imported(self.block_root)),
+                ResponseType::Block,
+                &mut self.cx,
+            );
+            self.rig.expect_empty_network();
+            assert_eq!(self.bl.single_block_lookups.len(), 0);
+            self
+        }
+
+        fn missing_components(mut self) -> Self {
+            self.bl.single_block_processed(
+                self.block_req_id,
+                BlockProcessingResult::Ok(AvailabilityProcessingStatus::MissingComponents(
+                    self.slot,
+                    self.block_root,
+                )),
+                ResponseType::Block,
+                &mut self.cx,
+            );
+            assert_eq!(self.bl.single_block_lookups.len(), 1);
+            self
+        }
+
+        fn expect_penalty(mut self) -> Self {
+            self.rig.expect_penalty();
+            self
+        }
+        fn expect_no_penalty(mut self) -> Self {
+            self.rig.expect_empty_network();
+            self
+        }
+        fn expect_block_request(mut self) -> Self {
+            self.rig.expect_block_request(ResponseType::Block);
+            self
+        }
+        fn expect_blobs_request(mut self) -> Self {
+            self.rig.expect_block_request(ResponseType::Blob);
+            self
+        }
+        fn expect_no_blobs_request(mut self) -> Self {
+            self.rig.expect_empty_network();
+            self
+        }
+        fn expect_no_block_request(mut self) -> Self {
+            self.rig.expect_empty_network();
+            self
+        }
+    }
+
     fn get_fork_name() -> ForkName {
         ForkName::from_str(
             &std::env::var(beacon_chain::test_utils::FORK_NAME_ENV_VAR).unwrap_or_else(|e| {
@@ -1117,243 +1285,64 @@ mod deneb_only {
 
     #[test]
     fn single_block_and_blob_lookup_block_returned_first() {
-        let fork_name = get_fork_name();
-        if !matches!(fork_name, ForkName::Deneb) {
+        let Some(tester) = DenebTester::new() else {
             return;
-        }
-        let (mut bl, mut cx, mut rig) = TestRig::test_setup(false);
-        rig.harness
-            .chain
-            .slot_clock
-            .set_slot(E::slots_per_epoch() * rig.harness.spec.deneb_fork_epoch.unwrap().as_u64());
+        };
 
-        let (block, blobs) = rig.rand_block_and_blobs(fork_name, NumBlobs::Random);
-        let slot = block.slot();
-        let peer_id = PeerId::random();
-        let block_root = block.canonical_root();
-
-        // Trigger the request
-        bl.search_block(block_root, PeerSource::Attestation(peer_id), &mut cx);
-        let block_id = rig.expect_block_request(ResponseType::Block);
-        let blob_id = rig.expect_block_request(ResponseType::Blob);
-
-        // The peer provides the correct block, should not be penalized. Now the block should be sent
-        // for processing.
-        bl.single_block_lookup_response(block_id, peer_id, Some(block.into()), D, &mut cx);
-        rig.expect_empty_network();
-        rig.expect_block_process(ResponseType::Block);
-
-        // The request should still be active.
-        assert_eq!(bl.single_block_lookups.len(), 1);
-
-        // Send the stream termination. Peer should have not been penalized.
-        bl.single_block_lookup_response(block_id, peer_id, None, D, &mut cx);
-        // Missing blobs should be the request is not removed, the outstanding blobs request should
-        // mean we do not send a new request.
-        bl.single_block_processed(
-            block_id,
-            BlockProcessingResult::Ok(AvailabilityProcessingStatus::MissingComponents(
-                slot, block_root,
-            )),
-            ResponseType::Block,
-            &mut cx,
-        );
-        rig.expect_empty_network();
-        assert_eq!(bl.single_block_lookups.len(), 1);
-
-        for blob in blobs {
-            bl.single_blob_lookup_response(blob_id, peer_id, Some(Arc::new(blob)), D, &mut cx);
-            rig.expect_empty_network();
-            assert_eq!(bl.single_block_lookups.len(), 1);
-        }
-        // Send the blob stream termination. Peer should have not been penalized.
-        bl.single_blob_lookup_response(blob_id, peer_id, None, D, &mut cx);
-        rig.expect_empty_network();
-        rig.expect_block_process(ResponseType::Blob);
-
-        // Missing blobs should be the request is not removed, the outstanding blobs request should
-        // mean we do not send a new request.
-        bl.single_block_processed(
-            block_id,
-            BlockProcessingResult::Ok(AvailabilityProcessingStatus::Imported(block_root)),
-            ResponseType::Block,
-            &mut cx,
-        );
-        rig.expect_empty_network();
-        assert_eq!(bl.single_block_lookups.len(), 0);
+        tester.block_response().blobs_response().block_imported();
     }
 
     #[test]
-    fn single_block_and_blob_lookup_blob_returned_first() {
-        let fork_name = get_fork_name();
-        if !matches!(fork_name, ForkName::Deneb) {
+    fn single_block_and_blob_lookup_blobs_returned_first() {
+        let Some(tester) = DenebTester::new() else {
             return;
-        }
-        let (mut bl, mut cx, mut rig) = TestRig::test_setup(false);
-        rig.harness
-            .chain
-            .slot_clock
-            .set_slot(E::slots_per_epoch() * rig.harness.spec.deneb_fork_epoch.unwrap().as_u64());
+        };
 
-        let (block, blobs) = rig.rand_block_and_blobs(fork_name, NumBlobs::Random);
-        let slot = block.slot();
-        let peer_id = PeerId::random();
-        let block_root = block.canonical_root();
-
-        // Trigger the request
-        bl.search_block(block_root, PeerSource::Attestation(peer_id), &mut cx);
-        let block_id = rig.expect_block_request(ResponseType::Block);
-        let blob_id = rig.expect_block_request(ResponseType::Blob);
-
-        for blob in blobs {
-            bl.single_blob_lookup_response(blob_id, peer_id, Some(Arc::new(blob)), D, &mut cx);
-            rig.expect_empty_network();
-            assert_eq!(bl.single_block_lookups.len(), 1);
-        }
-        // Send the blob stream termination. Peer should have not been penalized.
-        bl.single_blob_lookup_response(blob_id, peer_id, None, D, &mut cx);
-        rig.expect_empty_network();
-        rig.expect_block_process(ResponseType::Blob);
-
-        // The request should still be active.
-        assert_eq!(bl.single_block_lookups.len(), 1);
-
-        // The peer provides the correct block, should not be penalized. Now the block should be sent
-        // for processing.
-        bl.single_block_lookup_response(block_id, peer_id, Some(block.into()), D, &mut cx);
-        rig.expect_empty_network();
-        rig.expect_block_process(ResponseType::Block);
-
-        // Send the stream termination. Peer should have not been penalized.
-        bl.single_block_lookup_response(block_id, peer_id, None, D, &mut cx);
-        // Missing blobs should be the request is not removed, the outstanding blobs request should
-        // mean we do not send a new request.
-        bl.single_block_processed(
-            block_id,
-            BlockProcessingResult::Ok(AvailabilityProcessingStatus::MissingComponents(
-                slot, block_root,
-            )),
-            ResponseType::Block,
-            &mut cx,
-        );
-        rig.expect_empty_network();
-        assert_eq!(bl.single_block_lookups.len(), 1);
-
-        // Missing blobs should be the request is not removed, the outstanding blobs request should
-        // mean we do not send a new request.
-        bl.single_block_processed(
-            block_id,
-            BlockProcessingResult::Ok(AvailabilityProcessingStatus::Imported(block_root)),
-            ResponseType::Block,
-            &mut cx,
-        );
-        rig.expect_empty_network();
-        assert_eq!(bl.single_block_lookups.len(), 0);
+        tester.blobs_response().block_response().block_imported();
     }
 
     #[test]
     fn single_block_and_blob_lookup_empty_response() {
-        let response_type = ResponseType::Block;
-        let fork_name = get_fork_name();
-        if !matches!(fork_name, ForkName::Deneb) {
+        let Some(tester) = DenebTester::new() else {
             return;
-        }
-        let (mut bl, mut cx, mut rig) = TestRig::test_setup(false);
+        };
 
-        let block_hash = Hash256::random();
-        let peer_id = PeerId::random();
-
-        // Trigger the request
-        bl.search_block(block_hash, PeerSource::Attestation(peer_id), &mut cx);
-        let id = rig.expect_block_request(response_type);
-        let blob_id = rig.expect_block_request(ResponseType::Blob);
-
-        // The peer does not have the block. It should be penalized.
-        bl.single_block_lookup_response(id, peer_id, None, D, &mut cx);
-        rig.expect_penalty();
-
-        rig.expect_block_request(response_type); // it should be retried
-        rig.expect_empty_network(); // there should be no blob retry
-
-        bl.single_blob_lookup_response(blob_id, peer_id, None, D, &mut cx);
-        rig.expect_empty_network(); // there should be no penalty or retry, we don't know
-                                    // whether we should have blobs
+        tester
+            .empty_block_response()
+            .expect_penalty()
+            .expect_block_request()
+            .expect_no_blobs_request()
+            .empty_blobs_response()
+            .expect_no_penalty()
+            .expect_no_block_request()
+            .expect_no_blobs_request();
     }
 
     #[test]
     fn single_blob_lookup_empty_response() {
-        let response_type = ResponseType::Block;
-        let fork_name = get_fork_name();
-        if !matches!(fork_name, ForkName::Deneb) {
+        let Some(tester) = DenebTester::new() else {
             return;
-        }
-        let (mut bl, mut cx, mut rig) = TestRig::test_setup(false);
+        };
 
-        let block_hash = Hash256::random();
-        let peer_id = PeerId::random();
-
-        // Trigger the request
-        bl.search_block(block_hash, PeerSource::Attestation(peer_id), &mut cx);
-        let id = rig.expect_block_request(response_type);
-        let _ = rig.expect_block_request(ResponseType::Blob);
-
-        // The peer does not have the block. It should be penalized.
-        bl.single_blob_lookup_response(id, peer_id, None, D, &mut cx);
-        rig.expect_empty_network(); // there should be no penalty or retry, we don't know
-                                    // whether we should have blobs
+        tester
+            .empty_blobs_response()
+            .expect_no_penalty()
+            .expect_no_block_request()
+            .expect_no_blobs_request();
     }
 
     #[test]
-    fn test_single_block_response_then_empty_blob_response() {
-        let fork_name = get_fork_name();
-        if !matches!(fork_name, ForkName::Deneb) {
+    fn single_block_response_then_empty_blob_response() {
+        let Some(tester) = DenebTester::new() else {
             return;
-        }
-        let (mut bl, mut cx, mut rig) = TestRig::test_setup(false);
-        rig.harness
-            .chain
-            .slot_clock
-            .set_slot(E::slots_per_epoch() * rig.harness.spec.deneb_fork_epoch.unwrap().as_u64());
+        };
 
-        let (block, _) = rig.rand_block_and_blobs(fork_name, NumBlobs::Random);
-        let slot = block.slot();
-        let peer_id = PeerId::random();
-        let block_root = block.canonical_root();
-
-        // Trigger the request
-        bl.search_block(block_root, PeerSource::Attestation(peer_id), &mut cx);
-        let block_id = rig.expect_block_request(ResponseType::Block);
-        let blob_id = rig.expect_block_request(ResponseType::Blob);
-
-        // The peer provides the correct block, should not be penalized. Now the block should be sent
-        // for processing.
-        bl.single_block_lookup_response(block_id, peer_id, Some(block.into()), D, &mut cx);
-        rig.expect_empty_network();
-        rig.expect_block_process(ResponseType::Block);
-
-        // The request should still be active.
-        assert_eq!(bl.single_block_lookups.len(), 1);
-
-        // Send the stream termination. Peer should have not been penalized.
-        bl.single_block_lookup_response(block_id, peer_id, None, D, &mut cx);
-        // Missing blobs should be the request is not removed, the outstanding blobs request should
-        // mean we do not send a new request.
-        bl.single_block_processed(
-            block_id,
-            BlockProcessingResult::Ok(AvailabilityProcessingStatus::MissingComponents(
-                slot, block_root,
-            )),
-            ResponseType::Block,
-            &mut cx,
-        );
-        rig.expect_empty_network();
-        assert_eq!(bl.single_block_lookups.len(), 1);
-
-        // The peer does not have the block. It should be penalized.
-        bl.single_blob_lookup_response(blob_id, peer_id, None, D, &mut cx);
-        rig.expect_penalty();
-
-        rig.expect_block_request(ResponseType::Blob); // it should be retried
-        rig.expect_empty_network();
+        tester
+            .block_response()
+            .missing_components()
+            .empty_blobs_response()
+            .expect_penalty()
+            .expect_blobs_request()
+            .expect_no_block_request();
     }
 }
