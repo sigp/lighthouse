@@ -1,6 +1,6 @@
 # Frequently Asked Questions
 
-## [Beacon Node and Execution Engine](#beacon-node-and-execution-engine-1)
+## [Beacon Node](#beacon-node-1)
 - [I see warning about "Syncing deposit contract block cache" or error about "updating deposit contract cache", what should I do?](#i-see-warning-about-syncing-deposit-contract-block-cache-or-error-about-updating-deposit-contract-cache-what-should-i-do)
 - [I see beacon logs showing `WARN: Execution engine called failed`, what should I do?](#i-see-beacon-logs-showing-warn-execution-engine-called-failed-what-should-i-do)
 - [My beacon node is stuck at downloading historical block using checkpoint sync. What should I do?](#my-beacon-node-is-stuck-at-downloading-historical-block-using-checkpoint-sync-what-should-i-do)
@@ -38,7 +38,7 @@
 - [Does Lighthouse have pruning function like the execution client to save disk space?](#does-lighthouse-have-pruning-function-like-the-execution-client-to-save-disk-space)
 - [Can I use a HDD for the freezer database and only have the hot db on SSD?](#can-i-use-a-hdd-for-the-freezer-database-and-only-have-the-hot-db-on-ssd)
 
-## Beacon Node and Execution Engine 
+## Beacon Node
 
 ### I see warning about "Syncing deposit contract block cache" or error about "updating deposit contract cache", what should I do?
 
