@@ -313,7 +313,7 @@ If you have incoming peers, it should return a lot of data containing informatio
 
 2. Check that you do not lower the number of peers using the flag `--target-peers`. The default is 80. A lower value set will lower the maximum number of peers your node can connect to, which may potentially interrupt the validator performance. We recommend users to leave the `--target peers` untouched to keep a diverse set of peers. 
 
-3. Ensure that you have a quality router for the internet connection. For example, if you connect the router to many devices including the node, it may be possible that the router cannot handle all routing tasks, hence resulting in a lower peer count. Therefore, using a quality router for the node is important to keep a healthy number of peers.
+3. Ensure that you have a quality router for the internet connection. For example, if you connect the router to many devices including the node, it may be possible that the router cannot handle all routing tasks, hence struggling to keep up the number of peers. Therefore, using a quality router for the node is important to keep a healthy number of peers.
 
 
 ### How do I update lighthouse?
@@ -370,9 +370,23 @@ make your Lighthouse node maximally contactable.
 
 ### My beacon node and validator client are on different servers. How can I point the validator client to the beacon node?
 
-If the beacon node and validator client are not on the same host, you can use `--beacon-nodes` flag on the validator client to point to the beacon node. For example, `--beacon-nodes http://local_IP:port` where `local_IP` is the local IP address of the beacon node and `port` is the `http-port` of the beacon node with a default port of 5052.
+The settings are as follows:
 
-It is also worth noting that this flag can also be used for redundancy of beacon nodes. For example, you have a beacon node and a validator client running on the same host, and a second beacon node on another server as a backup. In this case, you can use `--beacon-nodes http://localhost:port, http://local_IP:port` on the validator client.
+1. On the beacon node: 
+   
+   Specify `lighthouse bn --http-address local_IP` so that the beacon node is listening on the local network rather than on the `localhost`. 
+
+1. On the validator client:
+
+   Use the flag `--beacon-nodes` to point to the beacon node. For example, `lighthouse vc --beacon-nodes http://local_IP:5052` where `local_IP` is the local IP address of the beacon node and `5052` is the default `http-port` of the beacon node.
+
+   You can test that the setup is working with by running the following command on the validator client host:
+
+   ```bash
+   curl "http://NUC_IP:5052/eth/v1/node/version"
+   ```
+
+   It is also worth noting that the `--beacon-nodes` flag can also be used for redundancy of beacon nodes. For example, let's say you have a beacon node and a validator client running on the same host, and a second beacon node on another server as a backup. In this case, you can use `lighthouse vc --beacon-nodes http://localhost:5052, http://local_IP:5052` on the validator client.
 
 ### Should I do anything to the beacon node or validator client settings if I have a relocation of the node / change of IP address?
 No. Lighthouse will auto-detect the change and update your Ethereum Node Record (ENR). You just need to make sure you are not manually setting the ENR with `--enr-address` (which, for common use cases, this flag is not used).
