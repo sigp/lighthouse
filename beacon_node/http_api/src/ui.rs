@@ -75,15 +75,15 @@ pub fn get_validator_count<T: BeaconChainTypes>(
 
 #[derive(PartialEq, Serialize, Deserialize)]
 pub struct ValidatorInfoRequestData {
-    #[serde(with = "eth2_serde_utils::quoted_u64_vec")]
+    #[serde(with = "serde_utils::quoted_u64_vec")]
     indices: Vec<u64>,
 }
 
 #[derive(PartialEq, Serialize, Deserialize)]
 pub struct ValidatorInfoValues {
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     epoch: u64,
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     total_balance: u64,
 }
 

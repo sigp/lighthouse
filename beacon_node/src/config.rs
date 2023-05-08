@@ -383,6 +383,12 @@ pub fn get_config<E: EthSpec>(
             .map_err(|_| "block-cache-size is not a valid integer".to_string())?;
     }
 
+    if let Some(historic_state_cache_size) = cli_args.value_of("historic-state-cache-size") {
+        client_config.store.historic_state_cache_size = historic_state_cache_size
+            .parse()
+            .map_err(|_| "historic-state-cache-size is not a valid integer".to_string())?;
+    }
+
     client_config.store.compact_on_init = cli_args.is_present("compact-db");
     if let Some(compact_on_prune) = cli_args.value_of("auto-compact-db") {
         client_config.store.compact_on_prune = compact_on_prune
@@ -502,6 +508,7 @@ pub fn get_config<E: EthSpec>(
 
     if cli_args.is_present("reconstruct-historic-states") {
         client_config.chain.reconstruct_historic_states = true;
+        client_config.chain.genesis_backfill = true;
     }
 
     let raw_graffiti = if let Some(graffiti) = cli_args.value_of("graffiti") {
@@ -774,6 +781,9 @@ pub fn get_config<E: EthSpec>(
     client_config.chain.optimistic_finalized_sync =
         !cli_args.is_present("disable-optimistic-finalized-sync");
 
+    if cli_args.is_present("genesis-backfill") {
+        client_config.chain.genesis_backfill = true;
+    }
     // Payload selection configs
     if cli_args.is_present("always-prefer-builder-payload") {
         client_config.always_prefer_builder_payload = true;
@@ -1044,6 +1054,9 @@ pub fn set_network_config(
                     .map_err(|_| format!("Invalid trusted peer id: {}", peer_id))
             })
             .collect::<Result<Vec<PeerIdSerialized>, _>>()?;
+        if config.trusted_peers.len() >= config.target_peers {
+            slog::warn!(log, "More trusted peers than the target peer limit. This will prevent efficient peer selection criteria."; "target_peers" => config.target_peers, "trusted_peers" => config.trusted_peers.len());
+        }
     }
 
     if let Some(enr_udp_port_str) = cli_args.value_of("enr-udp-port") {

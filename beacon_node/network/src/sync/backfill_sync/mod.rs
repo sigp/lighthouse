@@ -159,20 +159,20 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
         // If, for some reason a backfill has already been completed (or we've used a trusted
         // genesis root) then backfill has been completed.
 
-        let (state, current_start) = if let Some(anchor_info) = beacon_chain.store.get_anchor_info()
-        {
-            if anchor_info.block_backfill_complete() {
-                (BackFillState::Completed, Epoch::new(0))
-            } else {
-                (
-                    BackFillState::Paused,
-                    anchor_info
-                        .oldest_block_slot
-                        .epoch(T::EthSpec::slots_per_epoch()),
-                )
+        let (state, current_start) = match beacon_chain.store.get_anchor_info() {
+            Some(anchor_info) => {
+                if anchor_info.block_backfill_complete(beacon_chain.genesis_backfill_slot) {
+                    (BackFillState::Completed, Epoch::new(0))
+                } else {
+                    (
+                        BackFillState::Paused,
+                        anchor_info
+                            .oldest_block_slot
+                            .epoch(T::EthSpec::slots_per_epoch()),
+                    )
+                }
             }
-        } else {
-            (BackFillState::NotRequired, Epoch::new(0))
+            None => (BackFillState::NotRequired, Epoch::new(0)),
         };
 
         let bfs = BackFillSync {
@@ -287,6 +287,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
             remaining: self
                 .current_start
                 .start_slot(T::EthSpec::slots_per_epoch())
+                .saturating_sub(self.beacon_chain.genesis_backfill_slot)
                 .as_usize(),
         })
     }
@@ -1097,7 +1098,12 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
         match self.batches.entry(batch_id) {
             Entry::Occupied(_) => {
                 // this batch doesn't need downloading, let this same function decide the next batch
-                if batch_id == 0 {
+                if batch_id
+                    == self
+                        .beacon_chain
+                        .genesis_backfill_slot
+                        .epoch(T::EthSpec::slots_per_epoch())
+                {
                     self.last_batch_downloaded = true;
                 }
 
@@ -1108,7 +1114,12 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
             }
             Entry::Vacant(entry) => {
                 entry.insert(BatchInfo::new(&batch_id, BACKFILL_EPOCHS_PER_BATCH));
-                if batch_id == 0 {
+                if batch_id
+                    == self
+                        .beacon_chain
+                        .genesis_backfill_slot
+                        .epoch(T::EthSpec::slots_per_epoch())
+                {
                     self.last_batch_downloaded = true;
                 }
                 self.to_be_downloaded = self
@@ -1125,7 +1136,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
     /// not required.
     fn reset_start_epoch(&mut self) -> Result<(), ResetEpochError> {
         if let Some(anchor_info) = self.beacon_chain.store.get_anchor_info() {
-            if anchor_info.block_backfill_complete() {
+            if anchor_info.block_backfill_complete(self.beacon_chain.genesis_backfill_slot) {
                 Err(ResetEpochError::SyncCompleted)
             } else {
                 self.current_start = anchor_info
@@ -1140,12 +1151,17 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
 
     /// Checks with the beacon chain if backfill sync has completed.
     fn check_completed(&mut self) -> bool {
-        if self.current_start == 0 {
+        if self.current_start
+            == self
+                .beacon_chain
+                .genesis_backfill_slot
+                .epoch(T::EthSpec::slots_per_epoch())
+        {
             // Check that the beacon chain agrees
 
             if let Some(anchor_info) = self.beacon_chain.store.get_anchor_info() {
                 // Conditions that we have completed a backfill sync
-                if anchor_info.block_backfill_complete() {
+                if anchor_info.block_backfill_complete(self.beacon_chain.genesis_backfill_slot) {
                     return true;
                 } else {
                     error!(self.log, "Backfill out of sync with beacon chain");
