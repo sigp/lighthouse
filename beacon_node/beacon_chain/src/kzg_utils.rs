@@ -1,5 +1,5 @@
 use kzg::{Error as KzgError, Kzg, BYTES_PER_BLOB};
-use types::{Blob, EthSpec, KzgCommitment, KzgProof};
+use types::{Blob, EthSpec, Hash256, KzgCommitment, KzgProof};
 
 /// Converts a blob ssz List object to an array to be used with the kzg
 /// crypto library.
@@ -55,4 +55,26 @@ pub fn blob_to_kzg_commitment<T: EthSpec>(
     blob: Blob<T>,
 ) -> Result<KzgCommitment, KzgError> {
     kzg.blob_to_kzg_commitment(ssz_blob_to_crypto_blob::<T>(blob))
+}
+
+/// Compute the kzg proof for a given blob and an evaluation point z.
+pub fn compute_kzg_proof<T: EthSpec>(
+    kzg: &Kzg,
+    blob: Blob<T>,
+    z: Hash256,
+) -> Result<(KzgProof, Hash256), KzgError> {
+    let z = z.0.into();
+    kzg.compute_kzg_proof(ssz_blob_to_crypto_blob::<T>(blob), z)
+        .map(|(proof, z)| (proof, Hash256::from_slice(&z.to_vec())))
+}
+
+/// Verify a `kzg_proof` for a `kzg_commitment` that evaluating a polynomial at `z` results in `y`
+pub fn verify_kzg_proof<T: EthSpec>(
+    kzg: &Kzg,
+    kzg_commitment: KzgCommitment,
+    kzg_proof: KzgProof,
+    z: Hash256,
+    y: Hash256,
+) -> Result<bool, KzgError> {
+    kzg.verify_kzg_proof(kzg_commitment, z.0.into(), y.0.into(), kzg_proof)
 }
