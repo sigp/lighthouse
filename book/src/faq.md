@@ -364,7 +364,7 @@ The settings are as follows:
    You can test that the setup is working with by running the following command on the validator client host:
 
    ```bash
-   curl "http://NUC_IP:5052/eth/v1/node/version"
+   curl "http://local_IP:5052/eth/v1/node/version"
    ```
 
    It is also worth noting that the `--beacon-nodes` flag can also be used for redundancy of beacon nodes. For example, let's say you have a beacon node and a validator client running on the same host, and a second beacon node on another server as a backup. In this case, you can use `lighthouse vc --beacon-nodes http://localhost:5052, http://local_IP:5052` on the validator client.
