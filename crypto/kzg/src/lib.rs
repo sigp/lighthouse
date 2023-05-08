@@ -3,11 +3,11 @@ mod kzg_proof;
 mod trusted_setup;
 
 pub use crate::{kzg_commitment::KzgCommitment, kzg_proof::KzgProof, trusted_setup::TrustedSetup};
-use c_kzg::Bytes48;
 pub use c_kzg::{
     Blob, Error as CKzgError, KzgSettings, BYTES_PER_BLOB, BYTES_PER_FIELD_ELEMENT,
     FIELD_ELEMENTS_PER_BLOB,
 };
+use c_kzg::{Bytes32, Bytes48};
 use std::path::PathBuf;
 
 #[derive(Debug)]
@@ -115,5 +115,30 @@ impl Kzg {
         c_kzg::KzgCommitment::blob_to_kzg_commitment(blob, &self.trusted_setup)
             .map_err(Error::InvalidBlob)
             .map(|com| KzgCommitment(com.to_bytes().into_inner()))
+    }
+
+    /// Computes the kzg proof for a given `blob` and an evaluation point `z`
+    pub fn compute_kzg_proof(&self, blob: Blob, z: Bytes32) -> Result<(KzgProof, Bytes32), Error> {
+        c_kzg::KzgProof::compute_kzg_proof(blob, z, &self.trusted_setup)
+            .map_err(Error::KzgProofComputationFailed)
+            .map(|(proof, y)| (KzgProof(proof.to_bytes().into_inner()), y))
+    }
+
+    /// Verifies a `kzg_proof` for a `kzg_commitment` that evaluating a polynomial at `z` results in `y`
+    pub fn verify_kzg_proof(
+        &self,
+        kzg_commitment: KzgCommitment,
+        z: Bytes32,
+        y: Bytes32,
+        kzg_proof: KzgProof,
+    ) -> Result<bool, Error> {
+        c_kzg::KzgProof::verify_kzg_proof(
+            kzg_commitment.into(),
+            z,
+            y,
+            kzg_proof.into(),
+            &self.trusted_setup,
+        )
+        .map_err(Error::InvalidKzgProof)
     }
 }
