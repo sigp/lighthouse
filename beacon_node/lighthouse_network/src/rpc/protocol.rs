@@ -497,8 +497,8 @@ impl<TSpec: EthSpec> InboundRequest<TSpec> {
         match self {
             InboundRequest::Status(_) => 1,
             InboundRequest::Goodbye(_) => 0,
-            InboundRequest::BlocksByRange(req) => req.count,
-            InboundRequest::BlocksByRoot(req) => req.block_roots.len() as u64,
+            InboundRequest::BlocksByRange(req) => *req.count(),
+            InboundRequest::BlocksByRoot(req) => req.block_roots().len() as u64,
             InboundRequest::Ping(_) => 1,
             InboundRequest::MetaData(_) => 1,
             InboundRequest::LightClientBootstrap(_) => 1,

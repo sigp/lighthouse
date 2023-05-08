@@ -247,7 +247,12 @@ impl ssz::Decode for GoodbyeReason {
 }
 
 /// Request a number of beacon block roots from a peer.
-#[derive(Encode, Decode, Clone, Debug, PartialEq)]
+#[superstruct(
+    variants(V1, V2),
+    variant_attributes(derive(Encode, Decode, Clone, Debug, PartialEq))
+    )]
+    #[derive(Encode, Clone, Debug, PartialEq)]
+    #[ssz(enum_behaviour = "transparent")]
 pub struct BlocksByRangeRequest {
     /// The starting slot to request blocks.
     pub start_slot: u64,
@@ -257,7 +262,12 @@ pub struct BlocksByRangeRequest {
 }
 
 /// Request a number of beacon block roots from a peer.
-#[derive(Encode, Decode, Clone, Debug, PartialEq)]
+#[superstruct(
+variants(V1, V2),
+variant_attributes(derive(Encode, Decode, Clone, Debug, PartialEq))
+)]
+#[derive(Encode, Clone, Debug, PartialEq)]
+#[ssz(enum_behaviour = "transparent")]
 pub struct OldBlocksByRangeRequest {
     /// The starting slot to request blocks.
     pub start_slot: u64,
@@ -274,6 +284,10 @@ pub struct OldBlocksByRangeRequest {
 }
 
 /// Request a number of beacon block bodies from a peer.
+#[superstruct(
+    variants(V1, V2),
+    variant_attributes(derive(Clone, Debug, PartialEq))
+)]
 #[derive(Clone, Debug, PartialEq)]
 pub struct BlocksByRootRequest {
     /// The list of beacon block bodies being requested.
@@ -488,7 +502,7 @@ impl std::fmt::Display for GoodbyeReason {
 
 impl std::fmt::Display for BlocksByRangeRequest {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Start Slot: {}, Count: {}", self.start_slot, self.count)
+        write!(f, "Start Slot: {}, Count: {}", self.start_slot(), self.count())
     }
 }
 
@@ -497,7 +511,7 @@ impl std::fmt::Display for OldBlocksByRangeRequest {
         write!(
             f,
             "Start Slot: {}, Count: {}, Step: {}",
-            self.start_slot, self.count, self.step
+            self.start_slot(), self.count(), self.step()
         )
     }
 }

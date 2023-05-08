@@ -9,7 +9,7 @@ use crate::peer_manager::{
     ConnectionDirection, PeerManager, PeerManagerEvent,
 };
 use crate::peer_manager::{MIN_OUTBOUND_ONLY_FACTOR, PEER_EXCESS_FACTOR, PRIORITY_PEER_EXCESS};
-use crate::rpc::methods::MetadataRequest;
+use crate::rpc::methods::{BlocksByRangeRequestV1, MetadataRequest, BlocksByRangeRequestV2};
 use crate::rpc::*;
 use crate::service::behaviour::BehaviourEvent;
 pub use crate::service::behaviour::Gossipsub;
@@ -1233,13 +1233,9 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                         Some(event)
                     }
                     InboundRequest::BlocksByRange(req) => {
-                        let methods::OldBlocksByRangeRequest {
-                            start_slot,
-                            mut count,
-                            step,
-                        } = req;
                         // Still disconnect the peer if the request is naughty.
-                        if step == 0 {
+                        let mut count = *req.count();
+                        if *req.step() == 0 {
                             self.peer_manager_mut().handle_rpc_error(
                                 &peer_id,
                                 Protocol::BlocksByRange,
@@ -1251,14 +1247,24 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                             return None;
                         }
                         // return just one block in case the step parameter is used. https://github.com/ethereum/consensus-specs/pull/2856
-                        if step > 1 {
+                        if *req.step() > 1 {
                             count = 1;
                         }
-                        let event = self.build_request(
-                            peer_request_id,
-                            peer_id,
-                            Request::BlocksByRange(BlocksByRangeRequest { start_slot, count }),
-                        );
+                        let request = match req {
+                            methods::OldBlocksByRangeRequest::V1(req) => Request::BlocksByRange(
+                                BlocksByRangeRequest::V1(BlocksByRangeRequestV1 {
+                                    start_slot: req.start_slot,
+                                    count,
+                                }),
+                            ),
+                            methods::OldBlocksByRangeRequest::V2(req) => Request::BlocksByRange(
+                                BlocksByRangeRequest::V2(BlocksByRangeRequestV2 {
+                                    start_slot: req.start_slot,
+                                    count,
+                                }),
+                            ),
+                        };
+                        let event = self.build_request(peer_request_id, peer_id, request);
                         Some(event)
                     }
                     InboundRequest::BlocksByRoot(req) => {

@@ -7,7 +7,7 @@ use types::{EthSpec, SignedBeaconBlock};
 use crate::rpc::{
     methods::{
         BlocksByRangeRequest, BlocksByRootRequest, LightClientBootstrapRequest,
-        OldBlocksByRangeRequest, RPCCodedResponse, RPCResponse, ResponseTermination, StatusMessage,
+        OldBlocksByRangeRequest, RPCCodedResponse, RPCResponse, ResponseTermination, StatusMessage, OldBlocksByRangeRequestV1, OldBlocksByRangeRequestV2
     },
     OutboundRequest, SubstreamId,
 };
@@ -43,13 +43,22 @@ impl<TSpec: EthSpec> std::convert::From<Request> for OutboundRequest<TSpec> {
     fn from(req: Request) -> OutboundRequest<TSpec> {
         match req {
             Request::BlocksByRoot(r) => OutboundRequest::BlocksByRoot(r),
-            Request::BlocksByRange(BlocksByRangeRequest { start_slot, count }) => {
-                OutboundRequest::BlocksByRange(OldBlocksByRangeRequest {
-                    start_slot,
-                    count,
-                    step: 1,
-                })
-            }
+            Request::BlocksByRange(r) => match r {
+                BlocksByRangeRequest::V1(req) => OutboundRequest::BlocksByRange(
+                    OldBlocksByRangeRequest::V1(OldBlocksByRangeRequestV1 {
+                        start_slot: req.start_slot,
+                        count: req.count,
+                        step: 1,
+                    })
+                ),
+                BlocksByRangeRequest::V2(req) => OutboundRequest::BlocksByRange(
+                    OldBlocksByRangeRequest::V2(OldBlocksByRangeRequestV2 {
+                        start_slot: req.start_slot,
+                        count: req.count,
+                        step: 1,
+                    }),
+                ),
+            },
             Request::LightClientBootstrap(_) => {
                 unreachable!("Lighthouse never makes an outbound light client request")
             }

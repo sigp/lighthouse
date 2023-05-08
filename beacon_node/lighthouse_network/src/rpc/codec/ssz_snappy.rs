@@ -214,8 +214,14 @@ impl<TSpec: EthSpec> Encoder<OutboundRequest<TSpec>> for SSZSnappyOutboundCodec<
         let bytes = match item {
             OutboundRequest::Status(req) => req.as_ssz_bytes(),
             OutboundRequest::Goodbye(req) => req.as_ssz_bytes(),
-            OutboundRequest::BlocksByRange(req) => req.as_ssz_bytes(),
-            OutboundRequest::BlocksByRoot(req) => req.block_roots.as_ssz_bytes(),
+            OutboundRequest::BlocksByRange(req) => match req {
+                OldBlocksByRangeRequest::V1(req) => req.as_ssz_bytes(),
+                OldBlocksByRangeRequest::V2(req) => req.as_ssz_bytes(),
+            },
+            OutboundRequest::BlocksByRoot(req) => match req {
+                BlocksByRootRequest::V1(req) => req.block_roots.as_ssz_bytes(),
+                BlocksByRootRequest::V2(req) => req.block_roots.as_ssz_bytes(),
+            },
             OutboundRequest::Ping(req) => req.as_ssz_bytes(),
             OutboundRequest::MetaData(_) => return Ok(()), // no metadata to encode
         };
@@ -451,20 +457,20 @@ fn handle_rpc_request<T: EthSpec>(
             GoodbyeReason::from_ssz_bytes(decoded_buffer)?,
         ))),
         SupportedProtocol::BlocksByRangeV2 => Ok(Some(InboundRequest::BlocksByRange(
-            OldBlocksByRangeRequest::from_ssz_bytes(decoded_buffer)?,
+            OldBlocksByRangeRequest::V2(OldBlocksByRangeRequestV2::from_ssz_bytes(decoded_buffer)?),
         ))),
         SupportedProtocol::BlocksByRangeV1 => Ok(Some(InboundRequest::BlocksByRange(
-            OldBlocksByRangeRequest::from_ssz_bytes(decoded_buffer)?,
+            OldBlocksByRangeRequest::V2(OldBlocksByRangeRequestV2::from_ssz_bytes(decoded_buffer)?),
         ))),
         SupportedProtocol::BlocksByRootV2 => {
-            Ok(Some(InboundRequest::BlocksByRoot(BlocksByRootRequest {
+            Ok(Some(InboundRequest::BlocksByRoot(BlocksByRootRequest::V2(BlocksByRootRequestV2 {
                 block_roots: VariableList::from_ssz_bytes(decoded_buffer)?,
-            })))
+            }))))
         }
         SupportedProtocol::BlocksByRootV1 => {
-            Ok(Some(InboundRequest::BlocksByRoot(BlocksByRootRequest {
+            Ok(Some(InboundRequest::BlocksByRoot(BlocksByRootRequest::V1(BlocksByRootRequestV1 {
                 block_roots: VariableList::from_ssz_bytes(decoded_buffer)?,
-            })))
+            }))))
         }
         SupportedProtocol::PingV1 => Ok(Some(InboundRequest::Ping(Ping {
             data: u64::from_ssz_bytes(decoded_buffer)?,

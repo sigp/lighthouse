@@ -87,8 +87,8 @@ impl<TSpec: EthSpec> OutboundRequest<TSpec> {
         match self {
             OutboundRequest::Status(_) => 1,
             OutboundRequest::Goodbye(_) => 0,
-            OutboundRequest::BlocksByRange(req) => req.count,
-            OutboundRequest::BlocksByRoot(req) => req.block_roots.len() as u64,
+            OutboundRequest::BlocksByRange(req) => *req.count(),
+            OutboundRequest::BlocksByRoot(req) => req.block_roots().len() as u64,
             OutboundRequest::Ping(_) => 1,
             OutboundRequest::MetaData(_) => 1,
         }
