@@ -57,7 +57,6 @@ pub fn process_operations<T: EthSpec, Payload: AbstractExecPayload<T>>(
         process_bls_to_execution_changes(state, bls_to_execution_changes, verify_signatures, spec)?;
     }
 
-    /*
     if let Ok(payload) = block_body.execution_payload() {
         if is_execution_enabled(state, block_body) {
             let deposit_receipts = payload.deposit_receipts()?;
@@ -66,7 +65,6 @@ pub fn process_operations<T: EthSpec, Payload: AbstractExecPayload<T>>(
             }
         }
     }
-    */
 
     Ok(())
 }

@@ -39,7 +39,7 @@ pub trait ExecPayload<T: EthSpec>: Debug + Clone + PartialEq + Hash + TreeHash +
     fn transactions(&self) -> Option<&Transactions<T>>;
     /// fork-specific fields
     fn withdrawals_root(&self) -> Result<Hash256, Error>;
-    fn deposit_receipts_root(&self) -> Result<Hash256, Error>;
+    fn deposit_receipts(&self) -> Result<DepositReceipts<T>, Error>;
 
     /// Is this a default payload with 0x0 roots for transactions and withdrawals?
     fn is_default_with_zero_roots(&self) -> bool;
@@ -268,14 +268,12 @@ impl<T: EthSpec> ExecPayload<T> for FullPayload<T> {
         }
     }
 
-    fn deposit_receipts_root(&self) -> Result<Hash256, Error> {
+    fn deposit_receipts(&self) -> Result<DepositReceipts<T>, Error> {
         match self {
             FullPayload::Merge(_) => Err(Error::IncorrectStateVariant),
             FullPayload::Capella(_) => Err(Error::IncorrectStateVariant),
             FullPayload::Eip4844(_) => Err(Error::IncorrectStateVariant),
-            FullPayload::Eip6110(ref inner) => {
-                Ok(inner.execution_payload.deposit_receipts.tree_hash_root())
-            }
+            FullPayload::Eip6110(ref inner) => Ok(inner.execution_payload.deposit_receipts.clone()),
         }
     }
 
@@ -391,14 +389,12 @@ impl<'b, T: EthSpec> ExecPayload<T> for FullPayloadRef<'b, T> {
         }
     }
 
-    fn deposit_receipts_root(&self) -> Result<Hash256, Error> {
+    fn deposit_receipts(&self) -> Result<DepositReceipts<T>, Error> {
         match self {
             FullPayloadRef::Merge(_) => Err(Error::IncorrectStateVariant),
             FullPayloadRef::Capella(_) => Err(Error::IncorrectStateVariant),
             FullPayloadRef::Eip4844(_) => Err(Error::IncorrectStateVariant),
-            FullPayloadRef::Eip6110(inner) => {
-                Ok(inner.execution_payload.deposit_receipts.tree_hash_root())
-            }
+            FullPayloadRef::Eip6110(inner) => Ok(inner.execution_payload.deposit_receipts.clone()),
         }
     }
 
@@ -581,13 +577,13 @@ impl<T: EthSpec> ExecPayload<T> for BlindedPayload<T> {
         }
     }
 
-    fn deposit_receipts_root(&self) -> Result<Hash256, Error> {
+    fn deposit_receipts(&self) -> Result<DepositReceipts<T>, Error> {
         match self {
             BlindedPayload::Merge(_) => Err(Error::IncorrectStateVariant),
             BlindedPayload::Capella(_) => Err(Error::IncorrectStateVariant),
             BlindedPayload::Eip4844(_) => Err(Error::IncorrectStateVariant),
             BlindedPayload::Eip6110(ref inner) => {
-                Ok(inner.execution_payload_header.deposit_receipts_root)
+                Ok(inner.execution_payload_header.deposit_receipts.clone())
             }
         }
     }
@@ -685,13 +681,13 @@ impl<'b, T: EthSpec> ExecPayload<T> for BlindedPayloadRef<'b, T> {
         }
     }
 
-    fn deposit_receipts_root(&self) -> Result<Hash256, Error> {
+    fn deposit_receipts(&self) -> Result<DepositReceipts<T>, Error> {
         match self {
             BlindedPayloadRef::Merge(_) => Err(Error::IncorrectStateVariant),
             BlindedPayloadRef::Capella(_) => Err(Error::IncorrectStateVariant),
             BlindedPayloadRef::Eip4844(_) => Err(Error::IncorrectStateVariant),
             BlindedPayloadRef::Eip6110(inner) => {
-                Ok(inner.execution_payload_header.deposit_receipts_root)
+                Ok(inner.execution_payload_header.deposit_receipts.clone())
             }
         }
     }
@@ -781,7 +777,7 @@ macro_rules! impl_exec_payload_common {
                 g(self)
             }
 
-            fn deposit_receipts_root(&self) -> Result<Hash256, Error> {
+            fn deposit_receipts(&self) -> Result<DepositReceipts<T>, Error> {
                 let h = $h;
                 h(self)
             }
@@ -824,11 +820,12 @@ macro_rules! impl_exec_payload_for_fork {
                 c
             },
             {
-                let c: for<'a> fn(&'a $wrapper_type_header<T>) -> Result<Hash256, Error> =
-                    |payload: &$wrapper_type_header<T>| {
-                        let wrapper_ref_type = BlindedPayloadRef::$fork_variant(&payload);
-                        wrapper_ref_type.deposit_receipts_root()
-                    };
+                let c: for<'a> fn(
+                    &'a $wrapper_type_header<T>,
+                ) -> Result<DepositReceipts<T>, Error> = |payload: &$wrapper_type_header<T>| {
+                    let wrapper_ref_type = BlindedPayloadRef::$fork_variant(&payload);
+                    wrapper_ref_type.deposit_receipts()
+                };
                 c
             }
         );
@@ -911,10 +908,10 @@ macro_rules! impl_exec_payload_for_fork {
                 c
             },
             {
-                let c: for<'a> fn(&'a $wrapper_type_full<T>) -> Result<Hash256, Error> =
+                let c: for<'a> fn(&'a $wrapper_type_full<T>) -> Result<DepositReceipts<T>, Error> =
                     |payload: &$wrapper_type_full<T>| {
                         let wrapper_ref_type = FullPayloadRef::$fork_variant(&payload);
-                        wrapper_ref_type.deposit_receipts_root()
+                        wrapper_ref_type.deposit_receipts()
                     };
                 c
             }
