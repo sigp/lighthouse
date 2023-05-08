@@ -88,14 +88,12 @@ pub struct Ping {
 
 /// The METADATA request structure.
 #[superstruct(
-variants(V1, V2),
-variant_attributes(
-    derive(Clone, Debug, PartialEq, Serialize),
-)
+    variants(V1, V2),
+    variant_attributes(derive(Clone, Debug, PartialEq, Serialize),)
 )]
 #[derive(Clone, Debug, PartialEq)]
 pub struct MetadataRequest<T: EthSpec> {
-    _phantom_data: PhantomData<T>
+    _phantom_data: PhantomData<T>,
 }
 
 impl<T: EthSpec> MetadataRequest<T> {
@@ -134,6 +132,7 @@ pub struct MetaData<T: EthSpec> {
 }
 
 impl<T: EthSpec> MetaData<T> {
+    /// Returns a V1 MetaData response from self.
     pub fn metadata_v1(&self) -> Self {
         match self {
             md @ MetaData::V1(_) => md.clone(),
@@ -141,6 +140,18 @@ impl<T: EthSpec> MetaData<T> {
                 seq_number: metadata.seq_number,
                 attnets: metadata.attnets.clone(),
             }),
+        }
+    }
+
+    /// Returns a V2 MetaData response from self by filling unavailable fields with default.
+    pub fn metadata_v2(&self) -> Self {
+        match self {
+            MetaData::V1(metadata) => MetaData::V2(MetaDataV2 {
+                seq_number: metadata.seq_number,
+                attnets: metadata.attnets.clone(),
+                syncnets: Default::default(),
+            }),
+            md @ MetaData::V2(_) => md.clone(),
         }
     }
 }
