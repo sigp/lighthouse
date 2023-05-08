@@ -488,7 +488,7 @@ impl<T: BeaconChainTypes> Router<T> {
                 if error_debounce.elapsed() {
                     error!(&self.log, "Unable to send message to the beacon processor";
                         "error" => %e, "type" => work_type)
-                }      
+                }
             })
     }
 }
