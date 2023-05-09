@@ -87,7 +87,7 @@ resolver = "2"
 
 [patch]
 [patch.crates-io]
-warp = { git = "https://github.com/macladson/warp", rev="7e75acc368229a46a236a8c991bf251fe7fe50ef" }
+warp = { git = "https://github.com/macladson/warp", rev="9ee76d1af4b656ab99eb410907f17cedc37babfc" }
 arbitrary = { git = "https://github.com/michaelsproul/arbitrary", rev="f002b99989b561ddce62e4cf2887b0f8860ae991" }
 
 [patch."https://github.com/ralexstokes/mev-rs"]
