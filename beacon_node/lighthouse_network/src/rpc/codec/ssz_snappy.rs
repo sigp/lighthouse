@@ -811,11 +811,8 @@ mod tests {
         );
         outbound_codec.encode(req.clone(), &mut buf).unwrap();
 
-        let mut inbound_codec = SSZSnappyInboundCodec::<Spec>::new(
-            protocol.clone(),
-            max_packet_size,
-            fork_context.clone(),
-        );
+        let mut inbound_codec =
+            SSZSnappyInboundCodec::<Spec>::new(protocol.clone(), max_packet_size, fork_context);
 
         let decoded = inbound_codec.decode(&mut buf).unwrap().unwrap_or_else(|| {
             panic!(
@@ -823,7 +820,7 @@ mod tests {
                 req, protocol, fork_name
             )
         });
-        match req.clone() {
+        match req {
             OutboundRequest::Status(status) => {
                 assert_eq!(decoded, InboundRequest::Status(status))
             }
