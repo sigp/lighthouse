@@ -1,12 +1,18 @@
 #![cfg(test)]
+use std::sync::Arc;
+
 use crate::types::GossipEncoding;
-use ::types::{BeaconBlock, EthSpec, MinimalEthSpec, Signature, SignedBeaconBlock};
+use ::types::{BeaconBlock, EthSpec, ForkName, MinimalEthSpec, Signature, SignedBeaconBlock};
 use lighthouse_network::*;
 use slog::{debug, Level};
+use tokio::runtime::Runtime;
 
 type E = MinimalEthSpec;
 
 mod common;
+
+/// The fork to use for this test module
+const FORK: ForkName = ForkName::Capella;
 
 /* Gossipsub tests */
 // Note: The aim of these tests is not to test the robustness of the gossip network
@@ -23,8 +29,12 @@ async fn test_gossipsub_forward() {
     // set up the logging. The level and enabled or not
     let log = common::build_log(Level::Info, false);
 
+    let runtime: Arc<Runtime> = Arc::new(Runtime::new().unwrap());
+
     let num_nodes = 20;
-    let mut nodes = common::build_linear(log.clone(), num_nodes);
+    let mut nodes: Vec<common::Libp2pInstance> =
+        common::build_linear(Arc::downgrade(&runtime), log.clone(), num_nodes, FORK).await;
+
     let mut received_count = 0;
     let spec = E::default_spec();
     let empty_block = BeaconBlock::empty(&spec);
