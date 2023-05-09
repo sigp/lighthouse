@@ -1,4 +1,14 @@
 #![cfg(test)]
+/// Gossipsub tests
+///
+/// Note: The aim of these tests is not to test the robustness of the gossip network
+/// but to check if the gossipsub implementation is behaving according to the specifications.
+
+/// Test if gossipsub message are forwarded by nodes with a simple linear topology.
+///
+///                Topology used in test
+///
+/// node1 <-> node2 <-> node3 ..... <-> node(n-1) <-> node(n)
 use std::sync::Arc;
 
 use crate::types::GossipEncoding;
@@ -13,16 +23,6 @@ mod common;
 
 /// The fork to use for this test module
 const FORK: ForkName = ForkName::Capella;
-
-/* Gossipsub tests */
-// Note: The aim of these tests is not to test the robustness of the gossip network
-// but to check if the gossipsub implementation is behaving according to the specifications.
-
-// Test if gossipsub message are forwarded by nodes with a simple linear topology.
-//
-//                Topology used in test
-//
-// node1 <-> node2 <-> node3 ..... <-> node(n-1) <-> node(n)
 
 #[tokio::test]
 async fn test_gossipsub_forward() {
