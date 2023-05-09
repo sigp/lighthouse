@@ -168,11 +168,12 @@ pub struct ChainSpec {
     pub maximum_gossip_clock_disparity_millis: u64,
     pub target_aggregators_per_committee: u64,
     pub attestation_subnet_count: u64,
+    // TODO: Remove this after a hard fork
     pub random_subnets_per_validator: u64,
     pub epochs_per_random_subnet_subscription: u64,
     pub subnets_per_node: u8,
     pub epochs_per_subnet_subscription: u64,
-    attestation_subnet_extra_bits: u8,
+    pub attestation_subnet_extra_bits: u8,
 
     /*
      * Application params
@@ -455,17 +456,7 @@ impl ChainSpec {
 
     #[allow(clippy::integer_arithmetic)]
     pub const fn attestation_subnet_prefix_bits(&self) -> u32 {
-        // maybe use log2 when stable https://github.com/rust-lang/rust/issues/70887
-
-        // NOTE: this line is here simply to guarantee that if self.attestation_subnet_count type
-        // is changed, a compiler warning will be raised. This code depends on the type being u64.
-        let attestation_subnet_count: u64 = self.attestation_subnet_count;
-        let attestation_subnet_count_bits = if attestation_subnet_count == 0 {
-            0
-        } else {
-            63 - attestation_subnet_count.leading_zeros()
-        };
-
+        let attestation_subnet_count_bits = self.attestation_subnet_count.ilog2();
         self.attestation_subnet_extra_bits as u32 + attestation_subnet_count_bits
     }
 
@@ -626,12 +617,12 @@ impl ChainSpec {
             attestation_propagation_slot_range: 32,
             attestation_subnet_count: 64,
             random_subnets_per_validator: 1,
-            subnets_per_node: 1,
+            subnets_per_node: 2,
             maximum_gossip_clock_disparity_millis: 500,
             target_aggregators_per_committee: 16,
             epochs_per_random_subnet_subscription: 256,
             epochs_per_subnet_subscription: 256,
-            attestation_subnet_extra_bits: 6,
+            attestation_subnet_extra_bits: 0,
 
             /*
              * Application specific
@@ -853,12 +844,12 @@ impl ChainSpec {
             attestation_propagation_slot_range: 32,
             attestation_subnet_count: 64,
             random_subnets_per_validator: 1,
-            subnets_per_node: 1,
+            subnets_per_node: 4, // Make this larger than usual to avoid network damage
             maximum_gossip_clock_disparity_millis: 500,
             target_aggregators_per_committee: 16,
             epochs_per_random_subnet_subscription: 256,
             epochs_per_subnet_subscription: 256,
-            attestation_subnet_extra_bits: 6,
+            attestation_subnet_extra_bits: 0,
 
             /*
              * Application specific
