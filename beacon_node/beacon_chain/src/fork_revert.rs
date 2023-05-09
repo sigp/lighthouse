@@ -5,7 +5,7 @@ use slog::{info, warn, Logger};
 use state_processing::state_advance::complete_state_advance;
 use state_processing::{
     per_block_processing, per_block_processing::BlockSignatureStrategy, ConsensusContext,
-    VerifyBlockRoot,
+    StateProcessingStrategy, VerifyBlockRoot,
 };
 use std::sync::Arc;
 use std::time::Duration;
@@ -177,6 +177,7 @@ pub fn reset_fork_choice_to_finalization<E: EthSpec, Hot: ItemStore<E>, Cold: It
             &mut state,
             &block,
             BlockSignatureStrategy::NoVerification,
+            StateProcessingStrategy::Accurate,
             VerifyBlockRoot::True,
             &mut ctxt,
             spec,

@@ -30,7 +30,7 @@ use slog::{debug, error, info, trace, warn, Logger};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use state_processing::{
-    BlockProcessingError, BlockReplayer, SlotProcessingError, StateRootStrategy,
+    BlockProcessingError, BlockReplayer, SlotProcessingError, StateProcessingStrategy,
 };
 use std::cmp::min;
 use std::convert::TryInto;
@@ -531,10 +531,10 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 // chain. This way we avoid returning a state that doesn't match `state_root`.
                 self.load_cold_state(state_root)
             } else {
-                self.load_hot_state(state_root, StateRootStrategy::Accurate)
+                self.load_hot_state(state_root, StateProcessingStrategy::Accurate)
             }
         } else {
-            match self.load_hot_state(state_root, StateRootStrategy::Accurate)? {
+            match self.load_hot_state(state_root, StateProcessingStrategy::Accurate)? {
                 Some(state) => Ok(Some(state)),
                 None => self.load_cold_state(state_root),
             }
@@ -572,7 +572,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             }
             .into())
         } else {
-            self.load_hot_state(state_root, StateRootStrategy::Inconsistent)
+            self.load_hot_state(state_root, StateProcessingStrategy::Inconsistent)
         }
     }
 
@@ -662,10 +662,13 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         {
             // NOTE: minor inefficiency here because we load an unnecessary hot state summary
             //
-            // `StateRootStrategy` should be irrelevant here since we never replay blocks for an epoch
+            // `StateProcessingStrategy` should be irrelevant here since we never replay blocks for an epoch
             // boundary state in the hot DB.
             let state = self
-                .load_hot_state(&epoch_boundary_state_root, StateRootStrategy::Accurate)?
+                .load_hot_state(
+                    &epoch_boundary_state_root,
+                    StateProcessingStrategy::Accurate,
+                )?
                 .ok_or(HotColdDBError::MissingEpochBoundaryState(
                     epoch_boundary_state_root,
                 ))?;
@@ -834,7 +837,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     pub fn load_hot_state(
         &self,
         state_root: &Hash256,
-        state_root_strategy: StateRootStrategy,
+        state_processing_strategy: StateProcessingStrategy,
     ) -> Result<Option<BeaconState<E>>, Error> {
         metrics::inc_counter(&metrics::BEACON_STATE_HOT_GET_COUNT);
 
@@ -867,7 +870,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                     blocks,
                     slot,
                     no_state_root_iter(),
-                    state_root_strategy,
+                    state_processing_strategy,
                 )?
             };
 
@@ -1038,7 +1041,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             blocks,
             slot,
             Some(state_root_iter),
-            StateRootStrategy::Accurate,
+            StateProcessingStrategy::Accurate,
         )?;
 
         // If state is not error, put it in the cache.
@@ -1130,10 +1133,10 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         blocks: Vec<SignedBeaconBlock<E, BlindedPayload<E>>>,
         target_slot: Slot,
         state_root_iter: Option<impl Iterator<Item = Result<(Hash256, Slot), Error>>>,
-        state_root_strategy: StateRootStrategy,
+        state_processing_strategy: StateProcessingStrategy,
     ) -> Result<BeaconState<E>, Error> {
         let mut block_replayer = BlockReplayer::new(state, &self.spec)
-            .state_root_strategy(state_root_strategy)
+            .state_processing_strategy(state_processing_strategy)
             .no_signature_verification()
             .minimal_block_root_verification();
 
