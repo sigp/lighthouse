@@ -268,7 +268,7 @@ fn test_single_block_lookup_happy_path() {
     let peer_id = PeerId::random();
     let block_root = block.canonical_root();
     // Trigger the request
-    bl.search_block(block_root, PeerSource::Attestation(peer_id), &mut cx);
+    bl.search_block(block_root, PeerShouldHave::BlockAndBlobs(peer_id), &mut cx);
     let id = rig.expect_block_request(response_type);
     // If we're in deneb, a blob request should have been triggered as well,
     // we don't require a response because we're generateing 0-blob blocks in this test.
@@ -311,7 +311,7 @@ fn test_single_block_lookup_empty_response() {
     let peer_id = PeerId::random();
 
     // Trigger the request
-    bl.search_block(block_hash, PeerSource::Attestation(peer_id), &mut cx);
+    bl.search_block(block_hash, PeerShouldHave::BlockAndBlobs(peer_id), &mut cx);
     let id = rig.expect_block_request(response_type);
     // If we're in deneb, a blob request should have been triggered as well,
     // we don't require a response because we're generateing 0-blob blocks in this test.
@@ -339,7 +339,7 @@ fn test_single_block_lookup_wrong_response() {
     let peer_id = PeerId::random();
 
     // Trigger the request
-    bl.search_block(block_hash, PeerSource::Attestation(peer_id), &mut cx);
+    bl.search_block(block_hash, PeerShouldHave::BlockAndBlobs(peer_id), &mut cx);
     let id = rig.expect_block_request(response_type);
     // If we're in deneb, a blob request should have been triggered as well,
     // we don't require a response because we're generateing 0-blob blocks in this test.
@@ -371,7 +371,7 @@ fn test_single_block_lookup_failure() {
     let peer_id = PeerId::random();
 
     // Trigger the request
-    bl.search_block(block_hash, PeerSource::Attestation(peer_id), &mut cx);
+    bl.search_block(block_hash, PeerShouldHave::BlockAndBlobs(peer_id), &mut cx);
     let id = rig.expect_block_request(response_type);
     // If we're in deneb, a blob request should have been triggered as well,
     // we don't require a response because we're generateing 0-blob blocks in this test.
@@ -400,7 +400,7 @@ fn test_single_block_lookup_becomes_parent_request() {
     // Trigger the request
     bl.search_block(
         block.canonical_root(),
-        PeerSource::Attestation(peer_id),
+        PeerShouldHave::BlockAndBlobs(peer_id),
         &mut cx,
     );
     let id = rig.expect_block_request(response_type);
@@ -916,7 +916,7 @@ fn test_single_block_lookup_ignored_response() {
     // Trigger the request
     bl.search_block(
         block.canonical_root(),
-        PeerSource::Attestation(peer_id),
+        PeerShouldHave::BlockAndBlobs(peer_id),
         &mut cx,
     );
     let id = rig.expect_block_request(response_type);
@@ -1100,6 +1100,7 @@ fn test_same_chain_race_condition() {
 
 mod deneb_only {
     use super::*;
+    use beacon_chain::blob_verification::BlobError;
     use std::str::FromStr;
 
     struct DenebTester {
@@ -1109,14 +1110,23 @@ mod deneb_only {
         block: Option<Arc<SignedBeaconBlock<E>>>,
         blobs: Vec<Arc<BlobSidecar<E>>>,
         peer_id: PeerId,
-        block_req_id: u32,
+        block_req_id: Option<u32>,
+        parent_block_req_id: Option<u32>,
         blob_req_id: u32,
+        parent_blob_req_id: Option<u32>,
         slot: Slot,
         block_root: Hash256,
     }
 
+    enum RequestTrigger {
+        AttestationUnknownBlock,
+        GossipUnknownParentBlock,
+        GossipUnknownParentBlob,
+        GossipUnknownBlockOrBlob,
+    }
+
     impl DenebTester {
-        fn new() -> Option<Self> {
+        fn new(request_trigger: RequestTrigger) -> Option<Self> {
             let fork_name = get_fork_name();
             if !matches!(fork_name, ForkName::Deneb) {
                 return None;
@@ -1126,6 +1136,7 @@ mod deneb_only {
                 E::slots_per_epoch() * rig.harness.spec.deneb_fork_epoch.unwrap().as_u64(),
             );
             let (block, blobs) = rig.rand_block_and_blobs(fork_name, NumBlobs::Random);
+            let block = Arc::new(block);
             let blobs = blobs.into_iter().map(Arc::new).collect::<Vec<_>>();
 
             let peer_id = PeerId::random();
@@ -1133,19 +1144,71 @@ mod deneb_only {
             let block_root = block.canonical_root();
 
             // Trigger the request
-            bl.search_block(block_root, PeerSource::Attestation(peer_id), &mut cx);
-            let block_req_id = rig.expect_block_request(ResponseType::Block);
-            let blob_req_id = rig.expect_block_request(ResponseType::Blob);
+            let (block_req_id, blob_req_id, parent_block_req_id, parent_blob_req_id) =
+                match request_trigger {
+                    RequestTrigger::AttestationUnknownBlock => {
+                        bl.search_block(
+                            block_root,
+                            PeerShouldHave::BlockAndBlobs(peer_id),
+                            &mut cx,
+                        );
+                        let block_req_id = rig.expect_block_request(ResponseType::Block);
+                        let blob_req_id = rig.expect_block_request(ResponseType::Blob);
+                        (Some(block_req_id), blob_req_id, None, None)
+                    }
+                    RequestTrigger::GossipUnknownParentBlock => {
+                        bl.search_current_unknown_parent(
+                            block_root,
+                            BlockWrapper::Block(block.clone()),
+                            peer_id,
+                            &mut cx,
+                        );
+                        let blob_req_id = rig.expect_block_request(ResponseType::Blob);
+                        rig.expect_empty_network(); // expect no block request
+                        bl.search_parent(slot, block_root, block.parent_root(), peer_id, &mut cx);
+                        let parent_block_req_id = rig.expect_parent_request(ResponseType::Block);
+                        let parent_blob_req_id = rig.expect_parent_request(ResponseType::Blob);
+                        (
+                            None,
+                            blob_req_id,
+                            Some(parent_block_req_id),
+                            Some(parent_blob_req_id),
+                        )
+                    }
+                    RequestTrigger::GossipUnknownParentBlob => {
+                        let blob = blobs.first().cloned().unwrap();
+                        bl.search_current_unknown_blob_parent(blob, peer_id, &mut cx);
+                        let block_req_id = rig.expect_block_request(ResponseType::Block);
+                        let blob_req_id = rig.expect_block_request(ResponseType::Blob);
+                        bl.search_parent(slot, block_root, block.parent_root(), peer_id, &mut cx);
+                        let parent_block_req_id = rig.expect_parent_request(ResponseType::Block);
+                        let parent_blob_req_id = rig.expect_parent_request(ResponseType::Blob);
+                        (
+                            Some(block_req_id),
+                            blob_req_id,
+                            Some(parent_block_req_id),
+                            Some(parent_blob_req_id),
+                        )
+                    }
+                    RequestTrigger::GossipUnknownBlockOrBlob => {
+                        bl.search_block(block_root, PeerShouldHave::Neither(peer_id), &mut cx);
+                        let block_req_id = rig.expect_block_request(ResponseType::Block);
+                        let blob_req_id = rig.expect_block_request(ResponseType::Blob);
+                        (Some(block_req_id), blob_req_id, None, None)
+                    }
+                };
 
             Some(Self {
                 bl,
                 cx,
                 rig,
-                block: Some(Arc::new(block)),
+                block: Some(block),
                 blobs,
                 peer_id,
                 block_req_id,
+                parent_block_req_id,
                 blob_req_id,
+                parent_blob_req_id,
                 slot,
                 block_root,
             })
@@ -1155,7 +1218,7 @@ mod deneb_only {
             // The peer provides the correct block, should not be penalized. Now the block should be sent
             // for processing.
             self.bl.single_block_lookup_response(
-                self.block_req_id,
+                self.block_req_id.expect("block request id"),
                 self.peer_id,
                 self.block.clone(),
                 D,
@@ -1178,7 +1241,6 @@ mod deneb_only {
                     D,
                     &mut self.cx,
                 );
-                self.rig.expect_empty_network();
                 assert_eq!(self.bl.single_block_lookups.len(), 1);
             }
             // Send the blob stream termination. Peer should have not been penalized.
@@ -1189,6 +1251,10 @@ mod deneb_only {
                 D,
                 &mut self.cx,
             );
+            self
+        }
+
+        fn blobs_response_was_valid(mut self) -> Self {
             self.rig.expect_empty_network();
             self.rig.expect_block_process(ResponseType::Blob);
             self
@@ -1196,7 +1262,7 @@ mod deneb_only {
 
         fn empty_block_response(mut self) -> Self {
             self.bl.single_block_lookup_response(
-                self.block_req_id,
+                self.block_req_id.expect("block request id"),
                 self.peer_id,
                 None,
                 D,
@@ -1220,7 +1286,7 @@ mod deneb_only {
             // Missing blobs should be the request is not removed, the outstanding blobs request should
             // mean we do not send a new request.
             self.bl.single_block_processed(
-                self.block_req_id,
+                self.block_req_id.expect("block request id"),
                 BlockProcessingResult::Ok(AvailabilityProcessingStatus::Imported(self.block_root)),
                 ResponseType::Block,
                 &mut self.cx,
@@ -1230,14 +1296,52 @@ mod deneb_only {
             self
         }
 
-        fn missing_components(mut self) -> Self {
+        fn invalid_block_processed(mut self) -> Self {
             self.bl.single_block_processed(
-                self.block_req_id,
+                self.block_req_id.expect("block request id"),
+                BlockProcessingResult::Err(BlockError::ProposalSignatureInvalid),
+                ResponseType::Block,
+                &mut self.cx,
+            );
+            assert_eq!(self.bl.single_block_lookups.len(), 1);
+            self
+        }
+
+        fn invalid_blob_processed(mut self) -> Self {
+            self.bl.single_block_processed(
+                self.blob_req_id,
+                BlockProcessingResult::Err(BlockError::BlobValidation(
+                    BlobError::ProposerSignatureInvalid,
+                )),
+                ResponseType::Blob,
+                &mut self.cx,
+            );
+            assert_eq!(self.bl.single_block_lookups.len(), 1);
+            self
+        }
+
+        fn missing_components_from_block_request(mut self) -> Self {
+            self.bl.single_block_processed(
+                self.block_req_id.expect("block request id"),
                 BlockProcessingResult::Ok(AvailabilityProcessingStatus::MissingComponents(
                     self.slot,
                     self.block_root,
                 )),
                 ResponseType::Block,
+                &mut self.cx,
+            );
+            assert_eq!(self.bl.single_block_lookups.len(), 1);
+            self
+        }
+
+        fn missing_components_from_blob_request(mut self) -> Self {
+            self.bl.single_block_processed(
+                self.blob_req_id,
+                BlockProcessingResult::Ok(AvailabilityProcessingStatus::MissingComponents(
+                    self.slot,
+                    self.block_root,
+                )),
+                ResponseType::Blob,
                 &mut self.cx,
             );
             assert_eq!(self.bl.single_block_lookups.len(), 1);
@@ -1268,6 +1372,15 @@ mod deneb_only {
             self.rig.expect_empty_network();
             self
         }
+        fn invalidate_blobs_too_few(mut self) -> Self {
+            self.blobs.pop().expect("blobs");
+            self
+        }
+        fn invalidate_blobs_too_many(mut self) -> Self {
+            let first_blob = self.blobs.get(0).expect("blob").clone();
+            self.blobs.push(first_blob);
+            self
+        }
     }
 
     fn get_fork_name() -> ForkName {
@@ -1284,26 +1397,34 @@ mod deneb_only {
     }
 
     #[test]
-    fn single_block_and_blob_lookup_block_returned_first() {
-        let Some(tester) = DenebTester::new() else {
+    fn single_block_and_blob_lookup_block_returned_first_attestation() {
+        let Some(tester) = DenebTester::new(RequestTrigger::AttestationUnknownBlock) else {
             return;
         };
 
-        tester.block_response().blobs_response().block_imported();
+        tester
+            .block_response()
+            .blobs_response()
+            .blobs_response_was_valid()
+            .block_imported();
     }
 
     #[test]
-    fn single_block_and_blob_lookup_blobs_returned_first() {
-        let Some(tester) = DenebTester::new() else {
+    fn single_block_and_blob_lookup_blobs_returned_first_attestation() {
+        let Some(tester) = DenebTester::new(RequestTrigger::AttestationUnknownBlock) else {
             return;
         };
 
-        tester.blobs_response().block_response().block_imported();
+        tester
+            .blobs_response()
+            .blobs_response_was_valid()
+            .block_response()
+            .block_imported();
     }
 
     #[test]
-    fn single_block_and_blob_lookup_empty_response() {
-        let Some(tester) = DenebTester::new() else {
+    fn single_block_and_blob_lookup_empty_response_attestation() {
+        let Some(tester) = DenebTester::new(RequestTrigger::AttestationUnknownBlock) else {
             return;
         };
 
@@ -1319,12 +1440,172 @@ mod deneb_only {
     }
 
     #[test]
-    fn single_blob_lookup_empty_response() {
-        let Some(tester) = DenebTester::new() else {
+    fn single_block_response_then_empty_blob_response_attestation() {
+        let Some(tester) = DenebTester::new(RequestTrigger::AttestationUnknownBlock) else {
             return;
         };
 
         tester
+            .block_response()
+            .missing_components_from_block_request()
+            .empty_blobs_response()
+            .expect_penalty()
+            .expect_blobs_request()
+            .expect_no_block_request();
+    }
+
+    #[test]
+    fn single_blob_response_then_empty_block_response_attestation() {
+        let Some(tester) = DenebTester::new(RequestTrigger::AttestationUnknownBlock) else {
+            return;
+        };
+
+        tester
+            .blobs_response()
+            .blobs_response_was_valid()
+            .expect_no_penalty()
+            .expect_no_block_request()
+            .expect_no_blobs_request()
+            .missing_components_from_blob_request()
+            .empty_block_response()
+            .expect_penalty()
+            .expect_block_request()
+            .expect_no_blobs_request();
+    }
+
+    #[test]
+    fn single_invalid_block_response_then_blob_response_attestation() {
+        let Some(tester) = DenebTester::new(RequestTrigger::AttestationUnknownBlock) else {
+            return;
+        };
+
+        tester
+            .block_response()
+            .invalid_block_processed()
+            .expect_penalty()
+            .expect_block_request()
+            .expect_no_blobs_request()
+            .blobs_response()
+            .missing_components_from_blob_request()
+            .expect_no_penalty()
+            .expect_no_block_request()
+            .expect_no_block_request();
+    }
+
+    #[test]
+    fn single_block_response_then_invalid_blob_response_attestation() {
+        let Some(tester) = DenebTester::new(RequestTrigger::AttestationUnknownBlock) else {
+            return;
+        };
+
+        tester
+            .block_response()
+            .missing_components_from_block_request()
+            .blobs_response()
+            .invalid_blob_processed()
+            .expect_penalty()
+            .expect_blobs_request()
+            .expect_no_block_request();
+    }
+
+    #[test]
+    fn single_block_response_then_too_few_blobs_response_attestation() {
+        let Some(tester) = DenebTester::new(RequestTrigger::AttestationUnknownBlock) else {
+            return;
+        };
+
+        tester
+            .block_response()
+            .invalidate_blobs_too_few()
+            .blobs_response()
+            .expect_penalty()
+            .expect_blobs_request()
+            .expect_no_block_request();
+    }
+
+    #[test]
+    fn single_block_response_then_too_many_blobs_response_attestation() {
+        let Some(tester) = DenebTester::new(RequestTrigger::AttestationUnknownBlock) else {
+            return;
+        };
+
+        tester
+            .block_response()
+            .invalidate_blobs_too_many()
+            .blobs_response()
+            .expect_penalty()
+            .expect_blobs_request()
+            .expect_no_block_request();
+    }
+    #[test]
+    fn too_few_blobs_response_then_block_response_attestation() {
+        let Some(tester) = DenebTester::new(RequestTrigger::AttestationUnknownBlock) else {
+            return;
+        };
+
+        tester
+            .invalidate_blobs_too_few()
+            .blobs_response()
+            // No way to know if the response was valid before we've seen the block.
+            .blobs_response_was_valid()
+            .expect_no_penalty()
+            .expect_no_blobs_request()
+            .expect_no_block_request()
+            .block_response();
+    }
+
+    #[test]
+    fn too_many_blobs_response_then_block_response_attestation() {
+        let Some(tester) = DenebTester::new(RequestTrigger::AttestationUnknownBlock) else {
+            return;
+        };
+
+        tester
+            .invalidate_blobs_too_many()
+            .blobs_response()
+            .expect_penalty()
+            .expect_blobs_request()
+            .expect_no_block_request()
+            .block_response();
+    }
+
+    #[test]
+    fn single_block_and_blob_lookup_block_returned_first_gossip() {
+        let Some(tester) = DenebTester::new(RequestTrigger::GossipUnknownBlockOrBlob) else {
+            return;
+        };
+
+        tester
+            .block_response()
+            .blobs_response()
+            .blobs_response_was_valid()
+            .block_imported();
+    }
+
+    #[test]
+    fn single_block_and_blob_lookup_blobs_returned_first_gossip() {
+        let Some(tester) = DenebTester::new(RequestTrigger::GossipUnknownBlockOrBlob) else {
+            return;
+        };
+
+        tester
+            .blobs_response()
+            .blobs_response_was_valid()
+            .block_response()
+            .block_imported();
+    }
+
+    #[test]
+    fn single_block_and_blob_lookup_empty_response_gossip() {
+        let Some(tester) = DenebTester::new(RequestTrigger::GossipUnknownBlockOrBlob) else {
+            return;
+        };
+
+        tester
+            .empty_block_response()
+            .expect_block_request()
+            .expect_no_penalty()
+            .expect_no_blobs_request()
             .empty_blobs_response()
             .expect_no_penalty()
             .expect_no_block_request()
@@ -1332,17 +1613,133 @@ mod deneb_only {
     }
 
     #[test]
-    fn single_block_response_then_empty_blob_response() {
-        let Some(tester) = DenebTester::new() else {
+    fn single_block_response_then_empty_blob_response_gossip() {
+        let Some(tester) = DenebTester::new(RequestTrigger::GossipUnknownBlockOrBlob) else {
             return;
         };
 
         tester
             .block_response()
-            .missing_components()
+            .missing_components_from_block_request()
             .empty_blobs_response()
+            .expect_blobs_request()
+            .expect_no_penalty()
+            .expect_no_block_request();
+    }
+
+    #[test]
+    fn single_blob_response_then_empty_block_response_gossip() {
+        let Some(tester) = DenebTester::new(RequestTrigger::GossipUnknownBlockOrBlob) else {
+            return;
+        };
+
+        tester
+            .blobs_response()
+            .blobs_response_was_valid()
+            .expect_no_penalty()
+            .expect_no_block_request()
+            .expect_no_blobs_request()
+            .missing_components_from_blob_request()
+            .empty_block_response()
+            .expect_block_request()
+            // No penalty because the blob was seen over gossip
+            .expect_no_penalty()
+            .expect_no_blobs_request();
+    }
+
+    #[test]
+    fn single_invalid_block_response_then_blob_response_gossip() {
+        let Some(tester) = DenebTester::new(RequestTrigger::GossipUnknownBlockOrBlob) else {
+            return;
+        };
+
+        tester
+            .block_response()
+            .invalid_block_processed()
+            .expect_penalty()
+            .expect_block_request()
+            .expect_no_blobs_request()
+            .blobs_response()
+            .missing_components_from_blob_request()
+            .expect_no_penalty()
+            .expect_no_block_request()
+            .expect_no_block_request();
+    }
+
+    #[test]
+    fn single_block_response_then_invalid_blob_response_gossip() {
+        let Some(tester) = DenebTester::new(RequestTrigger::GossipUnknownBlockOrBlob) else {
+            return;
+        };
+
+        tester
+            .block_response()
+            .missing_components_from_block_request()
+            .blobs_response()
+            .invalid_blob_processed()
             .expect_penalty()
             .expect_blobs_request()
             .expect_no_block_request();
+    }
+
+    #[test]
+    fn single_block_response_then_too_few_blobs_response_gossip() {
+        let Some(tester) = DenebTester::new(RequestTrigger::GossipUnknownBlockOrBlob) else {
+            return;
+        };
+
+        tester
+            .block_response()
+            .invalidate_blobs_too_few()
+            .blobs_response()
+            .expect_blobs_request()
+            .expect_no_penalty()
+            .expect_no_block_request();
+    }
+
+    #[test]
+    fn single_block_response_then_too_many_blobs_response_gossip() {
+        let Some(tester) = DenebTester::new(RequestTrigger::GossipUnknownBlockOrBlob) else {
+            return;
+        };
+
+        tester
+            .block_response()
+            .invalidate_blobs_too_many()
+            .blobs_response()
+            .expect_penalty()
+            .expect_blobs_request()
+            .expect_no_block_request();
+    }
+    #[test]
+    fn too_few_blobs_response_then_block_response_gossip() {
+        let Some(tester) = DenebTester::new(RequestTrigger::GossipUnknownBlockOrBlob) else {
+            return;
+        };
+
+        tester
+            .invalidate_blobs_too_few()
+            .blobs_response()
+            // No way to know if the response was valid before we've seen the block.
+            .blobs_response_was_valid()
+            .expect_no_penalty()
+            .expect_no_blobs_request()
+            .expect_no_block_request()
+            .block_response();
+    }
+
+    #[test]
+    fn too_many_blobs_response_then_block_response_gossip() {
+        let Some(tester) = DenebTester::new(RequestTrigger::GossipUnknownBlockOrBlob) else {
+            return;
+        };
+
+        tester
+            .invalidate_blobs_too_many()
+            .blobs_response()
+            .expect_penalty()
+            .expect_blobs_request()
+            .expect_no_block_request()
+            .block_response();
     }
 }

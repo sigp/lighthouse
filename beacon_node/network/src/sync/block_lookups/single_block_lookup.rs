@@ -14,7 +14,7 @@ use strum::IntoStaticStr;
 use types::blob_sidecar::{BlobIdentifier, FixedBlobSidecarList};
 use types::{BlobSidecar, SignedBeaconBlock};
 
-use super::{PeerSource, ResponseType};
+use super::{PeerShouldHave, ResponseType};
 
 pub struct SingleBlockLookup<const MAX_ATTEMPTS: u8, T: BeaconChainTypes> {
     pub requested_block_root: Hash256,
@@ -49,8 +49,8 @@ pub struct SingleLookupRequestState<const MAX_ATTEMPTS: u8> {
 #[derive(Debug, PartialEq, Eq)]
 pub enum State {
     AwaitingDownload,
-    Downloading { peer_id: PeerSource },
-    Processing { peer_id: PeerSource },
+    Downloading { peer_id: PeerShouldHave },
+    Processing { peer_id: PeerShouldHave },
 }
 
 #[derive(Debug, PartialEq, Eq, IntoStaticStr)]
@@ -81,7 +81,7 @@ pub enum LookupRequestError {
 impl<const MAX_ATTEMPTS: u8, T: BeaconChainTypes> SingleBlockLookup<MAX_ATTEMPTS, T> {
     pub fn new(
         requested_block_root: Hash256,
-        peer_source: PeerSource,
+        peer_source: PeerShouldHave,
         da_checker: Arc<DataAvailabilityChecker<T::EthSpec, T::SlotClock>>,
     ) -> Self {
         Self {
@@ -337,7 +337,7 @@ impl<const MAX_ATTEMPTS: u8, T: BeaconChainTypes> SingleBlockLookup<MAX_ATTEMPTS
                 block_roots: VariableList::from(vec![self.requested_block_root]),
             };
             self.block_request_state.used_peers.insert(peer_id);
-            let peer_source = PeerSource::Attestation(peer_id);
+            let peer_source = PeerShouldHave::BlockAndBlobs(peer_id);
             self.block_request_state.state = State::Downloading {
                 peer_id: peer_source,
             };
@@ -352,7 +352,7 @@ impl<const MAX_ATTEMPTS: u8, T: BeaconChainTypes> SingleBlockLookup<MAX_ATTEMPTS
                 block_roots: VariableList::from(vec![self.requested_block_root]),
             };
             self.block_request_state.used_peers.insert(peer_id);
-            let peer_source = PeerSource::Gossip(peer_id);
+            let peer_source = PeerShouldHave::Neither(peer_id);
             self.block_request_state.state = State::Downloading {
                 peer_id: peer_source,
             };
@@ -391,7 +391,7 @@ impl<const MAX_ATTEMPTS: u8, T: BeaconChainTypes> SingleBlockLookup<MAX_ATTEMPTS
                 blob_ids: VariableList::from(missing_ids.clone()),
             };
             self.blob_request_state.used_peers.insert(peer_id);
-            let peer_source = PeerSource::Attestation(peer_id);
+            let peer_source = PeerShouldHave::BlockAndBlobs(peer_id);
             self.requested_ids = missing_ids;
             self.blob_request_state.state = State::Downloading {
                 peer_id: peer_source,
@@ -407,7 +407,7 @@ impl<const MAX_ATTEMPTS: u8, T: BeaconChainTypes> SingleBlockLookup<MAX_ATTEMPTS
                 blob_ids: VariableList::from(missing_ids.clone()),
             };
             self.blob_request_state.used_peers.insert(peer_id);
-            let peer_source = PeerSource::Gossip(peer_id);
+            let peer_source = PeerShouldHave::Neither(peer_id);
             self.requested_ids = missing_ids;
             self.blob_request_state.state = State::Downloading {
                 peer_id: peer_source,
@@ -418,16 +418,20 @@ impl<const MAX_ATTEMPTS: u8, T: BeaconChainTypes> SingleBlockLookup<MAX_ATTEMPTS
         }
     }
 
-    pub fn add_peer_if_useful(&mut self, block_root: &Hash256, peer_source: PeerSource) -> bool {
+    pub fn add_peer_if_useful(
+        &mut self,
+        block_root: &Hash256,
+        peer_source: PeerShouldHave,
+    ) -> bool {
         if *block_root != self.requested_block_root {
             return false;
         }
         match peer_source {
-            PeerSource::Attestation(peer_id) => {
+            PeerShouldHave::BlockAndBlobs(peer_id) => {
                 self.block_request_state.add_peer(&peer_id);
                 self.blob_request_state.add_peer(&peer_id);
             }
-            PeerSource::Gossip(peer_id) => {
+            PeerShouldHave::Neither(peer_id) => {
                 self.block_request_state.add_potential_peer(&peer_id);
                 self.blob_request_state.add_potential_peer(&peer_id);
             }
@@ -435,7 +439,7 @@ impl<const MAX_ATTEMPTS: u8, T: BeaconChainTypes> SingleBlockLookup<MAX_ATTEMPTS
         true
     }
 
-    pub fn processing_peer(&self, response_type: ResponseType) -> Result<PeerSource, ()> {
+    pub fn processing_peer(&self, response_type: ResponseType) -> Result<PeerShouldHave, ()> {
         match response_type {
             ResponseType::Block => self.block_request_state.processing_peer(),
             ResponseType::Blob => self.blob_request_state.processing_peer(),
@@ -446,22 +450,22 @@ impl<const MAX_ATTEMPTS: u8, T: BeaconChainTypes> SingleBlockLookup<MAX_ATTEMPTS
         &self,
         response_type: ResponseType,
         peer_id: PeerId,
-    ) -> Option<PeerSource> {
+    ) -> Option<PeerShouldHave> {
         match response_type {
             ResponseType::Block => {
                 if self.block_request_state.available_peers.contains(&peer_id) {
-                    Some(PeerSource::Attestation(peer_id))
+                    Some(PeerShouldHave::BlockAndBlobs(peer_id))
                 } else if self.block_request_state.potential_peers.contains(&peer_id) {
-                    Some(PeerSource::Gossip(peer_id))
+                    Some(PeerShouldHave::Neither(peer_id))
                 } else {
                     None
                 }
             }
             ResponseType::Blob => {
                 if self.blob_request_state.available_peers.contains(&peer_id) {
-                    Some(PeerSource::Attestation(peer_id))
+                    Some(PeerShouldHave::BlockAndBlobs(peer_id))
                 } else if self.blob_request_state.potential_peers.contains(&peer_id) {
-                    Some(PeerSource::Gossip(peer_id))
+                    Some(PeerShouldHave::Neither(peer_id))
                 } else {
                     None
                 }
@@ -471,10 +475,12 @@ impl<const MAX_ATTEMPTS: u8, T: BeaconChainTypes> SingleBlockLookup<MAX_ATTEMPTS
 }
 
 impl<const MAX_ATTEMPTS: u8> SingleLookupRequestState<MAX_ATTEMPTS> {
-    pub fn new(peer_source: PeerSource) -> Self {
+    pub fn new(peer_source: PeerShouldHave) -> Self {
         let (available_peers, potential_peers) = match peer_source {
-            PeerSource::Attestation(peer_id) => (HashSet::from([peer_id]), HashSet::default()),
-            PeerSource::Gossip(peer_id) => (HashSet::default(), HashSet::from([peer_id])),
+            PeerShouldHave::BlockAndBlobs(peer_id) => {
+                (HashSet::from([peer_id]), HashSet::default())
+            }
+            PeerShouldHave::Neither(peer_id) => (HashSet::default(), HashSet::from([peer_id])),
         };
         Self {
             state: State::AwaitingDownload,
@@ -529,11 +535,17 @@ impl<const MAX_ATTEMPTS: u8> SingleLookupRequestState<MAX_ATTEMPTS> {
         Ok(())
     }
 
-    pub fn processing_peer(&self) -> Result<PeerSource, ()> {
+    pub fn processing_peer(&self) -> Result<PeerShouldHave, ()> {
         if let State::Processing { peer_id } = &self.state {
             Ok(*peer_id)
         } else {
             Err(())
+        }
+    }
+
+    pub fn remove_peer_if_useless(&mut self, peer_id: &PeerId) {
+        if !self.available_peers.is_empty() || self.potential_peers.len() > 1 {
+            self.potential_peers.remove(peer_id);
         }
     }
 }
@@ -613,7 +625,7 @@ mod tests {
 
     #[test]
     fn test_happy_path() {
-        let peer_id = PeerSource::Attestation(PeerId::random());
+        let peer_id = PeerShouldHave::BlockAndBlobs(PeerId::random());
         let block = rand_block();
         let spec = E::default_spec();
         let slot_clock = TestingSlotClock::new(
@@ -630,7 +642,7 @@ mod tests {
     #[test]
     fn test_block_lookup_failures() {
         const FAILURES: u8 = 3;
-        let peer_id = PeerSource::Attestation(PeerId::random());
+        let peer_id = PeerShouldHave::BlockAndBlobs(PeerId::random());
         let block = rand_block();
         let spec = E::default_spec();
         let slot_clock = TestingSlotClock::new(

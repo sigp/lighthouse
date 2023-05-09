@@ -34,7 +34,7 @@
 //! search for the block and subsequently search for parents if needed.
 
 use super::backfill_sync::{BackFillSync, ProcessResult, SyncStart};
-use super::block_lookups::{BlockLookups, PeerSource};
+use super::block_lookups::{BlockLookups, PeerShouldHave};
 use super::network_context::{BlockOrBlob, SyncNetworkContext};
 use super::peer_sync_info::{remote_sync_type, PeerSyncType};
 use super::range_sync::{RangeSync, RangeSyncType, EPOCHS_PER_BATCH};
@@ -700,7 +700,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 if self.synced_and_connected(&peer_id) {
                     self.block_lookups.search_block(
                         block_hash,
-                        PeerSource::Attestation(peer_id),
+                        PeerShouldHave::BlockAndBlobs(peer_id),
                         &mut self.network,
                     );
                 }
@@ -718,7 +718,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     } else {
                         self.block_lookups.search_block(
                             block_hash,
-                            PeerSource::Gossip(peer_id),
+                            PeerShouldHave::Neither(peer_id),
                             &mut self.network,
                         )
                     }

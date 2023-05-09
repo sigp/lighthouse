@@ -88,33 +88,33 @@ pub enum ResponseType {
 }
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Copy, Display)]
-pub enum PeerSource {
-    Attestation(PeerId),
-    Gossip(PeerId),
+pub enum PeerShouldHave {
+    BlockAndBlobs(PeerId),
+    Neither(PeerId),
 }
-impl PeerSource {
+impl PeerShouldHave {
     fn as_peer_id(&self) -> &PeerId {
         match self {
-            PeerSource::Attestation(id) => id,
-            PeerSource::Gossip(id) => id,
+            PeerShouldHave::BlockAndBlobs(id) => id,
+            PeerShouldHave::Neither(id) => id,
         }
     }
     fn to_peer_id(self) -> PeerId {
         match self {
-            PeerSource::Attestation(id) => id,
-            PeerSource::Gossip(id) => id,
+            PeerShouldHave::BlockAndBlobs(id) => id,
+            PeerShouldHave::Neither(id) => id,
         }
     }
     fn should_have_block(&self) -> bool {
         match self {
-            PeerSource::Attestation(_) => true,
-            PeerSource::Gossip(_) => false,
+            PeerShouldHave::BlockAndBlobs(_) => true,
+            PeerShouldHave::Neither(_) => false,
         }
     }
     fn should_have_blobs(&self) -> bool {
         match self {
-            PeerSource::Attestation(_) => true,
-            PeerSource::Gossip(_) => false,
+            PeerShouldHave::BlockAndBlobs(_) => true,
+            PeerShouldHave::Neither(_) => false,
         }
     }
 }
@@ -147,7 +147,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     pub fn search_block(
         &mut self,
         hash: Hash256,
-        peer_source: PeerSource,
+        peer_source: PeerShouldHave,
         cx: &mut SyncNetworkContext<T>,
     ) {
         self.search_block_with(|_| {}, hash, peer_source, cx)
@@ -159,7 +159,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         &mut self,
         cache_fn: impl Fn(&mut SingleBlockLookup<SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS, T>),
         hash: Hash256,
-        peer_source: PeerSource,
+        peer_source: PeerShouldHave,
         cx: &mut SyncNetworkContext<T>,
     ) {
         // Do not re-request a block that is already being requested
@@ -236,7 +236,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 let _ = request.add_block_wrapper(block_root, block.clone());
             },
             block_root,
-            PeerSource::Gossip(peer_id),
+            PeerShouldHave::Neither(peer_id),
             cx,
         );
     }
@@ -253,7 +253,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 let _ = request.add_blob(blob.clone());
             },
             block_root,
-            PeerSource::Gossip(peer_id),
+            PeerShouldHave::Neither(peer_id),
             cx,
         );
     }
@@ -269,7 +269,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         cx: &mut SyncNetworkContext<T>,
     ) {
         // Gossip blocks or blobs shouldn't be propogated if parents are unavailable.
-        let peer_source = PeerSource::Attestation(peer_id);
+        let peer_source = PeerShouldHave::BlockAndBlobs(peer_id);
 
         // If this block or it's parent is part of a known failed chain, ignore it.
         if self.failed_chains.contains(&parent_root) || self.failed_chains.contains(&block_root) {
@@ -867,17 +867,18 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
 
     pub fn single_block_processed(
         &mut self,
-        id: Id,
+        target_id: Id,
         result: BlockProcessingResult<T::EthSpec>,
         response_type: ResponseType,
         cx: &mut SyncNetworkContext<T>,
     ) {
         let lookup_components_opt = self.single_block_lookups.iter_mut().enumerate().find_map(
             |(index, (block_id_opt, blob_id_opt, req))| {
-                block_id_opt
-                    .as_mut()
-                    .or(blob_id_opt.as_mut())
-                    .and_then(|id_ref| (*id_ref == id).then_some((index, id_ref, req)))
+                let id_filter = |id: &&mut Id| -> bool { target_id == **id };
+
+                let block_id = block_id_opt.as_mut().filter(id_filter);
+                let blob_id = blob_id_opt.as_mut().filter(id_filter);
+                block_id.or(blob_id).map(|id_ref| (index, id_ref, req))
             },
         );
         let (index, request_id_ref, request_ref) = match lookup_components_opt {
@@ -1425,14 +1426,17 @@ fn handle_block_lookup_verify_error<T: BeaconChainTypes>(
 ) -> ShouldRemoveLookup {
     let msg = if matches!(e, LookupVerifyError::BenignFailure) {
         match response_type {
-            ResponseType::Block => request_ref
-                .block_request_state
-                .potential_peers
-                .remove(&peer_id),
-            ResponseType::Blob => request_ref
-                .blob_request_state
-                .potential_peers
-                .remove(&peer_id),
+            // Only remove a potential peer if there are better options
+            ResponseType::Block => {
+                request_ref
+                    .block_request_state
+                    .remove_peer_if_useless(&peer_id);
+            }
+            ResponseType::Blob => {
+                request_ref
+                    .blob_request_state
+                    .remove_peer_if_useless(&peer_id);
+            }
         };
         "peer could not response to request"
     } else {
