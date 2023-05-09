@@ -745,10 +745,6 @@ async fn poll_beacon_attesters_for_epoch<T: SlotClock + 'static, E: EthSpec>(
         &[metrics::UPDATE_ATTESTERS_STORE],
     );
 
-    if duties_service.per_validator_metrics() {
-        update_per_validator_duty_metrics::<E>(current_slot, &new_duties);
-    }
-
     debug!(
         log,
         "Downloaded attester duties";
@@ -784,6 +780,10 @@ async fn poll_beacon_attesters_for_epoch<T: SlotClock + 'static, E: EthSpec>(
     }
     drop(attesters);
 
+    if duties_service.per_validator_metrics() {
+        update_per_validator_duty_metrics::<T, E>(duties_service, epoch, current_slot);
+    }
+
     // Spawn the background task to compute selection proofs.
     let subservice = duties_service.clone();
     duties_service.context.executor.spawn(
@@ -814,33 +814,41 @@ fn get_uninitialized_validators<T: SlotClock + 'static, E: EthSpec>(
         .collect::<Vec<_>>()
 }
 
-fn update_per_validator_duty_metrics<E: EthSpec>(current_slot: Slot, new_duties: &[AttesterData]) {
-    new_duties.iter().for_each(|duty| {
-        let validator_index = duty.validator_index;
-        let duty_slot = duty.slot;
-        if let Some(existing_slot_gauge) =
-            get_int_gauge(&ATTESTATION_DUTY, &[&validator_index.to_string()])
-        {
-            let existing_slot = Slot::new(existing_slot_gauge.get() as u64);
-            let existing_epoch = existing_slot.epoch(E::slots_per_epoch());
-
-            // First condition ensures that we switch to the next epoch duty slot
-            // once the current epoch duty slot passes.
-            // Second condition is to ensure that next epoch duties don't override
-            // current epoch duties.
-            if existing_slot < current_slot
-                || (duty_slot.epoch(E::slots_per_epoch()) <= existing_epoch
-                    && duty_slot > current_slot
-                    && duty_slot != existing_slot)
+fn update_per_validator_duty_metrics<T: SlotClock + 'static, E: EthSpec>(
+    duties_service: &Arc<DutiesService<T, E>>,
+    epoch: Epoch,
+    current_slot: Slot,
+) {
+    let attesters = duties_service.attesters.read();
+    attesters.values().for_each(|attester_duties_by_epoch| {
+        if let Some((_, duty_and_proof)) = attester_duties_by_epoch.get(&epoch) {
+            let duty = &duty_and_proof.duty;
+            let validator_index = duty.validator_index;
+            let duty_slot = duty.slot;
+            if let Some(existing_slot_gauge) =
+                get_int_gauge(&ATTESTATION_DUTY, &[&validator_index.to_string()])
             {
-                existing_slot_gauge.set(duty_slot.as_u64() as i64);
+                let existing_slot = Slot::new(existing_slot_gauge.get() as u64);
+                let existing_epoch = existing_slot.epoch(E::slots_per_epoch());
+
+                // First condition ensures that we switch to the next epoch duty slot
+                // once the current epoch duty slot passes.
+                // Second condition is to ensure that next epoch duties don't override
+                // current epoch duties.
+                if existing_slot < current_slot
+                    || (duty_slot.epoch(E::slots_per_epoch()) <= existing_epoch
+                        && duty_slot > current_slot
+                        && duty_slot != existing_slot)
+                {
+                    existing_slot_gauge.set(duty_slot.as_u64() as i64);
+                }
+            } else {
+                set_int_gauge(
+                    &ATTESTATION_DUTY,
+                    &[&validator_index.to_string()],
+                    duty_slot.as_u64() as i64,
+                );
             }
-        } else {
-            set_int_gauge(
-                &ATTESTATION_DUTY,
-                &[&validator_index.to_string()],
-                duty_slot.as_u64() as i64,
-            );
         }
     });
 }
