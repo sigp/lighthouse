@@ -266,7 +266,7 @@ where
                 &mut self.state,
                 block,
                 self.block_sig_strategy,
-                self.state_processing_strategy.clone(),
+                self.state_processing_strategy,
                 verify_block_root,
                 &mut ctxt,
                 self.spec,
