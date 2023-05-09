@@ -37,6 +37,17 @@ fn allocator_name() -> &'static str {
     }
 }
 
+fn build_profile_name() -> String {
+    // Nice hack from https://stackoverflow.com/questions/73595435/how-to-get-profile-from-cargo-toml-in-build-rs-or-at-runtime
+    // The profile name is always the 3rd last part of the path (with 1 based indexing).
+    // e.g. /code/core/target/cli/build/my-build-info-9f91ba6f99d7a061/out
+    std::env!("OUT_DIR")
+        .split(std::path::MAIN_SEPARATOR)
+        .nth_back(3)
+        .unwrap_or_else(|| "unknown")
+        .to_string()
+}
+
 fn main() {
     // Enable backtraces unless a RUST_BACKTRACE value has already been explicitly provided.
     if std::env::var("RUST_BACKTRACE").is_err() {
@@ -58,11 +69,13 @@ fn main() {
                  BLS library: {}\n\
                  SHA256 hardware acceleration: {}\n\
                  Allocator: {}\n\
+                 Profile: {}\n\
                  Specs: mainnet (true), minimal ({}), gnosis ({})",
                  VERSION.replace("Lighthouse/", ""),
                  bls_library_name(),
                  have_sha_extensions(),
                  allocator_name(),
+                 build_profile_name(),
                  cfg!(feature = "spec-minimal"),
                  cfg!(feature = "gnosis"),
             ).as_str()

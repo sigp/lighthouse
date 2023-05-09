@@ -13,7 +13,7 @@ pub enum SyncState {
     /// The node is undertaking a backfill sync. This occurs when a user has specified a trusted
     /// state. The node first syncs "forward" by downloading blocks up to the current head as
     /// specified by its peers. Once completed, the node enters this sync state and attempts to
-    /// download all required historical blocks to complete its chain.
+    /// download all required historical blocks.
     BackFillSyncing { completed: usize, remaining: usize },
     /// The node has completed syncing a finalized chain and is in the process of re-evaluating
     /// which sync state to progress to.
