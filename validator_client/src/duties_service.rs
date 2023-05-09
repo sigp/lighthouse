@@ -716,15 +716,14 @@ async fn poll_beacon_attesters_for_epoch<T: SlotClock + 'static, E: EthSpec>(
 
     if validators_to_update.is_empty() {
         // No validators have conflicting (epoch, dependent_root) values or missing duties for the epoch.
-        drop(fetch_timer);
         return Ok(());
     }
 
     // Filter out validators which have already been requested.
-    let attesters_in_response: Vec<_> = response.data.iter().map(|duty| duty.pubkey).collect();
+    let initial_duties = &response.data;
     let indices_to_request = validators_to_update
         .iter()
-        .filter(|pubkey| !attesters_in_response.contains(pubkey))
+        .filter(|&&&pubkey| !initial_duties.iter().any(|duty| duty.pubkey == pubkey))
         .filter_map(|pubkey| duties_service.validator_store.validator_index(pubkey))
         .collect::<Vec<_>>();
 
