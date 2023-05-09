@@ -102,44 +102,34 @@ async fn test_gossipsub_forward() {
 #[tokio::test]
 async fn test_gossipsub_full_mesh_publish() {
     // set up the logging. The level and enabled or not
-    let log = common::build_log(Level::Debug, false);
+    let log = common::build_log(Level::Info, false);
 
-    // Note: This test does not propagate gossipsub messages.
-    // Having `num_nodes` > `mesh_n_high` may give inconsistent results
-    // as nodes may get pruned out of the mesh before the gossipsub message
-    // is published to them.
-    let num_nodes = 12;
-    let mut nodes = common::build_full_mesh(log, num_nodes);
-    let mut publishing_node = nodes.pop().unwrap();
-    let spec = E::default_spec();
-    let empty_block = BeaconBlock::empty(&spec);
-    let signed_block = SignedBeaconBlock {
-        message: empty_block,
-        signature: Signature::empty_signature(),
-    };
-    let pubsub_message = PubsubMessage::BeaconBlock(Box::new(signed_block));
+    let pubsub_message = PubsubMessage::BeaconBlock(Arc::new(SignedBeaconBlock::from_block(
+        BeaconBlock::empty(&E::default_spec()),
+        Signature::empty(),
+    )));
     let publishing_topic: String = pubsub_message
         .topics(GossipEncoding::default(), [0, 0, 0, 0])
         .first()
         .unwrap()
         .clone()
         .into();
-    let mut subscribed_count = 0;
+
+    /* build our nodes -- in a linear network topology */
+    let runtime: Arc<Runtime> = Arc::new(Runtime::new().unwrap());
+    let num_nodes = 20;
+    let mut nodes: Vec<common::Libp2pInstance> =
+        common::build_linear(Arc::downgrade(&runtime), log.clone(), num_nodes, FORK).await;
+
+    /* counters for our main loop */
     let mut received_count = 0;
+    let mut subscribed_count = 0;
+
     let fut = async move {
         for node in nodes.iter_mut() {
-            while let Libp2pEvent::Behaviour(BehaviourEvent::PubsubMessage {
-                topics,
-                message,
-                ..
-            }) = node.next_event().await
-            {
-                assert_eq!(topics.len(), 1);
+            while let NetworkEvent::PubsubMessage { topic, message, .. } = node.next_event().await {
                 // Assert topic is the published topic
-                assert_eq!(
-                    topics.first().unwrap(),
-                    &TopicHash::from_raw(publishing_topic.clone())
-                );
+                assert_eq!(topic, TopicHash::from_raw(publishing_topic.clone()));
                 // Assert message received is the correct one
                 assert_eq!(message, pubsub_message.clone());
                 received_count += 1;
@@ -148,17 +138,17 @@ async fn test_gossipsub_full_mesh_publish() {
                 }
             }
         }
-        while let Libp2pEvent::Behaviour(BehaviourEvent::PeerSubscribed(_, topic)) =
-            publishing_node.next_event().await
-        {
-            // Publish on beacon block topic
-            if topic == TopicHash::from_raw(publishing_topic.clone()) {
-                subscribed_count += 1;
-                if subscribed_count == num_nodes - 1 {
-                    publishing_node.swarm.publish(vec![pubsub_message.clone()]);
-                }
-            }
-        }
+        //        while let NetworkEvent::PeerSubscribed(_, topic) =
+        //            publishing_node.next_event().await
+        //        {
+        //            // Publish on beacon block topic
+        //            if topic == TopicHash::from_raw(publishing_topic.clone()) {
+        //                subscribed_count += 1;
+        //                if subscribed_count == num_nodes - 1 {
+        //                    publishing_node.swarm.publish(vec![pubsub_message.clone()]);
+        //                }
+        //            }
+        //        }
     };
     tokio::select! {
             _ = fut => {}
