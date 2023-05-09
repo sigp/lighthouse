@@ -88,7 +88,7 @@ async fn test_gossipsub_forward() {
 
     tokio::select! {
         _ = fut => {}
-        _ = tokio::time::delay_for(tokio::time::Duration::from_millis(800)) => {
+        _ = tokio::time::sleep(tokio::time::Duration::from_millis(800)) => {
             panic!("Future timed out");
         }
     }
@@ -159,7 +159,7 @@ async fn test_gossipsub_full_mesh_publish() {
     };
     tokio::select! {
             _ = fut => {}
-            _ = tokio::time::delay_for(tokio::time::Duration::from_millis(800)) => {
+            _ = tokio::time::sleep(tokio::time::Duration::from_millis(800)) => {
                 panic!("Future timed out");
             }
     }
