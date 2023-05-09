@@ -178,7 +178,7 @@ You can check that your builder is configured correctly by looking for these log
 On start-up, the beacon node will log if a builder is configured:
 
 ```
-INFO Connected to external block builder
+INFO Using external block builder
 ```
 
 At regular intervals the validator client will log that it successfully registered its validators
