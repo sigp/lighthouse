@@ -29,27 +29,27 @@ async fn test_gossipsub_forward() {
     // set up the logging. The level and enabled or not
     let log = common::build_log(Level::Info, false);
 
-    let runtime: Arc<Runtime> = Arc::new(Runtime::new().unwrap());
-
-    let num_nodes = 20;
-    let mut nodes: Vec<common::Libp2pInstance> =
-        common::build_linear(Arc::downgrade(&runtime), log.clone(), num_nodes, FORK).await;
-
-    let mut received_count = 0;
-    let spec = E::default_spec();
-    let empty_block = BeaconBlock::empty(&spec);
-    let signed_block = SignedBeaconBlock {
-        message: empty_block,
-        signature: Signature::empty_signature(),
-    };
-    let pubsub_message = PubsubMessage::BeaconBlock(Box::new(signed_block));
+    let pubsub_message = PubsubMessage::BeaconBlock(Arc::new(SignedBeaconBlock::from_block(
+        BeaconBlock::empty(&E::default_spec()),
+        Signature::empty(),
+    )));
     let publishing_topic: String = pubsub_message
         .topics(GossipEncoding::default(), [0, 0, 0, 0])
         .first()
         .unwrap()
         .clone()
         .into();
+
+    /* build our nodes -- in a linear network topology */
+    let runtime: Arc<Runtime> = Arc::new(Runtime::new().unwrap());
+    let num_nodes = 20;
+    let mut nodes: Vec<common::Libp2pInstance> =
+        common::build_linear(Arc::downgrade(&runtime), log.clone(), num_nodes, FORK).await;
+
+    /* counters for our main loop */
+    let mut received_count = 0;
     let mut subscribed_count = 0;
+
     let fut = async move {
         for node in nodes.iter_mut() {
             loop {
