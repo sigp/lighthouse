@@ -597,7 +597,7 @@ fn ssz_encode_derive_enum_transparent(
     output.into()
 }
 
-/// Derive `ssz::Encode` for an `enum` following the "tag" SSZ spec.
+/// Derive `ssz::Encode` for an `enum` following the "tag" method.
 ///
 /// The union selector will be determined based upon the order in which the enum variants are
 /// defined. E.g., the top-most variant in the enum will have a selector of `0`, the variant

@@ -20,7 +20,6 @@ use types::{BlobSidecar, Epoch, EthSpec, Hash256};
 /// The block has completed all verifications except the availability check.
 #[derive(Encode, Decode, Clone)]
 pub struct PendingComponents<T: EthSpec> {
-    /// We use a `BTreeMap` here to maintain the order of `BlobSidecar`s based on index.
     verified_blobs: FixedVector<Option<KzgVerifiedBlob<T>>, T::MaxBlobsPerBlock>,
     executed_block: Option<AvailabilityPendingExecutedBlock<T>>,
 }

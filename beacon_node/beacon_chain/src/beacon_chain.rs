@@ -610,7 +610,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 
     pub fn persist_data_availabilty_checker(&self) -> Result<(), Error> {
-        Ok(self.data_availability_checker.persist_all()?)
+        let _timer = metrics::start_timer(&metrics::PERSIST_DATA_AVAILABILITY_CHECKER);
+        self.data_availability_checker.persist_all()?;
+
+        Ok(())
     }
 
     /// Returns the slot _right now_ according to `self.slot_clock`. Returns `Err` if the slot is

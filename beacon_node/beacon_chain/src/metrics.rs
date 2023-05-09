@@ -380,6 +380,8 @@ lazy_static! {
         try_create_histogram("beacon_persist_eth1_cache", "Time taken to persist the eth1 caches");
     pub static ref PERSIST_FORK_CHOICE: Result<Histogram> =
         try_create_histogram("beacon_persist_fork_choice", "Time taken to persist the fork choice struct");
+    pub static ref PERSIST_DATA_AVAILABILITY_CHECKER: Result<Histogram> =
+        try_create_histogram("beacon_persist_data_availability_checker", "Time taken to persist the data availability checker");
 
     /*
      * Eth1

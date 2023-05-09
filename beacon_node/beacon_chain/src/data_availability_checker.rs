@@ -314,6 +314,11 @@ pub fn start_availability_cache_maintenance_service<T: BeaconChainTypes>(
             async move { availability_cache_maintenance_service(chain, overflow_cache).await },
             "availability_cache_service",
         );
+    } else {
+        debug!(
+            chain.log,
+            "Deneb fork not configured, not starting availability cache maintenance service"
+        );
     }
 }
 
@@ -331,15 +336,17 @@ async fn availability_cache_maintenance_service<T: BeaconChainTypes>(
                 // this service should run 3/4 of the way through the epoch
                 let additional_delay = (epoch_duration * 3) / 4;
                 tokio::time::sleep(duration + additional_delay).await;
-                debug!(
-                    chain.log,
-                    "Availability cache maintenance service firing";
-                );
 
                 let deneb_fork_epoch = match chain.spec.deneb_fork_epoch {
                     Some(epoch) => epoch,
                     None => break, // shutdown service if deneb fork epoch not set
                 };
+
+                debug!(
+                    chain.log,
+                    "Availability cache maintenance service firing";
+                );
+
                 let current_epoch = match chain
                     .slot_clock
                     .now()
@@ -363,7 +370,7 @@ async fn availability_cache_maintenance_service<T: BeaconChainTypes>(
                 let cutoff_epoch = std::cmp::max(
                     finalized_epoch + 1,
                     std::cmp::max(
-                        current_epoch - *MIN_EPOCHS_FOR_BLOB_SIDECARS_REQUESTS,
+                        current_epoch.saturating_sub(*MIN_EPOCHS_FOR_BLOB_SIDECARS_REQUESTS),
                         deneb_fork_epoch,
                     ),
                 );
