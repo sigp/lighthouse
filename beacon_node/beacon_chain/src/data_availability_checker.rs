@@ -312,7 +312,7 @@ pub fn start_availability_cache_maintenance_service<T: BeaconChainTypes>(
         let overflow_cache = chain.data_availability_checker.availability_cache.clone();
         executor.spawn(
             async move { availability_cache_maintenance_service(chain, overflow_cache).await },
-            "otb_verification_service",
+            "availability_cache_service",
         );
     }
 }
