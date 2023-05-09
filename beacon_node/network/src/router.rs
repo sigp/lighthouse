@@ -43,6 +43,8 @@ pub struct Router<T: BeaconChainTypes> {
     beacon_processor_send: mpsc::Sender<BeaconWorkEvent<T>>,
     /// The `Router` logger.
     log: slog::Logger,
+    /// Provides de-bounce functionality for logging.
+    logger_debounce: TimeLatch,
 }
 
 /// Types of messages the router can receive.
@@ -125,6 +127,7 @@ impl<T: BeaconChainTypes> Router<T> {
             network: HandlerNetworkContext::new(network_send, log.clone()),
             beacon_processor_send,
             log: message_handler_log,
+            logger_debounce: TimeLatch::default(),
         };
 
         // spawn handler task and move the message handler instance into the spawned thread
@@ -475,8 +478,6 @@ impl<T: BeaconChainTypes> Router<T> {
     }
 
     fn send_beacon_processor_work(&mut self, work: BeaconWorkEvent<T>) {
-        let mut error_debounce = TimeLatch::default();
-
         self.beacon_processor_send
             .try_send(work)
             .unwrap_or_else(|e| {
@@ -485,7 +486,7 @@ impl<T: BeaconChainTypes> Router<T> {
                     | mpsc::error::TrySendError::Full(work) => work.work_type(),
                 };
 
-                if error_debounce.elapsed() {
+                if self.logger_debounce.elapsed() {
                     error!(&self.log, "Unable to send message to the beacon processor";
                         "error" => %e, "type" => work_type)
                 }
