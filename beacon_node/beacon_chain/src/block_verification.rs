@@ -169,6 +169,7 @@ pub enum BlockError<T: EthSpec> {
     WouldRevertFinalizedSlot {
         block_slot: Slot,
         finalized_slot: Slot,
+        block_root: Hash256,
     },
     /// The block conflicts with finalization, no need to propagate.
     ///
@@ -408,6 +409,19 @@ impl<T: EthSpec> std::fmt::Display for BlockError<T> {
                 write!(f, "ParentUnknown(parent_root:{})", block.parent_root())
             }
             other => write!(f, "{:?}", other),
+        }
+    }
+}
+
+impl<T: EthSpec> BlockError<T> {
+    /// Return the block root of the block that failed processing if it was already computed.
+    ///
+    /// This is used to avoid some double block root computations, which represent a small DoS
+    /// vector.
+    pub fn failed_block_root(&self) -> Option<Hash256> {
+        match self {
+            Self::WouldRevertFinalizedSlot { block_root, .. } => Some(*block_root),
+            _ => None,
         }
     }
 }
@@ -708,9 +722,6 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
 
         let block_root = get_block_root(&block);
 
-        // Disallow blocks that conflict with the anchor (weak subjectivity checkpoint), if any.
-        check_block_against_anchor_slot(block.message(), chain)?;
-
         // Do not gossip a block from a finalized slot.
         check_block_against_finalized_slot(block.message(), block_root, chain)?;
 
@@ -937,8 +948,8 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
             .fork_name(&chain.spec)
             .map_err(BlockError::InconsistentFork)?;
 
-        // Check the anchor slot before loading the parent, to avoid spurious lookups.
-        check_block_against_anchor_slot(block.message(), chain)?;
+        // Check the block against the finalized slot to prevent spurious lookups.
+        check_block_against_finalized_slot(block.message(), block_root, chain)?;
 
         let (mut parent, block) = load_parent(block_root, block, chain)?;
 
@@ -1515,19 +1526,6 @@ fn check_block_skip_slots<T: BeaconChainTypes>(
     Ok(())
 }
 
-/// Returns `Ok(())` if the block's slot is greater than the anchor block's slot (if any).
-fn check_block_against_anchor_slot<T: BeaconChainTypes>(
-    block: BeaconBlockRef<'_, T::EthSpec>,
-    chain: &BeaconChain<T>,
-) -> Result<(), BlockError<T::EthSpec>> {
-    if let Some(anchor_slot) = chain.store.get_anchor_slot() {
-        if block.slot() <= anchor_slot {
-            return Err(BlockError::WeakSubjectivityConflict);
-        }
-    }
-    Ok(())
-}
-
 /// Returns `Ok(())` if the block is later than the finalized slot on `chain`.
 ///
 /// Returns an error if the block is earlier or equal to the finalized slot, or there was an error
@@ -1553,6 +1551,7 @@ fn check_block_against_finalized_slot<T: BeaconChainTypes>(
         Err(BlockError::WouldRevertFinalizedSlot {
             block_slot: block.slot(),
             finalized_slot,
+            block_root,
         })
     } else {
         Ok(())

@@ -729,10 +729,11 @@ impl<T: BeaconChainTypes> Worker<T> {
             .verify_block_for_gossip(block.clone())
             .await;
 
-        let block_root = if let Ok(verified_block) = &verification_result {
-            verified_block.block_root
-        } else {
-            block.canonical_root()
+        let block_root = match &verification_result {
+            Ok(verified_block) => verified_block.block_root,
+            Err(e) => e
+                .failed_block_root()
+                .unwrap_or_else(|| block.canonical_root()),
         };
 
         // Write the time the block was observed into delay cache.
@@ -799,10 +800,8 @@ impl<T: BeaconChainTypes> Worker<T> {
                 return None;
             }
             Err(e @ BlockError::FutureSlot { .. })
-            | Err(e @ BlockError::WouldRevertFinalizedSlot { .. })
             | Err(e @ BlockError::BlockIsAlreadyKnown)
-            | Err(e @ BlockError::RepeatProposal { .. })
-            | Err(e @ BlockError::NotFinalizedDescendant { .. }) => {
+            | Err(e @ BlockError::RepeatProposal { .. }) => {
                 debug!(self.log, "Could not verify block for gossip. Ignoring the block";
                             "error" => %e);
                 // Prevent recurring behaviour by penalizing the peer slightly.
@@ -820,6 +819,23 @@ impl<T: BeaconChainTypes> Worker<T> {
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
                 return None;
             }
+            Err(e @ BlockError::WouldRevertFinalizedSlot { .. }) => {
+                // Ignore the block (per the spec), but apply a low-tolerance penalty. Peers that
+                // send us blocks prior to finalization on gossip are either severely faulty or
+                // malicious.
+                debug!(
+                    self.log,
+                    "Could not verify block for gossip. Ignoring the block";
+                    "error" => %e
+                );
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::LowToleranceError,
+                    "gossip_block_low",
+                );
+                return None;
+            }
             Err(e @ BlockError::StateRootMismatch { .. })
             | Err(e @ BlockError::IncorrectBlockProposer { .. })
             | Err(e @ BlockError::BlockSlotLimitReached)
@@ -835,7 +851,8 @@ impl<T: BeaconChainTypes> Worker<T> {
             | Err(e @ BlockError::InconsistentFork(_))
             | Err(e @ BlockError::ExecutionPayloadError(_))
             | Err(e @ BlockError::ParentExecutionPayloadInvalid { .. })
-            | Err(e @ BlockError::GenesisBlock) => {
+            | Err(e @ BlockError::GenesisBlock)
+            | Err(e @ BlockError::NotFinalizedDescendant { .. }) => {
                 warn!(self.log, "Could not verify block for gossip. Rejecting the block";
                             "error" => %e);
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
