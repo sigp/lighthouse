@@ -3,6 +3,7 @@
 use crate::types::{EnrAttestationBitfield, EnrSyncCommitteeBitfield};
 use regex::bytes::Regex;
 use serde::Serialize;
+use ssz::Encode;
 use ssz_derive::{Decode, Encode};
 use ssz_types::{
     typenum::{U1024, U256},
@@ -118,9 +119,8 @@ impl<T: EthSpec> MetadataRequest<T> {
         serde(bound = "T: EthSpec", deny_unknown_fields),
     )
 )]
-#[derive(Clone, Debug, PartialEq, Serialize, Encode)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(bound = "T: EthSpec")]
-#[ssz(enum_behaviour = "transparent")]
 pub struct MetaData<T: EthSpec> {
     /// A sequential counter indicating when data gets modified.
     pub seq_number: u64,
@@ -152,6 +152,13 @@ impl<T: EthSpec> MetaData<T> {
                 syncnets: Default::default(),
             }),
             md @ MetaData::V2(_) => md.clone(),
+        }
+    }
+
+    pub fn as_ssz_bytes(&self) -> Vec<u8> {
+        match self {
+            MetaData::V1(md) => md.as_ssz_bytes(),
+            MetaData::V2(md) => md.as_ssz_bytes(),
         }
     }
 }
@@ -250,9 +257,8 @@ impl ssz::Decode for GoodbyeReason {
 #[superstruct(
     variants(V1, V2),
     variant_attributes(derive(Encode, Decode, Clone, Debug, PartialEq))
-    )]
-    #[derive(Encode, Clone, Debug, PartialEq)]
-    #[ssz(enum_behaviour = "transparent")]
+)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct BlocksByRangeRequest {
     /// The starting slot to request blocks.
     pub start_slot: u64,
@@ -261,13 +267,23 @@ pub struct BlocksByRangeRequest {
     pub count: u64,
 }
 
+impl BlocksByRangeRequest {
+    /// The default request is V2
+    pub fn new(start_slot: u64, count: u64) -> Self {
+        Self::V2(BlocksByRangeRequestV2 { start_slot, count })
+    }
+
+    pub fn new_v1(start_slot: u64, count: u64) -> Self {
+        Self::V1(BlocksByRangeRequestV1 { start_slot, count })
+    }
+}
+
 /// Request a number of beacon block roots from a peer.
 #[superstruct(
-variants(V1, V2),
-variant_attributes(derive(Encode, Decode, Clone, Debug, PartialEq))
+    variants(V1, V2),
+    variant_attributes(derive(Encode, Decode, Clone, Debug, PartialEq))
 )]
-#[derive(Encode, Clone, Debug, PartialEq)]
-#[ssz(enum_behaviour = "transparent")]
+#[derive(Clone, Debug, PartialEq)]
 pub struct OldBlocksByRangeRequest {
     /// The starting slot to request blocks.
     pub start_slot: u64,
@@ -283,15 +299,41 @@ pub struct OldBlocksByRangeRequest {
     pub step: u64,
 }
 
+impl OldBlocksByRangeRequest {
+    /// The default request is V2
+    pub fn new(start_slot: u64, count: u64, step: u64) -> Self {
+        Self::V2(OldBlocksByRangeRequestV2 {
+            start_slot,
+            count,
+            step,
+        })
+    }
+
+    pub fn new_v1(start_slot: u64, count: u64, step: u64) -> Self {
+        Self::V1(OldBlocksByRangeRequestV1 {
+            start_slot,
+            count,
+            step,
+        })
+    }
+}
+
 /// Request a number of beacon block bodies from a peer.
-#[superstruct(
-    variants(V1, V2),
-    variant_attributes(derive(Clone, Debug, PartialEq))
-)]
+#[superstruct(variants(V1, V2), variant_attributes(derive(Clone, Debug, PartialEq)))]
 #[derive(Clone, Debug, PartialEq)]
 pub struct BlocksByRootRequest {
     /// The list of beacon block bodies being requested.
     pub block_roots: VariableList<Hash256, MaxRequestBlocks>,
+}
+
+impl BlocksByRootRequest {
+    pub fn new(block_roots: VariableList<Hash256, MaxRequestBlocks>) -> Self {
+        Self::V2(BlocksByRootRequestV2 { block_roots })
+    }
+
+    pub fn new_v1(block_roots: VariableList<Hash256, MaxRequestBlocks>) -> Self {
+        Self::V1(BlocksByRootRequestV1 { block_roots })
+    }
 }
 
 /* RPC Handling and Grouping */
@@ -502,7 +544,12 @@ impl std::fmt::Display for GoodbyeReason {
 
 impl std::fmt::Display for BlocksByRangeRequest {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Start Slot: {}, Count: {}", self.start_slot(), self.count())
+        write!(
+            f,
+            "Start Slot: {}, Count: {}",
+            self.start_slot(),
+            self.count()
+        )
     }
 }
 
@@ -511,7 +558,9 @@ impl std::fmt::Display for OldBlocksByRangeRequest {
         write!(
             f,
             "Start Slot: {}, Count: {}, Step: {}",
-            self.start_slot(), self.count(), self.step()
+            self.start_slot(),
+            self.count(),
+            self.step()
         )
     }
 }

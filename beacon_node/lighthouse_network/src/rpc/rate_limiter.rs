@@ -214,7 +214,7 @@ pub trait RateLimiterItem {
 
 impl<T: EthSpec> RateLimiterItem for super::InboundRequest<T> {
     fn protocol(&self) -> Protocol {
-        self.protocol()
+        self.protocol().protocol()
     }
 
     fn expected_responses(&self) -> u64 {
@@ -224,7 +224,7 @@ impl<T: EthSpec> RateLimiterItem for super::InboundRequest<T> {
 
 impl<T: EthSpec> RateLimiterItem for super::OutboundRequest<T> {
     fn protocol(&self) -> Protocol {
-        self.protocol()
+        self.protocol().protocol()
     }
 
     fn expected_responses(&self) -> u64 {

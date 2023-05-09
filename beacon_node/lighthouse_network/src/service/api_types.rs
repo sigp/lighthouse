@@ -7,7 +7,8 @@ use types::{EthSpec, SignedBeaconBlock};
 use crate::rpc::{
     methods::{
         BlocksByRangeRequest, BlocksByRootRequest, LightClientBootstrapRequest,
-        OldBlocksByRangeRequest, RPCCodedResponse, RPCResponse, ResponseTermination, StatusMessage, OldBlocksByRangeRequestV1, OldBlocksByRangeRequestV2
+        OldBlocksByRangeRequest, OldBlocksByRangeRequestV1, OldBlocksByRangeRequestV2,
+        RPCCodedResponse, RPCResponse, ResponseTermination, StatusMessage,
     },
     OutboundRequest, SubstreamId,
 };
@@ -49,7 +50,7 @@ impl<TSpec: EthSpec> std::convert::From<Request> for OutboundRequest<TSpec> {
                         start_slot: req.start_slot,
                         count: req.count,
                         step: 1,
-                    })
+                    }),
                 ),
                 BlocksByRangeRequest::V2(req) => OutboundRequest::BlocksByRange(
                     OldBlocksByRangeRequest::V2(OldBlocksByRangeRequestV2 {

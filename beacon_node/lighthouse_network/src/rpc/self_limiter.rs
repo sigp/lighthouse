@@ -93,7 +93,7 @@ impl<Id: ReqId, TSpec: EthSpec> SelfRateLimiter<Id, TSpec> {
         request_id: Id,
         req: OutboundRequest<TSpec>,
     ) -> Result<BehaviourAction<Id, TSpec>, Error> {
-        let protocol = req.protocol();
+        let protocol = req.protocol().protocol();
         // First check that there are not already other requests waiting to be sent.
         if let Some(queued_requests) = self.delayed_requests.get_mut(&(peer_id, protocol)) {
             queued_requests.push_back(QueuedRequest { req, request_id });
@@ -140,7 +140,7 @@ impl<Id: ReqId, TSpec: EthSpec> SelfRateLimiter<Id, TSpec> {
                         crit!(
                            log,
                             "Self rate limiting error for a batch that will never fit. Sending request anyway. Check configuration parameters.";
-                            "protocol" => %req.protocol()
+                            "protocol" => %req.protocol().protocol()
                         );
                         Ok(BehaviourAction::NotifyHandler {
                             peer_id,
@@ -149,7 +149,7 @@ impl<Id: ReqId, TSpec: EthSpec> SelfRateLimiter<Id, TSpec> {
                         })
                     }
                     RateLimitedErr::TooSoon(wait_time) => {
-                        debug!(log, "Self rate limiting"; "protocol" => %protocol, "wait_time_ms" => wait_time.as_millis(), "peer_id" => %peer_id);
+                        debug!(log, "Self rate limiting"; "protocol" => %protocol.protocol(), "wait_time_ms" => wait_time.as_millis(), "peer_id" => %peer_id);
                         Err((QueuedRequest { req, request_id }, wait_time))
                     }
                 }

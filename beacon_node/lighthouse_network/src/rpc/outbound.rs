@@ -1,6 +1,6 @@
 use super::methods::*;
 use super::protocol::ProtocolId;
-use super::protocol::{Protocol, SupportedProtocol};
+use super::protocol::SupportedProtocol;
 use super::RPCError;
 use crate::rpc::protocol::Encoding;
 use crate::rpc::{
@@ -94,15 +94,24 @@ impl<TSpec: EthSpec> OutboundRequest<TSpec> {
         }
     }
 
-    /// Gives the corresponding `Protocol` to this request.
-    pub fn protocol(&self) -> Protocol {
+    /// Gives the corresponding `SupportedProtocol` to this request.
+    pub fn protocol(&self) -> SupportedProtocol {
         match self {
-            OutboundRequest::Status(_) => Protocol::Status,
-            OutboundRequest::Goodbye(_) => Protocol::Goodbye,
-            OutboundRequest::BlocksByRange(_) => Protocol::BlocksByRange,
-            OutboundRequest::BlocksByRoot(_) => Protocol::BlocksByRoot,
-            OutboundRequest::Ping(_) => Protocol::Ping,
-            OutboundRequest::MetaData(_) => Protocol::MetaData,
+            OutboundRequest::Status(_) => SupportedProtocol::StatusV1,
+            OutboundRequest::Goodbye(_) => SupportedProtocol::GoodbyeV1,
+            OutboundRequest::BlocksByRange(req) => match req {
+                OldBlocksByRangeRequest::V1(_) => SupportedProtocol::BlocksByRangeV1,
+                OldBlocksByRangeRequest::V2(_) => SupportedProtocol::BlocksByRangeV2,
+            },
+            OutboundRequest::BlocksByRoot(req) => match req {
+                BlocksByRootRequest::V1(_) => SupportedProtocol::BlocksByRootV1,
+                BlocksByRootRequest::V2(_) => SupportedProtocol::BlocksByRootV2,
+            },
+            OutboundRequest::Ping(_) => SupportedProtocol::PingV1,
+            OutboundRequest::MetaData(req) => match req {
+                MetadataRequest::V1(_) => SupportedProtocol::MetaDataV1,
+                MetadataRequest::V2(_) => SupportedProtocol::MetaDataV2,
+            },
         }
     }
 

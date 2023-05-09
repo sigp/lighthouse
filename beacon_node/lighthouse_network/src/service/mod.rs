@@ -9,7 +9,7 @@ use crate::peer_manager::{
     ConnectionDirection, PeerManager, PeerManagerEvent,
 };
 use crate::peer_manager::{MIN_OUTBOUND_ONLY_FACTOR, PEER_EXCESS_FACTOR, PRIORITY_PEER_EXCESS};
-use crate::rpc::methods::{BlocksByRangeRequestV1, MetadataRequest, BlocksByRangeRequestV2};
+use crate::rpc::methods::MetadataRequest;
 use crate::rpc::*;
 use crate::service::behaviour::BehaviourEvent;
 pub use crate::service::behaviour::Gossipsub;
@@ -1252,16 +1252,10 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                         }
                         let request = match req {
                             methods::OldBlocksByRangeRequest::V1(req) => Request::BlocksByRange(
-                                BlocksByRangeRequest::V1(BlocksByRangeRequestV1 {
-                                    start_slot: req.start_slot,
-                                    count,
-                                }),
+                                BlocksByRangeRequest::new_v1(req.start_slot, count),
                             ),
                             methods::OldBlocksByRangeRequest::V2(req) => Request::BlocksByRange(
-                                BlocksByRangeRequest::V2(BlocksByRangeRequestV2 {
-                                    start_slot: req.start_slot,
-                                    count,
-                                }),
+                                BlocksByRangeRequest::new(req.start_slot, count),
                             ),
                         };
                         let event = self.build_request(peer_request_id, peer_id, request);

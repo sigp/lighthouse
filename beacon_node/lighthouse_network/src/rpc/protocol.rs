@@ -325,9 +325,10 @@ impl ProtocolId {
                 <GoodbyeReason as Encode>::ssz_fixed_len(),
                 <GoodbyeReason as Encode>::ssz_fixed_len(),
             ),
+            // V1 and V2 requests are the same
             Protocol::BlocksByRange => RpcLimits::new(
-                <OldBlocksByRangeRequest as Encode>::ssz_fixed_len(),
-                <OldBlocksByRangeRequest as Encode>::ssz_fixed_len(),
+                <OldBlocksByRangeRequestV2 as Encode>::ssz_fixed_len(),
+                <OldBlocksByRangeRequestV2 as Encode>::ssz_fixed_len(),
             ),
             Protocol::BlocksByRoot => {
                 RpcLimits::new(*BLOCKS_BY_ROOT_REQUEST_MIN, *BLOCKS_BY_ROOT_REQUEST_MAX)
@@ -505,16 +506,25 @@ impl<TSpec: EthSpec> InboundRequest<TSpec> {
         }
     }
 
-    /// Gives the corresponding `Protocol` to this request.
-    pub fn protocol(&self) -> Protocol {
+    /// Gives the corresponding `SupportedProtocol` to this request.
+    pub fn protocol(&self) -> SupportedProtocol {
         match self {
-            InboundRequest::Status(_) => Protocol::Status,
-            InboundRequest::Goodbye(_) => Protocol::Goodbye,
-            InboundRequest::BlocksByRange(_) => Protocol::BlocksByRange,
-            InboundRequest::BlocksByRoot(_) => Protocol::BlocksByRoot,
-            InboundRequest::Ping(_) => Protocol::Ping,
-            InboundRequest::MetaData(_) => Protocol::MetaData,
-            InboundRequest::LightClientBootstrap(_) => Protocol::LightClientBootstrap,
+            InboundRequest::Status(_) => SupportedProtocol::StatusV1,
+            InboundRequest::Goodbye(_) => SupportedProtocol::GoodbyeV1,
+            InboundRequest::BlocksByRange(req) => match req {
+                OldBlocksByRangeRequest::V1(_) => SupportedProtocol::BlocksByRangeV1,
+                OldBlocksByRangeRequest::V2(_) => SupportedProtocol::BlocksByRangeV2,
+            },
+            InboundRequest::BlocksByRoot(req) => match req {
+                BlocksByRootRequest::V1(_) => SupportedProtocol::BlocksByRootV1,
+                BlocksByRootRequest::V2(_) => SupportedProtocol::BlocksByRootV2,
+            },
+            InboundRequest::Ping(_) => SupportedProtocol::PingV1,
+            InboundRequest::MetaData(req) => match req {
+                MetadataRequest::V1(_) => SupportedProtocol::MetaDataV1,
+                MetadataRequest::V2(_) => SupportedProtocol::MetaDataV2,
+            },
+            InboundRequest::LightClientBootstrap(_) => SupportedProtocol::LightClientBootstrapV1,
         }
     }
 

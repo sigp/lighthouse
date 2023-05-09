@@ -142,8 +142,8 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyInboundCodec<TSpec> {
         let ssz_limits = self.protocol.rpc_request_limits();
         if ssz_limits.is_out_of_bounds(length, self.max_packet_size) {
             return Err(RPCError::InvalidData(format!(
-                "RPC request length is out of bounds, length {}",
-                length
+                "RPC request length for protocol {:?} is out of bounds, length {}",
+                self.protocol.protocol, length
             )));
         }
         // Calculate worst case compression length for given uncompressed length
@@ -214,11 +214,11 @@ impl<TSpec: EthSpec> Encoder<OutboundRequest<TSpec>> for SSZSnappyOutboundCodec<
         let bytes = match item {
             OutboundRequest::Status(req) => req.as_ssz_bytes(),
             OutboundRequest::Goodbye(req) => req.as_ssz_bytes(),
-            OutboundRequest::BlocksByRange(req) => match req {
+            OutboundRequest::BlocksByRange(r) => match r {
                 OldBlocksByRangeRequest::V1(req) => req.as_ssz_bytes(),
                 OldBlocksByRangeRequest::V2(req) => req.as_ssz_bytes(),
             },
-            OutboundRequest::BlocksByRoot(req) => match req {
+            OutboundRequest::BlocksByRoot(r) => match r {
                 BlocksByRootRequest::V1(req) => req.block_roots.as_ssz_bytes(),
                 BlocksByRootRequest::V2(req) => req.block_roots.as_ssz_bytes(),
             },
@@ -460,18 +460,18 @@ fn handle_rpc_request<T: EthSpec>(
             OldBlocksByRangeRequest::V2(OldBlocksByRangeRequestV2::from_ssz_bytes(decoded_buffer)?),
         ))),
         SupportedProtocol::BlocksByRangeV1 => Ok(Some(InboundRequest::BlocksByRange(
-            OldBlocksByRangeRequest::V2(OldBlocksByRangeRequestV2::from_ssz_bytes(decoded_buffer)?),
+            OldBlocksByRangeRequest::V1(OldBlocksByRangeRequestV1::from_ssz_bytes(decoded_buffer)?),
         ))),
-        SupportedProtocol::BlocksByRootV2 => {
-            Ok(Some(InboundRequest::BlocksByRoot(BlocksByRootRequest::V2(BlocksByRootRequestV2 {
+        SupportedProtocol::BlocksByRootV2 => Ok(Some(InboundRequest::BlocksByRoot(
+            BlocksByRootRequest::V2(BlocksByRootRequestV2 {
                 block_roots: VariableList::from_ssz_bytes(decoded_buffer)?,
-            }))))
-        }
-        SupportedProtocol::BlocksByRootV1 => {
-            Ok(Some(InboundRequest::BlocksByRoot(BlocksByRootRequest::V1(BlocksByRootRequestV1 {
+            }),
+        ))),
+        SupportedProtocol::BlocksByRootV1 => Ok(Some(InboundRequest::BlocksByRoot(
+            BlocksByRootRequest::V1(BlocksByRootRequestV1 {
                 block_roots: VariableList::from_ssz_bytes(decoded_buffer)?,
-            }))))
-        }
+            }),
+        ))),
         SupportedProtocol::PingV1 => Ok(Some(InboundRequest::Ping(Ping {
             data: u64::from_ssz_bytes(decoded_buffer)?,
         }))),
@@ -691,18 +691,20 @@ mod tests {
         }
     }
 
-    fn bbrange_request() -> OldBlocksByRangeRequest {
-        OldBlocksByRangeRequest {
-            start_slot: 0,
-            count: 10,
-            step: 1,
-        }
+    fn bbrange_request_v1() -> OldBlocksByRangeRequest {
+        OldBlocksByRangeRequest::new_v1(0, 10, 1)
     }
 
-    fn bbroot_request() -> BlocksByRootRequest {
-        BlocksByRootRequest {
-            block_roots: VariableList::from(vec![Hash256::zero()]),
-        }
+    fn bbrange_request_v2() -> OldBlocksByRangeRequest {
+        OldBlocksByRangeRequest::new(0, 10, 1)
+    }
+
+    fn bbroot_request_v1() -> BlocksByRootRequest {
+        BlocksByRootRequest::new_v1(vec![Hash256::zero()].into())
+    }
+
+    fn bbroot_request_v2() -> BlocksByRootRequest {
+        BlocksByRootRequest::new(vec![Hash256::zero()].into())
     }
 
     fn ping_message() -> Ping {
@@ -799,52 +801,46 @@ mod tests {
     fn encode_then_decode_request(req: OutboundRequest<Spec>, fork_name: ForkName) {
         let fork_context = Arc::new(fork_context(fork_name));
         let max_packet_size = max_rpc_size(&fork_context);
-        for protocol in req.supported_protocols() {
-            // Encode a request we send
-            let mut buf = BytesMut::new();
-            let mut outbound_codec = SSZSnappyOutboundCodec::<Spec>::new(
-                protocol.clone(),
-                max_packet_size,
-                fork_context.clone(),
-            );
-            outbound_codec.encode(req.clone(), &mut buf).unwrap();
+        let protocol = ProtocolId::new(req.protocol(), Encoding::SSZSnappy);
+        // Encode a request we send
+        let mut buf = BytesMut::new();
+        let mut outbound_codec = SSZSnappyOutboundCodec::<Spec>::new(
+            protocol.clone(),
+            max_packet_size,
+            fork_context.clone(),
+        );
+        outbound_codec.encode(req.clone(), &mut buf).unwrap();
 
-            let mut inbound_codec = SSZSnappyInboundCodec::<Spec>::new(
-                protocol.clone(),
-                max_packet_size,
-                fork_context.clone(),
-            );
+        let mut inbound_codec = SSZSnappyInboundCodec::<Spec>::new(
+            protocol.clone(),
+            max_packet_size,
+            fork_context.clone(),
+        );
 
-            let decoded = inbound_codec.decode(&mut buf).unwrap().unwrap_or_else(|| {
-                panic!(
-                    "Should correctly decode the request {} over protocol {:?} and fork {}",
-                    req, protocol, fork_name
-                )
-            });
-            match req.clone() {
-                OutboundRequest::Status(status) => {
-                    assert_eq!(decoded, InboundRequest::Status(status))
-                }
-                OutboundRequest::Goodbye(goodbye) => {
-                    assert_eq!(decoded, InboundRequest::Goodbye(goodbye))
-                }
-                OutboundRequest::BlocksByRange(bbrange) => {
-                    assert_eq!(decoded, InboundRequest::BlocksByRange(bbrange))
-                }
-                OutboundRequest::BlocksByRoot(bbroot) => {
-                    assert_eq!(decoded, InboundRequest::BlocksByRoot(bbroot))
-                }
-                OutboundRequest::Ping(ping) => {
-                    assert_eq!(decoded, InboundRequest::Ping(ping))
-                }
-                OutboundRequest::MetaData(metadata) => {
-                    if protocol.protocol == SupportedProtocol::MetaDataV2 {
-                        assert_eq!(decoded, InboundRequest::MetaData(MetadataRequest::new_v2()))
-                    }
-                    if protocol.protocol == SupportedProtocol::MetaDataV1 {
-                        assert_eq!(decoded, InboundRequest::MetaData(MetadataRequest::new_v1()))
-                    }
-                }
+        let decoded = inbound_codec.decode(&mut buf).unwrap().unwrap_or_else(|| {
+            panic!(
+                "Should correctly decode the request {} over protocol {:?} and fork {}",
+                req, protocol, fork_name
+            )
+        });
+        match req.clone() {
+            OutboundRequest::Status(status) => {
+                assert_eq!(decoded, InboundRequest::Status(status))
+            }
+            OutboundRequest::Goodbye(goodbye) => {
+                assert_eq!(decoded, InboundRequest::Goodbye(goodbye))
+            }
+            OutboundRequest::BlocksByRange(bbrange) => {
+                assert_eq!(decoded, InboundRequest::BlocksByRange(bbrange))
+            }
+            OutboundRequest::BlocksByRoot(bbroot) => {
+                assert_eq!(decoded, InboundRequest::BlocksByRoot(bbroot))
+            }
+            OutboundRequest::Ping(ping) => {
+                assert_eq!(decoded, InboundRequest::Ping(ping))
+            }
+            OutboundRequest::MetaData(metadata) => {
+                assert_eq!(decoded, InboundRequest::MetaData(metadata))
             }
         }
     }
@@ -1246,10 +1242,12 @@ mod tests {
             OutboundRequest::Ping(ping_message()),
             OutboundRequest::Status(status_message()),
             OutboundRequest::Goodbye(GoodbyeReason::Fault),
-            OutboundRequest::BlocksByRange(bbrange_request()),
-            OutboundRequest::BlocksByRoot(bbroot_request()),
+            OutboundRequest::BlocksByRange(bbrange_request_v1()),
+            OutboundRequest::BlocksByRange(bbrange_request_v2()),
+            OutboundRequest::BlocksByRoot(bbroot_request_v1()),
+            OutboundRequest::BlocksByRoot(bbroot_request_v2()),
             OutboundRequest::MetaData(MetadataRequest::new_v1()),
-            // OutboundRequest::MetaData(MetadataRequest::new_v2()),
+            OutboundRequest::MetaData(MetadataRequest::new_v2()),
         ];
         for req in requests.iter() {
             for fork_name in ForkName::list_all() {
