@@ -1,4 +1,4 @@
-use c_kzg::{BYTES_PER_G1_POINT, BYTES_PER_G2_POINT, FIELD_ELEMENTS_PER_BLOB};
+use c_kzg::{BYTES_PER_G1_POINT, BYTES_PER_G2_POINT};
 use serde::{
     de::{self, Deserializer, Visitor},
     Deserialize, Serialize,
@@ -138,7 +138,7 @@ fn deserialize_g1_points<'de, D>(deserializer: D) -> Result<Vec<G1Point>, D::Err
 where
     D: Deserializer<'de>,
 {
-    let mut decoded: Vec<G1Point> = serde::de::Deserialize::deserialize(deserializer)?;
+    let decoded: Vec<G1Point> = serde::de::Deserialize::deserialize(deserializer)?;
     // FIELD_ELEMENTS_PER_BLOB is a compile time parameter that
     // depends on whether lighthouse is compiled with minimal or mainnet features.
     // Minimal and mainnet trusted setup parameters differ only by the
@@ -147,7 +147,9 @@ where
     // Hence, we truncate the number of G1 points after deserialisation
     // to ensure that we have the right number of g1 points in the
     // trusted setup.
-    decoded.truncate(FIELD_ELEMENTS_PER_BLOB);
+    // decoded.truncate(FIELD_ELEMENTS_PER_BLOB)
+    // FIXME(sproul): disabled this so I could test loading a minimal trusted setup without
+    // truncation.
     Ok(decoded)
 }
 

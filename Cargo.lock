@@ -947,13 +947,28 @@ dependencies = [
 [[package]]
 name = "c-kzg"
 version = "0.1.0"
-source = "git+https://github.com/ethereum/c-kzg-4844?rev=fd24cf8e1e2f09a96b4e62a595b4e49f046ce6cf#fd24cf8e1e2f09a96b4e62a595b4e49f046ce6cf"
+source = "git+https://github.com/michaelsproul//c-kzg-4844?rev=9ea77c711c8d17594a7fd3dc1e99e9c3af6dfc0d#9ea77c711c8d17594a7fd3dc1e99e9c3af6dfc0d"
 dependencies = [
  "bindgen 0.64.0",
  "cc",
  "glob",
  "hex",
  "libc",
+ "regex",
+ "serde",
+]
+
+[[package]]
+name = "c-kzg"
+version = "0.1.0"
+source = "git+https://github.com/michaelsproul/c-kzg-4844?rev=9ea77c711c8d17594a7fd3dc1e99e9c3af6dfc0d#9ea77c711c8d17594a7fd3dc1e99e9c3af6dfc0d"
+dependencies = [
+ "bindgen 0.64.0",
+ "cc",
+ "glob",
+ "hex",
+ "libc",
+ "regex",
  "serde",
 ]
 
@@ -3875,7 +3890,8 @@ name = "kzg"
 version = "0.1.0"
 dependencies = [
  "arbitrary",
- "c-kzg",
+ "c-kzg 0.1.0 (git+https://github.com/michaelsproul//c-kzg-4844?rev=9ea77c711c8d17594a7fd3dc1e99e9c3af6dfc0d)",
+ "c-kzg 0.1.0 (git+https://github.com/michaelsproul/c-kzg-4844?rev=9ea77c711c8d17594a7fd3dc1e99e9c3af6dfc0d)",
  "derivative",
  "eth2_hashing",
  "eth2_serde_utils",
@@ -3884,6 +3900,7 @@ dependencies = [
  "hex",
  "serde",
  "serde_derive",
+ "serde_json",
  "tree_hash",
 ]
 

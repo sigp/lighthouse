@@ -16,10 +16,16 @@ serde_derive = "1.0.116"
 eth2_serde_utils = "0.1.1"
 hex = "0.4.2"
 eth2_hashing = "0.3.0"
-c-kzg = {git = "https://github.com/ethereum/c-kzg-4844", rev = "fd24cf8e1e2f09a96b4e62a595b4e49f046ce6cf" }
+# XXX: we need to point these at different repo URLs (note the extra /) or different revs
+# FIXME(sproul): nasty
+c-kzg = { git = "https://github.com/michaelsproul//c-kzg-4844", rev = "9ea77c711c8d17594a7fd3dc1e99e9c3af6dfc0d" }
+c-kzg-minimal = { package = "c-kzg", git = "https://github.com/michaelsproul/c-kzg-4844", rev = "9ea77c711c8d17594a7fd3dc1e99e9c3af6dfc0d", features = ["minimal-spec"] }
 arbitrary = { version = "1.0", features = ["derive"], optional = true }
 
 [features]
 default = ["mainnet-spec"]
 mainnet-spec = ["c-kzg/mainnet-spec"]
 minimal-spec = ["c-kzg/minimal-spec"]
+
+[dev-dependencies]
+serde_json = "1"
