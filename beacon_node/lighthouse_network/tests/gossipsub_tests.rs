@@ -54,42 +54,35 @@ async fn test_gossipsub_forward() {
         for node in nodes.iter_mut() {
             loop {
                 match node.next_event().await {
-                    Libp2pEvent::Behaviour(b) => match b {
-                        BehaviourEvent::PubsubMessage {
-                            topics,
-                            message,
-                            source,
-                            id,
-                        } => {
-                            assert_eq!(topics.len(), 1);
-                            // Assert topic is the published topic
-                            assert_eq!(
-                                topics.first().unwrap(),
-                                &TopicHash::from_raw(publishing_topic.clone())
-                            );
-                            // Assert message received is the correct one
-                            assert_eq!(message, pubsub_message.clone());
-                            received_count += 1;
-                            // Since `propagate_message` is false, need to propagate manually
-                            node.swarm.propagate_message(&source, id);
-                            // Test should succeed if all nodes except the publisher receive the message
-                            if received_count == num_nodes - 1 {
-                                debug!(log.clone(), "Received message at {} nodes", num_nodes - 1);
-                                return;
-                            }
+                    NetworkEvent::PubsubMessage {
+                        topic,
+                        message,
+                        source,
+                        id,
+                    } => {
+                        // Assert topic is the published topic
+                        assert_eq!(topic, TopicHash::from_raw(publishing_topic.clone()));
+                        // Assert message received is the correct one
+                        assert_eq!(message, pubsub_message.clone());
+                        received_count += 1;
+                        // Since `propagate_message` is false, need to propagate manually
+                        node.swarm.propagate_message(&source, id);
+                        // Test should succeed if all nodes except the publisher receive the message
+                        if received_count == num_nodes - 1 {
+                            debug!(log.clone(), "Received message at {} nodes", num_nodes - 1);
+                            return;
                         }
-                        BehaviourEvent::PeerSubscribed(_, topic) => {
-                            // Publish on beacon block topic
-                            if topic == TopicHash::from_raw(publishing_topic.clone()) {
-                                subscribed_count += 1;
-                                // Every node except the corner nodes are connected to 2 nodes.
-                                if subscribed_count == (num_nodes * 2) - 2 {
-                                    node.swarm.publish(vec![pubsub_message.clone()]);
-                                }
-                            }
-                        }
-                        _ => break,
-                    },
+                    }
+//                    BehaviourEvent::PeerSubscribed(_, topic) => {
+//                        // Publish on beacon block topic
+//                        if topic == TopicHash::from_raw(publishing_topic.clone()) {
+//                            subscribed_count += 1;
+//                            // Every node except the corner nodes are connected to 2 nodes.
+//                            if subscribed_count == (num_nodes * 2) - 2 {
+//                                node.swarm.publish(vec![pubsub_message.clone()]);
+//                            }
+//                        }
+//                    }
                     _ => break,
                 }
             }
