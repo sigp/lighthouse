@@ -27,7 +27,6 @@ pub struct PendingComponents<T: EthSpec> {
 impl<T: EthSpec> PendingComponents<T> {
     pub fn new_from_blob(blob: KzgVerifiedBlob<T>) -> Self {
         let mut verified_blobs = FixedVector::<_, _>::default();
-        // TODO: verify that we've already ensured the blob index < T::MaxBlobsPerBlock
         if let Some(mut_maybe_blob) = verified_blobs.get_mut(blob.blob_index() as usize) {
             *mut_maybe_blob = Some(blob);
         }
@@ -865,7 +864,6 @@ mod test {
         }
     }
 
-    // TODO(mark): where should I actually put this test?
     #[tokio::test]
     #[cfg(feature = "spec-minimal")]
     async fn ssz_tagged_beacon_state_encode_decode_equality() {

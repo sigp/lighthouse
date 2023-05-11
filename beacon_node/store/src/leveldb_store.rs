@@ -199,13 +199,6 @@ impl<E: EthSpec> KeyValueStore<E> for LevelDB<E> {
     }
 
     fn iter_raw_entries(&self, column: DBColumn, prefix: &[u8]) -> RawEntryIter {
-        // TODO: does this require prefix to be as long as the longest key in the group?
-        //       example:
-        //           prefix = 0010
-        //       will this match:
-        //           key = 00100000
-        //                 00100110
-        //           ...
         let start_key = BytesKey::from_vec(get_key_for_col(column.into(), prefix));
 
         let iter = self.db.iter(self.read_options());
