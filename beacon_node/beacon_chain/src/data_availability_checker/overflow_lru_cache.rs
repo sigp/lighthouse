@@ -187,13 +187,8 @@ impl<T: BeaconChainTypes> OverflowStore<T> {
     // returns the hashes of all the blocks we have data for on disk
     pub fn read_keys_on_disk(&self) -> Result<HashSet<Hash256>, AvailabilityCheckError> {
         let mut disk_keys = HashSet::new();
-        for res in self
-            .0
-            .hot_db
-            // TODO: consider implementing iter_raw_keys so this is faster
-            .iter_raw_entries(DBColumn::OverflowLRUCache, &[])
-        {
-            let (key_bytes, _) = res?;
+        for res in self.0.hot_db.iter_raw_keys(DBColumn::OverflowLRUCache, &[]) {
+            let key_bytes = res?;
             disk_keys.insert(*OverflowKey::from_ssz_bytes(&key_bytes)?.root());
         }
         Ok(disk_keys)

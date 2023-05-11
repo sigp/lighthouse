@@ -220,6 +220,21 @@ impl<E: EthSpec> KeyValueStore<E> for LevelDB<E> {
         )
     }
 
+    fn iter_raw_keys(&self, column: DBColumn, prefix: &[u8]) -> RawKeyIter {
+        let start_key = BytesKey::from_vec(get_key_for_col(column.into(), prefix));
+
+        let iter = self.db.keys_iter(self.read_options());
+        iter.seek(&start_key);
+
+        Box::new(
+            iter.take_while(move |key| key.key.starts_with(start_key.key.as_slice()))
+                .map(move |bytes_key| {
+                    let subkey = &bytes_key.key[column.as_bytes().len()..];
+                    Ok(Vec::from(subkey))
+                }),
+        )
+    }
+
     /// Iterate through all keys and values in a particular column.
     fn iter_column_keys(&self, column: DBColumn) -> ColumnKeyIter {
         let start_key =
