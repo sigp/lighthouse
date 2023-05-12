@@ -1748,6 +1748,7 @@ fn no_reconstruct_historic_states_flag() {
 
 // Tests for Slasher flags.
 #[test]
+#[cfg(feature = "slasher")]
 fn slasher_flag() {
     CommandLineTest::new()
         .flag("slasher", None)
@@ -1764,6 +1765,7 @@ fn slasher_flag() {
         });
 }
 #[test]
+#[cfg(feature = "slasher")]
 fn slasher_dir_flag() {
     let dir = TempDir::new().expect("Unable to create temporary directory");
     CommandLineTest::new()
@@ -1779,6 +1781,7 @@ fn slasher_dir_flag() {
         });
 }
 #[test]
+#[cfg(feature = "slasher")]
 fn slasher_update_period_flag() {
     CommandLineTest::new()
         .flag("slasher", None)
@@ -1793,6 +1796,7 @@ fn slasher_update_period_flag() {
         });
 }
 #[test]
+#[cfg(feature = "slasher")]
 fn slasher_slot_offset_flag() {
     CommandLineTest::new()
         .flag("slasher", None)
@@ -1805,6 +1809,7 @@ fn slasher_slot_offset_flag() {
 }
 #[test]
 #[should_panic]
+#[cfg(feature = "slasher")]
 fn slasher_slot_offset_nan_flag() {
     CommandLineTest::new()
         .flag("slasher", None)
@@ -1812,6 +1817,7 @@ fn slasher_slot_offset_nan_flag() {
         .run_with_zero_port();
 }
 #[test]
+#[cfg(feature = "slasher")]
 fn slasher_history_length_flag() {
     CommandLineTest::new()
         .flag("slasher", None)
@@ -1826,6 +1832,7 @@ fn slasher_history_length_flag() {
         });
 }
 #[test]
+#[cfg(feature = "slasher")]
 fn slasher_max_db_size_flag() {
     CommandLineTest::new()
         .flag("slasher", None)
@@ -1840,6 +1847,7 @@ fn slasher_max_db_size_flag() {
         });
 }
 #[test]
+#[cfg(feature = "slasher")]
 fn slasher_attestation_cache_size_flag() {
     CommandLineTest::new()
         .flag("slasher", None)
@@ -1854,6 +1862,7 @@ fn slasher_attestation_cache_size_flag() {
         });
 }
 #[test]
+#[cfg(feature = "slasher")]
 fn slasher_chunk_size_flag() {
     CommandLineTest::new()
         .flag("slasher", None)
@@ -1868,6 +1877,7 @@ fn slasher_chunk_size_flag() {
         });
 }
 #[test]
+#[cfg(feature = "slasher")]
 fn slasher_validator_chunk_size_flag() {
     CommandLineTest::new()
         .flag("slasher", None)
@@ -1882,6 +1892,7 @@ fn slasher_validator_chunk_size_flag() {
         });
 }
 #[test]
+#[cfg(feature = "slasher")]
 fn slasher_broadcast_flag() {
     CommandLineTest::new()
         .flag("slasher", None)
@@ -1897,6 +1908,7 @@ fn slasher_broadcast_flag() {
 }
 
 #[test]
+#[cfg(feature = "slasher")]
 fn slasher_backend_default() {
     CommandLineTest::new()
         .flag("slasher", None)
@@ -1908,6 +1920,7 @@ fn slasher_backend_default() {
 }
 
 #[test]
+#[cfg(feature = "slasher")]
 fn slasher_backend_override_to_default() {
     // Hard to test this flag because all but one backend is disabled by default and the backend
     // called "disabled" results in a panic.
