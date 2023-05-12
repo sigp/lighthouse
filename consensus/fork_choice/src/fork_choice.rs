@@ -192,7 +192,8 @@ impl CountUnrealized {
 /// Indicates if a block has been verified by an execution payload.
 ///
 /// There is no variant for "invalid", since such a block should never be added to fork choice.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Encode, Decode)]
+#[ssz(enum_behaviour = "tag")]
 pub enum PayloadVerificationStatus {
     /// An EL has declared the execution payload to be valid.
     Verified,

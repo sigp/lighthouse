@@ -230,7 +230,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         let mut blob_list_results = HashMap::new();
         for id in request.blob_ids.into_iter() {
             // First attempt to get the blobs from the RPC cache.
-            if let Some(blob) = self.chain.data_availability_checker.get_blob(&id) {
+            if let Ok(Some(blob)) = self.chain.data_availability_checker.get_blob(&id) {
                 self.send_response(peer_id, Response::BlobsByRoot(Some(blob)), request_id);
                 send_blob_count += 1;
             } else {

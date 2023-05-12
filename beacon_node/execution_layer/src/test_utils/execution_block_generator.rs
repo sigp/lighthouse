@@ -16,6 +16,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
+use types::consts::deneb::BLOB_TX_TYPE;
 use types::transaction::{BlobTransaction, EcdsaSignature, SignedBlobTransaction};
 use types::{
     Blob, EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadCapella,
@@ -684,7 +685,7 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
                 signature: bad_signature,
             };
             // calculate transaction bytes
-            let tx_bytes = [0x05u8]
+            let tx_bytes = [BLOB_TX_TYPE]
                 .into_iter()
                 .chain(signed_blob_transaction.as_ssz_bytes().into_iter())
                 .collect::<Vec<_>>();

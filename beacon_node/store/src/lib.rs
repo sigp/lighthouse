@@ -49,6 +49,9 @@ pub use types::*;
 pub type ColumnIter<'a> = Box<dyn Iterator<Item = Result<(Hash256, Vec<u8>), Error>> + 'a>;
 pub type ColumnKeyIter<'a> = Box<dyn Iterator<Item = Result<Hash256, Error>> + 'a>;
 
+pub type RawEntryIter<'a> = Box<dyn Iterator<Item = Result<(Vec<u8>, Vec<u8>), Error>> + 'a>;
+pub type RawKeyIter<'a> = Box<dyn Iterator<Item = Result<Vec<u8>, Error>> + 'a>;
+
 pub trait KeyValueStore<E: EthSpec>: Sync + Send + Sized + 'static {
     /// Retrieve some bytes in `column` with `key`.
     fn get_bytes(&self, column: &str, key: &[u8]) -> Result<Option<Vec<u8>>, Error>;
@@ -85,6 +88,14 @@ pub trait KeyValueStore<E: EthSpec>: Sync + Send + Sized + 'static {
     /// Iterate through all keys and values in a particular column.
     fn iter_column(&self, _column: DBColumn) -> ColumnIter {
         // Default impl for non LevelDB databases
+        Box::new(std::iter::empty())
+    }
+
+    fn iter_raw_entries(&self, _column: DBColumn, _prefix: &[u8]) -> RawEntryIter {
+        Box::new(std::iter::empty())
+    }
+
+    fn iter_raw_keys(&self, _column: DBColumn, _prefix: &[u8]) -> RawKeyIter {
         Box::new(std::iter::empty())
     }
 
@@ -227,6 +238,8 @@ pub enum DBColumn {
     OptimisticTransitionBlock,
     #[strum(serialize = "bhs")]
     BeaconHistoricalSummaries,
+    #[strum(serialize = "olc")]
+    OverflowLRUCache,
 }
 
 /// A block from the database, which might have an execution payload or not.
