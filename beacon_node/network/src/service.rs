@@ -13,6 +13,7 @@ use futures::future::OptionFuture;
 use futures::prelude::*;
 use futures::StreamExt;
 use lighthouse_network::service::Network;
+use lighthouse_network::types::GossipKind;
 use lighthouse_network::{prometheus_client::registry::Registry, MessageAcceptance};
 use lighthouse_network::{
     rpc::{GoodbyeReason, RPCResponseErrorCode},
@@ -23,7 +24,7 @@ use lighthouse_network::{
     MessageId, NetworkEvent, NetworkGlobals, PeerId,
 };
 use slog::{crit, debug, error, info, o, trace, warn};
-use std::{net::SocketAddr, pin::Pin, sync::Arc, time::Duration};
+use std::{collections::HashSet, net::SocketAddr, pin::Pin, sync::Arc, time::Duration};
 use store::HotColdDB;
 use strum::IntoStaticStr;
 use task_executor::ShutdownReason;
@@ -671,6 +672,10 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                 source,
             } => self.libp2p.goodbye_peer(&peer_id, reason, source),
             NetworkMessage::SubscribeCoreTopics => {
+                if self.subscribed_core_topics() {
+                    return;
+                }
+
                 if self.shutdown_after_sync {
                     if let Err(e) = shutdown_sender
                         .send(ShutdownReason::Success(
@@ -908,6 +913,16 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         } else {
             crit!(self.log, "Unknown new enr fork id"; "new_fork_id" => ?new_enr_fork_id);
         }
+    }
+
+    fn subscribed_core_topics(&self) -> bool {
+        let core_topics = core_topics_to_subscribe(self.fork_context.current_fork());
+        let core_topics: HashSet<&GossipKind> = HashSet::from_iter(&core_topics);
+        let subscriptions = self.network_globals.gossipsub_subscriptions.read();
+        let subscribed_topics: HashSet<&GossipKind> =
+            subscriptions.iter().map(|topic| topic.kind()).collect();
+
+        core_topics.is_subset(&subscribed_topics)
     }
 }
 

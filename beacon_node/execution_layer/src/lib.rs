@@ -328,7 +328,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
 
                 info!(
                     log,
-                    "Connected to external block builder";
+                    "Using external block builder";
                     "builder_url" => ?url,
                     "builder_profit_threshold" => builder_profit_threshold,
                     "local_user_agent" => builder_client.get_user_agent(),

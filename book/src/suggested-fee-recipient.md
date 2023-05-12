@@ -1,14 +1,12 @@
 # Suggested Fee Recipient
 
 The _fee recipient_ is an Ethereum address nominated by a beacon chain validator to receive
-tips from user transactions. If you run validators on a network that has already merged
-or is due to merge soon then you should nominate a fee recipient for your validators.
+tips from user transactions. Given that all mainnet and testnets have gone through [The Merge](https://ethereum.org/en/roadmap/merge/), if you run validators on a network, you are strongly recommended to nominate a fee recipient for your validators. Failing to nominate a fee recipient will result in losing the tips from transactions.
 
 ## Background
 
 During post-merge block production, the Beacon Node (BN) will provide a `suggested_fee_recipient` to
-the execution node. This is a 20-byte Ethereum address which the EL might choose to set as the
-coinbase and the recipient of other fees or rewards.
+the execution node. This is a 20-byte Ethereum address which the execution node might choose to set as the recipient of other fees or rewards.
 
 There is no guarantee that an execution node will use the `suggested_fee_recipient` to collect fees,
 it may use any address it chooses. It is assumed that an honest execution node *will* use the
@@ -189,4 +187,4 @@ accumulates other staking rewards. The reason for this is that transaction fees 
 validated by the execution node, and therefore need to be paid to an address that exists on the
 execution chain. Validators use BLS keys which do not correspond to Ethereum addresses, so they
 have no "presence" on the execution chain. Therefore, it's necessary for each validator to nominate
-a separate fee recipient address.
+a fee recipient address.
