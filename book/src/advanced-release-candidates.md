@@ -7,7 +7,7 @@
 [`v1.4.0`]: https://github.com/sigp/lighthouse/releases/tag/v1.4.0
 
 From time-to-time, Lighthouse *release candidates* will be published on the [sigp/lighthouse]
-repository. These releases have passed the usual automated testing, however the developers would
+repository. Release candidates are previously known as Pre-Releases. These releases have passed the usual automated testing, however the developers would
 like to see it running "in the wild" in a variety of configurations before declaring it an official,
 stable release. Release candidates are also used by developers to get feedback from users regarding the
 ergonomics of new features or changes.
@@ -39,5 +39,5 @@ Users may wish to try a release candidate for the following reasons:
 ## When *not* to use a release candidate
 
 It is not recommended to use release candidates for any critical tasks on mainnet (e.g., staking).
-To test critical features, try one of the testnets (e.g., Prater).
+To test critical features, try one of the testnets (e.g., Goerli).
 

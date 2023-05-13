@@ -68,6 +68,8 @@ The historical state cache size can be specified with the flag `--historic-state
 lighthouse beacon_node --historic-state-cache-size 4
 ```
 
+> Note: This feature will cause high memory usage.
+
 ## Glossary
 
 * _Freezer DB_: part of the database storing finalized states. States are stored in a sparser

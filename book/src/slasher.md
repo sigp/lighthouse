@@ -8,10 +8,10 @@ extra income for your validators. However it is currently only recommended for e
 of the immaturity of the slasher UX and the extra resources required.
 
 ## Minimum System Requirements
-
+[comment]: <> (change to 512GB as below stated 300K validators, but mainnet is now 600K. Please correct me if this is wrong)
 * Quad-core CPU
 * 16 GB RAM
-* 256 GB solid state storage (in addition to space for the beacon node DB)
+* 512 GB solid state storage (in addition to space for the beacon node DB)
 
 ## How to Run
 
@@ -44,7 +44,7 @@ e.g. `~/.lighthouse/{network}/beacon/slasher_db`. You can use this flag to chang
 directory.
 
 ### Database Backend
-
+[comment]: <> (lmdb is an option in Cargo.toml, but lighthouse bn --help only shows mdbx and disabled.)
 * Flag: `--slasher-backend NAME`
 * Argument: one of `mdbx`, `lmdb` or `disabled`
 * Default: `mdbx`
@@ -93,6 +93,8 @@ changed after initialization.
 * Argument: maximum size of the database in gigabytes
 * Default: 256 GB
 
+[comment]: <> (should the default be changed to 512GB? I didn't change the 300K validators to 600K validators because the default seems to be 256GB)
+
 Both database backends LMDB and MDBX place a hard limit on the size of the database
 file. You can use the `--slasher-max-db-size` flag to set this limit. It can be adjusted after
 initialization if the limit is reached.
@@ -108,7 +110,7 @@ If you want an estimate of the database size you can use this formula:
 4.56 GB * (N / 256) * (V / 250000)
 ```
 
-where `V` is the validator count and `N` is the history length.
+where `N` is the history length and `V` is the validator count.
 
 You should set the maximum size higher than the estimate to allow room for growth in the validator
 count.
@@ -189,6 +191,6 @@ lighthouse bn --slasher --slasher-history-length 256 --slasher-max-db-size 16 --
 ```
 
 ## Stability Warning
-
+[comment]: <> (Not sure if this subsection should be updated? Particularly not sure about the "quite new" description.)
 The slasher code is still quite new, so we may update the schema of the slasher database in a
 backwards-incompatible way which will require re-initialization.
