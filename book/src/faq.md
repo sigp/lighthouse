@@ -308,7 +308,7 @@ which says that the version is v4.1.0.
 
 ### Can I submit a voluntary exit message without a beacon node?
 
-Yes. Beaconcha.in provides the tool to broadcast the message. You can create the voluntary exit message file with [ethdo](https://github.com/wealdtech/ethdo/releases/tag/v1.30.0) and submit the message via the [beaconcha.in](https://beaconcha.in/tools/broadcast) website.
+Yes. Beaconcha.in provides the tool to broadcast the message. You can create the voluntary exit message file with [ethdo](https://github.com/wealdtech/ethdo/releases/tag/v1.30.0) and submit the message via the [beaconcha.in](https://beaconcha.in/tools/broadcast) website. A guide on how to use `ethdo` to perform voluntary exit can be found [here](https://github.com/eth-educators/ethstaker-guides/blob/main/voluntary-exit.md).
 
 It is also noted that you can submit your BLS-to-execution-change message to update your withdrawal credentials from type `0x00` to `0x01` using the same link.
 
@@ -366,6 +366,8 @@ The settings are as follows:
    ```bash
    curl "http://local_IP:5052/eth/v1/node/version"
    ```
+   
+   You can refer to [Redundancy](./redundancy.md) for more information.
 
    It is also worth noting that the `--beacon-nodes` flag can also be used for redundancy of beacon nodes. For example, let's say you have a beacon node and a validator client running on the same host, and a second beacon node on another server as a backup. In this case, you can use `lighthouse vc --beacon-nodes http://localhost:5052, http://local_IP:5052` on the validator client.
 
@@ -410,15 +412,26 @@ This is a normal behaviour. Since [v4.1.0](https://github.com/sigp/lighthouse/re
 
 ### My beacon node logs `WARN Error processing HTTP API request`, what should I do?
 
-This warning usually comes with an http error. An example of the full log is:
+This warning usually comes with an http error code. Some examples are given below:
+
+1. The log show:
+
+```
+WARN Error processing HTTP API request       method: GET, path: /eth/v1/validator/attestation_data, status: 500 Internal Server Error, elapsed: 305.65µs
+```
+
+The error is `500 Internal Server Error`. This suggests that the execution client is not synced. Once the execution client is sycned, the error will disappear.
+
+2. The log show:
 
 ```
 WARN Error processing HTTP API request       method: POST, path: /eth/v1/validator/duties/attester/199565, status: 503 Service Unavailable, elapsed: 96.787µs
 ```
-This means that the beacon node is still syncing. When this happens, the validator client will log:
+
+The error is `503 Service Unavailable`. This means that the beacon node is still syncing. When this happens, the validator client will log:
 
 ```
 ERRO Failed to download attester duties      err: FailedToDownloadAttesters("Some endpoints failed, num_failed: 2 http://localhost:5052/ => Unavailable(NotSynced), http://localhost:5052/ => RequestFailed(ServerMessage(ErrorMessage { code: 503, message: \"SERVICE_UNAVAILABLE: beacon node is syncing
 ```
 
-This means that the validator client is sending requests to the beacon node. However, because the beacon node is still syncing, it is unable to fulfil the request. The error will disappear once the beacon node is synced. 
+This means that the validator client is sending requests to the beacon node. However, because the beacon node is still syncing, hence it is unable to fulfil the request. The error will disappear once the beacon node is synced. 
