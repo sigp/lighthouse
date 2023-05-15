@@ -381,6 +381,10 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
         Ok((network, network_globals))
     }
 
+    pub fn swarm_mut(&mut self) -> &mut libp2p::swarm::Swarm<Behaviour<AppReqId, TSpec>> {
+        &mut self.swarm
+    }
+
     /// Starts the network:
     ///
     /// - Starts listening in the given ports.
