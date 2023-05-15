@@ -2,7 +2,7 @@ use crate::local_network::{EXECUTION_PORT, TERMINAL_BLOCK, TERMINAL_DIFFICULTY};
 use crate::{checks, LocalNetwork, E};
 use clap::ArgMatches;
 use eth1::{Eth1Endpoint, DEFAULT_CHAIN_ID};
-use eth1_test_rig::GanacheEth1Instance;
+use eth1_test_rig::AnvilEth1Instance;
 
 use execution_layer::http::deposit_methods::Eth1Id;
 use futures::prelude::*;
@@ -110,12 +110,12 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
          * Deploy the deposit contract, spawn tasks to keep creating new blocks and deposit
          * validators.
          */
-        let ganache_eth1_instance = GanacheEth1Instance::new(DEFAULT_CHAIN_ID.into()).await?;
-        let deposit_contract = ganache_eth1_instance.deposit_contract;
-        let chain_id = ganache_eth1_instance.ganache.chain_id();
-        let ganache = ganache_eth1_instance.ganache;
-        let eth1_endpoint = SensitiveUrl::parse(ganache.endpoint().as_str())
-            .expect("Unable to parse ganache endpoint.");
+        let anvil_eth1_instance = AnvilEth1Instance::new(DEFAULT_CHAIN_ID.into()).await?;
+        let deposit_contract = anvil_eth1_instance.deposit_contract;
+        let chain_id = anvil_eth1_instance.anvil.chain_id();
+        let anvil = anvil_eth1_instance.anvil;
+        let eth1_endpoint = SensitiveUrl::parse(anvil.endpoint().as_str())
+            .expect("Unable to parse anvil endpoint.");
         let deposit_contract_address = deposit_contract.address();
 
         // Start a timer that produces eth1 blocks on an interval.
@@ -123,7 +123,7 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
             let mut interval = tokio::time::interval(eth1_block_time);
             loop {
                 interval.tick().await;
-                let _ = ganache.evm_mine().await;
+                let _ = anvil.evm_mine().await;
             }
         });
 
