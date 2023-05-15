@@ -539,7 +539,6 @@ async fn poll_beacon_attesters<T: SlotClock + 'static, E: EthSpec>(
         current_epoch,
         &local_indices,
         &local_pubkeys,
-        current_slot,
     )
     .await
     {
@@ -552,6 +551,8 @@ async fn poll_beacon_attesters<T: SlotClock + 'static, E: EthSpec>(
         )
     }
 
+    update_per_validator_duty_metrics::<T, E>(duties_service, current_epoch, current_slot);
+
     drop(current_epoch_timer);
     let next_epoch_timer = metrics::start_timer_vec(
         &metrics::DUTIES_SERVICE_TIMES,
@@ -559,14 +560,9 @@ async fn poll_beacon_attesters<T: SlotClock + 'static, E: EthSpec>(
     );
 
     // Download the duties and update the duties for the next epoch.
-    if let Err(e) = poll_beacon_attesters_for_epoch(
-        duties_service,
-        next_epoch,
-        &local_indices,
-        &local_pubkeys,
-        current_slot,
-    )
-    .await
+    if let Err(e) =
+        poll_beacon_attesters_for_epoch(duties_service, next_epoch, &local_indices, &local_pubkeys)
+            .await
     {
         error!(
             log,
@@ -576,6 +572,8 @@ async fn poll_beacon_attesters<T: SlotClock + 'static, E: EthSpec>(
             "err" => ?e,
         )
     }
+
+    update_per_validator_duty_metrics::<T, E>(duties_service, next_epoch, current_slot);
 
     drop(next_epoch_timer);
     let subscriptions_timer =
@@ -663,7 +661,6 @@ async fn poll_beacon_attesters_for_epoch<T: SlotClock + 'static, E: EthSpec>(
     epoch: Epoch,
     local_indices: &[u64],
     local_pubkeys: &HashSet<PublicKeyBytes>,
-    current_slot: Slot,
 ) -> Result<(), Error> {
     let log = duties_service.context.log();
 
@@ -682,9 +679,9 @@ async fn poll_beacon_attesters_for_epoch<T: SlotClock + 'static, E: EthSpec>(
         &[metrics::UPDATE_ATTESTERS_FETCH],
     );
 
-    // Request duties for either `INITIAL_DUTIES_QUERY_SIZE` validators or the count of validators for which we
-    // don't already know their duties for that epoch, whichever subset is larger. We use the `dependent_root`
-    // in the response to determine whether validator duties need to be updated. This is to ensure that we don't
+    // Request duties for all uninitialized validators. If there isn't any, we will just request for
+    // `INITIAL_DUTIES_QUERY_SIZE` validators. We use the `dependent_root` in the response to
+    // determine whether validator duties need to be updated. This is to ensure that we don't
     // request for extra data unless necessary in order to save on network bandwidth.
     let uninitialized_validators =
         get_uninitialized_validators(duties_service, &epoch, local_pubkeys);
@@ -780,10 +777,6 @@ async fn poll_beacon_attesters_for_epoch<T: SlotClock + 'static, E: EthSpec>(
     }
     drop(attesters);
 
-    if duties_service.per_validator_metrics() {
-        update_per_validator_duty_metrics::<T, E>(duties_service, epoch, current_slot);
-    }
-
     // Spawn the background task to compute selection proofs.
     let subservice = duties_service.clone();
     duties_service.context.executor.spawn(
@@ -819,38 +812,40 @@ fn update_per_validator_duty_metrics<T: SlotClock + 'static, E: EthSpec>(
     epoch: Epoch,
     current_slot: Slot,
 ) {
-    let attesters = duties_service.attesters.read();
-    attesters.values().for_each(|attester_duties_by_epoch| {
-        if let Some((_, duty_and_proof)) = attester_duties_by_epoch.get(&epoch) {
-            let duty = &duty_and_proof.duty;
-            let validator_index = duty.validator_index;
-            let duty_slot = duty.slot;
-            if let Some(existing_slot_gauge) =
-                get_int_gauge(&ATTESTATION_DUTY, &[&validator_index.to_string()])
-            {
-                let existing_slot = Slot::new(existing_slot_gauge.get() as u64);
-                let existing_epoch = existing_slot.epoch(E::slots_per_epoch());
-
-                // First condition ensures that we switch to the next epoch duty slot
-                // once the current epoch duty slot passes.
-                // Second condition is to ensure that next epoch duties don't override
-                // current epoch duties.
-                if existing_slot < current_slot
-                    || (duty_slot.epoch(E::slots_per_epoch()) <= existing_epoch
-                        && duty_slot > current_slot
-                        && duty_slot != existing_slot)
+    if duties_service.per_validator_metrics() {
+        let attesters = duties_service.attesters.read();
+        attesters.values().for_each(|attester_duties_by_epoch| {
+            if let Some((_, duty_and_proof)) = attester_duties_by_epoch.get(&epoch) {
+                let duty = &duty_and_proof.duty;
+                let validator_index = duty.validator_index;
+                let duty_slot = duty.slot;
+                if let Some(existing_slot_gauge) =
+                    get_int_gauge(&ATTESTATION_DUTY, &[&validator_index.to_string()])
                 {
-                    existing_slot_gauge.set(duty_slot.as_u64() as i64);
+                    let existing_slot = Slot::new(existing_slot_gauge.get() as u64);
+                    let existing_epoch = existing_slot.epoch(E::slots_per_epoch());
+
+                    // First condition ensures that we switch to the next epoch duty slot
+                    // once the current epoch duty slot passes.
+                    // Second condition is to ensure that next epoch duties don't override
+                    // current epoch duties.
+                    if existing_slot < current_slot
+                        || (duty_slot.epoch(E::slots_per_epoch()) <= existing_epoch
+                            && duty_slot > current_slot
+                            && duty_slot != existing_slot)
+                    {
+                        existing_slot_gauge.set(duty_slot.as_u64() as i64);
+                    }
+                } else {
+                    set_int_gauge(
+                        &ATTESTATION_DUTY,
+                        &[&validator_index.to_string()],
+                        duty_slot.as_u64() as i64,
+                    );
                 }
-            } else {
-                set_int_gauge(
-                    &ATTESTATION_DUTY,
-                    &[&validator_index.to_string()],
-                    duty_slot.as_u64() as i64,
-                );
             }
-        }
-    });
+        });
+    }
 }
 
 async fn post_validator_duties_attester<T: SlotClock + 'static, E: EthSpec>(
