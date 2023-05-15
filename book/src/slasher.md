@@ -11,7 +11,7 @@ of the immaturity of the slasher UX and the extra resources required.
 [comment]: <> (change to 512GB as below stated 300K validators, but mainnet is now 600K. Please correct me if this is wrong)
 * Quad-core CPU
 * 16 GB RAM
-* 512 GB solid state storage (in addition to space for the beacon node DB)
+* 512 GB solid state storage (in addition to the space requirement for the beacon node DB)
 
 ## How to Run
 
@@ -28,7 +28,7 @@ messages are filtered for relevancy, and all relevant messages are checked for s
 to the slasher database.
 
 You **should** run with debug logs, so that you can see the slasher's internal machinations, and
-provide logs to the devs should you encounter any bugs.
+provide logs to the developers should you encounter any bugs.
 
 ## Configuration
 
@@ -44,7 +44,8 @@ e.g. `~/.lighthouse/{network}/beacon/slasher_db`. You can use this flag to chang
 directory.
 
 ### Database Backend
-[comment]: <> (lmdb is an option in Cargo.toml, but lighthouse bn --help only shows mdbx and disabled.)
+[comment]: <> (lmdb is an option, but lighthouse bn --help shows possible values are mdbx and disabled only, no lmdb. I found that this can be updated in beacon_node/src/cli.rs https://github.com/sigp/lighthouse/blob/693886b94176faa4cb450f024696cb69cda2fe58/beacon_node/src/cli.rs#LL762C1-L768C37 but I have no idea how. I didn't see "lmdb" or "disable" there)
+
 * Flag: `--slasher-backend NAME`
 * Argument: one of `mdbx`, `lmdb` or `disabled`
 * Default: `mdbx`
@@ -91,15 +92,15 @@ changed after initialization.
 
 * Flag: `--slasher-max-db-size GIGABYTES`
 * Argument: maximum size of the database in gigabytes
-* Default: 256 GB
+* Default: 512 GB
 
-[comment]: <> (should the default be changed to 512GB? I didn't change the 300K validators to 600K validators because the default seems to be 256GB)
+[comment]: <> (I have changed the default to 512GB to tally with the above, and also change the 300K validators to 600K validators. Please correct me if this is wrong.)
 
 Both database backends LMDB and MDBX place a hard limit on the size of the database
 file. You can use the `--slasher-max-db-size` flag to set this limit. It can be adjusted after
 initialization if the limit is reached.
 
-By default the limit is set to accommodate the default history length and around 300K validators but
+By default the limit is set to accommodate the default history length and around 600K validators but
 you can set it lower if running with a reduced history length. The space required scales
 approximately linearly in validator count and history length, i.e. if you halve either you can halve
 the space required.
@@ -191,6 +192,6 @@ lighthouse bn --slasher --slasher-history-length 256 --slasher-max-db-size 16 --
 ```
 
 ## Stability Warning
-[comment]: <> (Not sure if this subsection should be updated? Particularly not sure about the "quite new" description.)
+[comment]: <> (Not sure if this subsection should be updated? Like not sure about the "quite new" description.)
 The slasher code is still quite new, so we may update the schema of the slasher database in a
 backwards-incompatible way which will require re-initialization.

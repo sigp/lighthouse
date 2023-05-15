@@ -106,8 +106,9 @@ Each field is optional.
 Command: 
 
 ```bash
+DATADIR=/var/lib/lighthouse
 curl -X PATCH "http://localhost:5062/lighthouse/validators/0xb0148e6348264131bf47bcd1829590e870c836dc893050fd0dadc7a28949f9d0a72f2805d027521b45441101f0cc1cde" \
--H "Authorization: Bearer api-token-0x03867a2e4bd2e339c5af554e4f9075574fe66ee745cf62b34d3dc3b525fde8fe46" \
+-H "Authorization: Bearer $(sudo cat ${DATADIR}/validators/api-token.txt)" \
 -H "Content-Type: application/json" \
 -d '{
     "builder_proposals": true,
@@ -186,8 +187,9 @@ consider using it for the chance of out-sized rewards, this flag may be useful:
 The number provided indicates the minimum reward that an external payload must provide the proposer for it to be considered
 for inclusion in a proposal. For example, if you'd only like to use an external payload for a reward of >= 0.25 ETH, you
 would provide your beacon node with `--builder-profit-threshold 250000000000000000`. If it's your turn to propose and the
-most valuable payload offered by builders is only 0.1 ETH, the local execution engine's payload will be used. Currently,
-this threshold just looks at the value of the external payload. Since the [Capella](https://ethereum.org/en/history/#capella) upgrade, a comparison of the external payload and local payload will be made according to the [engine_getPayloadV2](https://github.com/ethereum/execution-apis/blob/main/src/engine/shanghai.md#engine_getpayloadv2) API. The logic is as follows:
+most valuable payload offered by builders is only 0.1 ETH, the local execution engine's payload will be used.
+
+Since the [Capella](https://ethereum.org/en/history/#capella) upgrade, a comparison of the external payload and local payload will be made according to the [engine_getPayloadV2](https://github.com/ethereum/execution-apis/blob/main/src/engine/shanghai.md#engine_getpayloadv2) API. The logic is as follows:
 
 ```
 if local payload value >= builder payload value:

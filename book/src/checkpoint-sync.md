@@ -64,7 +64,7 @@ Once backfill is complete, a `INFO Historical block download complete` log will 
 
 > Note: Since [v4.1.0](https://github.com/sigp/lighthouse/releases/tag/v4.1.0), Lighthouse implements rate-limited backfilling to mitigate validator performance issues after a recent checkpoint sync. This means that the speed at which historical blocks are downloaded is limited, typically to less than 20 slots/sec. This will not affect validator performance. However, if you would still prefer to sync the chain as fast as possible, you can add the flag `--disable-backfill-rate-limiting` to the beacon node.
 
-> Note: Since [v4.2.0](https://github.com/sigp/lighthouse/releases/tag/v4.2.0), Lighthouse limits the backfill sync to only sync backwards to the weak subjectivity point (approximately 5 months). This will help to save disk space. If you would like to sync back to the genesis, you can add the flag ` --genesis-backfill` to the beacon node.   
+> Note: Since [v4.2.0](https://github.com/sigp/lighthouse/releases/tag/v4.2.0), Lighthouse limits the backfill sync to only sync backwards to the weak subjectivity point (approximately 5 months). This will help to save disk space. However, if you would like to sync back to the genesis, you can add the flag `--genesis-backfill` to the beacon node.   
 
 ## FAQ
 

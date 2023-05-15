@@ -171,6 +171,8 @@ This is useful if you want the fee recipient to fall back to the validator clien
 | Required Headers  | [`Authorization`](./api-vc-auth-header.md) |
 | Typical Responses | 204, 404                                   |
 
+Command: 
+
 ```bash
 DATADIR=$HOME/.lighthouse/mainnet
 PUBKEY=0xa9735061c84fc0003657e5bd38160762b7ef2d67d280e00347b1781570088c32c06f15418c144949f5d736b1d3a6c591

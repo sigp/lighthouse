@@ -55,7 +55,7 @@ Additional risks to be aware of include:
 
 ## CLI Example
 
-Start a beacon node and an execution node according to [Run a node](./run_a_node.md). Note that since after [The Merge](https://ethereum.org/en/roadmap/merge/), an execution client is required to be running along with a beacon node. Hence, the query for Beacon Node APIs requires users to run both. While there are some Beacon Node APIs that you can query with only the beacon node, such as the [node version](https://ethereum.github.io/beacon-APIs/#/Node/getNodeVersion), in general an execution client is required to get the updated information of the beacon chain, such as [state root](https://ethereum.github.io/beacon-APIs/#/Beacon/getStateRoot), [headers](https://ethereum.github.io/beacon-APIs/#/Beacon/getBlockHeaders) and many others, which are dynamically progressing with time.
+Start a beacon node and an execution node according to [Run a node](./run_a_node.md). Note that since [The Merge](https://ethereum.org/en/roadmap/merge/), an execution client is required to be running along with a beacon node. Hence, the query on Beacon Node APIs requires users to run both. While there are some Beacon Node APIs that you can query with only the beacon node, such as the [node version](https://ethereum.github.io/beacon-APIs/#/Node/getNodeVersion), in general an execution client is required to get the updated information about the beacon chain, such as [state root](https://ethereum.github.io/beacon-APIs/#/Beacon/getStateRoot), [headers](https://ethereum.github.io/beacon-APIs/#/Beacon/getBlockHeaders) and many others, which are dynamically progressing with time.
 
 
 ## HTTP Request/Response Examples
@@ -173,7 +173,7 @@ The API is now being served at `https://localhost:5052`.
 
 To test connectivity, you can run the following:
 ```bash
-curl -X GET "https://localhost:5052/eth/v1/node/version" -H  "accept: application/json" --cacert cert.pem
+curl -X GET "https://localhost:5052/eth/v1/node/version" -H  "accept: application/json" --cacert cert.pem | jq
 
 ```
 ### Connecting a validator client

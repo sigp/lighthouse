@@ -56,7 +56,7 @@ node. Apart from having sufficient resources, the backup node should have the
 following flags:
 
 - `--http`: starts the HTTP API server.
-- `--http-address local_IP`: where `local_IP` is the private IP address of the beacon node. This is only required if your backup beacon node is on a different host.
+- `--http-address local_IP`: where `local_IP` is the private IP address of the computer running the beacon node. This is only required if your backup beacon node is on a different host.
  > Note: You could also use `--http-address 0.0.0.0`, but this allows *any* external IP address to access the HTTP server. As such, a firewall should be configured to deny unauthorized access to port `5052`.
  - `--execution-endpoint`: see [Merge Migration](./merge-migration.md).
 - `--execution-jwt`: see [Merge Migration](./merge-migration.md).

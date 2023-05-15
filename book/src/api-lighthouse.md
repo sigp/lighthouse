@@ -127,7 +127,7 @@ curl -X GET "http://localhost:5052/lighthouse/ui/validator_count" -H "accept: ap
 [comment]: <> (Tested that it needs the flag `--validator-monitor-auto` to return the output, hence added the content)
 
 ### `/lighthouse/ui/validator_metrics`
-Re-exposes certain metrics from the validator monitor to the HTTP API. This API requires that the beacon node to have the flag `--validator-monitor-auto`. This API will only return metrics for the validators currently being monitored and present in the POST data, or the valare running in the validator client. 
+Re-exposes certain metrics from the validator monitor to the HTTP API. This API requires that the beacon node to have the flag `--validator-monitor-auto`. This API will only return metrics for the validators currently being monitored and present in the POST data, or the validators running in the validator client. 
 ```bash
 curl -X POST "http://localhost:5052/lighthouse/ui/validator_metrics" -d '{"indices": [12345]}' -H "Content-Type: application/json" | jq
 ```
@@ -161,7 +161,7 @@ Running this API without the flag `--validator-monitor-auto` in the beacon node 
 ```
 
 ### `/lighthouse/syncing`
-
+Returns the sync status of the beacon node.
 ```bash
 curl -X GET "http://localhost:5052/lighthouse/syncing" -H  "accept: application/json" | jq
 ```
@@ -193,7 +193,7 @@ There are two possible outcome, depending on whether the beacon node is syncing 
 curl -X GET "http://localhost:5052/lighthouse/peers" -H  "accept: application/json" | jq
 ```
 
-[comment]: <> (Changed the output as per tested on my own node. Most info are the same but there are some differences such as the output I obtained contains subnet, is_trusted, connection_direction and enr.)
+[comment]: <> (Changed the output as per tested on my own node. Most info are the same but there are some differences such as the output I obtained contains subnet, is_trusted, connection_direction and enr which I have added below.)
 
 ```json
 [
@@ -259,7 +259,7 @@ curl -X GET "http://localhost:5052/lighthouse/peers" -H  "accept: application/js
 ```
 
 ### `/lighthouse/peers/connected`
-
+Returns information about connected peers.
 ```bash
 curl -X GET "http://localhost:5052/lighthouse/peers/connected" -H  "accept: application/json" | jq
 ```
@@ -362,7 +362,7 @@ number and timestamp of the latest block we have in our block cache.
 	- For correct execution client voting this timestamp should be later than the
 `voting_period_start_timestamp`. 
 
-[comment]: <> (What is `voting_period_start_timestamp`? A search on sigp/lighthouse github only returns the parameter for this .md file and doesn't seem to be defnied elsewhere)
+[comment]: <> (What is `voting_period_start_timestamp`? A search on sigp/lighthouse github only returns the parameter for this .md file and doesn't seem to be defined elsewhere)
 
 - `voting_target_timestamp`: The latest timestamp allowed for an execution layer block in this voting period.
 - `eth1_node_sync_status_percentage` (float): An estimate of how far the head of the
@@ -527,6 +527,7 @@ curl "http://localhost:5052/lighthouse/database/info" | jq
     "slots_per_restore_point": 8192,
     "slots_per_restore_point_set_explicitly": false,
     "block_cache_size": 5,
+    "historic_state_cache_size": 1,
     "compact_on_init": false,
     "compact_on_prune": true,
     "prune_payloads": true
@@ -592,7 +593,7 @@ curl -X GET "http://localhost:5052/lighthouse/merge_readiness" | jq
  }
 ```
 
-Given that all testnets and Mainnet have been merged, both values will be the same after The Merge. An example of response on the Goerli testnet:
+As all testnets and Mainnet have been merged, both values will be the same after The Merge. An example of response on the Goerli testnet:
 
 ```json
 {
@@ -783,3 +784,16 @@ Caveats:
   This is because the state _prior_ to the `start_epoch` needs to be loaded from the database, and
   loading a state on a boundary is most efficient.
 
+### `/lighthouse/nat`
+Checks if the ports are open.
+
+```bash
+curl -X GET "http://localhost:5052/lighthouse/nat" | jq
+```
+
+An open port will return:
+```json
+{
+  "data": true
+}
+```

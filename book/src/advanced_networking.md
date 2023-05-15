@@ -70,7 +70,8 @@ The steps to do port forwarding depends on the router, but the general steps are
 - On Linux: open a terminal and run `ip route | grep default`, the result should look something similar to `default via 192.168.50.1 dev wlp2s0 proto dhcp metric 600`. The `192.168.50.1` is your router management default gateway IP. 
 - On MacOS: open a terminal and run `netstat -nr|grep default` and it should return the default gateway IP.
 - On Windows: open a command prompt and run `ipconfig` and look for the `Default Gateway` which will show you the gateway IP.
-The default gateway IP is usually something like 192.168.X.X. Once you obtain the IP, entering it to a web browser should lead you to the router management page.
+
+  The default gateway IP usually looks like 192.168.X.X. Once you obtain the IP, enter it to a web browser and it will lead you to the router management page.
 
 2. Login to the router management page. The login credentials are usually available in the manual or the router, or it can be found on a sticker underneath the router. You can also try the login credentials for some common router brands listed [here](https://www.noip.com/support/knowledgebase/general-port-forwarding-guide/).
 
@@ -82,7 +83,7 @@ The default gateway IP is usually something like 192.168.X.X. Once you obtain th
 - Internal port: `9000`
 - IP address: Usually there is a dropdown list for you to select the device. Choose the device that is running Lighthouse
 
-5. To check that you have successfully open the ports, go to [yougetsignal](https://www.yougetsignal.com/tools/open-ports/) and enter `9000` in the `port number`. If it says "open", then you have successfully set up port forwarding. If it says "closed", double check your settings, and also check that you have allowed firewall rules on port 9000. 
+5. To check that you have successfully open the ports, go to [yougetsignal](https://www.yougetsignal.com/tools/open-ports/) and enter `9000` in the `port number`. If it shows "open", then you have successfully set up port forwarding. If it shows "closed", double check your settings, and also check that you have allowed firewall rules on port 9000. 
 
 
 ### ENR Configuration
