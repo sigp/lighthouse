@@ -9,7 +9,7 @@ use types::{Epoch, Hash256, PublicKeyBytes, Slot};
 #[serde(deny_unknown_fields)]
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct InterchangeMetadata {
-    #[serde(with = "eth2_serde_utils::quoted_u64::require_quotes")]
+    #[serde(with = "serde_utils::quoted_u64::require_quotes")]
     pub interchange_format_version: u64,
     pub genesis_validators_root: Hash256,
 }
@@ -27,7 +27,7 @@ pub struct InterchangeData {
 #[serde(deny_unknown_fields)]
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct SignedBlock {
-    #[serde(with = "eth2_serde_utils::quoted_u64::require_quotes")]
+    #[serde(with = "serde_utils::quoted_u64::require_quotes")]
     pub slot: Slot,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub signing_root: Option<Hash256>,
@@ -37,9 +37,9 @@ pub struct SignedBlock {
 #[serde(deny_unknown_fields)]
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct SignedAttestation {
-    #[serde(with = "eth2_serde_utils::quoted_u64::require_quotes")]
+    #[serde(with = "serde_utils::quoted_u64::require_quotes")]
     pub source_epoch: Epoch,
-    #[serde(with = "eth2_serde_utils::quoted_u64::require_quotes")]
+    #[serde(with = "serde_utils::quoted_u64::require_quotes")]
     pub target_epoch: Epoch,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub signing_root: Option<Hash256>,

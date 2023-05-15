@@ -1,4 +1,8 @@
-use std::net::{TcpListener, UdpSocket};
+use lazy_static::lazy_static;
+use lru_cache::LRUTimeCache;
+use parking_lot::Mutex;
+use std::net::{SocketAddr, TcpListener, UdpSocket};
+use std::time::Duration;
 
 #[derive(Copy, Clone)]
 pub enum Transport {
@@ -10,6 +14,13 @@ pub enum Transport {
 pub enum IpVersion {
     Ipv4,
     Ipv6,
+}
+
+pub const CACHED_PORTS_TTL: Duration = Duration::from_secs(300);
+
+lazy_static! {
+    static ref FOUND_PORTS_CACHE: Mutex<LRUTimeCache<u16>> =
+        Mutex::new(LRUTimeCache::new(CACHED_PORTS_TTL));
 }
 
 /// A convenience wrapper over [`zero_port`].
@@ -48,6 +59,20 @@ pub fn zero_port(transport: Transport, ipv: IpVersion) -> Result<u16, String> {
         IpVersion::Ipv6 => std::net::Ipv6Addr::LOCALHOST.into(),
     };
     let socket_addr = std::net::SocketAddr::new(localhost, 0);
+    let mut unused_port: u16;
+    loop {
+        unused_port = find_unused_port(transport, socket_addr)?;
+        let mut cache_lock = FOUND_PORTS_CACHE.lock();
+        if !cache_lock.contains(&unused_port) {
+            cache_lock.insert(unused_port);
+            break;
+        }
+    }
+
+    Ok(unused_port)
+}
+
+fn find_unused_port(transport: Transport, socket_addr: SocketAddr) -> Result<u16, String> {
     let local_addr = match transport {
         Transport::Tcp => {
             let listener = TcpListener::bind(socket_addr).map_err(|e| {

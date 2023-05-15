@@ -53,17 +53,10 @@ members = [
     "consensus/fork_choice",
     "consensus/proto_array",
     "consensus/safe_arith",
-    "consensus/ssz",
-    "consensus/ssz_derive",
-    "consensus/ssz_types",
-    "consensus/serde_utils",
     "consensus/state_processing",
     "consensus/swap_or_not_shuffle",
-    "consensus/tree_hash",
-    "consensus/tree_hash_derive",
 
     "crypto/bls",
-    "crypto/eth2_hashing",
     "crypto/eth2_key_derivation",
     "crypto/eth2_keystore",
     "crypto/eth2_wallet",
@@ -87,19 +80,14 @@ members = [
 
     "validator_client",
     "validator_client/slashing_protection",
+
+    "watch",
 ]
 resolver = "2"
 
 [patch]
 [patch.crates-io]
 warp = { git = "https://github.com/macladson/warp", rev="7e75acc368229a46a236a8c991bf251fe7fe50ef" }
-eth2_ssz = { path = "consensus/ssz" }
-eth2_ssz_derive = { path = "consensus/ssz_derive" }
-eth2_ssz_types = { path = "consensus/ssz_types" }
-eth2_hashing = { path = "crypto/eth2_hashing" }
-tree_hash = { path = "consensus/tree_hash" }
-tree_hash_derive = { path = "consensus/tree_hash_derive" }
-eth2_serde_utils = { path = "consensus/serde_utils" }
 arbitrary = { git = "https://github.com/michaelsproul/arbitrary", rev="f002b99989b561ddce62e4cf2887b0f8860ae991" }
 
 [patch."https://github.com/ralexstokes/mev-rs"]

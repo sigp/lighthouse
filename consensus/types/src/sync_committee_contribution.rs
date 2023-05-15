@@ -32,7 +32,7 @@ pub enum Error {
 pub struct SyncCommitteeContribution<T: EthSpec> {
     pub slot: Slot,
     pub beacon_block_root: Hash256,
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub subcommittee_index: u64,
     pub aggregation_bits: BitVector<T::SyncSubcommitteeSize>,
     pub signature: AggregateSignature,

@@ -57,7 +57,7 @@ pub fn parse_pubkey(secret: &str) -> Result<Option<PublicKey>, Error> {
         &secret[SECRET_PREFIX.len()..]
     };
 
-    eth2_serde_utils::hex::decode(secret)
+    serde_utils::hex::decode(secret)
         .map_err(|e| Error::InvalidSecret(format!("invalid hex: {:?}", e)))
         .and_then(|bytes| {
             if bytes.len() != PK_LEN {
@@ -174,7 +174,7 @@ impl ValidatorClientHttpClient {
         let message =
             Message::parse_slice(digest(&SHA256, &body).as_ref()).expect("sha256 is 32 bytes");
 
-        eth2_serde_utils::hex::decode(&sig)
+        serde_utils::hex::decode(&sig)
             .ok()
             .and_then(|bytes| {
                 let sig = Signature::parse_der(&bytes).ok()?;
@@ -641,6 +641,30 @@ impl ValidatorClientHttpClient {
     pub async fn delete_gas_limit(&self, pubkey: &PublicKeyBytes) -> Result<Response, Error> {
         let url = self.make_gas_limit_url(pubkey)?;
         self.delete_with_raw_response(url, &()).await
+    }
+
+    /// `POST /eth/v1/validator/{pubkey}/voluntary_exit`
+    pub async fn post_validator_voluntary_exit(
+        &self,
+        pubkey: &PublicKeyBytes,
+        epoch: Option<Epoch>,
+    ) -> Result<SignedVoluntaryExit, Error> {
+        let mut path = self.server.full.clone();
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("eth")
+            .push("v1")
+            .push("validator")
+            .push(&pubkey.to_string())
+            .push("voluntary_exit");
+
+        if let Some(epoch) = epoch {
+            path.query_pairs_mut()
+                .append_pair("epoch", &epoch.to_string());
+        }
+
+        self.post(path, &()).await
     }
 }
 

@@ -13,15 +13,15 @@ tokio = { version = "1.14.0", features = ["rt-multi-thread"] }
 bls = { path = "../../crypto/bls" }
 integer-sqrt = "0.1.5"
 itertools = "0.10.0"
-eth2_ssz = "0.4.1"
-eth2_ssz_derive = "0.3.1"
-eth2_ssz_types = "0.2.2"
+ethereum_ssz = "0.5.0"
+ethereum_ssz_derive = "0.5.0"
+ssz_types = "0.5.0"
 merkle_proof = { path = "../merkle_proof" }
 safe_arith = { path = "../safe_arith" }
-tree_hash = "0.4.1"
+tree_hash = "0.5.0"
 types = { path = "../types", default-features = false }
 rayon = "1.4.1"
-eth2_hashing = "0.3.0"
+ethereum_hashing = "1.0.0-beta.2"
 int_to_bytes = { path = "../int_to_bytes" }
 smallvec = "1.6.1"
 arbitrary = { version = "1.0", features = ["derive"], optional = true }
@@ -39,7 +39,7 @@ arbitrary-fuzz = [
   "types/arbitrary-fuzz",
   "bls/arbitrary",
   "merkle_proof/arbitrary",
-  "eth2_ssz/arbitrary",
-  "eth2_ssz_types/arbitrary",
+  "ethereum_ssz/arbitrary",
+  "ssz_types/arbitrary",
   "tree_hash/arbitrary",
 ]

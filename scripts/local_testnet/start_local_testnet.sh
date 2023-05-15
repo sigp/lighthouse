@@ -28,7 +28,7 @@ while getopts "v:d:ph" flag; do
         echo "Options:"
         echo "   -v: VC_COUNT    default: $VC_COUNT"
         echo "   -d: DEBUG_LEVEL default: info"
-        echo "   -p:             enable private tx proposals"
+        echo "   -p:             enable builder proposals"
         echo "   -h:             this help"
         exit
         ;;

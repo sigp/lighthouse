@@ -13,9 +13,9 @@ pub struct SignedValidatorRegistrationData {
 #[derive(PartialEq, Debug, Serialize, Deserialize, Clone, Encode, Decode, TreeHash)]
 pub struct ValidatorRegistrationData {
     pub fee_recipient: Address,
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub gas_limit: u64,
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub timestamp: u64,
     pub pubkey: PublicKeyBytes,
 }
