@@ -18,6 +18,7 @@ use slot_clock::SlotClock;
 use ssz::Encode;
 use std::fs;
 use std::io::Write;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use store::hot_cold_store::HotColdDBError;
@@ -1026,8 +1027,14 @@ impl<T: BeaconChainTypes> Worker<T> {
             }
         };
 
-        if result.is_err() {
-            self.maybe_store_invalid_block(&invalid_block_storage, block_root, &block, &self.log);
+        if let Err(e) = &result {
+            self.maybe_store_invalid_block(
+                &invalid_block_storage,
+                block_root,
+                &block,
+                e,
+                &self.log,
+            );
         }
     }
 
@@ -2507,45 +2514,55 @@ impl<T: BeaconChainTypes> Worker<T> {
         invalid_block_storage: &InvalidBlockStorage,
         block_root: Hash256,
         block: &SignedBeaconBlock<T::EthSpec>,
+        error: &BlockError<T::EthSpec>,
         log: &Logger,
     ) {
         if let InvalidBlockStorage::Enabled(base_dir) = invalid_block_storage {
-            let path = base_dir.join(format!("{}_{:?}.ssz", block.slot(), block_root));
+            let block_path = base_dir.join(format!("{}_{:?}.ssz", block.slot(), block_root));
+            let error_path = base_dir.join(format!("{}_{:?}.error", block.slot(), block_root));
 
-            // No need to write the same block twice.
-            if path.exists() {
-                return;
-            }
+            let write_file = |path: PathBuf, bytes: &[u8]| {
+                // No need to write the same file twice. For the error file,
+                // this means that we'll remember the first error message but
+                // forget the rest.
+                if path.exists() {
+                    return;
+                }
 
-            let write_result = fs::OpenOptions::new()
-                // Only succeed if the file doesn't already exist. We should
-                // have checked for this earlier.
-                .create_new(true)
-                .write(true)
-                .open(&path)
-                .map_err(|e| format!("Failed to open file: {:?}", e))
-                .map(|mut file| {
-                    file.write_all(&block.as_ssz_bytes())
-                        .map_err(|e| format!("Failed to write file: {:?}", e))
-                });
-            if let Err(e) = write_result {
-                error!(
-                    log,
-                    "Failed to store invalid block";
-                    "error" => e,
-                    "path" => ?path,
-                    "root" => ?block_root,
-                    "slot" => block.slot(),
-                )
-            } else {
-                info!(
-                    log,
-                    "Stored invalid block";
-                    "path" => ?path,
-                    "root" => ?block_root,
-                    "slot" => block.slot(),
-                )
-            }
+                // Write to the file.
+                let write_result = fs::OpenOptions::new()
+                    // Only succeed if the file doesn't already exist. We should
+                    // have checked for this earlier.
+                    .create_new(true)
+                    .write(true)
+                    .open(&path)
+                    .map_err(|e| format!("Failed to open file: {:?}", e))
+                    .map(|mut file| {
+                        file.write_all(bytes)
+                            .map_err(|e| format!("Failed to write file: {:?}", e))
+                    });
+                if let Err(e) = write_result {
+                    error!(
+                        log,
+                        "Failed to store invalid block/error";
+                        "error" => e,
+                        "path" => ?path,
+                        "root" => ?block_root,
+                        "slot" => block.slot(),
+                    )
+                } else {
+                    info!(
+                        log,
+                        "Stored invalid block/error ";
+                        "path" => ?path,
+                        "root" => ?block_root,
+                        "slot" => block.slot(),
+                    )
+                }
+            };
+
+            write_file(block_path, &block.as_ssz_bytes());
+            write_file(error_path, error.to_string().as_bytes());
         }
     }
 }
