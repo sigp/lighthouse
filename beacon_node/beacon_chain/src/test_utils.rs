@@ -64,7 +64,7 @@ const FORK_NAME_ENV_VAR: &str = "FORK_NAME";
 //
 // You should mutate the `ChainSpec` prior to initialising the harness if you would like to use
 // a different value.
-pub const DEFAULT_TARGET_AGGREGATORS: u64 = u64::max_value();
+pub const DEFAULT_TARGET_AGGREGATORS: u64 = u64::MAX;
 
 pub type BaseHarnessType<TEthSpec, THotStore, TColdStore> =
     Witness<TestingSlotClock, CachingEth1Backend<TEthSpec>, TEthSpec, THotStore, TColdStore>;
@@ -941,31 +941,31 @@ where
         head_block_root: SignedBeaconBlockHash,
         attestation_slot: Slot,
     ) -> Vec<CommitteeAttestations<E>> {
-        self.make_unaggregated_attestations_with_limit(
+        let fork = self
+            .spec
+            .fork_at_epoch(attestation_slot.epoch(E::slots_per_epoch()));
+        self.make_unaggregated_attestations_with_opts(
             attesting_validators,
             state,
             state_root,
             head_block_root,
             attestation_slot,
-            None,
+            MakeAttestationOptions { limit: None, fork },
         )
         .0
     }
 
-    pub fn make_unaggregated_attestations_with_limit(
+    pub fn make_unaggregated_attestations_with_opts(
         &self,
         attesting_validators: &[usize],
         state: &BeaconState<E>,
         state_root: Hash256,
         head_block_root: SignedBeaconBlockHash,
         attestation_slot: Slot,
-        limit: Option<usize>,
+        opts: MakeAttestationOptions,
     ) -> (Vec<CommitteeAttestations<E>>, Vec<usize>) {
+        let MakeAttestationOptions { limit, fork } = opts;
         let committee_count = state.get_committee_count_at_slot(state.slot()).unwrap();
-        let fork = self
-            .spec
-            .fork_at_epoch(attestation_slot.epoch(E::slots_per_epoch()));
-
         let attesters = Mutex::new(vec![]);
 
         let attestations = state
@@ -1155,16 +1155,35 @@ where
         slot: Slot,
         limit: Option<usize>,
     ) -> (HarnessAttestations<E>, Vec<usize>) {
-        let (unaggregated_attestations, attesters) = self
-            .make_unaggregated_attestations_with_limit(
-                attesting_validators,
-                state,
-                state_root,
-                block_hash,
-                slot,
-                limit,
-            );
         let fork = self.spec.fork_at_epoch(slot.epoch(E::slots_per_epoch()));
+        self.make_attestations_with_opts(
+            attesting_validators,
+            state,
+            state_root,
+            block_hash,
+            slot,
+            MakeAttestationOptions { limit, fork },
+        )
+    }
+
+    pub fn make_attestations_with_opts(
+        &self,
+        attesting_validators: &[usize],
+        state: &BeaconState<E>,
+        state_root: Hash256,
+        block_hash: SignedBeaconBlockHash,
+        slot: Slot,
+        opts: MakeAttestationOptions,
+    ) -> (HarnessAttestations<E>, Vec<usize>) {
+        let MakeAttestationOptions { fork, .. } = opts;
+        let (unaggregated_attestations, attesters) = self.make_unaggregated_attestations_with_opts(
+            attesting_validators,
+            state,
+            state_root,
+            block_hash,
+            slot,
+            opts,
+        );
 
         let aggregated_attestations: Vec<Option<SignedAggregateAndProof<E>>> =
             unaggregated_attestations
@@ -2222,4 +2241,11 @@ impl<T: BeaconChainTypes> fmt::Debug for BeaconChainHarness<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "BeaconChainHarness")
     }
+}
+
+pub struct MakeAttestationOptions {
+    /// Produce exactly `limit` attestations.
+    pub limit: Option<usize>,
+    /// Fork to use for signing attestations.
+    pub fork: Fork,
 }
