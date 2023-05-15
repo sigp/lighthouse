@@ -16,22 +16,20 @@ pub fn process_operations<T: EthSpec, Payload: AbstractExecPayload<T>>(
     ctxt: &mut ConsensusContext<T>,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
-    let unprocessed_deposits_count = state
-        .eth1_data()
-        .deposit_count
-        .saturating_sub(state.eth1_deposit_index());
-    let max_deposits = <T as EthSpec>::MaxDeposits::to_u64();
     let eth1_deposit_index_limit = state
         .deposit_receipts_start_index()
         .unwrap_or_else(|_| state.eth1_data().deposit_count);
 
-    if state.eth1_deposit_index() < eth1_deposit_index_limit {
-        if block_body.deposits().len()
-            != std::cmp::min(max_deposits as usize, unprocessed_deposits_count as usize)
-        {
-            return Err(BlockProcessingError::DepositReceiptError);
-        }
-    } else if !block_body.deposits().is_empty() {
+    let expected_deposit_count = if state.eth1_deposit_index() < eth1_deposit_index_limit {
+        std::cmp::min(
+            <T as EthSpec>::MaxDeposits::to_u64() as usize,
+            (eth1_deposit_index_limit - state.eth1_deposit_index()) as usize,
+        ) as u64
+    } else {
+        0
+    };
+
+    if block_body.deposits().len() as u64 != expected_deposit_count {
         return Err(BlockProcessingError::DepositReceiptError);
     }
 
