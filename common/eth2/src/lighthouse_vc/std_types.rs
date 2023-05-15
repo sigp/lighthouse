@@ -14,7 +14,7 @@ pub struct GetFeeRecipientResponse {
 #[derive(Debug, Deserialize, Serialize, PartialEq)]
 pub struct GetGasLimitResponse {
     pub pubkey: PublicKeyBytes,
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub gas_limit: u64,
 }
 
@@ -46,7 +46,7 @@ pub struct ImportKeystoresRequest {
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(transparent)]
-pub struct KeystoreJsonStr(#[serde(with = "eth2_serde_utils::json_str")] pub Keystore);
+pub struct KeystoreJsonStr(#[serde(with = "serde_utils::json_str")] pub Keystore);
 
 impl std::ops::Deref for KeystoreJsonStr {
     type Target = Keystore;
@@ -57,7 +57,7 @@ impl std::ops::Deref for KeystoreJsonStr {
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(transparent)]
-pub struct InterchangeJsonStr(#[serde(with = "eth2_serde_utils::json_str")] pub Interchange);
+pub struct InterchangeJsonStr(#[serde(with = "serde_utils::json_str")] pub Interchange);
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct ImportKeystoresResponse {
@@ -104,7 +104,7 @@ pub struct DeleteKeystoresRequest {
 #[derive(Debug, Deserialize, Serialize)]
 pub struct DeleteKeystoresResponse {
     pub data: Vec<Status<DeleteKeystoreStatus>>,
-    #[serde(with = "eth2_serde_utils::json_str")]
+    #[serde(with = "serde_utils::json_str")]
     pub slashing_protection: Interchange,
 }
 

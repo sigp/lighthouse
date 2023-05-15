@@ -105,7 +105,7 @@ impl ApiTester {
             Hash256::repeat_byte(42),
             spec,
             Some(Arc::new(DoppelgangerService::new(log.clone()))),
-            slot_clock,
+            slot_clock.clone(),
             &config,
             test_runtime.task_executor.clone(),
             log.clone(),
@@ -135,6 +135,7 @@ impl ApiTester {
                 store_passwords_in_secrets_dir: false,
             },
             log,
+            slot_clock,
             _phantom: PhantomData,
         });
         let ctx = context;
@@ -363,7 +364,7 @@ impl ApiTester {
 
             let withdrawal_keypair = keypairs.withdrawal.decrypt_keypair(PASSWORD_BYTES).unwrap();
 
-            let deposit_bytes = eth2_serde_utils::hex::decode(&item.eth1_deposit_tx_data).unwrap();
+            let deposit_bytes = serde_utils::hex::decode(&item.eth1_deposit_tx_data).unwrap();
 
             let (deposit_data, _) =
                 decode_eth1_tx_data(&deposit_bytes, E::default_spec().max_effective_balance)

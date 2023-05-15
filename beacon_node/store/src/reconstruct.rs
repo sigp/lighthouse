@@ -1,11 +1,11 @@
 //! Implementation of historic state reconstruction (given complete block history).
 use crate::hot_cold_store::{HotColdDB, HotColdDBError};
-use crate::{Error, ItemStore, KeyValueStore};
+use crate::{Error, ItemStore};
 use itertools::{process_results, Itertools};
 use slog::info;
 use state_processing::{
     per_block_processing, per_slot_processing, BlockSignatureStrategy, ConsensusContext,
-    VerifyBlockRoot,
+    StateProcessingStrategy, VerifyBlockRoot,
 };
 use std::sync::Arc;
 use types::{EthSpec, Hash256};
@@ -13,8 +13,8 @@ use types::{EthSpec, Hash256};
 impl<E, Hot, Cold> HotColdDB<E, Hot, Cold>
 where
     E: EthSpec,
-    Hot: KeyValueStore<E> + ItemStore<E>,
-    Cold: KeyValueStore<E> + ItemStore<E>,
+    Hot: ItemStore<E>,
+    Cold: ItemStore<E>,
 {
     pub fn reconstruct_historic_states(self: &Arc<Self>) -> Result<(), Error> {
         let mut anchor = if let Some(anchor) = self.get_anchor_info() {
@@ -96,6 +96,7 @@ where
                         &mut state,
                         &block,
                         BlockSignatureStrategy::NoVerification,
+                        StateProcessingStrategy::Accurate,
                         VerifyBlockRoot::True,
                         &mut ctxt,
                         &self.spec,

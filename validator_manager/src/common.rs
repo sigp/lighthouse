@@ -293,7 +293,7 @@ mod bytes_4_without_0x_prefix {
     where
         D: serde::Deserializer<'de>,
     {
-        let decoded = deserializer.deserialize_str(eth2_serde_utils::hex::HexVisitor)?;
+        let decoded = deserializer.deserialize_str(serde_utils::hex::HexVisitor)?;
 
         if decoded.len() != BYTES_LEN {
             return Err(D::Error::custom(format!(

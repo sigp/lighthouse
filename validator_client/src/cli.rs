@@ -27,6 +27,15 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true),
         )
         .arg(
+            Arg::with_name("proposer-nodes")
+                .long("proposer-nodes")
+                .value_name("NETWORK_ADDRESSES")
+                .help("Comma-separated addresses to one or more beacon node HTTP APIs. \
+                These specify nodes that are used to send beacon block proposals. A failure will revert back to the standard beacon nodes specified in --beacon-nodes."
+                )
+                .takes_value(true),
+        )
+        .arg(
             Arg::with_name("disable-run-on-all")
                 .long("disable-run-on-all")
                 .value_name("DISABLE_RUN_ON_ALL")
@@ -118,7 +127,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .value_name("CERTIFICATE-FILES")
                 .takes_value(true)
                 .help("Comma-separated paths to custom TLS certificates to use when connecting \
-                        to a beacon node. These certificates must be in PEM format and are used \
+                        to a beacon node (and/or proposer node). These certificates must be in PEM format and are used \
                         in addition to the OS trust store. Commas must only be used as a \
                         delimiter, and must not be part of the certificate path.")
         )

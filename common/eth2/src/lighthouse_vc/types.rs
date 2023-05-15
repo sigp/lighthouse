@@ -32,14 +32,14 @@ pub struct ValidatorRequest {
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub builder_proposals: Option<bool>,
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub deposit_gwei: u64,
 }
 
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct CreateValidatorsMnemonicRequest {
     pub mnemonic: ZeroizeString,
-    #[serde(with = "eth2_serde_utils::quoted_u32")]
+    #[serde(with = "serde_utils::quoted_u32")]
     pub key_derivation_path_offset: u32,
     pub validators: Vec<ValidatorRequest>,
 }
@@ -62,7 +62,7 @@ pub struct CreatedValidator {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub builder_proposals: Option<bool>,
     pub eth1_deposit_tx_data: String,
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub deposit_gwei: u64,
 }
 
@@ -141,14 +141,19 @@ pub struct UpdateFeeRecipientRequest {
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub struct UpdateGasLimitRequest {
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub gas_limit: u64,
+}
+
+#[derive(Deserialize)]
+pub struct VoluntaryExitQuery {
+    pub epoch: Option<Epoch>,
 }
 
 #[derive(Deserialize, Serialize)]
 pub struct ExportKeystoresResponse {
     pub data: Vec<SingleExportKeystoresResponse>,
-    #[serde(with = "eth2_serde_utils::json_str")]
+    #[serde(with = "serde_utils::json_str")]
     pub slashing_protection: Interchange,
 }
 

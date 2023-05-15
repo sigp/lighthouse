@@ -29,6 +29,8 @@ pub struct Config {
     ///
     /// Should be similar to `["http://localhost:8080"]`
     pub beacon_nodes: Vec<SensitiveUrl>,
+    /// An optional beacon node used for block proposals only.
+    pub proposer_nodes: Vec<SensitiveUrl>,
     /// If true, the validator client will still poll for duties and produce blocks even if the
     /// beacon node is not synced at startup.
     pub allow_unsynced_beacon_node: bool,
@@ -95,6 +97,7 @@ impl Default for Config {
             validator_dir,
             secrets_dir,
             beacon_nodes,
+            proposer_nodes: Vec::new(),
             allow_unsynced_beacon_node: false,
             disable_auto_discover: false,
             init_slashing_protection: false,
@@ -184,6 +187,14 @@ impl Config {
             );
             config.beacon_nodes = vec![SensitiveUrl::parse(&server)
                 .map_err(|e| format!("Unable to parse beacon node URL: {:?}", e))?];
+        }
+
+        if let Some(proposer_nodes) = parse_optional::<String>(cli_args, "proposer_nodes")? {
+            config.proposer_nodes = proposer_nodes
+                .split(',')
+                .map(SensitiveUrl::parse)
+                .collect::<Result<_, _>>()
+                .map_err(|e| format!("Unable to parse proposer node URL: {:?}", e))?;
         }
 
         if cli_args.is_present("delete-lockfiles") {
