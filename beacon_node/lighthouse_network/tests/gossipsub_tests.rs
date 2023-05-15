@@ -65,8 +65,7 @@ async fn test_gossipsub_forward() {
                         // Assert message received is the correct one
                         assert_eq!(message, pubsub_message.clone());
                         received_count += 1;
-                        // Since `propagate_message` is false, need to propagate manually
-                        node.swarm.propagate_message(&source, id);
+                        node.publish(vec![message]);
                         // Test should succeed if all nodes except the publisher receive the message
                         if received_count == num_nodes - 1 {
                             debug!(log.clone(), "Received message at {} nodes", num_nodes - 1);
