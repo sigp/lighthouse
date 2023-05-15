@@ -6196,6 +6196,7 @@ dependencies = [
  "serde",
  "serde_derive",
  "serde_yaml",
+ "superstruct 0.5.0",
  "types",
 ]
 
