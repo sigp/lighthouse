@@ -57,8 +57,8 @@ async fn test_gossipsub_forward() {
                     NetworkEvent::PubsubMessage {
                         topic,
                         message,
-                        source,
-                        id,
+                        source: _,
+                        id: _,
                     } => {
                         // Assert topic is the published topic
                         assert_eq!(topic, TopicHash::from_raw(publishing_topic.clone()));
