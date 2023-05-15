@@ -48,7 +48,6 @@ async fn test_gossipsub_forward() {
 
     /* counters for our main loop */
     let mut received_count = 0;
-    let mut subscribed_count = 0;
 
     let fut = async move {
         for node in nodes.iter_mut() {
@@ -72,16 +71,6 @@ async fn test_gossipsub_forward() {
                             return;
                         }
                     }
-                    //                    BehaviourEvent::PeerSubscribed(_, topic) => {
-                    //                        // Publish on beacon block topic
-                    //                        if topic == TopicHash::from_raw(publishing_topic.clone()) {
-                    //                            subscribed_count += 1;
-                    //                            // Every node except the corner nodes are connected to 2 nodes.
-                    //                            if subscribed_count == (num_nodes * 2) - 2 {
-                    //                                node.swarm.publish(vec![pubsub_message.clone()]);
-                    //                            }
-                    //                        }
-                    //                    }
                     _ => break,
                 }
             }
@@ -122,7 +111,6 @@ async fn test_gossipsub_full_mesh_publish() {
 
     /* counters for our main loop */
     let mut received_count = 0;
-    let mut subscribed_count = 0;
 
     let fut = async move {
         for node in nodes.iter_mut() {
@@ -137,17 +125,6 @@ async fn test_gossipsub_full_mesh_publish() {
                 }
             }
         }
-        //        while let NetworkEvent::PeerSubscribed(_, topic) =
-        //            publishing_node.next_event().await
-        //        {
-        //            // Publish on beacon block topic
-        //            if topic == TopicHash::from_raw(publishing_topic.clone()) {
-        //                subscribed_count += 1;
-        //                if subscribed_count == num_nodes - 1 {
-        //                    publishing_node.swarm.publish(vec![pubsub_message.clone()]);
-        //                }
-        //            }
-        //        }
     };
     tokio::select! {
             _ = fut => {}
