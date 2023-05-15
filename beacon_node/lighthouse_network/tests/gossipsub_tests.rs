@@ -114,11 +114,11 @@ async fn test_gossipsub_full_mesh_publish() {
         .clone()
         .into();
 
-    /* build our nodes -- in a linear network topology */
+    /* build our nodes -- in a mesh network topology */
     let runtime: Arc<Runtime> = Arc::new(Runtime::new().unwrap());
     let num_nodes = 20;
     let mut nodes: Vec<common::Libp2pInstance> =
-        common::build_linear(Arc::downgrade(&runtime), log.clone(), num_nodes, FORK).await;
+        common::build_full_mesh(Arc::downgrade(&runtime), log.clone(), num_nodes, FORK).await;
 
     /* counters for our main loop */
     let mut received_count = 0;
