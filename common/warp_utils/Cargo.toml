@@ -7,7 +7,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-warp = "0.3.2"
+warp = { git = "https://github.com/seanmonstar/warp", branch = "master", features = ["tls"] }
 eth2 = { path = "../eth2" }
 types = { path = "../../consensus/types" }
 beacon_chain = { path = "../../beacon_node/beacon_chain" }

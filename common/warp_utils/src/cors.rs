@@ -10,6 +10,9 @@ pub fn set_builder_origins(
     default_origin: (IpAddr, u16),
 ) -> Result<Builder, String> {
     if let Some(allow_origin) = allow_origin {
+        if allow_origin == "*" {
+            return Ok(builder.allow_any_origin());
+        }
         let origins = allow_origin
             .split(',')
             .map(|s| verify_cors_origin_str(s).map(|_| s))
