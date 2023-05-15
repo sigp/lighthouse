@@ -54,6 +54,7 @@ use logging::TimeLatch;
 use slog::{crit, debug, error, trace, warn, Logger};
 use std::collections::VecDeque;
 use std::future::Future;
+use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::{Arc, Weak};
 use std::task::Context;
@@ -982,6 +983,13 @@ impl<T: BeaconChainTypes> Stream for InboundEvents<T> {
     }
 }
 
+/// Defines if and where we will store the SSZ files of invalid blocks.
+#[derive(Clone)]
+pub enum InvalidBlockStorage {
+    Enabled(PathBuf),
+    Disabled,
+}
+
 /// A mutli-threaded processor for messages received on the network
 /// that need to be processed by the `BeaconChain`
 ///
@@ -995,6 +1003,7 @@ pub struct BeaconProcessor<T: BeaconChainTypes> {
     pub max_workers: usize,
     pub current_workers: usize,
     pub importing_blocks: DuplicateCache,
+    pub invalid_block_storage: InvalidBlockStorage,
     pub log: Logger,
 }
 
@@ -1676,19 +1685,23 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                 peer_client,
                 block,
                 seen_timestamp,
-            } => task_spawner.spawn_async(async move {
-                worker
-                    .process_gossip_block(
-                        message_id,
-                        peer_id,
-                        peer_client,
-                        block,
-                        work_reprocessing_tx,
-                        duplicate_cache,
-                        seen_timestamp,
-                    )
-                    .await
-            }),
+            } => {
+                let invalid_block_storage = self.invalid_block_storage.clone();
+                task_spawner.spawn_async(async move {
+                    worker
+                        .process_gossip_block(
+                            message_id,
+                            peer_id,
+                            peer_client,
+                            block,
+                            work_reprocessing_tx,
+                            duplicate_cache,
+                            invalid_block_storage,
+                            seen_timestamp,
+                        )
+                        .await
+                })
+            }
             /*
              * Import for blocks that we received earlier than their intended slot.
              */
@@ -1696,12 +1709,16 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                 peer_id,
                 block,
                 seen_timestamp,
-            } => task_spawner.spawn_async(worker.process_gossip_verified_block(
-                peer_id,
-                *block,
-                work_reprocessing_tx,
-                seen_timestamp,
-            )),
+            } => {
+                let invalid_block_storage = self.invalid_block_storage.clone();
+                task_spawner.spawn_async(worker.process_gossip_verified_block(
+                    peer_id,
+                    *block,
+                    work_reprocessing_tx,
+                    invalid_block_storage,
+                    seen_timestamp,
+                ))
+            }
             /*
              * Voluntary exits received on gossip.
              */

@@ -793,6 +793,11 @@ pub fn get_config<E: EthSpec>(
     client_config.chain.enable_backfill_rate_limiting =
         !cli_args.is_present("disable-backfill-rate-limiting");
 
+    if let Some(path) = clap_utils::parse_optional(cli_args, "invalid-gossip-verified-blocks-path")?
+    {
+        client_config.network.invalid_block_storage = Some(path);
+    }
+
     Ok(client_config)
 }
 
