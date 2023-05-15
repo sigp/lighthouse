@@ -51,27 +51,23 @@ async fn test_gossipsub_forward() {
 
     let fut = async move {
         for node in nodes.iter_mut() {
-            loop {
-                match node.next_event().await {
-                    NetworkEvent::PubsubMessage {
-                        topic,
-                        message,
-                        source: _,
-                        id: _,
-                    } => {
-                        // Assert topic is the published topic
-                        assert_eq!(topic, TopicHash::from_raw(publishing_topic.clone()));
-                        // Assert message received is the correct one
-                        assert_eq!(message, pubsub_message.clone());
-                        received_count += 1;
-                        node.publish(vec![message]);
-                        // Test should succeed if all nodes except the publisher receive the message
-                        if received_count == num_nodes - 1 {
-                            debug!(log.clone(), "Received message at {} nodes", num_nodes - 1);
-                            return;
-                        }
-                    }
-                    _ => break,
+            while let NetworkEvent::PubsubMessage {
+                id: _,
+                source: _,
+                topic,
+                message,
+            } = node.next_event().await
+            {
+                // Assert topic is the published topic
+                assert_eq!(topic, TopicHash::from_raw(publishing_topic.clone()));
+                // Assert message received is the correct one
+                assert_eq!(message, pubsub_message.clone());
+                received_count += 1;
+                node.publish(vec![message]);
+                // Test should succeed if all nodes except the publisher receive the message
+                if received_count == num_nodes - 1 {
+                    debug!(log.clone(), "Received message at {} nodes", num_nodes - 1);
+                    return;
                 }
             }
         }
