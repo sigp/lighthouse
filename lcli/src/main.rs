@@ -751,7 +751,9 @@ fn main() {
         )
         .subcommand(
             SubCommand::with_name("mnemonic-validators")
-                .about("Produces validator directories by deriving the keys from a mnemonic.")
+                .about("Produces validator directories by deriving the keys from \
+                        a mnemonic. For testing purposes only, DO NOT USE IN \
+                        PRODUCTION!")
                 .arg(
                     Arg::with_name("count")
                         .long("count")
