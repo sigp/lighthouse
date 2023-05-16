@@ -109,10 +109,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .arg(
             Arg::with_name("allow-unsynced")
                 .long("allow-unsynced")
-                .help(
-                    "If present, the validator client will still poll for duties if the beacon
-                      node is not synced.",
-                ),
+                .help("DEPRECATED: this flag does nothing"),
         )
         .arg(
             Arg::with_name("use-long-timeouts")
