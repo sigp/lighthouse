@@ -1948,6 +1948,7 @@ dependencies = [
  "hex",
  "hkdf",
  "lazy_static",
+ "libp2p-core 0.36.0",
  "lru 0.7.8",
  "more-asserts",
  "parking_lot 0.11.2",
@@ -4204,6 +4205,41 @@ dependencies = [
 
 [[package]]
 name = "libp2p-core"
+version = "0.36.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b1fff5bd889c82a0aec668f2045edd066f559d4e5c40354e5a4c77ac00caac38"
+dependencies = [
+ "asn1_der",
+ "bs58",
+ "ed25519-dalek 1.0.1",
+ "either",
+ "fnv",
+ "futures",
+ "futures-timer",
+ "instant",
+ "lazy_static",
+ "libsecp256k1",
+ "log",
+ "multiaddr 0.14.0",
+ "multihash 0.16.3",
+ "multistream-select 0.11.0",
+ "p256",
+ "parking_lot 0.12.1",
+ "pin-project",
+ "prost",
+ "prost-build",
+ "rand 0.8.5",
+ "rw-stream-sink",
+ "sha2 0.10.6",
+ "smallvec",
+ "thiserror",
+ "unsigned-varint 0.7.1",
+ "void",
+ "zeroize",
+]
+
+[[package]]
+name = "libp2p-core"
 version = "0.38.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b6a8fcd392ff67af6cc3f03b1426c41f7f26b6b9aff2dc632c1c56dd649e571f"
@@ -4220,7 +4256,7 @@ dependencies = [
  "log",
  "multiaddr 0.16.0",
  "multihash 0.16.3",
- "multistream-select",
+ "multistream-select 0.12.1",
  "once_cell",
  "p256",
  "parking_lot 0.12.1",
@@ -4253,7 +4289,7 @@ dependencies = [
  "log",
  "multiaddr 0.17.1",
  "multihash 0.17.0",
- "multistream-select",
+ "multistream-select 0.12.1",
  "once_cell",
  "parking_lot 0.12.1",
  "pin-project",
@@ -5266,6 +5302,20 @@ dependencies = [
  "safemem",
  "tempfile",
  "twoway",
+]
+
+[[package]]
+name = "multistream-select"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "363a84be6453a70e63513660f4894ef815daf88e3356bffcda9ca27d810ce83b"
+dependencies = [
+ "bytes",
+ "futures",
+ "log",
+ "pin-project",
+ "smallvec",
+ "unsigned-varint 0.7.1",
 ]
 
 [[package]]
