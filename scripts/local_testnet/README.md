@@ -52,8 +52,8 @@ This is not necessary before `start_local_testnet.sh` as it invokes `stop_local_
 
 These scripts are used by ./start_local_testnet.sh and may be used to manually
 
-Assuming you are happy with the configuration in `vars.env`, deploy the deposit contract,
-create the testnet directory, genesis state and validator keys with:
+Assuming you are happy with the configuration in `vars.env`,
+create the testnet directory, genesis state with embedded validators and validator keys with:
 
 ```bash
 ./setup.sh

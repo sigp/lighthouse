@@ -73,7 +73,7 @@ jobs:
             - uses: KyleMayes/install-llvm-action@v1
               if: startsWith(matrix.arch, 'x86_64-windows')
               with:
-                version: "13.0"
+                version: "15.0"
                 directory: ${{ runner.temp }}/llvm
             - name: Set LIBCLANG_PATH
               if: startsWith(matrix.arch, 'x86_64-windows')

@@ -141,7 +141,8 @@ curl -X POST "http://localhost:5052/lighthouse/ui/validator_metrics" -d '{"indic
         "attestation_head_hit_percentage": 100,
         "attestation_target_hits": 5,
         "attestation_target_misses": 5,
-        "attestation_target_hit_percentage": 50
+        "attestation_target_hit_percentage": 50,
+        "latest_attestation_inclusion_distance": 1
       }
     }
   }
@@ -455,6 +456,7 @@ curl "http://localhost:5052/lighthouse/database/info" | jq
   "config": {
     "slots_per_restore_point": 2048,
     "block_cache_size": 5,
+    "historic_state_cache_size": 1,
     "compact_on_init": false,
     "compact_on_prune": true
   },
