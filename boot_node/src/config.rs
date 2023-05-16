@@ -143,7 +143,7 @@ impl<T: EthSpec> BootNodeConfig<T> {
                 let mut builder = create_enr_builder_from_config(&network_config, enable_tcp);
                 // If we know of the ENR field, add it to the initial construction
                 if let Some(enr_fork_bytes) = enr_fork {
-                    builder.add_value("eth2", enr_fork_bytes.as_slice());
+                    builder.add_value("eth2", &enr_fork_bytes);
                 }
                 builder
                     .build(&local_key)
