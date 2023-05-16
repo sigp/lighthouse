@@ -260,8 +260,7 @@ impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
                 db.blobs_db = Some(LevelDB::open(path.as_path())?);
             }
         }
-        let blob_info = blob_info.unwrap_or_else(|| db.get_blob_info());
-        db.compare_and_set_blob_info_with_write(blob_info, new_blob_info)?;
+        db.compare_and_set_blob_info_with_write(<_>::default(), new_blob_info)?;
         info!(
             db.log,
             "Blobs DB initialized";
