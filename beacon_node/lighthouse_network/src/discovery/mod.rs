@@ -413,7 +413,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
     /// If the external address needs to be modified, use `update_enr_udp_socket.
     pub fn update_enr_tcp_port(&mut self, port: u16) -> Result<(), String> {
         self.discv5
-            .enr_insert("tcp", &port.to_be_bytes())
+            .enr_insert("tcp", &port)
             .map_err(|e| format!("{:?}", e))?;
 
         // replace the global version
