@@ -1,3 +1,4 @@
+use crate::data_availability_checker::AvailableBlock;
 use crate::{errors::BeaconChainError as Error, metrics, BeaconChain, BeaconChainTypes};
 use itertools::Itertools;
 use slog::debug;
@@ -7,10 +8,9 @@ use state_processing::{
 };
 use std::borrow::Cow;
 use std::iter;
-use std::sync::Arc;
 use std::time::Duration;
 use store::{chunked_vector::BlockRoots, AnchorInfo, ChunkWriter, KeyValueStore};
-use types::{Hash256, SignedBlindedBeaconBlock, Slot};
+use types::{Hash256, Slot};
 
 /// Use a longer timeout on the pubkey cache.
 ///
@@ -59,7 +59,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Return the number of blocks successfully imported.
     pub fn import_historical_block_batch(
         &self,
-        blocks: Vec<Arc<SignedBlindedBeaconBlock<T::EthSpec>>>,
+        blocks: Vec<AvailableBlock<T::EthSpec>>,
     ) -> Result<usize, Error> {
         let anchor_info = self
             .store
@@ -67,9 +67,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .ok_or(HistoricalBlockError::NoAnchorInfo)?;
 
         // Take all blocks with slots less than the oldest block slot.
-        let num_relevant =
-            blocks.partition_point(|block| block.slot() < anchor_info.oldest_block_slot);
-        let blocks_to_import = &blocks
+        let num_relevant = blocks.partition_point(|available_block| {
+            available_block.block().slot() < anchor_info.oldest_block_slot
+        });
+        let blocks_to_import = blocks
             .get(..num_relevant)
             .ok_or(HistoricalBlockError::IndexOutOfBounds)?;
 
@@ -95,7 +96,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let mut cold_batch = Vec::with_capacity(blocks.len());
         let mut hot_batch = Vec::with_capacity(blocks.len());
 
-        for block in blocks_to_import.iter().rev() {
+        let mut blobs_imported = 0;
+        let mut signed_blocks = vec![];
+        for available_block in blocks_to_import.iter().rev() {
+            // TODO: should we try and get rid of this clone? Everything is Arc'd so it's not too expensive..
+            let (block, maybe_blobs) = available_block.clone().deconstruct();
+
             // Check chain integrity.
             let block_root = block.canonical_root();
 
@@ -107,9 +113,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .into());
             }
 
+            let blinded_block = block.clone_as_blinded();
             // Store block in the hot database without payload.
             self.store
-                .blinded_block_as_kv_store_ops(&block_root, block, &mut hot_batch);
+                .blinded_block_as_kv_store_ops(&block_root, &blinded_block, &mut hot_batch);
+            // Store the blobs too
+            if let Some(blobs) = maybe_blobs {
+                blobs_imported += blobs.len();
+                self.store
+                    .blobs_as_kv_store_ops(&block_root, blobs, &mut hot_batch);
+            }
 
             // Store block roots, including at all skip slots in the freezer DB.
             for slot in (block.slot().as_usize()..prev_block_slot.as_usize()).rev() {
@@ -132,8 +145,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 expected_block_root = Hash256::zero();
                 break;
             }
+            signed_blocks.push(block);
         }
         chunk_writer.write(&mut cold_batch)?;
+        // these were pushed in reverse order so we reverse again
+        signed_blocks.reverse();
 
         // Verify signatures in one batch, holding the pubkey cache lock for the shortest duration
         // possible. For each block fetch the parent root from its successor. Slicing from index 1
@@ -144,13 +160,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .validator_pubkey_cache
             .try_read_for(PUBKEY_CACHE_LOCK_TIMEOUT)
             .ok_or(HistoricalBlockError::ValidatorPubkeyCacheTimeout)?;
-        let block_roots = blocks_to_import
+        let block_roots = signed_blocks
             .get(1..)
             .ok_or(HistoricalBlockError::IndexOutOfBounds)?
             .iter()
             .map(|block| block.parent_root())
             .chain(iter::once(anchor_info.oldest_block_parent));
-        let signature_set = blocks_to_import
+        let signature_set = signed_blocks
             .iter()
             .zip_eq(block_roots)
             .filter_map(|(block, block_root)| {
@@ -201,6 +217,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // send a message to the background migrator instructing it to begin reconstruction.
         if backfill_complete && self.config.reconstruct_historic_states {
             self.store_migrator.process_reconstruction();
+        }
+        if blobs_imported > 0 {
+            debug!(self.log, "Imported {} historical blobs", blobs_imported);
         }
 
         Ok(blocks_to_import.len())

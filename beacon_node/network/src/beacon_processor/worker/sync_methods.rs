@@ -7,8 +7,9 @@ use crate::beacon_processor::DuplicateCache;
 use crate::metrics;
 use crate::sync::manager::{BlockProcessType, SyncMessage};
 use crate::sync::{BatchProcessResult, ChainId};
-use beacon_chain::blob_verification::AsBlock;
 use beacon_chain::blob_verification::BlockWrapper;
+use beacon_chain::blob_verification::{AsBlock, MaybeAvailableBlock};
+use beacon_chain::data_availability_checker::AvailabilityCheckError;
 use beacon_chain::{
     observed_block_producers::Error as ObserveError, validator_monitor::get_block_delay_ms,
     BeaconChainError, BeaconChainTypes, BlockError, ChainSegmentResult, HistoricalBlockError,
@@ -18,10 +19,9 @@ use beacon_chain::{AvailabilityProcessingStatus, CountUnrealized};
 use lighthouse_network::PeerAction;
 use slog::{debug, error, info, warn};
 use slot_clock::SlotClock;
-use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc;
-use types::{Epoch, Hash256, SignedBeaconBlock};
+use types::{Epoch, Hash256};
 
 /// Id associated to a batch processing request, either a sync batch or a parent lookup.
 #[derive(Clone, Debug, PartialEq)]
@@ -258,13 +258,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                 let end_slot = downloaded_blocks.last().map(|b| b.slot().as_u64());
                 let sent_blocks = downloaded_blocks.len();
 
-                let unwrapped = downloaded_blocks
-                    .into_iter()
-                    //FIXME(sean) handle blobs in backfill
-                    .map(|block| block.block_cloned())
-                    .collect();
-
-                match self.process_backfill_blocks(unwrapped) {
+                match self.process_backfill_blocks(downloaded_blocks) {
                     (_, Ok(_)) => {
                         debug!(self.log, "Backfill batch processed";
                             "batch_epoch" => epoch,
@@ -370,19 +364,68 @@ impl<T: BeaconChainTypes> Worker<T> {
     /// Helper function to process backfill block batches which only consumes the chain and blocks to process.
     fn process_backfill_blocks(
         &self,
-        blocks: Vec<Arc<SignedBeaconBlock<T::EthSpec>>>,
+        downloaded_blocks: Vec<BlockWrapper<T::EthSpec>>,
     ) -> (usize, Result<(), ChainSegmentFailed>) {
-        let blinded_blocks = blocks
-            .iter()
-            .map(|full_block| full_block.clone_as_blinded())
-            .map(Arc::new)
-            .collect();
-        match self.chain.import_historical_block_batch(blinded_blocks) {
+        let total_blocks = downloaded_blocks.len();
+        let available_blocks = match downloaded_blocks
+            .into_iter()
+            .map(|block| {
+                self.chain
+                    .data_availability_checker
+                    .check_availability(block)
+            })
+            .collect::<Result<Vec<_>, _>>()
+        {
+            Ok(blocks) => blocks
+                .into_iter()
+                .filter_map(|maybe_available| match maybe_available {
+                    MaybeAvailableBlock::Available(block) => Some(block),
+                    MaybeAvailableBlock::AvailabilityPending(_) => None,
+                })
+                .collect::<Vec<_>>(),
+            Err(e) => match e {
+                AvailabilityCheckError::KzgVerificationFailed => {
+                    return (
+                        0,
+                        Err(ChainSegmentFailed {
+                            // TODO: check this is the right penalty
+                            peer_action: Some(PeerAction::Fatal),
+                            message: "KZG verification failed".into(),
+                        }),
+                    );
+                }
+                e => {
+                    return (
+                        0,
+                        Err(ChainSegmentFailed {
+                            peer_action: None,
+                            message: format!("Failed to check block availability : {:?}", e),
+                        }),
+                    )
+                }
+            },
+        };
+
+        if available_blocks.len() != total_blocks {
+            return (
+                0,
+                Err(ChainSegmentFailed {
+                    // TODO: check this is the right penalty
+                    peer_action: Some(PeerAction::LowToleranceError),
+                    message: format!(
+                        "{} out of {} blocks were unavailable",
+                        (total_blocks - available_blocks.len()),
+                        total_blocks
+                    ),
+                }),
+            );
+        }
+
+        match self.chain.import_historical_block_batch(available_blocks) {
             Ok(imported_blocks) => {
                 metrics::inc_counter(
                     &metrics::BEACON_PROCESSOR_BACKFILL_CHAIN_SEGMENT_SUCCESS_TOTAL,
                 );
-
                 (imported_blocks, Ok(()))
             }
             Err(error) => {
