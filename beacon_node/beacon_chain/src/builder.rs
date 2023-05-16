@@ -33,7 +33,7 @@ use store::{Error as StoreError, HotColdDB, ItemStore, KeyValueStoreOp};
 use task_executor::{ShutdownReason, TaskExecutor};
 use types::{
     BeaconBlock, BeaconState, ChainSpec, Checkpoint, Epoch, EthSpec, Graffiti, Hash256,
-    PublicKeyBytes, Signature, SignedBeaconBlock, Slot,
+    PublicKeyBytes, RelativeEpoch, Signature, SignedBeaconBlock, Slot,
 };
 
 /// An empty struct used to "witness" all the `BeaconChainTypes` traits. It has no user-facing
@@ -691,6 +691,15 @@ where
             )?;
         }
 
+        let head_shuffling_decision_root = head_state
+            .attester_shuffling_decision_root(head_block_root, RelativeEpoch::Current)
+            .map_err(|e| {
+                format!(
+                    "Unable to get attester shuffling decision slot from head state: {:?}",
+                    e
+                )
+            })?;
+
         let mut head_snapshot = BeaconSnapshot {
             beacon_block_root: head_block_root,
             beacon_block: Arc::new(head_block),
@@ -803,7 +812,7 @@ where
                 .task_executor
                 .ok_or("Cannot build without task executor")?,
             store_migrator,
-            slot_clock,
+            slot_clock: slot_clock.clone(),
             op_pool: self.op_pool.ok_or("Cannot build without op pool")?,
             // TODO: allow for persisting and loading the pool from disk.
             naive_aggregation_pool: <_>::default(),
@@ -847,7 +856,12 @@ where
                 DEFAULT_SNAPSHOT_CACHE_SIZE,
                 head_for_snapshot_cache,
             )),
-            shuffling_cache: TimeoutRwLock::new(ShufflingCache::new(shuffling_cache_size)),
+            shuffling_cache: TimeoutRwLock::new(ShufflingCache::new(
+                shuffling_cache_size,
+                head_shuffling_decision_root,
+                slot_clock,
+                log.clone(),
+            )),
             eth1_finalization_cache: TimeoutRwLock::new(Eth1FinalizationCache::new(log.clone())),
             beacon_proposer_cache: <_>::default(),
             block_times_cache: <_>::default(),

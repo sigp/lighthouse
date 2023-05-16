@@ -395,7 +395,7 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     /// A cache dedicated to block processing.
     pub(crate) snapshot_cache: TimeoutRwLock<SnapshotCache<T::EthSpec>>,
     /// Caches the attester shuffling for a given epoch and shuffling key root.
-    pub shuffling_cache: TimeoutRwLock<ShufflingCache>,
+    pub shuffling_cache: TimeoutRwLock<ShufflingCache<T>>,
     /// A cache of eth1 deposit data at epoch boundaries for deposit finalization
     pub eth1_finalization_cache: TimeoutRwLock<Eth1FinalizationCache>,
     /// Caches the beacon block proposer shuffling for a given epoch and shuffling key root.
