@@ -216,7 +216,7 @@ fn initialize_state_with_validators<T: EthSpec>(
     // If no header is provided, then start from a Bellatrix state by default
     let default_header: ExecutionPayloadHeader<T> =
         ExecutionPayloadHeader::Merge(ExecutionPayloadHeaderMerge {
-            block_hash: ExecutionBlockHash(eth1_block_hash),
+            block_hash: ExecutionBlockHash::from_root(eth1_block_hash),
             parent_hash: ExecutionBlockHash::zero(),
             ..ExecutionPayloadHeaderMerge::default()
         });
