@@ -465,9 +465,12 @@ mod test {
     fn should_insert_committee_cache() {
         let mut cache = new_shuffling_cache();
         let id_a = shuffling_id(1);
-        let (committee_cache_a, _) = committee_caches();
+        let committee_cache_a = Arc::new(CommitteeCache::default());
         cache.insert_committee_cache(id_a.clone(), &committee_cache_a);
-        assert!(cache.contains(&id_a), "should insert committee cache");
+        assert!(
+            matches!(cache.get(&id_a).unwrap(), CacheItem::Committee(committee_cache) if committee_cache == committee_cache_a),
+            "should insert committee cache"
+        );
     }
 
     #[test]
@@ -497,6 +500,11 @@ mod test {
             !cache.contains(&shuffling_id_and_committee_caches.get(0).unwrap().0),
             "should not contain oldest epoch shuffling id"
         );
+        assert_eq!(
+            cache.cache.len(),
+            cache.cache_size,
+            "should limit cache size"
+        );
     }
 
     #[test]
@@ -509,11 +517,12 @@ mod test {
             .slot_clock
             .set_slot(current_epoch.start_slot(E::slots_per_epoch()).as_u64());
 
-        // Set head shuffling decision root and insert this shuffling to cache.
+        // Set head shuffling decision root.
         let head_shuffling_decision_root = Hash256::random();
         cache.head_shuffling_decision_root = head_shuffling_decision_root;
 
-        // Insert "enshrined" head state shuffling. Should not be overridden by other shufflings.
+        // Insert "enshrined" head state shuffling. Should not be overridden by other shuffling id
+        // insertions.
         let committee_cache = Arc::new(CommitteeCache::default());
         let enshrined_shuffling_id = AttestationShufflingId {
             shuffling_epoch: current_epoch,
@@ -551,6 +560,11 @@ mod test {
         assert!(
             cache.contains(&enshrined_shuffling_id),
             "should not remove enshrined shuffling id."
+        );
+        assert_eq!(
+            cache.cache.len(),
+            cache.cache_size,
+            "should limit cache size"
         );
     }
 
