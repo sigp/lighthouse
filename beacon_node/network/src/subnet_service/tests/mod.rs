@@ -85,6 +85,7 @@ impl TestBeaconChain {
             _test_runtime: test_runtime,
         }
     }
+
 }
 
 pub fn recent_genesis_time() -> u64 {
@@ -126,10 +127,7 @@ fn get_attestation_service(
 
     AttestationService::new(
         beacon_chain,
-        #[cfg(feature = "deterministic_long_lived_attnets")]
-        lighthouse_network::discv5::enr::NodeId::random()
-            .raw()
-            .into(),
+        lighthouse_network::discv5::enr::NodeId::random(),
         &config,
         &log,
     )
@@ -179,9 +177,6 @@ async fn get_events<S: Stream<Item = SubnetServiceMessage> + Unpin>(
 
 mod attestation_service {
 
-    #[cfg(feature = "deterministic_long_lived_attnets")]
-    use std::collections::HashSet;
-
     #[cfg(not(windows))]
     use crate::subnet_service::attestation_subnets::MIN_PEER_DISCOVERY_SLOT_LOOK_AHEAD;
 
@@ -192,8 +187,8 @@ mod attestation_service {
         attestation_committee_index: CommitteeIndex,
         slot: Slot,
         committee_count_at_slot: u64,
+        is_aggregator: bool,
     ) -> ValidatorSubscription {
-        let is_aggregator = true;
         ValidatorSubscription {
             validator_index,
             attestation_committee_index,
@@ -203,11 +198,11 @@ mod attestation_service {
         }
     }
 
-    #[cfg(not(feature = "deterministic_long_lived_attnets"))]
     fn get_subscriptions(
         validator_count: u64,
         slot: Slot,
         committee_count_at_slot: u64,
+        is_aggregator: bool,
     ) -> Vec<ValidatorSubscription> {
         (0..validator_count)
             .map(|validator_index| {
@@ -216,6 +211,7 @@ mod attestation_service {
                     validator_index,
                     slot,
                     committee_count_at_slot,
+                    is_aggregator,
                 )
             })
             .collect()
@@ -243,6 +239,7 @@ mod attestation_service {
             committee_index,
             current_slot + Slot::new(subscription_slot),
             committee_count,
+            true
         )];
 
         // submit the subscriptions
@@ -318,6 +315,7 @@ mod attestation_service {
             com1,
             current_slot + Slot::new(subscription_slot1),
             committee_count,
+            true
         );
 
         let sub2 = get_subscription(
@@ -325,6 +323,7 @@ mod attestation_service {
             com2,
             current_slot + Slot::new(subscription_slot2),
             committee_count,
+            true
         );
 
         let subnet_id1 = SubnetId::compute_subnet::<MainnetEthSpec>(
@@ -399,13 +398,13 @@ mod attestation_service {
         assert_eq!(attestation_service.subscription_count(), 1);
     }
 
-    #[cfg(not(feature = "deterministic_long_lived_attnets"))]
     #[tokio::test]
-    async fn subscribe_all_random_subnets() {
+    async fn subscribe_all_subnets() {
         let attestation_subnet_count = MainnetEthSpec::default_spec().attestation_subnet_count;
-        let subscription_slot = 10;
+        let subscription_slot = 1;
         let subscription_count = attestation_subnet_count;
         let committee_count = 1;
+        let subnets_per_node = MainnetEthSpec::default_spec().subnets_per_node as usize;
 
         // create the attestation service and subscriptions
         let mut attestation_service = get_attestation_service(None);
@@ -419,6 +418,7 @@ mod attestation_service {
             subscription_count,
             current_slot + subscription_slot,
             committee_count,
+            true,
         );
 
         // submit the subscriptions
@@ -448,19 +448,19 @@ mod attestation_service {
             panic!("Unexpected event {:?}", bulk_discovery_event);
         }
 
-        // 64 `DiscoverPeer` requests of length 1 corresponding to random subnets
+        // 64 `DiscoverPeer` requests of length 1 corresponding to deterministic subnets
         // and 1 `DiscoverPeer` request corresponding to bulk subnet discovery.
-        assert_eq!(discover_peer_count, subscription_count + 1);
+        assert_eq!(discover_peer_count, subnets_per_node + 1);
         assert_eq!(attestation_service.subscription_count(), 64);
-        assert_eq!(enr_add_count, 64);
+        assert_eq!(enr_add_count, subnets_per_node);
         assert_eq!(unexpected_msg_count, 0);
         // test completed successfully
     }
 
-    #[cfg(not(feature = "deterministic_long_lived_attnets"))]
     #[tokio::test]
-    async fn subscribe_all_random_subnets_plus_one() {
+    async fn subscribe_correct_number_of_subnets() {
         let attestation_subnet_count = MainnetEthSpec::default_spec().attestation_subnet_count;
+        let expected_long_lived_subnets = MainnetEthSpec::default_spec().subnets_per_node;
         let subscription_slot = 10;
         // the 65th subscription should result in no more messages than the previous scenario
         let subscription_count = attestation_subnet_count + 1;
@@ -478,6 +478,7 @@ mod attestation_service {
             subscription_count,
             current_slot + subscription_slot,
             committee_count,
+            true,
         );
 
         // submit the subscriptions
@@ -510,8 +511,8 @@ mod attestation_service {
         // and 1 `DiscoverPeer` request corresponding to the bulk subnet discovery.
         // For the 65th subscription, the call to `subscribe_to_random_subnets` is not made because we are at capacity.
         assert_eq!(discover_peer_count, 64 + 1);
-        assert_eq!(attestation_service.subscription_count(), 64);
-        assert_eq!(enr_add_count, 64);
+        assert_eq!(attestation_service.subscription_count(), expected_long_lived_subnets as usize);
+        assert_eq!(enr_add_count, expected_long_lived_subnets);
         assert_eq!(unexpected_msg_count, 0);
     }
 
@@ -542,6 +543,7 @@ mod attestation_service {
             com1,
             current_slot + Slot::new(subscription_slot1),
             committee_count,
+            true
         );
 
         let sub2 = get_subscription(
@@ -549,6 +551,7 @@ mod attestation_service {
             com2,
             current_slot + Slot::new(subscription_slot2),
             committee_count,
+            true
         );
 
         let subnet_id1 = SubnetId::compute_subnet::<MainnetEthSpec>(
@@ -633,38 +636,52 @@ mod attestation_service {
     }
 
     #[tokio::test]
-    #[cfg(feature = "deterministic_long_lived_attnets")]
     async fn test_update_deterministic_long_lived_subnets() {
         let mut attestation_service = get_attestation_service(None);
-        let new_subnet = SubnetId::new(1);
-        let maintained_subnet = SubnetId::new(2);
-        let removed_subnet = SubnetId::new(3);
 
+        let current_slot = attestation_service
+            .beacon_chain
+            .slot_clock
+            .now()
+            .expect("Could not get current slot");
+
+        let subscriptions = get_subscriptions(
+            20,
+            current_slot,
+            30,
+            false,
+        );
+
+        // submit the subscriptions
         attestation_service
-            .set_long_lived_subscriptions(HashSet::from([removed_subnet, maintained_subnet]));
-        // clear initial events
-        let _events = get_events(&mut attestation_service, None, 1).await;
+            .validator_subscriptions(subscriptions)
+            .unwrap();
 
-        attestation_service
-            .update_long_lived_subnets_testing(HashSet::from([maintained_subnet, new_subnet]));
+        // There should only be the same subscriptions as there are in the specification,
+        // regardless of subscriptions
+        assert_eq!(attestation_service.long_lived_subscriptions().len(), MainnetEthSpec::default_spec().subnets_per_node as usize);
 
-        let events = get_events(&mut attestation_service, None, 1).await;
-        let new_subnet = Subnet::Attestation(new_subnet);
-        let removed_subnet = Subnet::Attestation(removed_subnet);
-        assert_eq!(
-            events,
-            [
-                // events for the new subnet
-                SubnetServiceMessage::Subscribe(new_subnet),
-                SubnetServiceMessage::EnrAdd(new_subnet),
-                SubnetServiceMessage::DiscoverPeers(vec![SubnetDiscovery {
-                    subnet: new_subnet,
-                    min_ttl: None
-                }]),
-                // events for the removed subnet
-                SubnetServiceMessage::Unsubscribe(removed_subnet),
-                SubnetServiceMessage::EnrRemove(removed_subnet),
-            ]
+
+        let events = get_events(&mut attestation_service, None, 4).await;
+
+        // Check that we attempt to subscribe and register ENRs
+        assert!(
+            matches!(events[0], SubnetServiceMessage::Subscribe(_))
+            );
+        assert!(
+            matches!(events[1], SubnetServiceMessage::Subscribe(_))
+            );
+        assert!(
+            matches!(events[2], SubnetServiceMessage::EnrAdd(_))
+            );
+        assert!(
+            matches!(events[3], SubnetServiceMessage::EnrAdd(_))
+            );
+        assert!(
+            matches!(events[4], SubnetServiceMessage::DiscoverPeers(_)),
+            );
+        assert!(
+            matches!(events[5], SubnetServiceMessage::DiscoverPeers(_)),
         );
         println!("{events:?}")
     }

@@ -168,9 +168,6 @@ pub struct ChainSpec {
     pub maximum_gossip_clock_disparity_millis: u64,
     pub target_aggregators_per_committee: u64,
     pub attestation_subnet_count: u64,
-    // TODO: Remove this after a hard fork
-    pub random_subnets_per_validator: u64,
-    pub epochs_per_random_subnet_subscription: u64,
     pub subnets_per_node: u8,
     pub epochs_per_subnet_subscription: u64,
     pub attestation_subnet_extra_bits: u8,
@@ -616,11 +613,9 @@ impl ChainSpec {
             network_id: 1, // mainnet network id
             attestation_propagation_slot_range: 32,
             attestation_subnet_count: 64,
-            random_subnets_per_validator: 1,
             subnets_per_node: 2,
             maximum_gossip_clock_disparity_millis: 500,
             target_aggregators_per_committee: 16,
-            epochs_per_random_subnet_subscription: 256,
             epochs_per_subnet_subscription: 256,
             attestation_subnet_extra_bits: 0,
 
@@ -843,11 +838,9 @@ impl ChainSpec {
             network_id: 100, // Gnosis Chain network id
             attestation_propagation_slot_range: 32,
             attestation_subnet_count: 64,
-            random_subnets_per_validator: 1,
             subnets_per_node: 4, // Make this larger than usual to avoid network damage
             maximum_gossip_clock_disparity_millis: 500,
             target_aggregators_per_committee: 16,
-            epochs_per_random_subnet_subscription: 256,
             epochs_per_subnet_subscription: 256,
             attestation_subnet_extra_bits: 0,
 
