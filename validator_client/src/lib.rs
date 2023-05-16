@@ -446,11 +446,6 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             slot_clock: slot_clock.clone(),
             beacon_nodes: beacon_nodes.clone(),
             validator_store: validator_store.clone(),
-            require_synced: if config.allow_unsynced_beacon_node {
-                RequireSynced::No
-            } else {
-                RequireSynced::Yes
-            },
             spec: context.eth2_config.spec.clone(),
             context: duties_context,
             enable_high_validator_count_metrics: config.enable_high_validator_count_metrics,
