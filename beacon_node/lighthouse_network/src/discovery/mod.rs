@@ -428,29 +428,11 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
     /// This is with caution. Discovery should automatically maintain this. This should only be
     /// used when automatic discovery is disabled.
     pub fn update_enr_udp_socket(&mut self, socket_addr: SocketAddr) -> Result<(), String> {
-        match socket_addr {
-            SocketAddr::V4(socket) => {
-                self.discv5
-                    .enr_insert("ip", &socket.ip().octets())
-                    .map_err(|e| format!("{:?}", e))?;
-                self.discv5
-                    .enr_insert("udp", &socket.port().to_be_bytes())
-                    .map_err(|e| format!("{:?}", e))?;
-            }
-            SocketAddr::V6(socket) => {
-                self.discv5
-                    .enr_insert("ip6", &socket.ip().octets())
-                    .map_err(|e| format!("{:?}", e))?;
-                self.discv5
-                    .enr_insert("udp6", &socket.port().to_be_bytes())
-                    .map_err(|e| format!("{:?}", e))?;
-            }
+        const IS_TCP: bool = false;
+        if self.discv5.update_local_enr_socket(socket_addr, IS_TCP) {
+            // persist modified enr to disk
+            enr::save_enr_to_disk(Path::new(&self.enr_dir), &self.local_enr(), &self.log);
         }
-
-        // replace the global version
-        *self.network_globals.local_enr.write() = self.discv5.local_enr();
-        // persist modified enr to disk
-        enr::save_enr_to_disk(Path::new(&self.enr_dir), &self.local_enr(), &self.log);
         Ok(())
     }
 
