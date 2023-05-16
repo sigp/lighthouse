@@ -1168,7 +1168,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
 
     /// Update engine sync status.
     ///
-    /// This will actually perform 2 upchecks, the 2nd one asynchronously.
+    /// This will sometimes perform 2 upchecks, the 2nd one asynchronously.
     pub async fn upcheck(&self) -> Result<(), Error> {
         self.engine()
             .request(|engine| async {
