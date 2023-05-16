@@ -228,8 +228,6 @@ jobs:
       uses: arduino/setup-protoc@e52d9eb8f7b63115df1ac544a1376fdbf5a39612
       with:
         repo-token: ${{ secrets.GITHUB_TOKEN }}
-    - name: Install anvil
-      run: cargo install --git https://github.com/foundry-rs/foundry --locked anvil
     - name: Run the beacon chain sim without an eth1 connection
       run: cargo run --release --bin simulator no-eth1-sim
   syncing-simulator-ubuntu:
@@ -265,8 +263,6 @@ jobs:
           sudo add-apt-repository -y ppa:ethereum/ethereum
           sudo apt-get update
           sudo apt-get install ethereum
-    - name: Install anvil
-      run: cargo install --git https://github.com/foundry-rs/foundry --locked anvil
     - name: Install lighthouse and lcli
       run: |
           make

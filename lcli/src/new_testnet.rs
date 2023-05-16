@@ -1,11 +1,11 @@
 use account_utils::eth2_keystore::keypair_from_secret;
 use clap::ArgMatches;
 use clap_utils::{parse_optional, parse_required, parse_ssz_optional};
-use ethereum_hashing::hash;
 use eth2_network_config::Eth2NetworkConfig;
 use eth2_wallet::bip39::Seed;
 use eth2_wallet::bip39::{Language, Mnemonic};
 use eth2_wallet::{recover_validator_secret_from_mnemonic, KeyType};
+use ethereum_hashing::hash;
 use ssz::Decode;
 use ssz::Encode;
 use state_processing::process_activations;
