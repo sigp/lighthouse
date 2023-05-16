@@ -222,6 +222,11 @@ struct Inner<E: EthSpec> {
     builder_profit_threshold: Uint256,
     log: Logger,
     always_prefer_builder_payload: bool,
+    /// Track whether the last `newPayload` call errored.
+    ///
+    /// This is used *only* in the informational sync status endpoint, so that a VC using this
+    /// node can prefer another node with a healthier EL.
+    last_new_payload_errored: RwLock<bool>,
 }
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
@@ -350,6 +355,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
             builder_profit_threshold: Uint256::from(builder_profit_threshold),
             log,
             always_prefer_builder_payload,
+            last_new_payload_errored: RwLock::new(false),
         };
 
         Ok(Self {
@@ -540,6 +546,15 @@ impl<T: EthSpec> ExecutionLayer<T> {
             }
         }
         synced
+    }
+
+    /// Return `true` if the execution layer is offline or returning errors on `newPayload`.
+    ///
+    /// This function should never be used to prevent any operation in the beacon node, but can
+    /// be used to give an indication on the HTTP API that the node's execution layer is struggling,
+    /// which can in turn be used by the VC.
+    pub fn is_offline_or_erroring(&self) -> bool {
+        self.engine().is_offline_blocking() || *self.inner.last_new_payload_errored.blocking_read()
     }
 
     /// Updates the proposer preparation data provided by validators
@@ -1116,18 +1131,6 @@ impl<T: EthSpec> ExecutionLayer<T> {
     }
 
     /// Maps to the `engine_newPayload` JSON-RPC call.
-    ///
-    /// ## Fallback Behaviour
-    ///
-    /// The request will be broadcast to all nodes, simultaneously. It will await a response (or
-    /// failure) from all nodes and then return based on the first of these conditions which
-    /// returns true:
-    ///
-    /// - Error::ConsensusFailure if some nodes return valid and some return invalid
-    /// - Valid, if any nodes return valid.
-    /// - Invalid, if any nodes return invalid.
-    /// - Syncing, if any nodes return syncing.
-    /// - An error, if all nodes return an error.
     pub async fn notify_new_payload(
         &self,
         execution_payload: &ExecutionPayload<T>,
@@ -1156,8 +1159,20 @@ impl<T: EthSpec> ExecutionLayer<T> {
                 &["new_payload", status.status.into()],
             );
         }
+        *self.inner.last_new_payload_errored.write().await = result.is_err();
 
         process_payload_status(execution_payload.block_hash(), result, self.log())
+            .map_err(Box::new)
+            .map_err(Error::EngineError)
+    }
+
+    /// Update engine sync status.
+    ///
+    /// This will actually perform 2 upchecks, the 2nd one asynchronously.
+    pub async fn upcheck(&self) -> Result<(), Error> {
+        self.engine()
+            .request(|engine| async { Ok(engine.upcheck().await) })
+            .await
             .map_err(Box::new)
             .map_err(Error::EngineError)
     }
@@ -1221,18 +1236,6 @@ impl<T: EthSpec> ExecutionLayer<T> {
     }
 
     /// Maps to the `engine_consensusValidated` JSON-RPC call.
-    ///
-    /// ## Fallback Behaviour
-    ///
-    /// The request will be broadcast to all nodes, simultaneously. It will await a response (or
-    /// failure) from all nodes and then return based on the first of these conditions which
-    /// returns true:
-    ///
-    /// - Error::ConsensusFailure if some nodes return valid and some return invalid
-    /// - Valid, if any nodes return valid.
-    /// - Invalid, if any nodes return invalid.
-    /// - Syncing, if any nodes return syncing.
-    /// - An error, if all nodes return an error.
     pub async fn notify_forkchoice_updated(
         &self,
         head_block_hash: ExecutionBlockHash,

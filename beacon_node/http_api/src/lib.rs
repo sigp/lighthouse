@@ -2298,9 +2298,15 @@ pub fn serve<T: BeaconChainTypes>(
                         .is_optimistic_or_invalid_head()
                         .map_err(warp_utils::reject::beacon_chain_error)?;
 
+                    let el_offline = chain
+                        .execution_layer
+                        .as_ref()
+                        .map_or(true, |el| el.is_offline_or_erroring());
+
                     let syncing_data = api_types::SyncingData {
                         is_syncing: network_globals.sync_state.read().is_syncing(),
                         is_optimistic: Some(is_optimistic),
+                        el_offline: Some(el_offline),
                         head_slot,
                         sync_distance,
                     };
