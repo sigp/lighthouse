@@ -52,7 +52,7 @@ async fn el_syncing_then_synced() {
 
     // EL syncing
     mock_el.server.set_syncing_response(Ok(true));
-    mock_el.el.upcheck().await.unwrap();
+    mock_el.el.upcheck().await;
 
     let api_response = tester.client.get_node_syncing().await.unwrap().data;
     assert_eq!(api_response.el_offline, Some(false));
@@ -61,7 +61,7 @@ async fn el_syncing_then_synced() {
 
     // EL synced
     mock_el.server.set_syncing_response(Ok(false));
-    mock_el.el.upcheck().await.unwrap();
+    mock_el.el.upcheck().await;
 
     let api_response = tester.client.get_node_syncing().await.unwrap().data;
     assert_eq!(api_response.el_offline, Some(false));
@@ -80,7 +80,7 @@ async fn el_offline() {
 
     // EL offline
     mock_el.server.set_syncing_response(Err("offline".into()));
-    mock_el.el.upcheck().await.unwrap();
+    mock_el.el.upcheck().await;
 
     let api_response = tester.client.get_node_syncing().await.unwrap().data;
     assert_eq!(api_response.el_offline, Some(true));

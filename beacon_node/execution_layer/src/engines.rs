@@ -239,8 +239,8 @@ impl Engine {
     }
 
     /// Returns `true` if the engine has a status other than synced or syncing.
-    pub fn is_offline_blocking(&self) -> bool {
-        EngineState::from(**self.state.blocking_read()) == EngineState::Offline
+    pub async fn is_offline(&self) -> bool {
+        EngineState::from(**self.state.read().await) == EngineState::Offline
     }
 
     /// Run the `EngineApi::upcheck` function if the node's last known state is not synced. This

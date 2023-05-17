@@ -553,8 +553,8 @@ impl<T: EthSpec> ExecutionLayer<T> {
     /// This function should never be used to prevent any operation in the beacon node, but can
     /// be used to give an indication on the HTTP API that the node's execution layer is struggling,
     /// which can in turn be used by the VC.
-    pub fn is_offline_or_erroring(&self) -> bool {
-        self.engine().is_offline_blocking() || *self.inner.last_new_payload_errored.blocking_read()
+    pub async fn is_offline_or_erroring(&self) -> bool {
+        self.engine().is_offline().await || *self.inner.last_new_payload_errored.read().await
     }
 
     /// Updates the proposer preparation data provided by validators
@@ -1167,17 +1167,8 @@ impl<T: EthSpec> ExecutionLayer<T> {
     }
 
     /// Update engine sync status.
-    ///
-    /// This will sometimes perform 2 upchecks, the 2nd one asynchronously.
-    pub async fn upcheck(&self) -> Result<(), Error> {
-        self.engine()
-            .request(|engine| async {
-                engine.upcheck().await;
-                Ok(())
-            })
-            .await
-            .map_err(Box::new)
-            .map_err(Error::EngineError)
+    pub async fn upcheck(&self) {
+        self.engine().upcheck().await;
     }
 
     /// Register that the given `validator_index` is going to produce a block at `slot`.
