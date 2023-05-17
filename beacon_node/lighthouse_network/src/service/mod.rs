@@ -267,6 +267,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
             ctx.fork_context.clone(),
             config.enable_light_client_server,
             config.outbound_rate_limiter_config.clone(),
+            config.disable_inbound_rate_limiter,
             log.clone(),
         );
 

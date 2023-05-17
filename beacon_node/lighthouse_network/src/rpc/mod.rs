@@ -112,7 +112,7 @@ type BehaviourAction<Id, TSpec> =
 /// logic.
 pub struct RPC<Id: ReqId, TSpec: EthSpec> {
     /// Rate limiter
-    limiter: RateLimiter,
+    limiter: Option<RateLimiter>,
     /// Rate limiter for our own requests.
     self_limiter: Option<SelfRateLimiter<Id, TSpec>>,
     /// Queue of events to be processed.
@@ -128,24 +128,37 @@ impl<Id: ReqId, TSpec: EthSpec> RPC<Id, TSpec> {
         fork_context: Arc<ForkContext>,
         enable_light_client_server: bool,
         outbound_rate_limiter_config: Option<OutboundRateLimiterConfig>,
+        disable_inbound_rate_limiter: bool,
         log: slog::Logger,
     ) -> Self {
         let log = log.new(o!("service" => "libp2p_rpc"));
 
-        let limiter = RateLimiter::builder()
-            .n_every(Protocol::MetaData, 2, Duration::from_secs(5))
-            .n_every(Protocol::Ping, 2, Duration::from_secs(10))
-            .n_every(Protocol::Status, 5, Duration::from_secs(15))
-            .one_every(Protocol::Goodbye, Duration::from_secs(10))
-            .one_every(Protocol::LightClientBootstrap, Duration::from_secs(10))
-            .n_every(
-                Protocol::BlocksByRange,
-                methods::MAX_REQUEST_BLOCKS,
-                Duration::from_secs(10),
+        let limiter = if !disable_inbound_rate_limiter {
+            Some(
+                RateLimiter::builder()
+                    .n_every(Protocol::MetaData, 2, Duration::from_secs(5))
+                    .n_every(Protocol::Ping, 2, Duration::from_secs(10))
+                    .n_every(Protocol::Status, 5, Duration::from_secs(15))
+                    .one_every(Protocol::Goodbye, Duration::from_secs(10))
+                    .one_every(Protocol::LightClientBootstrap, Duration::from_secs(10))
+                    .n_every(
+                        Protocol::BlocksByRange,
+                        methods::MAX_REQUEST_BLOCKS,
+                        Duration::from_secs(10),
+                    )
+                    .n_every(Protocol::BlocksByRoot, 128, Duration::from_secs(10))
+                    .n_every(Protocol::BlobsByRoot, 128, Duration::from_secs(10))
+                    .n_every(
+                        Protocol::BlobsByRange,
+                        MAX_REQUEST_BLOB_SIDECARS,
+                        Duration::from_secs(10),
+                    )
+                    .build()
+                    .expect("Configuration parameters are valid"),
             )
-            .n_every(Protocol::BlocksByRoot, 128, Duration::from_secs(10))
-            .build()
-            .expect("Configuration parameters are valid");
+        } else {
+            None
+        };
 
         let self_limiter = outbound_rate_limiter_config.map(|config| {
             SelfRateLimiter::new(config, log.clone()).expect("Configuration parameters are valid")
@@ -242,50 +255,60 @@ where
         event: <Self::ConnectionHandler as ConnectionHandler>::OutEvent,
     ) {
         if let Ok(RPCReceived::Request(ref id, ref req)) = event {
-            // check if the request is conformant to the quota
-            match self.limiter.allows(&peer_id, req) {
-                Ok(()) => {
-                    // send the event to the user
-                    self.events
-                        .push(NetworkBehaviourAction::GenerateEvent(RPCMessage {
-                            peer_id,
-                            conn_id,
-                            event,
-                        }))
-                }
-                Err(RateLimitedErr::TooLarge) => {
-                    // we set the batch sizes, so this is a coding/config err for most protocols
-                    let protocol = req.protocol();
-                    if matches!(protocol, Protocol::BlocksByRange) {
-                        debug!(self.log, "Blocks by range request will never be processed"; "request" => %req);
-                    } else {
-                        crit!(self.log, "Request size too large to ever be processed"; "protocol" => %protocol);
+            if let Some(limiter) = self.limiter.as_mut() {
+                // check if the request is conformant to the quota
+                match limiter.allows(&peer_id, req) {
+                    Ok(()) => {
+                        // send the event to the user
+                        self.events
+                            .push(NetworkBehaviourAction::GenerateEvent(RPCMessage {
+                                peer_id,
+                                conn_id,
+                                event,
+                            }))
                     }
-                    // send an error code to the peer.
-                    // the handler upon receiving the error code will send it back to the behaviour
-                    self.send_response(
-                        peer_id,
-                        (conn_id, *id),
-                        RPCCodedResponse::Error(
-                            RPCResponseErrorCode::RateLimited,
-                            "Rate limited. Request too large".into(),
-                        ),
-                    );
-                }
-                Err(RateLimitedErr::TooSoon(wait_time)) => {
-                    debug!(self.log, "Request exceeds the rate limit";
+                    Err(RateLimitedErr::TooLarge) => {
+                        // we set the batch sizes, so this is a coding/config err for most protocols
+                        let protocol = req.protocol();
+                        if matches!(protocol, Protocol::BlocksByRange) {
+                            debug!(self.log, "Blocks by range request will never be processed"; "request" => %req);
+                        } else {
+                            crit!(self.log, "Request size too large to ever be processed"; "protocol" => %protocol);
+                        }
+                        // send an error code to the peer.
+                        // the handler upon receiving the error code will send it back to the behaviour
+                        self.send_response(
+                            peer_id,
+                            (conn_id, *id),
+                            RPCCodedResponse::Error(
+                                RPCResponseErrorCode::RateLimited,
+                                "Rate limited. Request too large".into(),
+                            ),
+                        );
+                    }
+                    Err(RateLimitedErr::TooSoon(wait_time)) => {
+                        debug!(self.log, "Request exceeds the rate limit";
                         "request" => %req, "peer_id" => %peer_id, "wait_time_ms" => wait_time.as_millis());
-                    // send an error code to the peer.
-                    // the handler upon receiving the error code will send it back to the behaviour
-                    self.send_response(
-                        peer_id,
-                        (conn_id, *id),
-                        RPCCodedResponse::Error(
-                            RPCResponseErrorCode::RateLimited,
-                            format!("Wait {:?}", wait_time).into(),
-                        ),
-                    );
+                        // send an error code to the peer.
+                        // the handler upon receiving the error code will send it back to the behaviour
+                        self.send_response(
+                            peer_id,
+                            (conn_id, *id),
+                            RPCCodedResponse::Error(
+                                RPCResponseErrorCode::RateLimited,
+                                format!("Wait {:?}", wait_time).into(),
+                            ),
+                        );
+                    }
                 }
+            } else {
+                // No rate limiting, send the event to the user
+                self.events
+                    .push(NetworkBehaviourAction::GenerateEvent(RPCMessage {
+                        peer_id,
+                        conn_id,
+                        event,
+                    }))
             }
         } else {
             self.events
@@ -303,7 +326,9 @@ where
         _: &mut impl PollParameters,
     ) -> Poll<NetworkBehaviourAction<Self::OutEvent, Self::ConnectionHandler>> {
         // let the rate limiter prune.
-        let _ = self.limiter.poll_unpin(cx);
+        if let Some(limiter) = self.limiter.as_mut() {
+            let _ = limiter.poll_unpin(cx);
+        }
 
         if let Some(self_limiter) = self.self_limiter.as_mut() {
             if let Poll::Ready(event) = self_limiter.poll_ready(cx) {

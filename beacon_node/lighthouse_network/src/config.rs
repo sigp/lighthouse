@@ -148,6 +148,9 @@ pub struct Config {
 
     /// Configures if/where invalid blocks should be stored.
     pub invalid_block_storage: Option<PathBuf>,
+    
+    /// Whether the inbound rate limiter is enabled. Useful for testnets.
+    pub disable_inbound_rate_limiter: bool,
 }
 
 impl Config {
@@ -333,6 +336,7 @@ impl Default for Config {
             enable_light_client_server: false,
             outbound_rate_limiter_config: None,
             invalid_block_storage: None,
+            disable_inbound_rate_limiter: false,
         }
     }
 }

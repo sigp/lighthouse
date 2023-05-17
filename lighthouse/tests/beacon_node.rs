@@ -1452,6 +1452,13 @@ fn empty_self_limiter_flag() {
         });
 }
 #[test]
+fn disable_inbound_rate_limiter_flag() {
+    CommandLineTest::new()
+        .flag("disable-inbound-rate-limiter", None)
+        .run_with_zero_port()
+        .with_config(|config| assert!(config.network.disable_inbound_rate_limiter));
+}
+#[test]
 fn http_allow_origin_flag() {
     CommandLineTest::new()
         .flag("http-allow-origin", Some("127.0.0.99"))

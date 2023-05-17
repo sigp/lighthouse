@@ -260,6 +260,15 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(false),
         )
         .arg(
+            Arg::with_name("disable-inbound-rate-limiter")
+                .long("disable-inbound-rate-limiter")
+                .help("Disables the inbound rate limiting (received by this node) over rpc. \
+                       Note: using this option could overwhelm the node with unbounded number \
+                       of rpc requests. Use with caution.")
+                .hidden(true)
+                .takes_value(false),
+        )
+        .arg(
             Arg::with_name("self-limiter")
             .long("self-limiter")
             .help(

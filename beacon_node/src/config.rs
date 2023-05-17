@@ -1252,11 +1252,12 @@ pub fn set_network_config(
         config.proposer_only = true;
         warn!(log, "Proposer-only mode enabled"; "info"=> "Do not connect a validator client to this node unless via the --proposer-nodes flag");
     }
+    config.disable_inbound_rate_limiter = cli_args.is_present("disable-inbound-rate-limiter");
 
     Ok(())
 }
 
-/// Gets the datadir which should be used.
+/// Gets the datadir which should be used. 
 pub fn get_data_dir(cli_args: &ArgMatches) -> PathBuf {
     // Read the `--datadir` flag.
     //
