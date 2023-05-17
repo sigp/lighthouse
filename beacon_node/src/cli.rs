@@ -1093,4 +1093,13 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             // always using the builder.
             .conflicts_with("builder-profit-threshold")
         )
+        .arg(
+            Arg::with_name("invalid-gossip-verified-blocks-path")
+            .long("invalid-gossip-verified-blocks-path")
+            .value_name("PATH")
+            .help("If a block succeeds gossip validation whilst failing full validation, store \
+                    the block SSZ as a file at this path. This feature is only recommended for \
+                    developers. This directory is not pruned, users should be careful to avoid \
+                    filling up their disks.")
+        )
 }

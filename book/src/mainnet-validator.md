@@ -2,7 +2,6 @@
 
 [launchpad]: https://launchpad.ethereum.org/
 [lh-book]: https://lighthouse-book.sigmaprime.io/
-[testnet-validator]: ./testnet-validator.md
 [advanced-datadir]: ./advanced-datadir.md
 [license]: https://github.com/sigp/lighthouse/blob/stable/LICENSE
 [slashing]: ./slashing-protection.md
@@ -15,7 +14,7 @@ managing servers. You'll also need at least 32 ETH!
 Being educated is critical to a validator's success. Before submitting your mainnet deposit, we recommend:
 
 - Thoroughly exploring the [Staking Launchpad][launchpad] website, try running through the deposit process using a testnet launchpad such as the [Goerli staking launchpad](https://goerli.launchpad.ethereum.org/en/).
-- Running a [testnet validator][testnet-validator].
+- Running a testnet validator.
 - Reading through this documentation, especially the [Slashing Protection][slashing] section.
 - Performing a web search and doing your own research.
 

@@ -17,7 +17,7 @@ make install-lcli
 
 Modify `vars.env` as desired.
 
-Start a local eth1 ganache server plus boot node along with `BN_COUNT`
+Start a local eth1 anvil server plus boot node along with `BN_COUNT`
 number of beacon nodes and `VC_COUNT` validator clients.
 
 The `start_local_testnet.sh` script takes four options `-v VC_COUNT`, `-d DEBUG_LEVEL`, `-p` to enable builder proposals and `-h` for help.
@@ -41,9 +41,9 @@ This is not necessary before `start_local_testnet.sh` as it invokes `stop_local_
 
 These scripts are used by ./start_local_testnet.sh and may be used to manually
 
-Start a local eth1 ganache server
+Start a local eth1 anvil server
 ```bash
-./ganache_test_node.sh
+./anvil_test_node.sh
 ```
 
 Assuming you are happy with the configuration in `vars.env`, deploy the deposit contract, make deposits,
