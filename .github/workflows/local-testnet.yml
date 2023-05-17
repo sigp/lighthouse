@@ -26,18 +26,18 @@ jobs:
         with:
             repo-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Install geth
+        if: matrix.os == 'ubuntu-22.04'
         run: |
           sudo add-apt-repository -y ppa:ethereum/ethereum
           sudo apt-get update
           sudo apt-get install ethereum
-        if: matrix.os == 'ubuntu-22.04'
+        if: matrix.os == 'macos-12'
         run: |
           brew tap ethereum/ethereum
           brew install ethereum
           brew install gnu-sed grep
           echo "$(brew --prefix)/opt/gnu-sed/libexec/gnubin" >> $GITHUB_PATH
           echo "$(brew --prefix)/opt/grep/libexec/gnubin" >> $GITHUB_PATH
-        if: matrix.os == 'macos-12'
 
       # https://github.com/actions/cache/blob/main/examples.md#rust---cargo
       - uses: actions/cache@v3
