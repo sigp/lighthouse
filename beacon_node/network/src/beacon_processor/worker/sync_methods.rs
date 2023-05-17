@@ -257,6 +257,10 @@ impl<T: BeaconChainTypes> Worker<T> {
                 let start_slot = downloaded_blocks.first().map(|b| b.slot().as_u64());
                 let end_slot = downloaded_blocks.last().map(|b| b.slot().as_u64());
                 let sent_blocks = downloaded_blocks.len();
+                let n_blobs = downloaded_blocks
+                    .iter()
+                    .map(|wrapped| wrapped.n_blobs())
+                    .sum::<usize>();
 
                 match self.process_backfill_blocks(downloaded_blocks) {
                     (_, Ok(_)) => {
@@ -265,6 +269,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                             "first_block_slot" => start_slot,
                             "last_block_slot" => end_slot,
                             "processed_blocks" => sent_blocks,
+                            "n_blobs" => n_blobs,
                             "service"=> "sync");
                         BatchProcessResult::Success {
                             was_non_empty: sent_blocks > 0,
@@ -275,6 +280,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                             "batch_epoch" => epoch,
                             "first_block_slot" => start_slot,
                             "last_block_slot" => end_slot,
+                            "n_blobs" => n_blobs,
                             "error" => %e.message,
                             "service" => "sync");
                         match e.peer_action {
