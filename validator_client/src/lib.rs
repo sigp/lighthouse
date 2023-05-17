@@ -615,8 +615,8 @@ async fn init_from_beacon_node<E: EthSpec>(
     context: &RuntimeContext<E>,
 ) -> Result<(u64, Hash256), String> {
     loop {
-        beacon_nodes.update_unready_candidates().await;
-        proposer_nodes.update_unready_candidates().await;
+        beacon_nodes.update_all_candidates().await;
+        proposer_nodes.update_all_candidates().await;
 
         let num_available = beacon_nodes.num_available().await;
         let num_total = beacon_nodes.num_total();

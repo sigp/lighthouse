@@ -28,7 +28,7 @@ const UPDATE_REQUIRED_LOG_HINT: &str = "this VC or the remote BN may need updati
 /// too early, we risk switching nodes between the time of publishing an attestation and publishing
 /// an aggregate; this may result in a missed aggregation. If we set this time too late, we risk not
 /// having the correct nodes up and running prior to the start of the slot.
-const SLOT_LOOKAHEAD: Duration = Duration::from_secs(1);
+const SLOT_LOOKAHEAD: Duration = Duration::from_secs(2);
 
 /// Indicates a measurement of latency between the VC and a BN.
 pub struct LatencyMeasurement {
@@ -52,7 +52,7 @@ pub fn start_fallback_updater_service<T: SlotClock + 'static, E: EthSpec>(
 
     let future = async move {
         loop {
-            beacon_nodes.update_unready_candidates().await;
+            beacon_nodes.update_all_candidates().await;
 
             let sleep_time = beacon_nodes
                 .slot_clock
@@ -385,33 +385,21 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
         n
     }
 
-    /// Loop through any `self.candidates` that we don't think are online, compatible or synced and
-    /// poll them to see if their status has changed.
+    /// Loop through ALL candidates in `self.candidates` and update their sync status.
     ///
-    /// We do not poll nodes that are synced to avoid sending additional requests when everything is
-    /// going smoothly.
-    pub async fn update_unready_candidates(&self) {
-        let mut futures = Vec::new();
-        for candidate in &self.candidates {
-            // There is a potential race condition between having the read lock and the write
-            // lock. The worst case of this race is running `try_become_ready` twice, which is
-            // acceptable.
-            //
-            // Note: `RequireSynced` is always set to false here. This forces us to recheck the sync
-            // status of nodes that were previously not-synced.
-            if candidate.status(RequireSynced::Yes).await.is_err() {
-                // There exists a race-condition that could result in `refresh_status` being called
-                // when the status does not require refreshing anymore. This is deemed an
-                // acceptable inefficiency.
-                futures.push(candidate.refresh_status(
-                    self.slot_clock.as_ref(),
-                    &self.spec,
-                    &self.log,
-                ));
-            }
-        }
+    /// It is possible for a node to return an unsynced status while continuing to serve
+    /// low quality responses. To route around this it's best to poll all connected beacon nodes.
+    /// A previous implementation of this function polled only the unavailable BNs.
+    pub async fn update_all_candidates(&self) {
+        let futures = self
+            .candidates
+            .iter()
+            .map(|candidate| {
+                candidate.refresh_status(self.slot_clock.as_ref(), &self.spec, &self.log)
+            })
+            .collect::<Vec<_>>();
 
-        //run all updates concurrently and ignore results
+        // run all updates concurrently and ignore errors
         let _ = future::join_all(futures).await;
     }
 
