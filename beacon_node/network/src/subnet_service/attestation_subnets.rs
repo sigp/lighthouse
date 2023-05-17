@@ -618,7 +618,14 @@ impl<T: BeaconChainTypes> Stream for AttestationService<T> {
         // If we aren't subscribed to all subnets, handle the deterministic long-lived subnets
         if !self.subscribe_all_subnets {
             match self.next_long_lived_subscription_event.as_mut().poll(cx) {
-                Poll::Ready(_) => self.recompute_long_lived_subnets(),
+                Poll::Ready(_) => {
+                    self.recompute_long_lived_subnets();
+                    // We re-wake the task as there could be other subscriptions to process
+                    self.waker
+                        .as_ref()
+                        .expect("Waker has been set")
+                        .wake_by_ref();
+                }
                 Poll::Pending => {}
             }
         }
@@ -630,6 +637,10 @@ impl<T: BeaconChainTypes> Stream for AttestationService<T> {
                 if let Err(e) = self.subscribe_to_subnet_immediately(subnet_id, slot + 1) {
                     debug!(self.log, "Failed to subscribe to short lived subnet"; "subnet" => ?subnet_id, "err" => e);
                 }
+                self.waker
+                    .as_ref()
+                    .expect("Waker has been set")
+                    .wake_by_ref();
             }
             Poll::Ready(Some(Err(e))) => {
                 error!(self.log, "Failed to check for scheduled subnet subscriptions"; "error"=> e);
@@ -641,6 +652,11 @@ impl<T: BeaconChainTypes> Stream for AttestationService<T> {
         match self.short_lived_subscriptions.poll_next_unpin(cx) {
             Poll::Ready(Some(Ok((subnet_id, _end_slot)))) => {
                 self.handle_removed_subnet(subnet_id, SubscriptionKind::ShortLived);
+                // We re-wake the task as there could be other subscriptions to process
+                self.waker
+                    .as_ref()
+                    .expect("Waker has been set")
+                    .wake_by_ref();
             }
             Poll::Ready(Some(Err(e))) => {
                 error!(self.log, "Failed to check for subnet unsubscription times"; "error"=> e);
