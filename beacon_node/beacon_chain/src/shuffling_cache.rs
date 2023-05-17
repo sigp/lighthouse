@@ -265,7 +265,7 @@ impl BlockShufflingIds {
         head_state: &BeaconState<T>,
     ) -> Result<Self, String> {
         let current =
-            AttestationShufflingId::new(head_block_root, &head_state, RelativeEpoch::Current)
+            AttestationShufflingId::new(head_block_root, head_state, RelativeEpoch::Current)
                 .map_err(|e| {
                     format!(
                 "Unable to get attester shuffling decision slot for the current epoch: {:?}",
@@ -273,13 +273,13 @@ impl BlockShufflingIds {
             )
                 })?;
 
-        let next = AttestationShufflingId::new(head_block_root, &head_state, RelativeEpoch::Next)
+        let next = AttestationShufflingId::new(head_block_root, head_state, RelativeEpoch::Next)
             .map_err(|e| {
-            format!(
-                "Unable to get attester shuffling decision slot for the next epoch: {:?}",
-                e
-            )
-        })?;
+                format!(
+                    "Unable to get attester shuffling decision slot for the next epoch: {:?}",
+                    e
+                )
+            })?;
 
         Ok(Self {
             current,
