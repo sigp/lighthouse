@@ -1,11 +1,16 @@
 # Simple Local Testnet
 
-These scripts allow for running a small local testnet with multiple beacon nodes and validator clients.
+These scripts allow for running a small local testnet with multiple beacon nodes and validator clients and a geth execution client.
 This setup can be useful for testing and development.
 
 ## Requirements
 
-The scripts require `lcli` and `lighthouse` to be installed on `PATH`. From the
+The scripts require `lcli`, `lighthouse`, `geth`, `bootnode` to be installed on `PATH`.
+
+
+MacOS users need to install GNU `sed` and GNU `grep`, and add them both to `PATH` as well.
+
+From the
 root of this repository, run:
 
 ```bash
@@ -17,17 +22,23 @@ make install-lcli
 
 Modify `vars.env` as desired.
 
-Start a local eth1 anvil server plus boot node along with `BN_COUNT`
-number of beacon nodes and `VC_COUNT` validator clients.
+The testnet starts with a post-merge genesis state. 
+Start a consensus layer and execution layer boot node along with `BN_COUNT`
+number of beacon nodes each connected to a geth execution client and `VC_COUNT` validator clients.
 
-The `start_local_testnet.sh` script takes four options `-v VC_COUNT`, `-d DEBUG_LEVEL`, `-p` to enable builder proposals and `-h` for help.
+The `start_local_testnet.sh` script takes four options `-v VC_COUNT`, `-d DEBUG_LEVEL`, `-p` to enable builder proposals and `-h` for help. It also takes a mandatory `GENESIS_FILE` for initialising geth's state.
+A sample `genesis.json` is provided in this directory.
+
+The `ETH1_BLOCK_HASH` environment variable is set to the block_hash of the genesis execution layer block which depends on the contents of `genesis.json`. Users of these scripts need to ensure that the `ETH1_BLOCK_HASH` variable is updated if genesis file is modified.
+
 The options may be in any order or absent in which case they take the default value specified.
 - VC_COUNT: the number of validator clients to create, default: `BN_COUNT`
 - DEBUG_LEVEL: one of { error, warn, info, debug, trace }, default: `info`
 
 
+
 ```bash
-./start_local_testnet.sh
+./start_local_testnet.sh genesis.json
 ```
 
 ## Stopping the testnet
@@ -41,31 +52,38 @@ This is not necessary before `start_local_testnet.sh` as it invokes `stop_local_
 
 These scripts are used by ./start_local_testnet.sh and may be used to manually
 
-Start a local eth1 anvil server
-```bash
-./anvil_test_node.sh
-```
-
-Assuming you are happy with the configuration in `vars.env`, deploy the deposit contract, make deposits,
-create the testnet directory, genesis state and validator keys with:
+Assuming you are happy with the configuration in `vars.env`,
+create the testnet directory, genesis state with embedded validators and validator keys with:
 
 ```bash
 ./setup.sh
 ```
 
-Generate bootnode enr and start a discv5 bootnode so that multiple beacon nodes can find each other
+Note: The generated genesis validators are embedded into the genesis state as genesis validators and hence do not require manual deposits to activate.
+
+Generate bootnode enr and start an EL and CL bootnode so that multiple nodes can find each other
 ```bash
 ./bootnode.sh
+./el_bootnode.sh
+```
+
+Start a geth node:
+```bash
+./geth.sh <DATADIR> <NETWORK-PORT> <HTTP-PORT> <AUTH-HTTP-PORT> <GENESIS_FILE>
+```
+e.g.
+```bash
+./geth.sh $HOME/.lighthouse/local-testnet/geth_1 5000 6000 7000 genesis.json
 ```
 
 Start a beacon node:
 
 ```bash
-./beacon_node.sh <DATADIR> <NETWORK-PORT> <HTTP-PORT> <OPTIONAL-DEBUG-LEVEL>
+./beacon_node.sh <DATADIR> <NETWORK-PORT> <HTTP-PORT> <EXECUTION-ENDPOINT> <EXECUTION-JWT-PATH> <OPTIONAL-DEBUG-LEVEL>
 ```
 e.g.
 ```bash
-./beacon_node.sh $HOME/.lighthouse/local-testnet/node_1 9000 8000
+./beacon_node.sh $HOME/.lighthouse/local-testnet/node_1 9000 8000 http://localhost:6000 ~/.lighthouse/local-testnet/geth_1/geth/jwtsecret
 ```
 
 In a new terminal, start the validator client which will attach to the first
