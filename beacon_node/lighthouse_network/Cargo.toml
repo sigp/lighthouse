@@ -5,7 +5,7 @@ authors = ["Sigma Prime <contact@sigmaprime.io>"]
 edition = "2021"
 
 [dependencies]
-discv5 = { git = "https://github.com/sigp/discv5", rev = "fe8f0c78265e9e4b53aff059a4c19ed6138ed3ad", features = ["libp2p"]}
+discv5 = { git = "https://github.com/sigp/discv5", rev = "269b7f0fc73f85484b0c08929a8e7540ab5de20f", features = ["libp2p"]}
 unsigned-varint = { version = "0.6.0", features = ["codec"] }
 types = { path =  "../../consensus/types" }
 ssz_types = "0.5.0"
