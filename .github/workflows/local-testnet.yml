@@ -58,7 +58,7 @@ jobs:
         run: make && make install-lcli
 
       - name: Start local testnet
-        run: ./start_local_testnet.sh && sleep 60
+        run: ./start_local_testnet.sh genesis.json && sleep 60
         working-directory: scripts/local_testnet
 
       - name: Print logs
@@ -74,7 +74,7 @@ jobs:
         working-directory: scripts/local_testnet
 
       - name: Start local testnet with blinded block production
-        run: ./start_local_testnet.sh -p && sleep 60
+        run: ./start_local_testnet.sh -p genesis.json && sleep 60
         working-directory: scripts/local_testnet
 
       - name: Print logs for blinded block testnet
