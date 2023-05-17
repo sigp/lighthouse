@@ -153,11 +153,11 @@ impl ShufflingCache {
         self.cache.insert(key, cache_item);
     }
 
-    /// Prunes the `cache` to keep the size below the `cache_size` limit, based on the following preferences:
+    /// Prunes the `cache` to keep the size below the `cache_size` limit, based on the following
+    /// preferences:
     /// - Entries from more recent epochs are preferred over older ones.
-    /// - "Enshrined" shuffling (i.e. shuffling id for the head block at the current wall-clock epoch)
-    ///   must not be pruned.
-    /// TODO: update comment
+    /// - Entries with shuffling ids matching the head's previous, current, and future epochs must
+    ///   not be pruned.
     fn prune_cache(&mut self) {
         if self.cache.len() >= self.cache_size {
             let prune_count = self.cache.len() - self.cache_size + 1;
@@ -206,11 +206,10 @@ impl ShufflingCache {
         Ok(sender)
     }
 
-    /// Inform the cache that the shuffling decision root for the head has changed.
+    /// Inform the cache that the shuffling decision roots for the head has changed.
     ///
-    /// The shuffling that matches this `head_shuffling_decision_root` and the current epoch will
-    /// never be ejected from the cache during `Self::insert_cache_item`.
-    /// TODO: update comment
+    /// The shufflings for the head's previous, current, and future epochs will never be ejected from
+    /// the cache during `Self::insert_cache_item`.
     pub fn update_head_shuffling_ids(&mut self, head_shuffling_ids: BlockShufflingIds) {
         self.head_shuffling_ids = head_shuffling_ids;
     }
@@ -245,7 +244,8 @@ pub struct BlockShufflingIds {
 impl BlockShufflingIds {
     /// Returns the shuffling ID for the given epoch.
     ///
-    /// Returns `None` if `epoch` is prior to `self.current.shuffling_epoch`.
+    /// Returns `None` if `epoch` is prior to `self.previous?.shuffling_epoch` or
+    /// `self.current.shuffling_epoch` (if `previous` is `None`).
     pub fn id_for_epoch(&self, epoch: Epoch) -> Option<AttestationShufflingId> {
         if epoch == self.current.shuffling_epoch {
             Some(self.current.clone())
