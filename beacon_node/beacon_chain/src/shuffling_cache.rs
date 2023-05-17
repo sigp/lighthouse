@@ -238,6 +238,7 @@ impl ToArcCommitteeCache for Arc<CommitteeCache> {
 pub struct BlockShufflingIds {
     pub current: AttestationShufflingId,
     pub next: AttestationShufflingId,
+    pub previous: Option<AttestationShufflingId>,
     pub block_root: Hash256,
 }
 
@@ -248,6 +249,13 @@ impl BlockShufflingIds {
     pub fn id_for_epoch(&self, epoch: Epoch) -> Option<AttestationShufflingId> {
         if epoch == self.current.shuffling_epoch {
             Some(self.current.clone())
+        } else if Some(epoch)
+            == self
+                .previous
+                .as_ref()
+                .map(|shuffling_id| shuffling_id.shuffling_epoch)
+        {
+            self.previous.clone()
         } else if epoch == self.next.shuffling_epoch {
             Some(self.next.clone())
         } else if epoch > self.next.shuffling_epoch {
@@ -264,26 +272,19 @@ impl BlockShufflingIds {
         head_block_root: Hash256,
         head_state: &BeaconState<T>,
     ) -> Result<Self, String> {
-        let current =
-            AttestationShufflingId::new(head_block_root, head_state, RelativeEpoch::Current)
-                .map_err(|e| {
-                    format!(
-                "Unable to get attester shuffling decision slot for the current epoch: {:?}",
-                e
-            )
-                })?;
-
-        let next = AttestationShufflingId::new(head_block_root, head_state, RelativeEpoch::Next)
-            .map_err(|e| {
+        let get_shuffling_id = |relative_epoch| {
+            AttestationShufflingId::new(head_block_root, head_state, relative_epoch).map_err(|e| {
                 format!(
-                    "Unable to get attester shuffling decision slot for the next epoch: {:?}",
-                    e
+                    "Unable to get attester shuffling decision slot for the epoch {:?}: {:?}",
+                    relative_epoch, e
                 )
-            })?;
+            })
+        };
 
         Ok(Self {
-            current,
-            next,
+            current: get_shuffling_id(RelativeEpoch::Current)?,
+            next: get_shuffling_id(RelativeEpoch::Next)?,
+            previous: Some(get_shuffling_id(RelativeEpoch::Previous)?),
             block_root: head_block_root,
         })
     }
@@ -310,6 +311,7 @@ mod test {
         let head_shuffling_ids = BlockShufflingIds {
             current: shuffling_id(1),
             next: shuffling_id(2),
+            previous: Some(shuffling_id(0)),
             block_root: Hash256::from_low_u64_le(0),
         };
         let logger = null_logger().unwrap();
@@ -538,6 +540,7 @@ mod test {
         let head_shuffling_ids = BlockShufflingIds {
             current: shuffling_id(current_epoch),
             next: shuffling_id(current_epoch + 1),
+            previous: Some(shuffling_id(current_epoch - 1)),
             block_root: Hash256::from_low_u64_le(42),
         };
         cache.update_head_shuffling_ids(head_shuffling_ids.clone());
@@ -545,7 +548,10 @@ mod test {
         // Insert head state shuffling ids. Should not be overridden by other shuffling ids.
         cache.insert_committee_cache(head_shuffling_ids.current.clone(), &committee_cache);
         cache.insert_committee_cache(head_shuffling_ids.next.clone(), &committee_cache);
-        // cache.insert_committee_cache(head_shuffling_ids.previous.clone(), &committee_cache);
+        cache.insert_committee_cache(
+            head_shuffling_ids.previous.clone().unwrap(),
+            &committee_cache,
+        );
 
         // Insert a few entries for older epochs.
         for i in 0..TEST_CACHE_SIZE {
@@ -564,11 +570,10 @@ mod test {
             cache.contains(&head_shuffling_ids.next),
             "should retain head shuffling id for the next epoch."
         );
-        // TODO: update comment
-        // assert!(
-        //     cache.contains(&head_shuffling_ids.previous),
-        //     "should retain head shuffling id for previous epoch."
-        // );
+        assert!(
+            cache.contains(&head_shuffling_ids.previous.unwrap()),
+            "should retain head shuffling id for previous epoch."
+        );
         assert_eq!(
             cache.cache.len(),
             cache.cache_size,
