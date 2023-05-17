@@ -26,8 +26,7 @@ engine to a merge-ready version.
 You must configure your node to be merge-ready before the Bellatrix fork occurs on the network
 on which your node is operating.
 
-* **Gnosis**: the Bellatrix fork has not yet been scheduled.
-* **Mainnet**, **Goerli (Prater)**, **Ropsten**, **Sepolia**, **Kiln**: the Bellatrix fork has
+* **Mainnet**, **Goerli (Prater)**, **Ropsten**, **Sepolia**, **Kiln**, **Gnosis**: the Bellatrix fork has
   already occurred. You must have a merge-ready configuration right now.
 
 ## Connecting to an execution engine
