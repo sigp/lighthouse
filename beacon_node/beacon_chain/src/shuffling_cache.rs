@@ -5,10 +5,12 @@ use itertools::Itertools;
 use slog::{debug, Logger};
 
 use oneshot_broadcast::{oneshot, Receiver, Sender};
-use slot_clock::SlotClock;
-use types::{beacon_state::CommitteeCache, AttestationShufflingId, Epoch, EthSpec, Hash256};
+use types::{
+    beacon_state::CommitteeCache, AttestationShufflingId, BeaconState, Epoch, EthSpec, Hash256,
+    RelativeEpoch,
+};
 
-use crate::{metrics, BeaconChainError, BeaconChainTypes};
+use crate::{metrics, BeaconChainError};
 
 /// The size of the cache that stores committee caches for quicker verification.
 ///
@@ -55,26 +57,19 @@ impl CacheItem {
 ///
 /// It has been named `ShufflingCache` because `CommitteeCacheCache` is a bit weird and looks like
 /// a find/replace error.
-pub struct ShufflingCache<T: BeaconChainTypes> {
+pub struct ShufflingCache {
     cache: HashMap<AttestationShufflingId, CacheItem>,
     cache_size: usize,
-    head_shuffling_decision_root: Hash256,
-    slot_clock: T::SlotClock,
+    head_shuffling_ids: BlockShufflingIds,
     logger: Logger,
 }
 
-impl<T: BeaconChainTypes> ShufflingCache<T> {
-    pub fn new(
-        cache_size: usize,
-        head_shuffling_decision_root: Hash256,
-        slot_clock: T::SlotClock,
-        logger: Logger,
-    ) -> Self {
+impl ShufflingCache {
+    pub fn new(cache_size: usize, head_shuffling_ids: BlockShufflingIds, logger: Logger) -> Self {
         Self {
             cache: HashMap::new(),
             cache_size,
-            head_shuffling_decision_root,
-            slot_clock,
+            head_shuffling_ids,
             logger,
         }
     }
@@ -162,6 +157,7 @@ impl<T: BeaconChainTypes> ShufflingCache<T> {
     /// - Entries from more recent epochs are preferred over older ones.
     /// - "Enshrined" shuffling (i.e. shuffling id for the head block at the current wall-clock epoch)
     ///   must not be pruned.
+    /// TODO: update comment
     fn prune_cache(&mut self) {
         if self.cache.len() >= self.cache_size {
             let prune_count = self.cache.len() - self.cache_size + 1;
@@ -169,13 +165,12 @@ impl<T: BeaconChainTypes> ShufflingCache<T> {
                 .cache
                 .keys()
                 .sorted_by_key(|key| key.shuffling_epoch)
-                .filter(|key| {
-                    if let Some(current_epoch) = self.get_current_epoch() {
-                        key.shuffling_epoch != current_epoch
-                            || key.shuffling_decision_block != self.head_shuffling_decision_root
-                    } else {
-                        true
-                    }
+                .filter(|shuffling_id| {
+                    self.head_shuffling_ids
+                        .id_for_epoch(shuffling_id.shuffling_epoch)
+                        .map_or(true, |head_shuffling_id| {
+                            &&head_shuffling_id != shuffling_id
+                        })
                 })
                 .take(prune_count)
                 .cloned()
@@ -191,12 +186,6 @@ impl<T: BeaconChainTypes> ShufflingCache<T> {
                 "count" => shuffling_ids_to_prune.len()
             );
         }
-    }
-
-    fn get_current_epoch(&self) -> Option<Epoch> {
-        self.slot_clock
-            .now()
-            .map(|s| s.epoch(T::EthSpec::slots_per_epoch()))
     }
 
     pub fn create_promise(
@@ -221,8 +210,9 @@ impl<T: BeaconChainTypes> ShufflingCache<T> {
     ///
     /// The shuffling that matches this `head_shuffling_decision_root` and the current epoch will
     /// never be ejected from the cache during `Self::insert_cache_item`.
-    pub fn update_head_shuffling_decision_root(&mut self, head_shuffling_decision_root: Hash256) {
-        self.head_shuffling_decision_root = head_shuffling_decision_root;
+    /// TODO: update comment
+    pub fn update_head_shuffling_ids(&mut self, head_shuffling_ids: BlockShufflingIds) {
+        self.head_shuffling_ids = head_shuffling_ids;
     }
 }
 
@@ -244,6 +234,7 @@ impl ToArcCommitteeCache for Arc<CommitteeCache> {
 }
 
 /// Contains the shuffling IDs for a beacon block.
+#[derive(Clone)]
 pub struct BlockShufflingIds {
     pub current: AttestationShufflingId,
     pub next: AttestationShufflingId,
@@ -268,15 +259,40 @@ impl BlockShufflingIds {
             None
         }
     }
+
+    pub fn try_from_head<T: EthSpec>(
+        head_block_root: Hash256,
+        head_state: &BeaconState<T>,
+    ) -> Result<Self, String> {
+        let current =
+            AttestationShufflingId::new(head_block_root, &head_state, RelativeEpoch::Current)
+                .map_err(|e| {
+                    format!(
+                "Unable to get attester shuffling decision slot for the current epoch: {:?}",
+                e
+            )
+                })?;
+
+        let next = AttestationShufflingId::new(head_block_root, &head_state, RelativeEpoch::Next)
+            .map_err(|e| {
+            format!(
+                "Unable to get attester shuffling decision slot for the next epoch: {:?}",
+                e
+            )
+        })?;
+
+        Ok(Self {
+            current,
+            next,
+            block_root: head_block_root,
+        })
+    }
 }
 
 // Disable tests in debug since the beacon chain harness is slow unless in release.
 #[cfg(not(debug_assertions))]
 #[cfg(test)]
 mod test {
-    use std::time::Duration;
-
-    use slot_clock::{SlotClock, TestingSlotClock};
     use task_executor::test_utils::null_logger;
     use types::*;
 
@@ -287,15 +303,17 @@ mod test {
     type E = MinimalEthSpec;
     type TestBeaconChainType = EphemeralHarnessType<E>;
     type BeaconChainHarness = crate::test_utils::BeaconChainHarness<TestBeaconChainType>;
-    const TEST_CACHE_SIZE: usize = 3;
+    const TEST_CACHE_SIZE: usize = 5;
 
     // Creates a new shuffling cache for testing
-    fn new_shuffling_cache() -> ShufflingCache<TestBeaconChainType> {
-        let slot_duration = Duration::from_secs(12);
-        let slot_clock = TestingSlotClock::new(Slot::new(0), Duration::from_secs(0), slot_duration);
-        let shuffling_block_root = Hash256::from_low_u64_be(0);
+    fn new_shuffling_cache() -> ShufflingCache {
+        let head_shuffling_ids = BlockShufflingIds {
+            current: shuffling_id(1),
+            next: shuffling_id(2),
+            block_root: Hash256::from_low_u64_le(0),
+        };
         let logger = null_logger().unwrap();
-        ShufflingCache::new(TEST_CACHE_SIZE, shuffling_block_root, slot_clock, logger)
+        ShufflingCache::new(TEST_CACHE_SIZE, head_shuffling_ids, logger)
     }
 
     /// Returns two different committee caches for testing.
@@ -479,11 +497,6 @@ mod test {
             .map(|i| (shuffling_id(i as u64), Arc::new(CommitteeCache::default())))
             .collect::<Vec<_>>();
 
-        // Advance slot clock to epoch `TEST_CACHE_SIZE`.
-        cache
-            .slot_clock
-            .set_slot(E::slots_per_epoch() * TEST_CACHE_SIZE as u64);
-
         for (shuffling_id, committee_cache) in shuffling_id_and_committee_caches.iter() {
             cache.insert_committee_cache(shuffling_id.clone(), committee_cache);
         }
@@ -507,59 +520,55 @@ mod test {
     }
 
     #[test]
-    fn should_not_override_enshrined_head_state_shuffling() {
+    fn should_retain_head_state_shufflings() {
         let mut cache = new_shuffling_cache();
-
-        // Advance slot clock to epoch `TEST_CACHE_SIZE`.
-        let current_epoch = Epoch::from(TEST_CACHE_SIZE);
-        cache
-            .slot_clock
-            .set_slot(current_epoch.start_slot(E::slots_per_epoch()).as_u64());
-
-        // Set head shuffling decision root.
-        let head_shuffling_decision_root = Hash256::random();
-        cache.head_shuffling_decision_root = head_shuffling_decision_root;
-
-        // Insert "enshrined" head state shuffling. Should not be overridden by other shuffling id
-        // insertions.
+        let current_epoch = 10;
         let committee_cache = Arc::new(CommitteeCache::default());
-        let enshrined_shuffling_id = AttestationShufflingId {
-            shuffling_epoch: current_epoch,
-            shuffling_decision_block: head_shuffling_decision_root,
-        };
-        cache.insert_committee_cache(enshrined_shuffling_id.clone(), &committee_cache);
 
-        // Insert an entry for the same epoch, but different decision root.
-        cache.insert_committee_cache(
-            AttestationShufflingId {
-                shuffling_epoch: current_epoch,
-                shuffling_decision_block: Hash256::from_low_u64_be(TEST_CACHE_SIZE as u64),
-            },
-            &committee_cache,
-        );
-
-        // Insert an entry for a newer epoch, and same decision root.
-        cache.insert_committee_cache(
-            AttestationShufflingId {
-                shuffling_epoch: current_epoch + 1,
-                shuffling_decision_block: head_shuffling_decision_root,
-            },
-            &committee_cache,
-        );
-
-        // Insert a few entries of newer epochs and different decision roots.
+        // Insert a few entries for next the epoch with different decision roots.
         for i in 0..TEST_CACHE_SIZE {
             let shuffling_id = AttestationShufflingId {
-                shuffling_epoch: current_epoch + 1,
+                shuffling_epoch: (current_epoch + 1).into(),
+                shuffling_decision_block: Hash256::from_low_u64_be(current_epoch + i as u64),
+            };
+            cache.insert_committee_cache(shuffling_id, &committee_cache);
+        }
+
+        // Now, update the Set head shuffling ids
+        let head_shuffling_ids = BlockShufflingIds {
+            current: shuffling_id(current_epoch),
+            next: shuffling_id(current_epoch + 1),
+            block_root: Hash256::from_low_u64_le(42),
+        };
+        cache.update_head_shuffling_ids(head_shuffling_ids.clone());
+
+        // Insert head state shuffling ids. Should not be overridden by other shuffling ids.
+        cache.insert_committee_cache(head_shuffling_ids.current.clone(), &committee_cache);
+        cache.insert_committee_cache(head_shuffling_ids.next.clone(), &committee_cache);
+        // cache.insert_committee_cache(head_shuffling_ids.previous.clone(), &committee_cache);
+
+        // Insert a few entries for older epochs.
+        for i in 0..TEST_CACHE_SIZE {
+            let shuffling_id = AttestationShufflingId {
+                shuffling_epoch: Epoch::from(i),
                 shuffling_decision_block: Hash256::from_low_u64_be(i as u64),
             };
             cache.insert_committee_cache(shuffling_id, &committee_cache);
         }
 
         assert!(
-            cache.contains(&enshrined_shuffling_id),
-            "should not remove enshrined shuffling id."
+            cache.contains(&head_shuffling_ids.current),
+            "should retain head shuffling id for the current epoch."
         );
+        assert!(
+            cache.contains(&head_shuffling_ids.next),
+            "should retain head shuffling id for the next epoch."
+        );
+        // TODO: update comment
+        // assert!(
+        //     cache.contains(&head_shuffling_ids.previous),
+        //     "should retain head shuffling id for previous epoch."
+        // );
         assert_eq!(
             cache.cache.len(),
             cache.cache_size,

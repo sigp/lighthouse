@@ -6,7 +6,7 @@ use crate::fork_revert::{reset_fork_choice_to_finalization, revert_to_fork_bound
 use crate::head_tracker::HeadTracker;
 use crate::migrate::{BackgroundMigrator, MigratorConfig};
 use crate::persisted_beacon_chain::PersistedBeaconChain;
-use crate::shuffling_cache::ShufflingCache;
+use crate::shuffling_cache::{BlockShufflingIds, ShufflingCache};
 use crate::snapshot_cache::{SnapshotCache, DEFAULT_SNAPSHOT_CACHE_SIZE};
 use crate::timeout_rw_lock::TimeoutRwLock;
 use crate::validator_monitor::ValidatorMonitor;
@@ -33,7 +33,7 @@ use store::{Error as StoreError, HotColdDB, ItemStore, KeyValueStoreOp};
 use task_executor::{ShutdownReason, TaskExecutor};
 use types::{
     BeaconBlock, BeaconState, ChainSpec, Checkpoint, Epoch, EthSpec, Graffiti, Hash256,
-    PublicKeyBytes, RelativeEpoch, Signature, SignedBeaconBlock, Slot,
+    PublicKeyBytes, Signature, SignedBeaconBlock, Slot,
 };
 
 /// An empty struct used to "witness" all the `BeaconChainTypes` traits. It has no user-facing
@@ -691,14 +691,7 @@ where
             )?;
         }
 
-        let head_shuffling_decision_root = head_state
-            .attester_shuffling_decision_root(head_block_root, RelativeEpoch::Current)
-            .map_err(|e| {
-                format!(
-                    "Unable to get attester shuffling decision slot from head state: {:?}",
-                    e
-                )
-            })?;
+        let head_shuffling_ids = BlockShufflingIds::try_from_head(head_block_root, &head_state)?;
 
         let mut head_snapshot = BeaconSnapshot {
             beacon_block_root: head_block_root,
@@ -858,8 +851,7 @@ where
             )),
             shuffling_cache: TimeoutRwLock::new(ShufflingCache::new(
                 shuffling_cache_size,
-                head_shuffling_decision_root,
-                slot_clock,
+                head_shuffling_ids,
                 log.clone(),
             )),
             eth1_finalization_cache: TimeoutRwLock::new(Eth1FinalizationCache::new(log.clone())),

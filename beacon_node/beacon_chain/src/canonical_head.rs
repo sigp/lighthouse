@@ -33,6 +33,7 @@
 
 use crate::beacon_chain::ATTESTATION_CACHE_LOCK_TIMEOUT;
 use crate::persisted_fork_choice::PersistedForkChoice;
+use crate::shuffling_cache::BlockShufflingIds;
 use crate::{
     beacon_chain::{
         BeaconForkChoice, BeaconStore, OverrideForkchoiceUpdate,
@@ -847,21 +848,33 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 );
             });
 
-        if let Ok(head_shuffling_decision_root) = prev_dependent_root {
-            self.shuffling_cache
-                .try_write_for(ATTESTATION_CACHE_LOCK_TIMEOUT)
-                .map(|mut shuffling_cache| {
-                    shuffling_cache
-                        .update_head_shuffling_decision_root(head_shuffling_decision_root)
-                })
-                .unwrap_or_else(|| {
-                    error!(
-                        self.log,
-                        "Failed to obtain cache write lock";
-                        "lock" => "shuffling_cache",
-                        "task" => "update head shuffling decision root"
-                    );
-                });
+        match BlockShufflingIds::try_from_head(
+            new_snapshot.beacon_block_root,
+            &new_snapshot.beacon_state,
+        ) {
+            Ok(head_shuffling_ids) => {
+                self.shuffling_cache
+                    .try_write_for(ATTESTATION_CACHE_LOCK_TIMEOUT)
+                    .map(|mut shuffling_cache| {
+                        shuffling_cache.update_head_shuffling_ids(head_shuffling_ids)
+                    })
+                    .unwrap_or_else(|| {
+                        error!(
+                            self.log,
+                            "Failed to obtain cache write lock";
+                            "lock" => "shuffling_cache",
+                            "task" => "update head shuffling decision root"
+                        );
+                    });
+            }
+            Err(e) => {
+                error!(
+                    self.log,
+                    "Failed to get head shuffling ids";
+                    "error" => ?e,
+                    "head_block_root" => ?new_snapshot.beacon_block_root
+                );
+            }
         }
 
         observe_head_block_delays(
