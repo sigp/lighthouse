@@ -35,7 +35,7 @@ impl Drain for SSELoggingComponents {
 
     fn log(&self, record: &Record, logger_values: &OwnedKVList) -> Result<Self::Ok, Self::Err> {
         if record.level().is_at_least(LOG_LEVEL) {
-            // There are subscribers, attempt to send the logs
+            // Attempt to send the logs
             match self.sender.send(AsyncRecord::from(record, logger_values)) {
                 Ok(_num_sent) => {} // Everything got sent
                 Err(_err) => {}     // There are no subscribers, do nothing

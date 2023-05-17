@@ -485,7 +485,7 @@ fn run<E: EthSpec>(
 
     let sse_logging = {
         if let Some(bn_matches) = matches.subcommand_matches("beacon_node") {
-            bn_matches.is_present("http") || bn_matches.is_present("gui")
+            bn_matches.is_present("gui")
         } else if let Some(vc_matches) = matches.subcommand_matches("validator_client") {
             vc_matches.is_present("http")
         } else {

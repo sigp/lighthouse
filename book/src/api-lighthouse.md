@@ -684,7 +684,7 @@ Caveats:
 
 This is a Server Side Event subscription endpoint. This allows a user to read
 the Lighthouse logs directly from the HTTP API endpoint. This currently
-exposes INFO and higher level logs.
+exposes INFO and higher level logs. It is only enabled when the `--gui` flag is set in the CLI.
 
 Example:
 
@@ -694,7 +694,7 @@ curl -N "http://localhost:5052/lighthouse/logs"
 
 Should provide an output that emits log events as they occur:
 ```json
-{ 
+{
 "data": {
 	  "time": "Mar 13 15:28:41",
 	  "level": "INFO",
@@ -707,4 +707,3 @@ Should provide an output that emits log events as they occur:
 	}
 }
 ```
-

@@ -3750,7 +3750,7 @@ pub fn serve<T: BeaconChainTypes>(
                                     }
                                 }
                                 Err(e) => Err(warp_utils::reject::server_sent_event_error(
-                                    format!("Unable to serialize to JSON {}", e),
+                                    format!("Unable to receive event {}", e),
                                 )),
                             }
                         });

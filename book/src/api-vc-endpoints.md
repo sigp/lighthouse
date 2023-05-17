@@ -588,9 +588,9 @@ logs emitted are INFO level or higher.
 
 | Property          | Specification                              |
 |-------------------|--------------------------------------------|
-| Path              | `/lighthouse/logs`                    |
+| Path              | `/lighthouse/logs`                         |
 | Method            | GET                                        |
-| Required Headers  | [`Authorization`](./api-vc-auth-header.md) |
+| Required Headers  | None                                       |
 | Typical Responses | 200                                        |
 
 ### Example Response Body
