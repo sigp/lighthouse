@@ -25,7 +25,7 @@
 ## [Network, Monitoring and Maintenance](#network-monitoring-and-maintenance-1)
 - [I have a low peer count and it is not increasing](#i-have-a-low-peer-count-and-it-is-not-increasing)
 - [How do I update lighthouse?](#how-do-i-update-lighthouse)
-- [Do I need to set up any port mappings?](#do-i-need-to-set-up-any-port-mappings)
+- [Do I need to set up any port mappings (port forwarding)?](#do-i-need-to-set-up-any-port-mappings-port-forwarding)
 - [How can I monitor my validators?](#how-can-i-monitor-my-validators)
 - [My beacon node and validator client are on different servers. How can I point the validator client to the beacon node?](#my-beacon-node-and-validator-client-are-on-different-servers-how-can-i-point-the-validator-client-to-the-beacon-node)
 - [Should I do anything to the beacon node or validator client settings if I have a relocation of the node / change of IP address?](#should-i-do-anything-to-the-beacon-node-or-validator-client-settings-if-i-have-a-relocation-of-the-node--change-of-ip-address)
@@ -151,7 +151,7 @@ This warning usually comes with an http error code. Some examples are given belo
 WARN Error processing HTTP API request       method: GET, path: /eth/v1/validator/attestation_data, status: 500 Internal Server Error, elapsed: 305.65µs
 ```
 
-The error is `500 Internal Server Error`. This suggests that the execution client is not synced. Once the execution client is sycned, the error will disappear.
+The error is `500 Internal Server Error`. This suggests that the execution client is not synced. Once the execution client is synced, the error will disappear.
 
 2. The log show:
 
@@ -175,9 +175,8 @@ After validators create their execution layer deposit transaction there are two 
 periods before they can start producing blocks and attestations:
 
 1. Waiting for the beacon chain to recognise the execution layer block containing the
-   deposit (generally 4 to 7.4 hours).
-1. Waiting in the queue for validator activation (generally 6.4 minutes for
-   every 4 validators in the queue).
+   deposit (generally takes ~13.6 hours).
+1. Waiting in the queue for validator activation.
 
 Detailed answers below:
 
@@ -186,33 +185,33 @@ Detailed answers below:
 Since the beacon chain uses the execution layer for validator on-boarding, beacon chain
 validators must listen to event logs from the deposit contract. Since the
 latest blocks of the execution chain are vulnerable to re-orgs due to minor network
-partitions, beacon nodes follow the execution chain at a distance of 1,024 blocks
-(~4 hours) (see
-[`ETH1_FOLLOW_DISTANCE`](https://github.com/ethereum/consensus-specs/blob/v0.12.1/specs/phase0/validator.md#misc)).
+partitions, beacon nodes follow the execution chain at a distance of 2048 blocks
+(~6.8 hours) (see
+[`ETH1_FOLLOW_DISTANCE`](https://github.com/ethereum/consensus-specs/blob/v1.3.0/specs/phase0/validator.md#process-deposit)).
 This follow distance protects the beacon chain from on-boarding validators that
 are likely to be removed due to an execution chain re-org.
 
-Now we know there's a 4 hours delay before the beacon nodes even _consider_ an
+Now we know there's a 6.8 hours delay before the beacon nodes even _consider_ an
 execution layer block. Once they _are_ considering these blocks, there's a voting period
 where beacon validators vote on which execution block hash to include in the beacon chain. This
-period is defined as 32 epochs (~3.4 hours, see
-[`ETH1_VOTING_PERIOD`](https://github.com/ethereum/consensus-specs/blob/v0.12.1/specs/phase0/beacon-chain.md#time-parameters)).
+period is defined as 64 epochs (~6.8 hours, see
+[`ETH1_VOTING_PERIOD`](https://github.com/ethereum/consensus-specs/blob/v1.3.0/specs/phase0/beacon-chain.md#time-parameters)).
 During this voting period, each beacon block producer includes an
-[`Eth1Data`](https://github.com/ethereum/consensus-specs/blob/v0.12.1/specs/phase0/beacon-chain.md#eth1data)
+[`Eth1Data`](https://github.com/ethereum/consensus-specs/blob/v1.3.0/specs/phase0/beacon-chain.md#eth1data)
 in their block which counts as a vote towards what that validator considers to
 be the head of the execution chain at the start of the voting period (with respect
 to `ETH1_FOLLOW_DISTANCE`, of course). You can see the exact voting logic
-[here](https://github.com/ethereum/consensus-specs/blob/v0.12.1/specs/phase0/validator.md#eth1-data).
+[here](https://github.com/ethereum/consensus-specs/blob/v1.3.0/specs/phase0/validator.md#eth1-data).
 
 These two delays combined represent the time between an execution layer deposit being
 included in an execution data vote and that validator appearing in the beacon chain.
-The `ETH1_FOLLOW_DISTANCE` delay causes a minimum delay of ~4 hours and
+The `ETH1_FOLLOW_DISTANCE` delay causes a minimum delay of ~6.8 hours and
 `ETH1_VOTING_PERIOD` means that if a validator deposit happens just _before_
 the start of a new voting period then they might not notice this delay at all.
 However, if the validator deposit happens just _after_ the start of the new
-voting period the validator might have to wait ~3.4 hours for next voting
-period. In times of very, very severe network issues, the network may even fail
-to vote in new execution layer blocks, stopping all new validator deposits!
+voting period the validator might have to wait ~6.8 hours for next voting
+period. In times of very severe network issues, the network may even fail
+to vote in new execution layer blocks, thus stopping all new validator deposits and causing the wait to be longer.
 
 #### 2. Waiting for a validator to be activated
 
@@ -222,27 +221,44 @@ They will simply be forgotten by the beacon chain! But, if those parameters were
 correct, once the execution layer delays have elapsed and the validator appears in the
 beacon chain, there's _another_ delay before the validator becomes "active"
 (canonical definition
-[here](https://github.com/ethereum/consensus-specs/blob/v0.12.1/specs/phase0/beacon-chain.md#is_active_validator)) and can start producing blocks and attestations.
+[here](https://github.com/ethereum/consensus-specs/blob/v1.3.0/specs/phase0/beacon-chain.md#is_active_validator)) and can start producing blocks and attestations.
 
 Firstly, the validator won't become active until their beacon chain balance is
 equal to or greater than
-[`MAX_EFFECTIVE_BALANCE`](https://github.com/ethereum/consensus-specs/blob/v0.12.1/specs/phase0/beacon-chain.md#gwei-values)
+[`MAX_EFFECTIVE_BALANCE`](https://github.com/ethereum/consensus-specs/blob/v1.3.0/specs/phase0/beacon-chain.md#gwei-values)
 (32 ETH on mainnet, usually 3.2 ETH on testnets). Once this balance is reached,
 the validator must wait until the start of the next epoch (up to 6.4 minutes)
 for the
-[`process_registry_updates`](https://github.com/ethereum/consensus-specs/blob/v0.12.1/specs/phase0/beacon-chain.md#registry-updates)
+[`process_registry_updates`](https://github.com/ethereum/consensus-specs/blob/v1.3.0/specs/phase0/beacon-chain.md#registry-updates)
 routine to run. This routine activates validators with respect to a [churn
-limit](https://github.com/ethereum/consensus-specs/blob/v0.12.1/specs/phase0/beacon-chain.md#get_validator_churn_limit);
+limit](https://github.com/ethereum/consensus-specs/blob/v1.3.0/specs/phase0/beacon-chain.md#get_validator_churn_limit);
 it will only allow the number of validators to increase (churn) by a certain
-amount. Up until there are about 330,000 validators this churn limit is set to
-4 and it starts to very slowly increase as the number of validators increases
-from there.
-
-If a new validator isn't within the churn limit from the front of the queue,
+amount. If a new validator isn't within the churn limit from the front of the queue,
 they will need to wait another epoch (6.4 minutes) for their next chance. This
-repeats until the queue is cleared.
+repeats until the queue is cleared. The churn limit is summarised in the table below:
 
-Once a validator has been activated, there's no more waiting! It's time to
+<div align="center" style="text-align: center;">
+
+| Number of active validators           | Validators activated per epoch     | Validators activated per day | 
+|-------------------|--------------------------------------------|----|
+| 327679 or less     | 4    | 900  | 
+| 327680-393215            |  5   | 1125 |
+| 393216-458751 | 6 | 1350
+| 458752-524287 | 7  | 1575
+| 524288-589823 | 8| 1800 |
+| 589824-655359 | 9| 2025 |
+| 655360-720895 | 10 | 2250|
+| 720896-786431 | 11 | 2475 |
+| 786432-851967 | 12 | 2700 |
+| 851968-917503 | 13 | 2925 |
+| 917504-983039 | 14 | 3150 |
+| 983040-1048575 | 15 | 3375 |
+
+</div>
+
+For example, the number of active validators on Mainnet is about 574000 on May 2023. This means that 8 validators can be activated per epoch or 1800 per day (it is noted that the same applies to the exit queue). If, for example, there are 9000 validators waiting to be activated, this means that the waiting time can take up to 5 days. 
+
+Once a validator has been activated, congratulations! It's time to
 produce blocks and attestations!
 
 ### Can I use redundancy in my staking setup?
@@ -340,7 +356,7 @@ $ docker pull sigp/lighthouse:v1.0.0
 ```
 
 If you are building a docker image, the process will be similar to the one described [here.](./docker.md#building-the-docker-image)
-You will just also need to make sure the code you have checked out is up to date.
+You just need to make sure the code you have checked out is up to date.
 
 ### How can I monitor my validators?
 
@@ -348,7 +364,7 @@ Apart from using block explorers, you may use the "Validator Monitor" built into
 provides logging and Prometheus/Grafana metrics for individual validators. See [Validator
 Monitoring](./validator-monitoring.md) for more information. Lighthouse has also developed Lighthouse UI (Siren) to monitor performance, see [Lighthouse UI (Siren)](./lighthouse-ui.md).
 
-### Do I need to set up any port mappings?
+### Do I need to set up any port mappings (port forwarding)?
 
 It is not strictly required to open any ports for Lighthouse to connect and
 participate in the network. Lighthouse should work out-of-the-box. However, if
@@ -373,9 +389,8 @@ peers to join and degrades the overall connectivity of the global network.
 For these reasons, we recommend that you make your node publicly accessible.
 
 Lighthouse supports UPnP. If you are behind a NAT with a router that supports
-UPnP you can simply ensure UPnP is enabled (Lighthouse will inform you in its
-initial logs if a route has been established). You can also manually set up
-port mappings in your router to your local Lighthouse instance. By default,
+UPnP, you can simply ensure UPnP is enabled (Lighthouse will inform you in its
+initial logs if a route has been established). You can also manually [set up port mappings](./advanced_networking.md) in your router to your local Lighthouse instance. By default,
 Lighthouse uses port 9000 for both TCP and UDP. Opening both these ports will
 make your Lighthouse node maximally contactable.
 
