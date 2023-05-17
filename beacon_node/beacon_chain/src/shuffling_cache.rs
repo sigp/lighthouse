@@ -166,11 +166,12 @@ impl ShufflingCache {
                 .keys()
                 .sorted_by_key(|key| key.shuffling_epoch)
                 .filter(|shuffling_id| {
-                    self.head_shuffling_ids
-                        .id_for_epoch(shuffling_id.shuffling_epoch)
-                        .map_or(true, |head_shuffling_id| {
-                            &&head_shuffling_id != shuffling_id
-                        })
+                    Some(shuffling_id)
+                        != self
+                            .head_shuffling_ids
+                            .id_for_epoch(shuffling_id.shuffling_epoch)
+                            .as_ref()
+                            .as_ref()
                 })
                 .take(prune_count)
                 .cloned()
