@@ -308,10 +308,11 @@ mod test {
 
     // Creates a new shuffling cache for testing
     fn new_shuffling_cache() -> ShufflingCache {
+        let current_epoch = 8;
         let head_shuffling_ids = BlockShufflingIds {
-            current: shuffling_id(1),
-            next: shuffling_id(2),
-            previous: Some(shuffling_id(0)),
+            current: shuffling_id(current_epoch),
+            next: shuffling_id(current_epoch + 1),
+            previous: Some(shuffling_id(current_epoch - 1)),
             block_root: Hash256::from_low_u64_le(0),
         };
         let logger = null_logger().unwrap();
