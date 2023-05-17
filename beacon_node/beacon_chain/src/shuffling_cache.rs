@@ -538,7 +538,7 @@ mod test {
             cache.insert_committee_cache(shuffling_id, &committee_cache);
         }
 
-        // Now, update the Set head shuffling ids
+        // Now, update the head shuffling ids
         let head_shuffling_ids = BlockShufflingIds {
             current: shuffling_id(current_epoch),
             next: shuffling_id(current_epoch + 1),
