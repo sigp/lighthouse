@@ -44,7 +44,7 @@ e.g. `~/.lighthouse/{network}/beacon/slasher_db`. You can use this flag to chang
 directory.
 
 ### Database Backend
-[comment]: <> (lmdb is an option, but lighthouse bn --help shows possible values are mdbx and disabled only, no lmdb. I found that this can be updated in beacon_node/src/cli.rs https://github.com/sigp/lighthouse/blob/693886b94176faa4cb450f024696cb69cda2fe58/beacon_node/src/cli.rs#LL762C1-L768C37 but I have no idea how. I didn't see "lmdb" or "disable" there)
+[comment]: <> (lmdb is an option, but lighthouse bn --help shows possible values are mdbx and disabled only, no lmdb. I found that this can be updated in beacon_node/src/cli.rs https://github.com/sigp/lighthouse/blob/693886b94176faa4cb450f024696cb69cda2fe58/beacon_node/src/cli.rs#LL762C1-L768C37, but I don't know how exactly? probably by changing line 767 .possible_values?)
 
 * Flag: `--slasher-backend NAME`
 * Argument: one of `mdbx`, `lmdb` or `disabled`
