@@ -36,7 +36,7 @@ Users may wish to try a release candidate for the following reasons:
 - To help detect bugs and regressions before they reach production.
 - To provide feedback on annoyances before they make it into a release and become harder to change or revert.
 
-There can also be a scenario that a bug has been found and requires an urgent fix. An example is [v4.0.2-rc.0](https://github.com/sigp/lighthouse/releases/tag/v4.0.2-rc.0), which contains a hot-fix to address high CPU usage experienced after the [Capella](https://ethereum.org/en/history/#capella) upgrade on 12<sup>th</sup> April 2023.  In this scenario, we will announce the release candidate on [Github](https://github.com/sigp/lighthouse/releases) and also on [Discord](https://discord.gg/cyAszAh) to recommend users to update to the release candidate version. 
+There can also be a scenario that a bug has been found and requires an urgent fix. An example of incidence is [v4.0.2-rc.0](https://github.com/sigp/lighthouse/releases/tag/v4.0.2-rc.0) which contains a hot-fix to address high CPU usage experienced after the [Capella](https://ethereum.org/en/history/#capella) upgrade on 12<sup>th</sup> April 2023.  In this scenario, we will announce the release candidate on [Github](https://github.com/sigp/lighthouse/releases) and also on [Discord](https://discord.gg/cyAszAh) to recommend users to update to the release candidate version. 
 
 ## When *not* to use a release candidate
 

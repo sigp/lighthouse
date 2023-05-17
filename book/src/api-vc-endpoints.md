@@ -55,7 +55,7 @@ Example Response Body:
 
 > As an alternative, you can also provide the API token directly, for example, `-H "Authorization: Bearer api-token-0x02dc2a13115cc8c83baf170f597f22b1eb2930542941ab902df3daadebcb8f8176`. In this case, you obtain the token from the file `API token.txt` and the command to become:
 ```bash
-curl -X GET "http://localhost:5062/lighthouse/version" -H "Authorization: Bearer Bearer api-token-0x02dc2a13115cc8c83baf170f597f22b1eb2930542941ab902df3daadebcb8f8176" | jq
+curl -X GET "http://localhost:5062/lighthouse/version" -H "Authorization: Bearer api-token-0x02dc2a13115cc8c83baf170f597f22b1eb2930542941ab902df3daadebcb8f8176" | jq
 ```
 
 ## `GET /lighthouse/health`

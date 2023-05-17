@@ -49,6 +49,8 @@ There are a few interesting properties about the list of `--beacon-nodes`:
 > provided (if it is desired). It will only be used as default if no `--beacon-nodes` flag is
 > provided at all.
 
+> Important Note: `lighthouse vc` would failover to the redundant beacon node after the primary beacon node has been out of synced for 8 epochs (51.2 minutes). This is a known [issue](https://github.com/sigp/lighthouse/issues/3613). The developers are looking into this and there will be some improvements in Lighthouse [v4.2.0](https://github.com/sigp/lighthouse/releases/tag/v4.2.0), expected to be released in May 2023.
+
 ### Configuring a redundant Beacon Node
 
 In our previous example, we listed `http://192.168.1.1:5052` as a redundant
