@@ -160,8 +160,7 @@ impl<T: BeaconChainTypes> ShufflingCache<T> {
 
     /// Prunes the `cache` to keep the size below the `cache_size` limit, based on the following preferences:
     /// - Entries from more recent epochs are preferred over older ones.
-    /// - Entries in the canonical chain are preferred,when two entries have the same epoch.
-    /// - "Enshrined" shuffling (i.e. shuffling key the head block at the current wall-clock epoch)
+    /// - "Enshrined" shuffling (i.e. shuffling id for the head block at the current wall-clock epoch)
     ///   must not be pruned.
     fn prune_cache(&mut self) {
         if self.cache.len() >= self.cache_size {
@@ -169,7 +168,6 @@ impl<T: BeaconChainTypes> ShufflingCache<T> {
             let shuffling_ids_to_prune = self
                 .cache
                 .keys()
-                .cloned()
                 .sorted_by_key(|key| key.shuffling_epoch)
                 .filter(|key| {
                     if let Some(current_epoch) = self.get_current_epoch() {
@@ -180,6 +178,7 @@ impl<T: BeaconChainTypes> ShufflingCache<T> {
                     }
                 })
                 .take(prune_count)
+                .cloned()
                 .collect::<Vec<_>>();
 
             for shuffling_id in shuffling_ids_to_prune.iter() {
@@ -567,8 +566,4 @@ mod test {
             "should limit cache size"
         );
     }
-
-    #[test]
-    #[ignore = "not implemented yet"]
-    fn should_prune_committee_cache_prefer_canonical_chain_entries() {}
 }
