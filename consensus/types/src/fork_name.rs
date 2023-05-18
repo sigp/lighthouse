@@ -1,12 +1,14 @@
 use crate::{ChainSpec, Epoch};
 use serde_derive::{Deserialize, Serialize};
+use ssz_derive::{Decode, Encode};
 use std::convert::TryFrom;
 use std::fmt::{self, Display, Formatter};
 use std::str::FromStr;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Decode, Encode, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(try_from = "String")]
 #[serde(into = "String")]
+#[ssz(enum_behaviour = "tag")]
 pub enum ForkName {
     Base,
     Altair,

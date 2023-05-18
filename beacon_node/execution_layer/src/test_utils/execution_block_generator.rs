@@ -658,34 +658,34 @@ pub fn generate_random_blobs<T: EthSpec>(
 
         let versioned_hash = commitment.calculate_versioned_hash();
 
-        let blob_transaction = BlobTransaction {
-            chain_id: Default::default(),
-            nonce: 0,
-            max_priority_fee_per_gas: Default::default(),
-            max_fee_per_gas: Default::default(),
-            gas: 100000,
-            to: None,
-            value: Default::default(),
-            data: Default::default(),
-            access_list: Default::default(),
-            max_fee_per_data_gas: Default::default(),
-            versioned_hashes: vec![versioned_hash].into(),
-        };
-        let bad_signature = EcdsaSignature {
-            y_parity: false,
-            r: Uint256::from(0),
-            s: Uint256::from(0),
-        };
-        let signed_blob_transaction = SignedBlobTransaction {
-            message: blob_transaction,
-            signature: bad_signature,
-        };
-        // calculate transaction bytes
-        let tx_bytes = [BLOB_TX_TYPE]
-            .into_iter()
-            .chain(signed_blob_transaction.as_ssz_bytes().into_iter())
-            .collect::<Vec<_>>();
-        let tx = Transaction::<T::MaxBytesPerTransaction>::from(tx_bytes);
+            let blob_transaction = BlobTransaction {
+                chain_id: Default::default(),
+                nonce: 0,
+                max_priority_fee_per_gas: Default::default(),
+                max_fee_per_gas: Default::default(),
+                gas: 100000,
+                to: None,
+                value: Default::default(),
+                data: Default::default(),
+                access_list: Default::default(),
+                max_fee_per_data_gas: Default::default(),
+                versioned_hashes: vec![versioned_hash].into(),
+            };
+            let bad_signature = EcdsaSignature {
+                y_parity: false,
+                r: Uint256::from(0),
+                s: Uint256::from(0),
+            };
+            let signed_blob_transaction = SignedBlobTransaction {
+                message: blob_transaction,
+                signature: bad_signature,
+            };
+            // calculate transaction bytes
+            let tx_bytes = [BLOB_TX_TYPE]
+                .into_iter()
+                .chain(signed_blob_transaction.as_ssz_bytes().into_iter())
+                .collect::<Vec<_>>();
+            let tx = Transaction::<T::MaxBytesPerTransaction>::from(tx_bytes);
 
         transactions.push(tx);
         bundle

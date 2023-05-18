@@ -77,6 +77,7 @@ use safe_arith::ArithError;
 use slog::{debug, error, warn, Logger};
 use slot_clock::SlotClock;
 use ssz::Encode;
+use ssz_derive::{Decode, Encode};
 use state_processing::per_block_processing::{errors::IntoWithIndex, is_merge_transition_block};
 use state_processing::{
     block_signature_verifier::{BlockSignatureVerifier, Error as BlockSignatureVerifierError},
@@ -95,6 +96,7 @@ use task_executor::JoinHandle;
 use tree_hash::TreeHash;
 use types::blob_sidecar::BlobIdentifier;
 use types::ExecPayload;
+use types::{ssz_tagged_beacon_state, ssz_tagged_signed_beacon_block};
 use types::{
     BeaconBlockRef, BeaconState, BeaconStateError, BlindedPayload, ChainSpec, CloneConfig, Epoch,
     EthSpec, ExecutionBlockHash, Hash256, InconsistentFork, PublicKey, PublicKeyBytes,
@@ -500,7 +502,7 @@ impl<T: EthSpec> From<ArithError> for BlockError<T> {
 }
 
 /// Stores information about verifying a payload against an execution engine.
-#[derive(Clone)]
+#[derive(Debug, PartialEq, Clone, Encode, Decode)]
 pub struct PayloadVerificationOutcome {
     pub payload_verification_status: PayloadVerificationStatus,
     pub is_valid_merge_transition_block: bool,
@@ -719,6 +721,7 @@ impl<E: EthSpec> ExecutedBlock<E> {
     }
 }
 
+#[derive(Debug, PartialEq)]
 pub struct AvailableExecutedBlock<E: EthSpec> {
     pub block: AvailableBlock<E>,
     pub import_data: BlockImportData<E>,
@@ -756,6 +759,7 @@ impl<E: EthSpec> AvailableExecutedBlock<E> {
     }
 }
 
+#[derive(Encode, Decode, Clone)]
 pub struct AvailabilityPendingExecutedBlock<E: EthSpec> {
     pub block: AvailabilityPendingBlock<E>,
     pub import_data: BlockImportData<E>,
@@ -796,9 +800,14 @@ impl<E: EthSpec> AvailabilityPendingExecutedBlock<E> {
     }
 }
 
+#[derive(Debug, PartialEq, Encode, Decode, Clone)]
+// TODO (mark): investigate using an Arc<state> / Arc<parent_block>
+//              here to make this cheaper to clone
 pub struct BlockImportData<E: EthSpec> {
     pub block_root: Hash256,
+    #[ssz(with = "ssz_tagged_beacon_state")]
     pub state: BeaconState<E>,
+    #[ssz(with = "ssz_tagged_signed_beacon_block")]
     pub parent_block: SignedBeaconBlock<E, BlindedPayload<E>>,
     pub parent_eth1_finalization_data: Eth1FinalizationData,
     pub confirmed_state_roots: Vec<Hash256>,

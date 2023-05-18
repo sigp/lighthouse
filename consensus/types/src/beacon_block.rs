@@ -201,13 +201,7 @@ impl<'a, T: EthSpec, Payload: AbstractExecPayload<T>> BeaconBlockRef<'a, T, Payl
     /// dictated by `self.slot()`.
     pub fn fork_name(&self, spec: &ChainSpec) -> Result<ForkName, InconsistentFork> {
         let fork_at_slot = spec.fork_name_at_slot::<T>(self.slot());
-        let object_fork = match self {
-            BeaconBlockRef::Base { .. } => ForkName::Base,
-            BeaconBlockRef::Altair { .. } => ForkName::Altair,
-            BeaconBlockRef::Merge { .. } => ForkName::Merge,
-            BeaconBlockRef::Capella { .. } => ForkName::Capella,
-            BeaconBlockRef::Deneb { .. } => ForkName::Deneb,
-        };
+        let object_fork = self.fork_name_unchecked();
 
         if fork_at_slot == object_fork {
             Ok(object_fork)
@@ -216,6 +210,19 @@ impl<'a, T: EthSpec, Payload: AbstractExecPayload<T>> BeaconBlockRef<'a, T, Payl
                 fork_at_slot,
                 object_fork,
             })
+        }
+    }
+
+    /// Returns the name of the fork pertaining to `self`.
+    ///
+    /// Does not check that the fork is consistent with the slot.
+    pub fn fork_name_unchecked(&self) -> ForkName {
+        match self {
+            BeaconBlockRef::Base { .. } => ForkName::Base,
+            BeaconBlockRef::Altair { .. } => ForkName::Altair,
+            BeaconBlockRef::Merge { .. } => ForkName::Merge,
+            BeaconBlockRef::Capella { .. } => ForkName::Capella,
+            BeaconBlockRef::Deneb { .. } => ForkName::Deneb,
         }
     }
 

@@ -464,7 +464,7 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     /// Provides monitoring of a set of explicitly defined validators.
     pub validator_monitor: RwLock<ValidatorMonitor<T::EthSpec>>,
     pub proposal_blob_cache: BlobCache<T::EthSpec>,
-    pub data_availability_checker: Arc<DataAvailabilityChecker<T::EthSpec, T::SlotClock>>,
+    pub data_availability_checker: Arc<DataAvailabilityChecker<T>>,
     pub kzg: Option<Arc<Kzg>>,
 }
 
@@ -604,6 +604,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             self.store
                 .put_item(&ETH1_CACHE_DB_KEY, &eth1_chain.as_ssz_container())?;
         }
+
+        Ok(())
+    }
+
+    pub fn persist_data_availabilty_checker(&self) -> Result<(), Error> {
+        let _timer = metrics::start_timer(&metrics::PERSIST_DATA_AVAILABILITY_CHECKER);
+        self.data_availability_checker.persist_all()?;
 
         Ok(())
     }
@@ -6279,6 +6286,7 @@ impl<T: BeaconChainTypes> Drop for BeaconChain<T> {
         let drop = || -> Result<(), Error> {
             self.persist_head_and_fork_choice()?;
             self.persist_op_pool()?;
+            self.persist_data_availabilty_checker()?;
             self.persist_eth1_cache()
         };
 

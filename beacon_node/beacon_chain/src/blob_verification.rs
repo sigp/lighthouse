@@ -15,6 +15,7 @@ use crate::BeaconChainError;
 use eth2::types::BlockContentsTuple;
 use kzg::Kzg;
 use slog::{debug, warn};
+use ssz_derive::{Decode, Encode};
 use ssz_types::FixedVector;
 use std::borrow::Cow;
 use types::blob_sidecar::{BlobIdentifier, FixedBlobSidecarList};
@@ -403,8 +404,9 @@ fn cheap_state_advance_to_obtain_committees<'a, E: EthSpec>(
 
 /// Wrapper over a `BlobSidecar` for which we have completed kzg verification.
 /// i.e. `verify_blob_kzg_proof(blob, commitment, proof) == true`.
-#[derive(Debug, Derivative, Clone)]
+#[derive(Debug, Derivative, Clone, Encode, Decode)]
 #[derivative(PartialEq, Eq)]
+#[ssz(struct_behaviour = "transparent")]
 pub struct KzgVerifiedBlob<T: EthSpec> {
     blob: Arc<BlobSidecar<T>>,
 }

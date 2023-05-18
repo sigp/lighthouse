@@ -13,6 +13,14 @@ fn assert_encode_decode<T: Encode + Decode + PartialEq + Debug>(item: &T, bytes:
 }
 
 #[derive(PartialEq, Debug, Encode, Decode)]
+#[ssz(enum_behaviour = "tag")]
+enum TagEnum {
+    A,
+    B,
+    C,
+}
+
+#[derive(PartialEq, Debug, Encode, Decode)]
 #[ssz(enum_behaviour = "union")]
 enum TwoFixedUnion {
     U8(u8),
@@ -118,6 +126,13 @@ fn two_variable_union() {
         &TwoVariableUnionStruct { a: union_b },
         &[4, 0, 0, 0, 1, 5, 0, 0, 0, 3, 1, 2],
     );
+}
+
+#[test]
+fn tag_enum() {
+    assert_encode_decode(&TagEnum::A, &[0]);
+    assert_encode_decode(&TagEnum::B, &[1]);
+    assert_encode_decode(&TagEnum::C, &[2]);
 }
 
 #[derive(PartialEq, Debug, Encode, Decode)]

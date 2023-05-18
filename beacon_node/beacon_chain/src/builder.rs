@@ -794,7 +794,7 @@ where
         let beacon_chain = BeaconChain {
             spec: self.spec.clone(),
             config: self.chain_config,
-            store,
+            store: store.clone(),
             task_executor: self
                 .task_executor
                 .ok_or("Cannot build without task executor")?,
@@ -864,8 +864,9 @@ where
             data_availability_checker: Arc::new(DataAvailabilityChecker::new(
                 slot_clock,
                 kzg.clone(),
+                store,
                 self.spec,
-            )),
+            ).map_err(|e| format!("Error initializing DataAvailabiltyChecker: {:?}", e))?),
             proposal_blob_cache: BlobCache::default(),
             kzg,
         };
