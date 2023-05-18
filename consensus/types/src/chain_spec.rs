@@ -930,6 +930,9 @@ pub struct Config {
     shard_committee_period: u64,
     #[serde(with = "serde_utils::quoted_u64")]
     eth1_follow_distance: u64,
+    #[serde(default = "default_subnets_per_node")]
+    #[serde(with = "serde_utils::quoted_u8")]
+    subnets_per_node: u8,
 
     #[serde(with = "serde_utils::quoted_u64")]
     inactivity_score_bias: u64,
@@ -984,6 +987,10 @@ fn default_terminal_block_hash_activation_epoch() -> Epoch {
 
 fn default_safe_slots_to_import_optimistically() -> u64 {
     128u64
+}
+
+fn default_subnets_per_node() -> u8 {
+    2u8
 }
 
 impl Default for Config {
@@ -1068,6 +1075,7 @@ impl Config {
             min_validator_withdrawability_delay: spec.min_validator_withdrawability_delay,
             shard_committee_period: spec.shard_committee_period,
             eth1_follow_distance: spec.eth1_follow_distance,
+            subnets_per_node: spec.subnets_per_node,
 
             inactivity_score_bias: spec.inactivity_score_bias,
             inactivity_score_recovery_rate: spec.inactivity_score_recovery_rate,
@@ -1114,6 +1122,7 @@ impl Config {
             min_validator_withdrawability_delay,
             shard_committee_period,
             eth1_follow_distance,
+            subnets_per_node,
             inactivity_score_bias,
             inactivity_score_recovery_rate,
             ejection_balance,
@@ -1146,6 +1155,7 @@ impl Config {
             min_validator_withdrawability_delay,
             shard_committee_period,
             eth1_follow_distance,
+            subnets_per_node,
             inactivity_score_bias,
             inactivity_score_recovery_rate,
             ejection_balance,
