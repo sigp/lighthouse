@@ -37,10 +37,10 @@ use types::{Epoch, EthSpec, Hash256, Slot, Unsigned};
 /// from at least one slot in the previous epoch.
 pub const MAX_CACHED_EPOCHS: u64 = 3;
 
-pub type ObservedAttesters<E> = AutoPruningEpochContainer<(), EpochBitfield, E>;
+pub type ObservedAttesters<E> = AutoPruningEpochContainer<EpochBitfield, E>;
 pub type ObservedSyncContributors<E> =
     AutoPruningSlotContainer<SlotSubcommitteeIndex, Hash256, SyncContributorSlotHashSet<E>, E>;
-pub type ObservedAggregators<E> = AutoPruningEpochContainer<(), EpochHashSet, E>;
+pub type ObservedAggregators<E> = AutoPruningEpochContainer<EpochHashSet, E>;
 pub type ObservedSyncAggregators<E> =
     AutoPruningSlotContainer<SlotSubcommitteeIndex, (), SyncAggregatorSlotHashSet, E>;
 
@@ -264,25 +264,23 @@ impl Item<()> for SyncAggregatorSlotHashSet {
 /// attestations with an epoch prior to `a.data.target.epoch - 32` will be cleared from the cache.
 ///
 /// `T` should be set to a `EpochBitfield` or `EpochHashSet`.
-pub struct AutoPruningEpochContainer<S, T, E: EthSpec> {
+pub struct AutoPruningEpochContainer<T, E: EthSpec> {
     lowest_permissible_epoch: Epoch,
     items: HashMap<Epoch, T>,
-    _phantom_e: PhantomData<E>,
-    _phantom_s: PhantomData<S>,
+    _phantom: PhantomData<E>,
 }
 
-impl<S, T, E: EthSpec> Default for AutoPruningEpochContainer<S, T, E> {
+impl<T, E: EthSpec> Default for AutoPruningEpochContainer<T, E> {
     fn default() -> Self {
         Self {
             lowest_permissible_epoch: Epoch::new(0),
             items: HashMap::new(),
-            _phantom_e: PhantomData,
-            _phantom_s: PhantomData,
+            _phantom: PhantomData,
         }
     }
 }
 
-impl<S, T: Item<S>, E: EthSpec> AutoPruningEpochContainer<S, T, E> {
+impl<T: Item<()>, E: EthSpec> AutoPruningEpochContainer<T, E> {
     /// Observe that `validator_index` has produced attestation `a`. Returns `Ok(true)` if `a` has
     /// previously been observed for `validator_index`.
     ///
@@ -294,14 +292,13 @@ impl<S, T: Item<S>, E: EthSpec> AutoPruningEpochContainer<S, T, E> {
         &mut self,
         epoch: Epoch,
         validator_index: usize,
-        value: S,
     ) -> Result<bool, Error> {
         self.sanitize_request(epoch, validator_index)?;
 
         self.prune(epoch);
 
         if let Some(item) = self.items.get_mut(&epoch) {
-            Ok(item.insert(validator_index, value))
+            Ok(item.insert(validator_index, ()))
         } else {
             // To avoid re-allocations, try and determine a rough initial capacity for the new item
             // by obtaining the mean size of all items in earlier epoch.
@@ -317,23 +314,11 @@ impl<S, T: Item<S>, E: EthSpec> AutoPruningEpochContainer<S, T, E> {
             let initial_capacity = sum.checked_div(count).unwrap_or_else(T::default_capacity);
 
             let mut item = T::with_capacity(initial_capacity);
-            item.insert(validator_index, value);
+            item.insert(validator_index, ());
             self.items.insert(epoch, item);
 
             Ok(false)
         }
-    }
-
-    // Identical to `Self::observation_for_validator` but discards the
-    // observation, simply returning `true` if the validator has been observed
-    // at all.
-    pub fn validator_has_been_observed(
-        &self,
-        epoch: Epoch,
-        validator_index: usize,
-    ) -> Result<bool, Error> {
-        self.observation_for_validator(epoch, validator_index)
-            .map(|observation| observation.is_some())
     }
 
     /// Returns `Ok(true)` if the `validator_index` has produced an attestation conflicting with
@@ -343,19 +328,19 @@ impl<S, T: Item<S>, E: EthSpec> AutoPruningEpochContainer<S, T, E> {
     ///
     /// - `validator_index` is higher than `VALIDATOR_REGISTRY_LIMIT`.
     /// - `a.data.target.slot` is earlier than `self.lowest_permissible_slot`.
-    pub fn observation_for_validator(
+    pub fn validator_has_been_observed(
         &self,
         epoch: Epoch,
         validator_index: usize,
-    ) -> Result<Option<S>, Error> {
+    ) -> Result<bool, Error> {
         self.sanitize_request(epoch, validator_index)?;
 
-        let observation = self
+        let observed = self
             .items
             .get(&epoch)
-            .and_then(|item| item.get(validator_index));
+            .map_or(false, |item| item.get(validator_index).is_some());
 
-        Ok(observation)
+        Ok(observed)
     }
 
     /// Returns the number of validators that have been observed at the given `epoch`. Returns
@@ -634,7 +619,6 @@ impl SlotSubcommitteeIndex {
     }
 }
 
-/*
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -802,7 +786,7 @@ mod tests {
     test_suite_epoch!(observed_aggregators, ObservedAggregators);
 
     macro_rules! test_suite_slot {
-        ($mod_name: ident, $type: ident) => {
+        ($mod_name: ident, $type: ident, $value: expr) => {
             #[cfg(test)]
             mod $mod_name {
                 use super::*;
@@ -817,7 +801,7 @@ mod tests {
                             "should indicate an unknown item is unknown"
                         );
                         assert_eq!(
-                            store.observe_validator(key, i),
+                            store.observe_validator(key, i, $value),
                             Ok(false),
                             "should observe new item"
                         );
@@ -830,7 +814,7 @@ mod tests {
                             "should indicate a known item is known"
                         );
                         assert_eq!(
-                            store.observe_validator(key, i),
+                            store.observe_validator(key, i, $value),
                             Ok(true),
                             "should acknowledge an existing item"
                         );
@@ -1077,7 +1061,10 @@ mod tests {
             }
         };
     }
-    test_suite_slot!(observed_sync_contributors, ObservedSyncContributors);
-    test_suite_slot!(observed_sync_aggregators, ObservedSyncAggregators);
+    test_suite_slot!(
+        observed_sync_contributors,
+        ObservedSyncContributors,
+        Hash256::zero()
+    );
+    test_suite_slot!(observed_sync_aggregators, ObservedSyncAggregators, ());
 }
-*/

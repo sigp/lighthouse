@@ -3319,11 +3319,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let mut observed_block_attesters = self.observed_block_attesters.write();
 
             for &validator_index in &indexed_attestation.attesting_indices {
-                if let Err(e) = observed_block_attesters.observe_validator(
-                    a.data.target.epoch,
-                    validator_index as usize,
-                    (),
-                ) {
+                if let Err(e) = observed_block_attesters
+                    .observe_validator(a.data.target.epoch, validator_index as usize)
+                {
                     debug!(
                         self.log,
                         "Failed to register observed block attester";
