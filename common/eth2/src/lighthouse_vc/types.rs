@@ -32,6 +32,10 @@ pub struct ValidatorRequest {
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub builder_proposals: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub builder_pubkey_override: Option<PublicKeyBytes>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub builder_timestamp_override: Option<u64>,
     #[serde(with = "serde_utils::quoted_u64")]
     pub deposit_gwei: u64,
 }
@@ -61,6 +65,10 @@ pub struct CreatedValidator {
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub builder_proposals: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub builder_pubkey_override: Option<PublicKeyBytes>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub builder_timestamp_override: Option<u64>,
     pub eth1_deposit_tx_data: String,
     #[serde(with = "serde_utils::quoted_u64")]
     pub deposit_gwei: u64,
@@ -83,6 +91,12 @@ pub struct ValidatorPatchRequest {
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub builder_proposals: Option<bool>,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub builder_pubkey_override: Option<PublicKeyBytes>,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub builder_timestamp_override: Option<u64>
 }
 
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
@@ -102,6 +116,12 @@ pub struct KeystoreValidatorsPostRequest {
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub builder_proposals: Option<bool>,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub builder_pubkey_override: Option<PublicKeyBytes>,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub builder_timestamp_override: Option<u64>
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -120,6 +140,10 @@ pub struct Web3SignerValidatorRequest {
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub builder_proposals: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub builder_pubkey_override: Option<PublicKeyBytes>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub builder_timestamp_override: Option<u64>,
     pub voting_public_key: PublicKey,
     pub url: String,
     #[serde(default)]

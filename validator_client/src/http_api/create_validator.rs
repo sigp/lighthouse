@@ -142,6 +142,8 @@ pub async fn create_validators_mnemonic<P: AsRef<Path>, T: 'static + SlotClock, 
                 request.suggested_fee_recipient,
                 request.gas_limit,
                 request.builder_proposals,
+                request.builder_pubkey_override,
+                request.builder_timestamp_override
             )
             .await
             .map_err(|e| {
@@ -158,6 +160,8 @@ pub async fn create_validators_mnemonic<P: AsRef<Path>, T: 'static + SlotClock, 
             suggested_fee_recipient: request.suggested_fee_recipient,
             gas_limit: request.gas_limit,
             builder_proposals: request.builder_proposals,
+            builder_pubkey_override: request.builder_pubkey_override,
+            builder_timestamp_override: request.builder_timestamp_override,
             voting_pubkey,
             eth1_deposit_tx_data: serde_utils::hex::encode(&eth1_deposit_data.rlp),
             deposit_gwei: request.deposit_gwei,

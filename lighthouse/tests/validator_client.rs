@@ -438,6 +438,15 @@ fn no_builder_registration_timestamp_override_flag() {
         .with_config(|config| assert!(config.builder_registration_timestamp_override.is_none()));
 }
 #[test]
+fn builder_registration_pubkey_override_flag() {
+    CommandLineTest::new()
+        .flag("builder-registration-pubkey-override", Some("100"))
+        .run()
+        .with_config(|config| {
+            assert_eq!(config.builder_registration_pubkey_override, Some(100))
+        });
+}
+#[test]
 fn builder_registration_timestamp_override_flag() {
     CommandLineTest::new()
         .flag("builder-registration-timestamp-override", Some("100"))

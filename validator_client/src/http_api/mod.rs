@@ -515,6 +515,8 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                     let suggested_fee_recipient = body.suggested_fee_recipient;
                     let gas_limit = body.gas_limit;
                     let builder_proposals = body.builder_proposals;
+                    let builder_pubkey_override = body.builder_pubkey_override;
+                    let builder_timestamp_override = body.builder_timestamp_override;
 
                     let validator_def = {
                         if let Some(handle) = task_executor.handle() {
@@ -527,6 +529,8 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                                     suggested_fee_recipient,
                                     gas_limit,
                                     builder_proposals,
+                                    builder_pubkey_override,
+                                    builder_timestamp_override
                                 ))
                                 .map_err(|e| {
                                     warp_utils::reject::custom_server_error(format!(
@@ -575,6 +579,8 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                                 suggested_fee_recipient: web3signer.suggested_fee_recipient,
                                 gas_limit: web3signer.gas_limit,
                                 builder_proposals: web3signer.builder_proposals,
+                                builder_pubkey_override: web3signer.builder_pubkey_override,
+                                builder_timestamp_override: web3signer.builder_timestamp_override,
                                 description: web3signer.description,
                                 signing_definition: SigningDefinition::Web3Signer(
                                     Web3SignerDefinition {
@@ -646,6 +652,8 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                                             body.enabled,
                                             body.gas_limit,
                                             body.builder_proposals,
+                                            body.builder_pubkey_override,
+                                            body.builder_timestamp_override
                                         ),
                                     )
                                     .map_err(|e| {
