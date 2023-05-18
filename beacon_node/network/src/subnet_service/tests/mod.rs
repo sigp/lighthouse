@@ -85,7 +85,6 @@ impl TestBeaconChain {
             _test_runtime: test_runtime,
         }
     }
-
 }
 
 pub fn recent_genesis_time() -> u64 {
@@ -240,7 +239,7 @@ mod attestation_service {
             committee_index,
             current_slot + Slot::new(subscription_slot),
             committee_count,
-            true
+            true,
         )];
 
         // submit the subscriptions
@@ -264,7 +263,7 @@ mod attestation_service {
         // Wait for 1 slot duration to get the unsubscription event
         let events = get_events(
             &mut attestation_service,
-            Some(subnets_per_node*3+2),
+            Some(subnets_per_node * 3 + 2),
             (MainnetEthSpec::slots_per_epoch() * 3) as u32,
         )
         .await;
@@ -285,7 +284,7 @@ mod attestation_service {
         if !attestation_service
             .is_subscribed(&subnet_id, attestation_subnets::SubscriptionKind::LongLived)
         {
-            assert_eq!(expected[..], events[subnets_per_node*3..]);
+            assert_eq!(expected[..], events[subnets_per_node * 3..]);
         }
         // Should be subscribed to only subnets_per_node long lived subnet after unsubscription.
         assert_eq!(attestation_service.subscription_count(), subnets_per_node);
@@ -320,7 +319,7 @@ mod attestation_service {
             com1,
             current_slot + Slot::new(subscription_slot1),
             committee_count,
-            true
+            true,
         );
 
         let sub2 = get_subscription(
@@ -328,7 +327,7 @@ mod attestation_service {
             com2,
             current_slot + Slot::new(subscription_slot2),
             committee_count,
-            true
+            true,
         );
 
         let subnet_id1 = SubnetId::compute_subnet::<MainnetEthSpec>(
@@ -378,9 +377,12 @@ mod attestation_service {
         ) {
             // The index is 3*subnets_per_node (because we subscribe + discover + enr per long lived
             // subnet) + 1
-            let index =  3*subnets_per_node;
+            let index = 3 * subnets_per_node;
             assert_eq!(expected, events[index]);
-            assert_eq!(attestation_service.subscription_count(), subnets_per_node + 1);
+            assert_eq!(
+                attestation_service.subscription_count(),
+                subnets_per_node + 1
+            );
         } else {
             assert!(attestation_service.subscription_count() == subnets_per_node);
         }
@@ -445,14 +447,14 @@ mod attestation_service {
                 SubnetServiceMessage::DiscoverPeers(_) => discover_peer_count += 1,
                 SubnetServiceMessage::Subscribe(_any_subnet) => {}
                 SubnetServiceMessage::EnrAdd(_any_subnet) => enr_add_count += 1,
-                SubnetServiceMessage::Unsubscribe(_) => unsubscribe_event_count +=1,
+                SubnetServiceMessage::Unsubscribe(_) => unsubscribe_event_count += 1,
                 _ => unexpected_msg_count += 1,
             }
         }
 
         // There should be a Subscribe Event, and Enr Add event and a DiscoverPeers event for each
         // long-lived subnet initially. The next event should be a bulk discovery event.
-        let bulk_discovery_index = 3*subnets_per_node;
+        let bulk_discovery_index = 3 * subnets_per_node;
         // The bulk discovery request length should be equal to validator_count
         let bulk_discovery_event = &events[bulk_discovery_index];
         if let SubnetServiceMessage::DiscoverPeers(d) = bulk_discovery_event {
@@ -466,7 +468,10 @@ mod attestation_service {
         assert_eq!(discover_peer_count, subnets_per_node + 1);
         assert_eq!(attestation_service.subscription_count(), subnets_per_node);
         assert_eq!(enr_add_count, subnets_per_node);
-        assert_eq!(unsubscribe_event_count, attestation_subnet_count - subnets_per_node as u64);
+        assert_eq!(
+            unsubscribe_event_count,
+            attestation_subnet_count - subnets_per_node as u64
+        );
         assert_eq!(unexpected_msg_count, 0);
         // test completed successfully
     }
@@ -559,7 +564,7 @@ mod attestation_service {
             com1,
             current_slot + Slot::new(subscription_slot1),
             committee_count,
-            true
+            true,
         );
 
         let sub2 = get_subscription(
@@ -567,7 +572,7 @@ mod attestation_service {
             com2,
             current_slot + Slot::new(subscription_slot2),
             committee_count,
-            true
+            true,
         );
 
         let subnet_id1 = SubnetId::compute_subnet::<MainnetEthSpec>(
@@ -615,8 +620,8 @@ mod attestation_service {
             &subnet_id1,
             attestation_subnets::SubscriptionKind::LongLived,
         ) {
-            assert_eq!(expected_subscription, events[subnets_per_node*3]);
-            assert_eq!(expected_unsubscription, events[subnets_per_node*3+2]);
+            assert_eq!(expected_subscription, events[subnets_per_node * 3]);
+            assert_eq!(expected_unsubscription, events[subnets_per_node * 3 + 2]);
         }
         assert_eq!(attestation_service.subscription_count(), 2);
 
@@ -661,12 +666,7 @@ mod attestation_service {
             .now()
             .expect("Could not get current slot");
 
-        let subscriptions = get_subscriptions(
-            20,
-            current_slot,
-            30,
-            false,
-        );
+        let subscriptions = get_subscriptions(20, current_slot, 30, false);
 
         // submit the subscriptions
         attestation_service
@@ -675,8 +675,10 @@ mod attestation_service {
 
         // There should only be the same subscriptions as there are in the specification,
         // regardless of subscriptions
-        assert_eq!(attestation_service.long_lived_subscriptions().len(), subnets_per_node);
-
+        assert_eq!(
+            attestation_service.long_lived_subscriptions().len(),
+            subnets_per_node
+        );
 
         let events = get_events(&mut attestation_service, None, 4).await;
 
