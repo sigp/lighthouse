@@ -324,6 +324,18 @@ impl<S, T: Item<S>, E: EthSpec> AutoPruningEpochContainer<S, T, E> {
         }
     }
 
+    // Identical to `Self::observation_for_validator` but discards the
+    // observation, simply returning `true` if the validator has been observed
+    // at all.
+    pub fn validator_has_been_observed(
+        &self,
+        epoch: Epoch,
+        validator_index: usize,
+    ) -> Result<bool, Error> {
+        self.observation_for_validator(epoch, validator_index)
+            .map(|observation| observation.is_some())
+    }
+
     /// Returns `Ok(true)` if the `validator_index` has produced an attestation conflicting with
     /// `a`.
     ///
@@ -331,19 +343,19 @@ impl<S, T: Item<S>, E: EthSpec> AutoPruningEpochContainer<S, T, E> {
     ///
     /// - `validator_index` is higher than `VALIDATOR_REGISTRY_LIMIT`.
     /// - `a.data.target.slot` is earlier than `self.lowest_permissible_slot`.
-    pub fn validator_has_been_observed(
+    pub fn observation_for_validator(
         &self,
         epoch: Epoch,
         validator_index: usize,
-    ) -> Result<bool, Error> {
+    ) -> Result<Option<S>, Error> {
         self.sanitize_request(epoch, validator_index)?;
 
-        let exists = self
+        let observation = self
             .items
             .get(&epoch)
-            .map_or(false, |item| item.get(validator_index).is_some());
+            .and_then(|item| item.get(validator_index));
 
-        Ok(exists)
+        Ok(observation)
     }
 
     /// Returns the number of validators that have been observed at the given `epoch`. Returns
