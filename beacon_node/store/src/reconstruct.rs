@@ -5,7 +5,7 @@ use itertools::{process_results, Itertools};
 use slog::info;
 use state_processing::{
     per_block_processing, per_slot_processing, BlockSignatureStrategy, ConsensusContext,
-    VerifyBlockRoot,
+    StateProcessingStrategy, VerifyBlockRoot,
 };
 use std::sync::Arc;
 use types::{EthSpec, Hash256};
@@ -96,6 +96,7 @@ where
                         &mut state,
                         &block,
                         BlockSignatureStrategy::NoVerification,
+                        StateProcessingStrategy::Accurate,
                         VerifyBlockRoot::True,
                         &mut ctxt,
                         &self.spec,

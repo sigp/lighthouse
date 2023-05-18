@@ -2199,3 +2199,24 @@ fn disable_optimistic_finalized_sync() {
             assert!(!config.chain.optimistic_finalized_sync);
         });
 }
+
+#[test]
+fn invalid_gossip_verified_blocks_path_default() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| assert_eq!(config.network.invalid_block_storage, None));
+}
+
+#[test]
+fn invalid_gossip_verified_blocks_path() {
+    let path = "/home/karlm/naughty-blocks";
+    CommandLineTest::new()
+        .flag("invalid-gossip-verified-blocks-path", Some(path))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config.network.invalid_block_storage,
+                Some(PathBuf::from(path))
+            )
+        });
+}

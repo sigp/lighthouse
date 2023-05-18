@@ -1721,6 +1721,8 @@ impl ApiTester {
         let expected = SyncingData {
             is_syncing: false,
             is_optimistic: Some(false),
+            // these tests run without the Bellatrix fork enabled
+            el_offline: Some(true),
             head_slot,
             sync_distance,
         };
@@ -1956,8 +1958,8 @@ impl ApiTester {
                         .parent
                         .and_then(|index| expected_proto_array.nodes.get(index))
                         .map(|parent| parent.root),
-                    justified_epoch: node.justified_checkpoint.map(|checkpoint| checkpoint.epoch),
-                    finalized_epoch: node.finalized_checkpoint.map(|checkpoint| checkpoint.epoch),
+                    justified_epoch: node.justified_checkpoint.epoch,
+                    finalized_epoch: node.finalized_checkpoint.epoch,
                     weight: node.weight,
                     validity: execution_status,
                     execution_block_hash: node

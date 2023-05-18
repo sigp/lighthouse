@@ -6,7 +6,7 @@ You should be finished with one [Installation](./installation.md) method of your
 1. Create a [JWT secret file](#step-1-create-a-jwt-secret-file)
 1. Set up an [execution node](#step-2-set-up-an-execution-node);
 1. Set up a [beacon node](#step-3-set-up-a-beacon-node-using-lighthouse);
-1. [Check logs for sync status](#step-4-check-logs);
+1. [Check logs for sync status](#step-4-check-logs-for-sync-status);
 
 
 
