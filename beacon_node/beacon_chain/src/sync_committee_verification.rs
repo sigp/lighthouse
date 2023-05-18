@@ -480,7 +480,7 @@ impl VerifiedSyncCommitteeMessage {
             .observe_validator(
                 SlotSubcommitteeIndex::new(sync_message.slot, subnet_id.into()),
                 validator_index as usize,
-                (),
+                sync_message.beacon_block_root,
             )
             .map_err(BeaconChainError::from)?
         {

@@ -20,7 +20,7 @@ use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
 use std::marker::PhantomData;
 use types::slot_data::SlotData;
-use types::{Epoch, EthSpec, Slot, Unsigned};
+use types::{Epoch, EthSpec, Hash256, Slot, Unsigned};
 
 /// The maximum capacity of the `AutoPruningEpochContainer`.
 ///
@@ -39,7 +39,7 @@ pub const MAX_CACHED_EPOCHS: u64 = 3;
 
 pub type ObservedAttesters<E> = AutoPruningEpochContainer<(), EpochBitfield, E>;
 pub type ObservedSyncContributors<E> =
-    AutoPruningSlotContainer<SlotSubcommitteeIndex, (), SyncContributorSlotHashSet<E>, E>;
+    AutoPruningSlotContainer<SlotSubcommitteeIndex, Hash256, SyncContributorSlotHashSet<E>, E>;
 pub type ObservedAggregators<E> = AutoPruningEpochContainer<(), EpochHashSet, E>;
 pub type ObservedSyncAggregators<E> =
     AutoPruningSlotContainer<SlotSubcommitteeIndex, (), SyncAggregatorSlotHashSet, E>;
@@ -179,14 +179,14 @@ impl Item<()> for EpochHashSet {
 /// Stores a `HashSet` of which validator indices have created a sync aggregate during a
 /// slot.
 pub struct SyncContributorSlotHashSet<E> {
-    set: HashSet<usize>,
+    map: HashMap<usize, Hash256>,
     phantom: PhantomData<E>,
 }
 
-impl<E: EthSpec> Item<()> for SyncContributorSlotHashSet<E> {
+impl<E: EthSpec> Item<Hash256> for SyncContributorSlotHashSet<E> {
     fn with_capacity(capacity: usize) -> Self {
         Self {
-            set: HashSet::with_capacity(capacity),
+            map: HashMap::with_capacity(capacity),
             phantom: PhantomData,
         }
     }
@@ -197,22 +197,24 @@ impl<E: EthSpec> Item<()> for SyncContributorSlotHashSet<E> {
     }
 
     fn len(&self) -> usize {
-        self.set.len()
+        self.map.len()
     }
 
     fn validator_count(&self) -> usize {
-        self.set.len()
+        self.map.len()
     }
 
     /// Inserts the `validator_index` in the set. Returns `true` if the `validator_index` was
     /// already in the set.
-    fn insert(&mut self, validator_index: usize, _value: ()) -> bool {
-        !self.set.insert(validator_index)
+    fn insert(&mut self, validator_index: usize, beacon_block_root: Hash256) -> bool {
+        self.map
+            .insert(validator_index, beacon_block_root)
+            .is_some()
     }
 
     /// Returns `true` if the `validator_index` is in the set.
-    fn get(&self, validator_index: usize) -> Option<()> {
-        self.set.contains(&validator_index).then_some(())
+    fn get(&self, validator_index: usize) -> Option<Hash256> {
+        self.map.get(&validator_index).cloned()
     }
 }
 
