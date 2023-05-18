@@ -625,6 +625,116 @@ mod tests {
 
     type E = types::MainnetEthSpec;
 
+    #[test]
+    fn value_storage() {
+        type Container = AutoPruningSlotContainer<Slot, Hash256, SyncContributorSlotHashSet<E>, E>;
+
+        let mut store: Container = <_>::default();
+        let key = Slot::new(0);
+        let validator_index = 0;
+        let value = Hash256::zero();
+
+        // Assert there is no entry.
+        assert!(store
+            .observation_for_validator(key, validator_index)
+            .unwrap()
+            .is_none());
+        assert!(!store
+            .validator_has_been_observed(key, validator_index)
+            .unwrap());
+
+        // Add an entry.
+        assert!(!store
+            .observe_validator(key, validator_index, value)
+            .unwrap());
+
+        // Assert there is a correct entry.
+        assert_eq!(
+            store
+                .observation_for_validator(key, validator_index)
+                .unwrap(),
+            Some(value)
+        );
+        assert!(store
+            .validator_has_been_observed(key, validator_index)
+            .unwrap());
+
+        let alternate_value = Hash256::from_low_u64_be(1);
+
+        // Assert that override false does not override.
+        assert_eq!(
+            store
+                .observe_validator_with_override(key, validator_index, alternate_value, |_, _| {
+                    false
+                })
+                .unwrap(),
+            Some(value)
+        );
+
+        // Assert that override true overrides and acts as if there was never an
+        // entry there.
+        assert_eq!(
+            store
+                .observe_validator_with_override(key, validator_index, alternate_value, |_, _| {
+                    true
+                })
+                .unwrap(),
+            None
+        );
+        assert_eq!(
+            store
+                .observation_for_validator(key, validator_index)
+                .unwrap(),
+            Some(alternate_value)
+        );
+
+        // Reset the store.
+        let mut store: Container = <_>::default();
+
+        // Asset that a new entry with override = false is inserted
+        assert_eq!(
+            store
+                .observation_for_validator(key, validator_index)
+                .unwrap(),
+            None
+        );
+        assert_eq!(
+            store
+                .observe_validator_with_override(key, validator_index, value, |_, _| { false })
+                .unwrap(),
+            None,
+        );
+        assert_eq!(
+            store
+                .observation_for_validator(key, validator_index)
+                .unwrap(),
+            Some(value)
+        );
+
+        // Reset the store.
+        let mut store: Container = <_>::default();
+
+        // Asset that a new entry with override = true is inserted
+        assert_eq!(
+            store
+                .observation_for_validator(key, validator_index)
+                .unwrap(),
+            None
+        );
+        assert_eq!(
+            store
+                .observe_validator_with_override(key, validator_index, value, |_, _| { true })
+                .unwrap(),
+            None,
+        );
+        assert_eq!(
+            store
+                .observation_for_validator(key, validator_index)
+                .unwrap(),
+            Some(value)
+        );
+    }
+
     macro_rules! test_suite_epoch {
         ($mod_name: ident, $type: ident) => {
             #[cfg(test)]
