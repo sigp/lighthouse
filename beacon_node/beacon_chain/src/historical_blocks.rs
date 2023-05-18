@@ -59,7 +59,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Return the number of blocks successfully imported.
     pub fn import_historical_block_batch(
         &self,
-        blocks: Vec<AvailableBlock<T::EthSpec>>,
+        mut blocks: Vec<AvailableBlock<T::EthSpec>>,
     ) -> Result<usize, Error> {
         let anchor_info = self
             .store
@@ -70,17 +70,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let num_relevant = blocks.partition_point(|available_block| {
             available_block.block().slot() < anchor_info.oldest_block_slot
         });
-        let blocks_to_import = blocks
-            .get(..num_relevant)
-            .ok_or(HistoricalBlockError::IndexOutOfBounds)?;
 
-        if blocks_to_import.len() != blocks.len() {
+        let total_blocks = blocks.len();
+        blocks.truncate(num_relevant);
+        let blocks_to_import = blocks;
+
+        if blocks_to_import.len() != total_blocks {
             debug!(
                 self.log,
                 "Ignoring some historic blocks";
                 "oldest_block_slot" => anchor_info.oldest_block_slot,
-                "total_blocks" => blocks.len(),
-                "ignored" => blocks.len().saturating_sub(blocks_to_import.len()),
+                "total_blocks" => total_blocks,
+                "ignored" => total_blocks.saturating_sub(blocks_to_import.len()),
             );
         }
 
@@ -93,14 +94,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let mut chunk_writer =
             ChunkWriter::<BlockRoots, _, _>::new(&self.store.cold_db, prev_block_slot.as_usize())?;
 
-        let mut cold_batch = Vec::with_capacity(blocks.len());
-        let mut hot_batch = Vec::with_capacity(blocks.len());
+        let mut cold_batch = Vec::with_capacity(blocks_to_import.len());
+        let mut hot_batch = Vec::with_capacity(blocks_to_import.len());
 
-        let mut blobs_imported = 0;
         let mut signed_blocks = vec![];
-        for available_block in blocks_to_import.iter().rev() {
-            // TODO: should we try and get rid of this clone? Everything is Arc'd so it's not too expensive..
-            let (block, maybe_blobs) = available_block.clone().deconstruct();
+        for available_block in blocks_to_import.into_iter().rev() {
+            let (block, maybe_blobs) = available_block.deconstruct();
 
             // Check chain integrity.
             let block_root = block.canonical_root();
@@ -119,7 +118,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .blinded_block_as_kv_store_ops(&block_root, &blinded_block, &mut hot_batch);
             // Store the blobs too
             if let Some(blobs) = maybe_blobs {
-                blobs_imported += blobs.len();
                 self.store
                     .blobs_as_kv_store_ops(&block_root, blobs, &mut hot_batch);
             }
@@ -218,10 +216,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         if backfill_complete && self.config.reconstruct_historic_states {
             self.store_migrator.process_reconstruction();
         }
-        if blobs_imported > 0 {
-            debug!(self.log, "Imported {} historical blobs", blobs_imported);
-        }
 
-        Ok(blocks_to_import.len())
+        Ok(num_relevant)
     }
 }
