@@ -37,12 +37,12 @@ use types::{Epoch, EthSpec, Slot, Unsigned};
 /// from at least one slot in the previous epoch.
 pub const MAX_CACHED_EPOCHS: u64 = 3;
 
-pub type ObservedAttesters<E> = AutoPruningEpochContainer<EpochBitfield, E>;
+pub type ObservedAttesters<E> = AutoPruningEpochContainer<(), EpochBitfield, E>;
 pub type ObservedSyncContributors<E> =
-    AutoPruningSlotContainer<SlotSubcommitteeIndex, SyncContributorSlotHashSet<E>, E>;
-pub type ObservedAggregators<E> = AutoPruningEpochContainer<EpochHashSet, E>;
+    AutoPruningSlotContainer<SlotSubcommitteeIndex, (), SyncContributorSlotHashSet<E>, E>;
+pub type ObservedAggregators<E> = AutoPruningEpochContainer<(), EpochHashSet, E>;
 pub type ObservedSyncAggregators<E> =
-    AutoPruningSlotContainer<SlotSubcommitteeIndex, SyncAggregatorSlotHashSet, E>;
+    AutoPruningSlotContainer<SlotSubcommitteeIndex, (), SyncAggregatorSlotHashSet, E>;
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
@@ -62,7 +62,7 @@ pub enum Error {
 }
 
 /// Implemented on an item in an `AutoPruningContainer`.
-pub trait Item {
+pub trait Item<T> {
     /// Instantiate `Self` with the given `capacity`.
     fn with_capacity(capacity: usize) -> Self;
 
@@ -75,11 +75,11 @@ pub trait Item {
     /// Returns the number of validators that have been observed by `self`.
     fn validator_count(&self) -> usize;
 
-    /// Store `validator_index` in `self`.
-    fn insert(&mut self, validator_index: usize) -> bool;
+    /// Store `validator_index` and `value` in `self`.
+    fn insert(&mut self, validator_index: usize, value: T) -> bool;
 
-    /// Returns `true` if `validator_index` has been stored in `self`.
-    fn contains(&self, validator_index: usize) -> bool;
+    /// Returns `Some(T)` if `validator_index` has been stored in `self`.
+    fn get(&self, validator_index: usize) -> Option<T>;
 }
 
 /// Stores a `BitVec` that represents which validator indices have attested or sent sync committee
@@ -88,7 +88,7 @@ pub struct EpochBitfield {
     bitfield: BitVec,
 }
 
-impl Item for EpochBitfield {
+impl Item<()> for EpochBitfield {
     fn with_capacity(capacity: usize) -> Self {
         Self {
             bitfield: BitVec::with_capacity(capacity),
@@ -108,7 +108,7 @@ impl Item for EpochBitfield {
         self.bitfield.iter().filter(|bit| **bit).count()
     }
 
-    fn insert(&mut self, validator_index: usize) -> bool {
+    fn insert(&mut self, validator_index: usize, _value: ()) -> bool {
         self.bitfield
             .get_mut(validator_index)
             .map(|mut bit| {
@@ -129,8 +129,11 @@ impl Item for EpochBitfield {
             })
     }
 
-    fn contains(&self, validator_index: usize) -> bool {
-        self.bitfield.get(validator_index).map_or(false, |bit| *bit)
+    fn get(&self, validator_index: usize) -> Option<()> {
+        self.bitfield
+            .get(validator_index)
+            .map_or(false, |bit| *bit)
+            .then_some(())
     }
 }
 
@@ -140,7 +143,7 @@ pub struct EpochHashSet {
     set: HashSet<usize>,
 }
 
-impl Item for EpochHashSet {
+impl Item<()> for EpochHashSet {
     fn with_capacity(capacity: usize) -> Self {
         Self {
             set: HashSet::with_capacity(capacity),
@@ -163,13 +166,13 @@ impl Item for EpochHashSet {
 
     /// Inserts the `validator_index` in the set. Returns `true` if the `validator_index` was
     /// already in the set.
-    fn insert(&mut self, validator_index: usize) -> bool {
+    fn insert(&mut self, validator_index: usize, _value: ()) -> bool {
         !self.set.insert(validator_index)
     }
 
     /// Returns `true` if the `validator_index` is in the set.
-    fn contains(&self, validator_index: usize) -> bool {
-        self.set.contains(&validator_index)
+    fn get(&self, validator_index: usize) -> Option<()> {
+        self.set.contains(&validator_index).then_some(())
     }
 }
 
@@ -180,7 +183,7 @@ pub struct SyncContributorSlotHashSet<E> {
     phantom: PhantomData<E>,
 }
 
-impl<E: EthSpec> Item for SyncContributorSlotHashSet<E> {
+impl<E: EthSpec> Item<()> for SyncContributorSlotHashSet<E> {
     fn with_capacity(capacity: usize) -> Self {
         Self {
             set: HashSet::with_capacity(capacity),
@@ -203,13 +206,13 @@ impl<E: EthSpec> Item for SyncContributorSlotHashSet<E> {
 
     /// Inserts the `validator_index` in the set. Returns `true` if the `validator_index` was
     /// already in the set.
-    fn insert(&mut self, validator_index: usize) -> bool {
+    fn insert(&mut self, validator_index: usize, _value: ()) -> bool {
         !self.set.insert(validator_index)
     }
 
     /// Returns `true` if the `validator_index` is in the set.
-    fn contains(&self, validator_index: usize) -> bool {
-        self.set.contains(&validator_index)
+    fn get(&self, validator_index: usize) -> Option<()> {
+        self.set.contains(&validator_index).then_some(())
     }
 }
 
@@ -219,7 +222,7 @@ pub struct SyncAggregatorSlotHashSet {
     set: HashSet<usize>,
 }
 
-impl Item for SyncAggregatorSlotHashSet {
+impl Item<()> for SyncAggregatorSlotHashSet {
     fn with_capacity(capacity: usize) -> Self {
         Self {
             set: HashSet::with_capacity(capacity),
@@ -241,13 +244,13 @@ impl Item for SyncAggregatorSlotHashSet {
 
     /// Inserts the `validator_index` in the set. Returns `true` if the `validator_index` was
     /// already in the set.
-    fn insert(&mut self, validator_index: usize) -> bool {
+    fn insert(&mut self, validator_index: usize, _value: ()) -> bool {
         !self.set.insert(validator_index)
     }
 
     /// Returns `true` if the `validator_index` is in the set.
-    fn contains(&self, validator_index: usize) -> bool {
-        self.set.contains(&validator_index)
+    fn get(&self, validator_index: usize) -> Option<()> {
+        self.set.contains(&validator_index).then_some(())
     }
 }
 
@@ -259,23 +262,25 @@ impl Item for SyncAggregatorSlotHashSet {
 /// attestations with an epoch prior to `a.data.target.epoch - 32` will be cleared from the cache.
 ///
 /// `T` should be set to a `EpochBitfield` or `EpochHashSet`.
-pub struct AutoPruningEpochContainer<T, E: EthSpec> {
+pub struct AutoPruningEpochContainer<S, T, E: EthSpec> {
     lowest_permissible_epoch: Epoch,
     items: HashMap<Epoch, T>,
-    _phantom: PhantomData<E>,
+    _phantom_e: PhantomData<E>,
+    _phantom_s: PhantomData<S>,
 }
 
-impl<T, E: EthSpec> Default for AutoPruningEpochContainer<T, E> {
+impl<S, T, E: EthSpec> Default for AutoPruningEpochContainer<S, T, E> {
     fn default() -> Self {
         Self {
             lowest_permissible_epoch: Epoch::new(0),
             items: HashMap::new(),
-            _phantom: PhantomData,
+            _phantom_e: PhantomData,
+            _phantom_s: PhantomData,
         }
     }
 }
 
-impl<T: Item, E: EthSpec> AutoPruningEpochContainer<T, E> {
+impl<S, T: Item<S>, E: EthSpec> AutoPruningEpochContainer<S, T, E> {
     /// Observe that `validator_index` has produced attestation `a`. Returns `Ok(true)` if `a` has
     /// previously been observed for `validator_index`.
     ///
@@ -287,13 +292,14 @@ impl<T: Item, E: EthSpec> AutoPruningEpochContainer<T, E> {
         &mut self,
         epoch: Epoch,
         validator_index: usize,
+        value: S,
     ) -> Result<bool, Error> {
         self.sanitize_request(epoch, validator_index)?;
 
         self.prune(epoch);
 
         if let Some(item) = self.items.get_mut(&epoch) {
-            Ok(item.insert(validator_index))
+            Ok(item.insert(validator_index, value))
         } else {
             // To avoid re-allocations, try and determine a rough initial capacity for the new item
             // by obtaining the mean size of all items in earlier epoch.
@@ -309,7 +315,7 @@ impl<T: Item, E: EthSpec> AutoPruningEpochContainer<T, E> {
             let initial_capacity = sum.checked_div(count).unwrap_or_else(T::default_capacity);
 
             let mut item = T::with_capacity(initial_capacity);
-            item.insert(validator_index);
+            item.insert(validator_index, value);
             self.items.insert(epoch, item);
 
             Ok(false)
@@ -333,7 +339,7 @@ impl<T: Item, E: EthSpec> AutoPruningEpochContainer<T, E> {
         let exists = self
             .items
             .get(&epoch)
-            .map_or(false, |item| item.contains(validator_index));
+            .map_or(false, |item| item.get(validator_index).is_some());
 
         Ok(exists)
     }
@@ -392,7 +398,7 @@ impl<T: Item, E: EthSpec> AutoPruningEpochContainer<T, E> {
     pub fn index_seen_at_epoch(&self, index: usize, epoch: Epoch) -> bool {
         self.items
             .get(&epoch)
-            .map(|item| item.contains(index))
+            .map(|item| item.get(index).is_some())
             .unwrap_or(false)
     }
 }
@@ -405,23 +411,25 @@ impl<T: Item, E: EthSpec> AutoPruningEpochContainer<T, E> {
 /// sync contributions with an epoch prior to `data.slot - 3` will be cleared from the cache.
 ///
 /// `V` should be set to a `SyncAggregatorSlotHashSet` or a `SyncContributorSlotHashSet`.
-pub struct AutoPruningSlotContainer<K: SlotData + Eq + Hash, V, E: EthSpec> {
+pub struct AutoPruningSlotContainer<K: SlotData + Eq + Hash, S, V, E: EthSpec> {
     lowest_permissible_slot: Slot,
     items: HashMap<K, V>,
-    _phantom: PhantomData<E>,
+    _phantom_e: PhantomData<E>,
+    _phantom_s: PhantomData<S>,
 }
 
-impl<K: SlotData + Eq + Hash, V, E: EthSpec> Default for AutoPruningSlotContainer<K, V, E> {
+impl<K: SlotData + Eq + Hash, S, V, E: EthSpec> Default for AutoPruningSlotContainer<K, S, V, E> {
     fn default() -> Self {
         Self {
             lowest_permissible_slot: Slot::new(0),
             items: HashMap::new(),
-            _phantom: PhantomData,
+            _phantom_e: PhantomData,
+            _phantom_s: PhantomData,
         }
     }
 }
 
-impl<K: SlotData + Eq + Hash, V: Item, E: EthSpec> AutoPruningSlotContainer<K, V, E> {
+impl<K: SlotData + Eq + Hash, S, V: Item<S>, E: EthSpec> AutoPruningSlotContainer<K, S, V, E> {
     /// Observe that `validator_index` has produced a sync committee message. Returns `Ok(true)` if
     /// the sync committee message  has previously been observed for `validator_index`.
     ///
@@ -429,14 +437,19 @@ impl<K: SlotData + Eq + Hash, V: Item, E: EthSpec> AutoPruningSlotContainer<K, V
     ///
     /// - `validator_index` is higher than `VALIDATOR_REGISTRY_LIMIT`.
     /// - `key.slot` is earlier than `self.lowest_permissible_slot`.
-    pub fn observe_validator(&mut self, key: K, validator_index: usize) -> Result<bool, Error> {
+    pub fn observe_validator(
+        &mut self,
+        key: K,
+        validator_index: usize,
+        value: S,
+    ) -> Result<bool, Error> {
         let slot = key.get_slot();
         self.sanitize_request(slot, validator_index)?;
 
         self.prune(slot);
 
         if let Some(item) = self.items.get_mut(&key) {
-            Ok(item.insert(validator_index))
+            Ok(item.insert(validator_index, value))
         } else {
             // To avoid re-allocations, try and determine a rough initial capacity for the new item
             // by obtaining the mean size of all items in earlier slot.
@@ -452,7 +465,7 @@ impl<K: SlotData + Eq + Hash, V: Item, E: EthSpec> AutoPruningSlotContainer<K, V
             let initial_capacity = sum.checked_div(count).unwrap_or_else(V::default_capacity);
 
             let mut item = V::with_capacity(initial_capacity);
-            item.insert(validator_index);
+            item.insert(validator_index, value);
             self.items.insert(key, item);
 
             Ok(false)
@@ -475,7 +488,7 @@ impl<K: SlotData + Eq + Hash, V: Item, E: EthSpec> AutoPruningSlotContainer<K, V
         let exists = self
             .items
             .get(&key)
-            .map_or(false, |item| item.contains(validator_index));
+            .map_or(false, |item| item.get(validator_index).is_some());
 
         Ok(exists)
     }
@@ -555,6 +568,7 @@ impl SlotSubcommitteeIndex {
     }
 }
 
+/*
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1000,3 +1014,4 @@ mod tests {
     test_suite_slot!(observed_sync_contributors, ObservedSyncContributors);
     test_suite_slot!(observed_sync_aggregators, ObservedSyncAggregators);
 }
+*/

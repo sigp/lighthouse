@@ -378,7 +378,7 @@ impl<T: BeaconChainTypes> VerifiedSyncContribution<T> {
         if chain
             .observed_sync_aggregators
             .write()
-            .observe_validator(observed_key, aggregator_index as usize)
+            .observe_validator(observed_key, aggregator_index as usize, ())
             .map_err(BeaconChainError::from)?
         {
             return Err(Error::PriorSyncCommitteeMessageKnown {
@@ -480,6 +480,7 @@ impl VerifiedSyncCommitteeMessage {
             .observe_validator(
                 SlotSubcommitteeIndex::new(sync_message.slot, subnet_id.into()),
                 validator_index as usize,
+                (),
             )
             .map_err(BeaconChainError::from)?
         {
