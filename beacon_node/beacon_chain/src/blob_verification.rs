@@ -511,9 +511,7 @@ impl<T: EthSpec> TryInto<AvailableBlock<T>> for MaybeAvailableBlock<T> {
     fn try_into(self) -> Result<AvailableBlock<T>, Self::Error> {
         match self {
             Self::Available(block) => Ok(block),
-            Self::AvailabilityPending(block) => Err(AvailabilityCheckError::MissingBlobs(
-                block.as_block().canonical_root(),
-            )),
+            Self::AvailabilityPending(block) => Err(AvailabilityCheckError::MissingBlobs),
         }
     }
 }

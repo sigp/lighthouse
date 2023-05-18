@@ -23,7 +23,7 @@ pub struct SingleBlockLookup<const MAX_ATTEMPTS: u8, T: BeaconChainTypes> {
     pub blob_download_queue: FixedBlobSidecarList<T::EthSpec>,
     pub block_request_state: SingleLookupRequestState<MAX_ATTEMPTS>,
     pub blob_request_state: SingleLookupRequestState<MAX_ATTEMPTS>,
-    pub da_checker: Arc<DataAvailabilityChecker<T::EthSpec, T::SlotClock>>,
+    pub da_checker: Arc<DataAvailabilityChecker<T>>,
     /// Only necessary for requests triggered by an `UnkownParent` because any
     /// blocks or blobs without parents won't hit the data availability cache.
     pub unknown_parent_components: Option<UnknownParentComponents<T::EthSpec>>,
@@ -110,7 +110,7 @@ impl<const MAX_ATTEMPTS: u8, T: BeaconChainTypes> SingleBlockLookup<MAX_ATTEMPTS
         requested_block_root: Hash256,
         unknown_parent_components: Option<UnknownParentComponents<T::EthSpec>>,
         peer_source: PeerShouldHave,
-        da_checker: Arc<DataAvailabilityChecker<T::EthSpec, T::SlotClock>>,
+        da_checker: Arc<DataAvailabilityChecker<T>>,
     ) -> Self {
         Self {
             requested_block_root,

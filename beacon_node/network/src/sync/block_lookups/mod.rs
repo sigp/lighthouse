@@ -1,5 +1,5 @@
 use beacon_chain::blob_verification::{AsBlock, BlockWrapper};
-use beacon_chain::data_availability_checker::{DataAvailabilityChecker};
+use beacon_chain::data_availability_checker::DataAvailabilityChecker;
 use beacon_chain::{AvailabilityProcessingStatus, BeaconChainTypes, BlockError};
 use lighthouse_network::rpc::RPCError;
 use lighthouse_network::{PeerAction, PeerId};
@@ -60,7 +60,7 @@ pub(crate) struct BlockLookups<T: BeaconChainTypes> {
         SingleBlockLookup<SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS, T>,
     )>,
 
-    da_checker: Arc<DataAvailabilityChecker<T::EthSpec, T::SlotClock>>,
+    da_checker: Arc<DataAvailabilityChecker<T>>,
 
     /// The logger for the import manager.
     log: Logger,
@@ -121,10 +121,7 @@ pub enum ShouldRemoveLookup {
 }
 
 impl<T: BeaconChainTypes> BlockLookups<T> {
-    pub fn new(
-        da_checker: Arc<DataAvailabilityChecker<T::EthSpec, T::SlotClock>>,
-        log: Logger,
-    ) -> Self {
+    pub fn new(da_checker: Arc<DataAvailabilityChecker<T>>, log: Logger) -> Self {
         Self {
             parent_lookups: Default::default(),
             processing_parent_lookups: Default::default(),
@@ -540,7 +537,8 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                     if !outstanding_blobs_req {
                         if let Ok(peer_id) = parent_lookup
                             .current_parent_request
-                            .downloading_peer(ResponseType::Blob) {
+                            .downloading_peer(ResponseType::Blob)
+                        {
                             cx.report_peer(
                                 peer_id.to_peer_id(),
                                 PeerAction::MidToleranceError,
@@ -622,9 +620,11 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         seen_timestamp: Duration,
         cx: &mut SyncNetworkContext<T>,
     ) {
-        let mut parent_lookup = if let Some(pos) = self.parent_lookups.iter().position(|request| {
-            request.pending_blob_response(id)
-        }) {
+        let mut parent_lookup = if let Some(pos) = self
+            .parent_lookups
+            .iter()
+            .position(|request| request.pending_blob_response(id))
+        {
             self.parent_lookups.remove(pos)
         } else {
             if blob.is_some() {
@@ -1055,7 +1055,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                                 cx,
                                 &self.log,
                             )
-                        }  else if let Some(block_id_ref) = block_id_ref {
+                        } else if let Some(block_id_ref) = block_id_ref {
                             // Try it again if possible.
                             retry_request_after_failure(
                                 block_id_ref,
@@ -1487,8 +1487,6 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         self.parent_lookups.drain(..).len()
     }
 }
-
-
 
 fn handle_block_lookup_verify_error<T: BeaconChainTypes>(
     request_id_ref: &mut u32,

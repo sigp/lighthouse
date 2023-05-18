@@ -63,25 +63,6 @@ pub enum RequestError {
     NoPeers,
 }
 
-#[derive(Debug)]
-pub enum LookupDownloadStatus<T: EthSpec> {
-    Process(BlockWrapper<T>),
-    SearchBlock(Hash256),
-    AvailabilityCheck(AvailabilityCheckError),
-}
-
-impl<T: EthSpec> From<Result<BlockWrapper<T>, AvailabilityCheckError>> for LookupDownloadStatus<T> {
-    fn from(value: Result<BlockWrapper<T>, AvailabilityCheckError>) -> Self {
-        match value {
-            Ok(wrapper) => LookupDownloadStatus::Process(wrapper),
-            Err(AvailabilityCheckError::MissingBlobs(block_root)) => {
-                LookupDownloadStatus::SearchBlock(block_root)
-            }
-            Err(e) => LookupDownloadStatus::AvailabilityCheck(e),
-        }
-    }
-}
-
 impl<T: BeaconChainTypes> ParentLookup<T> {
     pub fn contains_block(&self, block_root: &Hash256) -> bool {
         self.downloaded_blocks
@@ -93,7 +74,7 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
         block_root: Hash256,
         parent_root: Hash256,
         peer_id: PeerShouldHave,
-        da_checker: Arc<DataAvailabilityChecker<T::EthSpec, T::SlotClock>>,
+        da_checker: Arc<DataAvailabilityChecker<T>>,
     ) -> Self {
         let current_parent_request =
             SingleBlockLookup::new(parent_root, Some(<_>::default()), peer_id, da_checker);
@@ -189,10 +170,7 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
             Some(UnknownParentComponents::default());
     }
 
-    pub fn add_current_request_block(
-        &mut self,
-        block: Arc<SignedBeaconBlock<T::EthSpec>>,
-    ) {
+    pub fn add_current_request_block(&mut self, block: Arc<SignedBeaconBlock<T::EthSpec>>) {
         // Cache the block.
         self.current_parent_request.add_unknown_parent_block(block);
 
