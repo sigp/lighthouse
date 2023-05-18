@@ -34,7 +34,6 @@ pub struct ValidatorRequest {
     pub builder_proposals: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub builder_pubkey_override: Option<PublicKeyBytes>,
-    #[serde(with = "serde_utils::quoted_u64")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub builder_timestamp_override: Option<u64>,
     #[serde(with = "serde_utils::quoted_u64")]
