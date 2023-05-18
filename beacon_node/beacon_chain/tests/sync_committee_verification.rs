@@ -620,6 +620,7 @@ async fn unaggregated_gossip_verification() {
         SyncCommitteeError::PriorSyncCommitteeMessageKnown {
             validator_index,
             slot,
+            ..
         }
         if validator_index == expected_validator_index as u64 && slot == current_slot
     );

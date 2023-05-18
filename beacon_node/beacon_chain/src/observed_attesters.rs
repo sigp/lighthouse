@@ -335,12 +335,12 @@ impl<T: Item<()>, E: EthSpec> AutoPruningEpochContainer<T, E> {
     ) -> Result<bool, Error> {
         self.sanitize_request(epoch, validator_index)?;
 
-        let observed = self
+        let exists = self
             .items
             .get(&epoch)
             .map_or(false, |item| item.get(validator_index).is_some());
 
-        Ok(observed)
+        Ok(exists)
     }
 
     /// Returns the number of validators that have been observed at the given `epoch`. Returns
