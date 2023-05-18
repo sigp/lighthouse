@@ -163,7 +163,7 @@ pub async fn create_validators_mnemonic<P: AsRef<Path>, T: 'static + SlotClock, 
             builder_pubkey_override: request.builder_pubkey_override,
             builder_timestamp_override: request.builder_timestamp_override,
             voting_pubkey,
-            eth1_deposit_tx_data: eth2_serde_utils::hex::encode(&eth1_deposit_data.rlp),
+            eth1_deposit_tx_data: serde_utils::hex::encode(&eth1_deposit_data.rlp),
             deposit_gwei: request.deposit_gwei,
         });
     }

@@ -2202,12 +2202,8 @@ pub fn serve<T: BeaconChainTypes>(
                                 .parent
                                 .and_then(|index| proto_array.nodes.get(index))
                                 .map(|parent| parent.root),
-                            justified_epoch: node
-                                .justified_checkpoint
-                                .map(|checkpoint| checkpoint.epoch),
-                            finalized_epoch: node
-                                .finalized_checkpoint
-                                .map(|checkpoint| checkpoint.epoch),
+                            justified_epoch: node.justified_checkpoint.epoch,
+                            finalized_epoch: node.finalized_checkpoint.epoch,
                             weight: node.weight,
                             validity: execution_status,
                             execution_block_hash: node
@@ -2289,28 +2285,40 @@ pub fn serve<T: BeaconChainTypes>(
         .and(chain_filter.clone())
         .and_then(
             |network_globals: Arc<NetworkGlobals<T::EthSpec>>, chain: Arc<BeaconChain<T>>| {
-                blocking_json_task(move || {
-                    let head_slot = chain.canonical_head.cached_head().head_slot();
-                    let current_slot = chain.slot_clock.now_or_genesis().ok_or_else(|| {
-                        warp_utils::reject::custom_server_error("Unable to read slot clock".into())
-                    })?;
-
-                    // Taking advantage of saturating subtraction on slot.
-                    let sync_distance = current_slot - head_slot;
-
-                    let is_optimistic = chain
-                        .is_optimistic_or_invalid_head()
-                        .map_err(warp_utils::reject::beacon_chain_error)?;
-
-                    let syncing_data = api_types::SyncingData {
-                        is_syncing: network_globals.sync_state.read().is_syncing(),
-                        is_optimistic: Some(is_optimistic),
-                        head_slot,
-                        sync_distance,
+                async move {
+                    let el_offline = if let Some(el) = &chain.execution_layer {
+                        el.is_offline_or_erroring().await
+                    } else {
+                        true
                     };
 
-                    Ok(api_types::GenericResponse::from(syncing_data))
-                })
+                    blocking_json_task(move || {
+                        let head_slot = chain.canonical_head.cached_head().head_slot();
+                        let current_slot = chain.slot_clock.now_or_genesis().ok_or_else(|| {
+                            warp_utils::reject::custom_server_error(
+                                "Unable to read slot clock".into(),
+                            )
+                        })?;
+
+                        // Taking advantage of saturating subtraction on slot.
+                        let sync_distance = current_slot - head_slot;
+
+                        let is_optimistic = chain
+                            .is_optimistic_or_invalid_head()
+                            .map_err(warp_utils::reject::beacon_chain_error)?;
+
+                        let syncing_data = api_types::SyncingData {
+                            is_syncing: network_globals.sync_state.read().is_syncing(),
+                            is_optimistic: Some(is_optimistic),
+                            el_offline: Some(el_offline),
+                            head_slot,
+                            sync_distance,
+                        };
+
+                        Ok(api_types::GenericResponse::from(syncing_data))
+                    })
+                    .await
+                }
             },
         );
 

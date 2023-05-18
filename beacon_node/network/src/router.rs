@@ -6,7 +6,7 @@
 #![allow(clippy::unit_arg)]
 
 use crate::beacon_processor::{
-    BeaconProcessor, WorkEvent as BeaconWorkEvent, MAX_WORK_EVENT_QUEUE_LEN,
+    BeaconProcessor, InvalidBlockStorage, WorkEvent as BeaconWorkEvent, MAX_WORK_EVENT_QUEUE_LEN,
 };
 use crate::error;
 use crate::service::{NetworkMessage, RequestId};
@@ -81,6 +81,7 @@ impl<T: BeaconChainTypes> Router<T> {
         network_globals: Arc<NetworkGlobals<T::EthSpec>>,
         network_send: mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
         executor: task_executor::TaskExecutor,
+        invalid_block_storage: InvalidBlockStorage,
         log: slog::Logger,
     ) -> error::Result<mpsc::UnboundedSender<RouterMessage<T::EthSpec>>> {
         let message_handler_log = log.new(o!("service"=> "router"));
@@ -112,6 +113,7 @@ impl<T: BeaconChainTypes> Router<T> {
             max_workers: cmp::max(1, num_cpus::get()),
             current_workers: 0,
             importing_blocks: Default::default(),
+            invalid_block_storage,
             log: log.clone(),
         }
         .spawn_manager(beacon_processor_receive, None);

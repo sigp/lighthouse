@@ -103,10 +103,8 @@ fn beacon_nodes_flag() {
 
 #[test]
 fn allow_unsynced_flag() {
-    CommandLineTest::new()
-        .flag("allow-unsynced", None)
-        .run()
-        .with_config(|config| assert!(config.allow_unsynced_beacon_node));
+    // No-op, but doesn't crash.
+    CommandLineTest::new().flag("allow-unsynced", None).run();
 }
 
 #[test]

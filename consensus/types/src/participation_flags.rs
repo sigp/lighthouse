@@ -9,7 +9,7 @@ use tree_hash::{PackedEncoding, TreeHash, TreeHashType};
 #[serde(transparent)]
 #[derive(arbitrary::Arbitrary)]
 pub struct ParticipationFlags {
-    #[serde(with = "eth2_serde_utils::quoted_u8")]
+    #[serde(with = "serde_utils::quoted_u8")]
     bits: u8,
 }
 

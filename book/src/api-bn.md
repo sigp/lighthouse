@@ -72,8 +72,7 @@ specification][OpenAPI].
 Returns the block header at the head of the canonical chain.
 
 ```bash
-curl -X GET "http://localhost:5052/eth/v1/beacon/headers/head" -H  "accept:
-application/json"
+curl -X GET "http://localhost:5052/eth/v1/beacon/headers/head" -H  "accept: application/json" | jq
 ```
 
 ```json
@@ -100,7 +99,7 @@ application/json"
 Shows the status of validator at index `1` at the `head` state.
 
 ```bash
-curl -X GET "http://localhost:5052/eth/v1/beacon/states/head/validators/1" -H  "accept: application/json"
+curl -X GET "http://localhost:5052/eth/v1/beacon/states/head/validators/1" -H  "accept: application/json" | jq
 ```
 
 ```json
@@ -159,8 +158,7 @@ The API is now being served at `https://localhost:5052`.
 
 To test connectivity, you can run the following:
 ```bash
-curl -X GET "https://localhost:5052/eth/v1/node/version" -H  "accept: application/json" --cacert cert.pem
-
+curl -X GET "https://localhost:5052/eth/v1/node/version" -H  "accept: application/json" --cacert cert.pem | jq
 ```
 ### Connecting a validator client
 In order to connect a validator client to a beacon node over TLS, the validator
@@ -203,7 +201,7 @@ Ensure the `--http` flag has been supplied at the CLI.
 You can quickly check that the HTTP endpoint is up using `curl`:
 
 ```bash
-curl -X GET "http://localhost:5052/eth/v1/node/version" -H  "accept: application/json"
+curl -X GET "http://localhost:5052/eth/v1/node/version" -H  "accept: application/json" | jq
 ```
 
 The beacon node should respond with its version:

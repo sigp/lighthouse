@@ -13,15 +13,15 @@ types = { path = "../../consensus/types" }
 reqwest = { version = "0.11.0", features = ["json","stream"] }
 lighthouse_network = { path = "../../beacon_node/lighthouse_network" }
 proto_array = { path = "../../consensus/proto_array", optional = true }
-eth2_serde_utils = "0.1.1"
+ethereum_serde_utils = "0.5.0"
 eth2_keystore = { path = "../../crypto/eth2_keystore" }
 libsecp256k1 = "0.7.0"
 ring = "0.16.19"
 bytes = "1.0.1"
 account_utils = { path = "../../common/account_utils" }
 sensitive_url = { path = "../../common/sensitive_url" }
-eth2_ssz = "0.4.1"
-eth2_ssz_derive = "0.3.1"
+ethereum_ssz = "0.5.0"
+ethereum_ssz_derive = "0.5.0"
 futures-util = "0.3.8"
 futures = "0.3.8"
 store = { path = "../../beacon_node/store", optional = true }
