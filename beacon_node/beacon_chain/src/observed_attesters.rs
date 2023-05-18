@@ -78,7 +78,7 @@ pub trait Item<T> {
     /// Store `validator_index` and `value` in `self`.
     fn insert(&mut self, validator_index: usize, value: T) -> bool;
 
-    /// Returns `Some(T)` if `validator_index` has been stored in `self`.
+    /// Returns `Some(T)` if there is an entry for `validator_index`.
     fn get(&self, validator_index: usize) -> Option<T>;
 }
 
