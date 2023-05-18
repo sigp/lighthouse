@@ -89,15 +89,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Ok(0);
         }
 
+        let n_blobs_to_import = blocks_to_import
+            .iter()
+            .map(|available_block| available_block.blobs().map_or(0, |blobs| blobs.len()))
+            .sum::<usize>();
+
         let mut expected_block_root = anchor_info.oldest_block_parent;
         let mut prev_block_slot = anchor_info.oldest_block_slot;
         let mut chunk_writer =
             ChunkWriter::<BlockRoots, _, _>::new(&self.store.cold_db, prev_block_slot.as_usize())?;
 
         let mut cold_batch = Vec::with_capacity(blocks_to_import.len());
-        let mut hot_batch = Vec::with_capacity(blocks_to_import.len());
+        let mut hot_batch = Vec::with_capacity(blocks_to_import.len() + n_blobs_to_import);
+        let mut signed_blocks = Vec::with_capacity(blocks_to_import.len());
 
-        let mut signed_blocks = vec![];
         for available_block in blocks_to_import.into_iter().rev() {
             let (block, maybe_blobs) = available_block.deconstruct();
 
