@@ -1,4 +1,3 @@
-use crate::sync::block_lookups::parent_lookup::LookupDownloadStatus;
 use crate::sync::block_lookups::{RootBlobsTuple, RootBlockTuple};
 use beacon_chain::blob_verification::BlockWrapper;
 use beacon_chain::data_availability_checker::DataAvailabilityChecker;
@@ -8,28 +7,55 @@ use lighthouse_network::{rpc::BlocksByRootRequest, PeerId};
 use rand::seq::IteratorRandom;
 use ssz_types::VariableList;
 use std::collections::HashSet;
+use std::ops::IndexMut;
 use std::sync::Arc;
 use store::Hash256;
 use strum::IntoStaticStr;
 use types::blob_sidecar::{BlobIdentifier, FixedBlobSidecarList};
-use types::{BlobSidecar, SignedBeaconBlock};
+use types::{BlobSidecar, EthSpec, SignedBeaconBlock};
 
 use super::{PeerShouldHave, ResponseType};
 
 pub struct SingleBlockLookup<const MAX_ATTEMPTS: u8, T: BeaconChainTypes> {
     pub requested_block_root: Hash256,
     pub requested_ids: Vec<BlobIdentifier>,
-    pub downloaded_blobs: FixedBlobSidecarList<T::EthSpec>,
-    pub downloaded_block: Option<Arc<SignedBeaconBlock<T::EthSpec>>>,
-    pub expected_num_blobs: Option<usize>,
+    /// Where we store blobs until we receive the stream terminator.
+    pub blob_download_queue: FixedBlobSidecarList<T::EthSpec>,
     pub block_request_state: SingleLookupRequestState<MAX_ATTEMPTS>,
     pub blob_request_state: SingleLookupRequestState<MAX_ATTEMPTS>,
     pub da_checker: Arc<DataAvailabilityChecker<T::EthSpec, T::SlotClock>>,
+    /// Only necessary for requests triggered by an `UnkownParent` because any
+    /// blocks or blobs without parents won't hit the data availability cache.
+    pub unknown_parent_components: Option<UnknownParentComponents<T::EthSpec>>,
 }
 
-/// Object representing a single block lookup request.
-///
-//previously assumed we would have a single block. Now we may have the block but not the blobs
+#[derive(Default)]
+pub struct UnknownParentComponents<E: EthSpec> {
+    pub downloaded_block: Option<Arc<SignedBeaconBlock<E>>>,
+    pub downloaded_blobs: FixedBlobSidecarList<E>,
+}
+
+impl<E: EthSpec> UnknownParentComponents<E> {
+    pub fn add_unknown_parent_block(&mut self, block: Arc<SignedBeaconBlock<E>>) {
+        self.downloaded_block = Some(block);
+    }
+    pub fn add_unknown_parent_blobs(&mut self, blobs: FixedBlobSidecarList<E>) {
+        for (index, blob_opt) in self.downloaded_blobs.iter_mut().enumerate() {
+            if let Some(Some(downloaded_blob)) = blobs.get(index) {
+                *blob_opt = Some(downloaded_blob.clone());
+            }
+        }
+    }
+    pub fn downloaded_indices(&self) -> HashSet<usize> {
+        self.downloaded_blobs
+            .iter()
+            .enumerate()
+            .filter_map(|(i, blob_opt)| blob_opt.as_ref().map(|_| i))
+            .collect::<HashSet<_>>()
+    }
+}
+
+/// Object representing the state of a single block or blob lookup request.
 #[derive(PartialEq, Eq, Debug)]
 pub struct SingleLookupRequestState<const MAX_ATTEMPTS: u8> {
     /// State of this request.
@@ -44,6 +70,7 @@ pub struct SingleLookupRequestState<const MAX_ATTEMPTS: u8> {
     failed_processing: u8,
     /// How many times have we attempted to download this block or blob.
     failed_downloading: u8,
+    pub component_processed: bool,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -81,100 +108,87 @@ pub enum LookupRequestError {
 impl<const MAX_ATTEMPTS: u8, T: BeaconChainTypes> SingleBlockLookup<MAX_ATTEMPTS, T> {
     pub fn new(
         requested_block_root: Hash256,
+        unknown_parent_components: Option<UnknownParentComponents<T::EthSpec>>,
         peer_source: PeerShouldHave,
         da_checker: Arc<DataAvailabilityChecker<T::EthSpec, T::SlotClock>>,
     ) -> Self {
         Self {
             requested_block_root,
             requested_ids: <_>::default(),
-            downloaded_block: None,
-            downloaded_blobs: <_>::default(),
-            expected_num_blobs: None,
+            blob_download_queue: <_>::default(),
             block_request_state: SingleLookupRequestState::new(peer_source),
             blob_request_state: SingleLookupRequestState::new(peer_source),
             da_checker,
+            unknown_parent_components,
         }
+    }
+
+    pub fn update_blobs_request(&mut self) {
+        self.requested_ids = if let Some(components) = self.unknown_parent_components.as_ref() {
+            let blobs = components.downloaded_indices();
+            self.da_checker
+                .get_missing_blob_ids(
+                    self.requested_block_root,
+                    components.downloaded_block.as_ref(),
+                    Some(blobs),
+                )
+                .unwrap_or_default()
+        } else {
+            self.da_checker
+                .get_missing_blob_ids_checking_cache(self.requested_block_root)
+                .unwrap_or_default()
+        };
     }
 
     pub fn get_downloaded_block(&mut self) -> Option<BlockWrapper<T::EthSpec>> {
-        if self.requested_ids.is_empty() {
-            if let Some(block) = self.downloaded_block.take() {
-                return Some(BlockWrapper::BlockAndBlobs(
-                    block,
-                    self.downloaded_blobs.clone(),
-                ));
-            }
-        }
-        None
-    }
-
-    pub fn add_blob(
-        &mut self,
-        blob: Arc<BlobSidecar<T::EthSpec>>,
-    ) -> Result<LookupDownloadStatus<T::EthSpec>, LookupVerifyError> {
-        let block_root = blob.block_root;
-
-        if let Some(blob_opt) = self.downloaded_blobs.get_mut(blob.index as usize) {
-            *blob_opt = Some(blob.clone());
-
-            if let Some(block) = self.downloaded_block.as_ref() {
-                let result = self.da_checker.wrap_block(
-                    block_root,
-                    block.clone(),
-                    self.downloaded_blobs.clone(),
+        self.unknown_parent_components
+            .as_mut()
+            .and_then(|components| {
+                let downloaded_block = components.downloaded_block.as_ref();
+                let downloaded_indices = components.downloaded_indices();
+                let missing_ids = self.da_checker.get_missing_blob_ids(
+                    self.requested_block_root,
+                    downloaded_block,
+                    Some(downloaded_indices),
                 );
-                Ok(LookupDownloadStatus::from(result))
-            } else {
-                Ok(LookupDownloadStatus::SearchBlock(block_root))
-            }
+                let download_complete =
+                    missing_ids.map_or(true, |missing_ids| missing_ids.is_empty());
+                if download_complete {
+                    let UnknownParentComponents {
+                        downloaded_block,
+                        downloaded_blobs,
+                    } = components;
+                    downloaded_block.as_ref().map(|block| {
+                        BlockWrapper::BlockAndBlobs(
+                            block.clone(),
+                            std::mem::replace(downloaded_blobs, FixedBlobSidecarList::default()),
+                        )
+                    })
+                } else {
+                    None
+                }
+            })
+    }
+
+    pub fn add_unknown_parent_block(&mut self, block: Arc<SignedBeaconBlock<T::EthSpec>>) {
+        if let Some(ref mut components) = self.unknown_parent_components.as_mut() {
+            components.add_unknown_parent_block(block)
         } else {
-            Err(LookupVerifyError::InvalidIndex(blob.index))
+            self.unknown_parent_components = Some(UnknownParentComponents {
+                downloaded_block: Some(block),
+                downloaded_blobs: FixedBlobSidecarList::default(),
+            })
         }
     }
 
-    pub fn add_blobs(
-        &mut self,
-        block_root: Hash256,
-        blobs: FixedBlobSidecarList<T::EthSpec>,
-    ) -> LookupDownloadStatus<T::EthSpec> {
-        for (index, blob_opt) in self.downloaded_blobs.iter_mut().enumerate() {
-            if let Some(Some(downloaded_blob)) = blobs.get(index) {
-                *blob_opt = Some(downloaded_blob.clone());
-            }
-        }
-
-        if let Some(block) = self.downloaded_block.as_ref() {
-            self.da_checker
-                .wrap_block(block_root, block.clone(), blobs)
-                .into()
+    pub fn add_unknown_parent_blobs(&mut self, blobs: FixedBlobSidecarList<T::EthSpec>) {
+        if let Some(ref mut components) = self.unknown_parent_components.as_mut() {
+            components.add_unknown_parent_blobs(blobs)
         } else {
-            LookupDownloadStatus::SearchBlock(block_root)
-        }
-    }
-
-    pub fn add_block(
-        &mut self,
-        block_root: Hash256,
-        block: Arc<SignedBeaconBlock<T::EthSpec>>,
-    ) -> LookupDownloadStatus<T::EthSpec> {
-        self.downloaded_block = Some(block.clone());
-
-        self.da_checker
-            .wrap_block(block_root, block, self.downloaded_blobs.clone())
-            .into()
-    }
-
-    pub fn add_block_wrapper(
-        &mut self,
-        block_root: Hash256,
-        block: BlockWrapper<T::EthSpec>,
-    ) -> LookupDownloadStatus<T::EthSpec> {
-        match block {
-            BlockWrapper::Block(block) => self.add_block(block_root, block),
-            BlockWrapper::BlockAndBlobs(block, blobs) => {
-                self.downloaded_block = Some(block);
-                self.add_blobs(block_root, blobs)
-            }
+            self.unknown_parent_components = Some(UnknownParentComponents {
+                downloaded_block: None,
+                downloaded_blobs: blobs,
+            })
         }
     }
 
@@ -202,12 +216,6 @@ impl<const MAX_ATTEMPTS: u8, T: BeaconChainTypes> SingleBlockLookup<MAX_ATTEMPTS
                             self.block_request_state.register_failure_downloading();
                             Err(LookupVerifyError::RootMismatch)
                         } else {
-                            self.expected_num_blobs =
-                                block.message().body().blob_kzg_commitments().ok().map(
-                                    |commitments| {
-                                        std::cmp::min(self.requested_ids.len(), commitments.len())
-                                    },
-                                );
                             // Return the block for processing.
                             self.block_request_state.state = State::Processing { peer_id };
                             Ok(Some((block_root, block)))
@@ -218,6 +226,7 @@ impl<const MAX_ATTEMPTS: u8, T: BeaconChainTypes> SingleBlockLookup<MAX_ATTEMPTS
                             self.block_request_state.register_failure_downloading();
                             Err(LookupVerifyError::NoBlockReturned)
                         } else {
+                            self.block_request_state.state = State::AwaitingDownload;
                             Err(LookupVerifyError::BenignFailure)
                         }
                     }
@@ -258,27 +267,20 @@ impl<const MAX_ATTEMPTS: u8, T: BeaconChainTypes> SingleBlockLookup<MAX_ATTEMPTS
                     } else {
                         // State should remain downloading until we receive the stream terminator.
                         self.requested_ids.retain(|id| *id != received_id);
-                        if let Some(blob_opt) = self.downloaded_blobs.get_mut(blob.index as usize) {
-                            *blob_opt = Some(blob);
-                            Ok(None)
-                        } else {
-                            Err(LookupVerifyError::InvalidIndex(blob.index))
-                        }
+                        //TODO(sean) validate index here
+                        //                             EArr(LookupVerifyError::InvalidIndex(blob.index))
+                        let blob_index = blob.index;
+                        *self.blob_download_queue.index_mut(blob_index as usize) = Some(blob);
+                        Ok(None)
                     }
                 }
                 None => {
-                    let downloaded_expected_blobs = self.downloaded_expected_blobs();
-                    if peer_source.should_have_blobs() && !downloaded_expected_blobs {
-                        return Err(LookupVerifyError::NotEnoughBlobsReturned);
-                    } else if !downloaded_expected_blobs {
-                        return Err(LookupVerifyError::BenignFailure);
-                    }
                     self.blob_request_state.state = State::Processing {
                         peer_id: peer_source,
                     };
                     Ok(Some((
                         self.requested_block_root,
-                        self.downloaded_blobs.clone(),
+                        std::mem::replace(&mut self.blob_download_queue, <_>::default()),
                     )))
                 }
             },
@@ -297,24 +299,17 @@ impl<const MAX_ATTEMPTS: u8, T: BeaconChainTypes> SingleBlockLookup<MAX_ATTEMPTS
         }
     }
 
-    fn downloaded_expected_blobs(&self) -> bool {
-        let Some(expected_num_blobs) = self.expected_num_blobs else {
-            return true;
-        };
-
-        let downloaded_num_blobs = self
-            .downloaded_blobs
-            .iter()
-            .filter(|blob_opt| blob_opt.is_some())
-            .count();
-        downloaded_num_blobs == expected_num_blobs
-    }
-
     pub fn request_block(
         &mut self,
     ) -> Result<Option<(PeerId, BlocksByRootRequest)>, LookupRequestError> {
-        if self.da_checker.has_block(&self.requested_block_root) || self.downloaded_block.is_some()
-        {
+        let block_already_downloaded =
+            if let Some(components) = self.unknown_parent_components.as_ref() {
+                components.downloaded_block.is_some()
+            } else {
+                self.da_checker.has_block(&self.requested_block_root)
+            };
+
+        if block_already_downloaded {
             return Ok(None);
         }
 
@@ -365,10 +360,9 @@ impl<const MAX_ATTEMPTS: u8, T: BeaconChainTypes> SingleBlockLookup<MAX_ATTEMPTS
     pub fn request_blobs(
         &mut self,
     ) -> Result<Option<(PeerId, BlobsByRootRequest)>, LookupRequestError> {
-        let missing_ids = self
-            .da_checker
-            .get_missing_blob_ids(&self.requested_block_root);
-        if missing_ids.is_empty() || self.downloaded_block.is_some() {
+        self.update_blobs_request();
+
+        if self.requested_ids.is_empty() {
             return Ok(None);
         }
 
@@ -388,11 +382,10 @@ impl<const MAX_ATTEMPTS: u8, T: BeaconChainTypes> SingleBlockLookup<MAX_ATTEMPTS
             .choose(&mut rand::thread_rng())
         {
             let request = BlobsByRootRequest {
-                blob_ids: VariableList::from(missing_ids.clone()),
+                blob_ids: VariableList::from(self.requested_ids.clone()),
             };
             self.blob_request_state.used_peers.insert(peer_id);
             let peer_source = PeerShouldHave::BlockAndBlobs(peer_id);
-            self.requested_ids = missing_ids;
             self.blob_request_state.state = State::Downloading {
                 peer_id: peer_source,
             };
@@ -404,11 +397,10 @@ impl<const MAX_ATTEMPTS: u8, T: BeaconChainTypes> SingleBlockLookup<MAX_ATTEMPTS
             .choose(&mut rand::thread_rng())
         {
             let request = BlobsByRootRequest {
-                blob_ids: VariableList::from(missing_ids.clone()),
+                blob_ids: VariableList::from(self.requested_ids.clone()),
             };
             self.blob_request_state.used_peers.insert(peer_id);
             let peer_source = PeerShouldHave::Neither(peer_id);
-            self.requested_ids = missing_ids;
             self.blob_request_state.state = State::Downloading {
                 peer_id: peer_source,
             };
@@ -446,30 +438,10 @@ impl<const MAX_ATTEMPTS: u8, T: BeaconChainTypes> SingleBlockLookup<MAX_ATTEMPTS
         }
     }
 
-    pub(crate) fn peer_source(
-        &self,
-        response_type: ResponseType,
-        peer_id: PeerId,
-    ) -> Option<PeerShouldHave> {
+    pub fn downloading_peer(&self, response_type: ResponseType) -> Result<PeerShouldHave, ()> {
         match response_type {
-            ResponseType::Block => {
-                if self.block_request_state.available_peers.contains(&peer_id) {
-                    Some(PeerShouldHave::BlockAndBlobs(peer_id))
-                } else if self.block_request_state.potential_peers.contains(&peer_id) {
-                    Some(PeerShouldHave::Neither(peer_id))
-                } else {
-                    None
-                }
-            }
-            ResponseType::Blob => {
-                if self.blob_request_state.available_peers.contains(&peer_id) {
-                    Some(PeerShouldHave::BlockAndBlobs(peer_id))
-                } else if self.blob_request_state.potential_peers.contains(&peer_id) {
-                    Some(PeerShouldHave::Neither(peer_id))
-                } else {
-                    None
-                }
-            }
+            ResponseType::Block => self.block_request_state.peer(),
+            ResponseType::Blob => self.blob_request_state.peer(),
         }
     }
 }
@@ -489,6 +461,7 @@ impl<const MAX_ATTEMPTS: u8> SingleLookupRequestState<MAX_ATTEMPTS> {
             used_peers: HashSet::default(),
             failed_processing: 0,
             failed_downloading: 0,
+            component_processed: false,
         }
     }
 
@@ -540,6 +513,14 @@ impl<const MAX_ATTEMPTS: u8> SingleLookupRequestState<MAX_ATTEMPTS> {
             Ok(*peer_id)
         } else {
             Err(())
+        }
+    }
+
+    pub fn peer(&self) -> Result<PeerShouldHave, ()> {
+        match &self.state {
+            State::Processing { peer_id } => Ok(*peer_id),
+            State::Downloading { peer_id } => Ok(*peer_id),
+            _ => Err(()),
         }
     }
 
@@ -634,7 +615,8 @@ mod tests {
             Duration::from_secs(spec.seconds_per_slot),
         );
         let da_checker = Arc::new(DataAvailabilityChecker::new(slot_clock, None, spec));
-        let mut sl = SingleBlockLookup::<4, T>::new(block.canonical_root(), peer_id, da_checker);
+        let mut sl =
+            SingleBlockLookup::<4, T>::new(block.canonical_root(), None, peer_id, da_checker);
         sl.request_block().unwrap();
         sl.verify_block(Some(block.into())).unwrap().unwrap();
     }
@@ -653,8 +635,12 @@ mod tests {
 
         let da_checker = Arc::new(DataAvailabilityChecker::new(slot_clock, None, spec));
 
-        let mut sl =
-            SingleBlockLookup::<FAILURES, T>::new(block.canonical_root(), peer_id, da_checker);
+        let mut sl = SingleBlockLookup::<FAILURES, T>::new(
+            block.canonical_root(),
+            None,
+            peer_id,
+            da_checker,
+        );
         for _ in 1..FAILURES {
             sl.request_block().unwrap();
             sl.block_request_state.register_failure_downloading();

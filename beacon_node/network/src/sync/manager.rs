@@ -58,11 +58,13 @@ use lighthouse_network::{PeerAction, PeerId};
 use slog::{crit, debug, error, info, trace, warn, Logger};
 use slot_clock::SlotClock;
 use std::boxed::Box;
+use std::ops::IndexMut;
 use std::ops::Sub;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio::time::sleep;
+use types::blob_sidecar::FixedBlobSidecarList;
 use types::{BlobSidecar, EthSpec, Hash256, SignedBeaconBlock, Slot};
 
 /// The number of slots ahead of us that is allowed before requesting a long-range (batch)  Sync
@@ -152,7 +154,7 @@ pub enum SyncMessage<T: EthSpec> {
     },
 
     /// Block processed
-    BlockPartProcessed {
+    BlockComponentProcessed {
         process_type: BlockProcessType,
         result: BlockProcessingResult<T>,
         response_type: ResponseType,
@@ -290,6 +292,8 @@ pub fn spawn<T: BeaconChainTypes>(
                 };
 
                 sleep(sleep_duration).await;
+
+                //TODO(sean) aggregate messages for blobs for the same block
 
                 while let Ok(msg) = delayed_lookups_recv.try_recv() {
                     if let Err(e) = sync_send.send(msg) {
@@ -649,12 +653,15 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                             warn!(self.log, "Delayed lookups dropped for block"; "block_root" => ?block_root, "error" => ?e);
                         }
                     } else {
-                        self.block_lookups.search_current_unknown_parent(
-                            block_root,
-                            block,
-                            peer_id,
-                            &mut self.network,
-                        );
+                        let (block, blobs) = block.deconstruct();
+                        self.block_lookups
+                            .search_current_unknown_parent_block_and_blobs(
+                                block_root,
+                                Some(block),
+                                blobs,
+                                peer_id,
+                                &mut self.network,
+                            );
                         self.block_lookups.search_parent(
                             block_slot,
                             block_root,
@@ -671,6 +678,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 if self.synced_and_connected_within_tolerance(blob_slot, &peer_id) {
                     let block_root = blob.block_root;
                     let parent_root = blob.block_parent_root;
+                    let blob_index = blob.index;
 
                     if self.should_delay_lookup(blob_slot) {
                         if let Err(e) = self
@@ -680,11 +688,16 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                             warn!(self.log, "Delayed lookups dropped for blob"; "block_root" => ?block_root, "error" => ?e);
                         }
                     } else {
-                        self.block_lookups.search_current_unknown_blob_parent(
-                            blob,
-                            peer_id,
-                            &mut self.network,
-                        );
+                        let mut blobs = FixedBlobSidecarList::default();
+                        *blobs.index_mut(blob_index as usize) = Some(blob);
+                        self.block_lookups
+                            .search_current_unknown_parent_block_and_blobs(
+                                block_root,
+                                None,
+                                Some(blobs),
+                                peer_id,
+                                &mut self.network,
+                            );
                     }
                     self.block_lookups.search_parent(
                         blob_slot,
@@ -732,17 +745,14 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 request_id,
                 error,
             } => self.inject_error(peer_id, request_id, error),
-            SyncMessage::BlockPartProcessed {
+            SyncMessage::BlockComponentProcessed {
                 process_type,
                 result,
                 response_type,
             } => match process_type {
-                BlockProcessType::SingleBlock { id } => self.block_lookups.single_block_processed(
-                    id,
-                    result,
-                    response_type,
-                    &mut self.network,
-                ),
+                BlockProcessType::SingleBlock { id } => self
+                    .block_lookups
+                    .single_block_component_processed(id, result, response_type, &mut self.network),
                 BlockProcessType::ParentLookup { chain_hash } => self
                     .block_lookups
                     .parent_block_processed(chain_hash, result, response_type, &mut self.network),

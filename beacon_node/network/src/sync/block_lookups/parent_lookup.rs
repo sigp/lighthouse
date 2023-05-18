@@ -1,6 +1,7 @@
 use super::single_block_lookup::{LookupRequestError, LookupVerifyError, SingleBlockLookup};
 use super::{DownloadedBlocks, PeerShouldHave, ResponseType};
-use crate::sync::block_lookups::{single_block_lookup, RootBlobsTuple, RootBlockTuple};
+use crate::sync::block_lookups::single_block_lookup::{State, UnknownParentComponents};
+use crate::sync::block_lookups::{RootBlobsTuple, RootBlockTuple};
 use crate::sync::{
     manager::{Id, SLOT_IMPORT_TOLERANCE},
     network_context::SyncNetworkContext,
@@ -32,8 +33,8 @@ pub(crate) struct ParentLookup<T: BeaconChainTypes> {
     /// Request of the last parent.
     pub current_parent_request: SingleBlockLookup<PARENT_FAIL_TOLERANCE, T>,
     /// Id of the last parent request.
-    current_parent_request_id: Option<Id>,
-    current_parent_blob_request_id: Option<Id>,
+    pub current_parent_request_id: Option<Id>,
+    pub current_parent_blob_request_id: Option<Id>,
 }
 
 #[derive(Debug, PartialEq, Eq, IntoStaticStr)]
@@ -62,6 +63,7 @@ pub enum RequestError {
     NoPeers,
 }
 
+#[derive(Debug)]
 pub enum LookupDownloadStatus<T: EthSpec> {
     Process(BlockWrapper<T>),
     SearchBlock(Hash256),
@@ -93,7 +95,8 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
         peer_id: PeerShouldHave,
         da_checker: Arc<DataAvailabilityChecker<T::EthSpec, T::SlotClock>>,
     ) -> Self {
-        let current_parent_request = SingleBlockLookup::new(parent_root, peer_id, da_checker);
+        let current_parent_request =
+            SingleBlockLookup::new(parent_root, Some(<_>::default()), peer_id, da_checker);
 
         Self {
             chain_hash: block_root,
@@ -165,39 +168,44 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
             .check_peer_disconnected(peer_id)
     }
 
-    pub fn add_block_wrapper(&mut self, block: BlockWrapper<T::EthSpec>) {
+    pub fn add_unknown_parent_block(&mut self, block: BlockWrapper<T::EthSpec>) {
         let next_parent = block.parent_root();
+
+        // Cache the block.
         let current_root = self.current_parent_request.requested_block_root;
-
         self.downloaded_blocks.push((current_root, block));
+
+        // Update the block request.
         self.current_parent_request.requested_block_root = next_parent;
-
-        self.current_parent_request.block_request_state.state =
-            single_block_lookup::State::AwaitingDownload;
-        self.current_parent_request.blob_request_state.state =
-            single_block_lookup::State::AwaitingDownload;
+        self.current_parent_request.block_request_state.state = State::AwaitingDownload;
         self.current_parent_request_id = None;
+
+        // Update the blobs request.
+        self.current_parent_request.blob_request_state.state = State::AwaitingDownload;
         self.current_parent_blob_request_id = None;
-        self.current_parent_request.downloaded_block = None;
-        self.current_parent_request.downloaded_blobs = <_>::default();
+
+        // Reset the unknown parent components.
+        self.current_parent_request.unknown_parent_components =
+            Some(UnknownParentComponents::default());
     }
 
-    pub fn add_block(
+    pub fn add_current_request_block(
         &mut self,
-        block_root: Hash256,
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
-    ) -> LookupDownloadStatus<T::EthSpec> {
+    ) {
+        // Cache the block.
+        self.current_parent_request.add_unknown_parent_block(block);
+
+        // Update the request.
         self.current_parent_request_id = None;
-        self.current_parent_request.add_block(block_root, block)
     }
 
-    pub fn add_blobs(
-        &mut self,
-        block_root: Hash256,
-        blobs: FixedBlobSidecarList<T::EthSpec>,
-    ) -> LookupDownloadStatus<T::EthSpec> {
+    pub fn add_current_request_blobs(&mut self, blobs: FixedBlobSidecarList<T::EthSpec>) {
+        // Cache the blobs.
+        self.current_parent_request.add_unknown_parent_blobs(blobs);
+
+        // Update the request.
         self.current_parent_blob_request_id = None;
-        self.current_parent_request.add_blobs(block_root, blobs)
     }
 
     pub fn pending_block_response(&self, req_id: Id) -> bool {
@@ -258,7 +266,10 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
         self.current_parent_request
             .block_request_state
             .register_failure_processing();
-        self.current_parent_request.downloaded_block = None;
+        self.current_parent_request
+            .unknown_parent_components
+            .as_mut()
+            .map(|components| components.downloaded_block = None);
         self.current_parent_request_id = None;
     }
 
@@ -266,8 +277,10 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
         self.current_parent_request
             .blob_request_state
             .register_failure_processing();
-        //TODO(sean) can make this only clear the blobs that failed to process
-        self.current_parent_request.downloaded_blobs = <_>::default();
+        self.current_parent_request
+            .unknown_parent_components
+            .as_mut()
+            .map(|components| components.downloaded_blobs = <_>::default());
         self.current_parent_blob_request_id = None;
     }
 
@@ -350,15 +363,6 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
                 .used_peers
                 .iter(),
         }
-    }
-
-    pub(crate) fn peer_source(
-        &self,
-        response_type: ResponseType,
-        peer_id: PeerId,
-    ) -> Option<PeerShouldHave> {
-        self.current_parent_request
-            .peer_source(response_type, peer_id)
     }
 }
 

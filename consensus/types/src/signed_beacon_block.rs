@@ -1,3 +1,4 @@
+use crate::blob_sidecar::BlobIdentifier;
 use crate::*;
 use bls::Signature;
 use derivative::Derivative;
@@ -241,6 +242,38 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> SignedBeaconBlock<E, Payload> 
     /// Returns the `tree_hash_root` of the block.
     pub fn canonical_root(&self) -> Hash256 {
         self.message().tree_hash_root()
+    }
+
+    pub fn num_expected_blobs(&self) -> usize {
+        self.message()
+            .body()
+            .blob_kzg_commitments()
+            .map(|c| c.len())
+            .unwrap_or(0)
+    }
+
+    pub fn get_expected_blob_ids(&self, block_root: Option<Hash256>) -> Vec<BlobIdentifier> {
+        self.get_filtered_blob_ids(block_root, |_, _| true)
+    }
+
+    /// If the filter returns `true` the id for the corresponding index and root will be included.
+    pub fn get_filtered_blob_ids(
+        &self,
+        block_root: Option<Hash256>,
+        filter: impl Fn(usize, Hash256) -> bool,
+    ) -> Vec<BlobIdentifier> {
+        let block_root = block_root.unwrap_or_else(|| self.canonical_root());
+        let num_blobs_expected = self.num_expected_blobs();
+        let mut blob_ids = Vec::with_capacity(num_blobs_expected);
+        for i in 0..num_blobs_expected {
+            if filter(i, block_root) {
+                blob_ids.push(BlobIdentifier {
+                    block_root,
+                    index: i as u64,
+                });
+            }
+        }
+        blob_ids
     }
 }
 

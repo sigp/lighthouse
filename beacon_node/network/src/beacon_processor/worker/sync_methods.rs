@@ -58,7 +58,7 @@ impl<T: BeaconChainTypes> Worker<T> {
     ) {
         if !should_process {
             // Sync handles these results
-            self.send_sync_message(SyncMessage::BlockPartProcessed {
+            self.send_sync_message(SyncMessage::BlockComponentProcessed {
                 process_type,
                 result: crate::sync::manager::BlockProcessingResult::Ignored,
                 response_type: crate::sync::manager::ResponseType::Block,
@@ -192,7 +192,7 @@ impl<T: BeaconChainTypes> Worker<T> {
             }
         }
         // Sync handles these results
-        self.send_sync_message(SyncMessage::BlockPartProcessed {
+        self.send_sync_message(SyncMessage::BlockComponentProcessed {
             process_type,
             result: result.into(),
             response_type: ResponseType::Block,
@@ -229,7 +229,7 @@ impl<T: BeaconChainTypes> Worker<T> {
             .await;
 
         // Sync handles these results
-        self.send_sync_message(SyncMessage::BlockPartProcessed {
+        self.send_sync_message(SyncMessage::BlockComponentProcessed {
             process_type,
             result: result.into(),
             response_type: ResponseType::Blob,

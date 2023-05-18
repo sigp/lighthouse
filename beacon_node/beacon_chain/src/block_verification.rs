@@ -70,7 +70,7 @@ use crate::{
 use derivative::Derivative;
 use eth2::types::EventKind;
 use execution_layer::PayloadStatus;
-use fork_choice::{AttestationFromBlock, PayloadVerificationStatus};
+pub use fork_choice::{AttestationFromBlock, PayloadVerificationStatus};
 use parking_lot::RwLockReadGuard;
 use proto_array::Block as ProtoBlock;
 use safe_arith::ArithError;

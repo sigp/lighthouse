@@ -11,7 +11,7 @@ use slot_clock::SlotClock;
 use ssz_types::{Error, FixedVector, VariableList};
 use state_processing::per_block_processing::deneb::deneb::verify_kzg_commitments_against_transactions;
 use std::collections::hash_map::{Entry, OccupiedEntry};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use strum::IntoStaticStr;
 use types::beacon_block_body::KzgCommitments;
@@ -142,75 +142,61 @@ impl<T: EthSpec, S: SlotClock> DataAvailabilityChecker<T, S> {
             .map_or(false, |cache| cache.executed_block.is_some())
     }
 
-    pub fn get_missing_blob_ids(&self, block_root: &Hash256) -> Vec<BlobIdentifier> {
-        let epoch = self.slot_clock.now().map(|s| s.epoch(T::slots_per_epoch()));
-        if epoch.map_or(false, |e| self.da_check_required(e)) {
-            self.availability_cache
-                .read()
-                .get(block_root)
-                .and_then(|cache| {
-                    cache.executed_block.as_ref().map(|block| {
-                        block.get_filtered_blob_ids(|i, _| cache.verified_blobs.get(i).is_none())
+    pub fn get_missing_blob_ids_checking_cache(
+        &self,
+        block_root: Hash256,
+    ) -> Option<Vec<BlobIdentifier>> {
+        let guard = self.availability_cache.read();
+        let (block, blob_indices) = guard
+            .get(&block_root)
+            .map(|cache| {
+                let block_opt = cache
+                    .executed_block
+                    .as_ref()
+                    .map(|block| &block.block.block);
+                let blobs = cache
+                    .verified_blobs
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(i, maybe_blob)| maybe_blob.as_ref().map(|_| i))
+                    .collect::<HashSet<_>>();
+                (block_opt, blobs)
+            })
+            .unwrap_or_default();
+        self.get_missing_blob_ids(block_root, block, Some(blob_indices))
+    }
+
+    /// A `None` indicates blobs are not required.
+    ///
+    /// If there's no block, all possible ids will be returned that don't exist in the given blobs.
+    /// If there no blobs, all possible ids will be returned.
+    pub fn get_missing_blob_ids(
+        &self,
+        block_root: Hash256,
+        block_opt: Option<&Arc<SignedBeaconBlock<T>>>,
+        blobs_opt: Option<HashSet<usize>>,
+    ) -> Option<Vec<BlobIdentifier>> {
+        let epoch = self.slot_clock.now()?.epoch(T::slots_per_epoch());
+
+        self.da_check_required(epoch).then(|| {
+            block_opt
+                .map(|block| {
+                    block.get_filtered_blob_ids(Some(block_root), |i, _| {
+                        blobs_opt.as_ref().map_or(true, |blobs| !blobs.contains(&i))
                     })
                 })
                 .unwrap_or_else(|| {
                     let mut blob_ids = Vec::with_capacity(T::max_blobs_per_block());
                     for i in 0..T::max_blobs_per_block() {
-                        blob_ids.push(BlobIdentifier {
-                            block_root: *block_root,
-                            index: i as u64,
-                        });
+                        if blobs_opt.as_ref().map_or(true, |blobs| !blobs.contains(&i)) {
+                            blob_ids.push(BlobIdentifier {
+                                block_root,
+                                index: i as u64,
+                            });
+                        }
                     }
                     blob_ids
                 })
-        } else {
-            vec![]
-        }
-    }
-
-    pub fn wrap_block(
-        &self,
-        block_root: Hash256,
-        block: Arc<SignedBeaconBlock<T>>,
-        blobs: FixedBlobSidecarList<T>,
-    ) -> Result<BlockWrapper<T>, AvailabilityCheckError> {
-        Ok(match self.get_blob_requirements(&block)? {
-            BlobRequirements::EmptyBlobs => BlockWrapper::Block(block),
-            BlobRequirements::NotRequired => BlockWrapper::Block(block),
-            BlobRequirements::PreDeneb => BlockWrapper::Block(block),
-            BlobRequirements::Required => {
-                let expected_num_blobs = block
-                    .message()
-                    .body()
-                    .blob_kzg_commitments()
-                    .map(|commitments| commitments.len())
-                    .unwrap_or(0);
-
-                let mut blob_count = 0;
-                while let Some((index, Some(blob))) = blobs.iter().enumerate().next() {
-                    blob_count += 1;
-                    if blob.block_root != block_root {
-                        return Err(AvailabilityCheckError::BlockBlobRootMismatch {
-                            block_root,
-                            blob_block_root: blob.block_root,
-                        });
-                    }
-
-                    let expected_index = index as u64;
-                    if expected_index != blob.index {
-                        return Err(AvailabilityCheckError::UnorderedBlobs {
-                            expected_index,
-                            blob_index: blob.index,
-                        });
-                    }
-                }
-
-                if blob_count < expected_num_blobs {
-                    return Err(AvailabilityCheckError::MissingBlobs(block_root));
-                }
-
-                BlockWrapper::BlockAndBlobs(block, blobs)
-            }
         })
     }
 
@@ -567,12 +553,11 @@ impl<E: EthSpec> AvailabilityPendingBlock<E> {
         self.block.slot()
     }
     pub fn num_blobs_expected(&self) -> usize {
-        self.kzg_commitments()
-            .map_or(0, |commitments| commitments.len())
+        self.block.num_expected_blobs()
     }
 
     pub fn get_all_blob_ids(&self, block_root: Option<Hash256>) -> Vec<BlobIdentifier> {
-        self.get_filtered_blob_ids(block_root, |_, _| true)
+        self.block.get_expected_blob_ids(block_root)
     }
 
     pub fn get_filtered_blob_ids(
@@ -580,18 +565,7 @@ impl<E: EthSpec> AvailabilityPendingBlock<E> {
         block_root: Option<Hash256>,
         filter: impl Fn(usize, Hash256) -> bool,
     ) -> Vec<BlobIdentifier> {
-        let block_root = block_root.unwrap_or_else(|| self.as_block().canonical_root());
-        let num_blobs_expected = self.num_blobs_expected();
-        let mut blob_ids = Vec::with_capacity(num_blobs_expected);
-        for i in 0..num_blobs_expected {
-            if filter(i, block_root) {
-                blob_ids.push(BlobIdentifier {
-                    block_root,
-                    index: i as u64,
-                });
-            }
-        }
-        blob_ids
+        self.block.get_filtered_blob_ids(block_root, filter)
     }
 }
 

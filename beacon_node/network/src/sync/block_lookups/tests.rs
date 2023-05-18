@@ -16,7 +16,7 @@ use execution_layer::BlobsBundleV1;
 pub use genesis::{interop_genesis_state, DEFAULT_ETH1_BLOCK_HASH};
 use lighthouse_network::rpc::RPCResponseErrorCode;
 use lighthouse_network::{NetworkGlobals, Request};
-use slot_clock::TestingSlotClock;
+use slot_clock::{SlotClock, TestingSlotClock};
 use std::time::Duration;
 use store::MemoryStore;
 use tokio::sync::mpsc;
@@ -52,6 +52,11 @@ impl TestRig {
             .logger(log.clone())
             .deterministic_keypairs(1)
             .fresh_ephemeral_store()
+            .testing_slot_clock(TestingSlotClock::new(
+                Slot::new(0),
+                Duration::from_secs(0),
+                Duration::from_secs(12),
+            ))
             .build();
 
         let chain = harness.chain.clone();
@@ -115,7 +120,7 @@ impl TestRig {
                 &self.harness.chain.kzg.as_ref().unwrap(),
             )
             .unwrap();
-            //TODO(sean) maybe we want to keep other random txs ?
+
             payload.execution_payload.transactions = <_>::default();
             for tx in Vec::from(transactions) {
                 payload.execution_payload.transactions.push(tx).unwrap();
@@ -237,6 +242,14 @@ impl TestRig {
     }
 
     #[track_caller]
+    fn expect_empty_beacon_processor(&mut self) {
+        assert_eq!(
+            self.beacon_processor_rx.try_recv().expect_err("must err"),
+            mpsc::error::TryRecvError::Empty
+        );
+    }
+
+    #[track_caller]
     pub fn expect_penalty(&mut self) {
         match self.network_rx.try_recv() {
             Ok(NetworkMessage::ReportPeer { .. }) => {}
@@ -252,6 +265,22 @@ impl TestRig {
         let mut block = self.rand_block(fork_name);
         *block.message_mut().parent_root_mut() = parent_root;
         block
+    }
+
+    pub fn block_with_parent_and_blobs(
+        &mut self,
+        parent_root: Hash256,
+        fork_name: ForkName,
+        num_blobs: NumBlobs,
+    ) -> (SignedBeaconBlock<E>, Vec<BlobSidecar<E>>) {
+        let (mut block, mut blobs) = self.rand_block_and_blobs(fork_name, num_blobs);
+        *block.message_mut().parent_root_mut() = parent_root;
+        let block_root = block.canonical_root();
+        blobs.iter_mut().for_each(|blob| {
+            blob.block_parent_root = parent_root;
+            blob.block_root = block_root;
+        });
+        (block, blobs)
     }
 }
 
@@ -288,7 +317,7 @@ fn test_single_block_lookup_happy_path() {
     // Send the stream termination. Peer should have not been penalized, and the request removed
     // after processing.
     bl.single_block_lookup_response(id, peer_id, None, D, &mut cx);
-    bl.single_block_processed(
+    bl.single_block_component_processed(
         id,
         BlockProcessingResult::Ok(AvailabilityProcessingStatus::Imported(block_root)),
         response_type,
@@ -421,7 +450,7 @@ fn test_single_block_lookup_becomes_parent_request() {
 
     // Send the stream termination. Peer should have not been penalized, and the request moved to a
     // parent request after processing.
-    bl.single_block_processed(
+    bl.single_block_component_processed(
         id,
         BlockError::ParentUnknown(block.into()).into(),
         response_type,
@@ -797,8 +826,11 @@ fn test_parent_lookup_too_many_processing_attempts_must_blacklist() {
     }
 
     // Now fail processing a block in the parent request
-    for _ in 0..PROCESSING_FAILURES {
+    for i in 0..PROCESSING_FAILURES {
         let id = dbg!(rig.expect_parent_request(response_type));
+        if matches!(fork_name, ForkName::Deneb) && i != 0 {
+            let _ = rig.expect_parent_request(ResponseType::Blob);
+        }
         // If we're in deneb, a blob request should have been triggered as well,
         // we don't require a response because we're generateing 0-blob blocks in this test.
         assert!(!bl.failed_chains.contains(&block_root));
@@ -939,7 +971,7 @@ fn test_single_block_lookup_ignored_response() {
     // after processing.
     bl.single_block_lookup_response(id, peer_id, None, D, &mut cx);
     // Send an Ignored response, the request should be dropped
-    bl.single_block_processed(id, BlockProcessingResult::Ignored, response_type, &mut cx);
+    bl.single_block_component_processed(id, BlockProcessingResult::Ignored, response_type, &mut cx);
     rig.expect_empty_network();
     assert_eq!(bl.single_block_lookups.len(), 0);
 }
@@ -1100,7 +1132,13 @@ fn test_same_chain_race_condition() {
 
 mod deneb_only {
     use super::*;
-    use beacon_chain::blob_verification::BlobError;
+    use beacon_chain::blob_verification::{BlobError, MaybeAvailableBlock};
+    use beacon_chain::data_availability_checker::AvailabilityPendingBlock;
+    use beacon_chain::ExecutedBlock::AvailabilityPending;
+    use beacon_chain::IntoExecutionPendingBlock;
+    use beacon_chain::PayloadVerificationOutcome;
+    use beacon_chain::{AvailabilityPendingExecutedBlock, NotifyExecutionLayer};
+    use std::ops::IndexMut;
     use std::str::FromStr;
 
     struct DenebTester {
@@ -1109,10 +1147,12 @@ mod deneb_only {
         rig: TestRig,
         block: Option<Arc<SignedBeaconBlock<E>>>,
         blobs: Vec<Arc<BlobSidecar<E>>>,
+        parent_block: Option<Arc<SignedBeaconBlock<E>>>,
+        parent_blobs: Vec<Arc<BlobSidecar<E>>>,
         peer_id: PeerId,
         block_req_id: Option<u32>,
         parent_block_req_id: Option<u32>,
-        blob_req_id: u32,
+        blob_req_id: Option<u32>,
         parent_blob_req_id: Option<u32>,
         slot: Slot,
         block_root: Hash256,
@@ -1137,11 +1177,15 @@ mod deneb_only {
             );
             let (block, blobs) = rig.rand_block_and_blobs(fork_name, NumBlobs::Random);
             let block = Arc::new(block);
-            let blobs = blobs.into_iter().map(Arc::new).collect::<Vec<_>>();
+            let slot = block.slot();
+            let mut block_root = block.canonical_root();
+            let mut block = Some(block);
+            let mut blobs = blobs.into_iter().map(Arc::new).collect::<Vec<_>>();
+
+            let mut parent_block = None;
+            let mut parent_blobs = vec![];
 
             let peer_id = PeerId::random();
-            let slot = block.slot();
-            let block_root = block.canonical_root();
 
             // Trigger the request
             let (block_req_id, blob_req_id, parent_block_req_id, parent_blob_req_id) =
@@ -1154,38 +1198,79 @@ mod deneb_only {
                         );
                         let block_req_id = rig.expect_block_request(ResponseType::Block);
                         let blob_req_id = rig.expect_block_request(ResponseType::Blob);
-                        (Some(block_req_id), blob_req_id, None, None)
+                        (Some(block_req_id), Some(blob_req_id), None, None)
                     }
                     RequestTrigger::GossipUnknownParentBlock => {
-                        bl.search_current_unknown_parent(
+                        let (child_block, child_blobs) = rig.block_with_parent_and_blobs(
                             block_root,
-                            BlockWrapper::Block(block.clone()),
+                            get_fork_name(),
+                            NumBlobs::Random,
+                        );
+                        parent_block = Some(Arc::new(child_block));
+                        parent_blobs = child_blobs.into_iter().map(Arc::new).collect::<Vec<_>>();
+                        std::mem::swap(&mut parent_block, &mut block);
+                        std::mem::swap(&mut parent_blobs, &mut blobs);
+
+                        let child_block = block.as_ref().expect("block").clone();
+                        let child_root = child_block.canonical_root();
+                        let parent_root = block_root;
+                        block_root = child_root;
+                        bl.search_current_unknown_parent_block_and_blobs(
+                            child_root,
+                            Some(child_block),
+                            None,
                             peer_id,
                             &mut cx,
                         );
+
                         let blob_req_id = rig.expect_block_request(ResponseType::Blob);
                         rig.expect_empty_network(); // expect no block request
-                        bl.search_parent(slot, block_root, block.parent_root(), peer_id, &mut cx);
+                        bl.search_parent(slot, child_root, parent_root, peer_id, &mut cx);
                         let parent_block_req_id = rig.expect_parent_request(ResponseType::Block);
                         let parent_blob_req_id = rig.expect_parent_request(ResponseType::Blob);
                         (
                             None,
-                            blob_req_id,
+                            Some(blob_req_id),
                             Some(parent_block_req_id),
                             Some(parent_blob_req_id),
                         )
                     }
                     RequestTrigger::GossipUnknownParentBlob => {
-                        let blob = blobs.first().cloned().unwrap();
-                        bl.search_current_unknown_blob_parent(blob, peer_id, &mut cx);
+                        let (child_block, child_blobs) = rig.block_with_parent_and_blobs(
+                            block_root,
+                            get_fork_name(),
+                            NumBlobs::Random,
+                        );
+
+                        parent_block = Some(Arc::new(child_block));
+                        parent_blobs = child_blobs.into_iter().map(Arc::new).collect::<Vec<_>>();
+                        std::mem::swap(&mut parent_block, &mut block);
+                        std::mem::swap(&mut parent_blobs, &mut blobs);
+
+                        let child_blob = blobs.first().cloned().unwrap();
+                        let parent_root = block_root;
+                        let child_root = child_blob.block_root;
+                        block_root = child_root;
+
+                        let mut blobs = FixedBlobSidecarList::default();
+                        *blobs.index_mut(0) = Some(child_blob);
+                        bl.search_current_unknown_parent_block_and_blobs(
+                            child_root,
+                            None,
+                            Some(blobs),
+                            peer_id,
+                            &mut cx,
+                        );
+
                         let block_req_id = rig.expect_block_request(ResponseType::Block);
-                        let blob_req_id = rig.expect_block_request(ResponseType::Blob);
-                        bl.search_parent(slot, block_root, block.parent_root(), peer_id, &mut cx);
+                        let blobs_req_id = rig.expect_block_request(ResponseType::Blob);
+                        rig.expect_empty_network(); // expect no block request
+                        bl.search_parent(slot, child_root, parent_root, peer_id, &mut cx);
                         let parent_block_req_id = rig.expect_parent_request(ResponseType::Block);
                         let parent_blob_req_id = rig.expect_parent_request(ResponseType::Blob);
                         (
                             Some(block_req_id),
-                            blob_req_id,
+                            Some(blobs_req_id),
                             Some(parent_block_req_id),
                             Some(parent_blob_req_id),
                         )
@@ -1194,7 +1279,7 @@ mod deneb_only {
                         bl.search_block(block_root, PeerShouldHave::Neither(peer_id), &mut cx);
                         let block_req_id = rig.expect_block_request(ResponseType::Block);
                         let blob_req_id = rig.expect_block_request(ResponseType::Blob);
-                        (Some(block_req_id), blob_req_id, None, None)
+                        (Some(block_req_id), Some(blob_req_id), None, None)
                     }
                 };
 
@@ -1202,8 +1287,10 @@ mod deneb_only {
                 bl,
                 cx,
                 rig,
-                block: Some(block),
+                block,
                 blobs,
+                parent_block,
+                parent_blobs,
                 peer_id,
                 block_req_id,
                 parent_block_req_id,
@@ -1212,6 +1299,53 @@ mod deneb_only {
                 slot,
                 block_root,
             })
+        }
+
+        fn parent_block_response(mut self) -> Self {
+            self.rig.expect_empty_network();
+            self.bl.parent_lookup_response(
+                self.parent_block_req_id.expect("parent request id"),
+                self.peer_id,
+                self.parent_block.clone(),
+                D,
+                &mut self.cx,
+            );
+
+            assert_eq!(self.bl.parent_lookups.len(), 1);
+            self
+        }
+
+        fn parent_blob_response(mut self) -> Self {
+            for blob in &self.parent_blobs {
+                dbg!("sendingblob");
+                self.bl.parent_lookup_blob_response(
+                    self.parent_blob_req_id.expect("parent blob request id"),
+                    self.peer_id,
+                    Some(blob.clone()),
+                    D,
+                    &mut self.cx,
+                );
+                assert_eq!(self.bl.parent_lookups.len(), 1);
+            }
+            dbg!("sending stream terminator");
+            self.bl.parent_lookup_blob_response(
+                self.parent_blob_req_id.expect("blob request id"),
+                self.peer_id,
+                None,
+                D,
+                &mut self.cx,
+            );
+
+            self
+        }
+
+        fn block_response_triggering_process(mut self) -> Self {
+            let mut me = self.block_response();
+            me.rig.expect_block_process(ResponseType::Block);
+
+            // The request should still be active.
+            assert_eq!(me.bl.single_block_lookups.len(), 1);
+            me
         }
 
         fn block_response(mut self) -> Self {
@@ -1225,7 +1359,6 @@ mod deneb_only {
                 &mut self.cx,
             );
             self.rig.expect_empty_network();
-            self.rig.expect_block_process(ResponseType::Block);
 
             // The request should still be active.
             assert_eq!(self.bl.single_block_lookups.len(), 1);
@@ -1235,7 +1368,7 @@ mod deneb_only {
         fn blobs_response(mut self) -> Self {
             for blob in &self.blobs {
                 self.bl.single_blob_lookup_response(
-                    self.blob_req_id,
+                    self.blob_req_id.expect("blob request id"),
                     self.peer_id,
                     Some(blob.clone()),
                     D,
@@ -1243,9 +1376,8 @@ mod deneb_only {
                 );
                 assert_eq!(self.bl.single_block_lookups.len(), 1);
             }
-            // Send the blob stream termination. Peer should have not been penalized.
             self.bl.single_blob_lookup_response(
-                self.blob_req_id,
+                self.blob_req_id.expect("blob request id"),
                 self.peer_id,
                 None,
                 D,
@@ -1256,7 +1388,14 @@ mod deneb_only {
 
         fn blobs_response_was_valid(mut self) -> Self {
             self.rig.expect_empty_network();
-            self.rig.expect_block_process(ResponseType::Blob);
+            if self.blobs.len() > 0 {
+                self.rig.expect_block_process(ResponseType::Blob);
+            }
+            self
+        }
+
+        fn expect_empty_beacon_processor(mut self) -> Self {
+            self.rig.expect_empty_beacon_processor();
             self
         }
 
@@ -1273,7 +1412,29 @@ mod deneb_only {
 
         fn empty_blobs_response(mut self) -> Self {
             self.bl.single_blob_lookup_response(
-                self.blob_req_id,
+                self.blob_req_id.expect("blob request id"),
+                self.peer_id,
+                None,
+                D,
+                &mut self.cx,
+            );
+            self
+        }
+
+        fn empty_parent_block_response(mut self) -> Self {
+            self.bl.parent_lookup_response(
+                self.parent_block_req_id.expect("block request id"),
+                self.peer_id,
+                None,
+                D,
+                &mut self.cx,
+            );
+            self
+        }
+
+        fn empty_parent_blobs_response(mut self) -> Self {
+            self.bl.parent_lookup_blob_response(
+                self.parent_blob_req_id.expect("blob request id"),
                 self.peer_id,
                 None,
                 D,
@@ -1285,7 +1446,7 @@ mod deneb_only {
         fn block_imported(mut self) -> Self {
             // Missing blobs should be the request is not removed, the outstanding blobs request should
             // mean we do not send a new request.
-            self.bl.single_block_processed(
+            self.bl.single_block_component_processed(
                 self.block_req_id.expect("block request id"),
                 BlockProcessingResult::Ok(AvailabilityProcessingStatus::Imported(self.block_root)),
                 ResponseType::Block,
@@ -1296,8 +1457,44 @@ mod deneb_only {
             self
         }
 
+        fn parent_block_imported(mut self) -> Self {
+            self.bl.parent_block_processed(
+                self.block_root,
+                BlockProcessingResult::Ok(AvailabilityProcessingStatus::Imported(self.block_root)),
+                ResponseType::Block,
+                &mut self.cx,
+            );
+            self.rig.expect_empty_network();
+            assert_eq!(self.bl.parent_lookups.len(), 0);
+            self
+        }
+
+        fn parent_block_unknown_parent(mut self) -> Self {
+            self.bl.parent_block_processed(
+                self.block_root,
+                BlockProcessingResult::Err(BlockError::ParentUnknown(BlockWrapper::Block(
+                    self.parent_block.clone().expect("parent block"),
+                ))),
+                ResponseType::Block,
+                &mut self.cx,
+            );
+            assert_eq!(self.bl.parent_lookups.len(), 1);
+            self
+        }
+
+        fn invalid_parent_processed(mut self) -> Self {
+            self.bl.parent_block_processed(
+                self.block_root,
+                BlockProcessingResult::Err(BlockError::ProposalSignatureInvalid),
+                ResponseType::Block,
+                &mut self.cx,
+            );
+            assert_eq!(self.bl.parent_lookups.len(), 1);
+            self
+        }
+
         fn invalid_block_processed(mut self) -> Self {
-            self.bl.single_block_processed(
+            self.bl.single_block_component_processed(
                 self.block_req_id.expect("block request id"),
                 BlockProcessingResult::Err(BlockError::ProposalSignatureInvalid),
                 ResponseType::Block,
@@ -1308,8 +1505,8 @@ mod deneb_only {
         }
 
         fn invalid_blob_processed(mut self) -> Self {
-            self.bl.single_block_processed(
-                self.blob_req_id,
+            self.bl.single_block_component_processed(
+                self.blob_req_id.expect("blob request id"),
                 BlockProcessingResult::Err(BlockError::BlobValidation(
                     BlobError::ProposerSignatureInvalid,
                 )),
@@ -1321,7 +1518,7 @@ mod deneb_only {
         }
 
         fn missing_components_from_block_request(mut self) -> Self {
-            self.bl.single_block_processed(
+            self.bl.single_block_component_processed(
                 self.block_req_id.expect("block request id"),
                 BlockProcessingResult::Ok(AvailabilityProcessingStatus::MissingComponents(
                     self.slot,
@@ -1335,8 +1532,8 @@ mod deneb_only {
         }
 
         fn missing_components_from_blob_request(mut self) -> Self {
-            self.bl.single_block_processed(
-                self.blob_req_id,
+            self.bl.single_block_component_processed(
+                self.blob_req_id.expect("blob request id"),
                 BlockProcessingResult::Ok(AvailabilityProcessingStatus::MissingComponents(
                     self.slot,
                     self.block_root,
@@ -1357,11 +1554,23 @@ mod deneb_only {
             self
         }
         fn expect_block_request(mut self) -> Self {
-            self.rig.expect_block_request(ResponseType::Block);
+            let id = self.rig.expect_block_request(ResponseType::Block);
+            self.block_req_id = Some(id);
             self
         }
         fn expect_blobs_request(mut self) -> Self {
-            self.rig.expect_block_request(ResponseType::Blob);
+            let id = self.rig.expect_block_request(ResponseType::Blob);
+            self.blob_req_id = Some(id);
+            self
+        }
+        fn expect_parent_block_request(mut self) -> Self {
+            let id = self.rig.expect_parent_request(ResponseType::Block);
+            self.parent_block_req_id = Some(id);
+            self
+        }
+        fn expect_parent_blobs_request(mut self) -> Self {
+            let id = self.rig.expect_parent_request(ResponseType::Blob);
+            self.parent_blob_req_id = Some(id);
             self
         }
         fn expect_no_blobs_request(mut self) -> Self {
@@ -1379,6 +1588,14 @@ mod deneb_only {
         fn invalidate_blobs_too_many(mut self) -> Self {
             let first_blob = self.blobs.get(0).expect("blob").clone();
             self.blobs.push(first_blob);
+            self
+        }
+        fn expect_parent_chain_process(mut self) -> Self {
+            self.rig.expect_parent_chain_process();
+            self
+        }
+        fn expect_block_process(mut self) -> Self {
+            self.rig.expect_block_process(ResponseType::Block);
             self
         }
     }
@@ -1403,7 +1620,7 @@ mod deneb_only {
         };
 
         tester
-            .block_response()
+            .block_response_triggering_process()
             .blobs_response()
             .blobs_response_was_valid()
             .block_imported();
@@ -1418,7 +1635,7 @@ mod deneb_only {
         tester
             .blobs_response()
             .blobs_response_was_valid()
-            .block_response()
+            .block_response_triggering_process()
             .block_imported();
     }
 
@@ -1434,9 +1651,12 @@ mod deneb_only {
             .expect_block_request()
             .expect_no_blobs_request()
             .empty_blobs_response()
+            .expect_empty_beacon_processor()
             .expect_no_penalty()
             .expect_no_block_request()
-            .expect_no_blobs_request();
+            .expect_no_blobs_request()
+            .block_response_triggering_process()
+            .missing_components_from_block_request();
     }
 
     #[test]
@@ -1446,9 +1666,10 @@ mod deneb_only {
         };
 
         tester
-            .block_response()
+            .block_response_triggering_process()
             .missing_components_from_block_request()
             .empty_blobs_response()
+            .missing_components_from_blob_request()
             .expect_penalty()
             .expect_blobs_request()
             .expect_no_block_request();
@@ -1480,7 +1701,7 @@ mod deneb_only {
         };
 
         tester
-            .block_response()
+            .block_response_triggering_process()
             .invalid_block_processed()
             .expect_penalty()
             .expect_block_request()
@@ -1499,7 +1720,7 @@ mod deneb_only {
         };
 
         tester
-            .block_response()
+            .block_response_triggering_process()
             .missing_components_from_block_request()
             .blobs_response()
             .invalid_blob_processed()
@@ -1515,9 +1736,11 @@ mod deneb_only {
         };
 
         tester
-            .block_response()
+            .block_response_triggering_process()
+            .missing_components_from_block_request()
             .invalidate_blobs_too_few()
             .blobs_response()
+            .missing_components_from_blob_request()
             .expect_penalty()
             .expect_blobs_request()
             .expect_no_block_request();
@@ -1530,7 +1753,7 @@ mod deneb_only {
         };
 
         tester
-            .block_response()
+            .block_response_triggering_process()
             .invalidate_blobs_too_many()
             .blobs_response()
             .expect_penalty()
@@ -1546,12 +1769,11 @@ mod deneb_only {
         tester
             .invalidate_blobs_too_few()
             .blobs_response()
-            // No way to know if the response was valid before we've seen the block.
             .blobs_response_was_valid()
             .expect_no_penalty()
             .expect_no_blobs_request()
             .expect_no_block_request()
-            .block_response();
+            .block_response_triggering_process();
     }
 
     #[test]
@@ -1566,7 +1788,7 @@ mod deneb_only {
             .expect_penalty()
             .expect_blobs_request()
             .expect_no_block_request()
-            .block_response();
+            .block_response_triggering_process();
     }
 
     #[test]
@@ -1576,7 +1798,7 @@ mod deneb_only {
         };
 
         tester
-            .block_response()
+            .block_response_triggering_process()
             .blobs_response()
             .blobs_response_was_valid()
             .block_imported();
@@ -1591,7 +1813,7 @@ mod deneb_only {
         tester
             .blobs_response()
             .blobs_response_was_valid()
-            .block_response()
+            .block_response_triggering_process()
             .block_imported();
     }
 
@@ -1609,7 +1831,9 @@ mod deneb_only {
             .empty_blobs_response()
             .expect_no_penalty()
             .expect_no_block_request()
-            .expect_no_blobs_request();
+            .expect_no_blobs_request()
+            .block_response_triggering_process()
+            .missing_components_from_block_request();
     }
 
     #[test]
@@ -1619,9 +1843,10 @@ mod deneb_only {
         };
 
         tester
-            .block_response()
+            .block_response_triggering_process()
             .missing_components_from_block_request()
             .empty_blobs_response()
+            .missing_components_from_blob_request()
             .expect_blobs_request()
             .expect_no_penalty()
             .expect_no_block_request();
@@ -1642,7 +1867,6 @@ mod deneb_only {
             .missing_components_from_blob_request()
             .empty_block_response()
             .expect_block_request()
-            // No penalty because the blob was seen over gossip
             .expect_no_penalty()
             .expect_no_blobs_request();
     }
@@ -1654,7 +1878,7 @@ mod deneb_only {
         };
 
         tester
-            .block_response()
+            .block_response_triggering_process()
             .invalid_block_processed()
             .expect_penalty()
             .expect_block_request()
@@ -1673,7 +1897,7 @@ mod deneb_only {
         };
 
         tester
-            .block_response()
+            .block_response_triggering_process()
             .missing_components_from_block_request()
             .blobs_response()
             .invalid_blob_processed()
@@ -1689,9 +1913,11 @@ mod deneb_only {
         };
 
         tester
-            .block_response()
+            .block_response_triggering_process()
+            .missing_components_from_block_request()
             .invalidate_blobs_too_few()
             .blobs_response()
+            .missing_components_from_blob_request()
             .expect_blobs_request()
             .expect_no_penalty()
             .expect_no_block_request();
@@ -1704,7 +1930,7 @@ mod deneb_only {
         };
 
         tester
-            .block_response()
+            .block_response_triggering_process()
             .invalidate_blobs_too_many()
             .blobs_response()
             .expect_penalty()
@@ -1720,12 +1946,14 @@ mod deneb_only {
         tester
             .invalidate_blobs_too_few()
             .blobs_response()
-            // No way to know if the response was valid before we've seen the block.
             .blobs_response_was_valid()
+            .missing_components_from_blob_request()
             .expect_no_penalty()
             .expect_no_blobs_request()
             .expect_no_block_request()
-            .block_response();
+            .block_response_triggering_process()
+            .missing_components_from_block_request()
+            .expect_blobs_request();
     }
 
     #[test]
@@ -1740,6 +1968,228 @@ mod deneb_only {
             .expect_penalty()
             .expect_blobs_request()
             .expect_no_block_request()
-            .block_response();
+            .block_response_triggering_process();
+    }
+
+    #[test]
+    fn parent_block_unknown_parent() {
+        let Some(tester) = DenebTester::new(RequestTrigger::GossipUnknownParentBlock) else {
+            return;
+        };
+
+        tester
+            .blobs_response()
+            .expect_empty_beacon_processor()
+            .parent_block_response()
+            .parent_blob_response()
+            .expect_block_process()
+            .parent_block_unknown_parent()
+            .expect_parent_block_request()
+            .expect_parent_blobs_request()
+            .expect_empty_beacon_processor();
+    }
+
+    #[test]
+    fn parent_block_invalid_parent() {
+        let Some(tester) = DenebTester::new(RequestTrigger::GossipUnknownParentBlock) else {
+            return;
+        };
+
+        tester
+            .blobs_response()
+            .expect_empty_beacon_processor()
+            .parent_block_response()
+            .parent_blob_response()
+            .expect_block_process()
+            .invalid_parent_processed()
+            .expect_penalty()
+            .expect_parent_block_request()
+            .expect_parent_blobs_request()
+            .expect_empty_beacon_processor();
+    }
+
+    #[test]
+    fn parent_block_and_blob_lookup_parent_returned_first() {
+        let Some(tester) = DenebTester::new(RequestTrigger::GossipUnknownParentBlock) else {
+            return;
+        };
+
+        tester
+            .parent_block_response()
+            .parent_blob_response()
+            .expect_block_process()
+            .parent_block_imported()
+            .blobs_response()
+            .expect_parent_chain_process();
+    }
+
+    #[test]
+    fn parent_block_and_blob_lookup_child_returned_first() {
+        let Some(tester) = DenebTester::new(RequestTrigger::GossipUnknownParentBlock) else {
+            return;
+        };
+
+        tester
+            .blobs_response()
+            .expect_no_penalty()
+            .expect_no_block_request()
+            .expect_no_blobs_request()
+            .parent_block_response()
+            .parent_blob_response()
+            .expect_block_process()
+            .parent_block_imported()
+            .expect_parent_chain_process();
+    }
+
+    #[test]
+    fn empty_parent_block_then_parent_blob() {
+        let Some(tester) = DenebTester::new(RequestTrigger::GossipUnknownParentBlock) else {
+            return;
+        };
+
+        tester
+            .empty_parent_block_response()
+            .expect_penalty()
+            .expect_parent_block_request()
+            .expect_no_blobs_request()
+            .parent_blob_response()
+            .expect_empty_beacon_processor()
+            .parent_block_response()
+            .expect_block_process()
+            .parent_block_imported()
+            .blobs_response()
+            .expect_parent_chain_process();
+    }
+
+    #[test]
+    fn empty_parent_blobs_then_parent_block() {
+        let Some(tester) = DenebTester::new(RequestTrigger::GossipUnknownParentBlock) else {
+            return;
+        };
+
+        tester
+            .blobs_response()
+            .empty_parent_blobs_response()
+            .expect_no_penalty()
+            .expect_no_blobs_request()
+            .expect_no_block_request()
+            .parent_block_response()
+            .expect_penalty()
+            .expect_parent_blobs_request()
+            .parent_blob_response()
+            .expect_block_process()
+            .parent_block_imported()
+            .expect_parent_chain_process();
+    }
+
+    #[test]
+    fn parent_blob_unknown_parent() {
+        let Some(tester) = DenebTester::new(RequestTrigger::GossipUnknownParentBlob) else {
+            return;
+        };
+
+        tester
+            .block_response()
+            .expect_empty_beacon_processor()
+            .parent_block_response()
+            .parent_blob_response()
+            .expect_block_process()
+            .parent_block_unknown_parent()
+            .expect_parent_block_request()
+            .expect_parent_blobs_request()
+            .expect_empty_beacon_processor();
+    }
+
+    #[test]
+    fn parent_blob_invalid_parent() {
+        let Some(tester) = DenebTester::new(RequestTrigger::GossipUnknownParentBlob) else {
+            return;
+        };
+
+        tester
+            .block_response()
+            .expect_empty_beacon_processor()
+            .parent_block_response()
+            .parent_blob_response()
+            .expect_block_process()
+            .invalid_parent_processed()
+            .expect_penalty()
+            .expect_parent_block_request()
+            .expect_parent_blobs_request()
+            .expect_empty_beacon_processor();
+    }
+
+    #[test]
+    fn parent_block_and_blob_lookup_parent_returned_first_blob_trigger() {
+        let Some(tester) = DenebTester::new(RequestTrigger::GossipUnknownParentBlob) else {
+            return;
+        };
+
+        tester
+            .parent_block_response()
+            .parent_blob_response()
+            .expect_block_process()
+            .parent_block_imported()
+            .block_response()
+            .expect_parent_chain_process();
+    }
+
+    #[test]
+    fn parent_block_and_blob_lookup_child_returned_first_blob_trigger() {
+        let Some(tester) = DenebTester::new(RequestTrigger::GossipUnknownParentBlob) else {
+            return;
+        };
+
+        tester
+            .block_response()
+            .expect_no_penalty()
+            .expect_no_block_request()
+            .expect_no_blobs_request()
+            .parent_block_response()
+            .parent_blob_response()
+            .expect_block_process()
+            .parent_block_imported()
+            .expect_parent_chain_process();
+    }
+
+    #[test]
+    fn empty_parent_block_then_parent_blob_blob_trigger() {
+        let Some(tester) = DenebTester::new(RequestTrigger::GossipUnknownParentBlob) else {
+            return;
+        };
+
+        tester
+            .empty_parent_block_response()
+            .expect_penalty()
+            .expect_parent_block_request()
+            .expect_no_blobs_request()
+            .parent_blob_response()
+            .expect_empty_beacon_processor()
+            .parent_block_response()
+            .expect_block_process()
+            .parent_block_imported()
+            .block_response()
+            .expect_parent_chain_process();
+    }
+
+    #[test]
+    fn empty_parent_blobs_then_parent_block_blob_trigger() {
+        let Some(tester) = DenebTester::new(RequestTrigger::GossipUnknownParentBlob) else {
+            return;
+        };
+
+        tester
+            .block_response()
+            .empty_parent_blobs_response()
+            .expect_no_penalty()
+            .expect_no_blobs_request()
+            .expect_no_block_request()
+            .parent_block_response()
+            .expect_penalty()
+            .expect_parent_blobs_request()
+            .parent_blob_response()
+            .expect_block_process()
+            .parent_block_imported()
+            .expect_parent_chain_process();
     }
 }
