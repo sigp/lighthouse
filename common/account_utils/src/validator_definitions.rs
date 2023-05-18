@@ -1,7 +1,7 @@
 //! Provides a file format for defining validators that should be initialized by this validator.
 //!
 //! Serves as the source-of-truth of which validators this validator client should attempt (or not
-//! attempt) to load into the `crate::intialized_validators::InitializedValidators` struct.
+//! attempt) to load into the `crate::initialized_validators::InitializedValidators` struct.
 
 use crate::{default_keystore_password_path, write_file_via_temporary, ZeroizeString};
 use directory::ensure_dir_exists;
@@ -13,8 +13,7 @@ use std::collections::HashSet;
 use std::fs::{self, File};
 use std::io;
 use std::path::{Path, PathBuf};
-use std::str::FromStr;
-use types::{graffiti::GraffitiString, Address, PublicKey, PublicKeyBytes, Graffiti};
+use types::{graffiti::GraffitiString, Address, PublicKey, PublicKeyBytes};
 use validator_dir::VOTING_KEYSTORE_FILE;
 
 /// The file name for the serialized `ValidatorDefinitions` struct.
@@ -308,7 +307,7 @@ impl ValidatorDefinitions {
                     gas_limit: None,
                     builder_proposals: None,
                     builder_pubkey_override: None,
-                    builder_timestamp_override,
+                    builder_timestamp_override: None,
                     signing_definition: SigningDefinition::LocalKeystore {
                         voting_keystore_path,
                         voting_keystore_password_path,
@@ -631,45 +630,86 @@ mod tests {
         let def: ValidatorDefinition = serde_yaml::from_str(valid_builder_proposals).unwrap();
         assert_eq!(def.builder_proposals, Some(true));
     }
-}
 
-#[test]
-fn builder_pubkey_override_checks() {
-    let no_builder_pubkey_override = r#"---
-        description: ""
-        enabled: true
-        type: local_keystore
-        suggested_fee_recipient: "0xa2e334e71511686bcfe38bb3ee1ad8f6babcc03d"
-        voting_keystore_path: ""
-        voting_public_key: "0xaf3c7ddab7e293834710fca2d39d068f884455ede270e0d0293dc818e4f2f0f975355067e8437955cb29aec674e5c9e7"
-        "#;
-    let def: ValidatorDefinition = serde_yaml::from_str(no_builder_pubkey_override).unwrap();
-    assert!(def.builder_pubkey_override.is_none());
+    #[test]
+    fn builder_pubkey_override_checks() {
+        let no_builder_pubkey_override = r#"---
+            description: ""
+            enabled: true
+            type: local_keystore
+            suggested_fee_recipient: "0xa2e334e71511686bcfe38bb3ee1ad8f6babcc03d"
+            voting_keystore_path: ""
+            voting_public_key: "0xaf3c7ddab7e293834710fca2d39d068f884455ede270e0d0293dc818e4f2f0f975355067e8437955cb29aec674e5c9e7"
+            "#;
+        let def: ValidatorDefinition = serde_yaml::from_str(no_builder_pubkey_override).unwrap();
+        assert!(def.builder_pubkey_override.is_none());
 
-    let invalid_builder_pubkey_override = r#"---
-        description: ""
-        enabled: true
-        type: local_keystore
-        suggested_fee_recipient: "0xa2e334e71511686bcfe38bb3ee1ad8f6babcc03d"
-        builder_pubkey_override: "foopy"
-        voting_keystore_path: ""
-        voting_public_key: "0xaf3c7ddab7e293834710fca2d39d068f884455ede270e0d0293dc818e4f2f0f975355067e8437955cb29aec674e5c9e7"
-        "#;
+        let invalid_builder_pubkey_override = r#"---
+            description: ""
+            enabled: true
+            type: local_keystore
+            suggested_fee_recipient: "0xa2e334e71511686bcfe38bb3ee1ad8f6babcc03d"
+            builder_pubkey_override: "foopy"
+            voting_keystore_path: ""
+            voting_public_key: "0xaf3c7ddab7e293834710fca2d39d068f884455ede270e0d0293dc818e4f2f0f975355067e8437955cb29aec674e5c9e7"
+            "#;
 
-    let def: Result<ValidatorDefinition, _> =
-        serde_yaml::from_str(invalid_builder_pubkey_override);
-    assert!(def.is_err());
+        let def: Result<ValidatorDefinition, _> =
+            serde_yaml::from_str(invalid_builder_pubkey_override);
+        assert!(def.is_err());
 
-    let valid_builder_pubkey_override = r#"---
-        description: ""
-        enabled: true
-        type: local_keystore
-        suggested_fee_recipient: "0xa2e334e71511686bcfe38bb3ee1ad8f6babcc03d"
-        builder_pubkey_override: "0xaf3c7ddab7e293834710fca2d39d068f884455ede270e0d0293dc818e4f2f0f975355067e8437955cb29aec674e5c9e7"
-        voting_keystore_path: ""
-        voting_public_key: "0xaf3c7ddab7e293834710fca2d39d068f884455ede270e0d0293dc818e4f2f0f975355067e8437955cb29aec674e5c9e7"
-        "#;
+        let valid_builder_pubkey_override = r#"---
+            description: ""
+            enabled: true
+            type: local_keystore
+            suggested_fee_recipient: "0xa2e334e71511686bcfe38bb3ee1ad8f6babcc03d"
+            builder_pubkey_override: "0xaf3c7ddab7e293834710fca2d39d068f884455ede270e0d0293dc818e4f2f0f975355067e8437955cb29aec674e5c9e7"
+            voting_keystore_path: ""
+            voting_public_key: "0xaf3c7ddab7e293834710fca2d39d068f884455ede270e0d0293dc818e4f2f0f975355067e8437955cb29aec674e5c9e7"
+            "#;
 
-    let def: ValidatorDefinition = serde_yaml::from_str(valid_builder_pubkey_override).unwrap();
-    assert_eq!(def.builder_pubkey_override, Some(PublicKeyBytes::from_str("0xaf3c7ddab7e293834710fca2d39d068f884455ede270e0d0293dc818e4f2f0f975355067e8437955cb29aec674e5c9e7").unwrap()));
+        let def: ValidatorDefinition = serde_yaml::from_str(valid_builder_pubkey_override).unwrap();
+        assert_eq!(def.builder_pubkey_override, Some(PublicKeyBytes::from_str("0xaf3c7ddab7e293834710fca2d39d068f884455ede270e0d0293dc818e4f2f0f975355067e8437955cb29aec674e5c9e7").unwrap()));
+    }
+
+    #[test]
+    fn builder_timestamp_override_checks() {
+        let no_builder_timestamp_override = r#"---
+            description: ""
+            enabled: true
+            type: local_keystore
+            suggested_fee_recipient: "0xa2e334e71511686bcfe38bb3ee1ad8f6babcc03d"
+            voting_keystore_path: ""
+            voting_public_key: "0xaf3c7ddab7e293834710fca2d39d068f884455ede270e0d0293dc818e4f2f0f975355067e8437955cb29aec674e5c9e7"
+            "#;
+        let def: ValidatorDefinition = serde_yaml::from_str(no_builder_timestamp_override).unwrap();
+        assert!(def.builder_timestamp_override.is_none());
+
+        let invalid_builder_timestamp_override = r#"---
+            description: ""
+            enabled: true
+            type: local_keystore
+            suggested_fee_recipient: "0xa2e334e71511686bcfe38bb3ee1ad8f6babcc03d"
+            builder_timestamp_override: "time"
+            voting_keystore_path: ""
+            voting_public_key: "0xaf3c7ddab7e293834710fca2d39d068f884455ede270e0d0293dc818e4f2f0f975355067e8437955cb29aec674e5c9e7"
+            "#;
+
+        let def: Result<ValidatorDefinition, _> =
+            serde_yaml::from_str(invalid_builder_timestamp_override);
+        assert!(def.is_err());
+
+        let valid_builder_timestamp_override = r#"---
+            description: ""
+            enabled: true
+            type: local_keystore
+            suggested_fee_recipient: "0xa2e334e71511686bcfe38bb3ee1ad8f6babcc03d"
+            builder_timestamp_override: 1684308220
+            voting_keystore_path: ""
+            voting_public_key: "0xaf3c7ddab7e293834710fca2d39d068f884455ede270e0d0293dc818e4f2f0f975355067e8437955cb29aec674e5c9e7"
+            "#;
+
+        let def: ValidatorDefinition = serde_yaml::from_str(valid_builder_timestamp_override).unwrap();
+        assert_eq!(def.builder_timestamp_override, Some(1684308220));
+    }
 }

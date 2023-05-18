@@ -756,10 +756,10 @@ impl InitializedValidators {
                 val.builder_proposals = Some(builder_proposals);
             }
             if let Some(builder_pubkey_override) = builder_pubkey_override {
-                def.builder_pubkey_override = Some(builder_pubkey_override)
+                val.builder_pubkey_override = Some(builder_pubkey_override)
             }
             if let Some(builder_timestamp_override) = builder_timestamp_override {
-                def.builder_timestamp_override = Some(builder_timestamp_override)
+                val.builder_timestamp_override = Some(builder_timestamp_override)
             }
         }
 

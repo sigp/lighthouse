@@ -516,6 +516,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                     let gas_limit = body.gas_limit;
                     let builder_proposals = body.builder_proposals;
                     let builder_pubkey_override = body.builder_pubkey_override;
+                    let builder_timestamp_override = body.builder_timestamp_override;
 
                     let validator_def = {
                         if let Some(handle) = task_executor.handle() {

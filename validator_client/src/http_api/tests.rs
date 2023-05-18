@@ -421,6 +421,7 @@ impl ApiTester {
                 gas_limit: None,
                 builder_proposals: None,
                 builder_pubkey_override: None,
+                builder_timestamp_override: None,
             };
 
             self.client
@@ -442,6 +443,7 @@ impl ApiTester {
             gas_limit: None,
             builder_proposals: None,
             builder_pubkey_override: None,
+            builder_timestamp_override: None,
         };
 
         let response = self
@@ -786,6 +788,8 @@ fn routes_with_invalid_auth() {
                         suggested_fee_recipient: <_>::default(),
                         gas_limit: <_>::default(),
                         builder_proposals: <_>::default(),
+                        builder_pubkey_override: <_>::default(),
+                        builder_timestamp_override: <_>::default(),
                     })
                     .await
             })

@@ -32,6 +32,7 @@ pub struct PreparationServiceBuilder<T: SlotClock + 'static, E: EthSpec> {
     slot_clock: Option<T>,
     beacon_nodes: Option<Arc<BeaconNodeFallback<T, E>>>,
     context: Option<RuntimeContext<E>>,
+    builder_registration_pubkey_override: Option<PublicKeyBytes>,
     builder_registration_timestamp_override: Option<u64>,
 }
 
@@ -42,6 +43,7 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationServiceBuilder<T, E> {
             slot_clock: None,
             beacon_nodes: None,
             context: None,
+            builder_registration_pubkey_override: None,
             builder_registration_timestamp_override: None,
         }
     }
@@ -63,6 +65,14 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationServiceBuilder<T, E> {
 
     pub fn runtime_context(mut self, context: RuntimeContext<E>) -> Self {
         self.context = Some(context);
+        self
+    }
+
+    pub fn builder_registration_pubkey_override(
+        mut self,
+        builder_registration_pubkey_override: Option<PublicKeyBytes>,
+    ) -> Self {
+        self.builder_registration_pubkey_override = builder_registration_pubkey_override;
         self
     }
 
@@ -89,6 +99,8 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationServiceBuilder<T, E> {
                 context: self
                     .context
                     .ok_or("Cannot build PreparationService without runtime_context")?,
+                builder_registration_pubkey_override: self
+                    .builder_registration_pubkey_override,
                 builder_registration_timestamp_override: self
                     .builder_registration_timestamp_override,
                 validator_registration_cache: RwLock::new(HashMap::new()),
@@ -103,6 +115,7 @@ pub struct Inner<T, E: EthSpec> {
     slot_clock: T,
     beacon_nodes: Arc<BeaconNodeFallback<T, E>>,
     context: RuntimeContext<E>,
+    builder_registration_pubkey_override: Option<PublicKeyBytes>,
     builder_registration_timestamp_override: Option<u64>,
     // Used to track unpublished validator registration changes.
     validator_registration_cache:
@@ -113,7 +126,7 @@ pub struct Inner<T, E: EthSpec> {
 pub struct ValidatorRegistrationKey {
     pub fee_recipient: Address,
     pub gas_limit: u64,
-    pub signing_pubkey: PublicKeyBytes,
+    pub pubkey: PublicKeyBytes,
 }
 
 /// Attempts to produce proposer preparations for all known validators at the beginning of each epoch.
@@ -269,30 +282,25 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
     }
 
     fn collect_validator_registration_keys(&self) -> Vec<(PublicKeyBytes, ValidatorRegistrationKey)> {
-        self.collect_proposal_data(|signing_pubkey, proposal_data| {
+        self.collect_proposal_data(|pubkey, proposal_data| {
             // Ignore fee recipients for keys without indices, they are inactive.
             proposal_data.validator_index?;
 
             // We don't log for missing fee recipients here because this will be logged more
             // frequently in `collect_preparation_data`.
             proposal_data.fee_recipient.and_then(|fee_recipient| {
-                proposal_data.builder_proposals.then(|| {
-                    let registration_pubkey =
-                        if let Some(pubkey_override) = proposal_data.builder_pubkey_override {
-                            pubkey_override
-                        } else {
-                            signing_pubkey
-                        };
-
-                    (
-                        registration_pubkey,
-                        ValidatorRegistrationKey {
-                            fee_recipient,
-                            gas_limit: proposal_data.gas_limit,
-                            signing_pubkey,
-                        },
-                    )
-                })
+                proposal_data
+                    .builder_proposals
+                    .then(|| {
+                        (
+                            pubkey,
+                            ValidatorRegistrationKey {
+                                fee_recipient,
+                                gas_limit: proposal_data.gas_limit,
+                                pubkey,
+                            },
+                        )
+                    })
             })
         })
     }
@@ -368,9 +376,9 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
                 // but the explicit `drop` is not enough).
                 {
                     let guard = self.validator_registration_cache.read();
-                    for (registration_pubkey, key) in registration_keys.into_iter() {
+                    for (pubkey, key) in registration_keys.into_iter() {
                         if !guard.contains_key(&key) {
-                            changed_keys.push((registration_pubkey, key));
+                            changed_keys.push((pubkey, key));
                         }
                     }
                     drop(guard);
@@ -395,14 +403,21 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
         let registration_data_len = registration_keys.len();
         let mut signed = Vec::with_capacity(registration_data_len);
 
-        for (registration_pubkey, key) in registration_keys {
+        for (signing_pubkey, key) in registration_keys {
             let cached_registration_opt =
                 self.validator_registration_cache.read().get(&key).cloned();
 
             let signed_data = if let Some(signed_data) = cached_registration_opt {
                 signed_data
             } else {
-                let timestamp =
+                let registration_pubkey =
+                    if let Some(pubkey) = self.builder_registration_pubkey_override {
+                        pubkey
+                    } else {
+                        key.clone().pubkey
+                    };
+
+                let registration_timestamp =
                     if let Some(timestamp) = self.builder_registration_timestamp_override {
                         timestamp
                     } else {
@@ -415,16 +430,17 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
                 let ValidatorRegistrationKey {
                     fee_recipient,
                     gas_limit,
-                    signing_pubkey,
+                    ..
                 } = key.clone();
 
                 let signed_data = match self
                     .validator_store
-                    .sign_validator_registration_data(signing_pubkey,
+                    .sign_validator_registration_data(
+                        signing_pubkey,
                         ValidatorRegistrationData {
                         fee_recipient,
                         gas_limit,
-                        timestamp,
+                        timestamp: registration_timestamp,
                         pubkey: registration_pubkey,
                     })
                     .await

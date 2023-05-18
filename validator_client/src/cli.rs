@@ -301,6 +301,14 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(false),
         )
         .arg(
+            Arg::with_name("builder-registration-pubkey-override")
+                .long("builder-registration-pubkey-override")
+                .alias("builder-registration-pubkey-override")
+                .help("This flag takes a 0x-prefixed hex public key that will be used to override the \
+                    pubkey used in builder api registration")
+                .takes_value(true),
+        )
+        .arg(
             Arg::with_name("builder-registration-timestamp-override")
                 .long("builder-registration-timestamp-override")
                 .alias("builder-registration-timestamp-override")

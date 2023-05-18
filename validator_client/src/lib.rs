@@ -456,7 +456,6 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             .validator_store(validator_store.clone())
             .beacon_nodes(beacon_nodes.clone())
             .runtime_context(context.service_context("preparation".into()))
-            .builder_registration_timestamp_override(config.builder_registration_timestamp_override)
             .build()?;
 
         let sync_committee_service = SyncCommitteeService::new(
