@@ -47,10 +47,29 @@ fn get_valid_sync_committee_message(
     relative_sync_committee: RelativeSyncCommittee,
     message_index: usize,
 ) -> (SyncCommitteeMessage, usize, SecretKey, SyncSubnetId) {
-    let head_state = harness.chain.head_beacon_state_cloned();
     let head_block_root = harness.chain.head_snapshot().beacon_block_root;
+    get_valid_sync_committee_message_for_block(
+        harness,
+        slot,
+        relative_sync_committee,
+        message_index,
+        head_block_root,
+    )
+}
+
+/// Returns a sync message that is valid for some slot in the given `chain`.
+///
+/// Also returns some info about who created it.
+fn get_valid_sync_committee_message_for_block(
+    harness: &BeaconChainHarness<EphemeralHarnessType<E>>,
+    slot: Slot,
+    relative_sync_committee: RelativeSyncCommittee,
+    message_index: usize,
+    block_root: Hash256,
+) -> (SyncCommitteeMessage, usize, SecretKey, SyncSubnetId) {
+    let head_state = harness.chain.head_beacon_state_cloned();
     let (signature, _) = harness
-        .make_sync_committee_messages(&head_state, head_block_root, slot, relative_sync_committee)
+        .make_sync_committee_messages(&head_state, block_root, slot, relative_sync_committee)
         .get(0)
         .expect("sync messages should exist")
         .get(message_index)
@@ -496,6 +515,15 @@ async fn unaggregated_gossip_verification() {
 
     let (valid_sync_committee_message, expected_validator_index, validator_sk, subnet_id) =
         get_valid_sync_committee_message(&harness, current_slot, RelativeSyncCommittee::Current, 0);
+    let parent_root = harness.chain.head_snapshot().beacon_block.parent_root();
+    let (valid_sync_committee_message_to_parent, _, _, _) =
+        get_valid_sync_committee_message_for_block(
+            &harness,
+            current_slot,
+            RelativeSyncCommittee::Current,
+            0,
+            parent_root,
+        );
 
     macro_rules! assert_invalid {
             ($desc: tt, $attn_getter: expr, $subnet_getter: expr, $($error: pat_param) |+ $( if $guard: expr )?) => {
@@ -602,27 +630,77 @@ async fn unaggregated_gossip_verification() {
         SyncCommitteeError::InvalidSignature
     );
 
+    let head_root = valid_sync_committee_message.beacon_block_root;
+    let parent_root = valid_sync_committee_message_to_parent.beacon_block_root;
+
     harness
         .chain
-        .verify_sync_committee_message_for_gossip(valid_sync_committee_message.clone(), subnet_id)
-        .expect("valid sync message should be verified");
+        .verify_sync_committee_message_for_gossip(
+            valid_sync_committee_message_to_parent.clone(),
+            subnet_id,
+        )
+        .expect("valid sync message to parent should be verified");
 
     /*
      * The following test ensures that:
      *
-     * There has been no other valid sync committee message for the declared slot for the
-     * validator referenced by sync_committee_message.validator_index.
+     * A sync committee message from the same validator to the same block will
+     * be rejected.
      */
     assert_invalid!(
-        "sync message that has already been seen",
+        "sync message to parent block that has already been seen",
+        valid_sync_committee_message_to_parent.clone(),
+        subnet_id,
+        SyncCommitteeError::PriorSyncCommitteeMessageKnown {
+            validator_index,
+            slot,
+            prev_root,
+            new_root
+        }
+        if validator_index == expected_validator_index as u64 && slot == current_slot && prev_root == parent_root && new_root == parent_root
+    );
+
+    harness
+        .chain
+        .verify_sync_committee_message_for_gossip(valid_sync_committee_message.clone(), subnet_id)
+        .expect("valid sync message to the head should be verified");
+
+    /*
+     * The following test ensures that:
+     *
+     * A sync committee message from the same validator to the same block will
+     * be rejected.
+     */
+    assert_invalid!(
+        "sync message to the head that has already been seen",
         valid_sync_committee_message,
         subnet_id,
         SyncCommitteeError::PriorSyncCommitteeMessageKnown {
             validator_index,
             slot,
-            ..
+            prev_root,
+            new_root
         }
-        if validator_index == expected_validator_index as u64 && slot == current_slot
+        if validator_index == expected_validator_index as u64 && slot == current_slot && prev_root == head_root && new_root == head_root
+    );
+
+    /*
+     * The following test ensures that:
+     *
+     * A sync committee message from the same validator to a non-head block will
+     * be rejected.
+     */
+    assert_invalid!(
+        "sync message to parent after message to head has already been seen",
+        valid_sync_committee_message_to_parent,
+        subnet_id,
+        SyncCommitteeError::PriorSyncCommitteeMessageKnown {
+            validator_index,
+            slot,
+            prev_root,
+            new_root
+        }
+        if validator_index == expected_validator_index as u64 && slot == current_slot && prev_root == head_root && new_root == parent_root
     );
 
     /*
