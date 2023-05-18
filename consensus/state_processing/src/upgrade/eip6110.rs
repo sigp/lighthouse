@@ -7,7 +7,7 @@ pub fn upgrade_to_eip6110<E: EthSpec>(
     spec: &ChainSpec,
 ) -> Result<(), Error> {
     let epoch = pre_state.current_epoch();
-    let pre = pre_state.as_eip4844_mut()?;
+    let pre = pre_state.as_deneb_mut()?;
 
     let previous_fork_version = pre.fork.current_version;
 

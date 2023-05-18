@@ -1,5 +1,6 @@
-use crate::test_utils::TestRandom;
+use crate::payload::BlindedPayloadDeneb;
 use crate::*;
+use crate::{payload::FullPayloadDeneb, test_utils::TestRandom};
 use derivative::Derivative;
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
@@ -73,7 +74,7 @@ pub struct BeaconBlockBody<T: EthSpec, Payload: AbstractExecPayload<T> = FullPay
     #[superstruct(only(Capella, Deneb, Eip6110))]
     pub bls_to_execution_changes:
         VariableList<SignedBlsToExecutionChange, T::MaxBlsToExecutionChanges>,
-    #[superstruct(only(Eip4844, Eip6110))]
+    #[superstruct(only(Deneb, Eip6110))]
     pub blob_kzg_commitments: KzgCommitments<T>,
     #[superstruct(only(Base, Altair))]
     #[ssz(skip_serializing, skip_deserializing)]

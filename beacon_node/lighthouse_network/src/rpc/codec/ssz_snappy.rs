@@ -18,8 +18,8 @@ use tokio_util::codec::{Decoder, Encoder};
 use types::{light_client_bootstrap::LightClientBootstrap, BlobSidecar};
 use types::{
     EthSpec, ForkContext, ForkName, Hash256, SignedBeaconBlock, SignedBeaconBlockAltair,
-    SignedBeaconBlockBase, SignedBeaconBlockCapella, SignedBeaconBlockDeneb, SignedBeaconBlockEip6110,
-    SignedBeaconBlockMerge,
+    SignedBeaconBlockBase, SignedBeaconBlockCapella, SignedBeaconBlockDeneb,
+    SignedBeaconBlockEip6110, SignedBeaconBlockMerge,
 };
 use unsigned_varint::codec::Uvi;
 

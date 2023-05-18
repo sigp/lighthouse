@@ -1,7 +1,7 @@
 use crate::{DBColumn, Error, StoreItem};
 use ssz::{Decode, Encode};
 use types::{
-    BlobsSidecar, EthSpec, ExecutionPayload, ExecutionPayloadCapella, ExecutionPayloadDeneb,
+    BlobSidecarList, EthSpec, ExecutionPayload, ExecutionPayloadCapella, ExecutionPayloadDeneb,
     ExecutionPayloadEip6110, ExecutionPayloadMerge,
 };
 

@@ -129,8 +129,8 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> BeaconBlock<T, Payload> {
     /// on the fork slot.
     pub fn any_from_ssz_bytes(bytes: &[u8]) -> Result<Self, ssz::DecodeError> {
         BeaconBlockEip6110::from_ssz_bytes(bytes)
-        .map(BeaconBlock::Eip6110)
-        .or_else(|_| BeaconBlockDeneb::from_ssz_bytes(bytes).map(BeaconBlock::Deneb))
+            .map(BeaconBlock::Eip6110)
+            .or_else(|_| BeaconBlockDeneb::from_ssz_bytes(bytes).map(BeaconBlock::Deneb))
             .or_else(|_| BeaconBlockCapella::from_ssz_bytes(bytes).map(BeaconBlock::Capella))
             .or_else(|_| BeaconBlockMerge::from_ssz_bytes(bytes).map(BeaconBlock::Merge))
             .or_else(|_| BeaconBlockAltair::from_ssz_bytes(bytes).map(BeaconBlock::Altair))
@@ -226,6 +226,7 @@ impl<'a, T: EthSpec, Payload: AbstractExecPayload<T>> BeaconBlockRef<'a, T, Payl
             BeaconBlockRef::Merge { .. } => ForkName::Merge,
             BeaconBlockRef::Capella { .. } => ForkName::Capella,
             BeaconBlockRef::Deneb { .. } => ForkName::Deneb,
+            BeaconBlockRef::Eip6110 { .. } => ForkName::Eip6110,
         }
     }
 
@@ -1000,7 +1001,7 @@ mod tests {
             // It's invalid to have an Eip4844 block with a epoch lower than the fork epoch.
             let bad_block = {
                 let mut bad = good_block.clone();
-                *bad.slot_mut() = eip4844_slot;
+                *bad.slot_mut() = deneb_slot;
                 bad
             };
 

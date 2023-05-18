@@ -102,6 +102,7 @@ impl<T: EthSpec> MockServer<T> {
             None, // FIXME(capella): should this be the default?
             None, // FIXME(deneb): should this be the default?
             None, // FIXME(eip6110): should this be the default?
+            None, // FIXME(deneb): should this be the default?
         )
     }
 
@@ -129,6 +130,7 @@ impl<T: EthSpec> MockServer<T> {
             shanghai_time,
             deneb_time,
             eip6110_time,
+            kzg,
         );
 
         let ctx: Arc<Context<T>> = Arc::new(Context {
@@ -189,8 +191,8 @@ impl<T: EthSpec> MockServer<T> {
         terminal_block_hash: ExecutionBlockHash,
         shanghai_time: Option<u64>,
         deneb_time: Option<u64>,
-        kzg: Option<Kzg>,
         eip6110_time: Option<u64>,
+        kzg: Option<Kzg>,
     ) -> Self {
         Self::new_with_config(
             handle,

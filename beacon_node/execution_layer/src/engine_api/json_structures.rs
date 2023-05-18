@@ -7,9 +7,9 @@ use superstruct::superstruct;
 use types::beacon_block_body::KzgCommitments;
 use types::blob_sidecar::Blobs;
 use types::{
-    Blobs, DepositReceipt, EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadCapella,
-    ExecutionPayloadDeneb, ExecutionPayloadEip6110, ExecutionPayloadMerge, FixedVector,
-    Transaction, Transactions, Unsigned, VariableList, Withdrawal,
+    EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadCapella, ExecutionPayloadDeneb,
+    ExecutionPayloadEip6110, ExecutionPayloadMerge, FixedVector, Transactions, Unsigned,
+    VariableList, Withdrawal,
 };
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
@@ -98,8 +98,7 @@ pub struct JsonExecutionPayload<T: EthSpec> {
     pub base_fee_per_gas: Uint256,
     pub block_hash: ExecutionBlockHash,
     #[serde(with = "ssz_types::serde_utils::list_of_hex_var_list")]
-    pub transactions:
-    VariableList<Transaction<T::MaxBytesPerTransaction>, T::MaxTransactionsPerPayload>,
+    pub transactions: Transactions<T>,
     #[superstruct(only(V2, V3, V6110))]
     pub withdrawals: VariableList<JsonWithdrawal, T::MaxWithdrawalsPerPayload>,
     #[superstruct(only(V6110))]
@@ -367,7 +366,7 @@ pub struct JsonGetPayloadResponse<T: EthSpec> {
     pub execution_payload: JsonExecutionPayloadV6110<T>,
     #[serde(with = "eth2_serde_utils::u256_hex_be")]
     pub block_value: Uint256,
-    #[superstruct(only(V3))]
+    #[superstruct(only(V3, V6110))]
     pub blobs_bundle: JsonBlobsBundleV1<T>,
 }
 
@@ -397,6 +396,7 @@ impl<T: EthSpec> From<JsonGetPayloadResponse<T>> for GetPayloadResponse<T> {
                 GetPayloadResponse::Eip6110(GetPayloadResponseEip6110 {
                     execution_payload: response.execution_payload.into(),
                     block_value: response.block_value,
+                    blobs_bundle: response.blobs_bundle.into(),
                 })
             }
         }

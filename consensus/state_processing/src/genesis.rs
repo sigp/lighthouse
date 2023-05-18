@@ -111,8 +111,8 @@ pub fn initialize_beacon_state_from_eth1<T: EthSpec>(
 
         // Override latest execution payload header.
         // See https://github.com/ethereum/consensus-specs/blob/dev/specs/deneb/beacon-chain.md#testing
-        if let Some(ExecutionPayloadHeader::Deneb(header)) = execution_payload_header {
-            *state.latest_execution_payload_header_deneb_mut()? = header;
+        if let Some(ExecutionPayloadHeader::Deneb(ref header)) = execution_payload_header {
+            *state.latest_execution_payload_header_deneb_mut()? = header.clone();
         }
     }
 

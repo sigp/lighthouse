@@ -4861,7 +4861,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 )
             }
             BeaconState::Eip6110(_) => {
-                let (payload, kzg_commitments, blobs) = block_contents
+                let (payload, kzg_commitments, blobs, proofs) = block_contents
                     .ok_or(BlockProductionError::MissingExecutionPayload)?
                     .deconstruct();
                 (
@@ -4890,6 +4890,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         },
                     }),
                     blobs,
+                    proofs,
                 )
             }
         };

@@ -12,8 +12,9 @@ use types::{
     Attestation, AttesterSlashing, EthSpec, ForkContext, ForkName, LightClientFinalityUpdate,
     LightClientOptimisticUpdate, ProposerSlashing, SignedAggregateAndProof, SignedBeaconBlock,
     SignedBeaconBlockAltair, SignedBeaconBlockBase, SignedBeaconBlockCapella,
-    SignedBeaconBlockDeneb, SignedBeaconBlockMerge, SignedBlobSidecar, SignedBlsToExecutionChange,
-    SignedContributionAndProof, SignedVoluntaryExit, SubnetId, SyncCommitteeMessage, SyncSubnetId,
+    SignedBeaconBlockDeneb, SignedBeaconBlockEip6110, SignedBeaconBlockMerge, SignedBlobSidecar,
+    SignedBlsToExecutionChange, SignedContributionAndProof, SignedVoluntaryExit, SubnetId,
+    SyncCommitteeMessage, SyncSubnetId,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -186,15 +187,15 @@ impl<T: EthSpec> PubsubMessage<T> {
                                 ),
                                 Some(ForkName::Capella) => SignedBeaconBlock::<T>::Capella(
                                     SignedBeaconBlockCapella::from_ssz_bytes(data)
-                                    .map_err(|e| format!("{:?}", e))?,
+                                        .map_err(|e| format!("{:?}", e))?,
                                 ),
                                 Some(ForkName::Deneb) => SignedBeaconBlock::<T>::Deneb(
                                     SignedBeaconBlockDeneb::from_ssz_bytes(data)
-                                    .map_err(|e| format!("{:?}", e))?,
+                                        .map_err(|e| format!("{:?}", e))?,
                                 ),
                                 Some(ForkName::Eip6110) => SignedBeaconBlock::<T>::Eip6110(
                                     SignedBeaconBlockEip6110::from_ssz_bytes(data)
-                                    .map_err(|e| format!("{:?}", e))?,
+                                        .map_err(|e| format!("{:?}", e))?,
                                 ),
                                 None => {
                                     return Err(format!(

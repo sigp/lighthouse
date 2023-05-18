@@ -1316,7 +1316,7 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> ForkVersionDeserialize
                     D,
                 >(value, fork_name)?))
             }
-            ForkName::Deneb => Ok(BlockContents::BlockAndBlobSidecars(
+            ForkName::Deneb | ForkName::Eip6110 => Ok(BlockContents::BlockAndBlobSidecars(
                 BeaconBlockAndBlobSidecars::deserialize_by_fork::<'de, D>(value, fork_name)?,
             )),
         }
@@ -1380,6 +1380,7 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> From<SignedBeaconBlock<T, Payl
             | SignedBeaconBlock::Capella(_) => SignedBlockContents::Block(block),
             //TODO: error handling, this should be try from
             SignedBeaconBlock::Deneb(_block) => todo!(),
+            SignedBeaconBlock::Eip6110(_block) => todo!(),
         }
     }
 }

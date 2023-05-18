@@ -110,7 +110,7 @@ pub use crate::attestation_data::AttestationData;
 pub use crate::attestation_duty::AttestationDuty;
 pub use crate::attester_slashing::AttesterSlashing;
 pub use crate::beacon_block::{
-    BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockCapella, BeaconBlockEipDeneb,
+    BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockCapella, BeaconBlockDeneb,
     BeaconBlockEip6110, BeaconBlockMerge, BeaconBlockRef, BeaconBlockRefMut, BlindedBeaconBlock,
     EmptyBlock,
 };
@@ -163,9 +163,9 @@ pub use crate::light_client_optimistic_update::LightClientOptimisticUpdate;
 pub use crate::participation_flags::ParticipationFlags;
 pub use crate::participation_list::ParticipationList;
 pub use crate::payload::{
-    AbstractExecPayload, BlindedPayload, BlindedPayloadCapella, BlindedPayloadEipDeneb,
+    AbstractExecPayload, BlindedPayload, BlindedPayloadCapella, BlindedPayloadDeneb,
     BlindedPayloadEip6110, BlindedPayloadMerge, BlindedPayloadRef, BlockType, ExecPayload,
-    FullPayload, FullPayloadCapella, FullPayloadEipDeneb, FullPayloadEip6110, FullPayloadMerge,
+    FullPayload, FullPayloadCapella, FullPayloadDeneb, FullPayloadEip6110, FullPayloadMerge,
     FullPayloadRef, OwnedExecPayload,
 };
 pub use crate::pending_attestation::PendingAttestation;
@@ -178,8 +178,9 @@ pub use crate::shuffling_id::AttestationShufflingId;
 pub use crate::signed_aggregate_and_proof::SignedAggregateAndProof;
 pub use crate::signed_beacon_block::{
     ssz_tagged_signed_beacon_block, SignedBeaconBlock, SignedBeaconBlockAltair,
-    SignedBeaconBlockBase, SignedBeaconBlockCapella, SignedBeaconBlockDeneb, SignedBeaconBlockEip6110, SignedBeaconBlockHash,
-    SignedBeaconBlockMerge, SignedBlindedBeaconBlock,
+    SignedBeaconBlockBase, SignedBeaconBlockCapella, SignedBeaconBlockDeneb,
+    SignedBeaconBlockEip6110, SignedBeaconBlockHash, SignedBeaconBlockMerge,
+    SignedBlindedBeaconBlock,
 };
 pub use crate::signed_beacon_block_header::SignedBeaconBlockHeader;
 pub use crate::signed_blob::*;

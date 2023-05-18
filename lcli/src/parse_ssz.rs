@@ -65,8 +65,8 @@ pub fn run_parse_ssz<T: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
         "state_merge" => decode_and_print::<BeaconStateMerge<T>>(&bytes, format)?,
         "state_capella" => decode_and_print::<BeaconStateCapella<T>>(&bytes, format)?,
         "state_deneb" => decode_and_print::<BeaconStateDeneb<T>>(&bytes, format)?,
-        "blobs_sidecar" => decode_and_print::<BlobsSidecar<T>>(&bytes, format)?,
         "state_eip6110" => decode_and_print::<BeaconStateEip6110<T>>(&bytes, format)?,
+        "blob_sidecar" => decode_and_print::<BlobSidecar<T>>(&bytes, format)?,
         other => return Err(format!("Unknown type: {}", other)),
     };
 

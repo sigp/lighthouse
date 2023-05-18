@@ -19,9 +19,9 @@ use tree_hash_derive::TreeHash;
 use types::consts::deneb::BLOB_TX_TYPE;
 use types::transaction::{BlobTransaction, EcdsaSignature, SignedBlobTransaction};
 use types::{
-    EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadCapella,
+    Blob, EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadCapella,
     ExecutionPayloadDeneb, ExecutionPayloadEip6110, ExecutionPayloadMerge, ForkName, Hash256,
-    Uint256,
+    Transaction, Transactions, Uint256,
 };
 
 const GAS_LIMIT: u64 = 16384;
@@ -611,7 +611,7 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
 
                 match execution_payload.fork_name() {
                     ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {}
-                    ForkName::Deneb => {
+                    ForkName::Deneb | ForkName::Eip6110 => {
                         // get random number between 0 and Max Blobs
                         let num_blobs = rand::random::<usize>() % T::max_blobs_per_block();
                         let (bundle, transactions) = self.generate_random_blobs(num_blobs)?;
@@ -794,6 +794,7 @@ mod test {
             TERMINAL_DIFFICULTY.into(),
             TERMINAL_BLOCK,
             ExecutionBlockHash::zero(),
+            None,
             None,
             None,
             None,

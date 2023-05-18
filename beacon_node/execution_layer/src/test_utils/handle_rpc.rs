@@ -362,6 +362,12 @@ pub async fn handle_rpc<T: EthSpec>(
                         serde_json::to_value(JsonGetPayloadResponseV6110 {
                             execution_payload,
                             block_value: DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI.into(),
+                            blobs_bundle: maybe_blobs
+                                .ok_or((
+                                    "No blobs returned despite V6110 Payload".to_string(),
+                                    GENERIC_ERROR_CODE,
+                                ))?
+                                .into(),
                         })
                         .unwrap()
                     }
@@ -385,6 +391,12 @@ pub async fn handle_rpc<T: EthSpec>(
                         serde_json::to_value(JsonGetPayloadResponseV3 {
                             execution_payload,
                             block_value: DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI.into(),
+                            blobs_bundle: maybe_blobs
+                                .ok_or((
+                                    "No blobs returned despite V3 Payload".to_string(),
+                                    GENERIC_ERROR_CODE,
+                                ))?
+                                .into(),
                         })
                         .unwrap()
                     }
@@ -392,6 +404,12 @@ pub async fn handle_rpc<T: EthSpec>(
                         serde_json::to_value(JsonGetPayloadResponseV6110 {
                             execution_payload,
                             block_value: DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI.into(),
+                            blobs_bundle: maybe_blobs
+                                .ok_or((
+                                    "No blobs returned despite V6110 Payload".to_string(),
+                                    GENERIC_ERROR_CODE,
+                                ))?
+                                .into(),
                         })
                         .unwrap()
                     }

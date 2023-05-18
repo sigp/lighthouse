@@ -45,17 +45,11 @@ use types::beacon_block_body::KzgCommitments;
 use types::blob_sidecar::Blobs;
 use types::consts::deneb::BLOB_TX_TYPE;
 use types::transaction::{AccessTuple, BlobTransaction, EcdsaSignature, SignedBlobTransaction};
-use types::Withdrawals;
-use types::{
-    blobs_sidecar::{Blobs, KzgCommitments},
-    BlindedPayload, BlockType, ChainSpec, Epoch, ExecutionBlockHash, ExecutionPayload,
-    ExecutionPayloadCapella, ExecutionPayloadDeneb, ExecutionPayloadEip6110,
-    ExecutionPayloadMerge, ForkName,
-};
 use types::{AbstractExecPayload, BeaconStateError, ExecPayload, VersionedHash};
 use types::{
     BlindedPayload, BlockType, ChainSpec, Epoch, ExecutionBlockHash, ExecutionPayload,
-    ExecutionPayloadCapella, ExecutionPayloadDeneb, ExecutionPayloadMerge, ForkName,
+    ExecutionPayloadCapella, ExecutionPayloadDeneb, ExecutionPayloadEip6110, ExecutionPayloadMerge,
+    ForkName,
 };
 use types::{KzgProofs, Withdrawals};
 use types::{
@@ -263,6 +257,7 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> BlockProposalContents<T, Paylo
                 block_value: Uint256::zero(),
                 blobs: VariableList::default(),
                 kzg_commitments: VariableList::default(),
+                proofs: VariableList::default(),
             },
         })
     }
@@ -1164,25 +1159,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                     }
                 };
 
-                let blob_fut = async {
-                    match current_fork {
-                        ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {
-                            None
-                        }
-                        ForkName::Deneb | ForkName::Eip6110 => {
-                            debug!(
-                                self.log(),
-                                "Issuing engine_getBlobsBundle";
-                                "suggested_fee_recipient" => ?payload_attributes.suggested_fee_recipient(),
-                                "prev_randao" => ?payload_attributes.prev_randao(),
-                                "timestamp" => payload_attributes.timestamp(),
-                                "parent_hash" => ?parent_hash,
-                            );
-                            Some(engine.api.get_blobs_bundle_v1::<T>(payload_id).await)
-                        }
-                    }
-                };
-                let payload_fut = async {
+                let payload_response = async {
                     debug!(
                         self.log(),
                         "Issuing engine_getPayload";

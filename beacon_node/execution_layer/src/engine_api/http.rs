@@ -834,23 +834,6 @@ impl HttpJsonRpc {
         Ok(response.into())
     }
 
-    pub async fn new_payload_v6110<T: EthSpec>(
-        &self,
-        execution_payload: ExecutionPayload<T>,
-    ) -> Result<PayloadStatusV1, Error> {
-        let params = json!([JsonExecutionPayload::from(execution_payload)]);
-
-        let response: JsonPayloadStatusV1 = self
-            .rpc_request(
-                ENGINE_NEW_PAYLOAD_V6110,
-                params,
-                ENGINE_NEW_PAYLOAD_TIMEOUT * self.execution_timeout_multiplier,
-            )
-            .await?;
-
-        Ok(response.into())
-    }
-
     pub async fn get_payload_v1<T: EthSpec>(
         &self,
         payload_id: PayloadId,
@@ -946,7 +929,16 @@ impl HttpJsonRpc {
                     .await?;
                 Ok(JsonGetPayloadResponse::V3(response).into())
             }
-            ForkName::Eip6110 => self.get_payload_v6110(payload_id).await,
+            ForkName::Eip6110 => {
+                let response: JsonGetPayloadResponseV6110<T> = self
+                    .rpc_request(
+                        ENGINE_GET_PAYLOAD_V6110,
+                        params,
+                        ENGINE_GET_PAYLOAD_TIMEOUT * self.execution_timeout_multiplier,
+                    )
+                    .await?;
+                Ok(JsonGetPayloadResponse::V6110(response).into())
+            }
             ForkName::Base | ForkName::Altair => Err(Error::UnsupportedForkVariant(format!(
                 "called get_payload_v3 with {}",
                 fork_name
@@ -956,35 +948,57 @@ impl HttpJsonRpc {
 
     pub async fn get_payload_v6110<T: EthSpec>(
         &self,
+        fork_name: ForkName,
         payload_id: PayloadId,
     ) -> Result<GetPayloadResponse<T>, Error> {
         let params = json!([JsonPayloadIdRequest::from(payload_id)]);
 
-        let response: JsonGetPayloadResponseV6110<T> = self
-            .rpc_request(
-                ENGINE_GET_PAYLOAD_V6110,
-                params,
-                ENGINE_GET_PAYLOAD_TIMEOUT * self.execution_timeout_multiplier,
-            )
-            .await?;
-
-        Ok(JsonGetPayloadResponse::V6110(response).into())
-    }
-
-    pub async fn get_blobs_bundle_v1<T: EthSpec>(
-        &self,
-        payload_id: PayloadId,
-    ) -> Result<JsonBlobsBundle<T>, Error> {
-        let params = json!([JsonPayloadIdRequest::from(payload_id)]);
-
-        let response: JsonBlobsBundle<T> = self
-            .rpc_request(
-                ENGINE_GET_BLOBS_BUNDLE_V1,
-                ENGINE_GET_BLOBS_BUNDLE_TIMEOUT,
-            )
-            .await?;
-
-        Ok(response)
+        match fork_name {
+            ForkName::Merge => {
+                let response: JsonGetPayloadResponseV1<T> = self
+                    .rpc_request(
+                        ENGINE_GET_PAYLOAD_V2,
+                        params,
+                        ENGINE_GET_PAYLOAD_TIMEOUT * self.execution_timeout_multiplier,
+                    )
+                    .await?;
+                Ok(JsonGetPayloadResponse::V1(response).into())
+            }
+            ForkName::Capella => {
+                let response: JsonGetPayloadResponseV2<T> = self
+                    .rpc_request(
+                        ENGINE_GET_PAYLOAD_V2,
+                        params,
+                        ENGINE_GET_PAYLOAD_TIMEOUT * self.execution_timeout_multiplier,
+                    )
+                    .await?;
+                Ok(JsonGetPayloadResponse::V2(response).into())
+            }
+            ForkName::Deneb => {
+                let response: JsonGetPayloadResponseV3<T> = self
+                    .rpc_request(
+                        ENGINE_GET_PAYLOAD_V3,
+                        params,
+                        ENGINE_GET_PAYLOAD_TIMEOUT * self.execution_timeout_multiplier,
+                    )
+                    .await?;
+                Ok(JsonGetPayloadResponse::V3(response).into())
+            }
+            ForkName::Eip6110 => {
+                let response: JsonGetPayloadResponseV6110<T> = self
+                    .rpc_request(
+                        ENGINE_GET_PAYLOAD_V6110,
+                        params,
+                        ENGINE_GET_PAYLOAD_TIMEOUT * self.execution_timeout_multiplier,
+                    )
+                    .await?;
+                Ok(JsonGetPayloadResponse::V6110(response).into())
+            }
+            ForkName::Base | ForkName::Altair => Err(Error::UnsupportedForkVariant(format!(
+                "called get_payload_v6110 with {}",
+                fork_name
+            ))),
+        }
     }
 
     pub async fn forkchoice_updated_v1(
@@ -1012,6 +1026,8 @@ impl HttpJsonRpc {
         &self,
         forkchoice_state: ForkchoiceState,
         payload_attributes: Option<PayloadAttributes>,
+    ) -> Result<ForkchoiceUpdatedResponse, Error> {
+        let params = json!([
             JsonForkchoiceStateV1::from(forkchoice_state),
             payload_attributes.map(JsonPayloadAttributes::from)
         ]);

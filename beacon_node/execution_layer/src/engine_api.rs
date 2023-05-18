@@ -24,10 +24,9 @@ pub use types::{
     Uint256, VariableList, Withdrawal, Withdrawals,
 };
 use types::{
-    ExecutionPayloadCapella, ExecutionPayloadEip4844, ExecutionPayloadEip6110,
-    ExecutionPayloadMerge,
+    ExecutionPayloadCapella, ExecutionPayloadDeneb, ExecutionPayloadEip6110, ExecutionPayloadMerge,
+    KzgProofs,
 };
-use types::{ExecutionPayloadCapella, ExecutionPayloadDeneb, ExecutionPayloadMerge, KzgProofs};
 
 pub mod auth;
 pub mod http;
@@ -191,7 +190,7 @@ pub struct ExecutionBlockWithTransactions<T: EthSpec> {
     #[serde(rename = "hash")]
     pub block_hash: ExecutionBlockHash,
     pub transactions: Vec<Transaction>,
-    #[superstruct(only(Capella, Deneb))]
+    #[superstruct(only(Capella, Deneb, Eip6110))]
     pub withdrawals: Vec<JsonWithdrawal>,
     #[superstruct(only(Eip6110))]
     pub deposit_receipts: Vec<JsonDepositReceipt>,
@@ -264,19 +263,18 @@ impl<T: EthSpec> TryFrom<ExecutionPayload<T>> for ExecutionBlockWithTransactions
                 timestamp: block.timestamp,
                 extra_data: block.extra_data,
                 base_fee_per_gas: block.base_fee_per_gas,
+                excess_data_gas: block.excess_data_gas,
                 block_hash: block.block_hash,
                 transactions: block
-                .transactions
-                .iter()
-                .map(|tx| Transaction::decode(&Rlp::new(tx)))
+                    .transactions
+                    .iter()
+                    .map(|tx| Transaction::decode(&Rlp::new(tx)))
                     .collect::<Result<Vec<_>, _>>()?,
                 withdrawals: Vec::from(block.withdrawals)
                     .into_iter()
                     .map(|withdrawal| withdrawal.into())
                     .collect(),
-                    excess_data_gas: block.excess_data_gas,
-                })
-            }
+            }),
             ExecutionPayload::Eip6110(block) => {
                 Self::Eip6110(ExecutionBlockWithTransactionsEip6110 {
                     parent_hash: block.parent_hash,
@@ -308,6 +306,7 @@ impl<T: EthSpec> TryFrom<ExecutionPayload<T>> for ExecutionBlockWithTransactions
                         .collect(),
                 })
             }
+        };
         Ok(json_payload)
     }
 }
@@ -419,7 +418,7 @@ pub struct GetPayloadResponse<T: EthSpec> {
     #[superstruct(only(Eip6110), partial_getter(rename = "execution_payload_eip6110"))]
     pub execution_payload: ExecutionPayloadEip6110<T>,
     pub block_value: Uint256,
-    #[superstruct(only(Deneb))]
+    #[superstruct(only(Deneb, Eip6110))]
     pub blobs_bundle: BlobsBundleV1<T>,
 }
 
@@ -462,6 +461,7 @@ impl<T: EthSpec> From<GetPayloadResponse<T>>
             GetPayloadResponse::Eip6110(inner) => (
                 ExecutionPayload::Eip6110(inner.execution_payload),
                 inner.block_value,
+                Some(inner.blobs_bundle),
             ),
         }
     }

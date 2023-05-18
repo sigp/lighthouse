@@ -100,9 +100,7 @@ impl<T: EthSpec> ExecutionPayloadHeader<T> {
             ForkName::Capella => {
                 ExecutionPayloadHeaderCapella::from_ssz_bytes(bytes).map(Self::Capella)
             }
-            ForkName::Deneb => {
-                ExecutionPayloadHeaderDeneb::from_ssz_bytes(bytes).map(Self::Deneb)
-            }
+            ForkName::Deneb => ExecutionPayloadHeaderDeneb::from_ssz_bytes(bytes).map(Self::Deneb),
             ForkName::Eip6110 => {
                 ExecutionPayloadHeaderEip6110::from_ssz_bytes(bytes).map(Self::Eip6110)
             }
@@ -165,7 +163,7 @@ impl<T: EthSpec> ExecutionPayloadHeaderCapella<T> {
     }
 }
 
-impl<T: EthSpec> ExecutionPayloadHeaderEip4844<T> {
+impl<T: EthSpec> ExecutionPayloadHeaderDeneb<T> {
     pub fn upgrade_to_eip6110(&self) -> ExecutionPayloadHeaderEip6110<T> {
         ExecutionPayloadHeaderEip6110 {
             parent_hash: self.parent_hash,

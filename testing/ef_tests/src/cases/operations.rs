@@ -381,7 +381,8 @@ impl<E: EthSpec> Operation<E> for DepositReceipt {
             && fork_name != ForkName::Altair
             && fork_name != ForkName::Merge
             && fork_name != ForkName::Capella
-            && fork_name != ForkName::Eip4844
+            && fork_name != ForkName::Deneb
+            && fork_name != ForkName::Eip6110
     }
 
     fn decode(path: &Path, _fork_name: ForkName, _spec: &ChainSpec) -> Result<Self, Error> {

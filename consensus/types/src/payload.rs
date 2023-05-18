@@ -89,7 +89,7 @@ pub trait AbstractExecPayload<T: EthSpec>:
         + Copy
         + From<&'a Self::Merge>
         + From<&'a Self::Capella>
-        + From<&'a Self::Deneb>;
+        + From<&'a Self::Deneb>
         + From<&'a Self::Eip6110>;
 
     type Merge: OwnedExecPayload<T>
@@ -272,7 +272,7 @@ impl<T: EthSpec> ExecPayload<T> for FullPayload<T> {
         match self {
             FullPayload::Merge(_) => Err(Error::IncorrectStateVariant),
             FullPayload::Capella(_) => Err(Error::IncorrectStateVariant),
-            FullPayload::Eip4844(_) => Err(Error::IncorrectStateVariant),
+            FullPayload::Deneb(_) => Err(Error::IncorrectStateVariant),
             FullPayload::Eip6110(ref inner) => Ok(inner.execution_payload.deposit_receipts.clone()),
         }
     }
@@ -393,7 +393,7 @@ impl<'b, T: EthSpec> ExecPayload<T> for FullPayloadRef<'b, T> {
         match self {
             FullPayloadRef::Merge(_) => Err(Error::IncorrectStateVariant),
             FullPayloadRef::Capella(_) => Err(Error::IncorrectStateVariant),
-            FullPayloadRef::Eip4844(_) => Err(Error::IncorrectStateVariant),
+            FullPayloadRef::Deneb(_) => Err(Error::IncorrectStateVariant),
             FullPayloadRef::Eip6110(inner) => Ok(inner.execution_payload.deposit_receipts.clone()),
         }
     }
@@ -568,9 +568,7 @@ impl<T: EthSpec> ExecPayload<T> for BlindedPayload<T> {
             BlindedPayload::Capella(ref inner) => {
                 Ok(inner.execution_payload_header.withdrawals_root)
             }
-            BlindedPayload::Deneb(ref inner) => {
-                Ok(inner.execution_payload_header.withdrawals_root)
-            }
+            BlindedPayload::Deneb(ref inner) => Ok(inner.execution_payload_header.withdrawals_root),
             BlindedPayload::Eip6110(ref inner) => {
                 Ok(inner.execution_payload_header.withdrawals_root)
             }
@@ -672,9 +670,7 @@ impl<'b, T: EthSpec> ExecPayload<T> for BlindedPayloadRef<'b, T> {
             BlindedPayloadRef::Capella(inner) => {
                 Ok(inner.execution_payload_header.withdrawals_root)
             }
-            BlindedPayloadRef::Deneb(inner) => {
-                Ok(inner.execution_payload_header.withdrawals_root)
-            }
+            BlindedPayloadRef::Deneb(inner) => Ok(inner.execution_payload_header.withdrawals_root),
             BlindedPayloadRef::Eip6110(inner) => {
                 Ok(inner.execution_payload_header.withdrawals_root)
             }

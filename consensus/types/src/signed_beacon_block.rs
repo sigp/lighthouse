@@ -669,6 +669,9 @@ pub mod ssz_tagged_signed_beacon_block {
                 ForkName::Deneb => Ok(SignedBeaconBlock::Deneb(
                     SignedBeaconBlockDeneb::from_ssz_bytes(body)?,
                 )),
+                ForkName::Eip6110 => Ok(SignedBeaconBlock::Eip6110(
+                    SignedBeaconBlockEip6110::from_ssz_bytes(body)?,
+                )),
             }
         }
     }

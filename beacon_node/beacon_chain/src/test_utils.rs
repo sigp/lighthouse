@@ -824,7 +824,7 @@ where
             | SignedBeaconBlock::Altair(_)
             | SignedBeaconBlock::Merge(_)
             | SignedBeaconBlock::Capella(_) => (signed_block, None),
-            SignedBeaconBlock::Deneb(_) => {
+            SignedBeaconBlock::Deneb(_) | SignedBeaconBlock::Eip6110(_) => {
                 if let Some(blobs) = self
                     .chain
                     .proposal_blob_cache

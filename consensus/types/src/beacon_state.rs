@@ -297,7 +297,7 @@ where
         only(Deneb),
         partial_getter(rename = "latest_execution_payload_header_deneb")
     )]
-    pub latest_execution_payload_header: ExecutionPayloadHeaderEipDeneb<T>,
+    pub latest_execution_payload_header: ExecutionPayloadHeaderDeneb<T>,
     #[superstruct(
         only(Eip6110),
         partial_getter(rename = "latest_execution_payload_header_eip6110")
@@ -445,6 +445,7 @@ impl<T: EthSpec> BeaconState<T> {
             BeaconState::Merge { .. } => ForkName::Merge,
             BeaconState::Capella { .. } => ForkName::Capella,
             BeaconState::Deneb { .. } => ForkName::Deneb,
+            BeaconState::Eip6110 { .. } => ForkName::Eip6110,
         }
     }
 
@@ -1969,6 +1970,9 @@ pub mod ssz_tagged_beacon_state {
                     body,
                 )?)),
                 ForkName::Deneb => Ok(BeaconState::Deneb(BeaconStateDeneb::from_ssz_bytes(body)?)),
+                ForkName::Eip6110 => Ok(BeaconState::Eip6110(BeaconStateEip6110::from_ssz_bytes(
+                    body,
+                )?)),
             }
         }
     }

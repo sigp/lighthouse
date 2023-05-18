@@ -96,7 +96,7 @@ impl ForkName {
             ForkName::Merge => Some(ForkName::Altair),
             ForkName::Capella => Some(ForkName::Merge),
             ForkName::Deneb => Some(ForkName::Capella),
-            ForkName::Eip6110 => Some(ForkName::Eip4844),
+            ForkName::Eip6110 => Some(ForkName::Deneb),
         }
     }
 
