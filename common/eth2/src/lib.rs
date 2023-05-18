@@ -614,7 +614,7 @@ impl BeaconNodeHttpClient {
     /// Returns `Ok(None)` on a 404 error.
     pub async fn post_beacon_blocks<T: EthSpec, Payload: AbstractExecPayload<T>>(
         &self,
-        block: &SignedBeaconBlock<T, Payload>,
+        block_contents: &SignedBlockContents<T, Payload>,
     ) -> Result<(), Error> {
         let mut path = self.eth_path(V1)?;
 
@@ -623,7 +623,7 @@ impl BeaconNodeHttpClient {
             .push("beacon")
             .push("blocks");
 
-        self.post_with_timeout(path, block, self.timeouts.proposal)
+        self.post_with_timeout(path, block_contents, self.timeouts.proposal)
             .await?;
 
         Ok(())
@@ -660,15 +660,13 @@ impl BeaconNodeHttpClient {
         Ok(path)
     }
 
-    /// Path for `lighthouse/beacon/blobs_sidecars/{block_id}`
-    pub fn get_blobs_sidecar_path(&self, block_id: BlockId) -> Result<Url, Error> {
-        let mut path = self.server.full.clone();
-
+    /// Path for `v1/beacon/blobs/{block_id}`
+    pub fn get_blobs_path(&self, block_id: BlockId) -> Result<Url, Error> {
+        let mut path = self.eth_path(V1)?;
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
-            .push("lighthouse")
             .push("beacon")
-            .push("blobs_sidecars")
+            .push("blobs")
             .push(&block_id.to_string());
         Ok(path)
     }
@@ -703,14 +701,14 @@ impl BeaconNodeHttpClient {
         Ok(Some(response.json().await?))
     }
 
-    /// `GET lighthouse/beacon/blobs_sidecars/{block_id}`
+    /// `GET v1/beacon/blobs/{block_id}`
     ///
     /// Returns `Ok(None)` on a 404 error.
-    pub async fn get_blobs_sidecar<T: EthSpec>(
+    pub async fn get_blobs<T: EthSpec>(
         &self,
         block_id: BlockId,
-    ) -> Result<Option<GenericResponse<BlobsSidecar<T>>>, Error> {
-        let path = self.get_blobs_sidecar_path(block_id)?;
+    ) -> Result<Option<GenericResponse<BlobSidecarList<T>>>, Error> {
+        let path = self.get_blobs_path(block_id)?;
         let response = match self.get_response(path, |b| b).await.optional()? {
             Some(res) => res,
             None => return Ok(None),
@@ -1391,7 +1389,7 @@ impl BeaconNodeHttpClient {
         slot: Slot,
         randao_reveal: &SignatureBytes,
         graffiti: Option<&Graffiti>,
-    ) -> Result<ForkVersionedResponse<BeaconBlock<T, Payload>>, Error> {
+    ) -> Result<ForkVersionedResponse<BlockContents<T, Payload>>, Error> {
         self.get_validator_blocks_modular(slot, randao_reveal, graffiti, SkipRandaoVerification::No)
             .await
     }
@@ -1403,7 +1401,7 @@ impl BeaconNodeHttpClient {
         randao_reveal: &SignatureBytes,
         graffiti: Option<&Graffiti>,
         skip_randao_verification: SkipRandaoVerification,
-    ) -> Result<ForkVersionedResponse<BeaconBlock<T, Payload>>, Error> {
+    ) -> Result<ForkVersionedResponse<BlockContents<T, Payload>>, Error> {
         let mut path = self.eth_path(V2)?;
 
         path.path_segments_mut()
@@ -1423,32 +1421,6 @@ impl BeaconNodeHttpClient {
         if skip_randao_verification == SkipRandaoVerification::Yes {
             path.query_pairs_mut()
                 .append_pair("skip_randao_verification", "");
-        }
-
-        self.get(path).await
-    }
-
-    /// `GET v1/validator/blocks_and_blobs/{slot}`
-    pub async fn get_validator_blocks_and_blobs<T: EthSpec, Payload: AbstractExecPayload<T>>(
-        &self,
-        slot: Slot,
-        randao_reveal: &SignatureBytes,
-        graffiti: Option<&Graffiti>,
-    ) -> Result<ForkVersionedResponse<BlocksAndBlobs<T, Payload>>, Error> {
-        let mut path = self.eth_path(V1)?;
-
-        path.path_segments_mut()
-            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
-            .push("validator")
-            .push("blocks_and_blobs")
-            .push(&slot.to_string());
-
-        path.query_pairs_mut()
-            .append_pair("randao_reveal", &randao_reveal.to_string());
-
-        if let Some(graffiti) = graffiti {
-            path.query_pairs_mut()
-                .append_pair("graffiti", &graffiti.to_string());
         }
 
         self.get(path).await

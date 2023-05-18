@@ -179,15 +179,15 @@ impl ForkChoiceTest {
             let slot = self.harness.get_current_slot();
             let (block, state_) = self.harness.make_block(state, slot).await;
             state = state_;
-            if !predicate(block.message(), &state) {
+            if !predicate(block.0.message(), &state) {
                 break;
             }
             if let Ok(block_hash) = self.harness.process_block_result(block.clone()).await {
                 self.harness.attest_block(
                     &state,
-                    block.state_root(),
+                    block.0.state_root(),
                     block_hash,
-                    &block,
+                    &block.0,
                     &validators,
                 );
                 self.harness.advance_slot();
@@ -273,8 +273,8 @@ impl ForkChoiceTest {
             )
             .unwrap();
         let slot = self.harness.get_current_slot();
-        let (mut signed_block, mut state) = self.harness.make_block(state, slot).await;
-        func(&mut signed_block, &mut state);
+        let (mut block_tuple, mut state) = self.harness.make_block(state, slot).await;
+        func(&mut block_tuple.0, &mut state);
         let current_slot = self.harness.get_current_slot();
         self.harness
             .chain
@@ -282,8 +282,8 @@ impl ForkChoiceTest {
             .fork_choice_write_lock()
             .on_block(
                 current_slot,
-                signed_block.message(),
-                signed_block.canonical_root(),
+                block_tuple.0.message(),
+                block_tuple.0.canonical_root(),
                 Duration::from_secs(0),
                 &state,
                 PayloadVerificationStatus::Verified,
@@ -315,8 +315,8 @@ impl ForkChoiceTest {
             )
             .unwrap();
         let slot = self.harness.get_current_slot();
-        let (mut signed_block, mut state) = self.harness.make_block(state, slot).await;
-        mutation_func(&mut signed_block, &mut state);
+        let (mut block_tuple, mut state) = self.harness.make_block(state, slot).await;
+        mutation_func(&mut block_tuple.0, &mut state);
         let current_slot = self.harness.get_current_slot();
         let err = self
             .harness
@@ -325,8 +325,8 @@ impl ForkChoiceTest {
             .fork_choice_write_lock()
             .on_block(
                 current_slot,
-                signed_block.message(),
-                signed_block.canonical_root(),
+                block_tuple.0.message(),
+                block_tuple.0.canonical_root(),
                 Duration::from_secs(0),
                 &state,
                 PayloadVerificationStatus::Verified,

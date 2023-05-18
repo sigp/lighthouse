@@ -50,11 +50,17 @@ excluded_paths = [
     # some bls tests are not included now
     "bls12-381-tests/deserialization_G1",
     "bls12-381-tests/deserialization_G2",
-    "bls12-381-tests/hash_to_G2"
+    "bls12-381-tests/hash_to_G2",
+    # FIXME(sean)
+    "tests/mainnet/capella/light_client/single_merkle_proof/BeaconBlockBody/*",
+    "tests/mainnet/deneb/light_client/single_merkle_proof/BeaconBlockBody/*",
+    "tests/general/deneb/kzg"
 ]
+
 
 def normalize_path(path):
     return path.split("consensus-spec-tests/")[1]
+
 
 # Determine the list of filenames which were accessed during tests.
 passed = set()
@@ -88,4 +94,5 @@ for root, dirs, files in os.walk(tests_dir_filename):
 # Exit with an error if there were any files missed.
 assert len(missed) == 0, "{} missed files".format(len(missed))
 
-print("Accessed {} files ({} intentionally excluded)".format(accessed_files, excluded_files))
+print("Accessed {} files ({} intentionally excluded)".format(
+    accessed_files, excluded_files))

@@ -223,7 +223,7 @@ impl InvalidPayloadRig {
         let head = self.harness.chain.head_snapshot();
         let state = head.beacon_state.clone_with_only_committee_caches();
         let slot = slot_override.unwrap_or(state.slot() + 1);
-        let (block, post_state) = self.harness.make_block(state, slot).await;
+        let ((block, _), post_state) = self.harness.make_block(state, slot).await;
         let block_root = block.canonical_root();
 
         let set_new_payload = |payload: Payload| match payload {
@@ -691,7 +691,8 @@ async fn invalidates_all_descendants() {
         .state_at_slot(fork_parent_slot, StateSkipConfig::WithStateRoots)
         .unwrap();
     assert_eq!(fork_parent_state.slot(), fork_parent_slot);
-    let (fork_block, _fork_post_state) = rig.harness.make_block(fork_parent_state, fork_slot).await;
+    let ((fork_block, _), _fork_post_state) =
+        rig.harness.make_block(fork_parent_state, fork_slot).await;
     let fork_block_root = rig
         .harness
         .chain
@@ -702,6 +703,8 @@ async fn invalidates_all_descendants() {
             NotifyExecutionLayer::Yes,
         )
         .await
+        .unwrap()
+        .try_into()
         .unwrap();
     rig.recompute_head().await;
 
@@ -787,7 +790,8 @@ async fn switches_heads() {
         .state_at_slot(fork_parent_slot, StateSkipConfig::WithStateRoots)
         .unwrap();
     assert_eq!(fork_parent_state.slot(), fork_parent_slot);
-    let (fork_block, _fork_post_state) = rig.harness.make_block(fork_parent_state, fork_slot).await;
+    let ((fork_block, _), _fork_post_state) =
+        rig.harness.make_block(fork_parent_state, fork_slot).await;
     let fork_parent_root = fork_block.parent_root();
     let fork_block_root = rig
         .harness
@@ -799,6 +803,8 @@ async fn switches_heads() {
             NotifyExecutionLayer::Yes,
         )
         .await
+        .unwrap()
+        .try_into()
         .unwrap();
     rig.recompute_head().await;
 
@@ -1029,8 +1035,8 @@ async fn invalid_parent() {
     // Produce another block atop the parent, but don't import yet.
     let slot = parent_block.slot() + 1;
     rig.harness.set_current_slot(slot);
-    let (block, state) = rig.harness.make_block(parent_state, slot).await;
-    let block = Arc::new(block);
+    let (block_tuple, state) = rig.harness.make_block(parent_state, slot).await;
+    let block = Arc::new(block_tuple.0);
     let block_root = block.canonical_root();
     assert_eq!(block.parent_root(), parent_root);
 
@@ -1846,8 +1852,8 @@ impl InvalidHeadSetup {
                     .chain
                     .state_at_slot(slot - 1, StateSkipConfig::WithStateRoots)
                     .unwrap();
-                let (fork_block, _) = rig.harness.make_block(parent_state, slot).await;
-                opt_fork_block = Some(Arc::new(fork_block));
+                let (fork_block_tuple, _) = rig.harness.make_block(parent_state, slot).await;
+                opt_fork_block = Some(Arc::new(fork_block_tuple.0));
             } else {
                 // Skipped slot.
             };

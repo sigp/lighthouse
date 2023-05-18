@@ -41,16 +41,23 @@ use tokio::{
 };
 use tokio_stream::wrappers::WatchStream;
 use tree_hash::TreeHash;
-use types::consts::eip4844::BLOB_TX_TYPE;
+use types::beacon_block_body::KzgCommitments;
+use types::blob_sidecar::Blobs;
+use types::consts::deneb::BLOB_TX_TYPE;
 use types::transaction::{AccessTuple, BlobTransaction, EcdsaSignature, SignedBlobTransaction};
 use types::Withdrawals;
 use types::{
     blobs_sidecar::{Blobs, KzgCommitments},
     BlindedPayload, BlockType, ChainSpec, Epoch, ExecutionBlockHash, ExecutionPayload,
-    ExecutionPayloadCapella, ExecutionPayloadEip4844, ExecutionPayloadEip6110,
+    ExecutionPayloadCapella, ExecutionPayloadDeneb, ExecutionPayloadEip6110,
     ExecutionPayloadMerge, ForkName,
 };
 use types::{AbstractExecPayload, BeaconStateError, ExecPayload, VersionedHash};
+use types::{
+    BlindedPayload, BlockType, ChainSpec, Epoch, ExecutionBlockHash, ExecutionPayload,
+    ExecutionPayloadCapella, ExecutionPayloadDeneb, ExecutionPayloadMerge, ForkName,
+};
+use types::{KzgProofs, Withdrawals};
 use types::{
     ProposerPreparationData, PublicKeyBytes, Signature, SignedBeaconBlock, Slot, Transaction,
     Uint256,
@@ -141,22 +148,53 @@ pub enum BlockProposalContents<T: EthSpec, Payload: AbstractExecPayload<T>> {
         block_value: Uint256,
         kzg_commitments: KzgCommitments<T>,
         blobs: Blobs<T>,
+        proofs: KzgProofs<T>,
     },
 }
 
+impl<E: EthSpec, Payload: AbstractExecPayload<E>> From<GetPayloadResponse<E>>
+    for BlockProposalContents<E, Payload>
+{
+    fn from(response: GetPayloadResponse<E>) -> Self {
+        let (execution_payload, block_value, maybe_bundle) = response.into();
+        match maybe_bundle {
+            Some(bundle) => Self::PayloadAndBlobs {
+                payload: execution_payload.into(),
+                block_value,
+                kzg_commitments: bundle.commitments,
+                blobs: bundle.blobs,
+                proofs: bundle.proofs,
+            },
+            None => Self::Payload {
+                payload: execution_payload.into(),
+                block_value,
+            },
+        }
+    }
+}
+
+#[allow(clippy::type_complexity)]
 impl<T: EthSpec, Payload: AbstractExecPayload<T>> BlockProposalContents<T, Payload> {
-    pub fn deconstruct(self) -> (Payload, Option<KzgCommitments<T>>, Option<Blobs<T>>) {
+    pub fn deconstruct(
+        self,
+    ) -> (
+        Payload,
+        Option<KzgCommitments<T>>,
+        Option<Blobs<T>>,
+        Option<KzgProofs<T>>,
+    ) {
         match self {
             Self::Payload {
                 payload,
                 block_value: _,
-            } => (payload, None, None),
+            } => (payload, None, None, None),
             Self::PayloadAndBlobs {
                 payload,
                 block_value: _,
                 kzg_commitments,
                 blobs,
-            } => (payload, Some(kzg_commitments), Some(blobs)),
+                proofs,
+            } => (payload, Some(kzg_commitments), Some(blobs), Some(proofs)),
         }
     }
 
@@ -171,6 +209,7 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> BlockProposalContents<T, Paylo
                 block_value: _,
                 kzg_commitments: _,
                 blobs: _,
+                proofs: _,
             } => payload,
         }
     }
@@ -185,6 +224,7 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> BlockProposalContents<T, Paylo
                 block_value: _,
                 kzg_commitments: _,
                 blobs: _,
+                proofs: _,
             } => payload,
         }
     }
@@ -199,6 +239,7 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> BlockProposalContents<T, Paylo
                 block_value,
                 kzg_commitments: _,
                 blobs: _,
+                proofs: _,
             } => block_value,
         }
     }
@@ -210,11 +251,12 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> BlockProposalContents<T, Paylo
                     block_value: Uint256::zero(),
                 }
             }
-            ForkName::Eip4844 => BlockProposalContents::PayloadAndBlobs {
+            ForkName::Deneb => BlockProposalContents::PayloadAndBlobs {
                 payload: Payload::default_at_fork(fork_name)?,
                 block_value: Uint256::zero(),
                 blobs: VariableList::default(),
                 kzg_commitments: VariableList::default(),
+                proofs: VariableList::default(),
             },
             ForkName::Eip6110 => BlockProposalContents::PayloadAndBlobs {
                 payload: Payload::default_at_fork(fork_name)?,
@@ -1127,7 +1169,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                         ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {
                             None
                         }
-                        ForkName::Eip4844 | ForkName::Eip6110 => {
+                        ForkName::Deneb | ForkName::Eip6110 => {
                             debug!(
                                 self.log(),
                                 "Issuing engine_getBlobsBundle";
@@ -1150,45 +1192,30 @@ impl<T: EthSpec> ExecutionLayer<T> {
                         "parent_hash" => ?parent_hash,
                     );
                     engine.api.get_payload::<T>(current_fork, payload_id).await
-                };
-                let (blob, payload_response) = tokio::join!(blob_fut, payload_fut);
-                let (execution_payload, block_value) = payload_response.map(|payload_response| {
-                    if payload_response.execution_payload_ref().fee_recipient() != payload_attributes.suggested_fee_recipient() {
-                        error!(
-                            self.log(),
-                            "Inconsistent fee recipient";
-                            "msg" => "The fee recipient returned from the Execution Engine differs \
-                            from the suggested_fee_recipient set on the beacon node. This could \
-                            indicate that fees are being diverted to another address. Please \
-                            ensure that the value of suggested_fee_recipient is set correctly and \
-                            that the Execution Engine is trusted.",
-                            "fee_recipient" => ?payload_response.execution_payload_ref().fee_recipient(),
-                            "suggested_fee_recipient" => ?payload_attributes.suggested_fee_recipient(),
-                        );
-                    }
-                    if f(self, payload_response.execution_payload_ref()).is_some() {
-                        warn!(
-                            self.log(),
-                            "Duplicate payload cached, this might indicate redundant proposal \
-                                 attempts."
-                        );
-                    }
-                    payload_response.into()
-                })?;
-                if let Some(blob) = blob.transpose()? {
-                    // FIXME(sean) cache blobs
-                    Ok(BlockProposalContents::PayloadAndBlobs {
-                        payload: execution_payload.into(),
-                        block_value,
-                        blobs: blob.blobs,
-                        kzg_commitments: blob.kzgs,
-                    })
-                } else {
-                    Ok(BlockProposalContents::Payload {
-                        payload: execution_payload.into(),
-                        block_value,
-                    })
+                }.await?;
+
+                if payload_response.execution_payload_ref().fee_recipient() != payload_attributes.suggested_fee_recipient() {
+                    error!(
+                        self.log(),
+                        "Inconsistent fee recipient";
+                        "msg" => "The fee recipient returned from the Execution Engine differs \
+                        from the suggested_fee_recipient set on the beacon node. This could \
+                        indicate that fees are being diverted to another address. Please \
+                        ensure that the value of suggested_fee_recipient is set correctly and \
+                        that the Execution Engine is trusted.",
+                        "fee_recipient" => ?payload_response.execution_payload_ref().fee_recipient(),
+                        "suggested_fee_recipient" => ?payload_attributes.suggested_fee_recipient(),
+                    );
                 }
+                if f(self, payload_response.execution_payload_ref()).is_some() {
+                    warn!(
+                        self.log(),
+                        "Duplicate payload cached, this might indicate redundant proposal \
+                             attempts."
+                    );
+                }
+
+                Ok(payload_response.into())
             })
             .await
             .map_err(Box::new)
@@ -1708,7 +1735,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
             let payload = match fork {
                 ForkName::Merge => ExecutionPayloadMerge::default().into(),
                 ForkName::Capella => ExecutionPayloadCapella::default().into(),
-                ForkName::Eip4844 => ExecutionPayloadEip4844::default().into(),
+                ForkName::Deneb => ExecutionPayloadDeneb::default().into(),
                 ForkName::Eip6110 => ExecutionPayloadEip6110::default().into(),
                 ForkName::Base | ForkName::Altair => {
                     return Err(Error::InvalidForkForPayload);
@@ -1766,7 +1793,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
             return match fork {
                 ForkName::Merge => Ok(Some(ExecutionPayloadMerge::default().into())),
                 ForkName::Capella => Ok(Some(ExecutionPayloadCapella::default().into())),
-                ForkName::Eip4844 => Ok(Some(ExecutionPayloadEip4844::default().into())),
+                ForkName::Deneb => Ok(Some(ExecutionPayloadDeneb::default().into())),
                 ForkName::Eip6110 => Ok(Some(ExecutionPayloadEip6110::default().into())),
                 ForkName::Base | ForkName::Altair => Err(ApiError::UnsupportedForkVariant(
                     format!("called get_payload_by_hash_from_engine with {}", fork),
@@ -1840,32 +1867,32 @@ impl<T: EthSpec> ExecutionLayer<T> {
                     withdrawals,
                 })
             }
-            ExecutionBlockWithTransactions::Eip4844(eip4844_block) => {
+            ExecutionBlockWithTransactions::Deneb(deneb_block) => {
                 let withdrawals = VariableList::new(
-                    eip4844_block
+                    deneb_block
                         .withdrawals
                         .into_iter()
                         .map(Into::into)
                         .collect(),
                 )
                 .map_err(ApiError::DeserializeWithdrawals)?;
-                ExecutionPayload::Eip4844(ExecutionPayloadEip4844 {
-                    parent_hash: eip4844_block.parent_hash,
-                    fee_recipient: eip4844_block.fee_recipient,
-                    state_root: eip4844_block.state_root,
-                    receipts_root: eip4844_block.receipts_root,
-                    logs_bloom: eip4844_block.logs_bloom,
-                    prev_randao: eip4844_block.prev_randao,
-                    block_number: eip4844_block.block_number,
-                    gas_limit: eip4844_block.gas_limit,
-                    gas_used: eip4844_block.gas_used,
-                    timestamp: eip4844_block.timestamp,
-                    extra_data: eip4844_block.extra_data,
-                    base_fee_per_gas: eip4844_block.base_fee_per_gas,
-                    excess_data_gas: eip4844_block.excess_data_gas,
-                    block_hash: eip4844_block.block_hash,
-                    transactions: convert_transactions(eip4844_block.transactions)?,
+                ExecutionPayload::Deneb(ExecutionPayloadDeneb {
+                    parent_hash: deneb_block.parent_hash,
+                    fee_recipient: deneb_block.fee_recipient,
+                    state_root: deneb_block.state_root,
+                    receipts_root: deneb_block.receipts_root,
+                    logs_bloom: deneb_block.logs_bloom,
+                    prev_randao: deneb_block.prev_randao,
+                    block_number: deneb_block.block_number,
+                    gas_limit: deneb_block.gas_limit,
+                    gas_used: deneb_block.gas_used,
+                    timestamp: deneb_block.timestamp,
+                    extra_data: deneb_block.extra_data,
+                    base_fee_per_gas: deneb_block.base_fee_per_gas,
+                    block_hash: deneb_block.block_hash,
+                    transactions: convert_transactions(deneb_block.transactions)?,
                     withdrawals,
+                    excess_data_gas: deneb_block.excess_data_gas,
                 })
             }
             ExecutionBlockWithTransactions::Eip6110(eip6110_block) => {
@@ -2183,8 +2210,8 @@ pub enum BlobTxConversionError {
     AccessListMissing,
     /// Missing the `max_fee_per_data_gas` field.
     MaxFeePerDataGasMissing,
-    /// Missing the `blob_versioned_hashes` field.
-    BlobVersionedHashesMissing,
+    /// Missing the `versioned_hashes` field.
+    VersionedHashesMissing,
     /// `y_parity` field was greater than one.
     InvalidYParity,
     /// There was an error converting the transaction to SSZ.
@@ -2310,18 +2337,18 @@ fn ethers_tx_to_bytes<T: EthSpec>(
         )
         .map_err(BlobTxConversionError::FromStrRadix)?;
 
-        // blobVersionedHashes
-        let blob_versioned_hashes = other
-            .get("blobVersionedHashes")
-            .ok_or(BlobTxConversionError::BlobVersionedHashesMissing)?
+        // versionedHashes
+        let versioned_hashes = other
+            .get("versionedHashes")
+            .ok_or(BlobTxConversionError::VersionedHashesMissing)?
             .as_array()
-            .ok_or(BlobTxConversionError::BlobVersionedHashesMissing)?
+            .ok_or(BlobTxConversionError::VersionedHashesMissing)?
             .iter()
             .map(|versioned_hash| {
                 let hash_bytes = eth2_serde_utils::hex::decode(
                     versioned_hash
                         .as_str()
-                        .ok_or(BlobTxConversionError::BlobVersionedHashesMissing)?,
+                        .ok_or(BlobTxConversionError::VersionedHashesMissing)?,
                 )
                 .map_err(BlobTxConversionError::FromHex)?;
                 if hash_bytes.len() != Hash256::ssz_fixed_len() {
@@ -2342,7 +2369,7 @@ fn ethers_tx_to_bytes<T: EthSpec>(
             data,
             access_list,
             max_fee_per_data_gas,
-            blob_versioned_hashes: VariableList::new(blob_versioned_hashes)?,
+            versioned_hashes: VariableList::new(versioned_hashes)?,
         };
 
         // ******************** EcdsaSignature fields ********************

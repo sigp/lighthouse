@@ -4,7 +4,7 @@ use super::per_block_processing::{
 use crate::common::DepositDataTree;
 use crate::per_block_processing::UNSET_DEPOSIT_RECEIPTS_START_INDEX;
 use crate::upgrade::{
-    upgrade_to_altair, upgrade_to_bellatrix, upgrade_to_capella, upgrade_to_eip4844,
+    upgrade_to_altair, upgrade_to_bellatrix, upgrade_to_capella, upgrade_to_deneb,
     upgrade_to_eip6110,
 };
 use safe_arith::{ArithError, SafeArith};
@@ -99,20 +99,20 @@ pub fn initialize_beacon_state_from_eth1<T: EthSpec>(
         }
     }
 
-    // Upgrade to eip4844 if configured from genesis
+    // Upgrade to deneb if configured from genesis
     if spec
-        .eip4844_fork_epoch
+        .deneb_fork_epoch
         .map_or(false, |fork_epoch| fork_epoch == T::genesis_epoch())
     {
-        upgrade_to_eip4844(&mut state, spec)?;
+        upgrade_to_deneb(&mut state, spec)?;
 
         // Remove intermediate Capella fork from `state.fork`.
-        state.fork_mut().previous_version = spec.eip4844_fork_version;
+        state.fork_mut().previous_version = spec.deneb_fork_version;
 
         // Override latest execution payload header.
-        // See https://github.com/ethereum/consensus-specs/blob/dev/specs/eip4844/beacon-chain.md#testing
-        if let Some(ExecutionPayloadHeader::Eip4844(ref header)) = execution_payload_header {
-            *state.latest_execution_payload_header_eip4844_mut()? = header.clone();
+        // See https://github.com/ethereum/consensus-specs/blob/dev/specs/deneb/beacon-chain.md#testing
+        if let Some(ExecutionPayloadHeader::Deneb(header)) = execution_payload_header {
+            *state.latest_execution_payload_header_deneb_mut()? = header;
         }
     }
 

@@ -18,7 +18,7 @@ use slog::{debug, trace, warn};
 use std::collections::hash_map::Entry;
 use std::sync::Arc;
 use tokio::sync::mpsc;
-use types::{BlobsSidecar, EthSpec, SignedBeaconBlock};
+use types::{BlobSidecar, EthSpec, SignedBeaconBlock};
 
 pub struct BlocksAndBlobsByRangeResponse<T: EthSpec> {
     pub batch_id: BatchId,
@@ -69,20 +69,20 @@ pub struct SyncNetworkContext<T: BeaconChainTypes> {
 }
 
 /// Small enumeration to make dealing with block and blob requests easier.
-pub enum BlockOrBlobs<T: EthSpec> {
+pub enum BlockOrBlob<T: EthSpec> {
     Block(Option<Arc<SignedBeaconBlock<T>>>),
-    Blobs(Option<Arc<BlobsSidecar<T>>>),
+    Sidecar(Option<Arc<BlobSidecar<T>>>),
 }
 
-impl<T: EthSpec> From<Option<Arc<SignedBeaconBlock<T>>>> for BlockOrBlobs<T> {
+impl<T: EthSpec> From<Option<Arc<SignedBeaconBlock<T>>>> for BlockOrBlob<T> {
     fn from(block: Option<Arc<SignedBeaconBlock<T>>>) -> Self {
-        BlockOrBlobs::Block(block)
+        BlockOrBlob::Block(block)
     }
 }
 
-impl<T: EthSpec> From<Option<Arc<BlobsSidecar<T>>>> for BlockOrBlobs<T> {
-    fn from(blob: Option<Arc<BlobsSidecar<T>>>) -> Self {
-        BlockOrBlobs::Blobs(blob)
+impl<T: EthSpec> From<Option<Arc<BlobSidecar<T>>>> for BlockOrBlob<T> {
+    fn from(blob: Option<Arc<BlobSidecar<T>>>) -> Self {
+        BlockOrBlob::Sidecar(blob)
     }
 }
 
@@ -305,15 +305,15 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
     pub fn range_sync_block_and_blob_response(
         &mut self,
         request_id: Id,
-        block_or_blob: BlockOrBlobs<T::EthSpec>,
+        block_or_blob: BlockOrBlob<T::EthSpec>,
     ) -> Option<(ChainId, BlocksAndBlobsByRangeResponse<T::EthSpec>)> {
         match self.range_blocks_and_blobs_requests.entry(request_id) {
             Entry::Occupied(mut entry) => {
                 let req = entry.get_mut();
                 let info = &mut req.block_blob_info;
                 match block_or_blob {
-                    BlockOrBlobs::Block(maybe_block) => info.add_block_response(maybe_block),
-                    BlockOrBlobs::Blobs(maybe_sidecar) => info.add_sidecar_response(maybe_sidecar),
+                    BlockOrBlob::Block(maybe_block) => info.add_block_response(maybe_block),
+                    BlockOrBlob::Sidecar(maybe_sidecar) => info.add_sidecar_response(maybe_sidecar),
                 }
                 if info.is_finished() {
                     // If the request is finished, dequeue everything
@@ -322,7 +322,6 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                         batch_id,
                         block_blob_info,
                     } = entry.remove();
-
                     Some((
                         chain_id,
                         BlocksAndBlobsByRangeResponse {
@@ -384,21 +383,23 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
     pub fn backfill_sync_block_and_blob_response(
         &mut self,
         request_id: Id,
-        block_or_blob: BlockOrBlobs<T::EthSpec>,
+        block_or_blob: BlockOrBlob<T::EthSpec>,
     ) -> Option<BlocksAndBlobsByRangeResponse<T::EthSpec>> {
         match self.backfill_blocks_and_blobs_requests.entry(request_id) {
             Entry::Occupied(mut entry) => {
                 let (_, info) = entry.get_mut();
                 match block_or_blob {
-                    BlockOrBlobs::Block(maybe_block) => info.add_block_response(maybe_block),
-                    BlockOrBlobs::Blobs(maybe_sidecar) => info.add_sidecar_response(maybe_sidecar),
+                    BlockOrBlob::Block(maybe_block) => info.add_block_response(maybe_block),
+                    BlockOrBlob::Sidecar(maybe_sidecar) => info.add_sidecar_response(maybe_sidecar),
                 }
                 if info.is_finished() {
                     // If the request is finished, dequeue everything
                     let (batch_id, info) = entry.remove();
+
+                    let responses = info.into_responses();
                     Some(BlocksAndBlobsByRangeResponse {
                         batch_id,
-                        responses: info.into_responses(),
+                        responses,
                     })
                 } else {
                     None
@@ -426,7 +427,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 "count" => request.block_roots.len(),
                 "peer" => %peer_id
             );
-            Request::BlobsByRoot(request.into())
+            unimplemented!("There is no longer such thing as a single block lookup, since we nede to ask for blobs and blocks separetely");
         } else {
             trace!(
                 self.log,
@@ -467,7 +468,9 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 "count" => request.block_roots.len(),
                 "peer" => %peer_id
             );
-            Request::BlobsByRoot(request.into())
+            unimplemented!(
+                "Parent requests now need to interleave blocks and blobs or something like that."
+            )
         } else {
             trace!(
                 self.log,

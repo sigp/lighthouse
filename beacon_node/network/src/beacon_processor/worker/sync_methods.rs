@@ -7,13 +7,14 @@ use crate::beacon_processor::DuplicateCache;
 use crate::metrics;
 use crate::sync::manager::{BlockProcessType, SyncMessage};
 use crate::sync::{BatchProcessResult, ChainId};
-use beacon_chain::blob_verification::{AsBlock, BlockWrapper, IntoAvailableBlock};
-use beacon_chain::CountUnrealized;
+use beacon_chain::blob_verification::AsBlock;
+use beacon_chain::blob_verification::BlockWrapper;
 use beacon_chain::{
     observed_block_producers::Error as ObserveError, validator_monitor::get_block_delay_ms,
     BeaconChainError, BeaconChainTypes, BlockError, ChainSegmentResult, HistoricalBlockError,
     NotifyExecutionLayer,
 };
+use beacon_chain::{AvailabilityProcessingStatus, CountUnrealized};
 use lighthouse_network::PeerAction;
 use slog::{debug, error, info, warn};
 use slot_clock::SlotClock;
@@ -149,28 +150,22 @@ impl<T: BeaconChainTypes> Worker<T> {
 
         let slot = block.slot();
         let parent_root = block.message().parent_root();
-        let available_block = block
-            .into_available_block(block_root, &self.chain)
-            .map_err(BlockError::BlobValidation);
 
-        let result = match available_block {
-            Ok(block) => {
-                self.chain
-                    .process_block(
-                        block_root,
-                        block,
-                        CountUnrealized::True,
-                        NotifyExecutionLayer::Yes,
-                    )
-                    .await
-            }
-            Err(e) => Err(e),
-        };
+        let result = self
+            .chain
+            .process_block(
+                block_root,
+                block,
+                CountUnrealized::True,
+                NotifyExecutionLayer::Yes,
+            )
+            .await;
 
         metrics::inc_counter(&metrics::BEACON_PROCESSOR_RPC_BLOCK_IMPORTED_TOTAL);
 
         // RPC block imported, regardless of process type
-        if let &Ok(hash) = &result {
+        //TODO(sean) handle pending availability variants
+        if let &Ok(AvailabilityProcessingStatus::Imported(hash)) = &result {
             info!(self.log, "New RPC block received"; "slot" => slot, "hash" => %hash);
 
             // Trigger processing for work referencing this block.

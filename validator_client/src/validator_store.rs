@@ -6,6 +6,7 @@ use crate::{
     Config,
 };
 use account_utils::{validator_definitions::ValidatorDefinition, ZeroizeString};
+use eth2::types::VariableList;
 use parking_lot::{Mutex, RwLock};
 use slashing_protection::{
     interchange::Interchange, InterchangeError, NotSafe, Safe, SlashingDatabase,
@@ -19,12 +20,13 @@ use std::sync::Arc;
 use task_executor::TaskExecutor;
 use types::{
     attestation::Error as AttestationError, graffiti::GraffitiString, AbstractExecPayload, Address,
-    AggregateAndProof, Attestation, BeaconBlock, BlindedPayload, ChainSpec, ContributionAndProof,
-    Domain, Epoch, EthSpec, Fork, Graffiti, Hash256, Keypair, PublicKeyBytes, SelectionProof,
-    Signature, SignedAggregateAndProof, SignedBeaconBlock, SignedContributionAndProof, SignedRoot,
-    SignedValidatorRegistrationData, SignedVoluntaryExit, Slot, SyncAggregatorSelectionData,
-    SyncCommitteeContribution, SyncCommitteeMessage, SyncSelectionProof, SyncSubnetId,
-    ValidatorRegistrationData, VoluntaryExit,
+    AggregateAndProof, Attestation, BeaconBlock, BlindedPayload, BlobSidecarList, ChainSpec,
+    ContributionAndProof, Domain, Epoch, EthSpec, Fork, Graffiti, Hash256, Keypair, PublicKeyBytes,
+    SelectionProof, Signature, SignedAggregateAndProof, SignedBeaconBlock, SignedBlobSidecar,
+    SignedBlobSidecarList, SignedContributionAndProof, SignedRoot, SignedValidatorRegistrationData,
+    SignedVoluntaryExit, Slot, SyncAggregatorSelectionData, SyncCommitteeContribution,
+    SyncCommitteeMessage, SyncSelectionProof, SyncSubnetId, ValidatorRegistrationData,
+    VoluntaryExit,
 };
 use validator_dir::ValidatorDir;
 
@@ -538,6 +540,39 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
                 Err(Error::Slashable(e))
             }
         }
+    }
+
+    pub async fn sign_blobs(
+        &self,
+        validator_pubkey: PublicKeyBytes,
+        blob_sidecars: BlobSidecarList<E>,
+    ) -> Result<SignedBlobSidecarList<E>, Error> {
+        let mut signed_blob_sidecars = Vec::new();
+
+        for blob_sidecar in blob_sidecars.into_iter() {
+            let slot = blob_sidecar.slot;
+            let signing_epoch = slot.epoch(E::slots_per_epoch());
+            let signing_context = self.signing_context(Domain::BlobSidecar, signing_epoch);
+            let signing_method = self.doppelganger_checked_signing_method(validator_pubkey)?;
+
+            let signature = signing_method
+                .get_signature::<E, BlindedPayload<E>>(
+                    SignableMessage::BlobSidecar(&blob_sidecar),
+                    signing_context,
+                    &self.spec,
+                    &self.task_executor,
+                )
+                .await?;
+
+            metrics::inc_counter_vec(&metrics::SIGNED_BLOBS_TOTAL, &[metrics::SUCCESS]);
+
+            signed_blob_sidecars.push(SignedBlobSidecar {
+                message: blob_sidecar,
+                signature,
+            });
+        }
+
+        Ok(VariableList::from(signed_blob_sidecars))
     }
 
     pub async fn sign_attestation(

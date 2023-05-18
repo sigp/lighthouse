@@ -5,6 +5,7 @@ use crate::{
     },
     Config, *,
 };
+use kzg::Kzg;
 use sensitive_url::SensitiveUrl;
 use task_executor::TaskExecutor;
 use tempfile::NamedTempFile;
@@ -34,6 +35,7 @@ impl<T: EthSpec> MockExecutionLayer<T> {
             Some(JwtKey::from_slice(&DEFAULT_JWT_SECRET).unwrap()),
             spec,
             None,
+            None,
         )
     }
 
@@ -42,12 +44,14 @@ impl<T: EthSpec> MockExecutionLayer<T> {
         executor: TaskExecutor,
         terminal_block: u64,
         shanghai_time: Option<u64>,
-        eip4844_time: Option<u64>,
+<<<<<<< HEAD
+        deneb_time: Option<u64>,
         eip6110_time: Option<u64>,
         builder_threshold: Option<u128>,
         jwt_key: Option<JwtKey>,
         spec: ChainSpec,
         builder_url: Option<SensitiveUrl>,
+        kzg: Option<Kzg>,
     ) -> Self {
         let handle = executor.handle().unwrap();
 
@@ -59,8 +63,10 @@ impl<T: EthSpec> MockExecutionLayer<T> {
             terminal_block,
             spec.terminal_block_hash,
             shanghai_time,
-            eip4844_time,
+            deneb_time,
+            deneb_time,
             eip6110_time,
+            kzg,
         );
 
         let url = SensitiveUrl::parse(&server.url()).unwrap();

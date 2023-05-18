@@ -690,7 +690,9 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                 }
 
                 let mut subscribed_topics: Vec<GossipTopic> = vec![];
-                for topic_kind in core_topics_to_subscribe(self.fork_context.current_fork()) {
+                for topic_kind in
+                    core_topics_to_subscribe::<T::EthSpec>(self.fork_context.current_fork())
+                {
                     for fork_digest in self.required_gossip_fork_digests() {
                         let topic = GossipTopic::new(
                             topic_kind.clone(),

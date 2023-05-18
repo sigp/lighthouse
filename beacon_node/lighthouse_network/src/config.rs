@@ -419,7 +419,7 @@ pub fn gossipsub_config(network_load: u8, fork_context: Arc<ForkContext>) -> Gos
             ForkName::Altair
             | ForkName::Merge
             | ForkName::Capella
-            | ForkName::Eip4844
+            | ForkName::Deneb
             | ForkName::Eip6110 => {
                 let topic_len_bytes = topic_bytes.len().to_le_bytes();
                 let mut vec = Vec::with_capacity(

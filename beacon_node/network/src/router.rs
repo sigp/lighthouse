@@ -24,7 +24,7 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::UnboundedReceiverStream;
-use types::{BlobsSidecar, EthSpec, SignedBeaconBlock};
+use types::{BlobSidecar, EthSpec, SignedBeaconBlock};
 
 /// Handles messages from the network and routes them to the appropriate service to be handled.
 pub struct Router<T: BeaconChainTypes> {
@@ -277,13 +277,15 @@ impl<T: BeaconChainTypes> Router<T> {
                     timestamp_now(),
                 ))
             }
-            PubsubMessage::BeaconBlockAndBlobsSidecars(data) => {
+            PubsubMessage::BlobSidecar(data) => {
+                let (blob_index, signed_blob) = *data;
                 let peer_client = self.network_globals.client(&peer_id);
-                self.send_beacon_processor_work(BeaconWorkEvent::gossip_block_and_blobs_sidecar(
+                self.send_beacon_processor_work(BeaconWorkEvent::gossip_signed_blob_sidecar(
                     message_id,
                     peer_id,
                     peer_client,
-                    data,
+                    blob_index,
+                    signed_blob,
                     timestamp_now(),
                 ))
             }
@@ -473,7 +475,7 @@ impl<T: BeaconChainTypes> Router<T> {
         &mut self,
         peer_id: PeerId,
         request_id: RequestId,
-        blob_sidecar: Option<Arc<BlobsSidecar<T::EthSpec>>>,
+        blob_sidecar: Option<Arc<BlobSidecar<T::EthSpec>>>,
     ) {
         trace!(
             self.log,
@@ -482,7 +484,7 @@ impl<T: BeaconChainTypes> Router<T> {
         );
 
         if let RequestId::Sync(id) = request_id {
-            self.send_to_sync(SyncMessage::RpcBlobs {
+            self.send_to_sync(SyncMessage::RpcBlob {
                 peer_id,
                 request_id: id,
                 blob_sidecar,
@@ -534,7 +536,7 @@ impl<T: BeaconChainTypes> Router<T> {
         &mut self,
         peer_id: PeerId,
         request_id: RequestId,
-        block_and_blobs: Option<types::SignedBeaconBlockAndBlobsSidecar<T::EthSpec>>,
+        blob_sidecar: Option<Arc<BlobSidecar<T::EthSpec>>>,
     ) {
         let request_id = match request_id {
             RequestId::Sync(sync_id) => match sync_id {
@@ -554,10 +556,10 @@ impl<T: BeaconChainTypes> Router<T> {
             "Received BlobsByRoot Response";
             "peer" => %peer_id,
         );
-        self.send_to_sync(SyncMessage::RpcBlockAndBlobs {
+        self.send_to_sync(SyncMessage::RpcBlob {
             request_id,
             peer_id,
-            block_and_blobs,
+            blob_sidecar,
             seen_timestamp: timestamp_now(),
         });
     }

@@ -1,14 +1,13 @@
 use beacon_chain::blob_verification::BlockWrapper;
 use std::{collections::VecDeque, sync::Arc};
-
-use types::{BlobsSidecar, EthSpec, SignedBeaconBlock};
+use types::{BlobSidecar, EthSpec, SignedBeaconBlock};
 
 #[derive(Debug, Default)]
 pub struct BlocksAndBlobsRequestInfo<T: EthSpec> {
     /// Blocks we have received awaiting for their corresponding sidecar.
     accumulated_blocks: VecDeque<Arc<SignedBeaconBlock<T>>>,
     /// Sidecars we have received awaiting for their corresponding block.
-    accumulated_sidecars: VecDeque<Arc<BlobsSidecar<T>>>,
+    accumulated_sidecars: VecDeque<Arc<BlobSidecar<T>>>,
     /// Whether the individual RPC request for blocks is finished or not.
     is_blocks_stream_terminated: bool,
     /// Whether the individual RPC request for sidecars is finished or not.
@@ -23,7 +22,7 @@ impl<T: EthSpec> BlocksAndBlobsRequestInfo<T> {
         }
     }
 
-    pub fn add_sidecar_response(&mut self, maybe_sidecar: Option<Arc<BlobsSidecar<T>>>) {
+    pub fn add_sidecar_response(&mut self, maybe_sidecar: Option<Arc<BlobSidecar<T>>>) {
         match maybe_sidecar {
             Some(sidecar) => self.accumulated_sidecars.push_back(sidecar),
             None => self.is_sidecars_stream_terminated = true,
@@ -33,34 +32,39 @@ impl<T: EthSpec> BlocksAndBlobsRequestInfo<T> {
     pub fn into_responses(self) -> Result<Vec<BlockWrapper<T>>, &'static str> {
         let BlocksAndBlobsRequestInfo {
             accumulated_blocks,
-            mut accumulated_sidecars,
+            accumulated_sidecars,
             ..
         } = self;
 
         // ASSUMPTION: There can't be more more blobs than blocks. i.e. sending any blob (empty
         // included) for a skipped slot is not permitted.
-        let pairs = accumulated_blocks
-            .into_iter()
-            .map(|beacon_block| {
-                if accumulated_sidecars
-                    .front()
-                    .map(|sidecar| sidecar.beacon_block_slot == beacon_block.slot())
-                    .unwrap_or(false)
-                {
-                    let blobs_sidecar = accumulated_sidecars.pop_front();
-                    BlockWrapper::new(beacon_block, blobs_sidecar)
-                } else {
-                    BlockWrapper::new(beacon_block, None)
-                }
-            })
-            .collect::<Vec<_>>();
+        let mut responses = Vec::with_capacity(accumulated_blocks.len());
+        let mut blob_iter = accumulated_sidecars.into_iter().peekable();
+        for block in accumulated_blocks.into_iter() {
+            let mut blob_list = Vec::with_capacity(T::max_blobs_per_block());
+            while {
+                let pair_next_blob = blob_iter
+                    .peek()
+                    .map(|sidecar| sidecar.slot == block.slot())
+                    .unwrap_or(false);
+                pair_next_blob
+            } {
+                blob_list.push(blob_iter.next().expect("iterator is not empty"));
+            }
 
-        // if accumulated sidecars is not empty, throw an error.
-        if !accumulated_sidecars.is_empty() {
-            return Err("Received more sidecars than blocks");
+            if blob_list.is_empty() {
+                responses.push(BlockWrapper::Block(block))
+            } else {
+                responses.push(BlockWrapper::BlockAndBlobs(block, blob_list))
+            }
         }
 
-        Ok(pairs)
+        // if accumulated sidecars is not empty, throw an error.
+        if blob_iter.next().is_some() {
+            return Err("Received sidecars that don't pair well");
+        }
+
+        Ok(responses)
     }
 
     pub fn is_finished(&self) -> bool {

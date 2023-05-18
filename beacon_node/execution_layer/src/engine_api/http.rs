@@ -42,9 +42,6 @@ pub const ENGINE_GET_PAYLOAD_V3: &str = "engine_getPayloadV3";
 pub const ENGINE_GET_PAYLOAD_V6110: &str = "engine_getPayloadV6110";
 pub const ENGINE_GET_PAYLOAD_TIMEOUT: Duration = Duration::from_secs(2);
 
-pub const ENGINE_GET_BLOBS_BUNDLE_V1: &str = "engine_getBlobsBundleV1";
-pub const ENGINE_GET_BLOBS_BUNDLE_TIMEOUT: Duration = Duration::from_secs(2);
-
 pub const ENGINE_FORKCHOICE_UPDATED_V1: &str = "engine_forkchoiceUpdatedV1";
 pub const ENGINE_FORKCHOICE_UPDATED_V2: &str = "engine_forkchoiceUpdatedV2";
 pub const ENGINE_FORKCHOICE_UPDATED_TIMEOUT: Duration = Duration::from_secs(8);
@@ -761,7 +758,7 @@ impl HttpJsonRpc {
                 )
                 .await?,
             ),
-            ForkName::Eip4844 => ExecutionBlockWithTransactions::Eip4844(
+            ForkName::Deneb => ExecutionBlockWithTransactions::Deneb(
                 self.rpc_request(
                     ETH_GET_BLOCK_BY_HASH,
                     params,
@@ -905,30 +902,9 @@ impl HttpJsonRpc {
                     .await?;
                 Ok(JsonGetPayloadResponse::V2(response).into())
             }
-            ForkName::Eip4844 => {
-                let response: JsonGetPayloadResponseV3<T> = self
-                    .rpc_request(
-                        ENGINE_GET_PAYLOAD_V2,
-                        params,
-                        ENGINE_GET_PAYLOAD_TIMEOUT * self.execution_timeout_multiplier,
-                    )
-                    .await?;
-                Ok(JsonGetPayloadResponse::V3(response).into())
-            }
-            ForkName::Eip6110 => {
-                let response: JsonGetPayloadResponseV6110<T> = self
-                    .rpc_request(
-                        ENGINE_GET_PAYLOAD_V2,
-                        params,
-                        ENGINE_GET_PAYLOAD_TIMEOUT * self.execution_timeout_multiplier,
-                    )
-                    .await?;
-                Ok(JsonGetPayloadResponse::V6110(response).into())
-            }
-            ForkName::Base | ForkName::Altair => Err(Error::UnsupportedForkVariant(format!(
-                "called get_payload_v2 with {}",
-                fork_name
-            ))),
+            ForkName::Base | ForkName::Altair | ForkName::Deneb | ForkName::Eip6110 => Err(
+                Error::UnsupportedForkVariant(format!("called get_payload_v2 with {}", fork_name)),
+            ),
         }
     }
 
@@ -960,7 +936,7 @@ impl HttpJsonRpc {
                     .await?;
                 Ok(JsonGetPayloadResponse::V2(response).into())
             }
-            ForkName::Eip4844 => {
+            ForkName::Deneb => {
                 let response: JsonGetPayloadResponseV3<T> = self
                     .rpc_request(
                         ENGINE_GET_PAYLOAD_V3,
@@ -1004,7 +980,6 @@ impl HttpJsonRpc {
         let response: JsonBlobsBundle<T> = self
             .rpc_request(
                 ENGINE_GET_BLOBS_BUNDLE_V1,
-                params,
                 ENGINE_GET_BLOBS_BUNDLE_TIMEOUT,
             )
             .await?;
@@ -1037,8 +1012,6 @@ impl HttpJsonRpc {
         &self,
         forkchoice_state: ForkchoiceState,
         payload_attributes: Option<PayloadAttributes>,
-    ) -> Result<ForkchoiceUpdatedResponse, Error> {
-        let params = json!([
             JsonForkchoiceStateV1::from(forkchoice_state),
             payload_attributes.map(JsonPayloadAttributes::from)
         ]);

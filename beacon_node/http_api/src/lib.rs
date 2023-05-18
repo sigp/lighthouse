@@ -10,6 +10,7 @@ mod attester_duties;
 mod block_id;
 mod block_packing_efficiency;
 mod block_rewards;
+mod build_block_contents;
 mod database;
 mod metrics;
 mod proposer_duties;
@@ -31,8 +32,8 @@ use beacon_chain::{
 pub use block_id::BlockId;
 use directory::DEFAULT_ROOT_DIR;
 use eth2::types::{
-    self as api_types, EndpointVersion, ForkChoice, ForkChoiceNode, SkipRandaoVerification,
-    ValidatorId, ValidatorStatus,
+    self as api_types, EndpointVersion, ForkChoice, ForkChoiceNode, SignedBlockContents,
+    SkipRandaoVerification, ValidatorId, ValidatorStatus,
 };
 use lighthouse_network::{types::SyncState, EnrExt, NetworkGlobals, PeerId, PubsubMessage};
 use lighthouse_version::version_with_platform;
@@ -1211,13 +1212,13 @@ pub fn serve<T: BeaconChainTypes>(
         .and(network_tx_filter.clone())
         .and(log_filter.clone())
         .and_then(
-            |block: Arc<SignedBeaconBlock<T::EthSpec>>,
+            |block_contents: SignedBlockContents<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
              log: Logger| async move {
                 publish_blocks::publish_block(
                     None,
-                    ProvenancedBlock::Local(block),
+                    ProvenancedBlock::Local(block_contents),
                     chain,
                     &network_tx,
                     log,
@@ -1381,6 +1382,45 @@ pub fn serve<T: BeaconChainTypes>(
                     }
                     .map(|resp| add_consensus_version_header(resp, fork_name))
                 })
+            },
+        );
+
+    /*
+     * beacon/blobs
+     */
+
+    // GET beacon/blobs/{block_id}
+    let get_blobs = eth_v1
+        .and(warp::path("beacon"))
+        .and(warp::path("blobs"))
+        .and(block_id_or_err)
+        .and(warp::path::end())
+        .and(chain_filter.clone())
+        .and(warp::header::optional::<api_types::Accept>("accept"))
+        .and_then(
+            |block_id: BlockId,
+             chain: Arc<BeaconChain<T>>,
+             accept_header: Option<api_types::Accept>| {
+                async move {
+                    let blob_sidecar_list = block_id.blob_sidecar_list(&chain).await?;
+
+                    match accept_header {
+                        Some(api_types::Accept::Ssz) => Response::builder()
+                            .status(200)
+                            .header("Content-Type", "application/octet-stream")
+                            .body(blob_sidecar_list.as_ssz_bytes().into())
+                            .map_err(|e| {
+                                warp_utils::reject::custom_server_error(format!(
+                                    "failed to create response: {}",
+                                    e
+                                ))
+                            }),
+                        _ => Ok(warp::reply::json(&api_types::GenericResponse::from(
+                            blob_sidecar_list,
+                        ))
+                        .into_response()),
+                    }
+                }
             },
         );
 
@@ -2580,7 +2620,10 @@ pub fn serve<T: BeaconChainTypes>(
                     .fork_name(&chain.spec)
                     .map_err(inconsistent_fork_rejection)?;
 
-                fork_versioned_response(endpoint_version, fork_name, block)
+                let block_contents =
+                    build_block_contents::build_block_contents(fork_name, chain, block);
+
+                fork_versioned_response(endpoint_version, fork_name, block_contents?)
                     .map(|response| warp::reply::json(&response).into_response())
             },
         );
@@ -3643,41 +3686,6 @@ pub fn serve<T: BeaconChainTypes>(
             )
         });
 
-    // GET lighthouse/beacon/blobs_sidecars/{block_id}
-    let get_lighthouse_blobs_sidecars = warp::path("lighthouse")
-        .and(warp::path("beacon"))
-        .and(warp::path("blobs_sidecars"))
-        .and(block_id_or_err)
-        .and(warp::path::end())
-        .and(chain_filter.clone())
-        .and(warp::header::optional::<api_types::Accept>("accept"))
-        .and_then(
-            |block_id: BlockId,
-             chain: Arc<BeaconChain<T>>,
-             accept_header: Option<api_types::Accept>| {
-                async move {
-                    let blobs_sidecar = block_id.blobs_sidecar(&chain).await?;
-
-                    match accept_header {
-                        Some(api_types::Accept::Ssz) => Response::builder()
-                            .status(200)
-                            .header("Content-Type", "application/octet-stream")
-                            .body(blobs_sidecar.as_ssz_bytes().into())
-                            .map_err(|e| {
-                                warp_utils::reject::custom_server_error(format!(
-                                    "failed to create response: {}",
-                                    e
-                                ))
-                            }),
-                        _ => Ok(warp::reply::json(&api_types::GenericResponse::from(
-                            blobs_sidecar,
-                        ))
-                        .into_response()),
-                    }
-                }
-            },
-        );
-
     let get_events = eth_v1
         .and(warp::path("events"))
         .and(warp::path::end())
@@ -3772,6 +3780,7 @@ pub fn serve<T: BeaconChainTypes>(
                 .uor(get_beacon_block_attestations)
                 .uor(get_beacon_blinded_block)
                 .uor(get_beacon_block_root)
+                .uor(get_blobs)
                 .uor(get_beacon_pool_attestations)
                 .uor(get_beacon_pool_attester_slashings)
                 .uor(get_beacon_pool_proposer_slashings)
@@ -3818,7 +3827,6 @@ pub fn serve<T: BeaconChainTypes>(
                 .uor(get_lighthouse_attestation_performance)
                 .uor(get_lighthouse_block_packing_efficiency)
                 .uor(get_lighthouse_merge_readiness)
-                .uor(get_lighthouse_blobs_sidecars.boxed())
                 .uor(get_events)
                 .recover(warp_utils::reject::handle_rejection),
         )

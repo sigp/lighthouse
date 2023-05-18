@@ -8,6 +8,7 @@ use bytes::Bytes;
 use environment::null_logger;
 use execution_block_generator::PoWBlock;
 use handle_rpc::handle_rpc;
+use kzg::Kzg;
 use parking_lot::{Mutex, RwLock, RwLockWriteGuard};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -64,7 +65,7 @@ pub struct MockExecutionConfig {
     pub terminal_block: u64,
     pub terminal_block_hash: ExecutionBlockHash,
     pub shanghai_time: Option<u64>,
-    pub eip4844_time: Option<u64>,
+    pub deneb_time: Option<u64>,
     pub eip6110_time: Option<u64>,
 }
 
@@ -77,7 +78,7 @@ impl Default for MockExecutionConfig {
             terminal_block_hash: ExecutionBlockHash::zero(),
             server_config: Config::default(),
             shanghai_time: None,
-            eip4844_time: None,
+            deneb_time: None,
             eip6110_time: None,
         }
     }
@@ -99,12 +100,16 @@ impl<T: EthSpec> MockServer<T> {
             DEFAULT_TERMINAL_BLOCK,
             ExecutionBlockHash::zero(),
             None, // FIXME(capella): should this be the default?
-            None, // FIXME(eip4844): should this be the default?
+            None, // FIXME(deneb): should this be the default?
             None, // FIXME(eip6110): should this be the default?
         )
     }
 
-    pub fn new_with_config(handle: &runtime::Handle, config: MockExecutionConfig) -> Self {
+    pub fn new_with_config(
+        handle: &runtime::Handle,
+        config: MockExecutionConfig,
+        kzg: Option<Kzg>,
+    ) -> Self {
         let MockExecutionConfig {
             jwt_key,
             terminal_difficulty,
@@ -112,7 +117,7 @@ impl<T: EthSpec> MockServer<T> {
             terminal_block_hash,
             server_config,
             shanghai_time,
-            eip4844_time,
+            deneb_time,
             eip6110_time,
         } = config;
         let last_echo_request = Arc::new(RwLock::new(None));
@@ -122,7 +127,7 @@ impl<T: EthSpec> MockServer<T> {
             terminal_block,
             terminal_block_hash,
             shanghai_time,
-            eip4844_time,
+            deneb_time,
             eip6110_time,
         );
 
@@ -183,7 +188,8 @@ impl<T: EthSpec> MockServer<T> {
         terminal_block: u64,
         terminal_block_hash: ExecutionBlockHash,
         shanghai_time: Option<u64>,
-        eip4844_time: Option<u64>,
+        deneb_time: Option<u64>,
+        kzg: Option<Kzg>,
         eip6110_time: Option<u64>,
     ) -> Self {
         Self::new_with_config(
@@ -195,9 +201,10 @@ impl<T: EthSpec> MockServer<T> {
                 terminal_block,
                 terminal_block_hash,
                 shanghai_time,
-                eip4844_time,
+                deneb_time,
                 eip6110_time,
             },
+            kzg,
         )
     }
 

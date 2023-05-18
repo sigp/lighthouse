@@ -1,7 +1,8 @@
 #![cfg(not(debug_assertions))]
 
+use beacon_chain::blob_verification::BlockWrapper;
 use beacon_chain::{
-    blob_verification::{AsBlock, BlockWrapper},
+    blob_verification::AsBlock,
     test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType},
 };
 use beacon_chain::{BeaconSnapshot, BlockError, ChainSegmentResult, NotifyExecutionLayer};
@@ -1024,8 +1025,8 @@ async fn verify_block_for_gossip_slashing_detection() {
     harness.advance_slot();
 
     let state = harness.get_current_state();
-    let (block1, _) = harness.make_block(state.clone(), Slot::new(1)).await;
-    let (block2, _) = harness.make_block(state, Slot::new(1)).await;
+    let ((block1, _), _) = harness.make_block(state.clone(), Slot::new(1)).await;
+    let ((block2, _), _) = harness.make_block(state, Slot::new(1)).await;
 
     let verified_block = harness
         .chain
@@ -1064,7 +1065,7 @@ async fn verify_block_for_gossip_doppelganger_detection() {
     let harness = get_harness(VALIDATOR_COUNT);
 
     let state = harness.get_current_state();
-    let (block, _) = harness.make_block(state.clone(), Slot::new(1)).await;
+    let ((block, _), _) = harness.make_block(state.clone(), Slot::new(1)).await;
 
     let verified_block = harness
         .chain
@@ -1151,7 +1152,7 @@ async fn add_base_block_to_altair_chain() {
     // Produce an Altair block.
     let state = harness.get_current_state();
     let slot = harness.get_current_slot();
-    let (altair_signed_block, _) = harness.make_block(state.clone(), slot).await;
+    let ((altair_signed_block, _), _) = harness.make_block(state.clone(), slot).await;
     let altair_block = &altair_signed_block
         .as_altair()
         .expect("test expects an altair block")
@@ -1288,7 +1289,7 @@ async fn add_altair_block_to_base_chain() {
     // Produce an altair block.
     let state = harness.get_current_state();
     let slot = harness.get_current_slot();
-    let (base_signed_block, _) = harness.make_block(state.clone(), slot).await;
+    let ((base_signed_block, _), _) = harness.make_block(state.clone(), slot).await;
     let base_block = &base_signed_block
         .as_base()
         .expect("test expects a base block")

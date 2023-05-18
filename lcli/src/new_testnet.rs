@@ -16,7 +16,7 @@ use types::ExecutionBlockHash;
 use types::{
     test_utils::generate_deterministic_keypairs, Address, BeaconState, ChainSpec, Config, Epoch,
     Eth1Data, EthSpec, ExecutionPayloadHeader, ExecutionPayloadHeaderCapella,
-    ExecutionPayloadHeaderEip4844, ExecutionPayloadHeaderEip6110, ExecutionPayloadHeaderMerge,
+    ExecutionPayloadHeaderDeneb, ExecutionPayloadHeaderEip6110, ExecutionPayloadHeaderMerge,
     ForkName, Hash256, Keypair, PublicKey, Validator,
 };
 
@@ -82,8 +82,8 @@ pub fn run<T: EthSpec>(testnet_dir_path: PathBuf, matches: &ArgMatches) -> Resul
         spec.capella_fork_epoch = Some(fork_epoch);
     }
 
-    if let Some(fork_epoch) = parse_optional(matches, "eip4844-fork-epoch")? {
-        spec.eip4844_fork_epoch = Some(fork_epoch);
+    if let Some(fork_epoch) = parse_optional(matches, "deneb-fork-epoch")? {
+        spec.deneb_fork_epoch = Some(fork_epoch);
     }
 
     if let Some(fork_epoch) = parse_optional(matches, "eip6110-fork-epoch")? {
@@ -116,9 +116,9 @@ pub fn run<T: EthSpec>(testnet_dir_path: PathBuf, matches: &ArgMatches) -> Resul
                             ExecutionPayloadHeaderCapella::<T>::from_ssz_bytes(bytes.as_slice())
                                 .map(ExecutionPayloadHeader::Capella)
                         }
-                        ForkName::Eip4844 => {
-                            ExecutionPayloadHeaderEip4844::<T>::from_ssz_bytes(bytes.as_slice())
-                                .map(ExecutionPayloadHeader::Eip4844)
+                        ForkName::Deneb => {
+                            ExecutionPayloadHeaderDeneb::<T>::from_ssz_bytes(bytes.as_slice())
+                                .map(ExecutionPayloadHeader::Deneb)
                         }
                         ForkName::Eip6110 => {
                             ExecutionPayloadHeaderEip6110::<T>::from_ssz_bytes(bytes.as_slice())
@@ -167,8 +167,8 @@ pub fn run<T: EthSpec>(testnet_dir_path: PathBuf, matches: &ArgMatches) -> Resul
         None
     };
 
-    let kzg_trusted_setup = if let Some(epoch) = spec.eip4844_fork_epoch {
-        // Only load the trusted setup if the eip4844 fork epoch is set
+    let kzg_trusted_setup = if let Some(epoch) = spec.deneb_fork_epoch {
+        // Only load the trusted setup if the deneb fork epoch is set
         if epoch != Epoch::max_value() {
             let trusted_setup: TrustedSetup = serde_json::from_reader(TRUSTED_SETUP)
                 .map_err(|e| format!("Unable to read trusted setup file: {}", e))?;

@@ -5,16 +5,16 @@ use regex::bytes::Regex;
 use serde::Serialize;
 use ssz_derive::{Decode, Encode};
 use ssz_types::{
-    typenum::{U1024, U256},
+    typenum::{U1024, U256, U512},
     VariableList,
 };
 use std::ops::Deref;
 use std::sync::Arc;
 use strum::IntoStaticStr;
 use superstruct::superstruct;
-use types::SignedBeaconBlockAndBlobsSidecar;
+use types::blob_sidecar::BlobIdentifier;
 use types::{
-    blobs_sidecar::BlobsSidecar, light_client_bootstrap::LightClientBootstrap, Epoch, EthSpec,
+    blob_sidecar::BlobSidecar, light_client_bootstrap::LightClientBootstrap, Epoch, EthSpec,
     Hash256, SignedBeaconBlock, Slot,
 };
 
@@ -26,8 +26,14 @@ pub const MAX_REQUEST_BLOCKS: u64 = 1024;
 pub type MaxErrorLen = U256;
 pub const MAX_ERROR_LEN: u64 = 256;
 
-pub type MaxRequestBlobsSidecars = U1024;
-pub const MAX_REQUEST_BLOBS_SIDECARS: u64 = 1024;
+pub const MAX_REQUEST_BLOCKS_DENEB: u64 = 128;
+
+// TODO: this is calculated as MAX_REQUEST_BLOCKS_DENEB * MAX_BLOBS_PER_BLOCK and
+// MAX_BLOBS_PER_BLOCK comes from the spec.
+// MAX_REQUEST_BLOCKS_DENEB = 128
+// MAX_BLOBS_PER_BLOCK = 4
+pub type MaxRequestBlobSidecars = U512;
+pub const MAX_REQUEST_BLOB_SIDECARS: u64 = 512;
 
 /// Wrapper over SSZ List to represent error message in rpc responses.
 #[derive(Debug, Clone)]
@@ -239,7 +245,7 @@ pub struct OldBlocksByRangeRequest {
 }
 
 /// Request a number of beacon block bodies from a peer.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Encode, Decode, Clone, Debug, PartialEq)]
 pub struct BlocksByRootRequest {
     /// The list of beacon block bodies being requested.
     pub block_roots: VariableList<Hash256, MaxRequestBlocks>,
@@ -249,14 +255,7 @@ pub struct BlocksByRootRequest {
 #[derive(Clone, Debug, PartialEq)]
 pub struct BlobsByRootRequest {
     /// The list of beacon block roots being requested.
-    pub block_roots: VariableList<Hash256, MaxRequestBlocks>,
-}
-
-impl From<BlocksByRootRequest> for BlobsByRootRequest {
-    fn from(r: BlocksByRootRequest) -> Self {
-        let BlocksByRootRequest { block_roots } = r;
-        Self { block_roots }
-    }
+    pub blob_ids: VariableList<BlobIdentifier, MaxRequestBlobSidecars>,
 }
 
 /* RPC Handling and Grouping */
@@ -275,13 +274,13 @@ pub enum RPCResponse<T: EthSpec> {
     BlocksByRoot(Arc<SignedBeaconBlock<T>>),
 
     /// A response to a get BLOBS_BY_RANGE request
-    BlobsByRange(Arc<BlobsSidecar<T>>),
+    BlobsByRange(Arc<BlobSidecar<T>>),
 
     /// A response to a get LIGHTCLIENT_BOOTSTRAP request.
     LightClientBootstrap(LightClientBootstrap<T>),
 
     /// A response to a get BLOBS_BY_ROOT request.
-    BlockAndBlobsByRoot(SignedBeaconBlockAndBlobsSidecar<T>),
+    SidecarByRoot(Arc<BlobSidecar<T>>),
 
     /// A PONG response to a PING request.
     Pong(Ping),
@@ -374,7 +373,7 @@ impl<T: EthSpec> RPCCodedResponse<T> {
                 RPCResponse::BlocksByRange(_) => true,
                 RPCResponse::BlocksByRoot(_) => true,
                 RPCResponse::BlobsByRange(_) => true,
-                RPCResponse::BlockAndBlobsByRoot(_) => true,
+                RPCResponse::SidecarByRoot(_) => true,
                 RPCResponse::Pong(_) => false,
                 RPCResponse::MetaData(_) => false,
                 RPCResponse::LightClientBootstrap(_) => false,
@@ -412,7 +411,7 @@ impl<T: EthSpec> RPCResponse<T> {
             RPCResponse::BlocksByRange(_) => Protocol::BlocksByRange,
             RPCResponse::BlocksByRoot(_) => Protocol::BlocksByRoot,
             RPCResponse::BlobsByRange(_) => Protocol::BlobsByRange,
-            RPCResponse::BlockAndBlobsByRoot(_) => Protocol::BlobsByRoot,
+            RPCResponse::SidecarByRoot(_) => Protocol::BlobsByRoot,
             RPCResponse::Pong(_) => Protocol::Ping,
             RPCResponse::MetaData(_) => Protocol::MetaData,
             RPCResponse::LightClientBootstrap(_) => Protocol::LightClientBootstrap,
@@ -451,14 +450,10 @@ impl<T: EthSpec> std::fmt::Display for RPCResponse<T> {
                 write!(f, "BlocksByRoot: Block slot: {}", block.slot())
             }
             RPCResponse::BlobsByRange(blob) => {
-                write!(f, "BlobsByRange: Blob slot: {}", blob.beacon_block_slot)
+                write!(f, "BlobsByRange: Blob slot: {}", blob.slot)
             }
-            RPCResponse::BlockAndBlobsByRoot(blob) => {
-                write!(
-                    f,
-                    "BlobsByRoot: Blob slot: {}",
-                    blob.blobs_sidecar.beacon_block_slot
-                )
+            RPCResponse::SidecarByRoot(sidecar) => {
+                write!(f, "BlobsByRoot: Blob slot: {}", sidecar.slot)
             }
             RPCResponse::Pong(ping) => write!(f, "Pong: {}", ping.data),
             RPCResponse::MetaData(metadata) => write!(f, "Metadata: {}", metadata.seq_number()),
@@ -516,7 +511,7 @@ impl std::fmt::Display for BlobsByRootRequest {
         write!(
             f,
             "Request: BlobsByRoot: Number of Requested Roots: {}",
-            self.block_roots.len()
+            self.blob_ids.len()
         )
     }
 }

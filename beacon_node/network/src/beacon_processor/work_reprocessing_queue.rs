@@ -14,7 +14,8 @@ use super::MAX_SCHEDULED_WORK_QUEUE_LEN;
 use crate::beacon_processor::{ChainSegmentProcessId, Work, WorkEvent};
 use crate::metrics;
 use crate::sync::manager::BlockProcessType;
-use beacon_chain::blob_verification::{AsBlock, BlockWrapper};
+use beacon_chain::blob_verification::AsBlock;
+use beacon_chain::blob_verification::BlockWrapper;
 use beacon_chain::{BeaconChainTypes, GossipVerifiedBlock, MAXIMUM_GOSSIP_CLOCK_DISPARITY};
 use fnv::FnvHashMap;
 use futures::task::Poll;
@@ -107,7 +108,7 @@ pub enum ReprocessQueueMessage<T: BeaconChainTypes> {
 
 /// Events sent by the scheduler once they are ready for re-processing.
 pub enum ReadyWork<T: BeaconChainTypes> {
-    Block(QueuedGossipBlock<T>),
+    GossipBlock(QueuedGossipBlock<T>),
     RpcBlock(QueuedRpcBlock<T::EthSpec>),
     Unaggregate(QueuedUnaggregate<T::EthSpec>),
     Aggregate(QueuedAggregate<T::EthSpec>),
@@ -478,7 +479,7 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                         if block_slot <= now
                             && self
                                 .ready_work_tx
-                                .try_send(ReadyWork::Block(early_block))
+                                .try_send(ReadyWork::GossipBlock(early_block))
                                 .is_err()
                         {
                             error!(
@@ -780,7 +781,7 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
 
                 if self
                     .ready_work_tx
-                    .try_send(ReadyWork::Block(ready_block))
+                    .try_send(ReadyWork::GossipBlock(ready_block))
                     .is_err()
                 {
                     error!(

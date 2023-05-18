@@ -98,8 +98,8 @@ pub mod slot_data;
 #[cfg(feature = "sqlite")]
 pub mod sqlite;
 
-pub mod blobs_sidecar;
-pub mod signed_block_and_blobs;
+pub mod blob_sidecar;
+pub mod signed_blob;
 pub mod transaction;
 
 use ethereum_types::{H160, H256};
@@ -110,19 +110,19 @@ pub use crate::attestation_data::AttestationData;
 pub use crate::attestation_duty::AttestationDuty;
 pub use crate::attester_slashing::AttesterSlashing;
 pub use crate::beacon_block::{
-    BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockCapella, BeaconBlockEip4844,
+    BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockCapella, BeaconBlockEipDeneb,
     BeaconBlockEip6110, BeaconBlockMerge, BeaconBlockRef, BeaconBlockRefMut, BlindedBeaconBlock,
     EmptyBlock,
 };
 pub use crate::beacon_block_body::{
     BeaconBlockBody, BeaconBlockBodyAltair, BeaconBlockBodyBase, BeaconBlockBodyCapella,
-    BeaconBlockBodyEip4844, BeaconBlockBodyEip6110, BeaconBlockBodyMerge, BeaconBlockBodyRef,
+    BeaconBlockBodyDeneb, BeaconBlockBodyEip6110, BeaconBlockBodyMerge, BeaconBlockBodyRef,
     BeaconBlockBodyRefMut,
 };
 pub use crate::beacon_block_header::BeaconBlockHeader;
 pub use crate::beacon_committee::{BeaconCommittee, OwnedBeaconCommittee};
 pub use crate::beacon_state::{BeaconTreeHashCache, Error as BeaconStateError, *};
-pub use crate::blobs_sidecar::{Blobs, BlobsSidecar, KzgCommitments};
+pub use crate::blob_sidecar::{BlobSidecar, BlobSidecarList};
 pub use crate::bls_to_execution_change::BlsToExecutionChange;
 pub use crate::chain_spec::{ChainSpec, Config, Domain};
 pub use crate::checkpoint::Checkpoint;
@@ -141,12 +141,12 @@ pub use crate::eth_spec::EthSpecId;
 pub use crate::execution_block_hash::ExecutionBlockHash;
 pub use crate::execution_block_header::ExecutionBlockHeader;
 pub use crate::execution_payload::{
-    DepositReceipts, ExecutionPayload, ExecutionPayloadCapella, ExecutionPayloadEip4844,
+    DepositReceipts, ExecutionPayload, ExecutionPayloadCapella, ExecutionPayloadDeneb,
     ExecutionPayloadEip6110, ExecutionPayloadMerge, ExecutionPayloadRef, Transaction, Transactions,
     Withdrawals,
 };
 pub use crate::execution_payload_header::{
-    ExecutionPayloadHeader, ExecutionPayloadHeaderCapella, ExecutionPayloadHeaderEip4844,
+    ExecutionPayloadHeader, ExecutionPayloadHeaderCapella, ExecutionPayloadHeaderDeneb,
     ExecutionPayloadHeaderEip6110, ExecutionPayloadHeaderMerge, ExecutionPayloadHeaderRef,
     ExecutionPayloadHeaderRefMut,
 };
@@ -163,9 +163,9 @@ pub use crate::light_client_optimistic_update::LightClientOptimisticUpdate;
 pub use crate::participation_flags::ParticipationFlags;
 pub use crate::participation_list::ParticipationList;
 pub use crate::payload::{
-    AbstractExecPayload, BlindedPayload, BlindedPayloadCapella, BlindedPayloadEip4844,
+    AbstractExecPayload, BlindedPayload, BlindedPayloadCapella, BlindedPayloadEipDeneb,
     BlindedPayloadEip6110, BlindedPayloadMerge, BlindedPayloadRef, BlockType, ExecPayload,
-    FullPayload, FullPayloadCapella, FullPayloadEip4844, FullPayloadEip6110, FullPayloadMerge,
+    FullPayload, FullPayloadCapella, FullPayloadEipDeneb, FullPayloadEip6110, FullPayloadMerge,
     FullPayloadRef, OwnedExecPayload,
 };
 pub use crate::pending_attestation::PendingAttestation;
@@ -177,13 +177,12 @@ pub use crate::selection_proof::SelectionProof;
 pub use crate::shuffling_id::AttestationShufflingId;
 pub use crate::signed_aggregate_and_proof::SignedAggregateAndProof;
 pub use crate::signed_beacon_block::{
-    SignedBeaconBlock, SignedBeaconBlockAltair, SignedBeaconBlockBase, SignedBeaconBlockCapella,
-    SignedBeaconBlockEip4844, SignedBeaconBlockEip6110, SignedBeaconBlockHash,
+    ssz_tagged_signed_beacon_block, SignedBeaconBlock, SignedBeaconBlockAltair,
+    SignedBeaconBlockBase, SignedBeaconBlockCapella, SignedBeaconBlockDeneb, SignedBeaconBlockEip6110, SignedBeaconBlockHash,
     SignedBeaconBlockMerge, SignedBlindedBeaconBlock,
 };
 pub use crate::signed_beacon_block_header::SignedBeaconBlockHeader;
-pub use crate::signed_block_and_blobs::SignedBeaconBlockAndBlobsSidecar;
-pub use crate::signed_block_and_blobs::SignedBeaconBlockAndBlobsSidecarDecode;
+pub use crate::signed_blob::*;
 pub use crate::signed_bls_to_execution_change::SignedBlsToExecutionChange;
 pub use crate::signed_contribution_and_proof::SignedContributionAndProof;
 pub use crate::signed_voluntary_exit::SignedVoluntaryExit;
@@ -212,6 +211,7 @@ pub type Address = H160;
 pub type ForkVersion = [u8; 4];
 pub type BLSFieldElement = Uint256;
 pub type Blob<T> = FixedVector<u8, <T as EthSpec>::BytesPerBlob>;
+pub type KzgProofs<T> = VariableList<KzgProof, <T as EthSpec>::MaxBlobsPerBlock>;
 pub type VersionedHash = Hash256;
 pub type Hash64 = ethereum_types::H64;
 

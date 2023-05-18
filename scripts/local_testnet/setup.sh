@@ -29,7 +29,7 @@ lcli \
 	--altair-fork-epoch $ALTAIR_FORK_EPOCH \
 	--bellatrix-fork-epoch $BELLATRIX_FORK_EPOCH \
 	--capella-fork-epoch $CAPELLA_FORK_EPOCH \
-	--eip4844-fork-epoch $EIP4844_FORK_EPOCH \
+	--deneb-fork-epoch $DENEB_FORK_EPOCH \
 	--eip6110-fork-epoch $EIP6110_FORK_EPOCH \
 	--ttd $TTD \
 	--eth1-block-hash $ETH1_BLOCK_HASH \
@@ -55,8 +55,10 @@ echo Validators generated with keystore passwords at $DATADIR.
 
 GENESIS_TIME=$(lcli pretty-ssz state_merge ~/.lighthouse/local-testnet/testnet/genesis.ssz  | jq | grep -Po 'genesis_time": "\K.*\d')
 CAPELLA_TIME=$((GENESIS_TIME + (CAPELLA_FORK_EPOCH * 32 * SECONDS_PER_SLOT)))
-EIP4844_TIME=$((GENESIS_TIME + (EIP4844_FORK_EPOCH * 32 * SECONDS_PER_SLOT)))
+DENEB_TIME=$((GENESIS_TIME + (DENEB_FORK_EPOCH * 32 * SECONDS_PER_SLOT)))
 EIP6110_TIME=$((GENESIS_TIME + (EIP6110_FORK_EPOCH * 32 * SECONDS_PER_SLOT)))
 
-sed -i 's/"shanghaiTime".*$/"shanghaiTime": '"$CAPELLA_TIME"',/g' genesis.json
-sed -i 's/"shardingForkTime".*$/"shardingForkTime": '"$EIP4844_TIME"',/g' genesis.json
+CURR_DIR=`pwd`
+
+sed -i 's/"shanghaiTime".*$/"shanghaiTime": '"$CAPELLA_TIME"',/g' $CURR_DIR/genesis.json
+sed -i 's/"shardingForkTime".*$/"shardingForkTime": '"$DENEB_TIME"',/g' $CURR_DIR/genesis.json

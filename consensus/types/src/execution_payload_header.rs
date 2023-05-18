@@ -9,7 +9,7 @@ use tree_hash_derive::TreeHash;
 use BeaconStateError;
 
 #[superstruct(
-    variants(Merge, Capella, Eip4844, Eip6110),
+    variants(Merge, Capella, Deneb, Eip6110),
     variant_attributes(
         derive(
             Default,
@@ -70,20 +70,20 @@ pub struct ExecutionPayloadHeader<T: EthSpec> {
     #[serde(with = "eth2_serde_utils::quoted_u256")]
     #[superstruct(getter(copy))]
     pub base_fee_per_gas: Uint256,
-    #[superstruct(only(Eip4844, Eip6110))]
-    #[serde(with = "eth2_serde_utils::quoted_u256")]
-    #[superstruct(getter(copy))]
-    pub excess_data_gas: Uint256,
     #[superstruct(getter(copy))]
     pub block_hash: ExecutionBlockHash,
     #[superstruct(getter(copy))]
     pub transactions_root: Hash256,
-    #[superstruct(only(Capella, Eip4844, Eip6110))]
+    #[superstruct(only(Capella, Deneb, Eip6110))]
     #[superstruct(getter(copy))]
     pub withdrawals_root: Hash256,
     #[superstruct(only(Eip6110))]
     #[superstruct(getter(copy))]
     pub deposit_receipts: DepositReceipts<T>,
+    #[superstruct(only(Deneb, Eip6110))]
+    #[serde(with = "eth2_serde_utils::quoted_u256")]
+    #[superstruct(getter(copy))]
+    pub excess_data_gas: Uint256,
 }
 
 impl<T: EthSpec> ExecutionPayloadHeader<T> {
@@ -100,8 +100,8 @@ impl<T: EthSpec> ExecutionPayloadHeader<T> {
             ForkName::Capella => {
                 ExecutionPayloadHeaderCapella::from_ssz_bytes(bytes).map(Self::Capella)
             }
-            ForkName::Eip4844 => {
-                ExecutionPayloadHeaderEip4844::from_ssz_bytes(bytes).map(Self::Eip4844)
+            ForkName::Deneb => {
+                ExecutionPayloadHeaderDeneb::from_ssz_bytes(bytes).map(Self::Deneb)
             }
             ForkName::Eip6110 => {
                 ExecutionPayloadHeaderEip6110::from_ssz_bytes(bytes).map(Self::Eip6110)
@@ -142,8 +142,8 @@ impl<T: EthSpec> ExecutionPayloadHeaderMerge<T> {
 }
 
 impl<T: EthSpec> ExecutionPayloadHeaderCapella<T> {
-    pub fn upgrade_to_eip4844(&self) -> ExecutionPayloadHeaderEip4844<T> {
-        ExecutionPayloadHeaderEip4844 {
+    pub fn upgrade_to_deneb(&self) -> ExecutionPayloadHeaderDeneb<T> {
+        ExecutionPayloadHeaderDeneb {
             parent_hash: self.parent_hash,
             fee_recipient: self.fee_recipient,
             state_root: self.state_root,
@@ -156,11 +156,11 @@ impl<T: EthSpec> ExecutionPayloadHeaderCapella<T> {
             timestamp: self.timestamp,
             extra_data: self.extra_data.clone(),
             base_fee_per_gas: self.base_fee_per_gas,
-            // TODO: verify if this is correct
-            excess_data_gas: Uint256::zero(),
             block_hash: self.block_hash,
             transactions_root: self.transactions_root,
             withdrawals_root: self.withdrawals_root,
+            // TODO: verify if this is correct
+            excess_data_gas: Uint256::zero(),
         }
     }
 }
@@ -231,8 +231,8 @@ impl<'a, T: EthSpec> From<&'a ExecutionPayloadCapella<T>> for ExecutionPayloadHe
     }
 }
 
-impl<'a, T: EthSpec> From<&'a ExecutionPayloadEip4844<T>> for ExecutionPayloadHeaderEip4844<T> {
-    fn from(payload: &'a ExecutionPayloadEip4844<T>) -> Self {
+impl<'a, T: EthSpec> From<&'a ExecutionPayloadDeneb<T>> for ExecutionPayloadHeaderDeneb<T> {
+    fn from(payload: &'a ExecutionPayloadDeneb<T>) -> Self {
         Self {
             parent_hash: payload.parent_hash,
             fee_recipient: payload.fee_recipient,
@@ -246,10 +246,10 @@ impl<'a, T: EthSpec> From<&'a ExecutionPayloadEip4844<T>> for ExecutionPayloadHe
             timestamp: payload.timestamp,
             extra_data: payload.extra_data.clone(),
             base_fee_per_gas: payload.base_fee_per_gas,
-            excess_data_gas: payload.excess_data_gas,
             block_hash: payload.block_hash,
             transactions_root: payload.transactions.tree_hash_root(),
             withdrawals_root: payload.withdrawals.tree_hash_root(),
+            excess_data_gas: payload.excess_data_gas,
         }
     }
 }
@@ -292,7 +292,7 @@ impl<'a, T: EthSpec> From<&'a Self> for ExecutionPayloadHeaderCapella<T> {
     }
 }
 
-impl<'a, T: EthSpec> From<&'a Self> for ExecutionPayloadHeaderEip4844<T> {
+impl<'a, T: EthSpec> From<&'a Self> for ExecutionPayloadHeaderDeneb<T> {
     fn from(payload: &'a Self) -> Self {
         payload.clone()
     }
@@ -334,13 +334,11 @@ impl<T: EthSpec> TryFrom<ExecutionPayloadHeader<T>> for ExecutionPayloadHeaderCa
         }
     }
 }
-impl<T: EthSpec> TryFrom<ExecutionPayloadHeader<T>> for ExecutionPayloadHeaderEip4844<T> {
+impl<T: EthSpec> TryFrom<ExecutionPayloadHeader<T>> for ExecutionPayloadHeaderDeneb<T> {
     type Error = BeaconStateError;
     fn try_from(header: ExecutionPayloadHeader<T>) -> Result<Self, Self::Error> {
         match header {
-            ExecutionPayloadHeader::Eip4844(execution_payload_header) => {
-                Ok(execution_payload_header)
-            }
+            ExecutionPayloadHeader::Deneb(execution_payload_header) => Ok(execution_payload_header),
             _ => Err(BeaconStateError::IncorrectStateVariant),
         }
     }
@@ -373,7 +371,7 @@ impl<T: EthSpec> ForkVersionDeserialize for ExecutionPayloadHeader<T> {
         Ok(match fork_name {
             ForkName::Merge => Self::Merge(serde_json::from_value(value).map_err(convert_err)?),
             ForkName::Capella => Self::Capella(serde_json::from_value(value).map_err(convert_err)?),
-            ForkName::Eip4844 => Self::Eip4844(serde_json::from_value(value).map_err(convert_err)?),
+            ForkName::Deneb => Self::Deneb(serde_json::from_value(value).map_err(convert_err)?),
             ForkName::Eip6110 => Self::Eip6110(serde_json::from_value(value).map_err(convert_err)?),
             ForkName::Base | ForkName::Altair => {
                 return Err(serde::de::Error::custom(format!(

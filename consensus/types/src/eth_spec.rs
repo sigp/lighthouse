@@ -103,7 +103,7 @@ pub trait EthSpec:
     type MaxBlsToExecutionChanges: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type MaxWithdrawalsPerPayload: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     /*
-     * New in Eip4844
+     * New in Deneb
      */
     type MaxBlobsPerBlock: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type FieldElementsPerBlob: Unsigned + Clone + Sync + Send + Debug + PartialEq;

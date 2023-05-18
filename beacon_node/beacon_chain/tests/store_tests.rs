@@ -2022,7 +2022,7 @@ async fn garbage_collect_temp_states_from_failed_block() {
 
         let genesis_state = harness.get_current_state();
         let block_slot = Slot::new(2 * slots_per_epoch);
-        let (signed_block, state) = harness.make_block(genesis_state, block_slot).await;
+        let ((signed_block, _), state) = harness.make_block(genesis_state, block_slot).await;
 
         let (mut block, _) = signed_block.deconstruct();
 
@@ -2422,7 +2422,7 @@ async fn revert_minority_fork_on_resume() {
         harness1.process_attestations(attestations.clone());
         harness2.process_attestations(attestations);
 
-        let (block, new_state) = harness1.make_block(state, slot).await;
+        let ((block, _), new_state) = harness1.make_block(state, slot).await;
 
         harness1
             .process_block(slot, block.canonical_root(), block.clone())
@@ -2463,7 +2463,7 @@ async fn revert_minority_fork_on_resume() {
         harness2.process_attestations(attestations);
 
         // Minority chain block (no attesters).
-        let (block1, new_state1) = harness1.make_block(state1, slot).await;
+        let ((block1, _), new_state1) = harness1.make_block(state1, slot).await;
         harness1
             .process_block(slot, block1.canonical_root(), block1)
             .await
@@ -2471,7 +2471,7 @@ async fn revert_minority_fork_on_resume() {
         state1 = new_state1;
 
         // Majority chain block (all attesters).
-        let (block2, new_state2) = harness2.make_block(state2, slot).await;
+        let ((block2, _), new_state2) = harness2.make_block(state2, slot).await;
         harness2
             .process_block(slot, block2.canonical_root(), block2.clone())
             .await

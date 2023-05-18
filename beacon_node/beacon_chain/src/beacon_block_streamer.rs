@@ -3,7 +3,7 @@ use execution_layer::{ExecutionLayer, ExecutionPayloadBodyV1};
 use slog::{crit, debug, Logger};
 use std::collections::HashMap;
 use std::sync::Arc;
-use store::{DatabaseBlock, ExecutionPayloadEip4844, ExecutionPayloadEip6110};
+use store::{DatabaseBlock, ExecutionPayloadDeneb, ExecutionPayloadEip6110};
 use task_executor::TaskExecutor;
 use tokio::sync::{
     mpsc::{self, UnboundedSender},
@@ -97,7 +97,7 @@ fn reconstruct_default_header_block<E: EthSpec>(
     let payload: ExecutionPayload<E> = match fork {
         ForkName::Merge => ExecutionPayloadMerge::default().into(),
         ForkName::Capella => ExecutionPayloadCapella::default().into(),
-        ForkName::Eip4844 => ExecutionPayloadEip4844::default().into(),
+        ForkName::Deneb => ExecutionPayloadDeneb::default().into(),
         ForkName::Eip6110 => ExecutionPayloadEip6110::default().into(),
         ForkName::Base | ForkName::Altair => {
             return Err(Error::PayloadReconstruction(format!(
@@ -727,6 +727,8 @@ mod tests {
         spec.altair_fork_epoch = Some(Epoch::new(0));
         spec.bellatrix_fork_epoch = Some(Epoch::new(bellatrix_fork_epoch as u64));
         spec.capella_fork_epoch = Some(Epoch::new(capella_fork_epoch as u64));
+        //FIXME(sean) extend this to test deneb?
+        spec.deneb_fork_epoch = None;
 
         let harness = get_harness(VALIDATOR_COUNT, spec);
         // go to bellatrix fork
@@ -846,6 +848,8 @@ mod tests {
         spec.altair_fork_epoch = Some(Epoch::new(0));
         spec.bellatrix_fork_epoch = Some(Epoch::new(bellatrix_fork_epoch as u64));
         spec.capella_fork_epoch = Some(Epoch::new(capella_fork_epoch as u64));
+        //FIXME(sean) extend this to test deneb?
+        spec.deneb_fork_epoch = None;
 
         let harness = get_harness(VALIDATOR_COUNT, spec);
 

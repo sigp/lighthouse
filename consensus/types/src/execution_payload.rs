@@ -18,7 +18,7 @@ pub type DepositReceipts<T> =
     VariableList<DepositReceipt, <T as EthSpec>::MaxDepositReceiptsPerPayload>;
 
 #[superstruct(
-    variants(Merge, Capella, Eip4844, Eip6110),
+    variants(Merge, Capella, Deneb, Eip6110),
     variant_attributes(
         derive(
             Default,
@@ -80,18 +80,18 @@ pub struct ExecutionPayload<T: EthSpec> {
     #[serde(with = "eth2_serde_utils::quoted_u256")]
     #[superstruct(getter(copy))]
     pub base_fee_per_gas: Uint256,
-    #[superstruct(only(Eip4844, Eip6110))]
-    #[serde(with = "eth2_serde_utils::quoted_u256")]
-    #[superstruct(getter(copy))]
-    pub excess_data_gas: Uint256,
     #[superstruct(getter(copy))]
     pub block_hash: ExecutionBlockHash,
     #[serde(with = "ssz_types::serde_utils::list_of_hex_var_list")]
     pub transactions: Transactions<T>,
-    #[superstruct(only(Capella, Eip4844, Eip6110))]
+    #[superstruct(only(Capella, Deneb, Eip6110))]
     pub withdrawals: Withdrawals<T>,
     #[superstruct(only(Eip6110))]
     pub deposit_receipts: DepositReceipts<T>,
+    #[superstruct(only(Deneb, Eip6110))]
+    #[serde(with = "eth2_serde_utils::quoted_u256")]
+    #[superstruct(getter(copy))]
+    pub excess_data_gas: Uint256,
 }
 
 impl<'a, T: EthSpec> ExecutionPayloadRef<'a, T> {
@@ -112,7 +112,7 @@ impl<T: EthSpec> ExecutionPayload<T> {
             ))),
             ForkName::Merge => ExecutionPayloadMerge::from_ssz_bytes(bytes).map(Self::Merge),
             ForkName::Capella => ExecutionPayloadCapella::from_ssz_bytes(bytes).map(Self::Capella),
-            ForkName::Eip4844 => ExecutionPayloadEip4844::from_ssz_bytes(bytes).map(Self::Eip4844),
+            ForkName::Deneb => ExecutionPayloadDeneb::from_ssz_bytes(bytes).map(Self::Deneb),
             ForkName::Eip6110 => ExecutionPayloadEip6110::from_ssz_bytes(bytes).map(Self::Eip6110),
         }
     }
@@ -143,9 +143,9 @@ impl<T: EthSpec> ExecutionPayload<T> {
 
     #[allow(clippy::integer_arithmetic)]
     /// Returns the maximum size of an execution payload.
-    pub fn max_execution_payload_eip4844_size() -> usize {
+    pub fn max_execution_payload_deneb_size() -> usize {
         // Fixed part
-        ExecutionPayloadEip4844::<T>::default().as_ssz_bytes().len()
+        ExecutionPayloadDeneb::<T>::default().as_ssz_bytes().len()
             // Max size of variable length `extra_data` field
             + (T::max_extra_data_bytes() * <u8 as Encode>::ssz_fixed_len())
             // Max size of variable length `transactions` field
@@ -180,7 +180,7 @@ impl<T: EthSpec> ForkVersionDeserialize for ExecutionPayload<T> {
         Ok(match fork_name {
             ForkName::Merge => Self::Merge(serde_json::from_value(value).map_err(convert_err)?),
             ForkName::Capella => Self::Capella(serde_json::from_value(value).map_err(convert_err)?),
-            ForkName::Eip4844 => Self::Eip4844(serde_json::from_value(value).map_err(convert_err)?),
+            ForkName::Deneb => Self::Deneb(serde_json::from_value(value).map_err(convert_err)?),
             ForkName::Eip6110 => Self::Eip6110(serde_json::from_value(value).map_err(convert_err)?),
             ForkName::Base | ForkName::Altair => {
                 return Err(serde::de::Error::custom(format!(
@@ -197,7 +197,7 @@ impl<T: EthSpec> ExecutionPayload<T> {
         match self {
             ExecutionPayload::Merge(_) => ForkName::Merge,
             ExecutionPayload::Capella(_) => ForkName::Capella,
-            ExecutionPayload::Eip4844(_) => ForkName::Eip4844,
+            ExecutionPayload::Deneb(_) => ForkName::Deneb,
             ExecutionPayload::Eip6110(_) => ForkName::Eip6110,
         }
     }

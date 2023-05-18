@@ -38,7 +38,8 @@ use std::marker::PhantomData;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
-use types::consts::eip4844::MIN_EPOCHS_FOR_BLOBS_SIDECARS_REQUESTS;
+use types::blob_sidecar::BlobSidecarList;
+use types::consts::deneb::MIN_EPOCHS_FOR_BLOB_SIDECARS_REQUESTS;
 use types::*;
 
 /// On-disk database that stores finalized states efficiently.
@@ -66,7 +67,7 @@ pub struct HotColdDB<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> {
     /// The hot database also contains all blocks.
     pub hot_db: Hot,
     /// LRU cache of deserialized blobs. Updated whenever a blob is loaded.
-    blob_cache: Mutex<LruCache<Hash256, BlobsSidecar<E>>>,
+    blob_cache: Mutex<LruCache<Hash256, BlobSidecarList<E>>>,
     /// LRU cache of deserialized blocks. Updated whenever a block is loaded.
     block_cache: Mutex<LruCache<Hash256, SignedBeaconBlock<E>>>,
     /// Chain spec.
@@ -259,8 +260,7 @@ impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
                 db.blobs_db = Some(LevelDB::open(path.as_path())?);
             }
         }
-        let blob_info = blob_info.unwrap_or(db.get_blob_info());
-        db.compare_and_set_blob_info_with_write(blob_info, new_blob_info)?;
+        db.compare_and_set_blob_info_with_write(<_>::default(), new_blob_info)?;
         info!(
             db.log,
             "Blobs DB initialized";
@@ -547,7 +547,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
     /// Check if the blobs sidecar for a block exists on disk.
     pub fn blobs_sidecar_exists(&self, block_root: &Hash256) -> Result<bool, Error> {
-        self.get_item::<BlobsSidecar<E>>(block_root)
+        self.get_item::<BlobSidecarList<E>>(block_root)
             .map(|blobs| blobs.is_some())
     }
 
@@ -568,7 +568,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         blobs_db.key_delete(DBColumn::BeaconBlob.into(), block_root.as_bytes())
     }
 
-    pub fn put_blobs(&self, block_root: &Hash256, blobs: BlobsSidecar<E>) -> Result<(), Error> {
+    pub fn put_blobs(&self, block_root: &Hash256, blobs: BlobSidecarList<E>) -> Result<(), Error> {
         let blobs_db = self.blobs_db.as_ref().unwrap_or(&self.cold_db);
         blobs_db.put_bytes(
             DBColumn::BeaconBlob.into(),
@@ -582,7 +582,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     pub fn blobs_as_kv_store_ops(
         &self,
         key: &Hash256,
-        blobs: &BlobsSidecar<E>,
+        blobs: BlobSidecarList<E>,
         ops: &mut Vec<KeyValueStoreOp>,
     ) {
         let db_key = get_key_for_col(DBColumn::BeaconBlob.into(), key.as_bytes());
@@ -817,7 +817,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 }
 
                 StoreOp::PutBlobs(block_root, blobs) => {
-                    self.blobs_as_kv_store_ops(&block_root, &blobs, &mut key_value_batch);
+                    self.blobs_as_kv_store_ops(&block_root, blobs, &mut key_value_batch);
                 }
 
                 StoreOp::PutStateSummary(state_root, summary) => {
@@ -885,8 +885,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 StoreOp::PutBlobs(_, _) => true,
                 StoreOp::DeleteBlobs(block_root) => {
                     match self.get_blobs(block_root) {
-                        Ok(Some(blobs_sidecar)) => {
-                            blobs_to_delete.push(blobs_sidecar);
+                        Ok(Some(blobs_sidecar_list)) => {
+                            blobs_to_delete.push((*block_root, blobs_sidecar_list));
                         }
                         Err(e) => {
                             error!(
@@ -926,7 +926,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 let reverse_op = match op {
                     StoreOp::PutBlobs(block_root, _) => StoreOp::DeleteBlobs(*block_root),
                     StoreOp::DeleteBlobs(_) => match blobs_to_delete.pop() {
-                        Some(blobs) => StoreOp::PutBlobs(blobs.beacon_block_root, Arc::new(blobs)),
+                        Some((block_root, blobs)) => StoreOp::PutBlobs(block_root, blobs),
                         None => return Err(HotColdDBError::Rollback.into()),
                     },
                     _ => return Err(HotColdDBError::Rollback.into()),
@@ -972,7 +972,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         for op in blob_cache_ops {
             match op {
                 StoreOp::PutBlobs(block_root, blobs) => {
-                    guard_blob.put(block_root, (*blobs).clone());
+                    guard_blob.put(block_root, blobs);
                 }
 
                 StoreOp::DeleteBlobs(block_root) => {
@@ -1320,12 +1320,12 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     }
 
     /// Fetch a blobs sidecar from the store.
-    pub fn get_blobs(&self, block_root: &Hash256) -> Result<Option<BlobsSidecar<E>>, Error> {
+    pub fn get_blobs(&self, block_root: &Hash256) -> Result<Option<BlobSidecarList<E>>, Error> {
         let blobs_db = self.blobs_db.as_ref().unwrap_or(&self.cold_db);
 
         match blobs_db.get_bytes(DBColumn::BeaconBlob.into(), block_root.as_bytes())? {
             Some(ref blobs_bytes) => {
-                let blobs = BlobsSidecar::from_ssz_bytes(blobs_bytes)?;
+                let blobs = BlobSidecarList::from_ssz_bytes(blobs_bytes)?;
                 // FIXME(sean) I was attempting to use a blob cache here but was getting deadlocks,
                 // may want to attempt to use one again
                 self.blob_cache.lock().put(*block_root, blobs.clone());
@@ -1853,10 +1853,10 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     ///  Try to prune blobs, approximating the current epoch from lower epoch numbers end (older
     /// end) and is useful when the data availability boundary is not at hand.
     pub fn try_prune_most_blobs(&self, force: bool) -> Result<(), Error> {
-        let eip4844_fork = match self.spec.eip4844_fork_epoch {
+        let deneb_fork = match self.spec.deneb_fork_epoch {
             Some(epoch) => epoch,
             None => {
-                debug!(self.log, "Eip4844 fork is disabled");
+                debug!(self.log, "Deneb fork is disabled");
                 return Ok(());
             }
         };
@@ -1864,8 +1864,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         // `split.slot` is not updated and current_epoch > split_epoch + 2.
         let min_current_epoch = self.get_split_slot().epoch(E::slots_per_epoch()) + Epoch::new(2);
         let min_data_availability_boundary = std::cmp::max(
-            eip4844_fork,
-            min_current_epoch.saturating_sub(*MIN_EPOCHS_FOR_BLOBS_SIDECARS_REQUESTS),
+            deneb_fork,
+            min_current_epoch.saturating_sub(*MIN_EPOCHS_FOR_BLOB_SIDECARS_REQUESTS),
         );
 
         self.try_prune_blobs(force, Some(min_data_availability_boundary))
@@ -1877,11 +1877,11 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         force: bool,
         data_availability_boundary: Option<Epoch>,
     ) -> Result<(), Error> {
-        let (data_availability_boundary, eip4844_fork) =
-            match (data_availability_boundary, self.spec.eip4844_fork_epoch) {
+        let (data_availability_boundary, deneb_fork) =
+            match (data_availability_boundary, self.spec.deneb_fork_epoch) {
                 (Some(boundary_epoch), Some(fork_epoch)) => (boundary_epoch, fork_epoch),
                 _ => {
-                    debug!(self.log, "Eip4844 fork is disabled");
+                    debug!(self.log, "Deneb fork is disabled");
                     return Ok(());
                 }
             };
@@ -1899,7 +1899,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         let blob_info = self.get_blob_info();
         let oldest_blob_slot = blob_info
             .oldest_blob_slot
-            .unwrap_or(eip4844_fork.start_slot(E::slots_per_epoch()));
+            .unwrap_or_else(|| deneb_fork.start_slot(E::slots_per_epoch()));
 
         // The last entirely pruned epoch, blobs sidecar pruning may have stopped early in the
         // middle of an epoch otherwise the oldest blob slot is a start slot.

@@ -1,5 +1,6 @@
 use crate::common::get_indexed_attestation;
 use crate::per_block_processing::errors::{AttestationInvalid, BlockOperationError};
+use ssz_derive::{Decode, Encode};
 use std::collections::{hash_map::Entry, HashMap};
 use tree_hash::TreeHash;
 use types::{
@@ -7,7 +8,7 @@ use types::{
     ChainSpec, Epoch, EthSpec, Hash256, IndexedAttestation, SignedBeaconBlock, Slot,
 };
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Clone, Encode, Decode)]
 pub struct ConsensusContext<T: EthSpec> {
     /// Slot to act as an identifier/safeguard
     slot: Slot,
@@ -16,6 +17,8 @@ pub struct ConsensusContext<T: EthSpec> {
     /// Block root of the block at `slot`.
     current_block_root: Option<Hash256>,
     /// Cache of indexed attestations constructed during block processing.
+    /// We can skip serializing / deserializing this as the cache will just be rebuilt
+    #[ssz(skip_serializing, skip_deserializing)]
     indexed_attestations:
         HashMap<(AttestationData, BitList<T::MaxValidatorsPerCommittee>), IndexedAttestation<T>>,
     /// Whether `verify_kzg_commitments_against_transactions` has successfully passed.

@@ -236,6 +236,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                     possible_fork_digests,
                     ctx.chain_spec.attestation_subnet_count,
                     SYNC_COMMITTEE_SUBNET_COUNT,
+                    4, // TODO(pawan): get this from chainspec
                 ),
                 max_subscribed_topics: 200,
                 max_subscriptions_per_request: 150, // 148 in theory = (64 attestation + 4 sync committee + 6 core topics) * 2
@@ -563,7 +564,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
         }
 
         // Subscribe to core topics for the new fork
-        for kind in fork_core_topics(&new_fork) {
+        for kind in fork_core_topics::<TSpec>(&new_fork) {
             let topic = GossipTopic::new(kind, GossipEncoding::default(), new_fork_digest);
             self.subscribe(topic);
         }
@@ -1319,7 +1320,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                     RPCResponse::BlocksByRoot(resp) => {
                         self.build_response(id, peer_id, Response::BlocksByRoot(Some(resp)))
                     }
-                    RPCResponse::BlockAndBlobsByRoot(resp) => {
+                    RPCResponse::SidecarByRoot(resp) => {
                         self.build_response(id, peer_id, Response::BlobsByRoot(Some(resp)))
                     }
                     // Should never be reached

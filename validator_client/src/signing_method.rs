@@ -37,6 +37,7 @@ pub enum Error {
 pub enum SignableMessage<'a, T: EthSpec, Payload: AbstractExecPayload<T> = FullPayload<T>> {
     RandaoReveal(Epoch),
     BeaconBlock(&'a BeaconBlock<T, Payload>),
+    BlobSidecar(&'a BlobSidecar<T>),
     AttestationData(&'a AttestationData),
     SignedAggregateAndProof(&'a AggregateAndProof<T>),
     SelectionProof(Slot),
@@ -59,6 +60,7 @@ impl<'a, T: EthSpec, Payload: AbstractExecPayload<T>> SignableMessage<'a, T, Pay
         match self {
             SignableMessage::RandaoReveal(epoch) => epoch.signing_root(domain),
             SignableMessage::BeaconBlock(b) => b.signing_root(domain),
+            SignableMessage::BlobSidecar(b) => b.signing_root(domain),
             SignableMessage::AttestationData(a) => a.signing_root(domain),
             SignableMessage::SignedAggregateAndProof(a) => a.signing_root(domain),
             SignableMessage::SelectionProof(slot) => slot.signing_root(domain),
@@ -182,6 +184,10 @@ impl SigningMethod {
                         Web3SignerObject::RandaoReveal { epoch }
                     }
                     SignableMessage::BeaconBlock(block) => Web3SignerObject::beacon_block(block)?,
+                    SignableMessage::BlobSidecar(_) => {
+                        // https://github.com/ConsenSys/web3signer/issues/726
+                        unimplemented!("Web3Signer blob signing not implemented.")
+                    }
                     SignableMessage::AttestationData(a) => Web3SignerObject::Attestation(a),
                     SignableMessage::SignedAggregateAndProof(a) => {
                         Web3SignerObject::AggregateAndProof(a)

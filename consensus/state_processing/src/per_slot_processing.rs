@@ -1,5 +1,5 @@
 use crate::upgrade::{
-    upgrade_to_altair, upgrade_to_bellatrix, upgrade_to_capella, upgrade_to_eip4844,
+    upgrade_to_altair, upgrade_to_bellatrix, upgrade_to_capella, upgrade_to_deneb,
     upgrade_to_eip6110,
 };
 use crate::{per_epoch_processing::EpochProcessingSummary, *};
@@ -62,9 +62,9 @@ pub fn per_slot_processing<T: EthSpec>(
         if spec.capella_fork_epoch == Some(state.current_epoch()) {
             upgrade_to_capella(state, spec)?;
         }
-        // Eip4844
-        if spec.eip4844_fork_epoch == Some(state.current_epoch()) {
-            upgrade_to_eip4844(state, spec)?;
+        // Deneb
+        if spec.deneb_fork_epoch == Some(state.current_epoch()) {
+            upgrade_to_deneb(state, spec)?;
         }
         // Eip6110
         if spec.eip6110_fork_epoch == Some(state.current_epoch()) {

@@ -1,3 +1,4 @@
+use crate::blob_verification::{AsBlock, BlockWrapper};
 pub use crate::persisted_beacon_chain::PersistedBeaconChain;
 pub use crate::{
     beacon_chain::{BEACON_CHAIN_DB_KEY, ETH1_CACHE_DB_KEY, FORK_CHOICE_DB_KEY, OP_POOL_DB_KEY},
@@ -13,6 +14,7 @@ use crate::{
     StateSkipConfig,
 };
 use bls::get_withdrawal_credentials;
+use eth2::types::BlockContentsTuple;
 use execution_layer::{
     auth::JwtKey,
     test_utils::{
@@ -25,7 +27,7 @@ use fork_choice::CountUnrealized;
 use futures::channel::mpsc::Receiver;
 pub use genesis::{interop_genesis_state_with_eth1, DEFAULT_ETH1_BLOCK_HASH};
 use int_to_bytes::int_to_bytes32;
-use kzg::TrustedSetup;
+use kzg::{Kzg, TrustedSetup};
 use merkle_proof::MerkleTree;
 use parking_lot::Mutex;
 use parking_lot::RwLockWriteGuard;
@@ -431,10 +433,9 @@ where
             spec.capella_fork_epoch.map(|epoch| {
                 genesis_time + spec.seconds_per_slot * E::slots_per_epoch() * epoch.as_u64()
             });
-        mock.server.execution_block_generator().eip4844_time =
-            spec.eip4844_fork_epoch.map(|epoch| {
-                genesis_time + spec.seconds_per_slot * E::slots_per_epoch() * epoch.as_u64()
-            });
+        mock.server.execution_block_generator().deneb_time = spec.deneb_fork_epoch.map(|epoch| {
+            genesis_time + spec.seconds_per_slot * E::slots_per_epoch() * epoch.as_u64()
+        });
 
         self
     }
@@ -444,22 +445,30 @@ where
         let shanghai_time = spec.capella_fork_epoch.map(|epoch| {
             HARNESS_GENESIS_TIME + spec.seconds_per_slot * E::slots_per_epoch() * epoch.as_u64()
         });
-        let eip4844_time = spec.eip4844_fork_epoch.map(|epoch| {
+        let deneb_time = spec.deneb_fork_epoch.map(|epoch| {
             HARNESS_GENESIS_TIME + spec.seconds_per_slot * E::slots_per_epoch() * epoch.as_u64()
         });
         let eip6110_time = spec.eip6110_fork_epoch.map(|epoch| {
             HARNESS_GENESIS_TIME + spec.seconds_per_slot * E::slots_per_epoch() * epoch.as_u64()
         });
+
+        let trusted_setup: TrustedSetup =
+            serde_json::from_reader(eth2_network_config::TRUSTED_SETUP)
+                .map_err(|e| format!("Unable to read trusted setup file: {}", e))
+                .expect("should have trusted setup");
+        let kzg = Kzg::new_from_trusted_setup(trusted_setup).expect("should create kzg");
+
         let mock = MockExecutionLayer::new(
             self.runtime.task_executor.clone(),
             DEFAULT_TERMINAL_BLOCK,
             shanghai_time,
-            eip4844_time,
+            deneb_time,
             eip6110_time,
             None,
             Some(JwtKey::from_slice(&DEFAULT_JWT_SECRET).unwrap()),
             spec,
             None,
+            Some(kzg),
         );
         self.execution_layer = Some(mock.el.clone());
         self.mock_execution_layer = Some(mock);
@@ -479,22 +488,28 @@ where
         let shanghai_time = spec.capella_fork_epoch.map(|epoch| {
             HARNESS_GENESIS_TIME + spec.seconds_per_slot * E::slots_per_epoch() * epoch.as_u64()
         });
-        let eip4844_time = spec.eip4844_fork_epoch.map(|epoch| {
+        let deneb_time = spec.deneb_fork_epoch.map(|epoch| {
             HARNESS_GENESIS_TIME + spec.seconds_per_slot * E::slots_per_epoch() * epoch.as_u64()
         });
         let eip6110_time = spec.eip6110_fork_epoch.map(|epoch| {
             HARNESS_GENESIS_TIME + spec.seconds_per_slot * E::slots_per_epoch() * epoch.as_u64()
         });
+        let trusted_setup: TrustedSetup =
+            serde_json::from_reader(eth2_network_config::TRUSTED_SETUP)
+                .map_err(|e| format!("Unable to read trusted setup file: {}", e))
+                .expect("should have trusted setup");
+        let kzg = Kzg::new_from_trusted_setup(trusted_setup).expect("should create kzg");
         let mock_el = MockExecutionLayer::new(
             self.runtime.task_executor.clone(),
             DEFAULT_TERMINAL_BLOCK,
             shanghai_time,
-            eip4844_time,
+            deneb_time,
             eip6110_time,
             builder_threshold,
             Some(JwtKey::from_slice(&DEFAULT_JWT_SECRET).unwrap()),
             spec.clone(),
             Some(builder_url.clone()),
+            Some(kzg),
         )
         .move_to_terminal_block();
 
@@ -764,7 +779,7 @@ where
         &self,
         mut state: BeaconState<E>,
         slot: Slot,
-    ) -> (SignedBeaconBlock<E>, BeaconState<E>) {
+    ) -> (BlockContentsTuple<E, FullPayload<E>>, BeaconState<E>) {
         assert_ne!(slot, 0, "can't produce a block at slot 0");
         assert!(slot >= state.slot());
 
@@ -804,7 +819,37 @@ where
             &self.spec,
         );
 
-        (signed_block, state)
+        let block_contents: BlockContentsTuple<E, FullPayload<E>> = match &signed_block {
+            SignedBeaconBlock::Base(_)
+            | SignedBeaconBlock::Altair(_)
+            | SignedBeaconBlock::Merge(_)
+            | SignedBeaconBlock::Capella(_) => (signed_block, None),
+            SignedBeaconBlock::Deneb(_) => {
+                if let Some(blobs) = self
+                    .chain
+                    .proposal_blob_cache
+                    .pop(&signed_block.canonical_root())
+                {
+                    let signed_blobs = Vec::from(blobs)
+                        .into_iter()
+                        .map(|blob| {
+                            blob.sign(
+                                &self.validator_keypairs[proposer_index].sk,
+                                &state.fork(),
+                                state.genesis_validators_root(),
+                                &self.spec,
+                            )
+                        })
+                        .collect::<Vec<_>>()
+                        .into();
+                    (signed_block, Some(signed_blobs))
+                } else {
+                    (signed_block, None)
+                }
+            }
+        };
+
+        (block_contents, state)
     }
 
     /// Useful for the `per_block_processing` tests. Creates a block, and returns the state after
@@ -1672,41 +1717,44 @@ where
         (deposits, state)
     }
 
-    pub async fn process_block(
+    pub async fn process_block<B: Into<BlockWrapper<E>>>(
         &self,
         slot: Slot,
         block_root: Hash256,
-        block: SignedBeaconBlock<E>,
+        block: B,
     ) -> Result<SignedBeaconBlockHash, BlockError<E>> {
         self.set_current_slot(slot);
         let block_hash: SignedBeaconBlockHash = self
             .chain
             .process_block(
                 block_root,
-                Arc::new(block),
+                block.into(),
                 CountUnrealized::True,
                 NotifyExecutionLayer::Yes,
             )
             .await?
-            .into();
+            .try_into()
+            .unwrap();
         self.chain.recompute_head_at_current_slot().await;
         Ok(block_hash)
     }
 
-    pub async fn process_block_result(
+    pub async fn process_block_result<B: Into<BlockWrapper<E>>>(
         &self,
-        block: SignedBeaconBlock<E>,
+        block: B,
     ) -> Result<SignedBeaconBlockHash, BlockError<E>> {
+        let wrapped_block = block.into();
         let block_hash: SignedBeaconBlockHash = self
             .chain
             .process_block(
-                block.canonical_root(),
-                Arc::new(block),
+                wrapped_block.canonical_root(),
+                wrapped_block,
                 CountUnrealized::True,
                 NotifyExecutionLayer::Yes,
             )
             .await?
-            .into();
+            .try_into()
+            .unwrap();
         self.chain.recompute_head_at_current_slot().await;
         Ok(block_hash)
     }
@@ -1766,11 +1814,18 @@ where
         &self,
         slot: Slot,
         state: BeaconState<E>,
-    ) -> Result<(SignedBeaconBlockHash, SignedBeaconBlock<E>, BeaconState<E>), BlockError<E>> {
+    ) -> Result<
+        (
+            SignedBeaconBlockHash,
+            BlockContentsTuple<E, FullPayload<E>>,
+            BeaconState<E>,
+        ),
+        BlockError<E>,
+    > {
         self.set_current_slot(slot);
         let (block, new_state) = self.make_block(state, slot).await;
         let block_hash = self
-            .process_block(slot, block.canonical_root(), block.clone())
+            .process_block(slot, block.0.canonical_root(), block.clone())
             .await?;
         Ok((block_hash, block, new_state))
     }
@@ -1826,7 +1881,7 @@ where
         sync_committee_strategy: SyncCommitteeStrategy,
     ) -> Result<(SignedBeaconBlockHash, BeaconState<E>), BlockError<E>> {
         let (block_hash, block, state) = self.add_block_at_slot(slot, state).await?;
-        self.attest_block(&state, state_root, block_hash, &block, validators);
+        self.attest_block(&state, state_root, block_hash, &block.0, validators);
 
         if sync_committee_strategy == SyncCommitteeStrategy::AllValidators
             && state.current_sync_committee().is_ok()
@@ -2054,7 +2109,7 @@ where
         state: BeaconState<E>,
         slot: Slot,
         _block_strategy: BlockStrategy,
-    ) -> (SignedBeaconBlock<E>, BeaconState<E>) {
+    ) -> (BlockContentsTuple<E, FullPayload<E>>, BeaconState<E>) {
         self.make_block(state, slot).await
     }
 

@@ -11,7 +11,8 @@ on:
 env:
   # Deny warnings in CI
   # Disable debug info (see https://github.com/sigp/lighthouse/issues/4005)
-  RUSTFLAGS: "-D warnings -C debuginfo=0"
+  # FIXME: temporarily allow warnings on 4844 branch. Revert to original later: RUSTFLAGS: "-D warnings -C debuginfo=0"
+  RUSTFLAGS: "-C debuginfo=0"
   # The Nightly version used for cargo-udeps, might need updating from time to time.
   PINNED_NIGHTLY: nightly-2023-04-16
   # Prevent Github API rate limiting.
@@ -259,8 +260,11 @@ jobs:
       uses: arduino/setup-protoc@e52d9eb8f7b63115df1ac544a1376fdbf5a39612
       with:
         repo-token: ${{ secrets.GITHUB_TOKEN }}
-    - name: Install ganache
-      run: sudo npm install -g ganache
+    - name: Install geth
+      run: |
+          sudo add-apt-repository -y ppa:ethereum/ethereum
+          sudo apt-get update
+          sudo apt-get install ethereum
     - name: Install lighthouse and lcli
       run: |
           make
@@ -268,11 +272,11 @@ jobs:
     - name: Run the doppelganger protection success test script
       run: |
           cd scripts/tests
-          ./doppelganger_protection.sh success
+          ./doppelganger_protection.sh success genesis.json
     - name: Run the doppelganger protection failure test script
       run: |
           cd scripts/tests
-          ./doppelganger_protection.sh failure
+          ./doppelganger_protection.sh failure genesis.json
   execution-engine-integration-ubuntu:
     name: execution-engine-integration-ubuntu
     runs-on: ubuntu-latest

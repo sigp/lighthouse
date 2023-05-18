@@ -11,8 +11,8 @@ use std::sync::Arc;
 use types::{
     Attestation, AttesterSlashing, EthSpec, ForkContext, ForkName, LightClientFinalityUpdate,
     LightClientOptimisticUpdate, ProposerSlashing, SignedAggregateAndProof, SignedBeaconBlock,
-    SignedBeaconBlockAltair, SignedBeaconBlockAndBlobsSidecar, SignedBeaconBlockBase,
-    SignedBeaconBlockCapella, SignedBeaconBlockMerge, SignedBlsToExecutionChange,
+    SignedBeaconBlockAltair, SignedBeaconBlockBase, SignedBeaconBlockCapella,
+    SignedBeaconBlockDeneb, SignedBeaconBlockMerge, SignedBlobSidecar, SignedBlsToExecutionChange,
     SignedContributionAndProof, SignedVoluntaryExit, SubnetId, SyncCommitteeMessage, SyncSubnetId,
 };
 
@@ -20,8 +20,8 @@ use types::{
 pub enum PubsubMessage<T: EthSpec> {
     /// Gossipsub message providing notification of a new block.
     BeaconBlock(Arc<SignedBeaconBlock<T>>),
-    /// Gossipsub message providing notification of a new SignedBeaconBlock coupled with a blobs sidecar.
-    BeaconBlockAndBlobsSidecars(SignedBeaconBlockAndBlobsSidecar<T>),
+    /// Gossipsub message providing notification of a [`SignedBlobSidecar`] along with the subnet id where it was received.
+    BlobSidecar(Box<(u64, SignedBlobSidecar<T>)>),
     /// Gossipsub message providing notification of a Aggregate attestation and associated proof.
     AggregateAndProofAttestation(Box<SignedAggregateAndProof<T>>),
     /// Gossipsub message providing notification of a raw un-aggregated attestation with its shard id.
@@ -115,8 +115,8 @@ impl<T: EthSpec> PubsubMessage<T> {
     pub fn kind(&self) -> GossipKind {
         match self {
             PubsubMessage::BeaconBlock(_) => GossipKind::BeaconBlock,
-            PubsubMessage::BeaconBlockAndBlobsSidecars(_) => {
-                GossipKind::BeaconBlocksAndBlobsSidecar
+            PubsubMessage::BlobSidecar(blob_sidecar_data) => {
+                GossipKind::BlobSidecar(blob_sidecar_data.0)
             }
             PubsubMessage::AggregateAndProofAttestation(_) => GossipKind::BeaconAggregateAndProof,
             PubsubMessage::Attestation(attestation_data) => {
@@ -184,21 +184,17 @@ impl<T: EthSpec> PubsubMessage<T> {
                                     SignedBeaconBlockMerge::from_ssz_bytes(data)
                                         .map_err(|e| format!("{:?}", e))?,
                                 ),
-                                Some(ForkName::Eip4844) => {
-                                    return Err(
-                                        "beacon_block topic is not used from eip4844 fork onwards"
-                                            .to_string(),
-                                    )
-                                }
-                                Some(ForkName::Eip6110) => {
-                                    return Err(
-                                        "beacon_block topic is not used from eip4844 fork onwards"
-                                            .to_string(),
-                                    )
-                                }
                                 Some(ForkName::Capella) => SignedBeaconBlock::<T>::Capella(
                                     SignedBeaconBlockCapella::from_ssz_bytes(data)
-                                        .map_err(|e| format!("{:?}", e))?,
+                                    .map_err(|e| format!("{:?}", e))?,
+                                ),
+                                Some(ForkName::Deneb) => SignedBeaconBlock::<T>::Deneb(
+                                    SignedBeaconBlockDeneb::from_ssz_bytes(data)
+                                    .map_err(|e| format!("{:?}", e))?,
+                                ),
+                                Some(ForkName::Eip6110) => SignedBeaconBlock::<T>::Eip6110(
+                                    SignedBeaconBlockEip6110::from_ssz_bytes(data)
+                                    .map_err(|e| format!("{:?}", e))?,
                                 ),
                                 None => {
                                     return Err(format!(
@@ -209,15 +205,15 @@ impl<T: EthSpec> PubsubMessage<T> {
                             };
                         Ok(PubsubMessage::BeaconBlock(Arc::new(beacon_block)))
                     }
-                    GossipKind::BeaconBlocksAndBlobsSidecar => {
+                    GossipKind::BlobSidecar(blob_index) => {
                         match fork_context.from_context_bytes(gossip_topic.fork_digest) {
-                            Some(ForkName::Eip4844) | Some(ForkName::Eip6110) => {
-                                let block_and_blobs_sidecar =
-                                    SignedBeaconBlockAndBlobsSidecar::from_ssz_bytes(data)
-                                        .map_err(|e| format!("{:?}", e))?;
-                                Ok(PubsubMessage::BeaconBlockAndBlobsSidecars(
-                                    block_and_blobs_sidecar,
-                                ))
+                            Some(ForkName::Deneb) | Some(ForkName::Eip6110) => {
+                                let blob_sidecar = SignedBlobSidecar::from_ssz_bytes(data)
+                                    .map_err(|e| format!("{:?}", e))?;
+                                Ok(PubsubMessage::BlobSidecar(Box::new((
+                                    *blob_index,
+                                    blob_sidecar,
+                                ))))
                             }
                             Some(
                                 ForkName::Base
@@ -299,7 +295,7 @@ impl<T: EthSpec> PubsubMessage<T> {
         // messages for us.
         match &self {
             PubsubMessage::BeaconBlock(data) => data.as_ssz_bytes(),
-            PubsubMessage::BeaconBlockAndBlobsSidecars(data) => data.as_ssz_bytes(),
+            PubsubMessage::BlobSidecar(data) => data.1.as_ssz_bytes(),
             PubsubMessage::AggregateAndProofAttestation(data) => data.as_ssz_bytes(),
             PubsubMessage::VoluntaryExit(data) => data.as_ssz_bytes(),
             PubsubMessage::ProposerSlashing(data) => data.as_ssz_bytes(),
@@ -323,11 +319,10 @@ impl<T: EthSpec> std::fmt::Display for PubsubMessage<T> {
                 block.slot(),
                 block.message().proposer_index()
             ),
-            PubsubMessage::BeaconBlockAndBlobsSidecars(block_and_blob) => write!(
+            PubsubMessage::BlobSidecar(data) => write!(
                 f,
-                "Beacon block and Blobs Sidecar: slot: {}, blobs: {}",
-                block_and_blob.beacon_block.message().slot(),
-                block_and_blob.blobs_sidecar.blobs.len(),
+                "BlobSidecar: slot: {}, blob index: {}",
+                data.1.message.slot, data.1.message.index,
             ),
             PubsubMessage::AggregateAndProofAttestation(att) => write!(
                 f,

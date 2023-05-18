@@ -1,8 +1,8 @@
 use std::mem;
-use types::{BeaconState, BeaconStateEip4844, BeaconStateError as Error, ChainSpec, EthSpec, Fork};
+use types::{BeaconState, BeaconStateDeneb, BeaconStateError as Error, ChainSpec, EthSpec, Fork};
 
-/// Transform a `Capella` state into an `Eip4844` state.
-pub fn upgrade_to_eip4844<E: EthSpec>(
+/// Transform a `Capella` state into an `Deneb` state.
+pub fn upgrade_to_deneb<E: EthSpec>(
     pre_state: &mut BeaconState<E>,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
@@ -16,14 +16,14 @@ pub fn upgrade_to_eip4844<E: EthSpec>(
     //
     // Fixed size vectors get cloned because replacing them would require the same size
     // allocation as cloning.
-    let post = BeaconState::Eip4844(BeaconStateEip4844 {
+    let post = BeaconState::Deneb(BeaconStateDeneb {
         // Versioning
         genesis_time: pre.genesis_time,
         genesis_validators_root: pre.genesis_validators_root,
         slot: pre.slot,
         fork: Fork {
             previous_version: previous_fork_version,
-            current_version: spec.eip4844_fork_version,
+            current_version: spec.deneb_fork_version,
             epoch,
         },
         // History
@@ -56,7 +56,7 @@ pub fn upgrade_to_eip4844<E: EthSpec>(
         current_sync_committee: pre.current_sync_committee.clone(),
         next_sync_committee: pre.next_sync_committee.clone(),
         // Execution
-        latest_execution_payload_header: pre.latest_execution_payload_header.upgrade_to_eip4844(),
+        latest_execution_payload_header: pre.latest_execution_payload_header.upgrade_to_deneb(),
         // Capella
         next_withdrawal_index: pre.next_withdrawal_index,
         next_withdrawal_validator_index: pre.next_withdrawal_validator_index,

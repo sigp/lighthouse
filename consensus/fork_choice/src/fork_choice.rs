@@ -192,7 +192,8 @@ impl CountUnrealized {
 /// Indicates if a block has been verified by an execution payload.
 ///
 /// There is no variant for "invalid", since such a block should never be added to fork choice.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Encode, Decode)]
+#[ssz(enum_behaviour = "tag")]
 pub enum PayloadVerificationStatus {
     /// An EL has declared the execution payload to be valid.
     Verified,
@@ -755,10 +756,10 @@ where
                     (parent_justified, parent_finalized)
                 } else {
                     let justification_and_finalization_state = match block {
-                        // TODO(eip4844): Ensure that the final specification
+                        // TODO(deneb): Ensure that the final specification
                         // does not substantially modify per epoch processing.
                         BeaconBlockRef::Eip6110(_)
-                        | BeaconBlockRef::Eip4844(_)
+                        | BeaconBlockRef::Deneb(_)
                         | BeaconBlockRef::Capella(_)
                         | BeaconBlockRef::Merge(_)
                         | BeaconBlockRef::Altair(_) => {

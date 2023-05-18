@@ -5,7 +5,7 @@ use std::fs::File;
 use std::io::Write;
 use std::time::{SystemTime, UNIX_EPOCH};
 use types::{
-    EthSpec, ExecutionPayloadHeader, ExecutionPayloadHeaderCapella, ExecutionPayloadHeaderEip4844,
+    EthSpec, ExecutionPayloadHeader, ExecutionPayloadHeaderCapella, ExecutionPayloadHeaderDeneb,
     ExecutionPayloadHeaderEip6110, ExecutionPayloadHeaderMerge, ForkName,
 };
 
@@ -40,13 +40,13 @@ pub fn run<T: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
             prev_randao: eth1_block_hash.into_root(),
             ..ExecutionPayloadHeaderCapella::default()
         }),
-        ForkName::Eip4844 => ExecutionPayloadHeader::Eip4844(ExecutionPayloadHeaderEip4844 {
+        ForkName::Deneb => ExecutionPayloadHeader::Deneb(ExecutionPayloadHeaderDeneb {
             gas_limit,
             base_fee_per_gas,
             timestamp: genesis_time,
             block_hash: eth1_block_hash,
             prev_randao: eth1_block_hash.into_root(),
-            ..ExecutionPayloadHeaderEip4844::default()
+            ..ExecutionPayloadHeaderDeneb::default()
         }),
         ForkName::Eip6110 => ExecutionPayloadHeader::Eip6110(ExecutionPayloadHeaderEip6110 {
             gas_limit,

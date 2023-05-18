@@ -3,7 +3,7 @@ use eth2_hashing::hash_fixed;
 use itertools::{EitherOrBoth, Itertools};
 use safe_arith::SafeArith;
 use ssz::Decode;
-use types::consts::eip4844::{BLOB_TX_TYPE, VERSIONED_HASH_VERSION_KZG};
+use types::consts::deneb::{BLOB_TX_TYPE, VERSIONED_HASH_VERSION_KZG};
 use types::{
     AbstractExecPayload, BeaconBlockBodyRef, EthSpec, ExecPayload, KzgCommitment, Transaction,
     Transactions, VersionedHash,
@@ -42,7 +42,7 @@ pub fn verify_kzg_commitments_against_transactions<T: EthSpec>(
                 .map(|tx_type| *tx_type == BLOB_TX_TYPE)
                 .unwrap_or(false)
         })
-        .map(|tx| tx_peek_blob_versioned_hashes::<T>(tx));
+        .map(|tx| tx_peek_versioned_hashes::<T>(tx));
 
     itertools::process_results(nested_iter, |iter| {
         let zipped_iter = iter
@@ -76,7 +76,7 @@ pub fn verify_kzg_commitments_against_transactions<T: EthSpec>(
 }
 
 /// Only transactions of type `BLOB_TX_TYPE` should be passed into this function.
-fn tx_peek_blob_versioned_hashes<T: EthSpec>(
+fn tx_peek_versioned_hashes<T: EthSpec>(
     opaque_tx: &Transaction<T::MaxBytesPerTransaction>,
 ) -> Result<
     impl IntoIterator<Item = Result<VersionedHash, BlockProcessingError>> + '_,
@@ -93,7 +93,7 @@ fn tx_peek_blob_versioned_hashes<T: EthSpec>(
     let message_offset_usize = message_offset as usize;
 
     // field offset: 32 + 8 + 32 + 32 + 8 + 4 + 32 + 4 + 4 + 32 = 188
-    let blob_versioned_hashes_offset = message_offset.safe_add(u32::from_ssz_bytes(
+    let versioned_hashes_offset = message_offset.safe_add(u32::from_ssz_bytes(
         opaque_tx
             .get(message_offset_usize.safe_add(188)?..message_offset_usize.safe_add(192)?)
             .ok_or(BlockProcessingError::BlobVersionHashIndexOutOfBounds {
@@ -103,12 +103,12 @@ fn tx_peek_blob_versioned_hashes<T: EthSpec>(
     )?)?;
 
     let num_hashes = tx_len
-        .safe_sub(blob_versioned_hashes_offset as usize)?
+        .safe_sub(versioned_hashes_offset as usize)?
         .safe_div(32)?;
 
     Ok((0..num_hashes).map(move |i| {
         let next_version_hash_index =
-            (blob_versioned_hashes_offset as usize).safe_add(i.safe_mul(32)?)?;
+            (versioned_hashes_offset as usize).safe_add(i.safe_mul(32)?)?;
         let bytes = opaque_tx
             .get(next_version_hash_index..next_version_hash_index.safe_add(32)?)
             .ok_or(BlockProcessingError::BlobVersionHashIndexOutOfBounds {

@@ -1,18 +1,20 @@
 use crate::{ChainSpec, Epoch};
 use serde_derive::{Deserialize, Serialize};
+use ssz_derive::{Decode, Encode};
 use std::convert::TryFrom;
 use std::fmt::{self, Display, Formatter};
 use std::str::FromStr;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Decode, Encode, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(try_from = "String")]
 #[serde(into = "String")]
+#[ssz(enum_behaviour = "tag")]
 pub enum ForkName {
     Base,
     Altair,
     Merge,
     Capella,
-    Eip4844,
+    Deneb,
     Eip6110,
 }
 
@@ -23,7 +25,7 @@ impl ForkName {
             ForkName::Altair,
             ForkName::Merge,
             ForkName::Capella,
-            ForkName::Eip4844,
+            ForkName::Deneb,
             ForkName::Eip6110,
         ]
     }
@@ -37,7 +39,7 @@ impl ForkName {
                 spec.altair_fork_epoch = None;
                 spec.bellatrix_fork_epoch = None;
                 spec.capella_fork_epoch = None;
-                spec.eip4844_fork_epoch = None;
+                spec.deneb_fork_epoch = None;
                 spec.eip6110_fork_epoch = None;
                 spec
             }
@@ -45,7 +47,7 @@ impl ForkName {
                 spec.altair_fork_epoch = Some(Epoch::new(0));
                 spec.bellatrix_fork_epoch = None;
                 spec.capella_fork_epoch = None;
-                spec.eip4844_fork_epoch = None;
+                spec.deneb_fork_epoch = None;
                 spec.eip6110_fork_epoch = None;
                 spec
             }
@@ -53,7 +55,7 @@ impl ForkName {
                 spec.altair_fork_epoch = Some(Epoch::new(0));
                 spec.bellatrix_fork_epoch = Some(Epoch::new(0));
                 spec.capella_fork_epoch = None;
-                spec.eip4844_fork_epoch = None;
+                spec.deneb_fork_epoch = None;
                 spec.eip6110_fork_epoch = None;
                 spec
             }
@@ -61,15 +63,15 @@ impl ForkName {
                 spec.altair_fork_epoch = Some(Epoch::new(0));
                 spec.bellatrix_fork_epoch = Some(Epoch::new(0));
                 spec.capella_fork_epoch = Some(Epoch::new(0));
-                spec.eip4844_fork_epoch = None;
+                spec.deneb_fork_epoch = None;
                 spec.eip6110_fork_epoch = None;
                 spec
             }
-            ForkName::Eip4844 => {
+            ForkName::Deneb => {
                 spec.altair_fork_epoch = Some(Epoch::new(0));
                 spec.bellatrix_fork_epoch = Some(Epoch::new(0));
                 spec.capella_fork_epoch = Some(Epoch::new(0));
-                spec.eip4844_fork_epoch = Some(Epoch::new(0));
+                spec.deneb_fork_epoch = Some(Epoch::new(0));
                 spec.eip6110_fork_epoch = None;
                 spec
             }
@@ -77,7 +79,7 @@ impl ForkName {
                 spec.altair_fork_epoch = Some(Epoch::new(0));
                 spec.bellatrix_fork_epoch = Some(Epoch::new(0));
                 spec.capella_fork_epoch = Some(Epoch::new(0));
-                spec.eip4844_fork_epoch = Some(Epoch::new(0));
+                spec.deneb_fork_epoch = Some(Epoch::new(0));
                 spec.eip6110_fork_epoch = Some(Epoch::new(0));
                 spec
             }
@@ -93,7 +95,7 @@ impl ForkName {
             ForkName::Altair => Some(ForkName::Base),
             ForkName::Merge => Some(ForkName::Altair),
             ForkName::Capella => Some(ForkName::Merge),
-            ForkName::Eip4844 => Some(ForkName::Capella),
+            ForkName::Deneb => Some(ForkName::Capella),
             ForkName::Eip6110 => Some(ForkName::Eip4844),
         }
     }
@@ -106,8 +108,8 @@ impl ForkName {
             ForkName::Base => Some(ForkName::Altair),
             ForkName::Altair => Some(ForkName::Merge),
             ForkName::Merge => Some(ForkName::Capella),
-            ForkName::Capella => Some(ForkName::Eip4844),
-            ForkName::Eip4844 => Some(ForkName::Eip6110),
+            ForkName::Capella => Some(ForkName::Deneb),
+            ForkName::Deneb => Some(ForkName::Eip6110),
             ForkName::Eip6110 => None,
         }
     }
@@ -154,9 +156,9 @@ macro_rules! map_fork_name_with {
                 let (value, extra_data) = $body;
                 ($t::Capella(value), extra_data)
             }
-            ForkName::Eip4844 => {
+            ForkName::Deneb => {
                 let (value, extra_data) = $body;
-                ($t::Eip4844(value), extra_data)
+                ($t::Deneb(value), extra_data)
             }
             ForkName::Eip6110 => {
                 let (value, extra_data) = $body;
@@ -175,7 +177,7 @@ impl FromStr for ForkName {
             "altair" => ForkName::Altair,
             "bellatrix" | "merge" => ForkName::Merge,
             "capella" => ForkName::Capella,
-            "eip4844" => ForkName::Eip4844,
+            "deneb" => ForkName::Deneb,
             "eip6110" => ForkName::Eip6110,
             _ => return Err(format!("unknown fork name: {}", fork_name)),
         })
@@ -189,7 +191,7 @@ impl Display for ForkName {
             ForkName::Altair => "altair".fmt(f),
             ForkName::Merge => "bellatrix".fmt(f),
             ForkName::Capella => "capella".fmt(f),
-            ForkName::Eip4844 => "eip4844".fmt(f),
+            ForkName::Deneb => "deneb".fmt(f),
             ForkName::Eip6110 => "eip6110".fmt(f),
         }
     }
@@ -222,7 +224,7 @@ mod test {
 
     #[test]
     fn previous_and_next_fork_consistent() {
-        assert_eq!(ForkName::Eip4844.next_fork(), None);
+        assert_eq!(ForkName::Deneb.next_fork(), None);
         assert_eq!(ForkName::Base.previous_fork(), None);
 
         for (prev_fork, fork) in ForkName::list_all().into_iter().tuple_windows() {

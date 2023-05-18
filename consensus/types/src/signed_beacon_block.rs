@@ -35,17 +35,9 @@ impl From<SignedBeaconBlockHash> for Hash256 {
     }
 }
 
-#[derive(Debug)]
-pub enum BlobReconstructionError {
-    /// No blobs for the specified block where we would expect blobs.
-    UnavailableBlobs,
-    /// Blobs provided for a pre-Eip4844 fork.
-    InconsistentFork,
-}
-
 /// A `BeaconBlock` and a signature from its proposer.
 #[superstruct(
-    variants(Base, Altair, Merge, Capella, Eip4844, Eip6110),
+    variants(Base, Altair, Merge, Capella, Deneb, Eip6110),
     variant_attributes(
         derive(
             Debug,
@@ -84,8 +76,8 @@ pub struct SignedBeaconBlock<E: EthSpec, Payload: AbstractExecPayload<E> = FullP
     pub message: BeaconBlockMerge<E, Payload>,
     #[superstruct(only(Capella), partial_getter(rename = "message_capella"))]
     pub message: BeaconBlockCapella<E, Payload>,
-    #[superstruct(only(Eip4844), partial_getter(rename = "message_eip4844"))]
-    pub message: BeaconBlockEip4844<E, Payload>,
+    #[superstruct(only(Deneb), partial_getter(rename = "message_deneb"))]
+    pub message: BeaconBlockDeneb<E, Payload>,
     #[superstruct(only(Eip6110), partial_getter(rename = "message_eip6110"))]
     pub message: BeaconBlockEip6110<E, Payload>,
     pub signature: Signature,
@@ -100,6 +92,12 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> SignedBeaconBlock<E, Payload> 
     /// dictated by `self.slot()`.
     pub fn fork_name(&self, spec: &ChainSpec) -> Result<ForkName, InconsistentFork> {
         self.message().fork_name(spec)
+    }
+
+    /// Returns the name of the fork pertaining to `self`
+    /// Does not check that the fork is consistent with the slot.
+    pub fn fork_name_unchecked(&self) -> ForkName {
+        self.message().fork_name_unchecked()
     }
 
     /// SSZ decode with fork variant determined by slot.
@@ -148,8 +146,8 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> SignedBeaconBlock<E, Payload> 
             BeaconBlock::Capella(message) => {
                 SignedBeaconBlock::Capella(SignedBeaconBlockCapella { message, signature })
             }
-            BeaconBlock::Eip4844(message) => {
-                SignedBeaconBlock::Eip4844(SignedBeaconBlockEip4844 { message, signature })
+            BeaconBlock::Deneb(message) => {
+                SignedBeaconBlock::Deneb(SignedBeaconBlockDeneb { message, signature })
             }
             BeaconBlock::Eip6110(message) => {
                 SignedBeaconBlock::Eip6110(SignedBeaconBlockEip6110 { message, signature })
@@ -254,28 +252,6 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> SignedBeaconBlock<E, Payload> 
     /// Returns the `tree_hash_root` of the block.
     pub fn canonical_root(&self) -> Hash256 {
         self.message().tree_hash_root()
-    }
-
-    /// Reconstructs an empty `BlobsSidecar`, using the given block root if provided, else calculates it.
-    /// If this block has kzg commitments, an error will be returned. If this block is from prior to the
-    /// Eip4844 fork, this will error.
-    pub fn reconstruct_empty_blobs(
-        &self,
-        block_root_opt: Option<Hash256>,
-    ) -> Result<BlobsSidecar<E>, BlobReconstructionError> {
-        let kzg_commitments = self
-            .message()
-            .body()
-            .blob_kzg_commitments()
-            .map_err(|_| BlobReconstructionError::InconsistentFork)?;
-        if kzg_commitments.is_empty() {
-            Ok(BlobsSidecar::empty_from_parts(
-                block_root_opt.unwrap_or_else(|| self.canonical_root()),
-                self.slot(),
-            ))
-        } else {
-            Err(BlobReconstructionError::UnavailableBlobs)
-        }
     }
 }
 
@@ -413,20 +389,20 @@ impl<E: EthSpec> SignedBeaconBlockCapella<E, BlindedPayload<E>> {
     }
 }
 
-impl<E: EthSpec> SignedBeaconBlockEip4844<E, BlindedPayload<E>> {
+impl<E: EthSpec> SignedBeaconBlockDeneb<E, BlindedPayload<E>> {
     pub fn into_full_block(
         self,
-        execution_payload: ExecutionPayloadEip4844<E>,
-    ) -> SignedBeaconBlockEip4844<E, FullPayload<E>> {
-        let SignedBeaconBlockEip4844 {
+        execution_payload: ExecutionPayloadDeneb<E>,
+    ) -> SignedBeaconBlockDeneb<E, FullPayload<E>> {
+        let SignedBeaconBlockDeneb {
             message:
-                BeaconBlockEip4844 {
+                BeaconBlockDeneb {
                     slot,
                     proposer_index,
                     parent_root,
                     state_root,
                     body:
-                        BeaconBlockBodyEip4844 {
+                        BeaconBlockBodyDeneb {
                             randao_reveal,
                             eth1_data,
                             graffiti,
@@ -436,20 +412,20 @@ impl<E: EthSpec> SignedBeaconBlockEip4844<E, BlindedPayload<E>> {
                             deposits,
                             voluntary_exits,
                             sync_aggregate,
-                            execution_payload: BlindedPayloadEip4844 { .. },
+                            execution_payload: BlindedPayloadDeneb { .. },
                             bls_to_execution_changes,
                             blob_kzg_commitments,
                         },
                 },
             signature,
         } = self;
-        SignedBeaconBlockEip4844 {
-            message: BeaconBlockEip4844 {
+        SignedBeaconBlockDeneb {
+            message: BeaconBlockDeneb {
                 slot,
                 proposer_index,
                 parent_root,
                 state_root,
-                body: BeaconBlockBodyEip4844 {
+                body: BeaconBlockBodyDeneb {
                     randao_reveal,
                     eth1_data,
                     graffiti,
@@ -459,7 +435,7 @@ impl<E: EthSpec> SignedBeaconBlockEip4844<E, BlindedPayload<E>> {
                     deposits,
                     voluntary_exits,
                     sync_aggregate,
-                    execution_payload: FullPayloadEip4844 { execution_payload },
+                    execution_payload: FullPayloadDeneb { execution_payload },
                     bls_to_execution_changes,
                     blob_kzg_commitments,
                 },
@@ -539,8 +515,8 @@ impl<E: EthSpec> SignedBeaconBlock<E, BlindedPayload<E>> {
             (SignedBeaconBlock::Capella(block), Some(ExecutionPayload::Capella(payload))) => {
                 SignedBeaconBlock::Capella(block.into_full_block(payload))
             }
-            (SignedBeaconBlock::Eip4844(block), Some(ExecutionPayload::Eip4844(payload))) => {
-                SignedBeaconBlock::Eip4844(block.into_full_block(payload))
+            (SignedBeaconBlock::Deneb(block), Some(ExecutionPayload::Deneb(payload))) => {
+                SignedBeaconBlock::Deneb(block.into_full_block(payload))
             }
             (SignedBeaconBlock::Eip6110(block), Some(ExecutionPayload::Eip6110(payload))) => {
                 SignedBeaconBlock::Eip6110(block.into_full_block(payload))
@@ -549,7 +525,7 @@ impl<E: EthSpec> SignedBeaconBlock<E, BlindedPayload<E>> {
             // direct us here when a new fork has been added
             (SignedBeaconBlock::Merge(_), _) => return None,
             (SignedBeaconBlock::Capella(_), _) => return None,
-            (SignedBeaconBlock::Eip4844(_), _) => return None,
+            (SignedBeaconBlock::Deneb(_), _) => return None,
             (SignedBeaconBlock::Eip6110(_), _) => return None,
         };
         Some(full_block)
@@ -605,6 +581,99 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> ForkVersionDeserialize
     }
 }
 
+/// This module can be used to encode and decode a `SignedBeaconBlock` the same way it
+/// would be done if we had tagged the superstruct enum with
+/// `#[ssz(enum_behaviour = "union")]`
+/// This should _only_ be used *some* cases when storing these objects in the database
+/// and _NEVER_ for encoding / decoding blocks sent over the network!
+pub mod ssz_tagged_signed_beacon_block {
+    use super::*;
+    pub mod encode {
+        use super::*;
+        #[allow(unused_imports)]
+        use ssz::*;
+
+        pub fn is_ssz_fixed_len() -> bool {
+            false
+        }
+
+        pub fn ssz_fixed_len() -> usize {
+            BYTES_PER_LENGTH_OFFSET
+        }
+
+        pub fn ssz_bytes_len<E: EthSpec, Payload: AbstractExecPayload<E>>(
+            block: &SignedBeaconBlock<E, Payload>,
+        ) -> usize {
+            block
+                .ssz_bytes_len()
+                .checked_add(1)
+                .expect("encoded length must be less than usize::max")
+        }
+
+        pub fn ssz_append<E: EthSpec, Payload: AbstractExecPayload<E>>(
+            block: &SignedBeaconBlock<E, Payload>,
+            buf: &mut Vec<u8>,
+        ) {
+            let fork_name = block.fork_name_unchecked();
+            fork_name.ssz_append(buf);
+            block.ssz_append(buf);
+        }
+
+        pub fn as_ssz_bytes<E: EthSpec, Payload: AbstractExecPayload<E>>(
+            block: &SignedBeaconBlock<E, Payload>,
+        ) -> Vec<u8> {
+            let mut buf = vec![];
+            ssz_append(block, &mut buf);
+
+            buf
+        }
+    }
+
+    pub mod decode {
+        use super::*;
+        #[allow(unused_imports)]
+        use ssz::*;
+
+        pub fn is_ssz_fixed_len() -> bool {
+            false
+        }
+
+        pub fn ssz_fixed_len() -> usize {
+            BYTES_PER_LENGTH_OFFSET
+        }
+
+        pub fn from_ssz_bytes<E: EthSpec, Payload: AbstractExecPayload<E>>(
+            bytes: &[u8],
+        ) -> Result<SignedBeaconBlock<E, Payload>, DecodeError> {
+            let fork_byte = bytes
+                .first()
+                .copied()
+                .ok_or(DecodeError::OutOfBoundsByte { i: 0 })?;
+            let body = bytes
+                .get(1..)
+                .ok_or(DecodeError::OutOfBoundsByte { i: 1 })?;
+
+            match ForkName::from_ssz_bytes(&[fork_byte])? {
+                ForkName::Base => Ok(SignedBeaconBlock::Base(
+                    SignedBeaconBlockBase::from_ssz_bytes(body)?,
+                )),
+                ForkName::Altair => Ok(SignedBeaconBlock::Altair(
+                    SignedBeaconBlockAltair::from_ssz_bytes(body)?,
+                )),
+                ForkName::Merge => Ok(SignedBeaconBlock::Merge(
+                    SignedBeaconBlockMerge::from_ssz_bytes(body)?,
+                )),
+                ForkName::Capella => Ok(SignedBeaconBlock::Capella(
+                    SignedBeaconBlockCapella::from_ssz_bytes(body)?,
+                )),
+                ForkName::Deneb => Ok(SignedBeaconBlock::Deneb(
+                    SignedBeaconBlockDeneb::from_ssz_bytes(body)?,
+                )),
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -644,6 +713,40 @@ mod test {
 
             let reconstructed = blinded_block.try_into_full_block(payload).unwrap();
             assert_eq!(reconstructed, block);
+        }
+    }
+
+    #[test]
+    fn test_ssz_tagged_signed_beacon_block() {
+        type E = MainnetEthSpec;
+
+        let spec = &E::default_spec();
+        let sig = Signature::empty();
+        let blocks = vec![
+            SignedBeaconBlock::<E>::from_block(
+                BeaconBlock::Base(BeaconBlockBase::empty(spec)),
+                sig.clone(),
+            ),
+            SignedBeaconBlock::from_block(
+                BeaconBlock::Altair(BeaconBlockAltair::empty(spec)),
+                sig.clone(),
+            ),
+            SignedBeaconBlock::from_block(
+                BeaconBlock::Merge(BeaconBlockMerge::empty(spec)),
+                sig.clone(),
+            ),
+            SignedBeaconBlock::from_block(
+                BeaconBlock::Capella(BeaconBlockCapella::empty(spec)),
+                sig.clone(),
+            ),
+            SignedBeaconBlock::from_block(BeaconBlock::Deneb(BeaconBlockDeneb::empty(spec)), sig),
+        ];
+
+        for block in blocks {
+            let encoded = ssz_tagged_signed_beacon_block::encode::as_ssz_bytes(&block);
+            let decoded = ssz_tagged_signed_beacon_block::decode::from_ssz_bytes::<E, _>(&encoded)
+                .expect("should decode");
+            assert_eq!(decoded, block);
         }
     }
 }
