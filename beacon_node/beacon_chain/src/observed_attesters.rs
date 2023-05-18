@@ -443,7 +443,47 @@ impl<K: SlotData + Eq + Hash, S, V, E: EthSpec> Default for AutoPruningSlotConta
     }
 }
 
-impl<K: SlotData + Eq + Hash, S, V: Item<S>, E: EthSpec> AutoPruningSlotContainer<K, S, V, E> {
+impl<K: SlotData + Eq + Hash + Clone, S, V: Item<S>, E: EthSpec>
+    AutoPruningSlotContainer<K, S, V, E>
+{
+    /// Observes the given `value` for the given `validator_index`.
+    ///
+    /// The `override_observation` function is supplied `previous_observation`
+    /// and `value`. If it returns `true`, then any existing observation will be
+    /// overridden.
+    ///
+    /// Returns `true` if:
+    /// - An observation already existed for the validator, AND,
+    /// - The `override_observation` function returned `false`.
+    ///
+    /// Returns `false` if:
+    /// - An observation did not already exist for the given validator, OR,
+    /// - The `override_observation` function returned `true`.
+    pub fn observe_validator_with_override<F>(
+        &mut self,
+        key: K,
+        validator_index: usize,
+        value: S,
+        override_observation: F,
+    ) -> Result<Option<S>, Error>
+    where
+        F: Fn(&S, &S) -> bool,
+    {
+        if let Some(prev_observation) =
+            self.observation_for_validator(key.clone(), validator_index)?
+        {
+            if override_observation(&prev_observation, &value) {
+                self.observe_validator(key, validator_index, value)?;
+                Ok(None)
+            } else {
+                Ok(Some(prev_observation))
+            }
+        } else {
+            self.observe_validator(key, validator_index, value)?;
+            Ok(None)
+        }
+    }
+
     /// Observe that `validator_index` has produced a sync committee message. Returns `Ok(true)` if
     /// the sync committee message  has previously been observed for `validator_index`.
     ///
@@ -486,25 +526,37 @@ impl<K: SlotData + Eq + Hash, S, V: Item<S>, E: EthSpec> AutoPruningSlotContaine
         }
     }
 
+    // Identical to `Self::observation_for_validator` but discards the
+    // observation, simply returning `true` if the validator has been observed
+    // at all.
+    pub fn validator_has_been_observed(
+        &self,
+        key: K,
+        validator_index: usize,
+    ) -> Result<bool, Error> {
+        self.observation_for_validator(key, validator_index)
+            .map(|observation| observation.is_some())
+    }
+
     /// Returns `Ok(true)` if the `validator_index` has already produced a conflicting sync committee message.
     ///
     /// ## Errors
     ///
     /// - `validator_index` is higher than `VALIDATOR_REGISTRY_LIMIT`.
     /// - `key.slot` is earlier than `self.lowest_permissible_slot`.
-    pub fn validator_has_been_observed(
+    pub fn observation_for_validator(
         &self,
         key: K,
         validator_index: usize,
-    ) -> Result<bool, Error> {
+    ) -> Result<Option<S>, Error> {
         self.sanitize_request(key.get_slot(), validator_index)?;
 
-        let exists = self
+        let observation = self
             .items
             .get(&key)
-            .map_or(false, |item| item.get(validator_index).is_some());
+            .and_then(|item| item.get(validator_index));
 
-        Ok(exists)
+        Ok(observation)
     }
 
     /// Returns the number of validators that have been observed at the given `slot`. Returns
