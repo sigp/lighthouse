@@ -467,7 +467,19 @@ impl VerifiedSyncCommitteeMessage {
         let head_root = chain.canonical_head.cached_head().head_block_root();
         let new_root = sync_message.beacon_block_root;
         let should_override_prev = |prev_root: &Hash256, new_root: &Hash256| {
-            new_root != prev_root && new_root == &head_root
+            let roots_differ = new_root != prev_root;
+            let new_elects_head = new_root == &head_root;
+
+            if new_root != prev_root {
+                // Track sync committee messages that differ from each other.
+                metrics::inc_counter(&metrics::SYNC_CONTRIBUTION_EQUIVOCATIONS);
+                if new_elects_head {
+                    // Track sync committee messages that swap from an old block to a new block.
+                    metrics::inc_counter(&metrics::SYNC_CONTRIBUTION_EQUIVOCATIONS_TO_HEAD);
+                }
+            }
+
+            roots_differ && new_elects_head
         };
         if let Some(prev_root) = chain
             .observed_sync_contributors

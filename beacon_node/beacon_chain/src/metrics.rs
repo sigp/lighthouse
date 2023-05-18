@@ -930,6 +930,14 @@ lazy_static! {
         "beacon_sync_contribution_processing_signature_seconds",
         "Time spent on the signature verification of sync contribution processing"
     );
+    pub static ref SYNC_CONTRIBUTION_EQUIVOCATIONS: Result<IntCounter> = try_create_int_counter(
+        "sync_contribution_equivocations_total",
+        "Number of sync contributions with the same validator index for different blocks"
+    );
+    pub static ref SYNC_CONTRIBUTION_EQUIVOCATIONS_TO_HEAD: Result<IntCounter> = try_create_int_counter(
+        "sync_contribution_equivocations_to_head_total",
+        "Number of sync contribution equivocations which point to the head "
+    );
 
         /*
      * General Sync Committee Contribution Processing
