@@ -467,7 +467,7 @@ impl VerifiedSyncCommitteeMessage {
         let head_root = chain.canonical_head.cached_head().head_block_root();
         let new_root = sync_message.beacon_block_root;
         let should_override_prev = |prev_root: &Hash256, new_root: &Hash256| {
-            prev_root != &head_root || new_root == &head_root
+            new_root != prev_root && new_root == &head_root
         };
         if let Some(prev_root) = chain
             .observed_sync_contributors
