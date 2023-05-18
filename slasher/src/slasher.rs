@@ -47,6 +47,14 @@ impl<E: EthSpec> Slasher<E> {
         })
     }
 
+    // Returns `true` if any of the backend feature flags have been enabled.
+    //
+    // For example, returns `true` Lighthouse has been compiled with `--features
+    // slasher/lmdb` or `--features slasher/mdbx`.
+    pub const fn any_backend_feature_flag_is_present() -> bool {
+        cfg!(any(feature = "mdbx", feature = "lmdb"))
+    }
+
     /// Harvest all attester slashings found, removing them from the slasher.
     pub fn get_attester_slashings(&self) -> HashSet<AttesterSlashing<E>> {
         std::mem::take(&mut self.attester_slashings.lock())

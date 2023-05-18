@@ -993,9 +993,7 @@ async fn verify_block_for_gossip_slashing_detection() {
 
     // The slasher should only instantiate if a backend feature-flag has been
     // provided.
-    //
-    // For example: `--features slasher/lmdb`
-    let slasher = if cfg!(any(feature = "mdbx", feature = "lmdb")) {
+    let slasher = if Slasher::any_backend_feature_flag_is_present() {
         Arc::new(slasher_result.unwrap())
     } else {
         assert!(matches!(
