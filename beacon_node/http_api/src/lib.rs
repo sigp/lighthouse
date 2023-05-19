@@ -31,8 +31,8 @@ use beacon_chain::{
 pub use block_id::BlockId;
 use directory::DEFAULT_ROOT_DIR;
 use eth2::types::{
-    self as api_types, EndpointVersion, ForkChoice, ForkChoiceNode, SkipRandaoVerification,
-    ValidatorId, ValidatorStatus,
+    self as api_types, BroadcastValidation, EndpointVersion, ForkChoice, ForkChoiceNode,
+    SkipRandaoVerification, ValidatorId, ValidatorStatus,
 };
 use lighthouse_network::{types::SyncState, EnrExt, NetworkGlobals, PeerId, PubsubMessage};
 use lighthouse_version::version_with_platform;
@@ -322,6 +322,7 @@ pub fn serve<T: BeaconChainTypes>(
     };
 
     let eth_v1 = single_version(V1);
+    let eth_v2 = single_version(V2);
 
     // Create a `warp` filter that provides access to the network globals.
     let inner_network_globals = ctx.network_globals.clone();
@@ -1221,6 +1222,35 @@ pub fn serve<T: BeaconChainTypes>(
                     chain,
                     &network_tx,
                     log,
+                    None,
+                )
+                .await
+                .map(|()| warp::reply().into_response())
+            },
+        );
+
+    let post_beacon_blocks_v2 = eth_v2
+        .and(warp::path("beacon"))
+        .and(warp::path("blocks"))
+        .and(warp::path::end())
+        .and(warp::body::json())
+        .and(chain_filter.clone())
+        .and(network_tx_filter.clone())
+        .and(log_filter.clone())
+        .and(warp::path::param::<BroadcastValidation>())
+        .and_then(
+            |block: Arc<SignedBeaconBlock<T::EthSpec>>,
+             chain: Arc<BeaconChain<T>>,
+             network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
+             log: Logger,
+             validation_level: BroadcastValidation| async move {
+                publish_blocks::publish_block_checked(
+                    None,
+                    ProvenancedBlock::Local(block),
+                    chain,
+                    &network_tx,
+                    log,
+                    validation_level,
                 )
                 .await
                 .map(|()| warp::reply().into_response())
@@ -1245,9 +1275,36 @@ pub fn serve<T: BeaconChainTypes>(
              chain: Arc<BeaconChain<T>>,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
              log: Logger| async move {
-                publish_blocks::publish_blinded_block(block, chain, &network_tx, log)
+                publish_blocks::publish_blinded_block(block, chain, &network_tx, log, None)
                     .await
                     .map(|()| warp::reply().into_response())
+            },
+        );
+
+    let post_beacon_blinded_blocks_v2 = eth_v2
+        .and(warp::path("beacon"))
+        .and(warp::path("blinded_blocks"))
+        .and(warp::path::end())
+        .and(warp::body::json())
+        .and(chain_filter.clone())
+        .and(network_tx_filter.clone())
+        .and(log_filter.clone())
+        .and(warp::path::param::<BroadcastValidation>())
+        .and_then(
+            |block: SignedBeaconBlock<T::EthSpec, BlindedPayload<_>>,
+             chain: Arc<BeaconChain<T>>,
+             network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
+             log: Logger,
+             validation_level: BroadcastValidation| async move {
+                publish_blocks::publish_blinded_block_checked(
+                    block,
+                    chain,
+                    &network_tx,
+                    log,
+                    validation_level,
+                )
+                .await
+                .map(|()| warp::reply().into_response())
             },
         );
 
@@ -3795,6 +3852,8 @@ pub fn serve<T: BeaconChainTypes>(
             warp::post().and(
                 post_beacon_blocks
                     .uor(post_beacon_blinded_blocks)
+                    .uor(post_beacon_blocks_v2)
+                    .uor(post_beacon_blinded_blocks_v2)
                     .uor(post_beacon_pool_attestations)
                     .uor(post_beacon_pool_attester_slashings)
                     .uor(post_beacon_pool_proposer_slashings)
