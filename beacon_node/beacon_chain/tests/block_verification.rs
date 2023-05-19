@@ -993,7 +993,7 @@ async fn verify_block_for_gossip_slashing_detection() {
 
     // The slasher should only instantiate if a backend feature-flag has been
     // provided.
-    let slasher = if Slasher::any_backend_feature_flag_is_present() {
+    let slasher = if Slasher::<E>::any_backend_feature_flag_is_present() {
         Arc::new(slasher_result.unwrap())
     } else {
         assert!(matches!(
