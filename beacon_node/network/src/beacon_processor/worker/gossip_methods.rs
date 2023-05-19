@@ -2343,6 +2343,25 @@ impl<T: BeaconChainTypes> Worker<T> {
                     "peer_id" => %peer_id,
                     "type" => ?message_type,
                 );
+
+                // Do not penalize the peer.
+
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+
+                return;
+            }
+            SyncCommitteeError::PriorSyncContributionMessageKnown { .. } => {
+                /*
+                 * We have already seen a sync contribution message from this validator for this epoch.
+                 *
+                 * The peer is not necessarily faulty.
+                 */
+                debug!(
+                    self.log,
+                    "Prior sync contribution message known";
+                    "peer_id" => %peer_id,
+                    "type" => ?message_type,
+                );
                 // We still penalize the peer slightly. We don't want this to be a recurring
                 // behaviour.
                 self.gossip_penalize_peer(
