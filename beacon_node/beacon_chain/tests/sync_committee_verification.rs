@@ -1,16 +1,20 @@
-#![cfg(not(debug_assertions))]
+// #![cfg(not(debug_assertions))]
 
 use beacon_chain::sync_committee_verification::Error as SyncCommitteeError;
 use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType, RelativeSyncCommittee};
 use int_to_bytes::int_to_bytes32;
 use lazy_static::lazy_static;
 use safe_arith::SafeArith;
+use state_processing::{
+    per_block_processing::{altair::sync_committee::process_sync_aggregate, VerifySignatures},
+    state_advance::complete_state_advance,
+};
 use store::{SignedContributionAndProof, SyncCommitteeMessage};
 use tree_hash::TreeHash;
 use types::consts::altair::SYNC_COMMITTEE_SUBNET_COUNT;
 use types::{
     AggregateSignature, Epoch, EthSpec, Hash256, Keypair, MainnetEthSpec, SecretKey, Slot,
-    SyncSelectionProof, SyncSubnetId, Unsigned,
+    SyncContributionData, SyncSelectionProof, SyncSubnetId, Unsigned,
 };
 
 pub type E = MainnetEthSpec;
@@ -525,6 +529,21 @@ async fn unaggregated_gossip_verification() {
             parent_root,
         );
 
+    assert_eq!(
+        valid_sync_committee_message.slot, valid_sync_committee_message_to_parent.slot,
+        "test pre-condition: same slot"
+    );
+    assert_eq!(
+        valid_sync_committee_message.validator_index,
+        valid_sync_committee_message_to_parent.validator_index,
+        "test pre-condition: same validator index"
+    );
+    assert!(
+        valid_sync_committee_message.beacon_block_root
+            != valid_sync_committee_message_to_parent.beacon_block_root,
+        "test pre-condition: differing roots"
+    );
+
     macro_rules! assert_invalid {
             ($desc: tt, $attn_getter: expr, $subnet_getter: expr, $($error: pat_param) |+ $( if $guard: expr )?) => {
                 assert!(
@@ -633,13 +652,18 @@ async fn unaggregated_gossip_verification() {
     let head_root = valid_sync_committee_message.beacon_block_root;
     let parent_root = valid_sync_committee_message_to_parent.beacon_block_root;
 
-    harness
+    let verifed_message_to_parent = harness
         .chain
         .verify_sync_committee_message_for_gossip(
             valid_sync_committee_message_to_parent.clone(),
             subnet_id,
         )
         .expect("valid sync message to parent should be verified");
+    // Add the aggregate to the pool.
+    harness
+        .chain
+        .add_to_naive_sync_aggregation_pool(verifed_message_to_parent)
+        .unwrap();
 
     /*
      * The following test ensures that:
@@ -660,10 +684,15 @@ async fn unaggregated_gossip_verification() {
         if validator_index == expected_validator_index as u64 && slot == current_slot && prev_root == parent_root && new_root == parent_root
     );
 
-    harness
+    let verified_message_to_head = harness
         .chain
         .verify_sync_committee_message_for_gossip(valid_sync_committee_message.clone(), subnet_id)
         .expect("valid sync message to the head should be verified");
+    // Add the aggregate to the pool.
+    harness
+        .chain
+        .add_to_naive_sync_aggregation_pool(verified_message_to_head)
+        .unwrap();
 
     /*
      * The following test ensures that:
@@ -673,7 +702,7 @@ async fn unaggregated_gossip_verification() {
      */
     assert_invalid!(
         "sync message to the head that has already been seen",
-        valid_sync_committee_message,
+        valid_sync_committee_message.clone(),
         subnet_id,
         SyncCommitteeError::PriorSyncCommitteeMessageKnown {
             validator_index,
@@ -692,7 +721,7 @@ async fn unaggregated_gossip_verification() {
      */
     assert_invalid!(
         "sync message to parent after message to head has already been seen",
-        valid_sync_committee_message_to_parent,
+        valid_sync_committee_message_to_parent.clone(),
         subnet_id,
         SyncCommitteeError::PriorSyncCommitteeMessageKnown {
             validator_index,
@@ -702,6 +731,47 @@ async fn unaggregated_gossip_verification() {
         }
         if validator_index == expected_validator_index as u64 && slot == current_slot && prev_root == head_root && new_root == parent_root
     );
+
+    // Ensure that the sync aggregates in the op pool for both the parent block and head block are valid.
+    let chain = &harness.chain;
+    let check_sync_aggregate = |root: Hash256| async move {
+        // Generate an aggregate sync message from the naive aggregation pool.
+        let aggregate = chain
+            .get_aggregated_sync_committee_contribution(&SyncContributionData {
+                // It's a test pre-condition that both sync messages have the same slot.
+                slot: valid_sync_committee_message.slot,
+                beacon_block_root: root,
+                subcommittee_index: subnet_id.into(),
+            })
+            .unwrap()
+            .unwrap();
+
+        // Insert the aggregate into the op pool.
+        chain.op_pool.insert_sync_contribution(aggregate).unwrap();
+
+        // Load the block and state for the given root.
+        let block = chain.get_block(&root).await.unwrap().unwrap();
+        let mut state = chain.get_state(&block.state_root(), None).unwrap().unwrap();
+
+        // Advance the state to simulate a pre-state for block production.
+        let slot = valid_sync_committee_message.slot + 1;
+        complete_state_advance(&mut state, Some(block.state_root()), slot, &chain.spec).unwrap();
+
+        // Get an aggregate that would be included in a block.
+        let aggregate_for_inclusion = chain.op_pool.get_sync_aggregate(&state).unwrap().unwrap();
+
+        // Validate the retrieved aggregate against the state.
+        process_sync_aggregate(
+            &mut state,
+            &aggregate_for_inclusion,
+            0,
+            VerifySignatures::True,
+            &chain.spec,
+        )
+        .unwrap();
+    };
+    check_sync_aggregate(valid_sync_committee_message.beacon_block_root).await;
+    check_sync_aggregate(valid_sync_committee_message_to_parent.beacon_block_root).await;
 
     /*
      * The following test ensures that:
