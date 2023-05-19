@@ -470,7 +470,7 @@ impl VerifiedSyncCommitteeMessage {
             let roots_differ = new_root != prev_root;
             let new_elects_head = new_root == &head_root;
 
-            if new_root != prev_root {
+            if roots_differ {
                 // Track sync committee messages that differ from each other.
                 metrics::inc_counter(&metrics::SYNC_CONTRIBUTION_EQUIVOCATIONS);
                 if new_elects_head {
