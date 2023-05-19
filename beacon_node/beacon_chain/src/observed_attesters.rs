@@ -454,9 +454,7 @@ impl<K: SlotData + Eq + Hash + Copy, S, V: Item<S>, E: EthSpec>
     where
         F: Fn(&S, &S) -> bool,
     {
-        if let Some(prev_observation) =
-            self.observation_for_validator(key, validator_index)?
-        {
+        if let Some(prev_observation) = self.observation_for_validator(key, validator_index)? {
             if override_observation(&prev_observation, &value) {
                 self.observe_validator(key, validator_index, value)?;
                 Ok(None)
