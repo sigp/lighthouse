@@ -159,8 +159,8 @@ impl ShufflingCache {
     /// - Entries with shuffling ids matching the head's previous, current, and future epochs must
     ///   not be pruned.
     fn prune_cache(&mut self) {
-        if self.cache.len() >= self.cache_size {
-            let prune_count = self.cache.len() - self.cache_size + 1;
+        let target_cache_size = self.cache_size.saturating_sub(1);
+        if let Some(prune_count) = self.cache.len().checked_sub(target_cache_size) {
             let shuffling_ids_to_prune = self
                 .cache
                 .keys()
