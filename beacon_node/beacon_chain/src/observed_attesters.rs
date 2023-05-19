@@ -214,7 +214,7 @@ impl<E: EthSpec> Item<Hash256> for SyncContributorSlotHashSet<E> {
 
     /// Returns `true` if the `validator_index` is in the set.
     fn get(&self, validator_index: usize) -> Option<Hash256> {
-        self.map.get(&validator_index).cloned()
+        self.map.get(&validator_index).copied()
     }
 }
 
@@ -428,7 +428,7 @@ impl<K: SlotData + Eq + Hash, S, V, E: EthSpec> Default for AutoPruningSlotConta
     }
 }
 
-impl<K: SlotData + Eq + Hash + Clone, S, V: Item<S>, E: EthSpec>
+impl<K: SlotData + Eq + Hash + Copy, S, V: Item<S>, E: EthSpec>
     AutoPruningSlotContainer<K, S, V, E>
 {
     /// Observes the given `value` for the given `validator_index`.
@@ -455,7 +455,7 @@ impl<K: SlotData + Eq + Hash + Clone, S, V: Item<S>, E: EthSpec>
         F: Fn(&S, &S) -> bool,
     {
         if let Some(prev_observation) =
-            self.observation_for_validator(key.clone(), validator_index)?
+            self.observation_for_validator(key, validator_index)?
         {
             if override_observation(&prev_observation, &value) {
                 self.observe_validator(key, validator_index, value)?;
