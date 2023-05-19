@@ -250,11 +250,10 @@ impl BlockShufflingIds {
     pub fn id_for_epoch(&self, epoch: Epoch) -> Option<AttestationShufflingId> {
         if epoch == self.current.shuffling_epoch {
             Some(self.current.clone())
-        } else if Some(epoch)
-            == self
-                .previous
-                .as_ref()
-                .map(|shuffling_id| shuffling_id.shuffling_epoch)
+        } else if self
+            .previous
+            .as_ref()
+            .map_or(false, |id| id.shuffling_epoch == epoch)
         {
             self.previous.clone()
         } else if epoch == self.next.shuffling_epoch {
