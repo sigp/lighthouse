@@ -3,6 +3,7 @@ use beacon_chain::validator_monitor::{get_block_delay_ms, timestamp_now};
 use beacon_chain::{
     BeaconChain, BeaconChainTypes, BlockError, CountUnrealized, NotifyExecutionLayer,
 };
+use eth2::types::BroadcastValidation;
 use execution_layer::ProvenancedPayload;
 use lighthouse_network::PubsubMessage;
 use network::NetworkMessage;
@@ -27,12 +28,33 @@ pub enum ProvenancedBlock<T: EthSpec> {
 }
 
 /// Handles a request from the HTTP API for full blocks.
+pub async fn publish_block_checked<T: BeaconChainTypes>(
+    block_root: Option<Hash256>,
+    provenanced_block: ProvenancedBlock<T::EthSpec>,
+    chain: Arc<BeaconChain<T>>,
+    network_tx: &UnboundedSender<NetworkMessage<T::EthSpec>>,
+    log: Logger,
+    validation_level: BroadcastValidation,
+) -> Result<(), Rejection> {
+    publish_block(
+        block_root,
+        provenanced_block,
+        chain,
+        network_tx,
+        log,
+        Some(validation_level),
+    )
+    .await
+}
+
+/// Handles a request from the HTTP API for full blocks.
 pub async fn publish_block<T: BeaconChainTypes>(
     block_root: Option<Hash256>,
     provenanced_block: ProvenancedBlock<T::EthSpec>,
     chain: Arc<BeaconChain<T>>,
     network_tx: &UnboundedSender<NetworkMessage<T::EthSpec>>,
     log: Logger,
+    validation_level: Option<BroadcastValidation>,
 ) -> Result<(), Rejection> {
     let seen_timestamp = timestamp_now();
     let (block, is_locally_built_block) = match provenanced_block {
@@ -151,15 +173,46 @@ pub async fn publish_block<T: BeaconChainTypes>(
 
 /// Handles a request from the HTTP API for blinded blocks. This converts blinded blocks into full
 /// blocks before publishing.
+pub async fn publish_blinded_block_checked<T: BeaconChainTypes>(
+    block: SignedBeaconBlock<T::EthSpec, BlindedPayload<T::EthSpec>>,
+    chain: Arc<BeaconChain<T>>,
+    network_tx: &UnboundedSender<NetworkMessage<T::EthSpec>>,
+    log: Logger,
+    validation_level: BroadcastValidation,
+) -> Result<(), Rejection> {
+    let block_root = block.canonical_root();
+    let full_block = reconstruct_block(chain.clone(), block_root, block, log.clone()).await?;
+    publish_block_checked::<T>(
+        Some(block_root),
+        full_block,
+        chain,
+        network_tx,
+        log,
+        validation_level,
+    )
+    .await
+}
+
+/// Handles a request from the HTTP API for blinded blocks. This converts blinded blocks into full
+/// blocks before publishing.
 pub async fn publish_blinded_block<T: BeaconChainTypes>(
     block: SignedBeaconBlock<T::EthSpec, BlindedPayload<T::EthSpec>>,
     chain: Arc<BeaconChain<T>>,
     network_tx: &UnboundedSender<NetworkMessage<T::EthSpec>>,
     log: Logger,
+    validation_level: Option<BroadcastValidation>,
 ) -> Result<(), Rejection> {
     let block_root = block.canonical_root();
     let full_block = reconstruct_block(chain.clone(), block_root, block, log.clone()).await?;
-    publish_block::<T>(Some(block_root), full_block, chain, network_tx, log).await
+    publish_block::<T>(
+        Some(block_root),
+        full_block,
+        chain,
+        network_tx,
+        log,
+        validation_level,
+    )
+    .await
 }
 
 /// Deconstruct the given blinded block, and construct a full block. This attempts to use the
