@@ -437,11 +437,11 @@ impl<K: SlotData + Eq + Hash + Copy, S, V: Item<S>, E: EthSpec>
     /// and `value`. If it returns `true`, then any existing observation will be
     /// overridden.
     ///
-    /// Returns `true` if:
+    /// This function returns `Some` if:
     /// - An observation already existed for the validator, AND,
     /// - The `override_observation` function returned `false`.
     ///
-    /// Returns `false` if:
+    /// Alternatively, it returns `None` if:
     /// - An observation did not already exist for the given validator, OR,
     /// - The `override_observation` function returned `true`.
     pub fn observe_validator_with_override<F>(
@@ -523,7 +523,8 @@ impl<K: SlotData + Eq + Hash + Copy, S, V: Item<S>, E: EthSpec>
             .map(|observation| observation.is_some())
     }
 
-    /// Returns `Ok(true)` if the `validator_index` has already produced a conflicting sync committee message.
+    /// Returns `Ok(Some)` if the `validator_index` has already produced a
+    /// conflicting sync committee message.
     ///
     /// ## Errors
     ///
