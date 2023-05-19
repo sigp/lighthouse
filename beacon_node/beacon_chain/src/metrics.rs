@@ -936,7 +936,7 @@ lazy_static! {
     );
     pub static ref SYNC_CONTRIBUTION_EQUIVOCATIONS_TO_HEAD: Result<IntCounter> = try_create_int_counter(
         "sync_contribution_equivocations_to_head_total",
-        "Number of sync contribution equivocations which point to the head "
+        "Number of sync contribution which conflict with a previous message but elect the head"
     );
 
         /*

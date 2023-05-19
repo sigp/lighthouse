@@ -142,7 +142,7 @@ fn get_non_aggregator(
             subcommittee.iter().find_map(|pubkey| {
                 let validator_index = harness
                     .chain
-                    .validator_index(&pubkey)
+                    .validator_index(pubkey)
                     .expect("should get validator index")
                     .expect("pubkey should exist in beacon chain");
 
@@ -399,7 +399,7 @@ async fn aggregated_gossip_verification() {
         SyncCommitteeError::AggregatorNotInCommittee {
             aggregator_index
         }
-        if aggregator_index == valid_aggregate.message.aggregator_index as u64
+        if aggregator_index == valid_aggregate.message.aggregator_index
     );
 
     /*
@@ -495,7 +495,7 @@ async fn aggregated_gossip_verification() {
 
     assert_invalid!(
         "sync contribution created with incorrect sync committee",
-        next_valid_contribution.clone(),
+        next_valid_contribution,
         SyncCommitteeError::InvalidSignature | SyncCommitteeError::AggregatorNotInCommittee { .. }
     );
 }
@@ -798,7 +798,7 @@ async fn unaggregated_gossip_verification() {
 
     assert_invalid!(
         "sync message on incorrect subnet",
-        next_valid_sync_committee_message.clone(),
+        next_valid_sync_committee_message,
         next_subnet_id,
         SyncCommitteeError::InvalidSubnetId {
             received,
