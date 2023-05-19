@@ -987,23 +987,9 @@ async fn block_gossip_verification() {
 #[tokio::test]
 async fn verify_block_for_gossip_slashing_detection() {
     let slasher_dir = tempdir().unwrap();
-
-    let slasher_result =
-        Slasher::open(SlasherConfig::new(slasher_dir.path().into()), test_logger());
-
-    // The slasher should only instantiate if a backend feature-flag has been
-    // provided.
-    //
-    // For example: `--features slasher/lmdb`
-    let slasher = if cfg!(any(feature = "mdbx", feature = "lmdb")) {
-        Arc::new(slasher_result.unwrap())
-    } else {
-        assert!(matches!(
-            slasher_result,
-            Err(slasher::Error::SlasherDatabaseBackendDisabled)
-        ));
-        return;
-    };
+    let slasher = Arc::new(
+        Slasher::open(SlasherConfig::new(slasher_dir.path().into()), test_logger()).unwrap(),
+    );
 
     let inner_slasher = slasher.clone();
     let harness = BeaconChainHarness::builder(MainnetEthSpec)
