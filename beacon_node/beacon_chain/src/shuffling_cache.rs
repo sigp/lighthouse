@@ -178,14 +178,14 @@ impl ShufflingCache {
                 .collect::<Vec<_>>();
 
             for shuffling_id in shuffling_ids_to_prune.iter() {
+                debug!(
+                    self.logger,
+                    "Removing old shuffling from cache";
+                    "shuffling_epoch" => shuffling_id.shuffling_epoch,
+                    "shuffling_decision_block" => ?shuffling_id.shuffling_decision_block
+                );
                 self.cache.remove(shuffling_id);
             }
-
-            debug!(
-                self.logger,
-                "Removed old shuffling from cache";
-                "count" => shuffling_ids_to_prune.len()
-            );
         }
     }
 
