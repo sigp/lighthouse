@@ -1,6 +1,5 @@
-use crate::payload::BlindedPayloadDeneb;
+use crate::test_utils::TestRandom;
 use crate::*;
-use crate::{payload::FullPayloadDeneb, test_utils::TestRandom};
 use derivative::Derivative;
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};

@@ -929,20 +929,9 @@ impl HttpJsonRpc {
                     .await?;
                 Ok(JsonGetPayloadResponse::V3(response).into())
             }
-            ForkName::Eip6110 => {
-                let response: JsonGetPayloadResponseV6110<T> = self
-                    .rpc_request(
-                        ENGINE_GET_PAYLOAD_V6110,
-                        params,
-                        ENGINE_GET_PAYLOAD_TIMEOUT * self.execution_timeout_multiplier,
-                    )
-                    .await?;
-                Ok(JsonGetPayloadResponse::V6110(response).into())
-            }
-            ForkName::Base | ForkName::Altair => Err(Error::UnsupportedForkVariant(format!(
-                "called get_payload_v3 with {}",
-                fork_name
-            ))),
+            ForkName::Base | ForkName::Altair | ForkName::Eip6110 => Err(
+                Error::UnsupportedForkVariant(format!("called get_payload_v3 with {}", fork_name)),
+            ),
         }
     }
 

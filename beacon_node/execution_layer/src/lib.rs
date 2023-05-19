@@ -245,14 +245,7 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> BlockProposalContents<T, Paylo
                     block_value: Uint256::zero(),
                 }
             }
-            ForkName::Deneb => BlockProposalContents::PayloadAndBlobs {
-                payload: Payload::default_at_fork(fork_name)?,
-                block_value: Uint256::zero(),
-                blobs: VariableList::default(),
-                kzg_commitments: VariableList::default(),
-                proofs: VariableList::default(),
-            },
-            ForkName::Eip6110 => BlockProposalContents::PayloadAndBlobs {
+            ForkName::Deneb | ForkName::Eip6110 => BlockProposalContents::PayloadAndBlobs {
                 payload: Payload::default_at_fork(fork_name)?,
                 block_value: Uint256::zero(),
                 blobs: VariableList::default(),
@@ -1904,10 +1897,10 @@ impl<T: EthSpec> ExecutionLayer<T> {
                     timestamp: eip6110_block.timestamp,
                     extra_data: eip6110_block.extra_data,
                     base_fee_per_gas: eip6110_block.base_fee_per_gas,
-                    excess_data_gas: eip6110_block.excess_data_gas,
                     block_hash: eip6110_block.block_hash,
                     transactions: convert_transactions(eip6110_block.transactions)?,
                     withdrawals,
+                    excess_data_gas: eip6110_block.excess_data_gas,
                     deposit_receipts,
                 })
             }

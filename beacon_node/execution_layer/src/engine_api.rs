@@ -263,7 +263,6 @@ impl<T: EthSpec> TryFrom<ExecutionPayload<T>> for ExecutionBlockWithTransactions
                 timestamp: block.timestamp,
                 extra_data: block.extra_data,
                 base_fee_per_gas: block.base_fee_per_gas,
-                excess_data_gas: block.excess_data_gas,
                 block_hash: block.block_hash,
                 transactions: block
                     .transactions
@@ -274,6 +273,7 @@ impl<T: EthSpec> TryFrom<ExecutionPayload<T>> for ExecutionBlockWithTransactions
                     .into_iter()
                     .map(|withdrawal| withdrawal.into())
                     .collect(),
+                excess_data_gas: block.excess_data_gas,
             }),
             ExecutionPayload::Eip6110(block) => {
                 Self::Eip6110(ExecutionBlockWithTransactionsEip6110 {
@@ -289,7 +289,6 @@ impl<T: EthSpec> TryFrom<ExecutionPayload<T>> for ExecutionBlockWithTransactions
                     timestamp: block.timestamp,
                     extra_data: block.extra_data,
                     base_fee_per_gas: block.base_fee_per_gas,
-                    excess_data_gas: block.excess_data_gas,
                     block_hash: block.block_hash,
                     transactions: block
                         .transactions
@@ -304,6 +303,7 @@ impl<T: EthSpec> TryFrom<ExecutionPayload<T>> for ExecutionBlockWithTransactions
                         .into_iter()
                         .map(|deposit_receipt| deposit_receipt.into())
                         .collect(),
+                    excess_data_gas: block.excess_data_gas,
                 })
             }
         };
@@ -580,11 +580,11 @@ impl<E: EthSpec> ExecutionPayloadBodyV1<E> {
                         timestamp: header.timestamp,
                         extra_data: header.extra_data,
                         base_fee_per_gas: header.base_fee_per_gas,
-                        excess_data_gas: header.excess_data_gas,
                         block_hash: header.block_hash,
                         transactions: self.transactions,
                         withdrawals,
                         deposit_receipts,
+                        excess_data_gas: header.excess_data_gas,
                     }))
                 } else {
                     Err(format!(

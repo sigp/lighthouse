@@ -77,13 +77,13 @@ pub struct ExecutionPayloadHeader<T: EthSpec> {
     #[superstruct(only(Capella, Deneb, Eip6110))]
     #[superstruct(getter(copy))]
     pub withdrawals_root: Hash256,
-    #[superstruct(only(Eip6110))]
-    #[superstruct(getter(copy))]
-    pub deposit_receipts: DepositReceipts<T>,
     #[superstruct(only(Deneb, Eip6110))]
     #[serde(with = "eth2_serde_utils::quoted_u256")]
     #[superstruct(getter(copy))]
     pub excess_data_gas: Uint256,
+    #[superstruct(only(Eip6110))]
+    #[superstruct(getter(copy))]
+    pub deposit_receipts: DepositReceipts<T>,
 }
 
 impl<T: EthSpec> ExecutionPayloadHeader<T> {
@@ -178,10 +178,10 @@ impl<T: EthSpec> ExecutionPayloadHeaderDeneb<T> {
             timestamp: self.timestamp,
             extra_data: self.extra_data.clone(),
             base_fee_per_gas: self.base_fee_per_gas,
-            excess_data_gas: Uint256::zero(),
             block_hash: self.block_hash,
             transactions_root: self.transactions_root,
             withdrawals_root: self.withdrawals_root,
+            excess_data_gas: Uint256::zero(),
             deposit_receipts: DepositReceipts::<T>::default(),
         }
     }
@@ -267,10 +267,10 @@ impl<'a, T: EthSpec> From<&'a ExecutionPayloadEip6110<T>> for ExecutionPayloadHe
             timestamp: payload.timestamp,
             extra_data: payload.extra_data.clone(),
             base_fee_per_gas: payload.base_fee_per_gas,
-            excess_data_gas: payload.excess_data_gas,
             block_hash: payload.block_hash,
             transactions_root: payload.transactions.tree_hash_root(),
             withdrawals_root: payload.withdrawals.tree_hash_root(),
+            excess_data_gas: payload.excess_data_gas,
             deposit_receipts: payload.deposit_receipts.clone(),
         }
     }

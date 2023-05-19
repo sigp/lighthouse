@@ -21,9 +21,13 @@ pub fn process_operations<T: EthSpec, Payload: AbstractExecPayload<T>>(
         .unwrap_or_else(|_| state.eth1_data().deposit_count);
 
     let expected_deposit_count = if state.eth1_deposit_index() < eth1_deposit_index_limit {
+        let diff = eth1_deposit_index_limit
+            .checked_sub(state.eth1_deposit_index())
+            .ok_or(BlockProcessingError::DepositReceiptError)?;
+
         std::cmp::min(
             <T as EthSpec>::MaxDeposits::to_u64() as usize,
-            (eth1_deposit_index_limit - state.eth1_deposit_index()) as usize,
+            diff as usize,
         ) as u64
     } else {
         0

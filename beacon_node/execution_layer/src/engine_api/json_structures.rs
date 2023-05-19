@@ -196,7 +196,6 @@ impl<T: EthSpec> From<ExecutionPayloadEip6110<T>> for JsonExecutionPayloadV6110<
             timestamp: payload.timestamp,
             extra_data: payload.extra_data,
             base_fee_per_gas: payload.base_fee_per_gas,
-            excess_data_gas: payload.excess_data_gas,
             block_hash: payload.block_hash,
             transactions: payload.transactions,
             withdrawals: payload
@@ -205,6 +204,7 @@ impl<T: EthSpec> From<ExecutionPayloadEip6110<T>> for JsonExecutionPayloadV6110<
                 .map(Into::into)
                 .collect::<Vec<_>>()
                 .into(),
+            excess_data_gas: payload.excess_data_gas,
             deposit_receipts: payload
                 .deposit_receipts
                 .into_iter()
@@ -314,7 +314,6 @@ impl<T: EthSpec> From<JsonExecutionPayloadV6110<T>> for ExecutionPayloadEip6110<
             timestamp: payload.timestamp,
             extra_data: payload.extra_data,
             base_fee_per_gas: payload.base_fee_per_gas,
-            excess_data_gas: payload.excess_data_gas,
             block_hash: payload.block_hash,
             transactions: payload.transactions,
             withdrawals: payload
@@ -323,6 +322,7 @@ impl<T: EthSpec> From<JsonExecutionPayloadV6110<T>> for ExecutionPayloadEip6110<
                 .map(Into::into)
                 .collect::<Vec<_>>()
                 .into(),
+            excess_data_gas: payload.excess_data_gas,
             deposit_receipts: payload
                 .deposit_receipts
                 .into_iter()
