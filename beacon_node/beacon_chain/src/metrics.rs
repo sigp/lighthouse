@@ -874,6 +874,14 @@ lazy_static! {
         "beacon_sync_committee_message_gossip_verification_seconds",
         "Full runtime of sync contribution gossip verification"
     );
+    pub static ref SYNC_MESSAGE_EQUIVOCATIONS: Result<IntCounter> = try_create_int_counter(
+        "sync_message_equivocations_total",
+        "Number of sync messages with the same validator index for different blocks"
+    );
+    pub static ref SYNC_MESSAGE_EQUIVOCATIONS_TO_HEAD: Result<IntCounter> = try_create_int_counter(
+        "sync_message_equivocations_to_head_total",
+        "Number of sync message which conflict with a previous message but elect the head"
+    );
 
     /*
      * Sync Committee Contribution Verification
@@ -929,14 +937,6 @@ lazy_static! {
     pub static ref SYNC_CONTRIBUTION_PROCESSING_SIGNATURE_TIMES: Result<Histogram> = try_create_histogram(
         "beacon_sync_contribution_processing_signature_seconds",
         "Time spent on the signature verification of sync contribution processing"
-    );
-    pub static ref SYNC_CONTRIBUTION_EQUIVOCATIONS: Result<IntCounter> = try_create_int_counter(
-        "sync_contribution_equivocations_total",
-        "Number of sync contributions with the same validator index for different blocks"
-    );
-    pub static ref SYNC_CONTRIBUTION_EQUIVOCATIONS_TO_HEAD: Result<IntCounter> = try_create_int_counter(
-        "sync_contribution_equivocations_to_head_total",
-        "Number of sync contribution which conflict with a previous message but elect the head"
     );
 
         /*

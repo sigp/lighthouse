@@ -472,10 +472,10 @@ impl VerifiedSyncCommitteeMessage {
 
             if roots_differ {
                 // Track sync committee messages that differ from each other.
-                metrics::inc_counter(&metrics::SYNC_CONTRIBUTION_EQUIVOCATIONS);
+                metrics::inc_counter(&metrics::SYNC_MESSAGE_EQUIVOCATIONS);
                 if new_elects_head {
                     // Track sync committee messages that swap from an old block to a new block.
-                    metrics::inc_counter(&metrics::SYNC_CONTRIBUTION_EQUIVOCATIONS_TO_HEAD);
+                    metrics::inc_counter(&metrics::SYNC_MESSAGE_EQUIVOCATIONS_TO_HEAD);
                 }
             }
 
