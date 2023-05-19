@@ -8,14 +8,14 @@ use crate::sync::{
 };
 use beacon_chain::blob_verification::AsBlock;
 use beacon_chain::blob_verification::BlockWrapper;
-use beacon_chain::data_availability_checker::{AvailabilityCheckError, DataAvailabilityChecker};
+use beacon_chain::data_availability_checker::DataAvailabilityChecker;
 use beacon_chain::BeaconChainTypes;
 use lighthouse_network::PeerId;
 use std::sync::Arc;
 use store::Hash256;
 use strum::IntoStaticStr;
 use types::blob_sidecar::FixedBlobSidecarList;
-use types::{BlobSidecar, EthSpec, SignedBeaconBlock};
+use types::{BlobSidecar, SignedBeaconBlock};
 
 /// How many attempts we try to find a parent of a block before we give up trying.
 pub(crate) const PARENT_FAIL_TOLERANCE: u8 = 5;

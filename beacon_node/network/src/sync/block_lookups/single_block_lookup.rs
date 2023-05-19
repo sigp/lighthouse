@@ -29,6 +29,44 @@ pub struct SingleBlockLookup<const MAX_ATTEMPTS: u8, T: BeaconChainTypes> {
     pub unknown_parent_components: Option<UnknownParentComponents<T::EthSpec>>,
 }
 
+impl<const MAX_ATTEMPTS: u8, T: BeaconChainTypes> SingleBlockLookup<MAX_ATTEMPTS, T> {
+    pub(crate) fn register_failure_downloading(&mut self, response_type: ResponseType) {
+        match response_type {
+            ResponseType::Block => self.block_request_state.register_failure_downloading(),
+            ResponseType::Blob => self.blob_request_state.register_failure_downloading(),
+        }
+    }
+}
+
+impl<const MAX_ATTEMPTS: u8, T: BeaconChainTypes> SingleBlockLookup<MAX_ATTEMPTS, T> {
+    pub(crate) fn awaiting_download(&mut self, response_type: ResponseType) -> bool {
+        match response_type {
+            ResponseType::Block => {
+                matches!(self.block_request_state.state, State::AwaitingDownload)
+            }
+            ResponseType::Blob => matches!(self.blob_request_state.state, State::AwaitingDownload),
+        }
+    }
+
+    pub(crate) fn remove_peer_if_useless(&mut self, peer_id: &PeerId, response_type: ResponseType) {
+        match response_type {
+            ResponseType::Block => self.block_request_state.remove_peer_if_useless(peer_id),
+            ResponseType::Blob => self.blob_request_state.remove_peer_if_useless(peer_id),
+        }
+    }
+
+    pub(crate) fn check_peer_disconnected(
+        &mut self,
+        peer_id: &PeerId,
+        response_type: ResponseType,
+    ) -> Result<(), ()> {
+        match response_type {
+            ResponseType::Block => self.block_request_state.check_peer_disconnected(peer_id),
+            ResponseType::Blob => self.blob_request_state.check_peer_disconnected(peer_id),
+        }
+    }
+}
+
 #[derive(Default)]
 pub struct UnknownParentComponents<E: EthSpec> {
     pub downloaded_block: Option<Arc<SignedBeaconBlock<E>>>,
@@ -317,41 +355,17 @@ impl<const MAX_ATTEMPTS: u8, T: BeaconChainTypes> SingleBlockLookup<MAX_ATTEMPTS
             self.block_request_state.state,
             State::AwaitingDownload
         ));
-        if self.block_request_state.failed_attempts() >= MAX_ATTEMPTS {
+        let request = BlocksByRootRequest {
+            block_roots: VariableList::from(vec![self.requested_block_root]),
+        };
+        let response_type = ResponseType::Block;
+        if self.too_many_attempts(response_type) {
             Err(LookupRequestError::TooManyAttempts {
-                cannot_process: self.block_request_state.failed_processing
-                    >= self.block_request_state.failed_downloading,
+                cannot_process: self.cannot_process(response_type),
             })
-        } else if let Some(&peer_id) = self
-            .block_request_state
-            .available_peers
-            .iter()
-            .choose(&mut rand::thread_rng())
-        {
-            let request = BlocksByRootRequest {
-                block_roots: VariableList::from(vec![self.requested_block_root]),
-            };
-            self.block_request_state.used_peers.insert(peer_id);
-            let peer_source = PeerShouldHave::BlockAndBlobs(peer_id);
-            self.block_request_state.state = State::Downloading {
-                peer_id: peer_source,
-            };
-            Ok(Some((peer_id, request)))
-        } else if let Some(&peer_id) = self
-            .block_request_state
-            .potential_peers
-            .iter()
-            .choose(&mut rand::thread_rng())
-        {
-            let request = BlocksByRootRequest {
-                block_roots: VariableList::from(vec![self.requested_block_root]),
-            };
-            self.block_request_state.used_peers.insert(peer_id);
-            let peer_source = PeerShouldHave::Neither(peer_id);
-            self.block_request_state.state = State::Downloading {
-                peer_id: peer_source,
-            };
-            Ok(Some((peer_id, request)))
+        } else if let Some(peer_id) = self.get_peer(response_type) {
+            self.add_used_peer(peer_id, response_type);
+            Ok(Some((peer_id.to_peer_id(), request)))
         } else {
             Err(LookupRequestError::NoPeers)
         }
@@ -370,43 +384,89 @@ impl<const MAX_ATTEMPTS: u8, T: BeaconChainTypes> SingleBlockLookup<MAX_ATTEMPTS
             self.blob_request_state.state,
             State::AwaitingDownload
         ));
-        if self.blob_request_state.failed_attempts() >= MAX_ATTEMPTS {
+        let request = BlobsByRootRequest {
+            blob_ids: VariableList::from(self.requested_ids.clone()),
+        };
+        let response_type = ResponseType::Blob;
+        if self.too_many_attempts(response_type) {
             Err(LookupRequestError::TooManyAttempts {
-                cannot_process: self.blob_request_state.failed_processing
-                    >= self.blob_request_state.failed_downloading,
+                cannot_process: self.cannot_process(response_type),
             })
-        } else if let Some(&peer_id) = self
-            .blob_request_state
-            .available_peers
-            .iter()
-            .choose(&mut rand::thread_rng())
-        {
-            let request = BlobsByRootRequest {
-                blob_ids: VariableList::from(self.requested_ids.clone()),
-            };
-            self.blob_request_state.used_peers.insert(peer_id);
-            let peer_source = PeerShouldHave::BlockAndBlobs(peer_id);
-            self.blob_request_state.state = State::Downloading {
-                peer_id: peer_source,
-            };
-            Ok(Some((peer_id, request)))
-        } else if let Some(&peer_id) = self
-            .blob_request_state
-            .potential_peers
-            .iter()
-            .choose(&mut rand::thread_rng())
-        {
-            let request = BlobsByRootRequest {
-                blob_ids: VariableList::from(self.requested_ids.clone()),
-            };
-            self.blob_request_state.used_peers.insert(peer_id);
-            let peer_source = PeerShouldHave::Neither(peer_id);
-            self.blob_request_state.state = State::Downloading {
-                peer_id: peer_source,
-            };
-            Ok(Some((peer_id, request)))
+        } else if let Some(peer_id) = self.get_peer(response_type) {
+            self.add_used_peer(peer_id, response_type);
+            Ok(Some((peer_id.to_peer_id(), request)))
         } else {
             Err(LookupRequestError::NoPeers)
+        }
+    }
+
+    fn too_many_attempts(&self, response_type: ResponseType) -> bool {
+        match response_type {
+            ResponseType::Block => self.block_request_state.failed_attempts() >= MAX_ATTEMPTS,
+            ResponseType::Blob => self.blob_request_state.failed_attempts() >= MAX_ATTEMPTS,
+        }
+    }
+
+    fn cannot_process(&self, response_type: ResponseType) -> bool {
+        match response_type {
+            ResponseType::Block => {
+                self.block_request_state.failed_processing
+                    >= self.block_request_state.failed_downloading
+            }
+            ResponseType::Blob => {
+                self.blob_request_state.failed_processing
+                    >= self.blob_request_state.failed_downloading
+            }
+        }
+    }
+
+    fn get_peer(&self, response_type: ResponseType) -> Option<PeerShouldHave> {
+        match response_type {
+            ResponseType::Block => self
+                .block_request_state
+                .available_peers
+                .iter()
+                .choose(&mut rand::thread_rng())
+                .copied()
+                .map(PeerShouldHave::BlockAndBlobs)
+                .or(self
+                    .block_request_state
+                    .potential_peers
+                    .iter()
+                    .choose(&mut rand::thread_rng())
+                    .copied()
+                    .map(PeerShouldHave::Neither)),
+            ResponseType::Blob => self
+                .blob_request_state
+                .available_peers
+                .iter()
+                .choose(&mut rand::thread_rng())
+                .copied()
+                .map(PeerShouldHave::BlockAndBlobs)
+                .or(self
+                    .blob_request_state
+                    .potential_peers
+                    .iter()
+                    .choose(&mut rand::thread_rng())
+                    .copied()
+                    .map(PeerShouldHave::Neither)),
+        }
+    }
+
+    fn add_used_peer(&mut self, peer_id: PeerShouldHave, response_type: ResponseType) {
+        match response_type {
+            ResponseType::Block => {
+                self.block_request_state
+                    .used_peers
+                    .insert(peer_id.to_peer_id());
+                self.block_request_state.state = State::Downloading { peer_id };
+            }
+            ResponseType::Blob => {
+                self.blob_request_state
+                    .used_peers
+                    .insert(peer_id.to_peer_id());
+                self.blob_request_state.state = State::Downloading { peer_id };
+            }
         }
     }
 
@@ -442,6 +502,17 @@ impl<const MAX_ATTEMPTS: u8, T: BeaconChainTypes> SingleBlockLookup<MAX_ATTEMPTS
         match response_type {
             ResponseType::Block => self.block_request_state.peer(),
             ResponseType::Blob => self.blob_request_state.peer(),
+        }
+    }
+
+    pub fn both_components_processed(&self) -> bool {
+        self.block_request_state.component_processed && self.block_request_state.component_processed
+    }
+
+    pub fn set_component_processed(&mut self, response_type: ResponseType) {
+        match response_type {
+            ResponseType::Block => self.block_request_state.component_processed = true,
+            ResponseType::Blob => self.blob_request_state.component_processed = true,
         }
     }
 }
@@ -585,12 +656,15 @@ mod tests {
     use super::*;
     use beacon_chain::builder::Witness;
     use beacon_chain::eth1_chain::CachingEth1Backend;
+    use slog::Logger;
+    use sloggers::null::NullLoggerBuilder;
+    use sloggers::Build;
     use slot_clock::{SlotClock, TestingSlotClock};
     use std::time::Duration;
-    use store::MemoryStore;
+    use store::{HotColdDB, MemoryStore, StoreConfig};
     use types::{
         test_utils::{SeedableRng, TestRandom, XorShiftRng},
-        EthSpec, MinimalEthSpec as E, SignedBeaconBlock, Slot,
+        ChainSpec, EthSpec, MinimalEthSpec as E, SignedBeaconBlock, Slot,
     };
 
     fn rand_block() -> SignedBeaconBlock<E> {
@@ -614,7 +688,13 @@ mod tests {
             Duration::from_secs(0),
             Duration::from_secs(spec.seconds_per_slot),
         );
-        let da_checker = Arc::new(DataAvailabilityChecker::new(slot_clock, None, spec));
+        let log = NullLoggerBuilder.build().expect("logger should build");
+        let store = HotColdDB::open_ephemeral(StoreConfig::default(), ChainSpec::minimal(), log)
+            .expect("store");
+        let da_checker = Arc::new(
+            DataAvailabilityChecker::new(slot_clock, None, store.into(), spec)
+                .expect("data availability checker"),
+        );
         let mut sl =
             SingleBlockLookup::<4, T>::new(block.canonical_root(), None, peer_id, da_checker);
         sl.request_block().unwrap();
@@ -632,8 +712,14 @@ mod tests {
             Duration::from_secs(0),
             Duration::from_secs(spec.seconds_per_slot),
         );
+        let log = NullLoggerBuilder.build().expect("logger should build");
+        let store = HotColdDB::open_ephemeral(StoreConfig::default(), ChainSpec::minimal(), log)
+            .expect("store");
 
-        let da_checker = Arc::new(DataAvailabilityChecker::new(slot_clock, None, spec));
+        let da_checker = Arc::new(
+            DataAvailabilityChecker::new(slot_clock, None, store.into(), spec)
+                .expect("data availability checker"),
+        );
 
         let mut sl = SingleBlockLookup::<FAILURES, T>::new(
             block.canonical_root(),

@@ -37,6 +37,7 @@ pub enum AvailabilityCheckError {
     SszTypes(ssz_types::Error),
     MissingBlobs,
     NumBlobsMismatch {
+        /// The peer sent us an invalid block, we must penalise harshly.
         num_kzg_commitments: usize,
         num_blobs: usize,
     },

@@ -312,7 +312,9 @@ pub enum BlockError<T: EthSpec> {
     ParentExecutionPayloadInvalid {
         parent_root: Hash256,
     },
+    /// The blob alone failed validation.
     BlobValidation(BlobError<T>),
+    /// The block and blob together failed validation.
     AvailabilityCheck(AvailabilityCheckError),
     MissingBlockParts(Slot, Hash256),
 }

@@ -546,7 +546,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                             );
                         }
 
-                        self.request_parent_blob(parent_lookup, cx);
+                        self.request_parent_blobs(parent_lookup, cx);
                     } else {
                         self.parent_lookups.push(parent_lookup)
                     }
@@ -557,53 +557,9 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 // processing result arrives.
                 self.parent_lookups.push(parent_lookup);
             }
-            Err(e) => match e {
-                ParentVerifyError::RootMismatch
-                | ParentVerifyError::NoBlockReturned
-                | ParentVerifyError::NotEnoughBlobsReturned
-                | ParentVerifyError::ExtraBlocksReturned
-                | ParentVerifyError::UnrequestedBlobId
-                | ParentVerifyError::ExtraBlobsReturned
-                | ParentVerifyError::InvalidIndex(_) => {
-                    let e = e.into();
-                    warn!(self.log, "Peer sent invalid response to parent request.";
-                        "peer_id" => %peer_id, "reason" => %e);
-
-                    // We do not tolerate these kinds of errors. We will accept a few but these are signs
-                    // of a faulty peer.
-                    cx.report_peer(peer_id, PeerAction::LowToleranceError, e);
-
-                    // We try again if possible.
-                    self.request_parent_block(parent_lookup, cx);
-                }
-                ParentVerifyError::PreviousFailure { parent_root } => {
-                    debug!(
-                        self.log,
-                        "Parent chain ignored due to past failure";
-                        "block" => %parent_root,
-                    );
-                    // Add the root block to failed chains
-                    self.failed_chains.insert(parent_lookup.chain_hash());
-
-                    cx.report_peer(
-                        peer_id,
-                        PeerAction::MidToleranceError,
-                        "bbroot_failed_chains",
-                    );
-                }
-                ParentVerifyError::BenignFailure => {
-                    trace!(
-                        self.log,
-                        "Requested peer could not respond to block request, requesting a new peer";
-                    );
-                    parent_lookup
-                        .current_parent_request
-                        .block_request_state
-                        .potential_peers
-                        .remove(&peer_id);
-                    self.request_parent_block(parent_lookup, cx);
-                }
-            },
+            Err(e) => {
+                self.handle_parent_verify_error(peer_id, parent_lookup, ResponseType::Block, e, cx)
+            }
         };
 
         metrics::set_gauge(
@@ -660,53 +616,9 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 // Waiting for more blobs to arrive
                 self.parent_lookups.push(parent_lookup);
             }
-            Err(e) => match e {
-                ParentVerifyError::RootMismatch
-                | ParentVerifyError::NoBlockReturned
-                | ParentVerifyError::NotEnoughBlobsReturned
-                | ParentVerifyError::ExtraBlocksReturned
-                | ParentVerifyError::UnrequestedBlobId
-                | ParentVerifyError::ExtraBlobsReturned
-                | ParentVerifyError::InvalidIndex(_) => {
-                    let e = e.into();
-                    warn!(self.log, "Peer sent invalid response to parent request.";
-                        "peer_id" => %peer_id, "reason" => %e);
-
-                    // We do not tolerate these kinds of errors. We will accept a few but these are signs
-                    // of a faulty peer.
-                    cx.report_peer(peer_id, PeerAction::LowToleranceError, e);
-
-                    // We try again if possible.
-                    self.request_parent_blob(parent_lookup, cx);
-                }
-                ParentVerifyError::PreviousFailure { parent_root } => {
-                    debug!(
-                        self.log,
-                        "Parent chain ignored due to past failure";
-                        "block" => %parent_root,
-                    );
-                    // Add the root block to failed chains
-                    self.failed_chains.insert(parent_lookup.chain_hash());
-
-                    cx.report_peer(
-                        peer_id,
-                        PeerAction::MidToleranceError,
-                        "bbroot_failed_chains",
-                    );
-                }
-                ParentVerifyError::BenignFailure => {
-                    trace!(
-                        self.log,
-                        "Requested peer could not respond to blob request, requesting a new peer";
-                    );
-                    parent_lookup
-                        .current_parent_request
-                        .blob_request_state
-                        .potential_peers
-                        .remove(&peer_id);
-                    self.request_parent_blob(parent_lookup, cx);
-                }
-            },
+            Err(e) => {
+                self.handle_parent_verify_error(peer_id, parent_lookup, ResponseType::Blob, e, cx)
+            }
         };
 
         metrics::set_gauge(
@@ -715,36 +627,91 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         );
     }
 
+    fn handle_parent_verify_error(
+        &mut self,
+        peer_id: PeerId,
+        mut parent_lookup: ParentLookup<T>,
+        response_type: ResponseType,
+        e: ParentVerifyError,
+        cx: &mut SyncNetworkContext<T>,
+    ) {
+        match e {
+            ParentVerifyError::RootMismatch
+            | ParentVerifyError::NoBlockReturned
+            | ParentVerifyError::NotEnoughBlobsReturned
+            | ParentVerifyError::ExtraBlocksReturned
+            | ParentVerifyError::UnrequestedBlobId
+            | ParentVerifyError::ExtraBlobsReturned
+            | ParentVerifyError::InvalidIndex(_) => {
+                let e = e.into();
+                warn!(self.log, "Peer sent invalid response to parent request.";
+                        "peer_id" => %peer_id, "reason" => %e);
+
+                // We do not tolerate these kinds of errors. We will accept a few but these are signs
+                // of a faulty peer.
+                cx.report_peer(peer_id, PeerAction::LowToleranceError, e);
+
+                // We try again if possible.
+                match response_type {
+                    ResponseType::Block => self.request_parent_block(parent_lookup, cx),
+                    ResponseType::Blob => self.request_parent_blobs(parent_lookup, cx),
+                };
+            }
+            ParentVerifyError::PreviousFailure { parent_root } => {
+                debug!(
+                    self.log,
+                    "Parent chain ignored due to past failure";
+                    "block" => %parent_root,
+                );
+                // Add the root block to failed chains
+                self.failed_chains.insert(parent_lookup.chain_hash());
+
+                cx.report_peer(
+                    peer_id,
+                    PeerAction::MidToleranceError,
+                    "bbroot_failed_chains",
+                );
+            }
+            ParentVerifyError::BenignFailure => {
+                trace!(
+                    self.log,
+                    "Requested peer could not respond to block request, requesting a new peer";
+                );
+                parent_lookup
+                    .current_parent_request
+                    .remove_peer_if_useless(&peer_id, response_type);
+                match response_type {
+                    ResponseType::Block => self.request_parent_block(parent_lookup, cx),
+                    ResponseType::Blob => self.request_parent_blobs(parent_lookup, cx),
+                };
+            }
+        }
+    }
+
     /* Error responses */
 
     pub fn peer_disconnected(&mut self, peer_id: &PeerId, cx: &mut SyncNetworkContext<T>) {
         self.single_block_lookups
             .retain_mut(|(block_id_opt, blob_id_opt, req)| {
-            let should_remove_block = block_id_opt
-                .as_mut()
-                .filter(|_| req.block_request_state
-                    .check_peer_disconnected(peer_id)
-                    .is_err())
-                .map(|block_id| {
+                let should_remove_block = should_remove_disconnected_peer(
+                    block_id_opt,
+                    ResponseType::Block,
+                    peer_id,
+                    cx,
+                    req,
+                    &self.log,
+                );
+                let should_remove_blob = should_remove_disconnected_peer(
+                    blob_id_opt,
+                    ResponseType::Blob,
+                    peer_id,
+                    cx,
+                    req,
+                    &self.log,
+                );
 
-                    trace!(self.log, "Single block lookup failed on peer disconnection"; "block_root" => ?req.requested_block_root, );
-                    retry_request_after_failure(block_id, req, ResponseType::Block, peer_id, cx, &self.log)
-                })
-                .unwrap_or(ShouldRemoveLookup::False);
-
-            let should_remove_blob = blob_id_opt
-                .as_mut()
-                .filter(|_| req.blob_request_state
-                    .check_peer_disconnected(peer_id)
-                    .is_err())
-                .map(|blob_id| {
-
-                    trace!(self.log, "Single blob lookup failed on peer disconnection"; "block_root" => ?req.requested_block_root, );
-                    retry_request_after_failure(blob_id, req, ResponseType::Blob, peer_id, cx, &self.log)
-                })
-                .unwrap_or(ShouldRemoveLookup::False);
-
-            matches!(should_remove_block, ShouldRemoveLookup::False) && matches!(should_remove_blob, ShouldRemoveLookup::False)
+                matches!(should_remove_block, ShouldRemoveLookup::False)
+                    && matches!(should_remove_blob, ShouldRemoveLookup::False)
             });
 
         /* Check disconnection for parent lookups */
@@ -790,7 +757,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             parent_lookup.blob_download_failed();
             trace!(self.log, "Parent lookup blobs request failed"; &parent_lookup, "error" => msg);
 
-            self.request_parent_blob(parent_lookup, cx);
+            self.request_parent_blobs(parent_lookup, cx);
         } else {
             return debug!(self.log, "RPC failure for a blobs parent lookup request that was not found"; "peer_id" => %peer_id, "error" => msg);
         };
@@ -808,30 +775,32 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         error: RPCError,
     ) {
         let msg = error.as_static_str();
-        self.single_block_lookups.retain_mut(|(block_id_opt, blob_id_opt, req)|{
+        self.single_block_lookups
+            .retain_mut(|(block_id_opt, blob_id_opt, req)| {
+                let should_remove_block = should_remove_failed_lookup(
+                    block_id_opt,
+                    ResponseType::Block,
+                    id,
+                    msg,
+                    peer_id,
+                    cx,
+                    req,
+                    &self.log,
+                );
+                let should_remove_blob = should_remove_failed_lookup(
+                    blob_id_opt,
+                    ResponseType::Blob,
+                    id,
+                    msg,
+                    peer_id,
+                    cx,
+                    req,
+                    &self.log,
+                );
 
-            let should_remove_block = block_id_opt
-                .as_mut()
-                .filter(|block_id| **block_id == id)
-                .map(|block_id| {
-                    req.block_request_state.register_failure_downloading();
-                    trace!(self.log, "Single block lookup failed"; "block" => %req.requested_block_root, "error" => msg);
-                    retry_request_after_failure(block_id, req, ResponseType::Block, peer_id, cx, &self.log)
-                })
-                .unwrap_or(ShouldRemoveLookup::False);
-
-            let should_remove_blob = blob_id_opt
-                .as_mut()
-                .filter(|blob_id| **blob_id == id)
-                .map(|blob_id| {
-                    req.blob_request_state.register_failure_downloading();
-                    trace!(self.log, "Single blob lookup failed"; "block" => %req.requested_block_root, "error" =>msg);
-                    retry_request_after_failure(blob_id, req, ResponseType::Block, peer_id, cx, &self.log)
-                })
-                .unwrap_or(ShouldRemoveLookup::False);
-
-            matches!(should_remove_block, ShouldRemoveLookup::False) && matches!(should_remove_blob, ShouldRemoveLookup::False)
-        });
+                matches!(should_remove_block, ShouldRemoveLookup::False)
+                    && matches!(should_remove_blob, ShouldRemoveLookup::False)
+            });
 
         metrics::set_gauge(
             &metrics::SYNC_SINGLE_BLOCK_LOOKUPS,
@@ -850,13 +819,9 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     ) {
         let lookup_components_opt = self.single_block_lookups.iter_mut().enumerate().find_map(
             |(index, (block_id_opt, blob_id_opt, req))| {
-                let id_filter = |id: &Id| -> bool { target_id == *id };
-                let block_matches = block_id_opt.as_ref().map(id_filter).unwrap_or(false);
-                let blob_matches = blob_id_opt.as_ref().map(id_filter).unwrap_or(false);
-                if !block_matches && !blob_matches {
-                    return None;
-                }
-                Some((index, block_id_opt, blob_id_opt, req))
+                let block_match = block_id_opt.as_ref() == Some(&target_id);
+                let blob_match = blob_id_opt.as_ref() == Some(&target_id);
+                (block_match || blob_match).then_some((index, block_id_opt, blob_id_opt, req))
             },
         );
         let (index, block_id_ref, blob_id_ref, request_ref) = match lookup_components_opt {
@@ -883,116 +848,14 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                     trace!(self.log, "Single block processing succeeded"; "block" => %root);
                     ShouldRemoveLookup::True
                 }
-                AvailabilityProcessingStatus::MissingComponents(_, block_root) => {
-                    // if peer should have both, and missing components is received after we've
-                    // processed the opposite, then we can downscore.
-                    let should_remove = match response_type {
-                        ResponseType::Block => {
-                            if request_ref.blob_request_state.component_processed {
-                                match request_ref.processing_peer(ResponseType::Blob) {
-                                    Ok(PeerShouldHave::BlockAndBlobs(other_peer)) => {
-                                        cx.report_peer(
-                                            peer_id.to_peer_id(),
-                                            PeerAction::MidToleranceError,
-                                            "single_block_failure",
-                                        );
-                                        if let Some(blob_id_ref) = blob_id_ref {
-                                            // Try it again if possible.
-                                            retry_request_after_failure(
-                                                blob_id_ref,
-                                                request_ref,
-                                                ResponseType::Blob,
-                                                peer_id.as_peer_id(),
-                                                cx,
-                                                &self.log,
-                                            )
-                                        } else {
-                                            ShouldRemoveLookup::False
-                                        }
-                                    }
-                                    Ok(PeerShouldHave::Neither(other_peer)) => {
-                                        request_ref
-                                            .blob_request_state
-                                            .remove_peer_if_useless(&other_peer);
-                                        if let Some(blob_id_ref) = blob_id_ref {
-                                            // Try it again if possible.
-                                            retry_request_after_failure(
-                                                blob_id_ref,
-                                                request_ref,
-                                                ResponseType::Blob,
-                                                peer_id.as_peer_id(),
-                                                cx,
-                                                &self.log,
-                                            )
-                                        } else {
-                                            ShouldRemoveLookup::False
-                                        }
-                                    }
-                                    Err(()) => {
-                                        //TODO(sean) retry?
-                                        ShouldRemoveLookup::False
-                                    }
-                                }
-                            } else {
-                                request_ref.block_request_state.component_processed = true;
-                                ShouldRemoveLookup::False
-                            }
-                        }
-                        ResponseType::Blob => {
-                            if request_ref.block_request_state.component_processed {
-                                match request_ref.processing_peer(ResponseType::Blob) {
-                                    Ok(PeerShouldHave::BlockAndBlobs(other_peer)) => {
-                                        cx.report_peer(
-                                            other_peer,
-                                            PeerAction::MidToleranceError,
-                                            "single_block_failure",
-                                        );
-                                        if let Some(blob_id_ref) = blob_id_ref {
-                                            // Try it again if possible.
-                                            retry_request_after_failure(
-                                                blob_id_ref,
-                                                request_ref,
-                                                ResponseType::Blob,
-                                                peer_id.as_peer_id(),
-                                                cx,
-                                                &self.log,
-                                            )
-                                        } else {
-                                            ShouldRemoveLookup::False
-                                        }
-                                    }
-                                    Ok(PeerShouldHave::Neither(other_peer)) => {
-                                        request_ref
-                                            .blob_request_state
-                                            .remove_peer_if_useless(&other_peer);
-                                        if let Some(blob_id_ref) = blob_id_ref {
-                                            // Try it again if possible.
-                                            retry_request_after_failure(
-                                                blob_id_ref,
-                                                request_ref,
-                                                ResponseType::Blob,
-                                                peer_id.as_peer_id(),
-                                                cx,
-                                                &self.log,
-                                            )
-                                        } else {
-                                            ShouldRemoveLookup::False
-                                        }
-                                    }
-                                    Err(()) => {
-                                        //TODO(sean) retry?
-                                        ShouldRemoveLookup::False
-                                    }
-                                }
-                            } else {
-                                // retry  block here?
-
-                                request_ref.blob_request_state.component_processed = true;
-                                ShouldRemoveLookup::False
-                            }
-                        }
-                    };
-                    should_remove
+                AvailabilityProcessingStatus::MissingComponents(_, _block_root) => {
+                    should_remove_missing_components(
+                        request_ref,
+                        response_type,
+                        blob_id_ref,
+                        cx,
+                        &self.log,
+                    )
                 }
             },
             BlockProcessingResult::Ignored => {
@@ -1018,13 +881,14 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                         ShouldRemoveLookup::True
                     }
                     BlockError::ParentUnknown(block) => {
-                        self.search_parent(
-                            block.slot(),
-                            root,
-                            block.parent_root(),
-                            peer_id.to_peer_id(),
-                            cx,
-                        );
+                        let slot = block.slot();
+                        let parent_root = block.parent_root();
+                        let (block, blobs) = block.deconstruct();
+                        request_ref.add_unknown_parent_block(block);
+                        if let Some(blobs) = blobs {
+                            request_ref.add_unknown_parent_blobs(blobs);
+                        }
+                        self.search_parent(slot, root, parent_root, peer_id.to_peer_id(), cx);
                         ShouldRemoveLookup::False
                     }
                     ref e @ BlockError::ExecutionPayloadError(ref epe) if !epe.penalize_peer() => {
@@ -1047,27 +911,32 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                         );
                         if let Some(blob_id_ref) = blob_id_ref {
                             // Try it again if possible.
-                            retry_request_after_failure(
-                                blob_id_ref,
-                                request_ref,
-                                ResponseType::Blob,
-                                peer_id.as_peer_id(),
-                                cx,
-                                &self.log,
-                            )
-                        } else if let Some(block_id_ref) = block_id_ref {
-                            // Try it again if possible.
-                            retry_request_after_failure(
-                                block_id_ref,
-                                request_ref,
-                                ResponseType::Block,
-                                peer_id.as_peer_id(),
-                                cx,
-                                &self.log,
-                            )
-                        } else {
-                            ShouldRemoveLookup::True
+                            if !request_ref.awaiting_download(ResponseType::Blob) {
+                                retry_request_after_failure(
+                                    blob_id_ref,
+                                    request_ref,
+                                    ResponseType::Blob,
+                                    peer_id.as_peer_id(),
+                                    cx,
+                                    &self.log,
+                                );
+                            }
                         }
+
+                        if let Some(block_id_ref) = block_id_ref {
+                            if !request_ref.awaiting_download(ResponseType::Block) {
+                                // Try it again if possible.
+                                retry_request_after_failure(
+                                    block_id_ref,
+                                    request_ref,
+                                    ResponseType::Block,
+                                    peer_id.as_peer_id(),
+                                    cx,
+                                    &self.log,
+                                );
+                            }
+                        }
+                        ShouldRemoveLookup::False
                     }
                 }
             }
@@ -1396,7 +1265,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         self.handle_response(parent_lookup, cx, response, ResponseType::Block);
     }
 
-    fn request_parent_blob(
+    fn request_parent_blobs(
         &mut self,
         mut parent_lookup: ParentLookup<T>,
         cx: &mut SyncNetworkContext<T>,
@@ -1498,19 +1367,7 @@ fn handle_block_lookup_verify_error<T: BeaconChainTypes>(
     log: &Logger,
 ) -> ShouldRemoveLookup {
     let msg = if matches!(e, LookupVerifyError::BenignFailure) {
-        match response_type {
-            // Only remove a potential peer if there are better options
-            ResponseType::Block => {
-                request_ref
-                    .block_request_state
-                    .remove_peer_if_useless(&peer_id);
-            }
-            ResponseType::Blob => {
-                request_ref
-                    .blob_request_state
-                    .remove_peer_if_useless(&peer_id);
-            }
-        };
+        request_ref.remove_peer_if_useless(&peer_id, response_type);
         "peer could not response to request"
     } else {
         let msg = e.into();
@@ -1576,6 +1433,86 @@ fn retry_request_after_failure<T: BeaconChainTypes>(
                     "block_root" => ?requested_block_root, 
                     "response_type" => ?response_type);
             return ShouldRemoveLookup::True;
+        }
+    }
+    ShouldRemoveLookup::False
+}
+
+fn should_remove_disconnected_peer<T: BeaconChainTypes>(
+    id: &mut Option<Id>,
+    response_type: ResponseType,
+    peer_id: &PeerId,
+    cx: &mut SyncNetworkContext<T>,
+    req: &mut SingleBlockLookup<SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS, T>,
+    log: &Logger,
+) -> ShouldRemoveLookup {
+    id
+        .as_mut()
+        .filter(|_| req.check_peer_disconnected(peer_id, response_type)
+            .is_err())
+        .map(|block_id| {
+            trace!(log, "Single lookup failed on peer disconnection"; "block_root" => ?req.requested_block_root, "response_type" => ?response_type);
+            retry_request_after_failure(block_id, req, response_type, peer_id, cx, log)
+        })
+        .unwrap_or(ShouldRemoveLookup::False)
+}
+
+fn should_remove_failed_lookup<T: BeaconChainTypes>(
+    id: &mut Option<Id>,
+    response_type: ResponseType,
+    target_id: Id,
+    msg: &'static str,
+    peer_id: &PeerId,
+    cx: &mut SyncNetworkContext<T>,
+    req: &mut SingleBlockLookup<SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS, T>,
+    log: &Logger,
+) -> ShouldRemoveLookup {
+    id
+        .as_mut()
+        .filter(|id| **id == target_id)
+        .map(|id| {
+            req.register_failure_downloading(response_type);
+            trace!(log, "Single lookup failed"; "block" => %req.requested_block_root, "error" => msg, "response_type" => ?response_type);
+            retry_request_after_failure(id, req, response_type, peer_id, cx, log)
+        })
+        .unwrap_or(ShouldRemoveLookup::False)
+}
+
+fn should_remove_missing_components<T: BeaconChainTypes>(
+    request_ref: &mut SingleBlockLookup<SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS, T>,
+    response_type: ResponseType,
+    blob_id_ref: &mut Option<Id>,
+    cx: &mut SyncNetworkContext<T>,
+    log: &Logger,
+) -> ShouldRemoveLookup {
+    request_ref.set_component_processed(response_type);
+
+    // If we get a missing component response after processing both a blob and a block response, the
+    // blobs must be what are missing.
+    if request_ref.both_components_processed() {
+        let Ok(blob_peer) = request_ref.processing_peer(ResponseType::Blob) else {
+            return ShouldRemoveLookup::False;
+        };
+        if let PeerShouldHave::BlockAndBlobs(blob_peer) = blob_peer {
+            cx.report_peer(
+                blob_peer,
+                PeerAction::MidToleranceError,
+                "single_block_failure",
+            );
+        }
+        request_ref.remove_peer_if_useless(blob_peer.as_peer_id(), ResponseType::Blob);
+        if let Some(blob_id_ref) = blob_id_ref {
+            if !request_ref.awaiting_download(ResponseType::Blob) {
+                // Try it again if possible.
+                return retry_request_after_failure(
+                    blob_id_ref,
+                    request_ref,
+                    ResponseType::Blob,
+                    blob_peer.as_peer_id(),
+                    cx,
+                    log,
+                );
+            }
         }
     }
     ShouldRemoveLookup::False

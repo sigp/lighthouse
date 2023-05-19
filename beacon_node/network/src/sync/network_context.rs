@@ -70,7 +70,7 @@ pub struct SyncNetworkContext<T: BeaconChainTypes> {
 /// Small enumeration to make dealing with block and blob requests easier.
 pub enum BlockOrBlob<T: EthSpec> {
     Block(Option<Arc<SignedBeaconBlock<T>>>),
-    Sidecar(Option<Arc<BlobSidecar<T>>>),
+    Blob(Option<Arc<BlobSidecar<T>>>),
 }
 
 impl<T: EthSpec> From<Option<Arc<SignedBeaconBlock<T>>>> for BlockOrBlob<T> {
@@ -81,7 +81,7 @@ impl<T: EthSpec> From<Option<Arc<SignedBeaconBlock<T>>>> for BlockOrBlob<T> {
 
 impl<T: EthSpec> From<Option<Arc<BlobSidecar<T>>>> for BlockOrBlob<T> {
     fn from(blob: Option<Arc<BlobSidecar<T>>>) -> Self {
-        BlockOrBlob::Sidecar(blob)
+        BlockOrBlob::Blob(blob)
     }
 }
 
@@ -312,7 +312,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 let info = &mut req.block_blob_info;
                 match block_or_blob {
                     BlockOrBlob::Block(maybe_block) => info.add_block_response(maybe_block),
-                    BlockOrBlob::Sidecar(maybe_sidecar) => info.add_sidecar_response(maybe_sidecar),
+                    BlockOrBlob::Blob(maybe_sidecar) => info.add_sidecar_response(maybe_sidecar),
                 }
                 if info.is_finished() {
                     // If the request is finished, dequeue everything
@@ -389,7 +389,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 let (_, info) = entry.get_mut();
                 match block_or_blob {
                     BlockOrBlob::Block(maybe_block) => info.add_block_response(maybe_block),
-                    BlockOrBlob::Sidecar(maybe_sidecar) => info.add_sidecar_response(maybe_sidecar),
+                    BlockOrBlob::Blob(maybe_sidecar) => info.add_sidecar_response(maybe_sidecar),
                 }
                 if info.is_finished() {
                     // If the request is finished, dequeue everything
