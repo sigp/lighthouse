@@ -2328,37 +2328,40 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path("health"))
         .and(warp::path::end())
         .and(network_globals.clone())
+        .and(chain_filter.clone())
         .and_then(
             |network_globals: Arc<NetworkGlobals<T::EthSpec>>, chain: Arc<BeaconChain<T>>| {
-                blocking_response_task(move || {
-                    let el_offline = if let Some(el) = &chain.execution_layer {
-                        el.is_offline_or_erroring().await
-                    } else {
-                        true
-                    };
+                async move {
 
-                    let is_optimistic = chain
-                        .is_optimistic_or_invalid_head()
-                        .map_err(warp_utils::reject::beacon_chain_error)?;
+                    blocking_response_task(move || {
+                        let el_offline = if let Some(el) = &chain.execution_layer {
+                            el.is_offline_or_erroring().await
+                        } else {
+                            true
+                        };
 
-                    let is_syncing = network_globals.sync_state.read().is_syncing();
+                        let is_optimistic = chain
+                            .is_optimistic_or_invalid_head()
+                            .map_err(warp_utils::reject::beacon_chain_error)?;
 
-                    let unhealthy = is_syncing || Some(is_optimistic) || Some(el_offline);
+                        let is_syncing = network_globals.sync_state.read().is_syncing();
 
-                    if (unhealthy) {
-                        Err(warp_utils::reject::not_synced(format!(
-                            "node is unhealthy, is_syncing: {}, is_optimistic: {}, el_offline: {}",
-                            is_syncing,
-                            Some(is_optimistic),
-                            Some(el_offline)
-                        )))
-                    } else {
+                        let unhealthy = is_syncing || Some(is_optimistic) || Some(el_offline);
+
+                        if unhealthy {
+                            Err(warp_utils::reject::not_synced(format!(
+                                "node is unhealthy, is_syncing: {}, is_optimistic: {}, el_offline: {}",
+                                is_syncing,
+                                Some(is_optimistic),
+                                Some(el_offline)
+                            )))
+                        }
                         Ok(warp::reply::with_status(
                             warp::reply(),
                             warp::http::StatusCode::OK,
                         ))
-                    }
-                });
+                    });
+                }
             },
         );
 
