@@ -582,6 +582,12 @@ pub struct SyncingData {
     pub sync_distance: Slot,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct HealthData {
+    pub is_unhealthy: bool,
+}
+
+
 #[derive(Clone, PartialEq, Debug, Deserialize)]
 #[serde(try_from = "String", bound = "T: FromStr")]
 pub struct QueryVec<T: FromStr> {
