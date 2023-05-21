@@ -2345,11 +2345,7 @@ pub fn serve<T: BeaconChainTypes>(
 
                         let is_syncing = network_globals.sync_state.read().is_syncing(); 
 
-                        let health_data = api_types::HealthData {
-                            is_unhealthy: is_syncing || Some(is_optimistic) || Some(el_offline)
-                        };
-
-                        Ok(api_types::GenericResponse::from(health_data))
+                        let unhealthy =  is_syncing || Some(is_optimistic) || Some(el_offline);
                     })
                     .await
                 }
