@@ -2329,26 +2329,29 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path::end())
         .and(network_globals.clone())
         .and_then(
-            |network_globals: Arc<NetworkGlobals<T::EthSpec>>, chain: Arc<BeaconChain<T>>| {       
-                blocking_response_task(move || { 
+            |network_globals: Arc<NetworkGlobals<T::EthSpec>>, chain: Arc<BeaconChain<T>>| {
+                blocking_response_task(move || {
                     let el_offline = if let Some(el) = &chain.execution_layer {
                         el.is_offline_or_erroring().await
                     } else {
                         true
                     };
-                    
+
                     let is_optimistic = chain
                         .is_optimistic_or_invalid_head()
                         .map_err(warp_utils::reject::beacon_chain_error)?;
 
-                    let is_syncing = network_globals.sync_state.read().is_syncing(); 
+                    let is_syncing = network_globals.sync_state.read().is_syncing();
 
-                    let unhealthy =  is_syncing || Some(is_optimistic) || Some(el_offline);
+                    let unhealthy = is_syncing || Some(is_optimistic) || Some(el_offline);
 
                     if (unhealthy) {
-                        Err(warp_utils::reject::not_synced(
-                            "sync stalled, beacon chain may not yet be initialized.".to_string(),
-                        ))
+                        Err(warp_utils::reject::not_synced(format!(
+                            "node is unhealthy, is_syncing: {}, is_optimistic: {}, el_offline: {}",
+                            is_syncing,
+                            Some(is_optimistic),
+                            Some(el_offline)
+                        )))
                     } else {
                         Ok(warp::reply::with_status(
                             warp::reply(),
