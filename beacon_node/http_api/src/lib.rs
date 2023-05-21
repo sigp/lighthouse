@@ -2340,7 +2340,7 @@ pub fn serve<T: BeaconChainTypes>(
                     };
 
                     blocking_response_task( move || {
-                       
+
                         let is_optimistic = chain
                             .is_optimistic_or_invalid_head()
                             .map_err(warp_utils::reject::beacon_chain_error)?;
