@@ -71,7 +71,9 @@ pub async fn publish_block<T: BeaconChainTypes>(
     let log_clone = log.clone();
     let sender_clone = network_tx.clone();
 
-    let publish_fn = move || {
+    let gossip_only_publish_fn = move || Ok(());
+
+    let consensus_and_equivocation_publish_fn = move || {
         if chain_clone
             .observed_block_producers
             .write()
@@ -96,6 +98,16 @@ pub async fn publish_block<T: BeaconChainTypes>(
         let message = PubsubMessage::BeaconBlock(block_clone);
         crate::publish_pubsub_message(&sender_clone, message).map_err(|_| BlockError::PublishError)
     };
+
+    let publish_fn: Box<dyn FnOnce() -> Result<(), BlockError<T::EthSpec>> + Send + 'static> =
+        if let Some(level) = validation_level {
+            match level {
+                BroadcastValidation::Gossip => Box::new(gossip_only_publish_fn),
+                _ => Box::new(consensus_and_equivocation_publish_fn),
+            }
+        } else {
+            Box::new(move || Ok(()))
+        };
 
     match chain
         .process_block(
