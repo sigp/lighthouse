@@ -9,6 +9,7 @@ use lighthouse_network::{
 };
 use serde_derive::{Deserialize, Serialize};
 use ssz::Encode;
+use std::net::{SocketAddrV4, SocketAddrV6};
 use std::{marker::PhantomData, path::PathBuf};
 use types::EthSpec;
 
@@ -141,6 +142,8 @@ impl<T: EthSpec> BootNodeConfig<T> {
 /// Its fields are a subset of the fields of `BootNodeConfig`, some of them are copied from `Discv5Config`.
 #[derive(Serialize, Deserialize)]
 pub struct BootNodeConfigSerialization {
+    pub ipv4_listen_socket: Option<SocketAddrV4>,
+    pub ipv6_listen_socket: Option<SocketAddrV6>,
     // TODO: Generalise to multiaddr
     pub boot_nodes: Vec<Enr>,
     pub local_enr: Enr,
@@ -160,7 +163,27 @@ impl BootNodeConfigSerialization {
             phantom: _,
         } = config;
 
+        let (ipv4_listen_socket, ipv6_listen_socket) = match discv5_config.listen_config {
+            lighthouse_network::discv5::ListenConfig::Ipv4 { ip, port } => {
+                (Some(SocketAddrV4::new(ip, port)), None)
+            }
+            lighthouse_network::discv5::ListenConfig::Ipv6 { ip, port } => {
+                (None, Some(SocketAddrV6::new(ip, port, 0, 0)))
+            }
+            lighthouse_network::discv5::ListenConfig::DualStack {
+                ipv4,
+                ipv4_port,
+                ipv6,
+                ipv6_port,
+            } => (
+                Some(SocketAddrV4::new(ipv4, ipv4_port)),
+                Some(SocketAddrV6::new(ipv6, ipv6_port, 0, 0)),
+            ),
+        };
+
         BootNodeConfigSerialization {
+            ipv4_listen_socket,
+            ipv6_listen_socket,
             boot_nodes: boot_nodes.clone(),
             local_enr: local_enr.clone(),
             disable_packet_filter: !discv5_config.enable_packet_filter,
