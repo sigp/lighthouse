@@ -182,7 +182,10 @@ impl<E: EthSpec> CandidateBeaconNode<E> {
         spec: &ChainSpec,
         log: &Logger,
     ) -> Result<(), CandidateError> {
-        let new_status = if let Err(e) = self.is_online(log).await {
+        let previous_status = self.status(RequireSynced::Yes).await;
+        let was_offline = matches!(previous_status, Err(CandidateError::Offline));
+
+        let new_status = if let Err(e) = self.is_online(was_offline, log).await {
             Err(e)
         } else if let Err(e) = self.is_compatible(spec, log).await {
             Err(e)
@@ -202,7 +205,7 @@ impl<E: EthSpec> CandidateBeaconNode<E> {
     }
 
     /// Checks if the node is reachable.
-    async fn is_online(&self, log: &Logger) -> Result<(), CandidateError> {
+    async fn is_online(&self, was_offline: bool, log: &Logger) -> Result<(), CandidateError> {
         let result = self
             .beacon_node
             .get_node_version()
@@ -211,12 +214,14 @@ impl<E: EthSpec> CandidateBeaconNode<E> {
 
         match result {
             Ok(version) => {
-                info!(
-                    log,
-                    "Connected to beacon node";
-                    "version" => version,
-                    "endpoint" => %self.beacon_node,
-                );
+                if was_offline {
+                    info!(
+                        log,
+                        "Connected to beacon node";
+                        "version" => version,
+                        "endpoint" => %self.beacon_node,
+                    );
+                }
                 Ok(())
             }
             Err(e) => {
