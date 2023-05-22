@@ -116,7 +116,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .value_name("PORT")
                 .help("The UDP port that discovery will listen on over IpV6 if listening over \
                       both Ipv4 and IpV6. Defaults to `port6`")
-                .hidden(true) // TODO: implement dual stack via two sockets in discv5.
                 .takes_value(true),
         )
         .arg(
