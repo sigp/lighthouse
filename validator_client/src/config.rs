@@ -205,7 +205,13 @@ impl Config {
             );
         }
 
-        config.allow_unsynced_beacon_node = cli_args.is_present("allow-unsynced");
+        if cli_args.is_present("allow-unsynced") {
+            warn!(
+                log,
+                "The --allow-unsynced flag is deprecated";
+                "msg" => "it no longer has any effect",
+            );
+        }
         config.disable_run_on_all = cli_args.is_present("disable-run-on-all");
         config.disable_auto_discover = cli_args.is_present("disable-auto-discover");
         config.init_slashing_protection = cli_args.is_present("init-slashing-protection");

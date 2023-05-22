@@ -843,7 +843,7 @@ impl ChainSpec {
              */
             capella_fork_version: [0x03, 0x00, 0x00, 0x64],
             capella_fork_epoch: None,
-            max_validators_per_withdrawals_sweep: 16384,
+            max_validators_per_withdrawals_sweep: 8192,
 
             /*
              * Network specific

@@ -134,7 +134,8 @@ impl ApiTester {
                 listen_port: 0,
                 allow_origin: None,
             },
-            log: log.clone(),
+            sse_logging_components: None,
+            log,
             slot_clock: slot_clock.clone(),
             _phantom: PhantomData,
         });

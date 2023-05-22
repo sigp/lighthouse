@@ -577,6 +577,7 @@ pub struct VersionData {
 pub struct SyncingData {
     pub is_syncing: bool,
     pub is_optimistic: Option<bool>,
+    pub el_offline: Option<bool>,
     pub head_slot: Slot,
     pub sync_distance: Slot,
 }

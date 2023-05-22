@@ -6,7 +6,7 @@ use crate::fork_revert::{reset_fork_choice_to_finalization, revert_to_fork_bound
 use crate::head_tracker::HeadTracker;
 use crate::migrate::{BackgroundMigrator, MigratorConfig};
 use crate::persisted_beacon_chain::PersistedBeaconChain;
-use crate::shuffling_cache::ShufflingCache;
+use crate::shuffling_cache::{BlockShufflingIds, ShufflingCache};
 use crate::snapshot_cache::{SnapshotCache, DEFAULT_SNAPSHOT_CACHE_SIZE};
 use crate::timeout_rw_lock::TimeoutRwLock;
 use crate::validator_monitor::ValidatorMonitor;
@@ -691,6 +691,8 @@ where
             )?;
         }
 
+        let head_shuffling_ids = BlockShufflingIds::try_from_head(head_block_root, &head_state)?;
+
         let mut head_snapshot = BeaconSnapshot {
             beacon_block_root: head_block_root,
             beacon_block: Arc::new(head_block),
@@ -847,7 +849,11 @@ where
                 DEFAULT_SNAPSHOT_CACHE_SIZE,
                 head_for_snapshot_cache,
             )),
-            shuffling_cache: TimeoutRwLock::new(ShufflingCache::new(shuffling_cache_size)),
+            shuffling_cache: TimeoutRwLock::new(ShufflingCache::new(
+                shuffling_cache_size,
+                head_shuffling_ids,
+                log.clone(),
+            )),
             eth1_finalization_cache: TimeoutRwLock::new(Eth1FinalizationCache::new(log.clone())),
             beacon_proposer_cache: <_>::default(),
             block_times_cache: <_>::default(),
