@@ -48,6 +48,15 @@ impl<const MAX_ATTEMPTS: u8, T: BeaconChainTypes> SingleBlockLookup<MAX_ATTEMPTS
         }
     }
 
+    pub(crate) fn downloading(&mut self, response_type: ResponseType) -> bool {
+        match response_type {
+            ResponseType::Block => {
+                matches!(self.block_request_state.state, State::Downloading {..})
+            }
+            ResponseType::Blob => matches!(self.blob_request_state.state, State::Downloading { .. }),
+        }
+    }
+
     pub(crate) fn remove_peer_if_useless(&mut self, peer_id: &PeerId, response_type: ResponseType) {
         match response_type {
             ResponseType::Block => self.block_request_state.remove_peer_if_useless(peer_id),

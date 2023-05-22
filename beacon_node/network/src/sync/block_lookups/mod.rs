@@ -909,11 +909,12 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                             PeerAction::MidToleranceError,
                             "single_block_failure",
                         );
-                        if let Some(blob_id_ref) = blob_id_ref {
-                            // Try it again if possible.
-                            if !request_ref.awaiting_download(ResponseType::Blob) {
+                            if matches!(response_type, ResponseType::Blob)
+                                || (!request_ref.blob_request_state.component_processed
+                                    && !request_ref.downloading(ResponseType::Blob))
+                            {
                                 retry_request_after_failure(
-                                    blob_id_ref,
+                                    blob_id_ref.as_mut().unwrap(),
                                     request_ref,
                                     ResponseType::Blob,
                                     peer_id.as_peer_id(),
@@ -921,20 +922,20 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                                     &self.log,
                                 );
                             }
-                        }
 
-                        if let Some(block_id_ref) = block_id_ref {
-                            if !request_ref.awaiting_download(ResponseType::Block) {
+                            if matches!(response_type, ResponseType::Block)
+                                || (!request_ref.block_request_state.component_processed
+                                    && !request_ref.downloading(ResponseType::Block))
+                            {
                                 // Try it again if possible.
                                 retry_request_after_failure(
-                                    block_id_ref,
+                                    block_id_ref.as_mut().unwrap(),
                                     request_ref,
                                     ResponseType::Block,
                                     peer_id.as_peer_id(),
                                     cx,
                                     &self.log,
                                 );
-                            }
                         }
                         ShouldRemoveLookup::False
                     }
@@ -1502,7 +1503,7 @@ fn should_remove_missing_components<T: BeaconChainTypes>(
         }
         request_ref.remove_peer_if_useless(blob_peer.as_peer_id(), ResponseType::Blob);
         if let Some(blob_id_ref) = blob_id_ref {
-            if !request_ref.awaiting_download(ResponseType::Blob) {
+            if !request_ref.downloading(ResponseType::Blob) {
                 // Try it again if possible.
                 return retry_request_after_failure(
                     blob_id_ref,

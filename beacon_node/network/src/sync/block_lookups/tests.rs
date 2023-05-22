@@ -1704,8 +1704,8 @@ mod deneb_only {
             .block_response_triggering_process()
             .invalid_block_processed()
             .expect_penalty()
-            .expect_blobs_request()
             .expect_block_request()
+            .expect_no_blobs_request()
             .blobs_response()
             .missing_components_from_blob_request()
             .expect_no_penalty()
@@ -1726,7 +1726,7 @@ mod deneb_only {
             .invalid_blob_processed()
             .expect_penalty()
             .expect_blobs_request()
-            .expect_block_request();
+            .expect_no_block_request();
     }
 
     #[test]
@@ -1881,8 +1881,8 @@ mod deneb_only {
             .block_response_triggering_process()
             .invalid_block_processed()
             .expect_penalty()
-            .expect_blobs_request()
             .expect_block_request()
+            .expect_no_blobs_request()
             .blobs_response()
             .missing_components_from_blob_request()
             .expect_no_penalty()
@@ -1903,7 +1903,7 @@ mod deneb_only {
             .invalid_blob_processed()
             .expect_penalty()
             .expect_blobs_request()
-            .expect_block_request();
+            .expect_no_block_request();
     }
 
     #[test]
