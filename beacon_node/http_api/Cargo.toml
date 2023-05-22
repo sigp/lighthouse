@@ -36,11 +36,11 @@ tree_hash = "0.5.0"
 sysinfo = "0.26.5"
 system_health = { path = "../../common/system_health" }
 directory = { path = "../../common/directory" }
+logging = { path = "../../common/logging" }
 ethereum_serde_utils = "0.5.0"
 operation_pool = { path = "../operation_pool" }
 sensitive_url = { path = "../../common/sensitive_url" }
 unused_port = {path = "../../common/unused_port"}
-logging = { path = "../../common/logging" }
 store = { path = "../store" }
 
 [dev-dependencies]
