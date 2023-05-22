@@ -1,10 +1,12 @@
 mod api_secret;
+mod create_signed_voluntary_exit;
 mod create_validator;
 mod keystores;
 mod remotekeys;
 mod tests;
 
-use crate::ValidatorStore;
+use crate::http_api::create_signed_voluntary_exit::create_signed_voluntary_exit;
+use crate::{determine_graffiti, GraffitiFile, ValidatorStore};
 use account_utils::{
     mnemonic_from_phrase,
     validator_definitions::{SigningDefinition, ValidatorDefinition, Web3SignerDefinition},
@@ -13,18 +15,24 @@ pub use api_secret::ApiSecret;
 use create_validator::{create_validators_mnemonic, create_validators_web3signer};
 use eth2::lighthouse_vc::{
     std_types::{AuthResponse, GetFeeRecipientResponse, GetGasLimitResponse},
-    types::{self as api_types, GenericResponse, PublicKey, PublicKeyBytes},
+    types::{self as api_types, GenericResponse, Graffiti, PublicKey, PublicKeyBytes},
 };
 use lighthouse_version::version_with_platform;
+use logging::SSELoggingComponents;
+use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use slog::{crit, info, warn, Logger};
 use slot_clock::SlotClock;
+use std::collections::HashMap;
 use std::future::Future;
 use std::marker::PhantomData;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use std::sync::Arc;
+use sysinfo::{System, SystemExt};
+use system_health::observe_system_health_vc;
 use task_executor::TaskExecutor;
+use tokio_stream::{wrappers::BroadcastStream, StreamExt};
 use types::{ChainSpec, ConfigAndPreset, EthSpec};
 use validator_dir::Builder as ValidatorDirBuilder;
 use warp::{
@@ -33,6 +41,7 @@ use warp::{
         response::Response,
         StatusCode,
     },
+    sse::Event,
     Filter,
 };
 
@@ -62,9 +71,13 @@ pub struct Context<T: SlotClock, E: EthSpec> {
     pub api_secret: ApiSecret,
     pub validator_store: Option<Arc<ValidatorStore<T, E>>>,
     pub validator_dir: Option<PathBuf>,
+    pub graffiti_file: Option<GraffitiFile>,
+    pub graffiti_flag: Option<Graffiti>,
     pub spec: ChainSpec,
     pub config: Config,
     pub log: Logger,
+    pub sse_logging_components: Option<SSELoggingComponents>,
+    pub slot_clock: T,
     pub _phantom: PhantomData<E>,
 }
 
@@ -174,14 +187,56 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
             })
         });
 
+    let inner_graffiti_file = ctx.graffiti_file.clone();
+    let graffiti_file_filter = warp::any().map(move || inner_graffiti_file.clone());
+
+    let inner_graffiti_flag = ctx.graffiti_flag;
+    let graffiti_flag_filter = warp::any().map(move || inner_graffiti_flag);
+
     let inner_ctx = ctx.clone();
     let log_filter = warp::any().map(move || inner_ctx.log.clone());
+
+    let inner_slot_clock = ctx.slot_clock.clone();
+    let slot_clock_filter = warp::any().map(move || inner_slot_clock.clone());
 
     let inner_spec = Arc::new(ctx.spec.clone());
     let spec_filter = warp::any().map(move || inner_spec.clone());
 
     let api_token_path_inner = api_token_path.clone();
     let api_token_path_filter = warp::any().map(move || api_token_path_inner.clone());
+
+    // Filter for SEE Logging events
+    let inner_components = ctx.sse_logging_components.clone();
+    let sse_component_filter = warp::any().map(move || inner_components.clone());
+
+    // Create a `warp` filter that provides access to local system information.
+    let system_info = Arc::new(RwLock::new(sysinfo::System::new()));
+    {
+        // grab write access for initialisation
+        let mut system_info = system_info.write();
+        system_info.refresh_disks_list();
+        system_info.refresh_networks_list();
+    } // end lock
+
+    let system_info_filter =
+        warp::any()
+            .map(move || system_info.clone())
+            .map(|sysinfo: Arc<RwLock<System>>| {
+                {
+                    // refresh stats
+                    let mut sysinfo_lock = sysinfo.write();
+                    sysinfo_lock.refresh_memory();
+                    sysinfo_lock.refresh_cpu_specifics(sysinfo::CpuRefreshKind::everything());
+                    sysinfo_lock.refresh_cpu();
+                    sysinfo_lock.refresh_system();
+                    sysinfo_lock.refresh_networks();
+                    sysinfo_lock.refresh_disks();
+                } // end lock
+                sysinfo
+            });
+
+    let app_start = std::time::Instant::now();
+    let app_start_filter = warp::any().map(move || app_start);
 
     // GET lighthouse/version
     let get_node_version = warp::path("lighthouse")
@@ -275,6 +330,60 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                         })?;
 
                     Ok(api_types::GenericResponse::from(validator))
+                })
+            },
+        );
+
+    // GET lighthouse/ui/health
+    let get_lighthouse_ui_health = warp::path("lighthouse")
+        .and(warp::path("ui"))
+        .and(warp::path("health"))
+        .and(warp::path::end())
+        .and(system_info_filter)
+        .and(app_start_filter)
+        .and(validator_dir_filter.clone())
+        .and(signer.clone())
+        .and_then(|sysinfo, app_start: std::time::Instant, val_dir, signer| {
+            blocking_signed_json_task(signer, move || {
+                let app_uptime = app_start.elapsed().as_secs();
+                Ok(api_types::GenericResponse::from(observe_system_health_vc(
+                    sysinfo, val_dir, app_uptime,
+                )))
+            })
+        });
+
+    let get_lighthouse_ui_graffiti = warp::path("lighthouse")
+        .and(warp::path("ui"))
+        .and(warp::path("graffiti"))
+        .and(warp::path::end())
+        .and(validator_store_filter.clone())
+        .and(graffiti_file_filter)
+        .and(graffiti_flag_filter)
+        .and(signer.clone())
+        .and(log_filter.clone())
+        .and_then(
+            |validator_store: Arc<ValidatorStore<T, E>>,
+             graffiti_file: Option<GraffitiFile>,
+             graffiti_flag: Option<Graffiti>,
+             signer,
+             log| {
+                blocking_signed_json_task(signer, move || {
+                    let mut result = HashMap::new();
+                    for (key, graffiti_definition) in validator_store
+                        .initialized_validators()
+                        .read()
+                        .get_all_validators_graffiti()
+                    {
+                        let graffiti = determine_graffiti(
+                            key,
+                            &log,
+                            graffiti_file.clone(),
+                            graffiti_definition,
+                            graffiti_flag,
+                        );
+                        result.insert(key.to_string(), graffiti.map(|g| g.as_utf8_lossy()));
+                    }
+                    Ok(api_types::GenericResponse::from(result))
                 })
             },
         );
@@ -809,6 +918,46 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         )
         .map(|reply| warp::reply::with_status(reply, warp::http::StatusCode::NO_CONTENT));
 
+    // POST /eth/v1/validator/{pubkey}/voluntary_exit
+    let post_validators_voluntary_exits = eth_v1
+        .and(warp::path("validator"))
+        .and(warp::path::param::<PublicKey>())
+        .and(warp::path("voluntary_exit"))
+        .and(warp::query::<api_types::VoluntaryExitQuery>())
+        .and(warp::path::end())
+        .and(validator_store_filter.clone())
+        .and(slot_clock_filter)
+        .and(log_filter.clone())
+        .and(signer.clone())
+        .and(task_executor_filter.clone())
+        .and_then(
+            |pubkey: PublicKey,
+             query: api_types::VoluntaryExitQuery,
+             validator_store: Arc<ValidatorStore<T, E>>,
+             slot_clock: T,
+             log,
+             signer,
+             task_executor: TaskExecutor| {
+                blocking_signed_json_task(signer, move || {
+                    if let Some(handle) = task_executor.handle() {
+                        let signed_voluntary_exit =
+                            handle.block_on(create_signed_voluntary_exit(
+                                pubkey,
+                                query.epoch,
+                                validator_store,
+                                slot_clock,
+                                log,
+                            ))?;
+                        Ok(signed_voluntary_exit)
+                    } else {
+                        Err(warp_utils::reject::custom_server_error(
+                            "Lighthouse shutting down".into(),
+                        ))
+                    }
+                })
+            },
+        );
+
     // GET /eth/v1/keystores
     let get_std_keystores = std_keystores
         .and(signer.clone())
@@ -880,6 +1029,49 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
             })
         });
 
+    // Subscribe to get VC logs via Server side events
+    // /lighthouse/logs
+    let get_log_events = warp::path("lighthouse")
+        .and(warp::path("logs"))
+        .and(warp::path::end())
+        .and(sse_component_filter)
+        .and_then(|sse_component: Option<SSELoggingComponents>| {
+            warp_utils::task::blocking_task(move || {
+                if let Some(logging_components) = sse_component {
+                    // Build a JSON stream
+                    let s =
+                        BroadcastStream::new(logging_components.sender.subscribe()).map(|msg| {
+                            match msg {
+                                Ok(data) => {
+                                    // Serialize to json
+                                    match data.to_json_string() {
+                                        // Send the json as a Server Sent Event
+                                        Ok(json) => Event::default().json_data(json).map_err(|e| {
+                                            warp_utils::reject::server_sent_event_error(format!(
+                                                "{:?}",
+                                                e
+                                            ))
+                                        }),
+                                        Err(e) => Err(warp_utils::reject::server_sent_event_error(
+                                            format!("Unable to serialize to JSON {}", e),
+                                        )),
+                                    }
+                                }
+                                Err(e) => Err(warp_utils::reject::server_sent_event_error(
+                                    format!("Unable to receive event {}", e),
+                                )),
+                            }
+                        });
+
+                    Ok::<_, warp::Rejection>(warp::sse::reply(warp::sse::keep_alive().stream(s)))
+                } else {
+                    Err(warp_utils::reject::custom_server_error(
+                        "SSE Logging is not enabled".to_string(),
+                    ))
+                }
+            })
+        });
+
     let routes = warp::any()
         .and(authorization_header_filter)
         // Note: it is critical that the `authorization_header_filter` is applied to all routes.
@@ -894,6 +1086,8 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                         .or(get_lighthouse_spec)
                         .or(get_lighthouse_validators)
                         .or(get_lighthouse_validators_pubkey)
+                        .or(get_lighthouse_ui_health)
+                        .or(get_lighthouse_ui_graffiti)
                         .or(get_fee_recipient)
                         .or(get_gas_limit)
                         .or(get_std_keystores)
@@ -904,6 +1098,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                         .or(post_validators_keystore)
                         .or(post_validators_mnemonic)
                         .or(post_validators_web3signer)
+                        .or(post_validators_voluntary_exits)
                         .or(post_fee_recipient)
                         .or(post_gas_limit)
                         .or(post_std_keystores)
@@ -917,8 +1112,8 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                         .or(delete_std_remotekeys),
                 )),
         )
-        // The auth route is the only route that is allowed to be accessed without the API token.
-        .or(warp::get().and(get_auth))
+        // The auth route and logs  are the only routes that are allowed to be accessed without the API token.
+        .or(warp::get().and(get_auth.or(get_log_events.boxed())))
         // Maps errors into HTTP responses.
         .recover(warp_utils::reject::handle_rejection)
         // Add a `Server` header.

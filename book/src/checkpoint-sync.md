@@ -41,15 +41,11 @@ Once the checkpoint is loaded Lighthouse will sync forwards to the head of the c
 If a validator client is connected to the node then it will be able to start completing its duties
 as soon as forwards sync completes.
 
-### Use Infura as a remote beacon node provider
+### Use a community checkpoint sync endpoint
 
-You can use Infura as the remote beacon node provider to load the initial checkpoint state.
-
-1. Sign up for the free Infura ETH2 API using the `Create new project tab` on the [Infura dashboard](https://infura.io/dashboard).
-2. Copy the HTTPS endpoint for the required network (Mainnet/Prater).
-3. Use it as the url for the `--checkpoint-sync-url` flag.  e.g.
+The Ethereum community provides various [public endpoints](https://eth-clients.github.io/checkpoint-sync-endpoints/) for you to choose from for your initial checkpoint state. Select one for your network and use it as the url for the `--checkpoint-sync-url` flag.  e.g.
 ```
-lighthouse bn --checkpoint-sync-url https://<PROJECT-ID>:<PROJECT-SECRET>@eth2-beacon-mainnet.infura.io ...
+lighthouse bn --checkpoint-sync-url https://example.com/ ...
 ```
 
 ## Backfilling Blocks
@@ -101,7 +97,7 @@ You can opt-in to reconstructing all of the historic states by providing the
 The database keeps track of three markers to determine the availability of historic blocks and
 states:
 
-* `oldest_block_slot`: All blocks with slots less than or equal to this value are available in the
+* `oldest_block_slot`: All blocks with slots greater than or equal to this value are available in the
   database. Additionally, the genesis block is always available.
 * `state_lower_limit`: All states with slots _less than or equal to_ this value are available in
   the database. The minimum value is 0, indicating that the genesis state is always available.

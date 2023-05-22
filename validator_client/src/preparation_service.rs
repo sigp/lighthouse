@@ -294,7 +294,7 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
             proposal_data.fee_recipient.and_then(|fee_recipient| {
                 proposal_data
                     .builder_proposals
-                    .then(|| ValidatorRegistrationKey {
+                    .then_some(ValidatorRegistrationKey {
                         fee_recipient,
                         gas_limit: proposal_data.gas_limit,
                         pubkey,
@@ -331,8 +331,8 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
         let preparation_entries = preparation_data.as_slice();
         match self
             .beacon_nodes
-            .first_success(
-                RequireSynced::Yes,
+            .run(
+                RequireSynced::No,
                 OfflineOnFailure::Yes,
                 |beacon_node| async move {
                     beacon_node
@@ -349,7 +349,7 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
             ),
             Err(e) => error!(
                 log,
-                "Unable to publish proposer preparation";
+                "Unable to publish proposer preparation to all beacon nodes";
                 "error" => %e,
             ),
         }
@@ -451,7 +451,7 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
                 match self
                     .beacon_nodes
                     .first_success(
-                        RequireSynced::Yes,
+                        RequireSynced::No,
                         OfflineOnFailure::No,
                         |beacon_node| async move {
                             beacon_node.post_validator_register_validator(batch).await

@@ -7,7 +7,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-sha2 = "0.9.1"
+sha2 = "0.10"
 zeroize = { version = "1.4.2", features = ["zeroize_derive"] }
 num-bigint-dig = { version = "0.6.0", features = ["zeroize"] }
 ring = "0.16.19"

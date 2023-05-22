@@ -41,10 +41,11 @@
 use crate::sync::manager::BlockProcessType;
 use crate::{metrics, service::NetworkMessage, sync::SyncMessage};
 use beacon_chain::parking_lot::Mutex;
-use beacon_chain::{BeaconChain, BeaconChainTypes, GossipVerifiedBlock};
+use beacon_chain::{BeaconChain, BeaconChainTypes, GossipVerifiedBlock, NotifyExecutionLayer};
 use derivative::Derivative;
 use futures::stream::{Stream, StreamExt};
 use futures::task::Poll;
+use lighthouse_network::rpc::LightClientBootstrapRequest;
 use lighthouse_network::{
     rpc::{BlocksByRangeRequest, BlocksByRootRequest, StatusMessage},
     Client, MessageId, NetworkGlobals, PeerId, PeerRequestId,
@@ -53,6 +54,7 @@ use logging::TimeLatch;
 use slog::{crit, debug, error, trace, warn, Logger};
 use std::collections::VecDeque;
 use std::future::Future;
+use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::{Arc, Weak};
 use std::task::Context;
@@ -60,13 +62,15 @@ use std::time::Duration;
 use std::{cmp, collections::HashSet};
 use task_executor::TaskExecutor;
 use tokio::sync::mpsc;
+use tokio::sync::mpsc::error::TrySendError;
 use types::{
-    Attestation, AttesterSlashing, Hash256, ProposerSlashing, SignedAggregateAndProof,
-    SignedBeaconBlock, SignedContributionAndProof, SignedVoluntaryExit, SubnetId,
-    SyncCommitteeMessage, SyncSubnetId,
+    Attestation, AttesterSlashing, Hash256, LightClientFinalityUpdate, LightClientOptimisticUpdate,
+    ProposerSlashing, SignedAggregateAndProof, SignedBeaconBlock, SignedBlsToExecutionChange,
+    SignedContributionAndProof, SignedVoluntaryExit, SubnetId, SyncCommitteeMessage, SyncSubnetId,
 };
 use work_reprocessing_queue::{
-    spawn_reprocess_scheduler, QueuedAggregate, QueuedRpcBlock, QueuedUnaggregate, ReadyWork,
+    spawn_reprocess_scheduler, QueuedAggregate, QueuedLightClientUpdate, QueuedRpcBlock,
+    QueuedUnaggregate, ReadyWork,
 };
 
 use worker::{Toolbox, Worker};
@@ -75,7 +79,9 @@ mod tests;
 mod work_reprocessing_queue;
 mod worker;
 
-use crate::beacon_processor::work_reprocessing_queue::QueuedGossipBlock;
+use crate::beacon_processor::work_reprocessing_queue::{
+    QueuedBackfillBatch, QueuedGossipBlock, ReprocessQueueMessage,
+};
 pub use worker::{ChainSegmentProcessId, GossipAggregatePackage, GossipAttestationPackage};
 
 /// The maximum size of the channel for work events to the `BeaconProcessor`.
@@ -128,6 +134,18 @@ const MAX_GOSSIP_PROPOSER_SLASHING_QUEUE_LEN: usize = 4_096;
 /// before we start dropping them.
 const MAX_GOSSIP_ATTESTER_SLASHING_QUEUE_LEN: usize = 4_096;
 
+/// The maximum number of queued `LightClientFinalityUpdate` objects received on gossip that will be stored
+/// before we start dropping them.
+const MAX_GOSSIP_FINALITY_UPDATE_QUEUE_LEN: usize = 1_024;
+
+/// The maximum number of queued `LightClientOptimisticUpdate` objects received on gossip that will be stored
+/// before we start dropping them.
+const MAX_GOSSIP_OPTIMISTIC_UPDATE_QUEUE_LEN: usize = 1_024;
+
+/// The maximum number of queued `LightClientOptimisticUpdate` objects received on gossip that will be stored
+/// for reprocessing before we start dropping them.
+const MAX_GOSSIP_OPTIMISTIC_UPDATE_REPROCESS_QUEUE_LEN: usize = 128;
+
 /// The maximum number of queued `SyncCommitteeMessage` objects that will be stored before we start dropping
 /// them.
 const MAX_SYNC_MESSAGE_QUEUE_LEN: usize = 2048;
@@ -155,6 +173,16 @@ const MAX_BLOCKS_BY_RANGE_QUEUE_LEN: usize = 1_024;
 /// The maximum number of queued `BlocksByRootRequest` objects received from the network RPC that
 /// will be stored before we start dropping them.
 const MAX_BLOCKS_BY_ROOTS_QUEUE_LEN: usize = 1_024;
+
+/// Maximum number of `SignedBlsToExecutionChange` messages to queue before dropping them.
+///
+/// This value is set high to accommodate the large spike that is expected immediately after Capella
+/// is activated.
+const MAX_BLS_TO_EXECUTION_CHANGE_QUEUE_LEN: usize = 16_384;
+
+/// The maximum number of queued `LightClientBootstrapRequest` objects received from the network RPC that
+/// will be stored before we start dropping them.
+const MAX_LIGHT_CLIENT_BOOTSTRAP_QUEUE_LEN: usize = 1_024;
 
 /// The name of the manager tokio task.
 const MANAGER_TASK_NAME: &str = "beacon_processor_manager";
@@ -190,13 +218,19 @@ pub const GOSSIP_PROPOSER_SLASHING: &str = "gossip_proposer_slashing";
 pub const GOSSIP_ATTESTER_SLASHING: &str = "gossip_attester_slashing";
 pub const GOSSIP_SYNC_SIGNATURE: &str = "gossip_sync_signature";
 pub const GOSSIP_SYNC_CONTRIBUTION: &str = "gossip_sync_contribution";
+pub const GOSSIP_LIGHT_CLIENT_FINALITY_UPDATE: &str = "light_client_finality_update";
+pub const GOSSIP_LIGHT_CLIENT_OPTIMISTIC_UPDATE: &str = "light_client_optimistic_update";
 pub const RPC_BLOCK: &str = "rpc_block";
 pub const CHAIN_SEGMENT: &str = "chain_segment";
+pub const CHAIN_SEGMENT_BACKFILL: &str = "chain_segment_backfill";
 pub const STATUS_PROCESSING: &str = "status_processing";
 pub const BLOCKS_BY_RANGE_REQUEST: &str = "blocks_by_range_request";
 pub const BLOCKS_BY_ROOTS_REQUEST: &str = "blocks_by_roots_request";
+pub const LIGHT_CLIENT_BOOTSTRAP_REQUEST: &str = "light_client_bootstrap";
 pub const UNKNOWN_BLOCK_ATTESTATION: &str = "unknown_block_attestation";
 pub const UNKNOWN_BLOCK_AGGREGATE: &str = "unknown_block_aggregate";
+pub const UNKNOWN_LIGHT_CLIENT_UPDATE: &str = "unknown_light_client_update";
+pub const GOSSIP_BLS_TO_EXECUTION_CHANGE: &str = "gossip_bls_to_execution_change";
 
 /// A simple first-in-first-out queue with a maximum length.
 struct FifoQueue<T> {
@@ -470,6 +504,42 @@ impl<T: BeaconChainTypes> WorkEvent<T> {
         }
     }
 
+    /// Create a new `Work` event for some light client finality update.
+    pub fn gossip_light_client_finality_update(
+        message_id: MessageId,
+        peer_id: PeerId,
+        light_client_finality_update: Box<LightClientFinalityUpdate<T::EthSpec>>,
+        seen_timestamp: Duration,
+    ) -> Self {
+        Self {
+            drop_during_sync: true,
+            work: Work::GossipLightClientFinalityUpdate {
+                message_id,
+                peer_id,
+                light_client_finality_update,
+                seen_timestamp,
+            },
+        }
+    }
+
+    /// Create a new `Work` event for some light client optimistic update.
+    pub fn gossip_light_client_optimistic_update(
+        message_id: MessageId,
+        peer_id: PeerId,
+        light_client_optimistic_update: Box<LightClientOptimisticUpdate<T::EthSpec>>,
+        seen_timestamp: Duration,
+    ) -> Self {
+        Self {
+            drop_during_sync: true,
+            work: Work::GossipLightClientOptimisticUpdate {
+                message_id,
+                peer_id,
+                light_client_optimistic_update,
+                seen_timestamp,
+            },
+        }
+    }
+
     /// Create a new `Work` event for some attester slashing.
     pub fn gossip_attester_slashing(
         message_id: MessageId,
@@ -486,9 +556,26 @@ impl<T: BeaconChainTypes> WorkEvent<T> {
         }
     }
 
+    /// Create a new `Work` event for some BLS to execution change.
+    pub fn gossip_bls_to_execution_change(
+        message_id: MessageId,
+        peer_id: PeerId,
+        bls_to_execution_change: Box<SignedBlsToExecutionChange>,
+    ) -> Self {
+        Self {
+            drop_during_sync: false,
+            work: Work::GossipBlsToExecutionChange {
+                message_id,
+                peer_id,
+                bls_to_execution_change,
+            },
+        }
+    }
+
     /// Create a new `Work` event for some block, where the result from computation (if any) is
     /// sent to the other side of `result_tx`.
     pub fn rpc_beacon_block(
+        block_root: Hash256,
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
         seen_timestamp: Duration,
         process_type: BlockProcessType,
@@ -496,6 +583,7 @@ impl<T: BeaconChainTypes> WorkEvent<T> {
         Self {
             drop_during_sync: false,
             work: Work::RpcBlock {
+                block_root,
                 block,
                 seen_timestamp,
                 process_type,
@@ -555,6 +643,22 @@ impl<T: BeaconChainTypes> WorkEvent<T> {
         }
     }
 
+    /// Create a new work event to process `LightClientBootstrap`s from the RPC network.
+    pub fn lightclient_bootstrap_request(
+        peer_id: PeerId,
+        request_id: PeerRequestId,
+        request: LightClientBootstrapRequest,
+    ) -> Self {
+        Self {
+            drop_during_sync: true,
+            work: Work::LightClientBootstrapRequest {
+                peer_id,
+                request_id,
+                request,
+            },
+        }
+    }
+
     /// Get a `str` representation of the type of work this `WorkEvent` contains.
     pub fn work_type(&self) -> &'static str {
         self.work.str_id()
@@ -577,6 +681,7 @@ impl<T: BeaconChainTypes> std::convert::From<ReadyWork<T>> for WorkEvent<T> {
                 },
             },
             ReadyWork::RpcBlock(QueuedRpcBlock {
+                block_root,
                 block,
                 seen_timestamp,
                 process_type,
@@ -584,6 +689,7 @@ impl<T: BeaconChainTypes> std::convert::From<ReadyWork<T>> for WorkEvent<T> {
             }) => Self {
                 drop_during_sync: false,
                 work: Work::RpcBlock {
+                    block_root,
                     block,
                     seen_timestamp,
                     process_type,
@@ -622,6 +728,24 @@ impl<T: BeaconChainTypes> std::convert::From<ReadyWork<T>> for WorkEvent<T> {
                     seen_timestamp,
                 },
             },
+            ReadyWork::LightClientUpdate(QueuedLightClientUpdate {
+                peer_id,
+                message_id,
+                light_client_optimistic_update,
+                seen_timestamp,
+                ..
+            }) => Self {
+                drop_during_sync: true,
+                work: Work::UnknownLightClientOptimisticUpdate {
+                    message_id,
+                    peer_id,
+                    light_client_optimistic_update,
+                    seen_timestamp,
+                },
+            },
+            ReadyWork::BackfillSync(QueuedBackfillBatch { process_id, blocks }) => {
+                WorkEvent::chain_segment(process_id, blocks)
+            }
         }
     }
 }
@@ -659,6 +783,12 @@ pub enum Work<T: BeaconChainTypes> {
         message_id: MessageId,
         peer_id: PeerId,
         aggregate: Box<SignedAggregateAndProof<T::EthSpec>>,
+        seen_timestamp: Duration,
+    },
+    UnknownLightClientOptimisticUpdate {
+        message_id: MessageId,
+        peer_id: PeerId,
+        light_client_optimistic_update: Box<LightClientOptimisticUpdate<T::EthSpec>>,
         seen_timestamp: Duration,
     },
     GossipAggregateBatch {
@@ -704,7 +834,20 @@ pub enum Work<T: BeaconChainTypes> {
         sync_contribution: Box<SignedContributionAndProof<T::EthSpec>>,
         seen_timestamp: Duration,
     },
+    GossipLightClientFinalityUpdate {
+        message_id: MessageId,
+        peer_id: PeerId,
+        light_client_finality_update: Box<LightClientFinalityUpdate<T::EthSpec>>,
+        seen_timestamp: Duration,
+    },
+    GossipLightClientOptimisticUpdate {
+        message_id: MessageId,
+        peer_id: PeerId,
+        light_client_optimistic_update: Box<LightClientOptimisticUpdate<T::EthSpec>>,
+        seen_timestamp: Duration,
+    },
     RpcBlock {
+        block_root: Hash256,
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
         seen_timestamp: Duration,
         process_type: BlockProcessType,
@@ -728,6 +871,16 @@ pub enum Work<T: BeaconChainTypes> {
         request_id: PeerRequestId,
         request: BlocksByRootRequest,
     },
+    GossipBlsToExecutionChange {
+        message_id: MessageId,
+        peer_id: PeerId,
+        bls_to_execution_change: Box<SignedBlsToExecutionChange>,
+    },
+    LightClientBootstrapRequest {
+        peer_id: PeerId,
+        request_id: PeerRequestId,
+        request: LightClientBootstrapRequest,
+    },
 }
 
 impl<T: BeaconChainTypes> Work<T> {
@@ -745,13 +898,22 @@ impl<T: BeaconChainTypes> Work<T> {
             Work::GossipAttesterSlashing { .. } => GOSSIP_ATTESTER_SLASHING,
             Work::GossipSyncSignature { .. } => GOSSIP_SYNC_SIGNATURE,
             Work::GossipSyncContribution { .. } => GOSSIP_SYNC_CONTRIBUTION,
+            Work::GossipLightClientFinalityUpdate { .. } => GOSSIP_LIGHT_CLIENT_FINALITY_UPDATE,
+            Work::GossipLightClientOptimisticUpdate { .. } => GOSSIP_LIGHT_CLIENT_OPTIMISTIC_UPDATE,
             Work::RpcBlock { .. } => RPC_BLOCK,
+            Work::ChainSegment {
+                process_id: ChainSegmentProcessId::BackSyncBatchId { .. },
+                ..
+            } => CHAIN_SEGMENT_BACKFILL,
             Work::ChainSegment { .. } => CHAIN_SEGMENT,
             Work::Status { .. } => STATUS_PROCESSING,
             Work::BlocksByRangeRequest { .. } => BLOCKS_BY_RANGE_REQUEST,
             Work::BlocksByRootsRequest { .. } => BLOCKS_BY_ROOTS_REQUEST,
+            Work::LightClientBootstrapRequest { .. } => LIGHT_CLIENT_BOOTSTRAP_REQUEST,
             Work::UnknownBlockAttestation { .. } => UNKNOWN_BLOCK_ATTESTATION,
             Work::UnknownBlockAggregate { .. } => UNKNOWN_BLOCK_AGGREGATE,
+            Work::GossipBlsToExecutionChange { .. } => GOSSIP_BLS_TO_EXECUTION_CHANGE,
+            Work::UnknownLightClientOptimisticUpdate { .. } => UNKNOWN_LIGHT_CLIENT_UPDATE,
         }
     }
 }
@@ -821,6 +983,13 @@ impl<T: BeaconChainTypes> Stream for InboundEvents<T> {
     }
 }
 
+/// Defines if and where we will store the SSZ files of invalid blocks.
+#[derive(Clone)]
+pub enum InvalidBlockStorage {
+    Enabled(PathBuf),
+    Disabled,
+}
+
 /// A mutli-threaded processor for messages received on the network
 /// that need to be processed by the `BeaconChain`
 ///
@@ -834,6 +1003,7 @@ pub struct BeaconProcessor<T: BeaconChainTypes> {
     pub max_workers: usize,
     pub current_workers: usize,
     pub importing_blocks: DuplicateCache,
+    pub invalid_block_storage: InvalidBlockStorage,
     pub log: Logger,
 }
 
@@ -883,6 +1053,12 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
         let mut gossip_attester_slashing_queue =
             FifoQueue::new(MAX_GOSSIP_ATTESTER_SLASHING_QUEUE_LEN);
 
+        // Using a FIFO queue for light client updates to maintain sequence order.
+        let mut finality_update_queue = FifoQueue::new(MAX_GOSSIP_FINALITY_UPDATE_QUEUE_LEN);
+        let mut optimistic_update_queue = FifoQueue::new(MAX_GOSSIP_OPTIMISTIC_UPDATE_QUEUE_LEN);
+        let mut unknown_light_client_update_queue =
+            FifoQueue::new(MAX_GOSSIP_OPTIMISTIC_UPDATE_REPROCESS_QUEUE_LEN);
+
         // Using a FIFO queue since blocks need to be imported sequentially.
         let mut rpc_block_queue = FifoQueue::new(MAX_RPC_BLOCK_QUEUE_LEN);
         let mut chain_segment_queue = FifoQueue::new(MAX_CHAIN_SEGMENT_QUEUE_LEN);
@@ -894,23 +1070,27 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
         let mut bbrange_queue = FifoQueue::new(MAX_BLOCKS_BY_RANGE_QUEUE_LEN);
         let mut bbroots_queue = FifoQueue::new(MAX_BLOCKS_BY_ROOTS_QUEUE_LEN);
 
+        let mut gossip_bls_to_execution_change_queue =
+            FifoQueue::new(MAX_BLS_TO_EXECUTION_CHANGE_QUEUE_LEN);
+
+        let mut lcbootstrap_queue = FifoQueue::new(MAX_LIGHT_CLIENT_BOOTSTRAP_QUEUE_LEN);
+
+        let chain = match self.beacon_chain.upgrade() {
+            Some(chain) => chain,
+            // No need to proceed any further if the beacon chain has been dropped, the client
+            // is shutting down.
+            None => return,
+        };
+
         // Channels for sending work to the re-process scheduler (`work_reprocessing_tx`) and to
         // receive them back once they are ready (`ready_work_rx`).
         let (ready_work_tx, ready_work_rx) = mpsc::channel(MAX_SCHEDULED_WORK_QUEUE_LEN);
-        let work_reprocessing_tx = {
-            if let Some(chain) = self.beacon_chain.upgrade() {
-                spawn_reprocess_scheduler(
-                    ready_work_tx,
-                    &self.executor,
-                    chain.slot_clock.clone(),
-                    self.log.clone(),
-                )
-            } else {
-                // No need to proceed any further if the beacon chain has been dropped, the client
-                // is shutting down.
-                return;
-            }
-        };
+        let work_reprocessing_tx = spawn_reprocess_scheduler(
+            ready_work_tx,
+            &self.executor,
+            chain.slot_clock.clone(),
+            self.log.clone(),
+        );
 
         let executor = self.executor.clone();
 
@@ -923,11 +1103,54 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                 reprocess_work_rx: ready_work_rx,
             };
 
+            let enable_backfill_rate_limiting = chain.config.enable_backfill_rate_limiting;
+
             loop {
                 let work_event = match inbound_events.next().await {
                     Some(InboundEvent::WorkerIdle) => {
                         self.current_workers = self.current_workers.saturating_sub(1);
                         None
+                    }
+                    Some(InboundEvent::WorkEvent(event)) if enable_backfill_rate_limiting => {
+                        match QueuedBackfillBatch::try_from(event) {
+                            Ok(backfill_batch) => {
+                                match work_reprocessing_tx
+                                    .try_send(ReprocessQueueMessage::BackfillSync(backfill_batch))
+                                {
+                                    Err(e) => {
+                                        warn!(
+                                            self.log,
+                                            "Unable to queue backfill work event. Will try to process now.";
+                                            "error" => %e
+                                        );
+                                        match e {
+                                            TrySendError::Full(reprocess_queue_message)
+                                            | TrySendError::Closed(reprocess_queue_message) => {
+                                                match reprocess_queue_message {
+                                                    ReprocessQueueMessage::BackfillSync(
+                                                        backfill_batch,
+                                                    ) => Some(backfill_batch.into()),
+                                                    other => {
+                                                        crit!(
+                                                            self.log,
+                                                            "Unexpected queue message type";
+                                                            "message_type" => other.as_ref()
+                                                        );
+                                                        // This is an unhandled exception, drop the message.
+                                                        continue;
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                    Ok(..) => {
+                                        // backfill work sent to "reprocessing" queue. Process the next event.
+                                        continue;
+                                    }
+                                }
+                            }
+                            Err(event) => Some(event),
+                        }
                     }
                     Some(InboundEvent::WorkEvent(event))
                     | Some(InboundEvent::ReprocessingWork(event)) => Some(event),
@@ -1125,13 +1348,18 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                             self.spawn_worker(item, toolbox);
                         } else if let Some(item) = gossip_proposer_slashing_queue.pop() {
                             self.spawn_worker(item, toolbox);
-                        // Check exits last since our validators don't get rewards from them.
+                        // Check exits and address changes late since our validators don't get
+                        // rewards from them.
                         } else if let Some(item) = gossip_voluntary_exit_queue.pop() {
+                            self.spawn_worker(item, toolbox);
+                        } else if let Some(item) = gossip_bls_to_execution_change_queue.pop() {
                             self.spawn_worker(item, toolbox);
                         // Handle backfill sync chain segments.
                         } else if let Some(item) = backfill_chain_segment.pop() {
                             self.spawn_worker(item, toolbox);
                         // This statement should always be the final else statement.
+                        } else if let Some(item) = lcbootstrap_queue.pop() {
+                            self.spawn_worker(item, toolbox);
                         } else {
                             // Let the journal know that a worker is freed and there's nothing else
                             // for it to do.
@@ -1215,6 +1443,12 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                             Work::GossipSyncContribution { .. } => {
                                 sync_contribution_queue.push(work)
                             }
+                            Work::GossipLightClientFinalityUpdate { .. } => {
+                                finality_update_queue.push(work, work_id, &self.log)
+                            }
+                            Work::GossipLightClientOptimisticUpdate { .. } => {
+                                optimistic_update_queue.push(work, work_id, &self.log)
+                            }
                             Work::RpcBlock { .. } => rpc_block_queue.push(work, work_id, &self.log),
                             Work::ChainSegment { ref process_id, .. } => match process_id {
                                 ChainSegmentProcessId::RangeBatchId { .. }
@@ -1232,11 +1466,20 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                             Work::BlocksByRootsRequest { .. } => {
                                 bbroots_queue.push(work, work_id, &self.log)
                             }
+                            Work::LightClientBootstrapRequest { .. } => {
+                                lcbootstrap_queue.push(work, work_id, &self.log)
+                            }
                             Work::UnknownBlockAttestation { .. } => {
                                 unknown_block_attestation_queue.push(work)
                             }
                             Work::UnknownBlockAggregate { .. } => {
                                 unknown_block_aggregate_queue.push(work)
+                            }
+                            Work::GossipBlsToExecutionChange { .. } => {
+                                gossip_bls_to_execution_change_queue.push(work, work_id, &self.log)
+                            }
+                            Work::UnknownLightClientOptimisticUpdate { .. } => {
+                                unknown_light_client_update_queue.push(work, work_id, &self.log)
                             }
                         }
                     }
@@ -1289,6 +1532,10 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                 metrics::set_gauge(
                     &metrics::BEACON_PROCESSOR_ATTESTER_SLASHING_QUEUE_TOTAL,
                     gossip_attester_slashing_queue.len() as i64,
+                );
+                metrics::set_gauge(
+                    &metrics::BEACON_PROCESSOR_BLS_TO_EXECUTION_CHANGE_QUEUE_TOTAL,
+                    gossip_bls_to_execution_change_queue.len() as i64,
                 );
 
                 if aggregate_queue.is_full() && aggregate_debounce.elapsed() {
@@ -1438,19 +1685,23 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                 peer_client,
                 block,
                 seen_timestamp,
-            } => task_spawner.spawn_async(async move {
-                worker
-                    .process_gossip_block(
-                        message_id,
-                        peer_id,
-                        peer_client,
-                        block,
-                        work_reprocessing_tx,
-                        duplicate_cache,
-                        seen_timestamp,
-                    )
-                    .await
-            }),
+            } => {
+                let invalid_block_storage = self.invalid_block_storage.clone();
+                task_spawner.spawn_async(async move {
+                    worker
+                        .process_gossip_block(
+                            message_id,
+                            peer_id,
+                            peer_client,
+                            block,
+                            work_reprocessing_tx,
+                            duplicate_cache,
+                            invalid_block_storage,
+                            seen_timestamp,
+                        )
+                        .await
+                })
+            }
             /*
              * Import for blocks that we received earlier than their intended slot.
              */
@@ -1458,12 +1709,16 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                 peer_id,
                 block,
                 seen_timestamp,
-            } => task_spawner.spawn_async(worker.process_gossip_verified_block(
-                peer_id,
-                *block,
-                work_reprocessing_tx,
-                seen_timestamp,
-            )),
+            } => {
+                let invalid_block_storage = self.invalid_block_storage.clone();
+                task_spawner.spawn_async(worker.process_gossip_verified_block(
+                    peer_id,
+                    *block,
+                    work_reprocessing_tx,
+                    invalid_block_storage,
+                    seen_timestamp,
+                ))
+            }
             /*
              * Voluntary exits received on gossip.
              */
@@ -1513,7 +1768,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                 )
             }),
             /*
-             * Syn contribution verification.
+             * Sync contribution verification.
              */
             Work::GossipSyncContribution {
                 message_id,
@@ -1529,14 +1784,63 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                 )
             }),
             /*
+             * BLS to execution change verification.
+             */
+            Work::GossipBlsToExecutionChange {
+                message_id,
+                peer_id,
+                bls_to_execution_change,
+            } => task_spawner.spawn_blocking(move || {
+                worker.process_gossip_bls_to_execution_change(
+                    message_id,
+                    peer_id,
+                    *bls_to_execution_change,
+                )
+            }),
+            /*
+             * Light client finality update verification.
+             */
+            Work::GossipLightClientFinalityUpdate {
+                message_id,
+                peer_id,
+                light_client_finality_update,
+                seen_timestamp,
+            } => task_spawner.spawn_blocking(move || {
+                worker.process_gossip_finality_update(
+                    message_id,
+                    peer_id,
+                    *light_client_finality_update,
+                    seen_timestamp,
+                )
+            }),
+            /*
+             * Light client optimistic update verification.
+             */
+            Work::GossipLightClientOptimisticUpdate {
+                message_id,
+                peer_id,
+                light_client_optimistic_update,
+                seen_timestamp,
+            } => task_spawner.spawn_blocking(move || {
+                worker.process_gossip_optimistic_update(
+                    message_id,
+                    peer_id,
+                    *light_client_optimistic_update,
+                    Some(work_reprocessing_tx),
+                    seen_timestamp,
+                )
+            }),
+            /*
              * Verification for beacon blocks received during syncing via RPC.
              */
             Work::RpcBlock {
+                block_root,
                 block,
                 seen_timestamp,
                 process_type,
                 should_process,
             } => task_spawner.spawn_async(worker.process_rpc_block(
+                block_root,
                 block,
                 seen_timestamp,
                 process_type,
@@ -1547,8 +1851,24 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
             /*
              * Verification for a chain segment (multiple blocks).
              */
-            Work::ChainSegment { process_id, blocks } => task_spawner
-                .spawn_async(async move { worker.process_chain_segment(process_id, blocks).await }),
+            Work::ChainSegment { process_id, blocks } => {
+                let notify_execution_layer = if self
+                    .network_globals
+                    .sync_state
+                    .read()
+                    .is_syncing_finalized()
+                {
+                    NotifyExecutionLayer::No
+                } else {
+                    NotifyExecutionLayer::Yes
+                };
+
+                task_spawner.spawn_async(async move {
+                    worker
+                        .process_chain_segment(process_id, blocks, notify_execution_layer)
+                        .await
+                })
+            }
             /*
              * Processing of Status Messages.
              */
@@ -1587,6 +1907,16 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                     request,
                 )
             }),
+            /*
+             * Processing of lightclient bootstrap requests from other peers.
+             */
+            Work::LightClientBootstrapRequest {
+                peer_id,
+                request_id,
+                request,
+            } => task_spawner.spawn_blocking(move || {
+                worker.handle_light_client_bootstrap(peer_id, request_id, request)
+            }),
             Work::UnknownBlockAttestation {
                 message_id,
                 peer_id,
@@ -1615,6 +1945,20 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                     message_id,
                     peer_id,
                     aggregate,
+                    None,
+                    seen_timestamp,
+                )
+            }),
+            Work::UnknownLightClientOptimisticUpdate {
+                message_id,
+                peer_id,
+                light_client_optimistic_update,
+                seen_timestamp,
+            } => task_spawner.spawn_blocking(move || {
+                worker.process_gossip_optimistic_update(
+                    message_id,
+                    peer_id,
+                    *light_client_optimistic_update,
                     None,
                     seen_timestamp,
                 )

@@ -8,7 +8,7 @@ use node_test_rig::{
 };
 use node_test_rig::{testing_validator_config, ClientConfig};
 use std::cmp::max;
-use std::net::{IpAddr, Ipv4Addr};
+use std::net::Ipv4Addr;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use types::{Epoch, EthSpec};
 
@@ -48,12 +48,17 @@ fn syncing_sim(
     let mut env = EnvironmentBuilder::minimal()
         .initialize_logger(LoggerConfig {
             path: None,
-            debug_level: log_level,
-            logfile_debug_level: "debug",
-            log_format,
+            debug_level: String::from(log_level),
+            logfile_debug_level: String::from("debug"),
+            log_format: log_format.map(String::from),
+            logfile_format: None,
+            log_color: false,
+            disable_log_timestamp: false,
             max_log_size: 0,
             max_log_number: 0,
             compression: false,
+            is_restricted: true,
+            sse_logging: false,
         })?
         .multi_threaded_tokio_runtime()?
         .build()?;
@@ -91,7 +96,7 @@ fn syncing_sim(
 
     beacon_config.http_api.allow_sync_stalled = true;
 
-    beacon_config.network.enr_address = Some(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)));
+    beacon_config.network.enr_address = (Some(Ipv4Addr::LOCALHOST), None);
 
     // Generate the directories and keystores required for the validator clients.
     let validator_indices = (0..num_validators).collect::<Vec<_>>();
@@ -224,7 +229,7 @@ pub async fn verify_one_node_sync<E: EthSpec>(
     )
     .await;
     // Add a beacon node
-    network.add_beacon_node(beacon_config).await?;
+    network.add_beacon_node(beacon_config, false).await?;
     // Check every `epoch_duration` if nodes are synced
     // limited to at most `sync_timeout` epochs
     let mut interval = tokio::time::interval(epoch_duration);
@@ -261,8 +266,10 @@ pub async fn verify_two_nodes_sync<E: EthSpec>(
     )
     .await;
     // Add beacon nodes
-    network.add_beacon_node(beacon_config.clone()).await?;
-    network.add_beacon_node(beacon_config).await?;
+    network
+        .add_beacon_node(beacon_config.clone(), false)
+        .await?;
+    network.add_beacon_node(beacon_config, false).await?;
     // Check every `epoch_duration` if nodes are synced
     // limited to at most `sync_timeout` epochs
     let mut interval = tokio::time::interval(epoch_duration);
@@ -301,8 +308,10 @@ pub async fn verify_in_between_sync<E: EthSpec>(
     )
     .await;
     // Add two beacon nodes
-    network.add_beacon_node(beacon_config.clone()).await?;
-    network.add_beacon_node(beacon_config).await?;
+    network
+        .add_beacon_node(beacon_config.clone(), false)
+        .await?;
+    network.add_beacon_node(beacon_config, false).await?;
     // Delay before adding additional syncing nodes.
     epoch_delay(
         Epoch::new(sync_timeout - 5),
@@ -311,7 +320,7 @@ pub async fn verify_in_between_sync<E: EthSpec>(
     )
     .await;
     // Add a beacon node
-    network.add_beacon_node(config1.clone()).await?;
+    network.add_beacon_node(config1.clone(), false).await?;
     // Check every `epoch_duration` if nodes are synced
     // limited to at most `sync_timeout` epochs
     let mut interval = tokio::time::interval(epoch_duration);

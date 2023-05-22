@@ -472,7 +472,7 @@ impl InitializedValidators {
 
     /// Iterate through all voting public keys in `self` that should be used when querying for duties.
     pub fn iter_voting_pubkeys(&self) -> impl Iterator<Item = &PublicKeyBytes> {
-        self.validators.iter().map(|(pubkey, _)| pubkey)
+        self.validators.keys()
     }
 
     /// Returns the voting `Keypair` for a given voting `PublicKey`, if all are true:
@@ -632,6 +632,15 @@ impl InitializedValidators {
     /// Returns the `graffiti` for a given public key specified in the `ValidatorDefinitions`.
     pub fn graffiti(&self, public_key: &PublicKeyBytes) -> Option<Graffiti> {
         self.validators.get(public_key).and_then(|v| v.graffiti)
+    }
+
+    /// Returns a `HashMap` of `public_key` -> `graffiti` for all initialized validators.
+    pub fn get_all_validators_graffiti(&self) -> HashMap<&PublicKeyBytes, Option<Graffiti>> {
+        let mut result = HashMap::new();
+        for public_key in self.validators.keys() {
+            result.insert(public_key, self.graffiti(public_key));
+        }
+        result
     }
 
     /// Returns the `suggested_fee_recipient` for a given public key specified in the
@@ -980,22 +989,38 @@ impl InitializedValidators {
 
         let cache =
             KeyCache::open_or_create(&self.validators_dir).map_err(Error::UnableToOpenKeyCache)?;
-        let mut key_cache = self.decrypt_key_cache(cache, &mut key_stores).await?;
+
+        // Check if there is at least one local definition.
+        let has_local_definitions = self.definitions.as_slice().iter().any(|def| {
+            matches!(
+                def.signing_definition,
+                SigningDefinition::LocalKeystore { .. }
+            )
+        });
+
+        // Only decrypt cache when there is at least one local definition.
+        // Decrypting cache is a very expensive operation which is never used for web3signer.
+        let mut key_cache = if has_local_definitions {
+            self.decrypt_key_cache(cache, &mut key_stores).await?
+        } else {
+            // Assign an empty KeyCache if all definitions are of the Web3Signer type.
+            KeyCache::new()
+        };
 
         let mut disabled_uuids = HashSet::new();
         for def in self.definitions.as_slice() {
             if def.enabled {
+                let pubkey_bytes = def.voting_public_key.compress();
+
+                if self.validators.contains_key(&pubkey_bytes) {
+                    continue;
+                }
+
                 match &def.signing_definition {
                     SigningDefinition::LocalKeystore {
                         voting_keystore_path,
                         ..
                     } => {
-                        let pubkey_bytes = def.voting_public_key.compress();
-
-                        if self.validators.contains_key(&pubkey_bytes) {
-                            continue;
-                        }
-
                         if let Some(key_store) = key_stores.get(voting_keystore_path) {
                             disabled_uuids.remove(key_store.uuid());
                         }
@@ -1106,13 +1131,16 @@ impl InitializedValidators {
                 );
             }
         }
-        for uuid in disabled_uuids {
-            key_cache.remove(&uuid);
+
+        if has_local_definitions {
+            for uuid in disabled_uuids {
+                key_cache.remove(&uuid);
+            }
         }
 
         let validators_dir = self.validators_dir.clone();
         let log = self.log.clone();
-        if key_cache.is_modified() {
+        if has_local_definitions && key_cache.is_modified() {
             tokio::task::spawn_blocking(move || {
                 match key_cache.save(validators_dir) {
                     Err(e) => warn!(

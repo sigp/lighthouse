@@ -11,31 +11,39 @@
 //! Aggregated and unaggregated attestations that failed verification due to referencing an unknown
 //! block will be re-queued until their block is imported, or until they expire.
 use super::MAX_SCHEDULED_WORK_QUEUE_LEN;
+use crate::beacon_processor::{ChainSegmentProcessId, Work, WorkEvent};
 use crate::metrics;
 use crate::sync::manager::BlockProcessType;
 use beacon_chain::{BeaconChainTypes, GossipVerifiedBlock, MAXIMUM_GOSSIP_CLOCK_DISPARITY};
 use fnv::FnvHashMap;
 use futures::task::Poll;
 use futures::{Stream, StreamExt};
+use itertools::Itertools;
 use lighthouse_network::{MessageId, PeerId};
 use logging::TimeLatch;
-use slog::{crit, debug, error, warn, Logger};
+use slog::{crit, debug, error, trace, warn, Logger};
 use slot_clock::SlotClock;
 use std::collections::{HashMap, HashSet};
+use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::Context;
 use std::time::Duration;
+use strum::AsRefStr;
 use task_executor::TaskExecutor;
 use tokio::sync::mpsc::{self, Receiver, Sender};
 use tokio::time::error::Error as TimeError;
 use tokio_util::time::delay_queue::{DelayQueue, Key as DelayKey};
-use types::{Attestation, EthSpec, Hash256, SignedAggregateAndProof, SignedBeaconBlock, SubnetId};
+use types::{
+    Attestation, EthSpec, Hash256, LightClientOptimisticUpdate, SignedAggregateAndProof,
+    SignedBeaconBlock, SubnetId,
+};
 
 const TASK_NAME: &str = "beacon_processor_reprocess_queue";
 const GOSSIP_BLOCKS: &str = "gossip_blocks";
 const RPC_BLOCKS: &str = "rpc_blocks";
 const ATTESTATIONS: &str = "attestations";
+const LIGHT_CLIENT_UPDATES: &str = "lc_updates";
 
 /// Queue blocks for re-processing with an `ADDITIONAL_QUEUED_BLOCK_DELAY` after the slot starts.
 /// This is to account for any slight drift in the system clock.
@@ -44,8 +52,11 @@ const ADDITIONAL_QUEUED_BLOCK_DELAY: Duration = Duration::from_millis(5);
 /// For how long to queue aggregated and unaggregated attestations for re-processing.
 pub const QUEUED_ATTESTATION_DELAY: Duration = Duration::from_secs(12);
 
+/// For how long to queue light client updates for re-processing.
+pub const QUEUED_LIGHT_CLIENT_UPDATE_DELAY: Duration = Duration::from_secs(12);
+
 /// For how long to queue rpc blocks before sending them back for reprocessing.
-pub const QUEUED_RPC_BLOCK_DELAY: Duration = Duration::from_secs(3);
+pub const QUEUED_RPC_BLOCK_DELAY: Duration = Duration::from_secs(4);
 
 /// Set an arbitrary upper-bound on the number of queued blocks to avoid DoS attacks. The fact that
 /// we signature-verify blocks before putting them in the queue *should* protect against this, but
@@ -55,20 +66,44 @@ const MAXIMUM_QUEUED_BLOCKS: usize = 16;
 /// How many attestations we keep before new ones get dropped.
 const MAXIMUM_QUEUED_ATTESTATIONS: usize = 16_384;
 
+/// How many light client updates we keep before new ones get dropped.
+const MAXIMUM_QUEUED_LIGHT_CLIENT_UPDATES: usize = 128;
+
+// Process backfill batch 50%, 60%, 80% through each slot.
+//
+// Note: use caution to set these fractions in a way that won't cause panic-y
+// arithmetic.
+pub const BACKFILL_SCHEDULE_IN_SLOT: [(u32, u32); 3] = [
+    // One half: 6s on mainnet, 2.5s on Gnosis.
+    (1, 2),
+    // Three fifths: 7.2s on mainnet, 3s on Gnosis.
+    (3, 5),
+    // Four fifths: 9.6s on mainnet, 4s on Gnosis.
+    (4, 5),
+];
+
 /// Messages that the scheduler can receive.
+#[derive(AsRefStr)]
 pub enum ReprocessQueueMessage<T: BeaconChainTypes> {
     /// A block that has been received early and we should queue for later processing.
     EarlyBlock(QueuedGossipBlock<T>),
     /// A gossip block for hash `X` is being imported, we should queue the rpc block for the same
     /// hash until the gossip block is imported.
     RpcBlock(QueuedRpcBlock<T::EthSpec>),
-    /// A block that was successfully processed. We use this to handle attestations for unknown
-    /// blocks.
-    BlockImported(Hash256),
+    /// A block that was successfully processed. We use this to handle attestations and light client updates
+    /// for unknown blocks.
+    BlockImported {
+        block_root: Hash256,
+        parent_root: Hash256,
+    },
     /// An unaggregated attestation that references an unknown block.
     UnknownBlockUnaggregate(QueuedUnaggregate<T::EthSpec>),
     /// An aggregated attestation that references an unknown block.
     UnknownBlockAggregate(QueuedAggregate<T::EthSpec>),
+    /// A light client optimistic update that references a parent root that has not been seen as a parent.
+    UnknownLightClientOptimisticUpdate(QueuedLightClientUpdate<T::EthSpec>),
+    /// A new backfill batch that needs to be scheduled for processing.
+    BackfillSync(QueuedBackfillBatch<T::EthSpec>),
 }
 
 /// Events sent by the scheduler once they are ready for re-processing.
@@ -77,6 +112,8 @@ pub enum ReadyWork<T: BeaconChainTypes> {
     RpcBlock(QueuedRpcBlock<T::EthSpec>),
     Unaggregate(QueuedUnaggregate<T::EthSpec>),
     Aggregate(QueuedAggregate<T::EthSpec>),
+    LightClientUpdate(QueuedLightClientUpdate<T::EthSpec>),
+    BackfillSync(QueuedBackfillBatch<T::EthSpec>),
 }
 
 /// An Attestation for which the corresponding block was not seen while processing, queued for
@@ -99,6 +136,16 @@ pub struct QueuedAggregate<T: EthSpec> {
     pub seen_timestamp: Duration,
 }
 
+/// A light client update for which the corresponding parent block was not seen while processing,
+/// queued for later.
+pub struct QueuedLightClientUpdate<T: EthSpec> {
+    pub peer_id: PeerId,
+    pub message_id: MessageId,
+    pub light_client_optimistic_update: Box<LightClientOptimisticUpdate<T>>,
+    pub parent_root: Hash256,
+    pub seen_timestamp: Duration,
+}
+
 /// A block that arrived early and has been queued for later import.
 pub struct QueuedGossipBlock<T: BeaconChainTypes> {
     pub peer_id: PeerId,
@@ -109,12 +156,47 @@ pub struct QueuedGossipBlock<T: BeaconChainTypes> {
 /// A block that arrived for processing when the same block was being imported over gossip.
 /// It is queued for later import.
 pub struct QueuedRpcBlock<T: EthSpec> {
+    pub block_root: Hash256,
     pub block: Arc<SignedBeaconBlock<T>>,
     pub process_type: BlockProcessType,
     pub seen_timestamp: Duration,
     /// Indicates if the beacon chain should process this block or not.
     /// We use this to ignore block processing when rpc block queues are full.
     pub should_process: bool,
+}
+
+/// A backfill batch work that has been queued for processing later.
+#[derive(Clone)]
+pub struct QueuedBackfillBatch<E: EthSpec> {
+    pub process_id: ChainSegmentProcessId,
+    pub blocks: Vec<Arc<SignedBeaconBlock<E>>>,
+}
+
+impl<T: BeaconChainTypes> TryFrom<WorkEvent<T>> for QueuedBackfillBatch<T::EthSpec> {
+    type Error = WorkEvent<T>;
+
+    fn try_from(event: WorkEvent<T>) -> Result<Self, WorkEvent<T>> {
+        match event {
+            WorkEvent {
+                work:
+                    Work::ChainSegment {
+                        process_id: process_id @ ChainSegmentProcessId::BackSyncBatchId(_),
+                        blocks,
+                    },
+                ..
+            } => Ok(QueuedBackfillBatch { process_id, blocks }),
+            _ => Err(event),
+        }
+    }
+}
+
+impl<T: BeaconChainTypes> From<QueuedBackfillBatch<T::EthSpec>> for WorkEvent<T> {
+    fn from(queued_backfill_batch: QueuedBackfillBatch<T::EthSpec>) -> WorkEvent<T> {
+        WorkEvent::chain_segment(
+            queued_backfill_batch.process_id,
+            queued_backfill_batch.blocks,
+        )
+    }
 }
 
 /// Unifies the different messages processed by the block delay queue.
@@ -126,6 +208,10 @@ enum InboundEvent<T: BeaconChainTypes> {
     ReadyRpcBlock(QueuedRpcBlock<T::EthSpec>),
     /// An aggregated or unaggregated attestation is ready for re-processing.
     ReadyAttestation(QueuedAttestationId),
+    /// A light client update that is ready for re-processing.
+    ReadyLightClientUpdate(QueuedLightClientUpdateId),
+    /// A backfill batch that was queued is ready for processing.
+    ReadyBackfillSync(QueuedBackfillBatch<T::EthSpec>),
     /// A `DelayQueue` returned an error.
     DelayQueueError(TimeError, &'static str),
     /// A message sent to the `ReprocessQueue`
@@ -146,6 +232,8 @@ struct ReprocessQueue<T: BeaconChainTypes> {
     rpc_block_delay_queue: DelayQueue<QueuedRpcBlock<T::EthSpec>>,
     /// Queue to manage scheduled attestations.
     attestations_delay_queue: DelayQueue<QueuedAttestationId>,
+    /// Queue to manage scheduled light client updates.
+    lc_updates_delay_queue: DelayQueue<QueuedLightClientUpdateId>,
 
     /* Queued items */
     /// Queued blocks.
@@ -156,14 +244,26 @@ struct ReprocessQueue<T: BeaconChainTypes> {
     queued_unaggregates: FnvHashMap<usize, (QueuedUnaggregate<T::EthSpec>, DelayKey)>,
     /// Attestations (aggregated and unaggregated) per root.
     awaiting_attestations_per_root: HashMap<Hash256, Vec<QueuedAttestationId>>,
+    /// Queued Light Client Updates.
+    queued_lc_updates: FnvHashMap<usize, (QueuedLightClientUpdate<T::EthSpec>, DelayKey)>,
+    /// Light Client Updates per parent_root.
+    awaiting_lc_updates_per_parent_root: HashMap<Hash256, Vec<QueuedLightClientUpdateId>>,
+    /// Queued backfill batches
+    queued_backfill_batches: Vec<QueuedBackfillBatch<T::EthSpec>>,
 
     /* Aux */
     /// Next attestation id, used for both aggregated and unaggregated attestations
     next_attestation: usize,
+    next_lc_update: usize,
     early_block_debounce: TimeLatch,
     rpc_block_debounce: TimeLatch,
     attestation_delay_debounce: TimeLatch,
+    lc_update_delay_debounce: TimeLatch,
+    next_backfill_batch_event: Option<Pin<Box<tokio::time::Sleep>>>,
+    slot_clock: Pin<Box<T::SlotClock>>,
 }
+
+pub type QueuedLightClientUpdateId = usize;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum QueuedAttestationId {
@@ -234,6 +334,34 @@ impl<T: BeaconChainTypes> Stream for ReprocessQueue<T> {
             Poll::Ready(None) | Poll::Pending => (),
         }
 
+        match self.lc_updates_delay_queue.poll_expired(cx) {
+            Poll::Ready(Some(Ok(lc_id))) => {
+                return Poll::Ready(Some(InboundEvent::ReadyLightClientUpdate(
+                    lc_id.into_inner(),
+                )));
+            }
+            Poll::Ready(Some(Err(e))) => {
+                return Poll::Ready(Some(InboundEvent::DelayQueueError(e, "lc_updates_queue")));
+            }
+            // `Poll::Ready(None)` means that there are no more entries in the delay queue and we
+            // will continue to get this result until something else is added into the queue.
+            Poll::Ready(None) | Poll::Pending => (),
+        }
+
+        if let Some(next_backfill_batch_event) = self.next_backfill_batch_event.as_mut() {
+            match next_backfill_batch_event.as_mut().poll(cx) {
+                Poll::Ready(_) => {
+                    let maybe_batch = self.queued_backfill_batches.pop();
+                    self.recompute_next_backfill_batch_event();
+
+                    if let Some(batch) = maybe_batch {
+                        return Poll::Ready(Some(InboundEvent::ReadyBackfillSync(batch)));
+                    }
+                }
+                Poll::Pending => (),
+            }
+        }
+
         // Last empty the messages channel.
         match self.work_reprocessing_rx.poll_recv(cx) {
             Poll::Ready(Some(message)) => return Poll::Ready(Some(InboundEvent::Msg(message))),
@@ -263,14 +391,22 @@ pub fn spawn_reprocess_scheduler<T: BeaconChainTypes>(
         gossip_block_delay_queue: DelayQueue::new(),
         rpc_block_delay_queue: DelayQueue::new(),
         attestations_delay_queue: DelayQueue::new(),
+        lc_updates_delay_queue: DelayQueue::new(),
         queued_gossip_block_roots: HashSet::new(),
+        queued_lc_updates: FnvHashMap::default(),
         queued_aggregates: FnvHashMap::default(),
         queued_unaggregates: FnvHashMap::default(),
         awaiting_attestations_per_root: HashMap::new(),
+        awaiting_lc_updates_per_parent_root: HashMap::new(),
+        queued_backfill_batches: Vec::new(),
         next_attestation: 0,
+        next_lc_update: 0,
         early_block_debounce: TimeLatch::default(),
         rpc_block_debounce: TimeLatch::default(),
         attestation_delay_debounce: TimeLatch::default(),
+        lc_update_delay_debounce: TimeLatch::default(),
+        next_backfill_batch_event: None,
+        slot_clock: Box::pin(slot_clock.clone()),
     };
 
     executor.spawn(
@@ -385,7 +521,7 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                     return;
                 }
 
-                // Queue the block for 1/4th of a slot
+                // Queue the block for 1/3rd of a slot
                 self.rpc_block_delay_queue
                     .insert(rpc_block, QUEUED_RPC_BLOCK_DELAY);
             }
@@ -472,9 +608,52 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
 
                 self.next_attestation += 1;
             }
-            InboundEvent::Msg(BlockImported(root)) => {
+            InboundEvent::Msg(UnknownLightClientOptimisticUpdate(
+                queued_light_client_optimistic_update,
+            )) => {
+                if self.lc_updates_delay_queue.len() >= MAXIMUM_QUEUED_LIGHT_CLIENT_UPDATES {
+                    if self.lc_update_delay_debounce.elapsed() {
+                        error!(
+                            log,
+                            "Light client updates delay queue is full";
+                            "queue_size" => MAXIMUM_QUEUED_LIGHT_CLIENT_UPDATES,
+                            "msg" => "check system clock"
+                        );
+                    }
+                    // Drop the light client update.
+                    return;
+                }
+
+                let lc_id: QueuedLightClientUpdateId = self.next_lc_update;
+
+                // Register the delay.
+                let delay_key = self
+                    .lc_updates_delay_queue
+                    .insert(lc_id, QUEUED_LIGHT_CLIENT_UPDATE_DELAY);
+
+                // Register the light client update for the corresponding root.
+                self.awaiting_lc_updates_per_parent_root
+                    .entry(queued_light_client_optimistic_update.parent_root)
+                    .or_default()
+                    .push(lc_id);
+
+                // Store the light client update and its info.
+                self.queued_lc_updates.insert(
+                    self.next_lc_update,
+                    (queued_light_client_optimistic_update, delay_key),
+                );
+
+                self.next_lc_update += 1;
+            }
+            InboundEvent::Msg(BlockImported {
+                block_root,
+                parent_root,
+            }) => {
                 // Unqueue the attestations we have for this root, if any.
-                if let Some(queued_ids) = self.awaiting_attestations_per_root.remove(&root) {
+                if let Some(queued_ids) = self.awaiting_attestations_per_root.remove(&block_root) {
+                    let mut sent_count = 0;
+                    let mut failed_to_send_count = 0;
+
                     for id in queued_ids {
                         metrics::inc_counter(
                             &metrics::BEACON_PROCESSOR_REPROCESSING_QUEUE_MATCHED_ATTESTATIONS,
@@ -499,10 +678,9 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
 
                             // Send the work.
                             if self.ready_work_tx.try_send(work).is_err() {
-                                error!(
-                                    log,
-                                    "Failed to send scheduled attestation";
-                                );
+                                failed_to_send_count += 1;
+                            } else {
+                                sent_count += 1;
                             }
                         } else {
                             // There is a mismatch between the attestation ids registered for this
@@ -510,11 +688,81 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                             error!(
                                 log,
                                 "Unknown queued attestation for block root";
-                                "block_root" => ?root,
+                                "block_root" => ?block_root,
                                 "att_id" => ?id,
                             );
                         }
                     }
+
+                    if failed_to_send_count > 0 {
+                        error!(
+                            log,
+                            "Ignored scheduled attestation(s) for block";
+                            "hint" => "system may be overloaded",
+                            "parent_root" => ?parent_root,
+                            "block_root" => ?block_root,
+                            "failed_count" => failed_to_send_count,
+                            "sent_count" => sent_count,
+                        );
+                    }
+                }
+                // Unqueue the light client optimistic updates we have for this root, if any.
+                if let Some(queued_lc_id) = self
+                    .awaiting_lc_updates_per_parent_root
+                    .remove(&parent_root)
+                {
+                    debug!(
+                        log,
+                        "Dequeuing light client optimistic updates";
+                        "parent_root" => %parent_root,
+                        "count" => queued_lc_id.len(),
+                    );
+
+                    for lc_id in queued_lc_id {
+                        metrics::inc_counter(
+                            &metrics::BEACON_PROCESSOR_REPROCESSING_QUEUE_MATCHED_OPTIMISTIC_UPDATES,
+                        );
+                        if let Some((work, delay_key)) = self.queued_lc_updates.remove(&lc_id).map(
+                            |(light_client_optimistic_update, delay_key)| {
+                                (
+                                    ReadyWork::LightClientUpdate(light_client_optimistic_update),
+                                    delay_key,
+                                )
+                            },
+                        ) {
+                            // Remove the delay
+                            self.lc_updates_delay_queue.remove(&delay_key);
+
+                            // Send the work
+                            match self.ready_work_tx.try_send(work) {
+                                Ok(_) => trace!(
+                                    log,
+                                    "reprocessing light client update sent";
+                                ),
+                                Err(_) => error!(
+                                    log,
+                                    "Failed to send scheduled light client update";
+                                ),
+                            }
+                        } else {
+                            // There is a mismatch between the light client update ids registered for this
+                            // root and the queued light client updates. This should never happen.
+                            error!(
+                                log,
+                                "Unknown queued light client update for parent root";
+                                "parent_root" => ?parent_root,
+                                "lc_id" => ?lc_id,
+                            );
+                        }
+                    }
+                }
+            }
+            InboundEvent::Msg(BackfillSync(queued_backfill_batch)) => {
+                self.queued_backfill_batches
+                    .insert(0, queued_backfill_batch);
+                // only recompute if there is no `next_backfill_batch_event` already scheduled
+                if self.next_backfill_batch_event.is_none() {
+                    self.recompute_next_backfill_batch_event();
                 }
             }
             // A block that was queued for later processing is now ready to be processed.
@@ -579,7 +827,9 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                     if self.ready_work_tx.try_send(work).is_err() {
                         error!(
                             log,
-                            "Failed to send scheduled attestation";
+                            "Ignored scheduled attestation";
+                            "hint" => "system may be overloaded",
+                            "beacon_block_root" => ?root
                         );
                     }
 
@@ -588,6 +838,65 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                             queued_atts.swap_remove(index);
                         }
                     }
+                }
+            }
+            InboundEvent::ReadyLightClientUpdate(queued_id) => {
+                metrics::inc_counter(
+                    &metrics::BEACON_PROCESSOR_REPROCESSING_QUEUE_EXPIRED_OPTIMISTIC_UPDATES,
+                );
+
+                if let Some((parent_root, work)) = self.queued_lc_updates.remove(&queued_id).map(
+                    |(queued_lc_update, _delay_key)| {
+                        (
+                            queued_lc_update.parent_root,
+                            ReadyWork::LightClientUpdate(queued_lc_update),
+                        )
+                    },
+                ) {
+                    if self.ready_work_tx.try_send(work).is_err() {
+                        error!(
+                            log,
+                            "Failed to send scheduled light client optimistic update";
+                        );
+                    }
+
+                    if let Some(queued_lc_updates) = self
+                        .awaiting_lc_updates_per_parent_root
+                        .get_mut(&parent_root)
+                    {
+                        if let Some(index) =
+                            queued_lc_updates.iter().position(|&id| id == queued_id)
+                        {
+                            queued_lc_updates.swap_remove(index);
+                        }
+                    }
+                }
+            }
+            InboundEvent::ReadyBackfillSync(queued_backfill_batch) => {
+                let millis_from_slot_start = slot_clock
+                    .millis_from_current_slot_start()
+                    .map_or("null".to_string(), |duration| {
+                        duration.as_millis().to_string()
+                    });
+
+                debug!(
+                    log,
+                    "Sending scheduled backfill work";
+                    "millis_from_slot_start" => millis_from_slot_start
+                );
+
+                if self
+                    .ready_work_tx
+                    .try_send(ReadyWork::BackfillSync(queued_backfill_batch.clone()))
+                    .is_err()
+                {
+                    error!(
+                        log,
+                        "Failed to send scheduled backfill work";
+                        "info" => "sending work back to queue"
+                    );
+                    self.queued_backfill_batches
+                        .insert(0, queued_backfill_batch);
                 }
             }
         }
@@ -606,6 +915,102 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
             &metrics::BEACON_PROCESSOR_REPROCESSING_QUEUE_TOTAL,
             &[ATTESTATIONS],
             self.attestations_delay_queue.len() as i64,
+        );
+        metrics::set_gauge_vec(
+            &metrics::BEACON_PROCESSOR_REPROCESSING_QUEUE_TOTAL,
+            &[LIGHT_CLIENT_UPDATES],
+            self.lc_updates_delay_queue.len() as i64,
+        );
+    }
+
+    fn recompute_next_backfill_batch_event(&mut self) {
+        // only recompute the `next_backfill_batch_event` if there are backfill batches in the queue
+        if !self.queued_backfill_batches.is_empty() {
+            self.next_backfill_batch_event = Some(Box::pin(tokio::time::sleep(
+                ReprocessQueue::<T>::duration_until_next_backfill_batch_event(&self.slot_clock),
+            )));
+        } else {
+            self.next_backfill_batch_event = None
+        }
+    }
+
+    /// Returns duration until the next scheduled processing time. The schedule ensure that backfill
+    /// processing is done in windows of time that aren't critical
+    fn duration_until_next_backfill_batch_event(slot_clock: &T::SlotClock) -> Duration {
+        let slot_duration = slot_clock.slot_duration();
+        slot_clock
+            .millis_from_current_slot_start()
+            .and_then(|duration_from_slot_start| {
+                BACKFILL_SCHEDULE_IN_SLOT
+                    .into_iter()
+                    // Convert fractions to seconds from slot start.
+                    .map(|(multiplier, divisor)| (slot_duration / divisor) * multiplier)
+                    .find_or_first(|&event_duration_from_slot_start| {
+                        event_duration_from_slot_start > duration_from_slot_start
+                    })
+                    .map(|next_event_time| {
+                        if duration_from_slot_start >= next_event_time {
+                            // event is in the next slot, add duration to next slot
+                            let duration_to_next_slot = slot_duration - duration_from_slot_start;
+                            duration_to_next_slot + next_event_time
+                        } else {
+                            next_event_time - duration_from_slot_start
+                        }
+                    })
+            })
+            // If we can't read the slot clock, just wait another slot.
+            .unwrap_or(slot_duration)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use beacon_chain::builder::Witness;
+    use beacon_chain::eth1_chain::CachingEth1Backend;
+    use slot_clock::TestingSlotClock;
+    use store::MemoryStore;
+    use types::MainnetEthSpec as E;
+    use types::Slot;
+
+    type TestBeaconChainType =
+        Witness<TestingSlotClock, CachingEth1Backend<E>, E, MemoryStore<E>, MemoryStore<E>>;
+
+    #[test]
+    fn backfill_processing_schedule_calculation() {
+        let slot_duration = Duration::from_secs(12);
+        let slot_clock = TestingSlotClock::new(Slot::new(0), Duration::from_secs(0), slot_duration);
+        let current_slot_start = slot_clock.start_of(Slot::new(100)).unwrap();
+        slot_clock.set_current_time(current_slot_start);
+
+        let event_times = BACKFILL_SCHEDULE_IN_SLOT
+            .map(|(multiplier, divisor)| (slot_duration / divisor) * multiplier);
+
+        for &event_duration_from_slot_start in event_times.iter() {
+            let duration_to_next_event =
+                ReprocessQueue::<TestBeaconChainType>::duration_until_next_backfill_batch_event(
+                    &slot_clock,
+                );
+
+            let current_time = slot_clock.millis_from_current_slot_start().unwrap();
+
+            assert_eq!(
+                duration_to_next_event,
+                event_duration_from_slot_start - current_time
+            );
+
+            slot_clock.set_current_time(current_slot_start + event_duration_from_slot_start)
+        }
+
+        // check for next event beyond the current slot
+        let duration_to_next_slot = slot_clock.duration_to_next_slot().unwrap();
+        let duration_to_next_event =
+            ReprocessQueue::<TestBeaconChainType>::duration_until_next_backfill_batch_event(
+                &slot_clock,
+            );
+        assert_eq!(
+            duration_to_next_event,
+            duration_to_next_slot + event_times[0]
         );
     }
 }

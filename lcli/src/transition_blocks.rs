@@ -6,6 +6,9 @@
 //! It can load states and blocks from file or pull them from a beaconAPI. Objects pulled from a
 //! beaconAPI can be saved to disk to reduce future calls to that server.
 //!
+//! Logging output is controlled via the `RUST_LOG` environment variable. For example, `export
+//! RUST_LOG=debug`.
+//!
 //! ## Examples
 //!
 //! ### Run using a block from a beaconAPI
@@ -71,7 +74,7 @@ use eth2::{
 use ssz::Encode;
 use state_processing::{
     block_signature_verifier::BlockSignatureVerifier, per_block_processing, per_slot_processing,
-    BlockSignatureStrategy, VerifyBlockRoot,
+    BlockSignatureStrategy, ConsensusContext, StateProcessingStrategy, VerifyBlockRoot,
 };
 use std::borrow::Cow;
 use std::fs::File;
@@ -91,7 +94,7 @@ struct Config {
     exclude_post_block_thc: bool,
 }
 
-pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<(), String> {
+pub fn run<T: EthSpec>(env: Environment<T>, matches: &ArgMatches) -> Result<(), String> {
     let spec = &T::default_spec();
     let executor = env.core_context().executor;
 
@@ -124,8 +127,8 @@ pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<
     let (mut pre_state, mut state_root_opt, block) = match (pre_state_path, block_path, beacon_url)
     {
         (Some(pre_state_path), Some(block_path), None) => {
-            info!("Block path: {:?}", pre_state_path);
-            info!("Pre-state path: {:?}", block_path);
+            info!("Block path: {:?}", block_path);
+            info!("Pre-state path: {:?}", pre_state_path);
             let pre_state = load_from_ssz_with(&pre_state_path, spec, BeaconState::from_ssz_bytes)?;
             let block = load_from_ssz_with(&block_path, spec, SignedBeaconBlock::from_ssz_bytes)?;
             (pre_state, None, block)
@@ -336,6 +339,10 @@ fn do_transition<T: EthSpec>(
         .map_err(|e| format!("Unable to build caches: {:?}", e))?;
     debug!("Build all caches (again): {:?}", t.elapsed());
 
+    let mut ctxt = ConsensusContext::new(pre_state.slot())
+        .set_current_block_root(block_root)
+        .set_proposer_index(block.message().proposer_index());
+
     if !config.no_signature_verification {
         let get_pubkey = move |validator_index| {
             validator_pubkey_cache
@@ -356,20 +363,27 @@ fn do_transition<T: EthSpec>(
             get_pubkey,
             decompressor,
             &block,
-            Some(block_root),
+            &mut ctxt,
             spec,
         )
         .map_err(|e| format!("Invalid block signature: {:?}", e))?;
         debug!("Batch verify block signatures: {:?}", t.elapsed());
+
+        // Signature verification should prime the indexed attestation cache.
+        assert_eq!(
+            ctxt.num_cached_indexed_attestations(),
+            block.message().body().attestations().len()
+        );
     }
 
     let t = Instant::now();
     per_block_processing(
         &mut pre_state,
         &block,
-        None,
         BlockSignatureStrategy::NoVerification,
+        StateProcessingStrategy::Accurate,
         VerifyBlockRoot::True,
+        &mut ctxt,
         spec,
     )
     .map_err(|e| format!("State transition failed: {:?}", e))?;

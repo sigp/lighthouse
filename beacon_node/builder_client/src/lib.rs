@@ -1,6 +1,6 @@
 use eth2::types::builder_bid::SignedBuilderBid;
 use eth2::types::{
-    BlindedPayload, EthSpec, ExecPayload, ExecutionBlockHash, ExecutionPayload,
+    AbstractExecPayload, BlindedPayload, EthSpec, ExecutionBlockHash, ExecutionPayload,
     ForkVersionedResponse, PublicKeyBytes, SignedBeaconBlock, SignedValidatorRegistrationData,
     Slot,
 };
@@ -16,6 +16,9 @@ pub const DEFAULT_TIMEOUT_MILLIS: u64 = 15000;
 
 /// This timeout is in accordance with v0.2.0 of the [builder specs](https://github.com/flashbots/mev-boost/pull/20).
 pub const DEFAULT_GET_HEADER_TIMEOUT_MILLIS: u64 = 1000;
+
+/// Default user agent for HTTP requests.
+pub const DEFAULT_USER_AGENT: &str = lighthouse_version::VERSION;
 
 #[derive(Clone)]
 pub struct Timeouts {
@@ -41,23 +44,23 @@ pub struct BuilderHttpClient {
     client: reqwest::Client,
     server: SensitiveUrl,
     timeouts: Timeouts,
+    user_agent: String,
 }
 
 impl BuilderHttpClient {
-    pub fn new(server: SensitiveUrl) -> Result<Self, Error> {
+    pub fn new(server: SensitiveUrl, user_agent: Option<String>) -> Result<Self, Error> {
+        let user_agent = user_agent.unwrap_or(DEFAULT_USER_AGENT.to_string());
+        let client = reqwest::Client::builder().user_agent(&user_agent).build()?;
         Ok(Self {
-            client: reqwest::Client::new(),
+            client,
             server,
             timeouts: Timeouts::default(),
+            user_agent,
         })
     }
 
-    pub fn new_with_timeouts(server: SensitiveUrl, timeouts: Timeouts) -> Result<Self, Error> {
-        Ok(Self {
-            client: reqwest::Client::new(),
-            server,
-            timeouts,
-        })
+    pub fn get_user_agent(&self) -> &str {
+        &self.user_agent
     }
 
     async fn get_with_timeout<T: DeserializeOwned, U: IntoUrl>(
@@ -160,7 +163,7 @@ impl BuilderHttpClient {
     }
 
     /// `GET /eth/v1/builder/header`
-    pub async fn get_builder_header<E: EthSpec, Payload: ExecPayload<E>>(
+    pub async fn get_builder_header<E: EthSpec, Payload: AbstractExecPayload<E>>(
         &self,
         slot: Slot,
         parent_hash: ExecutionBlockHash,

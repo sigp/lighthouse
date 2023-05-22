@@ -32,6 +32,7 @@ pub const PROPOSER_DUTIES_HTTP_GET: &str = "proposer_duties_http_get";
 pub const VALIDATOR_ID_HTTP_GET: &str = "validator_id_http_get";
 pub const SUBSCRIPTIONS_HTTP_POST: &str = "subscriptions_http_post";
 pub const UPDATE_PROPOSERS: &str = "update_proposers";
+pub const ATTESTATION_SELECTION_PROOFS: &str = "attestation_selection_proofs";
 pub const SUBSCRIPTIONS: &str = "subscriptions";
 pub const LOCAL_KEYSTORE: &str = "local_keystore";
 pub const WEB3SIGNER: &str = "web3signer";
@@ -85,6 +86,11 @@ lazy_static::lazy_static! {
     pub static ref SIGNED_SYNC_SELECTION_PROOFS_TOTAL: Result<IntCounterVec> = try_create_int_counter_vec(
         "vc_signed_sync_selection_proofs_total",
         "Total count of attempted SyncSelectionProof signings",
+        &["status"]
+    );
+    pub static ref SIGNED_VOLUNTARY_EXITS_TOTAL: Result<IntCounterVec> = try_create_int_counter_vec(
+        "vc_signed_voluntary_exits_total",
+        "Total count of VoluntaryExit signings",
         &["status"]
     );
     pub static ref SIGNED_VALIDATOR_REGISTRATIONS_TOTAL: Result<IntCounterVec> = try_create_int_counter_vec(
@@ -171,6 +177,28 @@ lazy_static::lazy_static! {
         "vc_signing_times_seconds",
         "Duration to obtain a signature",
         &["type"]
+    );
+    pub static ref BLOCK_SIGNING_TIMES: Result<Histogram> = try_create_histogram(
+        "vc_block_signing_times_seconds",
+        "Duration to obtain a signature for a block",
+    );
+
+    pub static ref ATTESTATION_DUTY: Result<IntGaugeVec> = try_create_int_gauge_vec(
+        "vc_attestation_duty_slot",
+        "Attestation duty slot for all managed validators",
+        &["validator"]
+    );
+    /*
+     * BN latency
+     */
+    pub static ref VC_BEACON_NODE_LATENCY: Result<HistogramVec> = try_create_histogram_vec(
+        "vc_beacon_node_latency",
+        "Round-trip latency for a simple API endpoint on each BN",
+        &["endpoint"]
+    );
+    pub static ref VC_BEACON_NODE_LATENCY_PRIMARY_ENDPOINT: Result<Histogram> = try_create_histogram(
+        "vc_beacon_node_latency_primary_endpoint",
+        "Round-trip latency for the primary BN endpoint",
     );
 }
 

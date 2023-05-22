@@ -1,3 +1,4 @@
+use crate::consensus_context::ConsensusContext;
 use errors::{BlockOperationError, BlockProcessingError, HeaderInvalid};
 use rayon::prelude::*;
 use safe_arith::{ArithError, SafeArith};
@@ -17,6 +18,7 @@ pub use process_operations::process_operations;
 pub use verify_attestation::{
     verify_attestation_for_block_inclusion, verify_attestation_for_state,
 };
+pub use verify_bls_to_execution_change::verify_bls_to_execution_change;
 pub use verify_deposit::{
     get_existing_validator_index, verify_deposit_merkle_proof, verify_deposit_signature,
 };
@@ -31,9 +33,13 @@ pub mod signature_sets;
 pub mod tests;
 mod verify_attestation;
 mod verify_attester_slashing;
+mod verify_bls_to_execution_change;
 mod verify_deposit;
 mod verify_exit;
 mod verify_proposer_slashing;
+
+use crate::common::decrease_balance;
+use crate::StateProcessingStrategy;
 
 #[cfg(feature = "arbitrary-fuzz")]
 use arbitrary::Arbitrary;
@@ -87,12 +93,13 @@ pub enum VerifyBlockRoot {
 /// re-calculating the root when it is already known. Note `block_root` should be equal to the
 /// tree hash root of the block, NOT the signing root of the block. This function takes
 /// care of mixing in the domain.
-pub fn per_block_processing<T: EthSpec, Payload: ExecPayload<T>>(
+pub fn per_block_processing<T: EthSpec, Payload: AbstractExecPayload<T>>(
     state: &mut BeaconState<T>,
     signed_block: &SignedBeaconBlock<T, Payload>,
-    block_root: Option<Hash256>,
     block_signature_strategy: BlockSignatureStrategy,
+    state_processing_strategy: StateProcessingStrategy,
     verify_block_root: VerifyBlockRoot,
+    ctxt: &mut ConsensusContext<T>,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
     let block = signed_block.message();
@@ -116,7 +123,7 @@ pub fn per_block_processing<T: EthSpec, Payload: ExecPayload<T>>(
                     |i| get_pubkey_from_state(state, i),
                     |pk_bytes| pk_bytes.decompress().ok().map(Cow::Owned),
                     signed_block,
-                    block_root,
+                    ctxt,
                     spec
                 )
                 .is_ok(),
@@ -133,11 +140,12 @@ pub fn per_block_processing<T: EthSpec, Payload: ExecPayload<T>>(
         state,
         block.temporary_block_header(),
         verify_block_root,
+        ctxt,
         spec,
     )?;
 
     if verify_signatures.is_true() {
-        verify_block_signature(state, signed_block, block_root, spec)?;
+        verify_block_signature(state, signed_block, ctxt, spec)?;
     }
 
     let verify_randao = if let BlockSignatureStrategy::VerifyRandao = block_signature_strategy {
@@ -154,12 +162,15 @@ pub fn per_block_processing<T: EthSpec, Payload: ExecPayload<T>>(
     // previous block.
     if is_execution_enabled(state, block.body()) {
         let payload = block.body().execution_payload()?;
-        process_execution_payload(state, payload, spec)?;
+        if state_processing_strategy == StateProcessingStrategy::Accurate {
+            process_withdrawals::<T, Payload>(state, payload, spec)?;
+        }
+        process_execution_payload::<T, Payload>(state, payload, spec)?;
     }
 
-    process_randao(state, block, verify_randao, spec)?;
+    process_randao(state, block, verify_randao, ctxt, spec)?;
     process_eth1_data(state, block.body().eth1_data())?;
-    process_operations(state, block.body(), proposer_index, verify_signatures, spec)?;
+    process_operations(state, block.body(), verify_signatures, ctxt, spec)?;
 
     if let Ok(sync_aggregate) = block.body().sync_aggregate() {
         process_sync_aggregate(
@@ -179,6 +190,7 @@ pub fn process_block_header<T: EthSpec>(
     state: &mut BeaconState<T>,
     block_header: BeaconBlockHeader,
     verify_block_root: VerifyBlockRoot,
+    ctxt: &mut ConsensusContext<T>,
     spec: &ChainSpec,
 ) -> Result<u64, BlockOperationError<HeaderInvalid>> {
     // Verify that the slots match
@@ -197,8 +209,8 @@ pub fn process_block_header<T: EthSpec>(
     );
 
     // Verify that proposer index is the correct index
-    let proposer_index = block_header.proposer_index as usize;
-    let state_proposer_index = state.get_beacon_proposer_index(block_header.slot, spec)?;
+    let proposer_index = block_header.proposer_index;
+    let state_proposer_index = ctxt.get_proposer_index(state, spec)?;
     verify!(
         proposer_index == state_proposer_index,
         HeaderInvalid::ProposerIndexMismatch {
@@ -222,28 +234,31 @@ pub fn process_block_header<T: EthSpec>(
 
     // Verify proposer is not slashed
     verify!(
-        !state.get_validator(proposer_index)?.slashed,
+        !state.get_validator(proposer_index as usize)?.slashed,
         HeaderInvalid::ProposerSlashed(proposer_index)
     );
 
-    Ok(proposer_index as u64)
+    Ok(proposer_index)
 }
 
 /// Verifies the signature of a block.
 ///
 /// Spec v0.12.1
-pub fn verify_block_signature<T: EthSpec, Payload: ExecPayload<T>>(
+pub fn verify_block_signature<T: EthSpec, Payload: AbstractExecPayload<T>>(
     state: &BeaconState<T>,
     block: &SignedBeaconBlock<T, Payload>,
-    block_root: Option<Hash256>,
+    ctxt: &mut ConsensusContext<T>,
     spec: &ChainSpec,
 ) -> Result<(), BlockOperationError<HeaderInvalid>> {
+    let block_root = Some(ctxt.get_current_block_root(block)?);
+    let proposer_index = Some(ctxt.get_proposer_index(state, spec)?);
     verify!(
         block_proposal_signature_set(
             state,
             |i| get_pubkey_from_state(state, i),
             block,
             block_root,
+            proposer_index,
             spec
         )?
         .verify(),
@@ -255,16 +270,25 @@ pub fn verify_block_signature<T: EthSpec, Payload: ExecPayload<T>>(
 
 /// Verifies the `randao_reveal` against the block's proposer pubkey and updates
 /// `state.latest_randao_mixes`.
-pub fn process_randao<T: EthSpec, Payload: ExecPayload<T>>(
+pub fn process_randao<T: EthSpec, Payload: AbstractExecPayload<T>>(
     state: &mut BeaconState<T>,
     block: BeaconBlockRef<'_, T, Payload>,
     verify_signatures: VerifySignatures,
+    ctxt: &mut ConsensusContext<T>,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
     if verify_signatures.is_true() {
         // Verify RANDAO reveal signature.
+        let proposer_index = ctxt.get_proposer_index(state, spec)?;
         block_verify!(
-            randao_signature_set(state, |i| get_pubkey_from_state(state, i), block, spec)?.verify(),
+            randao_signature_set(
+                state,
+                |i| get_pubkey_from_state(state, i),
+                block,
+                Some(proposer_index),
+                spec
+            )?
+            .verify(),
             BlockProcessingError::RandaoSignatureInvalid
         );
     }
@@ -319,16 +343,17 @@ pub fn get_new_eth1_data<T: EthSpec>(
 /// Contains a partial set of checks from the `process_execution_payload` function:
 ///
 /// https://github.com/ethereum/consensus-specs/blob/v1.1.5/specs/merge/beacon-chain.md#process_execution_payload
-pub fn partially_verify_execution_payload<T: EthSpec, Payload: ExecPayload<T>>(
+pub fn partially_verify_execution_payload<T: EthSpec, Payload: AbstractExecPayload<T>>(
     state: &BeaconState<T>,
-    payload: &Payload,
+    block_slot: Slot,
+    payload: Payload::Ref<'_>,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
     if is_merge_transition_complete(state) {
         block_verify!(
-            payload.parent_hash() == state.latest_execution_payload_header()?.block_hash,
+            payload.parent_hash() == state.latest_execution_payload_header()?.block_hash(),
             BlockProcessingError::ExecutionHashChainIncontiguous {
-                expected: state.latest_execution_payload_header()?.block_hash,
+                expected: state.latest_execution_payload_header()?.block_hash(),
                 found: payload.parent_hash(),
             }
         );
@@ -341,7 +366,7 @@ pub fn partially_verify_execution_payload<T: EthSpec, Payload: ExecPayload<T>>(
         }
     );
 
-    let timestamp = compute_timestamp_at_slot(state, spec)?;
+    let timestamp = compute_timestamp_at_slot(state, block_slot, spec)?;
     block_verify!(
         payload.timestamp() == timestamp,
         BlockProcessingError::ExecutionInvalidTimestamp {
@@ -360,14 +385,27 @@ pub fn partially_verify_execution_payload<T: EthSpec, Payload: ExecPayload<T>>(
 /// Partially equivalent to the `process_execution_payload` function:
 ///
 /// https://github.com/ethereum/consensus-specs/blob/v1.1.5/specs/merge/beacon-chain.md#process_execution_payload
-pub fn process_execution_payload<T: EthSpec, Payload: ExecPayload<T>>(
+pub fn process_execution_payload<T: EthSpec, Payload: AbstractExecPayload<T>>(
     state: &mut BeaconState<T>,
-    payload: &Payload,
+    payload: Payload::Ref<'_>,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
-    partially_verify_execution_payload(state, payload, spec)?;
+    partially_verify_execution_payload::<T, Payload>(state, state.slot(), payload, spec)?;
 
-    *state.latest_execution_payload_header_mut()? = payload.to_execution_payload_header();
+    match state.latest_execution_payload_header_mut()? {
+        ExecutionPayloadHeaderRefMut::Merge(header_mut) => {
+            match payload.to_execution_payload_header() {
+                ExecutionPayloadHeader::Merge(header) => *header_mut = header,
+                _ => return Err(BlockProcessingError::IncorrectStateType),
+            }
+        }
+        ExecutionPayloadHeaderRefMut::Capella(header_mut) => {
+            match payload.to_execution_payload_header() {
+                ExecutionPayloadHeader::Capella(header) => *header_mut = header,
+                _ => return Err(BlockProcessingError::IncorrectStateType),
+            }
+        }
+    }
 
     Ok(())
 }
@@ -376,36 +414,156 @@ pub fn process_execution_payload<T: EthSpec, Payload: ExecPayload<T>>(
 /// the merge has happened or if we're on the transition block. Thus we don't want to propagate
 /// errors from the `BeaconState` being an earlier variant than `BeaconStateMerge` as we'd have to
 /// repeaetedly write code to treat these errors as false.
-/// https://github.com/ethereum/consensus-specs/blob/dev/specs/merge/beacon-chain.md#is_merge_transition_complete
+/// https://github.com/ethereum/consensus-specs/blob/dev/specs/bellatrix/beacon-chain.md#is_merge_transition_complete
 pub fn is_merge_transition_complete<T: EthSpec>(state: &BeaconState<T>) -> bool {
+    // We must check defaultness against the payload header with 0x0 roots, as that's what's meant
+    // by `ExecutionPayloadHeader()` in the spec.
     state
         .latest_execution_payload_header()
-        .map(|header| *header != <ExecutionPayloadHeader<T>>::default())
+        .map(|header| !header.is_default_with_zero_roots())
         .unwrap_or(false)
 }
-/// https://github.com/ethereum/consensus-specs/blob/dev/specs/merge/beacon-chain.md#is_merge_transition_block
-pub fn is_merge_transition_block<T: EthSpec, Payload: ExecPayload<T>>(
+/// https://github.com/ethereum/consensus-specs/blob/dev/specs/bellatrix/beacon-chain.md#is_merge_transition_block
+pub fn is_merge_transition_block<T: EthSpec, Payload: AbstractExecPayload<T>>(
     state: &BeaconState<T>,
     body: BeaconBlockBodyRef<T, Payload>,
 ) -> bool {
+    // For execution payloads in blocks (which may be headers) we must check defaultness against
+    // the payload with `transactions_root` equal to the tree hash of the empty list.
     body.execution_payload()
-        .map(|payload| !is_merge_transition_complete(state) && *payload != Payload::default())
+        .map(|payload| {
+            !is_merge_transition_complete(state) && !payload.is_default_with_empty_roots()
+        })
         .unwrap_or(false)
 }
-/// https://github.com/ethereum/consensus-specs/blob/dev/specs/merge/beacon-chain.md#is_execution_enabled
-pub fn is_execution_enabled<T: EthSpec, Payload: ExecPayload<T>>(
+/// https://github.com/ethereum/consensus-specs/blob/dev/specs/bellatrix/beacon-chain.md#is_execution_enabled
+pub fn is_execution_enabled<T: EthSpec, Payload: AbstractExecPayload<T>>(
     state: &BeaconState<T>,
     body: BeaconBlockBodyRef<T, Payload>,
 ) -> bool {
     is_merge_transition_block(state, body) || is_merge_transition_complete(state)
 }
-/// https://github.com/ethereum/consensus-specs/blob/dev/specs/merge/beacon-chain.md#compute_timestamp_at_slot
+
+/// https://github.com/ethereum/consensus-specs/blob/dev/specs/bellatrix/beacon-chain.md#compute_timestamp_at_slot
 pub fn compute_timestamp_at_slot<T: EthSpec>(
     state: &BeaconState<T>,
+    block_slot: Slot,
     spec: &ChainSpec,
 ) -> Result<u64, ArithError> {
-    let slots_since_genesis = state.slot().as_u64().safe_sub(spec.genesis_slot.as_u64())?;
+    let slots_since_genesis = block_slot.as_u64().safe_sub(spec.genesis_slot.as_u64())?;
     slots_since_genesis
         .safe_mul(spec.seconds_per_slot)
         .and_then(|since_genesis| state.genesis_time().safe_add(since_genesis))
+}
+
+/// Compute the next batch of withdrawals which should be included in a block.
+///
+/// https://github.com/ethereum/consensus-specs/blob/dev/specs/capella/beacon-chain.md#new-get_expected_withdrawals
+pub fn get_expected_withdrawals<T: EthSpec>(
+    state: &BeaconState<T>,
+    spec: &ChainSpec,
+) -> Result<Withdrawals<T>, BlockProcessingError> {
+    let epoch = state.current_epoch();
+    let mut withdrawal_index = state.next_withdrawal_index()?;
+    let mut validator_index = state.next_withdrawal_validator_index()?;
+    let mut withdrawals = vec![];
+
+    let bound = std::cmp::min(
+        state.validators().len() as u64,
+        spec.max_validators_per_withdrawals_sweep,
+    );
+    for _ in 0..bound {
+        let validator = state.get_validator(validator_index as usize)?;
+        let balance = *state.balances().get(validator_index as usize).ok_or(
+            BeaconStateError::BalancesOutOfBounds(validator_index as usize),
+        )?;
+        if validator.is_fully_withdrawable_at(balance, epoch, spec) {
+            withdrawals.push(Withdrawal {
+                index: withdrawal_index,
+                validator_index,
+                address: validator
+                    .get_eth1_withdrawal_address(spec)
+                    .ok_or(BlockProcessingError::WithdrawalCredentialsInvalid)?,
+                amount: balance,
+            });
+            withdrawal_index.safe_add_assign(1)?;
+        } else if validator.is_partially_withdrawable_validator(balance, spec) {
+            withdrawals.push(Withdrawal {
+                index: withdrawal_index,
+                validator_index,
+                address: validator
+                    .get_eth1_withdrawal_address(spec)
+                    .ok_or(BlockProcessingError::WithdrawalCredentialsInvalid)?,
+                amount: balance.safe_sub(spec.max_effective_balance)?,
+            });
+            withdrawal_index.safe_add_assign(1)?;
+        }
+        if withdrawals.len() == T::max_withdrawals_per_payload() {
+            break;
+        }
+        validator_index = validator_index
+            .safe_add(1)?
+            .safe_rem(state.validators().len() as u64)?;
+    }
+
+    Ok(withdrawals.into())
+}
+
+/// Apply withdrawals to the state.
+pub fn process_withdrawals<T: EthSpec, Payload: AbstractExecPayload<T>>(
+    state: &mut BeaconState<T>,
+    payload: Payload::Ref<'_>,
+    spec: &ChainSpec,
+) -> Result<(), BlockProcessingError> {
+    match state {
+        BeaconState::Merge(_) => Ok(()),
+        BeaconState::Capella(_) => {
+            let expected_withdrawals = get_expected_withdrawals(state, spec)?;
+            let expected_root = expected_withdrawals.tree_hash_root();
+            let withdrawals_root = payload.withdrawals_root()?;
+
+            if expected_root != withdrawals_root {
+                return Err(BlockProcessingError::WithdrawalsRootMismatch {
+                    expected: expected_root,
+                    found: withdrawals_root,
+                });
+            }
+
+            for withdrawal in expected_withdrawals.iter() {
+                decrease_balance(
+                    state,
+                    withdrawal.validator_index as usize,
+                    withdrawal.amount,
+                )?;
+            }
+
+            // Update the next withdrawal index if this block contained withdrawals
+            if let Some(latest_withdrawal) = expected_withdrawals.last() {
+                *state.next_withdrawal_index_mut()? = latest_withdrawal.index.safe_add(1)?;
+
+                // Update the next validator index to start the next withdrawal sweep
+                if expected_withdrawals.len() == T::max_withdrawals_per_payload() {
+                    // Next sweep starts after the latest withdrawal's validator index
+                    let next_validator_index = latest_withdrawal
+                        .validator_index
+                        .safe_add(1)?
+                        .safe_rem(state.validators().len() as u64)?;
+                    *state.next_withdrawal_validator_index_mut()? = next_validator_index;
+                }
+            }
+
+            // Advance sweep by the max length of the sweep if there was not a full set of withdrawals
+            if expected_withdrawals.len() != T::max_withdrawals_per_payload() {
+                let next_validator_index = state
+                    .next_withdrawal_validator_index()?
+                    .safe_add(spec.max_validators_per_withdrawals_sweep)?
+                    .safe_rem(state.validators().len() as u64)?;
+                *state.next_withdrawal_validator_index_mut()? = next_validator_index;
+            }
+
+            Ok(())
+        }
+        // these shouldn't even be encountered but they're here for completeness
+        BeaconState::Base(_) | BeaconState::Altair(_) => Ok(()),
+    }
 }

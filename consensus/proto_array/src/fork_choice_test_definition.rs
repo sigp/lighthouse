@@ -4,7 +4,7 @@ mod no_votes;
 mod votes;
 
 use crate::proto_array_fork_choice::{Block, ExecutionStatus, ProtoArrayForkChoice};
-use crate::InvalidationOperation;
+use crate::{InvalidationOperation, JustifiedBalances};
 use serde_derive::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 use types::{
@@ -99,11 +99,14 @@ impl ForkChoiceTestDefinition {
                     justified_state_balances,
                     expected_head,
                 } => {
+                    let justified_balances =
+                        JustifiedBalances::from_effective_balances(justified_state_balances)
+                            .unwrap();
                     let head = fork_choice
                         .find_head::<MainnetEthSpec>(
                             justified_checkpoint,
                             finalized_checkpoint,
-                            &justified_state_balances,
+                            &justified_balances,
                             Hash256::zero(),
                             &equivocating_indices,
                             Slot::new(0),
@@ -127,11 +130,14 @@ impl ForkChoiceTestDefinition {
                     expected_head,
                     proposer_boost_root,
                 } => {
+                    let justified_balances =
+                        JustifiedBalances::from_effective_balances(justified_state_balances)
+                            .unwrap();
                     let head = fork_choice
                         .find_head::<MainnetEthSpec>(
                             justified_checkpoint,
                             finalized_checkpoint,
-                            &justified_state_balances,
+                            &justified_balances,
                             proposer_boost_root,
                             &equivocating_indices,
                             Slot::new(0),
@@ -153,10 +159,13 @@ impl ForkChoiceTestDefinition {
                     finalized_checkpoint,
                     justified_state_balances,
                 } => {
+                    let justified_balances =
+                        JustifiedBalances::from_effective_balances(justified_state_balances)
+                            .unwrap();
                     let result = fork_choice.find_head::<MainnetEthSpec>(
                         justified_checkpoint,
                         finalized_checkpoint,
-                        &justified_state_balances,
+                        &justified_balances,
                         Hash256::zero(),
                         &equivocating_indices,
                         Slot::new(0),
@@ -262,7 +271,7 @@ impl ForkChoiceTestDefinition {
                         }
                     };
                     fork_choice
-                        .process_execution_payload_invalidation(&op)
+                        .process_execution_payload_invalidation::<MainnetEthSpec>(&op)
                         .unwrap()
                 }
                 Operation::AssertWeight { block_root, weight } => assert_eq!(

@@ -7,11 +7,11 @@ use itertools::process_results;
 use lighthouse_network::rpc::StatusMessage;
 use lighthouse_network::rpc::*;
 use lighthouse_network::{PeerId, PeerRequestId, ReportSource, Response, SyncInfo};
-use slog::{debug, error};
+use slog::{debug, error, warn};
 use slot_clock::SlotClock;
-use std::sync::Arc;
 use task_executor::TaskExecutor;
-use types::{Epoch, EthSpec, Hash256, Slot};
+use tokio_stream::StreamExt;
+use types::{light_client_bootstrap::LightClientBootstrap, Epoch, EthSpec, Hash256, Slot};
 
 use super::Worker;
 
@@ -131,21 +131,25 @@ impl<T: BeaconChainTypes> Worker<T> {
         request_id: PeerRequestId,
         request: BlocksByRootRequest,
     ) {
+        let requested_blocks = request.block_roots.len();
+        let mut block_stream = match self
+            .chain
+            .get_blocks_checking_early_attester_cache(request.block_roots.into(), &executor)
+        {
+            Ok(block_stream) => block_stream,
+            Err(e) => return error!(self.log, "Error getting block stream"; "error" => ?e),
+        };
         // Fetching blocks is async because it may have to hit the execution layer for payloads.
         executor.spawn(
             async move {
                 let mut send_block_count = 0;
                 let mut send_response = true;
-                for root in request.block_roots.iter() {
-                    match self
-                        .chain
-                        .get_block_checking_early_attester_cache(root)
-                        .await
-                    {
+                while let Some((root, result)) = block_stream.next().await {
+                    match result.as_ref() {
                         Ok(Some(block)) => {
                             self.send_response(
                                 peer_id,
-                                Response::BlocksByRoot(Some(block)),
+                                Response::BlocksByRoot(Some(block.clone())),
                                 request_id,
                             );
                             send_block_count += 1;
@@ -190,7 +194,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     self.log,
                     "Received BlocksByRoot Request";
                     "peer" => %peer_id,
-                    "requested" => request.block_roots.len(),
+                    "requested" => requested_blocks,
                     "returned" => %send_block_count
                 );
 
@@ -201,6 +205,79 @@ impl<T: BeaconChainTypes> Worker<T> {
                 drop(send_on_drop);
             },
             "load_blocks_by_root_blocks",
+        )
+    }
+
+    /// Handle a `BlocksByRoot` request from the peer.
+    pub fn handle_light_client_bootstrap(
+        self,
+        peer_id: PeerId,
+        request_id: PeerRequestId,
+        request: LightClientBootstrapRequest,
+    ) {
+        let block_root = request.root;
+        let state_root = match self.chain.get_blinded_block(&block_root) {
+            Ok(signed_block) => match signed_block {
+                Some(signed_block) => signed_block.state_root(),
+                None => {
+                    self.send_error_response(
+                        peer_id,
+                        RPCResponseErrorCode::ResourceUnavailable,
+                        "Bootstrap not avaiable".into(),
+                        request_id,
+                    );
+                    return;
+                }
+            },
+            Err(_) => {
+                self.send_error_response(
+                    peer_id,
+                    RPCResponseErrorCode::ResourceUnavailable,
+                    "Bootstrap not avaiable".into(),
+                    request_id,
+                );
+                return;
+            }
+        };
+        let mut beacon_state = match self.chain.get_state(&state_root, None) {
+            Ok(beacon_state) => match beacon_state {
+                Some(state) => state,
+                None => {
+                    self.send_error_response(
+                        peer_id,
+                        RPCResponseErrorCode::ResourceUnavailable,
+                        "Bootstrap not avaiable".into(),
+                        request_id,
+                    );
+                    return;
+                }
+            },
+            Err(_) => {
+                self.send_error_response(
+                    peer_id,
+                    RPCResponseErrorCode::ResourceUnavailable,
+                    "Bootstrap not avaiable".into(),
+                    request_id,
+                );
+                return;
+            }
+        };
+        let bootstrap = match LightClientBootstrap::from_beacon_state(&mut beacon_state) {
+            Ok(bootstrap) => bootstrap,
+            Err(_) => {
+                self.send_error_response(
+                    peer_id,
+                    RPCResponseErrorCode::ResourceUnavailable,
+                    "Bootstrap not avaiable".into(),
+                    request_id,
+                );
+                return;
+            }
+        };
+        self.send_response(
+            peer_id,
+            Response::LightClientBootstrap(bootstrap),
+            request_id,
         )
     }
 
@@ -271,14 +348,19 @@ impl<T: BeaconChainTypes> Worker<T> {
         // remove all skip slots
         let block_roots = block_roots.into_iter().flatten().collect::<Vec<_>>();
 
+        let mut block_stream = match self.chain.get_blocks(block_roots, &executor) {
+            Ok(block_stream) => block_stream,
+            Err(e) => return error!(self.log, "Error getting block stream"; "error" => ?e),
+        };
+
         // Fetching blocks is async because it may have to hit the execution layer for payloads.
         executor.spawn(
             async move {
                 let mut blocks_sent = 0;
                 let mut send_response = true;
 
-                for root in block_roots {
-                    match self.chain.get_block(&root).await {
+                while let Some((root, result)) = block_stream.next().await {
+                    match result.as_ref() {
                         Ok(Some(block)) => {
                             // Due to skip slots, blocks could be out of the range, we ensure they
                             // are in the range before sending
@@ -288,7 +370,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                                 blocks_sent += 1;
                                 self.send_network_message(NetworkMessage::SendResponse {
                                     peer_id,
-                                    response: Response::BlocksByRange(Some(Arc::new(block))),
+                                    response: Response::BlocksByRange(Some(block.clone())),
                                     id: request_id,
                                 });
                             }
@@ -319,12 +401,35 @@ impl<T: BeaconChainTypes> Worker<T> {
                             break;
                         }
                         Err(e) => {
-                            error!(
-                                self.log,
-                                "Error fetching block for peer";
-                                "block_root" => ?root,
-                                "error" => ?e
+                            if matches!(
+                                e,
+                                BeaconChainError::ExecutionLayerErrorPayloadReconstruction(_block_hash, ref boxed_error)
+                                if matches!(**boxed_error, execution_layer::Error::EngineError(_))
+                            ) {
+                                warn!(
+                                    self.log,
+                                    "Error rebuilding payload for peer";
+                                    "info" => "this may occur occasionally when the EE is busy",
+                                    "block_root" => ?root,
+                                    "error" => ?e,
+                                );
+                            } else {
+                                error!(
+                                    self.log,
+                                    "Error fetching block for peer";
+                                    "block_root" => ?root,
+                                    "error" => ?e
+                                );
+                            }
+
+                            // send the stream terminator
+                            self.send_error_response(
+                                peer_id,
+                                RPCResponseErrorCode::ServerError,
+                                "Failed fetching blocks".into(),
+                                request_id,
                             );
+                            send_response = false;
                             break;
                         }
                     }
@@ -338,7 +443,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                 if blocks_sent < (req.count as usize) {
                     debug!(
                         self.log,
-                        "BlocksByRange Response processed";
+                        "BlocksByRange outgoing response processed";
                         "peer" => %peer_id,
                         "msg" => "Failed to return all requested blocks",
                         "start_slot" => req.start_slot,
@@ -349,7 +454,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                 } else {
                     debug!(
                         self.log,
-                        "BlocksByRange Response processed";
+                        "BlocksByRange outgoing response processed";
                         "peer" => %peer_id,
                         "start_slot" => req.start_slot,
                         "current_slot" => current_slot,

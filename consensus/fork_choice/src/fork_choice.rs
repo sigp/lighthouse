@@ -1,5 +1,8 @@
 use crate::{ForkChoiceStore, InvalidationOperation};
-use proto_array::{Block as ProtoBlock, ExecutionStatus, ProtoArrayForkChoice};
+use proto_array::{
+    Block as ProtoBlock, DisallowedReOrgOffsets, ExecutionStatus, ProposerHeadError,
+    ProposerHeadInfo, ProtoArrayForkChoice, ReOrgThreshold,
+};
 use slog::{crit, debug, warn, Logger};
 use ssz_derive::{Decode, Encode};
 use state_processing::{
@@ -10,9 +13,10 @@ use std::collections::BTreeSet;
 use std::marker::PhantomData;
 use std::time::Duration;
 use types::{
-    consts::merge::INTERVALS_PER_SLOT, AttestationShufflingId, AttesterSlashing, BeaconBlockRef,
-    BeaconState, BeaconStateError, ChainSpec, Checkpoint, Epoch, EthSpec, ExecPayload,
-    ExecutionBlockHash, Hash256, IndexedAttestation, RelativeEpoch, SignedBeaconBlock, Slot,
+    consts::merge::INTERVALS_PER_SLOT, AbstractExecPayload, AttestationShufflingId,
+    AttesterSlashing, BeaconBlockRef, BeaconState, BeaconStateError, ChainSpec, Checkpoint, Epoch,
+    EthSpec, ExecPayload, ExecutionBlockHash, Hash256, IndexedAttestation, RelativeEpoch,
+    SignedBeaconBlock, Slot,
 };
 
 #[derive(Debug)]
@@ -20,7 +24,8 @@ pub enum Error<T> {
     InvalidAttestation(InvalidAttestation),
     InvalidAttesterSlashing(AttesterSlashingValidationError),
     InvalidBlock(InvalidBlock),
-    ProtoArrayError(String),
+    ProtoArrayStringError(String),
+    ProtoArrayError(proto_array::Error),
     InvalidProtoArrayBytes(String),
     InvalidLegacyProtoArrayBytes(String),
     FailedToProcessInvalidExecutionPayload(String),
@@ -42,6 +47,7 @@ pub enum Error<T> {
     ForkChoiceStoreError(T),
     UnableToSetJustifiedCheckpoint(T),
     AfterBlockFailed(T),
+    ProposerHeadError(T),
     InvalidAnchor {
         block_slot: Slot,
         state_slot: Slot,
@@ -56,6 +62,13 @@ pub enum Error<T> {
     },
     MissingFinalizedBlock {
         finalized_checkpoint: Checkpoint,
+    },
+    WrongSlotForGetProposerHead {
+        current_slot: Slot,
+        fc_store_slot: Slot,
+    },
+    ProposerBoostNotExpiredForGetProposerHead {
+        proposer_boost_root: Hash256,
     },
     UnrealizedVoteProcessing(state_processing::EpochProcessingError),
     ParticipationCacheBuild(BeaconStateError),
@@ -151,6 +164,12 @@ pub enum InvalidAttestation {
 
 impl<T> From<String> for Error<T> {
     fn from(e: String) -> Self {
+        Error::ProtoArrayStringError(e)
+    }
+}
+
+impl<T> From<proto_array::Error> for Error<T> {
+    fn from(e: proto_array::Error) -> Self {
         Error::ProtoArrayError(e)
     }
 }
@@ -167,51 +186,6 @@ pub enum CountUnrealized {
 impl CountUnrealized {
     pub fn is_true(&self) -> bool {
         matches!(self, CountUnrealized::True)
-    }
-
-    pub fn and(&self, other: CountUnrealized) -> CountUnrealized {
-        if self.is_true() && other.is_true() {
-            CountUnrealized::True
-        } else {
-            CountUnrealized::False
-        }
-    }
-}
-
-impl From<bool> for CountUnrealized {
-    fn from(count_unrealized: bool) -> Self {
-        if count_unrealized {
-            CountUnrealized::True
-        } else {
-            CountUnrealized::False
-        }
-    }
-}
-
-#[derive(Copy, Clone)]
-enum UpdateJustifiedCheckpointSlots {
-    OnTick {
-        current_slot: Slot,
-    },
-    OnBlock {
-        state_slot: Slot,
-        current_slot: Slot,
-    },
-}
-
-impl UpdateJustifiedCheckpointSlots {
-    fn current_slot(&self) -> Slot {
-        match self {
-            UpdateJustifiedCheckpointSlots::OnTick { current_slot } => *current_slot,
-            UpdateJustifiedCheckpointSlots::OnBlock { current_slot, .. } => *current_slot,
-        }
-    }
-
-    fn state_slot(&self) -> Option<Slot> {
-        match self {
-            UpdateJustifiedCheckpointSlots::OnTick { .. } => None,
-            UpdateJustifiedCheckpointSlots::OnBlock { state_slot, .. } => Some(*state_slot),
-        }
     }
 }
 
@@ -393,18 +367,18 @@ where
             AttestationShufflingId::new(anchor_block_root, anchor_state, RelativeEpoch::Next)
                 .map_err(Error::BeaconStateError)?;
 
-        // Default any non-merge execution block hashes to 0x000..000.
-        let execution_status = anchor_block.message_merge().map_or_else(
-            |()| ExecutionStatus::irrelevant(),
-            |message| {
-                let execution_payload = &message.body.execution_payload;
-                if execution_payload == &<_>::default() {
+        let execution_status = anchor_block.message().execution_payload().map_or_else(
+            // If the block doesn't have an execution payload then it can't have
+            // execution enabled.
+            |_| ExecutionStatus::irrelevant(),
+            |execution_payload| {
+                if execution_payload.is_default_with_empty_roots() {
                     // A default payload does not have execution enabled.
                     ExecutionStatus::irrelevant()
                 } else {
                     // Assume that this payload is valid, since the anchor should be a trusted block and
                     // state.
-                    ExecutionStatus::Valid(message.body.execution_payload.block_hash())
+                    ExecutionStatus::Valid(execution_payload.block_hash())
                 }
             },
         );
@@ -512,7 +486,7 @@ where
         // Provide the slot (as per the system clock) to the `fc_store` and then return its view of
         // the current slot. The `fc_store` will ensure that the `current_slot` is never
         // decreasing, a property which we must maintain.
-        let current_slot = self.update_time(system_time_current_slot, spec)?;
+        let current_slot = self.update_time(system_time_current_slot)?;
 
         let store = &mut self.fc_store;
 
@@ -550,6 +524,73 @@ where
         Ok(head_root)
     }
 
+    /// Get the block to build on as proposer, taking into account proposer re-orgs.
+    ///
+    /// You *must* call `get_head` for the proposal slot prior to calling this function and pass
+    /// in the result of `get_head` as `canonical_head`.
+    pub fn get_proposer_head(
+        &self,
+        current_slot: Slot,
+        canonical_head: Hash256,
+        re_org_threshold: ReOrgThreshold,
+        disallowed_offsets: &DisallowedReOrgOffsets,
+        max_epochs_since_finalization: Epoch,
+    ) -> Result<ProposerHeadInfo, ProposerHeadError<Error<proto_array::Error>>> {
+        // Ensure that fork choice has already been updated for the current slot. This prevents
+        // us from having to take a write lock or do any dequeueing of attestations in this
+        // function.
+        let fc_store_slot = self.fc_store.get_current_slot();
+        if current_slot != fc_store_slot {
+            return Err(ProposerHeadError::Error(
+                Error::WrongSlotForGetProposerHead {
+                    current_slot,
+                    fc_store_slot,
+                },
+            ));
+        }
+
+        // Similarly, the proposer boost for the previous head should already have expired.
+        let proposer_boost_root = self.fc_store.proposer_boost_root();
+        if !proposer_boost_root.is_zero() {
+            return Err(ProposerHeadError::Error(
+                Error::ProposerBoostNotExpiredForGetProposerHead {
+                    proposer_boost_root,
+                },
+            ));
+        }
+
+        self.proto_array
+            .get_proposer_head::<E>(
+                current_slot,
+                canonical_head,
+                self.fc_store.justified_balances(),
+                re_org_threshold,
+                disallowed_offsets,
+                max_epochs_since_finalization,
+            )
+            .map_err(ProposerHeadError::convert_inner_error)
+    }
+
+    pub fn get_preliminary_proposer_head(
+        &self,
+        canonical_head: Hash256,
+        re_org_threshold: ReOrgThreshold,
+        disallowed_offsets: &DisallowedReOrgOffsets,
+        max_epochs_since_finalization: Epoch,
+    ) -> Result<ProposerHeadInfo, ProposerHeadError<Error<proto_array::Error>>> {
+        let current_slot = self.fc_store.get_current_slot();
+        self.proto_array
+            .get_proposer_head_info::<E>(
+                current_slot,
+                canonical_head,
+                self.fc_store.justified_balances(),
+                re_org_threshold,
+                disallowed_offsets,
+                max_epochs_since_finalization,
+            )
+            .map_err(ProposerHeadError::convert_inner_error)
+    }
+
     /// Return information about:
     ///
     /// - The LMD head of the chain.
@@ -570,58 +611,6 @@ where
         }
     }
 
-    /// Returns `true` if the given `store` should be updated to set
-    /// `state.current_justified_checkpoint` its `justified_checkpoint`.
-    ///
-    /// ## Specification
-    ///
-    /// Is equivalent to:
-    ///
-    /// https://github.com/ethereum/eth2.0-specs/blob/v0.12.1/specs/phase0/fork-choice.md#should_update_justified_checkpoint
-    fn should_update_justified_checkpoint(
-        &mut self,
-        new_justified_checkpoint: Checkpoint,
-        slots: UpdateJustifiedCheckpointSlots,
-        spec: &ChainSpec,
-    ) -> Result<bool, Error<T::Error>> {
-        self.update_time(slots.current_slot(), spec)?;
-
-        if compute_slots_since_epoch_start::<E>(self.fc_store.get_current_slot())
-            < spec.safe_slots_to_update_justified
-        {
-            return Ok(true);
-        }
-
-        let justified_slot =
-            compute_start_slot_at_epoch::<E>(self.fc_store.justified_checkpoint().epoch);
-
-        // This sanity check is not in the spec, but the invariant is implied.
-        if let Some(state_slot) = slots.state_slot() {
-            if justified_slot >= state_slot {
-                return Err(Error::AttemptToRevertJustification {
-                    store: justified_slot,
-                    state: state_slot,
-                });
-            }
-        }
-
-        // We know that the slot for `new_justified_checkpoint.root` is not greater than
-        // `state.slot`, since a state cannot justify its own slot.
-        //
-        // We know that `new_justified_checkpoint.root` is an ancestor of `state`, since a `state`
-        // only ever justifies ancestors.
-        //
-        // A prior `if` statement protects against a justified_slot that is greater than
-        // `state.slot`
-        let justified_ancestor =
-            self.get_ancestor(new_justified_checkpoint.root, justified_slot)?;
-        if justified_ancestor != Some(self.fc_store.justified_checkpoint().root) {
-            return Ok(false);
-        }
-
-        Ok(true)
-    }
-
     /// See `ProtoArrayForkChoice::process_execution_payload_validation` for documentation.
     pub fn on_valid_execution_payload(
         &mut self,
@@ -638,7 +627,7 @@ where
         op: &InvalidationOperation,
     ) -> Result<(), Error<T::Error>> {
         self.proto_array
-            .process_execution_payload_invalidation(op)
+            .process_execution_payload_invalidation::<E>(op)
             .map_err(Error::FailedToProcessInvalidExecutionPayload)
     }
 
@@ -661,7 +650,7 @@ where
     /// The supplied block **must** pass the `state_transition` function as it will not be run
     /// here.
     #[allow(clippy::too_many_arguments)]
-    pub fn on_block<Payload: ExecPayload<E>>(
+    pub fn on_block<Payload: AbstractExecPayload<E>>(
         &mut self,
         system_time_current_slot: Slot,
         block: BeaconBlockRef<E, Payload>,
@@ -675,7 +664,7 @@ where
         // Provide the slot (as per the system clock) to the `fc_store` and then return its view of
         // the current slot. The `fc_store` will ensure that the `current_slot` is never
         // decreasing, a property which we must maintain.
-        let current_slot = self.update_time(system_time_current_slot, spec)?;
+        let current_slot = self.update_time(system_time_current_slot)?;
 
         // Parent block must be known.
         let parent_block = self
@@ -730,17 +719,10 @@ where
             self.fc_store.set_proposer_boost_root(block_root);
         }
 
-        let update_justified_checkpoint_slots = UpdateJustifiedCheckpointSlots::OnBlock {
-            state_slot: state.slot(),
-            current_slot,
-        };
-
         // Update store with checkpoints if necessary
         self.update_checkpoints(
             state.current_justified_checkpoint(),
             state.finalized_checkpoint(),
-            update_justified_checkpoint_slots,
-            spec,
         )?;
 
         // Update unrealized justified/finalized checkpoints.
@@ -773,7 +755,9 @@ where
                     (parent_justified, parent_finalized)
                 } else {
                     let justification_and_finalization_state = match block {
-                        BeaconBlockRef::Merge(_) | BeaconBlockRef::Altair(_) => {
+                        BeaconBlockRef::Capella(_)
+                        | BeaconBlockRef::Merge(_)
+                        | BeaconBlockRef::Altair(_) => {
                             let participation_cache =
                                 per_epoch_processing::altair::ParticipationCache::new(state, spec)
                                     .map_err(Error::ParticipationCacheBuild)?;
@@ -819,11 +803,9 @@ where
 
             // If block is from past epochs, try to update store's justified & finalized checkpoints right away
             if block.slot().epoch(E::slots_per_epoch()) < current_slot.epoch(E::slots_per_epoch()) {
-                self.update_checkpoints(
+                self.pull_up_store_checkpoints(
                     unrealized_justified_checkpoint,
                     unrealized_finalized_checkpoint,
-                    update_justified_checkpoint_slots,
-                    spec,
                 )?;
             }
 
@@ -918,29 +900,19 @@ where
         &mut self,
         justified_checkpoint: Checkpoint,
         finalized_checkpoint: Checkpoint,
-        slots: UpdateJustifiedCheckpointSlots,
-        spec: &ChainSpec,
     ) -> Result<(), Error<T::Error>> {
         // Update justified checkpoint.
         if justified_checkpoint.epoch > self.fc_store.justified_checkpoint().epoch {
-            if justified_checkpoint.epoch > self.fc_store.best_justified_checkpoint().epoch {
-                self.fc_store
-                    .set_best_justified_checkpoint(justified_checkpoint);
-            }
-            if self.should_update_justified_checkpoint(justified_checkpoint, slots, spec)? {
-                self.fc_store
-                    .set_justified_checkpoint(justified_checkpoint)
-                    .map_err(Error::UnableToSetJustifiedCheckpoint)?;
-            }
+            self.fc_store
+                .set_justified_checkpoint(justified_checkpoint)
+                .map_err(Error::UnableToSetJustifiedCheckpoint)?;
         }
 
         // Update finalized checkpoint.
         if finalized_checkpoint.epoch > self.fc_store.finalized_checkpoint().epoch {
             self.fc_store.set_finalized_checkpoint(finalized_checkpoint);
-            self.fc_store
-                .set_justified_checkpoint(justified_checkpoint)
-                .map_err(Error::UnableToSetJustifiedCheckpoint)?;
         }
+
         Ok(())
     }
 
@@ -1081,9 +1053,8 @@ where
         system_time_current_slot: Slot,
         attestation: &IndexedAttestation<E>,
         is_from_block: AttestationFromBlock,
-        spec: &ChainSpec,
     ) -> Result<(), Error<T::Error>> {
-        self.update_time(system_time_current_slot, spec)?;
+        self.update_time(system_time_current_slot)?;
 
         // Ignore any attestations to the zero hash.
         //
@@ -1144,16 +1115,12 @@ where
 
     /// Call `on_tick` for all slots between `fc_store.get_current_slot()` and the provided
     /// `current_slot`. Returns the value of `self.fc_store.get_current_slot`.
-    pub fn update_time(
-        &mut self,
-        current_slot: Slot,
-        spec: &ChainSpec,
-    ) -> Result<Slot, Error<T::Error>> {
+    pub fn update_time(&mut self, current_slot: Slot) -> Result<Slot, Error<T::Error>> {
         while self.fc_store.get_current_slot() < current_slot {
             let previous_slot = self.fc_store.get_current_slot();
             // Note: we are relying upon `on_tick` to update `fc_store.time` to ensure we don't
             // get stuck in a loop.
-            self.on_tick(previous_slot + 1, spec)?
+            self.on_tick(previous_slot + 1)?
         }
 
         // Process any attestations that might now be eligible.
@@ -1169,7 +1136,7 @@ where
     /// Equivalent to:
     ///
     /// https://github.com/ethereum/eth2.0-specs/blob/v0.12.1/specs/phase0/fork-choice.md#on_tick
-    fn on_tick(&mut self, time: Slot, spec: &ChainSpec) -> Result<(), Error<T::Error>> {
+    fn on_tick(&mut self, time: Slot) -> Result<(), Error<T::Error>> {
         let store = &mut self.fc_store;
         let previous_slot = store.get_current_slot();
 
@@ -1197,26 +1164,27 @@ where
             return Ok(());
         }
 
-        if store.best_justified_checkpoint().epoch > store.justified_checkpoint().epoch {
-            let store = &self.fc_store;
-            if self.is_descendant_of_finalized(store.best_justified_checkpoint().root) {
-                let store = &mut self.fc_store;
-                store
-                    .set_justified_checkpoint(*store.best_justified_checkpoint())
-                    .map_err(Error::ForkChoiceStoreError)?;
-            }
-        }
-
-        // Update store.justified_checkpoint if a better unrealized justified checkpoint is known
+        // Update the justified/finalized checkpoints based upon the
+        // best-observed unrealized justification/finality.
         let unrealized_justified_checkpoint = *self.fc_store.unrealized_justified_checkpoint();
         let unrealized_finalized_checkpoint = *self.fc_store.unrealized_finalized_checkpoint();
+        self.pull_up_store_checkpoints(
+            unrealized_justified_checkpoint,
+            unrealized_finalized_checkpoint,
+        )?;
+
+        Ok(())
+    }
+
+    fn pull_up_store_checkpoints(
+        &mut self,
+        unrealized_justified_checkpoint: Checkpoint,
+        unrealized_finalized_checkpoint: Checkpoint,
+    ) -> Result<(), Error<T::Error>> {
         self.update_checkpoints(
             unrealized_justified_checkpoint,
             unrealized_finalized_checkpoint,
-            UpdateJustifiedCheckpointSlots::OnTick { current_slot },
-            spec,
-        )?;
-        Ok(())
+        )
     }
 
     /// Processes and removes from the queue any queued attestations which may now be eligible for
@@ -1240,12 +1208,13 @@ where
 
     /// Returns `true` if the block is known **and** a descendant of the finalized root.
     pub fn contains_block(&self, block_root: &Hash256) -> bool {
-        self.proto_array.contains_block(block_root) && self.is_descendant_of_finalized(*block_root)
+        self.proto_array.contains_block(block_root)
+            && self.is_finalized_checkpoint_or_descendant(*block_root)
     }
 
     /// Returns a `ProtoBlock` if the block is known **and** a descendant of the finalized root.
     pub fn get_block(&self, block_root: &Hash256) -> Option<ProtoBlock> {
-        if self.is_descendant_of_finalized(*block_root) {
+        if self.is_finalized_checkpoint_or_descendant(*block_root) {
             self.proto_array.get_block(block_root)
         } else {
             None
@@ -1254,7 +1223,7 @@ where
 
     /// Returns an `ExecutionStatus` if the block is known **and** a descendant of the finalized root.
     pub fn get_block_execution_status(&self, block_root: &Hash256) -> Option<ExecutionStatus> {
-        if self.is_descendant_of_finalized(*block_root) {
+        if self.is_finalized_checkpoint_or_descendant(*block_root) {
             self.proto_array.get_block_execution_status(block_root)
         } else {
             None
@@ -1289,10 +1258,10 @@ where
             })
     }
 
-    /// Return `true` if `block_root` is equal to the finalized root, or a known descendant of it.
-    pub fn is_descendant_of_finalized(&self, block_root: Hash256) -> bool {
+    /// Return `true` if `block_root` is equal to the finalized checkpoint, or a known descendant of it.
+    pub fn is_finalized_checkpoint_or_descendant(&self, block_root: Hash256) -> bool {
         self.proto_array
-            .is_descendant(self.fc_store.finalized_checkpoint().root, block_root)
+            .is_finalized_checkpoint_or_descendant::<E>(block_root)
     }
 
     /// Returns `Ok(true)` if `block_root` has been imported optimistically or deemed invalid.
@@ -1379,16 +1348,6 @@ where
     /// Return the justified checkpoint.
     pub fn justified_checkpoint(&self) -> Checkpoint {
         *self.fc_store.justified_checkpoint()
-    }
-
-    /// Return the best justified checkpoint.
-    ///
-    /// ## Warning
-    ///
-    /// This is distinct to the "justified checkpoint" or the "current justified checkpoint". This
-    /// "best justified checkpoint" value should only be used internally or for testing.
-    pub fn best_justified_checkpoint(&self) -> Checkpoint {
-        *self.fc_store.best_justified_checkpoint()
     }
 
     pub fn unrealized_justified_checkpoint(&self) -> Checkpoint {
@@ -1600,7 +1559,6 @@ mod tests {
 
     fn get_queued_attestations() -> Vec<QueuedAttestation> {
         (1..4)
-            .into_iter()
             .map(|i| QueuedAttestation {
                 slot: Slot::new(i),
                 attesting_indices: vec![],

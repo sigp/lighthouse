@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Output};
 use std::{env, fs::File};
 use tempfile::TempDir;
-use unused_port::unused_tcp_port;
+use unused_port::unused_tcp4_port;
 
 const GETH_BRANCH: &str = "master";
 const GETH_REPO_URL: &str = "https://github.com/ethereum/go-ethereum";
@@ -13,7 +13,7 @@ const GETH_REPO_URL: &str = "https://github.com/ethereum/go-ethereum";
 pub fn build_result(repo_dir: &Path) -> Output {
     Command::new("make")
         .arg("geth")
-        .current_dir(&repo_dir)
+        .current_dir(repo_dir)
         .output()
         .expect("failed to make geth")
 }
@@ -83,7 +83,7 @@ impl GenericExecutionEngine for GethEngine {
         http_auth_port: u16,
         jwt_secret_path: PathBuf,
     ) -> Child {
-        let network_port = unused_tcp_port().unwrap();
+        let network_port = unused_tcp4_port().unwrap();
 
         Command::new(Self::binary_path())
             .arg("--datadir")

@@ -1,5 +1,3 @@
-#![recursion_limit = "256"]
-
 mod metrics;
 
 use beacon_node::ProductionBeaconNode;
@@ -8,8 +6,8 @@ use clap_utils::{flags::DISABLE_MALLOC_TUNING_FLAG, get_eth2_network_config};
 use directory::{parse_path_or_default, DEFAULT_BEACON_NODE_DIR, DEFAULT_VALIDATOR_DIR};
 use env_logger::{Builder, Env};
 use environment::{EnvironmentBuilder, LoggerConfig};
-use eth2_hashing::have_sha_extensions;
 use eth2_network_config::{Eth2NetworkConfig, DEFAULT_HARDCODED_NETWORK, HARDCODED_NET_NAMES};
+use ethereum_hashing::have_sha_extensions;
 use lighthouse_version::VERSION;
 use malloc_utils::configure_memory_allocator;
 use slog::{crit, info, warn};
@@ -29,6 +27,25 @@ fn bls_library_name() -> &'static str {
     } else {
         "blst"
     }
+}
+
+fn allocator_name() -> &'static str {
+    if cfg!(feature = "jemalloc") {
+        "jemalloc"
+    } else {
+        "system"
+    }
+}
+
+fn build_profile_name() -> String {
+    // Nice hack from https://stackoverflow.com/questions/73595435/how-to-get-profile-from-cargo-toml-in-build-rs-or-at-runtime
+    // The profile name is always the 3rd last part of the path (with 1 based indexing).
+    // e.g. /code/core/target/cli/build/my-build-info-9f91ba6f99d7a061/out
+    std::env!("OUT_DIR")
+        .split(std::path::MAIN_SEPARATOR)
+        .nth_back(3)
+        .unwrap_or_else(|| "unknown")
+        .to_string()
 }
 
 fn main() {
@@ -51,10 +68,14 @@ fn main() {
                 "{}\n\
                  BLS library: {}\n\
                  SHA256 hardware acceleration: {}\n\
+                 Allocator: {}\n\
+                 Profile: {}\n\
                  Specs: mainnet (true), minimal ({}), gnosis ({})",
                  VERSION.replace("Lighthouse/", ""),
                  bls_library_name(),
                  have_sha_extensions(),
+                 allocator_name(),
+                 build_profile_name(),
                  cfg!(feature = "spec-minimal"),
                  cfg!(feature = "gnosis"),
             ).as_str()
@@ -100,6 +121,15 @@ fn main() {
                 .global(true),
         )
         .arg(
+            Arg::with_name("logfile-format")
+                .long("logfile-format")
+                .value_name("FORMAT")
+                .help("Specifies the log format used when emitting logs to the logfile.")
+                .possible_values(&["DEFAULT", "JSON"])
+                .takes_value(true)
+                .global(true)
+        )
+        .arg(
             Arg::with_name("logfile-max-size")
                 .long("logfile-max-size")
                 .value_name("SIZE")
@@ -130,6 +160,16 @@ fn main() {
                 .global(true),
         )
         .arg(
+            Arg::with_name("logfile-no-restricted-perms")
+                .long("logfile-no-restricted-perms")
+                .help(
+                    "If present, log files will be generated as world-readable meaning they can be read by \
+                    any user on the machine. Note that logs can often contain sensitive information \
+                    about your validator and so this flag should be used with caution. For Windows users, \
+                    the log file permissions will be inherited from the parent folder.")
+                .global(true),
+        )
+        .arg(
             Arg::with_name("log-format")
                 .long("log-format")
                 .value_name("FORMAT")
@@ -137,6 +177,19 @@ fn main() {
                 .possible_values(&["JSON"])
                 .takes_value(true)
                 .global(true),
+        )
+        .arg(
+            Arg::with_name("log-color")
+                .long("log-color")
+                .alias("log-colour")
+                .help("Force outputting colors when emitting logs to the terminal.")
+                .global(true),
+        )
+        .arg(
+            Arg::with_name("disable-log-timestamp")
+            .long("disable-log-timestamp")
+            .help("If present, do not include timestamps in logging output.")
+            .global(true),
         )
         .arg(
             Arg::with_name("debug-level")
@@ -372,9 +425,18 @@ fn run<E: EthSpec>(
 
     let log_format = matches.value_of("log-format");
 
+    let log_color = matches.is_present("log-color");
+
+    let disable_log_timestamp = matches.is_present("disable-log-timestamp");
+
     let logfile_debug_level = matches
         .value_of("logfile-debug-level")
         .ok_or("Expected --logfile-debug-level flag")?;
+
+    let logfile_format = matches
+        .value_of("logfile-format")
+        // Ensure that `logfile-format` defaults to the value of `log-format`.
+        .or_else(|| matches.value_of("log-format"));
 
     let logfile_max_size: u64 = matches
         .value_of("logfile-max-size")
@@ -389,6 +451,8 @@ fn run<E: EthSpec>(
         .map_err(|e| format!("Failed to parse `logfile-max-number`: {:?}", e))?;
 
     let logfile_compress = matches.is_present("logfile-compress");
+
+    let logfile_restricted = !matches.is_present("logfile-no-restricted-perms");
 
     // Construct the path to the log file.
     let mut log_path: Option<PathBuf> = clap_utils::parse_optional(matches, "logfile")?;
@@ -419,17 +483,32 @@ fn run<E: EthSpec>(
         };
     }
 
+    let sse_logging = {
+        if let Some(bn_matches) = matches.subcommand_matches("beacon_node") {
+            bn_matches.is_present("gui")
+        } else if let Some(vc_matches) = matches.subcommand_matches("validator_client") {
+            vc_matches.is_present("http")
+        } else {
+            false
+        }
+    };
+
     let logger_config = LoggerConfig {
         path: log_path,
-        debug_level,
-        logfile_debug_level,
-        log_format,
+        debug_level: String::from(debug_level),
+        logfile_debug_level: String::from(logfile_debug_level),
+        log_format: log_format.map(String::from),
+        logfile_format: logfile_format.map(String::from),
+        log_color,
+        disable_log_timestamp,
         max_log_size: logfile_max_size * 1_024 * 1_024,
         max_log_number: logfile_max_number,
         compression: logfile_compress,
+        is_restricted: logfile_restricted,
+        sse_logging,
     };
 
-    let builder = environment_builder.initialize_logger(logger_config)?;
+    let builder = environment_builder.initialize_logger(logger_config.clone())?;
 
     let mut environment = builder
         .multi_threaded_tokio_runtime()?
@@ -509,7 +588,8 @@ fn run<E: EthSpec>(
             let context = environment.core_context();
             let log = context.log().clone();
             let executor = context.executor.clone();
-            let config = beacon_node::get_config::<E>(matches, &context)?;
+            let mut config = beacon_node::get_config::<E>(matches, &context)?;
+            config.logger_config = logger_config;
             let shutdown_flag = matches.is_present("immediate-shutdown");
             // Dump configs if `dump-config` or `dump-chain-config` flags are set
             clap_utils::check_dump_configs::<_, E>(matches, &config, &context.eth2_config.spec)?;

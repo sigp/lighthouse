@@ -103,10 +103,8 @@ fn beacon_nodes_flag() {
 
 #[test]
 fn allow_unsynced_flag() {
-    CommandLineTest::new()
-        .flag("allow-unsynced", None)
-        .run()
-        .with_config(|config| assert!(config.allow_unsynced_beacon_node));
+    // No-op, but doesn't crash.
+    CommandLineTest::new().flag("allow-unsynced", None).run();
 }
 
 #[test]
@@ -389,6 +387,24 @@ fn no_doppelganger_protection_flag() {
         .with_config(|config| assert!(!config.enable_doppelganger_protection));
 }
 #[test]
+fn block_delay_ms() {
+    CommandLineTest::new()
+        .flag("block-delay-ms", Some("2000"))
+        .run()
+        .with_config(|config| {
+            assert_eq!(
+                config.block_delay,
+                Some(std::time::Duration::from_millis(2000))
+            )
+        });
+}
+#[test]
+fn no_block_delay_ms() {
+    CommandLineTest::new()
+        .run()
+        .with_config(|config| assert_eq!(config.block_delay, None));
+}
+#[test]
 fn no_gas_limit_flag() {
     CommandLineTest::new()
         .run()
@@ -431,15 +447,55 @@ fn builder_registration_timestamp_override_flag() {
         });
 }
 #[test]
-fn strict_fee_recipient_flag() {
+fn monitoring_endpoint() {
     CommandLineTest::new()
-        .flag("strict-fee-recipient", None)
+        .flag("monitoring-endpoint", Some("http://example:8000"))
+        .flag("monitoring-endpoint-period", Some("30"))
         .run()
-        .with_config(|config| assert!(config.strict_fee_recipient));
+        .with_config(|config| {
+            let api_conf = config.monitoring_api.as_ref().unwrap();
+            assert_eq!(api_conf.monitoring_endpoint.as_str(), "http://example:8000");
+            assert_eq!(api_conf.update_period_secs, Some(30));
+        });
 }
 #[test]
-fn no_strict_fee_recipient_flag() {
+fn disable_run_on_all_default() {
+    CommandLineTest::new().run().with_config(|config| {
+        assert!(!config.disable_run_on_all);
+    });
+}
+
+#[test]
+fn disable_run_on_all() {
     CommandLineTest::new()
+        .flag("disable-run-on-all", None)
         .run()
-        .with_config(|config| assert!(!config.strict_fee_recipient));
+        .with_config(|config| {
+            assert!(config.disable_run_on_all);
+        });
+}
+
+#[test]
+fn latency_measurement_service() {
+    CommandLineTest::new().run().with_config(|config| {
+        assert!(config.enable_latency_measurement_service);
+    });
+    CommandLineTest::new()
+        .flag("latency-measurement-service", None)
+        .run()
+        .with_config(|config| {
+            assert!(config.enable_latency_measurement_service);
+        });
+    CommandLineTest::new()
+        .flag("latency-measurement-service", Some("true"))
+        .run()
+        .with_config(|config| {
+            assert!(config.enable_latency_measurement_service);
+        });
+    CommandLineTest::new()
+        .flag("latency-measurement-service", Some("false"))
+        .run()
+        .with_config(|config| {
+            assert!(!config.enable_latency_measurement_service);
+        });
 }

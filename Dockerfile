@@ -1,8 +1,10 @@
-FROM rust:1.62.1-bullseye AS builder
-RUN apt-get update && apt-get -y upgrade && apt-get install -y cmake libclang-dev
+FROM rust:1.68.2-bullseye AS builder
+RUN apt-get update && apt-get -y upgrade && apt-get install -y cmake libclang-dev protobuf-compiler
 COPY . lighthouse
 ARG FEATURES
+ARG PROFILE=release
 ENV FEATURES $FEATURES
+ENV PROFILE $PROFILE
 RUN cd lighthouse && make
 
 FROM ubuntu:22.04

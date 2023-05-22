@@ -9,12 +9,21 @@ use tree_hash_derive::TreeHash;
 /// Two conflicting attestations.
 ///
 /// Spec v0.12.1
-#[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 #[derive(
-    Derivative, Debug, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom,
+    Derivative,
+    Debug,
+    Clone,
+    Serialize,
+    Deserialize,
+    Encode,
+    Decode,
+    TreeHash,
+    TestRandom,
+    arbitrary::Arbitrary,
 )]
 #[derivative(PartialEq, Eq, Hash(bound = "T: EthSpec"))]
 #[serde(bound = "T: EthSpec")]
+#[arbitrary(bound = "T: EthSpec")]
 pub struct AttesterSlashing<T: EthSpec> {
     pub attestation_1: IndexedAttestation<T>,
     pub attestation_2: IndexedAttestation<T>,

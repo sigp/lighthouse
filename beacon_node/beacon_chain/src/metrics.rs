@@ -64,6 +64,11 @@ lazy_static! {
         "beacon_block_processing_state_root_seconds",
         "Time spent calculating the state root when processing a block."
     );
+    pub static ref BLOCK_PROCESSING_POST_EXEC_PROCESSING: Result<Histogram> = try_create_histogram_with_buckets(
+        "beacon_block_processing_post_exec_pre_attestable_seconds",
+        "Time between finishing execution processing and the block becoming attestable",
+        linear_buckets(5e-3, 5e-3, 10)
+    );
     pub static ref BLOCK_PROCESSING_DB_WRITE: Result<Histogram> = try_create_histogram(
         "beacon_block_processing_db_write_seconds",
         "Time spent writing a newly processed block and state to DB"
@@ -71,6 +76,11 @@ lazy_static! {
     pub static ref BLOCK_PROCESSING_ATTESTATION_OBSERVATION: Result<Histogram> = try_create_histogram(
         "beacon_block_processing_attestation_observation_seconds",
         "Time spent hashing and remembering all the attestations in the block"
+    );
+    pub static ref BLOCK_PROCESSING_FORK_CHOICE: Result<Histogram> = try_create_histogram_with_buckets(
+        "beacon_block_processing_fork_choice_seconds",
+        "Time spent running fork choice's `get_head` during block import",
+        exponential_buckets(1e-3, 2.0, 8)
     );
     pub static ref BLOCK_SYNC_AGGREGATE_SET_BITS: Result<IntGauge> = try_create_int_gauge(
         "block_sync_aggregate_set_bits",
@@ -93,6 +103,11 @@ lazy_static! {
     pub static ref BLOCK_PRODUCTION_FORK_CHOICE_TIMES: Result<Histogram> = try_create_histogram(
         "beacon_block_production_fork_choice_seconds",
         "Time taken to run fork choice before block production"
+    );
+    pub static ref BLOCK_PRODUCTION_GET_PROPOSER_HEAD_TIMES: Result<Histogram> = try_create_histogram_with_buckets(
+        "beacon_block_production_get_proposer_head_times",
+        "Time taken for fork choice to compute the proposer head before block production",
+        exponential_buckets(1e-3, 2.0, 8)
     );
     pub static ref BLOCK_PRODUCTION_STATE_LOAD_TIMES: Result<Histogram> = try_create_histogram(
         "beacon_block_production_state_load_seconds",
@@ -122,14 +137,17 @@ lazy_static! {
     /*
      * Block Statistics
      */
-    pub static ref OPERATIONS_PER_BLOCK_ATTESTATION: Result<Histogram> = try_create_histogram(
+    pub static ref OPERATIONS_PER_BLOCK_ATTESTATION: Result<Histogram> = try_create_histogram_with_buckets(
         "beacon_operations_per_block_attestation_total",
-        "Number of attestations in a block"
+        "Number of attestations in a block",
+        // Full block is 128.
+        Ok(vec![0_f64, 1_f64, 3_f64, 15_f64, 31_f64, 63_f64, 127_f64, 255_f64])
     );
 
-    pub static ref BLOCK_SIZE: Result<Histogram> = try_create_histogram(
+    pub static ref BLOCK_SIZE: Result<Histogram> = try_create_histogram_with_buckets(
         "beacon_block_total_size",
-        "Size of a signed beacon block"
+        "Size of a signed beacon block",
+        linear_buckets(5120_f64,5120_f64,10)
     );
 
     /*
@@ -154,10 +172,6 @@ lazy_static! {
     pub static ref AGGREGATED_ATTESTATION_PROCESSING_REQUESTS: Result<IntCounter> = try_create_int_counter(
         "beacon_aggregated_attestation_processing_requests_total",
         "Count of all aggregated attestations submitted for processing"
-    );
-    pub static ref AGGREGATED_ATTESTATION_SUBSETS: Result<IntCounter> = try_create_int_counter(
-        "beacon_aggregated_attestation_subsets_total",
-        "Count of new aggregated attestations that are subsets of already known aggregates"
     );
     pub static ref AGGREGATED_ATTESTATION_PROCESSING_SUCCESSES: Result<IntCounter> = try_create_int_counter(
         "beacon_aggregated_attestation_processing_successes_total",
@@ -255,6 +269,10 @@ lazy_static! {
         try_create_int_counter("beacon_shuffling_cache_hits_total", "Count of times shuffling cache fulfils request");
     pub static ref SHUFFLING_CACHE_MISSES: Result<IntCounter> =
         try_create_int_counter("beacon_shuffling_cache_misses_total", "Count of times shuffling cache fulfils request");
+    pub static ref SHUFFLING_CACHE_PROMISE_HITS: Result<IntCounter> =
+        try_create_int_counter("beacon_shuffling_cache_promise_hits_total", "Count of times shuffling cache returns a promise to future shuffling");
+    pub static ref SHUFFLING_CACHE_PROMISE_FAILS: Result<IntCounter> =
+        try_create_int_counter("beacon_shuffling_cache_promise_fails_total", "Count of times shuffling cache detects a failed promise");
 
     /*
      * Early attester cache
@@ -306,14 +324,34 @@ lazy_static! {
         "beacon_fork_choice_reorg_total",
         "Count of occasions fork choice has switched to a different chain"
     );
+    pub static ref FORK_CHOICE_REORG_DISTANCE: Result<IntGauge> = try_create_int_gauge(
+        "beacon_fork_choice_reorg_distance",
+        "The distance of each re-org of the fork choice algorithm"
+    );
     pub static ref FORK_CHOICE_REORG_COUNT_INTEROP: Result<IntCounter> = try_create_int_counter(
         "beacon_reorgs_total",
         "Count of occasions fork choice has switched to a different chain"
     );
-    pub static ref FORK_CHOICE_TIMES: Result<Histogram> =
-        try_create_histogram("beacon_fork_choice_seconds", "Full runtime of fork choice");
-    pub static ref FORK_CHOICE_FIND_HEAD_TIMES: Result<Histogram> =
-        try_create_histogram("beacon_fork_choice_find_head_seconds", "Full runtime of fork choice find_head function");
+    pub static ref FORK_CHOICE_TIMES: Result<Histogram> = try_create_histogram_with_buckets(
+        "beacon_fork_choice_seconds",
+        "Full runtime of fork choice",
+        linear_buckets(10e-3, 20e-3, 10)
+    );
+    pub static ref FORK_CHOICE_OVERRIDE_FCU_TIMES: Result<Histogram> = try_create_histogram_with_buckets(
+        "beacon_fork_choice_override_fcu_seconds",
+        "Time taken to compute the optional forkchoiceUpdated override",
+        exponential_buckets(1e-3, 2.0, 8)
+    );
+    pub static ref FORK_CHOICE_AFTER_NEW_HEAD_TIMES: Result<Histogram> = try_create_histogram_with_buckets(
+        "beacon_fork_choice_after_new_head_seconds",
+        "Time taken to run `after_new_head`",
+        exponential_buckets(1e-3, 2.0, 10)
+    );
+    pub static ref FORK_CHOICE_AFTER_FINALIZATION_TIMES: Result<Histogram> = try_create_histogram_with_buckets(
+        "beacon_fork_choice_after_finalization_seconds",
+        "Time taken to run `after_finalization`",
+        exponential_buckets(1e-3, 2.0, 10)
+    );
     pub static ref FORK_CHOICE_PROCESS_BLOCK_TIMES: Result<Histogram> = try_create_histogram(
         "beacon_fork_choice_process_block_seconds",
         "Time taken to add a block and all attestations to fork choice"
@@ -329,7 +367,7 @@ lazy_static! {
     pub static ref BALANCES_CACHE_HITS: Result<IntCounter> =
         try_create_int_counter("beacon_balances_cache_hits_total", "Count of times balances cache fulfils request");
     pub static ref BALANCES_CACHE_MISSES: Result<IntCounter> =
-        try_create_int_counter("beacon_balances_cache_misses_total", "Count of times balances cache fulfils request");
+        try_create_int_counter("beacon_balances_cache_misses_total", "Count of times balances cache misses request");
 
     /*
      * Persisting BeaconChain components to disk
@@ -779,21 +817,29 @@ lazy_static! {
     /*
      * Block Delay Metrics
      */
-    pub static ref BEACON_BLOCK_OBSERVED_SLOT_START_DELAY_TIME: Result<Histogram> = try_create_histogram(
+    pub static ref BEACON_BLOCK_OBSERVED_SLOT_START_DELAY_TIME: Result<Histogram> = try_create_histogram_with_buckets(
         "beacon_block_observed_slot_start_delay_time",
         "Duration between the start of the block's slot and the time the block was observed.",
+        // [0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 50]
+        decimal_buckets(-1,2)
     );
-    pub static ref BEACON_BLOCK_IMPORTED_OBSERVED_DELAY_TIME: Result<Histogram> = try_create_histogram(
+    pub static ref BEACON_BLOCK_IMPORTED_OBSERVED_DELAY_TIME: Result<Histogram> = try_create_histogram_with_buckets(
         "beacon_block_imported_observed_delay_time",
         "Duration between the time the block was observed and the time when it was imported.",
+        // [0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2, 5]
+        decimal_buckets(-2,0)
     );
-    pub static ref BEACON_BLOCK_HEAD_IMPORTED_DELAY_TIME: Result<Histogram> = try_create_histogram(
+    pub static ref BEACON_BLOCK_HEAD_IMPORTED_DELAY_TIME: Result<Histogram> = try_create_histogram_with_buckets(
         "beacon_block_head_imported_delay_time",
         "Duration between the time the block was imported and the time when it was set as head.",
-    );
-    pub static ref BEACON_BLOCK_HEAD_SLOT_START_DELAY_TIME: Result<Histogram> = try_create_histogram(
+        // [0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2, 5]
+        decimal_buckets(-2,-1)
+        );
+    pub static ref BEACON_BLOCK_HEAD_SLOT_START_DELAY_TIME: Result<Histogram> = try_create_histogram_with_buckets(
         "beacon_block_head_slot_start_delay_time",
         "Duration between the start of the block's slot and the time when it was set as head.",
+        // [0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 50]
+        decimal_buckets(-1,2)
     );
     pub static ref BEACON_BLOCK_HEAD_SLOT_START_DELAY_EXCEEDED_TOTAL: Result<IntCounter> = try_create_int_counter(
         "beacon_block_head_slot_start_delay_exceeded_total",
@@ -828,6 +874,14 @@ lazy_static! {
         "beacon_sync_committee_message_gossip_verification_seconds",
         "Full runtime of sync contribution gossip verification"
     );
+    pub static ref SYNC_MESSAGE_EQUIVOCATIONS: Result<IntCounter> = try_create_int_counter(
+        "sync_message_equivocations_total",
+        "Number of sync messages with the same validator index for different blocks"
+    );
+    pub static ref SYNC_MESSAGE_EQUIVOCATIONS_TO_HEAD: Result<IntCounter> = try_create_int_counter(
+        "sync_message_equivocations_to_head_total",
+        "Number of sync message which conflict with a previous message but elect the head"
+    );
 
     /*
      * Sync Committee Contribution Verification
@@ -835,10 +889,6 @@ lazy_static! {
     pub static ref SYNC_CONTRIBUTION_PROCESSING_REQUESTS: Result<IntCounter> = try_create_int_counter(
         "beacon_sync_contribution_processing_requests_total",
         "Count of all sync contributions submitted for processing"
-    );
-    pub static ref SYNC_CONTRIBUTION_SUBSETS: Result<IntCounter> = try_create_int_counter(
-        "beacon_sync_contribution_subsets_total",
-        "Count of new sync contribtuions that are subsets of already known aggregates"
     );
     pub static ref SYNC_CONTRIBUTION_PROCESSING_SUCCESSES: Result<IntCounter> = try_create_int_counter(
         "beacon_sync_contribution_processing_successes_total",
@@ -930,6 +980,35 @@ lazy_static! {
             "beacon_pre_finalization_block_lookup_count",
             "Number of block roots subject to single block lookups"
         );
+}
+
+// Fifth lazy-static block is used to account for macro recursion limit.
+lazy_static! {
+    /*
+    * Light server message verification
+    */
+    pub static ref FINALITY_UPDATE_PROCESSING_SUCCESSES: Result<IntCounter> = try_create_int_counter(
+        "light_client_finality_update_verification_success_total",
+        "Number of light client finality updates verified for gossip"
+    );
+    /*
+    * Light server message verification
+    */
+    pub static ref OPTIMISTIC_UPDATE_PROCESSING_SUCCESSES: Result<IntCounter> = try_create_int_counter(
+        "light_client_optimistic_update_verification_success_total",
+        "Number of light client optimistic updates verified for gossip"
+    );
+    /*
+    * Aggregate subset metrics
+     */
+    pub static ref SYNC_CONTRIBUTION_SUBSETS: Result<IntCounter> = try_create_int_counter(
+        "beacon_sync_contribution_subsets_total",
+        "Count of new sync contributions that are subsets of already known aggregates"
+    );
+    pub static ref AGGREGATED_ATTESTATION_SUBSETS: Result<IntCounter> = try_create_int_counter(
+        "beacon_aggregated_attestation_subsets_total",
+        "Count of new aggregated attestations that are subsets of already known aggregates"
+    );
 }
 
 /// Scrape the `beacon_chain` for metrics that are not constantly updated (e.g., the present slot,

@@ -8,12 +8,22 @@ use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
 /// The data upon which a `SyncCommitteeContribution` is based.
-#[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom)]
+#[derive(
+    arbitrary::Arbitrary,
+    Debug,
+    Clone,
+    PartialEq,
+    Serialize,
+    Deserialize,
+    Encode,
+    Decode,
+    TreeHash,
+    TestRandom,
+)]
 pub struct SyncCommitteeMessage {
     pub slot: Slot,
     pub beacon_block_root: Hash256,
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub validator_index: u64,
     // Signature by the validator over `beacon_block_root`.
     pub signature: Signature,

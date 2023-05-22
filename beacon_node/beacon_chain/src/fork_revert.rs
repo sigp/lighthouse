@@ -4,7 +4,8 @@ use itertools::process_results;
 use slog::{info, warn, Logger};
 use state_processing::state_advance::complete_state_advance;
 use state_processing::{
-    per_block_processing, per_block_processing::BlockSignatureStrategy, VerifyBlockRoot,
+    per_block_processing, per_block_processing::BlockSignatureStrategy, ConsensusContext,
+    StateProcessingStrategy, VerifyBlockRoot,
 };
 use std::sync::Arc;
 use std::time::Duration;
@@ -144,7 +145,8 @@ pub fn reset_fork_choice_to_finalization<E: EthSpec, Hot: ItemStore<E>, Cold: It
         beacon_state: finalized_state,
     };
 
-    let fc_store = BeaconForkChoiceStore::get_forkchoice_store(store.clone(), &finalized_snapshot);
+    let fc_store = BeaconForkChoiceStore::get_forkchoice_store(store.clone(), &finalized_snapshot)
+        .map_err(|e| format!("Unable to reset fork choice store for revert: {e:?}"))?;
 
     let mut fork_choice = ForkChoice::from_anchor(
         fc_store,
@@ -169,12 +171,15 @@ pub fn reset_fork_choice_to_finalization<E: EthSpec, Hot: ItemStore<E>, Cold: It
         complete_state_advance(&mut state, None, block.slot(), spec)
             .map_err(|e| format!("State advance failed: {:?}", e))?;
 
+        let mut ctxt = ConsensusContext::new(block.slot())
+            .set_proposer_index(block.message().proposer_index());
         per_block_processing(
             &mut state,
             &block,
-            None,
             BlockSignatureStrategy::NoVerification,
+            StateProcessingStrategy::Accurate,
             VerifyBlockRoot::True,
+            &mut ctxt,
             spec,
         )
         .map_err(|e| format!("Error replaying block: {:?}", e))?;

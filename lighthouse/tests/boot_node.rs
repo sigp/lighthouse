@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::str::FromStr;
 use tempfile::TempDir;
-use unused_port::unused_udp_port;
+use unused_port::unused_udp4_port;
 
 const IP_ADDRESS: &str = "192.168.2.108";
 
@@ -56,13 +56,13 @@ impl CommandLineTestExec for CommandLineTest {
 fn enr_address_arg() {
     let mut test = CommandLineTest::new();
     test.run_with_ip().with_config(|config| {
-        assert_eq!(config.local_enr.ip(), Some(IP_ADDRESS.parse().unwrap()));
+        assert_eq!(config.local_enr.ip4(), Some(IP_ADDRESS.parse().unwrap()));
     });
 }
 
 #[test]
 fn port_flag() {
-    let port = unused_udp_port().unwrap();
+    let port = unused_udp4_port().unwrap();
     CommandLineTest::new()
         .flag("port", Some(port.to_string().as_str()))
         .run_with_ip()
@@ -122,12 +122,12 @@ fn boot_nodes_flag() {
 
 #[test]
 fn enr_port_flag() {
-    let port = unused_udp_port().unwrap();
+    let port = unused_udp4_port().unwrap();
     CommandLineTest::new()
         .flag("enr-port", Some(port.to_string().as_str()))
         .run_with_ip()
         .with_config(|config| {
-            assert_eq!(config.local_enr.udp(), Some(port));
+            assert_eq!(config.local_enr.udp4(), Some(port));
         })
 }
 

@@ -6,8 +6,18 @@ use serde_derive::{Deserialize, Serialize};
 use ssz::{Decode, DecodeError, Encode};
 use std::fmt;
 
-#[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
-#[derive(Default, Clone, Copy, Serialize, Deserialize, Eq, PartialEq, Hash, Derivative)]
+#[derive(
+    arbitrary::Arbitrary,
+    Default,
+    Clone,
+    Copy,
+    Serialize,
+    Deserialize,
+    Eq,
+    PartialEq,
+    Hash,
+    Derivative,
+)]
 #[derivative(Debug = "transparent")]
 #[serde(transparent)]
 pub struct ExecutionBlockHash(Hash256);
@@ -67,7 +77,7 @@ impl tree_hash::TreeHash for ExecutionBlockHash {
         Hash256::tree_hash_type()
     }
 
-    fn tree_hash_packed_encoding(&self) -> Vec<u8> {
+    fn tree_hash_packed_encoding(&self) -> tree_hash::PackedEncoding {
         self.0.tree_hash_packed_encoding()
     }
 

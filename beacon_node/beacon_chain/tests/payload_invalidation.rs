@@ -7,18 +7,20 @@ use beacon_chain::otb_verification_service::{
 use beacon_chain::{
     canonical_head::{CachedHead, CanonicalHead},
     test_utils::{BeaconChainHarness, EphemeralHarnessType},
-    BeaconChainError, BlockError, ExecutionPayloadError, StateSkipConfig, WhenSlotSkipped,
+    BeaconChainError, BlockError, ExecutionPayloadError, NotifyExecutionLayer,
+    OverrideForkchoiceUpdate, StateSkipConfig, WhenSlotSkipped,
     INVALID_FINALIZED_MERGE_TRANSITION_BLOCK_SHUTDOWN_REASON,
     INVALID_JUSTIFIED_PAYLOAD_SHUTDOWN_REASON,
 };
 use execution_layer::{
-    json_structures::{JsonForkChoiceStateV1, JsonPayloadAttributesV1},
+    json_structures::{JsonForkchoiceStateV1, JsonPayloadAttributes, JsonPayloadAttributesV1},
     test_utils::ExecutionBlockGenerator,
-    ExecutionLayer, ForkChoiceState, PayloadAttributes,
+    ExecutionLayer, ForkchoiceState, PayloadAttributes,
 };
 use fork_choice::{
     CountUnrealized, Error as ForkChoiceError, InvalidationOperation, PayloadVerificationStatus,
 };
+use logging::test_logger;
 use proto_array::{Error as ProtoArrayError, ExecutionStatus};
 use slot_clock::SlotClock;
 use std::collections::HashMap;
@@ -59,6 +61,7 @@ impl InvalidPayloadRig {
 
         let harness = BeaconChainHarness::builder(MainnetEthSpec)
             .spec(spec)
+            .logger(test_logger())
             .deterministic_keypairs(VALIDATOR_COUNT)
             .mock_execution_layer()
             .fresh_ephemeral_store()
@@ -117,7 +120,7 @@ impl InvalidPayloadRig {
         &self.harness.chain.canonical_head
     }
 
-    fn previous_forkchoice_update_params(&self) -> (ForkChoiceState, PayloadAttributes) {
+    fn previous_forkchoice_update_params(&self) -> (ForkchoiceState, PayloadAttributes) {
         let mock_execution_layer = self.harness.mock_execution_layer.as_ref().unwrap();
         let json = mock_execution_layer
             .server
@@ -126,14 +129,17 @@ impl InvalidPayloadRig {
         let params = json.get("params").expect("no params");
 
         let fork_choice_state_json = params.get(0).expect("no payload param");
-        let fork_choice_state: JsonForkChoiceStateV1 =
+        let fork_choice_state: JsonForkchoiceStateV1 =
             serde_json::from_value(fork_choice_state_json.clone()).unwrap();
 
         let payload_param_json = params.get(1).expect("no payload param");
         let attributes: JsonPayloadAttributesV1 =
             serde_json::from_value(payload_param_json.clone()).unwrap();
 
-        (fork_choice_state.into(), attributes.into())
+        (
+            fork_choice_state.into(),
+            JsonPayloadAttributes::V1(attributes).into(),
+        )
     }
 
     fn previous_payload_attributes(&self) -> PayloadAttributes {
@@ -281,7 +287,7 @@ impl InvalidPayloadRig {
                 }
                 let root = self
                     .harness
-                    .process_block(slot, block.clone())
+                    .process_block(slot, block.canonical_root(), block.clone())
                     .await
                     .unwrap();
 
@@ -320,7 +326,11 @@ impl InvalidPayloadRig {
                 set_new_payload(new_payload_response);
                 set_forkchoice_updated(forkchoice_response);
 
-                match self.harness.process_block(slot, block).await {
+                match self
+                    .harness
+                    .process_block(slot, block.canonical_root(), block)
+                    .await
+                {
                     Err(error) if evaluate_error(&error) => (),
                     Err(other) => {
                         panic!("evaluate_error returned false with {:?}", other)
@@ -379,7 +389,7 @@ impl InvalidPayloadRig {
             .fork_choice_write_lock()
             .get_head(self.harness.chain.slot().unwrap(), &self.harness.chain.spec)
         {
-            Err(ForkChoiceError::ProtoArrayError(e)) if e.contains(s) => (),
+            Err(ForkChoiceError::ProtoArrayStringError(e)) if e.contains(s) => (),
             other => panic!("expected {} error, got {:?}", s, other),
         };
     }
@@ -685,7 +695,12 @@ async fn invalidates_all_descendants() {
     let fork_block_root = rig
         .harness
         .chain
-        .process_block(Arc::new(fork_block), CountUnrealized::True)
+        .process_block(
+            fork_block.canonical_root(),
+            Arc::new(fork_block),
+            CountUnrealized::True,
+            NotifyExecutionLayer::Yes,
+        )
         .await
         .unwrap();
     rig.recompute_head().await;
@@ -777,7 +792,12 @@ async fn switches_heads() {
     let fork_block_root = rig
         .harness
         .chain
-        .process_block(Arc::new(fork_block), CountUnrealized::True)
+        .process_block(
+            fork_block.canonical_root(),
+            Arc::new(fork_block),
+            CountUnrealized::True,
+            NotifyExecutionLayer::Yes,
+        )
         .await
         .unwrap();
     rig.recompute_head().await;
@@ -890,6 +910,9 @@ async fn invalid_after_optimistic_sync() {
         .await,
     );
 
+    // EL status should still be online, no errors.
+    assert!(!rig.execution_layer().is_offline_or_erroring().await);
+
     // Running fork choice is necessary since a block has been invalidated.
     rig.recompute_head().await;
 
@@ -964,26 +987,30 @@ async fn payload_preparation() {
     )
     .await;
 
+    rig.harness.advance_to_slot_lookahead(
+        next_slot,
+        rig.harness.chain.config.prepare_payload_lookahead,
+    );
     rig.harness
         .chain
         .prepare_beacon_proposer(rig.harness.chain.slot().unwrap())
         .await
         .unwrap();
 
-    let payload_attributes = PayloadAttributes {
-        timestamp: rig
-            .harness
+    let payload_attributes = PayloadAttributes::new(
+        rig.harness
             .chain
             .slot_clock
             .start_of(next_slot)
             .unwrap()
             .as_secs(),
-        prev_randao: *head
+        *head
             .beacon_state
             .get_randao_mix(head.beacon_state.current_epoch())
             .unwrap(),
-        suggested_fee_recipient: fee_recipient,
-    };
+        fee_recipient,
+        None,
+    );
     assert_eq!(rig.previous_payload_attributes(), payload_attributes);
 }
 
@@ -1023,7 +1050,7 @@ async fn invalid_parent() {
 
     // Ensure the block built atop an invalid payload is invalid for import.
     assert!(matches!(
-        rig.harness.chain.process_block(block.clone(), CountUnrealized::True).await,
+        rig.harness.chain.process_block(block.canonical_root(), block.clone(), CountUnrealized::True, NotifyExecutionLayer::Yes).await,
         Err(BlockError::ParentExecutionPayloadInvalid { parent_root: invalid_root })
         if invalid_root == parent_root
     ));
@@ -1040,7 +1067,7 @@ async fn invalid_parent() {
             &rig.harness.chain.spec,
             CountUnrealized::True,
         ),
-        Err(ForkChoiceError::ProtoArrayError(message))
+        Err(ForkChoiceError::ProtoArrayStringError(message))
         if message.contains(&format!(
             "{:?}",
             ProtoArrayError::ParentExecutionStatusIsInvalid {
@@ -1107,13 +1134,17 @@ async fn payload_preparation_before_transition_block() {
         .get_forkchoice_update_parameters();
     rig.harness
         .chain
-        .update_execution_engine_forkchoice(current_slot, forkchoice_update_params)
+        .update_execution_engine_forkchoice(
+            current_slot,
+            forkchoice_update_params,
+            OverrideForkchoiceUpdate::Yes,
+        )
         .await
         .unwrap();
 
     let (fork_choice_state, payload_attributes) = rig.previous_forkchoice_update_params();
     let latest_block_hash = rig.latest_execution_block_hash();
-    assert_eq!(payload_attributes.suggested_fee_recipient, fee_recipient);
+    assert_eq!(payload_attributes.suggested_fee_recipient(), fee_recipient);
     assert_eq!(fork_choice_state.head_block_hash, latest_block_hash);
 }
 
@@ -1305,7 +1336,12 @@ async fn build_optimistic_chain(
     for block in blocks {
         rig.harness
             .chain
-            .process_block(block, CountUnrealized::True)
+            .process_block(
+                block.canonical_root(),
+                block,
+                CountUnrealized::True,
+                NotifyExecutionLayer::Yes,
+            )
             .await
             .unwrap();
     }
@@ -1355,18 +1391,16 @@ async fn build_optimistic_chain(
             .body()
             .execution_payload()
             .unwrap()
-            .execution_payload
-            == <_>::default(),
+            .is_default_with_empty_roots(),
         "the block *has not* undergone the merge transition"
     );
     assert!(
-        post_transition_block
+        !post_transition_block
             .message()
             .body()
             .execution_payload()
             .unwrap()
-            .execution_payload
-            != <_>::default(),
+            .is_default_with_empty_roots(),
         "the block *has* undergone the merge transition"
     );
 
@@ -1863,7 +1897,12 @@ async fn recover_from_invalid_head_by_importing_blocks() {
     // Import the fork block, it should become the head.
     rig.harness
         .chain
-        .process_block(fork_block.clone(), CountUnrealized::True)
+        .process_block(
+            fork_block.canonical_root(),
+            fork_block.clone(),
+            CountUnrealized::True,
+            NotifyExecutionLayer::Yes,
+        )
         .await
         .unwrap();
     rig.recompute_head().await;

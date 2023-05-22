@@ -12,25 +12,36 @@ use crate::{
     BeaconChain, BeaconChainError, BeaconChainTypes, BlockError, BlockProductionError,
     ExecutionPayloadError,
 };
-use execution_layer::{BuilderParams, PayloadStatus};
+use execution_layer::{BlockProposalContents, BuilderParams, PayloadAttributes, PayloadStatus};
 use fork_choice::{InvalidationOperation, PayloadVerificationStatus};
 use proto_array::{Block as ProtoBlock, ExecutionStatus};
-use slog::debug;
+use slog::{debug, warn};
 use slot_clock::SlotClock;
 use state_processing::per_block_processing::{
-    compute_timestamp_at_slot, is_execution_enabled, is_merge_transition_complete,
-    partially_verify_execution_payload,
+    compute_timestamp_at_slot, get_expected_withdrawals, is_execution_enabled,
+    is_merge_transition_complete, partially_verify_execution_payload,
 };
 use std::sync::Arc;
 use tokio::task::JoinHandle;
 use tree_hash::TreeHash;
 use types::*;
 
-pub type PreparePayloadResult<Payload> = Result<Payload, BlockProductionError>;
-pub type PreparePayloadHandle<Payload> = JoinHandle<Option<PreparePayloadResult<Payload>>>;
+pub type PreparePayloadResult<E, Payload> =
+    Result<BlockProposalContents<E, Payload>, BlockProductionError>;
+pub type PreparePayloadHandle<E, Payload> = JoinHandle<Option<PreparePayloadResult<E, Payload>>>;
 
 #[derive(PartialEq)]
 pub enum AllowOptimisticImport {
+    Yes,
+    No,
+}
+
+/// Signal whether the execution payloads of new blocks should be
+/// immediately verified with the EL or imported optimistically without
+/// any EL communication.
+#[derive(Default, Clone, Copy)]
+pub enum NotifyExecutionLayer {
+    #[default]
     Yes,
     No,
 }
@@ -47,19 +58,51 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
         chain: Arc<BeaconChain<T>>,
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
         state: &BeaconState<T::EthSpec>,
+        notify_execution_layer: NotifyExecutionLayer,
     ) -> Result<Self, BlockError<T::EthSpec>> {
         let payload_verification_status = if is_execution_enabled(state, block.message().body()) {
             // Perform the initial stages of payload verification.
             //
-            // We will duplicate these checks again during `per_block_processing`, however these checks
-            // are cheap and doing them here ensures we protect the execution engine from junk.
-            partially_verify_execution_payload(
+            // We will duplicate these checks again during `per_block_processing`, however these
+            // checks are cheap and doing them here ensures we have verified them before marking
+            // the block as optimistically imported. This is particularly relevant in the case
+            // where we do not send the block to the EL at all.
+            let block_message = block.message();
+            let payload = block_message.execution_payload()?;
+            partially_verify_execution_payload::<_, FullPayload<_>>(
                 state,
-                block.message().execution_payload()?,
+                block.slot(),
+                payload,
                 &chain.spec,
             )
             .map_err(BlockError::PerBlockProcessingError)?;
-            None
+
+            match notify_execution_layer {
+                NotifyExecutionLayer::No if chain.config.optimistic_finalized_sync => {
+                    // Verify the block hash here in Lighthouse and immediately mark the block as
+                    // optimistically imported. This saves a lot of roundtrips to the EL.
+                    let execution_layer = chain
+                        .execution_layer
+                        .as_ref()
+                        .ok_or(ExecutionPayloadError::NoExecutionConnection)?;
+
+                    if let Err(e) =
+                        execution_layer.verify_payload_block_hash(payload.execution_payload_ref())
+                    {
+                        warn!(
+                            chain.log,
+                            "Falling back to slow block hash verification";
+                            "block_number" => payload.block_number(),
+                            "info" => "you can silence this warning with --disable-optimistic-finalized-sync",
+                            "error" => ?e,
+                        );
+                        None
+                    } else {
+                        Some(PayloadVerificationStatus::Optimistic)
+                    }
+                }
+                _ => None,
+            }
         } else {
             Some(PayloadVerificationStatus::Irrelevant)
         };
@@ -103,7 +146,7 @@ async fn notify_new_payload<'a, T: BeaconChainTypes>(
         .ok_or(ExecutionPayloadError::NoExecutionConnection)?;
 
     let new_payload_response = execution_layer
-        .notify_new_payload(&execution_payload.execution_payload)
+        .notify_new_payload(&execution_payload.into())
         .await;
 
     match new_payload_response {
@@ -116,12 +159,12 @@ async fn notify_new_payload<'a, T: BeaconChainTypes>(
                 latest_valid_hash,
                 ref validation_error,
             } => {
-                debug!(
+                warn!(
                     chain.log,
                     "Invalid execution payload";
                     "validation_error" => ?validation_error,
                     "latest_valid_hash" => ?latest_valid_hash,
-                    "execution_block_hash" => ?execution_payload.execution_payload.block_hash,
+                    "execution_block_hash" => ?execution_payload.block_hash(),
                     "root" => ?block.tree_hash_root(),
                     "graffiti" => block.body().graffiti().as_utf8_lossy(),
                     "proposer_index" => block.proposer_index(),
@@ -129,32 +172,45 @@ async fn notify_new_payload<'a, T: BeaconChainTypes>(
                     "method" => "new_payload",
                 );
 
-                // latest_valid_hash == 0 implies that this was the terminal block
-                // Hence, we don't need to run `BeaconChain::process_invalid_execution_payload`.
-                if latest_valid_hash == ExecutionBlockHash::zero() {
-                    return Err(ExecutionPayloadError::RejectedByExecutionEngine { status }.into());
+                // Only trigger payload invalidation in fork choice if the
+                // `latest_valid_hash` is `Some` and non-zero.
+                //
+                // A `None` latest valid hash indicates that the EE was unable
+                // to determine the most recent valid ancestor. Since `block`
+                // has not yet been applied to fork choice, there's nothing to
+                // invalidate.
+                //
+                // An all-zeros payload indicates that an EIP-3675 check has
+                // failed regarding the validity of the terminal block. Rather
+                // than iterating back in the chain to find the terminal block
+                // and invalidating that, we simply reject this block without
+                // invalidating anything else.
+                if let Some(latest_valid_hash) =
+                    latest_valid_hash.filter(|hash| *hash != ExecutionBlockHash::zero())
+                {
+                    // This block has not yet been applied to fork choice, so the latest block that was
+                    // imported to fork choice was the parent.
+                    let latest_root = block.parent_root();
+
+                    chain
+                        .process_invalid_execution_payload(&InvalidationOperation::InvalidateMany {
+                            head_block_root: latest_root,
+                            always_invalidate_head: false,
+                            latest_valid_ancestor: latest_valid_hash,
+                        })
+                        .await?;
                 }
-                // This block has not yet been applied to fork choice, so the latest block that was
-                // imported to fork choice was the parent.
-                let latest_root = block.parent_root();
-                chain
-                    .process_invalid_execution_payload(&InvalidationOperation::InvalidateMany {
-                        head_block_root: latest_root,
-                        always_invalidate_head: false,
-                        latest_valid_ancestor: latest_valid_hash,
-                    })
-                    .await?;
 
                 Err(ExecutionPayloadError::RejectedByExecutionEngine { status }.into())
             }
             PayloadStatus::InvalidBlockHash {
                 ref validation_error,
             } => {
-                debug!(
+                warn!(
                     chain.log,
                     "Invalid execution payload block hash";
                     "validation_error" => ?validation_error,
-                    "execution_block_hash" => ?execution_payload.execution_payload.block_hash,
+                    "execution_block_hash" => ?execution_payload.block_hash(),
                     "root" => ?block.tree_hash_root(),
                     "graffiti" => block.body().graffiti().as_utf8_lossy(),
                     "proposer_index" => block.proposer_index(),
@@ -307,7 +363,7 @@ pub fn validate_execution_payload_for_gossip<T: BeaconChainTypes>(
             }
         };
 
-        if is_merge_transition_complete || execution_payload != &<_>::default() {
+        if is_merge_transition_complete || !execution_payload.is_default_with_empty_roots() {
             let expected_timestamp = chain
                 .slot_clock
                 .start_of(block.slot())
@@ -345,22 +401,29 @@ pub fn validate_execution_payload_for_gossip<T: BeaconChainTypes>(
 /// https://github.com/ethereum/consensus-specs/blob/v1.1.5/specs/merge/validator.md#block-proposal
 pub fn get_execution_payload<
     T: BeaconChainTypes,
-    Payload: ExecPayload<T::EthSpec> + Default + Send + 'static,
+    Payload: AbstractExecPayload<T::EthSpec> + 'static,
 >(
     chain: Arc<BeaconChain<T>>,
     state: &BeaconState<T::EthSpec>,
     proposer_index: u64,
     builder_params: BuilderParams,
-) -> Result<PreparePayloadHandle<Payload>, BlockProductionError> {
+) -> Result<PreparePayloadHandle<T::EthSpec, Payload>, BlockProductionError> {
     // Compute all required values from the `state` now to avoid needing to pass it into a spawned
     // task.
     let spec = &chain.spec;
     let current_epoch = state.current_epoch();
     let is_merge_transition_complete = is_merge_transition_complete(state);
-    let timestamp = compute_timestamp_at_slot(state, spec).map_err(BeaconStateError::from)?;
+    let timestamp =
+        compute_timestamp_at_slot(state, state.slot(), spec).map_err(BeaconStateError::from)?;
     let random = *state.get_randao_mix(current_epoch)?;
     let latest_execution_payload_header_block_hash =
-        state.latest_execution_payload_header()?.block_hash;
+        state.latest_execution_payload_header()?.block_hash();
+    let withdrawals = match state {
+        &BeaconState::Capella(_) => Some(get_expected_withdrawals(state, spec)?.into()),
+        &BeaconState::Merge(_) => None,
+        // These shouldn't happen but they're here to make the pattern irrefutable
+        &BeaconState::Base(_) | &BeaconState::Altair(_) => None,
+    };
 
     // Spawn a task to obtain the execution payload from the EL via a series of async calls. The
     // `join_handle` can be used to await the result of the function.
@@ -377,6 +440,7 @@ pub fn get_execution_payload<
                     proposer_index,
                     latest_execution_payload_header_block_hash,
                     builder_params,
+                    withdrawals,
                 )
                 .await
             },
@@ -410,13 +474,15 @@ pub async fn prepare_execution_payload<T, Payload>(
     proposer_index: u64,
     latest_execution_payload_header_block_hash: ExecutionBlockHash,
     builder_params: BuilderParams,
-) -> Result<Payload, BlockProductionError>
+    withdrawals: Option<Vec<Withdrawal>>,
+) -> Result<BlockProposalContents<T::EthSpec, Payload>, BlockProductionError>
 where
     T: BeaconChainTypes,
-    Payload: ExecPayload<T::EthSpec> + Default,
+    Payload: AbstractExecPayload<T::EthSpec>,
 {
     let current_epoch = builder_params.slot.epoch(T::EthSpec::slots_per_epoch());
     let spec = &chain.spec;
+    let fork = spec.fork_name_at_slot::<T::EthSpec>(builder_params.slot);
     let execution_layer = chain
         .execution_layer
         .as_ref()
@@ -430,7 +496,7 @@ where
         if is_terminal_block_hash_set && !is_activation_epoch_reached {
             // Use the "empty" payload if there's a terminal block hash, but we haven't reached the
             // terminal block epoch yet.
-            return Ok(<_>::default());
+            return BlockProposalContents::default_at_fork(fork).map_err(Into::into);
         }
 
         let terminal_pow_block_hash = execution_layer
@@ -443,7 +509,7 @@ where
         } else {
             // If the merge transition hasn't occurred yet and the EL hasn't found the terminal
             // block, return an "empty" payload.
-            return Ok(<_>::default());
+            return BlockProposalContents::default_at_fork(fork).map_err(Into::into);
         }
     } else {
         latest_execution_payload_header_block_hash
@@ -467,21 +533,26 @@ where
         .await
         .map_err(BlockProductionError::BeaconChain)?;
 
+    let suggested_fee_recipient = execution_layer
+        .get_suggested_fee_recipient(proposer_index)
+        .await;
+    let payload_attributes =
+        PayloadAttributes::new(timestamp, random, suggested_fee_recipient, withdrawals);
+
     // Note: the suggested_fee_recipient is stored in the `execution_layer`, it will add this parameter.
     //
     // This future is not executed here, it's up to the caller to await it.
-    let execution_payload = execution_layer
+    let block_contents = execution_layer
         .get_payload::<Payload>(
             parent_hash,
-            timestamp,
-            random,
-            proposer_index,
+            &payload_attributes,
             forkchoice_update_params,
             builder_params,
+            fork,
             &chain.spec,
         )
         .await
         .map_err(BlockProductionError::GetPayloadFailed)?;
 
-    Ok(execution_payload)
+    Ok(block_contents)
 }

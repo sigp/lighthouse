@@ -22,7 +22,7 @@ Having a large peer count means that your node must act as an honest RPC server
 to all your connected peers. If there are many that are syncing, they will
 often be requesting a large number of blocks from your node. This means your
 node must perform a lot of work reading and responding to these peers. If your
-node is over-loaded with peers and cannot respond in time, other Lighthouse
+node is overloaded with peers and cannot respond in time, other Lighthouse
 peers will consider you non-performant and disfavour you from their peer
 stores. Your node will also have to handle and manage the gossip and extra
 bandwidth that comes from having these extra peers. Having a non-responsive
@@ -41,7 +41,7 @@ drastically and use the (recommended) default.
 
 ### NAT Traversal (Port Forwarding)
 
-Lighthouse, by default, used port 9000 for both TCP and UDP. Lighthouse will
+Lighthouse, by default, uses port 9000 for both TCP and UDP. Lighthouse will
 still function if it is behind a NAT without any port mappings. Although
 Lighthouse still functions, we recommend that some mechanism is used to ensure
 that your Lighthouse node is publicly accessible. This will typically improve
@@ -54,16 +54,26 @@ node will inform you of established routes in this case). If UPnP is not
 enabled, we recommend you manually set up port mappings to both of Lighthouse's
 TCP and UDP ports (9000 by default).
 
+> Note: Lighthouse needs to advertise its publicly accessible ports in
+> order to inform its peers that it is contactable and how to connect to it. 
+> Lighthouse has an automated way of doing this for the UDP port. This means
+> Lighthouse can detect its external UDP port. There is no such mechanism for the
+> TCP port. As such, we assume that the external UDP and external TCP port is the
+> same (i.e external 5050 UDP/TCP mapping to internal 9000 is fine). If you are setting up differing external UDP and TCP ports, you should
+> explicitly specify them using the `--enr-tcp-port` and `--enr-udp-port` as
+> explained in the following section.
+
+
 ### ENR Configuration
 
 Lighthouse has a number of CLI parameters for constructing and modifying the
 local Ethereum Node Record (ENR). Examples are `--enr-address`,
 `--enr-udp-port`, `--enr-tcp-port` and `--disable-enr-auto-update`. These
-settings allow you construct your initial ENR. Their primary intention is for
+settings allow you to construct your initial ENR. Their primary intention is for
 setting up boot-like nodes and having a contactable ENR on boot. On normal
 operation of a Lighthouse node, none of these flags need to be set. Setting
 these flags incorrectly can lead to your node being incorrectly added to the
-global DHT which will degrades the discovery process for all Ethereum consensus peers.
+global DHT which will degrade the discovery process for all Ethereum consensus peers.
 
 The ENR of a Lighthouse node is initially set to be non-contactable. The
 in-built discovery mechanism can determine if your node is publicly accessible,

@@ -1,5 +1,6 @@
 #[macro_use]
 extern crate log;
+mod block_root;
 mod change_genesis_time;
 mod check_deposit_data;
 mod create_payload_header;
@@ -9,6 +10,7 @@ mod generate_bootnode_enr;
 mod indexed_attestations;
 mod insecure_validators;
 mod interop_genesis;
+mod mnemonic_validators;
 mod new_testnet;
 mod parse_ssz;
 mod replace_state_pubkeys;
@@ -370,7 +372,8 @@ fn main() {
         .subcommand(
             SubCommand::with_name("create-payload-header")
                 .about("Generates an SSZ file containing bytes for an `ExecutionPayloadHeader`. \
-                Useful as input for `lcli new-testnet --execution-payload-header FILE`. ")
+                Useful as input for `lcli new-testnet --execution-payload-header FILE`. If `--fork` \
+                is not provided, a payload header for the `Bellatrix` fork will be created.")
                 .arg(
                     Arg::with_name("execution-block-hash")
                         .long("execution-block-hash")
@@ -416,7 +419,15 @@ fn main() {
                         .takes_value(true)
                         .required(true)
                         .help("Output file"),
-                )
+                ).arg(
+                Arg::with_name("fork")
+                    .long("fork")
+                    .value_name("FORK")
+                    .takes_value(true)
+                    .default_value("bellatrix")
+                    .help("The fork for which the execution payload header should be created.")
+                    .possible_values(&["merge", "bellatrix", "capella"])
+            )
         )
         .subcommand(
             SubCommand::with_name("new-testnet")
@@ -438,6 +449,22 @@ fn main() {
                         .help(
                             "If present, a interop-style genesis.ssz file will be generated.",
                         ),
+                )
+                .arg(
+                    Arg::with_name("derived-genesis-state")
+                        .long("derived-genesis-state")
+                        .takes_value(false)
+                        .help(
+                            "If present, a genesis.ssz file will be generated with keys generated from a given mnemonic.",
+                        ),
+                )
+                .arg(
+                    Arg::with_name("mnemonic-phrase")
+                        .long("mnemonic-phrase")
+                        .value_name("MNEMONIC_PHRASE")
+                        .takes_value(true)
+                        .requires("derived-genesis-state")
+                        .help("The mnemonic with which we generate the validator keys for a derived genesis state"),
                 )
                 .arg(
                     Arg::with_name("min-genesis-time")
@@ -558,12 +585,30 @@ fn main() {
                         ),
                 )
                 .arg(
-                    Arg::with_name("merge-fork-epoch")
-                        .long("merge-fork-epoch")
+                    Arg::with_name("bellatrix-fork-epoch")
+                        .long("bellatrix-fork-epoch")
                         .value_name("EPOCH")
                         .takes_value(true)
                         .help(
                             "The epoch at which to enable the Merge hard fork",
+                        ),
+                )
+                .arg(
+                    Arg::with_name("capella-fork-epoch")
+                        .long("capella-fork-epoch")
+                        .value_name("EPOCH")
+                        .takes_value(true)
+                        .help(
+                            "The epoch at which to enable the Capella hard fork",
+                        ),
+                )
+                .arg(
+                    Arg::with_name("ttd")
+                        .long("ttd")
+                        .value_name("TTD")
+                        .takes_value(true)
+                        .help(
+                            "The terminal total difficulty",
                         ),
                 )
                 .arg(
@@ -596,6 +641,14 @@ fn main() {
                         .takes_value(true)
                         .help("The genesis time when generating a genesis state."),
                 )
+                .arg(
+                    Arg::with_name("proposer-score-boost")
+                        .long("proposer-score-boost")
+                        .value_name("INTEGER")
+                        .takes_value(true)
+                        .help("The proposer score boost to apply as a percentage, e.g. 70 = 70%"),
+                )
+
         )
         .subcommand(
             SubCommand::with_name("check-deposit-data")
@@ -677,6 +730,7 @@ fn main() {
                         .long("count")
                         .value_name("COUNT")
                         .takes_value(true)
+                        .required(true)
                         .help("Produces validators in the range of 0..count."),
                 )
                 .arg(
@@ -684,6 +738,7 @@ fn main() {
                         .long("base-dir")
                         .value_name("BASE_DIR")
                         .takes_value(true)
+                        .required(true)
                         .help("The base directory where validator keypairs and secrets are stored"),
                 )
                 .arg(
@@ -692,6 +747,43 @@ fn main() {
                         .value_name("NODE_COUNT")
                         .takes_value(true)
                         .help("The number of nodes to divide the validator keys to"),
+                )
+        )
+        .subcommand(
+            SubCommand::with_name("mnemonic-validators")
+                .about("Produces validator directories by deriving the keys from \
+                        a mnemonic. For testing purposes only, DO NOT USE IN \
+                        PRODUCTION!")
+                .arg(
+                    Arg::with_name("count")
+                        .long("count")
+                        .value_name("COUNT")
+                        .takes_value(true)
+                        .required(true)
+                        .help("Produces validators in the range of 0..count."),
+                )
+                .arg(
+                    Arg::with_name("base-dir")
+                        .long("base-dir")
+                        .value_name("BASE_DIR")
+                        .takes_value(true)
+                        .required(true)
+                        .help("The base directory where validator keypairs and secrets are stored"),
+                )
+                .arg(
+                    Arg::with_name("node-count")
+                        .long("node-count")
+                        .value_name("NODE_COUNT")
+                        .takes_value(true)
+                        .help("The number of nodes to divide the validator keys to"),
+                )
+                .arg(
+                    Arg::with_name("mnemonic-phrase")
+                        .long("mnemonic-phrase")
+                        .value_name("MNEMONIC_PHRASE")
+                        .takes_value(true)
+                        .required(true)
+                        .help("The mnemonic with which we generate the validator keys"),
                 )
         )
         .subcommand(
@@ -712,6 +804,41 @@ fn main() {
                         .takes_value(true)
                         .required(true)
                         .help("List of Attestations to convert to indexed form (JSON)"),
+                )
+        )
+        .subcommand(
+            SubCommand::with_name("block-root")
+                .about("Computes the block root of some block")
+                .arg(
+                    Arg::with_name("block-path")
+                        .long("block-path")
+                        .value_name("PATH")
+                        .takes_value(true)
+                        .conflicts_with("beacon-url")
+                        .help("Path to load a SignedBeaconBlock from file as SSZ."),
+                )
+                .arg(
+                    Arg::with_name("beacon-url")
+                        .long("beacon-url")
+                        .value_name("URL")
+                        .takes_value(true)
+                        .help("URL to a beacon-API provider."),
+                )
+                .arg(
+                    Arg::with_name("block-id")
+                        .long("block-id")
+                        .value_name("BLOCK_ID")
+                        .takes_value(true)
+                        .requires("beacon-url")
+                        .help("Identifier for a block as per beacon-API standards (slot, root, etc.)"),
+                )
+                .arg(
+                    Arg::with_name("runs")
+                        .long("runs")
+                        .value_name("INTEGER")
+                        .takes_value(true)
+                        .default_value("1")
+                        .help("Number of repeat runs, useful for benchmarking."),
                 )
         )
         .get_matches();
@@ -744,12 +871,17 @@ fn run<T: EthSpec>(
         .map_err(|e| format!("should start tokio runtime: {:?}", e))?
         .initialize_logger(LoggerConfig {
             path: None,
-            debug_level: "trace",
-            logfile_debug_level: "trace",
+            debug_level: String::from("trace"),
+            logfile_debug_level: String::from("trace"),
             log_format: None,
+            logfile_format: None,
+            log_color: false,
+            disable_log_timestamp: false,
             max_log_size: 0,
             max_log_number: 0,
             compression: false,
+            is_restricted: true,
+            sse_logging: false, // No SSE Logging in LCLI
         })
         .map_err(|e| format!("should start logger: {:?}", e))?
         .build()
@@ -790,14 +922,18 @@ fn run<T: EthSpec>(
         }
         ("new-testnet", Some(matches)) => new_testnet::run::<T>(testnet_dir, matches)
             .map_err(|e| format!("Failed to run new_testnet command: {}", e)),
-        ("check-deposit-data", Some(matches)) => check_deposit_data::run::<T>(matches)
+        ("check-deposit-data", Some(matches)) => check_deposit_data::run(matches)
             .map_err(|e| format!("Failed to run check-deposit-data command: {}", e)),
         ("generate-bootnode-enr", Some(matches)) => generate_bootnode_enr::run::<T>(matches)
             .map_err(|e| format!("Failed to run generate-bootnode-enr command: {}", e)),
         ("insecure-validators", Some(matches)) => insecure_validators::run(matches)
             .map_err(|e| format!("Failed to run insecure-validators command: {}", e)),
+        ("mnemonic-validators", Some(matches)) => mnemonic_validators::run(matches)
+            .map_err(|e| format!("Failed to run mnemonic-validators command: {}", e)),
         ("indexed-attestations", Some(matches)) => indexed_attestations::run::<T>(matches)
             .map_err(|e| format!("Failed to run indexed-attestations command: {}", e)),
+        ("block-root", Some(matches)) => block_root::run::<T>(env, matches)
+            .map_err(|e| format!("Failed to run block-root command: {}", e)),
         (other, _) => Err(format!("Unknown subcommand {}. See --help.", other)),
     }
 }

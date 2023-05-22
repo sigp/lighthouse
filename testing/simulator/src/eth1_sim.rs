@@ -1,8 +1,8 @@
-use crate::local_network::{EXECUTION_PORT, INVALID_ADDRESS, TERMINAL_BLOCK, TERMINAL_DIFFICULTY};
+use crate::local_network::{EXECUTION_PORT, TERMINAL_BLOCK, TERMINAL_DIFFICULTY};
 use crate::{checks, LocalNetwork, E};
 use clap::ArgMatches;
 use eth1::{Eth1Endpoint, DEFAULT_CHAIN_ID};
-use eth1_test_rig::GanacheEth1Instance;
+use eth1_test_rig::AnvilEth1Instance;
 
 use execution_layer::http::deposit_methods::Eth1Id;
 use futures::prelude::*;
@@ -13,7 +13,7 @@ use node_test_rig::{
 use rayon::prelude::*;
 use sensitive_url::SensitiveUrl;
 use std::cmp::max;
-use std::net::{IpAddr, Ipv4Addr};
+use std::net::Ipv4Addr;
 use std::time::Duration;
 use tokio::time::sleep;
 use types::{Epoch, EthSpec, MinimalEthSpec};
@@ -27,6 +27,8 @@ const SUGGESTED_FEE_RECIPIENT: [u8; 20] =
 
 pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
     let node_count = value_t!(matches, "nodes", usize).expect("missing nodes default");
+    let proposer_nodes = value_t!(matches, "proposer-nodes", usize).unwrap_or(0);
+    println!("PROPOSER-NODES: {}", proposer_nodes);
     let validators_per_node = value_t!(matches, "validators_per_node", usize)
         .expect("missing validators_per_node default");
     let speed_up_factor =
@@ -35,7 +37,8 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
     let post_merge_sim = matches.is_present("post-merge");
 
     println!("Beacon Chain Simulator:");
-    println!(" nodes:{}", node_count);
+    println!(" nodes:{}, proposer_nodes: {}", node_count, proposer_nodes);
+
     println!(" validators_per_node:{}", validators_per_node);
     println!(" post merge simulation:{}", post_merge_sim);
     println!(" continue_after_checks:{}", continue_after_checks);
@@ -56,18 +59,20 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
         })
         .collect::<Vec<_>>();
 
-    let log_level = "debug";
-    let log_format = None;
-
     let mut env = EnvironmentBuilder::minimal()
         .initialize_logger(LoggerConfig {
             path: None,
-            debug_level: log_level,
-            logfile_debug_level: "debug",
-            log_format,
+            debug_level: String::from("debug"),
+            logfile_debug_level: String::from("debug"),
+            log_format: None,
+            logfile_format: None,
+            log_color: false,
+            disable_log_timestamp: false,
             max_log_size: 0,
             max_log_number: 0,
             compression: false,
+            is_restricted: true,
+            sse_logging: false,
         })?
         .multi_threaded_tokio_runtime()?
         .build()?;
@@ -106,12 +111,12 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
          * Deploy the deposit contract, spawn tasks to keep creating new blocks and deposit
          * validators.
          */
-        let ganache_eth1_instance = GanacheEth1Instance::new(DEFAULT_CHAIN_ID.into()).await?;
-        let deposit_contract = ganache_eth1_instance.deposit_contract;
-        let chain_id = ganache_eth1_instance.ganache.chain_id();
-        let ganache = ganache_eth1_instance.ganache;
-        let eth1_endpoint = SensitiveUrl::parse(ganache.endpoint().as_str())
-            .expect("Unable to parse ganache endpoint.");
+        let anvil_eth1_instance = AnvilEth1Instance::new(DEFAULT_CHAIN_ID.into()).await?;
+        let deposit_contract = anvil_eth1_instance.deposit_contract;
+        let chain_id = anvil_eth1_instance.anvil.chain_id();
+        let anvil = anvil_eth1_instance.anvil;
+        let eth1_endpoint = SensitiveUrl::parse(anvil.endpoint().as_str())
+            .expect("Unable to parse anvil endpoint.");
         let deposit_contract_address = deposit_contract.address();
 
         // Start a timer that produces eth1 blocks on an interval.
@@ -119,7 +124,7 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
             let mut interval = tokio::time::interval(eth1_block_time);
             loop {
                 interval.tick().await;
-                let _ = ganache.evm_mine().await;
+                let _ = anvil.evm_mine().await;
             }
         });
 
@@ -136,7 +141,7 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
         let mut beacon_config = testing_client_config();
 
         beacon_config.genesis = ClientGenesis::DepositContract;
-        beacon_config.eth1.endpoints = Eth1Endpoint::NoAuth(vec![eth1_endpoint]);
+        beacon_config.eth1.endpoint = Eth1Endpoint::NoAuth(eth1_endpoint);
         beacon_config.eth1.deposit_contract_address = deposit_contract_address;
         beacon_config.eth1.deposit_contract_deploy_block = 0;
         beacon_config.eth1.lowest_cached_block_number = 0;
@@ -146,9 +151,9 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
         beacon_config.sync_eth1_chain = true;
         beacon_config.eth1.auto_update_interval_millis = eth1_block_time.as_millis() as u64;
         beacon_config.eth1.chain_id = Eth1Id::from(chain_id);
-        beacon_config.network.target_peers = node_count - 1;
+        beacon_config.network.target_peers = node_count + proposer_nodes - 1;
 
-        beacon_config.network.enr_address = Some(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)));
+        beacon_config.network.enr_address = (Some(Ipv4Addr::LOCALHOST), None);
 
         if post_merge_sim {
             let el_config = execution_layer::Config {
@@ -171,18 +176,18 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
         /*
          * One by one, add beacon nodes to the network.
          */
-        for i in 0..node_count - 1 {
-            let mut config = beacon_config.clone();
-            if i % 2 == 0 {
-                if let Eth1Endpoint::NoAuth(endpoints) = &mut config.eth1.endpoints {
-                    endpoints.insert(
-                        0,
-                        SensitiveUrl::parse(INVALID_ADDRESS)
-                            .expect("Unable to parse invalid address"),
-                    )
-                }
-            }
-            network.add_beacon_node(config).await?;
+        for _ in 0..node_count - 1 {
+            network
+                .add_beacon_node(beacon_config.clone(), false)
+                .await?;
+        }
+
+        /*
+         * One by one, add proposer nodes to the network.
+         */
+        for _ in 0..proposer_nodes - 1 {
+            println!("Adding a proposer node");
+            network.add_beacon_node(beacon_config.clone(), true).await?;
         }
 
         /*
@@ -319,7 +324,7 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
          */
         println!(
             "Simulation complete. Finished with {} beacon nodes and {} validator clients",
-            network.beacon_node_count(),
+            network.beacon_node_count() + network.proposer_node_count(),
             network.validator_client_count()
         );
 

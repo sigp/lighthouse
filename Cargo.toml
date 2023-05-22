@@ -28,22 +28,22 @@ members = [
     "common/eth2_interop_keypairs",
     "common/eth2_network_config",
     "common/eth2_wallet_manager",
-    "common/hashset_delay",
     "common/lighthouse_metrics",
     "common/lighthouse_version",
     "common/lockfile",
     "common/logging",
     "common/lru_cache",
     "common/malloc_utils",
+    "common/oneshot_broadcast",
     "common/sensitive_url",
     "common/slot_clock",
+    "common/system_health",
     "common/task_executor",
     "common/target_check",
     "common/test_random_derive",
     "common/unused_port",
     "common/validator_dir",
     "common/warp_utils",
-    "common/fallback",
     "common/monitoring_api",
 
     "database_manager",
@@ -53,17 +53,10 @@ members = [
     "consensus/fork_choice",
     "consensus/proto_array",
     "consensus/safe_arith",
-    "consensus/ssz",
-    "consensus/ssz_derive",
-    "consensus/ssz_types",
-    "consensus/serde_utils",
     "consensus/state_processing",
     "consensus/swap_or_not_shuffle",
-    "consensus/tree_hash",
-    "consensus/tree_hash_derive",
 
     "crypto/bls",
-    "crypto/eth2_hashing",
     "crypto/eth2_key_derivation",
     "crypto/eth2_keystore",
     "crypto/eth2_wallet",
@@ -87,16 +80,25 @@ members = [
 
     "validator_client",
     "validator_client/slashing_protection",
+
+    "watch",
 ]
+resolver = "2"
 
 [patch]
 [patch.crates-io]
-fixed-hash = { git = "https://github.com/paritytech/parity-common", rev="df638ab0885293d21d656dc300d39236b69ce57d" }
 warp = { git = "https://github.com/macladson/warp", rev="7e75acc368229a46a236a8c991bf251fe7fe50ef" }
-eth2_ssz = { path = "consensus/ssz" }
-eth2_ssz_derive = { path = "consensus/ssz_derive" }
-eth2_ssz_types = { path = "consensus/ssz_types" }
-eth2_hashing = { path = "crypto/eth2_hashing" }
-tree_hash = { path = "consensus/tree_hash" }
-tree_hash_derive = { path = "consensus/tree_hash_derive" }
-eth2_serde_utils = { path = "consensus/serde_utils" }
+arbitrary = { git = "https://github.com/michaelsproul/arbitrary", rev="f002b99989b561ddce62e4cf2887b0f8860ae991" }
+
+[patch."https://github.com/ralexstokes/mev-rs"]
+mev-rs = { git = "https://github.com/ralexstokes//mev-rs", rev = "7813d4a4a564e0754e9aaab2d95520ba437c3889" }
+[patch."https://github.com/ralexstokes/ethereum-consensus"]
+ethereum-consensus = { git = "https://github.com/ralexstokes//ethereum-consensus", rev = "9b0ee0a8a45b968c8df5e7e64ea1c094e16f053d" }
+[patch."https://github.com/ralexstokes/ssz-rs"]
+ssz-rs = { git = "https://github.com/ralexstokes//ssz-rs", rev = "adf1a0b14cef90b9536f28ef89da1fab316465e1" }
+
+[profile.maxperf]
+inherits = "release"
+lto = "fat"
+codegen-units = 1
+incremental = false

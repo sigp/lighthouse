@@ -77,12 +77,16 @@ pub fn get_attestation_performance<T: BeaconChainTypes>(
     // query is within permitted bounds to prevent potential OOM errors.
     if (end_epoch - start_epoch).as_usize() > MAX_REQUEST_RANGE_EPOCHS {
         return Err(custom_bad_request(format!(
-            "end_epoch must not exceed start_epoch by more than 100 epochs. start: {}, end: {}",
-            query.start_epoch, query.end_epoch
+            "end_epoch must not exceed start_epoch by more than {} epochs. start: {}, end: {}",
+            MAX_REQUEST_RANGE_EPOCHS, query.start_epoch, query.end_epoch
         )));
     }
 
     // Either use the global validator set, or the specified index.
+    //
+    // Does no further validation of the indices, so in the event an index has not yet been
+    // activated or does not yet exist (according to the head state), it will return all fields as
+    // `false`.
     let index_range = if target.to_lowercase() == "global" {
         chain
             .with_head(|head| Ok((0..head.beacon_state.validators().len() as u64).collect()))

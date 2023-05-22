@@ -199,10 +199,14 @@ pub fn process_sync_committee_signatures<T: BeaconChainTypes>(
                 Err(SyncVerificationError::PriorSyncCommitteeMessageKnown {
                     validator_index,
                     slot,
+                    prev_root,
+                    new_root,
                 }) => {
                     debug!(
                         log,
                         "Ignoring already-known sync message";
+                        "new_root" => ?new_root,
+                        "prev_root" => ?prev_root,
                         "slot" => slot,
                         "validator_index" => validator_index,
                     );

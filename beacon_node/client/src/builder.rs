@@ -1,3 +1,4 @@
+use crate::address_change_broadcast::broadcast_address_changes_at_capella;
 use crate::config::{ClientGenesis, Config as ClientConfig};
 use crate::notifier::spawn_notifier;
 use crate::Client;
@@ -39,9 +40,6 @@ use types::{
 
 /// Interval between polling the eth1 node for genesis information.
 pub const ETH1_GENESIS_UPDATE_INTERVAL_MILLIS: u64 = 7_000;
-
-/// Timeout for checkpoint sync HTTP requests.
-pub const CHECKPOINT_SYNC_HTTP_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// Builds a `Client` instance.
 ///
@@ -176,6 +174,7 @@ where
             .monitor_validators(
                 config.validator_monitor_auto,
                 config.validator_monitor_pubkeys.clone(),
+                config.validator_monitor_individual_tracking_threshold,
                 runtime_context
                     .service_context("val_mon".to_string())
                     .log()
@@ -251,6 +250,12 @@ where
                 genesis_state_bytes,
             } => {
                 info!(context.log(), "Starting checkpoint sync");
+                if config.chain.genesis_backfill {
+                    info!(
+                        context.log(),
+                        "Blocks will downloaded all the way back to genesis"
+                    );
+                }
 
                 let anchor_state = BeaconState::from_ssz_bytes(&anchor_state_bytes, &spec)
                     .map_err(|e| format!("Unable to parse weak subj state SSZ: {:?}", e))?;
@@ -272,13 +277,67 @@ where
                     "Starting checkpoint sync";
                     "remote_url" => %url,
                 );
+                if config.chain.genesis_backfill {
+                    info!(
+                        context.log(),
+                        "Blocks will be downloaded all the way back to genesis"
+                    );
+                }
 
-                let remote =
-                    BeaconNodeHttpClient::new(url, Timeouts::set_all(CHECKPOINT_SYNC_HTTP_TIMEOUT));
+                let remote = BeaconNodeHttpClient::new(
+                    url,
+                    Timeouts::set_all(Duration::from_secs(
+                        config.chain.checkpoint_sync_url_timeout,
+                    )),
+                );
                 let slots_per_epoch = TEthSpec::slots_per_epoch();
 
-                debug!(context.log(), "Downloading finalized block");
+                let deposit_snapshot = if config.sync_eth1_chain {
+                    // We want to fetch deposit snapshot before fetching the finalized beacon state to
+                    // ensure that the snapshot is not newer than the beacon state that satisfies the
+                    // deposit finalization conditions
+                    debug!(context.log(), "Downloading deposit snapshot");
+                    let deposit_snapshot_result = remote
+                        .get_deposit_snapshot()
+                        .await
+                        .map_err(|e| match e {
+                            ApiError::InvalidSsz(e) => format!(
+                                "Unable to parse SSZ: {:?}. Ensure the checkpoint-sync-url refers to a \
+                                node for the correct network",
+                                e
+                            ),
+                            e => format!("Error fetching deposit snapshot from remote: {:?}", e),
+                        });
+                    match deposit_snapshot_result {
+                        Ok(Some(deposit_snapshot)) => {
+                            if deposit_snapshot.is_valid() {
+                                Some(deposit_snapshot)
+                            } else {
+                                warn!(context.log(), "Remote BN sent invalid deposit snapshot!");
+                                None
+                            }
+                        }
+                        Ok(None) => {
+                            warn!(
+                                context.log(),
+                                "Remote BN does not support EIP-4881 fast deposit sync"
+                            );
+                            None
+                        }
+                        Err(e) => {
+                            warn!(
+                                context.log(),
+                                "Remote BN does not support EIP-4881 fast deposit sync";
+                                "error" => e
+                            );
+                            None
+                        }
+                    }
+                } else {
+                    None
+                };
 
+                debug!(context.log(), "Downloading finalized block");
                 // Find a suitable finalized block on an epoch boundary.
                 let mut block = remote
                     .get_beacon_blocks_ssz::<TEthSpec>(BlockId::Finalized, &spec)
@@ -299,12 +358,6 @@ where
 
                 while block.slot() % slots_per_epoch != 0 {
                     block_slot = (block_slot / slots_per_epoch - 1) * slots_per_epoch;
-
-                    debug!(
-                        context.log(),
-                        "Searching for aligned checkpoint block";
-                        "block_slot" => block_slot,
-                    );
 
                     debug!(
                         context.log(),
@@ -362,15 +415,39 @@ where
                     "state_root" => ?state_root,
                 );
 
+                let service =
+                    deposit_snapshot.and_then(|snapshot| match Eth1Service::from_deposit_snapshot(
+                        config.eth1,
+                        context.log().clone(),
+                        spec,
+                        &snapshot,
+                    ) {
+                        Ok(service) => {
+                            info!(
+                                context.log(),
+                                "Loaded deposit tree snapshot";
+                                "deposits loaded" => snapshot.deposit_count,
+                            );
+                            Some(service)
+                        }
+                        Err(e) => {
+                            warn!(context.log(),
+                                "Unable to load deposit snapshot";
+                                "error" => ?e
+                            );
+                            None
+                        }
+                    });
+
                 builder
                     .weak_subjectivity_state(state, block, genesis_state)
-                    .map(|v| (v, None))?
+                    .map(|v| (v, service))?
             }
             ClientGenesis::DepositContract => {
                 info!(
                     context.log(),
                     "Waiting for eth2 genesis from eth1";
-                    "eth1_endpoints" => format!("{:?}", &config.eth1.endpoints),
+                    "eth1_endpoints" => format!("{:?}", &config.eth1.endpoint),
                     "contract_deploy_block" => config.eth1.deposit_contract_deploy_block,
                     "deposit_contract" => &config.eth1.deposit_contract_address
                 );
@@ -379,7 +456,7 @@ where
                     config.eth1,
                     context.log().clone(),
                     context.eth2_config().spec.clone(),
-                );
+                )?;
 
                 // If the HTTP API server is enabled, start an instance of it where it only
                 // contains a reference to the eth1 service (all non-eth1 endpoints will fail
@@ -401,6 +478,7 @@ where
                         network_globals: None,
                         eth1_service: Some(genesis_service.eth1_service.clone()),
                         log: context.log().clone(),
+                        sse_logging_components: runtime_context.sse_logging_components.clone(),
                     });
 
                     // Discard the error from the oneshot.
@@ -457,7 +535,9 @@ where
             ClientGenesis::FromStore => builder.resume_from_db().map(|v| (v, None))?,
         };
 
-        self.eth1_service = eth1_service_option;
+        if config.sync_eth1_chain {
+            self.eth1_service = eth1_service_option;
+        }
         self.beacon_chain_builder = Some(beacon_chain_builder);
         Ok(self)
     }
@@ -619,6 +699,7 @@ where
                 network_senders: self.network_senders.clone(),
                 network_globals: self.network_globals.clone(),
                 eth1_service: self.eth1_service.clone(),
+                sse_logging_components: runtime_context.sse_logging_components.clone(),
                 log: log.clone(),
             });
 
@@ -698,7 +779,11 @@ where
                         runtime_context.executor.spawn(
                             async move {
                                 let result = inner_chain
-                                    .update_execution_engine_forkchoice(current_slot, params)
+                                    .update_execution_engine_forkchoice(
+                                        current_slot,
+                                        params,
+                                        Default::default(),
+                                    )
                                     .await;
 
                                 // No need to exit early if setting the head fails. It will be set again if/when the
@@ -725,6 +810,25 @@ where
 
                     // Spawns a routine that polls the `exchange_transition_configuration` endpoint.
                     execution_layer.spawn_transition_configuration_poll(beacon_chain.spec.clone());
+                }
+
+                // Spawn a service to publish BLS to execution changes at the Capella fork.
+                if let Some(network_senders) = self.network_senders {
+                    let inner_chain = beacon_chain.clone();
+                    let broadcast_context =
+                        runtime_context.service_context("addr_bcast".to_string());
+                    let log = broadcast_context.log().clone();
+                    broadcast_context.executor.spawn(
+                        async move {
+                            broadcast_address_changes_at_capella(
+                                &inner_chain,
+                                network_senders.network_send(),
+                                &log,
+                            )
+                            .await
+                        },
+                        "addr_broadcast",
+                    );
                 }
             }
 
@@ -788,7 +892,6 @@ where
     /// Specifies that the `Client` should use a `HotColdDB` database.
     pub fn disk_store(
         mut self,
-        datadir: &Path,
         hot_path: &Path,
         cold_path: &Path,
         config: StoreConfig,
@@ -808,10 +911,16 @@ where
         self.freezer_db_path = Some(cold_path.into());
 
         let inner_spec = spec.clone();
+        let deposit_contract_deploy_block = context
+            .eth2_network_config
+            .as_ref()
+            .map(|config| config.deposit_contract_deploy_block)
+            .unwrap_or(0);
+
         let schema_upgrade = |db, from, to| {
             migrate_schema::<Witness<TSlotClock, TEth1Backend, _, _, _>>(
                 db,
-                datadir,
+                deposit_contract_deploy_block,
                 from,
                 to,
                 log,
@@ -875,7 +984,7 @@ where
 
             CachingEth1Backend::from_service(eth1_service_from_genesis)
         } else if config.purge_cache {
-            CachingEth1Backend::new(config, context.log().clone(), spec)
+            CachingEth1Backend::new(config, context.log().clone(), spec)?
         } else {
             beacon_chain_builder
                 .get_persisted_eth1_backend()?
@@ -889,11 +998,7 @@ where
                     .map(|chain| chain.into_backend())
                 })
                 .unwrap_or_else(|| {
-                    Ok(CachingEth1Backend::new(
-                        config,
-                        context.log().clone(),
-                        spec.clone(),
-                    ))
+                    CachingEth1Backend::new(config, context.log().clone(), spec.clone())
                 })?
         };
 

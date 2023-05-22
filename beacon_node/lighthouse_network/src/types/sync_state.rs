@@ -13,7 +13,7 @@ pub enum SyncState {
     /// The node is undertaking a backfill sync. This occurs when a user has specified a trusted
     /// state. The node first syncs "forward" by downloading blocks up to the current head as
     /// specified by its peers. Once completed, the node enters this sync state and attempts to
-    /// download all required historical blocks to complete its chain.
+    /// download all required historical blocks.
     BackFillSyncing { completed: usize, remaining: usize },
     /// The node has completed syncing a finalized chain and is in the process of re-evaluating
     /// which sync state to progress to.
@@ -68,6 +68,17 @@ impl SyncState {
             SyncState::SyncingHead { .. } => true,
             SyncState::SyncTransition => true,
             // Backfill doesn't effect any logic, we consider this state, not syncing.
+            SyncState::BackFillSyncing { .. } => false,
+            SyncState::Synced => false,
+            SyncState::Stalled => false,
+        }
+    }
+
+    pub fn is_syncing_finalized(&self) -> bool {
+        match self {
+            SyncState::SyncingFinalized { .. } => true,
+            SyncState::SyncingHead { .. } => false,
+            SyncState::SyncTransition => false,
             SyncState::BackFillSyncing { .. } => false,
             SyncState::Synced => false,
             SyncState::Stalled => false,
