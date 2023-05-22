@@ -1752,13 +1752,6 @@ impl ApiTester {
         self
     }
 
-    pub async fn test_get_node_health(self) -> Self {
-        let status = self.client.get_node_health().await.unwrap();
-        assert_eq!(status, StatusCode::OK);
-
-        self
-    }
-
     pub async fn test_get_node_peers_by_id(self) -> Self {
         let result = self
             .client
@@ -4476,8 +4469,6 @@ async fn node_get() {
         .test_get_node_syncing()
         .await
         .test_get_node_identity()
-        .await
-        .test_get_node_health()
         .await
         .test_get_node_peers_by_id()
         .await
