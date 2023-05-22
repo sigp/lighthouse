@@ -649,6 +649,46 @@ impl BeaconNodeHttpClient {
         Ok(())
     }
 
+    /// `POST v2/beacon/blocks`
+    ///
+    /// Returns `Ok(None)` on a 404 error.
+    pub async fn post_beacon_blocks_v2<T: EthSpec, Payload: AbstractExecPayload<T>>(
+        &self,
+        block: &SignedBeaconBlock<T, Payload>,
+    ) -> Result<(), Error> {
+        let mut path = self.eth_path(V2)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("beacon")
+            .push("blocks");
+
+        self.post_with_timeout(path, block, self.timeouts.proposal)
+            .await?;
+
+        Ok(())
+    }
+
+    /// `POST v2/beacon/blinded_blocks`
+    ///
+    /// Returns `Ok(None)` on a 404 error.
+    pub async fn post_beacon_blinded_blocks_v2<T: EthSpec>(
+        &self,
+        block: &SignedBlindedBeaconBlock<T>,
+    ) -> Result<(), Error> {
+        let mut path = self.eth_path(V2)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("beacon")
+            .push("blinded_blocks");
+
+        self.post_with_timeout(path, block, self.timeouts.proposal)
+            .await?;
+
+        Ok(())
+    }
+
     /// Path for `v2/beacon/blocks`
     pub fn get_beacon_blocks_path(&self, block_id: BlockId) -> Result<Url, Error> {
         let mut path = self.eth_path(V2)?;
