@@ -2347,15 +2347,18 @@ pub fn serve<T: BeaconChainTypes>(
 
                         let is_syncing = network_globals.sync_state.read().is_syncing();
 
-                        let unhealthy = is_syncing || is_optimistic || el_offline;
-
-                        if unhealthy {
+                        if el_offline {
                             Err(warp_utils::reject::not_synced(format!(
                                 "node is unhealthy, is_syncing: {}, is_optimistic: {}, el_offline: {}",
                                 is_syncing,
                                 is_optimistic,
                                 el_offline
                             )))
+                        } else if is_syncing || is_optimistic {
+                            Ok(warp::reply::with_status(
+                                warp::reply(),
+                                warp::http::StatusCode::PARTIAL_CONTENT,
+                            ))
                         } else {
                             Ok(warp::reply::with_status(
                                 warp::reply(),
