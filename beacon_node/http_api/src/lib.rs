@@ -2348,12 +2348,7 @@ pub fn serve<T: BeaconChainTypes>(
                         let is_syncing = network_globals.sync_state.read().is_syncing();
 
                         if el_offline {
-                            Err(warp_utils::reject::not_synced(format!(
-                                "node is unhealthy, is_syncing: {}, is_optimistic: {}, el_offline: {}",
-                                is_syncing,
-                                is_optimistic,
-                                el_offline
-                            )))
+                            Err(warp_utils::reject::not_synced("execution layer is offline".to_string()))
                         } else if is_syncing || is_optimistic {
                             Ok(warp::reply::with_status(
                                 warp::reply(),
