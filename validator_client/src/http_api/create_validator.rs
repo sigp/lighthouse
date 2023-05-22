@@ -143,7 +143,7 @@ pub async fn create_validators_mnemonic<P: AsRef<Path>, T: 'static + SlotClock, 
                 request.gas_limit,
                 request.builder_proposals,
                 request.builder_pubkey_override,
-                request.builder_timestamp_override
+                request.builder_timestamp_override,
             )
             .await
             .map_err(|e| {

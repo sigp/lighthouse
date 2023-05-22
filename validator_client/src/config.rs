@@ -1,5 +1,6 @@
 use crate::graffiti_file::GraffitiFile;
 use crate::{http_api, http_metrics};
+use bls::blst_implementations::PublicKeyBytes;
 use clap::ArgMatches;
 use clap_utils::{flags::DISABLE_MALLOC_TUNING_FLAG, parse_optional, parse_required};
 use directory::{
@@ -14,7 +15,6 @@ use std::fs;
 use std::net::IpAddr;
 use std::path::PathBuf;
 use std::time::Duration;
-use bls::blst_implementations::PublicKeyBytes;
 use types::{Address, GRAFFITI_BYTES_LEN};
 
 pub const DEFAULT_BEACON_NODE: &str = "http://localhost:5052/";

@@ -99,8 +99,7 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationServiceBuilder<T, E> {
                 context: self
                     .context
                     .ok_or("Cannot build PreparationService without runtime_context")?,
-                builder_registration_pubkey_override: self
-                    .builder_registration_pubkey_override,
+                builder_registration_pubkey_override: self.builder_registration_pubkey_override,
                 builder_registration_timestamp_override: self
                     .builder_registration_timestamp_override,
                 validator_registration_cache: RwLock::new(HashMap::new()),
@@ -281,7 +280,9 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
         })
     }
 
-    fn collect_validator_registration_keys(&self) -> Vec<(PublicKeyBytes, ValidatorRegistrationKey)> {
+    fn collect_validator_registration_keys(
+        &self,
+    ) -> Vec<(PublicKeyBytes, ValidatorRegistrationKey)> {
         self.collect_proposal_data(|pubkey, proposal_data| {
             // Ignore fee recipients for keys without indices, they are inactive.
             proposal_data.validator_index?;
@@ -289,18 +290,16 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
             // We don't log for missing fee recipients here because this will be logged more
             // frequently in `collect_preparation_data`.
             proposal_data.fee_recipient.and_then(|fee_recipient| {
-                proposal_data
-                    .builder_proposals
-                    .then(|| {
-                        (
+                proposal_data.builder_proposals.then(|| {
+                    (
+                        pubkey,
+                        ValidatorRegistrationKey {
+                            fee_recipient,
+                            gas_limit: proposal_data.gas_limit,
                             pubkey,
-                            ValidatorRegistrationKey {
-                                fee_recipient,
-                                gas_limit: proposal_data.gas_limit,
-                                pubkey,
-                            },
-                        )
-                    })
+                        },
+                    )
+                })
             })
         })
     }
@@ -438,11 +437,12 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
                     .sign_validator_registration_data(
                         signing_pubkey,
                         ValidatorRegistrationData {
-                        fee_recipient,
-                        gas_limit,
-                        timestamp: registration_timestamp,
-                        pubkey: registration_pubkey,
-                    })
+                            fee_recipient,
+                            gas_limit,
+                            timestamp: registration_timestamp,
+                            pubkey: registration_pubkey,
+                        },
+                    )
                     .await
                 {
                     Ok(data) => data,
@@ -498,5 +498,5 @@ pub struct ProposalData {
     pub(crate) gas_limit: u64,
     pub(crate) builder_proposals: bool,
     pub(crate) builder_pubkey_override: Option<PublicKeyBytes>,
-    pub(crate) builder_timestamp_override: Option<u64>
+    pub(crate) builder_timestamp_override: Option<u64>,
 }

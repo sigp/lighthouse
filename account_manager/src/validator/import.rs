@@ -283,7 +283,7 @@ pub fn cli_run(matches: &ArgMatches, validator_dir: PathBuf) -> Result<(), Strin
             None,
             None,
             None,
-            None
+            None,
         )
         .map_err(|e| format!("Unable to create new validator definition: {:?}", e))?;
 
