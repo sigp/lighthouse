@@ -141,7 +141,7 @@ impl ValidatorDefinition {
         gas_limit: Option<u64>,
         builder_proposals: Option<bool>,
         builder_pubkey_override: Option<PublicKeyBytes>,
-        builder_timestamp_override: Option<u64>
+        builder_timestamp_override: Option<u64>,
     ) -> Result<Self, Error> {
         let voting_keystore_path = voting_keystore_path.as_ref().into();
         let keystore =
@@ -709,7 +709,8 @@ mod tests {
             voting_public_key: "0xaf3c7ddab7e293834710fca2d39d068f884455ede270e0d0293dc818e4f2f0f975355067e8437955cb29aec674e5c9e7"
             "#;
 
-        let def: ValidatorDefinition = serde_yaml::from_str(valid_builder_timestamp_override).unwrap();
+        let def: ValidatorDefinition =
+            serde_yaml::from_str(valid_builder_timestamp_override).unwrap();
         assert_eq!(def.builder_timestamp_override, Some(1684308220));
     }
 }

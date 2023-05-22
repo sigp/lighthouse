@@ -540,7 +540,14 @@ impl ApiTester {
         let validator = &self.client.get_lighthouse_validators().await.unwrap().data[index];
 
         self.client
-            .patch_lighthouse_validators(&validator.voting_pubkey, Some(enabled), None, None, None, None)
+            .patch_lighthouse_validators(
+                &validator.voting_pubkey,
+                Some(enabled),
+                None,
+                None,
+                None,
+                None,
+            )
             .await
             .unwrap();
 
@@ -582,7 +589,14 @@ impl ApiTester {
         let validator = &self.client.get_lighthouse_validators().await.unwrap().data[index];
 
         self.client
-            .patch_lighthouse_validators(&validator.voting_pubkey, None, Some(gas_limit), None, None, None)
+            .patch_lighthouse_validators(
+                &validator.voting_pubkey,
+                None,
+                Some(gas_limit),
+                None,
+                None,
+                None,
+            )
             .await
             .unwrap();
 
@@ -610,7 +624,7 @@ impl ApiTester {
                 None,
                 Some(builder_proposals),
                 None,
-                None
+                None,
             )
             .await
             .unwrap();
@@ -630,7 +644,11 @@ impl ApiTester {
         self
     }
 
-    pub async fn set_builder_pubkey_override(self, index: usize, builder_pubkey_override: PublicKeyBytes) -> Self {
+    pub async fn set_builder_pubkey_override(
+        self,
+        index: usize,
+        builder_pubkey_override: PublicKeyBytes,
+    ) -> Self {
         let validator = &self.client.get_lighthouse_validators().await.unwrap().data[index];
 
         self.client
@@ -640,7 +658,7 @@ impl ApiTester {
                 None,
                 None,
                 Some(builder_pubkey_override),
-                None
+                None,
             )
             .await
             .unwrap();
@@ -648,7 +666,11 @@ impl ApiTester {
         self
     }
 
-    pub async fn assert_builder_pubkey_override(self, index: usize, builder_pubkey_override: PublicKeyBytes) -> Self {
+    pub async fn assert_builder_pubkey_override(
+        self,
+        index: usize,
+        builder_pubkey_override: PublicKeyBytes,
+    ) -> Self {
         let validator = &self.client.get_lighthouse_validators().await.unwrap().data[index];
 
         assert_eq!(
@@ -660,7 +682,11 @@ impl ApiTester {
         self
     }
 
-    pub async fn set_builder_timestamp_override(self, index: usize, builder_timestamp_override: u64) -> Self {
+    pub async fn set_builder_timestamp_override(
+        self,
+        index: usize,
+        builder_timestamp_override: u64,
+    ) -> Self {
         let validator = &self.client.get_lighthouse_validators().await.unwrap().data[index];
 
         self.client
@@ -670,7 +696,7 @@ impl ApiTester {
                 None,
                 None,
                 None,
-                Some(builder_timestamp_override)
+                Some(builder_timestamp_override),
             )
             .await
             .unwrap();
@@ -678,7 +704,11 @@ impl ApiTester {
         self
     }
 
-    pub async fn assert_builder_timestamp_override(self, index: usize, builder_timestamp_override: u64) -> Self {
+    pub async fn assert_builder_timestamp_override(
+        self,
+        index: usize,
+        builder_timestamp_override: u64,
+    ) -> Self {
         let validator = &self.client.get_lighthouse_validators().await.unwrap().data[index];
 
         assert_eq!(

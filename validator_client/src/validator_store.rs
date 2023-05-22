@@ -187,7 +187,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             gas_limit,
             builder_proposals,
             builder_pubkey_override,
-            builder_timestamp_override
+            builder_timestamp_override,
         )
         .map_err(|e| format!("failed to create validator definitions: {:?}", e))?;
 
@@ -464,20 +464,26 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
     }
 
     fn get_builder_proposals_defaulting(&self, builder_proposals: Option<bool>) -> bool {
-        builder_proposals
-            .unwrap_or(self.builder_proposals)
+        builder_proposals.unwrap_or(self.builder_proposals)
     }
 
     /// Returns the public key override for the given public key that denotes whether this validator should override
     /// the given public key with the returned value.
-    pub fn get_builder_pubkey_override(&self, validator_pubkey: &PublicKeyBytes) -> Option<PublicKeyBytes> {
-       self.validators.read().builder_pubkey_override(validator_pubkey)
+    pub fn get_builder_pubkey_override(
+        &self,
+        validator_pubkey: &PublicKeyBytes,
+    ) -> Option<PublicKeyBytes> {
+        self.validators
+            .read()
+            .builder_pubkey_override(validator_pubkey)
     }
 
     /// Returns the timestamp override for the given public key that denotes whether this validator should override
     /// the given timestamp with the returned value.
     pub fn get_builder_timestamp_override(&self, validator_pubkey: &PublicKeyBytes) -> Option<u64> {
-        self.validators.read().builder_timestamp_override(validator_pubkey)
+        self.validators
+            .read()
+            .builder_timestamp_override(validator_pubkey)
     }
 
     pub async fn sign_block<Payload: AbstractExecPayload<E>>(
@@ -678,8 +684,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
 
         // Use the provided pubkey rather than the pubkey in the message itself. This is to support
         // distributed validators who must sign with a partial key over the aggregate pubkey.
-        let signing_method =
-            self.doppelganger_bypassed_signing_method(signing_pubkey)?;
+        let signing_method = self.doppelganger_bypassed_signing_method(signing_pubkey)?;
         let signature = signing_method
             .get_signature_from_root::<E, BlindedPayload<E>>(
                 SignableMessage::ValidatorRegistration(&validator_registration_data),

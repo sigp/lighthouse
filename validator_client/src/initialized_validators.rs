@@ -146,9 +146,13 @@ impl InitializedValidator {
         self.builder_proposals
     }
 
-    pub fn get_builder_pubkey_override(&self) -> Option<PublicKeyBytes> { self.builder_pubkey_override }
+    pub fn get_builder_pubkey_override(&self) -> Option<PublicKeyBytes> {
+        self.builder_pubkey_override
+    }
 
-    pub fn get_builder_timestamp_override(&self) -> Option<u64> { self.builder_timestamp_override }
+    pub fn get_builder_timestamp_override(&self) -> Option<u64> {
+        self.builder_timestamp_override
+    }
 
     pub fn get_index(&self) -> Option<u64> {
         self.index
@@ -716,7 +720,7 @@ impl InitializedValidators {
         gas_limit: Option<u64>,
         builder_proposals: Option<bool>,
         builder_pubkey_override: Option<PublicKeyBytes>,
-        builder_timestamp_override: Option<u64>
+        builder_timestamp_override: Option<u64>,
     ) -> Result<(), Error> {
         if let Some(def) = self
             .definitions

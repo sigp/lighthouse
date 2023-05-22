@@ -530,7 +530,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                                     gas_limit,
                                     builder_proposals,
                                     builder_pubkey_override,
-                                    builder_timestamp_override
+                                    builder_timestamp_override,
                                 ))
                                 .map_err(|e| {
                                     warp_utils::reject::custom_server_error(format!(
@@ -653,7 +653,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                                             body.gas_limit,
                                             body.builder_proposals,
                                             body.builder_pubkey_override,
-                                            body.builder_timestamp_override
+                                            body.builder_timestamp_override,
                                         ),
                                     )
                                     .map_err(|e| {
