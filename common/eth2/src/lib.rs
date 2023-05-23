@@ -317,6 +317,26 @@ impl BeaconNodeHttpClient {
         ok_or_error(response).await
     }
 
+    /// Generic POST function supporting arbitrary responses and timeouts.
+    async fn post_generic_with_consensus_version<T: Serialize, U: IntoUrl>(
+        &self,
+        url: U,
+        body: &T,
+        timeout: Option<Duration>,
+        fork: ForkName,
+    ) -> Result<Response, Error> {
+        let mut builder = self.client.post(url);
+        if let Some(timeout) = timeout {
+            builder = builder.timeout(timeout);
+        }
+        let response = builder
+            .header(CONSENSUS_VERSION_HEADER, fork.to_string())
+            .json(body)
+            .send()
+            .await?;
+        ok_or_error(response).await
+    }
+
     /// `GET beacon/genesis`
     ///
     /// ## Errors
@@ -649,6 +669,42 @@ impl BeaconNodeHttpClient {
         Ok(())
     }
 
+    pub fn post_beacon_blocks_v2_path(
+        &self,
+        validation_level: Option<BroadcastValidation>,
+    ) -> Result<Url, Error> {
+        let mut path = self.eth_path(V2)?;
+        path.path_segments_mut()
+            .map_err(|_| Error::InvalidUrl(self.server.clone()))?
+            .extend(&["beacon", "blocks"]);
+
+        path.set_query(
+            validation_level
+                .map(|v| format!("broadcast_validation={}", v))
+                .as_deref(),
+        );
+
+        Ok(path)
+    }
+
+    pub fn post_beacon_blinded_blocks_v2_path(
+        &self,
+        validation_level: Option<BroadcastValidation>,
+    ) -> Result<Url, Error> {
+        let mut path = self.eth_path(V2)?;
+        path.path_segments_mut()
+            .map_err(|_| Error::InvalidUrl(self.server.clone()))?
+            .extend(&["beacon", "blinded_blocks"]);
+
+        path.set_query(
+            validation_level
+                .map(|v| format!("broadcast_validation={}", v))
+                .as_deref(),
+        );
+
+        Ok(path)
+    }
+
     /// `POST v2/beacon/blocks`
     ///
     /// Returns `Ok(None)` on a 404 error.
@@ -657,18 +713,13 @@ impl BeaconNodeHttpClient {
         block: &SignedBeaconBlock<T, Payload>,
         validation_level: Option<BroadcastValidation>,
     ) -> Result<(), Error> {
-        let path: Url = if let Some(v) = validation_level {
-            self.eth_path(V2)?
-                .join(format!("beacon/blocks?broadcast_validation={}", v).as_str())
-                .map_err(|_| Error::InvalidUrl(self.server.clone()))?
-        } else {
-            self.eth_path(V2)?
-                .join("beacon/blocks/")
-                .map_err(|_| Error::InvalidUrl(self.server.clone()))?
-        };
-
-        self.post_with_timeout(path, block, self.timeouts.proposal)
-            .await?;
+        self.post_generic_with_consensus_version(
+            self.post_beacon_blocks_v2_path(validation_level)?,
+            block,
+            Some(self.timeouts.proposal),
+            ForkName::Capella,
+        )
+        .await?;
 
         Ok(())
     }
@@ -681,18 +732,13 @@ impl BeaconNodeHttpClient {
         block: &SignedBlindedBeaconBlock<T>,
         validation_level: Option<BroadcastValidation>,
     ) -> Result<(), Error> {
-        let path: Url = if let Some(v) = validation_level {
-            self.eth_path(V2)?
-                .join(format!("beacon/blinded_blocks?broadcast_validation={}", v).as_str())
-                .map_err(|_| Error::InvalidUrl(self.server.clone()))?
-        } else {
-            self.eth_path(V2)?
-                .join("beacon/blinded_blocks/")
-                .map_err(|_| Error::InvalidUrl(self.server.clone()))?
-        };
-
-        self.post_with_timeout(path, block, self.timeouts.proposal)
-            .await?;
+        self.post_generic_with_consensus_version(
+            self.post_beacon_blinded_blocks_v2_path(validation_level)?,
+            block,
+            Some(self.timeouts.proposal),
+            ForkName::Capella,
+        )
+        .await?;
 
         Ok(())
     }
