@@ -3,7 +3,7 @@ use beacon_chain::{
     chain_config::{DisallowedReOrgOffsets, ReOrgThreshold},
     test_utils::{AttestationStrategy, BlockStrategy, SyncCommitteeStrategy},
 };
-use eth2::types::{BeaconBlock, BroadcastValidation, DepositContractData, SignedBeaconBlock};
+use eth2::types::DepositContractData;
 use execution_layer::{ForkchoiceState, PayloadAttributes};
 use http_api::test_utils::InteractiveTester;
 use parking_lot::Mutex;
@@ -19,8 +19,6 @@ use types::{
     Address, Epoch, EthSpec, ExecPayload, ExecutionBlockHash, ForkName, FullPayload,
     MainnetEthSpec, ProposerPreparationData, Slot,
 };
-
-use eth2::reqwest::StatusCode;
 
 type E = MainnetEthSpec;
 
