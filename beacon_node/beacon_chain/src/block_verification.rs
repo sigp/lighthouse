@@ -150,10 +150,7 @@ pub enum BlockError<T: EthSpec> {
     /// its parent.
     ParentUnknown(BlockWrapper<T>),
     /// The block skips too many slots and is a DoS risk.
-    TooManySkippedSlots {
-        parent_slot: Slot,
-        block_slot: Slot,
-    },
+    TooManySkippedSlots { parent_slot: Slot, block_slot: Slot },
     /// The block slot is greater than the present slot.
     ///
     /// ## Peer scoring
@@ -168,10 +165,7 @@ pub enum BlockError<T: EthSpec> {
     /// ## Peer scoring
     ///
     /// The peer has incompatible state transition logic and is faulty.
-    StateRootMismatch {
-        block: Hash256,
-        local: Hash256,
-    },
+    StateRootMismatch { block: Hash256, local: Hash256 },
     /// The block was a genesis block, these blocks cannot be re-imported.
     GenesisBlock,
     /// The slot is finalized, no need to import.
@@ -190,9 +184,7 @@ pub enum BlockError<T: EthSpec> {
     ///
     /// It's unclear if this block is valid, but it conflicts with finality and shouldn't be
     /// imported.
-    NotFinalizedDescendant {
-        block_parent_root: Hash256,
-    },
+    NotFinalizedDescendant { block_parent_root: Hash256 },
     /// Block is already known, no need to re-import.
     ///
     /// ## Peer scoring
@@ -205,10 +197,7 @@ pub enum BlockError<T: EthSpec> {
     ///
     /// The `proposer` has already proposed a block at this slot. The existing block may or may not
     /// be equal to the given block.
-    RepeatProposal {
-        proposer: u64,
-        slot: Slot,
-    },
+    RepeatProposal { proposer: u64, slot: Slot },
     /// The block slot exceeds the MAXIMUM_BLOCK_SLOT_NUMBER.
     ///
     /// ## Peer scoring
@@ -223,10 +212,7 @@ pub enum BlockError<T: EthSpec> {
     /// ## Peer scoring
     ///
     /// The block is invalid and the peer is faulty.
-    IncorrectBlockProposer {
-        block: u64,
-        local_shuffling: u64,
-    },
+    IncorrectBlockProposer { block: u64, local_shuffling: u64 },
     /// The proposal signature in invalid.
     ///
     /// ## Peer scoring
@@ -250,10 +236,7 @@ pub enum BlockError<T: EthSpec> {
     /// ## Peer scoring
     ///
     /// The block is invalid and the peer is faulty.
-    BlockIsNotLaterThanParent {
-        block_slot: Slot,
-        parent_slot: Slot,
-    },
+    BlockIsNotLaterThanParent { block_slot: Slot, parent_slot: Slot },
     /// At least one block in the chain segment did not have it's parent root set to the root of
     /// the prior block.
     ///
@@ -309,14 +292,11 @@ pub enum BlockError<T: EthSpec> {
     /// If it's actually our fault (e.g. our execution node database is corrupt) we have bigger
     /// problems to worry about than losing peers, and we're doing the network a favour by
     /// disconnecting.
-    ParentExecutionPayloadInvalid {
-        parent_root: Hash256,
-    },
-    /// The blob alone failed validation.
+    ParentExecutionPayloadInvalid { parent_root: Hash256 },
+    /// A blob alone failed validation.
     BlobValidation(BlobError<T>),
     /// The block and blob together failed validation.
     AvailabilityCheck(AvailabilityCheckError),
-    MissingBlockParts(Slot, Hash256),
 }
 
 impl<T: EthSpec> From<BlobError<T>> for BlockError<T> {

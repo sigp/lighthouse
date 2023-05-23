@@ -13,6 +13,8 @@ use std::{collections::HashSet, sync::Arc};
 use types::blob_sidecar::BlobIdentifier;
 use types::{BlobSidecar, Epoch, EthSpec, Hash256, SignedBeaconBlock};
 
+type MissingBlobInfo<T> = (Option<Arc<SignedBeaconBlock<T>>>, HashSet<usize>);
+
 /// Caches partially available blobs and execution verified blocks corresponding
 /// to a given `block_hash` that are received over gossip.
 ///
@@ -199,7 +201,7 @@ impl<T: BeaconChainTypes> OverflowStore<T> {
         &self,
         blob_id: &BlobIdentifier,
     ) -> Result<Option<Arc<BlobSidecar<T::EthSpec>>>, AvailabilityCheckError> {
-        let key = OverflowKey::from_blob_id::<T::EthSpec>(blob_id.clone())?;
+        let key = OverflowKey::from_blob_id::<T::EthSpec>(*blob_id)?;
 
         self.0
             .hot_db
@@ -331,11 +333,7 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
     pub fn has_block(&self, block_root: &Hash256) -> bool {
         self.critical.read().has_block(block_root)
     }
-
-    pub fn get_missing_blob_ids_checking_cache(
-        &self,
-        block_root: Hash256,
-    ) -> (Option<Arc<SignedBeaconBlock<T::EthSpec>>>, HashSet<usize>) {
+    pub fn get_missing_blob_info(&self, block_root: Hash256) -> MissingBlobInfo<T::EthSpec> {
         self.critical
             .read()
             .in_memory
@@ -497,11 +495,12 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
                 payload_verification_outcome,
             } = executed_block;
 
-            let verified_blobs = Vec::from(pending_components.verified_blobs)
+            let Some(verified_blobs) = Vec::from(pending_components.verified_blobs)
                 .into_iter()
                 .take(num_blobs_expected)
-                .map(|maybe_blob| maybe_blob.ok_or(AvailabilityCheckError::MissingBlobs))
-                .collect::<Result<Vec<_>, _>>()?;
+                .collect::<Option<Vec<_>>>() else {
+                 return Ok(Availability::MissingComponents(import_data.block_root))
+            };
 
             let available_block = block.make_available(verified_blobs)?;
             Ok(Availability::Available(Box::new(

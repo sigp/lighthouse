@@ -1,11 +1,8 @@
 use super::single_block_lookup::{LookupRequestError, LookupVerifyError, SingleBlockLookup};
-use super::{DownloadedBlocks, PeerShouldHave, ResponseType};
+use super::{BlobRequestId, BlockRequestId, DownloadedBlocks, PeerShouldHave, ResponseType};
 use crate::sync::block_lookups::single_block_lookup::{State, UnknownParentComponents};
 use crate::sync::block_lookups::{RootBlobsTuple, RootBlockTuple};
-use crate::sync::{
-    manager::{Id, SLOT_IMPORT_TOLERANCE},
-    network_context::SyncNetworkContext,
-};
+use crate::sync::{manager::SLOT_IMPORT_TOLERANCE, network_context::SyncNetworkContext};
 use beacon_chain::blob_verification::AsBlock;
 use beacon_chain::blob_verification::BlockWrapper;
 use beacon_chain::data_availability_checker::DataAvailabilityChecker;
@@ -32,9 +29,6 @@ pub(crate) struct ParentLookup<T: BeaconChainTypes> {
     downloaded_blocks: Vec<DownloadedBlocks<T::EthSpec>>,
     /// Request of the last parent.
     pub current_parent_request: SingleBlockLookup<PARENT_FAIL_TOLERANCE, T>,
-    /// Id of the last parent request.
-    pub current_parent_request_id: Option<Id>,
-    pub current_parent_blob_request_id: Option<Id>,
 }
 
 #[derive(Debug, PartialEq, Eq, IntoStaticStr)]
@@ -77,14 +71,12 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
         da_checker: Arc<DataAvailabilityChecker<T>>,
     ) -> Self {
         let current_parent_request =
-            SingleBlockLookup::new(parent_root, Some(<_>::default()), peer_id, da_checker);
+            SingleBlockLookup::new(parent_root, Some(<_>::default()), &[peer_id], da_checker);
 
         Self {
             chain_hash: block_root,
             downloaded_blocks: vec![],
             current_parent_request,
-            current_parent_request_id: None,
-            current_parent_blob_request_id: None,
         }
     }
 
@@ -101,11 +93,11 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
         if let Some((peer_id, request)) = self.current_parent_request.request_block()? {
             match cx.parent_lookup_block_request(peer_id, request) {
                 Ok(request_id) => {
-                    self.current_parent_request_id = Some(request_id);
+                    self.current_parent_request.id.block_request_id = Some(request_id);
                     return Ok(());
                 }
                 Err(reason) => {
-                    self.current_parent_request_id = None;
+                    self.current_parent_request.id.block_request_id = None;
                     return Err(RequestError::SendFailed(reason));
                 }
             }
@@ -125,11 +117,11 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
         if let Some((peer_id, request)) = self.current_parent_request.request_blobs()? {
             match cx.parent_lookup_blobs_request(peer_id, request) {
                 Ok(request_id) => {
-                    self.current_parent_blob_request_id = Some(request_id);
+                    self.current_parent_request.id.blob_request_id = Some(request_id);
                     return Ok(());
                 }
                 Err(reason) => {
-                    self.current_parent_blob_request_id = None;
+                    self.current_parent_request.id.blob_request_id = None;
                     return Err(RequestError::SendFailed(reason));
                 }
             }
@@ -140,12 +132,14 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
     pub fn check_block_peer_disconnected(&mut self, peer_id: &PeerId) -> Result<(), ()> {
         self.current_parent_request
             .block_request_state
+            .state
             .check_peer_disconnected(peer_id)
     }
 
     pub fn check_blob_peer_disconnected(&mut self, peer_id: &PeerId) -> Result<(), ()> {
         self.current_parent_request
             .blob_request_state
+            .state
             .check_peer_disconnected(peer_id)
     }
 
@@ -153,17 +147,22 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
         let next_parent = block.parent_root();
 
         // Cache the block.
-        let current_root = self.current_parent_request.requested_block_root;
+        let current_root = self
+            .current_parent_request
+            .block_request_state
+            .requested_block_root;
         self.downloaded_blocks.push((current_root, block));
 
         // Update the block request.
-        self.current_parent_request.requested_block_root = next_parent;
-        self.current_parent_request.block_request_state.state = State::AwaitingDownload;
-        self.current_parent_request_id = None;
+        self.current_parent_request
+            .block_request_state
+            .requested_block_root = next_parent;
+        self.current_parent_request.block_request_state.state.state = State::AwaitingDownload;
+        self.current_parent_request.id.block_request_id = None;
 
         // Update the blobs request.
-        self.current_parent_request.blob_request_state.state = State::AwaitingDownload;
-        self.current_parent_blob_request_id = None;
+        self.current_parent_request.blob_request_state.state.state = State::AwaitingDownload;
+        self.current_parent_request.id.blob_request_id = None;
 
         // Reset the unknown parent components.
         self.current_parent_request.unknown_parent_components =
@@ -175,7 +174,7 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
         self.current_parent_request.add_unknown_parent_block(block);
 
         // Update the request.
-        self.current_parent_request_id = None;
+        self.current_parent_request.id.block_request_id = None;
     }
 
     pub fn add_current_request_blobs(&mut self, blobs: FixedBlobSidecarList<T::EthSpec>) {
@@ -183,15 +182,15 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
         self.current_parent_request.add_unknown_parent_blobs(blobs);
 
         // Update the request.
-        self.current_parent_blob_request_id = None;
+        self.current_parent_request.id.blob_request_id = None;
     }
 
-    pub fn pending_block_response(&self, req_id: Id) -> bool {
-        self.current_parent_request_id == Some(req_id)
+    pub fn pending_block_response(&self, req_id: BlockRequestId) -> bool {
+        self.current_parent_request.id.block_request_id == Some(req_id)
     }
 
-    pub fn pending_blob_response(&self, req_id: Id) -> bool {
-        self.current_parent_blob_request_id == Some(req_id)
+    pub fn pending_blob_response(&self, req_id: BlobRequestId) -> bool {
+        self.current_parent_request.id.blob_request_id == Some(req_id)
     }
 
     /// Consumes the parent request and destructures it into it's parts.
@@ -208,8 +207,6 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
             chain_hash,
             downloaded_blocks,
             current_parent_request,
-            current_parent_request_id: _,
-            current_parent_blob_request_id: _,
         } = self;
         let block_count = downloaded_blocks.len();
         let mut blocks = Vec::with_capacity(block_count);
@@ -229,37 +226,47 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
     pub fn block_download_failed(&mut self) {
         self.current_parent_request
             .block_request_state
+            .state
             .register_failure_downloading();
-        self.current_parent_request_id = None;
+        self.current_parent_request.id.block_request_id = None;
     }
 
     pub fn blob_download_failed(&mut self) {
         self.current_parent_request
             .blob_request_state
+            .state
             .register_failure_downloading();
-        self.current_parent_blob_request_id = None;
+        self.current_parent_request.id.blob_request_id = None;
     }
 
     pub fn block_processing_failed(&mut self) {
         self.current_parent_request
             .block_request_state
+            .state
             .register_failure_processing();
-        self.current_parent_request
+        if let Some(components) = self
+            .current_parent_request
             .unknown_parent_components
             .as_mut()
-            .map(|components| components.downloaded_block = None);
-        self.current_parent_request_id = None;
+        {
+            components.downloaded_block = None;
+        }
+        self.current_parent_request.id.block_request_id = None;
     }
 
     pub fn blob_processing_failed(&mut self) {
         self.current_parent_request
             .blob_request_state
+            .state
             .register_failure_processing();
-        self.current_parent_request
+        if let Some(components) = self
+            .current_parent_request
             .unknown_parent_components
             .as_mut()
-            .map(|components| components.downloaded_blobs = <_>::default());
-        self.current_parent_blob_request_id = None;
+        {
+            components.downloaded_blobs = <_>::default();
+        }
+        self.current_parent_request.id.blob_request_id = None;
     }
 
     /// Verifies that the received block is what we requested. If so, parent lookup now waits for
@@ -280,8 +287,9 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
             if failed_chains.contains(&parent_root) {
                 self.current_parent_request
                     .block_request_state
+                    .state
                     .register_failure_downloading();
-                self.current_parent_request_id = None;
+                self.current_parent_request.id.block_request_id = None;
                 return Err(ParentVerifyError::PreviousFailure { parent_root });
             }
         }
@@ -303,8 +311,9 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
             if failed_chains.contains(&parent_root) {
                 self.current_parent_request
                     .blob_request_state
+                    .state
                     .register_failure_downloading();
-                self.current_parent_blob_request_id = None;
+                self.current_parent_request.id.blob_request_id = None;
                 return Err(ParentVerifyError::PreviousFailure { parent_root });
             }
         }
@@ -312,20 +321,13 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
         Ok(blobs)
     }
 
-    #[cfg(test)]
-    pub fn failed_block_attempts(&self) -> u8 {
-        self.current_parent_request
-            .block_request_state
-            .failed_attempts()
-    }
-
-    pub fn add_peer_if_useful(
+    pub fn add_peers_if_useful(
         &mut self,
         block_root: &Hash256,
-        peer_source: PeerShouldHave,
+        peer_source: &[PeerShouldHave],
     ) -> bool {
         self.current_parent_request
-            .add_peer_if_useful(block_root, peer_source)
+            .add_peers_if_useful(block_root, peer_source)
     }
 
     pub fn used_peers(&self, response_type: ResponseType) -> impl Iterator<Item = &PeerId> + '_ {
@@ -333,11 +335,13 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
             ResponseType::Block => self
                 .current_parent_request
                 .block_request_state
+                .state
                 .used_peers
                 .iter(),
             ResponseType::Blob => self
                 .current_parent_request
                 .blob_request_state
+                .state
                 .used_peers
                 .iter(),
         }

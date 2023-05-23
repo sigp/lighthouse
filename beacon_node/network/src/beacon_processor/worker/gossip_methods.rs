@@ -989,9 +989,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                 );
                 return None;
             }
-            Err(e @ BlockError::BlobValidation(_))
-            | Err(e @ BlockError::MissingBlockParts(_, _))
-            | Err(e @ BlockError::AvailabilityCheck(_)) => {
+            Err(e @ BlockError::BlobValidation(_)) | Err(e @ BlockError::AvailabilityCheck(_)) => {
                 warn!(self.log, "Could not verify block against known blobs in gossip. Rejecting the block";
                             "error" => %e);
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);

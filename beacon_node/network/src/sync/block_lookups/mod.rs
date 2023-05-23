@@ -1,5 +1,5 @@
 use beacon_chain::blob_verification::{AsBlock, BlockWrapper};
-use beacon_chain::data_availability_checker::DataAvailabilityChecker;
+use beacon_chain::data_availability_checker::{AvailabilityCheckError, DataAvailabilityChecker};
 use beacon_chain::{AvailabilityProcessingStatus, BeaconChainTypes, BlockError};
 use lighthouse_network::rpc::RPCError;
 use lighthouse_network::{PeerAction, PeerId};
@@ -26,7 +26,7 @@ use super::{
 };
 use crate::beacon_processor::{ChainSegmentProcessId, WorkEvent};
 use crate::metrics;
-use crate::sync::block_lookups::single_block_lookup::UnknownParentComponents;
+use crate::sync::block_lookups::single_block_lookup::{LookupId, UnknownParentComponents};
 
 mod parent_lookup;
 mod single_block_lookup;
@@ -50,15 +50,7 @@ pub(crate) struct BlockLookups<T: BeaconChainTypes> {
     /// A cache of failed chain lookups to prevent duplicate searches.
     failed_chains: LRUTimeCache<Hash256>,
 
-    /// A collection of block hashes being searched for and a flag indicating if a result has been
-    /// received or not.
-    ///
-    /// The flag allows us to determine if the peer returned data or sent us nothing.
-    single_block_lookups: Vec<(
-        Option<Id>,
-        Option<Id>,
-        SingleBlockLookup<SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS, T>,
-    )>,
+    single_block_lookups: Vec<SingleBlockLookup<SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS, T>>,
 
     da_checker: Arc<DataAvailabilityChecker<T>>,
 
@@ -81,6 +73,9 @@ impl From<bool> for StreamTerminator {
         }
     }
 }
+
+pub type BlockRequestId = Id;
+pub type BlobRequestId = Id;
 
 #[derive(Debug, Copy, Clone)]
 pub enum ResponseType {
@@ -142,7 +137,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         peer_source: PeerShouldHave,
         cx: &mut SyncNetworkContext<T>,
     ) {
-        self.search_block_with(block_root, None, None, peer_source, cx)
+        self.search_block_with(block_root, None, None, &[peer_source], cx)
     }
 
     pub fn search_current_unknown_parent_block_and_blobs(
@@ -150,16 +145,10 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         block_root: Hash256,
         block: Option<Arc<SignedBeaconBlock<T::EthSpec>>>,
         blobs: Option<FixedBlobSidecarList<T::EthSpec>>,
-        peer_id: PeerId,
+        peer_source: &[PeerShouldHave],
         cx: &mut SyncNetworkContext<T>,
     ) {
-        self.search_block_with(
-            block_root,
-            block,
-            blobs,
-            PeerShouldHave::Neither(peer_id),
-            cx,
-        );
+        self.search_block_with(block_root, block, blobs, peer_source, cx);
     }
 
     /// Searches for a single block hash. If the blocks parent is unknown, a chain of blocks is
@@ -169,22 +158,22 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         block_root: Hash256,
         block: Option<Arc<SignedBeaconBlock<T::EthSpec>>>,
         blobs: Option<FixedBlobSidecarList<T::EthSpec>>,
-        peer_source: PeerShouldHave,
+        peer_source: &[PeerShouldHave],
         cx: &mut SyncNetworkContext<T>,
     ) {
         // Do not re-request a block that is already being requested
         if self
             .single_block_lookups
             .iter_mut()
-            .any(|(_, _, single_block_request)| {
-                single_block_request.add_peer_if_useful(&block_root, peer_source)
+            .any(|single_block_request| {
+                single_block_request.add_peers_if_useful(&block_root, peer_source)
             })
         {
             return;
         }
 
         if self.parent_lookups.iter_mut().any(|parent_req| {
-            parent_req.add_peer_if_useful(&block_root, peer_source)
+            parent_req.add_peers_if_useful(&block_root, peer_source)
                 || parent_req.contains_block(&block_root)
         }) {
             // If the block was already downloaded, or is being downloaded in this moment, do not
@@ -224,23 +213,8 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             peer_source,
             self.da_checker.clone(),
         );
-
-        let block_request_id =
-            if let Ok(Some((peer_id, block_request))) = single_block_request.request_block() {
-                cx.single_block_lookup_request(peer_id, block_request).ok()
-            } else {
-                None
-            };
-
-        let blob_request_id =
-            if let Ok(Some((peer_id, blob_request))) = single_block_request.request_blobs() {
-                cx.single_blobs_lookup_request(peer_id, blob_request).ok()
-            } else {
-                None
-            };
-
-        self.single_block_lookups
-            .push((block_request_id, blob_request_id, single_block_request));
+        single_block_request.request_block_and_blobs(cx);
+        self.single_block_lookups.push(single_block_request);
 
         metrics::set_gauge(
             &metrics::SYNC_SINGLE_BLOCK_LOOKUPS,
@@ -272,7 +246,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         // being searched for.
         if self.parent_lookups.iter_mut().any(|parent_req| {
             parent_req.contains_block(&block_root)
-                || parent_req.add_peer_if_useful(&block_root, peer_source)
+                || parent_req.add_peers_if_useful(&block_root, &[peer_source])
         }) {
             // we are already searching for this block, ignore it
             return;
@@ -309,7 +283,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         let stream_terminator = block.is_none().into();
         let log = self.log.clone();
 
-        let Some((pending_parent_request, request_id_ref, request_ref)) = self.find_single_lookup_request(id, stream_terminator, ResponseType::Block) else {
+        let Some((has_pending_parent_request, request_ref)) = self.find_single_lookup_request(id, stream_terminator, ResponseType::Block) else {
             return;
         };
 
@@ -319,7 +293,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                     parent_components.add_unknown_parent_block(block.clone());
                 };
 
-                if !pending_parent_request {
+                if !has_pending_parent_request {
                     let block_wrapper = request_ref
                         .get_downloaded_block()
                         .unwrap_or(BlockWrapper::Block(block));
@@ -340,7 +314,6 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             }
             Ok(None) => ShouldRemoveLookup::False,
             Err(e) => handle_block_lookup_verify_error(
-                request_id_ref,
                 request_ref,
                 ResponseType::Block,
                 peer_id,
@@ -352,7 +325,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
 
         if matches!(should_remove, ShouldRemoveLookup::True) {
             self.single_block_lookups
-                .retain(|(block_id, _, _)| block_id != &Some(id));
+                .retain(|req| req.id.block_request_id != Some(id));
         }
 
         metrics::set_gauge(
@@ -373,7 +346,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
 
         let log = self.log.clone();
 
-        let Some((pending_parent_requests, request_id_ref, request_ref)) =
+        let Some((has_pending_parent_requests, request_ref)) =
             self.find_single_lookup_request(id, stream_terminator, ResponseType::Blob) else {
             return;
         };
@@ -383,7 +356,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 if let Some(parent_components) = request_ref.unknown_parent_components.as_mut() {
                     parent_components.add_unknown_parent_blobs(blobs);
 
-                    if !pending_parent_requests {
+                    if !has_pending_parent_requests {
                         request_ref
                             .get_downloaded_block()
                             .map(|block| {
@@ -418,7 +391,6 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             }
             Ok(None) => ShouldRemoveLookup::False,
             Err(e) => handle_block_lookup_verify_error(
-                request_id_ref,
                 request_ref,
                 ResponseType::Blob,
                 peer_id,
@@ -430,7 +402,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
 
         if matches!(should_remove, ShouldRemoveLookup::True) {
             self.single_block_lookups
-                .retain(|(_, blob_id, _)| blob_id != &Some(id));
+                .retain(|req| req.id.blob_request_id != Some(id));
         }
 
         metrics::set_gauge(
@@ -446,36 +418,29 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         response_type: ResponseType,
     ) -> Option<(
         bool,
-        &mut Id,
         &mut SingleBlockLookup<SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS, T>,
     )> {
-        let lookup =
-            self.single_block_lookups
-                .iter_mut()
-                .find_map(|(block_id_opt, blob_id_opt, req)| {
-                    let id_opt = match response_type {
-                        ResponseType::Block => block_id_opt,
-                        ResponseType::Blob => blob_id_opt,
-                    };
-                    if let Some(lookup_id) = id_opt {
-                        if *lookup_id == target_id {
-                            // Only send for processing if we don't have parent requests that were triggered by
-                            // this block.
-                            let triggered_parent_request = self
-                                .parent_lookups
-                                .iter()
-                                .any(|lookup| lookup.chain_hash() == req.requested_block_root);
+        let lookup = self.single_block_lookups.iter_mut().find_map(|req| {
+            let id_opt = match response_type {
+                ResponseType::Block => req.id.block_request_id,
+                ResponseType::Blob => req.id.blob_request_id,
+            };
+            if let Some(lookup_id) = id_opt {
+                if lookup_id == target_id {
+                    // Only send for processing if we don't have parent requests that were triggered by
+                    // this block.
+                    let triggered_parent_request = self.parent_lookups.iter().any(|lookup| {
+                        lookup.chain_hash() == req.block_request_state.requested_block_root
+                    });
 
-                            return Some((triggered_parent_request, lookup_id, req));
-                        }
-                    }
-                    None
-                });
-
-        let (triggered_parent_request, id_ref, request) = match lookup {
-            Some((triggered_parent_request, id_ref, req)) => {
-                (triggered_parent_request, id_ref, req)
+                    return Some((triggered_parent_request, req));
+                }
             }
+            None
+        });
+
+        let (triggered_parent_request, request) = match lookup {
+            Some((triggered_parent_request, req)) => (triggered_parent_request, req),
             None => {
                 if matches!(stream_terminator, StreamTerminator::False,) {
                     debug!(
@@ -487,7 +452,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 return None;
             }
         };
-        Some((triggered_parent_request, id_ref, request))
+        Some((triggered_parent_request, request))
     }
 
     /// Process a response received from a parent lookup request.
@@ -532,8 +497,11 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                         self.parent_lookups.push(parent_lookup)
                     }
                 } else {
-                    let outstanding_blobs_req =
-                        parent_lookup.current_parent_blob_request_id.is_some();
+                    let outstanding_blobs_req = parent_lookup
+                        .current_parent_request
+                        .id
+                        .blob_request_id
+                        .is_some();
                     if !outstanding_blobs_req {
                         if let Ok(peer_id) = parent_lookup
                             .current_parent_request
@@ -691,28 +659,15 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     /* Error responses */
 
     pub fn peer_disconnected(&mut self, peer_id: &PeerId, cx: &mut SyncNetworkContext<T>) {
-        self.single_block_lookups
-            .retain_mut(|(block_id_opt, blob_id_opt, req)| {
-                let should_remove_block = should_remove_disconnected_peer(
-                    block_id_opt,
-                    ResponseType::Block,
-                    peer_id,
-                    cx,
-                    req,
-                    &self.log,
-                );
-                let should_remove_blob = should_remove_disconnected_peer(
-                    blob_id_opt,
-                    ResponseType::Blob,
-                    peer_id,
-                    cx,
-                    req,
-                    &self.log,
-                );
+        self.single_block_lookups.retain_mut(|req| {
+            let should_remove_block =
+                should_remove_disconnected_peer(ResponseType::Block, peer_id, cx, req, &self.log);
+            let should_remove_blob =
+                should_remove_disconnected_peer(ResponseType::Blob, peer_id, cx, req, &self.log);
 
-                matches!(should_remove_block, ShouldRemoveLookup::False)
-                    && matches!(should_remove_blob, ShouldRemoveLookup::False)
-            });
+            matches!(should_remove_block, ShouldRemoveLookup::False)
+                && matches!(should_remove_blob, ShouldRemoveLookup::False)
+        });
 
         /* Check disconnection for parent lookups */
         while let Some(pos) = self.parent_lookups.iter_mut().position(|req| {
@@ -775,32 +730,29 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         error: RPCError,
     ) {
         let msg = error.as_static_str();
-        self.single_block_lookups
-            .retain_mut(|(block_id_opt, blob_id_opt, req)| {
-                let should_remove_block = should_remove_failed_lookup(
-                    block_id_opt,
-                    ResponseType::Block,
-                    id,
-                    msg,
-                    peer_id,
-                    cx,
-                    req,
-                    &self.log,
-                );
-                let should_remove_blob = should_remove_failed_lookup(
-                    blob_id_opt,
-                    ResponseType::Blob,
-                    id,
-                    msg,
-                    peer_id,
-                    cx,
-                    req,
-                    &self.log,
-                );
+        self.single_block_lookups.retain_mut(|req| {
+            let should_remove_block = should_remove_failed_lookup(
+                id,
+                ResponseType::Block,
+                msg,
+                peer_id,
+                cx,
+                req,
+                &self.log,
+            );
+            let should_remove_blob = should_remove_failed_lookup(
+                id,
+                ResponseType::Blob,
+                msg,
+                peer_id,
+                cx,
+                req,
+                &self.log,
+            );
 
-                matches!(should_remove_block, ShouldRemoveLookup::False)
-                    && matches!(should_remove_blob, ShouldRemoveLookup::False)
-            });
+            matches!(should_remove_block, ShouldRemoveLookup::False)
+                && matches!(should_remove_blob, ShouldRemoveLookup::False)
+        });
 
         metrics::set_gauge(
             &metrics::SYNC_SINGLE_BLOCK_LOOKUPS,
@@ -817,14 +769,16 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         response_type: ResponseType,
         cx: &mut SyncNetworkContext<T>,
     ) {
-        let lookup_components_opt = self.single_block_lookups.iter_mut().enumerate().find_map(
-            |(index, (block_id_opt, blob_id_opt, req))| {
-                let block_match = block_id_opt.as_ref() == Some(&target_id);
-                let blob_match = blob_id_opt.as_ref() == Some(&target_id);
-                (block_match || blob_match).then_some((index, block_id_opt, blob_id_opt, req))
-            },
-        );
-        let (index, block_id_ref, blob_id_ref, request_ref) = match lookup_components_opt {
+        let lookup_components_opt =
+            self.single_block_lookups
+                .iter_mut()
+                .enumerate()
+                .find_map(|(index, req)| {
+                    let block_match = req.id.block_request_id.as_ref() == Some(&target_id);
+                    let blob_match = req.id.blob_request_id.as_ref() == Some(&target_id);
+                    (block_match || blob_match).then_some((index, req))
+                });
+        let (index, request_ref) = match lookup_components_opt {
             Some(req) => req,
             None => {
                 return debug!(
@@ -834,7 +788,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             }
         };
 
-        let root = request_ref.requested_block_root;
+        let root = request_ref.block_request_state.requested_block_root;
         let peer_id = request_ref.processing_peer(response_type);
 
         let peer_id = match peer_id {
@@ -849,13 +803,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                     ShouldRemoveLookup::True
                 }
                 AvailabilityProcessingStatus::MissingComponents(_, _block_root) => {
-                    should_remove_missing_components(
-                        request_ref,
-                        response_type,
-                        blob_id_ref,
-                        cx,
-                        &self.log,
-                    )
+                    should_remove_missing_components(request_ref, response_type, cx, &self.log)
                 }
             },
             BlockProcessingResult::Ignored => {
@@ -902,42 +850,42 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                         );
                         ShouldRemoveLookup::True
                     }
+                    BlockError::AvailabilityCheck(
+                        AvailabilityCheckError::KzgVerificationFailed,
+                    )
+                    | BlockError::AvailabilityCheck(AvailabilityCheckError::Kzg(_))
+                    | BlockError::BlobValidation(_) => {
+                        warn!(self.log, "Availability check failed"; "root" => %root, "error" => ?e, "peer_id" => %peer_id);
+
+                        // Try it again if possible.
+                        retry_request_after_failure(
+                            request_ref,
+                            ResponseType::Blob,
+                            peer_id.as_peer_id(),
+                            cx,
+                            &self.log,
+                        )
+                    }
                     other => {
                         warn!(self.log, "Peer sent invalid block in single block lookup"; "root" => %root, "error" => ?other, "peer_id" => %peer_id);
-                        cx.report_peer(
-                            peer_id.to_peer_id(),
-                            PeerAction::MidToleranceError,
-                            "single_block_failure",
-                        );
-                            if matches!(response_type, ResponseType::Blob)
-                                || (!request_ref.blob_request_state.component_processed
-                                    && !request_ref.downloading(ResponseType::Blob))
-                            {
-                                retry_request_after_failure(
-                                    blob_id_ref.as_mut().unwrap(),
-                                    request_ref,
-                                    ResponseType::Blob,
-                                    peer_id.as_peer_id(),
-                                    cx,
-                                    &self.log,
-                                );
-                            }
+                        if let Ok(block_peer) = request_ref.processing_peer(ResponseType::Block) {
+                            cx.report_peer(
+                                block_peer.to_peer_id(),
+                                PeerAction::MidToleranceError,
+                                "single_block_failure",
+                            );
 
-                            if matches!(response_type, ResponseType::Block)
-                                || (!request_ref.block_request_state.component_processed
-                                    && !request_ref.downloading(ResponseType::Block))
-                            {
-                                // Try it again if possible.
-                                retry_request_after_failure(
-                                    block_id_ref.as_mut().unwrap(),
-                                    request_ref,
-                                    ResponseType::Block,
-                                    peer_id.as_peer_id(),
-                                    cx,
-                                    &self.log,
-                                );
+                            // Try it again if possible.
+                            retry_request_after_failure(
+                                request_ref,
+                                ResponseType::Block,
+                                block_peer.as_peer_id(),
+                                cx,
+                                &self.log,
+                            )
+                        } else {
+                            ShouldRemoveLookup::False
                         }
-                        ShouldRemoveLookup::False
                     }
                 }
             }
@@ -1028,17 +976,13 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 };
                 let (chain_hash, mut blocks, hashes, block_request) =
                     parent_lookup.parts_for_processing();
-                if let Some(child_block) =
-                    self.single_block_lookups
-                        .iter_mut()
-                        .find_map(|(_, _, req)| {
-                            if req.requested_block_root == chain_hash {
-                                req.get_downloaded_block()
-                            } else {
-                                None
-                            }
-                        })
-                {
+                if let Some(child_block) = self.single_block_lookups.iter_mut().find_map(|req| {
+                    if req.block_request_state.requested_block_root == chain_hash {
+                        req.get_downloaded_block()
+                    } else {
+                        None
+                    }
+                }) {
                     blocks.push(child_block);
                 };
                 let process_id = ChainSegmentProcessId::ParentLookup(chain_hash);
@@ -1132,22 +1076,24 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         debug!(self.log, "Parent chain processed"; "chain_hash" => %chain_hash, "result" => ?result);
         match result {
             BatchProcessResult::Success { .. } => {
-                if let Some((index, (_, _, _))) = self
+                if let Some((index, _)) = self
                     .single_block_lookups
                     .iter()
                     .enumerate()
-                    .find(|(_, (_, _, req))| req.requested_block_root == chain_hash)
+                    .find(|(_, req)| req.block_request_state.requested_block_root == chain_hash)
                 {
-                    if let Some((block_id, blob_id, block_wrapper)) = self
-                        .single_block_lookups
-                        .get_mut(index)
-                        .and_then(|(block_id, blob_id, lookup)| {
+                    if let Some((lookup_id, block_wrapper)) =
+                        self.single_block_lookups.get_mut(index).and_then(|lookup| {
                             lookup
                                 .get_downloaded_block()
-                                .map(|block| (block_id, blob_id, block))
+                                .map(|block| (lookup.id.clone(), block))
                         })
                     {
-                        let Some(id) = block_id.or(*blob_id) else {
+                        let LookupId {
+                            block_request_id,
+                            blob_request_id,
+                        } = lookup_id;
+                        let Some(id) = block_request_id.or(blob_request_id) else {
                                 warn!(self.log, "No id found for single block lookup"; "chain_hash" => %chain_hash);
                                 return;
                             };
@@ -1174,8 +1120,8 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 penalty,
             } => {
                 self.failed_chains.insert(chain_hash);
-                let mut all_peers = request.block_request_state.used_peers.clone();
-                all_peers.extend(request.blob_request_state.used_peers);
+                let mut all_peers = request.block_request_state.state.used_peers.clone();
+                all_peers.extend(request.blob_request_state.state.used_peers);
                 for peer_source in all_peers {
                     cx.report_peer(peer_source, penalty, "parent_chain_failure")
                 }
@@ -1359,7 +1305,6 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
 }
 
 fn handle_block_lookup_verify_error<T: BeaconChainTypes>(
-    request_id_ref: &mut u32,
     request_ref: &mut SingleBlockLookup<SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS, T>,
     response_type: ResponseType,
     peer_id: PeerId,
@@ -1379,110 +1324,126 @@ fn handle_block_lookup_verify_error<T: BeaconChainTypes>(
     debug!(log, "Single block lookup failed";
         "peer_id" => %peer_id,
         "error" => msg,
-        "block_root" => ?request_ref.requested_block_root,
+        "block_root" => ?request_ref.block_request_state.requested_block_root,
         "response_type" => ?response_type
     );
-    retry_request_after_failure(
-        request_id_ref,
-        request_ref,
-        response_type,
-        &peer_id,
-        cx,
-        log,
-    )
+    retry_request_after_failure(request_ref, response_type, &peer_id, cx, log)
 }
 
 fn retry_request_after_failure<T: BeaconChainTypes>(
-    request_id_ref: &mut u32,
     request_ref: &mut SingleBlockLookup<SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS, T>,
     response_type: ResponseType,
     initial_peer_id: &PeerId,
     cx: &mut SyncNetworkContext<T>,
     log: &Logger,
 ) -> ShouldRemoveLookup {
-    let requested_block_root = request_ref.requested_block_root;
+    let requested_block_root = request_ref.block_request_state.requested_block_root;
 
     // try the request again if possible
-    let id_opt = match response_type {
-        ResponseType::Block => request_ref.request_block().map(|request_opt| {
-            request_opt.map(|(peer_id, request)| cx.single_block_lookup_request(peer_id, request))
-        }),
-        ResponseType::Blob => request_ref.request_blobs().map(|request_opt| {
-            request_opt.map(|(peer_id, request)| cx.single_blobs_lookup_request(peer_id, request))
-        }),
-    };
+    match response_type {
+        ResponseType::Block => {
+            let id = request_ref.request_block().map(|request_opt| {
+                request_opt
+                    .map(|(peer_id, request)| cx.single_block_lookup_request(peer_id, request))
+            });
+            match id {
+                Ok(Some(Ok(id))) => {
+                    request_ref.id.block_request_id = Some(id);
+                }
+                Ok(Some(Err(e))) => {
+                    debug!(log, "Single block lookup failed";
+                    "peer_id" => %initial_peer_id, 
+                    "error" => ?e, 
+                    "block_root" => ?requested_block_root, 
+                    "response_type" => ?response_type);
+                    return ShouldRemoveLookup::True;
+                }
+                Ok(None) => {
+                    request_ref.id.block_request_id = None;
+                    // The lookup failed but the block or blob was found via other means.
+                }
+                Err(e) => {
+                    debug!(log, "Single block lookup failed";
+                    "peer_id" => %initial_peer_id, 
+                    "error" => ?e, 
+                    "block_root" => ?requested_block_root, 
+                    "response_type" => ?response_type);
+                    return ShouldRemoveLookup::True;
+                }
+            }
+        }
+        ResponseType::Blob => {
+            let id = request_ref.request_blobs().map(|request_opt| {
+                request_opt
+                    .map(|(peer_id, request)| cx.single_blobs_lookup_request(peer_id, request))
+            });
 
-    match id_opt {
-        Ok(Some(Ok(id))) => {
-            *request_id_ref = id;
-        }
-        Ok(Some(Err(e))) => {
-            debug!(log, "Single block lookup failed";
+            match id {
+                Ok(Some(Ok(id))) => {
+                    request_ref.id.blob_request_id = Some(id);
+                }
+                Ok(Some(Err(e))) => {
+                    debug!(log, "Single block lookup failed";
                     "peer_id" => %initial_peer_id, 
                     "error" => ?e, 
                     "block_root" => ?requested_block_root, 
                     "response_type" => ?response_type);
-            return ShouldRemoveLookup::True;
-        }
-        Ok(None) => {
-            // The lookup failed but the block or blob was found via other means.
-        }
-        Err(e) => {
-            debug!(log, "Single block lookup failed";
+                    return ShouldRemoveLookup::True;
+                }
+                Ok(None) => {
+                    request_ref.id.blob_request_id = None;
+                    // The lookup failed but the block or blob was found via other means.
+                }
+                Err(e) => {
+                    debug!(log, "Single block lookup failed";
                     "peer_id" => %initial_peer_id, 
                     "error" => ?e, 
                     "block_root" => ?requested_block_root, 
                     "response_type" => ?response_type);
-            return ShouldRemoveLookup::True;
+                    return ShouldRemoveLookup::True;
+                }
+            }
         }
-    }
+    };
     ShouldRemoveLookup::False
 }
 
 fn should_remove_disconnected_peer<T: BeaconChainTypes>(
-    id: &mut Option<Id>,
     response_type: ResponseType,
     peer_id: &PeerId,
     cx: &mut SyncNetworkContext<T>,
     req: &mut SingleBlockLookup<SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS, T>,
     log: &Logger,
 ) -> ShouldRemoveLookup {
-    id
-        .as_mut()
-        .filter(|_| req.check_peer_disconnected(peer_id, response_type)
-            .is_err())
-        .map(|block_id| {
-            trace!(log, "Single lookup failed on peer disconnection"; "block_root" => ?req.requested_block_root, "response_type" => ?response_type);
-            retry_request_after_failure(block_id, req, response_type, peer_id, cx, log)
-        })
-        .unwrap_or(ShouldRemoveLookup::False)
+    if req.check_peer_disconnected(peer_id, response_type).is_err() {
+        trace!(log, "Single lookup failed on peer disconnection"; "block_root" => ?req.block_request_state.requested_block_root, "response_type" => ?response_type);
+        retry_request_after_failure(req, response_type, peer_id, cx, log)
+    } else {
+        ShouldRemoveLookup::False
+    }
 }
 
 fn should_remove_failed_lookup<T: BeaconChainTypes>(
-    id: &mut Option<Id>,
+    id: Id,
     response_type: ResponseType,
-    target_id: Id,
     msg: &'static str,
     peer_id: &PeerId,
     cx: &mut SyncNetworkContext<T>,
     req: &mut SingleBlockLookup<SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS, T>,
     log: &Logger,
 ) -> ShouldRemoveLookup {
-    id
-        .as_mut()
-        .filter(|id| **id == target_id)
-        .map(|id| {
-            req.register_failure_downloading(response_type);
-            trace!(log, "Single lookup failed"; "block" => %req.requested_block_root, "error" => msg, "response_type" => ?response_type);
-            retry_request_after_failure(id, req, response_type, peer_id, cx, log)
-        })
-        .unwrap_or(ShouldRemoveLookup::False)
+    if req.id.block_request_id == Some(id) || req.id.blob_request_id == Some(id) {
+        req.register_failure_downloading(response_type);
+        trace!(log, "Single lookup failed"; "block" => %req.block_request_state.requested_block_root, "error" => msg, "response_type" => ?response_type);
+        retry_request_after_failure(req, response_type, peer_id, cx, log)
+    } else {
+        ShouldRemoveLookup::False
+    }
 }
 
 fn should_remove_missing_components<T: BeaconChainTypes>(
     request_ref: &mut SingleBlockLookup<SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS, T>,
     response_type: ResponseType,
-    blob_id_ref: &mut Option<Id>,
     cx: &mut SyncNetworkContext<T>,
     log: &Logger,
 ) -> ShouldRemoveLookup {
@@ -1502,18 +1463,15 @@ fn should_remove_missing_components<T: BeaconChainTypes>(
             );
         }
         request_ref.remove_peer_if_useless(blob_peer.as_peer_id(), ResponseType::Blob);
-        if let Some(blob_id_ref) = blob_id_ref {
-            if !request_ref.downloading(ResponseType::Blob) {
-                // Try it again if possible.
-                return retry_request_after_failure(
-                    blob_id_ref,
-                    request_ref,
-                    ResponseType::Blob,
-                    blob_peer.as_peer_id(),
-                    cx,
-                    log,
-                );
-            }
+        if !request_ref.downloading(ResponseType::Blob) {
+            // Try it again if possible.
+            return retry_request_after_failure(
+                request_ref,
+                ResponseType::Blob,
+                blob_peer.as_peer_id(),
+                cx,
+                log,
+            );
         }
     }
     ShouldRemoveLookup::False

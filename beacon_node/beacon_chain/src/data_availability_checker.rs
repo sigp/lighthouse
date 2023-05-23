@@ -32,15 +32,14 @@ pub const OVERFLOW_LRU_CAPACITY: usize = 1024;
 #[derive(Debug, IntoStaticStr)]
 pub enum AvailabilityCheckError {
     Kzg(KzgError),
-    KzgVerificationFailed,
     KzgNotInitialized,
+    KzgVerificationFailed,
     SszTypes(ssz_types::Error),
-    MissingBlobs,
     NumBlobsMismatch {
-        /// The peer sent us an invalid block, we must penalise harshly.
         num_kzg_commitments: usize,
         num_blobs: usize,
     },
+    MissingBlobs,
     TxKzgCommitmentMismatch(String),
     KzgCommitmentMismatch {
         blob_index: u64,
@@ -52,10 +51,6 @@ pub enum AvailabilityCheckError {
     BlockBlobRootMismatch {
         block_root: Hash256,
         blob_block_root: Hash256,
-    },
-    UnorderedBlobs {
-        expected_index: u64,
-        blob_index: u64,
     },
 }
 
@@ -135,9 +130,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         &self,
         block_root: Hash256,
     ) -> Option<Vec<BlobIdentifier>> {
-        let (block, blob_indices) = self
-            .availability_cache
-            .get_missing_blob_ids_checking_cache(block_root);
+        let (block, blob_indices) = self.availability_cache.get_missing_blob_info(block_root);
         self.get_missing_blob_ids(block_root, block.as_ref(), Some(blob_indices))
     }
 
@@ -507,7 +500,7 @@ impl<E: EthSpec> AvailabilityPendingBlock<E> {
     }
 
     /// Verifies an AvailabilityPendingBlock against a set of KZG verified blobs.
-    /// This does not check whether a block *should* have blobs, these checks should must have been
+    /// This does not check whether a block *should* have blobs, these checks should have been
     /// completed when producing the `AvailabilityPendingBlock`.
     pub fn make_available(
         self,

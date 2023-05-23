@@ -587,7 +587,7 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
                         // get random number between 0 and Max Blobs
                         let num_blobs = rand::random::<usize>() % T::max_blobs_per_block();
                         let kzg = self.kzg.as_ref().ok_or("kzg not initialized")?;
-                        let (bundle, transactions) = generate_random_blobs(num_blobs, &kzg)?;
+                        let (bundle, transactions) = generate_random_blobs(num_blobs, kzg)?;
                         for tx in Vec::from(transactions) {
                             execution_payload
                                 .transactions_mut()

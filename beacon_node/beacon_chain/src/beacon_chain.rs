@@ -188,7 +188,6 @@ pub enum AvailabilityProcessingStatus {
     Imported(Hash256),
 }
 
-//TODO(sean) using this in tests for now
 impl TryInto<SignedBeaconBlockHash> for AvailabilityProcessingStatus {
     type Error = ();
 
@@ -2676,9 +2675,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                                 // The block was imported successfully.
                             }
                             AvailabilityProcessingStatus::MissingComponents(slot, block_root) => {
+                                warn!(self.log, "Blobs missing in response to range request";
+                                    "block_root" => ?block_root, "slot" => slot);
                                 return ChainSegmentResult::Failed {
                                     imported_blocks,
-                                    error: BlockError::MissingBlockParts(slot, block_root),
+                                    error: BlockError::AvailabilityCheck(
+                                        AvailabilityCheckError::MissingBlobs,
+                                    ),
                                 };
                             }
                         }

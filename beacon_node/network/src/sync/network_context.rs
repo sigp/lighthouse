@@ -7,6 +7,7 @@ use super::range_sync::{BatchId, ByRangeRequestType, ChainId};
 use crate::beacon_processor::WorkEvent;
 use crate::service::{NetworkMessage, RequestId};
 use crate::status::ToStatusMessage;
+use crate::sync::block_lookups::{BlobRequestId, BlockRequestId};
 use beacon_chain::blob_verification::BlockWrapper;
 use beacon_chain::{BeaconChain, BeaconChainTypes, EngineState};
 use fnv::FnvHashMap;
@@ -463,7 +464,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         &mut self,
         peer_id: PeerId,
         request: BlocksByRootRequest,
-    ) -> Result<Id, &'static str> {
+    ) -> Result<BlockRequestId, &'static str> {
         let id = self.next_id();
         let request_id = RequestId::Sync(SyncRequestId::ParentLookup { id });
 
@@ -488,7 +489,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         &mut self,
         peer_id: PeerId,
         request: BlobsByRootRequest,
-    ) -> Result<Id, &'static str> {
+    ) -> Result<BlobRequestId, &'static str> {
         let id = self.next_id();
         let request_id = RequestId::Sync(SyncRequestId::ParentLookup { id });
 
