@@ -7,9 +7,8 @@ use clap::{App, Arg, ArgMatches};
 use environment::{Environment, RuntimeContext};
 use slog::{info, Logger};
 use std::fs;
-use std::fs::create_dir_all;
 use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use store::{
     errors::Error,
     metadata::{SchemaVersion, CURRENT_SCHEMA_VERSION},
@@ -351,15 +350,4 @@ pub fn run<T: EthSpec>(cli_args: &ArgMatches<'_>, env: Environment<T>) -> Result
         }
     }
     .map_err(|e| format!("Fatal error: {:?}", e))
-}
-
-/// Checks if a directory exists in the given path and creates a directory if it does not exist.
-pub fn ensure_dir_exists<P: AsRef<Path>>(path: P) -> Result<(), String> {
-    let path = path.as_ref();
-
-    if !path.exists() {
-        create_dir_all(path).map_err(|e| format!("Unable to create {:?}: {:?}", path, e))?;
-    }
-
-    Ok(())
 }
