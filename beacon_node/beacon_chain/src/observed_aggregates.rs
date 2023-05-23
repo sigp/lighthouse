@@ -2,7 +2,6 @@
 //! sync committee contributions if we've already seen them.
 
 use crate::sync_committee_verification::SyncCommitteeData;
-use ssz_types::{BitList, BitVector};
 use std::collections::HashMap;
 use std::marker::PhantomData;
 use tree_hash::TreeHash;
@@ -15,12 +14,10 @@ use types::{Attestation, EthSpec, Hash256, Slot, SyncCommitteeContribution};
 pub type ObservedSyncContributions<E> = ObservedAggregates<
     SyncCommitteeContribution<E>,
     E,
-    BitVector<<E as types::EthSpec>::SyncSubcommitteeSize>,
 >;
 pub type ObservedAggregateAttestations<E> = ObservedAggregates<
     Attestation<E>,
     E,
-    BitList<<E as types::EthSpec>::MaxValidatorsPerCommittee>,
 >;
 
 /// A trait use to associate capacity constants with the type being stored in `ObservedAggregates`.
@@ -82,15 +79,12 @@ impl<T: EthSpec> Consts for SyncCommitteeContribution<T> {
 /// A trait for types that implement a behaviour where one object of that type
 /// can be a subset of another.
 pub trait SubsetItem {
-    /// The item that is stored for later comparison with new incoming aggregate items.
-    type Item;
-
     /// Returns `true` if `self` is a subset of `other` and `false` otherwise.
-    fn is_subset(&self, other: &Self::Item) -> bool;
+    fn is_subset(&self, other: &Self) -> ObserveOutcome;
 
     /// Returns the item that gets stored in `ObservedAggregates` for later subset
     /// comparison with incoming aggregates.
-    fn get_item(&self) -> Self::Item;
+    fn get_item(&self) -> Self;
 
     /// Returns a unique value that keys the object to the item that is being stored
     /// in `ObservedAggregates`.
@@ -98,14 +92,21 @@ pub trait SubsetItem {
 }
 
 impl<T: EthSpec> SubsetItem for Attestation<T> {
-    type Item = BitList<T::MaxValidatorsPerCommittee>;
-    fn is_subset(&self, other: &Self::Item) -> bool {
-        self.aggregation_bits.is_subset(other)
+    fn is_subset(&self, other: &Self) -> ObserveOutcome {
+        if self == other {
+            ObserveOutcome::AlreadyKnown
+        } else {
+            if self.aggregation_bits.is_subset(&other.aggregation_bits) {
+                ObserveOutcome::Subset
+            } else {
+                ObserveOutcome::New
+            }
+        }
     }
 
-    /// Returns the sync contribution aggregation bits.
-    fn get_item(&self) -> Self::Item {
-        self.aggregation_bits.clone()
+    /// Returns the attestation aggregation bits.
+    fn get_item(&self) -> Self {
+        self.clone()
     }
 
     /// Returns the hash tree root of the attestation data.
@@ -115,14 +116,21 @@ impl<T: EthSpec> SubsetItem for Attestation<T> {
 }
 
 impl<T: EthSpec> SubsetItem for SyncCommitteeContribution<T> {
-    type Item = BitVector<T::SyncSubcommitteeSize>;
-    fn is_subset(&self, other: &Self::Item) -> bool {
-        self.aggregation_bits.is_subset(other)
+    fn is_subset(&self, other: &Self) -> ObserveOutcome {
+        if self == other {
+            ObserveOutcome::AlreadyKnown
+        } else {
+            if self.aggregation_bits.is_subset(&other.aggregation_bits) {
+                ObserveOutcome::Subset
+            } else {
+                ObserveOutcome::New
+            }
+        }
     }
 
     /// Returns the sync contribution aggregation bits.
-    fn get_item(&self) -> Self::Item {
-        self.aggregation_bits.clone()
+    fn get_item(&self) -> Self {
+        self.clone()
     }
 
     /// Returns the hash tree root of the root, slot and subcommittee index
@@ -141,6 +149,8 @@ impl<T: EthSpec> SubsetItem for SyncCommitteeContribution<T> {
 pub enum ObserveOutcome {
     /// This item is a non-strict subset of an already known item.
     Subset,
+    /// This item was already known
+    AlreadyKnown,
     /// This was the first time this item was observed.
     New,
 }
@@ -163,15 +173,15 @@ pub enum Error {
 }
 
 /// A `HashMap` that contains entries related to some `Slot`.
-struct SlotHashSet<I> {
+struct SlotHashSet<S: SlotData + SubsetItem> {
     /// Contains a vector of disjoint aggregation bitfields/bitvectors keyed to the hash of
     /// the corresponding data.
-    map: HashMap<Hash256, Vec<I>>,
+    map: HashMap<Hash256, Vec<S>>,
     slot: Slot,
     max_capacity: usize,
 }
 
-impl<I> SlotHashSet<I> {
+impl<S: SlotData + SubsetItem> SlotHashSet<S> {
     pub fn new(slot: Slot, initial_capacity: usize, max_capacity: usize) -> Self {
         Self {
             slot,
@@ -181,7 +191,7 @@ impl<I> SlotHashSet<I> {
     }
 
     /// Store the items in self so future observations recognise its existence.
-    pub fn observe_item<S: SlotData + SubsetItem<Item = I>>(
+    pub fn observe_item(
         &mut self,
         item: &S,
         root: Hash256,
@@ -196,8 +206,14 @@ impl<I> SlotHashSet<I> {
         // Check if `item` is a non-strict subset of any of the already observed aggregates for
         // the given data root for this slot.
         if let Some(aggregates) = self.map.get(&root) {
-            if aggregates.iter().any(|val| item.is_subset(val)) {
-                return Ok(ObserveOutcome::Subset);
+            for val in aggregates {
+                let outcome = item.is_subset(val);
+                if matches!(
+                    outcome,
+                    ObserveOutcome::Subset | ObserveOutcome::AlreadyKnown
+                ) {
+                    return Ok(outcome);
+                }
             }
         }
 
@@ -220,11 +236,11 @@ impl<I> SlotHashSet<I> {
 
     /// Check if `item` is a non-strict subset of any of the already observed aggregates for
     /// the given root and slot.
-    pub fn is_known_subset<S: SlotData + SubsetItem<Item = I>>(
+    pub fn is_known_subset(
         &self,
         item: &S,
         root: Hash256,
-    ) -> Result<bool, Error> {
+    ) -> Result<ObserveOutcome, Error> {
         if item.get_slot() != self.slot {
             return Err(Error::IncorrectSlot {
                 expected: self.slot,
@@ -232,10 +248,18 @@ impl<I> SlotHashSet<I> {
             });
         }
 
-        Ok(self
-            .map
-            .get(&root)
-            .map_or(false, |agg| agg.iter().any(|val| item.is_subset(val))))
+        if let Some(aggregates) = self.map.get(&root) {
+            for val in aggregates {
+                let outcome = item.is_subset(val);
+                if matches!(
+                    outcome,
+                    ObserveOutcome::Subset | ObserveOutcome::AlreadyKnown
+                ) {
+                    return Ok(outcome);
+                }
+            }
+        }
+        Ok(ObserveOutcome::New)
     }
 
     /// The number of observed items in `self`.
@@ -246,14 +270,14 @@ impl<I> SlotHashSet<I> {
 
 /// Stores the roots of objects for some number of `Slots`, so we can determine if
 /// these have previously been seen on the network.
-pub struct ObservedAggregates<T: SlotData + Consts, E: EthSpec, I> {
+pub struct ObservedAggregates<T: SlotData + Consts + SubsetItem, E: EthSpec> {
     lowest_permissible_slot: Slot,
-    sets: Vec<SlotHashSet<I>>,
+    sets: Vec<SlotHashSet<T>>,
     _phantom_spec: PhantomData<E>,
     _phantom_tree_hash: PhantomData<T>,
 }
 
-impl<T: SlotData + Consts, E: EthSpec, I> Default for ObservedAggregates<T, E, I> {
+impl<T: SlotData + Consts + SubsetItem, E: EthSpec> Default for ObservedAggregates<T, E> {
     fn default() -> Self {
         Self {
             lowest_permissible_slot: Slot::new(0),
@@ -264,7 +288,7 @@ impl<T: SlotData + Consts, E: EthSpec, I> Default for ObservedAggregates<T, E, I
     }
 }
 
-impl<T: SlotData + Consts + SubsetItem<Item = I>, E: EthSpec, I> ObservedAggregates<T, E, I> {
+impl<T: SlotData + Consts + SubsetItem, E: EthSpec> ObservedAggregates<T, E> {
     /// Store `item` in `self` keyed at `root`.
     ///
     /// `root` must equal `item.root::<SubsetItem>()`.
@@ -287,7 +311,7 @@ impl<T: SlotData + Consts + SubsetItem<Item = I>, E: EthSpec, I> ObservedAggrega
     ///
     /// `root` must equal `item.root::<SubsetItem>()`.
     #[allow(clippy::wrong_self_convention)]
-    pub fn is_known_subset(&mut self, item: &T, root: Hash256) -> Result<bool, Error> {
+    pub fn is_known_subset(&mut self, item: &T, root: Hash256) -> Result<ObserveOutcome, Error> {
         let index = self.get_set_index(item.get_slot())?;
 
         self.sets

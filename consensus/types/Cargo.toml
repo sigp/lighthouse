@@ -27,7 +27,7 @@ serde_derive = "1.0.116"
 slog = "2.5.2"
 ethereum_ssz = { version = "0.5.0", features = ["arbitrary"] }
 ethereum_ssz_derive = "0.5.0"
-ssz_types = { version = "0.5.0", features = ["arbitrary"] }
+ssz_types = { git = "https://github.com/pawanjay176/ssz_types", branch = "is_subset", features = ["arbitrary"] }
 swap_or_not_shuffle = { path = "../swap_or_not_shuffle", features = ["arbitrary"] }
 test_random_derive = { path = "../../common/test_random_derive" }
 tree_hash = { version = "0.5.0", features = ["arbitrary"] }
