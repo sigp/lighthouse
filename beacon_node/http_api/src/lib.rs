@@ -1237,7 +1237,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(chain_filter.clone())
         .and(network_tx_filter.clone())
         .and(log_filter.clone())
-        .and(warp::path::param::<BroadcastValidation>())
+        .and(warp::query::<BroadcastValidation>())
         .and_then(
             |block: Arc<SignedBeaconBlock<T::EthSpec>>,
              chain: Arc<BeaconChain<T>>,
@@ -1289,7 +1289,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(chain_filter.clone())
         .and(network_tx_filter.clone())
         .and(log_filter.clone())
-        .and(warp::path::param::<BroadcastValidation>())
+        .and(warp::query::<BroadcastValidation>())
         .and_then(
             |block: SignedBeaconBlock<T::EthSpec, BlindedPayload<_>>,
              chain: Arc<BeaconChain<T>>,
