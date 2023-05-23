@@ -655,13 +655,17 @@ impl BeaconNodeHttpClient {
     pub async fn post_beacon_blocks_v2<T: EthSpec, Payload: AbstractExecPayload<T>>(
         &self,
         block: &SignedBeaconBlock<T, Payload>,
+        validation_level: Option<BroadcastValidation>,
     ) -> Result<(), Error> {
-        let mut path = self.eth_path(V2)?;
-
-        path.path_segments_mut()
-            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
-            .push("beacon")
-            .push("blocks");
+        let path: Url = if let Some(v) = validation_level {
+            self.eth_path(V2)?
+                .join(format!("beacon/blocks?broadcast_validation={}", v).as_str())
+                .map_err(|_| Error::InvalidUrl(self.server.clone()))?
+        } else {
+            self.eth_path(V2)?
+                .join("beacon/blocks/")
+                .map_err(|_| Error::InvalidUrl(self.server.clone()))?
+        };
 
         self.post_with_timeout(path, block, self.timeouts.proposal)
             .await?;
@@ -675,13 +679,17 @@ impl BeaconNodeHttpClient {
     pub async fn post_beacon_blinded_blocks_v2<T: EthSpec>(
         &self,
         block: &SignedBlindedBeaconBlock<T>,
+        validation_level: Option<BroadcastValidation>,
     ) -> Result<(), Error> {
-        let mut path = self.eth_path(V2)?;
-
-        path.path_segments_mut()
-            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
-            .push("beacon")
-            .push("blinded_blocks");
+        let path: Url = if let Some(v) = validation_level {
+            self.eth_path(V2)?
+                .join(format!("beacon/blinded_blocks?broadcast_validation={}", v).as_str())
+                .map_err(|_| Error::InvalidUrl(self.server.clone()))?
+        } else {
+            self.eth_path(V2)?
+                .join("beacon/blinded_blocks/")
+                .map_err(|_| Error::InvalidUrl(self.server.clone()))?
+        };
 
         self.post_with_timeout(path, block, self.timeouts.proposal)
             .await?;
