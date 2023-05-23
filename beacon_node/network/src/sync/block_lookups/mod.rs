@@ -855,16 +855,24 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                     )
                     | BlockError::AvailabilityCheck(AvailabilityCheckError::Kzg(_))
                     | BlockError::BlobValidation(_) => {
-                        warn!(self.log, "Availability check failed"; "root" => %root, "error" => ?e, "peer_id" => %peer_id);
-
-                        // Try it again if possible.
-                        retry_request_after_failure(
-                            request_ref,
-                            ResponseType::Blob,
-                            peer_id.as_peer_id(),
-                            cx,
-                            &self.log,
-                        )
+                        warn!(self.log, "Blob validation failure"; "root" => %root, "peer_id" => %peer_id);
+                        if let Ok(blob_peer) = request_ref.processing_peer(ResponseType::Blob) {
+                            cx.report_peer(
+                                blob_peer.to_peer_id(),
+                                PeerAction::MidToleranceError,
+                                "single_blob_failure",
+                            );
+                            // Try it again if possible.
+                            retry_request_after_failure(
+                                request_ref,
+                                ResponseType::Blob,
+                                peer_id.as_peer_id(),
+                                cx,
+                                &self.log,
+                            )
+                        } else {
+                            ShouldRemoveLookup::False
+                        }
                     }
                     other => {
                         warn!(self.log, "Peer sent invalid block in single block lookup"; "root" => %root, "error" => ?other, "peer_id" => %peer_id);
@@ -1053,8 +1061,6 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         // ambiguity.
         cx.report_peer(peer_id, PeerAction::MidToleranceError, "parent_request_err");
         // Try again if possible
-        //TODO(sean) I don't see why we want to retry here, because this block is invalid and has
-        // passed block root validation, so querying again by block root will yield the same result.
         parent_lookup.block_processing_failed();
         parent_lookup.blob_processing_failed();
         self.request_parent_block_and_blobs(parent_lookup, cx);
