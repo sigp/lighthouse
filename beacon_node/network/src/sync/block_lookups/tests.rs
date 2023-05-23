@@ -724,7 +724,14 @@ fn test_parent_lookup_too_many_attempts() {
             }
         }
         if i < parent_lookup::PARENT_FAIL_TOLERANCE {
-            assert_eq!(bl.parent_lookups[0].failed_block_attempts(), dbg!(i));
+            assert_eq!(
+                bl.parent_lookups[0]
+                    .current_parent_request
+                    .block_request_state
+                    .state
+                    .failed_attempts(),
+                dbg!(i)
+            );
         }
     }
 
@@ -776,7 +783,14 @@ fn test_parent_lookup_too_many_download_attempts_no_blacklist() {
             rig.expect_penalty();
         }
         if i < parent_lookup::PARENT_FAIL_TOLERANCE {
-            assert_eq!(bl.parent_lookups[0].failed_block_attempts(), dbg!(i));
+            assert_eq!(
+                bl.parent_lookups[0]
+                    .current_parent_request
+                    .block_request_state
+                    .state
+                    .failed_attempts(),
+                dbg!(i)
+            );
         }
     }
 
@@ -1132,12 +1146,7 @@ fn test_same_chain_race_condition() {
 
 mod deneb_only {
     use super::*;
-    use beacon_chain::blob_verification::{BlobError, MaybeAvailableBlock};
-    use beacon_chain::data_availability_checker::AvailabilityPendingBlock;
-    use beacon_chain::ExecutedBlock::AvailabilityPending;
-    use beacon_chain::IntoExecutionPendingBlock;
-    use beacon_chain::PayloadVerificationOutcome;
-    use beacon_chain::{AvailabilityPendingExecutedBlock, NotifyExecutionLayer};
+    use beacon_chain::blob_verification::BlobError;
     use std::ops::IndexMut;
     use std::str::FromStr;
 
@@ -1219,7 +1228,7 @@ mod deneb_only {
                             child_root,
                             Some(child_block),
                             None,
-                            peer_id,
+                            &[PeerShouldHave::Neither(peer_id)],
                             &mut cx,
                         );
 
@@ -1258,7 +1267,7 @@ mod deneb_only {
                             child_root,
                             None,
                             Some(blobs),
-                            peer_id,
+                            &[PeerShouldHave::Neither(peer_id)],
                             &mut cx,
                         );
 
@@ -1339,7 +1348,7 @@ mod deneb_only {
             self
         }
 
-        fn block_response_triggering_process(mut self) -> Self {
+        fn block_response_triggering_process(self) -> Self {
             let mut me = self.block_response();
             me.rig.expect_block_process(ResponseType::Block);
 

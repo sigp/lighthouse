@@ -133,12 +133,13 @@ async fn produces_attestations() {
             assert_eq!(data.target.root, target_root, "bad target root");
 
             let block_wrapper: BlockWrapper<MainnetEthSpec> = Arc::new(block.clone()).into();
-            let available_block = chain
+            let beacon_chain::blob_verification::MaybeAvailableBlock::Available(available_block) = chain
                 .data_availability_checker
                 .check_availability(block_wrapper)
                 .unwrap()
-                .try_into()
-                .unwrap();
+                else {
+                    panic!("block should be available")
+                };
 
             let early_attestation = {
                 let proto_block = chain
@@ -202,13 +203,13 @@ async fn early_attester_cache_old_request() {
         .unwrap();
 
     let block_wrapper: BlockWrapper<MainnetEthSpec> = head.beacon_block.clone().into();
-    let available_block = harness
-        .chain
+    let beacon_chain::blob_verification::MaybeAvailableBlock::Available(available_block) = harness.chain
         .data_availability_checker
         .check_availability(block_wrapper)
         .unwrap()
-        .try_into()
-        .unwrap();
+        else {
+            panic!("block should be available")
+        };
 
     harness
         .chain
