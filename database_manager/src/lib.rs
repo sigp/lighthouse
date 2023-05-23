@@ -180,7 +180,7 @@ fn parse_inspect_config(cli_args: &ArgMatches) -> Result<InspectConfig, String> 
     let column = clap_utils::parse_required(cli_args, "column")?;
     let target = clap_utils::parse_required(cli_args, "output")?;
     let output_dir: PathBuf =
-        clap_utils::parse_optional(cli_args, "output-dir")?.unwrap_or_else(|| PathBuf::new());
+        clap_utils::parse_optional(cli_args, "output-dir")?.unwrap_or_else(PathBuf::new);
     Ok(InspectConfig {
         column,
         target,
@@ -231,7 +231,7 @@ pub fn inspect_db<E: EthSpec>(
                     .open(&file_path)
                     .map_err(|e| format!("Failed to open file: {:?}", e))
                     .map(|mut file| {
-                        file.write_all(&*value)
+                        file.write_all(&value)
                             .map_err(|e| format!("Failed to write file: {:?}", e))
                     });
                 if let Err(e) = write_result {
