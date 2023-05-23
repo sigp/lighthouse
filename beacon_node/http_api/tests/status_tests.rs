@@ -204,7 +204,6 @@ async fn node_health_el_online_and_not_synced() {
 
     // EL not synced
     mock_el.server.set_syncing_response(Ok(true));
-    mock_el.el.upcheck().await;
 
     let status = tester.client.get_node_health().await;
     match status {
