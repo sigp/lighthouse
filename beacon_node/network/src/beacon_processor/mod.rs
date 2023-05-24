@@ -1839,15 +1839,19 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                 seen_timestamp,
                 process_type,
                 should_process,
-            } => task_spawner.spawn_async(worker.process_rpc_block(
-                block_root,
-                block,
-                seen_timestamp,
-                process_type,
-                work_reprocessing_tx,
-                duplicate_cache,
-                should_process,
-            )),
+            } => {
+                let invalid_block_storage = self.invalid_block_storage.clone();
+                task_spawner.spawn_async(worker.process_rpc_block(
+                    block_root,
+                    block,
+                    seen_timestamp,
+                    process_type,
+                    work_reprocessing_tx,
+                    duplicate_cache,
+                    invalid_block_storage,
+                    should_process,
+                ))
+            }
             /*
              * Verification for a chain segment (multiple blocks).
              */
