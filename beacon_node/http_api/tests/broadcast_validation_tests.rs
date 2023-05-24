@@ -41,6 +41,10 @@ pub async fn gossip_reject() {
 
     /* mandated by Beacon API spec */
     assert_eq!(error_response.status(), Some(StatusCode::BAD_REQUEST));
+
+    assert!(
+        matches!(error_response, eth2::Error::ServerMessage(err) if err.message == "BAD_REQUEST: Invalid block".to_string())
+    );
 }
 
 /// This test checks that a block that is valid from a gossip perspective is accepted when using `broadcast_validation=gossip`.
@@ -161,6 +165,15 @@ pub async fn consensus_accept_gossip() {
         .post_beacon_blocks_v2(&block, validation_level)
         .await;
     assert!(response.is_err());
+
+    let error_response: eth2::Error = response.err().unwrap();
+
+    /* mandated by Beacon API spec */
+    assert_eq!(error_response.status(), Some(StatusCode::BAD_REQUEST));
+
+    assert!(
+        matches!(error_response, eth2::Error::ServerMessage(err) if err.message == "BAD_REQUEST: Invalid block".to_string())
+    );
 }
 
 /// This test checks that a block that is valid from both a gossip and consensus perspective is accepted when using `broadcast_validation=consensus`.
@@ -202,4 +215,7 @@ pub async fn consensus_accept_consensus() {
 
     /* mandated by Beacon API spec */
     assert_eq!(error_response.status(), Some(StatusCode::BAD_REQUEST));
+    assert!(
+        matches!(error_response, eth2::Error::ServerMessage(err) if err.message == "BAD_REQUEST: Invalid block".to_string())
+    );
 }
