@@ -27,8 +27,8 @@ some example values.
 |--------------------------|------|-------------------|-----------------------|
 | Block explorer/analysis  | 32   | 3.4 TB            | 155 ms                |
 | Block explorer/analysis  | 128  | 851 GB            | 620 ms                |
-| Hobbyist (prev. default) | 2048 | 53.4 GB           | 10.2 s                |
-| Enthusiast               | 4096 | 26.7 GB           | 20.5 s                |
+| Hobbyist (prev. default) | 2048 | 53.6 GB           | 10.2 s                |
+| Enthusiast               | 4096 | 26.8 GB           | 20.5 s                |
 | Validator only (default) | 8192 | 8.1 GB            | 41 s                  |
 
 *Last update: May 2023. 
@@ -44,7 +44,9 @@ The values shown in the table are approximate, calculated using a simple heurist
 `BeaconState` consumes around 18MB of disk space, and each block replayed takes around 5ms.  The
 **Yearly Disk Usage** column shows the approximate size of the freezer DB _alone_ (hot DB not included), calculated proportionally using the total freezer database disk usage. 
 The **Load Historical State** time is the worst-case load time for a state in the last slot
-before a restore point.
+before a restore point. 
+
+As an example, we use an SPRP of 4096 to calculate the total size of the freezer database until May 2023. It has been about 900 days since the genesis, the total disk usage by the freezer database is therefore: 900/365*26.8 GB = 66 GB. 
 
 ### Defaults
 
