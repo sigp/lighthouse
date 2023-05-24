@@ -17,7 +17,6 @@ use slog::{crit, debug, o};
 use std::marker::PhantomData;
 use std::sync::Arc;
 use std::task::{Context, Poll};
-use std::time::Duration;
 use types::{EthSpec, ForkContext};
 
 pub(crate) use handler::HandlerErr;
@@ -32,7 +31,7 @@ pub use methods::{
 pub(crate) use outbound::OutboundRequest;
 pub use protocol::{max_rpc_size, Protocol, RPCError};
 
-use self::config::OutboundRateLimiterConfig;
+use self::config::{InboundRateLimiterConfig, OutboundRateLimiterConfig};
 use self::self_limiter::SelfRateLimiter;
 
 pub(crate) mod codec;
@@ -127,45 +126,25 @@ impl<Id: ReqId, TSpec: EthSpec> RPC<Id, TSpec> {
     pub fn new(
         fork_context: Arc<ForkContext>,
         enable_light_client_server: bool,
+        inbound_rate_limiter_config: Option<InboundRateLimiterConfig>,
         outbound_rate_limiter_config: Option<OutboundRateLimiterConfig>,
-        disable_inbound_rate_limiter: bool,
         log: slog::Logger,
     ) -> Self {
         let log = log.new(o!("service" => "libp2p_rpc"));
 
-        let limiter = if !disable_inbound_rate_limiter {
-            Some(
-                RateLimiter::builder()
-                    .n_every(Protocol::MetaData, 2, Duration::from_secs(5))
-                    .n_every(Protocol::Ping, 2, Duration::from_secs(10))
-                    .n_every(Protocol::Status, 5, Duration::from_secs(15))
-                    .one_every(Protocol::Goodbye, Duration::from_secs(10))
-                    .one_every(Protocol::LightClientBootstrap, Duration::from_secs(10))
-                    .n_every(
-                        Protocol::BlocksByRange,
-                        methods::MAX_REQUEST_BLOCKS,
-                        Duration::from_secs(10),
-                    )
-                    .n_every(Protocol::BlocksByRoot, 128, Duration::from_secs(10))
-                    .n_every(Protocol::BlobsByRoot, 128, Duration::from_secs(10))
-                    .n_every(
-                        Protocol::BlobsByRange,
-                        MAX_REQUEST_BLOB_SIDECARS,
-                        Duration::from_secs(10),
-                    )
-                    .build()
-                    .expect("Configuration parameters are valid"),
-            )
-        } else {
-            None
-        };
+        // We always do inbound rate limiting, so use the default config if not provided.
+        let inbound_limiter = inbound_rate_limiter_config.map(|config| {
+            debug!(log, "Using inbound rate limiting params"; "config" => ?config);
+            RateLimiter::new_with_config(config.0)
+                .expect("Inbound limiter configuration parameters are valid")
+        });
 
         let self_limiter = outbound_rate_limiter_config.map(|config| {
             SelfRateLimiter::new(config, log.clone()).expect("Configuration parameters are valid")
         });
 
         RPC {
-            limiter,
+            limiter: inbound_limiter,
             self_limiter,
             events: Vec::new(),
             fork_context,

@@ -58,18 +58,42 @@ impl FromStr for ProtocolQuota {
     }
 }
 
-/// Configurations for the rate limiter applied to outbound requests (made by the node itself).
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug, Default)]
+pub struct OutboundRateLimiterConfig(pub RateLimiterConfig);
+
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug, Default)]
+pub struct InboundRateLimiterConfig(pub RateLimiterConfig);
+
+
+impl FromStr for OutboundRateLimiterConfig {
+    type Err = &'static str;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        RateLimiterConfig::from_str(s).map(Self)
+    }
+}
+
+impl FromStr for InboundRateLimiterConfig {
+    type Err = &'static str;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        RateLimiterConfig::from_str(s).map(Self)
+    }
+}
+
+/// Configurations for the rate limiter.
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct OutboundRateLimiterConfig {
+pub struct RateLimiterConfig {
     pub(super) ping_quota: Quota,
     pub(super) meta_data_quota: Quota,
     pub(super) status_quota: Quota,
     pub(super) goodbye_quota: Quota,
     pub(super) blocks_by_range_quota: Quota,
     pub(super) blocks_by_root_quota: Quota,
+    pub(super) light_client_bootstrap_quota: Quota,
 }
 
-impl OutboundRateLimiterConfig {
+impl RateLimiterConfig {
     pub const DEFAULT_PING_QUOTA: Quota = Quota::n_every(2, 10);
     pub const DEFAULT_META_DATA_QUOTA: Quota = Quota::n_every(2, 5);
     pub const DEFAULT_STATUS_QUOTA: Quota = Quota::n_every(5, 15);
@@ -77,22 +101,24 @@ impl OutboundRateLimiterConfig {
     pub const DEFAULT_BLOCKS_BY_RANGE_QUOTA: Quota =
         Quota::n_every(methods::MAX_REQUEST_BLOCKS, 10);
     pub const DEFAULT_BLOCKS_BY_ROOT_QUOTA: Quota = Quota::n_every(128, 10);
+    pub const DEFAULT_LIGHT_CLIENT_BOOTSTRAP_QUOTA: Quota = Quota::one_every(10);
 }
 
-impl Default for OutboundRateLimiterConfig {
+impl Default for RateLimiterConfig {
     fn default() -> Self {
-        OutboundRateLimiterConfig {
+        RateLimiterConfig {
             ping_quota: Self::DEFAULT_PING_QUOTA,
             meta_data_quota: Self::DEFAULT_META_DATA_QUOTA,
             status_quota: Self::DEFAULT_STATUS_QUOTA,
             goodbye_quota: Self::DEFAULT_GOODBYE_QUOTA,
             blocks_by_range_quota: Self::DEFAULT_BLOCKS_BY_RANGE_QUOTA,
             blocks_by_root_quota: Self::DEFAULT_BLOCKS_BY_ROOT_QUOTA,
+            light_client_bootstrap_quota: Self::DEFAULT_LIGHT_CLIENT_BOOTSTRAP_QUOTA,
         }
     }
 }
 
-impl Debug for OutboundRateLimiterConfig {
+impl Debug for RateLimiterConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         macro_rules! fmt_q {
             ($quota:expr) => {
@@ -104,7 +130,7 @@ impl Debug for OutboundRateLimiterConfig {
             };
         }
 
-        f.debug_struct("OutboundRateLimiterConfig")
+        f.debug_struct("RateLimiterConfig")
             .field("ping", fmt_q!(&self.ping_quota))
             .field("metadata", fmt_q!(&self.meta_data_quota))
             .field("status", fmt_q!(&self.status_quota))
@@ -119,7 +145,7 @@ impl Debug for OutboundRateLimiterConfig {
 /// the default values. Protocol specified more than once use only the first given Quota.
 ///
 /// The expected format is a ';' separated list of [`ProtocolQuota`].
-impl FromStr for OutboundRateLimiterConfig {
+impl FromStr for RateLimiterConfig {
     type Err = &'static str;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -129,6 +155,8 @@ impl FromStr for OutboundRateLimiterConfig {
         let mut goodbye_quota = None;
         let mut blocks_by_range_quota = None;
         let mut blocks_by_root_quota = None;
+        let mut light_client_bootstrap_quota = None;
+
         for proto_def in s.split(';') {
             let ProtocolQuota { protocol, quota } = proto_def.parse()?;
             let quota = Some(quota);
@@ -139,10 +167,12 @@ impl FromStr for OutboundRateLimiterConfig {
                 Protocol::BlocksByRoot => blocks_by_root_quota = blocks_by_root_quota.or(quota),
                 Protocol::Ping => ping_quota = ping_quota.or(quota),
                 Protocol::MetaData => meta_data_quota = meta_data_quota.or(quota),
-                Protocol::LightClientBootstrap => return Err("Lighthouse does not send LightClientBootstrap requests. Quota should not be set."),
+                Protocol::LightClientBootstrap => {
+                    light_client_bootstrap_quota = light_client_bootstrap_quota.or(quota)
+                }
             }
         }
-        Ok(OutboundRateLimiterConfig {
+        Ok(RateLimiterConfig {
             ping_quota: ping_quota.unwrap_or(Self::DEFAULT_PING_QUOTA),
             meta_data_quota: meta_data_quota.unwrap_or(Self::DEFAULT_META_DATA_QUOTA),
             status_quota: status_quota.unwrap_or(Self::DEFAULT_STATUS_QUOTA),
@@ -151,6 +181,8 @@ impl FromStr for OutboundRateLimiterConfig {
                 .unwrap_or(Self::DEFAULT_BLOCKS_BY_RANGE_QUOTA),
             blocks_by_root_quota: blocks_by_root_quota
                 .unwrap_or(Self::DEFAULT_BLOCKS_BY_ROOT_QUOTA),
+            light_client_bootstrap_quota: light_client_bootstrap_quota
+                .unwrap_or(Self::DEFAULT_LIGHT_CLIENT_BOOTSTRAP_QUOTA),
         })
     }
 }

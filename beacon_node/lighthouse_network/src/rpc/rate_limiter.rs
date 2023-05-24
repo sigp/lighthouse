@@ -1,3 +1,4 @@
+use super::config::RateLimiterConfig;
 use crate::rpc::Protocol;
 use fnv::FnvHashMap;
 use libp2p::PeerId;
@@ -141,29 +142,6 @@ impl RPCRateLimiterBuilder {
         self
     }
 
-    /// Allow one token every `time_period` to be used for this `protocol`.
-    /// This produces a hard limit.
-    pub fn one_every(self, protocol: Protocol, time_period: Duration) -> Self {
-        self.set_quota(
-            protocol,
-            Quota {
-                replenish_all_every: time_period,
-                max_tokens: 1,
-            },
-        )
-    }
-
-    /// Allow `n` tokens to be use used every `time_period` for this `protocol`.
-    pub fn n_every(self, protocol: Protocol, n: u64, time_period: Duration) -> Self {
-        self.set_quota(
-            protocol,
-            Quota {
-                max_tokens: n,
-                replenish_all_every: time_period,
-            },
-        )
-    }
-
     pub fn build(self) -> Result<RPCRateLimiter, &'static str> {
         // get our quotas
         let ping_quota = self.ping_quota.ok_or("Ping quota not specified")?;
@@ -232,6 +210,36 @@ impl<T: EthSpec> RateLimiterItem for super::OutboundRequest<T> {
     }
 }
 impl RPCRateLimiter {
+    pub fn new_with_config(config: RateLimiterConfig) -> Result<Self, &'static str> {
+        // Destructure to make sure every configuration value is used.
+        let RateLimiterConfig {
+            ping_quota,
+            meta_data_quota,
+            status_quota,
+            goodbye_quota,
+            blocks_by_range_quota,
+            blocks_by_root_quota,
+            blobs_by_range_quota,
+            blobs_by_root_quota,
+            light_client_bootstrap_quota,
+        } = config;
+
+        Self::builder()
+            .set_quota(Protocol::Ping, ping_quota)
+            .set_quota(Protocol::MetaData, meta_data_quota)
+            .set_quota(Protocol::Status, status_quota)
+            .set_quota(Protocol::Goodbye, goodbye_quota)
+            .set_quota(Protocol::BlocksByRange, blocks_by_range_quota)
+            .set_quota(Protocol::BlocksByRoot, blocks_by_root_quota)
+            .set_quota(Protocol::BlobsByRange, blobs_by_range_quota)
+            .set_quota(Protocol::BlobsByRoot, blobs_by_root_quota)
+            // Manually set the LightClientBootstrap quota, since we use the same rate limiter for
+            // inbound and outbound requests, and the LightClientBootstrap is an only inbound
+            // protocol.
+            .set_quota(Protocol::LightClientBootstrap, light_client_bootstrap_quota)
+            .build()
+    }
+
     /// Get a builder instance.
     pub fn builder() -> RPCRateLimiterBuilder {
         RPCRateLimiterBuilder::default()
