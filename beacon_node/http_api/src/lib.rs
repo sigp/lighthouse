@@ -1232,25 +1232,25 @@ pub fn serve<T: BeaconChainTypes>(
     let post_beacon_blocks_v2 = eth_v2
         .and(warp::path("beacon"))
         .and(warp::path("blocks"))
+        .and(warp::query::<api_types::BroadcastValidationQuery>())
         .and(warp::path::end())
         .and(warp::body::json())
         .and(chain_filter.clone())
         .and(network_tx_filter.clone())
         .and(log_filter.clone())
-        .and(warp::query::<BroadcastValidation>())
         .and_then(
-            |block: Arc<SignedBeaconBlock<T::EthSpec>>,
+            |validation_level: api_types::BroadcastValidationQuery,
+             block: Arc<SignedBeaconBlock<T::EthSpec>>,
              chain: Arc<BeaconChain<T>>,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
-             log: Logger,
-             validation_level: BroadcastValidation| async move {
+             log: Logger| async move {
                 publish_blocks::publish_block_checked(
                     None,
                     ProvenancedBlock::Local(block),
                     chain,
                     &network_tx,
                     log,
-                    validation_level,
+                    validation_level.broadcast_validation,
                 )
                 .await
                 .map(|()| warp::reply().into_response())

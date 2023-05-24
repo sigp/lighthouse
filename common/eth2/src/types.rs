@@ -1238,6 +1238,7 @@ pub struct ForkChoiceNode {
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
 pub enum BroadcastValidation {
     Gossip,
     Consensus,
@@ -1271,6 +1272,12 @@ impl FromStr for BroadcastValidation {
             _ => Err("Invalid broadcast validation level"),
         }
     }
+}
+
+#[derive(Default, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub struct BroadcastValidationQuery {
+    pub broadcast_validation: BroadcastValidation,
 }
 
 #[cfg(test)]
