@@ -14,14 +14,14 @@ Beacon node and Lighthouse Validator client.
 
 > The Beacon Node must be run with the `--gui` flag set. 
 
-> If you run Siren in the browser (by entering `localhost` in the browser), you will need to allow CORS in the http API. This can be done by adding the flag `--http-allow-origin "*"` in both beacon node and validator client. If you would like to access Siren beyond the local computer, we recommend to use ssh tunnel. This requires ssh tunnel to 3 ports: `80` (assuming the port is unchanged as per the [installation guide](./ui-installation.md#docker-recommended), `5052` (for beacon node) and `5062` (for validator client). You can use the command below to perform ssh tunneling:
+> If you run Siren in the browser (by entering `localhost` in the browser), you will need to allow CORS in the http API. This can be done by adding the flag `--http-allow-origin "*"` in both beacon node and validator client. If you would like to access Siren beyond the local computer, we recommend to use ssh tunnel. This requires ssh tunnel to connect to 3 ports: `80` (assuming the port is unchanged as per the [installation guide](./ui-installation.md#docker-recommended), `5052` (for beacon node) and `5062` (for validator client). You can use the command below to perform ssh tunneling:
 ```bash
 ssh -L 80:127.0.0.1:80 -L 5052:127.0.0.1:5052 -L 5062:127.0.0.1:5062 username@local_ip
 ```  
 
 where `username` is the username of the server and `local_ip` is the local IP address of the server. Once you have successfully connected to the server via ssh tunnel, you should be able to access Siren by entering `localhost` in a web browser. 
 
-> You can also access Siren using the app downloaded in the [Siren release page](https://github.com/sigp/siren/releases). To access Siren beyond the local computer, you can use ssh tunnel to ports `5052` and `5062` using the command:
+> You can also access Siren using the app downloaded in the [Siren release page](https://github.com/sigp/siren/releases). To access Siren beyond the local computer, you can use ssh tunnel to connect to ports `5052` and `5062` using the command:
 
 ```bash
 ssh -L 5052:127.0.0.1:5052 -L 5062:127.0.0.1:5062 username@local_ip
