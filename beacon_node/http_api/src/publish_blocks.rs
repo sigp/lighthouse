@@ -1,7 +1,8 @@
 use crate::metrics;
 use beacon_chain::validator_monitor::{get_block_delay_ms, timestamp_now};
 use beacon_chain::{
-    BeaconChain, BeaconChainTypes, BlockError, CountUnrealized, NotifyExecutionLayer,
+    BeaconChain, BeaconChainTypes, BlockError, CountUnrealized, GossipVerifiedBlock,
+    NotifyExecutionLayer,
 };
 use eth2::types::BroadcastValidation;
 use execution_layer::ProvenancedPayload;
@@ -70,8 +71,19 @@ pub async fn publish_block<T: BeaconChainTypes>(
     let block_clone = block.clone();
     let log_clone = log.clone();
     let sender_clone = network_tx.clone();
+    let chain_clone_gossip = chain.clone();
+    let block_clone_gossip = block.clone();
+    let log_clone_gossip = log.clone();
 
-    let gossip_only_publish_fn = move || Ok(());
+    let gossip_only_publish_fn = move || {
+        /* if we can form a `GossipVerifiedBlock`, we've passed our basic gossip checks */
+        GossipVerifiedBlock::new(block_clone_gossip.clone(), chain_clone_gossip.as_ref())
+            .map_err(|e| {
+                warn!(log_clone_gossip, "Not publishing block, not gossip verified"; "slot" => block_clone_gossip.slot());
+                e}
+            )
+            .map(|_| ())
+    };
 
     let consensus_and_equivocation_publish_fn = move || {
         if chain_clone
@@ -106,7 +118,7 @@ pub async fn publish_block<T: BeaconChainTypes>(
                 _ => Box::new(consensus_and_equivocation_publish_fn),
             }
         } else {
-            Box::new(move || Ok(()))
+            Box::new(move || Ok(())) /* no validation at all */
         };
 
     match chain
