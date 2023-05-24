@@ -132,7 +132,6 @@ impl<Id: ReqId, TSpec: EthSpec> RPC<Id, TSpec> {
     ) -> Self {
         let log = log.new(o!("service" => "libp2p_rpc"));
 
-        // We always do inbound rate limiting, so use the default config if not provided.
         let inbound_limiter = inbound_rate_limiter_config.map(|config| {
             debug!(log, "Using inbound rate limiting params"; "config" => ?config);
             RateLimiter::new_with_config(config.0)

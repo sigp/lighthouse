@@ -1456,8 +1456,21 @@ fn disable_inbound_rate_limiter_flag() {
     CommandLineTest::new()
         .flag("disable-inbound-rate-limiter", None)
         .run_with_zero_port()
-        .with_config(|config| assert!(config.network.disable_inbound_rate_limiter));
+        .with_config(|config| assert!(config.network.inbound_rate_limiter_config.is_none()));
 }
+#[test]
+fn empty_inbound_rate_limiter_flag() {
+    CommandLineTest::new()
+        .flag("inbound-rate-limiter", None)
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config.network.inbound_rate_limiter_config,
+                Some(lighthouse_network::rpc::config::InboundRateLimiterConfig::default())
+            )
+        });
+}
+
 #[test]
 fn http_allow_origin_flag() {
     CommandLineTest::new()
