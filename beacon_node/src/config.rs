@@ -1265,7 +1265,6 @@ pub fn set_network_config(
         config.inbound_rate_limiter_config = None;
     }
 
-
     Ok(())
 }
 

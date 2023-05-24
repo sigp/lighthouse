@@ -64,7 +64,6 @@ pub struct OutboundRateLimiterConfig(pub RateLimiterConfig);
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug, Default)]
 pub struct InboundRateLimiterConfig(pub RateLimiterConfig);
 
-
 impl FromStr for OutboundRateLimiterConfig {
     type Err = &'static str;
 
