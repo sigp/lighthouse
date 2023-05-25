@@ -40,6 +40,7 @@ pub async fn run<T: EthSpec>(config: BootNodeConfig<T>, log: slog::Logger) {
 
     // build the contactable multiaddr list, adding the p2p protocol
     info!(log, "Contact information"; "enr" => local_enr.to_base64());
+    info!(log, "Enr details"; "enr" => ?local_enr);
     info!(log, "Contact information"; "multiaddrs" => ?local_enr.multiaddr_p2p());
 
     // construct the discv5 server

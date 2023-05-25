@@ -13,13 +13,19 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .settings(&[clap::AppSettings::ColoredHelp])
         .arg(
             Arg::with_name("enr-address")
-                .value_name("IP-ADDRESS")
-                .help("The external IP address/ DNS address to broadcast to other peers on how to reach this node. \
-                If a DNS address is provided, the enr-address is set to the IP address it resolves to and \
-                does not auto-update based on PONG responses in discovery.")
+                .long("enr-address")
+                .value_name("ADDRESS")
+                .help("The IP address/ DNS address to broadcast to other peers on how to reach \
+                      this node. If a DNS address is provided, the enr-address is set to the IP \
+                      address it resolves to and does not auto-update based on PONG responses in \
+                      discovery. Set this only if you are sure other nodes can connect to your \
+                      local node on this address. This will update the `ip4` or `ip6` ENR fields \
+                      accordingly. To update both, set this flag twice with the different values.")
+                .multiple(true)
+                .max_values(2)
                 .required(true)
-                .takes_value(true)
                 .conflicts_with("network-dir")
+                .takes_value(true),
         )
         .arg(
             Arg::with_name("port")
@@ -77,6 +83,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .value_name("PORT")
                 .help("The UDP6 port of the local ENR. Set this only if you are sure other nodes \
                       can connect to your local node on this port over IpV6.")
+                .conflicts_with("network-dir")
                 .takes_value(true),
         )
         .arg(

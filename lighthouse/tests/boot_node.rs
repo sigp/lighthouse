@@ -39,7 +39,7 @@ impl CommandLineTest {
     }
 
     fn run_with_ip(&mut self) -> CompletedTest<BootNodeConfigSerialization> {
-        self.cmd.arg(IP_ADDRESS);
+        self.cmd.arg("--enr-address").arg(IP_ADDRESS);
         self.run()
     }
 }

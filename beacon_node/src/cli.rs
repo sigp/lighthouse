@@ -197,7 +197,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                       discovery. Set this only if you are sure other nodes can connect to your \
                       local node on this address. This will update the `ip4` or `ip6` ENR fields \
                       accordingly. To update both, set this flag twice with the different values.")
-                .requires("enr-udp-port")
                 .multiple(true)
                 .max_values(2)
                 .takes_value(true),
