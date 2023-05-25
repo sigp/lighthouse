@@ -111,7 +111,6 @@ impl<T: BeaconChainTypes> AttestationService<T> {
     ) -> Self {
         let log = log.new(o!("service" => "attestation_service"));
 
-        // Calculate the random subnet duration from the spec constants.
         let slot_duration = beacon_chain.slot_clock.slot_duration();
 
         if config.subscribe_all_subnets {
@@ -189,8 +188,6 @@ impl<T: BeaconChainTypes> AttestationService<T> {
     ///
     /// This will:
     /// - Register new validators as being known.
-    /// - Subscribe to the required number of random subnets.
-    /// - Update the local ENR for new random subnets due to seeing new validators.
     /// - Search for peers for required subnets.
     /// - Request subscriptions for subnets on specific slots when required.
     /// - Build the timeouts for each of these events.
@@ -218,7 +215,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
                 "subscription" => ?subscription,
             );
 
-            // This will subscribe to long-lived random subnets if required.
+            // Compute the subnet that is associated with this subscription
             let subnet_id = match SubnetId::compute_subnet::<T::EthSpec>(
                 subscription.slot,
                 subscription.attestation_committee_index,
@@ -256,7 +253,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
 
             if subscription.is_aggregator {
                 metrics::inc_counter(&metrics::SUBNET_SUBSCRIPTION_AGGREGATOR_REQUESTS);
-                if let Err(e) = self.subscribe_to_subnet(exact_subnet) {
+                if let Err(e) = self.subscribe_to_short_lived_subnet(exact_subnet) {
                     warn!(self.log,
                         "Subscription to subnet error";
                         "error" => e,
@@ -455,7 +452,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
     }
 
     // Subscribes to the subnet if it should be done immediately, or schedules it if required.
-    fn subscribe_to_subnet(
+    fn subscribe_to_short_lived_subnet(
         &mut self,
         ExactSubnet { subnet_id, slot }: ExactSubnet,
     ) -> Result<(), &'static str> {
@@ -484,7 +481,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
         // immediately.
         if time_to_subscription_start.is_zero() {
             // This is a current or past slot, we subscribe immediately.
-            self.subscribe_to_subnet_immediately(subnet_id, slot + 1)?;
+            self.subscribe_to_short_lived_subnet_immediately(subnet_id, slot + 1)?;
         } else {
             // This is a future slot, schedule subscribing.
             trace!(self.log, "Scheduling subnet subscription"; "subnet" => ?subnet_id, "time_to_subscription_start" => ?time_to_subscription_start);
@@ -504,7 +501,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
     /// out the appropriate events.
     ///
     /// On determinist long lived subnets, this is only used for short lived subscriptions.
-    fn subscribe_to_subnet_immediately(
+    fn subscribe_to_short_lived_subnet_immediately(
         &mut self,
         subnet_id: SubnetId,
         end_slot: Slot,
@@ -634,7 +631,9 @@ impl<T: BeaconChainTypes> Stream for AttestationService<T> {
         // expire subscription.
         match self.scheduled_short_lived_subscriptions.poll_next_unpin(cx) {
             Poll::Ready(Some(Ok(ExactSubnet { subnet_id, slot }))) => {
-                if let Err(e) = self.subscribe_to_subnet_immediately(subnet_id, slot + 1) {
+                if let Err(e) =
+                    self.subscribe_to_short_lived_subnet_immediately(subnet_id, slot + 1)
+                {
                     debug!(self.log, "Failed to subscribe to short lived subnet"; "subnet" => ?subnet_id, "err" => e);
                 }
                 self.waker
