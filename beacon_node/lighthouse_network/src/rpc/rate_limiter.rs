@@ -219,8 +219,6 @@ impl RPCRateLimiter {
             goodbye_quota,
             blocks_by_range_quota,
             blocks_by_root_quota,
-            blobs_by_range_quota,
-            blobs_by_root_quota,
             light_client_bootstrap_quota,
         } = config;
 
@@ -231,11 +229,6 @@ impl RPCRateLimiter {
             .set_quota(Protocol::Goodbye, goodbye_quota)
             .set_quota(Protocol::BlocksByRange, blocks_by_range_quota)
             .set_quota(Protocol::BlocksByRoot, blocks_by_root_quota)
-            .set_quota(Protocol::BlobsByRange, blobs_by_range_quota)
-            .set_quota(Protocol::BlobsByRoot, blobs_by_root_quota)
-            // Manually set the LightClientBootstrap quota, since we use the same rate limiter for
-            // inbound and outbound requests, and the LightClientBootstrap is an only inbound
-            // protocol.
             .set_quota(Protocol::LightClientBootstrap, light_client_bootstrap_quota)
             .build()
     }
