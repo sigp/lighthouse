@@ -125,7 +125,6 @@ pub enum Error {
     /// It's unclear if this attestation is valid, however we have already observed it and do not
     /// need to observe it again.
     AttestationSupersetKnown(Hash256),
-    AttestationAlreadyKnown(Hash256),
     /// There has already been an aggregation observed for this validator, we refuse to process a
     /// second.
     ///
@@ -471,21 +470,14 @@ impl<'a, T: BeaconChainTypes> IndexedAggregatedAttestation<'a, T> {
         let attestation_data = &attestation.data;
         let attestation_data_root = attestation_data.tree_hash_root();
 
-        let outcome = chain
+        if chain
             .observed_attestations
             .write()
             .is_known_subset(attestation, attestation_data_root)
-            .map_err(|e| Error::BeaconChainError(e.into()))?;
-        match outcome {
-            ObserveOutcome::AlreadyKnown => {
-                metrics::inc_counter(&metrics::AGGREGATED_ATTESTATION_DUPLICATES);
-                return Err(Error::AttestationAlreadyKnown(attestation_data_root));
-            }
-            ObserveOutcome::Subset => {
-                metrics::inc_counter(&metrics::AGGREGATED_ATTESTATION_SUBSETS);
-                return Err(Error::AttestationSupersetKnown(attestation_data_root));
-            }
-            ObserveOutcome::New => {}
+            .map_err(|e| Error::BeaconChainError(e.into()))?
+        {
+            metrics::inc_counter(&metrics::AGGREGATED_ATTESTATION_SUBSETS);
+            return Err(Error::AttestationSupersetKnown(attestation_data_root));
         }
 
         let aggregator_index = signed_aggregate.message.aggregator_index;
@@ -604,6 +596,7 @@ impl<'a, T: BeaconChainTypes> VerifiedAggregatedAttestation<'a, T> {
             .observe_item(attestation, Some(attestation_data_root))
             .map_err(|e| Error::BeaconChainError(e.into()))?
         {
+            metrics::inc_counter(&metrics::AGGREGATED_ATTESTATION_SUBSETS);
             return Err(Error::AttestationSupersetKnown(attestation_data_root));
         }
 

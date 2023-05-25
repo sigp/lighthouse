@@ -1009,14 +1009,6 @@ lazy_static! {
         "beacon_aggregated_attestation_subsets_total",
         "Count of new aggregated attestations that are subsets of already known aggregates"
     );
-    pub static ref SYNC_CONTRIBUTION_DUPLICATES: Result<IntCounter> = try_create_int_counter(
-        "beacon_sync_contribution_duplicates_total",
-        "Count of new sync contributions that have been seen"
-    );
-    pub static ref AGGREGATED_ATTESTATION_DUPLICATES: Result<IntCounter> = try_create_int_counter(
-        "beacon_aggregated_attestation_duplicates_total",
-        "Count of new aggregated attestations that have already been seen"
-    );
 }
 
 /// Scrape the `beacon_chain` for metrics that are not constantly updated (e.g., the present slot,

@@ -98,18 +98,14 @@ pub enum Error {
     /// ## Peer scoring
     ///
     /// The peer has sent an invalid message.
-    InvalidSelectionProof {
-        aggregator_index: u64,
-    },
+    InvalidSelectionProof { aggregator_index: u64 },
     /// The `selection_proof` on the sync committee contribution selects it as a validator, however the
     /// aggregator index is not in the committee for that sync contribution.
     ///
     /// ## Peer scoring
     ///
     /// The peer has sent an invalid message.
-    AggregatorNotInCommittee {
-        aggregator_index: u64,
-    },
+    AggregatorNotInCommittee { aggregator_index: u64 },
     /// The aggregator index refers to a validator index that we have not seen.
     ///
     /// ## Peer scoring
@@ -124,7 +120,6 @@ pub enum Error {
     /// It's unclear if this sync contribution is valid, however we have already observed it and do not
     /// need to observe it again.
     SyncContributionSupersetKnown(Hash256),
-    SyncContributionAlreadyKnown(Hash256),
     /// There has already been an aggregation observed for this validator, we refuse to process a
     /// second.
     ///
@@ -174,10 +169,7 @@ pub enum Error {
     /// It's unclear if this sync message is valid, however we have already observed a
     /// signature from this validator for this slot and should not observe
     /// another.
-    PriorSyncContributionMessageKnown {
-        validator_index: u64,
-        slot: Slot,
-    },
+    PriorSyncContributionMessageKnown { validator_index: u64, slot: Slot },
     /// The sync committee message was received on an invalid sync committee message subnet.
     ///
     /// ## Peer scoring
@@ -340,21 +332,14 @@ impl<T: BeaconChainTypes> VerifiedSyncContribution<T> {
         }
         .tree_hash_root();
 
-        let outcome = chain
+        if chain
             .observed_sync_contributions
             .write()
             .is_known_subset(contribution, contribution_data_root)
-            .map_err(|e| Error::BeaconChainError(e.into()))?;
-        match outcome {
-            ObserveOutcome::AlreadyKnown => {
-                metrics::inc_counter(&metrics::SYNC_CONTRIBUTION_DUPLICATES);
-                return Err(Error::SyncContributionAlreadyKnown(contribution_data_root));
-            }
-            ObserveOutcome::Subset => {
-                metrics::inc_counter(&metrics::SYNC_CONTRIBUTION_SUBSETS);
-                return Err(Error::SyncContributionSupersetKnown(contribution_data_root));
-            }
-            ObserveOutcome::New => {}
+            .map_err(|e| Error::BeaconChainError(e.into()))?
+        {
+            metrics::inc_counter(&metrics::SYNC_CONTRIBUTION_SUBSETS);
+            return Err(Error::SyncContributionSupersetKnown(contribution_data_root));
         }
 
         // Ensure there has been no other observed aggregate for the given `aggregator_index`.
@@ -414,6 +399,7 @@ impl<T: BeaconChainTypes> VerifiedSyncContribution<T> {
             .observe_item(contribution, Some(contribution_data_root))
             .map_err(|e| Error::BeaconChainError(e.into()))?
         {
+            metrics::inc_counter(&metrics::SYNC_CONTRIBUTION_SUBSETS);
             return Err(Error::SyncContributionSupersetKnown(contribution_data_root));
         }
 
