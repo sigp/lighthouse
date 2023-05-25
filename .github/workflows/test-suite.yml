@@ -8,19 +8,20 @@ on:
       - trying
       - 'pr/*'
   pull_request:
+  merge_group:
 env:
   # Deny warnings in CI
   # Disable debug info (see https://github.com/sigp/lighthouse/issues/4005)
   RUSTFLAGS: "-D warnings -C debuginfo=0"
   # The Nightly version used for cargo-udeps, might need updating from time to time.
-  PINNED_NIGHTLY: nightly-2022-12-15
+  PINNED_NIGHTLY: nightly-2023-04-16
   # Prevent Github API rate limiting.
   LIGHTHOUSE_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 jobs:
   target-branch-check:
     name: target-branch-check
     runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
     steps:
         - name: Check that the pull request is not targeting the stable branch
           run: test ${{ github.base_ref }} != "stable"
@@ -57,8 +58,8 @@ jobs:
       uses: arduino/setup-protoc@e52d9eb8f7b63115df1ac544a1376fdbf5a39612
       with:
         repo-token: ${{ secrets.GITHUB_TOKEN }}
-    - name: Install ganache
-      run: sudo npm install -g ganache
+    - name: Install anvil
+      run: cargo install --git https://github.com/foundry-rs/foundry --locked anvil
     - name: Run tests in release
       run: make test-release
   release-tests-windows:
@@ -77,13 +78,13 @@ jobs:
       run: |
         choco install python protoc visualstudio2019-workload-vctools -y
         npm config set msvs_version 2019
-    - name: Install ganache
-      run: npm install -g ganache --loglevel verbose
+    - name: Install anvil
+      run: cargo install --git https://github.com/foundry-rs/foundry --locked anvil
     - name: Install make
       run: choco install -y make
     - uses: KyleMayes/install-llvm-action@v1
       with:
-        version: "13.0"
+        version: "15.0"
         directory: ${{ runner.temp }}/llvm
     - name: Set LIBCLANG_PATH
       run: echo "LIBCLANG_PATH=$((gcm clang).source -replace "clang.exe")" >> $env:GITHUB_ENV
@@ -139,8 +140,8 @@ jobs:
       uses: arduino/setup-protoc@e52d9eb8f7b63115df1ac544a1376fdbf5a39612
       with:
         repo-token: ${{ secrets.GITHUB_TOKEN }}
-    - name: Install ganache
-      run: sudo npm install -g ganache
+    - name: Install anvil
+      run: cargo install --git https://github.com/foundry-rs/foundry --locked anvil
     - name: Run tests in debug
       run: make test-debug
   state-transition-vectors-ubuntu:
@@ -195,8 +196,8 @@ jobs:
       uses: arduino/setup-protoc@e52d9eb8f7b63115df1ac544a1376fdbf5a39612
       with:
         repo-token: ${{ secrets.GITHUB_TOKEN }}
-    - name: Install ganache
-      run: sudo npm install -g ganache
+    - name: Install anvil
+      run: cargo install --git https://github.com/foundry-rs/foundry --locked anvil
     - name: Run the beacon chain sim that starts from an eth1 contract
       run: cargo run --release --bin simulator eth1-sim
   merge-transition-ubuntu:
@@ -211,8 +212,8 @@ jobs:
       uses: arduino/setup-protoc@e52d9eb8f7b63115df1ac544a1376fdbf5a39612
       with:
         repo-token: ${{ secrets.GITHUB_TOKEN }}
-    - name: Install ganache
-      run: sudo npm install -g ganache
+    - name: Install anvil
+      run: cargo install --git https://github.com/foundry-rs/foundry --locked anvil
     - name: Run the beacon chain sim and go through the merge transition
       run: cargo run --release --bin simulator eth1-sim --post-merge
   no-eth1-simulator-ubuntu:
@@ -227,8 +228,6 @@ jobs:
       uses: arduino/setup-protoc@e52d9eb8f7b63115df1ac544a1376fdbf5a39612
       with:
         repo-token: ${{ secrets.GITHUB_TOKEN }}
-    - name: Install ganache
-      run: sudo npm install -g ganache
     - name: Run the beacon chain sim without an eth1 connection
       run: cargo run --release --bin simulator no-eth1-sim
   syncing-simulator-ubuntu:
@@ -243,8 +242,8 @@ jobs:
       uses: arduino/setup-protoc@e52d9eb8f7b63115df1ac544a1376fdbf5a39612
       with:
         repo-token: ${{ secrets.GITHUB_TOKEN }}
-    - name: Install ganache
-      run: sudo npm install -g ganache
+    - name: Install anvil
+      run: cargo install --git https://github.com/foundry-rs/foundry --locked anvil
     - name: Run the syncing simulator
       run: cargo run --release --bin simulator syncing-sim
   doppelganger-protection-test:
@@ -259,20 +258,23 @@ jobs:
       uses: arduino/setup-protoc@e52d9eb8f7b63115df1ac544a1376fdbf5a39612
       with:
         repo-token: ${{ secrets.GITHUB_TOKEN }}
-    - name: Install ganache
-      run: sudo npm install -g ganache
+    - name: Install geth
+      run: |
+          sudo add-apt-repository -y ppa:ethereum/ethereum
+          sudo apt-get update
+          sudo apt-get install ethereum
     - name: Install lighthouse and lcli
       run: |
           make
           make install-lcli
-    - name: Run the doppelganger protection success test script
-      run: |
-          cd scripts/tests
-          ./doppelganger_protection.sh success
     - name: Run the doppelganger protection failure test script
       run: |
           cd scripts/tests
-          ./doppelganger_protection.sh failure
+          ./doppelganger_protection.sh failure genesis.json
+    - name: Run the doppelganger protection success test script
+      run: |
+          cd scripts/tests
+          ./doppelganger_protection.sh success genesis.json
   execution-engine-integration-ubuntu:
     name: execution-engine-integration-ubuntu
     runs-on: ubuntu-latest

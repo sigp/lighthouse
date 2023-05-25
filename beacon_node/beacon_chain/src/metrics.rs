@@ -874,6 +874,14 @@ lazy_static! {
         "beacon_sync_committee_message_gossip_verification_seconds",
         "Full runtime of sync contribution gossip verification"
     );
+    pub static ref SYNC_MESSAGE_EQUIVOCATIONS: Result<IntCounter> = try_create_int_counter(
+        "sync_message_equivocations_total",
+        "Number of sync messages with the same validator index for different blocks"
+    );
+    pub static ref SYNC_MESSAGE_EQUIVOCATIONS_TO_HEAD: Result<IntCounter> = try_create_int_counter(
+        "sync_message_equivocations_to_head_total",
+        "Number of sync message which conflict with a previous message but elect the head"
+    );
 
     /*
      * Sync Committee Contribution Verification

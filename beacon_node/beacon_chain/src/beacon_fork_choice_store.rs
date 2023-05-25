@@ -218,7 +218,6 @@ where
             finalized_checkpoint: self.finalized_checkpoint,
             justified_checkpoint: self.justified_checkpoint,
             justified_balances: self.justified_balances.effective_balances.clone(),
-            best_justified_checkpoint: JUNK_BEST_JUSTIFIED_CHECKPOINT,
             unrealized_justified_checkpoint: self.unrealized_justified_checkpoint,
             unrealized_finalized_checkpoint: self.unrealized_finalized_checkpoint,
             proposer_boost_root: self.proposer_boost_root,
@@ -355,24 +354,62 @@ where
     }
 }
 
+pub type PersistedForkChoiceStore = PersistedForkChoiceStoreV17;
+
 /// A container which allows persisting the `BeaconForkChoiceStore` to the on-disk database.
-#[superstruct(variants(V11), variant_attributes(derive(Encode, Decode)), no_enum)]
+#[superstruct(
+    variants(V11, V17),
+    variant_attributes(derive(Encode, Decode)),
+    no_enum
+)]
 pub struct PersistedForkChoiceStore {
-    #[superstruct(only(V11))]
+    #[superstruct(only(V11, V17))]
     pub balances_cache: BalancesCacheV8,
     pub time: Slot,
     pub finalized_checkpoint: Checkpoint,
     pub justified_checkpoint: Checkpoint,
     pub justified_balances: Vec<u64>,
+    #[superstruct(only(V11))]
     pub best_justified_checkpoint: Checkpoint,
-    #[superstruct(only(V11))]
+    #[superstruct(only(V11, V17))]
     pub unrealized_justified_checkpoint: Checkpoint,
-    #[superstruct(only(V11))]
+    #[superstruct(only(V11, V17))]
     pub unrealized_finalized_checkpoint: Checkpoint,
-    #[superstruct(only(V11))]
+    #[superstruct(only(V11, V17))]
     pub proposer_boost_root: Hash256,
-    #[superstruct(only(V11))]
+    #[superstruct(only(V11, V17))]
     pub equivocating_indices: BTreeSet<u64>,
 }
 
-pub type PersistedForkChoiceStore = PersistedForkChoiceStoreV11;
+impl Into<PersistedForkChoiceStore> for PersistedForkChoiceStoreV11 {
+    fn into(self) -> PersistedForkChoiceStore {
+        PersistedForkChoiceStore {
+            balances_cache: self.balances_cache,
+            time: self.time,
+            finalized_checkpoint: self.finalized_checkpoint,
+            justified_checkpoint: self.justified_checkpoint,
+            justified_balances: self.justified_balances,
+            unrealized_justified_checkpoint: self.unrealized_justified_checkpoint,
+            unrealized_finalized_checkpoint: self.unrealized_finalized_checkpoint,
+            proposer_boost_root: self.proposer_boost_root,
+            equivocating_indices: self.equivocating_indices,
+        }
+    }
+}
+
+impl Into<PersistedForkChoiceStoreV11> for PersistedForkChoiceStore {
+    fn into(self) -> PersistedForkChoiceStoreV11 {
+        PersistedForkChoiceStoreV11 {
+            balances_cache: self.balances_cache,
+            time: self.time,
+            finalized_checkpoint: self.finalized_checkpoint,
+            justified_checkpoint: self.justified_checkpoint,
+            justified_balances: self.justified_balances,
+            best_justified_checkpoint: JUNK_BEST_JUSTIFIED_CHECKPOINT,
+            unrealized_justified_checkpoint: self.unrealized_justified_checkpoint,
+            unrealized_finalized_checkpoint: self.unrealized_finalized_checkpoint,
+            proposer_boost_root: self.proposer_boost_root,
+            equivocating_indices: self.equivocating_indices,
+        }
+    }
+}

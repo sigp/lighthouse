@@ -6,7 +6,7 @@ use crate::fork_revert::{reset_fork_choice_to_finalization, revert_to_fork_bound
 use crate::head_tracker::HeadTracker;
 use crate::migrate::{BackgroundMigrator, MigratorConfig};
 use crate::persisted_beacon_chain::PersistedBeaconChain;
-use crate::shuffling_cache::ShufflingCache;
+use crate::shuffling_cache::{BlockShufflingIds, ShufflingCache};
 use crate::snapshot_cache::{SnapshotCache, DEFAULT_SNAPSHOT_CACHE_SIZE};
 use crate::timeout_rw_lock::TimeoutRwLock;
 use crate::validator_monitor::ValidatorMonitor;
@@ -22,7 +22,7 @@ use fork_choice::{CountUnrealized, ForkChoice, ResetPayloadStatuses};
 use futures::channel::mpsc::Sender;
 use operation_pool::{OperationPool, PersistedOperationPool};
 use parking_lot::RwLock;
-use proto_array::ReOrgThreshold;
+use proto_array::{DisallowedReOrgOffsets, ReOrgThreshold};
 use slasher::Slasher;
 use slog::{crit, error, info, Logger};
 use slot_clock::{SlotClock, TestingSlotClock};
@@ -172,6 +172,15 @@ where
         epochs_since_finalization: Epoch,
     ) -> Self {
         self.chain_config.re_org_max_epochs_since_finalization = epochs_since_finalization;
+        self
+    }
+
+    /// Sets the proposer re-org disallowed offsets list.
+    pub fn proposer_re_org_disallowed_offsets(
+        mut self,
+        disallowed_offsets: DisallowedReOrgOffsets,
+    ) -> Self {
+        self.chain_config.re_org_disallowed_offsets = disallowed_offsets;
         self
     }
 
@@ -682,6 +691,8 @@ where
             )?;
         }
 
+        let head_shuffling_ids = BlockShufflingIds::try_from_head(head_block_root, &head_state)?;
+
         let mut head_snapshot = BeaconSnapshot {
             beacon_block_root: head_block_root,
             beacon_block: Arc::new(head_block),
@@ -763,6 +774,29 @@ where
         let canonical_head = CanonicalHead::new(fork_choice, Arc::new(head_snapshot));
         let shuffling_cache_size = self.chain_config.shuffling_cache_size;
 
+        // Calculate the weak subjectivity point in which to backfill blocks to.
+        let genesis_backfill_slot = if self.chain_config.genesis_backfill {
+            Slot::new(0)
+        } else {
+            let backfill_epoch_range = (self.spec.min_validator_withdrawability_delay
+                + self.spec.churn_limit_quotient)
+                .as_u64()
+                / 2;
+            match slot_clock.now() {
+                Some(current_slot) => {
+                    let genesis_backfill_epoch = current_slot
+                        .epoch(TEthSpec::slots_per_epoch())
+                        .saturating_sub(backfill_epoch_range);
+                    genesis_backfill_epoch.start_slot(TEthSpec::slots_per_epoch())
+                }
+                None => {
+                    // The slot clock cannot derive the current slot. We therefore assume we are
+                    // at or prior to genesis and backfill should sync all the way to genesis.
+                    Slot::new(0)
+                }
+            }
+        };
+
         let beacon_chain = BeaconChain {
             spec: self.spec,
             config: self.chain_config,
@@ -815,7 +849,11 @@ where
                 DEFAULT_SNAPSHOT_CACHE_SIZE,
                 head_for_snapshot_cache,
             )),
-            shuffling_cache: TimeoutRwLock::new(ShufflingCache::new(shuffling_cache_size)),
+            shuffling_cache: TimeoutRwLock::new(ShufflingCache::new(
+                shuffling_cache_size,
+                head_shuffling_ids,
+                log.clone(),
+            )),
             eth1_finalization_cache: TimeoutRwLock::new(Eth1FinalizationCache::new(log.clone())),
             beacon_proposer_cache: <_>::default(),
             block_times_cache: <_>::default(),
@@ -830,6 +868,7 @@ where
             graffiti: self.graffiti,
             slasher: self.slasher.clone(),
             validator_monitor: RwLock::new(validator_monitor),
+            genesis_backfill_slot,
         };
 
         let head = beacon_chain.head_snapshot();
@@ -990,7 +1029,7 @@ fn descriptive_db_error(item: &str, error: &StoreError) -> String {
 mod test {
     use super::*;
     use crate::validator_monitor::DEFAULT_INDIVIDUAL_TRACKING_THRESHOLD;
-    use eth2_hashing::hash;
+    use ethereum_hashing::hash;
     use genesis::{
         generate_deterministic_keypairs, interop_genesis_state, DEFAULT_ETH1_BLOCK_HASH,
     };

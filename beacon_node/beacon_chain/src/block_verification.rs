@@ -78,7 +78,7 @@ use state_processing::{
     per_block_processing, per_slot_processing,
     state_advance::partial_state_advance,
     BlockProcessingError, BlockSignatureStrategy, ConsensusContext, SlotProcessingError,
-    VerifyBlockRoot,
+    StateProcessingStrategy, VerifyBlockRoot,
 };
 use std::borrow::Cow;
 use std::fs;
@@ -1400,6 +1400,7 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
             &block,
             // Signatures were verified earlier in this function.
             BlockSignatureStrategy::NoVerification,
+            StateProcessingStrategy::Accurate,
             VerifyBlockRoot::True,
             &mut consensus_context,
             &chain.spec,
