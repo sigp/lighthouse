@@ -1268,7 +1268,7 @@ pub fn set_network_config(
     Ok(())
 }
 
-/// Gets the datadir which should be used. 
+/// Gets the datadir which should be used.
 pub fn get_data_dir(cli_args: &ArgMatches) -> PathBuf {
     // Read the `--datadir` flag.
     //

@@ -148,7 +148,7 @@ pub struct Config {
 
     /// Configures if/where invalid blocks should be stored.
     pub invalid_block_storage: Option<PathBuf>,
-    
+
     /// Configuration for the inbound rate limiter (requests received by this node).
     pub inbound_rate_limiter_config: Option<InboundRateLimiterConfig>,
 }
