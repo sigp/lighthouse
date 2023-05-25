@@ -429,32 +429,38 @@ pub fn process_deposit_receipt<T: EthSpec>(
     deposit_receipt: &DepositReceipt,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
-    // Set deposit receipt start index
-    let start_index = state
-        .deposit_receipts_start_index()
-        .map_err(|_| BlockProcessingError::DepositReceiptError)?;
-    if start_index == UNSET_DEPOSIT_RECEIPTS_START_INDEX {
-        *state
-            .deposit_receipts_start_index_mut()
-            .map_err(|_| BlockProcessingError::DepositReceiptError)? = deposit_receipt.index;
+    match state {
+        BeaconState::Eip6110(_) => {
+            // Set deposit receipt start index
+            let start_index = state
+                .deposit_receipts_start_index()
+                .map_err(|_| BlockProcessingError::DepositReceiptError)?;
+            if start_index == UNSET_DEPOSIT_RECEIPTS_START_INDEX {
+                *state
+                    .deposit_receipts_start_index_mut()
+                    .map_err(|_| BlockProcessingError::DepositReceiptError)? =
+                    deposit_receipt.index;
+            }
+
+            // Create a Deposit object from the DepositReceipt
+            let deposit_data = DepositData {
+                pubkey: deposit_receipt.pubkey,
+                withdrawal_credentials: deposit_receipt.withdrawal_credentials,
+                amount: deposit_receipt.amount,
+                signature: deposit_receipt.signature.clone(),
+            };
+            let deposit = Deposit {
+                proof: FixedVector::from_elem(Hash256::zero()), // Set an empty proof, since it's not included in DepositReceipt
+                data: deposit_data,
+            };
+
+            // Call apply with the created Deposit object
+            apply_deposit(state, &deposit, spec)?;
+
+            Ok(())
+        }
+        _ => Ok(()), // Do nothing for other states
     }
-
-    // Create a Deposit object from the DepositReceipt
-    let deposit_data = DepositData {
-        pubkey: deposit_receipt.pubkey,
-        withdrawal_credentials: deposit_receipt.withdrawal_credentials,
-        amount: deposit_receipt.amount,
-        signature: deposit_receipt.signature.clone(),
-    };
-    let deposit = Deposit {
-        proof: FixedVector::from_elem(Hash256::zero()), // Set an empty proof, since it's not included in DepositReceipt
-        data: deposit_data,
-    };
-
-    // Call apply with the created Deposit object
-    apply_deposit(state, &deposit, spec)?;
-
-    Ok(())
 }
 
 /// These functions will definitely be called before the merge. Their entire purpose is to check if
