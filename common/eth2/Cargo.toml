@@ -27,6 +27,10 @@ futures = "0.3.8"
 store = { path = "../../beacon_node/store", optional = true }
 slashing_protection = { path = "../../validator_client/slashing_protection", optional = true }
 mime = "0.3.16"
+pretty_reqwest_error = { path = "../../common/pretty_reqwest_error" }
+
+[dev-dependencies]
+tokio = { version = "1.14.0", features = ["full"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 psutil = { version = "3.2.2", optional = true }
