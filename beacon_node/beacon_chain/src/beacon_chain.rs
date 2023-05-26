@@ -4308,7 +4308,40 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             state.latest_block_header().canonical_root()
         };
 
-        let proposer_index = state.get_beacon_proposer_index(state.slot(), &self.spec)? as u64;
+        let dependent_root = state.proposer_shuffling_decision_root(self.genesis_block_root)?;
+
+        let proposer_slot = state.slot();
+        let proposer_epoch = proposer_slot.epoch(T::EthSpec::slots_per_epoch());
+
+        let cached_proposer = self
+            .beacon_proposer_cache
+            .lock()
+            .get_slot::<T::EthSpec>(dependent_root, proposer_slot);
+
+        let proposer_index = if let Some(proposer) = cached_proposer {
+            proposer.index as u64
+        } else {
+            let (proposers, decision_root, _, fork) =
+                compute_proposer_duties_from_head(proposer_epoch, self)
+                    .map_err(BlockProductionError::BeaconChain)?;
+
+            let proposer_offset = (proposer_slot % T::EthSpec::slots_per_epoch()).as_usize();
+            let proposer =
+                *proposers
+                    .get(proposer_offset)
+                    .ok_or(BlockProductionError::BeaconChain(
+                        BeaconChainError::NoProposerForSlot(proposer_slot),
+                    ))?;
+
+            self.beacon_proposer_cache.lock().insert(
+                proposer_epoch,
+                decision_root,
+                proposers,
+                fork,
+            )?;
+
+            proposer as u64
+        };
 
         let pubkey = state
             .validators()
