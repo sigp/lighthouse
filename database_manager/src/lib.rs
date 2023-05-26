@@ -192,7 +192,7 @@ pub fn inspect_db<E: EthSpec>(
     client_config: ClientConfig,
     runtime_context: &RuntimeContext<E>,
     log: Logger,
-) -> Result<(), Error> {
+) -> Result<(), String> {
     let spec = runtime_context.eth2_config.spec.clone();
     let hot_path = client_config.get_db_path();
     let cold_path = client_config.get_freezer_db_path();
@@ -204,12 +204,19 @@ pub fn inspect_db<E: EthSpec>(
         client_config.store,
         spec,
         log,
-    )?;
+    )
+    .map_err(|e| format!("{:?}", e))?;
 
     let mut total = 0;
+    let base_path = &inspect_config.output_dir;
+
+    if let InspectTarget::Values = inspect_config.target {
+        fs::create_dir_all(base_path)
+            .map_err(|e| format!("Unable to create import directory: {:?}", e))?;
+    }
 
     for res in db.hot_db.iter_column(inspect_config.column) {
-        let (key, value) = res?;
+        let (key, value) = res.map_err(|e| format!("{:?}", e))?;
 
         match inspect_config.target {
             InspectTarget::ValueSizes => {
@@ -220,12 +227,11 @@ pub fn inspect_db<E: EthSpec>(
                 total += value.len();
             }
             InspectTarget::Values => {
-                let base_path = &inspect_config.output_dir;
                 let file_path =
                     base_path.join(format!("{}_{}.ssz", inspect_config.column.as_str(), key));
 
                 let write_result = fs::OpenOptions::new()
-                    .create_new(true)
+                    .create(true)
                     .write(true)
                     .open(&file_path)
                     .map_err(|e| format!("Failed to open file: {:?}", e))
@@ -333,21 +339,23 @@ pub fn run<T: EthSpec>(cli_args: &ArgMatches<'_>, env: Environment<T>) -> Result
     let client_config = parse_client_config(cli_args, &env)?;
     let context = env.core_context();
     let log = context.log().clone();
+    let format_err = |e| format!("Fatal error: {:?}", e);
 
     match cli_args.subcommand() {
-        ("version", Some(_)) => display_db_version(client_config, &context, log),
+        ("version", Some(_)) => {
+            display_db_version(client_config, &context, log).map_err(format_err)
+        }
         ("migrate", Some(cli_args)) => {
             let migrate_config = parse_migrate_config(cli_args)?;
-            migrate_db(migrate_config, client_config, &context, log)
+            migrate_db(migrate_config, client_config, &context, log).map_err(format_err)
         }
         ("inspect", Some(cli_args)) => {
             let inspect_config = parse_inspect_config(cli_args)?;
             inspect_db(inspect_config, client_config, &context, log)
         }
-        ("prune_payloads", Some(_)) => prune_payloads(client_config, &context, log),
-        _ => {
-            return Err("Unknown subcommand, for help `lighthouse database_manager --help`".into())
+        ("prune_payloads", Some(_)) => {
+            prune_payloads(client_config, &context, log).map_err(format_err)
         }
+        _ => Err("Unknown subcommand, for help `lighthouse database_manager --help`".into()),
     }
-    .map_err(|e| format!("Fatal error: {:?}", e))
 }
