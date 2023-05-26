@@ -243,8 +243,6 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
                 gas_limit: self.get_gas_limit_defaulting(validator.get_gas_limit()),
                 builder_proposals: self
                     .get_builder_proposals_defaulting(validator.get_builder_proposals()),
-                builder_pubkey_override: validator.get_builder_pubkey_override(),
-                builder_timestamp_override: validator.get_builder_timestamp_override(),
             })
     }
 
