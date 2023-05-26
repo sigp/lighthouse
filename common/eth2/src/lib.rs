@@ -19,6 +19,7 @@ use self::types::{Error as ResponseError, *};
 use futures::Stream;
 use futures_util::StreamExt;
 use lighthouse_network::PeerId;
+use pretty_reqwest_error::PrettyReqwestError;
 pub use reqwest;
 use reqwest::{IntoUrl, RequestBuilder, Response};
 pub use reqwest::{StatusCode, Url};
@@ -39,7 +40,7 @@ pub const CONSENSUS_VERSION_HEADER: &str = "Eth-Consensus-Version";
 #[derive(Debug)]
 pub enum Error {
     /// The `reqwest` client raised an error.
-    Reqwest(reqwest::Error),
+    Reqwest(PrettyReqwestError),
     /// The server returned an error message where the body was able to be parsed.
     ServerMessage(ErrorMessage),
     /// The server returned an error message with an array of errors.
@@ -70,7 +71,7 @@ pub enum Error {
 
 impl From<reqwest::Error> for Error {
     fn from(error: reqwest::Error) -> Self {
-        Error::Reqwest(error)
+        Error::Reqwest(error.into())
     }
 }
 
@@ -78,7 +79,7 @@ impl Error {
     /// If the error has a HTTP status code, return it.
     pub fn status(&self) -> Option<StatusCode> {
         match self {
-            Error::Reqwest(error) => error.status(),
+            Error::Reqwest(error) => error.inner().status(),
             Error::ServerMessage(msg) => StatusCode::try_from(msg.code).ok(),
             Error::ServerIndexedMessage(msg) => StatusCode::try_from(msg.code).ok(),
             Error::StatusCode(status) => Some(*status),
@@ -274,7 +275,7 @@ impl BeaconNodeHttpClient {
             .await?
             .json()
             .await
-            .map_err(Error::Reqwest)
+            .map_err(Into::into)
     }
 
     /// Perform a HTTP POST request with a custom timeout.
@@ -299,7 +300,7 @@ impl BeaconNodeHttpClient {
             .await?
             .json()
             .await
-            .map_err(Error::Reqwest)
+            .map_err(Error::from)
     }
 
     /// Generic POST function supporting arbitrary responses and timeouts.
@@ -1643,7 +1644,7 @@ impl BeaconNodeHttpClient {
             .bytes_stream()
             .map(|next| match next {
                 Ok(bytes) => EventKind::from_sse_bytes(bytes.as_ref()),
-                Err(e) => Err(Error::Reqwest(e)),
+                Err(e) => Err(Error::Reqwest(e.into())),
             }))
     }
 

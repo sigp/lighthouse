@@ -2207,6 +2207,7 @@ dependencies = [
  "libsecp256k1",
  "lighthouse_network",
  "mime",
+ "pretty_reqwest_error",
  "procinfo",
  "proto_array",
  "psutil",
@@ -6065,6 +6066,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "31c0052426df997c0cbd30789eb44ca097e3541717a7b8fa36b1c464ee7edebd"
 dependencies = [
  "vcpkg",
+]
+
+[[package]]
+name = "pretty_reqwest_error"
+version = "0.1.0"
+dependencies = [
+ "reqwest",
+ "sensitive_url",
 ]
 
 [[package]]

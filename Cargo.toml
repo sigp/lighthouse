@@ -35,6 +35,7 @@ members = [
     "common/lru_cache",
     "common/malloc_utils",
     "common/oneshot_broadcast",
+    "common/pretty_reqwest_error",
     "common/sensitive_url",
     "common/slot_clock",
     "common/system_health",
