@@ -32,7 +32,7 @@ sloggers = { version = "2.1.1", features = ["json"] }
 slot_clock = { path = "../../common/slot_clock" }
 ethereum_hashing = "1.0.0-beta.2"
 ethereum_ssz = "0.5.0"
-ssz_types = { git = "https://github.com/pawanjay176/ssz_types", branch = "is_subset" }
+ssz_types = "0.5.3"
 ethereum_ssz_derive = "0.5.0"
 state_processing = { path = "../../consensus/state_processing" }
 tree_hash_derive = "0.5.0"
