@@ -22,6 +22,7 @@ use eth2::{
 use eth2_keystore::KeystoreBuilder;
 use logging::test_logger;
 use parking_lot::RwLock;
+use rand::SeedableRng;
 use sensitive_url::SensitiveUrl;
 use slashing_protection::{SlashingDatabase, SLASHING_PROTECTION_FILENAME};
 use slot_clock::{SlotClock, TestingSlotClock};
@@ -34,6 +35,7 @@ use task_executor::TaskExecutor;
 use tempfile::{tempdir, TempDir};
 use tokio::runtime::Runtime;
 use tokio::sync::oneshot;
+use types::test_utils::{TestRandom, XorShiftRng};
 
 const PASSWORD_BYTES: &[u8] = &[42, 50, 37];
 pub const TEST_DEFAULT_FEE_RECIPIENT: Address = Address::repeat_byte(42);
@@ -675,7 +677,7 @@ impl ApiTester {
 
         assert_eq!(
             self.validator_store
-                .get_builder_pubkey_override(&validator.voting_pubkey),
+                .get_builder_pubkey_override(&validator.voting_pubkey).unwrap(),
             builder_pubkey_override
         );
 
@@ -713,7 +715,7 @@ impl ApiTester {
 
         assert_eq!(
             self.validator_store
-                .get_builder_timestamp_override(&validator.voting_pubkey),
+                .get_builder_timestamp_override(&validator.voting_pubkey).unwrap(),
             builder_timestamp_override
         );
 
@@ -826,7 +828,7 @@ fn routes_with_invalid_auth() {
             .await
             .test_with_invalid_auth(|client| async move {
                 client
-                    .patch_lighthouse_validators(&PublicKeyBytes::empty(), Some(false), None, None)
+                    .patch_lighthouse_validators(&PublicKeyBytes::empty(), Some(false), None, None, None, None)
                     .await
             })
             .await
@@ -1030,6 +1032,76 @@ fn validator_builder_proposals() {
             .await
             .assert_enabled_validators_count(2)
             .assert_builder_proposals(0, false)
+            .await
+    });
+}
+
+#[test]
+fn validator_builder_pubkey_override() {
+    let runtime = build_runtime();
+    let weak_runtime = Arc::downgrade(&runtime);
+    let rng = &mut XorShiftRng::seed_from_u64(1024);
+    let pubkey1 = PublicKeyBytes::random_for_test(rng);
+    let pubkey2 = PublicKeyBytes::random_for_test(rng);
+
+    runtime.block_on(async {
+        ApiTester::new(weak_runtime)
+            .await
+            .create_hd_validators(HdValidatorScenario {
+                count: 2,
+                specify_mnemonic: false,
+                key_derivation_path_offset: 0,
+                disabled: vec![],
+            })
+            .await
+            .assert_enabled_validators_count(2)
+            .assert_validators_count(2)
+            .set_builder_pubkey_override(0, pubkey1)
+            .await
+            // Test setting builder pubkey override while the validator is disabled
+            .set_validator_enabled(0, false)
+            .await
+            .assert_enabled_validators_count(1)
+            .assert_validators_count(2)
+            .set_builder_pubkey_override(0, pubkey2)
+            .await
+            .set_validator_enabled(0, true)
+            .await
+            .assert_enabled_validators_count(2)
+            .assert_builder_pubkey_override(0, pubkey2)
+            .await
+    });
+}
+
+#[test]
+fn validator_builder_timestamp_override() {
+    let runtime = build_runtime();
+    let weak_runtime = Arc::downgrade(&runtime);
+    runtime.block_on(async {
+        ApiTester::new(weak_runtime)
+            .await
+            .create_hd_validators(HdValidatorScenario {
+                count: 2,
+                specify_mnemonic: false,
+                key_derivation_path_offset: 0,
+                disabled: vec![],
+            })
+            .await
+            .assert_enabled_validators_count(2)
+            .assert_validators_count(2)
+            .set_builder_timestamp_override(0, 12345)
+            .await
+            // Test setting builder timestamp override while the validator is disabled
+            .set_validator_enabled(0, false)
+            .await
+            .assert_enabled_validators_count(1)
+            .assert_validators_count(2)
+            .set_builder_timestamp_override(0, 54321)
+            .await
+            .set_validator_enabled(0, true)
+            .await
+            .assert_enabled_validators_count(2)
+            .assert_builder_timestamp_override(0, 54321)
             .await
     });
 }

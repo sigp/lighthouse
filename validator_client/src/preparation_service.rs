@@ -274,7 +274,7 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
             // We don't log for missing fee recipients here because this will be logged more
             // frequently in `collect_preparation_data`.
             proposal_data.fee_recipient.and_then(|fee_recipient| {
-                proposal_data.builder_proposals.then(|| {
+                proposal_data.builder_proposals.then_some({
                     (
                         pubkey,
                         ValidatorRegistrationKey {

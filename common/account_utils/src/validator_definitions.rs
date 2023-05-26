@@ -133,6 +133,7 @@ impl ValidatorDefinition {
     /// ## Notes
     ///
     /// This function does not check the password against the keystore.
+    #[allow(clippy::too_many_arguments)]
     pub fn new_keystore_with_password<P: AsRef<Path>>(
         voting_keystore_path: P,
         voting_keystore_password: Option<ZeroizeString>,

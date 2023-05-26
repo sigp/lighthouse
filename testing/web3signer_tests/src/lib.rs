@@ -555,7 +555,7 @@ mod tests {
                 |pubkey, validator_store| async move {
                     let val_reg_data = get_validator_registration(pubkey);
                     validator_store
-                        .sign_validator_registration_data(val_reg_data)
+                        .sign_validator_registration_data(pubkey, val_reg_data)
                         .await
                         .unwrap()
                 },
@@ -642,7 +642,7 @@ mod tests {
                 |pubkey, validator_store| async move {
                     let val_reg_data = get_validator_registration(pubkey);
                     validator_store
-                        .sign_validator_registration_data(val_reg_data)
+                        .sign_validator_registration_data(pubkey, val_reg_data)
                         .await
                         .unwrap()
                 },
