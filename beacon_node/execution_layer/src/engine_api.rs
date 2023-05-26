@@ -10,6 +10,7 @@ pub use ethers_core::types::Transaction;
 use ethers_core::utils::rlp::{self, Decodable, Rlp};
 use http::deposit_methods::RpcError;
 pub use json_structures::{JsonWithdrawal, TransitionConfigurationV1};
+use pretty_reqwest_error::PrettyReqwestError;
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 use std::convert::TryFrom;
@@ -32,7 +33,7 @@ pub type PayloadId = [u8; 8];
 
 #[derive(Debug)]
 pub enum Error {
-    Reqwest(reqwest::Error),
+    Reqwest(PrettyReqwestError),
     Auth(auth::Error),
     BadResponse(String),
     RequestFailed(String),
@@ -67,7 +68,7 @@ impl From<reqwest::Error> for Error {
         ) {
             Error::Auth(auth::Error::InvalidToken)
         } else {
-            Error::Reqwest(e)
+            Error::Reqwest(e.into())
         }
     }
 }

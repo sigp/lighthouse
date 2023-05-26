@@ -50,3 +50,4 @@ keccak-hash = "0.10.0"
 hash256-std-hasher = "0.15.2"
 triehash = "0.8.4"
 hash-db = "0.15.2"
+pretty_reqwest_error = { path = "../../common/pretty_reqwest_error" }

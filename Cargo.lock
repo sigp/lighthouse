@@ -2658,6 +2658,7 @@ dependencies = [
  "lru 0.7.8",
  "mev-rs",
  "parking_lot 0.12.1",
+ "pretty_reqwest_error",
  "rand 0.8.5",
  "reqwest",
  "sensitive_url",
