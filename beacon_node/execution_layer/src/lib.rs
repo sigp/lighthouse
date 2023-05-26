@@ -1229,6 +1229,25 @@ impl<T: EthSpec> ExecutionLayer<T> {
         Some(proposer.payload_attributes)
     }
 
+    pub fn payload_attributes_blocking(
+        &self,
+        current_slot: Slot,
+        head_block_root: Hash256,
+    ) -> Option<PayloadAttributes> {
+        let proposers_key = ProposerKey {
+            slot: current_slot,
+            head_block_root,
+        };
+
+        let proposer = self
+            .proposers()
+            .blocking_read()
+            .get(&proposers_key)
+            .cloned()?;
+
+        Some(proposer.payload_attributes)
+    }
+
     /// Maps to the `engine_consensusValidated` JSON-RPC call.
     pub async fn notify_forkchoice_updated(
         &self,

@@ -407,6 +407,7 @@ pub fn get_execution_payload<
     state: &BeaconState<T::EthSpec>,
     proposer_index: u64,
     builder_params: BuilderParams,
+    withdrawals: Option<Vec<Withdrawal>>,
 ) -> Result<PreparePayloadHandle<T::EthSpec, Payload>, BlockProductionError> {
     // Compute all required values from the `state` now to avoid needing to pass it into a spawned
     // task.
@@ -419,7 +420,10 @@ pub fn get_execution_payload<
     let latest_execution_payload_header_block_hash =
         state.latest_execution_payload_header()?.block_hash();
     let withdrawals = match state {
-        &BeaconState::Capella(_) => Some(get_expected_withdrawals(state, spec)?.into()),
+        // FIXME(sproul): unwrap
+        &BeaconState::Capella(_) => {
+            withdrawals.or_else(|| Some(get_expected_withdrawals(state, spec).unwrap().into()))
+        }
         &BeaconState::Merge(_) => None,
         // These shouldn't happen but they're here to make the pattern irrefutable
         &BeaconState::Base(_) | &BeaconState::Altair(_) => None,

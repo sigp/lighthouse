@@ -4330,9 +4330,31 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // allows it to run concurrently with things like attestation packing.
         let prepare_payload_handle = match &state {
             BeaconState::Base(_) | BeaconState::Altair(_) => None,
-            BeaconState::Merge(_) | BeaconState::Capella(_) => {
-                let prepare_payload_handle =
-                    get_execution_payload(self.clone(), &state, proposer_index, builder_params)?;
+            BeaconState::Merge(_) => {
+                let prepare_payload_handle = get_execution_payload(
+                    self.clone(),
+                    &state,
+                    proposer_index,
+                    builder_params,
+                    None,
+                )?;
+                Some(prepare_payload_handle)
+            }
+            BeaconState::Capella(_) => {
+                // Get pre-computed withdrawals from execution layer cache.
+                // FIXME(sproul): unwrap
+                let execution_layer = self.execution_layer.clone().unwrap();
+                let withdrawals = execution_layer
+                    .payload_attributes_blocking(produce_at_slot, parent_root)
+                    .map(|attr| attr.withdrawals().unwrap().clone());
+
+                let prepare_payload_handle = get_execution_payload(
+                    self.clone(),
+                    &state,
+                    proposer_index,
+                    builder_params,
+                    withdrawals,
+                )?;
                 Some(prepare_payload_handle)
             }
         };
