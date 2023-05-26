@@ -16,7 +16,7 @@ Beacon node and Lighthouse Validator client.
 
 If you run Siren in the browser (by entering `localhost` in the browser), you will need to allow CORS in the HTTP API. This can be done by adding the flag `--http-allow-origin "*"` for both beacon node and validator client. If you would like to access Siren beyond the local computer, we recommend using an SSH tunnel. This requires a tunnel for 3 ports: `80` (assuming the port is unchanged as per the [installation guide](./ui-installation.md#docker-recommended), `5052` (for beacon node) and `5062` (for validator client). You can use the command below to perform SSH tunneling:
 ```bash
-ssh -L 80:127.0.0.1:80 -L 5052:127.0.0.1:5052 -L 5062:127.0.0.1:5062 username@local_ip
+ssh -N -L 80:127.0.0.1:80 -L 5052:127.0.0.1:5052 -L 5062:127.0.0.1:5062 username@local_ip
 ```  
 
 where `username` is the username of the server and `local_ip` is the local IP address of the server. Once you have successfully connected to the server via ssh tunnel, you should be able to access Siren by entering `localhost` in a web browser. 
