@@ -68,22 +68,6 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationServiceBuilder<T, E> {
         self
     }
 
-    pub fn builder_registration_pubkey_override(
-        mut self,
-        builder_registration_pubkey_override: Option<PublicKeyBytes>,
-    ) -> Self {
-        self.builder_registration_pubkey_override = builder_registration_pubkey_override;
-        self
-    }
-
-    pub fn builder_registration_timestamp_override(
-        mut self,
-        builder_registration_timestamp_override: Option<u64>,
-    ) -> Self {
-        self.builder_registration_timestamp_override = builder_registration_timestamp_override;
-        self
-    }
-
     pub fn build(self) -> Result<PreparationService<T, E>, String> {
         Ok(PreparationService {
             inner: Arc::new(Inner {
@@ -497,6 +481,4 @@ pub struct ProposalData {
     pub(crate) fee_recipient: Option<Address>,
     pub(crate) gas_limit: u64,
     pub(crate) builder_proposals: bool,
-    pub(crate) builder_pubkey_override: Option<PublicKeyBytes>,
-    pub(crate) builder_timestamp_override: Option<u64>,
 }
