@@ -44,7 +44,7 @@ The token is located in the default data directory of the validator
 client. The default path is
 `~/.lighthouse/<network>/validators/api-token.txt`.
 
-The contents of this file for the desired valdiator client needs to be
+The contents of this file for the desired validator client needs to be
 entered.
 
 ## Name
