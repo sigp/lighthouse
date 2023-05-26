@@ -71,6 +71,7 @@ if [[ "$BEHAVIOR" == "failure" ]]; then
     # Use same keys as keys from VC1 and connect to BN2
     # This process should not last longer than 2 epochs
     timeout $(( $SECONDS_PER_SLOT * 32 * 2 )) ../local_testnet/validator_client.sh $HOME/.lighthouse/local-testnet/node_1_doppelganger http://localhost:8100
+    tail -n50 geth.log
     DOPPELGANGER_EXIT=$?
 
     echo "Shutting down"
