@@ -576,6 +576,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
                 graffiti_flag: self.config.graffiti,
                 spec: self.context.eth2_config.spec.clone(),
                 config: self.config.http_api.clone(),
+                sse_logging_components: self.context.sse_logging_components.clone(),
                 slot_clock: self.slot_clock.clone(),
                 log: log.clone(),
                 _phantom: PhantomData,
