@@ -1543,6 +1543,28 @@ impl BeaconNodeHttpClient {
         .await
     }
 
+    /// `POST lighthouse/liveness/{epoch}`
+    pub async fn post_lighthouse_liveness_epoch(
+        &self,
+        epoch: Epoch,
+        indices: Vec<u64>,
+    ) -> Result<GenericResponse<Vec<LivenessResponseData>>, Error> {
+        let mut path = self.server.full.clone();
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("lighthouse")
+            .push("liveness")
+            .push(&epoch.to_string());
+
+        self.post_with_timeout_and_response(
+            path,
+            &indices,
+            self.timeouts.liveness,
+        )
+        .await
+    }
+
     /// `POST validator/duties/attester/{epoch}`
     pub async fn post_validator_duties_attester(
         &self,
