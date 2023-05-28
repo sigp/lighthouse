@@ -3207,7 +3207,6 @@ pub fn serve<T: BeaconChainTypes>(
 
     // POST lighthouse/liveness
     let post_lighthouse_liveness = liveness_path
-        .clone()
         .and(warp::path::end())
         .and(warp::body::json())
         .and(chain_filter.clone())
@@ -3250,7 +3249,6 @@ pub fn serve<T: BeaconChainTypes>(
 
     // POST lighthouse/liveness/{epoch}
     let post_lighthouse_liveness_epoch = liveness_path
-        .clone()
         .and(warp::path::param::<Epoch>())
         .and(warp::path::end())
         .and(warp::body::json())
