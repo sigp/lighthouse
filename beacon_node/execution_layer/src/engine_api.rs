@@ -3,7 +3,8 @@ use crate::http::{
     ENGINE_EXCHANGE_TRANSITION_CONFIGURATION_V1, ENGINE_FORKCHOICE_UPDATED_V1,
     ENGINE_FORKCHOICE_UPDATED_V2, ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1,
     ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1, ENGINE_GET_PAYLOAD_V1, ENGINE_GET_PAYLOAD_V2,
-    ENGINE_GET_PAYLOAD_V3, ENGINE_NEW_PAYLOAD_V1, ENGINE_NEW_PAYLOAD_V2, ENGINE_NEW_PAYLOAD_V3,
+    ENGINE_GET_PAYLOAD_V3, ENGINE_GET_PAYLOAD_V6110, ENGINE_NEW_PAYLOAD_V1, ENGINE_NEW_PAYLOAD_V2,
+    ENGINE_NEW_PAYLOAD_V3, ENGINE_NEW_PAYLOAD_V6110,
 };
 use crate::BlobTxConversionError;
 use eth2::types::{SsePayloadAttributes, SsePayloadAttributesV1, SsePayloadAttributesV2};
@@ -633,6 +634,9 @@ impl EngineCapabilities {
         if self.new_payload_v3 {
             response.push(ENGINE_NEW_PAYLOAD_V3);
         }
+        if self.new_payload_v6110 {
+            response.push(ENGINE_NEW_PAYLOAD_V6110);
+        }
         if self.forkchoice_updated_v1 {
             response.push(ENGINE_FORKCHOICE_UPDATED_V1);
         }
@@ -653,6 +657,9 @@ impl EngineCapabilities {
         }
         if self.get_payload_v3 {
             response.push(ENGINE_GET_PAYLOAD_V3);
+        }
+        if self.get_payload_v6110 {
+            response.push(ENGINE_GET_PAYLOAD_V6110);
         }
         if self.exchange_transition_configuration_v1 {
             response.push(ENGINE_EXCHANGE_TRANSITION_CONFIGURATION_V1);

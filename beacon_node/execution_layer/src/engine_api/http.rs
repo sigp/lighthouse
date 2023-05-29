@@ -67,9 +67,11 @@ pub static LIGHTHOUSE_CAPABILITIES: &[&str] = &[
     ENGINE_NEW_PAYLOAD_V1,
     ENGINE_NEW_PAYLOAD_V2,
     ENGINE_NEW_PAYLOAD_V3,
+    ENGINE_NEW_PAYLOAD_V6110,
     ENGINE_GET_PAYLOAD_V1,
     ENGINE_GET_PAYLOAD_V2,
     ENGINE_GET_PAYLOAD_V3,
+    ENGINE_GET_PAYLOAD_V6110,
     ENGINE_FORKCHOICE_UPDATED_V1,
     ENGINE_FORKCHOICE_UPDATED_V2,
     ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1,
@@ -826,6 +828,23 @@ impl HttpJsonRpc {
         let response: JsonPayloadStatusV1 = self
             .rpc_request(
                 ENGINE_NEW_PAYLOAD_V3,
+                params,
+                ENGINE_NEW_PAYLOAD_TIMEOUT * self.execution_timeout_multiplier,
+            )
+            .await?;
+
+        Ok(response.into())
+    }
+
+    pub async fn new_payload_v6110<T: EthSpec>(
+        &self,
+        execution_payload: ExecutionPayload<T>,
+    ) -> Result<PayloadStatusV1, Error> {
+        let params = json!([JsonExecutionPayload::from(execution_payload)]);
+
+        let response: JsonPayloadStatusV1 = self
+            .rpc_request(
+                ENGINE_NEW_PAYLOAD_V6110,
                 params,
                 ENGINE_NEW_PAYLOAD_TIMEOUT * self.execution_timeout_multiplier,
             )
