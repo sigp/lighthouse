@@ -43,6 +43,7 @@ use tokio_stream::wrappers::WatchStream;
 use tree_hash::TreeHash;
 use types::beacon_block_body::KzgCommitments;
 use types::blob_sidecar::Blobs;
+use types::builder_bid::BuilderBid;
 use types::consts::deneb::BLOB_TX_TYPE;
 use types::transaction::{AccessTuple, BlobTransaction, EcdsaSignature, SignedBlobTransaction};
 use types::{AbstractExecPayload, BeaconStateError, ExecPayload, VersionedHash};
@@ -95,6 +96,31 @@ pub enum ProvenancedPayload<P> {
     Builder(P),
 }
 
+impl<E: EthSpec, Payload: AbstractExecPayload<E>> From<BuilderBid<E, Payload>>
+    for ProvenancedPayload<BlockProposalContents<E, Payload>>
+{
+    fn from(value: BuilderBid<E, Payload>) -> Self {
+        let block_proposal_contents = match value {
+            BuilderBid::Merge(builder_bid) => BlockProposalContents::Payload {
+                payload: builder_bid.header,
+                block_value: builder_bid.value,
+            },
+            BuilderBid::Capella(builder_bid) => BlockProposalContents::Payload {
+                payload: builder_bid.header,
+                block_value: builder_bid.value,
+            },
+            BuilderBid::Deneb(builder_bid) => BlockProposalContents::PayloadAndBlindedBlobs {
+                payload: builder_bid.header,
+                block_value: builder_bid.value,
+                kzg_commitments: builder_bid.blinded_blobs_bundle.commitments,
+                blob_roots: builder_bid.blinded_blobs_bundle.blob_roots,
+                proofs: builder_bid.blinded_blobs_bundle.proofs,
+            },
+        };
+        ProvenancedPayload::Builder(block_proposal_contents)
+    }
+}
+
 #[derive(Debug)]
 pub enum Error {
     NoEngine,
@@ -143,6 +169,13 @@ pub enum BlockProposalContents<T: EthSpec, Payload: AbstractExecPayload<T>> {
         blobs: Blobs<T>,
         proofs: KzgProofs<T>,
     },
+    PayloadAndBlindedBlobs {
+        payload: Payload,
+        block_value: Uint256,
+        kzg_commitments: KzgCommitments<T>,
+        blob_roots: VariableList<Hash256, T::MaxBlobsPerBlock>,
+        proofs: KzgProofs<T>,
+    },
 }
 
 impl<E: EthSpec, Payload: AbstractExecPayload<E>> From<GetPayloadResponse<E>>
@@ -188,52 +221,35 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> BlockProposalContents<T, Paylo
                 blobs,
                 proofs,
             } => (payload, Some(kzg_commitments), Some(blobs), Some(proofs)),
+            Self::PayloadAndBlindedBlobs {
+                payload,
+                block_value: _,
+                kzg_commitments,
+                blob_roots: _,
+                proofs,
+            } => unimplemented!("need to work out how to handle blinded blobs"),
         }
     }
 
     pub fn payload(&self) -> &Payload {
         match self {
-            Self::Payload {
-                payload,
-                block_value: _,
-            } => payload,
-            Self::PayloadAndBlobs {
-                payload,
-                block_value: _,
-                kzg_commitments: _,
-                blobs: _,
-                proofs: _,
-            } => payload,
+            Self::Payload { payload, .. } => payload,
+            Self::PayloadAndBlobs { payload, .. } => payload,
+            Self::PayloadAndBlindedBlobs { payload, .. } => payload,
         }
     }
     pub fn to_payload(self) -> Payload {
         match self {
-            Self::Payload {
-                payload,
-                block_value: _,
-            } => payload,
-            Self::PayloadAndBlobs {
-                payload,
-                block_value: _,
-                kzg_commitments: _,
-                blobs: _,
-                proofs: _,
-            } => payload,
+            Self::Payload { payload, .. } => payload,
+            Self::PayloadAndBlobs { payload, .. } => payload,
+            Self::PayloadAndBlindedBlobs { payload, .. } => payload,
         }
     }
     pub fn block_value(&self) -> &Uint256 {
         match self {
-            Self::Payload {
-                payload: _,
-                block_value,
-            } => block_value,
-            Self::PayloadAndBlobs {
-                payload: _,
-                block_value,
-                kzg_commitments: _,
-                blobs: _,
-                proofs: _,
-            } => block_value,
+            Self::Payload { block_value, .. } => block_value,
+            Self::PayloadAndBlobs { block_value, .. } => block_value,
+            Self::PayloadAndBlindedBlobs { block_value, .. } => block_value,
         }
     }
     pub fn default_at_fork(fork_name: ForkName) -> Result<Self, BeaconStateError> {
@@ -848,7 +864,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                         self.log(),
                         "Requested blinded execution payload";
                         "relay_fee_recipient" => match &relay_result {
-                            Ok(Some(r)) => format!("{:?}", r.data.message.header.fee_recipient()),
+                            Ok(Some(r)) => format!("{:?}", r.data.message.header().fee_recipient()),
                             Ok(None) => "empty response".to_string(),
                             Err(_) => "request failed".to_string(),
                         },
@@ -884,7 +900,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                             Ok(ProvenancedPayload::Local(local))
                         }
                         (Ok(Some(relay)), Ok(local)) => {
-                            let header = &relay.data.message.header;
+                            let header = &relay.data.message.header();
 
                             info!(
                                 self.log(),
@@ -894,10 +910,10 @@ impl<T: EthSpec> ExecutionLayer<T> {
                                 "parent_hash" => ?parent_hash,
                             );
 
-                            let relay_value = relay.data.message.value;
+                            let relay_value = relay.data.message.value();
                             let local_value = *local.block_value();
                             if !self.inner.always_prefer_builder_payload
-                                && local_value >= relay_value
+                                && local_value >= *relay_value
                             {
                                 info!(
                                     self.log(),
@@ -917,12 +933,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                                 current_fork,
                                 spec,
                             ) {
-                                Ok(()) => Ok(ProvenancedPayload::Builder(
-                                    BlockProposalContents::Payload {
-                                        payload: relay.data.message.header,
-                                        block_value: relay.data.message.value,
-                                    },
-                                )),
+                                Ok(()) => Ok(ProvenancedPayload::from(relay.data.message)),
                                 Err(reason) if !reason.payload_invalid() => {
                                     info!(
                                         self.log(),
@@ -952,7 +963,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                             }
                         }
                         (Ok(Some(relay)), Err(local_error)) => {
-                            let header = &relay.data.message.header;
+                            let header = &relay.data.message.header();
 
                             info!(
                                 self.log(),
@@ -971,20 +982,12 @@ impl<T: EthSpec> ExecutionLayer<T> {
                                 current_fork,
                                 spec,
                             ) {
-                                Ok(()) => Ok(ProvenancedPayload::Builder(
-                                    BlockProposalContents::Payload {
-                                        payload: relay.data.message.header,
-                                        block_value: relay.data.message.value,
-                                    },
-                                )),
+                                Ok(()) => Ok(ProvenancedPayload::from(relay.data.message)),
                                 // If the payload is valid then use it. The local EE failed
                                 // to produce a payload so we have no alternative.
-                                Err(e) if !e.payload_invalid() => Ok(ProvenancedPayload::Builder(
-                                    BlockProposalContents::Payload {
-                                        payload: relay.data.message.header,
-                                        block_value: relay.data.message.value,
-                                    },
-                                )),
+                                Err(e) if !e.payload_invalid() => {
+                                    Ok(ProvenancedPayload::from(relay.data.message))
+                                }
                                 Err(reason) => {
                                     metrics::inc_counter_vec(
                                         &metrics::EXECUTION_LAYER_GET_PAYLOAD_BUILDER_REJECTIONS,
@@ -2046,11 +2049,11 @@ fn verify_builder_bid<T: EthSpec, Payload: AbstractExecPayload<T>>(
     spec: &ChainSpec,
 ) -> Result<(), Box<InvalidBuilderPayload>> {
     let is_signature_valid = bid.data.verify_signature(spec);
-    let header = &bid.data.message.header;
-    let payload_value = bid.data.message.value;
+    let header = &bid.data.message.header();
+    let payload_value = bid.data.message.value();
 
     // Avoid logging values that we can't represent with our Prometheus library.
-    let payload_value_gwei = bid.data.message.value / 1_000_000_000;
+    let payload_value_gwei = bid.data.message.value() / 1_000_000_000;
     if payload_value_gwei <= Uint256::from(i64::max_value()) {
         metrics::set_gauge_vec(
             &metrics::EXECUTION_LAYER_PAYLOAD_BIDS,
@@ -2066,10 +2069,10 @@ fn verify_builder_bid<T: EthSpec, Payload: AbstractExecPayload<T>>(
         .map(|withdrawals| Withdrawals::<T>::from(withdrawals).tree_hash_root());
     let payload_withdrawals_root = header.withdrawals_root().ok();
 
-    if payload_value < profit_threshold {
+    if *payload_value < profit_threshold {
         Err(Box::new(InvalidBuilderPayload::LowValue {
             profit_threshold,
-            payload_value,
+            payload_value: *payload_value,
         }))
     } else if header.parent_hash() != parent_hash {
         Err(Box::new(InvalidBuilderPayload::ParentHash {
@@ -2099,7 +2102,7 @@ fn verify_builder_bid<T: EthSpec, Payload: AbstractExecPayload<T>>(
     } else if !is_signature_valid {
         Err(Box::new(InvalidBuilderPayload::Signature {
             signature: bid.data.signature.clone(),
-            pubkey: bid.data.message.pubkey,
+            pubkey: *bid.data.message.pubkey(),
         }))
     } else if payload_withdrawals_root != expected_withdrawals_root {
         Err(Box::new(InvalidBuilderPayload::WithdrawalsRoot {
