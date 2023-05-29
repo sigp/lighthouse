@@ -3,7 +3,9 @@
 use beacon_chain::test_utils::{
     AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
 };
-use beacon_chain::{BeaconSnapshot, BlockError, ChainSegmentResult, NotifyExecutionLayer};
+use beacon_chain::{
+    BeaconSnapshot, BlockError, ChainSegmentResult, IntoExecutionPendingBlock, NotifyExecutionLayer,
+};
 use fork_choice::CountUnrealized;
 use lazy_static::lazy_static;
 use logging::test_logger;
@@ -1372,4 +1374,99 @@ async fn add_altair_block_to_base_chain() {
             })
         }
     ));
+}
+
+#[tokio::test]
+async fn import_duplicate_block_unrealized_justification() {
+    let spec = MainnetEthSpec::default_spec();
+
+    let harness = BeaconChainHarness::builder(MainnetEthSpec)
+        .spec(spec)
+        .keypairs(KEYPAIRS[..].to_vec())
+        .fresh_ephemeral_store()
+        .mock_execution_layer()
+        .build();
+    let chain = &harness.chain;
+
+    // Move out of the genesis slot.
+    harness.advance_slot();
+
+    // Build the chain out to the first justification opportunity 2/3rds of the way through epoch 2.
+    let num_slots = E::slots_per_epoch() as usize * 8 / 3;
+    harness
+        .extend_chain(
+            num_slots,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    // Move into the next empty slot.
+    harness.advance_slot();
+
+    // The store's justified checkpoint must still be at epoch 0, while unrealized justification
+    // must be at epoch 1.
+    // FIXME(sproul): this also kinda seems like a bug, I don't think we should be computing
+    // unrealized justification for epoch 1.
+    let fc = chain.canonical_head.fork_choice_read_lock();
+    assert_eq!(fc.justified_checkpoint().epoch, 0);
+    assert_eq!(fc.unrealized_justified_checkpoint().epoch, 1);
+    drop(fc);
+
+    // Produce a block to justify epoch 2.
+    let state = harness.get_current_state();
+    let slot = harness.get_current_slot();
+    let (block, _) = harness.make_block(state.clone(), slot).await;
+    let block = Arc::new(block);
+    let block_root = block.canonical_root();
+
+    // Create two verified variants of the block, representing the same block being processed in
+    // parallel.
+    let notify_execution_layer = NotifyExecutionLayer::Yes;
+    let verified_block1 = block
+        .clone()
+        .into_execution_pending_block(block_root, &chain, notify_execution_layer)
+        .unwrap();
+    let verified_block2 = block
+        .into_execution_pending_block(block_root, &chain, notify_execution_layer)
+        .unwrap();
+
+    // Import the first block with `CountUnrealized::False`, simulating a block processed via a
+    // finalized chain segment.
+    chain
+        .clone()
+        .import_execution_pending_block(verified_block1, CountUnrealized::False)
+        .await
+        .unwrap();
+
+    // Unrealized justification should NOT have updated.
+    let fc = chain.canonical_head.fork_choice_read_lock();
+    assert_eq!(fc.justified_checkpoint().epoch, 0);
+    assert_eq!(fc.unrealized_justified_checkpoint().epoch, 1);
+
+    // The fork choice node for the block should have no unrealized justification.
+    let fc_block = fc.get_block(&block_root).unwrap();
+    assert_eq!(fc_block.unrealized_justified_checkpoint, None);
+    drop(fc);
+
+    // Import the second verified block with `CountUnrealized::True`, simulating a block processed
+    // via RPC.
+    chain
+        .clone()
+        .import_execution_pending_block(verified_block2, CountUnrealized::True)
+        .await
+        .unwrap();
+
+    // Unrealized justification should now update.
+    let fc = chain.canonical_head.fork_choice_read_lock();
+    assert_eq!(fc.justified_checkpoint().epoch, 0);
+    let unrealized_justification = fc.unrealized_justified_checkpoint();
+    assert_eq!(unrealized_justification.epoch, 2);
+
+    // The fork choice node for the block should have the unrealized justified checkpoint.
+    let fc_block = fc.get_block(&block_root).unwrap();
+    assert_eq!(
+        fc_block.unrealized_justified_checkpoint,
+        Some(unrealized_justification)
+    );
 }
