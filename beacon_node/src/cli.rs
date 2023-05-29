@@ -260,15 +260,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(false),
         )
         .arg(
-            Arg::with_name("disable-inbound-rate-limiter")
-                .long("disable-inbound-rate-limiter")
-                .help("Disables the inbound rate limiting (received by this node) over rpc. \
-                       Note: using this option could overwhelm the node with unbounded number \
-                       of rpc requests. Use with caution.")
-                .hidden(true)
-                .takes_value(false),
-        )
-        .arg(
             Arg::with_name("self-limiter")
             .long("self-limiter")
             .help(
@@ -295,14 +286,16 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("inbound-rate-limiter")
             .long("inbound-rate-limiter")
             .help(
-                "Enables the inbound rate limiter (requests received by this node).\
+                "Configures the inbound rate limiter (requests received by this node).\
                 \
                 Rate limit quotas per protocol can be set in the form of \
                 <protocol_name>:<tokens>/<time_in_seconds>. To set quotas for multiple protocols, \
                 separate them by ';'. If the inbound rate limiter is enabled and a protocol is not \
-                present in the configuration, the default quotas will be used."
+                present in the configuration, the default quotas will be used. \
+                \
+                This is enabled by default, using default quotas. To disable rate limiting pass \
+                `disabled` to this option instead."
             )
-            .min_values(0)
             .hidden(true)
         )
         .arg(

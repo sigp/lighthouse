@@ -1253,18 +1253,22 @@ pub fn set_network_config(
         config.proposer_only = true;
         warn!(log, "Proposer-only mode enabled"; "info"=> "Do not connect a validator client to this node unless via the --proposer-nodes flag");
     }
-    // The inbound rate limiter is enabled by default unless the `disable-inbound-rate-limiter` flag is specified.
-    // Hence, we first try to parse it with a value, if no value is defined, we set it to the default parameters.
-    // If `disable-inbound-rate-limiter` is specified, we disable inbound rate limiting explicitly.
-    config.inbound_rate_limiter_config =
-        clap_utils::parse_optional(cli_args, "inbound-rate-limiter")?;
-    if config.inbound_rate_limiter_config.is_none() {
-        config.inbound_rate_limiter_config = Some(Default::default());
-    }
-    if cli_args.is_present("disable-inbound-rate-limiter") {
-        config.inbound_rate_limiter_config = None;
-    }
-
+    // The inbound rate limiter is enabled by default unless `disabled` is passed to the
+    // `inbound-rate-limiter` flag. Any other value should be parsed as a configuration string.
+    config.inbound_rate_limiter_config = match cli_args.value_of("inbound-rate-limiter") {
+        None => {
+            // Enabled by default, with default values
+            Some(Default::default())
+        }
+        Some("disabled") => {
+            // Explicitly disabled
+            None
+        }
+        Some(config_str) => {
+            // Enabled with a custom configuration
+            Some(config_str.parse()?)
+        }
+    };
     Ok(())
 }
 
