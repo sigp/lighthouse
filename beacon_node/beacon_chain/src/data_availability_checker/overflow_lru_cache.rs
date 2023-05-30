@@ -364,7 +364,7 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
             true
         } else if read_lock.store_keys.contains(block_root) {
             drop(read_lock);
-            // I assume if there's some kind of error reading from the store, we should just return false
+            // If there's some kind of error reading from the store, we should just return false
             self.overflow_store
                 .load_block(block_root)
                 .map_or(false, |maybe_block| maybe_block.is_some())
