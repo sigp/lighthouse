@@ -4321,9 +4321,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let proposer_index = if let Some(proposer) = cached_proposer {
             proposer.index as u64
         } else {
-            let (proposers, decision_root, _, fork) =
-                compute_proposer_duties_from_head(proposer_epoch, self)
-                    .map_err(BlockProductionError::BeaconChain)?;
+            let proposers = state
+                .get_beacon_proposer_indices(&self.spec)
+                .map_err(BlockProductionError::BeaconStateError)?;
 
             let proposer_offset = (proposer_slot % T::EthSpec::slots_per_epoch()).as_usize();
             let proposer =
@@ -4335,9 +4335,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             self.beacon_proposer_cache.lock().insert(
                 proposer_epoch,
-                decision_root,
+                dependent_root,
                 proposers,
-                fork,
+                state.fork(),
             )?;
 
             proposer as u64
