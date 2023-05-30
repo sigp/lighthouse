@@ -826,10 +826,8 @@ impl<T: EthSpec> ExecutionLayer<T> {
 
                             let relay_value = relay.data.message.value;
                             let local_value = *local.block_value();
-                            if !self.inner.always_prefer_builder_payload
-                            {
-                                if local_value >= relay_value
-                                {
+                            if !self.inner.always_prefer_builder_payload {
+                                if local_value >= relay_value {
                                     info!(
                                         self.log(),
                                         "Local block is more profitable than relay block";
@@ -837,9 +835,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                                         "relay_value" => %relay_value
                                     );
                                     return Ok(ProvenancedPayload::Local(local));
-                                }
-                                else
-                                {
+                                } else {
                                     info!(
                                         self.log(),
                                         "Relay block is more profitable than local block";
