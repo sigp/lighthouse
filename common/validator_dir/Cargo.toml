@@ -16,7 +16,7 @@ filesystem = { path = "../filesystem" }
 types = { path = "../../consensus/types" }
 rand = "0.8.5"
 deposit_contract = { path = "../deposit_contract" }
-tree_hash = "0.4.1"
+tree_hash = "0.5.0"
 hex = "0.4.2"
 derivative = "2.1.1"
 lockfile = { path = "../lockfile" }

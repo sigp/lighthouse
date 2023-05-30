@@ -404,6 +404,12 @@ pub fn get_config<E: EthSpec>(
             .map_err(|_| "block-cache-size is not a valid integer".to_string())?;
     }
 
+    if let Some(historic_state_cache_size) = cli_args.value_of("historic-state-cache-size") {
+        client_config.store.historic_state_cache_size = historic_state_cache_size
+            .parse()
+            .map_err(|_| "historic-state-cache-size is not a valid integer".to_string())?;
+    }
+
     client_config.store.compact_on_init = cli_args.is_present("compact-db");
     if let Some(compact_on_prune) = cli_args.value_of("auto-compact-db") {
         client_config.store.compact_on_prune = compact_on_prune
@@ -539,6 +545,7 @@ pub fn get_config<E: EthSpec>(
 
     if cli_args.is_present("reconstruct-historic-states") {
         client_config.chain.reconstruct_historic_states = true;
+        client_config.chain.genesis_backfill = true;
     }
 
     let raw_graffiti = if let Some(graffiti) = cli_args.value_of("graffiti") {
@@ -811,6 +818,9 @@ pub fn get_config<E: EthSpec>(
     client_config.chain.optimistic_finalized_sync =
         !cli_args.is_present("disable-optimistic-finalized-sync");
 
+    if cli_args.is_present("genesis-backfill") {
+        client_config.chain.genesis_backfill = true;
+    }
     // Payload selection configs
     if cli_args.is_present("always-prefer-builder-payload") {
         client_config.always_prefer_builder_payload = true;
@@ -819,6 +829,11 @@ pub fn get_config<E: EthSpec>(
     // Backfill sync rate-limiting
     client_config.chain.enable_backfill_rate_limiting =
         !cli_args.is_present("disable-backfill-rate-limiting");
+
+    if let Some(path) = clap_utils::parse_optional(cli_args, "invalid-gossip-verified-blocks-path")?
+    {
+        client_config.network.invalid_block_storage = Some(path);
+    }
 
     Ok(client_config)
 }
@@ -1016,10 +1031,13 @@ pub fn set_network_config(
 
     config.set_listening_addr(parse_listening_addresses(cli_args, log)?);
 
+    // A custom target-peers command will overwrite the --proposer-only default.
     if let Some(target_peers_str) = cli_args.value_of("target-peers") {
         config.target_peers = target_peers_str
             .parse::<usize>()
             .map_err(|_| format!("Invalid number of target peers: {}", target_peers_str))?;
+    } else {
+        config.target_peers = 80; // default value
     }
 
     if let Some(value) = cli_args.value_of("network-load") {
@@ -1078,6 +1096,9 @@ pub fn set_network_config(
                     .map_err(|_| format!("Invalid trusted peer id: {}", peer_id))
             })
             .collect::<Result<Vec<PeerIdSerialized>, _>>()?;
+        if config.trusted_peers.len() >= config.target_peers {
+            slog::warn!(log, "More trusted peers than the target peer limit. This will prevent efficient peer selection criteria."; "target_peers" => config.target_peers, "trusted_peers" => config.trusted_peers.len());
+        }
     }
 
     if let Some(enr_udp_port_str) = cli_args.value_of("enr-udp-port") {
@@ -1253,6 +1274,20 @@ pub fn set_network_config(
     config.outbound_rate_limiter_config = clap_utils::parse_optional(cli_args, "self-limiter")?;
     if cli_args.is_present("self-limiter") && config.outbound_rate_limiter_config.is_none() {
         config.outbound_rate_limiter_config = Some(Default::default());
+    }
+
+    // Proposer-only mode overrides a number of previous configuration parameters.
+    // Specifically, we avoid subscribing to long-lived subnets and wish to maintain a minimal set
+    // of peers.
+    if cli_args.is_present("proposer-only") {
+        config.subscribe_all_subnets = false;
+
+        if cli_args.value_of("target-peers").is_none() {
+            // If a custom value is not set, change the default to 15
+            config.target_peers = 15;
+        }
+        config.proposer_only = true;
+        warn!(log, "Proposer-only mode enabled"; "info"=> "Do not connect a validator client to this node unless via the --proposer-nodes flag");
     }
 
     Ok(())

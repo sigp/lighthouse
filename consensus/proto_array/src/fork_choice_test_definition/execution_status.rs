@@ -987,11 +987,11 @@ pub fn get_execution_status_test_definition_03() -> ForkChoiceTestDefinition {
 
     ops.push(Operation::AssertWeight {
         block_root: get_root(0),
-        weight: 33_000,
+        weight: 33_250,
     });
     ops.push(Operation::AssertWeight {
         block_root: get_root(1),
-        weight: 33_000,
+        weight: 33_250,
     });
     ops.push(Operation::AssertWeight {
         block_root: get_root(2),
@@ -1000,7 +1000,7 @@ pub fn get_execution_status_test_definition_03() -> ForkChoiceTestDefinition {
     ops.push(Operation::AssertWeight {
         block_root: get_root(3),
         // This is a "magic number" generated from `calculate_committee_fraction`.
-        weight: 31_000,
+        weight: 31_250,
     });
 
     // Invalidate the payload of 3.

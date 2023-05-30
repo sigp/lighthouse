@@ -1,6 +1,6 @@
 use c_kzg::{Bytes48, BYTES_PER_COMMITMENT};
 use derivative::Derivative;
-use eth2_hashing::hash_fixed;
+use ethereum_hashing::hash_fixed;
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
 use ssz_derive::{Decode, Encode};
@@ -32,7 +32,7 @@ impl From<KzgCommitment> for Bytes48 {
 
 impl Display for KzgCommitment {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", eth2_serde_utils::hex::encode(self.0))
+        write!(f, "{}", serde_utils::hex::encode(self.0))
     }
 }
 
@@ -121,7 +121,7 @@ impl FromStr for KzgCommitment {
 
 impl Debug for KzgCommitment {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", eth2_serde_utils::hex::encode(self.0))
+        write!(f, "{}", serde_utils::hex::encode(self.0))
     }
 }
 

@@ -754,29 +754,20 @@ impl ProtoArrayForkChoice {
             .and_then(|i| self.proto_array.nodes.get(i))
             .map(|parent| parent.root);
 
-        // If a node does not have a `finalized_checkpoint` or `justified_checkpoint` populated,
-        // it means it is not a descendant of the finalized checkpoint, so it is valid to return
-        // `None` here.
-        if let (Some(justified_checkpoint), Some(finalized_checkpoint)) =
-            (block.justified_checkpoint, block.finalized_checkpoint)
-        {
-            Some(Block {
-                slot: block.slot,
-                root: block.root,
-                parent_root,
-                state_root: block.state_root,
-                target_root: block.target_root,
-                current_epoch_shuffling_id: block.current_epoch_shuffling_id.clone(),
-                next_epoch_shuffling_id: block.next_epoch_shuffling_id.clone(),
-                justified_checkpoint,
-                finalized_checkpoint,
-                execution_status: block.execution_status,
-                unrealized_justified_checkpoint: block.unrealized_justified_checkpoint,
-                unrealized_finalized_checkpoint: block.unrealized_finalized_checkpoint,
-            })
-        } else {
-            None
-        }
+        Some(Block {
+            slot: block.slot,
+            root: block.root,
+            parent_root,
+            state_root: block.state_root,
+            target_root: block.target_root,
+            current_epoch_shuffling_id: block.current_epoch_shuffling_id.clone(),
+            next_epoch_shuffling_id: block.next_epoch_shuffling_id.clone(),
+            justified_checkpoint: block.justified_checkpoint,
+            finalized_checkpoint: block.finalized_checkpoint,
+            execution_status: block.execution_status,
+            unrealized_justified_checkpoint: block.unrealized_justified_checkpoint,
+            unrealized_finalized_checkpoint: block.unrealized_finalized_checkpoint,
+        })
     }
 
     /// Returns the `block.execution_status` field, if the block is present.

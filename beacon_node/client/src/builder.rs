@@ -259,6 +259,12 @@ where
                 genesis_state_bytes,
             } => {
                 info!(context.log(), "Starting checkpoint sync");
+                if config.chain.genesis_backfill {
+                    info!(
+                        context.log(),
+                        "Blocks will downloaded all the way back to genesis"
+                    );
+                }
 
                 let anchor_state = BeaconState::from_ssz_bytes(&anchor_state_bytes, &spec)
                     .map_err(|e| format!("Unable to parse weak subj state SSZ: {:?}", e))?;
@@ -280,6 +286,12 @@ where
                     "Starting checkpoint sync";
                     "remote_url" => %url,
                 );
+                if config.chain.genesis_backfill {
+                    info!(
+                        context.log(),
+                        "Blocks will be downloaded all the way back to genesis"
+                    );
+                }
 
                 let remote = BeaconNodeHttpClient::new(
                     url,
@@ -475,6 +487,7 @@ where
                         network_globals: None,
                         eth1_service: Some(genesis_service.eth1_service.clone()),
                         log: context.log().clone(),
+                        sse_logging_components: runtime_context.sse_logging_components.clone(),
                     });
 
                     // Discard the error from the oneshot.
@@ -695,6 +708,7 @@ where
                 network_senders: self.network_senders.clone(),
                 network_globals: self.network_globals.clone(),
                 eth1_service: self.eth1_service.clone(),
+                sse_logging_components: runtime_context.sse_logging_components.clone(),
                 log: log.clone(),
             });
 

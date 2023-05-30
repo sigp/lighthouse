@@ -578,3 +578,33 @@ The following fields may be omitted or nullified to obtain default values:
 ### Example Response Body
 
 *No data is included in the response body.*
+
+## `GET /lighthouse/logs`
+
+Provides a subscription to receive logs as Server Side Events. Currently the
+logs emitted are INFO level or higher.
+
+### HTTP Specification
+
+| Property          | Specification                              |
+|-------------------|--------------------------------------------|
+| Path              | `/lighthouse/logs`                         |
+| Method            | GET                                        |
+| Required Headers  | None                                       |
+| Typical Responses | 200                                        |
+
+### Example Response Body
+
+```json
+{
+  "data": {
+	  "time": "Mar 13 15:26:53",
+	  "level": "INFO",
+	  "msg": "Connected to beacon node(s)",
+	  "service": "notifier",
+	  "synced": 1,
+	  "available": 1,
+	  "total": 1
+  }
+}
+```

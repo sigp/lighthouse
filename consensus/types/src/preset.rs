@@ -12,71 +12,71 @@ use serde_derive::{Deserialize, Serialize};
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "UPPERCASE")]
 pub struct BasePreset {
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub max_committees_per_slot: u64,
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub target_committee_size: u64,
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub max_validators_per_committee: u64,
-    #[serde(with = "eth2_serde_utils::quoted_u8")]
+    #[serde(with = "serde_utils::quoted_u8")]
     pub shuffle_round_count: u8,
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub hysteresis_quotient: u64,
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub hysteresis_downward_multiplier: u64,
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub hysteresis_upward_multiplier: u64,
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub safe_slots_to_update_justified: u64,
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub min_deposit_amount: u64,
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub max_effective_balance: u64,
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub effective_balance_increment: u64,
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub min_attestation_inclusion_delay: u64,
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub slots_per_epoch: u64,
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub min_seed_lookahead: Epoch,
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub max_seed_lookahead: Epoch,
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub epochs_per_eth1_voting_period: u64,
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub slots_per_historical_root: u64,
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub min_epochs_to_inactivity_penalty: u64,
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub epochs_per_historical_vector: u64,
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub epochs_per_slashings_vector: u64,
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub historical_roots_limit: u64,
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub validator_registry_limit: u64,
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub base_reward_factor: u64,
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub whistleblower_reward_quotient: u64,
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub proposer_reward_quotient: u64,
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub inactivity_penalty_quotient: u64,
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub min_slashing_penalty_quotient: u64,
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub proportional_slashing_multiplier: u64,
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub max_proposer_slashings: u64,
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub max_attester_slashings: u64,
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub max_attestations: u64,
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub max_deposits: u64,
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub max_voluntary_exits: u64,
 }
 
@@ -123,17 +123,17 @@ impl BasePreset {
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "UPPERCASE")]
 pub struct AltairPreset {
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub inactivity_penalty_quotient_altair: u64,
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub min_slashing_penalty_quotient_altair: u64,
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub proportional_slashing_multiplier_altair: u64,
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub sync_committee_size: u64,
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub epochs_per_sync_committee_period: Epoch,
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub min_sync_committee_participants: u64,
 }
 
@@ -153,19 +153,19 @@ impl AltairPreset {
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "UPPERCASE")]
 pub struct BellatrixPreset {
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub inactivity_penalty_quotient_bellatrix: u64,
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub min_slashing_penalty_quotient_bellatrix: u64,
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub proportional_slashing_multiplier_bellatrix: u64,
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub max_bytes_per_transaction: u64,
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub max_transactions_per_payload: u64,
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub bytes_per_logs_bloom: u64,
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub max_extra_data_bytes: u64,
 }
 
@@ -187,11 +187,11 @@ impl BellatrixPreset {
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "UPPERCASE")]
 pub struct CapellaPreset {
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub max_bls_to_execution_changes: u64,
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub max_withdrawals_per_payload: u64,
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub max_validators_per_withdrawals_sweep: u64,
 }
 
