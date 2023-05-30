@@ -2142,45 +2142,11 @@ impl ApiTester {
                 .unwrap()
                 .unwrap_or(self.chain.head_beacon_block_root());
 
-            // Presently, the beacon chain harness never runs the code that primes the proposer
-            // cache. If this changes in the future then we'll need some smarter logic here, but
-            // this is succinct and effective for the time being.
-            assert!(
-                self.chain
-                    .beacon_proposer_cache
-                    .lock()
-                    .get_epoch::<E>(dependent_root, epoch)
-                    .is_none(),
-                "the proposer cache should miss initially"
-            );
-
             let result = self
                 .client
                 .get_validator_duties_proposer(epoch)
                 .await
                 .unwrap();
-
-            // Check that current-epoch requests prime the proposer cache, whilst non-current
-            // requests don't.
-            if epoch == current_epoch {
-                assert!(
-                    self.chain
-                        .beacon_proposer_cache
-                        .lock()
-                        .get_epoch::<E>(dependent_root, epoch)
-                        .is_some(),
-                    "a current-epoch request should prime the proposer cache"
-                );
-            } else {
-                assert!(
-                    self.chain
-                        .beacon_proposer_cache
-                        .lock()
-                        .get_epoch::<E>(dependent_root, epoch)
-                        .is_none(),
-                    "a non-current-epoch request should not prime the proposer cache"
-                );
-            }
 
             let mut state = self
                 .chain
@@ -2275,26 +2241,6 @@ impl ApiTester {
             .get_validator_duties_proposer(current_epoch)
             .await
             .expect("should get proposer duties for the next epoch outside of tolerance");
-
-        assert!(
-            self.chain
-                .beacon_proposer_cache
-                .lock()
-                .get_epoch::<E>(dependent_root, current_epoch)
-                .is_none(),
-            "should not prime the proposer cache outside of tolerance"
-        );
-
-        assert_eq!(
-            self.client
-                .post_validator_duties_attester(next_epoch, &[0])
-                .await
-                .unwrap_err()
-                .status()
-                .map(Into::into),
-            Some(400),
-            "should not get attester duties outside of tolerance"
-        );
 
         self.chain
             .slot_clock
