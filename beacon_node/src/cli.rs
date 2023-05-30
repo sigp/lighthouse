@@ -296,6 +296,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 This is enabled by default, using default quotas. To disable rate limiting pass \
                 `disabled` to this option instead."
             )
+            .min_values(0)
             .hidden(true)
         )
         .arg(
