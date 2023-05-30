@@ -76,7 +76,7 @@ impl<TSpec: EthSpec> Encoder<RPCCodedResponse<TSpec>> for SSZSnappyInboundCodec<
                 RPCResponse::MetaData(res) =>
                 // Encode the correct version of the MetaData response based on the negotiated version.
                 {
-                    match self.protocol.protocol {
+                    match self.protocol.versioned_protocol {
                         SupportedProtocol::MetaDataV1 => res.metadata_v1().as_ssz_bytes(),
                         // We always send V2 metadata responses from the behaviour
                         // No change required.
@@ -126,10 +126,10 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyInboundCodec<TSpec> {
     type Error = RPCError;
 
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
-        if self.protocol.protocol == SupportedProtocol::MetaDataV1 {
+        if self.protocol.versioned_protocol == SupportedProtocol::MetaDataV1 {
             return Ok(Some(InboundRequest::MetaData(MetadataRequest::new_v1())));
         }
-        if self.protocol.protocol == SupportedProtocol::MetaDataV2 {
+        if self.protocol.versioned_protocol == SupportedProtocol::MetaDataV2 {
             return Ok(Some(InboundRequest::MetaData(MetadataRequest::new_v2())));
         }
         let length = match handle_length(&mut self.inner, &mut self.len, src)? {
@@ -143,7 +143,7 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyInboundCodec<TSpec> {
         if ssz_limits.is_out_of_bounds(length, self.max_packet_size) {
             return Err(RPCError::InvalidData(format!(
                 "RPC request length for protocol {:?} is out of bounds, length {}",
-                self.protocol.protocol, length
+                self.protocol.versioned_protocol, length
             )));
         }
         // Calculate worst case compression length for given uncompressed length
@@ -160,7 +160,7 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyInboundCodec<TSpec> {
                 let n = reader.get_ref().get_ref().position();
                 self.len = None;
                 let _read_bytes = src.split_to(n as usize);
-                handle_rpc_request(self.protocol.protocol, &decoded_buffer)
+                handle_rpc_request(self.protocol.versioned_protocol, &decoded_buffer)
             }
             Err(e) => handle_error(e, reader.get_ref().get_ref().position(), max_compressed_len),
         }
@@ -305,7 +305,7 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyOutboundCodec<TSpec> {
                 // Safe to `take` from `self.fork_name` as we have all the bytes we need to
                 // decode an ssz object at this point.
                 let fork_name = self.fork_name.take();
-                handle_rpc_response(self.protocol.protocol, &decoded_buffer, fork_name)
+                handle_rpc_response(self.protocol.versioned_protocol, &decoded_buffer, fork_name)
             }
             Err(e) => handle_error(e, reader.get_ref().get_ref().position(), max_compressed_len),
         }
@@ -446,10 +446,10 @@ fn handle_length(
 /// `decoded_buffer` should be an ssz-encoded bytestream with
 // length = length-prefix received in the beginning of the stream.
 fn handle_rpc_request<T: EthSpec>(
-    protocol: SupportedProtocol,
+    versioned_protocol: SupportedProtocol,
     decoded_buffer: &[u8],
 ) -> Result<Option<InboundRequest<T>>, RPCError> {
-    match protocol {
+    match versioned_protocol {
         SupportedProtocol::StatusV1 => Ok(Some(InboundRequest::Status(
             StatusMessage::from_ssz_bytes(decoded_buffer)?,
         ))),
@@ -508,11 +508,11 @@ fn handle_rpc_request<T: EthSpec>(
 /// For BlocksByRange/BlocksByRoot reponses, decodes the appropriate response
 /// according to the received `ForkName`.
 fn handle_rpc_response<T: EthSpec>(
-    protocol: SupportedProtocol,
+    versioned_protocol: SupportedProtocol,
     decoded_buffer: &[u8],
     fork_name: Option<ForkName>,
 ) -> Result<Option<RPCResponse<T>>, RPCError> {
-    match protocol {
+    match versioned_protocol {
         SupportedProtocol::StatusV1 => Ok(Some(RPCResponse::Status(
             StatusMessage::from_ssz_bytes(decoded_buffer)?,
         ))),
@@ -557,7 +557,7 @@ fn handle_rpc_response<T: EthSpec>(
             )))),
             None => Err(RPCError::ErrorResponse(
                 RPCResponseErrorCode::InvalidRequest,
-                format!("No context bytes provided for {:?} response", protocol),
+                format!("No context bytes provided for {:?} response", versioned_protocol),
             )),
         },
         SupportedProtocol::BlocksByRootV2 => match fork_name {
@@ -577,7 +577,7 @@ fn handle_rpc_response<T: EthSpec>(
             )))),
             None => Err(RPCError::ErrorResponse(
                 RPCResponseErrorCode::InvalidRequest,
-                format!("No context bytes provided for {:?} response", protocol),
+                format!("No context bytes provided for {:?} response", versioned_protocol),
             )),
         },
     }

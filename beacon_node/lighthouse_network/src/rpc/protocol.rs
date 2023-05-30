@@ -304,7 +304,7 @@ impl RpcLimits {
 #[derive(Clone, Debug)]
 pub struct ProtocolId {
     /// The protocol name and version
-    pub protocol: SupportedProtocol,
+    pub versioned_protocol: SupportedProtocol,
 
     /// The encoding of the RPC.
     pub encoding: Encoding,
@@ -316,7 +316,7 @@ pub struct ProtocolId {
 impl ProtocolId {
     /// Returns min and max size for messages of given protocol id requests.
     pub fn rpc_request_limits(&self) -> RpcLimits {
-        match self.protocol.protocol() {
+        match self.versioned_protocol.protocol() {
             Protocol::Status => RpcLimits::new(
                 <StatusMessage as Encode>::ssz_fixed_len(),
                 <StatusMessage as Encode>::ssz_fixed_len(),
@@ -347,7 +347,7 @@ impl ProtocolId {
 
     /// Returns min and max size for messages of given protocol id responses.
     pub fn rpc_response_limits<T: EthSpec>(&self, fork_context: &ForkContext) -> RpcLimits {
-        match self.protocol.protocol() {
+        match self.versioned_protocol.protocol() {
             Protocol::Status => RpcLimits::new(
                 <StatusMessage as Encode>::ssz_fixed_len(),
                 <StatusMessage as Encode>::ssz_fixed_len(),
@@ -373,7 +373,7 @@ impl ProtocolId {
     /// Returns `true` if the given `ProtocolId` should expect `context_bytes` in the
     /// beginning of the stream, else returns `false`.
     pub fn has_context_bytes(&self) -> bool {
-        match self.protocol {
+        match self.versioned_protocol {
             SupportedProtocol::BlocksByRangeV2
             | SupportedProtocol::BlocksByRootV2
             | SupportedProtocol::LightClientBootstrapV1 => true,
@@ -390,17 +390,17 @@ impl ProtocolId {
 
 /// An RPC protocol ID.
 impl ProtocolId {
-    pub fn new(protocol: SupportedProtocol, encoding: Encoding) -> Self {
+    pub fn new(versioned_protocol: SupportedProtocol, encoding: Encoding) -> Self {
         let protocol_id = format!(
             "{}/{}/{}/{}",
             PROTOCOL_PREFIX,
-            protocol.protocol(),
-            protocol.version_string(),
+            versioned_protocol.protocol(),
+            versioned_protocol.version_string(),
             encoding
         );
 
         ProtocolId {
-            protocol,
+            versioned_protocol,
             encoding,
             protocol_id,
         }
@@ -433,7 +433,7 @@ where
 
     fn upgrade_inbound(self, socket: TSocket, protocol: ProtocolId) -> Self::Future {
         async move {
-            let protocol_name = protocol.protocol;
+            let versioned_protocol = protocol.versioned_protocol;
             // convert the socket to tokio compatible socket
             let socket = socket.compat();
             let codec = match protocol.encoding {
@@ -452,7 +452,7 @@ where
             let socket = Framed::new(Box::pin(timed_socket), codec);
 
             // MetaData requests should be empty, return the stream
-            match protocol_name {
+            match versioned_protocol {
                 SupportedProtocol::MetaDataV1 => {
                     Ok((InboundRequest::MetaData(MetadataRequest::new_v1()), socket))
                 }
