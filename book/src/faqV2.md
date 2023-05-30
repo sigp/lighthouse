@@ -1,11 +1,11 @@
 # Frequently Asked Questions
 
 ## [Beacon Node](#beacon-node-1)
-- [I see warning about "Syncing deposit contract block cache" or error about "updating deposit contract cache", what should I do?](#i-see-warning-about-syncing-deposit-contract-block-cache-or-error-about-updating-deposit-contract-cache-what-should-i-do)
+- [I see a warning about "Syncing deposit contract block cache" or an error about "updating deposit contract cache", what should I do?](#i-see-a-warning-about-syncing-deposit-contract-block-cache-or-an-error-about-updating-deposit-contract-cache-what-should-i-do)
 - [I see beacon logs showing `WARN: Execution engine called failed`, what should I do?](#i-see-beacon-logs-showing-warn-execution-engine-called-failed-what-should-i-do)
 - [My beacon node is stuck at downloading historical block using checkpoint sync. What should I do?](#my-beacon-node-is-stuck-at-downloading-historical-block-using-checkpoint-sync-what-should-i-do)
 - [I proposed a block but the beacon node shows `could not publish message` with error `duplicate` as below, should I be worried?](#i-proposed-a-block-but-the-beacon-node-shows-could-not-publish-message-with-error-duplicate-as-below-should-i-be-worried)
-- [I see beacon node logs `Head is optimistic`, and I am missing attestations. What should I do?](#i-see-beacon-node-logs-head-is-optimistic-and-i-am-missing-attestations-what-should-i-do)
+- [I see beacon node logs `Head is optimistic` and I am missing attestations. What should I do?](#i-see-beacon-node-logs-head-is-optimistic-and-i-am-missing-attestations-what-should-i-do)
 - [My beacon node logs `CRIT Beacon block processing error error: ValidatorPubkeyCacheLockTimeout`, what should I do?](#my-beacon-node-logs-crit-beacon-block-processing-error-error-validatorpubkeycachelocktimeout-service-beacon-what-should-i-do)
 - [My beacon node logs `WARN BlockProcessingFailure outcome: MissingBeaconBlock`, what should I do?](#my-beacon-node-logs-warn-blockprocessingfailure-outcome-missingbeaconblock-what-should-i-do)
 - [After checkpoint sync, the progress of `downloading historical blocks` is slow. Why?](#after-checkpoint-sync-the-progress-of-downloading-historical-blocks-is-slow-why)
@@ -19,7 +19,7 @@
 - [Can I submit a voluntary exit message without a beacon node?](#can-i-submit-a-voluntary-exit-message-without-running-a-beacon-node)
 - [Does increasing the number of validators increase the CPU and other computer resources used?](#does-increasing-the-number-of-validators-increase-the-cpu-and-other-computer-resources-used)
 - [I want to add new validators. Do I have to reimport the existing keys?](#i-want-to-add-new-validators-do-i-have-to-reimport-the-existing-keys)
-- [Do I have to stop `lighthouse vc` when import new validator keys?](#do-i-have-to-stop-lighthouse-vc-when-import-new-validator-keys)
+- [Do I have to stop `lighthouse vc` the when importing new validator keys?](#do-i-have-to-stop-lighthouse-vc-when-importing-new-validator-keys)
 
 
 ## [Network, Monitoring and Maintenance](#network-monitoring-and-maintenance-1)
@@ -40,7 +40,7 @@
 
 ## Beacon Node
 
-### I see warning about "Syncing deposit contract block cache" or error about "updating deposit contract cache", what should I do?
+### I see a warning about "Syncing deposit contract block cache" or an error about "updating deposit contract cache", what should I do?
 
 The error can be a warning:
 
@@ -125,7 +125,7 @@ CRIT Beacon block processing error           error: ValidatorPubkeyCacheLockTime
 WARN BlockProcessingFailure                  outcome: ValidatorPubkeyCacheLockTimeout, msg: unexpected condition in processing block.
 ```
 
-A `Timeout` error suggests that the computer may be overloading at the moment, for example, the execution client is still syncing. You may use the flag `--disable-lock-timeouts` to silence this error, although it will not fix the underlying slowness. Nevertheless, this is a relatively harmless log, and the error should go away once the resources used are back to normal. 
+A `Timeout` error suggests that the computer may be overloaded at the moment, for example, the execution client is still syncing. You may use the flag `--disable-lock-timeouts` to silence this error, although it will not fix the underlying slowness. Nevertheless, this is a relatively harmless log, and the error should go away once the resources used are back to normal. 
 
 ### My beacon node logs `WARN BlockProcessingFailure outcome: MissingBeaconBlock`, what should I do?
 
@@ -135,17 +135,17 @@ An example of the full log is shown below:
 WARN BlockProcessingFailure                  outcome: MissingBeaconBlock(0xbdba211f8d72029554e405d8e4906690dca807d1d7b1bc8c9b88d7970f1648bc), msg: unexpected condition in processing block.
 ```
 
-`MissingBeaconBlock` suggests that the database has corrupted. You should wide the database and use [Checkpoint Sync](./checkpoint-sync.md) to resync the beacon chain. 
+`MissingBeaconBlock` suggests that the database has corrupted. You should wipe the database and use [Checkpoint Sync](./checkpoint-sync.md) to resync the beacon chain. 
 
 ### After checkpoint sync, the progress of `downloading historical blocks` is slow. Why?
 
-This is a normal behaviour. Since [v4.1.0](https://github.com/sigp/lighthouse/releases/tag/v4.1.0), Lighthouse implements rate-limited backfill sync to mitigate validator performance issues after a checkpoint sync. This is not something to worry because backfill sync / historical data is not required for staking. However, if you opt to sync the chain as fast as possible, you can add the flag `--disable-backfill-rate-limiting` to the beacon node.
+This is a normal behaviour. Since [v4.1.0](https://github.com/sigp/lighthouse/releases/tag/v4.1.0), Lighthouse implements rate-limited backfill sync to mitigate validator performance issues after a checkpoint sync. This is not something to worry about since backfill sync / historical data is not required for staking. However, if you opt to sync the chain as fast as possible, you can add the flag `--disable-backfill-rate-limiting` to the beacon node.
 
 ### My beacon node logs `WARN Error processing HTTP API request`, what should I do?
 
 This warning usually comes with an http error code. Some examples are given below:
 
-1. The log show:
+1. The log shows:
 
 ```
 WARN Error processing HTTP API request       method: GET, path: /eth/v1/validator/attestation_data, status: 500 Internal Server Error, elapsed: 305.65µs
@@ -153,7 +153,7 @@ WARN Error processing HTTP API request       method: GET, path: /eth/v1/validato
 
 The error is `500 Internal Server Error`. This suggests that the execution client is not synced. Once the execution client is synced, the error will disappear.
 
-2. The log show:
+2. The log shows:
 
 ```
 WARN Error processing HTTP API request       method: POST, path: /eth/v1/validator/duties/attester/199565, status: 503 Service Unavailable, elapsed: 96.787µs
@@ -165,7 +165,7 @@ The error is `503 Service Unavailable`. This means that the beacon node is still
 ERRO Failed to download attester duties      err: FailedToDownloadAttesters("Some endpoints failed, num_failed: 2 http://localhost:5052/ => Unavailable(NotSynced), http://localhost:5052/ => RequestFailed(ServerMessage(ErrorMessage { code: 503, message: \"SERVICE_UNAVAILABLE: beacon node is syncing
 ```
 
-This means that the validator client is sending requests to the beacon node. However, because the beacon node is still syncing, hence it is unable to fulfil the request. The error will disappear once the beacon node is synced. 
+This means that the validator client is sending requests to the beacon node. However the beacon node is still syncing is therefore unable to fulfil the request. The error will disappear once the beacon node is synced. 
 
 ## Validator
 
@@ -280,7 +280,7 @@ You can see more information on the [Ethstaker KB](https://ethstaker.gitbook.io/
 
 ### Sometimes I miss the attestation head vote, resulting in penalty. Is this normal?
 
-In general, it is unavoidable to have some penalties occasionally. This is particularly the case when you are assigned to attest on the first slot of an epoch and if the proposer of that slot releases the block late, then you will get penalised for missing the target and head votes. Your attestation performance does not only depend on your own setup, but also on everyone else's performance.
+In general, it is unavoidable to have some penalties occasionally. This is particularly the case when you are assigned to attest on the first slot of an epoch and if the proposer of that slot releases the block late, then you will get penalised for missing the target and head votes. Your attestation performance does not only depend on your own setup, but also on everyone elses performance.
 
 ### Can I submit a voluntary exit message without running a beacon node?
 
@@ -298,7 +298,7 @@ A computer with hardware specifications stated in the [Recommended System Requir
 
 No. You can just import new validator keys to the destination directory. If the `validator_keys` folder contains existing keys, that's fine as well because Lighthouse will skip importing existing keys.
 
-### Do I have to stop `lighthouse vc` when import new validator keys?
+### Do I have to stop `lighthouse vc` when importing new validator keys?
 
 Generally yes.
 
