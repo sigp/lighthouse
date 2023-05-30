@@ -56,4 +56,4 @@
     * [Late Block Re-orgs](./late-block-re-orgs.md)
 * [Contributing](./contributing.md)
     * [Development Environment](./setup.md)
-* [FAQs](./faq.md)
+* [FAQs](./faqV2.md)
