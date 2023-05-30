@@ -19,7 +19,7 @@ If you run Siren in the browser (by entering `localhost` in the browser), you wi
 ssh -N -L 80:127.0.0.1:80 -L 5052:127.0.0.1:5052 -L 5062:127.0.0.1:5062 username@local_ip
 ```  
 
-where `username` is the username of the server and `local_ip` is the local IP address of the server. Note that with the `-N` option in an SSH session, you will not be able to execute commands in the CLI to avoid confusion with ordinary shell sessions. The connection will appear to be "hang" upon a successful connection, but that is normal. Once you have successfully connected to the server via SSH tunneling, you should be able to access Siren by entering `localhost` in a web browser. 
+where `username` is the username of the server and `local_ip` is the local IP address of the server. Note that with the `-N` option in an SSH session, you will not be able to execute commands in the CLI to avoid confusion with ordinary shell sessions. The connection will appear to be "hung" upon a successful connection, but that is normal. Once you have successfully connected to the server via SSH tunneling, you should be able to access Siren by entering `localhost` in a web browser. 
 
 You can also access Siren using the app downloaded in the [Siren release page](https://github.com/sigp/siren/releases). To access Siren beyond the local computer, you can use SSH tunneling for ports `5052` and `5062` using the command:
 
