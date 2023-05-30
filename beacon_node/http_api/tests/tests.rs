@@ -2966,7 +2966,7 @@ impl ApiTester {
     }
 
     pub async fn test_post_validator_liveness_epoch(self) -> Self {
-        let mut epoch = Epoch::new(1);
+        let epoch = self.chain.epoch().unwrap();
         let head_state = self.chain.head_beacon_state_cloned();
         let indices = (0..head_state.validators().len())
             .map(|i| i as u64)
@@ -2993,7 +2993,6 @@ impl ApiTester {
         assert_eq!(result, expected);
 
         // Attest to the current slot
-        epoch = self.chain.epoch().unwrap();
         self.client
             .post_beacon_pool_attestations(self.attestations.as_slice())
             .await
