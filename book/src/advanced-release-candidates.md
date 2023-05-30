@@ -40,5 +40,5 @@ There can also be a scenario that a bug has been found and requires an urgent fi
 
 ## When *not* to use a release candidate
 
-Other than the above scenarios, it is generally not recommended to use release candidates for any critical tasks on mainnet (e.g., staking). To test critical features, try one of the testnets (e.g., Goerli).
+Other than the above scenarios, it is generally not recommended to use release candidates for any critical tasks on mainnet (e.g., staking). To test new release candidate features, try one of the testnets (e.g., Goerli).
 

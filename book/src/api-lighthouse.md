@@ -70,7 +70,6 @@ Returns information regarding the health of the host machine.
 ```bash
 curl -X GET "http://localhost:5052/lighthouse/ui/health" -H  "accept: application/json" | jq
 ```
-[comment]: <> (Reorganize the output, tested the API on my own node shows that the output is reordered)
 
 ```json
 {
@@ -124,7 +123,6 @@ curl -X GET "http://localhost:5052/lighthouse/ui/validator_count" -H "accept: ap
 }
 ```
 
-[comment]: <> (Tested that it needs the flag `--validator-monitor-auto` to return the output, hence added the content)
 
 ### `/lighthouse/ui/validator_metrics`
 Re-exposes certain metrics from the validator monitor to the HTTP API. This API requires that the beacon node to have the flag `--validator-monitor-auto`. This API will only return metrics for the validators currently being monitored and present in the POST data, or the validators running in the validator client. 
@@ -145,7 +143,8 @@ curl -X POST "http://localhost:5052/lighthouse/ui/validator_metrics" -d '{"indic
         "attestation_head_hit_percentage": 100,
         "attestation_target_hits": 5,
         "attestation_target_misses": 5,
-        "attestation_target_hit_percentage": 50
+        "attestation_target_hit_percentage": 50,
+        "latest_attestation_inclusion_distance": 1
       }
     }
   }
@@ -167,7 +166,7 @@ curl -X GET "http://localhost:5052/lighthouse/syncing" -H  "accept: application/
 ```
 [comment]: <> (Returned only start slot and target slot when tested, no head slot and head root, hence the change. Feel free to correct if this is wrong)
 
-There are two possible outcome, depending on whether the beacon node is syncing or synced.
+There are two possible outcomes, depending on whether the beacon node is syncing or synced.
 
 1. Syncing:
    ```json
@@ -193,7 +192,6 @@ There are two possible outcome, depending on whether the beacon node is syncing 
 curl -X GET "http://localhost:5052/lighthouse/peers" -H  "accept: application/json" | jq
 ```
 
-[comment]: <> (Changed the output as per tested on my own node. Most info are the same but there are some differences such as the output I obtained contains subnet, is_trusted, connection_direction and enr which I have added below.)
 
 ```json
 [
@@ -264,7 +262,6 @@ Returns information about connected peers.
 curl -X GET "http://localhost:5052/lighthouse/peers/connected" -H  "accept: application/json" | jq
 ```
 
-[comment]: <> (modified similarly as above in /lighthouse/peers)
 
 
 ```json
@@ -360,9 +357,7 @@ health of the execution node that the beacon node is connected to.
 - `latest_cached_block_number` & `latest_cached_block_timestamp`: the block
 number and timestamp of the latest block we have in our block cache.
 	- For correct execution client voting this timestamp should be later than the
-`voting_period_start_timestamp`. 
-
-[comment]: <> (What is `voting_period_start_timestamp`? A search on sigp/lighthouse github only returns the parameter for this .md file and doesn't seem to be defined elsewhere)
+`voting_target_timestamp`. 
 
 - `voting_target_timestamp`: The latest timestamp allowed for an execution layer block in this voting period.
 - `eth1_node_sync_status_percentage` (float): An estimate of how far the head of the
@@ -518,7 +513,6 @@ Information about the database's split point and anchor info.
 curl "http://localhost:5052/lighthouse/database/info" | jq
 ```
 
-[comment]: <> (Added prune_payloads which seems to have been added in the response of this API query, so updated the response of other fields too)
 
 ```json
 {
@@ -701,7 +695,6 @@ Example:
 curl -X GET "http://localhost:5052/lighthouse/analysis/block_rewards?start_slot=1&end_slot=1" | jq
 ```
 
-[comment]: <> (The response seems to have more information now, I query only 1 slot and updated accordingly the command and response, but that's a bit weird because I didn't include all response until the end, so the curly and square brackets I added myself for completion)
 
 The first few lines of the response would look like:
 

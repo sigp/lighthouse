@@ -51,9 +51,9 @@ Example Response Body:
     }
 }
 ```
-> Note: The command provided in this documentation links to the API token file. In this documentation, it is assumed that the API token file is located in `/var/lib/lighthouse/validators/API-token.txt`. If your database is saved in another directory, modified the `DATADIR` accordingly.
+> Note: The command provided in this documentation links to the API token file. In this documentation, it is assumed that the API token file is located in `/var/lib/lighthouse/validators/API-token.txt`. If your database is saved in another directory, modify the `DATADIR` accordingly.
 
-> As an alternative, you can also provide the API token directly, for example, `-H "Authorization: Bearer api-token-0x02dc2a13115cc8c83baf170f597f22b1eb2930542941ab902df3daadebcb8f8176`. In this case, you obtain the token from the file `API token.txt` and the command to become:
+> As an alternative, you can also provide the API token directly, for example, `-H "Authorization: Bearer api-token-0x02dc2a13115cc8c83baf170f597f22b1eb2930542941ab902df3daadebcb8f8176`. In this case, you obtain the token from the file `API token.txt` and the command becomes:
 ```bash
 curl -X GET "http://localhost:5062/lighthouse/version" -H "Authorization: Bearer api-token-0x02dc2a13115cc8c83baf170f597f22b1eb2930542941ab902df3daadebcb8f8176" | jq
 ```
@@ -134,7 +134,7 @@ Returns information regarding the health of the host machine.
 Command:
 ```bash
 DATADIR=/var/lib/lighthouse
- curl -X GET "http://localhost:5062/lighthouse/ui/health" -H "Authorization: Bearer $(sudo cat ${DATADIR}/validators/api-token.txt)" | jq
+curl -X GET "http://localhost:5062/lighthouse/ui/health" -H "Authorization: Bearer $(sudo cat ${DATADIR}/validators/api-token.txt)" | jq
  ```
 
 Example Response Body
@@ -622,8 +622,8 @@ Import a keystore into the validator client.
 We can use [JSON to String Converter](https://jsontostring.com/) so that the above data can be properly presented as a command. The command is as below:
 
 Command:
-DATADIR=/var/lib/lighthouse
 ```bash
+DATADIR=/var/lib/lighthouse
 curl -X POST http://localhost:5062/lighthouse/validators/keystore \
 -H "Authorization: Bearer $(sudo cat ${DATADIR}/validators/api-token.txt)" \
 -H "Content-Type: application/json" \

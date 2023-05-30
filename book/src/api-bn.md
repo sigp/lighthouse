@@ -95,7 +95,7 @@ curl -X GET "http://localhost:5052/eth/v1/beacon/headers/head" -H  "accept: appl
 }
 ```
 
-where `jq` is used to format the JSON data properly. If it returns `jq: command not found`, then you can install `jq` with `sudo apt install -y jq`. After that, run the command again, and it should return the head state of the beacon chain.
+The `jq` tool is used to format the JSON data properly. If it returns `jq: command not found`, then you can install `jq` with `sudo apt install -y jq`. After that, run the command again, and it should return the head state of the beacon chain.
 
 ### View the status of a validator
 
