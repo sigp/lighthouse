@@ -203,7 +203,15 @@ async fn node_health_el_online_and_not_synced() {
     let mock_el = harness.mock_execution_layer.as_ref().unwrap();
 
     // EL not synced
-    mock_el.server.set_syncing_response(Ok(true));
+    harness.advance_slot();
+    mock_el.server.all_payloads_syncing(true);
+    harness
+        .extend_chain(
+            1,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
 
     let status = tester.client.get_node_health().await;
     match status {
