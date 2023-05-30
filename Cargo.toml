@@ -90,6 +90,9 @@ resolver = "2"
 [patch.crates-io]
 warp = { git = "https://github.com/macladson/warp", rev="7e75acc368229a46a236a8c991bf251fe7fe50ef" }
 arbitrary = { git = "https://github.com/michaelsproul/arbitrary", rev="f002b99989b561ddce62e4cf2887b0f8860ae991" }
+tree_hash = { git = "https://github.com/sigp/tree_hash", rev="a2471f3b240f407a0ec7436cff11f03e5ec8c706" }
+ssz_types = { git = "https://github.com/sigp/ssz_types", rev="63a80d04286c8561d5c211230a21bf1299d66059" }
+ethereum_ssz_derive = { git = "https://github.com/jimmygchen/ethereum_ssz", rev="231aa8c840262da694e024235dbc638a2980c545"}
 
 [patch."https://github.com/ralexstokes/mev-rs"]
 mev-rs = { git = "https://github.com/ralexstokes//mev-rs", rev = "7813d4a4a564e0754e9aaab2d95520ba437c3889" }
