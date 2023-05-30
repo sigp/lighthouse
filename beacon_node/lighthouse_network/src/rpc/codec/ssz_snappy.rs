@@ -557,7 +557,10 @@ fn handle_rpc_response<T: EthSpec>(
             )))),
             None => Err(RPCError::ErrorResponse(
                 RPCResponseErrorCode::InvalidRequest,
-                format!("No context bytes provided for {:?} response", versioned_protocol),
+                format!(
+                    "No context bytes provided for {:?} response",
+                    versioned_protocol
+                ),
             )),
         },
         SupportedProtocol::BlocksByRootV2 => match fork_name {
@@ -577,7 +580,10 @@ fn handle_rpc_response<T: EthSpec>(
             )))),
             None => Err(RPCError::ErrorResponse(
                 RPCResponseErrorCode::InvalidRequest,
-                format!("No context bytes provided for {:?} response", versioned_protocol),
+                format!(
+                    "No context bytes provided for {:?} response",
+                    versioned_protocol
+                ),
             )),
         },
     }
