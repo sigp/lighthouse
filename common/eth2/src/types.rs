@@ -1203,6 +1203,13 @@ fn parse_accept(accept: &str) -> Result<Vec<Mime>, String> {
         .collect()
 }
 
+#[derive(PartialEq, Debug, Serialize, Deserialize)]
+pub struct StandardLivenessResponseData {
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub index: u64,
+    pub is_live: bool,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct LivenessRequestData {
     pub epoch: Epoch,
