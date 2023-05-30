@@ -3203,10 +3203,48 @@ pub fn serve<T: BeaconChainTypes>(
             },
         );
 
-    let liveness_path = warp::path("lighthouse").and(warp::path("liveness"));
+    // POST vaidator/liveness/{epoch}
+    let post_validator_liveness_epoch = eth_v1
+        .and(warp::path("validator"))
+        .and(warp::path("liveness"))
+        .and(warp::path::param::<Epoch>())
+        .and(warp::path::end())
+        .and(warp::body::json())
+        .and(chain_filter.clone())
+        .and_then(
+            |epoch: Epoch, indices: Vec<u64>, chain: Arc<BeaconChain<T>>| {
+                blocking_json_task(move || {
+                    // Ensure the request is for either the current, previous or next epoch.
+                    let current_epoch = chain
+                        .epoch()
+                        .map_err(warp_utils::reject::beacon_chain_error)?;
+                    let prev_epoch = current_epoch.saturating_sub(Epoch::new(1));
+                    let next_epoch = current_epoch.saturating_add(Epoch::new(1));
+
+                    if epoch < prev_epoch || epoch > next_epoch {
+                        return Err(warp_utils::reject::custom_bad_request(format!(
+                            "request epoch {} is more than one epoch from the current epoch {}",
+                            epoch, current_epoch
+                        )));
+                    }
+
+                    let liveness: Vec<api_types::StandardLivenessResponseData> = indices
+                        .iter()
+                        .cloned()
+                        .map(|index| {
+                            let is_live = chain.validator_seen_at_epoch(index as usize, epoch);
+                            api_types::StandardLivenessResponseData { index, is_live }
+                        })
+                        .collect();
+
+                    Ok(api_types::GenericResponse::from(liveness))
+                })
+            },
+        );
 
     // POST lighthouse/liveness
-    let post_lighthouse_liveness = liveness_path
+    let post_lighthouse_liveness = warp::path("lighthouse")
+        .and(warp::path("liveness"))
         .and(warp::path::end())
         .and(warp::body::json())
         .and(chain_filter.clone())
@@ -3237,46 +3275,6 @@ pub fn serve<T: BeaconChainTypes>(
                             api_types::LivenessResponseData {
                                 index,
                                 epoch: request_data.epoch,
-                                is_live,
-                            }
-                        })
-                        .collect();
-
-                    Ok(api_types::GenericResponse::from(liveness))
-                })
-            },
-        );
-
-    // POST lighthouse/liveness/{epoch}
-    let post_lighthouse_liveness_epoch = liveness_path
-        .and(warp::path::param::<Epoch>())
-        .and(warp::path::end())
-        .and(warp::body::json())
-        .and(chain_filter.clone())
-        .and_then(
-            |epoch: Epoch, indices: Vec<u64>, chain: Arc<BeaconChain<T>>| {
-                blocking_json_task(move || {
-                    // Ensure the request is for either the current, previous or next epoch.
-                    let current_epoch = chain
-                        .epoch()
-                        .map_err(warp_utils::reject::beacon_chain_error)?;
-                    let next_epoch = current_epoch.saturating_add(Epoch::new(1));
-
-                    if epoch > next_epoch {
-                        return Err(warp_utils::reject::custom_bad_request(format!(
-                            "request epoch {} is more than one epoch from the current epoch {}",
-                            epoch, current_epoch
-                        )));
-                    }
-
-                    let liveness: Vec<api_types::LivenessResponseData> = indices
-                        .iter()
-                        .cloned()
-                        .map(|index| {
-                            let is_live = chain.validator_seen_at_epoch(index as usize, epoch);
-                            api_types::LivenessResponseData {
-                                index,
-                                epoch,
                                 is_live,
                             }
                         })
@@ -3904,8 +3902,8 @@ pub fn serve<T: BeaconChainTypes>(
                     .uor(post_validator_sync_committee_subscriptions)
                     .uor(post_validator_prepare_beacon_proposer)
                     .uor(post_validator_register_validator)
+                    .uor(post_validator_liveness_epoch)
                     .uor(post_lighthouse_liveness)
-                    .uor(post_lighthouse_liveness_epoch)
                     .uor(post_lighthouse_database_reconstruct)
                     .uor(post_lighthouse_database_historical_blocks)
                     .uor(post_lighthouse_block_rewards)

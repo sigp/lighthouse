@@ -2965,6 +2965,70 @@ impl ApiTester {
         self
     }
 
+    pub async fn test_post_validator_liveness_epoch(self) -> Self {
+        let mut epoch = Epoch::new(1);
+        let head_state = self.chain.head_beacon_state_cloned();
+        let indices = (0..head_state.validators().len())
+            .map(|i| i as u64)
+            .collect::<Vec<_>>();
+
+        // Construct the expected response
+        let expected: Vec<StandardLivenessResponseData> = head_state
+            .validators()
+            .iter()
+            .enumerate()
+            .map(|(index, _)| StandardLivenessResponseData {
+                index: index as u64,
+                is_live: false,
+            })
+            .collect();
+
+        let result = self
+            .client
+            .post_validator_liveness_epoch(epoch, indices.clone())
+            .await
+            .unwrap()
+            .data;
+
+        assert_eq!(result, expected);
+
+        // Attest to the current slot
+        epoch = self.chain.epoch().unwrap();
+        self.client
+            .post_beacon_pool_attestations(self.attestations.as_slice())
+            .await
+            .unwrap();
+
+        let result = self
+            .client
+            .post_validator_liveness_epoch(epoch, indices.clone())
+            .await
+            .unwrap()
+            .data;
+
+        let committees = head_state
+            .get_beacon_committees_at_slot(self.chain.slot().unwrap())
+            .unwrap();
+        let attesting_validators: Vec<usize> = committees
+            .into_iter()
+            .flat_map(|committee| committee.committee.iter().cloned())
+            .collect();
+        // All attesters should now be considered live
+        let expected = expected
+            .into_iter()
+            .map(|mut a| {
+                if attesting_validators.contains(&(a.index as usize)) {
+                    a.is_live = true;
+                }
+                a
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(result, expected);
+
+        self
+    }
+
     // Helper function for tests that require a valid RANDAO signature.
     async fn get_test_randao(&self, slot: Slot, epoch: Epoch) -> (u64, SignatureBytes) {
         let fork = self.chain.canonical_head.cached_head().head_fork();
@@ -4008,72 +4072,6 @@ impl ApiTester {
         self
     }
 
-    pub async fn test_post_lighthouse_liveness_epoch(self) -> Self {
-        let mut epoch = Epoch::new(1);
-        let head_state = self.chain.head_beacon_state_cloned();
-        let indices = (0..head_state.validators().len())
-            .map(|i| i as u64)
-            .collect::<Vec<_>>();
-
-        // Construct the expected response
-        let expected: Vec<LivenessResponseData> = head_state
-            .validators()
-            .iter()
-            .enumerate()
-            .map(|(index, _)| LivenessResponseData {
-                index: index as u64,
-                is_live: false,
-                epoch,
-            })
-            .collect();
-
-        let result = self
-            .client
-            .post_lighthouse_liveness_epoch(epoch, indices.clone())
-            .await
-            .unwrap()
-            .data;
-
-        assert_eq!(result, expected);
-
-        // Attest to the current slot
-        epoch = self.chain.epoch().unwrap();
-        self.client
-            .post_beacon_pool_attestations(self.attestations.as_slice())
-            .await
-            .unwrap();
-
-        let result = self
-            .client
-            .post_lighthouse_liveness_epoch(epoch, indices.clone())
-            .await
-            .unwrap()
-            .data;
-
-        let committees = head_state
-            .get_beacon_committees_at_slot(self.chain.slot().unwrap())
-            .unwrap();
-        let attesting_validators: Vec<usize> = committees
-            .into_iter()
-            .flat_map(|committee| committee.committee.iter().cloned())
-            .collect();
-        // All attesters should now be considered live
-        let expected = expected
-            .into_iter()
-            .map(|mut a| {
-                if attesting_validators.contains(&(a.index as usize)) {
-                    a.is_live = true;
-                }
-                a.epoch = epoch;
-                a
-            })
-            .collect::<Vec<_>>();
-
-        assert_eq!(result, expected);
-
-        self
-    }
-
     pub async fn test_get_events(self) -> Self {
         // Subscribe to all events
         let topics = vec![
@@ -4920,6 +4918,14 @@ async fn builder_works_post_capella() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn post_validator_liveness_epoch() {
+    ApiTester::new()
+        .await
+        .test_post_validator_liveness_epoch()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn lighthouse_endpoints() {
     ApiTester::new()
         .await
@@ -4948,8 +4954,6 @@ async fn lighthouse_endpoints() {
         .test_post_lighthouse_database_reconstruct()
         .await
         .test_post_lighthouse_liveness()
-        .await
-        .test_post_lighthouse_liveness_epoch()
         .await;
 }
 
