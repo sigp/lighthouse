@@ -40,7 +40,7 @@ pub const CONSENSUS_VERSION_HEADER: &str = "Eth-Consensus-Version";
 #[derive(Debug)]
 pub enum Error {
     /// The `reqwest` client raised an error.
-    Reqwest(PrettyReqwestError),
+    HttpClient(PrettyReqwestError),
     /// The server returned an error message where the body was able to be parsed.
     ServerMessage(ErrorMessage),
     /// The server returned an error message with an array of errors.
@@ -71,7 +71,7 @@ pub enum Error {
 
 impl From<reqwest::Error> for Error {
     fn from(error: reqwest::Error) -> Self {
-        Error::Reqwest(error.into())
+        Error::HttpClient(error.into())
     }
 }
 
@@ -79,7 +79,7 @@ impl Error {
     /// If the error has a HTTP status code, return it.
     pub fn status(&self) -> Option<StatusCode> {
         match self {
-            Error::Reqwest(error) => error.inner().status(),
+            Error::HttpClient(error) => error.inner().status(),
             Error::ServerMessage(msg) => StatusCode::try_from(msg.code).ok(),
             Error::ServerIndexedMessage(msg) => StatusCode::try_from(msg.code).ok(),
             Error::StatusCode(status) => Some(*status),
@@ -1644,7 +1644,7 @@ impl BeaconNodeHttpClient {
             .bytes_stream()
             .map(|next| match next {
                 Ok(bytes) => EventKind::from_sse_bytes(bytes.as_ref()),
-                Err(e) => Err(Error::Reqwest(e.into())),
+                Err(e) => Err(Error::HttpClient(e.into())),
             }))
     }
 

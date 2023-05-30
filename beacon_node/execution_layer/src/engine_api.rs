@@ -33,7 +33,7 @@ pub type PayloadId = [u8; 8];
 
 #[derive(Debug)]
 pub enum Error {
-    Reqwest(PrettyReqwestError),
+    HttpClient(PrettyReqwestError),
     Auth(auth::Error),
     BadResponse(String),
     RequestFailed(String),
@@ -68,7 +68,7 @@ impl From<reqwest::Error> for Error {
         ) {
             Error::Auth(auth::Error::InvalidToken)
         } else {
-            Error::Reqwest(e.into())
+            Error::HttpClient(e.into())
         }
     }
 }
