@@ -73,6 +73,9 @@ pub struct ChainConfig {
     pub optimistic_finalized_sync: bool,
     /// The size of the shuffling cache,
     pub shuffling_cache_size: usize,
+    /// If using a weak-subjectivity sync, whether we should download blocks all the way back to
+    /// genesis.
+    pub genesis_backfill: bool,
     /// Whether to send payload attributes every slot, regardless of connected proposers.
     ///
     /// This is useful for block builders and testing.
@@ -106,6 +109,7 @@ impl Default for ChainConfig {
             // This value isn't actually read except in tests.
             optimistic_finalized_sync: true,
             shuffling_cache_size: crate::shuffling_cache::DEFAULT_CACHE_SIZE,
+            genesis_backfill: false,
             always_prepare_payload: false,
             enable_backfill_rate_limiting: true,
         }

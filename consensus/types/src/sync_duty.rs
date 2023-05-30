@@ -7,9 +7,9 @@ use std::collections::HashSet;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SyncDuty {
     pub pubkey: PublicKeyBytes,
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub validator_index: u64,
-    #[serde(with = "eth2_serde_utils::quoted_u64_vec")]
+    #[serde(with = "serde_utils::quoted_u64_vec")]
     pub validator_sync_committee_indices: Vec<u64>,
 }
 

@@ -25,6 +25,7 @@ pub const TERMINAL_BLOCK: u64 = 64;
 pub struct Inner<E: EthSpec> {
     pub context: RuntimeContext<E>,
     pub beacon_nodes: RwLock<Vec<LocalBeaconNode<E>>>,
+    pub proposer_nodes: RwLock<Vec<LocalBeaconNode<E>>>,
     pub validator_clients: RwLock<Vec<LocalValidatorClient<E>>>,
     pub execution_nodes: RwLock<Vec<LocalExecutionNode<E>>>,
 }
@@ -97,6 +98,7 @@ impl<E: EthSpec> LocalNetwork<E> {
             inner: Arc::new(Inner {
                 context,
                 beacon_nodes: RwLock::new(vec![beacon_node]),
+                proposer_nodes: RwLock::new(vec![]),
                 execution_nodes: RwLock::new(execution_node),
                 validator_clients: RwLock::new(vec![]),
             }),
@@ -111,6 +113,14 @@ impl<E: EthSpec> LocalNetwork<E> {
         self.beacon_nodes.read().len()
     }
 
+    /// Returns the number of proposer nodes in the network.
+    ///
+    /// Note: does not count nodes that are external to this `LocalNetwork` that may have connected
+    /// (e.g., another Lighthouse process on the same machine.)
+    pub fn proposer_node_count(&self) -> usize {
+        self.proposer_nodes.read().len()
+    }
+
     /// Returns the number of validator clients in the network.
     ///
     /// Note: does not count nodes that are external to this `LocalNetwork` that may have connected
@@ -120,7 +130,11 @@ impl<E: EthSpec> LocalNetwork<E> {
     }
 
     /// Adds a beacon node to the network, connecting to the 0'th beacon node via ENR.
-    pub async fn add_beacon_node(&self, mut beacon_config: ClientConfig) -> Result<(), String> {
+    pub async fn add_beacon_node(
+        &self,
+        mut beacon_config: ClientConfig,
+        is_proposer: bool,
+    ) -> Result<(), String> {
         let self_1 = self.clone();
         let count = self.beacon_node_count() as u16;
         println!("Adding beacon node..");
@@ -135,6 +149,7 @@ impl<E: EthSpec> LocalNetwork<E> {
                     .enr()
                     .expect("bootnode must have a network"),
             );
+            let count = (self.beacon_node_count() + self.proposer_node_count()) as u16;
             beacon_config.network.set_ipv4_listening_address(
                 std::net::Ipv4Addr::UNSPECIFIED,
                 BOOTNODE_PORT + count,
@@ -143,6 +158,7 @@ impl<E: EthSpec> LocalNetwork<E> {
             beacon_config.network.enr_udp4_port = Some(BOOTNODE_PORT + count);
             beacon_config.network.enr_tcp4_port = Some(BOOTNODE_PORT + count);
             beacon_config.network.discv5_config.table_filter = |_| true;
+            beacon_config.network.proposer_only = is_proposer;
         }
         if let Some(el_config) = &mut beacon_config.execution_layer {
             let config = MockExecutionConfig {
@@ -173,7 +189,11 @@ impl<E: EthSpec> LocalNetwork<E> {
             beacon_config,
         )
         .await?;
-        self_1.beacon_nodes.write().push(beacon_node);
+        if is_proposer {
+            self_1.proposer_nodes.write().push(beacon_node);
+        } else {
+            self_1.beacon_nodes.write().push(beacon_node);
+        }
         Ok(())
     }
 
@@ -200,6 +220,16 @@ impl<E: EthSpec> LocalNetwork<E> {
                 .http_api_listen_addr()
                 .expect("Must have http started")
         };
+        // If there is a proposer node for the same index, we will use that for proposing
+        let proposer_socket_addr = {
+            let read_lock = self.proposer_nodes.read();
+            read_lock.get(beacon_node).map(|proposer_node| {
+                proposer_node
+                    .client
+                    .http_api_listen_addr()
+                    .expect("Must have http started")
+            })
+        };
 
         let beacon_node = SensitiveUrl::parse(
             format!("http://{}:{}", socket_addr.ip(), socket_addr.port()).as_str(),
@@ -210,6 +240,21 @@ impl<E: EthSpec> LocalNetwork<E> {
         } else {
             vec![beacon_node]
         };
+
+        // If we have a proposer node established, use it.
+        if let Some(proposer_socket_addr) = proposer_socket_addr {
+            let url = SensitiveUrl::parse(
+                format!(
+                    "http://{}:{}",
+                    proposer_socket_addr.ip(),
+                    proposer_socket_addr.port()
+                )
+                .as_str(),
+            )
+            .unwrap();
+            validator_config.proposer_nodes = vec![url];
+        }
+
         let validator_client = LocalValidatorClient::production_with_insecure_keypairs(
             context,
             validator_config,
@@ -223,9 +268,11 @@ impl<E: EthSpec> LocalNetwork<E> {
     /// For all beacon nodes in `Self`, return a HTTP client to access each nodes HTTP API.
     pub fn remote_nodes(&self) -> Result<Vec<BeaconNodeHttpClient>, String> {
         let beacon_nodes = self.beacon_nodes.read();
+        let proposer_nodes = self.proposer_nodes.read();
 
         beacon_nodes
             .iter()
+            .chain(proposer_nodes.iter())
             .map(|beacon_node| beacon_node.remote_node())
             .collect()
     }
