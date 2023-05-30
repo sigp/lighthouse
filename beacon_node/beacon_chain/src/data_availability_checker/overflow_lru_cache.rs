@@ -86,6 +86,20 @@ impl<T: EthSpec> PendingComponents<T> {
                 None
             })
     }
+
+    pub fn get_missing_blob_info(&self) -> MissingBlobInfo<T> {
+        let block_opt = self
+            .executed_block
+            .as_ref()
+            .map(|block| block.block.block.clone());
+        let blobs = self
+            .verified_blobs
+            .iter()
+            .enumerate()
+            .filter_map(|(i, maybe_blob)| maybe_blob.as_ref().map(|_| i))
+            .collect::<HashSet<_>>();
+        (block_opt, blobs)
+    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -197,6 +211,22 @@ impl<T: BeaconChainTypes> OverflowStore<T> {
         Ok(disk_keys)
     }
 
+    pub fn load_block(
+        &self,
+        block_root: &Hash256,
+    ) -> Result<Option<AvailabilityPendingExecutedBlock<T::EthSpec>>, AvailabilityCheckError> {
+        let key = OverflowKey::from_block_root(*block_root);
+
+        self.0
+            .hot_db
+            .get_bytes(DBColumn::OverflowLRUCache.as_str(), &key.as_ssz_bytes())?
+            .map(|block_bytes| {
+                AvailabilityPendingExecutedBlock::from_ssz_bytes(block_bytes.as_slice())
+            })
+            .transpose()
+            .map_err(|e| e.into())
+    }
+
     pub fn load_blob(
         &self,
         blob_id: &BlobIdentifier,
@@ -242,12 +272,6 @@ impl<T: BeaconChainTypes> Critical<T> {
         let disk_keys = overflow_store.read_keys_on_disk()?;
         self.store_keys = disk_keys;
         Ok(())
-    }
-
-    pub fn has_block(&self, block_root: &Hash256) -> bool {
-        self.in_memory
-            .peek(block_root)
-            .map_or(false, |cache| cache.executed_block.is_some())
     }
 
     /// This only checks for the blobs in memory
@@ -331,27 +355,38 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
     }
 
     pub fn has_block(&self, block_root: &Hash256) -> bool {
-        self.critical.read().has_block(block_root)
-    }
-    pub fn get_missing_blob_info(&self, block_root: Hash256) -> MissingBlobInfo<T::EthSpec> {
-        self.critical
-            .read()
+        let read_lock = self.critical.read();
+        if read_lock
             .in_memory
-            .peek(&block_root)
-            .map(|cache| {
-                let block_opt = cache
-                    .executed_block
-                    .as_ref()
-                    .map(|block| block.block.block.clone());
-                let blobs = cache
-                    .verified_blobs
-                    .iter()
-                    .enumerate()
-                    .filter_map(|(i, maybe_blob)| maybe_blob.as_ref().map(|_| i))
-                    .collect::<HashSet<_>>();
-                (block_opt, blobs)
-            })
-            .unwrap_or_default()
+            .peek(block_root)
+            .map_or(false, |cache| cache.executed_block.is_some())
+        {
+            true
+        } else if read_lock.store_keys.contains(block_root) {
+            drop(read_lock);
+            // If there's some kind of error reading from the store, we should just return false
+            self.overflow_store
+                .load_block(block_root)
+                .map_or(false, |maybe_block| maybe_block.is_some())
+        } else {
+            false
+        }
+    }
+
+    pub fn get_missing_blob_info(&self, block_root: Hash256) -> MissingBlobInfo<T::EthSpec> {
+        let read_lock = self.critical.read();
+        if let Some(cache) = read_lock.in_memory.peek(&block_root) {
+            cache.get_missing_blob_info()
+        } else if read_lock.store_keys.contains(&block_root) {
+            drop(read_lock);
+            // return default if there's an error reading from the store
+            match self.overflow_store.get_pending_components(block_root) {
+                Ok(Some(pending_components)) => pending_components.get_missing_blob_info(),
+                _ => Default::default(),
+            }
+        } else {
+            Default::default()
+        }
     }
 
     pub fn peek_blob(
