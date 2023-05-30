@@ -99,9 +99,10 @@ async fn el_error_on_new_payload() {
 
     // Make a block.
     let pre_state = harness.get_current_state();
-    let (block, _) = harness
+    let (block_contents, _) = harness
         .make_block(pre_state, Slot::new(num_blocks + 1))
         .await;
+    let block = block_contents.0;
     let block_hash = block
         .message()
         .body()

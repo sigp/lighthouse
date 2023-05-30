@@ -2130,18 +2130,6 @@ where
         self.chain.slot_clock.set_current_time(time);
     }
 
-    /// Deprecated: Use make_block() instead
-    ///
-    /// Returns a newly created block, signed by the proposer for the given slot.
-    pub async fn build_block(
-        &self,
-        state: BeaconState<E>,
-        slot: Slot,
-        _block_strategy: BlockStrategy,
-    ) -> (BlockContentsTuple<E, FullPayload<E>>, BeaconState<E>) {
-        self.make_block(state, slot).await
-    }
-
     /// Uses `Self::extend_chain` to build the chain out to the `target_slot`.
     pub async fn extend_to_slot(&self, target_slot: Slot) -> Hash256 {
         if self.chain.slot().unwrap() == self.chain.canonical_head.cached_head().head_slot() {
