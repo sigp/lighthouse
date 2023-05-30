@@ -1,46 +1,48 @@
 # Frequently Asked Questions
 
 ## [Beacon Node](#beacon-node-1)
-- [I see a warning about "Syncing deposit contract block cache" or an error about "updating deposit contract cache", what should I do?](#i-see-a-warning-about-syncing-deposit-contract-block-cache-or-an-error-about-updating-deposit-contract-cache-what-should-i-do)
-- [I see beacon logs showing `WARN: Execution engine called failed`, what should I do?](#i-see-beacon-logs-showing-warn-execution-engine-called-failed-what-should-i-do)
-- [My beacon node is stuck at downloading historical block using checkpoint sync. What should I do?](#my-beacon-node-is-stuck-at-downloading-historical-block-using-checkpoint-sync-what-should-i-do)
-- [I proposed a block but the beacon node shows `could not publish message` with error `duplicate` as below, should I be worried?](#i-proposed-a-block-but-the-beacon-node-shows-could-not-publish-message-with-error-duplicate-as-below-should-i-be-worried)
-- [I see beacon node logs `Head is optimistic` and I am missing attestations. What should I do?](#i-see-beacon-node-logs-head-is-optimistic-and-i-am-missing-attestations-what-should-i-do)
-- [My beacon node logs `CRIT Beacon block processing error error: ValidatorPubkeyCacheLockTimeout`, what should I do?](#my-beacon-node-logs-crit-beacon-block-processing-error-error-validatorpubkeycachelocktimeout-service-beacon-what-should-i-do)
-- [My beacon node logs `WARN BlockProcessingFailure outcome: MissingBeaconBlock`, what should I do?](#my-beacon-node-logs-warn-blockprocessingfailure-outcome-missingbeaconblock-what-should-i-do)
-- [After checkpoint sync, the progress of `downloading historical blocks` is slow. Why?](#after-checkpoint-sync-the-progress-of-downloading-historical-blocks-is-slow-why)
-- [My beacon node logs `WARN Error processing HTTP API request`, what should I do?](#my-beacon-node-logs-warn-error-processing-http-api-request-what-should-i-do)
+- [I see a warning about "Syncing deposit contract block cache" or an error about "updating deposit contract cache", what should I do?](#bn-deposit-contract)
+- [I see beacon logs showing `WARN: Execution engine called failed`, what should I do?](#bn-ee)
+- [My beacon node is stuck at downloading historical block using checkpoint sync. What should I do?](#bn-download-historical)
+- [I proposed a block but the beacon node shows `could not publish message` with error `duplicate` as below, should I be worried?](#bn-duplicate)
+- [I see beacon node logs `Head is optimistic` and I am missing attestations. What should I do?](#bn-optimistic)
+- [My beacon node logs `CRIT Beacon block processing error error: ValidatorPubkeyCacheLockTimeout`, what should I do?](#bn-timeout)
+- [My beacon node logs `WARN BlockProcessingFailure outcome: MissingBeaconBlock`, what should I do?](#bn-missing-beacon)
+- [After checkpoint sync, the progress of `downloading historical blocks` is slow. Why?](#bn-download-slow)
+- [My beacon node logs `WARN Error processing HTTP API request`, what should I do?](#bn-http)
 
 ## [Validator](#validator-1)
-- [Why does it take so long for a validator to be activated?](#why-does-it-take-so-long-for-a-validator-to-be-activated)
-- [Can I use redundancy in my staking setup?](#can-i-use-redundancy-in-my-staking-setup)
-- [I am missing attestations. Why?](#i-am-missing-attestations-why)
-- [Sometimes I miss the attestation head vote, resulting in penalty. Is this normal?](#sometimes-i-miss-the-attestation-head-vote-resulting-in-penalty-is-this-normal)
-- [Can I submit a voluntary exit message without a beacon node?](#can-i-submit-a-voluntary-exit-message-without-running-a-beacon-node)
-- [Does increasing the number of validators increase the CPU and other computer resources used?](#does-increasing-the-number-of-validators-increase-the-cpu-and-other-computer-resources-used)
-- [I want to add new validators. Do I have to reimport the existing keys?](#i-want-to-add-new-validators-do-i-have-to-reimport-the-existing-keys)
-- [Do I have to stop `lighthouse vc` the when importing new validator keys?](#do-i-have-to-stop-lighthouse-vc-when-importing-new-validator-keys)
+- [Why does it take so long for a validator to be activated?](#vc-activation)
+- [Can I use redundancy in my staking setup?](#vc-redundancy)
+- [I am missing attestations. Why?](#vc-missed-attestations)
+- [Sometimes I miss the attestation head vote, resulting in penalty. Is this normal?](#vc-head-vote)
+- [Can I submit a voluntary exit message without a beacon node?](#vc-exit)
+- [Does increasing the number of validators increase the CPU and other computer resources used?](#vc-resource)
+- [I want to add new validators. Do I have to reimport the existing keys?](#vc-reimport)
+- [Do I have to stop `lighthouse vc` the when importing new validator keys?](#vc-import)
 
 
 ## [Network, Monitoring and Maintenance](#network-monitoring-and-maintenance-1)
-- [I have a low peer count and it is not increasing](#i-have-a-low-peer-count-and-it-is-not-increasing)
-- [How do I update lighthouse?](#how-do-i-update-lighthouse)
-- [Do I need to set up any port mappings (port forwarding)?](#do-i-need-to-set-up-any-port-mappings-port-forwarding)
-- [How can I monitor my validators?](#how-can-i-monitor-my-validators)
-- [My beacon node and validator client are on different servers. How can I point the validator client to the beacon node?](#my-beacon-node-and-validator-client-are-on-different-servers-how-can-i-point-the-validator-client-to-the-beacon-node)
-- [Should I do anything to the beacon node or validator client settings if I have a relocation of the node / change of IP address?](#should-i-do-anything-to-the-beacon-node-or-validator-client-settings-if-i-have-a-relocation-of-the-node--change-of-ip-address)
+- [I have a low peer count and it is not increasing](#net-peer)
+- [How do I update lighthouse?](#net-update)
+- [Do I need to set up any port mappings (port forwarding)?](#net-port)
+- [How can I monitor my validators?](#net-monitor)
+- [My beacon node and validator client are on different servers. How can I point the validator client to the beacon node?](#net-bn-vc)
+- [Should I do anything to the beacon node or validator client settings if I have a relocation of the node / change of IP address?](#net-ip)
 
 
 ## [Miscellaneous](#miscellaneous-1)
-- [What should I do if I lose my slashing protection database?](#what-should-i-do-if-i-lose-my-slashing-protection-database)
-- [I can't compile lighthouse](#i-cant-compile-lighthouse)
-- [How do I check the version of Lighthouse that is running?](#how-do-i-check-the-version-of-lighthouse-that-is-running)
-- [Does Lighthouse have pruning function like the execution client to save disk space?](#does-lighthouse-have-pruning-function-like-the-execution-client-to-save-disk-space)
-- [Can I use a HDD for the freezer database and only have the hot db on SSD?](#can-i-use-a-hdd-for-the-freezer-database-and-only-have-the-hot-db-on-ssd)
+- [What should I do if I lose my slashing protection database?](#misc-slashing)
+- [I can't compile lighthouse](#misc-compile)
+- [How do I check the version of Lighthouse that is running?](#misc-version)
+- [Does Lighthouse have pruning function like the execution client to save disk space?](#misc-prune)
+- [Can I use a HDD for the freezer database and only have the hot db on SSD?](#misc-freezer)
 
 ## Beacon Node
 
-### I see a warning about "Syncing deposit contract block cache" or an error about "updating deposit contract cache", what should I do?
+
+
+### <a name="bn-deposit-contract"></a> I see a warning about "Syncing deposit contract block cache" or an error about "updating deposit contract cache", what should I do?
 
 The error can be a warning:
 
@@ -65,7 +67,7 @@ or after being off for more than several minutes.
 
 If this log continues appearing during operation, it means your execution client is still syncing and it cannot provide Lighthouse the information about the deposit contract yet. What you need to do is to make sure that the execution client is up and syncing. Once the execution client is synced, the error will disappear.
 
-### I see beacon logs showing `WARN: Execution engine called failed`, what should I do?
+### <a name="bn-ee"></a> I see beacon logs showing `WARN: Execution engine called failed`, what should I do?
 
 The `WARN Execution engine called failed` log is shown when the beacon node cannot reach the execution engine. When this warning occurs, it will be followed by a detailed message. A frequently encountered example of the error message is:
 
@@ -81,7 +83,7 @@ If the reason for the error message is caused by no. 1 above, you may want to lo
 - The service file is not stopped properly. To overcome this, make sure that the process is stopped properly, e.g., during client updates. 
 - Out of memory (oom) error. This can happen when the system memory usage has reached its maximum and causes the execution engine to be killed. When this occurs, the log file will show `Main process exited, code=killed, status=9/KILL`.  You can also run `sudo journalctl -a --since "18 hours ago" | grep -i "killed process` to confirm that the execution client has been killed due to oom. If you are using geth as the execution client, a short term solution is to reduce the resources used. For example, you can reduce the cache by adding the flag `--cache 2048`. If the oom occurs rather frequently, a long term solution is to increase the memory capacity of the computer.
 
-### My beacon node is stuck at downloading historical block using checkpoint sync. What should I do?
+### <a name="bn-download-historical"></a> My beacon node is stuck at downloading historical block using checkpoint sync. What should I do?
 
 After checkpoint forwards sync completes, the beacon node will start to download historical blocks. The log will look like:
 
@@ -95,7 +97,7 @@ If the same log appears every minute and you do not see progress in downloading 
    - Restart the beacon node.
 
 
-### I proposed a block but the beacon node shows `could not publish message` with error `duplicate` as below, should I be worried?
+### <a name="bn-duplicate"></a> I proposed a block but the beacon node shows `could not publish message` with error `duplicate` as below, should I be worried?
 
 ```
 INFO Block from HTTP API already known`
@@ -106,7 +108,7 @@ This error usually happens when users are running mev-boost. The relay will publ
 
 In short, it is nothing to worry about.
 
-### I see beacon node logs `Head is optimistic`, and I am missing attestations. What should I do?
+### <a name="bn-optimistic"></a> I see beacon node logs `Head is optimistic`, and I am missing attestations. What should I do?
 
 The log looks like:
 
@@ -116,7 +118,7 @@ WARN Head is optimistic       execution_block_hash: 0x47e7555f1d4215d1ad409b1ac1
 
 It means the beacon node will follow the chain, but it will not be able to attest or produce blocks. This is because the execution client is not synced, so the beacon chain cannot verify the authenticity of the chain head, hence the word `optimistic`. What you need to do is to make sure that the execution client is up and syncing. Once the execution client is synced, the error will disappear.
 
-### My beacon node logs `CRIT Beacon block processing error error: ValidatorPubkeyCacheLockTimeout, service: beacon`, what should I do? 
+### <a name="bn-timeout"></a> My beacon node logs `CRIT Beacon block processing error error: ValidatorPubkeyCacheLockTimeout, service: beacon`, what should I do? 
 
 An example of the log is shown below:
 
@@ -127,7 +129,7 @@ WARN BlockProcessingFailure                  outcome: ValidatorPubkeyCacheLockTi
 
 A `Timeout` error suggests that the computer may be overloaded at the moment, for example, the execution client is still syncing. You may use the flag `--disable-lock-timeouts` to silence this error, although it will not fix the underlying slowness. Nevertheless, this is a relatively harmless log, and the error should go away once the resources used are back to normal. 
 
-### My beacon node logs `WARN BlockProcessingFailure outcome: MissingBeaconBlock`, what should I do?
+### <a name="bn-missing-beacon"></a> My beacon node logs `WARN BlockProcessingFailure outcome: MissingBeaconBlock`, what should I do?
 
 An example of the full log is shown below:
 
@@ -137,11 +139,11 @@ WARN BlockProcessingFailure                  outcome: MissingBeaconBlock(0xbdba2
 
 `MissingBeaconBlock` suggests that the database has corrupted. You should wipe the database and use [Checkpoint Sync](./checkpoint-sync.md) to resync the beacon chain. 
 
-### After checkpoint sync, the progress of `downloading historical blocks` is slow. Why?
+### <a name="bn-download-slow"></a> After checkpoint sync, the progress of `downloading historical blocks` is slow. Why?
 
 This is a normal behaviour. Since [v4.1.0](https://github.com/sigp/lighthouse/releases/tag/v4.1.0), Lighthouse implements rate-limited backfill sync to mitigate validator performance issues after a checkpoint sync. This is not something to worry about since backfill sync / historical data is not required for staking. However, if you opt to sync the chain as fast as possible, you can add the flag `--disable-backfill-rate-limiting` to the beacon node.
 
-### My beacon node logs `WARN Error processing HTTP API request`, what should I do?
+### <a name="bn-http"></a> My beacon node logs `WARN Error processing HTTP API request`, what should I do?
 
 This warning usually comes with an http error code. Some examples are given below:
 
@@ -165,11 +167,11 @@ The error is `503 Service Unavailable`. This means that the beacon node is still
 ERRO Failed to download attester duties      err: FailedToDownloadAttesters("Some endpoints failed, num_failed: 2 http://localhost:5052/ => Unavailable(NotSynced), http://localhost:5052/ => RequestFailed(ServerMessage(ErrorMessage { code: 503, message: \"SERVICE_UNAVAILABLE: beacon node is syncing
 ```
 
-This means that the validator client is sending requests to the beacon node. However the beacon node is still syncing is therefore unable to fulfil the request. The error will disappear once the beacon node is synced. 
+This means that the validator client is sending requests to the beacon node. However, as the beacon node is still syncing, it is therefore unable to fulfil the request. The error will disappear once the beacon node is synced. 
 
 ## Validator
 
-### Why does it take so long for a validator to be activated?
+### <a name="vc-activation"></a> Why does it take so long for a validator to be activated?
 
 After validators create their execution layer deposit transaction there are two waiting
 periods before they can start producing blocks and attestations:
@@ -261,7 +263,7 @@ For example, the number of active validators on Mainnet is about 574000 on May 2
 Once a validator has been activated, congratulations! It's time to
 produce blocks and attestations!
 
-### Can I use redundancy in my staking setup?
+### <a name="vc-redundancy"></a> Can I use redundancy in my staking setup?
 
 You should **never** use duplicate/redundant validator keypairs or validator clients (i.e., don't
 duplicate your JSON keystores and don't run `lighthouse vc` twice). This will lead to slashing.
@@ -269,7 +271,7 @@ duplicate your JSON keystores and don't run `lighthouse vc` twice). This will le
 However, there are some components which can be configured with redundancy. See the
 [Redundancy](./redundancy.md) guide for more information.
 
-### I am missing attestations. Why? 
+### <a name="vc-missed-attestations"></a> I am missing attestations. Why? 
 The first thing is to ensure both consensus and execution clients are synced with the network. If they are synced, there may still be some issues with the node setup itself that is causing the missed attestations. Check the setup to ensure that:
 - the clock is synced
 - the computer has sufficient resources and is not overloaded
@@ -278,11 +280,11 @@ The first thing is to ensure both consensus and execution clients are synced wit
 
 You can see more information on the [Ethstaker KB](https://ethstaker.gitbook.io/ethstaker-knowledge-base/help/missed-attestations). Once the above points are good, missing attestation should be a rare occurrence. 
 
-### Sometimes I miss the attestation head vote, resulting in penalty. Is this normal?
+### <a name="vc-head-vote"></a> Sometimes I miss the attestation head vote, resulting in penalty. Is this normal?
 
 In general, it is unavoidable to have some penalties occasionally. This is particularly the case when you are assigned to attest on the first slot of an epoch and if the proposer of that slot releases the block late, then you will get penalised for missing the target and head votes. Your attestation performance does not only depend on your own setup, but also on everyone elses performance.
 
-### Can I submit a voluntary exit message without running a beacon node?
+### <a name="vc-exit"></a> Can I submit a voluntary exit message without running a beacon node?
 
 Yes. Beaconcha.in provides the tool to broadcast the message. You can create the voluntary exit message file with [ethdo](https://github.com/wealdtech/ethdo/releases/tag/v1.30.0) and submit the message via the [beaconcha.in](https://beaconcha.in/tools/broadcast) website. A guide on how to use `ethdo` to perform voluntary exit can be found [here](https://github.com/eth-educators/ethstaker-guides/blob/main/voluntary-exit.md).
 
@@ -290,15 +292,15 @@ It is also noted that you can submit your BLS-to-execution-change message to upd
 
 If you would like to still use Lighthouse to submit the message, you will need to run a beacon node and an execution client. For the beacon node, you can use checkpoint sync to quickly sync the chain under a minute. On the other hand, the execution client can be syncing and *needs not be synced*. This implies that it is possible to broadcast a voluntary exit message within a short time by quickly spinning up a node.
 
-### Does increasing the number of validators increase the CPU and other computer resources used?
+### <a name="vc-resource"></a> Does increasing the number of validators increase the CPU and other computer resources used?
 
 A computer with hardware specifications stated in the [Recommended System Requirements](./installation.md#recommended-system-requirements) can run hundreds validators with only marginal increase in cpu usage. When validators are active, there is a bit of an increase in resources used from validators 0-64, because you end up subscribed to more subnets. After that, the increase in resources plateaus when the number of validators go from 64 to ~500.
 
-### I want to add new validators. Do I have to reimport the existing keys?
+### <a name="vc-reimport"></a> I want to add new validators. Do I have to reimport the existing keys?
 
 No. You can just import new validator keys to the destination directory. If the `validator_keys` folder contains existing keys, that's fine as well because Lighthouse will skip importing existing keys.
 
-### Do I have to stop `lighthouse vc` when importing new validator keys?
+### <a name="vc-import"></a> Do I have to stop `lighthouse vc` when importing new validator keys?
 
 Generally yes.
 
@@ -306,7 +308,7 @@ If you do not want to stop `lighthouse vc`, you can use the [key manager API](./
 
 ## Network, Monitoring and Maintenance
 
-### I have a low peer count and it is not increasing
+### <a name="net-peer"></a> I have a low peer count and it is not increasing
 
 If you cannot find *ANY* peers at all, it is likely that you have incorrect
 network configuration settings. Ensure that the network you wish to connect to
@@ -343,7 +345,7 @@ If you have incoming peers, it should return a lot of data containing informatio
 3. Ensure that you have a quality router for the internet connection. For example, if you connect the router to many devices including the node, it may be possible that the router cannot handle all routing tasks, hence struggling to keep up the number of peers. Therefore, using a quality router for the node is important to keep a healthy number of peers.
 
 
-### How do I update lighthouse?
+### <a name="net-update"></a> How do I update lighthouse?
 
 If you are updating to new release binaries, it will be the same process as described [here.](./installation-binaries.md)
 
@@ -358,13 +360,7 @@ $ docker pull sigp/lighthouse:v1.0.0
 If you are building a docker image, the process will be similar to the one described [here.](./docker.md#building-the-docker-image)
 You just need to make sure the code you have checked out is up to date.
 
-### How can I monitor my validators?
-
-Apart from using block explorers, you may use the "Validator Monitor" built into Lighthouse which
-provides logging and Prometheus/Grafana metrics for individual validators. See [Validator
-Monitoring](./validator-monitoring.md) for more information. Lighthouse has also developed Lighthouse UI (Siren) to monitor performance, see [Lighthouse UI (Siren)](./lighthouse-ui.md).
-
-### Do I need to set up any port mappings (port forwarding)?
+### <a name="net-port"></a> Do I need to set up any port mappings (port forwarding)?
 
 It is not strictly required to open any ports for Lighthouse to connect and
 participate in the network. Lighthouse should work out-of-the-box. However, if
@@ -394,7 +390,13 @@ initial logs if a route has been established). You can also manually [set up por
 Lighthouse uses port 9000 for both TCP and UDP. Opening both these ports will
 make your Lighthouse node maximally contactable.
 
-### My beacon node and validator client are on different servers. How can I point the validator client to the beacon node?
+### <a name="net-monitor"></a> How can I monitor my validators?
+
+Apart from using block explorers, you may use the "Validator Monitor" built into Lighthouse which
+provides logging and Prometheus/Grafana metrics for individual validators. See [Validator
+Monitoring](./validator-monitoring.md) for more information. Lighthouse has also developed Lighthouse UI (Siren) to monitor performance, see [Lighthouse UI (Siren)](./lighthouse-ui.md).
+
+### <a name="net-bn-vc"></a> My beacon node and validator client are on different servers. How can I point the validator client to the beacon node?
 
 The settings are as follows:
 
@@ -416,20 +418,20 @@ The settings are as follows:
    
    It is also worth noting that the `--beacon-nodes` flag can also be used for redundancy of beacon nodes. For example, let's say you have a beacon node and a validator client running on the same host, and a second beacon node on another server as a backup. In this case, you can use `lighthouse vc --beacon-nodes http://localhost:5052, http://local_IP:5052` on the validator client.
 
-### Should I do anything to the beacon node or validator client settings if I have a relocation of the node / change of IP address?
+### <a name="net-ip"></a> Should I do anything to the beacon node or validator client settings if I have a relocation of the node / change of IP address?
 No. Lighthouse will auto-detect the change and update your Ethereum Node Record (ENR). You just need to make sure you are not manually setting the ENR with `--enr-address` (which, for common use cases, this flag is not used).
 
 ## Miscellaneous
 
-### What should I do if I lose my slashing protection database?
+### <a name="misc-slashing"></a> What should I do if I lose my slashing protection database?
 
 See [here](./slashing-protection.md#misplaced-slashing-database).
 
-### I can't compile lighthouse
+### <a name="misc-compile"></a> I can't compile lighthouse
 
 See [here.](./installation-source.md#troubleshooting)
 
-### How do I check the version of Lighthouse that is running?
+### <a name="misc-version"></a> How do I check the version of Lighthouse that is running?
 
 If you build Lighthouse from source, run `lighthouse --version`. Example of output:
 
@@ -454,11 +456,11 @@ Example of output:
 ```
 which says that the version is v4.1.0.
 
-### Does Lighthouse have pruning function like the execution client to save disk space?
+### <a name="misc-prune"></a> Does Lighthouse have pruning function like the execution client to save disk space?
 
 There is no pruning of Lighthouse database for now. However, since v4.2.0, a feature to only sync back to the weak subjectivity point (approximately 5 months) when syncing via a checkpoint sync was added. This will help to save disk space since the previous behaviour will sync back to the genesis by default. 
 
-### Can I use a HDD for the freezer database and only have the hot db on SSD?
+### <a name="misc-freezer"></a> Can I use a HDD for the freezer database and only have the hot db on SSD?
 
 Yes, you can do so by using the flag `--freezer-dir /path/to/freezer_db` in the beacon node.
 
