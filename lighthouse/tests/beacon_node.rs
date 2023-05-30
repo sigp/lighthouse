@@ -1455,7 +1455,6 @@ fn empty_self_limiter_flag() {
 #[test]
 fn empty_inbound_rate_limiter_flag() {
     CommandLineTest::new()
-        .flag("inbound-rate-limiter", None)
         .run_with_zero_port()
         .with_config(|config| {
             assert_eq!(
