@@ -38,7 +38,7 @@ Returns the software version and `git` commit hash for the Lighthouse binary.
 Command:
 ```bash
 DATADIR=/var/lib/lighthouse
-curl -X GET "http://localhost:5062/lighthouse/version" -H "Authorization: Bearer $(sudo cat ${DATADIR}/validators/api-token.txt)" | jq
+curl -X GET "http://localhost:5062/lighthouse/version" -H "Authorization: Bearer $(cat ${DATADIR}/validators/api-token.txt)" | jq
 ```
 
 Example Response Body:
@@ -51,7 +51,7 @@ Example Response Body:
     }
 }
 ```
-> Note: The command provided in this documentation links to the API token file. In this documentation, it is assumed that the API token file is located in `/var/lib/lighthouse/validators/API-token.txt`. If your database is saved in another directory, modify the `DATADIR` accordingly.
+> Note: The command provided in this documentation links to the API token file. In this documentation, it is assumed that the API token file is located in `/var/lib/lighthouse/validators/API-token.txt`. If your database is saved in another directory, modify the `DATADIR` accordingly. If you are having permission issue with accessing the API token file, you can modify the header to become `-H "Authorization: Bearer $(sudo cat ${DATADIR}/validators/api-token.txt)"`.
 
 > As an alternative, you can also provide the API token directly, for example, `-H "Authorization: Bearer api-token-0x02dc2a13115cc8c83baf170f597f22b1eb2930542941ab902df3daadebcb8f8176`. In this case, you obtain the token from the file `API token.txt` and the command becomes:
 ```bash
@@ -76,7 +76,7 @@ Returns information regarding the health of the host machine.
 Command:
 ```bash
 DATADIR=/var/lib/lighthouse
-curl -X GET "http://localhost:5062/lighthouse/health" -H "Authorization: Bearer $(sudo cat ${DATADIR}/validators/api-token.txt)" | jq
+curl -X GET "http://localhost:5062/lighthouse/health" -H "Authorization: Bearer $(cat ${DATADIR}/validators/api-token.txt)" | jq
 ```
 
 Example Response Body:
@@ -134,7 +134,7 @@ Returns information regarding the health of the host machine.
 Command:
 ```bash
 DATADIR=/var/lib/lighthouse
-curl -X GET "http://localhost:5062/lighthouse/ui/health" -H "Authorization: Bearer $(sudo cat ${DATADIR}/validators/api-token.txt)" | jq
+curl -X GET "http://localhost:5062/lighthouse/ui/health" -H "Authorization: Bearer $(cat ${DATADIR}/validators/api-token.txt)" | jq
  ```
 
 Example Response Body
@@ -179,7 +179,7 @@ Returns the graffiti that will be used for the next block proposal of each valid
 Command:
 ```bash
 DATADIR=/var/lib/lighthouse
-curl -X GET "http://localhost:5062/lighthouse/ui/graffiti" -H "Authorization: Bearer $(sudo cat ${DATADIR}/validators/api-token.txt)" | jq
+curl -X GET "http://localhost:5062/lighthouse/ui/graffiti" -H "Authorization: Bearer $(cat ${DATADIR}/validators/api-token.txt)" | jq
  ```
 Example Response Body
 
@@ -210,7 +210,7 @@ Command:
 
 ```bash
 DATADIR=/var/lib/lighthouse
-curl -X GET "http://localhost:5062/lighthouse/spec" -H "Authorization: Bearer $(sudo cat ${DATADIR}/validators/api-token.txt)" | jq
+curl -X GET "http://localhost:5062/lighthouse/spec" -H "Authorization: Bearer $(cat ${DATADIR}/validators/api-token.txt)" | jq
 ```
 
 Example Response Body
@@ -366,7 +366,7 @@ Command:
 
 ```bash
 DATADIR=/var/lib/lighthouse
-curl -X GET "http://localhost:5062/lighthouse/validators/" -H "Authorization: Bearer $(sudo cat ${DATADIR}/validators/api-token.txt)" | jq
+curl -X GET "http://localhost:5062/lighthouse/validators/" -H "Authorization: Bearer $(cat ${DATADIR}/validators/api-token.txt)" | jq
 ```
 
 Example Response Body
@@ -410,7 +410,7 @@ Command:
 
 ```bash
 DATADIR=/var/lib/lighthouse
-curl -X GET "http://localhost:5062/lighthouse/validators/0xb0148e6348264131bf47bcd1829590e870c836dc893050fd0dadc7a28949f9d0a72f2805d027521b45441101f0cc1cde" -H "Authorization: Bearer $(sudo cat ${DATADIR}/validators/api-token.txt)" | jq
+curl -X GET "http://localhost:5062/lighthouse/validators/0xb0148e6348264131bf47bcd1829590e870c836dc893050fd0dadc7a28949f9d0a72f2805d027521b45441101f0cc1cde" -H "Authorization: Bearer $(cat ${DATADIR}/validators/api-token.txt)" | jq
 ```
 
 Example Response Body
@@ -451,7 +451,7 @@ Command:
 ```bash
 DATADIR=/var/lib/lighthouse
 curl -X PATCH "http://localhost:5062/lighthouse/validators/0xb0148e6348264131bf47bcd1829590e870c836dc893050fd0dadc7a28949f9d0a72f2805d027521b45441101f0cc1cde" \
--H "Authorization: Bearer $(sudo cat ${DATADIR}/validators/api-token.txt)" \
+-H "Authorization: Bearer $(cat ${DATADIR}/validators/api-token.txt)" \
 -H "Content-Type: application/json" \
 -d "{\"enabled\":false}" | jq
 ```
@@ -511,7 +511,7 @@ Command:
 ```bash
 DATADIR=/var/lib/lighthouse
 curl -X POST http://localhost:5062/lighthouse/validators \
--H "Authorization: Bearer $(sudo cat ${DATADIR}/validators/api-token.txt)" \
+-H "Authorization: Bearer $(cat ${DATADIR}/validators/api-token.txt)" \
 -H "Content-Type: application/json" \
 -d '[
     {
@@ -625,7 +625,7 @@ Command:
 ```bash
 DATADIR=/var/lib/lighthouse
 curl -X POST http://localhost:5062/lighthouse/validators/keystore \
--H "Authorization: Bearer $(sudo cat ${DATADIR}/validators/api-token.txt)" \
+-H "Authorization: Bearer $(cat ${DATADIR}/validators/api-token.txt)" \
 -H "Content-Type: application/json" \
 -d "{\"enable\":true,\"password\":\"mypassword\",\"keystore\":{\"crypto\":{\"kdf\":{\"function\":\"scrypt\",\"params\":{\"dklen\":32,\"n\":262144,\"r\":8,\"p\":1,\"salt\":\"445989ec2f332bb6099605b4f1562c0df017488d8d7fb3709f99ebe31da94b49\"},\"message\":\"\"},\"checksum\":{\"function\":\"sha256\",\"params\":{},\"message\":\"abadc1285fd38b24a98ac586bda5b17a8f93fc1ff0778803dc32049578981236\"},\"cipher\":{\"function\":\"aes-128-ctr\",\"params\":{\"iv\":\"65abb7e1d02eec9910d04299cc73efbe\"},\"message\":\"6b7931a4447be727a3bb5dc106d9f3c1ba50671648e522f213651d13450b6417\"}},\"uuid\":\"5cf2a1fb-dcd6-4095-9ebf-7e4ee0204cab\",\"path\":\"m/12381/3600/0/0/0\",\"pubkey\":\"b0d2f05014de27c6d7981e4a920799db1c512ee7922932be6bf55729039147cf35a090bd4ab378fe2d133c36cbbc9969\",\"version\":4,\"description\":\"\"}}" | jq
 ```
@@ -691,7 +691,7 @@ Command:
 ```bash
 DATADIR=/var/lib/lighthouse
 curl -X POST http://localhost:5062/lighthouse/validators/mnemonic \
--H "Authorization: Bearer $(sudo cat ${DATADIR}/validators/api-token.txt)" \
+-H "Authorization: Bearer $(cat ${DATADIR}/validators/api-token.txt)" \
 -H "Content-Type: application/json" \
 -d '{"mnemonic":" theme onion deal plastic claim silver fancy youth lock ordinary hotel elegant balance ridge web skill burger survey demand distance legal fish salad cloth","key_derivation_path_offset":0,"validators":[{"enable":true,"description":"validator_one","deposit_gwei":"32000000000"}]}' | jq
 ```
@@ -761,7 +761,7 @@ Command:
 ```bash
 DATADIR=/var/lib/lighthouse
 curl -X POST http://localhost:5062/lighthouse/validators/web3signer \
--H "Authorization: Bearer $(sudo cat ${DATADIR}/validators/api-token.txt)" \
+-H "Authorization: Bearer $(cat ${DATADIR}/validators/api-token.txt)" \
 -H "Content-Type: application/json" \
 -d "[{\"enable\":true,\"description\":\"validator_one\",\"graffiti\":\"Mr F was here\",\"suggested_fee_recipient\":\"0xa2e334e71511686bcfe38bb3ee1ad8f6babcc03d\",\"voting_public_key\":\"0xa062f95fee747144d5e511940624bc6546509eeaeae9383257a9c43e7ddc58c17c2bab4ae62053122184c381b90db380\",\"url\":\"http://path-to-web3signer.com\",\"request_timeout_ms\":12000}]"
 ```
