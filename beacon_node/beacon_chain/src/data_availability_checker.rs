@@ -27,6 +27,11 @@ use types::{
 
 mod overflow_lru_cache;
 
+/// The LRU Cache stores `PendingComponents` which can store up to
+/// `MAX_BLOBS_PER_BLOCK = 4` blobs each. A `BlobSidecar` is 0.131256 MB. So
+/// the maximum size of a `PendingComponents` is ~ 0.525024 MB. Setting this
+/// to 1024 means the maximum size of the cache is ~ 0.5 GB. But the cache
+/// will target a size of less than 75% of capacity.
 pub const OVERFLOW_LRU_CAPACITY: usize = 1024;
 
 #[derive(Debug, IntoStaticStr)]
