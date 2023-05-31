@@ -632,11 +632,11 @@ pub fn get_config<E: EthSpec>(
         {
             slasher_config.validator_chunk_size = validator_chunk_size;
         }
-        
-        if let Some(broadcast) = clap_utils::parse_optional::<bool>(cli_args, "slasher-broadcast")? {
+
+        if let Some(broadcast) = clap_utils::parse_optional::<bool>(cli_args, "slasher-broadcast")?
+        {
             slasher_config.broadcast = broadcast;
         }
-        
 
         if let Some(backend) = clap_utils::parse_optional(cli_args, "slasher-backend")? {
             slasher_config.backend = backend;

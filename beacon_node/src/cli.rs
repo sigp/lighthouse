@@ -776,7 +776,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("slasher-broadcast")
                 .long("slasher-broadcast")
                 .help("Broadcast slashings found by the slasher to the rest of the network \
-                       [disabled by default].")
+                       [Enabled by default].")
                 .requires("slasher")
                 .takes_value(true)
                 .default_value("true")
