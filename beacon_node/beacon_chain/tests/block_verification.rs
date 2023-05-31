@@ -1344,7 +1344,6 @@ async fn add_altair_block_to_base_chain() {
     ));
 }
 
-/* FIXME(sproul): update this test
 #[tokio::test]
 async fn import_duplicate_block_unrealized_justification() {
     let spec = MainnetEthSpec::default_spec();
@@ -1400,8 +1399,7 @@ async fn import_duplicate_block_unrealized_justification() {
         .into_execution_pending_block(block_root, &chain, notify_execution_layer)
         .unwrap();
 
-    // Import the first block with `CountUnrealized::False`, simulating a block processed via a
-    // finalized chain segment.
+    // Import the first block, simulating a block processed via a finalized chain segment.
     chain
         .clone()
         .import_execution_pending_block(verified_block1)
@@ -1411,32 +1409,36 @@ async fn import_duplicate_block_unrealized_justification() {
     // Unrealized justification should NOT have updated.
     let fc = chain.canonical_head.fork_choice_read_lock();
     assert_eq!(fc.justified_checkpoint().epoch, 0);
-    assert_eq!(fc.unrealized_justified_checkpoint().epoch, 1);
+    let unrealized_justification = fc.unrealized_justified_checkpoint();
+    assert_eq!(unrealized_justification.epoch, 2);
 
-    // The fork choice node for the block should have no unrealized justification.
+    // The fork choice node for the block should unrealized justification.
     let fc_block = fc.get_block(&block_root).unwrap();
-    assert_eq!(fc_block.unrealized_justified_checkpoint, None);
+    assert_eq!(
+        fc_block.unrealized_justified_checkpoint,
+        Some(unrealized_justification)
+    );
     drop(fc);
 
-    // Import the second verified block with `CountUnrealized::True`, simulating a block processed
-    // via RPC.
+    // Import the second verified block, simulating a block processed via RPC.
     chain
         .clone()
         .import_execution_pending_block(verified_block2)
         .await
         .unwrap();
 
-    // Unrealized justification should now update.
+    // Unrealized justification should still be updated.
     let fc = chain.canonical_head.fork_choice_read_lock();
     assert_eq!(fc.justified_checkpoint().epoch, 0);
-    let unrealized_justification = fc.unrealized_justified_checkpoint();
-    assert_eq!(unrealized_justification.epoch, 2);
+    assert_eq!(
+        fc.unrealized_justified_checkpoint(),
+        unrealized_justification
+    );
 
-    // The fork choice node for the block should have the unrealized justified checkpoint.
+    // The fork choice node for the block should still have the unrealized justified checkpoint.
     let fc_block = fc.get_block(&block_root).unwrap();
     assert_eq!(
         fc_block.unrealized_justified_checkpoint,
         Some(unrealized_justification)
     );
 }
-*/
