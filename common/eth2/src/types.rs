@@ -1277,6 +1277,7 @@ impl FromStr for BroadcastValidation {
 #[derive(Default, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub struct BroadcastValidationQuery {
+    #[serde(default)]
     pub broadcast_validation: BroadcastValidation,
 }
 

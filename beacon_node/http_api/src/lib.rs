@@ -1238,13 +1238,13 @@ pub fn serve<T: BeaconChainTypes>(
         .and(chain_filter.clone())
         .and(network_tx_filter.clone())
         .and(log_filter.clone())
-        .and_then(
+        .then(
             |validation_level: api_types::BroadcastValidationQuery,
              block: Arc<SignedBeaconBlock<T::EthSpec>>,
              chain: Arc<BeaconChain<T>>,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
              log: Logger| async move {
-                publish_blocks::publish_block_checked(
+                match publish_blocks::publish_block_checked(
                     None,
                     ProvenancedBlock::Local(block),
                     chain,
@@ -1253,7 +1253,13 @@ pub fn serve<T: BeaconChainTypes>(
                     validation_level.broadcast_validation,
                 )
                 .await
-                .map(|()| warp::reply().into_response())
+                {
+                    Ok(()) => warp::reply().into_response(),
+                    Err(e) => warp_utils::reject::handle_rejection(e)
+                        .await
+                        .unwrap()
+                        .into_response(),
+                }
             },
         );
 
@@ -1290,13 +1296,13 @@ pub fn serve<T: BeaconChainTypes>(
         .and(network_tx_filter.clone())
         .and(log_filter.clone())
         .and(warp::query::<BroadcastValidation>())
-        .and_then(
+        .then(
             |block: SignedBeaconBlock<T::EthSpec, BlindedPayload<_>>,
              chain: Arc<BeaconChain<T>>,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
              log: Logger,
              validation_level: BroadcastValidation| async move {
-                publish_blocks::publish_blinded_block_checked(
+                match publish_blocks::publish_blinded_block_checked(
                     block,
                     chain,
                     &network_tx,
@@ -1304,7 +1310,13 @@ pub fn serve<T: BeaconChainTypes>(
                     validation_level,
                 )
                 .await
-                .map(|()| warp::reply().into_response())
+                {
+                    Ok(()) => warp::reply().into_response(),
+                    Err(e) => warp_utils::reject::handle_rejection(e)
+                        .await
+                        .unwrap()
+                        .into_response(),
+                }
             },
         );
 
