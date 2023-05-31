@@ -816,3 +816,4 @@ An open port will return:
 ```json
 {
   "data": true
+}

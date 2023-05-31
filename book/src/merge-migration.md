@@ -33,6 +33,8 @@ All networks (**Mainnet**, **Goerli (Prater)**, **Ropsten**, **Sepolia**, **Kiln
 | Mainnet | 6<sup>th</sup> September 2022  |  15<sup>th</sup> September 2022 |
 | Gnosis| 30<sup>th</sup> November 2022 | 8<sup>th</sup> December 2022
 
+</div>
+
 ## Connecting to an execution engine
 
 The Lighthouse beacon node must connect to an execution engine in order to validate the transactions
