@@ -210,12 +210,4 @@ pub async fn consensus_accept_consensus() {
         .post_beacon_blocks_v2(&block, validation_level)
         .await;
     assert!(response.is_ok());
-
-    let error_response: eth2::Error = response.err().unwrap();
-
-    /* mandated by Beacon API spec */
-    assert_eq!(error_response.status(), Some(StatusCode::BAD_REQUEST));
-    assert!(
-        matches!(error_response, eth2::Error::ServerMessage(err) if err.message == "BAD_REQUEST: Invalid block".to_string())
-    );
 }
