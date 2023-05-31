@@ -7,7 +7,6 @@ edition = "2021"
 [dev-dependencies]
 eth1_test_rig = { path = "../../testing/eth1_test_rig" }
 serde_yaml = "0.8.13"
-web3 = { version = "0.18.0", default-features = false, features = ["http-tls", "signing", "ws-tls-tokio"] }
 sloggers = { version = "2.1.1", features = ["json"] }
 environment = { path = "../../lighthouse/environment" }
 
@@ -20,9 +19,9 @@ serde = { version = "1.0.116", features = ["derive"] }
 hex = "0.4.2"
 types = { path = "../../consensus/types"}
 merkle_proof = { path = "../../consensus/merkle_proof"}
-eth2_ssz = "0.4.1"
-eth2_ssz_derive = "0.3.1"
-tree_hash = "0.4.1"
+ethereum_ssz = "0.5.0"
+ethereum_ssz_derive = "0.5.0"
+tree_hash = "0.5.0"
 parking_lot = "0.12.0"
 slog = "2.5.2"
 superstruct = "0.5.0"

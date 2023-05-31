@@ -993,7 +993,7 @@ impl HttpJsonRpc {
     ) -> Result<Vec<Option<ExecutionPayloadBodyV1<E>>>, Error> {
         #[derive(Serialize)]
         #[serde(transparent)]
-        struct Quantity(#[serde(with = "eth2_serde_utils::u64_hex_be")] u64);
+        struct Quantity(#[serde(with = "serde_utils::u64_hex_be")] u64);
 
         let params = json!([Quantity(start), Quantity(count)]);
         let response: Vec<Option<JsonExecutionPayloadBodyV1<E>>> = self

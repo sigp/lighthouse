@@ -195,6 +195,7 @@ pub async fn create_api_server_on_port<T: BeaconChainTypes>(
         network_senders: Some(network_senders),
         network_globals: Some(network_globals),
         eth1_service: Some(eth1_service),
+        sse_logging_components: None,
         log,
     });
 

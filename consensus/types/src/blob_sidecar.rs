@@ -48,11 +48,11 @@ impl Ord for BlobIdentifier {
 #[derivative(PartialEq, Eq, Hash(bound = "T: EthSpec"))]
 pub struct BlobSidecar<T: EthSpec> {
     pub block_root: Hash256,
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub index: u64,
     pub slot: Slot,
     pub block_parent_root: Hash256,
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub proposer_index: u64,
     #[serde(with = "ssz_types::serde_utils::hex_fixed_vec")]
     pub blob: Blob<T>,

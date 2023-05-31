@@ -11,7 +11,7 @@
     "istanbulBlock": 0,
     "berlinBlock": 0,
     "londonBlock": 0,
-    "mergeNetsplitBlock": 0,
+    "mergeForkBlock": 0,
     "shanghaiTime": 0,
     "shardingForkTime": 0,
     "terminalTotalDifficulty": 0

@@ -112,6 +112,9 @@ pub struct AttestationService<T: BeaconChainTypes> {
     #[cfg(feature = "deterministic_long_lived_attnets")]
     next_long_lived_subscription_event: Pin<Box<tokio::time::Sleep>>,
 
+    /// Whether this node is a block proposer-only node.
+    proposer_only: bool,
+
     /// The logger for the attestation service.
     log: slog::Logger,
 }
@@ -155,6 +158,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
             known_validators: HashSetDelay::new(last_seen_val_timeout),
             waker: None,
             discovery_disabled: config.disable_discovery,
+            proposer_only: config.proposer_only,
             subscribe_all_subnets: config.subscribe_all_subnets,
             long_lived_subnet_subscription_slots,
             log,
@@ -256,6 +260,11 @@ impl<T: BeaconChainTypes> AttestationService<T> {
         &mut self,
         subscriptions: Vec<ValidatorSubscription>,
     ) -> Result<(), String> {
+        // If the node is in a proposer-only state, we ignore all subnet subscriptions.
+        if self.proposer_only {
+            return Ok(());
+        }
+
         // Maps each subnet_id subscription to it's highest slot
         let mut subnets_to_discover: HashMap<SubnetId, Slot> = HashMap::new();
         for subscription in subscriptions {
@@ -450,6 +459,10 @@ impl<T: BeaconChainTypes> AttestationService<T> {
         subnet: SubnetId,
         attestation: &Attestation<T::EthSpec>,
     ) -> bool {
+        // Proposer-only mode does not need to process attestations
+        if self.proposer_only {
+            return false;
+        }
         self.aggregate_validators_on_subnet
             .as_ref()
             .map(|tracked_vals| {
