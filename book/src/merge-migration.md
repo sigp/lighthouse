@@ -21,7 +21,7 @@ engine to a merge-ready version.
 
 ## When?
 
-All networks have successfully transitioned to a post-merge Network. Your node must have a merge-ready configuration to continue operating. Table below lists the date at which Bellatrix and The Merge occurred:
+All networks (**Mainnet**, **Goerli (Prater)**, **Ropsten**, **Sepolia**, **Kiln**, **Gnosis**) have successfully undergone the Bellatrix fork and transitioned to a post-merge Network. Your node must have a merge-ready configuration to continue operating. Table below lists the date at which Bellatrix and The Merge occurred:
 
 <div align="center">
 
@@ -32,8 +32,6 @@ All networks have successfully transitioned to a post-merge Network. Your node m
 | Goerli | 4<sup>th</sup> August 2022 | 10<sup>th</sup> August 2022 | Previously named `Prater`|
 | Mainnet | 6<sup>th</sup> September 2022  |  15<sup>th</sup> September 2022 |
 | Gnosis| 30<sup>th</sup> November 2022 | 8<sup>th</sup> December 2022
-
-</div>
 
 ## Connecting to an execution engine
 

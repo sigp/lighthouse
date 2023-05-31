@@ -483,6 +483,16 @@ fn run<E: EthSpec>(
         };
     }
 
+    let sse_logging = {
+        if let Some(bn_matches) = matches.subcommand_matches("beacon_node") {
+            bn_matches.is_present("gui")
+        } else if let Some(vc_matches) = matches.subcommand_matches("validator_client") {
+            vc_matches.is_present("http")
+        } else {
+            false
+        }
+    };
+
     let logger_config = LoggerConfig {
         path: log_path,
         debug_level: String::from(debug_level),
@@ -495,6 +505,7 @@ fn run<E: EthSpec>(
         max_log_number: logfile_max_number,
         compression: logfile_compress,
         is_restricted: logfile_restricted,
+        sse_logging,
     };
 
     let builder = environment_builder.initialize_logger(logger_config.clone())?;

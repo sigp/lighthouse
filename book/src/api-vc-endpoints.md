@@ -769,6 +769,7 @@ curl -X POST http://localhost:5062/lighthouse/validators/web3signer \
 
 ### Example Response Body
 
+
 ```json
 null
 ```
@@ -777,4 +778,35 @@ A `null` response indicates that the request is successful. At the same time, `l
 
 ```
 INFO Enabled validator                       voting_pubkey: 0xa062f95fee747144d5e511940624bc6546509eeaeae9383257a9c43e7ddc58c17c2bab4ae62053122184c381b90db380, signing_method: remote_signer
+```
+
+
+## `GET /lighthouse/logs`
+
+Provides a subscription to receive logs as Server Side Events. Currently the
+logs emitted are INFO level or higher.
+
+### HTTP Specification
+
+| Property          | Specification                              |
+|-------------------|--------------------------------------------|
+| Path              | `/lighthouse/logs`                         |
+| Method            | GET                                        |
+| Required Headers  | None                                       |
+| Typical Responses | 200                                        |
+
+### Example Response Body
+
+```json
+{
+  "data": {
+	  "time": "Mar 13 15:26:53",
+	  "level": "INFO",
+	  "msg": "Connected to beacon node(s)",
+	  "service": "notifier",
+	  "synced": 1,
+	  "available": 1,
+	  "total": 1
+  }
+}
 ```

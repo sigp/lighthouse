@@ -5,6 +5,7 @@ use ssz::four_byte_option_impl;
 use ssz::Encode;
 use ssz_derive::{Decode, Encode};
 use std::collections::{HashMap, HashSet};
+use superstruct::superstruct;
 use types::{
     AttestationShufflingId, ChainSpec, Checkpoint, Epoch, EthSpec, ExecutionBlockHash, Hash256,
     Slot,
@@ -66,7 +67,13 @@ impl InvalidationOperation {
     }
 }
 
-#[derive(Clone, PartialEq, Debug, Encode, Decode, Serialize, Deserialize)]
+pub type ProtoNode = ProtoNodeV17;
+
+#[superstruct(
+    variants(V16, V17),
+    variant_attributes(derive(Clone, PartialEq, Debug, Encode, Decode, Serialize, Deserialize)),
+    no_enum
+)]
 pub struct ProtoNode {
     /// The `slot` is not necessary for `ProtoArray`, it just exists so external components can
     /// easily query the block slot. This is useful for upstream fork choice logic.
@@ -85,10 +92,16 @@ pub struct ProtoNode {
     pub root: Hash256,
     #[ssz(with = "four_byte_option_usize")]
     pub parent: Option<usize>,
+    #[superstruct(only(V16))]
     #[ssz(with = "four_byte_option_checkpoint")]
     pub justified_checkpoint: Option<Checkpoint>,
+    #[superstruct(only(V16))]
     #[ssz(with = "four_byte_option_checkpoint")]
     pub finalized_checkpoint: Option<Checkpoint>,
+    #[superstruct(only(V17))]
+    pub justified_checkpoint: Checkpoint,
+    #[superstruct(only(V17))]
+    pub finalized_checkpoint: Checkpoint,
     pub weight: u64,
     #[ssz(with = "four_byte_option_usize")]
     pub best_child: Option<usize>,
@@ -101,6 +114,57 @@ pub struct ProtoNode {
     pub unrealized_justified_checkpoint: Option<Checkpoint>,
     #[ssz(with = "four_byte_option_checkpoint")]
     pub unrealized_finalized_checkpoint: Option<Checkpoint>,
+}
+
+impl TryInto<ProtoNode> for ProtoNodeV16 {
+    type Error = Error;
+
+    fn try_into(self) -> Result<ProtoNode, Error> {
+        let result = ProtoNode {
+            slot: self.slot,
+            state_root: self.state_root,
+            target_root: self.target_root,
+            current_epoch_shuffling_id: self.current_epoch_shuffling_id,
+            next_epoch_shuffling_id: self.next_epoch_shuffling_id,
+            root: self.root,
+            parent: self.parent,
+            justified_checkpoint: self
+                .justified_checkpoint
+                .ok_or(Error::MissingJustifiedCheckpoint)?,
+            finalized_checkpoint: self
+                .finalized_checkpoint
+                .ok_or(Error::MissingFinalizedCheckpoint)?,
+            weight: self.weight,
+            best_child: self.best_child,
+            best_descendant: self.best_descendant,
+            execution_status: self.execution_status,
+            unrealized_justified_checkpoint: self.unrealized_justified_checkpoint,
+            unrealized_finalized_checkpoint: self.unrealized_finalized_checkpoint,
+        };
+        Ok(result)
+    }
+}
+
+impl Into<ProtoNodeV16> for ProtoNode {
+    fn into(self) -> ProtoNodeV16 {
+        ProtoNodeV16 {
+            slot: self.slot,
+            state_root: self.state_root,
+            target_root: self.target_root,
+            current_epoch_shuffling_id: self.current_epoch_shuffling_id,
+            next_epoch_shuffling_id: self.next_epoch_shuffling_id,
+            root: self.root,
+            parent: self.parent,
+            justified_checkpoint: Some(self.justified_checkpoint),
+            finalized_checkpoint: Some(self.finalized_checkpoint),
+            weight: self.weight,
+            best_child: self.best_child,
+            best_descendant: self.best_descendant,
+            execution_status: self.execution_status,
+            unrealized_justified_checkpoint: self.unrealized_justified_checkpoint,
+            unrealized_finalized_checkpoint: self.unrealized_finalized_checkpoint,
+        }
+    }
 }
 
 #[derive(PartialEq, Debug, Encode, Decode, Serialize, Deserialize, Copy, Clone)]
@@ -320,8 +384,8 @@ impl ProtoArray {
             parent: block
                 .parent_root
                 .and_then(|parent| self.indices.get(&parent).copied()),
-            justified_checkpoint: Some(block.justified_checkpoint),
-            finalized_checkpoint: Some(block.finalized_checkpoint),
+            justified_checkpoint: block.justified_checkpoint,
+            finalized_checkpoint: block.finalized_checkpoint,
             weight: 0,
             best_child: None,
             best_descendant: None,
@@ -883,14 +947,7 @@ impl ProtoArray {
         let genesis_epoch = Epoch::new(0);
         let current_epoch = current_slot.epoch(E::slots_per_epoch());
         let node_epoch = node.slot.epoch(E::slots_per_epoch());
-        let node_justified_checkpoint =
-            if let Some(justified_checkpoint) = node.justified_checkpoint {
-                justified_checkpoint
-            } else {
-                // The node does not have any information about the justified
-                // checkpoint. This indicates an inconsistent proto-array.
-                return false;
-            };
+        let node_justified_checkpoint = node.justified_checkpoint;
 
         let voting_source = if current_epoch > node_epoch {
             // The block is from a prior epoch, the voting source will be pulled-up.
@@ -998,9 +1055,13 @@ impl ProtoArray {
         // Run this check once, outside of the loop rather than inside the loop.
         // If the conditions don't match for this node then they're unlikely to
         // start matching for its ancestors.
+        for checkpoint in &[node.finalized_checkpoint, node.justified_checkpoint] {
+            if checkpoint == &self.finalized_checkpoint {
+                return true;
+            }
+        }
+
         for checkpoint in &[
-            node.finalized_checkpoint,
-            node.justified_checkpoint,
             node.unrealized_finalized_checkpoint,
             node.unrealized_justified_checkpoint,
         ] {
