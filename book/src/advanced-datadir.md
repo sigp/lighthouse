@@ -8,7 +8,7 @@ Below is an example flow for importing validator keys, running a beacon node and
 
 ```bash
 lighthouse --network mainnet --datadir /var/lib/my-custom-dir account validator import --directory <PATH-TO-LAUNCHPAD-KEYS-DIRECTORY>
-lighthouse --network mainnet --datadir /var/lib/my-custom-dir bn
+lighthouse --network mainnet --datadir /var/lib/my-custom-dir bn --staking
 lighthouse --network mainnet --datadir /var/lib/my-custom-dir vc
 ```
 The first step creates a `validators` directory under `/var/lib/my-custom-dir` which contains the imported keys and [`validator_definitions.yml`](./validator-management.md).
