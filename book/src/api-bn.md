@@ -68,8 +68,6 @@ specification][OpenAPI].
 
 Returns the block header at the head of the canonical chain.
 
-[comment]: <> (Tested and my node shows two more outputs on execution_optimistic and finalized, added below)
-
 ```bash
 curl -X GET "http://localhost:5052/eth/v1/beacon/headers/head" -H  "accept: application/json" | jq
 ```

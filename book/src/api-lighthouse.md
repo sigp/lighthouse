@@ -164,7 +164,6 @@ Returns the sync status of the beacon node.
 ```bash
 curl -X GET "http://localhost:5052/lighthouse/syncing" -H  "accept: application/json" | jq
 ```
-[comment]: <> (Returned only start slot and target slot when tested, no head slot and head root, hence the change. Feel free to correct if this is wrong)
 
 There are two possible outcomes, depending on whether the beacon node is syncing or synced.
 
