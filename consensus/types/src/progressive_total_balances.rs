@@ -33,7 +33,7 @@ impl ProgressiveTotalBalances {
         epoch: Epoch,
         validator_effective_balance: u64,
     ) -> Result<(), BeaconStateError> {
-        let cache = self.get_inner_checked()?;
+        let cache = self.get_inner_mut()?;
 
         if epoch == cache.current_epoch {
             cache
@@ -55,7 +55,7 @@ impl ProgressiveTotalBalances {
         is_current_epoch_target_attester: bool,
         effective_balance: u64,
     ) -> Result<(), BeaconStateError> {
-        let cache = self.get_inner_checked()?;
+        let cache = self.get_inner_mut()?;
         if is_current_epoch_target_attester {
             cache
                 .current_epoch_target_attesting_balance
@@ -70,7 +70,7 @@ impl ProgressiveTotalBalances {
         old_effective_balance: u64,
         new_effective_balance: u64,
     ) -> Result<(), BeaconStateError> {
-        let cache = self.get_inner_checked()?;
+        let cache = self.get_inner_mut()?;
         if is_current_epoch_target_attester {
             if new_effective_balance > old_effective_balance {
                 cache
@@ -86,7 +86,7 @@ impl ProgressiveTotalBalances {
     }
 
     pub fn on_epoch_transition(&mut self) -> Result<(), BeaconStateError> {
-        let cache = self.get_inner_checked()?;
+        let cache = self.get_inner_mut()?;
         cache.current_epoch.safe_add_assign(1)?;
         cache.previous_epoch_target_attesting_balance =
             cache.current_epoch_target_attesting_balance;
@@ -94,9 +94,23 @@ impl ProgressiveTotalBalances {
         Ok(())
     }
 
-    fn get_inner_checked(&mut self) -> Result<&mut Inner, BeaconStateError> {
+    pub fn previous_epoch_target_attesting_balance(&self) -> Result<u64, BeaconStateError> {
+        Ok(self.get_inner()?.previous_epoch_target_attesting_balance)
+    }
+
+    pub fn current_epoch_target_attesting_balance(&self) -> Result<u64, BeaconStateError> {
+        Ok(self.get_inner()?.current_epoch_target_attesting_balance)
+    }
+
+    fn get_inner_mut(&mut self) -> Result<&mut Inner, BeaconStateError> {
         self.inner
             .as_mut()
+            .ok_or(BeaconStateError::ProgressiveBalancesCacheNotInitialized)
+    }
+
+    fn get_inner(&self) -> Result<&Inner, BeaconStateError> {
+        self.inner
+            .as_ref()
             .ok_or(BeaconStateError::ProgressiveBalancesCacheNotInitialized)
     }
 }

@@ -1161,7 +1161,7 @@ impl<T: EthSpec> BeaconState<T> {
     }
 
     /// Convenience accessor for validators and balances simultaneously.
-    pub fn validators_and_balances_and_progressive_balances_mut<'a>(
+    pub fn validators_and_balances_and_progressive_balances_mut(
         &mut self,
     ) -> (&mut [Validator], &mut [u64], &mut ProgressiveTotalBalances) {
         match self {

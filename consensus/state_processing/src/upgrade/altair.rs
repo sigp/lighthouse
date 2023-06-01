@@ -132,7 +132,7 @@ fn initialize_progressive_total_balances<E: EthSpec>(
     spec: &ChainSpec,
     epoch: Epoch,
 ) -> Result<(), Error> {
-    let participation_cache = ParticipationCache::new(&state, spec)?;
+    let participation_cache = ParticipationCache::new(state, spec)?;
 
     let to_beacon_state_error =
         |e: ParticipationCacheError| Error::ParticipationCacheError(format!("{:?}", e));
