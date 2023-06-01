@@ -2,12 +2,12 @@ use crate::{BeaconStateError, Epoch};
 use arbitrary::Arbitrary;
 use safe_arith::SafeArith;
 
-#[derive(Default, Debug, PartialEq, Arbitrary)]
+#[derive(Default, Debug, PartialEq, Arbitrary, Clone)]
 pub struct ProgressiveTotalBalances {
     inner: Option<Inner>,
 }
 
-#[derive(Debug, PartialEq, Arbitrary)]
+#[derive(Debug, PartialEq, Arbitrary, Clone)]
 struct Inner {
     pub current_epoch: Epoch,
     pub previous_epoch_target_attesting_balance: u64,

@@ -7,6 +7,7 @@ mod slash_validator;
 
 pub mod altair;
 pub mod base;
+pub mod initialize_progressive_total_balances;
 
 pub use deposit_data_tree::DepositDataTree;
 pub use get_attestation_participation::get_attestation_participation_flag_indices;

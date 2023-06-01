@@ -1708,6 +1708,9 @@ impl<T: EthSpec> BeaconState<T> {
         if config.tree_hash_cache {
             *res.tree_hash_cache_mut() = self.tree_hash_cache().clone();
         }
+        if config.progressive_total_balances {
+            *res.progressive_total_balances_mut() = self.progressive_total_balances().clone();
+        }
         res
     }
 
