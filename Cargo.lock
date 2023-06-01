@@ -2218,6 +2218,7 @@ dependencies = [
  "serde_json",
  "slashing_protection",
  "store",
+ "tokio",
  "types",
 ]
 
