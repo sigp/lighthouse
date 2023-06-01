@@ -269,7 +269,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                             "first_block_slot" => start_slot,
                             "last_block_slot" => end_slot,
                             "processed_blocks" => sent_blocks,
-                            "n_blobs" => n_blobs,
+                            "processed_blobs" => n_blobs,
                             "service"=> "sync");
                         BatchProcessResult::Success {
                             was_non_empty: sent_blocks > 0,
@@ -280,7 +280,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                             "batch_epoch" => epoch,
                             "first_block_slot" => start_slot,
                             "last_block_slot" => end_slot,
-                            "n_blobs" => n_blobs,
+                            "processed_blobs" => n_blobs,
                             "error" => %e.message,
                             "service" => "sync");
                         match e.peer_action {
@@ -390,13 +390,13 @@ impl<T: BeaconChainTypes> Worker<T> {
                 })
                 .collect::<Vec<_>>(),
             Err(e) => match e {
-                AvailabilityCheckError::KzgVerificationFailed => {
+                AvailabilityCheckError::StoreError(_)
+                | AvailabilityCheckError::KzgNotInitialized => {
                     return (
                         0,
                         Err(ChainSegmentFailed {
-                            // TODO: check this is the right penalty
-                            peer_action: Some(PeerAction::Fatal),
-                            message: "KZG verification failed".into(),
+                            peer_action: None,
+                            message: "Failed to check block availability".into(),
                         }),
                     );
                 }
@@ -404,7 +404,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     return (
                         0,
                         Err(ChainSegmentFailed {
-                            peer_action: None,
+                            peer_action: Some(PeerAction::LowToleranceError),
                             message: format!("Failed to check block availability : {:?}", e),
                         }),
                     )
@@ -416,7 +416,6 @@ impl<T: BeaconChainTypes> Worker<T> {
             return (
                 0,
                 Err(ChainSegmentFailed {
-                    // TODO: check this is the right penalty
                     peer_action: Some(PeerAction::LowToleranceError),
                     message: format!(
                         "{} out of {} blocks were unavailable",
