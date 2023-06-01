@@ -495,7 +495,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
 
         trace!(
             self.log,
-            "Sending BlobsByRoot Request";
+            "Sending parent BlobsByRoot Request";
             "method" => "BlobsByRoot",
             "count" => request.blob_ids.len(),
             "peer" => %peer_id
