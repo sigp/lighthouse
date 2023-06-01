@@ -1,8 +1,10 @@
 use crate::common::{get_attestation_participation_flag_indices, get_attesting_indices};
+use crate::per_epoch_processing::altair::participation_cache::Error as ParticipationCacheError;
+use crate::per_epoch_processing::altair::ParticipationCache;
 use std::mem;
 use std::sync::Arc;
 use types::{
-    BeaconState, BeaconStateAltair, BeaconStateError as Error, ChainSpec, EthSpec, Fork,
+    BeaconState, BeaconStateAltair, BeaconStateError as Error, ChainSpec, Epoch, EthSpec, Fork,
     ParticipationFlags, PendingAttestation, RelativeEpoch, SyncCommittee, VariableList,
 };
 
@@ -101,6 +103,7 @@ pub fn upgrade_to_altair<E: EthSpec>(
         next_sync_committee: temp_sync_committee,            // not read
         // Caches
         total_active_balance: pre.total_active_balance,
+        progressive_total_balances: mem::take(&mut pre.progressive_total_balances),
         committee_caches: mem::take(&mut pre.committee_caches),
         pubkey_cache: mem::take(&mut pre.pubkey_cache),
         exit_cache: mem::take(&mut pre.exit_cache),
@@ -110,6 +113,8 @@ pub fn upgrade_to_altair<E: EthSpec>(
     // Fill in previous epoch participation from the pre state's pending attestations.
     translate_participation(&mut post, &pre.previous_epoch_attestations, spec)?;
 
+    initialize_progressive_total_balances(&mut post, spec, epoch)?;
+
     // Fill in sync committees
     // Note: A duplicate committee is assigned for the current and next committee at the fork
     // boundary
@@ -118,6 +123,33 @@ pub fn upgrade_to_altair<E: EthSpec>(
     *post.next_sync_committee_mut()? = sync_committee;
 
     *pre_state = post;
+
+    Ok(())
+}
+
+fn initialize_progressive_total_balances<E: EthSpec>(
+    state: &mut BeaconState<E>,
+    spec: &ChainSpec,
+    epoch: Epoch,
+) -> Result<(), Error> {
+    let participation_cache = ParticipationCache::new(&state, spec)?;
+
+    let to_beacon_state_error =
+        |e: ParticipationCacheError| Error::ParticipationCacheError(format!("{:?}", e));
+    let (previous_epoch_target_attesting_balance, current_epoch_target_attesting_balance) = (
+        participation_cache
+            .previous_epoch_target_attesting_balance()
+            .map_err(to_beacon_state_error)?,
+        participation_cache
+            .current_epoch_target_attesting_balance()
+            .map_err(to_beacon_state_error)?,
+    );
+
+    state.progressive_total_balances_mut().initialize(
+        epoch,
+        previous_epoch_target_attesting_balance,
+        current_epoch_target_attesting_balance,
+    );
 
     Ok(())
 }

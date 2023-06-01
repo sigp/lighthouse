@@ -5,6 +5,7 @@ use crate::common::{
     slash_validator,
 };
 use crate::per_block_processing::errors::{BlockProcessingError, IntoWithIndex};
+use crate::per_epoch_processing::altair::{participation_cache, ParticipationCache};
 use crate::VerifySignatures;
 use safe_arith::SafeArith;
 use types::consts::altair::{PARTICIPATION_FLAG_WEIGHTS, PROPOSER_WEIGHT, WEIGHT_DENOMINATOR};
@@ -97,6 +98,7 @@ pub mod base {
 
 pub mod altair {
     use super::*;
+    use types::consts::altair::TIMELY_TARGET_FLAG_INDEX;
 
     pub fn process_attestations<T: EthSpec>(
         state: &mut BeaconState<T>,
@@ -163,6 +165,12 @@ pub mod altair {
                         get_base_reward(state, index, base_reward_per_increment, spec)?
                             .safe_mul(weight)?,
                     )?;
+                    if flag_index == TIMELY_TARGET_FLAG_INDEX {
+                        let validator_effective_balance = state.get_effective_balance(index)?;
+                        state
+                            .progressive_total_balances_mut()
+                            .on_attestation(data.target.epoch, validator_effective_balance)?;
+                    }
                 }
             }
         }
@@ -230,11 +238,31 @@ pub fn process_attester_slashings<T: EthSpec>(
 
         for i in slashable_indices {
             slash_validator(state, i as usize, None, ctxt, spec)?;
+            update_progressive_total_balances(state, spec, i)?;
         }
     }
 
     Ok(())
 }
+
+fn update_progressive_total_balances<T: EthSpec>(
+    state: &mut BeaconState<T>,
+    spec: &ChainSpec,
+    i: u64,
+) -> Result<(), BlockProcessingError> {
+    let participation_cache =
+        ParticipationCache::new(state, spec).map_err(BeaconStateError::from)?;
+    let validator_effective_balance = state.get_effective_balance(i as usize)?;
+    let is_current_epoch_target_attester = participation_cache
+        .is_current_epoch_timely_target_attester(i as usize)
+        .map_err(participation_cache::Error::from)?;
+    state.progressive_total_balances_mut().on_slashing(
+        is_current_epoch_target_attester,
+        validator_effective_balance,
+    )?;
+    Ok(())
+}
+
 /// Wrapper function to handle calling the correct version of `process_attestations` based on
 /// the fork.
 pub fn process_attestations<T: EthSpec, Payload: AbstractExecPayload<T>>(

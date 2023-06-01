@@ -62,6 +62,7 @@ pub fn upgrade_to_capella<E: EthSpec>(
         historical_summaries: VariableList::default(),
         // Caches
         total_active_balance: pre.total_active_balance,
+        progressive_total_balances: mem::take(&mut pre.progressive_total_balances),
         committee_caches: mem::take(&mut pre.committee_caches),
         pubkey_cache: mem::take(&mut pre.pubkey_cache),
         exit_cache: mem::take(&mut pre.exit_cache),

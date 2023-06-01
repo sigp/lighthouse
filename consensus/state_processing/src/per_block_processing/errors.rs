@@ -1,6 +1,8 @@
 use super::signature_sets::Error as SignatureSetError;
+use crate::per_epoch_processing::altair::participation_cache;
 use crate::ContextError;
 use merkle_proof::MerkleTreeError;
+use participation_cache::Error as ParticipationCacheError;
 use safe_arith::ArithError;
 use ssz::DecodeError;
 use types::*;
@@ -83,6 +85,7 @@ pub enum BlockProcessingError {
         found: Hash256,
     },
     WithdrawalCredentialsInvalid,
+    ParticipationCacheError(ParticipationCacheError),
 }
 
 impl From<BeaconStateError> for BlockProcessingError {
@@ -137,6 +140,12 @@ impl From<BlockOperationError<HeaderInvalid>> for BlockProcessingError {
             BlockOperationError::ConsensusContext(e) => BlockProcessingError::ConsensusContext(e),
             BlockOperationError::ArithError(e) => BlockProcessingError::ArithError(e),
         }
+    }
+}
+
+impl From<ParticipationCacheError> for BlockProcessingError {
+    fn from(e: ParticipationCacheError) -> Self {
+        BlockProcessingError::ParticipationCacheError(e)
     }
 }
 

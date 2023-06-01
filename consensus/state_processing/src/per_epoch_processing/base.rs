@@ -52,7 +52,7 @@ pub fn process_epoch<T: EthSpec>(
     process_eth1_data_reset(state)?;
 
     // Update effective balances with hysteresis (lag).
-    process_effective_balance_updates(state, spec)?;
+    process_effective_balance_updates(state, None, spec)?;
 
     // Reset slashings
     process_slashings_reset(state)?;

@@ -93,6 +93,7 @@ mod tree_hash_impls;
 pub mod validator_registration_data;
 pub mod withdrawal;
 
+pub mod progressive_total_balances;
 pub mod slot_data;
 #[cfg(feature = "sqlite")]
 pub mod sqlite;
@@ -158,6 +159,7 @@ pub use crate::payload::{
 };
 pub use crate::pending_attestation::PendingAttestation;
 pub use crate::preset::{AltairPreset, BasePreset, BellatrixPreset, CapellaPreset};
+pub use crate::progressive_total_balances::ProgressiveTotalBalances;
 pub use crate::proposer_preparation_data::ProposerPreparationData;
 pub use crate::proposer_slashing::ProposerSlashing;
 pub use crate::relative_epoch::{Error as RelativeEpochError, RelativeEpoch};

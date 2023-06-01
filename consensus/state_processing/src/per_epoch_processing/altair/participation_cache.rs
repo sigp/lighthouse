@@ -20,7 +20,7 @@ use types::{
     BeaconState, BeaconStateError, ChainSpec, Epoch, EthSpec, ParticipationFlags, RelativeEpoch,
 };
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum Error {
     InvalidFlagIndex(usize),
     InvalidValidatorIndex(usize),

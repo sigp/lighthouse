@@ -28,6 +28,11 @@ pub fn process_epoch<T: EthSpec>(
     let participation_cache = ParticipationCache::new(state, spec)?;
     let sync_committee = state.current_sync_committee()?.clone();
 
+    // Update progressive total balances
+    state
+        .progressive_total_balances_mut()
+        .on_epoch_transition()?;
+
     // Justification and finalization.
     let justification_and_finalization_state =
         process_justification_and_finalization(state, &participation_cache)?;
@@ -52,7 +57,7 @@ pub fn process_epoch<T: EthSpec>(
     process_eth1_data_reset(state)?;
 
     // Update effective balances with hysteresis (lag).
-    process_effective_balance_updates(state, spec)?;
+    process_effective_balance_updates(state, Some(&participation_cache), spec)?;
 
     // Reset slashings
     process_slashings_reset(state)?;

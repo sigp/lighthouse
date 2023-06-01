@@ -27,6 +27,7 @@ pub use self::committee_cache::{
     CommitteeCache,
 };
 use crate::historical_summary::HistoricalSummary;
+use crate::progressive_total_balances::ProgressiveTotalBalances;
 pub use clone_config::CloneConfig;
 pub use eth_spec::*;
 pub use iter::BlockRootsIter;
@@ -101,6 +102,9 @@ pub enum Error {
     SszTypesError(ssz_types::Error),
     TreeHashCacheNotInitialized,
     NonLinearTreeHashCacheHistory,
+    ParticipationCacheError(String),
+    ProgressiveBalancesCacheNotInitialized,
+    ProgressiveBalancesCacheInconsistent,
     TreeHashCacheSkippedSlot {
         cache: Slot,
         state: Slot,
@@ -317,6 +321,12 @@ where
     #[tree_hash(skip_hashing)]
     #[test_random(default)]
     #[derivative(Clone(clone_with = "clone_default"))]
+    pub progressive_total_balances: ProgressiveTotalBalances,
+    #[serde(skip_serializing, skip_deserializing)]
+    #[ssz(skip_serializing, skip_deserializing)]
+    #[tree_hash(skip_hashing)]
+    #[test_random(default)]
+    #[derivative(Clone(clone_with = "clone_default"))]
     pub committee_caches: [CommitteeCache; CACHED_EPOCHS],
     #[serde(skip_serializing, skip_deserializing)]
     #[ssz(skip_serializing, skip_deserializing)]
@@ -393,6 +403,7 @@ impl<T: EthSpec> BeaconState<T> {
 
             // Caching (not in spec)
             total_active_balance: None,
+            progressive_total_balances: <_>::default(),
             committee_caches: [
                 CommitteeCache::default(),
                 CommitteeCache::default(),
@@ -1150,12 +1161,30 @@ impl<T: EthSpec> BeaconState<T> {
     }
 
     /// Convenience accessor for validators and balances simultaneously.
-    pub fn validators_and_balances_mut(&mut self) -> (&mut [Validator], &mut [u64]) {
+    pub fn validators_and_balances_and_progressive_balances_mut<'a>(
+        &mut self,
+    ) -> (&mut [Validator], &mut [u64], &mut ProgressiveTotalBalances) {
         match self {
-            BeaconState::Base(state) => (&mut state.validators, &mut state.balances),
-            BeaconState::Altair(state) => (&mut state.validators, &mut state.balances),
-            BeaconState::Merge(state) => (&mut state.validators, &mut state.balances),
-            BeaconState::Capella(state) => (&mut state.validators, &mut state.balances),
+            BeaconState::Base(state) => (
+                &mut state.validators,
+                &mut state.balances,
+                &mut state.progressive_total_balances,
+            ),
+            BeaconState::Altair(state) => (
+                &mut state.validators,
+                &mut state.balances,
+                &mut state.progressive_total_balances,
+            ),
+            BeaconState::Merge(state) => (
+                &mut state.validators,
+                &mut state.balances,
+                &mut state.progressive_total_balances,
+            ),
+            BeaconState::Capella(state) => (
+                &mut state.validators,
+                &mut state.balances,
+                &mut state.progressive_total_balances,
+            ),
         }
     }
 
