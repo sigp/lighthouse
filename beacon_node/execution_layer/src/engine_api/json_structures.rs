@@ -101,11 +101,11 @@ pub struct JsonExecutionPayload<T: EthSpec> {
     pub transactions: Transactions<T>,
     #[superstruct(only(V2, V3, V6110))]
     pub withdrawals: VariableList<JsonWithdrawal, T::MaxWithdrawalsPerPayload>,
-    #[superstruct(only(V6110))]
-    pub deposit_receipts: VariableList<JsonDepositReceipt, T::MaxDepositReceiptsPerPayload>,
     #[superstruct(only(V3, V6110))]
     #[serde(with = "eth2_serde_utils::u256_hex_be")]
     pub excess_data_gas: Uint256,
+    #[superstruct(only(V6110))]
+    pub deposit_receipts: VariableList<JsonDepositReceipt, T::MaxDepositReceiptsPerPayload>,
 }
 
 impl<T: EthSpec> From<ExecutionPayloadMerge<T>> for JsonExecutionPayloadV1<T> {

@@ -193,11 +193,11 @@ pub struct ExecutionBlockWithTransactions<T: EthSpec> {
     pub transactions: Vec<Transaction>,
     #[superstruct(only(Capella, Deneb, Eip6110))]
     pub withdrawals: Vec<JsonWithdrawal>,
-    #[superstruct(only(Eip6110))]
-    pub deposit_receipts: Vec<JsonDepositReceipt>,
     #[superstruct(only(Deneb, Eip6110))]
     #[serde(with = "eth2_serde_utils::u256_hex_be")]
     pub excess_data_gas: Uint256,
+    #[superstruct(only(Eip6110))]
+    pub deposit_receipts: Vec<JsonDepositReceipt>,
 }
 
 impl<T: EthSpec> TryFrom<ExecutionPayload<T>> for ExecutionBlockWithTransactions<T> {
@@ -300,11 +300,11 @@ impl<T: EthSpec> TryFrom<ExecutionPayload<T>> for ExecutionBlockWithTransactions
                         .into_iter()
                         .map(|withdrawal| withdrawal.into())
                         .collect(),
+                    excess_data_gas: block.excess_data_gas,
                     deposit_receipts: Vec::from(block.deposit_receipts)
                         .into_iter()
                         .map(|deposit_receipt| deposit_receipt.into())
                         .collect(),
-                    excess_data_gas: block.excess_data_gas,
                 })
             }
         };
@@ -584,8 +584,8 @@ impl<E: EthSpec> ExecutionPayloadBodyV1<E> {
                         block_hash: header.block_hash,
                         transactions: self.transactions,
                         withdrawals,
-                        deposit_receipts,
                         excess_data_gas: header.excess_data_gas,
+                        deposit_receipts,
                     }))
                 } else {
                     Err(format!(

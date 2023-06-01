@@ -311,6 +311,21 @@ pub async fn handle_rpc<T: EthSpec>(
                     FORK_REQUEST_MISMATCH_ERROR_CODE,
                 ));
             }
+            // validate method called correctly according to eip6110 fork time
+            if ctx
+                .execution_block_generator
+                .read()
+                .get_fork_at_timestamp(response.timestamp())
+                == ForkName::Eip6110
+                && (method == ENGINE_GET_PAYLOAD_V1
+                    || method == ENGINE_GET_PAYLOAD_V2
+                    || method == ENGINE_GET_PAYLOAD_V3)
+            {
+                return Err((
+                    format!("{} called after eip6110 fork!", method),
+                    FORK_REQUEST_MISMATCH_ERROR_CODE,
+                ));
+            }
 
             match method {
                 ENGINE_GET_PAYLOAD_V1 => {
@@ -361,19 +376,7 @@ pub async fn handle_rpc<T: EthSpec>(
                         })
                         .unwrap()
                     }
-                    JsonExecutionPayload::V6110(execution_payload) => {
-                        serde_json::to_value(JsonGetPayloadResponseV6110 {
-                            execution_payload,
-                            block_value: DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI.into(),
-                            blobs_bundle: maybe_blobs
-                                .ok_or((
-                                    "No blobs returned despite V6110 Payload".to_string(),
-                                    GENERIC_ERROR_CODE,
-                                ))?
-                                .into(),
-                        })
-                        .unwrap()
-                    }
+                    _ => unreachable!(),
                 }),
                 ENGINE_GET_PAYLOAD_V6110 => Ok(match JsonExecutionPayload::from(response) {
                     JsonExecutionPayload::V1(execution_payload) => {

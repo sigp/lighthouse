@@ -1188,7 +1188,9 @@ impl HttpJsonRpc {
         execution_payload: ExecutionPayload<T>,
     ) -> Result<PayloadStatusV1, Error> {
         let engine_capabilities = self.get_engine_capabilities(None).await?;
-        if engine_capabilities.new_payload_v3 {
+        if engine_capabilities.new_payload_v6110 {
+            self.new_payload_v6110(execution_payload).await
+        } else if engine_capabilities.new_payload_v3 {
             self.new_payload_v3(execution_payload).await
         } else if engine_capabilities.new_payload_v2 {
             self.new_payload_v2(execution_payload).await
@@ -1207,7 +1209,9 @@ impl HttpJsonRpc {
         payload_id: PayloadId,
     ) -> Result<GetPayloadResponse<T>, Error> {
         let engine_capabilities = self.get_engine_capabilities(None).await?;
-        if engine_capabilities.get_payload_v3 {
+        if engine_capabilities.get_payload_v6110 {
+            self.get_payload_v6110(fork_name, payload_id).await
+        } else if engine_capabilities.get_payload_v3 {
             self.get_payload_v3(fork_name, payload_id).await
         } else if engine_capabilities.get_payload_v2 {
             self.get_payload_v2(fork_name, payload_id).await

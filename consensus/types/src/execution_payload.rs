@@ -86,12 +86,12 @@ pub struct ExecutionPayload<T: EthSpec> {
     pub transactions: Transactions<T>,
     #[superstruct(only(Capella, Deneb, Eip6110))]
     pub withdrawals: Withdrawals<T>,
-    #[superstruct(only(Eip6110))]
-    pub deposit_receipts: DepositReceipts<T>,
     #[superstruct(only(Deneb, Eip6110))]
     #[serde(with = "eth2_serde_utils::quoted_u256")]
     #[superstruct(getter(copy))]
     pub excess_data_gas: Uint256,
+    #[superstruct(only(Eip6110))]
+    pub deposit_receipts: DepositReceipts<T>,
 }
 
 impl<'a, T: EthSpec> ExecutionPayloadRef<'a, T> {
