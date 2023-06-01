@@ -121,7 +121,7 @@ const MAX_AGGREGATED_ATTESTATION_REPROCESS_QUEUE_LEN: usize = 1_024;
 /// before we start dropping them.
 const MAX_GOSSIP_BLOCK_QUEUE_LEN: usize = 1_024;
 
-/// The maximum number of queued `SignedBeaconBlockAndBlobsSidecar` objects received on gossip that
+/// The maximum number of queued `SignedBlobSidecar` objects received on gossip that
 /// will be stored before we start dropping them.
 const MAX_GOSSIP_BLOB_QUEUE_LEN: usize = 1_024;
 
@@ -164,7 +164,7 @@ const MAX_SYNC_CONTRIBUTION_QUEUE_LEN: usize = 1024;
 /// The maximum number of queued `SignedBeaconBlock` objects received from the network RPC that
 /// will be stored before we start dropping them.
 const MAX_RPC_BLOCK_QUEUE_LEN: usize = 1_024;
-const MAX_RPC_BLOB_QUEUE_LEN: usize = 1_024 * 4; // TODO(sean) make function of max blobs per block? or is this just too big?
+const MAX_RPC_BLOB_QUEUE_LEN: usize = 1_024 * 4;
 
 /// The maximum number of queued `Vec<SignedBeaconBlock>` objects received during syncing that will
 /// be stored before we start dropping them.
