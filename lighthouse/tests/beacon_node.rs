@@ -1903,7 +1903,7 @@ fn slasher_backend_default() {
         .run_with_zero_port()
         .with_config(|config| {
             let slasher_config = config.slasher.as_ref().unwrap();
-            assert_eq!(slasher_config.backend, slasher::DatabaseBackend::Mdbx);
+            assert_eq!(slasher_config.backend, slasher::DatabaseBackend::Lmdb);
         });
 }
 
@@ -1913,11 +1913,11 @@ fn slasher_backend_override_to_default() {
     // called "disabled" results in a panic.
     CommandLineTest::new()
         .flag("slasher", None)
-        .flag("slasher-backend", Some("mdbx"))
+        .flag("slasher-backend", Some("lmdb"))
         .run_with_zero_port()
         .with_config(|config| {
             let slasher_config = config.slasher.as_ref().unwrap();
-            assert_eq!(slasher_config.backend, slasher::DatabaseBackend::Mdbx);
+            assert_eq!(slasher_config.backend, slasher::DatabaseBackend::Lmdb);
         });
 }
 
