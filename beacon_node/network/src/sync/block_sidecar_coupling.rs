@@ -56,13 +56,17 @@ impl<T: EthSpec> BlocksAndBlobsRequestInfo<T> {
             if blob_list.is_empty() {
                 responses.push(BlockWrapper::Block(block))
             } else {
-                let mut blobs_fixed = Vec::with_capacity(T::max_blobs_per_block());
+                let mut blobs_fixed = vec![None; T::max_blobs_per_block()];
                 for blob in blob_list {
                     let blob_index = blob.index as usize;
-                    if blob_index >= T::max_blobs_per_block() {
+                    let Some(blob_opt) = blobs_fixed.get_mut(blob_index) else {
                         return Err("Invalid blob index");
+                    };
+                    if blob_opt.is_some() {
+                        return Err("Repeat blob index");
+                    } else {
+                        *blob_opt = Some(blob);
                     }
-                    blobs_fixed.insert(blob_index, Some(blob));
                 }
                 responses.push(BlockWrapper::BlockAndBlobs(
                     block,
