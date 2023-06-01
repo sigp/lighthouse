@@ -188,8 +188,8 @@ pub async fn publish_block<T: BeaconChainTypes>(
                 "Invalid block provided to HTTP API";
                 "reason" => &msg
             );
-            Err(warp_utils::reject::custom_server_error(
-                "invalid block".to_string(),
+            Err(warp_utils::reject::custom_bad_request(
+                "Invalid block".to_string(),
             ))
         }
     }
