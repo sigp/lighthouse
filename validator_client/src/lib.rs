@@ -146,7 +146,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             context
                 .clone()
                 .executor
-                .spawn_without_exit(async move { server.await }, "metrics-api");
+                .spawn_without_exit(server, "metrics-api");
 
             Some(ctx)
         } else {
@@ -590,7 +590,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             self.context
                 .clone()
                 .executor
-                .spawn_without_exit(async move { server.await }, "http-api");
+                .spawn_without_exit(server, "http-api");
 
             Some(listen_addr)
         } else {
