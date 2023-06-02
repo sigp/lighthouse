@@ -379,7 +379,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                                     "info" => "this error may or may not result in a missed block",
                                 )
                             }
-                            _ => {}
+                            Ok(_) => {}
                         };
                     } else if let Err(e) = service
                         .publish_block::<FullPayload<E>>(slot, validator_pubkey)
