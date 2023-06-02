@@ -76,7 +76,7 @@ INFO Slasher backend overriden    reason: database exists, configured_backend: l
 ```
 
 If the running Lighthouse binary doesn't have the MDBX backend enabled but an existing database is
-found, then a warning will be logged and Lighthouse will continue using the LMDB backend:
+found, then a warning will be logged and Lighthouse will use the LMDB backend and create a new database:
 
 ```
 WARN Slasher backend override failed    advice: delete old MDBX database or enable MDBX backend, path: /home/user/.lighthouse/mainnet/beacon/slasher_db/mdbx.dat
