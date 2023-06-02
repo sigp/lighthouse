@@ -15,9 +15,16 @@ use std::time::Duration;
 use types::{
     consts::merge::INTERVALS_PER_SLOT, AbstractExecPayload, AttestationShufflingId,
     AttesterSlashing, BeaconBlockRef, BeaconState, BeaconStateError, ChainSpec, Checkpoint, Epoch,
-    EthSpec, ExecPayload, ExecutionBlockHash, Hash256, IndexedAttestation, RelativeEpoch,
-    SignedBeaconBlock, Slot,
+    EthSpec, ExecPayload, ExecutionBlockHash, Hash256, IndexedAttestation,
+    ProgressiveTotalBalances, RelativeEpoch, SignedBeaconBlock, Slot,
 };
+
+#[cfg(test)]
+use state_processing::per_epoch_processing::{
+    weigh_justification_and_finalization, JustificationAndFinalizationState,
+};
+#[cfg(test)]
+use types::ProgressiveTotalBalances;
 
 #[derive(Debug)]
 pub enum Error<T> {
@@ -761,10 +768,19 @@ where
                             let participation_cache =
                                 per_epoch_processing::altair::ParticipationCache::new(state, spec)
                                     .map_err(Error::ParticipationCacheBuild)?;
+                            let processing_result =
                             per_epoch_processing::altair::process_justification_and_finalization(
                                 state,
                                 &participation_cache,
-                            )?
+                            )?;
+
+                            #[cfg(test)]
+                            check_processing_results_with_progressive_cache(
+                                state,
+                                &processing_result,
+                            );
+
+                            processing_result
                         }
                         BeaconBlockRef::Base(_) => {
                             let mut validator_statuses =
@@ -1518,6 +1534,44 @@ where
             queued_attestations: self.queued_attestations().to_vec(),
         }
     }
+}
+
+#[cfg(test)]
+fn check_processing_results_with_progressive_cache<E>(
+    state: &BeaconState<E>,
+    processing_results: &JustificationAndFinalizationState<E>,
+) where
+    E: EthSpec,
+{
+    let JustificationAndFinalizationState {
+        current_justified_checkpoint: expected_justified_checkpoint,
+        finalized_checkpoint: expected_finalized_checkpoint,
+        ..
+    } = processing_results;
+
+    // Get balances from progressive balances cache.
+    let (_, total_active_balance) = state
+        .total_active_balance()
+        .ok_or(BeaconStateError::TotalActiveBalanceCacheUninitialized)?;
+    let progressive_total_balances: &ProgressiveTotalBalances = state.progressive_total_balances();
+    let (previous_target_balance, current_target_balance) = (
+        progressive_total_balances.previous_epoch_target_attesting_balance()?,
+        progressive_total_balances.current_epoch_target_attesting_balance()?,
+    );
+
+    let JustificationAndFinalizationState {
+        current_justified_checkpoint,
+        finalized_checkpoint,
+        ..
+    } = weigh_justification_and_finalization(
+        JustificationAndFinalizationState::new(state),
+        total_active_balance,
+        previous_target_balance,
+        current_target_balance,
+    );
+
+    assert_eq!(current_justified_checkpoint, expected_justified_checkpoint);
+    assert_eq!(finalized_checkpoint, expected_finalized_checkpoint);
 }
 
 /// Helper struct that is used to encode/decode the state of the `ForkChoice` as SSZ bytes.
