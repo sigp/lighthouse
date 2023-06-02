@@ -153,7 +153,21 @@ pub enum Error {
     /// It's unclear if this sync message is valid, however we have already observed a
     /// signature from this validator for this slot and should not observe
     /// another.
-    PriorSyncCommitteeMessageKnown { validator_index: u64, slot: Slot },
+    PriorSyncCommitteeMessageKnown {
+        validator_index: u64,
+        slot: Slot,
+        prev_root: Hash256,
+        new_root: Hash256,
+    },
+    /// We have already observed a contribution for the aggregator and refuse to
+    /// process another.
+    ///
+    /// ## Peer scoring
+    ///
+    /// It's unclear if this sync message is valid, however we have already observed a
+    /// signature from this validator for this slot and should not observe
+    /// another.
+    PriorSyncContributionMessageKnown { validator_index: u64, slot: Slot },
     /// The sync committee message was received on an invalid sync committee message subnet.
     ///
     /// ## Peer scoring
@@ -378,10 +392,10 @@ impl<T: BeaconChainTypes> VerifiedSyncContribution<T> {
         if chain
             .observed_sync_aggregators
             .write()
-            .observe_validator(observed_key, aggregator_index as usize)
+            .observe_validator(observed_key, aggregator_index as usize, ())
             .map_err(BeaconChainError::from)?
         {
-            return Err(Error::PriorSyncCommitteeMessageKnown {
+            return Err(Error::PriorSyncContributionMessageKnown {
                 validator_index: aggregator_index,
                 slot: contribution.slot,
             });
@@ -450,19 +464,40 @@ impl VerifiedSyncCommitteeMessage {
         // The sync committee message is the first valid message received for the participating validator
         // for the slot, sync_message.slot.
         let validator_index = sync_message.validator_index;
-        if chain
+        let head_root = chain.canonical_head.cached_head().head_block_root();
+        let new_root = sync_message.beacon_block_root;
+        let should_override_prev = |prev_root: &Hash256, new_root: &Hash256| {
+            let roots_differ = new_root != prev_root;
+            let new_elects_head = new_root == &head_root;
+
+            if roots_differ {
+                // Track sync committee messages that differ from each other.
+                metrics::inc_counter(&metrics::SYNC_MESSAGE_EQUIVOCATIONS);
+                if new_elects_head {
+                    // Track sync committee messages that swap from an old block to a new block.
+                    metrics::inc_counter(&metrics::SYNC_MESSAGE_EQUIVOCATIONS_TO_HEAD);
+                }
+            }
+
+            roots_differ && new_elects_head
+        };
+        if let Some(prev_root) = chain
             .observed_sync_contributors
             .read()
-            .validator_has_been_observed(
+            .observation_for_validator(
                 SlotSubcommitteeIndex::new(sync_message.slot, subnet_id.into()),
                 validator_index as usize,
             )
             .map_err(BeaconChainError::from)?
         {
-            return Err(Error::PriorSyncCommitteeMessageKnown {
-                validator_index,
-                slot: sync_message.slot,
-            });
+            if !should_override_prev(&prev_root, &new_root) {
+                return Err(Error::PriorSyncCommitteeMessageKnown {
+                    validator_index,
+                    slot: sync_message.slot,
+                    prev_root,
+                    new_root,
+                });
+            }
         }
 
         // The aggregate signature of the sync committee message is valid.
@@ -474,18 +509,22 @@ impl VerifiedSyncCommitteeMessage {
         // It's important to double check that the sync committee message still hasn't been observed, since
         // there can be a race-condition if we receive two sync committee messages at the same time and
         // process them in different threads.
-        if chain
+        if let Some(prev_root) = chain
             .observed_sync_contributors
             .write()
-            .observe_validator(
+            .observe_validator_with_override(
                 SlotSubcommitteeIndex::new(sync_message.slot, subnet_id.into()),
                 validator_index as usize,
+                sync_message.beacon_block_root,
+                should_override_prev,
             )
             .map_err(BeaconChainError::from)?
         {
             return Err(Error::PriorSyncCommitteeMessageKnown {
                 validator_index,
                 slot: sync_message.slot,
+                prev_root,
+                new_root,
             });
         }
 

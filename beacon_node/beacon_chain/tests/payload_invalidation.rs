@@ -910,6 +910,9 @@ async fn invalid_after_optimistic_sync() {
         .await,
     );
 
+    // EL status should still be online, no errors.
+    assert!(!rig.execution_layer().is_offline_or_erroring().await);
+
     // Running fork choice is necessary since a block has been invalidated.
     rig.recompute_head().await;
 

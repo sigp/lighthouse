@@ -18,6 +18,7 @@ use eth2::lighthouse_vc::{
     types::{self as api_types, GenericResponse, Graffiti, PublicKey, PublicKeyBytes},
 };
 use lighthouse_version::version_with_platform;
+use logging::SSELoggingComponents;
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use slog::{crit, info, warn, Logger};
@@ -31,6 +32,7 @@ use std::sync::Arc;
 use sysinfo::{System, SystemExt};
 use system_health::observe_system_health_vc;
 use task_executor::TaskExecutor;
+use tokio_stream::{wrappers::BroadcastStream, StreamExt};
 use types::{ChainSpec, ConfigAndPreset, EthSpec};
 use validator_dir::Builder as ValidatorDirBuilder;
 use warp::{
@@ -39,6 +41,7 @@ use warp::{
         response::Response,
         StatusCode,
     },
+    sse::Event,
     Filter,
 };
 
@@ -73,6 +76,7 @@ pub struct Context<T: SlotClock, E: EthSpec> {
     pub spec: ChainSpec,
     pub config: Config,
     pub log: Logger,
+    pub sse_logging_components: Option<SSELoggingComponents>,
     pub slot_clock: T,
     pub _phantom: PhantomData<E>,
 }
@@ -200,6 +204,10 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
 
     let api_token_path_inner = api_token_path.clone();
     let api_token_path_filter = warp::any().map(move || api_token_path_inner.clone());
+
+    // Filter for SEE Logging events
+    let inner_components = ctx.sse_logging_components.clone();
+    let sse_component_filter = warp::any().map(move || inner_components.clone());
 
     // Create a `warp` filter that provides access to local system information.
     let system_info = Arc::new(RwLock::new(sysinfo::System::new()));
@@ -1021,6 +1029,49 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
             })
         });
 
+    // Subscribe to get VC logs via Server side events
+    // /lighthouse/logs
+    let get_log_events = warp::path("lighthouse")
+        .and(warp::path("logs"))
+        .and(warp::path::end())
+        .and(sse_component_filter)
+        .and_then(|sse_component: Option<SSELoggingComponents>| {
+            warp_utils::task::blocking_task(move || {
+                if let Some(logging_components) = sse_component {
+                    // Build a JSON stream
+                    let s =
+                        BroadcastStream::new(logging_components.sender.subscribe()).map(|msg| {
+                            match msg {
+                                Ok(data) => {
+                                    // Serialize to json
+                                    match data.to_json_string() {
+                                        // Send the json as a Server Sent Event
+                                        Ok(json) => Event::default().json_data(json).map_err(|e| {
+                                            warp_utils::reject::server_sent_event_error(format!(
+                                                "{:?}",
+                                                e
+                                            ))
+                                        }),
+                                        Err(e) => Err(warp_utils::reject::server_sent_event_error(
+                                            format!("Unable to serialize to JSON {}", e),
+                                        )),
+                                    }
+                                }
+                                Err(e) => Err(warp_utils::reject::server_sent_event_error(
+                                    format!("Unable to receive event {}", e),
+                                )),
+                            }
+                        });
+
+                    Ok::<_, warp::Rejection>(warp::sse::reply(warp::sse::keep_alive().stream(s)))
+                } else {
+                    Err(warp_utils::reject::custom_server_error(
+                        "SSE Logging is not enabled".to_string(),
+                    ))
+                }
+            })
+        });
+
     let routes = warp::any()
         .and(authorization_header_filter)
         // Note: it is critical that the `authorization_header_filter` is applied to all routes.
@@ -1061,8 +1112,8 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                         .or(delete_std_remotekeys),
                 )),
         )
-        // The auth route is the only route that is allowed to be accessed without the API token.
-        .or(warp::get().and(get_auth))
+        // The auth route and logs  are the only routes that are allowed to be accessed without the API token.
+        .or(warp::get().and(get_auth.or(get_log_events.boxed())))
         // Maps errors into HTTP responses.
         .recover(warp_utils::reject::handle_rejection)
         // Add a `Server` header.

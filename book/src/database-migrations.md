@@ -29,6 +29,7 @@ validator client or the slasher**.
 | v3.4.0             | Jan 2023     | v13            | yes                  |
 | v3.5.0             | Feb 2023     | v15            | yes before Capella   |
 | v4.0.1             | Mar 2023     | v16            | yes before Capella   |
+| v4.2.0             | May 2023     | v17            | yes                  |
 
 > **Note**: All point releases (e.g. v2.3.1) are schema-compatible with the prior minor release
 > (e.g. v2.3.0).
@@ -82,24 +83,36 @@ on downgrades above.
 To check the schema version of a running Lighthouse instance you can use the HTTP API:
 
 ```bash
-curl "http://localhost:5052/lighthouse/database/info"
+curl "http://localhost:5052/lighthouse/database/info" | jq
 ```
 
 ```json
 {
-  "schema_version": 8,
+  "schema_version": 16,
   "config": {
     "slots_per_restore_point": 8192,
-    "slots_per_restore_point_set_explicitly": true,
+    "slots_per_restore_point_set_explicitly": false,
     "block_cache_size": 5,
     "historic_state_cache_size": 1,
     "compact_on_init": false,
-    "compact_on_prune": true
+    "compact_on_prune": true,
+    "prune_payloads": true
+  },
+  "split": {
+    "slot": "5485952",
+    "state_root": "0xcfe5d41e6ab5a9dab0de00d89d97ae55ecaeed3b08e4acda836e69b2bef698b4"
+  },
+  "anchor": {
+    "anchor_slot": "5414688",
+    "oldest_block_slot": "0",
+    "oldest_block_parent": "0x0000000000000000000000000000000000000000000000000000000000000000",
+    "state_upper_limit": "5414912",
+    "state_lower_limit": "8192"
   }
 }
 ```
 
-The `schema_version` key indicates that this database is using schema version 8.
+The `schema_version` key indicates that this database is using schema version 16.
 
 Alternatively, you can check the schema version with the `lighthouse db` command.
 
@@ -118,7 +131,7 @@ Several conditions need to be met in order to run `lighthouse db`:
 2. The command must run as the user that owns the beacon node database. If you are using systemd then
    your beacon node might run as a user called `lighthousebeacon`.
 3. The `--datadir` flag must be set to the location of the Lighthouse data directory.
-4. The `--network` flag must be set to the correct network, e.g. `mainnet`, `prater` or `sepolia`.
+4. The `--network` flag must be set to the correct network, e.g. `mainnet`, `goerli` or `sepolia`.
 
 The general form for a `lighthouse db` command is:
 

@@ -1,7 +1,7 @@
 [package]
 name = "lcli"
 description = "Lighthouse CLI (modeled after zcli)"
-version = "4.1.0"
+version = "4.2.0"
 authors = ["Paul Hauner <paul@paulhauner.com>"]
 edition = "2021"
 
@@ -21,6 +21,7 @@ env_logger = "0.9.0"
 types = { path = "../consensus/types" }
 state_processing = { path = "../consensus/state_processing" }
 int_to_bytes = { path = "../consensus/int_to_bytes" }
+ethereum_hashing = "1.0.0-beta.2"
 ethereum_ssz = "0.5.0"
 environment = { path = "../lighthouse/environment" }
 eth2_network_config = { path = "../common/eth2_network_config" }
@@ -34,7 +35,6 @@ lighthouse_version = { path = "../common/lighthouse_version" }
 directory = { path = "../common/directory" }
 account_utils = { path = "../common/account_utils" }
 eth2_wallet = { path = "../crypto/eth2_wallet" }
-web3 = { version = "0.18.0", default-features = false, features = ["http-tls", "signing", "ws-tls-tokio"] }
 eth1_test_rig = { path = "../testing/eth1_test_rig" }
 sensitive_url = { path = "../common/sensitive_url" }
 eth2 = { path = "../common/eth2" }
@@ -42,6 +42,7 @@ snap = "1.0.1"
 beacon_chain = { path = "../beacon_node/beacon_chain" }
 store = { path = "../beacon_node/store" }
 malloc_utils = { path = "../common/malloc_utils" }
+rayon = "1.7.0"
 
 [package.metadata.cargo-udeps.ignore]
 normal = ["malloc_utils"]

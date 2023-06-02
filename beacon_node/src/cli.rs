@@ -282,7 +282,23 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                        for a beacon node being referenced by validator client using the --proposer-node flag. This configuration is for enabling more secure setups.")
                 .takes_value(false),
         )
-
+        .arg(
+            Arg::with_name("inbound-rate-limiter")
+            .long("inbound-rate-limiter")
+            .help(
+                "Configures the inbound rate limiter (requests received by this node).\
+                \
+                Rate limit quotas per protocol can be set in the form of \
+                <protocol_name>:<tokens>/<time_in_seconds>. To set quotas for multiple protocols, \
+                separate them by ';'. If the inbound rate limiter is enabled and a protocol is not \
+                present in the configuration, the default quotas will be used. \
+                \
+                This is enabled by default, using default quotas. To disable rate limiting pass \
+                `disabled` to this option instead."
+            )
+            .takes_value(true)
+            .hidden(true)
+        )
         .arg(
             Arg::with_name("disable-backfill-rate-limiting")
                 .long("disable-backfill-rate-limiting")
@@ -1081,7 +1097,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .long("gui")
                 .hidden(true)
                 .help("Enable the graphical user interface and all its requirements. \
-                      This is equivalent to --http and --validator-monitor-auto.")
+                      This enables --http and --validator-monitor-auto and enables SSE logging.")
                 .takes_value(false)
         )
         .arg(
@@ -1092,5 +1108,14 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             // to local payloads, therefore it fundamentally conflicts with
             // always using the builder.
             .conflicts_with("builder-profit-threshold")
+        )
+        .arg(
+            Arg::with_name("invalid-gossip-verified-blocks-path")
+            .long("invalid-gossip-verified-blocks-path")
+            .value_name("PATH")
+            .help("If a block succeeds gossip validation whilst failing full validation, store \
+                    the block SSZ as a file at this path. This feature is only recommended for \
+                    developers. This directory is not pruned, users should be careful to avoid \
+                    filling up their disks.")
         )
 }
