@@ -1222,7 +1222,7 @@ pub fn serve<T: BeaconChainTypes>(
                     chain,
                     &network_tx,
                     log,
-                    None,
+                    BroadcastValidation::default(),
                 )
                 .await
                 .map(|()| warp::reply().into_response())
@@ -1244,7 +1244,7 @@ pub fn serve<T: BeaconChainTypes>(
              chain: Arc<BeaconChain<T>>,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
              log: Logger| async move {
-                match publish_blocks::publish_block_checked(
+                match publish_blocks::publish_block(
                     None,
                     ProvenancedBlock::Local(block),
                     chain,
@@ -1281,9 +1281,15 @@ pub fn serve<T: BeaconChainTypes>(
              chain: Arc<BeaconChain<T>>,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
              log: Logger| async move {
-                publish_blocks::publish_blinded_block(block, chain, &network_tx, log, None)
-                    .await
-                    .map(|()| warp::reply().into_response())
+                publish_blocks::publish_blinded_block(
+                    block,
+                    chain,
+                    &network_tx,
+                    log,
+                    BroadcastValidation::default(),
+                )
+                .await
+                .map(|()| warp::reply().into_response())
             },
         );
 
@@ -1302,7 +1308,7 @@ pub fn serve<T: BeaconChainTypes>(
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
              log: Logger,
              validation_level: BroadcastValidation| async move {
-                match publish_blocks::publish_blinded_block_checked(
+                match publish_blocks::publish_blinded_block(
                     block,
                     chain,
                     &network_tx,

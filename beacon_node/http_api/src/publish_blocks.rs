@@ -29,33 +29,13 @@ pub enum ProvenancedBlock<T: EthSpec> {
 }
 
 /// Handles a request from the HTTP API for full blocks.
-pub async fn publish_block_checked<T: BeaconChainTypes>(
-    block_root: Option<Hash256>,
-    provenanced_block: ProvenancedBlock<T::EthSpec>,
-    chain: Arc<BeaconChain<T>>,
-    network_tx: &UnboundedSender<NetworkMessage<T::EthSpec>>,
-    log: Logger,
-    validation_level: BroadcastValidation,
-) -> Result<(), Rejection> {
-    publish_block(
-        block_root,
-        provenanced_block,
-        chain,
-        network_tx,
-        log,
-        Some(validation_level),
-    )
-    .await
-}
-
-/// Handles a request from the HTTP API for full blocks.
 pub async fn publish_block<T: BeaconChainTypes>(
     block_root: Option<Hash256>,
     provenanced_block: ProvenancedBlock<T::EthSpec>,
     chain: Arc<BeaconChain<T>>,
     network_tx: &UnboundedSender<NetworkMessage<T::EthSpec>>,
     log: Logger,
-    validation_level: Option<BroadcastValidation>,
+    validation_level: BroadcastValidation,
 ) -> Result<(), Rejection> {
     let seen_timestamp = timestamp_now();
     let (block, is_locally_built_block) = match provenanced_block {
@@ -67,23 +47,44 @@ pub async fn publish_block<T: BeaconChainTypes>(
 
     let block_root = block_root.unwrap_or_else(|| block.canonical_root());
 
+    /* actually publish a block */
+    let publish_block = move |block: Arc<SignedBeaconBlock<T::EthSpec>>,
+                              sender,
+                              log,
+                              seen_timestamp| {
+        let publish_timestamp = timestamp_now();
+        let publish_delay = publish_timestamp
+            .checked_sub(seen_timestamp)
+            .unwrap_or_else(|| Duration::from_secs(0));
+
+        info!(log, "Signed block published to network via HTTP API"; "slot" => block.slot(), "publish_delay" => ?publish_delay);
+
+        let message = PubsubMessage::BeaconBlock(block.clone());
+        crate::publish_pubsub_message(&sender, message)
+            .map_err(|_| BlockError::<T::EthSpec>::PublishError)
+    };
+
+    /* if we can form a `GossipVerifiedBlock`, we've passed our basic gossip checks */
+    let gossip_verified_block = GossipVerifiedBlock::new(block.clone(), chain.clone().as_ref()).map_err(|e| {
+        warn!(log, "Not publishing block, not gossip verified"; "slot" => block.slot(), "error" => ?e);
+        warp_utils::reject::custom_bad_request(e.to_string())
+    })?;
+
+    if let BroadcastValidation::Gossip = validation_level {
+        publish_block(
+            block.clone(),
+            network_tx.clone(),
+            log.clone(),
+            seen_timestamp,
+        )
+        .map_err(|e| warp_utils::reject::custom_bad_request("unable to publish".into()))?;
+    }
+
+    /* only publish if gossip- and consensus-valid and equivocation-free */
     let chain_clone = chain.clone();
     let block_clone = block.clone();
     let log_clone = log.clone();
     let sender_clone = network_tx.clone();
-    let chain_clone_gossip = chain.clone();
-    let block_clone_gossip = block.clone();
-    let log_clone_gossip = log.clone();
-
-    let gossip_only_publish_fn = move || {
-        /* if we can form a `GossipVerifiedBlock`, we've passed our basic gossip checks */
-        GossipVerifiedBlock::new(block_clone_gossip.clone(), chain_clone_gossip.as_ref())
-            .map_err(|e| {
-                warn!(log_clone_gossip, "Not publishing block, not gossip verified"; "slot" => block_clone_gossip.slot());
-                e}
-            )
-            .map(|_| ())
-    };
 
     let consensus_and_equivocation_publish_fn = move || {
         if chain_clone
@@ -99,32 +100,23 @@ pub async fn publish_block<T: BeaconChainTypes>(
                 "slot" => block_clone.slot()
             );
             return Err(BlockError::SlashablePublish);
+        } else {
+            publish_block(block_clone, sender_clone, log_clone, seen_timestamp)?;
         }
-        let publish_timestamp = timestamp_now();
-        let publish_delay = publish_timestamp
-            .checked_sub(seen_timestamp)
-            .unwrap_or_else(|| Duration::from_secs(0));
-
-        info!(log_clone, "Signed block published to network via HTTP API"; "slot" => block_clone.slot(), "publish_delay" => ?publish_delay);
-
-        let message = PubsubMessage::BeaconBlock(block_clone);
-        crate::publish_pubsub_message(&sender_clone, message).map_err(|_| BlockError::PublishError)
+        Ok(())
     };
 
+    /* decide which publishing scheme we're going to use */
     let publish_fn: Box<dyn FnOnce() -> Result<(), BlockError<T::EthSpec>> + Send + 'static> =
-        if let Some(level) = validation_level {
-            match level {
-                BroadcastValidation::Gossip => Box::new(gossip_only_publish_fn),
-                _ => Box::new(consensus_and_equivocation_publish_fn),
-            }
-        } else {
-            Box::new(move || Ok(())) /* no validation at all */
+        match validation_level {
+            BroadcastValidation::Gossip => Box::new(move || Ok(())),
+            _ => Box::new(consensus_and_equivocation_publish_fn),
         };
 
     match chain
         .process_block(
             block_root,
-            block.clone(),
+            gossip_verified_block,
             CountUnrealized::True,
             NotifyExecutionLayer::Yes,
             publish_fn,
@@ -182,39 +174,21 @@ pub async fn publish_block<T: BeaconChainTypes>(
             Ok(())
         }
         Err(e) => {
-            let msg = format!("{:?}", e);
-            error!(
-                log,
-                "Invalid block provided to HTTP API";
-                "reason" => &msg
-            );
-            Err(warp_utils::reject::custom_bad_request(
-                "Invalid block".to_string(),
-            ))
+            if let BroadcastValidation::Gossip = validation_level {
+                Ok(())
+            } else {
+                let msg = format!("{:?}", e);
+                error!(
+                    log,
+                    "Invalid block provided to HTTP API";
+                    "reason" => &msg
+                );
+                Err(warp_utils::reject::custom_bad_request(
+                    "Invalid block".to_string(),
+                ))
+            }
         }
     }
-}
-
-/// Handles a request from the HTTP API for blinded blocks. This converts blinded blocks into full
-/// blocks before publishing.
-pub async fn publish_blinded_block_checked<T: BeaconChainTypes>(
-    block: SignedBeaconBlock<T::EthSpec, BlindedPayload<T::EthSpec>>,
-    chain: Arc<BeaconChain<T>>,
-    network_tx: &UnboundedSender<NetworkMessage<T::EthSpec>>,
-    log: Logger,
-    validation_level: BroadcastValidation,
-) -> Result<(), Rejection> {
-    let block_root = block.canonical_root();
-    let full_block = reconstruct_block(chain.clone(), block_root, block, log.clone()).await?;
-    publish_block_checked::<T>(
-        Some(block_root),
-        full_block,
-        chain,
-        network_tx,
-        log,
-        validation_level,
-    )
-    .await
 }
 
 /// Handles a request from the HTTP API for blinded blocks. This converts blinded blocks into full
@@ -224,7 +198,7 @@ pub async fn publish_blinded_block<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
     network_tx: &UnboundedSender<NetworkMessage<T::EthSpec>>,
     log: Logger,
-    validation_level: Option<BroadcastValidation>,
+    validation_level: BroadcastValidation,
 ) -> Result<(), Rejection> {
     let block_root = block.canonical_root();
     let full_block = reconstruct_block(chain.clone(), block_root, block, log.clone()).await?;
