@@ -12,6 +12,8 @@ use eth2::types::{BlockContents, SignedBlockContents};
 use eth2::BeaconNodeHttpClient;
 use slog::{crit, debug, error, info, trace, warn, Logger};
 use slot_clock::SlotClock;
+use std::fmt::Debug;
+use std::future::Future;
 use std::ops::Deref;
 use std::sync::Arc;
 use std::time::Duration;
@@ -48,6 +50,7 @@ pub struct BlockServiceBuilder<T, E: EthSpec> {
     validator_store: Option<Arc<ValidatorStore<T, E>>>,
     slot_clock: Option<Arc<T>>,
     beacon_nodes: Option<Arc<BeaconNodeFallback<T, E>>>,
+    proposer_nodes: Option<Arc<BeaconNodeFallback<T, E>>>,
     context: Option<RuntimeContext<E>>,
     graffiti: Option<Graffiti>,
     graffiti_file: Option<GraffitiFile>,
@@ -60,6 +63,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockServiceBuilder<T, E> {
             validator_store: None,
             slot_clock: None,
             beacon_nodes: None,
+            proposer_nodes: None,
             context: None,
             graffiti: None,
             graffiti_file: None,
@@ -79,6 +83,11 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockServiceBuilder<T, E> {
 
     pub fn beacon_nodes(mut self, beacon_nodes: Arc<BeaconNodeFallback<T, E>>) -> Self {
         self.beacon_nodes = Some(beacon_nodes);
+        self
+    }
+
+    pub fn proposer_nodes(mut self, proposer_nodes: Arc<BeaconNodeFallback<T, E>>) -> Self {
+        self.proposer_nodes = Some(proposer_nodes);
         self
     }
 
@@ -117,6 +126,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockServiceBuilder<T, E> {
                 context: self
                     .context
                     .ok_or("Cannot build BlockService without runtime_context")?,
+                proposer_nodes: self.proposer_nodes,
                 graffiti: self.graffiti,
                 graffiti_file: self.graffiti_file,
                 block_delay: self.block_delay,
@@ -125,11 +135,81 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockServiceBuilder<T, E> {
     }
 }
 
+// Combines a set of non-block-proposing `beacon_nodes` and only-block-proposing
+// `proposer_nodes`.
+pub struct ProposerFallback<T, E: EthSpec> {
+    beacon_nodes: Arc<BeaconNodeFallback<T, E>>,
+    proposer_nodes: Option<Arc<BeaconNodeFallback<T, E>>>,
+}
+
+impl<T: SlotClock, E: EthSpec> ProposerFallback<T, E> {
+    // Try `func` on `self.proposer_nodes` first. If that doesn't work, try `self.beacon_nodes`.
+    pub async fn first_success_try_proposers_first<'a, F, O, Err, R>(
+        &'a self,
+        require_synced: RequireSynced,
+        offline_on_failure: OfflineOnFailure,
+        func: F,
+    ) -> Result<O, Errors<Err>>
+    where
+        F: Fn(&'a BeaconNodeHttpClient) -> R + Clone,
+        R: Future<Output = Result<O, Err>>,
+        Err: Debug,
+    {
+        // If there are proposer nodes, try calling `func` on them and return early if they are successful.
+        if let Some(proposer_nodes) = &self.proposer_nodes {
+            if let Ok(result) = proposer_nodes
+                .first_success(require_synced, offline_on_failure, func.clone())
+                .await
+            {
+                return Ok(result);
+            }
+        }
+
+        // If the proposer nodes failed, try on the non-proposer nodes.
+        self.beacon_nodes
+            .first_success(require_synced, offline_on_failure, func)
+            .await
+    }
+
+    // Try `func` on `self.beacon_nodes` first. If that doesn't work, try `self.proposer_nodes`.
+    pub async fn first_success_try_proposers_last<'a, F, O, Err, R>(
+        &'a self,
+        require_synced: RequireSynced,
+        offline_on_failure: OfflineOnFailure,
+        func: F,
+    ) -> Result<O, Errors<Err>>
+    where
+        F: Fn(&'a BeaconNodeHttpClient) -> R + Clone,
+        R: Future<Output = Result<O, Err>>,
+        Err: Debug,
+    {
+        // Try running `func` on the non-proposer beacon nodes.
+        let beacon_nodes_result = self
+            .beacon_nodes
+            .first_success(require_synced, offline_on_failure, func.clone())
+            .await;
+
+        match (beacon_nodes_result, &self.proposer_nodes) {
+            // The non-proposer node call succeed, return the result.
+            (Ok(success), _) => Ok(success),
+            // The non-proposer node call failed, but we don't have any proposer nodes. Return an error.
+            (Err(e), None) => Err(e),
+            // The non-proposer node call failed, try the same call on the proposer nodes.
+            (Err(_), Some(proposer_nodes)) => {
+                proposer_nodes
+                    .first_success(require_synced, offline_on_failure, func)
+                    .await
+            }
+        }
+    }
+}
+
 /// Helper to minimise `Arc` usage.
 pub struct Inner<T, E: EthSpec> {
     validator_store: Arc<ValidatorStore<T, E>>,
     slot_clock: Arc<T>,
     beacon_nodes: Arc<BeaconNodeFallback<T, E>>,
+    proposer_nodes: Option<Arc<BeaconNodeFallback<T, E>>>,
     context: RuntimeContext<E>,
     graffiti: Option<Graffiti>,
     graffiti_file: Option<GraffitiFile>,
@@ -337,16 +417,23 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
         let self_ref = &self;
         let proposer_index = self.validator_store.validator_index(&validator_pubkey);
         let validator_pubkey_ref = &validator_pubkey;
+        let proposer_fallback = ProposerFallback {
+            beacon_nodes: self.beacon_nodes.clone(),
+            proposer_nodes: self.proposer_nodes.clone(),
+        };
 
         info!(
             log,
             "Requesting unsigned block";
             "slot" => slot.as_u64(),
         );
+
         // Request block from first responsive beacon node.
-        let block_contents = self
-            .beacon_nodes
-            .first_success(
+        //
+        // Try the proposer nodes last, since it's likely that they don't have a
+        // great view of attestations on the network.
+        let block_contents = proposer_fallback
+            .first_success_try_proposers_last(
                 RequireSynced::No,
                 OfflineOnFailure::Yes,
                 move |beacon_node| {
@@ -397,8 +484,12 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
         let signed_block_contents = SignedBlockContents::from((signed_block, maybe_signed_blobs));
 
         // Publish block with first available beacon node.
-        self.beacon_nodes
-            .first_success(
+        //
+        // Try the proposer nodes first, since we've likely gone to efforts to
+        // protect them from DoS attacks and they're most likely to successfully
+        // publish a block.
+        proposer_fallback
+            .first_success_try_proposers_first(
                 RequireSynced::No,
                 OfflineOnFailure::Yes,
                 |beacon_node| async {

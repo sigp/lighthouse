@@ -1,5 +1,5 @@
 use crate::{BlockProcessingError, ConsensusContext};
-use eth2_hashing::hash_fixed;
+use ethereum_hashing::hash_fixed;
 use itertools::{EitherOrBoth, Itertools};
 use safe_arith::SafeArith;
 use ssz::Decode;

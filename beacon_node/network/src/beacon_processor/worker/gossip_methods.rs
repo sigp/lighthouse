@@ -14,17 +14,20 @@ use beacon_chain::{
 };
 use lighthouse_network::{Client, MessageAcceptance, MessageId, PeerAction, PeerId, ReportSource};
 use operation_pool::ReceivedPreCapella;
-use slog::{crit, debug, error, info, trace, warn};
+use slog::{crit, debug, error, info, trace, warn, Logger};
 use slot_clock::SlotClock;
 use ssz::Encode;
+use std::fs;
+use std::io::Write;
+use std::path::PathBuf;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use store::hot_cold_store::HotColdDBError;
 use tokio::sync::mpsc;
 use types::{
     Attestation, AttesterSlashing, EthSpec, Hash256, IndexedAttestation, LightClientFinalityUpdate,
-    LightClientOptimisticUpdate, ProposerSlashing, SignedAggregateAndProof, SignedBlobSidecar,
-    SignedBlsToExecutionChange, SignedContributionAndProof, SignedVoluntaryExit, Slot, SubnetId,
-    SyncCommitteeMessage, SyncSubnetId,
+    LightClientOptimisticUpdate, ProposerSlashing, SignedAggregateAndProof, SignedBeaconBlock,
+    SignedBlobSidecar, SignedBlsToExecutionChange, SignedContributionAndProof, SignedVoluntaryExit,
+    Slot, SubnetId, SyncCommitteeMessage, SyncSubnetId,
 };
 
 use super::{
@@ -34,7 +37,7 @@ use super::{
     },
     Worker,
 };
-use crate::beacon_processor::DuplicateCache;
+use crate::beacon_processor::{DuplicateCache, InvalidBlockStorage};
 
 /// Set to `true` to introduce stricter penalties for peers who send some types of late consensus
 /// messages.
@@ -806,6 +809,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         block: BlockWrapper<T::EthSpec>,
         reprocess_tx: mpsc::Sender<ReprocessQueueMessage<T>>,
         duplicate_cache: DuplicateCache,
+        invalid_block_storage: InvalidBlockStorage,
         seen_duration: Duration,
     ) {
         if let Some(gossip_verified_block) = self
@@ -826,6 +830,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     peer_id,
                     gossip_verified_block,
                     reprocess_tx,
+                    invalid_block_storage,
                     seen_duration,
                 )
                 .await;
@@ -1089,13 +1094,14 @@ impl<T: BeaconChainTypes> Worker<T> {
         peer_id: PeerId,
         verified_block: GossipVerifiedBlock<T>,
         reprocess_tx: mpsc::Sender<ReprocessQueueMessage<T>>,
+        invalid_block_storage: InvalidBlockStorage,
         // This value is not used presently, but it might come in handy for debugging.
         _seen_duration: Duration,
     ) {
         let block = verified_block.block.block_cloned();
         let block_root = verified_block.block_root;
 
-        match self
+        let result = self
             .chain
             .process_block(
                 block_root,
@@ -1103,14 +1109,15 @@ impl<T: BeaconChainTypes> Worker<T> {
                 CountUnrealized::True,
                 NotifyExecutionLayer::Yes,
             )
-            .await
-        {
+            .await;
+
+        match &result {
             Ok(AvailabilityProcessingStatus::Imported(block_root)) => {
                 metrics::inc_counter(&metrics::BEACON_PROCESSOR_GOSSIP_BLOCK_IMPORTED_TOTAL);
 
                 if reprocess_tx
                     .try_send(ReprocessQueueMessage::BlockImported {
-                        block_root,
+                        block_root: *block_root,
                         parent_root: block.message().parent_root(),
                     })
                     .is_err()
@@ -1146,7 +1153,11 @@ impl<T: BeaconChainTypes> Worker<T> {
                     "Block with unknown parent attempted to be processed";
                     "peer_id" => %peer_id
                 );
-                self.send_sync_message(SyncMessage::UnknownBlock(peer_id, block, block_root));
+                self.send_sync_message(SyncMessage::UnknownBlock(
+                    peer_id,
+                    block.clone(),
+                    block_root,
+                ));
             }
             Err(ref e @ BlockError::ExecutionPayloadError(ref epe)) if !epe.penalize_peer() => {
                 debug!(
@@ -1175,6 +1186,16 @@ impl<T: BeaconChainTypes> Worker<T> {
                 );
             }
         };
+
+        if let Err(e) = &result {
+            self.maybe_store_invalid_block(
+                &invalid_block_storage,
+                block_root,
+                &block,
+                e,
+                &self.log,
+            );
+        }
     }
 
     pub fn process_gossip_voluntary_exit(
@@ -2485,6 +2506,25 @@ impl<T: BeaconChainTypes> Worker<T> {
                     "peer_id" => %peer_id,
                     "type" => ?message_type,
                 );
+
+                // Do not penalize the peer.
+
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+
+                return;
+            }
+            SyncCommitteeError::PriorSyncContributionMessageKnown { .. } => {
+                /*
+                 * We have already seen a sync contribution message from this validator for this epoch.
+                 *
+                 * The peer is not necessarily faulty.
+                 */
+                debug!(
+                    self.log,
+                    "Prior sync contribution message known";
+                    "peer_id" => %peer_id,
+                    "type" => ?message_type,
+                );
                 // We still penalize the peer slightly. We don't want this to be a recurring
                 // behaviour.
                 self.gossip_penalize_peer(
@@ -2648,5 +2688,63 @@ impl<T: BeaconChainTypes> Worker<T> {
             .map_or(false, |current_slot| sync_message_slot == current_slot);
 
         self.propagate_if_timely(is_timely, message_id, peer_id)
+    }
+
+    /// Stores a block as a SSZ file, if and where `invalid_block_storage` dictates.
+    fn maybe_store_invalid_block(
+        &self,
+        invalid_block_storage: &InvalidBlockStorage,
+        block_root: Hash256,
+        block: &SignedBeaconBlock<T::EthSpec>,
+        error: &BlockError<T::EthSpec>,
+        log: &Logger,
+    ) {
+        if let InvalidBlockStorage::Enabled(base_dir) = invalid_block_storage {
+            let block_path = base_dir.join(format!("{}_{:?}.ssz", block.slot(), block_root));
+            let error_path = base_dir.join(format!("{}_{:?}.error", block.slot(), block_root));
+
+            let write_file = |path: PathBuf, bytes: &[u8]| {
+                // No need to write the same file twice. For the error file,
+                // this means that we'll remember the first error message but
+                // forget the rest.
+                if path.exists() {
+                    return;
+                }
+
+                // Write to the file.
+                let write_result = fs::OpenOptions::new()
+                    // Only succeed if the file doesn't already exist. We should
+                    // have checked for this earlier.
+                    .create_new(true)
+                    .write(true)
+                    .open(&path)
+                    .map_err(|e| format!("Failed to open file: {:?}", e))
+                    .map(|mut file| {
+                        file.write_all(bytes)
+                            .map_err(|e| format!("Failed to write file: {:?}", e))
+                    });
+                if let Err(e) = write_result {
+                    error!(
+                        log,
+                        "Failed to store invalid block/error";
+                        "error" => e,
+                        "path" => ?path,
+                        "root" => ?block_root,
+                        "slot" => block.slot(),
+                    )
+                } else {
+                    info!(
+                        log,
+                        "Stored invalid block/error ";
+                        "path" => ?path,
+                        "root" => ?block_root,
+                        "slot" => block.slot(),
+                    )
+                }
+            };
+
+            write_file(block_path, &block.as_ssz_bytes());
+            write_file(error_path, error.to_string().as_bytes());
+        }
     }
 }

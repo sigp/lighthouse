@@ -142,6 +142,7 @@ impl<T: EthSpec> MockServer<T> {
             hook: <_>::default(),
             new_payload_statuses: <_>::default(),
             fcu_payload_statuses: <_>::default(),
+            syncing_response: Arc::new(Mutex::new(Ok(false))),
             engine_capabilities: Arc::new(RwLock::new(DEFAULT_ENGINE_CAPABILITIES)),
             _phantom: PhantomData,
         });
@@ -435,14 +436,25 @@ impl<T: EthSpec> MockServer<T> {
         self.ctx
             .new_payload_statuses
             .lock()
-            .insert(block_hash, status);
+            .insert(block_hash, Ok(status));
     }
 
     pub fn set_fcu_payload_status(&self, block_hash: ExecutionBlockHash, status: PayloadStatusV1) {
         self.ctx
             .fcu_payload_statuses
             .lock()
-            .insert(block_hash, status);
+            .insert(block_hash, Ok(status));
+    }
+
+    pub fn set_new_payload_error(&self, block_hash: ExecutionBlockHash, error: String) {
+        self.ctx
+            .new_payload_statuses
+            .lock()
+            .insert(block_hash, Err(error));
+    }
+
+    pub fn set_syncing_response(&self, res: Result<bool, String>) {
+        *self.ctx.syncing_response.lock() = res;
     }
 }
 
@@ -499,8 +511,11 @@ pub struct Context<T: EthSpec> {
     //
     // This is a more flexible and less stateful alternative to `static_new_payload_response`
     // and `preloaded_responses`.
-    pub new_payload_statuses: Arc<Mutex<HashMap<ExecutionBlockHash, PayloadStatusV1>>>,
-    pub fcu_payload_statuses: Arc<Mutex<HashMap<ExecutionBlockHash, PayloadStatusV1>>>,
+    pub new_payload_statuses:
+        Arc<Mutex<HashMap<ExecutionBlockHash, Result<PayloadStatusV1, String>>>>,
+    pub fcu_payload_statuses:
+        Arc<Mutex<HashMap<ExecutionBlockHash, Result<PayloadStatusV1, String>>>>,
+    pub syncing_response: Arc<Mutex<Result<bool, String>>>,
 
     pub engine_capabilities: Arc<RwLock<EngineCapabilities>>,
     pub _phantom: PhantomData<T>,
@@ -510,14 +525,14 @@ impl<T: EthSpec> Context<T> {
     pub fn get_new_payload_status(
         &self,
         block_hash: &ExecutionBlockHash,
-    ) -> Option<PayloadStatusV1> {
+    ) -> Option<Result<PayloadStatusV1, String>> {
         self.new_payload_statuses.lock().get(block_hash).cloned()
     }
 
     pub fn get_fcu_payload_status(
         &self,
         block_hash: &ExecutionBlockHash,
-    ) -> Option<PayloadStatusV1> {
+    ) -> Option<Result<PayloadStatusV1, String>> {
         self.fcu_payload_statuses.lock().get(block_hash).cloned()
     }
 }

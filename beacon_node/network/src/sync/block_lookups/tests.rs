@@ -76,7 +76,7 @@ impl TestRig {
             log.new(slog::o!("component" => "block_lookups")),
         );
         let cx = {
-            let globals = Arc::new(NetworkGlobals::new_test_globals(&log));
+            let globals = Arc::new(NetworkGlobals::new_test_globals(Vec::new(), &log));
             SyncNetworkContext::new(
                 network_tx,
                 globals,

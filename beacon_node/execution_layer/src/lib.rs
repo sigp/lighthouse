@@ -307,6 +307,11 @@ struct Inner<E: EthSpec> {
     builder_profit_threshold: Uint256,
     log: Logger,
     always_prefer_builder_payload: bool,
+    /// Track whether the last `newPayload` call errored.
+    ///
+    /// This is used *only* in the informational sync status endpoint, so that a VC using this
+    /// node can prefer another node with a healthier EL.
+    last_new_payload_errored: RwLock<bool>,
 }
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
@@ -413,7 +418,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
 
                 info!(
                     log,
-                    "Connected to external block builder";
+                    "Using external block builder";
                     "builder_url" => ?url,
                     "builder_profit_threshold" => builder_profit_threshold,
                     "local_user_agent" => builder_client.get_user_agent(),
@@ -435,6 +440,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
             builder_profit_threshold: Uint256::from(builder_profit_threshold),
             log,
             always_prefer_builder_payload,
+            last_new_payload_errored: RwLock::new(false),
         };
 
         Ok(Self {
@@ -625,6 +631,15 @@ impl<T: EthSpec> ExecutionLayer<T> {
             }
         }
         synced
+    }
+
+    /// Return `true` if the execution layer is offline or returning errors on `newPayload`.
+    ///
+    /// This function should never be used to prevent any operation in the beacon node, but can
+    /// be used to give an indication on the HTTP API that the node's execution layer is struggling,
+    /// which can in turn be used by the VC.
+    pub async fn is_offline_or_erroring(&self) -> bool {
+        self.engine().is_offline().await || *self.inner.last_new_payload_errored.read().await
     }
 
     /// Updates the proposer preparation data provided by validators
@@ -1192,18 +1207,6 @@ impl<T: EthSpec> ExecutionLayer<T> {
     }
 
     /// Maps to the `engine_newPayload` JSON-RPC call.
-    ///
-    /// ## Fallback Behaviour
-    ///
-    /// The request will be broadcast to all nodes, simultaneously. It will await a response (or
-    /// failure) from all nodes and then return based on the first of these conditions which
-    /// returns true:
-    ///
-    /// - Error::ConsensusFailure if some nodes return valid and some return invalid
-    /// - Valid, if any nodes return valid.
-    /// - Invalid, if any nodes return invalid.
-    /// - Syncing, if any nodes return syncing.
-    /// - An error, if all nodes return an error.
     pub async fn notify_new_payload(
         &self,
         execution_payload: &ExecutionPayload<T>,
@@ -1232,10 +1235,16 @@ impl<T: EthSpec> ExecutionLayer<T> {
                 &["new_payload", status.status.into()],
             );
         }
+        *self.inner.last_new_payload_errored.write().await = result.is_err();
 
         process_payload_status(execution_payload.block_hash(), result, self.log())
             .map_err(Box::new)
             .map_err(Error::EngineError)
+    }
+
+    /// Update engine sync status.
+    pub async fn upcheck(&self) {
+        self.engine().upcheck().await;
     }
 
     /// Register that the given `validator_index` is going to produce a block at `slot`.
@@ -1297,18 +1306,6 @@ impl<T: EthSpec> ExecutionLayer<T> {
     }
 
     /// Maps to the `engine_consensusValidated` JSON-RPC call.
-    ///
-    /// ## Fallback Behaviour
-    ///
-    /// The request will be broadcast to all nodes, simultaneously. It will await a response (or
-    /// failure) from all nodes and then return based on the first of these conditions which
-    /// returns true:
-    ///
-    /// - Error::ConsensusFailure if some nodes return valid and some return invalid
-    /// - Valid, if any nodes return valid.
-    /// - Invalid, if any nodes return invalid.
-    /// - Syncing, if any nodes return syncing.
-    /// - An error, if all nodes return an error.
     pub async fn notify_forkchoice_updated(
         &self,
         head_block_hash: ExecutionBlockHash,
@@ -2273,7 +2270,7 @@ fn ethers_tx_to_bytes<T: EthSpec>(
             .ok_or(BlobTxConversionError::VersionedHashesMissing)?
             .iter()
             .map(|versioned_hash| {
-                let hash_bytes = eth2_serde_utils::hex::decode(
+                let hash_bytes = serde_utils::hex::decode(
                     versioned_hash
                         .as_str()
                         .ok_or(BlobTxConversionError::VersionedHashesMissing)?,

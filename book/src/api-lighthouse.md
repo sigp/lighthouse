@@ -141,7 +141,8 @@ curl -X POST "http://localhost:5052/lighthouse/ui/validator_metrics" -d '{"indic
         "attestation_head_hit_percentage": 100,
         "attestation_target_hits": 5,
         "attestation_target_misses": 5,
-        "attestation_target_hit_percentage": 50
+        "attestation_target_hit_percentage": 50,
+        "latest_attestation_inclusion_distance": 1
       }
     }
   }
@@ -455,6 +456,7 @@ curl "http://localhost:5052/lighthouse/database/info" | jq
   "config": {
     "slots_per_restore_point": 2048,
     "block_cache_size": 5,
+    "historic_state_cache_size": 1,
     "compact_on_init": false,
     "compact_on_prune": true
   },
@@ -677,3 +679,31 @@ Caveats:
   This is because the state _prior_ to the `start_epoch` needs to be loaded from the database, and
   loading a state on a boundary is most efficient.
 
+
+### `/lighthouse/logs`
+
+This is a Server Side Event subscription endpoint. This allows a user to read
+the Lighthouse logs directly from the HTTP API endpoint. This currently
+exposes INFO and higher level logs. It is only enabled when the `--gui` flag is set in the CLI.
+
+Example:
+
+```bash
+curl -N "http://localhost:5052/lighthouse/logs"
+```
+
+Should provide an output that emits log events as they occur:
+```json
+{
+"data": {
+	  "time": "Mar 13 15:28:41",
+	  "level": "INFO",
+	  "msg": "Syncing",
+	  "service": "slot_notifier",
+	  "est_time": "1 hr 27 mins",
+	  "speed": "5.33 slots/sec",
+	  "distance": "28141 slots (3 days 21 hrs)",
+	  "peers": "8"
+	}
+}
+```

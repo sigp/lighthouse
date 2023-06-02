@@ -118,10 +118,26 @@ impl<T: BeaconChainTypes> Worker<T> {
             }
         };
 
+        // Returns `true` if the block is already known to fork choice. Notably,
+        // this will return `false` for blocks that we've already imported but
+        // ancestors of the finalized checkpoint. That should not be an issue
+        // for our use here since finalized blocks will always be late and won't
+        // be requeued anyway.
+        let block_is_already_known = || {
+            self.chain
+                .canonical_head
+                .fork_choice_read_lock()
+                .contains_block(&block_root)
+        };
+
         // If we've already seen a block from this proposer *and* the block
         // arrived before the attestation deadline, requeue it to ensure it is
         // imported late enough that it won't receive a proposer boost.
-        if !block_is_late && proposal_already_known() {
+        //
+        // Don't requeue blocks if they're already known to fork choice, just
+        // push them through to block processing so they can be handled through
+        // the normal channels.
+        if !block_is_late && proposal_already_known() && !block_is_already_known() {
             debug!(
                 self.log,
                 "Delaying processing of duplicate RPC block";
