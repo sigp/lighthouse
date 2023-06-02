@@ -106,20 +106,20 @@ pub fn per_block_processing<T: EthSpec, Payload: AbstractExecPayload<T>>(
 ) -> Result<(), BlockProcessingError> {
     let block = signed_block.message();
 
-    if !state.progressive_total_balances().is_initialized() {
-        let participation_cache = ParticipationCache::new(&state, spec)?;
-        initialize_progressive_total_balances::<T>(state, &participation_cache)?;
-    }
-
     // Verify that the `SignedBeaconBlock` instantiation matches the fork at `signed_block.slot()`.
     signed_block
         .fork_name(spec)
         .map_err(BlockProcessingError::InconsistentBlockFork)?;
 
     // Verify that the `BeaconState` instantiation matches the fork at `state.slot()`.
-    state
+    let fork_name = state
         .fork_name(spec)
         .map_err(BlockProcessingError::InconsistentStateFork)?;
+
+    if fork_name != ForkName::Base && !state.progressive_total_balances().is_initialized() {
+        let participation_cache = ParticipationCache::new(state, spec)?;
+        initialize_progressive_total_balances::<T>(state, &participation_cache)?;
+    }
 
     let verify_signatures = match block_signature_strategy {
         BlockSignatureStrategy::VerifyBulk => {

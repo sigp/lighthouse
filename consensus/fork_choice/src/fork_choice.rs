@@ -781,6 +781,7 @@ where
                                 &participation_cache,
                             );
 
+                            #[allow(clippy::let_and_return)]
                             processing_result
                         }
                         BeaconBlockRef::Base(_) => {
