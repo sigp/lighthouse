@@ -1142,7 +1142,9 @@ impl<T: BeaconChainTypes> Worker<T> {
             Ok(AvailabilityProcessingStatus::MissingComponents(slot, block_root)) => {
                 // make rpc request for blob
                 self.send_sync_message(SyncMessage::MissingGossipBlockComponents(
-                    slot, peer_id, block_root,
+                    *slot,
+                    peer_id,
+                    *block_root,
                 ));
             }
             Err(BlockError::ParentUnknown(block)) => {
