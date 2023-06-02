@@ -23,13 +23,17 @@ states to slow down dramatically. A lower _slots per restore point_ value (SPRP)
 frequent restore points, while a higher SPRP corresponds to less frequent. The table below shows
 some example values.
 
-| Use Case                 | SPRP | Yearly Disk Usage | Load Historical State |
-|--------------------------|------|-------------------|-----------------------|
-| Block explorer/analysis  | 32   | 1.4 TB            | 155 ms                |
-| Hobbyist (prev. default) | 2048 | 23.1 GB           | 10.2 s                |
-| Validator only (default) | 8192 | 5.7 GB            | 41 s                  |
+| Use Case                   | SPRP | Yearly Disk Usage* | Load Historical State |
+|----------------------------|------|-------------------|-----------------------|
+| Research                   | 32   | 3.4 TB            | 155 ms                |
+| Block explorer/analysis    | 128  | 851 GB            | 620 ms                |
+| Enthusiast (prev. default) | 2048 | 53.6 GB           | 10.2 s                |
+| EHobbyist                  | 4096 | 26.8 GB           | 20.5 s                |
+| Validator only (default)   | 8192 | 8.1 GB            | 41 s                  |
 
-As you can see, it's a high-stakes trade-off! The relationships to disk usage and historical state
+*Last update: May 2023. 
+
+As we can see, it's a high-stakes trade-off! The relationships to disk usage and historical state
 load time are both linear – doubling SPRP halves disk usage and doubles load time. The minimum SPRP
 is 32, and the maximum is 8192.
 
@@ -38,9 +42,11 @@ The default value is 8192 for databases synced from scratch using Lighthouse v2.
 
 The values shown in the table are approximate, calculated using a simple heuristic: each
 `BeaconState` consumes around 18MB of disk space, and each block replayed takes around 5ms.  The
-**Yearly Disk Usage** column shows the approx size of the freezer DB _alone_ (hot DB not included),
-and the **Load Historical State** time is the worst-case load time for a state in the last slot
-before a restore point.
+**Yearly Disk Usage** column shows the approximate size of the freezer DB _alone_ (hot DB not included), calculated proportionally using the total freezer database disk usage. 
+The **Load Historical State** time is the worst-case load time for a state in the last slot
+before a restore point. 
+
+As an example, we use an SPRP of 4096 to calculate the total size of the freezer database until May 2023. It has been about 900 days since the genesis, the total disk usage by the freezer database is therefore: 900/365*26.8 GB = 66 GB. 
 
 ### Defaults
 
@@ -67,6 +73,8 @@ The historical state cache size can be specified with the flag `--historic-state
 ```bash
 lighthouse beacon_node --historic-state-cache-size 4
 ```
+
+> Note: This feature will cause high memory usage.
 
 ## Glossary
 

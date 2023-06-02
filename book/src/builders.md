@@ -1,4 +1,4 @@
-# MEV and Lighthouse
+# Maximal Extractable Value (MEV)
 
 Lighthouse is able to interact with servers that implement the [builder
 API](https://github.com/ethereum/builder-specs), allowing it to produce blocks without having
@@ -103,11 +103,31 @@ Each field is optional.
 }
 ```
 
+Command: 
+
+```bash
+DATADIR=/var/lib/lighthouse
+curl -X PATCH "http://localhost:5062/lighthouse/validators/0xb0148e6348264131bf47bcd1829590e870c836dc893050fd0dadc7a28949f9d0a72f2805d027521b45441101f0cc1cde" \
+-H "Authorization: Bearer $(sudo cat ${DATADIR}/validators/api-token.txt)" \
+-H "Content-Type: application/json" \
+-d '{
+    "builder_proposals": true,
+    "gas_limit": 30000001
+}' | jq
+```
+
 #### Example Response Body
 
 ```json
 null
 ```
+
+A `null` response indicates that the request is successful. At the same time, `lighthouse vc` will show a log which looks like:
+
+```
+INFO Published validator registrations to the builder network, count: 3, service: preparation
+```
+
 ### Fee Recipient
 
 Refer to [suggested fee recipient](suggested-fee-recipient.md) documentation.
@@ -167,9 +187,18 @@ consider using it for the chance of out-sized rewards, this flag may be useful:
 The number provided indicates the minimum reward that an external payload must provide the proposer for it to be considered
 for inclusion in a proposal. For example, if you'd only like to use an external payload for a reward of >= 0.25 ETH, you
 would provide your beacon node with `--builder-profit-threshold 250000000000000000`. If it's your turn to propose and the
-most valuable payload offered by builders is only 0.1 ETH, the local execution engine's payload will be used. Currently,
-this threshold just looks at the value of the external payload. No comparison to the local payload is made, although
-this feature will likely be added in the future.
+most valuable payload offered by builders is only 0.1 ETH, the local execution engine's payload will be used.
+
+Since the [Capella](https://ethereum.org/en/history/#capella) upgrade, a comparison of the external payload and local payload will be made according to the [engine_getPayloadV2](https://github.com/ethereum/execution-apis/blob/main/src/engine/shanghai.md#engine_getpayloadv2) API. The logic is as follows:
+
+```
+if local payload value >= builder payload value:
+   use local payload
+else if builder payload value >= builder_profit_threshold or builder_profit_threshold == 0:
+   use builder payload
+else:
+   use local payload
+```
 
 ## Checking your builder config
 

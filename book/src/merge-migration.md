@@ -1,15 +1,13 @@
 # Merge Migration
 
-This document provides detail for users who want to run a Lighthouse node on post-merge Ethereum.
-
-> The merge occurred on mainnet in September 2022.
+[The Merge](https://ethereum.org/en/roadmap/merge/) has occurred on mainnet on 15<sup>th</sup> September 2022. This document provides detail of what users need to do in the past (before The Merge) to run a Lighthouse node on a post-merge Ethereum network. This document now serves as a  record of the milestone upgrade.
 
 ## Necessary Configuration
 
 There are two configuration changes required for a Lighthouse node to operate correctly throughout
 the merge:
 
-1. You *must* run your own execution engine such as Geth or Nethermind alongside Lighthouse.
+1. You *must* run your own execution engine such as Besu, Erigon, Geth or Nethermind alongside Lighthouse.
    You *must* update your `lighthouse bn` configuration to connect to the execution engine using new
    flags which are documented on this page in the
    [Connecting to an execution engine](#connecting-to-an-execution-engine) section.
@@ -23,11 +21,19 @@ engine to a merge-ready version.
 
 ## When?
 
-You must configure your node to be merge-ready before the Bellatrix fork occurs on the network
-on which your node is operating.
+All networks (**Mainnet**, **Goerli (Prater)**, **Ropsten**, **Sepolia**, **Kiln**, **Gnosis**) have successfully undergone the Bellatrix fork and transitioned to a post-merge Network. Your node must have a merge-ready configuration to continue operating. Table below lists the date at which Bellatrix and The Merge occurred:
 
-* **Mainnet**, **Goerli (Prater)**, **Ropsten**, **Sepolia**, **Kiln**, **Gnosis**: the Bellatrix fork has
-  already occurred. You must have a merge-ready configuration right now.
+<div align="center">
+
+| Network           | Bellatrix     | The Merge | Remark |
+|-------------------|--------------------------------------------|----|----|
+| Ropsten      | 2<sup>nd</sup> June 2022    | 8<sup>th</sup> June 2022  | Deprecated
+| Sepolia            |   20<sup>th</sup> June 2022   | 6<sup>th</sup> July 2022 | |
+| Goerli | 4<sup>th</sup> August 2022 | 10<sup>th</sup> August 2022 | Previously named `Prater`|
+| Mainnet | 6<sup>th</sup> September 2022  |  15<sup>th</sup> September 2022 |
+| Gnosis| 30<sup>th</sup> November 2022 | 8<sup>th</sup> December 2022
+
+</div>
 
 ## Connecting to an execution engine
 
@@ -41,7 +47,7 @@ present in post-merge blocks. Two new flags are used to configure this connectio
 
 If you set up an execution engine with `--execution-endpoint` then you *must* provide a JWT secret
 using `--execution-jwt`. This is a mandatory form of authentication that ensures that Lighthouse
-has authority to control the execution engine.
+has the authority to control the execution engine.
 
 > Tip: the --execution-jwt-secret-key <STRING> flag can be used instead of --execution-jwt <FILE>.
 > This is useful, for example, for users who wish to inject the value into a Docker container without
@@ -88,7 +94,7 @@ lighthouse \
     beacon_node \
     --http \
     --execution-endpoint http://localhost:8551
-    --execution-jwt ~/.ethereum/geth/jwtsecret
+    --execution-jwt /path/to/jwtsecret
 ```
 
 The changes here are:
@@ -104,8 +110,7 @@ The changes here are:
       not be `8551`, see their documentation for details.
 3. Add the `--execution-jwt` flag.
     - This is the path to a file containing a 32-byte secret for authenticating the BN with the
-      execution engine. In this example our execution engine is Geth, so we've chosen the default
-      location for Geth. Your execution engine might have a different path. It is critical that both
+      execution engine. It is critical that both
       the BN and execution engine reference a file with the same value, otherwise they'll fail to
       communicate.
 
@@ -117,7 +122,7 @@ a deprecation warning will be logged and Lighthouse *may* remove these flags in 
 ### The relationship between `--eth1-endpoints` and `--execution-endpoint`
 
 Pre-merge users will be familiar with the `--eth1-endpoints` flag. This provides a list of Ethereum
-"eth1" nodes (e.g., Geth, Nethermind, etc). Each beacon node (BN) can have multiple eth1 endpoints
+"eth1" nodes (Besu, Erigon, Geth or Nethermind). Each beacon node (BN) can have multiple eth1 endpoints
 and each eth1 endpoint can have many BNs connection (many-to-many relationship). The eth1 node
 provides a source of truth for the [deposit
 contract](https://ethereum.org/en/staking/deposit-contract/) and beacon chain proposers include this
@@ -128,7 +133,7 @@ achieve this.
 To progress through the Bellatrix upgrade nodes will need a *new* connection to an "eth1" node;
 `--execution-endpoint`. This connection has a few different properties. Firstly, the term "eth1
 node" has been deprecated and replaced with "execution engine". Whilst "eth1 node" and "execution
-engine" still refer to the same projects (Geth, Nethermind, etc) the former refers to the pre-merge
+engine" still refer to the same projects (Besu, Erigon, Geth or Nethermind), the former refers to the pre-merge
 versions and the latter refers to post-merge versions. Secondly, there is a strict one-to-one
 relationship between Lighthouse and the execution engine; only one Lighthouse node can connect to
 one execution engine. Thirdly, it is impossible to fully verify the post-merge chain without an
@@ -138,7 +143,7 @@ impossible to reliably *propose* blocks without it.
 Since an execution engine is a hard requirement in the post-merge chain and the execution engine
 contains the transaction history of the Ethereum chain, there is no longer a need for the
 `--eth1-endpoints` flag for information about the deposit contract. The `--execution-endpoint` can
-be used for all such queries. Therefore we can say that where `--execution-endpoint` is included
+be used for all such queries. Therefore we can say that where `--execution-endpoint` is included,
 `--eth1-endpoints` should be omitted.
 
 ## FAQ
