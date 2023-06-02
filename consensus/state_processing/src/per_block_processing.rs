@@ -41,6 +41,8 @@ mod verify_proposer_slashing;
 use crate::common::decrease_balance;
 use crate::StateProcessingStrategy;
 
+use crate::common::initialize_progressive_total_balances::initialize_progressive_total_balances;
+use crate::per_epoch_processing::altair::ParticipationCache;
 #[cfg(feature = "arbitrary-fuzz")]
 use arbitrary::Arbitrary;
 
@@ -103,6 +105,11 @@ pub fn per_block_processing<T: EthSpec, Payload: AbstractExecPayload<T>>(
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
     let block = signed_block.message();
+
+    if !state.progressive_total_balances().is_initialized() {
+        let participation_cache = ParticipationCache::new(&state, spec)?;
+        initialize_progressive_total_balances::<T>(state, &participation_cache)?;
+    }
 
     // Verify that the `SignedBeaconBlock` instantiation matches the fork at `signed_block.slot()`.
     signed_block

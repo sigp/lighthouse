@@ -5,6 +5,7 @@ use proto_array::{
 };
 use slog::{crit, debug, warn, Logger};
 use ssz_derive::{Decode, Encode};
+use state_processing::per_epoch_processing::altair::ParticipationCache;
 use state_processing::{
     per_block_processing::errors::AttesterSlashingValidationError, per_epoch_processing,
 };
@@ -15,8 +16,8 @@ use std::time::Duration;
 use types::{
     consts::merge::INTERVALS_PER_SLOT, AbstractExecPayload, AttestationShufflingId,
     AttesterSlashing, BeaconBlockRef, BeaconState, BeaconStateError, ChainSpec, Checkpoint, Epoch,
-    EthSpec, ExecPayload, ExecutionBlockHash, Hash256, IndexedAttestation,
-    ProgressiveTotalBalances, RelativeEpoch, SignedBeaconBlock, Slot,
+    EthSpec, ExecPayload, ExecutionBlockHash, Hash256, IndexedAttestation, RelativeEpoch,
+    SignedBeaconBlock, Slot,
 };
 
 #[cfg(test)]
@@ -765,9 +766,8 @@ where
                         BeaconBlockRef::Capella(_)
                         | BeaconBlockRef::Merge(_)
                         | BeaconBlockRef::Altair(_) => {
-                            let participation_cache =
-                                per_epoch_processing::altair::ParticipationCache::new(state, spec)
-                                    .map_err(Error::ParticipationCacheBuild)?;
+                            let participation_cache = ParticipationCache::new(state, spec)
+                                .map_err(Error::ParticipationCacheBuild)?;
                             let processing_result =
                             per_epoch_processing::altair::process_justification_and_finalization(
                                 state,
@@ -775,9 +775,10 @@ where
                             )?;
 
                             #[cfg(test)]
-                            check_processing_results_with_progressive_cache(
+                            Self::check_processing_results_with_progressive_cache(
                                 state,
                                 &processing_result,
+                                &participation_cache,
                             );
 
                             processing_result
@@ -1534,44 +1535,59 @@ where
             queued_attestations: self.queued_attestations().to_vec(),
         }
     }
-}
 
-#[cfg(test)]
-fn check_processing_results_with_progressive_cache<E>(
-    state: &BeaconState<E>,
-    processing_results: &JustificationAndFinalizationState<E>,
-) where
-    E: EthSpec,
-{
-    let JustificationAndFinalizationState {
-        current_justified_checkpoint: expected_justified_checkpoint,
-        finalized_checkpoint: expected_finalized_checkpoint,
-        ..
-    } = processing_results;
+    #[cfg(test)]
+    fn check_processing_results_with_progressive_cache(
+        state: &BeaconState<E>,
+        processing_results: &JustificationAndFinalizationState<E>,
+        participation_cache: &ParticipationCache,
+    ) {
+        let expected_justified_checkpoint = processing_results.current_justified_checkpoint();
+        let expected_finalized_checkpoint = processing_results.finalized_checkpoint();
+        let expected_previous_target_balance = participation_cache
+            .previous_epoch_target_attesting_balance()
+            .unwrap();
+        let expected_current_target_balance = participation_cache
+            .current_epoch_target_attesting_balance()
+            .unwrap();
 
-    // Get balances from progressive balances cache.
-    let (_, total_active_balance) = state
-        .total_active_balance()
-        .ok_or(BeaconStateError::TotalActiveBalanceCacheUninitialized)?;
-    let progressive_total_balances: &ProgressiveTotalBalances = state.progressive_total_balances();
-    let (previous_target_balance, current_target_balance) = (
-        progressive_total_balances.previous_epoch_target_attesting_balance()?,
-        progressive_total_balances.current_epoch_target_attesting_balance()?,
-    );
+        // Compute justification and finalization state from progressive balances cache.
+        let (_, total_active_balance) = state
+            .total_active_balance()
+            .ok_or(BeaconStateError::TotalActiveBalanceCacheUninitialized)
+            .unwrap();
 
-    let JustificationAndFinalizationState {
-        current_justified_checkpoint,
-        finalized_checkpoint,
-        ..
-    } = weigh_justification_and_finalization(
-        JustificationAndFinalizationState::new(state),
-        total_active_balance,
-        previous_target_balance,
-        current_target_balance,
-    );
+        let progressive_total_balances: &ProgressiveTotalBalances =
+            state.progressive_total_balances();
 
-    assert_eq!(current_justified_checkpoint, expected_justified_checkpoint);
-    assert_eq!(finalized_checkpoint, expected_finalized_checkpoint);
+        let (previous_target_balance, current_target_balance) = (
+            progressive_total_balances
+                .previous_epoch_target_attesting_balance()
+                .unwrap(),
+            progressive_total_balances
+                .current_epoch_target_attesting_balance()
+                .unwrap(),
+        );
+
+        let justification_and_finalization_state = weigh_justification_and_finalization(
+            JustificationAndFinalizationState::new(state),
+            total_active_balance,
+            previous_target_balance,
+            current_target_balance,
+        )
+        .unwrap();
+
+        assert_eq!(previous_target_balance, expected_previous_target_balance);
+        assert_eq!(current_target_balance, expected_current_target_balance);
+        assert_eq!(
+            justification_and_finalization_state.current_justified_checkpoint(),
+            expected_justified_checkpoint
+        );
+        assert_eq!(
+            justification_and_finalization_state.finalized_checkpoint(),
+            expected_finalized_checkpoint
+        );
+    }
 }
 
 /// Helper struct that is used to encode/decode the state of the `ForkChoice` as SSZ bytes.

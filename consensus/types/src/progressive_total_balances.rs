@@ -25,7 +25,11 @@ impl ProgressiveTotalBalances {
             current_epoch,
             previous_epoch_target_attesting_balance,
             current_epoch_target_attesting_balance,
-        })
+        });
+    }
+
+    pub fn is_initialized(&self) -> bool {
+        self.inner.is_some()
     }
 
     pub fn on_attestation(
