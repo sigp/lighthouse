@@ -5,10 +5,11 @@ use crate::common::{
     slash_validator,
 };
 use crate::per_block_processing::errors::{BlockProcessingError, IntoWithIndex};
-use crate::per_epoch_processing::altair::{participation_cache, ParticipationCache};
 use crate::VerifySignatures;
 use safe_arith::SafeArith;
-use types::consts::altair::{PARTICIPATION_FLAG_WEIGHTS, PROPOSER_WEIGHT, WEIGHT_DENOMINATOR};
+use types::consts::altair::{
+    PARTICIPATION_FLAG_WEIGHTS, PROPOSER_WEIGHT, TIMELY_TARGET_FLAG_INDEX, WEIGHT_DENOMINATOR,
+};
 
 pub fn process_operations<T: EthSpec, Payload: AbstractExecPayload<T>>(
     state: &mut BeaconState<T>,
@@ -238,7 +239,7 @@ pub fn process_attester_slashings<T: EthSpec>(
 
         for i in slashable_indices {
             slash_validator(state, i as usize, None, ctxt, spec)?;
-            update_progressive_total_balances(state, spec, i)?;
+            update_progressive_total_balances(state, i as usize)?;
         }
     }
 
@@ -247,19 +248,22 @@ pub fn process_attester_slashings<T: EthSpec>(
 
 fn update_progressive_total_balances<T: EthSpec>(
     state: &mut BeaconState<T>,
-    spec: &ChainSpec,
-    i: u64,
+    validator_index: usize,
 ) -> Result<(), BlockProcessingError> {
-    let participation_cache =
-        ParticipationCache::new(state, spec).map_err(BeaconStateError::from)?;
-    let validator_effective_balance = state.get_effective_balance(i as usize)?;
-    let is_current_epoch_target_attester = participation_cache
-        .is_current_epoch_timely_target_attester(i as usize)
-        .map_err(participation_cache::Error::from)?;
-    state.progressive_total_balances_mut().on_slashing(
-        is_current_epoch_target_attester,
-        validator_effective_balance,
-    )?;
+    if let Ok(current_epoch_participation) = state.current_epoch_participation() {
+        let current_epoch_participation = current_epoch_participation;
+        let participation_flags = current_epoch_participation
+            .get(validator_index)
+            .ok_or(BeaconStateError::UnknownValidator(validator_index))?;
+        let is_current_epoch_target_attester =
+            participation_flags.has_flag(TIMELY_TARGET_FLAG_INDEX)?;
+        let validator_effective_balance = state.get_effective_balance(validator_index)?;
+        state.progressive_total_balances_mut().on_slashing(
+            is_current_epoch_target_attester,
+            validator_effective_balance,
+        )?;
+    }
+
     Ok(())
 }
 
