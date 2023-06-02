@@ -1,7 +1,11 @@
-use beacon_chain::test_utils::{AttestationStrategy, BlockStrategy};
+use beacon_chain::{
+    test_utils::{AttestationStrategy, BlockStrategy},
+    GossipVerifiedBlock,
+};
 use eth2::types::{BeaconBlock, BroadcastValidation, SignedBeaconBlock};
 use http_api::test_utils::InteractiveTester;
-use types::{Epoch, MainnetEthSpec, Slot};
+use std::sync::Arc;
+use types::{Epoch, MainnetEthSpec, Slot, H256};
 
 use eth2::reqwest::StatusCode;
 
@@ -70,17 +74,20 @@ pub async fn gossip_accept_gossip() {
         )
         .await;
 
-    let slot_a = Slot::new(num_initial);
-    let slot_b = slot_a + 1;
+    let chain_state_before = tester.harness.get_current_state();
+    let slot = chain_state_before.slot() + 1;
 
-    let state_a = tester.harness.get_current_state();
-    let (mut block, _): (SignedBeaconBlock<E>, _) =
-        tester.harness.make_block(state_a, slot_b).await;
+    tester.harness.advance_slot();
 
-    /* an incorrect proposer index should cause consensus checks to fail (due to
-        https://github.com/ethereum/consensus-specs/blob/dev/specs/phase0/beacon-chain.md#beacon-chain-state-transition-function
-    ), which is the aim of this test */
-    *block.message_mut().proposer_index_mut() += 1;
+    let (block, _): (SignedBeaconBlock<E>, _) = tester
+        .harness
+        .make_block_with_modifier(chain_state_before, slot, |b| {
+            *b.state_root_mut() = H256::random()
+        })
+        .await;
+
+    /* assert that the block is actually gossip-valid */
+    //assert!(GossipVerifiedBlock::new(Arc::new(block.clone()), &tester.harness.chain).is_ok());
 
     let response: Result<(), eth2::Error> = tester
         .client
@@ -89,7 +96,7 @@ pub async fn gossip_accept_gossip() {
     assert!(response.is_ok());
 }
 
-/// This test checks that a block that is valid from both a gossip and consensus perspective is accepted when using `broadcast_validation=gossip`.
+// This test checks that a block that is valid from both a gossip and consensus perspective is accepted when using `broadcast_validation=gossip`.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 pub async fn gossip_accept_consensus() {
     /* this test targets gossip-level validation */

@@ -97,7 +97,7 @@ pub mod slot_data;
 #[cfg(feature = "sqlite")]
 pub mod sqlite;
 
-use ethereum_types::{H160, H256};
+pub use ethereum_types::{H160, H256};
 
 pub use crate::aggregate_and_proof::AggregateAndProof;
 pub use crate::attestation::{Attestation, Error as AttestationError};

@@ -2729,7 +2729,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
             // The block failed verification.
             Err(other) => {
-                trace!(
+                error!(
                     self.log,
                     "Beacon block rejected";
                     "reason" => other.to_string(),
