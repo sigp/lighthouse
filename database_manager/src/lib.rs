@@ -423,7 +423,7 @@ pub fn run<T: EthSpec>(cli_args: &ArgMatches<'_>, env: Environment<T>) -> Result
         ("prune_payloads", Some(_)) => {
             prune_payloads(client_config, &context, log).map_err(format_err)
         }
-        ("prune_blobs", Some(_)) => prune_blobs(client_config, &context, log),
+        ("prune_blobs", Some(_)) => prune_blobs(client_config, &context, log).map_err(format_err),
         _ => Err("Unknown subcommand, for help `lighthouse database_manager --help`".into()),
     }
 }
