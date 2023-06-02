@@ -5,7 +5,6 @@ use crate::decode::{ssz_decode_state, yaml_decode_file};
 use crate::type_name;
 use crate::type_name::TypeName;
 use serde_derive::Deserialize;
-use state_processing::per_epoch_processing::altair::ParticipationCache;
 use state_processing::per_epoch_processing::capella::process_historical_summaries_update;
 use state_processing::per_epoch_processing::effective_balance_updates::process_effective_balance_updates;
 use state_processing::per_epoch_processing::{
@@ -174,13 +173,7 @@ impl<E: EthSpec> EpochTransition<E> for Eth1DataReset {
 
 impl<E: EthSpec> EpochTransition<E> for EffectiveBalanceUpdates {
     fn run(state: &mut BeaconState<E>, spec: &ChainSpec) -> Result<(), EpochProcessingError> {
-        match state {
-            BeaconState::Base(_) => process_effective_balance_updates(state, None, spec),
-            BeaconState::Altair(_) | BeaconState::Merge(_) | BeaconState::Capella(_) => {
-                let participation_cache = ParticipationCache::new(state, spec).unwrap();
-                process_effective_balance_updates(state, Some(&participation_cache), spec)
-            }
-        }
+        process_effective_balance_updates(state, None, spec)
     }
 }
 

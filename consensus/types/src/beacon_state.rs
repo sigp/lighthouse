@@ -1441,6 +1441,7 @@ impl<T: EthSpec> BeaconState<T> {
         self.drop_committee_cache(RelativeEpoch::Next)?;
         self.drop_pubkey_cache();
         self.drop_tree_hash_cache();
+        self.drop_progressive_balances_cache();
         *self.exit_cache_mut() = ExitCache::default();
         Ok(())
     }
@@ -1635,6 +1636,11 @@ impl<T: EthSpec> BeaconState<T> {
     /// Completely drops the `pubkey_cache`, replacing it with a new, empty cache.
     pub fn drop_pubkey_cache(&mut self) {
         *self.pubkey_cache_mut() = PubkeyCache::default()
+    }
+
+    /// Completely drops the `progressive_total_balances` cache, replacing it with a new, empty cache.
+    fn drop_progressive_balances_cache(&mut self) {
+        *self.progressive_total_balances_mut() = ProgressiveTotalBalances::default();
     }
 
     /// Initialize but don't fill the tree hash cache, if it isn't already initialized.

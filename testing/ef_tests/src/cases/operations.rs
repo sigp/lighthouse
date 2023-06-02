@@ -4,6 +4,8 @@ use crate::case_result::compare_beacon_state_results_without_caches;
 use crate::decode::{ssz_decode_file, ssz_decode_file_with, ssz_decode_state, yaml_decode_file};
 use crate::testing_spec;
 use serde_derive::Deserialize;
+use state_processing::common::initialize_progressive_total_balances::initialize_progressive_total_balances;
+use state_processing::per_epoch_processing::altair::ParticipationCache;
 use state_processing::{
     per_block_processing::{
         errors::BlockProcessingError,
@@ -96,6 +98,8 @@ impl<E: EthSpec> Operation<E> for Attestation<E> {
                 spec,
             ),
             BeaconState::Altair(_) | BeaconState::Merge(_) | BeaconState::Capella(_) => {
+                let participation_cache = ParticipationCache::new(state, spec)?;
+                initialize_progressive_total_balances(state, &participation_cache)?;
                 altair::process_attestation(state, self, 0, &mut ctxt, VerifySignatures::True, spec)
             }
         }
@@ -118,13 +122,26 @@ impl<E: EthSpec> Operation<E> for AttesterSlashing<E> {
         _: &Operations<E, Self>,
     ) -> Result<(), BlockProcessingError> {
         let mut ctxt = ConsensusContext::new(state.slot());
-        process_attester_slashings(
-            state,
-            &[self.clone()],
-            VerifySignatures::True,
-            &mut ctxt,
-            spec,
-        )
+        match state {
+            BeaconState::Base(_) => process_attester_slashings(
+                state,
+                &[self.clone()],
+                VerifySignatures::True,
+                &mut ctxt,
+                spec,
+            ),
+            BeaconState::Altair(_) | BeaconState::Merge(_) | BeaconState::Capella(_) => {
+                let participation_cache = ParticipationCache::new(state, spec)?;
+                initialize_progressive_total_balances(state, &participation_cache)?;
+                process_attester_slashings(
+                    state,
+                    &[self.clone()],
+                    VerifySignatures::True,
+                    &mut ctxt,
+                    spec,
+                )
+            }
+        }
     }
 }
 
