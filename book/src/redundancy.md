@@ -8,7 +8,7 @@ There are three places in Lighthouse where redundancy is notable:
 1. ❌ NOT SUPPORTED: Using a redundant execution node in `lighthouse bn --execution-endpoint`
 1. ☠️ BAD: Running redundant `lighthouse vc` instances with overlapping keypairs.
 
-I mention (3) since it is unsafe and should not be confused with the other two
+We mention (3) since it is unsafe and should not be confused with the other two
 uses of redundancy. **Running the same validator keypair in more than one
 validator client (Lighthouse, or otherwise) will eventually lead to slashing.**
 See [Slashing Protection](./slashing-protection.md) for more information.
@@ -49,6 +49,7 @@ There are a few interesting properties about the list of `--beacon-nodes`:
 > provided (if it is desired). It will only be used as default if no `--beacon-nodes` flag is
 > provided at all.
 
+
 ### Configuring a redundant Beacon Node
 
 In our previous example, we listed `http://192.168.1.1:5052` as a redundant
@@ -56,10 +57,9 @@ node. Apart from having sufficient resources, the backup node should have the
 following flags:
 
 - `--http`: starts the HTTP API server.
-- `--http-address 0.0.0.0`: this allows *any* external IP address to access the
-	HTTP server (a firewall should be configured to deny unauthorized access to port
-	`5052`). This is only required if your backup node is on a different host.
-- `--execution-endpoint`: see [Merge Migration](./merge-migration.md).
+- `--http-address local_IP`: where `local_IP` is the private IP address of the computer running the beacon node. This is only required if your backup beacon node is on a different host.
+ > Note: You could also use `--http-address 0.0.0.0`, but this allows *any* external IP address to access the HTTP server. As such, a firewall should be configured to deny unauthorized access to port `5052`.
+ - `--execution-endpoint`: see [Merge Migration](./merge-migration.md).
 - `--execution-jwt`: see [Merge Migration](./merge-migration.md).
 
 For example one could use the following command to provide a backup beacon node:
@@ -67,7 +67,7 @@ For example one could use the following command to provide a backup beacon node:
 ```bash
 lighthouse bn \
   --http \
-  --http-address 0.0.0.0 \
+  --http-address local_IP \
   --execution-endpoint http://localhost:8551 \
   --execution-jwt /secrets/jwt.hex
 ```
