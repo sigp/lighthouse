@@ -699,7 +699,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             SyncMessage::UnknownBlock(peer_id, block, block_root) => {
                 let block_slot = block.slot();
 
-                if self.synced_and_connected_within_tolerance(block_slot, &peer_id) {
+                if self.should_search_for_block(block_slot, &peer_id) {
                     let parent_root = block.parent_root();
                     self.block_lookups.search_parent(
                         block_slot,
@@ -731,7 +731,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             SyncMessage::BlobParentUnknown(peer_id, blob) => {
                 let blob_slot = blob.slot;
 
-                if self.synced_and_connected_within_tolerance(blob_slot, &peer_id) {
+                if self.should_search_for_block(blob_slot, &peer_id) {
                     let block_root = blob.block_root;
                     let parent_root = blob.block_parent_root;
                     let blob_index = blob.index;
@@ -878,11 +878,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         }
     }
 
-    fn synced_and_connected_within_tolerance(
-        &mut self,
-        block_slot: Slot,
-        peer_id: &PeerId,
-    ) -> bool {
+    fn should_search_for_block(&mut self, block_slot: Slot, peer_id: &PeerId) -> bool {
         if !self.network_globals.sync_state.read().is_synced() {
             let head_slot = self.chain.canonical_head.cached_head().head_slot();
 
