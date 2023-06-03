@@ -59,7 +59,10 @@ impl<T: BeaconChainTypes> BeaconProcessorSend<T> {
         match self.0.try_send(message) {
             Ok(res) => Ok(res),
             Err(e) => {
-                metrics::inc_counter_vec(&metrics::BEACON_PROCESSOR_SEND_ERROR, &[work_type]);
+                metrics::inc_counter_vec(
+                    &metrics::BEACON_PROCESSOR_SEND_ERROR_PER_WORK_TYPE,
+                    &[work_type],
+                );
                 Err(e)
             }
         }

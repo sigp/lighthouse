@@ -279,10 +279,10 @@ lazy_static! {
             "Gossipsub light_client_optimistic_update errors per error type",
             &["type"]
         );
-    pub static ref BEACON_PROCESSOR_SEND_ERROR: Result<IntCounterVec> =
+    pub static ref BEACON_PROCESSOR_SEND_ERROR_PER_WORK_TYPE: Result<IntCounterVec> =
         try_create_int_counter_vec(
-            "beacon_processor_send_error",
-            "Total number of beacon processor send errors",
+            "beacon_processor_send_error_per_work_type",
+            "Total number of beacon processor send error per work type",
             &["type"]
         );
 
