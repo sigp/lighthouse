@@ -332,6 +332,9 @@ fn initialize_state_with_validators<T: EthSpec>(
             ExecutionPayloadHeaderRefMut::Deneb(_) => {
                 return Err("Cannot start genesis from a deneb state".to_string())
             }
+            ExecutionPayloadHeaderRefMut::Eip6110(_) => {
+                return Err("Cannot start genesis from an eip6110 state".to_string())
+            }
         }
     }
 
