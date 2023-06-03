@@ -38,7 +38,8 @@ use super::block_lookups::BlockLookups;
 use super::network_context::SyncNetworkContext;
 use super::peer_sync_info::{remote_sync_type, PeerSyncType};
 use super::range_sync::{RangeSync, RangeSyncType, EPOCHS_PER_BATCH};
-use crate::beacon_processor::{ChainSegmentProcessId, WorkEvent as BeaconWorkEvent};
+use crate::beacon_processor::ChainSegmentProcessId;
+use crate::router::BeaconProcessorSend;
 use crate::service::NetworkMessage;
 use crate::status::ToStatusMessage;
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockError, EngineState};
@@ -188,7 +189,7 @@ pub fn spawn<T: BeaconChainTypes>(
     beacon_chain: Arc<BeaconChain<T>>,
     network_globals: Arc<NetworkGlobals<T::EthSpec>>,
     network_send: mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
-    beacon_processor_send: mpsc::Sender<BeaconWorkEvent<T>>,
+    beacon_processor_send: BeaconProcessorSend<T>,
     log: slog::Logger,
 ) -> mpsc::UnboundedSender<SyncMessage<T::EthSpec>> {
     assert!(

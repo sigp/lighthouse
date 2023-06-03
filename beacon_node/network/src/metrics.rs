@@ -279,6 +279,11 @@ lazy_static! {
             "Gossipsub light_client_optimistic_update errors per error type",
             &["type"]
         );
+    pub static ref BEACON_PROCESSOR_SEND_ERROR: Result<IntCounter> =
+        try_create_int_counter(
+            "beacon_processor_send_error",
+            "Total number of beacon processor send errors",
+        );
 
 
     /*

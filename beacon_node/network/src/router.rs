@@ -8,11 +8,11 @@
 use crate::beacon_processor::{
     BeaconProcessor, InvalidBlockStorage, WorkEvent as BeaconWorkEvent, MAX_WORK_EVENT_QUEUE_LEN,
 };
-use crate::error;
 use crate::service::{NetworkMessage, RequestId};
 use crate::status::status_message;
 use crate::sync::manager::RequestId as SyncId;
 use crate::sync::SyncMessage;
+use crate::{error, metrics};
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use futures::prelude::*;
 use lighthouse_network::rpc::*;
@@ -26,6 +26,7 @@ use std::cmp;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc;
+use tokio::sync::mpsc::error::TrySendError;
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use types::{EthSpec, SignedBeaconBlock};
 
@@ -40,11 +41,28 @@ pub struct Router<T: BeaconChainTypes> {
     /// A network context to return and handle RPC requests.
     network: HandlerNetworkContext<T::EthSpec>,
     /// A multi-threaded, non-blocking processor for applying messages to the beacon chain.
-    beacon_processor_send: mpsc::Sender<BeaconWorkEvent<T>>,
+    beacon_processor_send: BeaconProcessorSend<T>,
     /// The `Router` logger.
     log: slog::Logger,
     /// Provides de-bounce functionality for logging.
     logger_debounce: TimeLatch,
+}
+
+pub struct BeaconProcessorSend<T: BeaconChainTypes>(pub mpsc::Sender<BeaconWorkEvent<T>>);
+
+impl<T: BeaconChainTypes> BeaconProcessorSend<T> {
+    pub fn try_send(
+        &self,
+        message: BeaconWorkEvent<T>,
+    ) -> Result<(), TrySendError<BeaconWorkEvent<T>>> {
+        match self.0.try_send(message) {
+            Ok(res) => Ok(res),
+            Err(e) => {
+                metrics::inc_counter(&metrics::BEACON_PROCESSOR_SEND_ERROR);
+                Err(e)
+            }
+        }
+    }
 }
 
 /// Types of messages the router can receive.
@@ -103,7 +121,7 @@ impl<T: BeaconChainTypes> Router<T> {
             beacon_chain.clone(),
             network_globals.clone(),
             network_send.clone(),
-            beacon_processor_send.clone(),
+            BeaconProcessorSend(beacon_processor_send.clone()),
             sync_logger,
         );
 
@@ -127,7 +145,7 @@ impl<T: BeaconChainTypes> Router<T> {
             chain: beacon_chain,
             sync_send,
             network: HandlerNetworkContext::new(network_send, log.clone()),
-            beacon_processor_send,
+            beacon_processor_send: BeaconProcessorSend(beacon_processor_send),
             log: message_handler_log,
             logger_debounce: TimeLatch::default(),
         };
