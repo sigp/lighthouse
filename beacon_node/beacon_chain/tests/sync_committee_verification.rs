@@ -5,12 +5,16 @@ use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType, Relativ
 use int_to_bytes::int_to_bytes32;
 use lazy_static::lazy_static;
 use safe_arith::SafeArith;
+use state_processing::{
+    per_block_processing::{altair::sync_committee::process_sync_aggregate, VerifySignatures},
+    state_advance::complete_state_advance,
+};
 use store::{SignedContributionAndProof, SyncCommitteeMessage};
 use tree_hash::TreeHash;
 use types::consts::altair::SYNC_COMMITTEE_SUBNET_COUNT;
 use types::{
     AggregateSignature, Epoch, EthSpec, Hash256, Keypair, MainnetEthSpec, SecretKey, Slot,
-    SyncSelectionProof, SyncSubnetId, Unsigned,
+    SyncContributionData, SyncSelectionProof, SyncSubnetId, Unsigned,
 };
 
 pub type E = MainnetEthSpec;
@@ -47,10 +51,29 @@ fn get_valid_sync_committee_message(
     relative_sync_committee: RelativeSyncCommittee,
     message_index: usize,
 ) -> (SyncCommitteeMessage, usize, SecretKey, SyncSubnetId) {
-    let head_state = harness.chain.head_beacon_state_cloned();
     let head_block_root = harness.chain.head_snapshot().beacon_block_root;
+    get_valid_sync_committee_message_for_block(
+        harness,
+        slot,
+        relative_sync_committee,
+        message_index,
+        head_block_root,
+    )
+}
+
+/// Returns a sync message that is valid for some slot in the given `chain`.
+///
+/// Also returns some info about who created it.
+fn get_valid_sync_committee_message_for_block(
+    harness: &BeaconChainHarness<EphemeralHarnessType<E>>,
+    slot: Slot,
+    relative_sync_committee: RelativeSyncCommittee,
+    message_index: usize,
+    block_root: Hash256,
+) -> (SyncCommitteeMessage, usize, SecretKey, SyncSubnetId) {
+    let head_state = harness.chain.head_beacon_state_cloned();
     let (signature, _) = harness
-        .make_sync_committee_messages(&head_state, head_block_root, slot, relative_sync_committee)
+        .make_sync_committee_messages(&head_state, block_root, slot, relative_sync_committee)
         .get(0)
         .expect("sync messages should exist")
         .get(message_index)
@@ -119,7 +142,7 @@ fn get_non_aggregator(
             subcommittee.iter().find_map(|pubkey| {
                 let validator_index = harness
                     .chain
-                    .validator_index(&pubkey)
+                    .validator_index(pubkey)
                     .expect("should get validator index")
                     .expect("pubkey should exist in beacon chain");
 
@@ -376,7 +399,7 @@ async fn aggregated_gossip_verification() {
         SyncCommitteeError::AggregatorNotInCommittee {
             aggregator_index
         }
-        if aggregator_index == valid_aggregate.message.aggregator_index as u64
+        if aggregator_index == valid_aggregate.message.aggregator_index
     );
 
     /*
@@ -472,7 +495,7 @@ async fn aggregated_gossip_verification() {
 
     assert_invalid!(
         "sync contribution created with incorrect sync committee",
-        next_valid_contribution.clone(),
+        next_valid_contribution,
         SyncCommitteeError::InvalidSignature | SyncCommitteeError::AggregatorNotInCommittee { .. }
     );
 }
@@ -496,6 +519,30 @@ async fn unaggregated_gossip_verification() {
 
     let (valid_sync_committee_message, expected_validator_index, validator_sk, subnet_id) =
         get_valid_sync_committee_message(&harness, current_slot, RelativeSyncCommittee::Current, 0);
+    let parent_root = harness.chain.head_snapshot().beacon_block.parent_root();
+    let (valid_sync_committee_message_to_parent, _, _, _) =
+        get_valid_sync_committee_message_for_block(
+            &harness,
+            current_slot,
+            RelativeSyncCommittee::Current,
+            0,
+            parent_root,
+        );
+
+    assert_eq!(
+        valid_sync_committee_message.slot, valid_sync_committee_message_to_parent.slot,
+        "test pre-condition: same slot"
+    );
+    assert_eq!(
+        valid_sync_committee_message.validator_index,
+        valid_sync_committee_message_to_parent.validator_index,
+        "test pre-condition: same validator index"
+    );
+    assert!(
+        valid_sync_committee_message.beacon_block_root
+            != valid_sync_committee_message_to_parent.beacon_block_root,
+        "test pre-condition: differing roots"
+    );
 
     macro_rules! assert_invalid {
             ($desc: tt, $attn_getter: expr, $subnet_getter: expr, $($error: pat_param) |+ $( if $guard: expr )?) => {
@@ -602,27 +649,129 @@ async fn unaggregated_gossip_verification() {
         SyncCommitteeError::InvalidSignature
     );
 
+    let head_root = valid_sync_committee_message.beacon_block_root;
+    let parent_root = valid_sync_committee_message_to_parent.beacon_block_root;
+
+    let verifed_message_to_parent = harness
+        .chain
+        .verify_sync_committee_message_for_gossip(
+            valid_sync_committee_message_to_parent.clone(),
+            subnet_id,
+        )
+        .expect("valid sync message to parent should be verified");
+    // Add the aggregate to the pool.
     harness
         .chain
-        .verify_sync_committee_message_for_gossip(valid_sync_committee_message.clone(), subnet_id)
-        .expect("valid sync message should be verified");
+        .add_to_naive_sync_aggregation_pool(verifed_message_to_parent)
+        .unwrap();
 
     /*
      * The following test ensures that:
      *
-     * There has been no other valid sync committee message for the declared slot for the
-     * validator referenced by sync_committee_message.validator_index.
+     * A sync committee message from the same validator to the same block will
+     * be rejected.
      */
     assert_invalid!(
-        "sync message that has already been seen",
-        valid_sync_committee_message,
+        "sync message to parent block that has already been seen",
+        valid_sync_committee_message_to_parent.clone(),
         subnet_id,
         SyncCommitteeError::PriorSyncCommitteeMessageKnown {
             validator_index,
             slot,
+            prev_root,
+            new_root
         }
-        if validator_index == expected_validator_index as u64 && slot == current_slot
+        if validator_index == expected_validator_index as u64 && slot == current_slot && prev_root == parent_root && new_root == parent_root
     );
+
+    let verified_message_to_head = harness
+        .chain
+        .verify_sync_committee_message_for_gossip(valid_sync_committee_message.clone(), subnet_id)
+        .expect("valid sync message to the head should be verified");
+    // Add the aggregate to the pool.
+    harness
+        .chain
+        .add_to_naive_sync_aggregation_pool(verified_message_to_head)
+        .unwrap();
+
+    /*
+     * The following test ensures that:
+     *
+     * A sync committee message from the same validator to the same block will
+     * be rejected.
+     */
+    assert_invalid!(
+        "sync message to the head that has already been seen",
+        valid_sync_committee_message.clone(),
+        subnet_id,
+        SyncCommitteeError::PriorSyncCommitteeMessageKnown {
+            validator_index,
+            slot,
+            prev_root,
+            new_root
+        }
+        if validator_index == expected_validator_index as u64 && slot == current_slot && prev_root == head_root && new_root == head_root
+    );
+
+    /*
+     * The following test ensures that:
+     *
+     * A sync committee message from the same validator to a non-head block will
+     * be rejected.
+     */
+    assert_invalid!(
+        "sync message to parent after message to head has already been seen",
+        valid_sync_committee_message_to_parent.clone(),
+        subnet_id,
+        SyncCommitteeError::PriorSyncCommitteeMessageKnown {
+            validator_index,
+            slot,
+            prev_root,
+            new_root
+        }
+        if validator_index == expected_validator_index as u64 && slot == current_slot && prev_root == head_root && new_root == parent_root
+    );
+
+    // Ensure that the sync aggregates in the op pool for both the parent block and head block are valid.
+    let chain = &harness.chain;
+    let check_sync_aggregate = |root: Hash256| async move {
+        // Generate an aggregate sync message from the naive aggregation pool.
+        let aggregate = chain
+            .get_aggregated_sync_committee_contribution(&SyncContributionData {
+                // It's a test pre-condition that both sync messages have the same slot.
+                slot: valid_sync_committee_message.slot,
+                beacon_block_root: root,
+                subcommittee_index: subnet_id.into(),
+            })
+            .unwrap()
+            .unwrap();
+
+        // Insert the aggregate into the op pool.
+        chain.op_pool.insert_sync_contribution(aggregate).unwrap();
+
+        // Load the block and state for the given root.
+        let block = chain.get_block(&root).await.unwrap().unwrap();
+        let mut state = chain.get_state(&block.state_root(), None).unwrap().unwrap();
+
+        // Advance the state to simulate a pre-state for block production.
+        let slot = valid_sync_committee_message.slot + 1;
+        complete_state_advance(&mut state, Some(block.state_root()), slot, &chain.spec).unwrap();
+
+        // Get an aggregate that would be included in a block.
+        let aggregate_for_inclusion = chain.op_pool.get_sync_aggregate(&state).unwrap().unwrap();
+
+        // Validate the retrieved aggregate against the state.
+        process_sync_aggregate(
+            &mut state,
+            &aggregate_for_inclusion,
+            0,
+            VerifySignatures::True,
+            &chain.spec,
+        )
+        .unwrap();
+    };
+    check_sync_aggregate(valid_sync_committee_message.beacon_block_root).await;
+    check_sync_aggregate(valid_sync_committee_message_to_parent.beacon_block_root).await;
 
     /*
      * The following test ensures that:
@@ -649,7 +798,7 @@ async fn unaggregated_gossip_verification() {
 
     assert_invalid!(
         "sync message on incorrect subnet",
-        next_valid_sync_committee_message.clone(),
+        next_valid_sync_committee_message,
         next_subnet_id,
         SyncCommitteeError::InvalidSubnetId {
             received,

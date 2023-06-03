@@ -58,6 +58,7 @@ fn syncing_sim(
             max_log_number: 0,
             compression: false,
             is_restricted: true,
+            sse_logging: false,
         })?
         .multi_threaded_tokio_runtime()?
         .build()?;
@@ -228,7 +229,7 @@ pub async fn verify_one_node_sync<E: EthSpec>(
     )
     .await;
     // Add a beacon node
-    network.add_beacon_node(beacon_config).await?;
+    network.add_beacon_node(beacon_config, false).await?;
     // Check every `epoch_duration` if nodes are synced
     // limited to at most `sync_timeout` epochs
     let mut interval = tokio::time::interval(epoch_duration);
@@ -265,8 +266,10 @@ pub async fn verify_two_nodes_sync<E: EthSpec>(
     )
     .await;
     // Add beacon nodes
-    network.add_beacon_node(beacon_config.clone()).await?;
-    network.add_beacon_node(beacon_config).await?;
+    network
+        .add_beacon_node(beacon_config.clone(), false)
+        .await?;
+    network.add_beacon_node(beacon_config, false).await?;
     // Check every `epoch_duration` if nodes are synced
     // limited to at most `sync_timeout` epochs
     let mut interval = tokio::time::interval(epoch_duration);
@@ -305,8 +308,10 @@ pub async fn verify_in_between_sync<E: EthSpec>(
     )
     .await;
     // Add two beacon nodes
-    network.add_beacon_node(beacon_config.clone()).await?;
-    network.add_beacon_node(beacon_config).await?;
+    network
+        .add_beacon_node(beacon_config.clone(), false)
+        .await?;
+    network.add_beacon_node(beacon_config, false).await?;
     // Delay before adding additional syncing nodes.
     epoch_delay(
         Epoch::new(sync_timeout - 5),
@@ -315,7 +320,7 @@ pub async fn verify_in_between_sync<E: EthSpec>(
     )
     .await;
     // Add a beacon node
-    network.add_beacon_node(config1.clone()).await?;
+    network.add_beacon_node(config1.clone(), false).await?;
     // Check every `epoch_duration` if nodes are synced
     // limited to at most `sync_timeout` epochs
     let mut interval = tokio::time::interval(epoch_duration);

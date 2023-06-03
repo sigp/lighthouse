@@ -1,5 +1,5 @@
 use crate::listen_addr::{ListenAddr, ListenAddress};
-use crate::rpc::config::OutboundRateLimiterConfig;
+use crate::rpc::config::{InboundRateLimiterConfig, OutboundRateLimiterConfig};
 use crate::types::GossipKind;
 use crate::{Enr, PeerIdSerialized};
 use directory::{
@@ -134,6 +134,9 @@ pub struct Config {
     /// List of extra topics to initially subscribe to as strings.
     pub topics: Vec<GossipKind>,
 
+    /// Whether we are running a block proposer only node.
+    pub proposer_only: bool,
+
     /// Whether metrics are enabled.
     pub metrics_enabled: bool,
 
@@ -142,6 +145,12 @@ pub struct Config {
 
     /// Configuration for the outbound rate limiter (requests made by this node).
     pub outbound_rate_limiter_config: Option<OutboundRateLimiterConfig>,
+
+    /// Configures if/where invalid blocks should be stored.
+    pub invalid_block_storage: Option<PathBuf>,
+
+    /// Configuration for the inbound rate limiter (requests received by this node).
+    pub inbound_rate_limiter_config: Option<InboundRateLimiterConfig>,
 }
 
 impl Config {
@@ -322,9 +331,12 @@ impl Default for Config {
             import_all_attestations: false,
             shutdown_after_sync: false,
             topics: Vec::new(),
+            proposer_only: false,
             metrics_enabled: false,
             enable_light_client_server: false,
             outbound_rate_limiter_config: None,
+            invalid_block_storage: None,
+            inbound_rate_limiter_config: None,
         }
     }
 }

@@ -84,7 +84,7 @@ use state_processing::{
     per_block_processing, per_slot_processing,
     state_advance::partial_state_advance,
     BlockProcessingError, BlockSignatureStrategy, ConsensusContext, SlotProcessingError,
-    VerifyBlockRoot,
+    StateProcessingStrategy, VerifyBlockRoot,
 };
 use std::borrow::Cow;
 use std::fs;
@@ -933,7 +933,7 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         // We check this *before* we load the parent so that we can return a more detailed error.
         let block = check_block_is_finalized_checkpoint_or_descendant(
             chain,
-            &chain.canonical_head.fork_choice_write_lock(),
+            &chain.canonical_head.fork_choice_read_lock(),
             block,
         )?;
 
@@ -1615,6 +1615,7 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
             block.as_block(),
             // Signatures were verified earlier in this function.
             BlockSignatureStrategy::NoVerification,
+            StateProcessingStrategy::Accurate,
             VerifyBlockRoot::True,
             &mut consensus_context,
             &chain.spec,

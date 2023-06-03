@@ -5,7 +5,7 @@ use crate::*;
 use compare_fields::CompareFields;
 use compare_fields_derive::CompareFields;
 use derivative::Derivative;
-use eth2_hashing::hash;
+use ethereum_hashing::hash;
 use int_to_bytes::{int_to_bytes4, int_to_bytes8};
 use pubkey_cache::PubkeyCache;
 use safe_arith::{ArithError, SafeArith};
@@ -210,7 +210,7 @@ where
 {
     // Versioning
     #[superstruct(getter(copy))]
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub genesis_time: u64,
     #[superstruct(getter(copy))]
     pub genesis_validators_root: Hash256,
@@ -232,7 +232,7 @@ where
     pub eth1_data: Eth1Data,
     pub eth1_data_votes: VariableList<Eth1Data, T::SlotsPerEth1VotingPeriod>,
     #[superstruct(getter(copy))]
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub eth1_deposit_index: u64,
 
     // Registry
@@ -306,10 +306,10 @@ where
 
     // Capella
     #[superstruct(only(Capella, Deneb, Eip6110), partial_getter(copy))]
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub next_withdrawal_index: u64,
     #[superstruct(only(Capella, Deneb, Eip6110), partial_getter(copy))]
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub next_withdrawal_validator_index: u64,
     // Deep history valid from Capella onwards.
     #[superstruct(only(Capella, Deneb, Eip6110))]

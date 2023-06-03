@@ -1,7 +1,7 @@
 use crate::cache_arena;
 use crate::SmallVec8;
 use crate::{Error, Hash256};
-use eth2_hashing::{hash32_concat, ZERO_HASHES};
+use ethereum_hashing::{hash32_concat, ZERO_HASHES};
 use smallvec::smallvec;
 use ssz_derive::{Decode, Encode};
 use tree_hash::BYTES_PER_CHUNK;

@@ -54,6 +54,7 @@ pub fn run_no_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
             max_log_number: 0,
             compression: false,
             is_restricted: true,
+            sse_logging: false,
         })?
         .multi_threaded_tokio_runtime()?
         .build()?;
@@ -100,7 +101,9 @@ pub fn run_no_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
          */
 
         for _ in 0..node_count - 1 {
-            network.add_beacon_node(beacon_config.clone()).await?;
+            network
+                .add_beacon_node(beacon_config.clone(), false)
+                .await?;
         }
 
         /*
@@ -151,7 +154,7 @@ pub fn run_no_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
          */
         println!(
             "Simulation complete. Finished with {} beacon nodes and {} validator clients",
-            network.beacon_node_count(),
+            network.beacon_node_count() + network.proposer_node_count(),
             network.validator_client_count()
         );
 

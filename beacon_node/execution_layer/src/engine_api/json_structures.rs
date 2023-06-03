@@ -40,7 +40,7 @@ pub struct JsonResponseBody {
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 #[serde(transparent)]
-pub struct TransparentJsonPayloadId(#[serde(with = "eth2_serde_utils::bytes_8_hex")] pub PayloadId);
+pub struct TransparentJsonPayloadId(#[serde(with = "serde_utils::bytes_8_hex")] pub PayloadId);
 
 impl From<PayloadId> for TransparentJsonPayloadId {
     fn from(id: PayloadId) -> Self {
@@ -61,7 +61,7 @@ pub type JsonPayloadIdRequest = TransparentJsonPayloadId;
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct JsonPayloadIdResponse {
-    #[serde(with = "eth2_serde_utils::bytes_8_hex")]
+    #[serde(with = "serde_utils::bytes_8_hex")]
     pub payload_id: PayloadId,
 }
 
@@ -84,17 +84,17 @@ pub struct JsonExecutionPayload<T: EthSpec> {
     #[serde(with = "serde_logs_bloom")]
     pub logs_bloom: FixedVector<u8, T::BytesPerLogsBloom>,
     pub prev_randao: Hash256,
-    #[serde(with = "eth2_serde_utils::u64_hex_be")]
+    #[serde(with = "serde_utils::u64_hex_be")]
     pub block_number: u64,
-    #[serde(with = "eth2_serde_utils::u64_hex_be")]
+    #[serde(with = "serde_utils::u64_hex_be")]
     pub gas_limit: u64,
-    #[serde(with = "eth2_serde_utils::u64_hex_be")]
+    #[serde(with = "serde_utils::u64_hex_be")]
     pub gas_used: u64,
-    #[serde(with = "eth2_serde_utils::u64_hex_be")]
+    #[serde(with = "serde_utils::u64_hex_be")]
     pub timestamp: u64,
     #[serde(with = "ssz_types::serde_utils::hex_var_list")]
     pub extra_data: VariableList<u8, T::MaxExtraDataBytes>,
-    #[serde(with = "eth2_serde_utils::u256_hex_be")]
+    #[serde(with = "serde_utils::u256_hex_be")]
     pub base_fee_per_gas: Uint256,
     pub block_hash: ExecutionBlockHash,
     #[serde(with = "ssz_types::serde_utils::list_of_hex_var_list")]
@@ -102,7 +102,7 @@ pub struct JsonExecutionPayload<T: EthSpec> {
     #[superstruct(only(V2, V3, V6110))]
     pub withdrawals: VariableList<JsonWithdrawal, T::MaxWithdrawalsPerPayload>,
     #[superstruct(only(V3, V6110))]
-    #[serde(with = "eth2_serde_utils::u256_hex_be")]
+    #[serde(with = "serde_utils::u256_hex_be")]
     pub excess_data_gas: Uint256,
     #[superstruct(only(V6110))]
     pub deposit_receipts: VariableList<JsonDepositReceipt, T::MaxDepositReceiptsPerPayload>,
@@ -364,7 +364,7 @@ pub struct JsonGetPayloadResponse<T: EthSpec> {
     pub execution_payload: JsonExecutionPayloadV3<T>,
     #[superstruct(only(V6110), partial_getter(rename = "execution_payload_v6110"))]
     pub execution_payload: JsonExecutionPayloadV6110<T>,
-    #[serde(with = "eth2_serde_utils::u256_hex_be")]
+    #[serde(with = "serde_utils::u256_hex_be")]
     pub block_value: Uint256,
     #[superstruct(only(V3, V6110))]
     pub blobs_bundle: JsonBlobsBundleV1<T>,
@@ -406,12 +406,12 @@ impl<T: EthSpec> From<JsonGetPayloadResponse<T>> for GetPayloadResponse<T> {
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct JsonWithdrawal {
-    #[serde(with = "eth2_serde_utils::u64_hex_be")]
+    #[serde(with = "serde_utils::u64_hex_be")]
     pub index: u64,
-    #[serde(with = "eth2_serde_utils::u64_hex_be")]
+    #[serde(with = "serde_utils::u64_hex_be")]
     pub validator_index: u64,
     pub address: Address,
-    #[serde(with = "eth2_serde_utils::u64_hex_be")]
+    #[serde(with = "serde_utils::u64_hex_be")]
     pub amount: u64,
 }
 
@@ -485,7 +485,7 @@ impl From<JsonDepositReceipt> for DepositReceipt {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub struct JsonPayloadAttributes {
-    #[serde(with = "eth2_serde_utils::u64_hex_be")]
+    #[serde(with = "serde_utils::u64_hex_be")]
     pub timestamp: u64,
     pub prev_randao: Hash256,
     pub suggested_fee_recipient: Address,
@@ -747,18 +747,18 @@ impl<E: EthSpec> From<JsonExecutionPayloadBodyV1<E>> for ExecutionPayloadBodyV1<
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TransitionConfigurationV1 {
-    #[serde(with = "eth2_serde_utils::u256_hex_be")]
+    #[serde(with = "serde_utils::u256_hex_be")]
     pub terminal_total_difficulty: Uint256,
     pub terminal_block_hash: ExecutionBlockHash,
-    #[serde(with = "eth2_serde_utils::u64_hex_be")]
+    #[serde(with = "serde_utils::u64_hex_be")]
     pub terminal_block_number: u64,
 }
 
 /// Serializes the `logs_bloom` field of an `ExecutionPayload`.
 pub mod serde_logs_bloom {
     use super::*;
-    use eth2_serde_utils::hex::PrefixedHexVisitor;
     use serde::{Deserializer, Serializer};
+    use serde_utils::hex::PrefixedHexVisitor;
 
     pub fn serialize<S, U>(bytes: &FixedVector<u8, U>, serializer: S) -> Result<S::Ok, S::Error>
     where

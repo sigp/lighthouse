@@ -346,6 +346,23 @@ fn trusted_peers_flag() {
 }
 
 #[test]
+fn genesis_backfill_flag() {
+    CommandLineTest::new()
+        .flag("genesis-backfill", None)
+        .run_with_zero_port()
+        .with_config(|config| assert_eq!(config.chain.genesis_backfill, true));
+}
+
+/// The genesis backfill flag should be enabled if historic states flag is set.
+#[test]
+fn genesis_backfill_with_historic_flag() {
+    CommandLineTest::new()
+        .flag("reconstruct-historic-states", None)
+        .run_with_zero_port()
+        .with_config(|config| assert_eq!(config.chain.genesis_backfill, true));
+}
+
+#[test]
 fn always_prefer_builder_payload_flag() {
     CommandLineTest::new()
         .flag("always-prefer-builder-payload", None)
@@ -1434,6 +1451,26 @@ fn empty_self_limiter_flag() {
             )
         });
 }
+
+#[test]
+fn empty_inbound_rate_limiter_flag() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config.network.inbound_rate_limiter_config,
+                Some(lighthouse_network::rpc::config::InboundRateLimiterConfig::default())
+            )
+        });
+}
+#[test]
+fn disable_inbound_rate_limiter_flag() {
+    CommandLineTest::new()
+        .flag("inbound-rate-limiter", Some("disabled"))
+        .run_with_zero_port()
+        .with_config(|config| assert_eq!(config.network.inbound_rate_limiter_config, None));
+}
+
 #[test]
 fn http_allow_origin_flag() {
     CommandLineTest::new()
@@ -1667,6 +1704,25 @@ fn block_cache_size_flag() {
         .flag("block-cache-size", Some("4"))
         .run_with_zero_port()
         .with_config(|config| assert_eq!(config.store.block_cache_size, 4_usize));
+}
+#[test]
+fn historic_state_cache_size_flag() {
+    CommandLineTest::new()
+        .flag("historic-state-cache-size", Some("4"))
+        .run_with_zero_port()
+        .with_config(|config| assert_eq!(config.store.historic_state_cache_size, 4_usize));
+}
+#[test]
+fn historic_state_cache_size_default() {
+    use beacon_node::beacon_chain::store::config::DEFAULT_HISTORIC_STATE_CACHE_SIZE;
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config.store.historic_state_cache_size,
+                DEFAULT_HISTORIC_STATE_CACHE_SIZE
+            );
+        });
 }
 #[test]
 fn auto_compact_db_flag() {
@@ -2200,5 +2256,26 @@ fn disable_optimistic_finalized_sync() {
         .run_with_zero_port()
         .with_config(|config| {
             assert!(!config.chain.optimistic_finalized_sync);
+        });
+}
+
+#[test]
+fn invalid_gossip_verified_blocks_path_default() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| assert_eq!(config.network.invalid_block_storage, None));
+}
+
+#[test]
+fn invalid_gossip_verified_blocks_path() {
+    let path = "/home/karlm/naughty-blocks";
+    CommandLineTest::new()
+        .flag("invalid-gossip-verified-blocks-path", Some(path))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config.network.invalid_block_storage,
+                Some(PathBuf::from(path))
+            )
         });
 }

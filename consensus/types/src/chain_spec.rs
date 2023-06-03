@@ -1,9 +1,9 @@
 use crate::application_domain::{ApplicationDomain, APPLICATION_DOMAIN_BUILDER};
 use crate::*;
-use eth2_serde_utils::quoted_u64::MaybeQuoted;
 use int_to_bytes::int_to_bytes4;
 use serde::{Deserializer, Serialize, Serializer};
 use serde_derive::Deserialize;
+use serde_utils::quoted_u64::MaybeQuoted;
 use std::fs::File;
 use std::path::Path;
 use tree_hash::TreeHash;
@@ -182,11 +182,9 @@ pub struct ChainSpec {
     pub maximum_gossip_clock_disparity_millis: u64,
     pub target_aggregators_per_committee: u64,
     pub attestation_subnet_count: u64,
-    pub random_subnets_per_validator: u64,
-    pub epochs_per_random_subnet_subscription: u64,
     pub subnets_per_node: u8,
     pub epochs_per_subnet_subscription: u64,
-    attestation_subnet_extra_bits: u8,
+    pub attestation_subnet_extra_bits: u8,
 
     /*
      * Application params
@@ -486,17 +484,7 @@ impl ChainSpec {
 
     #[allow(clippy::integer_arithmetic)]
     pub const fn attestation_subnet_prefix_bits(&self) -> u32 {
-        // maybe use log2 when stable https://github.com/rust-lang/rust/issues/70887
-
-        // NOTE: this line is here simply to guarantee that if self.attestation_subnet_count type
-        // is changed, a compiler warning will be raised. This code depends on the type being u64.
-        let attestation_subnet_count: u64 = self.attestation_subnet_count;
-        let attestation_subnet_count_bits = if attestation_subnet_count == 0 {
-            0
-        } else {
-            63 - attestation_subnet_count.leading_zeros()
-        };
-
+        let attestation_subnet_count_bits = self.attestation_subnet_count.ilog2();
         self.attestation_subnet_extra_bits as u32 + attestation_subnet_count_bits
     }
 
@@ -669,13 +657,11 @@ impl ChainSpec {
             network_id: 1, // mainnet network id
             attestation_propagation_slot_range: 32,
             attestation_subnet_count: 64,
-            random_subnets_per_validator: 1,
-            subnets_per_node: 1,
+            subnets_per_node: 2,
             maximum_gossip_clock_disparity_millis: 500,
             target_aggregators_per_committee: 16,
-            epochs_per_random_subnet_subscription: 256,
             epochs_per_subnet_subscription: 256,
-            attestation_subnet_extra_bits: 6,
+            attestation_subnet_extra_bits: 0,
 
             /*
              * Application specific
@@ -894,7 +880,7 @@ impl ChainSpec {
              */
             capella_fork_version: [0x03, 0x00, 0x00, 0x64],
             capella_fork_epoch: None,
-            max_validators_per_withdrawals_sweep: 16384,
+            max_validators_per_withdrawals_sweep: 8192,
 
             /*
              * Deneb hard fork params
@@ -915,13 +901,11 @@ impl ChainSpec {
             network_id: 100, // Gnosis Chain network id
             attestation_propagation_slot_range: 32,
             attestation_subnet_count: 64,
-            random_subnets_per_validator: 1,
-            subnets_per_node: 1,
+            subnets_per_node: 4, // Make this larger than usual to avoid network damage
             maximum_gossip_clock_disparity_millis: 500,
             target_aggregators_per_committee: 16,
-            epochs_per_random_subnet_subscription: 256,
             epochs_per_subnet_subscription: 256,
-            attestation_subnet_extra_bits: 6,
+            attestation_subnet_extra_bits: 0,
 
             /*
              * Application specific
@@ -958,33 +942,33 @@ pub struct Config {
     pub preset_base: String,
 
     #[serde(default = "default_terminal_total_difficulty")]
-    #[serde(with = "eth2_serde_utils::quoted_u256")]
+    #[serde(with = "serde_utils::quoted_u256")]
     pub terminal_total_difficulty: Uint256,
     #[serde(default = "default_terminal_block_hash")]
     pub terminal_block_hash: ExecutionBlockHash,
     #[serde(default = "default_terminal_block_hash_activation_epoch")]
     pub terminal_block_hash_activation_epoch: Epoch,
     #[serde(default = "default_safe_slots_to_import_optimistically")]
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub safe_slots_to_import_optimistically: u64,
 
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     min_genesis_active_validator_count: u64,
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     min_genesis_time: u64,
-    #[serde(with = "eth2_serde_utils::bytes_4_hex")]
+    #[serde(with = "serde_utils::bytes_4_hex")]
     genesis_fork_version: [u8; 4],
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     genesis_delay: u64,
 
-    #[serde(with = "eth2_serde_utils::bytes_4_hex")]
+    #[serde(with = "serde_utils::bytes_4_hex")]
     altair_fork_version: [u8; 4],
     #[serde(serialize_with = "serialize_fork_epoch")]
     #[serde(deserialize_with = "deserialize_fork_epoch")]
     pub altair_fork_epoch: Option<MaybeQuoted<Epoch>>,
 
     #[serde(default = "default_bellatrix_fork_version")]
-    #[serde(with = "eth2_serde_utils::bytes_4_hex")]
+    #[serde(with = "serde_utils::bytes_4_hex")]
     bellatrix_fork_version: [u8; 4],
     #[serde(default)]
     #[serde(serialize_with = "serialize_fork_epoch")]
@@ -992,7 +976,7 @@ pub struct Config {
     pub bellatrix_fork_epoch: Option<MaybeQuoted<Epoch>>,
 
     #[serde(default = "default_capella_fork_version")]
-    #[serde(with = "eth2_serde_utils::bytes_4_hex")]
+    #[serde(with = "serde_utils::bytes_4_hex")]
     capella_fork_version: [u8; 4],
     #[serde(default)]
     #[serde(serialize_with = "serialize_fork_epoch")]
@@ -1000,7 +984,7 @@ pub struct Config {
     pub capella_fork_epoch: Option<MaybeQuoted<Epoch>>,
 
     #[serde(default = "default_deneb_fork_version")]
-    #[serde(with = "eth2_serde_utils::bytes_4_hex")]
+    #[serde(with = "serde_utils::bytes_4_hex")]
     deneb_fork_version: [u8; 4],
     #[serde(default)]
     #[serde(serialize_with = "serialize_fork_epoch")]
@@ -1015,34 +999,37 @@ pub struct Config {
     #[serde(deserialize_with = "deserialize_fork_epoch")]
     pub eip6110_fork_epoch: Option<MaybeQuoted<Epoch>>,
 
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     seconds_per_slot: u64,
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     seconds_per_eth1_block: u64,
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     min_validator_withdrawability_delay: Epoch,
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     shard_committee_period: u64,
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     eth1_follow_distance: u64,
+    #[serde(default = "default_subnets_per_node")]
+    #[serde(with = "serde_utils::quoted_u8")]
+    subnets_per_node: u8,
 
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     inactivity_score_bias: u64,
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     inactivity_score_recovery_rate: u64,
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     ejection_balance: u64,
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     min_per_epoch_churn_limit: u64,
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     churn_limit_quotient: u64,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     proposer_score_boost: Option<MaybeQuoted<u64>>,
 
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     deposit_chain_id: u64,
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     deposit_network_id: u64,
     deposit_contract_address: Address,
 }
@@ -1089,6 +1076,10 @@ fn default_terminal_block_hash_activation_epoch() -> Epoch {
 
 fn default_safe_slots_to_import_optimistically() -> u64 {
     128u64
+}
+
+fn default_subnets_per_node() -> u8 {
+    2u8
 }
 
 impl Default for Config {
@@ -1181,6 +1172,7 @@ impl Config {
             min_validator_withdrawability_delay: spec.min_validator_withdrawability_delay,
             shard_committee_period: spec.shard_committee_period,
             eth1_follow_distance: spec.eth1_follow_distance,
+            subnets_per_node: spec.subnets_per_node,
 
             inactivity_score_bias: spec.inactivity_score_bias,
             inactivity_score_recovery_rate: spec.inactivity_score_recovery_rate,
@@ -1231,6 +1223,7 @@ impl Config {
             min_validator_withdrawability_delay,
             shard_committee_period,
             eth1_follow_distance,
+            subnets_per_node,
             inactivity_score_bias,
             inactivity_score_recovery_rate,
             ejection_balance,
@@ -1267,6 +1260,7 @@ impl Config {
             min_validator_withdrawability_delay,
             shard_committee_period,
             eth1_follow_distance,
+            subnets_per_node,
             inactivity_score_bias,
             inactivity_score_recovery_rate,
             ejection_balance,

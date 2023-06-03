@@ -42,6 +42,7 @@ mod verify_exit;
 mod verify_proposer_slashing;
 
 use crate::common::decrease_balance;
+use crate::StateProcessingStrategy;
 
 #[cfg(feature = "arbitrary-fuzz")]
 use arbitrary::Arbitrary;
@@ -99,6 +100,7 @@ pub fn per_block_processing<T: EthSpec, Payload: AbstractExecPayload<T>>(
     state: &mut BeaconState<T>,
     signed_block: &SignedBeaconBlock<T, Payload>,
     block_signature_strategy: BlockSignatureStrategy,
+    state_processing_strategy: StateProcessingStrategy,
     verify_block_root: VerifyBlockRoot,
     ctxt: &mut ConsensusContext<T>,
     spec: &ChainSpec,
@@ -163,7 +165,9 @@ pub fn per_block_processing<T: EthSpec, Payload: AbstractExecPayload<T>>(
     // previous block.
     if is_execution_enabled(state, block.body()) {
         let payload = block.body().execution_payload()?;
-        process_withdrawals::<T, Payload>(state, payload, spec)?;
+        if state_processing_strategy == StateProcessingStrategy::Accurate {
+            process_withdrawals::<T, Payload>(state, payload, spec)?;
+        }
         process_execution_payload::<T, Payload>(state, payload, spec)?;
     }
 

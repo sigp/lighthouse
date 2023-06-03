@@ -10,6 +10,7 @@ mod generate_bootnode_enr;
 mod indexed_attestations;
 mod insecure_validators;
 mod interop_genesis;
+mod mnemonic_validators;
 mod new_testnet;
 mod parse_ssz;
 mod replace_state_pubkeys;
@@ -450,6 +451,22 @@ fn main() {
                         ),
                 )
                 .arg(
+                    Arg::with_name("derived-genesis-state")
+                        .long("derived-genesis-state")
+                        .takes_value(false)
+                        .help(
+                            "If present, a genesis.ssz file will be generated with keys generated from a given mnemonic.",
+                        ),
+                )
+                .arg(
+                    Arg::with_name("mnemonic-phrase")
+                        .long("mnemonic-phrase")
+                        .value_name("MNEMONIC_PHRASE")
+                        .takes_value(true)
+                        .requires("derived-genesis-state")
+                        .help("The mnemonic with which we generate the validator keys for a derived genesis state"),
+                )
+                .arg(
                     Arg::with_name("min-genesis-time")
                         .long("min-genesis-time")
                         .value_name("UNIX_SECONDS")
@@ -731,6 +748,7 @@ fn main() {
                         .long("count")
                         .value_name("COUNT")
                         .takes_value(true)
+                        .required(true)
                         .help("Produces validators in the range of 0..count."),
                 )
                 .arg(
@@ -738,6 +756,7 @@ fn main() {
                         .long("base-dir")
                         .value_name("BASE_DIR")
                         .takes_value(true)
+                        .required(true)
                         .help("The base directory where validator keypairs and secrets are stored"),
                 )
                 .arg(
@@ -746,6 +765,43 @@ fn main() {
                         .value_name("NODE_COUNT")
                         .takes_value(true)
                         .help("The number of nodes to divide the validator keys to"),
+                )
+        )
+        .subcommand(
+            SubCommand::with_name("mnemonic-validators")
+                .about("Produces validator directories by deriving the keys from \
+                        a mnemonic. For testing purposes only, DO NOT USE IN \
+                        PRODUCTION!")
+                .arg(
+                    Arg::with_name("count")
+                        .long("count")
+                        .value_name("COUNT")
+                        .takes_value(true)
+                        .required(true)
+                        .help("Produces validators in the range of 0..count."),
+                )
+                .arg(
+                    Arg::with_name("base-dir")
+                        .long("base-dir")
+                        .value_name("BASE_DIR")
+                        .takes_value(true)
+                        .required(true)
+                        .help("The base directory where validator keypairs and secrets are stored"),
+                )
+                .arg(
+                    Arg::with_name("node-count")
+                        .long("node-count")
+                        .value_name("NODE_COUNT")
+                        .takes_value(true)
+                        .help("The number of nodes to divide the validator keys to"),
+                )
+                .arg(
+                    Arg::with_name("mnemonic-phrase")
+                        .long("mnemonic-phrase")
+                        .value_name("MNEMONIC_PHRASE")
+                        .takes_value(true)
+                        .required(true)
+                        .help("The mnemonic with which we generate the validator keys"),
                 )
         )
         .subcommand(
@@ -843,6 +899,7 @@ fn run<T: EthSpec>(
             max_log_number: 0,
             compression: false,
             is_restricted: true,
+            sse_logging: false, // No SSE Logging in LCLI
         })
         .map_err(|e| format!("should start logger: {:?}", e))?
         .build()
@@ -889,6 +946,8 @@ fn run<T: EthSpec>(
             .map_err(|e| format!("Failed to run generate-bootnode-enr command: {}", e)),
         ("insecure-validators", Some(matches)) => insecure_validators::run(matches)
             .map_err(|e| format!("Failed to run insecure-validators command: {}", e)),
+        ("mnemonic-validators", Some(matches)) => mnemonic_validators::run(matches)
+            .map_err(|e| format!("Failed to run mnemonic-validators command: {}", e)),
         ("indexed-attestations", Some(matches)) => indexed_attestations::run::<T>(matches)
             .map_err(|e| format!("Failed to run indexed-attestations command: {}", e)),
         ("block-root", Some(matches)) => block_root::run::<T>(env, matches)

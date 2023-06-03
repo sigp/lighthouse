@@ -38,7 +38,7 @@ minutes after start up.
 #### Example
 
 ```
-lighthouse bn --staking --validator-monitor-auto
+lighthouse bn --http --validator-monitor-auto
 ```
 
 ### Manual

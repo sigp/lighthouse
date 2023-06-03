@@ -52,32 +52,7 @@ impl<Id: ReqId, TSpec: EthSpec> SelfRateLimiter<Id, TSpec> {
     /// Creates a new [`SelfRateLimiter`] based on configration values.
     pub fn new(config: OutboundRateLimiterConfig, log: Logger) -> Result<Self, &'static str> {
         debug!(log, "Using self rate limiting params"; "config" => ?config);
-        // Destructure to make sure every configuration value is used.
-        let OutboundRateLimiterConfig {
-            ping_quota,
-            meta_data_quota,
-            status_quota,
-            goodbye_quota,
-            blocks_by_range_quota,
-            blocks_by_root_quota,
-            blobs_by_range_quota,
-            blobs_by_root_quota,
-        } = config;
-
-        let limiter = RateLimiter::builder()
-            .set_quota(Protocol::Ping, ping_quota)
-            .set_quota(Protocol::MetaData, meta_data_quota)
-            .set_quota(Protocol::Status, status_quota)
-            .set_quota(Protocol::Goodbye, goodbye_quota)
-            .set_quota(Protocol::BlocksByRange, blocks_by_range_quota)
-            .set_quota(Protocol::BlocksByRoot, blocks_by_root_quota)
-            .set_quota(Protocol::BlobsByRange, blobs_by_range_quota)
-            .set_quota(Protocol::BlobsByRoot, blobs_by_root_quota)
-            // Manually set the LightClientBootstrap quota, since we use the same rate limiter for
-            // inbound and outbound requests, and the LightClientBootstrap is an only inbound
-            // protocol.
-            .one_every(Protocol::LightClientBootstrap, Duration::from_secs(10))
-            .build()?;
+        let limiter = RateLimiter::new_with_config(config.0)?;
 
         Ok(SelfRateLimiter {
             delayed_requests: Default::default(),
