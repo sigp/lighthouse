@@ -442,10 +442,10 @@ impl From<JsonWithdrawal> for Withdrawal {
 pub struct JsonDepositReceipt {
     pub pubkey: PublicKeyBytes,
     pub withdrawal_credentials: Hash256,
-    #[serde(with = "eth2_serde_utils::u64_hex_be")]
+    #[serde(with = "serde_utils::u64_hex_be")]
     pub amount: u64,
     pub signature: SignatureBytes,
-    #[serde(with = "eth2_serde_utils::u64_hex_be")]
+    #[serde(with = "serde_utils::u64_hex_be")]
     pub index: u64,
 }
 
