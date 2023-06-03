@@ -992,7 +992,7 @@ pub struct Config {
     pub deneb_fork_epoch: Option<MaybeQuoted<Epoch>>,
 
     #[serde(default = "default_eip6110_fork_version")]
-    #[serde(with = "eth2_serde_utils::bytes_4_hex")]
+    #[serde(with = "serde_utils::bytes_4_hex")]
     eip6110_fork_version: [u8; 4],
     #[serde(default)]
     #[serde(serialize_with = "serialize_fork_epoch")]

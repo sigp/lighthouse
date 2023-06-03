@@ -315,7 +315,7 @@ where
     #[superstruct(only(Capella, Deneb, Eip6110))]
     pub historical_summaries: VariableList<HistoricalSummary, T::HistoricalRootsLimit>,
     #[superstruct(only(Eip6110), partial_getter(copy))]
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub deposit_receipts_start_index: u64,
 
     // Caching (not in the spec)
