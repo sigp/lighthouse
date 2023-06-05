@@ -86,3 +86,7 @@ DEPOSIT_CHAIN_ID: 5
 DEPOSIT_NETWORK_ID: 5
 # Prater test deposit contract on Goerli Testnet
 DEPOSIT_CONTRACT_ADDRESS: 0xff50ed3d0ec03aC01D4C79aAd74928BFF48a7b2b
+
+# Network
+# ---------------------------------------------------------------
+SUBNETS_PER_NODE: 2

@@ -8,13 +8,13 @@ edition = "2021"
 discv5 = { version = "0.2.2", features = ["libp2p"] }
 unsigned-varint = { version = "0.6.0", features = ["codec"] }
 types = { path =  "../../consensus/types" }
-eth2_ssz_types = "0.2.2"
+ssz_types = "0.5.0"
 serde = { version = "1.0.116", features = ["derive"] }
 serde_derive = "1.0.116"
-eth2_ssz = "0.4.1"
-eth2_ssz_derive = "0.3.0"
-tree_hash = "0.4.1"
-tree_hash_derive = "0.4.0"
+ethereum_ssz = "0.5.0"
+ethereum_ssz_derive = "0.5.0"
+tree_hash = "0.5.0"
+tree_hash_derive = "0.5.0"
 slog = { version = "2.5.2", features = ["max_level_trace"] }
 lighthouse_version = { path = "../../common/lighthouse_version" }
 tokio = { version = "1.14.0", features = ["time", "macros"] }

@@ -9,12 +9,15 @@ use crate::sync::manager::{BlockProcessType, SyncMessage};
 use crate::sync::{BatchProcessResult, ChainId};
 use beacon_chain::CountUnrealized;
 use beacon_chain::{
+    observed_block_producers::Error as ObserveError, validator_monitor::get_block_delay_ms,
     BeaconChainError, BeaconChainTypes, BlockError, ChainSegmentResult, HistoricalBlockError,
     NotifyExecutionLayer,
 };
 use lighthouse_network::PeerAction;
 use slog::{debug, error, info, warn};
+use slot_clock::SlotClock;
 use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc;
 use types::{Epoch, Hash256, SignedBeaconBlock};
 
@@ -83,24 +86,54 @@ impl<T: BeaconChainTypes> Worker<T> {
                 return;
             }
         };
-        // Check if a block from this proposer is already known. If so, defer processing until later
-        // to avoid wasting time processing duplicates.
-        let proposal_already_known = self
-            .chain
-            .observed_block_producers
-            .read()
-            .proposer_has_been_observed(block.message())
-            .map_err(|e| {
-                error!(
-                    self.log,
-                    "Failed to check observed proposers";
-                    "error" => ?e,
-                    "source" => "rpc",
-                    "block_root" => %block_root
-                );
-            })
-            .unwrap_or(true);
-        if proposal_already_known {
+
+        // Returns `true` if the time now is after the 4s attestation deadline.
+        let block_is_late = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            // If we can't read the system time clock then indicate that the
+            // block is late (and therefore should *not* be requeued). This
+            // avoids infinite loops.
+            .map_or(true, |now| {
+                get_block_delay_ms(now, block.message(), &self.chain.slot_clock)
+                    > self.chain.slot_clock.unagg_attestation_production_delay()
+            });
+
+        // Checks if a block from this proposer is already known.
+        let proposal_already_known = || {
+            match self
+                .chain
+                .observed_block_producers
+                .read()
+                .proposer_has_been_observed(block.message())
+            {
+                Ok(is_observed) => is_observed,
+                // Both of these blocks will be rejected, so reject them now rather
+                // than re-queuing them.
+                Err(ObserveError::FinalizedBlock { .. })
+                | Err(ObserveError::ValidatorIndexTooHigh { .. }) => false,
+            }
+        };
+
+        // Returns `true` if the block is already known to fork choice. Notably,
+        // this will return `false` for blocks that we've already imported but
+        // ancestors of the finalized checkpoint. That should not be an issue
+        // for our use here since finalized blocks will always be late and won't
+        // be requeued anyway.
+        let block_is_already_known = || {
+            self.chain
+                .canonical_head
+                .fork_choice_read_lock()
+                .contains_block(&block_root)
+        };
+
+        // If we've already seen a block from this proposer *and* the block
+        // arrived before the attestation deadline, requeue it to ensure it is
+        // imported late enough that it won't receive a proposer boost.
+        //
+        // Don't requeue blocks if they're already known to fork choice, just
+        // push them through to block processing so they can be handled through
+        // the normal channels.
+        if !block_is_late && proposal_already_known() && !block_is_already_known() {
             debug!(
                 self.log,
                 "Delaying processing of duplicate RPC block";

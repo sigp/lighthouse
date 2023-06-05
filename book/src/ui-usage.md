@@ -10,7 +10,7 @@ Siren's dashboard view provides a summary of all performance and key validator m
 
 The account earnings component accumulates reward data from all registered validators providing a summation of total rewards earned while staking. Given current conversion rates, this component also converts your balance into your selected fiat currency.
 
-Below in the earning section, you can also view your total earnings or click the adjacent buttons to view your estimated earnings given a specific timeframe based on current device and network conditions.
+Below in the earning section, you can also view your total earnings or click the adjacent buttons to view your estimated earnings given a specific time frame based on current device and network conditions.
 
 ![](imgs/ui-account-earnings.png)
 

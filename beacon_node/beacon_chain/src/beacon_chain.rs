@@ -88,7 +88,8 @@ use state_processing::{
     },
     per_slot_processing,
     state_advance::{complete_state_advance, partial_state_advance},
-    BlockSignatureStrategy, ConsensusContext, SigVerifiedOp, VerifyBlockRoot, VerifyOperation,
+    BlockSignatureStrategy, ConsensusContext, SigVerifiedOp, StateProcessingStrategy,
+    VerifyBlockRoot, VerifyOperation,
 };
 use std::borrow::Cow;
 use std::cmp::Ordering;
@@ -420,6 +421,8 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub slasher: Option<Arc<Slasher<T::EthSpec>>>,
     /// Provides monitoring of a set of explicitly defined validators.
     pub validator_monitor: RwLock<ValidatorMonitor<T::EthSpec>>,
+    /// The slot at which blocks are downloaded back to.
+    pub genesis_backfill_slot: Slot,
 }
 
 type BeaconBlockAndState<T, Payload> = (BeaconBlock<T, Payload>, BeaconState<T>);
@@ -552,7 +555,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     /// Persists `self.eth1_chain` and its caches to disk.
     pub fn persist_eth1_cache(&self) -> Result<(), Error> {
-        let _timer = metrics::start_timer(&metrics::PERSIST_OP_POOL);
+        let _timer = metrics::start_timer(&metrics::PERSIST_ETH1_CACHE);
 
         if let Some(eth1_chain) = self.eth1_chain.as_ref() {
             self.store
@@ -1043,7 +1046,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .execution_layer
             .as_ref()
             .ok_or(Error::ExecutionLayerMissing)?
-            .get_payload_by_block_hash(exec_block_hash, fork)
+            .get_payload_for_header(&execution_payload_header, fork)
             .await
             .map_err(|e| {
                 Error::ExecutionLayerErrorPayloadReconstruction(exec_block_hash, Box::new(e))
@@ -2206,12 +2209,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         exit: SignedVoluntaryExit,
     ) -> Result<ObservationOutcome<SignedVoluntaryExit, T::EthSpec>, Error> {
-        // NOTE: this could be more efficient if it avoided cloning the head state
-        let wall_clock_state = self.wall_clock_state()?;
+        let head_snapshot = self.head().snapshot;
+        let head_state = &head_snapshot.beacon_state;
+        let wall_clock_epoch = self.epoch()?;
+
         Ok(self
             .observed_voluntary_exits
             .lock()
-            .verify_and_observe(exit, &wall_clock_state, &self.spec)
+            .verify_and_observe_at(exit, wall_clock_epoch, head_state, &self.spec)
             .map(|exit| {
                 // this method is called for both API and gossip exits, so this covers all exit events
                 if let Some(event_handler) = self.event_handler.as_ref() {
@@ -3617,7 +3622,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let (state, state_root_opt) = self
             .task_executor
             .spawn_blocking_handle(
-                move || chain.load_state_for_block_production::<Payload>(slot),
+                move || chain.load_state_for_block_production(slot),
                 "produce_partial_beacon_block",
             )
             .ok_or(BlockProductionError::ShuttingDown)?
@@ -3640,7 +3645,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     /// Load a beacon state from the database for block production. This is a long-running process
     /// that should not be performed in an `async` context.
-    fn load_state_for_block_production<Payload: ExecPayload<T::EthSpec>>(
+    fn load_state_for_block_production(
         self: &Arc<Self>,
         slot: Slot,
     ) -> Result<(BeaconState<T::EthSpec>, Option<Hash256>), BlockProductionError> {
@@ -4647,6 +4652,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             &mut state,
             &block,
             signature_strategy,
+            StateProcessingStrategy::Accurate,
             VerifyBlockRoot::True,
             &mut ctxt,
             &self.spec,
@@ -5470,6 +5476,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let shuffling_id = BlockShufflingIds {
             current: head_block.current_epoch_shuffling_id.clone(),
             next: head_block.next_epoch_shuffling_id.clone(),
+            previous: None,
             block_root: head_block.root,
         }
         .id_for_epoch(shuffling_epoch)
