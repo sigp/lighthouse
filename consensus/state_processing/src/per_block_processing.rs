@@ -7,7 +7,7 @@ use std::borrow::Cow;
 use tree_hash::TreeHash;
 use types::*;
 
-use self::process_operations::apply_deposit;
+use self::process_operations::process_deposit;
 pub use self::verify_attester_slashing::{
     get_slashable_indices, get_slashable_indices_modular, verify_attester_slashing,
 };
@@ -459,7 +459,7 @@ pub fn process_deposit_receipt<T: EthSpec>(
             };
 
             // Call apply with the created Deposit object
-            apply_deposit(state, &deposit, spec)?;
+            process_deposit(state, &deposit, spec, false)?;
 
             Ok(())
         }

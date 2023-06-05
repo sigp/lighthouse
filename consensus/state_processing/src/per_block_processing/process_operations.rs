@@ -16,9 +16,12 @@ pub fn process_operations<T: EthSpec, Payload: AbstractExecPayload<T>>(
     ctxt: &mut ConsensusContext<T>,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
-    let eth1_deposit_index_limit = state
-        .deposit_receipts_start_index()
-        .unwrap_or_else(|_| state.eth1_data().deposit_count);
+    let eth1_deposit_index_limit = std::cmp::min(
+        state.eth1_data().deposit_count,
+        state
+            .deposit_receipts_start_index()
+            .unwrap_or_else(|_| state.eth1_data().deposit_count),
+    );
 
     let expected_deposit_count = if state.eth1_deposit_index() < eth1_deposit_index_limit {
         let diff = eth1_deposit_index_limit
@@ -52,8 +55,8 @@ pub fn process_operations<T: EthSpec, Payload: AbstractExecPayload<T>>(
         spec,
     )?;
     process_attestations(state, block_body, verify_signatures, ctxt, spec)?;
-    process_deposits(state, block_body.deposits(), spec)?;
     process_exits(state, block_body.voluntary_exits(), verify_signatures, spec)?;
+    process_deposits(state, block_body.deposits(), spec)?;
 
     if let Ok(bls_to_execution_changes) = block_body.bls_to_execution_changes() {
         process_bls_to_execution_changes(state, bls_to_execution_changes, verify_signatures, spec)?;
@@ -418,54 +421,6 @@ pub fn process_deposit<T: EthSpec>(
     } else {
         // The signature should be checked for new validators. Return early for a bad
         // signature.
-        if verify_deposit_signature(&deposit.data, spec).is_err() {
-            return Ok(());
-        }
-
-        // Create a new validator.
-        let validator = Validator {
-            pubkey: deposit.data.pubkey,
-            withdrawal_credentials: deposit.data.withdrawal_credentials,
-            activation_eligibility_epoch: spec.far_future_epoch,
-            activation_epoch: spec.far_future_epoch,
-            exit_epoch: spec.far_future_epoch,
-            withdrawable_epoch: spec.far_future_epoch,
-            effective_balance: std::cmp::min(
-                amount.safe_sub(amount.safe_rem(spec.effective_balance_increment)?)?,
-                spec.max_effective_balance,
-            ),
-            slashed: false,
-        };
-        state.validators_mut().push(validator)?;
-        state.balances_mut().push(deposit.data.amount)?;
-
-        // Altair or later initializations.
-        if let Ok(previous_epoch_participation) = state.previous_epoch_participation_mut() {
-            previous_epoch_participation.push(ParticipationFlags::default())?;
-        }
-        if let Ok(current_epoch_participation) = state.current_epoch_participation_mut() {
-            current_epoch_participation.push(ParticipationFlags::default())?;
-        }
-        if let Ok(inactivity_scores) = state.inactivity_scores_mut() {
-            inactivity_scores.push(0)?;
-        }
-    }
-
-    Ok(())
-}
-
-pub fn apply_deposit<T: EthSpec>(
-    state: &mut BeaconState<T>,
-    deposit: &Deposit,
-    spec: &ChainSpec,
-) -> Result<(), BlockProcessingError> {
-    let amount = deposit.data.amount;
-
-    if let Ok(Some(index)) = get_existing_validator_index(state, &deposit.data.pubkey) {
-        // Update the existing validator balance.
-        increase_balance(state, index as usize, amount)?;
-    } else {
-        // The signature should be checked for new validators. Return early for a bad signature.
         if verify_deposit_signature(&deposit.data, spec).is_err() {
             return Ok(());
         }

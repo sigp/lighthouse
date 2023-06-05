@@ -22,6 +22,7 @@ pub const SYNC_COMMITTEE_PREFIX_TOPIC: &str = "sync_committee_";
 pub const BLS_TO_EXECUTION_CHANGE_TOPIC: &str = "bls_to_execution_change";
 pub const LIGHT_CLIENT_FINALITY_UPDATE: &str = "light_client_finality_update";
 pub const LIGHT_CLIENT_OPTIMISTIC_UPDATE: &str = "light_client_optimistic_update";
+pub const EIP_6110_TOPIC: &str = "eip_6110";
 
 pub const BASE_CORE_TOPICS: [GossipKind; 5] = [
     GossipKind::BeaconBlock,
@@ -59,7 +60,7 @@ pub fn fork_core_topics<T: EthSpec>(fork_name: &ForkName) -> Vec<GossipKind> {
             deneb_topics.append(&mut deneb_blob_topics);
             deneb_topics
         }
-        ForkName::Eip6110 => vec![],
+        ForkName::Eip6110 => vec![GossipKind::Eip6110],
     }
 }
 
@@ -118,6 +119,8 @@ pub enum GossipKind {
     LightClientFinalityUpdate,
     /// Topic for publishing optimistic updates for light clients.
     LightClientOptimisticUpdate,
+    /// Topic for publishing EIP-6110 messages.
+    Eip6110,
 }
 
 impl std::fmt::Display for GossipKind {
@@ -258,6 +261,7 @@ impl std::fmt::Display for GossipTopic {
             GossipKind::BlsToExecutionChange => BLS_TO_EXECUTION_CHANGE_TOPIC.into(),
             GossipKind::LightClientFinalityUpdate => LIGHT_CLIENT_FINALITY_UPDATE.into(),
             GossipKind::LightClientOptimisticUpdate => LIGHT_CLIENT_OPTIMISTIC_UPDATE.into(),
+            GossipKind::Eip6110 => EIP_6110_TOPIC.into(),
         };
         write!(
             f,

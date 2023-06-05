@@ -282,6 +282,13 @@ impl<T: EthSpec> PubsubMessage<T> {
                             light_client_optimistic_update,
                         )))
                     }
+                    GossipKind::Eip6110 => {
+                        let eip6110 = SignedBeaconBlockEip6110::from_ssz_bytes(data)
+                            .map_err(|e| format!("{:?}", e))?;
+                        Ok(PubsubMessage::BeaconBlock(Arc::new(
+                            SignedBeaconBlock::Eip6110(eip6110),
+                        )))
+                    }
                 }
             }
         }

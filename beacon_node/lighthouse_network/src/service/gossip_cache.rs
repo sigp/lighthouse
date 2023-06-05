@@ -204,6 +204,7 @@ impl GossipCache {
             GossipKind::BlsToExecutionChange => self.bls_to_execution_change,
             GossipKind::LightClientFinalityUpdate => self.light_client_finality_update,
             GossipKind::LightClientOptimisticUpdate => self.light_client_optimistic_update,
+            GossipKind::Eip6110 => None,
         };
         let expire_timeout = match expire_timeout {
             Some(expire_timeout) => expire_timeout,
