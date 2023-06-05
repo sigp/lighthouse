@@ -3,7 +3,7 @@
 
 use super::manager::{Id, RequestId as SyncRequestId};
 use super::range_sync::{BatchId, ChainId};
-use crate::router::BeaconProcessorSend;
+use crate::beacon_processor::BeaconProcessorSend;
 use crate::service::{NetworkMessage, RequestId};
 use crate::status::ToStatusMessage;
 use beacon_chain::{BeaconChainTypes, EngineState};

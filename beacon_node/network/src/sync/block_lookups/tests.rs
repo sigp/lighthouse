@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::router::BeaconProcessorSend;
+use crate::beacon_processor::BeaconProcessorSend;
 use crate::service::RequestId;
 use crate::sync::manager::RequestId as SyncId;
 use crate::NetworkMessage;

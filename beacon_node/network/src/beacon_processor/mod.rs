@@ -750,6 +750,24 @@ impl<T: BeaconChainTypes> std::convert::From<ReadyWork<T>> for WorkEvent<T> {
     }
 }
 
+pub struct BeaconProcessorSend<T: BeaconChainTypes>(pub mpsc::Sender<WorkEvent<T>>);
+
+impl<T: BeaconChainTypes> BeaconProcessorSend<T> {
+    pub fn try_send(&self, message: WorkEvent<T>) -> Result<(), TrySendError<WorkEvent<T>>> {
+        let work_type = message.work_type();
+        match self.0.try_send(message) {
+            Ok(res) => Ok(res),
+            Err(e) => {
+                metrics::inc_counter_vec(
+                    &metrics::BEACON_PROCESSOR_SEND_ERROR_PER_WORK_TYPE,
+                    &[work_type],
+                );
+                Err(e)
+            }
+        }
+    }
+}
+
 /// A consensus message (or multiple) from the network that requires processing.
 #[derive(Derivative)]
 #[derivative(Debug(bound = "T: BeaconChainTypes"))]

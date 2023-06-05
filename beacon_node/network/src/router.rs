@@ -6,13 +6,14 @@
 #![allow(clippy::unit_arg)]
 
 use crate::beacon_processor::{
-    BeaconProcessor, InvalidBlockStorage, WorkEvent as BeaconWorkEvent, MAX_WORK_EVENT_QUEUE_LEN,
+    BeaconProcessor, BeaconProcessorSend, InvalidBlockStorage, WorkEvent as BeaconWorkEvent,
+    MAX_WORK_EVENT_QUEUE_LEN,
 };
+use crate::error;
 use crate::service::{NetworkMessage, RequestId};
 use crate::status::status_message;
 use crate::sync::manager::RequestId as SyncId;
 use crate::sync::SyncMessage;
-use crate::{error, metrics};
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use futures::prelude::*;
 use lighthouse_network::rpc::*;
@@ -26,7 +27,6 @@ use std::cmp;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc;
-use tokio::sync::mpsc::error::TrySendError;
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use types::{EthSpec, SignedBeaconBlock};
 
@@ -46,27 +46,6 @@ pub struct Router<T: BeaconChainTypes> {
     log: slog::Logger,
     /// Provides de-bounce functionality for logging.
     logger_debounce: TimeLatch,
-}
-
-pub struct BeaconProcessorSend<T: BeaconChainTypes>(pub mpsc::Sender<BeaconWorkEvent<T>>);
-
-impl<T: BeaconChainTypes> BeaconProcessorSend<T> {
-    pub fn try_send(
-        &self,
-        message: BeaconWorkEvent<T>,
-    ) -> Result<(), TrySendError<BeaconWorkEvent<T>>> {
-        let work_type = message.work_type();
-        match self.0.try_send(message) {
-            Ok(res) => Ok(res),
-            Err(e) => {
-                metrics::inc_counter_vec(
-                    &metrics::BEACON_PROCESSOR_SEND_ERROR_PER_WORK_TYPE,
-                    &[work_type],
-                );
-                Err(e)
-            }
-        }
-    }
 }
 
 /// Types of messages the router can receive.
