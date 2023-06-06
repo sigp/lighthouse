@@ -174,8 +174,8 @@ pub fn cli_run(matches: &ArgMatches, validator_dir: PathBuf) -> Result<(), Strin
                     false => {
                         eprintln!("Reused password incorrect. Retry!");
                         if let Some(password) = get_password(stdin_inputs) {
-                                previous_password = Some(password.clone());
-                                break Some(password);
+                            previous_password = Some(password.clone());
+                            break Some(password);
                         }
                     }
                 }
@@ -306,6 +306,11 @@ pub fn cli_run(matches: &ArgMatches, validator_dir: PathBuf) -> Result<(), Strin
     Ok(())
 }
 
+/// Checks if the given password unlocks the keystore.
+///
+/// Returns `Ok(true)` if password unlocks the keystore successfully.
+/// Returns `Ok(false` if password is incorrect.
+/// Otherwise, returns the keystore error.
 fn check_password_on_keystore(
     keystore: &Keystore,
     password: &ZeroizeString,
@@ -321,10 +326,12 @@ fn check_password_on_keystore(
             eprintln!("Invalid password");
             Ok(false)
         }
-        Err(e) => return Err(format!("Error whilst decrypting keypair: {:?}", e)),
+        Err(e) => Err(format!("Error whilst decrypting keypair: {:?}", e)),
     }
 }
 
+/// Prompts the user for a password and returns the user input.
+/// Returns `None` if the user returns an empty password.
 fn get_password(stdin_inputs: bool) -> Option<ZeroizeString> {
     eprintln!();
     eprintln!("{}", PASSWORD_PROMPT);
