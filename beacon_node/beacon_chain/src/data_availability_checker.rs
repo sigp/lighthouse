@@ -181,8 +181,6 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         block_root: Hash256,
         blobs: FixedBlobSidecarList<T::EthSpec>,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
-        // TODO(sean) we may duplicated kzg verification on some blobs we already have cached so we could optimize this
-
         let mut verified_blobs = vec![];
         if let Some(kzg) = self.kzg.as_ref() {
             for blob in blobs.iter().flatten() {
