@@ -1892,7 +1892,7 @@ fn slasher_validator_chunk_size_flag() {
         });
 }
 #[test]
-fn slasher_broadcast_flag() {
+fn slasher_broadcast_flag_no_args() {
     CommandLineTest::new()
         .flag("slasher", None)
         .flag("slasher-max-db-size", Some("1"))
@@ -1906,19 +1906,50 @@ fn slasher_broadcast_flag() {
             assert!(slasher_config.broadcast);
         });
 }
-
 #[test]
-fn slasher_backend_default() {
+fn slasher_broadcast_flag_no_default() {
     CommandLineTest::new()
         .flag("slasher", None)
         .flag("slasher-max-db-size", Some("1"))
         .run_with_zero_port()
         .with_config(|config| {
-            let slasher_config = config.slasher.as_ref().unwrap();
-            assert_eq!(slasher_config.backend, slasher::DatabaseBackend::Lmdb);
+            let slasher_config = config
+                .slasher
+                .as_ref()
+                .expect("Unable to parse Slasher config");
+            assert!(slasher_config.broadcast);
         });
 }
-
+#[test]
+fn slasher_broadcast_flag_true() {
+    CommandLineTest::new()
+        .flag("slasher", None)
+        .flag("slasher-max-db-size", Some("1"))
+        .flag("slasher-broadcast", Some("true"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            let slasher_config = config
+                .slasher
+                .as_ref()
+                .expect("Unable to parse Slasher config");
+            assert!(slasher_config.broadcast);
+        });
+}
+#[test]
+fn slasher_broadcast_flag_false() {
+    CommandLineTest::new()
+        .flag("slasher", None)
+        .flag("slasher-max-db-size", Some("1"))
+        .flag("slasher-broadcast", Some("false"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            let slasher_config = config
+                .slasher
+                .as_ref()
+                .expect("Unable to parse Slasher config");
+            assert!(!slasher_config.broadcast);
+        });
+}
 #[test]
 fn slasher_backend_override_to_default() {
     // Hard to test this flag because all but one backend is disabled by default and the backend
