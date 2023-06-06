@@ -32,7 +32,10 @@ impl ProgressiveTotalBalances {
         self.inner.is_some()
     }
 
-    pub fn on_attestation(
+    /// When a new target attestation has been processed, we update the cached
+    /// `current_epoch_target_attesting_balance` to include the validator effective balance.
+    /// If the epoch is neither the current epoch nor the previous epoch, an error is returned.
+    pub fn on_new_target_attestation(
         &mut self,
         epoch: Epoch,
         validator_effective_balance: u64,
@@ -54,6 +57,8 @@ impl ProgressiveTotalBalances {
         Ok(())
     }
 
+    /// When a validator is slashed, we reduce the `current_epoch_target_attesting_balance` by the
+    /// validator's effective balance to exclude the validator weight.
     pub fn on_slashing(
         &mut self,
         is_current_epoch_target_attester: bool,

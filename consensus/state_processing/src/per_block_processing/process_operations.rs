@@ -170,7 +170,10 @@ pub mod altair {
                         let validator_effective_balance = state.get_effective_balance(index)?;
                         state
                             .progressive_total_balances_mut()
-                            .on_attestation(data.target.epoch, validator_effective_balance)?;
+                            .on_new_target_attestation(
+                                data.target.epoch,
+                                validator_effective_balance,
+                            )?;
                     }
                 }
             }

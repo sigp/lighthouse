@@ -53,7 +53,7 @@ impl Balance {
 }
 
 /// Caches the participation values for one epoch (either the previous or current).
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone)]
 struct SingleEpochParticipationCache {
     /// Maps an active validator index to their participation flags.
     ///
@@ -173,7 +173,7 @@ impl SingleEpochParticipationCache {
 }
 
 /// Maintains a cache to be used during `altair::process_epoch`.
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone)]
 pub struct ParticipationCache {
     current_epoch: Epoch,
     /// Caches information about active validators pertaining to `self.current_epoch`.

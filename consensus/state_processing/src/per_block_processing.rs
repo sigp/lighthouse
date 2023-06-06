@@ -42,7 +42,6 @@ use crate::common::decrease_balance;
 use crate::StateProcessingStrategy;
 
 use crate::common::initialize_progressive_total_balances::initialize_progressive_total_balances;
-use crate::per_epoch_processing::altair::ParticipationCache;
 #[cfg(feature = "arbitrary-fuzz")]
 use arbitrary::Arbitrary;
 
@@ -112,14 +111,11 @@ pub fn per_block_processing<T: EthSpec, Payload: AbstractExecPayload<T>>(
         .map_err(BlockProcessingError::InconsistentBlockFork)?;
 
     // Verify that the `BeaconState` instantiation matches the fork at `state.slot()`.
-    let fork_name = state
+    state
         .fork_name(spec)
         .map_err(BlockProcessingError::InconsistentStateFork)?;
 
-    if fork_name != ForkName::Base && !state.progressive_total_balances().is_initialized() {
-        let participation_cache = ParticipationCache::new(state, spec)?;
-        initialize_progressive_total_balances::<T>(state, &participation_cache)?;
-    }
+    initialize_progressive_total_balances(state, None, spec)?;
 
     let verify_signatures = match block_signature_strategy {
         BlockSignatureStrategy::VerifyBulk => {

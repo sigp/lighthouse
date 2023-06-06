@@ -32,7 +32,7 @@ pub fn process_epoch<T: EthSpec>(
     // Pre-compute participating indices and total balances.
     let participation_cache = ParticipationCache::new(state, spec)?;
     let sync_committee = state.current_sync_committee()?.clone();
-    initialize_progressive_total_balances::<T>(state, &participation_cache)?;
+    initialize_progressive_total_balances::<T>(state, Some(&participation_cache), spec)?;
 
     // Justification and finalization.
     let justification_and_finalization_state =

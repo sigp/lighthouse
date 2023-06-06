@@ -1,6 +1,5 @@
 use crate::common::initialize_progressive_total_balances::initialize_progressive_total_balances;
 use crate::common::{get_attestation_participation_flag_indices, get_attesting_indices};
-use crate::per_epoch_processing::altair::ParticipationCache;
 use std::mem;
 use std::sync::Arc;
 use types::{
@@ -113,10 +112,7 @@ pub fn upgrade_to_altair<E: EthSpec>(
     // Fill in previous epoch participation from the pre state's pending attestations.
     translate_participation(&mut post, &pre.previous_epoch_attestations, spec)?;
 
-    if !post.progressive_total_balances().is_initialized() {
-        let participation_cache = ParticipationCache::new(&post, spec)?;
-        initialize_progressive_total_balances(&mut post, &participation_cache)?;
-    }
+    initialize_progressive_total_balances(&mut post, None, spec)?;
 
     // Fill in sync committees
     // Note: A duplicate committee is assigned for the current and next committee at the fork

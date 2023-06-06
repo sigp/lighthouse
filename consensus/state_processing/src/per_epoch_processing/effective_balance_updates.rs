@@ -7,7 +7,7 @@ use types::{BeaconStateError, EthSpec, ProgressiveTotalBalances};
 
 pub fn process_effective_balance_updates<T: EthSpec>(
     state: &mut BeaconState<T>,
-    participation_cache: Option<&ParticipationCache>,
+    maybe_participation_cache: Option<&ParticipationCache>,
     spec: &ChainSpec,
 ) -> Result<(), EpochProcessingError> {
     let hysteresis_increment = spec
@@ -32,13 +32,15 @@ pub fn process_effective_balance_updates<T: EthSpec>(
                 spec.max_effective_balance,
             );
 
-            update_progressive_balances(
-                participation_cache,
-                progressive_balances_cache,
-                index,
-                old_effective_balance,
-                new_effective_balance,
-            )?;
+            if let Some(participation_cache) = maybe_participation_cache {
+                update_progressive_balances(
+                    participation_cache,
+                    progressive_balances_cache,
+                    index,
+                    old_effective_balance,
+                    new_effective_balance,
+                )?;
+            }
 
             validator.effective_balance = new_effective_balance;
         }
@@ -47,22 +49,20 @@ pub fn process_effective_balance_updates<T: EthSpec>(
 }
 
 fn update_progressive_balances(
-    participation_cache: Option<&ParticipationCache>,
+    participation_cache: &ParticipationCache,
     progressive_balances_cache: &mut ProgressiveTotalBalances,
     index: usize,
     old_effective_balance: u64,
     new_effective_balance: u64,
 ) -> Result<(), EpochProcessingError> {
-    if let Some(participation_cache) = participation_cache {
-        if old_effective_balance != new_effective_balance {
-            let is_current_epoch_target_attester =
-                participation_cache.is_current_epoch_timely_target_attester(index)?;
-            progressive_balances_cache.on_effective_balance_change(
-                is_current_epoch_target_attester,
-                old_effective_balance,
-                new_effective_balance,
-            )?;
-        }
+    if old_effective_balance != new_effective_balance {
+        let is_current_epoch_target_attester =
+            participation_cache.is_current_epoch_timely_target_attester(index)?;
+        progressive_balances_cache.on_effective_balance_change(
+            is_current_epoch_target_attester,
+            old_effective_balance,
+            new_effective_balance,
+        )?;
     }
     Ok(())
 }
