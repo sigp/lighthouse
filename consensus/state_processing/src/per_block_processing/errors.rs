@@ -76,6 +76,10 @@ pub enum BlockProcessingError {
         expected: u64,
         found: u64,
     },
+    ExecutionInvalidBlobsLen {
+        max: usize,
+        actual: usize,
+    },
     ExecutionInvalid,
     ConsensusContext(ContextError),
     WithdrawalsRootMismatch {

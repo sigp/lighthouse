@@ -13,7 +13,6 @@ pub use self::verify_attester_slashing::{
 pub use self::verify_proposer_slashing::verify_proposer_slashing;
 pub use altair::sync_committee::process_sync_aggregate;
 pub use block_signature_verifier::{BlockSignatureVerifier, ParallelSignatureSets};
-pub use deneb::deneb::process_blob_kzg_commitments;
 pub use is_valid_indexed_attestation::is_valid_indexed_attestation;
 pub use process_operations::process_operations;
 pub use verify_attestation::{
@@ -163,11 +162,11 @@ pub fn per_block_processing<T: EthSpec, Payload: AbstractExecPayload<T>>(
     // `process_randao` as the former depends on the `randao_mix` computed with the reveal of the
     // previous block.
     if is_execution_enabled(state, block.body()) {
-        let payload = block.body().execution_payload()?;
+        let body = block.body();
         if state_processing_strategy == StateProcessingStrategy::Accurate {
-            process_withdrawals::<T, Payload>(state, payload, spec)?;
+            process_withdrawals::<T, Payload>(state, body.execution_payload()?, spec)?;
         }
-        process_execution_payload::<T, Payload>(state, payload, spec)?;
+        process_execution_payload::<T, Payload>(state, body, spec)?;
     }
 
     process_randao(state, block, verify_randao, ctxt, spec)?;
@@ -183,8 +182,6 @@ pub fn per_block_processing<T: EthSpec, Payload: AbstractExecPayload<T>>(
             spec,
         )?;
     }
-
-    process_blob_kzg_commitments(block.body(), ctxt)?;
 
     Ok(())
 }
@@ -350,9 +347,10 @@ pub fn get_new_eth1_data<T: EthSpec>(
 pub fn partially_verify_execution_payload<T: EthSpec, Payload: AbstractExecPayload<T>>(
     state: &BeaconState<T>,
     block_slot: Slot,
-    payload: Payload::Ref<'_>,
+    body: BeaconBlockBodyRef<T, Payload>,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
+    let payload = body.execution_payload()?;
     if is_merge_transition_complete(state) {
         block_verify!(
             payload.parent_hash() == state.latest_execution_payload_header()?.block_hash(),
@@ -379,6 +377,17 @@ pub fn partially_verify_execution_payload<T: EthSpec, Payload: AbstractExecPaylo
         }
     );
 
+    if let Ok(blob_commitments) = body.blob_kzg_commitments() {
+        // Verify commitments are under the limit.
+        block_verify!(
+            blob_commitments.len() <= T::max_blobs_per_block(),
+            BlockProcessingError::ExecutionInvalidBlobsLen {
+                max: T::max_blobs_per_block(),
+                actual: blob_commitments.len(),
+            }
+        );
+    }
+
     Ok(())
 }
 
@@ -391,11 +400,11 @@ pub fn partially_verify_execution_payload<T: EthSpec, Payload: AbstractExecPaylo
 /// https://github.com/ethereum/consensus-specs/blob/v1.1.5/specs/merge/beacon-chain.md#process_execution_payload
 pub fn process_execution_payload<T: EthSpec, Payload: AbstractExecPayload<T>>(
     state: &mut BeaconState<T>,
-    payload: Payload::Ref<'_>,
+    body: BeaconBlockBodyRef<T, Payload>,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
-    partially_verify_execution_payload::<T, Payload>(state, state.slot(), payload, spec)?;
-
+    partially_verify_execution_payload::<T, Payload>(state, state.slot(), body, spec)?;
+    let payload = body.execution_payload()?;
     match state.latest_execution_payload_header_mut()? {
         ExecutionPayloadHeaderRefMut::Merge(header_mut) => {
             match payload.to_execution_payload_header() {

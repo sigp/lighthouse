@@ -1210,6 +1210,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
     pub async fn notify_new_payload(
         &self,
         execution_payload: &ExecutionPayload<T>,
+        versioned_hashes: Option<Vec<VersionedHash>>,
     ) -> Result<PayloadStatus, Error> {
         let _timer = metrics::start_timer_vec(
             &metrics::EXECUTION_LAYER_REQUEST_TIMES,
@@ -1226,7 +1227,11 @@ impl<T: EthSpec> ExecutionLayer<T> {
 
         let result = self
             .engine()
-            .request(|engine| engine.api.new_payload(execution_payload.clone()))
+            .request(|engine| {
+                engine
+                    .api
+                    .new_payload(execution_payload.clone(), versioned_hashes)
+            })
             .await;
 
         if let Ok(status) = &result {
@@ -1236,6 +1241,8 @@ impl<T: EthSpec> ExecutionLayer<T> {
             );
         }
         *self.inner.last_new_payload_errored.write().await = result.is_err();
+
+        //TODO(sean) process notify commitments updatE?
 
         process_payload_status(execution_payload.block_hash(), result, self.log())
             .map_err(Box::new)

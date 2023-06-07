@@ -4,6 +4,7 @@ use crate::case_result::compare_beacon_state_results_without_caches;
 use crate::decode::{ssz_decode_file, ssz_decode_file_with, ssz_decode_state, yaml_decode_file};
 use crate::testing_spec;
 use serde_derive::Deserialize;
+use ssz::Decode;
 use state_processing::{
     per_block_processing::{
         errors::BlockProcessingError,
@@ -19,9 +20,9 @@ use state_processing::{
 use std::fmt::Debug;
 use std::path::Path;
 use types::{
-    Attestation, AttesterSlashing, BeaconBlock, BeaconState, BlindedPayload, ChainSpec, Deposit,
-    EthSpec, ExecutionPayload, ForkName, FullPayload, ProposerSlashing, SignedBlsToExecutionChange,
-    SignedVoluntaryExit, SyncAggregate,
+    map_fork_name, map_fork_name_with, Attestation, AttesterSlashing, BeaconBlock, BeaconBlockBody,
+    BeaconState, BlindedPayload, ChainSpec, Deposit, EthSpec, ExecutionPayload, ForkName,
+    FullPayload, ProposerSlashing, SignedBlsToExecutionChange, SignedVoluntaryExit, SyncAggregate,
 };
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -259,13 +260,13 @@ impl<E: EthSpec> Operation<E> for SyncAggregate<E> {
     }
 }
 
-impl<E: EthSpec> Operation<E> for FullPayload<E> {
+impl<E: EthSpec> Operation<E> for BeaconBlockBody<E, FullPayload<E>> {
     fn handler_name() -> String {
         "execution_payload".into()
     }
 
     fn filename() -> String {
-        "execution_payload.ssz_snappy".into()
+        "body.ssz_snappy".into()
     }
 
     fn is_enabled_for_fork(fork_name: ForkName) -> bool {
@@ -274,9 +275,8 @@ impl<E: EthSpec> Operation<E> for FullPayload<E> {
 
     fn decode(path: &Path, fork_name: ForkName, _spec: &ChainSpec) -> Result<Self, Error> {
         ssz_decode_file_with(path, |bytes| {
-            ExecutionPayload::from_ssz_bytes(bytes, fork_name)
+            Ok(map_fork_name!(fork_name, Self, <_>::from_ssz_bytes(bytes)?))
         })
-        .map(Into::into)
     }
 
     fn apply_to(
@@ -296,13 +296,13 @@ impl<E: EthSpec> Operation<E> for FullPayload<E> {
         }
     }
 }
-impl<E: EthSpec> Operation<E> for BlindedPayload<E> {
+impl<E: EthSpec> Operation<E> for BeaconBlockBody<E, BlindedPayload<E>> {
     fn handler_name() -> String {
         "execution_payload".into()
     }
 
     fn filename() -> String {
-        "execution_payload.ssz_snappy".into()
+        "body.ssz_snappy".into()
     }
 
     fn is_enabled_for_fork(fork_name: ForkName) -> bool {
@@ -311,9 +311,8 @@ impl<E: EthSpec> Operation<E> for BlindedPayload<E> {
 
     fn decode(path: &Path, fork_name: ForkName, _spec: &ChainSpec) -> Result<Self, Error> {
         ssz_decode_file_with(path, |bytes| {
-            ExecutionPayload::from_ssz_bytes(bytes, fork_name)
+            Ok(map_fork_name!(fork_name, Self, <_>::from_ssz_bytes(bytes)?))
         })
-        .map(Into::into)
     }
 
     fn apply_to(

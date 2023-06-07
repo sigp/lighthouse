@@ -11,7 +11,6 @@ use kzg::Kzg;
 use slog::{debug, error};
 use slot_clock::SlotClock;
 use ssz_types::{Error, FixedVector, VariableList};
-use state_processing::per_block_processing::deneb::deneb::verify_kzg_commitments_against_transactions;
 use std::collections::HashSet;
 use std::sync::Arc;
 use strum::IntoStaticStr;
@@ -21,7 +20,7 @@ use types::blob_sidecar::{BlobIdentifier, BlobSidecar, FixedBlobSidecarList};
 use types::consts::deneb::MIN_EPOCHS_FOR_BLOB_SIDECARS_REQUESTS;
 use types::ssz_tagged_signed_beacon_block;
 use types::{
-    BeaconBlockRef, BlobSidecarList, ChainSpec, Epoch, EthSpec, ExecPayload, FullPayload, Hash256,
+    BeaconBlockRef, BlobSidecarList, ChainSpec, Epoch, EthSpec, FullPayload, Hash256,
     SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
 };
 
@@ -291,35 +290,20 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         &self,
         block: &Arc<SignedBeaconBlock<T::EthSpec, FullPayload<T::EthSpec>>>,
     ) -> Result<BlobRequirements, AvailabilityCheckError> {
-        let verified_blobs = if let (Ok(block_kzg_commitments), Ok(payload)) = (
-            block.message().body().blob_kzg_commitments(),
-            block.message().body().execution_payload(),
-        ) {
-            if let Some(transactions) = payload.transactions() {
-                let verified = verify_kzg_commitments_against_transactions::<T::EthSpec>(
-                    transactions,
-                    block_kzg_commitments,
-                )
-                .map_err(|e| AvailabilityCheckError::TxKzgCommitmentMismatch(format!("{e:?}")))?;
-                if !verified {
-                    return Err(AvailabilityCheckError::TxKzgCommitmentMismatch(
-                        "a commitment and version didn't match".to_string(),
-                    ));
-                }
-            }
-
-            if self.da_check_required(block.epoch()) {
-                if block_kzg_commitments.is_empty() {
-                    BlobRequirements::EmptyBlobs
+        let verified_blobs =
+            if let Ok(block_kzg_commitments) = block.message().body().blob_kzg_commitments() {
+                if self.da_check_required(block.epoch()) {
+                    if block_kzg_commitments.is_empty() {
+                        BlobRequirements::EmptyBlobs
+                    } else {
+                        BlobRequirements::Required
+                    }
                 } else {
-                    BlobRequirements::Required
+                    BlobRequirements::NotRequired
                 }
             } else {
-                BlobRequirements::NotRequired
-            }
-        } else {
-            BlobRequirements::PreDeneb
-        };
+                BlobRequirements::PreDeneb
+            };
         Ok(verified_blobs)
     }
 

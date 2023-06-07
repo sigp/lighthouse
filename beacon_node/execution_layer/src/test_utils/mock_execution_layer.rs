@@ -204,7 +204,7 @@ impl<T: EthSpec> MockExecutionLayer<T> {
             Some(payload.clone())
         );
 
-        let status = self.el.notify_new_payload(&payload).await.unwrap();
+        let status = self.el.notify_new_payload(&payload, None).await.unwrap();
         assert_eq!(status, PayloadStatus::Valid);
 
         // Use junk values for slot/head-root to ensure there is no payload supplied.

@@ -11,7 +11,7 @@ use std::collections::HashSet;
 use tokio::sync::Mutex;
 
 use std::time::{Duration, Instant};
-use types::EthSpec;
+use types::{EthSpec, VersionedHash};
 
 pub use deposit_log::{DepositLog, Log};
 pub use reqwest::Client;
@@ -808,8 +808,12 @@ impl HttpJsonRpc {
     pub async fn new_payload_v3<T: EthSpec>(
         &self,
         execution_payload: ExecutionPayload<T>,
+        versioned_hashes: Vec<VersionedHash>,
     ) -> Result<PayloadStatusV1, Error> {
-        let params = json!([JsonExecutionPayload::from(execution_payload)]);
+        let params = json!([
+            JsonExecutionPayload::from(execution_payload),
+            versioned_hashes
+        ]);
 
         let response: JsonPayloadStatusV1 = self
             .rpc_request(
@@ -1099,10 +1103,15 @@ impl HttpJsonRpc {
     pub async fn new_payload<T: EthSpec>(
         &self,
         execution_payload: ExecutionPayload<T>,
+        versioned_hashes_opt: Option<Vec<VersionedHash>>,
     ) -> Result<PayloadStatusV1, Error> {
         let engine_capabilities = self.get_engine_capabilities(None).await?;
         if engine_capabilities.new_payload_v3 {
-            self.new_payload_v3(execution_payload).await
+            let Some(versioned_hashes) = versioned_hashes_opt else {
+                return Err(Error::IncorrectStateVariant);
+            };
+            self.new_payload_v3(execution_payload, versioned_hashes)
+                .await
         } else if engine_capabilities.new_payload_v2 {
             self.new_payload_v2(execution_payload).await
         } else if engine_capabilities.new_payload_v1 {

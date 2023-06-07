@@ -371,7 +371,7 @@ impl<E: GenericExecutionEngine> TestRig<E> {
         let status = self
             .ee_a
             .execution_layer
-            .notify_new_payload(&valid_payload)
+            .notify_new_payload(&valid_payload, None)
             .await
             .unwrap();
         assert_eq!(status, PayloadStatus::Valid);
@@ -424,7 +424,7 @@ impl<E: GenericExecutionEngine> TestRig<E> {
         let status = self
             .ee_a
             .execution_layer
-            .notify_new_payload(&invalid_payload)
+            .notify_new_payload(&invalid_payload, None)
             .await
             .unwrap();
         assert!(matches!(
@@ -486,7 +486,7 @@ impl<E: GenericExecutionEngine> TestRig<E> {
         let status = self
             .ee_a
             .execution_layer
-            .notify_new_payload(&second_payload)
+            .notify_new_payload(&second_payload, None)
             .await
             .unwrap();
         assert_eq!(status, PayloadStatus::Valid);
@@ -533,7 +533,7 @@ impl<E: GenericExecutionEngine> TestRig<E> {
         let status = self
             .ee_b
             .execution_layer
-            .notify_new_payload(&second_payload)
+            .notify_new_payload(&second_payload, None)
             .await
             .unwrap();
         // TODO: we should remove the `Accepted` status here once Geth fixes it
@@ -574,7 +574,7 @@ impl<E: GenericExecutionEngine> TestRig<E> {
         let status = self
             .ee_b
             .execution_layer
-            .notify_new_payload(&valid_payload)
+            .notify_new_payload(&valid_payload, None)
             .await
             .unwrap();
         assert_eq!(status, PayloadStatus::Valid);
@@ -588,7 +588,7 @@ impl<E: GenericExecutionEngine> TestRig<E> {
         let status = self
             .ee_b
             .execution_layer
-            .notify_new_payload(&second_payload)
+            .notify_new_payload(&second_payload, None)
             .await
             .unwrap();
         assert_eq!(status, PayloadStatus::Valid);

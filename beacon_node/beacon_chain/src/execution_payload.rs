@@ -18,7 +18,7 @@ use proto_array::{Block as ProtoBlock, ExecutionStatus};
 use slog::{debug, warn};
 use slot_clock::SlotClock;
 use state_processing::per_block_processing::{
-    compute_timestamp_at_slot, get_expected_withdrawals, is_execution_enabled,
+    self, compute_timestamp_at_slot, get_expected_withdrawals, is_execution_enabled,
     is_merge_transition_complete, partially_verify_execution_payload,
 };
 use std::sync::Arc;
@@ -68,14 +68,15 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
             // the block as optimistically imported. This is particularly relevant in the case
             // where we do not send the block to the EL at all.
             let block_message = block.message();
-            let payload = block_message.execution_payload()?;
             partially_verify_execution_payload::<_, FullPayload<_>>(
                 state,
                 block.slot(),
-                payload,
+                block_message.body(),
                 &chain.spec,
             )
             .map_err(BlockError::PerBlockProcessingError)?;
+
+            let payload = block_message.execution_payload()?;
 
             match notify_execution_layer {
                 NotifyExecutionLayer::No if chain.config.optimistic_finalized_sync => {
@@ -139,6 +140,14 @@ async fn notify_new_payload<'a, T: BeaconChainTypes>(
     block: BeaconBlockRef<'a, T::EthSpec>,
 ) -> Result<PayloadVerificationStatus, BlockError<T::EthSpec>> {
     let execution_payload = block.execution_payload()?;
+    let versioned_hashes = block.body().blob_kzg_commitments().ok().map(|commitments| {
+        commitments
+            .into_iter()
+            .map(|commitment| {
+                per_block_processing::deneb::deneb::kzg_commitment_to_versioned_hash(commitment)
+            })
+            .collect::<Vec<_>>()
+    });
 
     let execution_layer = chain
         .execution_layer
@@ -146,7 +155,7 @@ async fn notify_new_payload<'a, T: BeaconChainTypes>(
         .ok_or(ExecutionPayloadError::NoExecutionConnection)?;
 
     let new_payload_response = execution_layer
-        .notify_new_payload(&execution_payload.into())
+        .notify_new_payload(&execution_payload.into(), versioned_hashes)
         .await;
 
     match new_payload_response {
