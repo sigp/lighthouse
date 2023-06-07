@@ -248,6 +248,12 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true),
         )
         .arg(
+            Arg::with_name("genesis-backfill")
+                .long("genesis-backfill")
+                .help("Attempts to download blocks all the way back to genesis when checkpoint syncing.")
+                .takes_value(false),
+        )
+        .arg(
             Arg::with_name("enable-private-discovery")
                 .long("enable-private-discovery")
                 .help("Lighthouse by default does not discover private IP addresses. Set this flag to enable connection attempts to local addresses.")
@@ -276,7 +282,23 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                        for a beacon node being referenced by validator client using the --proposer-node flag. This configuration is for enabling more secure setups.")
                 .takes_value(false),
         )
-
+        .arg(
+            Arg::with_name("inbound-rate-limiter")
+            .long("inbound-rate-limiter")
+            .help(
+                "Configures the inbound rate limiter (requests received by this node).\
+                \
+                Rate limit quotas per protocol can be set in the form of \
+                <protocol_name>:<tokens>/<time_in_seconds>. To set quotas for multiple protocols, \
+                separate them by ';'. If the inbound rate limiter is enabled and a protocol is not \
+                present in the configuration, the default quotas will be used. \
+                \
+                This is enabled by default, using default quotas. To disable rate limiting pass \
+                `disabled` to this option instead."
+            )
+            .takes_value(true)
+            .hidden(true)
+        )
         .arg(
             Arg::with_name("disable-backfill-rate-limiting")
                 .long("disable-backfill-rate-limiting")
@@ -517,6 +539,13 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .long("block-cache-size")
                 .value_name("SIZE")
                 .help("Specifies how many blocks the database should cache in memory [default: 5]")
+                .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("historic-state-cache-size")
+                .long("historic-state-cache-size")
+                .value_name("SIZE")
+                .help("Specifies how many states from the freezer database should cache in memory [default: 1]")
                 .takes_value(true)
         )
         /*
@@ -824,7 +853,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .arg(
             Arg::with_name("reconstruct-historic-states")
                 .long("reconstruct-historic-states")
-                .help("After a checkpoint sync, reconstruct historic states in the database.")
+                .help("After a checkpoint sync, reconstruct historic states in the database. This requires syncing all the way back to genesis.")
                 .takes_value(false)
         )
         .arg(
@@ -1068,7 +1097,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .long("gui")
                 .hidden(true)
                 .help("Enable the graphical user interface and all its requirements. \
-                      This is equivalent to --http and --validator-monitor-auto.")
+                      This enables --http and --validator-monitor-auto and enables SSE logging.")
                 .takes_value(false)
         )
         .arg(
@@ -1079,5 +1108,14 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             // to local payloads, therefore it fundamentally conflicts with
             // always using the builder.
             .conflicts_with("builder-profit-threshold")
+        )
+        .arg(
+            Arg::with_name("invalid-gossip-verified-blocks-path")
+            .long("invalid-gossip-verified-blocks-path")
+            .value_name("PATH")
+            .help("If a block succeeds gossip validation whilst failing full validation, store \
+                    the block SSZ as a file at this path. This feature is only recommended for \
+                    developers. This directory is not pruned, users should be careful to avoid \
+                    filling up their disks.")
         )
 }

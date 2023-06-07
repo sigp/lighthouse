@@ -146,7 +146,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             context
                 .clone()
                 .executor
-                .spawn_without_exit(async move { server.await }, "metrics-api");
+                .spawn_without_exit(server, "metrics-api");
 
             Some(ctx)
         } else {
@@ -446,11 +446,6 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             slot_clock: slot_clock.clone(),
             beacon_nodes: beacon_nodes.clone(),
             validator_store: validator_store.clone(),
-            require_synced: if config.allow_unsynced_beacon_node {
-                RequireSynced::Yes
-            } else {
-                RequireSynced::No
-            },
             spec: context.eth2_config.spec.clone(),
             context: duties_context,
             enable_high_validator_count_metrics: config.enable_high_validator_count_metrics,
@@ -581,6 +576,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
                 graffiti_flag: self.config.graffiti,
                 spec: self.context.eth2_config.spec.clone(),
                 config: self.config.http_api.clone(),
+                sse_logging_components: self.context.sse_logging_components.clone(),
                 slot_clock: self.slot_clock.clone(),
                 log: log.clone(),
                 _phantom: PhantomData,
@@ -594,7 +590,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             self.context
                 .clone()
                 .executor
-                .spawn_without_exit(async move { server.await }, "http-api");
+                .spawn_without_exit(server, "http-api");
 
             Some(listen_addr)
         } else {
@@ -620,8 +616,8 @@ async fn init_from_beacon_node<E: EthSpec>(
     context: &RuntimeContext<E>,
 ) -> Result<(u64, Hash256), String> {
     loop {
-        beacon_nodes.update_unready_candidates().await;
-        proposer_nodes.update_unready_candidates().await;
+        beacon_nodes.update_all_candidates().await;
+        proposer_nodes.update_all_candidates().await;
 
         let num_available = beacon_nodes.num_available().await;
         let num_total = beacon_nodes.num_total();

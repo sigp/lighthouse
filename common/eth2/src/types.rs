@@ -577,6 +577,7 @@ pub struct VersionData {
 pub struct SyncingData {
     pub is_syncing: bool,
     pub is_optimistic: Option<bool>,
+    pub el_offline: Option<bool>,
     pub head_slot: Slot,
     pub sync_distance: Slot,
 }
@@ -1229,8 +1230,8 @@ pub struct ForkChoiceNode {
     pub slot: Slot,
     pub block_root: Hash256,
     pub parent_root: Option<Hash256>,
-    pub justified_epoch: Option<Epoch>,
-    pub finalized_epoch: Option<Epoch>,
+    pub justified_epoch: Epoch,
+    pub finalized_epoch: Epoch,
     #[serde(with = "serde_utils::quoted_u64")]
     pub weight: u64,
     pub validity: Option<String>,

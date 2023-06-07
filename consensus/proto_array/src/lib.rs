@@ -16,5 +16,5 @@ pub use error::Error;
 pub mod core {
     pub use super::proto_array::{ProposerBoost, ProtoArray, ProtoNode};
     pub use super::proto_array_fork_choice::VoteTracker;
-    pub use super::ssz_container::SszContainer;
+    pub use super::ssz_container::{SszContainer, SszContainerV16, SszContainerV17};
 }
