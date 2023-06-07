@@ -1437,18 +1437,19 @@ mod test {
             .cloned()
             .expect("kzg should exist");
 
-        let mut kzg_verified_blobs = vec![];
         for _ in 0..(n_epochs * capacity) {
             let pending_block = pending_blocks.pop_front().expect("should have block");
+            let mut pending_block_blobs = pending_blobs.pop_front().expect("should have blobs");
             let block_root = pending_block.block.as_block().canonical_root();
             let expected_blobs = pending_block.num_blobs_expected();
             if expected_blobs > 1 {
                 // might as well add a blob too
-                let mut pending_blobs = pending_blobs.pop_front().expect("should have blobs");
-                let one_blob = pending_blobs.pop().expect("should have at least one blob");
+                let one_blob = pending_block_blobs
+                    .pop()
+                    .expect("should have at least one blob");
                 let kzg_verified_blob = verify_kzg_for_blob(one_blob.to_blob(), kzg.as_ref())
                     .expect("kzg should verify");
-                kzg_verified_blobs.push(kzg_verified_blob);
+                let kzg_verified_blobs = vec![kzg_verified_blob];
                 // generate random boolean
                 let block_first = (rand::random::<usize>() % 2) == 0;
                 if block_first {
@@ -1486,8 +1487,6 @@ mod test {
                     );
                 }
             } else {
-                // still need to pop front so the blob count is correct
-                pending_blobs.pop_front().expect("should have blobs");
                 let availability = cache
                     .put_pending_executed_block(pending_block)
                     .expect("should put block");
@@ -1591,21 +1590,21 @@ mod test {
             .expect("kzg should exist");
 
         let mut remaining_blobs = HashMap::new();
-        let mut kzg_verified_blobs = vec![];
         for _ in 0..(n_epochs * capacity) {
             let pending_block = pending_blocks.pop_front().expect("should have block");
+            let mut pending_block_blobs = pending_blobs.pop_front().expect("should have blobs");
             let block_root = pending_block.block.as_block().canonical_root();
             let expected_blobs = pending_block.num_blobs_expected();
             if expected_blobs > 1 {
                 // might as well add a blob too
-                let mut pending_blobs = pending_blobs.pop_front().expect("should have blobs");
-                let one_blob = pending_blobs.pop().expect("should have at least one blob");
+                let one_blob = pending_block_blobs
+                    .pop()
+                    .expect("should have at least one blob");
                 let kzg_verified_blob = verify_kzg_for_blob(one_blob.to_blob(), kzg.as_ref())
                     .expect("kzg should verify");
-                kzg_verified_blobs.push(kzg_verified_blob);
+                let kzg_verified_blobs = vec![kzg_verified_blob];
                 // generate random boolean
                 let block_first = (rand::random::<usize>() % 2) == 0;
-                remaining_blobs.insert(block_root, pending_blobs);
                 if block_first {
                     let availability = cache
                         .put_pending_executed_block(pending_block)
@@ -1641,9 +1640,6 @@ mod test {
                     );
                 }
             } else {
-                // still need to pop front so the blob count is correct
-                let pending_blobs = pending_blobs.pop_front().expect("should have blobs");
-                remaining_blobs.insert(block_root, pending_blobs);
                 let availability = cache
                     .put_pending_executed_block(pending_block)
                     .expect("should put block");
@@ -1652,6 +1648,7 @@ mod test {
                     "should be pending blobs"
                 );
             }
+            remaining_blobs.insert(block_root, pending_block_blobs);
         }
 
         // now we should have a full cache spanning multiple epochs
