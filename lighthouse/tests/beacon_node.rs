@@ -16,7 +16,10 @@ use std::str::FromStr;
 use std::string::ToString;
 use std::time::Duration;
 use tempfile::TempDir;
-use types::{Address, Checkpoint, Epoch, ExecutionBlockHash, ForkName, Hash256, MainnetEthSpec};
+use types::{
+    Address, Checkpoint, Epoch, ExecutionBlockHash, ForkName, Hash256, MainnetEthSpec,
+    ProgressiveBalancesMode,
+};
 use unused_port::{unused_tcp4_port, unused_tcp6_port, unused_udp4_port, unused_udp6_port};
 
 const DEFAULT_ETH1_ENDPOINT: &str = "http://localhost:8545/";
@@ -2217,6 +2220,31 @@ fn invalid_gossip_verified_blocks_path() {
             assert_eq!(
                 config.network.invalid_block_storage,
                 Some(PathBuf::from(path))
+            )
+        });
+}
+
+#[test]
+fn progressive_balances_default() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config.chain.progressive_balances_mode,
+                ProgressiveBalancesMode::Disabled
+            )
+        });
+}
+
+#[test]
+fn progressive_balances_fast() {
+    CommandLineTest::new()
+        .flag("progressive-balances", Some("fast"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config.chain.progressive_balances_mode,
+                ProgressiveBalancesMode::Fast
             )
         });
 }

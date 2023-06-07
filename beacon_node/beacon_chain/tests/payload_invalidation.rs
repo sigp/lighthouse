@@ -1066,6 +1066,7 @@ async fn invalid_parent() {
             PayloadVerificationStatus::Optimistic,
             &rig.harness.chain.spec,
             CountUnrealized::True,
+            rig.harness.chain.config.progressive_balances_mode
         ),
         Err(ForkChoiceError::ProtoArrayStringError(message))
         if message.contains(&format!(

@@ -688,6 +688,7 @@ where
                 Some(current_slot),
                 &self.spec,
                 CountUnrealized::True,
+                self.chain_config.progressive_balances_mode,
             )?;
         }
 

@@ -1,6 +1,8 @@
 use crate::{BeaconStateError, Epoch};
 use arbitrary::Arbitrary;
 use safe_arith::SafeArith;
+use serde_derive::{Deserialize, Serialize};
+use strum::{Display, EnumString, EnumVariantNames};
 
 /// This cache keeps track of the accumulated target attestation balance for the current & previous
 /// epochs. The cached values can be utilised by fork choice to calculate unrealized justification
@@ -130,4 +132,17 @@ impl ProgressiveBalancesCache {
             .as_ref()
             .ok_or(BeaconStateError::ProgressiveBalancesCacheNotInitialized)
     }
+}
+
+#[derive(
+    Debug, PartialEq, Eq, Clone, Copy, Deserialize, Serialize, Display, EnumString, EnumVariantNames,
+)]
+#[strum(serialize_all = "lowercase")]
+pub enum ProgressiveBalancesMode {
+    /// Disable the usage of progressive cache, and use the existing method (slower but safer).
+    Disabled,
+    /// Enable the usage of progressive cache, with checks against participation cache.
+    Checked,
+    /// Enable  the usage of progressive cache, with no comparative checks (fast, eventual goal).
+    Fast,
 }

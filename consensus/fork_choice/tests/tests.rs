@@ -289,6 +289,7 @@ impl ForkChoiceTest {
                 PayloadVerificationStatus::Verified,
                 &self.harness.chain.spec,
                 CountUnrealized::True,
+                self.harness.chain.config.progressive_balances_mode,
             )
             .unwrap();
         self
@@ -332,6 +333,7 @@ impl ForkChoiceTest {
                 PayloadVerificationStatus::Verified,
                 &self.harness.chain.spec,
                 CountUnrealized::True,
+                self.harness.chain.config.progressive_balances_mode,
             )
             .err()
             .expect("on_block did not return an error");

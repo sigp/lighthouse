@@ -26,8 +26,10 @@ pub use self::committee_cache::{
     compute_committee_index_in_epoch, compute_committee_range_in_epoch, epoch_committee_count,
     CommitteeCache,
 };
+pub use crate::beacon_state::progressive_balances_cache::{
+    ProgressiveBalancesCache, ProgressiveBalancesMode,
+};
 use crate::historical_summary::HistoricalSummary;
-use crate::progressive_balances_cache::ProgressiveBalancesCache;
 pub use clone_config::CloneConfig;
 pub use eth_spec::*;
 pub use iter::BlockRootsIter;
@@ -38,6 +40,7 @@ mod committee_cache;
 mod clone_config;
 mod exit_cache;
 mod iter;
+mod progressive_balances_cache;
 mod pubkey_cache;
 mod tests;
 mod tree_hash_cache;

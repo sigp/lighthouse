@@ -10,7 +10,10 @@ use state_processing::{
 use std::sync::Arc;
 use std::time::Duration;
 use store::{iter::ParentRootBlockIterator, HotColdDB, ItemStore};
-use types::{BeaconState, ChainSpec, EthSpec, ForkName, Hash256, SignedBeaconBlock, Slot};
+use types::{
+    BeaconState, ChainSpec, EthSpec, ForkName, Hash256, ProgressiveBalancesMode, SignedBeaconBlock,
+    Slot,
+};
 
 const CORRUPT_DB_MESSAGE: &str = "The database could be corrupt. Check its file permissions or \
                                   consider deleting it by running with the --purge-db flag.";
@@ -101,6 +104,7 @@ pub fn reset_fork_choice_to_finalization<E: EthSpec, Hot: ItemStore<E>, Cold: It
     current_slot: Option<Slot>,
     spec: &ChainSpec,
     count_unrealized_config: CountUnrealized,
+    progressive_balances_mode: ProgressiveBalancesMode,
 ) -> Result<ForkChoice<BeaconForkChoiceStore<E, Hot, Cold>, E>, String> {
     // Fetch finalized block.
     let finalized_checkpoint = head_state.finalized_checkpoint();
@@ -210,6 +214,7 @@ pub fn reset_fork_choice_to_finalization<E: EthSpec, Hot: ItemStore<E>, Cold: It
                 payload_verification_status,
                 spec,
                 count_unrealized,
+                progressive_balances_mode,
             )
             .map_err(|e| format!("Error applying replayed block to fork choice: {:?}", e))?;
     }

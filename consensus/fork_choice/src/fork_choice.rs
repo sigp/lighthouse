@@ -1,4 +1,5 @@
 use crate::{ForkChoiceStore, InvalidationOperation};
+use per_epoch_processing::altair::participation_cache::Error as ParticipationCacheError;
 use proto_array::{
     Block as ProtoBlock, DisallowedReOrgOffsets, ExecutionStatus, ProposerHeadError,
     ProposerHeadInfo, ProtoArrayForkChoice, ReOrgThreshold,
@@ -6,6 +7,9 @@ use proto_array::{
 use slog::{crit, debug, warn, Logger};
 use ssz_derive::{Decode, Encode};
 use state_processing::per_epoch_processing::altair::ParticipationCache;
+use state_processing::per_epoch_processing::{
+    weigh_justification_and_finalization, JustificationAndFinalizationState,
+};
 use state_processing::{
     per_block_processing::errors::AttesterSlashingValidationError, per_epoch_processing,
 };
@@ -13,13 +17,13 @@ use std::cmp::Ordering;
 use std::collections::BTreeSet;
 use std::marker::PhantomData;
 use std::time::Duration;
-use types::ProgressiveBalancesCache;
 use types::{
     consts::merge::INTERVALS_PER_SLOT, AbstractExecPayload, AttestationShufflingId,
     AttesterSlashing, BeaconBlockRef, BeaconState, BeaconStateError, ChainSpec, Checkpoint, Epoch,
     EthSpec, ExecPayload, ExecutionBlockHash, Hash256, IndexedAttestation, RelativeEpoch,
     SignedBeaconBlock, Slot,
 };
+use types::{ProgressiveBalancesCache, ProgressiveBalancesMode};
 
 #[derive(Debug)]
 pub enum Error<T> {
@@ -74,7 +78,9 @@ pub enum Error<T> {
     },
     UnrealizedVoteProcessing(state_processing::EpochProcessingError),
     ParticipationCacheBuild(BeaconStateError),
+    ParticipationCacheError(ParticipationCacheError),
     ValidatorStatuses(BeaconStateError),
+    ProgressiveBalancesCacheCheckFailed(String),
 }
 
 impl<T> From<InvalidAttestation> for Error<T> {
@@ -662,6 +668,7 @@ where
         payload_verification_status: PayloadVerificationStatus,
         spec: &ChainSpec,
         count_unrealized: CountUnrealized,
+        progressive_balances_mode: ProgressiveBalancesMode,
     ) -> Result<(), Error<T::Error>> {
         // Provide the slot (as per the system clock) to the `fc_store` and then return its view of
         // the current slot. The `fc_store` will ensure that the `current_slot` is never
@@ -752,48 +759,53 @@ where
                         && parent_finalized.epoch + 1 >= block_epoch
                 });
 
-            let (unrealized_justified_checkpoint, unrealized_finalized_checkpoint) =
-                if let Some((parent_justified, parent_finalized)) = parent_checkpoints {
-                    (parent_justified, parent_finalized)
-                } else {
-                    let justification_and_finalization_state = match block {
-                        BeaconBlockRef::Capella(_)
-                        | BeaconBlockRef::Merge(_)
-                        | BeaconBlockRef::Altair(_) => {
+            let (unrealized_justified_checkpoint, unrealized_finalized_checkpoint) = if let Some(
+                (parent_justified, parent_finalized),
+            ) =
+                parent_checkpoints
+            {
+                (parent_justified, parent_finalized)
+            } else {
+                let justification_and_finalization_state = match block {
+                    BeaconBlockRef::Capella(_)
+                    | BeaconBlockRef::Merge(_)
+                    | BeaconBlockRef::Altair(_) => match progressive_balances_mode {
+                        ProgressiveBalancesMode::Disabled => {
                             let participation_cache = ParticipationCache::new(state, spec)
                                 .map_err(Error::ParticipationCacheBuild)?;
-
-                            check_progressive_balances_cache(
-                                state.progressive_balances_cache(),
-                                &participation_cache,
-                                spec,
-                            );
-
                             per_epoch_processing::altair::process_justification_and_finalization(
                                 state,
                                 &participation_cache,
                             )?
                         }
-                        BeaconBlockRef::Base(_) => {
-                            let mut validator_statuses =
-                                per_epoch_processing::base::ValidatorStatuses::new(state, spec)
-                                    .map_err(Error::ValidatorStatuses)?;
-                            validator_statuses
-                                .process_attestations(state)
-                                .map_err(Error::ValidatorStatuses)?;
-                            per_epoch_processing::base::process_justification_and_finalization(
+                        ProgressiveBalancesMode::Fast | ProgressiveBalancesMode::Checked => {
+                            process_justification_and_finalization_from_progressive_cache::<E, T>(
                                 state,
-                                &validator_statuses.total_balances,
                                 spec,
+                                progressive_balances_mode,
                             )?
                         }
-                    };
-
-                    (
-                        justification_and_finalization_state.current_justified_checkpoint(),
-                        justification_and_finalization_state.finalized_checkpoint(),
-                    )
+                    },
+                    BeaconBlockRef::Base(_) => {
+                        let mut validator_statuses =
+                            per_epoch_processing::base::ValidatorStatuses::new(state, spec)
+                                .map_err(Error::ValidatorStatuses)?;
+                        validator_statuses
+                            .process_attestations(state)
+                            .map_err(Error::ValidatorStatuses)?;
+                        per_epoch_processing::base::process_justification_and_finalization(
+                            state,
+                            &validator_statuses.total_balances,
+                            spec,
+                        )?
+                    }
                 };
+
+                (
+                    justification_and_finalization_state.current_justified_checkpoint(),
+                    justification_and_finalization_state.finalized_checkpoint(),
+                )
+            };
 
             // Update best known unrealized justified & finalized checkpoints
             if unrealized_justified_checkpoint.epoch
@@ -1528,61 +1540,106 @@ where
     }
 }
 
-/// Check the `ProgressiveBalancesCache` values against the computed `ParticipationCache`.
-///
-/// ## Panics  
-///
-/// In debug mode (`debug_assertions` set to `true`), this function panics if the cached progressive
-/// balances doesn't match computed values from `ParticipationCache`, or if it fails to perform the
-/// check.
-fn check_progressive_balances_cache(
-    progressive_balances_cache: &ProgressiveBalancesCache,
-    participation_cache: &ParticipationCache,
+fn process_justification_and_finalization_from_progressive_cache<E, T>(
+    state: &BeaconState<E>,
     spec: &ChainSpec,
-) {
-    let do_check = || {
-        // FIXME[JC]: Converts value to 0 if it is the same as `EFFECTIVE_BALANCE_INCREMENT`.
-        // `ParticipationCache` methods return `EFFECTIVE_BALANCE_INCREMENT` (1,000,000,000)
-        // when the balance is 0, and this breaks our calculation.
-        let handle_zero_effective_balance = |val| {
-            if val == spec.effective_balance_increment {
-                0
-            } else {
-                val
-            }
-        };
+    progressive_balances_mode: ProgressiveBalancesMode,
+) -> Result<JustificationAndFinalizationState<E>, Error<T::Error>>
+where
+    E: EthSpec,
+    T: ForkChoiceStore<E>,
+{
+    let justification_and_finalization_state = JustificationAndFinalizationState::new(state);
+    if state.current_epoch() <= E::genesis_epoch() + 1 {
+        return Ok(justification_and_finalization_state);
+    }
 
-        let previous_target_balance = participation_cache
-            .previous_epoch_target_attesting_balance()
-            .map_err(|e| BeaconStateError::ParticipationCacheError(format!("{:?}", e)))?;
-        let cached_previous_target_balance =
-            progressive_balances_cache.previous_epoch_target_attesting_balance()?;
+    // Load cached balances
+    let progressive_balances_cache: &ProgressiveBalancesCache = state.progressive_balances_cache();
+    let cached_previous_target_balance = progressive_balances_cache
+        .previous_epoch_target_attesting_balance()
+        .map_err(Error::BeaconStateError)?;
+    let cached_current_target_balance = progressive_balances_cache
+        .current_epoch_target_attesting_balance()
+        .map_err(Error::BeaconStateError)?;
+    let cached_total_active_balance = state
+        .get_total_active_balance()
+        .map_err(Error::BeaconStateError)?;
 
-        debug_assert!(
-            handle_zero_effective_balance(previous_target_balance) == cached_previous_target_balance,
-            "Previous epoch target attesting balance from progressive cache does not match computed value."
-        );
+    if let ProgressiveBalancesMode::Checked = progressive_balances_mode {
+        check_progressive_balances::<E, T>(
+            state,
+            spec,
+            cached_previous_target_balance,
+            cached_current_target_balance,
+            cached_total_active_balance,
+        )?;
+    }
 
-        let current_target_balance = participation_cache
-            .current_epoch_target_attesting_balance()
-            .map_err(|e| BeaconStateError::ParticipationCacheError(format!("{:?}", e)))?;
-        let cached_current_target_balance =
-            progressive_balances_cache.current_epoch_target_attesting_balance()?;
+    weigh_justification_and_finalization(
+        justification_and_finalization_state,
+        cached_total_active_balance,
+        cached_previous_target_balance,
+        cached_current_target_balance,
+    )
+    .map_err(Error::from)
+}
 
-        debug_assert!(
-            handle_zero_effective_balance(current_target_balance) == cached_current_target_balance,
-            "Current epoch target attesting balance from progressive cache does not match computed value."
-        );
-
-        Ok(())
+/// Perform comparative checks against `ParticipationCache`, will return error if there's a mismatch.
+fn check_progressive_balances<E, T>(
+    state: &BeaconState<E>,
+    spec: &ChainSpec,
+    cached_previous_target_balance: u64,
+    cached_current_target_balance: u64,
+    cached_total_active_balance: u64,
+) -> Result<(), Error<T::Error>>
+where
+    E: EthSpec,
+    T: ForkChoiceStore<E>,
+{
+    // FIXME[JC]: Converts value to 0 if it is the same as `EFFECTIVE_BALANCE_INCREMENT`.
+    // `ParticipationCache` methods return `EFFECTIVE_BALANCE_INCREMENT` (1,000,000,000)
+    // when the balance is 0, and this breaks our calculation.
+    let handle_zero_effective_balance = |val| {
+        if val == spec.effective_balance_increment {
+            0
+        } else {
+            val
+        }
     };
 
-    let result: Result<(), BeaconStateError> = do_check();
-    debug_assert!(
-        result.is_ok(),
-        "An error occurred while checking progressive balances: {:?}",
-        result.err()
-    );
+    let participation_cache =
+        ParticipationCache::new(state, spec).map_err(Error::ParticipationCacheBuild)?;
+
+    // Check previous epoch target balances
+    let previous_target_balance = participation_cache
+        .previous_epoch_target_attesting_balance()
+        .map_err(Error::ParticipationCacheError)?;
+    if handle_zero_effective_balance(previous_target_balance) != cached_previous_target_balance {
+        return Err(Error::ProgressiveBalancesCacheCheckFailed(
+            "Previous epoch target attesting balance mismatch".to_string(),
+        ));
+    }
+
+    // Check current epoch target balances
+    let current_target_balance = participation_cache
+        .current_epoch_target_attesting_balance()
+        .map_err(Error::ParticipationCacheError)?;
+    if handle_zero_effective_balance(current_target_balance) != cached_current_target_balance {
+        return Err(Error::ProgressiveBalancesCacheCheckFailed(
+            "Current epoch target attesting balance mismatch".to_string(),
+        ));
+    }
+
+    // Check current epoch total balances
+    let total_active_balance = participation_cache.current_epoch_total_active_balance();
+    if total_active_balance != cached_total_active_balance {
+        return Err(Error::ProgressiveBalancesCacheCheckFailed(
+            "Current epoch total active balance mismatch".to_string(),
+        ));
+    }
+
+    Ok(())
 }
 
 /// Helper struct that is used to encode/decode the state of the `ForkChoice` as SSZ bytes.
