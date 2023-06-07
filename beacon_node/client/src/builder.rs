@@ -742,7 +742,7 @@ where
 
             runtime_context
                 .executor
-                .spawn_without_exit(async move { server.await }, "http-metrics");
+                .spawn_without_exit(server, "http-metrics");
 
             Some(listen_addr)
         } else {

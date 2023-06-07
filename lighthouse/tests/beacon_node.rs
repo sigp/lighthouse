@@ -1451,6 +1451,26 @@ fn empty_self_limiter_flag() {
             )
         });
 }
+
+#[test]
+fn empty_inbound_rate_limiter_flag() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config.network.inbound_rate_limiter_config,
+                Some(lighthouse_network::rpc::config::InboundRateLimiterConfig::default())
+            )
+        });
+}
+#[test]
+fn disable_inbound_rate_limiter_flag() {
+    CommandLineTest::new()
+        .flag("inbound-rate-limiter", Some("disabled"))
+        .run_with_zero_port()
+        .with_config(|config| assert_eq!(config.network.inbound_rate_limiter_config, None));
+}
+
 #[test]
 fn http_allow_origin_flag() {
     CommandLineTest::new()
