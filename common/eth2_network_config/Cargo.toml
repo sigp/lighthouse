@@ -18,4 +18,4 @@ serde_yaml = "0.8.13"
 types = { path = "../../consensus/types"}
 ethereum_ssz = "0.5.0"
 eth2_config = { path = "../eth2_config"}
-discv5 = { git = "https://github.com/sigp/discv5", rev = "269b7f0fc73f85484b0c08929a8e7540ab5de20f" }
+discv5 = "0.3.0"
