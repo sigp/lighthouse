@@ -73,12 +73,12 @@ pub mod validator_subscription;
 pub mod voluntary_exit;
 #[macro_use]
 pub mod slot_epoch_macros;
-pub mod body;
 pub mod config_and_preset;
 pub mod execution_block_header;
 pub mod fork_context;
 pub mod participation_flags;
 pub mod participation_list;
+pub mod payload;
 pub mod preset;
 pub mod slot_epoch;
 pub mod subnet_id;
@@ -121,11 +121,6 @@ pub use crate::beacon_committee::{BeaconCommittee, OwnedBeaconCommittee};
 pub use crate::beacon_state::{BeaconTreeHashCache, Error as BeaconStateError, *};
 pub use crate::blob_sidecar::{BlobSidecar, BlobSidecarList};
 pub use crate::bls_to_execution_change::BlsToExecutionChange;
-pub use crate::body::{
-    AbstractExecPayload, BlindedPayload, BlindedPayloadCapella, BlindedPayloadDeneb,
-    BlindedPayloadMerge, BlindedPayloadRef, BlockType, ExecPayload, FullPayload,
-    FullPayloadCapella, FullPayloadDeneb, FullPayloadMerge, FullPayloadRef, OwnedExecPayload,
-};
 pub use crate::chain_spec::{ChainSpec, Config, Domain};
 pub use crate::checkpoint::Checkpoint;
 pub use crate::config_and_preset::{
@@ -161,6 +156,11 @@ pub use crate::light_client_finality_update::LightClientFinalityUpdate;
 pub use crate::light_client_optimistic_update::LightClientOptimisticUpdate;
 pub use crate::participation_flags::ParticipationFlags;
 pub use crate::participation_list::ParticipationList;
+pub use crate::payload::{
+    AbstractExecPayload, BlindedPayload, BlindedPayloadCapella, BlindedPayloadDeneb,
+    BlindedPayloadMerge, BlindedPayloadRef, BlockType, ExecPayload, FullPayload,
+    FullPayloadCapella, FullPayloadDeneb, FullPayloadMerge, FullPayloadRef, OwnedExecPayload,
+};
 pub use crate::pending_attestation::PendingAttestation;
 pub use crate::preset::{AltairPreset, BasePreset, BellatrixPreset, CapellaPreset};
 pub use crate::proposer_preparation_data::ProposerPreparationData;
