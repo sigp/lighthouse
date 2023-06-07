@@ -101,6 +101,18 @@ impl<T> From<state_processing::EpochProcessingError> for Error<T> {
     }
 }
 
+impl<T> From<BeaconStateError> for Error<T> {
+    fn from(e: BeaconStateError) -> Self {
+        Error::BeaconStateError(e)
+    }
+}
+
+impl<T> From<ParticipationCacheError> for Error<T> {
+    fn from(e: ParticipationCacheError) -> Self {
+        Error::ParticipationCacheError(e)
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 /// Controls how fork choice should behave when restoring from a persisted fork choice.
 pub enum ResetPayloadStatuses {
@@ -1556,31 +1568,27 @@ where
 
     // Load cached balances
     let progressive_balances_cache: &ProgressiveBalancesCache = state.progressive_balances_cache();
-    let cached_previous_target_balance = progressive_balances_cache
-        .previous_epoch_target_attesting_balance()
-        .map_err(Error::BeaconStateError)?;
-    let cached_current_target_balance = progressive_balances_cache
-        .current_epoch_target_attesting_balance()
-        .map_err(Error::BeaconStateError)?;
-    let cached_total_active_balance = state
-        .get_total_active_balance()
-        .map_err(Error::BeaconStateError)?;
+    let previous_target_balance =
+        progressive_balances_cache.previous_epoch_target_attesting_balance()?;
+    let current_target_balance =
+        progressive_balances_cache.current_epoch_target_attesting_balance()?;
+    let total_active_balance = state.get_total_active_balance()?;
 
     if let ProgressiveBalancesMode::Checked = progressive_balances_mode {
         check_progressive_balances::<E, T>(
             state,
             spec,
-            cached_previous_target_balance,
-            cached_current_target_balance,
-            cached_total_active_balance,
+            previous_target_balance,
+            current_target_balance,
+            total_active_balance,
         )?;
     }
 
     weigh_justification_and_finalization(
         justification_and_finalization_state,
-        cached_total_active_balance,
-        cached_previous_target_balance,
-        cached_current_target_balance,
+        total_active_balance,
+        previous_target_balance,
+        current_target_balance,
     )
     .map_err(Error::from)
 }
@@ -1601,9 +1609,7 @@ where
         ParticipationCache::new(state, spec).map_err(Error::ParticipationCacheBuild)?;
 
     // Check previous epoch target balances
-    let previous_target_balance = participation_cache
-        .previous_epoch_target_attesting_balance()
-        .map_err(Error::ParticipationCacheError)?;
+    let previous_target_balance = participation_cache.previous_epoch_target_attesting_balance()?;
     if previous_target_balance != cached_previous_target_balance {
         return Err(Error::ProgressiveBalancesCacheCheckFailed(
             "Previous epoch target attesting balance mismatch".to_string(),
@@ -1611,9 +1617,7 @@ where
     }
 
     // Check current epoch target balances
-    let current_target_balance = participation_cache
-        .current_epoch_target_attesting_balance()
-        .map_err(Error::ParticipationCacheError)?;
+    let current_target_balance = participation_cache.current_epoch_target_attesting_balance()?;
     if current_target_balance != cached_current_target_balance {
         return Err(Error::ProgressiveBalancesCacheCheckFailed(
             "Current epoch target attesting balance mismatch".to_string(),
