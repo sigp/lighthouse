@@ -160,7 +160,7 @@ impl Config {
             udp_port,
             tcp_port,
         });
-        self.discv5_config.listen_config = discv5::ListenConfig::new_ipv4(addr, udp_port);
+        self.discv5_config.listen_config = discv5::ListenConfig::from_ip(addr.into(), udp_port);
         self.discv5_config.table_filter = |enr| enr.ip4().as_ref().map_or(false, is_global_ipv4)
     }
 
@@ -174,7 +174,7 @@ impl Config {
             tcp_port,
         });
 
-        self.discv5_config.listen_config = discv5::ListenConfig::new_ipv6(addr, udp_port);
+        self.discv5_config.listen_config = discv5::ListenConfig::from_ip(addr.into(), udp_port);
         self.discv5_config.table_filter = |enr| enr.ip6().as_ref().map_or(false, is_global_ipv6)
     }
 
@@ -281,7 +281,8 @@ impl Default for Config {
             tcp_port: 9000,
         });
 
-        let discv5_listen_config = discv5::ListenConfig::new_ipv4(Ipv4Addr::UNSPECIFIED, 9000);
+        let discv5_listen_config =
+            discv5::ListenConfig::from_ip(Ipv4Addr::UNSPECIFIED.into(), 9000);
 
         // discv5 configuration
         let discv5_config = Discv5ConfigBuilder::new(discv5_listen_config)
