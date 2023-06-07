@@ -317,8 +317,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         // attestation subnet service
         let attestation_service = AttestationService::new(
             beacon_chain.clone(),
-            #[cfg(feature = "deterministic_long_lived_attnets")]
-            network_globals.local_enr().node_id().raw().into(),
+            network_globals.local_enr().node_id(),
             config,
             &network_log,
         );

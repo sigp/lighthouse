@@ -747,7 +747,7 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         // We check this *before* we load the parent so that we can return a more detailed error.
         check_block_is_finalized_checkpoint_or_descendant(
             chain,
-            &chain.canonical_head.fork_choice_write_lock(),
+            &chain.canonical_head.fork_choice_read_lock(),
             &block,
         )?;
 
