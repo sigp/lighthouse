@@ -969,7 +969,7 @@ dependencies = [
 [[package]]
 name = "c-kzg"
 version = "0.1.0"
-source = "git+https://github.com/ethereum/c-kzg-4844?rev=fd24cf8e1e2f09a96b4e62a595b4e49f046ce6cf#fd24cf8e1e2f09a96b4e62a595b4e49f046ce6cf"
+source = "git+https://github.com/ethereum/c-kzg-4844?rev=cfdd9e5f8f6fa4375034733ad06cb9d1030a0fd9#cfdd9e5f8f6fa4375034733ad06cb9d1030a0fd9"
 dependencies = [
  "bindgen 0.64.0",
  "cc",
