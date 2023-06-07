@@ -55,18 +55,25 @@ pub fn process_operations<T: EthSpec, Payload: AbstractExecPayload<T>>(
         spec,
     )?;
     process_attestations(state, block_body, verify_signatures, ctxt, spec)?;
-    process_exits(state, block_body.voluntary_exits(), verify_signatures, spec)?;
     process_deposits(state, block_body.deposits(), spec)?;
+    process_exits(state, block_body.voluntary_exits(), verify_signatures, spec)?;
 
     if let Ok(bls_to_execution_changes) = block_body.bls_to_execution_changes() {
         process_bls_to_execution_changes(state, bls_to_execution_changes, verify_signatures, spec)?;
     }
 
     if let Ok(payload) = block_body.execution_payload() {
-        if is_execution_enabled(state, block_body) {
-            let deposit_receipts = payload.deposit_receipts()?;
-            for deposit_receipt in deposit_receipts.iter() {
-                process_deposit_receipt(state, deposit_receipt, spec)?;
+        match payload.deposit_receipts() {
+            Ok(deposit_receipts) => {
+                // Check if there are any deposit receipts
+                if !deposit_receipts.is_empty() {
+                    for deposit_receipt in deposit_receipts.iter() {
+                        process_deposit_receipt(state, deposit_receipt, spec)?;
+                    }
+                }
+            }
+            Err(_) => {
+                // No deposit receipts, do nothing
             }
         }
     }
