@@ -138,13 +138,8 @@ async fn base_altair_merge_capella() {
     for _ in (merge_fork_slot.as_u64() + 3)..capella_fork_slot.as_u64() {
         harness.extend_slots(1).await;
         let block = &harness.chain.head_snapshot().beacon_block;
-        let full_payload: FullPayload<E> = block
-            .message()
-            .body()
-            .execution_payload()
-            .unwrap()
-            .clone()
-            .into();
+        let full_payload: FullPayload<E> =
+            block.message().body().execution_payload().unwrap().into();
         // pre-capella shouldn't have withdrawals
         assert!(full_payload.withdrawals_root().is_err());
         execution_payloads.push(full_payload);
@@ -156,13 +151,8 @@ async fn base_altair_merge_capella() {
     for _ in 0..16 {
         harness.extend_slots(1).await;
         let block = &harness.chain.head_snapshot().beacon_block;
-        let full_payload: FullPayload<E> = block
-            .message()
-            .body()
-            .execution_payload()
-            .unwrap()
-            .clone()
-            .into();
+        let full_payload: FullPayload<E> =
+            block.message().body().execution_payload().unwrap().into();
         // post-capella should have withdrawals
         assert!(full_payload.withdrawals_root().is_ok());
         execution_payloads.push(full_payload);

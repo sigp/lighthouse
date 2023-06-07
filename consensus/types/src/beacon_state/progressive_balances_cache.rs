@@ -1,4 +1,5 @@
-use crate::{BeaconStateError, Epoch};
+use crate::beacon_state::balance::Balance;
+use crate::{BeaconStateError, ChainSpec, Epoch};
 use arbitrary::Arbitrary;
 use safe_arith::SafeArith;
 use serde_derive::{Deserialize, Serialize};
@@ -16,16 +17,16 @@ pub struct ProgressiveBalancesCache {
 #[derive(Debug, PartialEq, Arbitrary, Clone)]
 struct Inner {
     pub current_epoch: Epoch,
-    pub previous_epoch_target_attesting_balance: u64,
-    pub current_epoch_target_attesting_balance: u64,
+    pub previous_epoch_target_attesting_balance: Balance,
+    pub current_epoch_target_attesting_balance: Balance,
 }
 
 impl ProgressiveBalancesCache {
     pub fn initialize(
         &mut self,
         current_epoch: Epoch,
-        previous_epoch_target_attesting_balance: u64,
-        current_epoch_target_attesting_balance: u64,
+        previous_epoch_target_attesting_balance: Balance,
+        current_epoch_target_attesting_balance: Balance,
     ) {
         self.inner = Some(Inner {
             current_epoch,
@@ -104,21 +105,28 @@ impl ProgressiveBalancesCache {
 
     /// On epoch transition, the balance from current epoch is shifted to previous epoch, and the
     /// current epoch balance is reset to 0.
-    pub fn on_epoch_transition(&mut self) -> Result<(), BeaconStateError> {
+    pub fn on_epoch_transition(&mut self, spec: &ChainSpec) -> Result<(), BeaconStateError> {
         let cache = self.get_inner_mut()?;
         cache.current_epoch.safe_add_assign(1)?;
         cache.previous_epoch_target_attesting_balance =
             cache.current_epoch_target_attesting_balance;
-        cache.current_epoch_target_attesting_balance = 0;
+        cache.current_epoch_target_attesting_balance =
+            Balance::zero(spec.effective_balance_increment);
         Ok(())
     }
 
     pub fn previous_epoch_target_attesting_balance(&self) -> Result<u64, BeaconStateError> {
-        Ok(self.get_inner()?.previous_epoch_target_attesting_balance)
+        Ok(self
+            .get_inner()?
+            .previous_epoch_target_attesting_balance
+            .get())
     }
 
     pub fn current_epoch_target_attesting_balance(&self) -> Result<u64, BeaconStateError> {
-        Ok(self.get_inner()?.current_epoch_target_attesting_balance)
+        Ok(self
+            .get_inner()?
+            .current_epoch_target_attesting_balance
+            .get())
     }
 
     fn get_inner_mut(&mut self) -> Result<&mut Inner, BeaconStateError> {
@@ -143,6 +151,6 @@ pub enum ProgressiveBalancesMode {
     Disabled,
     /// Enable the usage of progressive cache, with checks against participation cache.
     Checked,
-    /// Enable  the usage of progressive cache, with no comparative checks (fast, eventual goal).
+    /// Enable the usage of progressive cache, with no comparative checks (fast, eventual goal).
     Fast,
 }

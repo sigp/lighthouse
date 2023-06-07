@@ -21,25 +21,12 @@ pub fn initialize_progressive_balances_cache<E: EthSpec>(
         None => Cow::Owned(ParticipationCache::new(state, spec)?),
     };
 
-    // FIXME[JC]: Converts value to 0 if it is the same as `EFFECTIVE_BALANCE_INCREMENT`.
-    // `ParticipationCache` methods return `EFFECTIVE_BALANCE_INCREMENT` (1,000,000,000)
-    // when the balance is 0, and this breaks our calculation.
-    let handle_zero_effective_balance = |val| {
-        if val == spec.effective_balance_increment {
-            0
-        } else {
-            val
-        }
-    };
-
     let previous_epoch_target_attesting_balance = participation_cache
-        .previous_epoch_target_attesting_balance()
-        .map(handle_zero_effective_balance)
+        .previous_epoch_target_attesting_balance_raw()
         .map_err(|e| BeaconStateError::ParticipationCacheError(format!("{:?}", e)))?;
 
     let current_epoch_target_attesting_balance = participation_cache
-        .current_epoch_target_attesting_balance()
-        .map(handle_zero_effective_balance)
+        .current_epoch_target_attesting_balance_raw()
         .map_err(|e| BeaconStateError::ParticipationCacheError(format!("{:?}", e)))?;
 
     let current_epoch = state.current_epoch();

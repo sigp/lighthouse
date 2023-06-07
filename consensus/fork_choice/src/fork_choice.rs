@@ -1597,17 +1597,6 @@ where
     E: EthSpec,
     T: ForkChoiceStore<E>,
 {
-    // FIXME[JC]: Converts value to 0 if it is the same as `EFFECTIVE_BALANCE_INCREMENT`.
-    // `ParticipationCache` methods return `EFFECTIVE_BALANCE_INCREMENT` (1,000,000,000)
-    // when the balance is 0, and this breaks our calculation.
-    let handle_zero_effective_balance = |val| {
-        if val == spec.effective_balance_increment {
-            0
-        } else {
-            val
-        }
-    };
-
     let participation_cache =
         ParticipationCache::new(state, spec).map_err(Error::ParticipationCacheBuild)?;
 
@@ -1615,7 +1604,7 @@ where
     let previous_target_balance = participation_cache
         .previous_epoch_target_attesting_balance()
         .map_err(Error::ParticipationCacheError)?;
-    if handle_zero_effective_balance(previous_target_balance) != cached_previous_target_balance {
+    if previous_target_balance != cached_previous_target_balance {
         return Err(Error::ProgressiveBalancesCacheCheckFailed(
             "Previous epoch target attesting balance mismatch".to_string(),
         ));
@@ -1625,7 +1614,7 @@ where
     let current_target_balance = participation_cache
         .current_epoch_target_attesting_balance()
         .map_err(Error::ParticipationCacheError)?;
-    if handle_zero_effective_balance(current_target_balance) != cached_current_target_balance {
+    if current_target_balance != cached_current_target_balance {
         return Err(Error::ProgressiveBalancesCacheCheckFailed(
             "Current epoch target attesting balance mismatch".to_string(),
         ));

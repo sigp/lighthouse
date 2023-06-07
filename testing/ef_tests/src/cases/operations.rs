@@ -120,25 +120,14 @@ impl<E: EthSpec> Operation<E> for AttesterSlashing<E> {
         _: &Operations<E, Self>,
     ) -> Result<(), BlockProcessingError> {
         let mut ctxt = ConsensusContext::new(state.slot());
-        match state {
-            BeaconState::Base(_) => process_attester_slashings(
-                state,
-                &[self.clone()],
-                VerifySignatures::True,
-                &mut ctxt,
-                spec,
-            ),
-            BeaconState::Altair(_) | BeaconState::Merge(_) | BeaconState::Capella(_) => {
-                initialize_progressive_balances_cache(state, None, spec)?;
-                process_attester_slashings(
-                    state,
-                    &[self.clone()],
-                    VerifySignatures::True,
-                    &mut ctxt,
-                    spec,
-                )
-            }
-        }
+        initialize_progressive_balances_cache(state, None, spec)?;
+        process_attester_slashings(
+            state,
+            &[self.clone()],
+            VerifySignatures::True,
+            &mut ctxt,
+            spec,
+        )
     }
 }
 

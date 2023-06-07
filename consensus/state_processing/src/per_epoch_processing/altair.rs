@@ -80,7 +80,7 @@ pub fn process_epoch<T: EthSpec>(
     // Update progressive total balances
     state
         .progressive_balances_cache_mut()
-        .on_epoch_transition()?;
+        .on_epoch_transition(spec)?;
 
     Ok(EpochProcessingSummary::Altair {
         participation_cache,

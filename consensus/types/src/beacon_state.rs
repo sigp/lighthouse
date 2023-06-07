@@ -26,6 +26,7 @@ pub use self::committee_cache::{
     compute_committee_index_in_epoch, compute_committee_range_in_epoch, epoch_committee_count,
     CommitteeCache,
 };
+pub use crate::beacon_state::balance::Balance;
 pub use crate::beacon_state::progressive_balances_cache::{
     ProgressiveBalancesCache, ProgressiveBalancesMode,
 };
@@ -37,6 +38,7 @@ pub use tree_hash_cache::BeaconTreeHashCache;
 
 #[macro_use]
 mod committee_cache;
+mod balance;
 mod clone_config;
 mod exit_cache;
 mod iter;
