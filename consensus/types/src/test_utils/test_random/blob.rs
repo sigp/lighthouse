@@ -10,11 +10,13 @@ impl TestRandom for Blob {
         // Ensure that the blob is canonical by ensuring that
         // each field element contained in the blob is < BLS_MODULUS
         for i in 0..FIELD_ELEMENTS_PER_BLOB {
-            let offset = i.safe_mul(BYTES_PER_FIELD_ELEMENT).expect("overflow");
-            if let Some(range) =
-                bytes.get_mut(offset..offset.safe_add(BYTES_PER_FIELD_ELEMENT).expect("overflow"))
-            {
-                range.fill(0)
+            let offset = i
+                .safe_mul(BYTES_PER_FIELD_ELEMENT)
+                .and_then(|o| o.safe_add(BYTES_PER_FIELD_ELEMENT))
+                .and_then(|o| o.safe_sub(1))
+                .expect("unsafe math while generating random blob");
+            if let Some(byte) = bytes.get_mut(offset) {
+                *byte = 0;
             }
         }
         Self::from(bytes)

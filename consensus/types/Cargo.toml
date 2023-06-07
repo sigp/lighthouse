@@ -69,3 +69,4 @@ sqlite = ["rusqlite"]
 # The `arbitrary-fuzz` feature is a no-op provided for backwards compatibility.
 # For simplicity `Arbitrary` is now derived regardless of the feature's presence.
 arbitrary-fuzz = []
+spec-minimal = ["kzg/minimal-spec"]

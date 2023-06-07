@@ -90,11 +90,13 @@ impl<'a> Arbitrary<'a> for Blob {
         // Ensure that the blob is canonical by ensuring that
         // each field element contained in the blob is < BLS_MODULUS
         for i in 0..FIELD_ELEMENTS_PER_BLOB {
-            let offset = i.safe_mul(BYTES_PER_FIELD_ELEMENT).expect("overflow");
-            if let Some(range) =
-                bytes.get_mut(offset..offset.safe_add(BYTES_PER_FIELD_ELEMENT).expect("overflow"))
-            {
-                range.fill(0)
+            let offset = i
+                .safe_mul(BYTES_PER_FIELD_ELEMENT)
+                .and_then(|o| o.safe_add(BYTES_PER_FIELD_ELEMENT))
+                .and_then(|o| o.safe_sub(1))
+                .expect("unsafe math while generating random blob");
+            if let Some(byte) = bytes.get_mut(offset) {
+                *byte = 0;
             }
         }
         Ok(Self(Arc::new(kzg::Blob::from(bytes))))
@@ -124,6 +126,10 @@ impl Encode for Blob {
 impl Decode for Blob {
     fn is_ssz_fixed_len() -> bool {
         true
+    }
+
+    fn ssz_fixed_len() -> usize {
+        BYTES_PER_BLOB
     }
 
     fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
@@ -204,14 +210,18 @@ impl<'de> Deserialize<'de> for Blob {
 mod tests {
     use super::*;
     use crate::test_utils::TestRandom;
-    use crate::{EthSpec, FixedVector, MainnetEthSpec};
+    use crate::{EthSpec, FixedVector};
 
-    type OldBlob<T> = FixedVector<u8, <T as EthSpec>::BytesPerBlob>;
+    type OldBlob<E> = FixedVector<u8, <E as EthSpec>::BytesPerBlob>;
+    #[cfg(feature = "spec-minimal")]
+    type E = crate::MinimalEthSpec;
+    #[cfg(not(feature = "spec-minimal"))]
+    type E = crate::MainnetEthSpec;
 
     #[test]
     fn tree_hash_equivalence() {
         let new_blob = Blob::random_for_test(&mut rand::thread_rng());
-        let old_blob = OldBlob::<MainnetEthSpec>::new(Vec::from(new_blob.as_ref())).unwrap();
+        let old_blob = OldBlob::<E>::new(Vec::from(new_blob.as_ref())).unwrap();
 
         // test that their tree_hash_roots are the same
         assert_eq!(
@@ -224,7 +234,7 @@ mod tests {
     #[test]
     fn ssz_equivalence() {
         let new_blob = Blob::random_for_test(&mut rand::thread_rng());
-        let old_blob = OldBlob::<MainnetEthSpec>::new(Vec::from(new_blob.as_ref())).unwrap();
+        let old_blob = OldBlob::<E>::new(Vec::from(new_blob.as_ref())).unwrap();
 
         // test that their ssz encodings are the same
         assert_eq!(
