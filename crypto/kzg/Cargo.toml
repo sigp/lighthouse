@@ -16,7 +16,7 @@ serde_derive = "1.0.116"
 ethereum_serde_utils = "0.5.0"
 hex = "0.4.2"
 ethereum_hashing = "1.0.0-beta.2"
-c-kzg = {git = "https://github.com/ethereum/c-kzg-4844", rev = "fd24cf8e1e2f09a96b4e62a595b4e49f046ce6cf" }
+c-kzg = { git = "https://github.com/ethDreamer/c-kzg-4844", rev = "e06bf99e6ef40afd692f7b330926b0151f8e160c" }
 arbitrary = { version = "1.0", features = ["derive"], optional = true }
 
 [features]

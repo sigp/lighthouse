@@ -33,14 +33,14 @@ impl<E: EthSpec> Case for KZGComputeBlobKZGProof<E> {
 
     fn result(&self, _case_index: usize, _fork_name: ForkName) -> Result<(), Error> {
         let parse_input = |input: &KZGComputeBlobKZGProofInput| -> Result<_, Error> {
-            let blob = parse_blob::<E>(&input.blob)?;
+            let blob = parse_blob(&input.blob)?;
             let commitment = parse_commitment(&input.commitment)?;
             Ok((blob, commitment))
         };
 
         let kzg = get_kzg()?;
         let proof = parse_input(&self.input).and_then(|(blob, commitment)| {
-            compute_blob_kzg_proof::<E>(&kzg, &blob, commitment)
+            compute_blob_kzg_proof(&kzg, &blob, commitment)
                 .map_err(|e| Error::InternalError(format!("Failed to compute kzg proof: {:?}", e)))
         });
 

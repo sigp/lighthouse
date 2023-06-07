@@ -36,7 +36,7 @@ impl<E: EthSpec> Case for KZGVerifyBlobKZGProofBatch<E> {
             let blobs = input
                 .blobs
                 .iter()
-                .map(|s| parse_blob::<E>(s))
+                .map(|s| parse_blob(s))
                 .collect::<Result<Vec<_>, _>>()?;
             let commitments = input
                 .commitments
@@ -53,7 +53,7 @@ impl<E: EthSpec> Case for KZGVerifyBlobKZGProofBatch<E> {
 
         let kzg = get_kzg()?;
         let result = parse_input(&self.input).and_then(|(commitments, blobs, proofs)| {
-            validate_blobs::<E>(&kzg, &commitments, &blobs, &proofs)
+            validate_blobs(&kzg, &commitments, &blobs, &proofs)
                 .map_err(|e| Error::InternalError(format!("Failed to validate blobs: {:?}", e)))
         });
 

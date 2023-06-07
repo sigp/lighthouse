@@ -645,15 +645,13 @@ pub fn generate_random_blobs<T: EthSpec>(
             blob_bytes[i * BYTES_PER_FIELD_ELEMENT + BYTES_PER_FIELD_ELEMENT - 1] = 0;
         }
 
-        let blob = Blob::<T>::new(Vec::from(blob_bytes))
-            .map_err(|e| format!("error constructing random blob: {:?}", e))?;
-
+        let blob = Blob::from(blob_bytes);
         let commitment = kzg
             .blob_to_kzg_commitment(blob_bytes.into())
             .map_err(|e| format!("error computing kzg commitment: {:?}", e))?;
 
         let proof = kzg
-            .compute_blob_kzg_proof(blob_bytes.into(), commitment)
+            .compute_blob_kzg_proof(blob.c_kzg_blob(), commitment)
             .map_err(|e| format!("error computing kzg proof: {:?}", e))?;
 
         let versioned_hash = commitment.calculate_versioned_hash();

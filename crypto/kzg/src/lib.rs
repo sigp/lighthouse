@@ -56,7 +56,7 @@ impl Kzg {
     /// Compute the kzg proof given a blob and its kzg commitment.
     pub fn compute_blob_kzg_proof(
         &self,
-        blob: Blob,
+        blob: &Blob,
         kzg_commitment: KzgCommitment,
     ) -> Result<KzgProof, Error> {
         c_kzg::KzgProof::compute_blob_kzg_proof(blob, kzg_commitment.into(), &self.trusted_setup)
@@ -67,7 +67,7 @@ impl Kzg {
     /// Verify a kzg proof given the blob, kzg commitment and kzg proof.
     pub fn verify_blob_kzg_proof(
         &self,
-        blob: Blob,
+        blob: &Blob,
         kzg_commitment: KzgCommitment,
         kzg_proof: KzgProof,
     ) -> Result<bool, Error> {
@@ -118,7 +118,7 @@ impl Kzg {
     }
 
     /// Computes the kzg proof for a given `blob` and an evaluation point `z`
-    pub fn compute_kzg_proof(&self, blob: Blob, z: Bytes32) -> Result<(KzgProof, Bytes32), Error> {
+    pub fn compute_kzg_proof(&self, blob: &Blob, z: Bytes32) -> Result<(KzgProof, Bytes32), Error> {
         c_kzg::KzgProof::compute_kzg_proof(blob, z, &self.trusted_setup)
             .map_err(Error::KzgProofComputationFailed)
             .map(|(proof, y)| (KzgProof(proof.to_bytes().into_inner()), y))

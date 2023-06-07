@@ -3,7 +3,7 @@ use crate::{Blob, ChainSpec, Domain, EthSpec, Fork, Hash256, SignedBlobSidecar, 
 use bls::SecretKey;
 use derivative::Derivative;
 use kzg::{KzgCommitment, KzgProof};
-use serde_derive::{Deserialize, Serialize};
+use serde::{de::Error, Deserialize, Deserializer, Serialize, Serializer};
 use ssz::Encode;
 use ssz_derive::{Decode, Encode};
 use ssz_types::{FixedVector, VariableList};
@@ -56,10 +56,14 @@ pub struct BlobSidecar<T: EthSpec> {
     pub block_parent_root: Hash256,
     #[serde(with = "serde_utils::quoted_u64")]
     pub proposer_index: u64,
-    #[serde(with = "ssz_types::serde_utils::hex_fixed_vec")]
-    pub blob: Blob<T>,
+    #[serde(with = "serde_kzg_blob")]
+    pub blob: Blob,
     pub kzg_commitment: KzgCommitment,
     pub kzg_proof: KzgProof,
+    #[serde(skip)]
+    #[ssz(skip_serializing, skip_deserializing)]
+    #[tree_hash(skip_hashing)]
+    pub _phantom: std::marker::PhantomData<T>,
 }
 
 impl<T: EthSpec> PartialOrd for BlobSidecar<T> {
@@ -77,7 +81,7 @@ impl<T: EthSpec> Ord for BlobSidecar<T> {
 pub type BlobSidecarList<T> = VariableList<Arc<BlobSidecar<T>>, <T as EthSpec>::MaxBlobsPerBlock>;
 pub type FixedBlobSidecarList<T> =
     FixedVector<Option<Arc<BlobSidecar<T>>>, <T as EthSpec>::MaxBlobsPerBlock>;
-pub type Blobs<T> = VariableList<Blob<T>, <T as EthSpec>::MaxBlobsPerBlock>;
+pub type Blobs<E> = VariableList<Blob, <E as EthSpec>::MaxBlobsPerBlock>;
 
 impl<T: EthSpec> SignedRoot for BlobSidecar<T> {}
 
@@ -121,5 +125,26 @@ impl<T: EthSpec> BlobSidecar<T> {
             message: self,
             signature,
         }
+    }
+}
+
+pub mod serde_kzg_blob {
+    use super::*;
+
+    pub fn serialize<S>(blob: &Blob, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(&serde_utils::hex::encode(blob))
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Blob, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s: String = Deserialize::deserialize(deserializer)?;
+        Blob::from_hex(&s)
+            .map_err(|e| format!("invalid hex: {:?}", e))
+            .map_err(D::Error::custom)
     }
 }

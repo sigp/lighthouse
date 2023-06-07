@@ -4951,13 +4951,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 Self::compute_blob_kzg_proofs(kzg, &blobs, expected_kzg_commitments, slot)?
             };
 
-            kzg_utils::validate_blobs::<T::EthSpec>(
-                kzg,
-                expected_kzg_commitments,
-                &blobs,
-                &kzg_proofs,
-            )
-            .map_err(BlockProductionError::KzgError)?;
+            kzg_utils::validate_blobs(kzg, expected_kzg_commitments, &blobs, &kzg_proofs)
+                .map_err(BlockProductionError::KzgError)?;
 
             let blob_sidecars = BlobSidecarList::from(
                 blobs
@@ -4981,6 +4976,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             blob,
                             kzg_commitment: *kzg_commitment,
                             kzg_proof: *kzg_proof,
+                            _phantom: Default::default(),
                         }))
                     })
                     .collect::<Result<Vec<_>, BlockProductionError>>()?,
@@ -5020,7 +5016,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     )),
                 )?;
 
-                kzg_utils::compute_blob_kzg_proof::<T::EthSpec>(kzg, blob, *kzg_commitment)
+                kzg_utils::compute_blob_kzg_proof(kzg, blob, *kzg_commitment)
                     .map_err(BlockProductionError::KzgError)
             })
             .collect::<Result<Vec<KzgProof>, BlockProductionError>>()

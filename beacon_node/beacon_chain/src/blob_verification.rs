@@ -451,8 +451,7 @@ pub fn verify_kzg_for_blob<T: EthSpec>(
     blob: Arc<BlobSidecar<T>>,
     kzg: &Kzg,
 ) -> Result<KzgVerifiedBlob<T>, AvailabilityCheckError> {
-    //TODO(sean) remove clone
-    if validate_blob::<T>(kzg, blob.blob.clone(), blob.kzg_commitment, blob.kzg_proof)
+    if validate_blob(kzg, &blob.blob, blob.kzg_commitment, blob.kzg_proof)
         .map_err(AvailabilityCheckError::Kzg)?
     {
         Ok(KzgVerifiedBlob { blob })
@@ -476,7 +475,7 @@ pub fn verify_kzg_for_blob_list<T: EthSpec>(
         //TODO(sean) remove clone
         .map(|blob| (blob.blob.clone(), (blob.kzg_commitment, blob.kzg_proof)))
         .unzip();
-    if validate_blobs::<T>(
+    if validate_blobs(
         kzg,
         commitments.as_slice(),
         blobs.as_slice(),

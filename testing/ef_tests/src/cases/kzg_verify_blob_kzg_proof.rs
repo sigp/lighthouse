@@ -37,11 +37,11 @@ pub fn parse_commitment(commitment: &str) -> Result<KzgCommitment, Error> {
         .map(KzgCommitment)
 }
 
-pub fn parse_blob<E: EthSpec>(blob: &str) -> Result<Blob<E>, Error> {
+pub fn parse_blob(blob: &str) -> Result<Blob, Error> {
     hex::decode(&blob[2..])
         .map_err(|e| Error::FailedToParseTest(format!("Failed to parse blob: {:?}", e)))
         .and_then(|bytes| {
-            Blob::<E>::new(bytes)
+            Blob::try_from(bytes)
                 .map_err(|e| Error::FailedToParseTest(format!("Failed to parse blob: {:?}", e)))
         })
 }
@@ -74,16 +74,17 @@ impl<E: EthSpec> Case for KZGVerifyBlobKZGProof<E> {
     }
 
     fn result(&self, _case_index: usize, _fork_name: ForkName) -> Result<(), Error> {
-        let parse_input = |input: &KZGVerifyBlobKZGProofInput| -> Result<(Blob<E>, KzgCommitment, KzgProof), Error> {
-            let blob = parse_blob::<E>(&input.blob)?;
-            let commitment = parse_commitment(&input.commitment)?;
-            let proof = parse_proof(&input.proof)?;
-            Ok((blob, commitment, proof))
-        };
+        let parse_input =
+            |input: &KZGVerifyBlobKZGProofInput| -> Result<(Blob, KzgCommitment, KzgProof), Error> {
+                let blob = parse_blob(&input.blob)?;
+                let commitment = parse_commitment(&input.commitment)?;
+                let proof = parse_proof(&input.proof)?;
+                Ok((blob, commitment, proof))
+            };
 
         let kzg = get_kzg()?;
         let result = parse_input(&self.input).and_then(|(blob, commitment, proof)| {
-            validate_blob::<E>(&kzg, blob, commitment, proof)
+            validate_blob(&kzg, &blob, commitment, proof)
                 .map_err(|e| Error::InternalError(format!("Failed to validate blob: {:?}", e)))
         });
 
