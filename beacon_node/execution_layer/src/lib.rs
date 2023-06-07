@@ -1242,8 +1242,6 @@ impl<T: EthSpec> ExecutionLayer<T> {
         }
         *self.inner.last_new_payload_errored.write().await = result.is_err();
 
-        //TODO(sean) process notify commitments updatE?
-
         process_payload_status(execution_payload.block_hash(), result, self.log())
             .map_err(Box::new)
             .map_err(Error::EngineError)
