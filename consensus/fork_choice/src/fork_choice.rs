@@ -13,7 +13,7 @@ use std::cmp::Ordering;
 use std::collections::BTreeSet;
 use std::marker::PhantomData;
 use std::time::Duration;
-use types::ProgressiveTotalBalances;
+use types::ProgressiveBalancesCache;
 use types::{
     consts::merge::INTERVALS_PER_SLOT, AbstractExecPayload, AttestationShufflingId,
     AttesterSlashing, BeaconBlockRef, BeaconState, BeaconStateError, ChainSpec, Checkpoint, Epoch,
@@ -763,8 +763,8 @@ where
                             let participation_cache = ParticipationCache::new(state, spec)
                                 .map_err(Error::ParticipationCacheBuild)?;
 
-                            check_progressive_total_balances(
-                                state.progressive_total_balances(),
+                            check_progressive_balances_cache(
+                                state.progressive_balances_cache(),
                                 &participation_cache,
                                 spec,
                             );
@@ -1528,15 +1528,15 @@ where
     }
 }
 
-/// Check the `ProgressiveTotalBalances` values against the computed `ParticipationCache`.
+/// Check the `ProgressiveBalancesCache` values against the computed `ParticipationCache`.
 ///
 /// ## Panics  
 ///
 /// In debug mode (`debug_assertions` set to `true`), this function panics if the cached progressive
 /// balances doesn't match computed values from `ParticipationCache`, or if it fails to perform the
 /// check.
-fn check_progressive_total_balances(
-    progressive_total_balances: &ProgressiveTotalBalances,
+fn check_progressive_balances_cache(
+    progressive_balances_cache: &ProgressiveBalancesCache,
     participation_cache: &ParticipationCache,
     spec: &ChainSpec,
 ) {
@@ -1556,7 +1556,7 @@ fn check_progressive_total_balances(
             .previous_epoch_target_attesting_balance()
             .map_err(|e| BeaconStateError::ParticipationCacheError(format!("{:?}", e)))?;
         let cached_previous_target_balance =
-            progressive_total_balances.previous_epoch_target_attesting_balance()?;
+            progressive_balances_cache.previous_epoch_target_attesting_balance()?;
 
         debug_assert!(
             handle_zero_effective_balance(previous_target_balance) == cached_previous_target_balance,
@@ -1567,7 +1567,7 @@ fn check_progressive_total_balances(
             .current_epoch_target_attesting_balance()
             .map_err(|e| BeaconStateError::ParticipationCacheError(format!("{:?}", e)))?;
         let cached_current_target_balance =
-            progressive_total_balances.current_epoch_target_attesting_balance()?;
+            progressive_balances_cache.current_epoch_target_attesting_balance()?;
 
         debug_assert!(
             handle_zero_effective_balance(current_target_balance) == cached_current_target_balance,

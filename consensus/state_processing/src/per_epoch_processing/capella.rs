@@ -11,7 +11,7 @@ use crate::per_epoch_processing::{
 };
 use types::{BeaconState, ChainSpec, EthSpec, RelativeEpoch};
 
-use crate::common::initialize_progressive_total_balances::initialize_progressive_total_balances;
+use crate::common::initialize_progressive_balances_cache::initialize_progressive_balances_cache;
 pub use historical_summaries_update::process_historical_summaries_update;
 
 mod historical_summaries_update;
@@ -28,7 +28,7 @@ pub fn process_epoch<T: EthSpec>(
     // Pre-compute participating indices and total balances.
     let participation_cache = ParticipationCache::new(state, spec)?;
     let sync_committee = state.current_sync_committee()?.clone();
-    initialize_progressive_total_balances(state, Some(&participation_cache), spec)?;
+    initialize_progressive_balances_cache(state, Some(&participation_cache), spec)?;
 
     // Justification and finalization.
     let justification_and_finalization_state =
@@ -75,7 +75,7 @@ pub fn process_epoch<T: EthSpec>(
 
     // Update progressive total balances
     state
-        .progressive_total_balances_mut()
+        .progressive_balances_cache_mut()
         .on_epoch_transition()?;
 
     Ok(EpochProcessingSummary::Altair {

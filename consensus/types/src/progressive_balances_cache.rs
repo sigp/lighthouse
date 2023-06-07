@@ -2,8 +2,12 @@ use crate::{BeaconStateError, Epoch};
 use arbitrary::Arbitrary;
 use safe_arith::SafeArith;
 
+/// This cache keeps track of the accumulated target attestation balance for the current & previous
+/// epochs. The cached values can be utilised by fork choice to calculate unrealized justification
+/// and finalization instead of converting epoch participation arrays to balances for each block we
+/// process.
 #[derive(Default, Debug, PartialEq, Arbitrary, Clone)]
-pub struct ProgressiveTotalBalances {
+pub struct ProgressiveBalancesCache {
     inner: Option<Inner>,
 }
 
@@ -14,7 +18,7 @@ struct Inner {
     pub current_epoch_target_attesting_balance: u64,
 }
 
-impl ProgressiveTotalBalances {
+impl ProgressiveBalancesCache {
     pub fn initialize(
         &mut self,
         current_epoch: Epoch,
@@ -73,6 +77,8 @@ impl ProgressiveTotalBalances {
         Ok(())
     }
 
+    /// When a current epoch target attester has its effective balance changed, we adjust the
+    /// its share of the target attesting balance in the cache.
     pub fn on_effective_balance_change(
         &mut self,
         is_current_epoch_target_attester: bool,
@@ -94,6 +100,8 @@ impl ProgressiveTotalBalances {
         Ok(())
     }
 
+    /// On epoch transition, the balance from current epoch is shifted to previous epoch, and the
+    /// current epoch balance is reset to 0.
     pub fn on_epoch_transition(&mut self) -> Result<(), BeaconStateError> {
         let cache = self.get_inner_mut()?;
         cache.current_epoch.safe_add_assign(1)?;

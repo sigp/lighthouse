@@ -27,7 +27,7 @@ pub use self::committee_cache::{
     CommitteeCache,
 };
 use crate::historical_summary::HistoricalSummary;
-use crate::progressive_total_balances::ProgressiveTotalBalances;
+use crate::progressive_balances_cache::ProgressiveBalancesCache;
 pub use clone_config::CloneConfig;
 pub use eth_spec::*;
 pub use iter::BlockRootsIter;
@@ -321,7 +321,7 @@ where
     #[tree_hash(skip_hashing)]
     #[test_random(default)]
     #[derivative(Clone(clone_with = "clone_default"))]
-    pub progressive_total_balances: ProgressiveTotalBalances,
+    pub progressive_balances_cache: ProgressiveBalancesCache,
     #[serde(skip_serializing, skip_deserializing)]
     #[ssz(skip_serializing, skip_deserializing)]
     #[tree_hash(skip_hashing)]
@@ -403,7 +403,7 @@ impl<T: EthSpec> BeaconState<T> {
 
             // Caching (not in spec)
             total_active_balance: None,
-            progressive_total_balances: <_>::default(),
+            progressive_balances_cache: <_>::default(),
             committee_caches: [
                 CommitteeCache::default(),
                 CommitteeCache::default(),
@@ -1163,27 +1163,27 @@ impl<T: EthSpec> BeaconState<T> {
     /// Convenience accessor for validators and balances simultaneously.
     pub fn validators_and_balances_and_progressive_balances_mut(
         &mut self,
-    ) -> (&mut [Validator], &mut [u64], &mut ProgressiveTotalBalances) {
+    ) -> (&mut [Validator], &mut [u64], &mut ProgressiveBalancesCache) {
         match self {
             BeaconState::Base(state) => (
                 &mut state.validators,
                 &mut state.balances,
-                &mut state.progressive_total_balances,
+                &mut state.progressive_balances_cache,
             ),
             BeaconState::Altair(state) => (
                 &mut state.validators,
                 &mut state.balances,
-                &mut state.progressive_total_balances,
+                &mut state.progressive_balances_cache,
             ),
             BeaconState::Merge(state) => (
                 &mut state.validators,
                 &mut state.balances,
-                &mut state.progressive_total_balances,
+                &mut state.progressive_balances_cache,
             ),
             BeaconState::Capella(state) => (
                 &mut state.validators,
                 &mut state.balances,
-                &mut state.progressive_total_balances,
+                &mut state.progressive_balances_cache,
             ),
         }
     }
@@ -1638,9 +1638,9 @@ impl<T: EthSpec> BeaconState<T> {
         *self.pubkey_cache_mut() = PubkeyCache::default()
     }
 
-    /// Completely drops the `progressive_total_balances` cache, replacing it with a new, empty cache.
+    /// Completely drops the `progressive_balances_cache` cache, replacing it with a new, empty cache.
     fn drop_progressive_balances_cache(&mut self) {
-        *self.progressive_total_balances_mut() = ProgressiveTotalBalances::default();
+        *self.progressive_balances_cache_mut() = ProgressiveBalancesCache::default();
     }
 
     /// Initialize but don't fill the tree hash cache, if it isn't already initialized.
@@ -1714,8 +1714,8 @@ impl<T: EthSpec> BeaconState<T> {
         if config.tree_hash_cache {
             *res.tree_hash_cache_mut() = self.tree_hash_cache().clone();
         }
-        if config.progressive_total_balances {
-            *res.progressive_total_balances_mut() = self.progressive_total_balances().clone();
+        if config.progressive_balances_cache {
+            *res.progressive_balances_cache_mut() = self.progressive_balances_cache().clone();
         }
         res
     }

@@ -3,7 +3,7 @@ use crate::per_epoch_processing::altair::ParticipationCache;
 use safe_arith::SafeArith;
 use types::beacon_state::BeaconState;
 use types::chain_spec::ChainSpec;
-use types::{BeaconStateError, EthSpec, ProgressiveTotalBalances};
+use types::{BeaconStateError, EthSpec, ProgressiveBalancesCache};
 
 pub fn process_effective_balance_updates<T: EthSpec>(
     state: &mut BeaconState<T>,
@@ -50,7 +50,7 @@ pub fn process_effective_balance_updates<T: EthSpec>(
 
 fn update_progressive_balances(
     participation_cache: &ParticipationCache,
-    progressive_balances_cache: &mut ProgressiveTotalBalances,
+    progressive_balances_cache: &mut ProgressiveBalancesCache,
     index: usize,
     old_effective_balance: u64,
     new_effective_balance: u64,

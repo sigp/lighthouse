@@ -169,7 +169,7 @@ pub mod altair {
                     if flag_index == TIMELY_TARGET_FLAG_INDEX {
                         let validator_effective_balance = state.get_effective_balance(index)?;
                         state
-                            .progressive_total_balances_mut()
+                            .progressive_balances_cache_mut()
                             .on_new_target_attestation(
                                 data.target.epoch,
                                 validator_effective_balance,
@@ -242,14 +242,14 @@ pub fn process_attester_slashings<T: EthSpec>(
 
         for i in slashable_indices {
             slash_validator(state, i as usize, None, ctxt, spec)?;
-            update_progressive_total_balances(state, i as usize)?;
+            update_progressive_balances_cache(state, i as usize)?;
         }
     }
 
     Ok(())
 }
 
-fn update_progressive_total_balances<T: EthSpec>(
+fn update_progressive_balances_cache<T: EthSpec>(
     state: &mut BeaconState<T>,
     validator_index: usize,
 ) -> Result<(), BlockProcessingError> {
@@ -261,7 +261,7 @@ fn update_progressive_total_balances<T: EthSpec>(
         let is_current_epoch_target_attester =
             participation_flags.has_flag(TIMELY_TARGET_FLAG_INDEX)?;
         let validator_effective_balance = state.get_effective_balance(validator_index)?;
-        state.progressive_total_balances_mut().on_slashing(
+        state.progressive_balances_cache_mut().on_slashing(
             is_current_epoch_target_attester,
             validator_effective_balance,
         )?;

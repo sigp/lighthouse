@@ -1,5 +1,5 @@
 use super::{process_registry_updates, process_slashings, EpochProcessingSummary, Error};
-use crate::common::initialize_progressive_total_balances::initialize_progressive_total_balances;
+use crate::common::initialize_progressive_balances_cache::initialize_progressive_balances_cache;
 use crate::per_epoch_processing::{
     effective_balance_updates::process_effective_balance_updates,
     historical_roots_update::process_historical_roots_update,
@@ -32,7 +32,7 @@ pub fn process_epoch<T: EthSpec>(
     // Pre-compute participating indices and total balances.
     let participation_cache = ParticipationCache::new(state, spec)?;
     let sync_committee = state.current_sync_committee()?.clone();
-    initialize_progressive_total_balances::<T>(state, Some(&participation_cache), spec)?;
+    initialize_progressive_balances_cache::<T>(state, Some(&participation_cache), spec)?;
 
     // Justification and finalization.
     let justification_and_finalization_state =
@@ -79,7 +79,7 @@ pub fn process_epoch<T: EthSpec>(
 
     // Update progressive total balances
     state
-        .progressive_total_balances_mut()
+        .progressive_balances_cache_mut()
         .on_epoch_transition()?;
 
     Ok(EpochProcessingSummary::Altair {

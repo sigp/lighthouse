@@ -230,7 +230,7 @@ async fn clone_config() {
         pubkey_cache: ((i >> 1) & 1) != 0,
         exit_cache: ((i >> 2) & 1) != 0,
         tree_hash_cache: ((i >> 3) & 1) != 0,
-        progressive_total_balances: ((i >> 4) & 1) != 0,
+        progressive_balances_cache: ((i >> 4) & 1) != 0,
     });
 
     for config in all_configs {
