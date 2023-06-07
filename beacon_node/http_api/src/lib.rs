@@ -1934,6 +1934,38 @@ pub fn serve<T: BeaconChainTypes>(
         });
 
     /*
+     * builder/states
+     */
+
+    let builder_states_path = eth_v1.and(warp::path("states")).and(chain_filter.clone());
+
+    let get_expected_withdrawals = builder_states_path
+        .clone()
+        .and(warp::path::param::<StateId>())
+        .and(warp::path("expected_withdrawals"))
+        .and(warp::path::end())
+        .and(warp::body::json())
+        .and_then(
+            |chain: Arc<BeaconChain<T>>, state_id: StateId, proposal_slot: Slot| {
+                blocking_json_task(move || {
+                    let state = state_id.state(&chain)?;
+                    let spec = &chain.spec;
+                    let forkchoice_update_parameters = chain
+                        .canonical_head
+                        .cached_head()
+                        .forkchoice_update_parameters();
+                    match chain
+                        .get_expected_withdrawals(&forkchoice_update_parameters, proposal_slot)
+                    {
+                        Ok(withdrawals) => Ok(withdrawals).map(api_types::GenericResponse::from),
+                        //.map(|resp| )),
+                        Err(_) => Err(warp_utils::reject::not_synced("".to_string())),
+                    }
+                })
+            },
+        );
+
+    /*
      * beacon/rewards
      */
 
