@@ -569,6 +569,13 @@ impl<E: EthSpec> AvailableBlock<E> {
             VerifiedBlobs::Available(blobs) => (self.block, Some(blobs)),
         }
     }
+
+    pub fn blobs(&self) -> Option<&BlobSidecarList<E>> {
+        match &self.blobs {
+            VerifiedBlobs::Available(blobs) => Some(blobs),
+            _ => None,
+        }
+    }
 }
 
 impl<E: EthSpec> AsBlock<E> for AvailableBlock<E> {

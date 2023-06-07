@@ -87,10 +87,6 @@ pub fn get_extra_fields(spec: &ChainSpec) -> HashMap<String, Value> {
         "domain_application_mask".to_uppercase()=> u32_hex(spec.domain_application_mask),
         "target_aggregators_per_committee".to_uppercase() =>
             spec.target_aggregators_per_committee.to_string().into(),
-        "random_subnets_per_validator".to_uppercase() =>
-            spec.random_subnets_per_validator.to_string().into(),
-        "epochs_per_random_subnet_subscription".to_uppercase() =>
-            spec.epochs_per_random_subnet_subscription.to_string().into(),
         "domain_contribution_and_proof".to_uppercase() =>
             u32_hex(spec.domain_contribution_and_proof),
         "domain_sync_committee".to_uppercase() => u32_hex(spec.domain_sync_committee),

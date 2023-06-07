@@ -86,7 +86,7 @@ pub enum PruningError {
 pub enum Notification {
     Finalization(FinalizationNotification),
     Reconstruction,
-    PruneBlobs(Option<Epoch>),
+    PruneBlobs(Epoch),
 }
 
 pub struct FinalizationNotification {
@@ -153,7 +153,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
         }
     }
 
-    pub fn process_prune_blobs(&self, data_availability_boundary: Option<Epoch>) {
+    pub fn process_prune_blobs(&self, data_availability_boundary: Epoch) {
         if let Some(Notification::PruneBlobs(data_availability_boundary)) =
             self.send_background_notification(Notification::PruneBlobs(data_availability_boundary))
         {
@@ -173,7 +173,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
 
     pub fn run_prune_blobs(
         db: Arc<HotColdDB<E, Hot, Cold>>,
-        data_availability_boundary: Option<Epoch>,
+        data_availability_boundary: Epoch,
         log: &Logger,
     ) {
         if let Err(e) = db.try_prune_blobs(false, data_availability_boundary) {
@@ -606,7 +606,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
                     StoreOp::DeleteBlock(block_root),
                     StoreOp::DeleteExecutionPayload(block_root),
                 ];
-                if let Ok(true) = store.blobs_sidecar_exists(&block_root) {
+                if store.blobs_sidecar_exists(&block_root).unwrap_or(false) {
                     // Keep track of non-empty orphaned blobs sidecars.
                     store_ops.extend([
                         StoreOp::DeleteBlobs(block_root),

@@ -1905,23 +1905,22 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             min_current_epoch.saturating_sub(*MIN_EPOCHS_FOR_BLOB_SIDECARS_REQUESTS),
         );
 
-        self.try_prune_blobs(force, Some(min_data_availability_boundary))
+        self.try_prune_blobs(force, min_data_availability_boundary)
     }
 
     /// Try to prune blobs older than the data availability boundary.
     pub fn try_prune_blobs(
         &self,
         force: bool,
-        data_availability_boundary: Option<Epoch>,
+        data_availability_boundary: Epoch,
     ) -> Result<(), Error> {
-        let (data_availability_boundary, deneb_fork) =
-            match (data_availability_boundary, self.spec.deneb_fork_epoch) {
-                (Some(boundary_epoch), Some(fork_epoch)) => (boundary_epoch, fork_epoch),
-                _ => {
-                    debug!(self.log, "Deneb fork is disabled");
-                    return Ok(());
-                }
-            };
+        let deneb_fork = match self.spec.deneb_fork_epoch {
+            Some(epoch) => epoch,
+            None => {
+                debug!(self.log, "Deneb fork is disabled");
+                return Ok(());
+            }
+        };
 
         let should_prune_blobs = self.get_config().prune_blobs;
         if !should_prune_blobs && !force {

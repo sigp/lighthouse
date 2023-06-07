@@ -17,7 +17,10 @@ HTTP Path | Description |
 [`POST /lighthouse/validators/mnemonic`](#post-lighthousevalidatorsmnemonic) | Create a new validator from an existing mnemonic.
 [`POST /lighthouse/validators/web3signer`](#post-lighthousevalidatorsweb3signer) | Add web3signer validators.
 
+The query to Lighthouse API endpoints requires authorization, see [Authorization Header](./api-vc-auth-header.md). 
+
 In addition to the above endpoints Lighthouse also supports all of the [standard keymanager APIs](https://ethereum.github.io/keymanager-APIs/).
+
 
 ## `GET /lighthouse/version`
 
@@ -32,14 +35,27 @@ Returns the software version and `git` commit hash for the Lighthouse binary.
 | Required Headers  | [`Authorization`](./api-vc-auth-header.md) |
 | Typical Responses | 200                                        |
 
-### Example Response Body
+Command:
+```bash
+DATADIR=/var/lib/lighthouse
+curl -X GET "http://localhost:5062/lighthouse/version" -H "Authorization: Bearer $(cat ${DATADIR}/validators/api-token.txt)" | jq
+```
+
+Example Response Body:
+
 
 ```json
 {
     "data": {
-        "version": "Lighthouse/v0.2.11-fc0654fbe+/x86_64-linux"
+        "version": "Lighthouse/v4.1.0-693886b/x86_64-linux"
     }
 }
+```
+> Note: The command provided in this documentation links to the API token file. In this documentation, it is assumed that the API token file is located in `/var/lib/lighthouse/validators/API-token.txt`. If your database is saved in another directory, modify the `DATADIR` accordingly. If you are having permission issue with accessing the API token file, you can modify the header to become `-H "Authorization: Bearer $(sudo cat ${DATADIR}/validators/api-token.txt)"`.
+
+> As an alternative, you can also provide the API token directly, for example, `-H "Authorization: Bearer api-token-0x02dc2a13115cc8c83baf170f597f22b1eb2930542941ab902df3daadebcb8f8176`. In this case, you obtain the token from the file `API token.txt` and the command becomes:
+```bash
+curl -X GET "http://localhost:5062/lighthouse/version" -H "Authorization: Bearer api-token-0x02dc2a13115cc8c83baf170f597f22b1eb2930542941ab902df3daadebcb8f8176" | jq
 ```
 
 ## `GET /lighthouse/health`
@@ -57,24 +73,48 @@ Returns information regarding the health of the host machine.
 
 *Note: this endpoint is presently only available on Linux.*
 
-### Example Response Body
+Command:
+```bash
+DATADIR=/var/lib/lighthouse
+curl -X GET "http://localhost:5062/lighthouse/health" -H "Authorization: Bearer $(cat ${DATADIR}/validators/api-token.txt)" | jq
+```
+
+Example Response Body:
 
 ```json
 {
-    "data": {
-        "pid": 1476293,
-        "pid_num_threads": 19,
-        "pid_mem_resident_set_size": 4009984,
-        "pid_mem_virtual_memory_size": 1306775552,
-        "sys_virt_mem_total": 33596100608,
-        "sys_virt_mem_available": 23073017856,
-        "sys_virt_mem_used": 9346957312,
-        "sys_virt_mem_free": 22410510336,
-        "sys_virt_mem_percent": 31.322334,
-        "sys_loadavg_1": 0.98,
-        "sys_loadavg_5": 0.98,
-        "sys_loadavg_15": 1.01
-    }
+  "data": {
+    "sys_virt_mem_total": 8184274944,
+    "sys_virt_mem_available": 1532280832,
+    "sys_virt_mem_used": 6248341504,
+    "sys_virt_mem_free": 648790016,
+    "sys_virt_mem_percent": 81.27775,
+    "sys_virt_mem_cached": 1244770304,
+    "sys_virt_mem_buffers": 42373120,
+    "sys_loadavg_1": 2.33,
+    "sys_loadavg_5": 2.11,
+    "sys_loadavg_15": 2.47,
+    "cpu_cores": 4,
+    "cpu_threads": 8,
+    "system_seconds_total": 103095,
+    "user_seconds_total": 750734,
+    "iowait_seconds_total": 60671,
+    "idle_seconds_total": 3922305,
+    "cpu_time_total": 4794222,
+    "disk_node_bytes_total": 982820896768,
+    "disk_node_bytes_free": 521943703552,
+    "disk_node_reads_total": 376287830,
+    "disk_node_writes_total": 48232652,
+    "network_node_bytes_total_received": 143003442144,
+    "network_node_bytes_total_transmit": 185348289905,
+    "misc_node_boot_ts_seconds": 1681740973,
+    "misc_os": "linux",
+    "pid": 144072,
+    "pid_num_threads": 27,
+    "pid_mem_resident_set_size": 15835136,
+    "pid_mem_virtual_memory_size": 2179018752,
+    "pid_process_seconds_total": 54
+  }
 }
 ```
 
@@ -91,7 +131,13 @@ Returns information regarding the health of the host machine.
 | Required Headers  | [`Authorization`](./api-vc-auth-header.md) |
 | Typical Responses | 200                                        |
 
-### Example Response Body
+Command:
+```bash
+DATADIR=/var/lib/lighthouse
+curl -X GET "http://localhost:5062/lighthouse/ui/health" -H "Authorization: Bearer $(cat ${DATADIR}/validators/api-token.txt)" | jq
+ ```
+
+Example Response Body
 
 ```json
 {
@@ -130,7 +176,12 @@ Returns the graffiti that will be used for the next block proposal of each valid
 | Required Headers  | [`Authorization`](./api-vc-auth-header.md) |
 | Typical Responses | 200                                        |
 
-### Example Response Body
+Command:
+```bash
+DATADIR=/var/lib/lighthouse
+curl -X GET "http://localhost:5062/lighthouse/ui/graffiti" -H "Authorization: Bearer $(cat ${DATADIR}/validators/api-token.txt)" | jq
+ ```
+Example Response Body
 
 ```json
 {
@@ -155,71 +206,115 @@ Returns the Ethereum proof-of-stake consensus specification loaded for this vali
 | Required Headers  | [`Authorization`](./api-vc-auth-header.md) |
 | Typical Responses | 200                                        |
 
-### Example Response Body
+Command:
+
+```bash
+DATADIR=/var/lib/lighthouse
+curl -X GET "http://localhost:5062/lighthouse/spec" -H "Authorization: Bearer $(cat ${DATADIR}/validators/api-token.txt)" | jq
+```
+
+Example Response Body
 
 ```json
 {
-    "data": {
-        "CONFIG_NAME": "mainnet",
-        "MAX_COMMITTEES_PER_SLOT": "64",
-        "TARGET_COMMITTEE_SIZE": "128",
-        "MIN_PER_EPOCH_CHURN_LIMIT": "4",
-        "CHURN_LIMIT_QUOTIENT": "65536",
-        "SHUFFLE_ROUND_COUNT": "90",
-        "MIN_GENESIS_ACTIVE_VALIDATOR_COUNT": "1024",
-        "MIN_GENESIS_TIME": "1601380800",
-        "GENESIS_DELAY": "172800",
-        "MIN_DEPOSIT_AMOUNT": "1000000000",
-        "MAX_EFFECTIVE_BALANCE": "32000000000",
-        "EJECTION_BALANCE": "16000000000",
-        "EFFECTIVE_BALANCE_INCREMENT": "1000000000",
-        "HYSTERESIS_QUOTIENT": "4",
-        "HYSTERESIS_DOWNWARD_MULTIPLIER": "1",
-        "HYSTERESIS_UPWARD_MULTIPLIER": "5",
-        "PROPORTIONAL_SLASHING_MULTIPLIER": "3",
-        "GENESIS_FORK_VERSION": "0x00000002",
-        "BLS_WITHDRAWAL_PREFIX": "0x00",
-        "SECONDS_PER_SLOT": "12",
-        "MIN_ATTESTATION_INCLUSION_DELAY": "1",
-        "MIN_SEED_LOOKAHEAD": "1",
-        "MAX_SEED_LOOKAHEAD": "4",
-        "MIN_EPOCHS_TO_INACTIVITY_PENALTY": "4",
-        "MIN_VALIDATOR_WITHDRAWABILITY_DELAY": "256",
-        "SHARD_COMMITTEE_PERIOD": "256",
-        "BASE_REWARD_FACTOR": "64",
-        "WHISTLEBLOWER_REWARD_QUOTIENT": "512",
-        "PROPOSER_REWARD_QUOTIENT": "8",
-        "INACTIVITY_PENALTY_QUOTIENT": "16777216",
-        "MIN_SLASHING_PENALTY_QUOTIENT": "32",
-        "SAFE_SLOTS_TO_UPDATE_JUSTIFIED": "8",
-        "DOMAIN_BEACON_PROPOSER": "0x00000000",
-        "DOMAIN_BEACON_ATTESTER": "0x01000000",
-        "DOMAIN_RANDAO": "0x02000000",
-        "DOMAIN_DEPOSIT": "0x03000000",
-        "DOMAIN_VOLUNTARY_EXIT": "0x04000000",
-        "DOMAIN_SELECTION_PROOF": "0x05000000",
-        "DOMAIN_AGGREGATE_AND_PROOF": "0x06000000",
-        "DOMAIN_APPLICATION_MASK": "0x00000001",
-        "MAX_VALIDATORS_PER_COMMITTEE": "2048",
-        "SLOTS_PER_EPOCH": "32",
-        "EPOCHS_PER_ETH1_VOTING_PERIOD": "32",
-        "SLOTS_PER_HISTORICAL_ROOT": "8192",
-        "EPOCHS_PER_HISTORICAL_VECTOR": "65536",
-        "EPOCHS_PER_SLASHINGS_VECTOR": "8192",
-        "HISTORICAL_ROOTS_LIMIT": "16777216",
-        "VALIDATOR_REGISTRY_LIMIT": "1099511627776",
-        "MAX_PROPOSER_SLASHINGS": "16",
-        "MAX_ATTESTER_SLASHINGS": "2",
-        "MAX_ATTESTATIONS": "128",
-        "MAX_DEPOSITS": "16",
-        "MAX_VOLUNTARY_EXITS": "16",
-        "ETH1_FOLLOW_DISTANCE": "1024",
-        "TARGET_AGGREGATORS_PER_COMMITTEE": "16",
-        "RANDOM_SUBNETS_PER_VALIDATOR": "1",
-        "EPOCHS_PER_RANDOM_SUBNET_SUBSCRIPTION": "256",
-        "SECONDS_PER_ETH1_BLOCK": "14",
-        "DEPOSIT_CONTRACT_ADDRESS": "0x48b597f4b53c21b48ad95c7256b49d1779bd5890"
-    }
+  "data": {
+    "CONFIG_NAME": "prater",
+    "PRESET_BASE": "mainnet",
+    "TERMINAL_TOTAL_DIFFICULTY": "10790000",
+    "TERMINAL_BLOCK_HASH": "0x0000000000000000000000000000000000000000000000000000000000000000",
+    "TERMINAL_BLOCK_HASH_ACTIVATION_EPOCH": "18446744073709551615",
+    "SAFE_SLOTS_TO_IMPORT_OPTIMISTICALLY": "128",
+    "MIN_GENESIS_ACTIVE_VALIDATOR_COUNT": "16384",
+    "MIN_GENESIS_TIME": "1614588812",
+    "GENESIS_FORK_VERSION": "0x00001020",
+    "GENESIS_DELAY": "1919188",
+    "ALTAIR_FORK_VERSION": "0x01001020",
+    "ALTAIR_FORK_EPOCH": "36660",
+    "BELLATRIX_FORK_VERSION": "0x02001020",
+    "BELLATRIX_FORK_EPOCH": "112260",
+    "CAPELLA_FORK_VERSION": "0x03001020",
+    "CAPELLA_FORK_EPOCH": "162304",
+    "SECONDS_PER_SLOT": "12",
+    "SECONDS_PER_ETH1_BLOCK": "14",
+    "MIN_VALIDATOR_WITHDRAWABILITY_DELAY": "256",
+    "SHARD_COMMITTEE_PERIOD": "256",
+    "ETH1_FOLLOW_DISTANCE": "2048",
+    "INACTIVITY_SCORE_BIAS": "4",
+    "INACTIVITY_SCORE_RECOVERY_RATE": "16",
+    "EJECTION_BALANCE": "16000000000",
+    "MIN_PER_EPOCH_CHURN_LIMIT": "4",
+    "CHURN_LIMIT_QUOTIENT": "65536",
+    "PROPOSER_SCORE_BOOST": "40",
+    "DEPOSIT_CHAIN_ID": "5",
+    "DEPOSIT_NETWORK_ID": "5",
+    "DEPOSIT_CONTRACT_ADDRESS": "0xff50ed3d0ec03ac01d4c79aad74928bff48a7b2b",
+    "MAX_COMMITTEES_PER_SLOT": "64",
+    "TARGET_COMMITTEE_SIZE": "128",
+    "MAX_VALIDATORS_PER_COMMITTEE": "2048",
+    "SHUFFLE_ROUND_COUNT": "90",
+    "HYSTERESIS_QUOTIENT": "4",
+    "HYSTERESIS_DOWNWARD_MULTIPLIER": "1",
+    "HYSTERESIS_UPWARD_MULTIPLIER": "5",
+    "SAFE_SLOTS_TO_UPDATE_JUSTIFIED": "8",
+    "MIN_DEPOSIT_AMOUNT": "1000000000",
+    "MAX_EFFECTIVE_BALANCE": "32000000000",
+    "EFFECTIVE_BALANCE_INCREMENT": "1000000000",
+    "MIN_ATTESTATION_INCLUSION_DELAY": "1",
+    "SLOTS_PER_EPOCH": "32",
+    "MIN_SEED_LOOKAHEAD": "1",
+    "MAX_SEED_LOOKAHEAD": "4",
+    "EPOCHS_PER_ETH1_VOTING_PERIOD": "64",
+    "SLOTS_PER_HISTORICAL_ROOT": "8192",
+    "MIN_EPOCHS_TO_INACTIVITY_PENALTY": "4",
+    "EPOCHS_PER_HISTORICAL_VECTOR": "65536",
+    "EPOCHS_PER_SLASHINGS_VECTOR": "8192",
+    "HISTORICAL_ROOTS_LIMIT": "16777216",
+    "VALIDATOR_REGISTRY_LIMIT": "1099511627776",
+    "BASE_REWARD_FACTOR": "64",
+    "WHISTLEBLOWER_REWARD_QUOTIENT": "512",
+    "PROPOSER_REWARD_QUOTIENT": "8",
+    "INACTIVITY_PENALTY_QUOTIENT": "67108864",
+    "MIN_SLASHING_PENALTY_QUOTIENT": "128",
+    "PROPORTIONAL_SLASHING_MULTIPLIER": "1",
+    "MAX_PROPOSER_SLASHINGS": "16",
+    "MAX_ATTESTER_SLASHINGS": "2",
+    "MAX_ATTESTATIONS": "128",
+    "MAX_DEPOSITS": "16",
+    "MAX_VOLUNTARY_EXITS": "16",
+    "INACTIVITY_PENALTY_QUOTIENT_ALTAIR": "50331648",
+    "MIN_SLASHING_PENALTY_QUOTIENT_ALTAIR": "64",
+    "PROPORTIONAL_SLASHING_MULTIPLIER_ALTAIR": "2",
+    "SYNC_COMMITTEE_SIZE": "512",
+    "EPOCHS_PER_SYNC_COMMITTEE_PERIOD": "256",
+    "MIN_SYNC_COMMITTEE_PARTICIPANTS": "1",
+    "INACTIVITY_PENALTY_QUOTIENT_BELLATRIX": "16777216",
+    "MIN_SLASHING_PENALTY_QUOTIENT_BELLATRIX": "32",
+    "PROPORTIONAL_SLASHING_MULTIPLIER_BELLATRIX": "3",
+    "MAX_BYTES_PER_TRANSACTION": "1073741824",
+    "MAX_TRANSACTIONS_PER_PAYLOAD": "1048576",
+    "BYTES_PER_LOGS_BLOOM": "256",
+    "MAX_EXTRA_DATA_BYTES": "32",
+    "MAX_BLS_TO_EXECUTION_CHANGES": "16",
+    "MAX_WITHDRAWALS_PER_PAYLOAD": "16",
+    "MAX_VALIDATORS_PER_WITHDRAWALS_SWEEP": "16384",
+    "DOMAIN_DEPOSIT": "0x03000000",
+    "BLS_WITHDRAWAL_PREFIX": "0x00",
+    "RANDOM_SUBNETS_PER_VALIDATOR": "1",
+    "DOMAIN_SYNC_COMMITTEE": "0x07000000",
+    "TARGET_AGGREGATORS_PER_SYNC_SUBCOMMITTEE": "16",
+    "DOMAIN_BEACON_ATTESTER": "0x01000000",
+    "DOMAIN_VOLUNTARY_EXIT": "0x04000000",
+    "DOMAIN_SYNC_COMMITTEE_SELECTION_PROOF": "0x08000000",
+    "DOMAIN_CONTRIBUTION_AND_PROOF": "0x09000000",
+    "EPOCHS_PER_RANDOM_SUBNET_SUBSCRIPTION": "256",
+    "TARGET_AGGREGATORS_PER_COMMITTEE": "16",
+    "DOMAIN_APPLICATION_MASK": "0x00000001",
+    "DOMAIN_AGGREGATE_AND_PROOF": "0x06000000",
+    "DOMAIN_RANDAO": "0x02000000",
+    "DOMAIN_SELECTION_PROOF": "0x05000000",
+    "DOMAIN_BEACON_PROPOSER": "0x00000000",
+    "SYNC_COMMITTEE_SUBNET_COUNT": "4"
+  }
 }
 ```
 
@@ -240,13 +335,13 @@ file may be read by a local user with access rights.
 | Required Headers  | -                  |
 | Typical Responses | 200                |
 
-### Example Path
+Command:
 
-```
-localhost:5062/lighthouse/auth
+```bash
+curl http://localhost:5062/lighthouse/auth | jq
 ```
 
-### Example Response Body
+Example Response Body
 
 ```json
 {
@@ -267,7 +362,14 @@ Lists all validators managed by this validator client.
 | Required Headers  | [`Authorization`](./api-vc-auth-header.md) |
 | Typical Responses | 200                                        |
 
-### Example Response Body
+Command:
+
+```bash
+DATADIR=/var/lib/lighthouse
+curl -X GET "http://localhost:5062/lighthouse/validators/" -H "Authorization: Bearer $(cat ${DATADIR}/validators/api-token.txt)" | jq
+```
+
+Example Response Body
 
 ```json
 {
@@ -304,13 +406,14 @@ Get a validator by their `voting_pubkey`.
 | Required Headers  | [`Authorization`](./api-vc-auth-header.md) |
 | Typical Responses | 200, 400                                   |
 
-### Example Path
+Command:
 
-```
-localhost:5062/lighthouse/validators/0xb0148e6348264131bf47bcd1829590e870c836dc893050fd0dadc7a28949f9d0a72f2805d027521b45441101f0cc1cde
+```bash
+DATADIR=/var/lib/lighthouse
+curl -X GET "http://localhost:5062/lighthouse/validators/0xb0148e6348264131bf47bcd1829590e870c836dc893050fd0dadc7a28949f9d0a72f2805d027521b45441101f0cc1cde" -H "Authorization: Bearer $(cat ${DATADIR}/validators/api-token.txt)" | jq
 ```
 
-### Example Response Body
+Example Response Body
 
 ```json
 {
@@ -323,7 +426,7 @@ localhost:5062/lighthouse/validators/0xb0148e6348264131bf47bcd1829590e870c836dc8
 
 ## `PATCH /lighthouse/validators/:voting_pubkey`
 
-Update some values for the validator with `voting_pubkey`.
+Update some values for the validator with `voting_pubkey`. The following example updates a validator from `enabled: true` to `enabled: false`
 
 ### HTTP Specification
 
@@ -334,13 +437,8 @@ Update some values for the validator with `voting_pubkey`.
 | Required Headers  | [`Authorization`](./api-vc-auth-header.md) |
 | Typical Responses | 200, 400                                   |
 
-### Example Path
 
-```
-localhost:5062/lighthouse/validators/0xb0148e6348264131bf47bcd1829590e870c836dc893050fd0dadc7a28949f9d0a72f2805d027521b45441101f0cc1cde
-```
-
-### Example Request Body
+Example Request Body
 
 ```json
 {
@@ -348,11 +446,28 @@ localhost:5062/lighthouse/validators/0xb0148e6348264131bf47bcd1829590e870c836dc8
 }
 ```
 
+Command:
+
+```bash
+DATADIR=/var/lib/lighthouse
+curl -X PATCH "http://localhost:5062/lighthouse/validators/0xb0148e6348264131bf47bcd1829590e870c836dc893050fd0dadc7a28949f9d0a72f2805d027521b45441101f0cc1cde" \
+-H "Authorization: Bearer $(cat ${DATADIR}/validators/api-token.txt)" \
+-H "Content-Type: application/json" \
+-d "{\"enabled\":false}" | jq
+```
 ### Example Response Body
 
 ```json
 null
 ```
+
+A `null` response indicates that the request is successful. At the same time, `lighthouse vc` will log:
+
+```
+INFO Disabled validator                      voting_pubkey: 0xb0148e6348264131bf47bcd1829590e870c836dc893050fd0dadc7a28949f9d0a72f2805d027521b45441101f0cc1cde
+INFO Modified key_cache saved successfully
+```
+
 
 ## `POST /lighthouse/validators/`
 
@@ -392,6 +507,28 @@ Validators are generated from the mnemonic according to
 ]
 ```
 
+Command: 
+```bash
+DATADIR=/var/lib/lighthouse
+curl -X POST http://localhost:5062/lighthouse/validators \
+-H "Authorization: Bearer $(cat ${DATADIR}/validators/api-token.txt)" \
+-H "Content-Type: application/json" \
+-d '[
+    {
+        "enable": true,
+        "description": "validator_one",
+        "deposit_gwei": "32000000000",
+        "graffiti": "Mr F was here",
+        "suggested_fee_recipient": "0xa2e334e71511686bcfe38bb3ee1ad8f6babcc03d"
+    },
+    {
+        "enable": false,
+        "description": "validator two",
+        "deposit_gwei": "34000000000"
+    }
+]' | jq
+```
+
 ### Example Response Body
 
 ```json
@@ -416,6 +553,14 @@ Validators are generated from the mnemonic according to
         ]
     }
 }
+```
+
+ `lighthouse vc` will log:
+
+```
+INFO Enabled validator                      voting_pubkey: 0x8ffbc881fb60841a4546b4b385ec5e9b5090fd1c4395e568d98b74b94b41a912c6101113da39d43c101369eeb9b48e50, signing_method: local_keystore
+INFO Modified key_cache saved successfully
+INFO Disabled validator                     voting_pubkey: 0xa9fadd620dc68e9fe0d6e1a69f6c54a0271ad65ab5a509e645e45c6e60ff8f4fc538f301781193a08b55821444801502
 ```
 
 ## `POST /lighthouse/validators/keystore`
@@ -474,6 +619,19 @@ Import a keystore into the validator client.
 }
 ```
 
+We can use [JSON to String Converter](https://jsontostring.com/) so that the above data can be properly presented as a command. The command is as below:
+
+Command:
+```bash
+DATADIR=/var/lib/lighthouse
+curl -X POST http://localhost:5062/lighthouse/validators/keystore \
+-H "Authorization: Bearer $(cat ${DATADIR}/validators/api-token.txt)" \
+-H "Content-Type: application/json" \
+-d "{\"enable\":true,\"password\":\"mypassword\",\"keystore\":{\"crypto\":{\"kdf\":{\"function\":\"scrypt\",\"params\":{\"dklen\":32,\"n\":262144,\"r\":8,\"p\":1,\"salt\":\"445989ec2f332bb6099605b4f1562c0df017488d8d7fb3709f99ebe31da94b49\"},\"message\":\"\"},\"checksum\":{\"function\":\"sha256\",\"params\":{},\"message\":\"abadc1285fd38b24a98ac586bda5b17a8f93fc1ff0778803dc32049578981236\"},\"cipher\":{\"function\":\"aes-128-ctr\",\"params\":{\"iv\":\"65abb7e1d02eec9910d04299cc73efbe\"},\"message\":\"6b7931a4447be727a3bb5dc106d9f3c1ba50671648e522f213651d13450b6417\"}},\"uuid\":\"5cf2a1fb-dcd6-4095-9ebf-7e4ee0204cab\",\"path\":\"m/12381/3600/0/0/0\",\"pubkey\":\"b0d2f05014de27c6d7981e4a920799db1c512ee7922932be6bf55729039147cf35a090bd4ab378fe2d133c36cbbc9969\",\"version\":4,\"description\":\"\"}}" | jq
+```
+
+As this is an example for demonstration, the above command will return `InvalidPassword`. However, with a keystore file and correct password, running the above command will import the keystore to the validator client. An example of a success message is shown below:
+
 ### Example Response Body
 ```json
 {
@@ -484,6 +642,13 @@ Import a keystore into the validator client.
   }
 }
 
+```
+
+ `lighthouse vc` will log:
+
+```bash
+INFO Enabled validator                      voting_pubkey: 0xb0d2f05014de27c6d7981e4a920799db1c512ee7922932be6bf55729039147cf35a090bd4ab378fe2d133c36cbb, signing_method: local_keystore
+INFO Modified key_cache saved successfully
 ```
 
 ## `POST /lighthouse/validators/mnemonic`
@@ -521,6 +686,16 @@ generated with the path `m/12381/3600/i/42`.
 }
 ```
 
+Command:
+
+```bash
+DATADIR=/var/lib/lighthouse
+curl -X POST http://localhost:5062/lighthouse/validators/mnemonic \
+-H "Authorization: Bearer $(cat ${DATADIR}/validators/api-token.txt)" \
+-H "Content-Type: application/json" \
+-d '{"mnemonic":" theme onion deal plastic claim silver fancy youth lock ordinary hotel elegant balance ridge web skill burger survey demand distance legal fish salad cloth","key_derivation_path_offset":0,"validators":[{"enable":true,"description":"validator_one","deposit_gwei":"32000000000"}]}' | jq
+```
+
 ### Example Response Body
 
 ```json
@@ -535,6 +710,13 @@ generated with the path `m/12381/3600/i/42`.
         }
     ]
 }
+```
+
+`lighthouse vc` will log:
+
+```
+INFO Enabled validator                       voting_pubkey: 0xa062f95fee747144d5e511940624bc6546509eeaeae9383257a9c43e7ddc58c17c2bab4ae62053122184c381b90db380, signing_method: local_keystore
+INFO Modified key_cache saved successfully
 ```
 
 ## `POST /lighthouse/validators/web3signer`
@@ -575,9 +757,29 @@ The following fields may be omitted or nullified to obtain default values:
 - `root_certificate_path`
 - `request_timeout_ms`
 
+Command:
+```bash
+DATADIR=/var/lib/lighthouse
+curl -X POST http://localhost:5062/lighthouse/validators/web3signer \
+-H "Authorization: Bearer $(cat ${DATADIR}/validators/api-token.txt)" \
+-H "Content-Type: application/json" \
+-d "[{\"enable\":true,\"description\":\"validator_one\",\"graffiti\":\"Mr F was here\",\"suggested_fee_recipient\":\"0xa2e334e71511686bcfe38bb3ee1ad8f6babcc03d\",\"voting_public_key\":\"0xa062f95fee747144d5e511940624bc6546509eeaeae9383257a9c43e7ddc58c17c2bab4ae62053122184c381b90db380\",\"url\":\"http://path-to-web3signer.com\",\"request_timeout_ms\":12000}]"
+```
+
+
 ### Example Response Body
 
-*No data is included in the response body.*
+
+```json
+null
+```
+
+A `null` response indicates that the request is successful. At the same time, `lighthouse vc` will log:
+
+```
+INFO Enabled validator                       voting_pubkey: 0xa062f95fee747144d5e511940624bc6546509eeaeae9383257a9c43e7ddc58c17c2bab4ae62053122184c381b90db380, signing_method: remote_signer
+```
+
 
 ## `GET /lighthouse/logs`
 

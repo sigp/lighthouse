@@ -8,9 +8,9 @@ use beacon_chain::test_utils::{
 };
 use beacon_chain::validator_monitor::DEFAULT_INDIVIDUAL_TRACKING_THRESHOLD;
 use beacon_chain::{
-    historical_blocks::HistoricalBlockError, migrate::MigratorConfig, BeaconChain,
-    BeaconChainError, BeaconChainTypes, BeaconSnapshot, ChainConfig, NotifyExecutionLayer,
-    ServerSentEventHandler, WhenSlotSkipped,
+    blob_verification::MaybeAvailableBlock, historical_blocks::HistoricalBlockError,
+    migrate::MigratorConfig, BeaconChain, BeaconChainError, BeaconChainTypes, BeaconSnapshot,
+    ChainConfig, NotifyExecutionLayer, ServerSentEventHandler, WhenSlotSkipped,
 };
 use eth2_network_config::TRUSTED_SETUP;
 use fork_choice::CountUnrealized;
@@ -2209,14 +2209,33 @@ async fn weak_subjectivity_sync() {
         .filter(|s| s.beacon_block.slot() != 0)
         .map(|s| s.beacon_block.clone())
         .collect::<Vec<_>>();
+
+    let mut available_blocks = vec![];
+    for blinded in historical_blocks {
+        let full_block = harness
+            .chain
+            .get_block(&blinded.canonical_root())
+            .await
+            .expect("should get block")
+            .expect("should get block");
+        if let MaybeAvailableBlock::Available(block) = harness
+            .chain
+            .data_availability_checker
+            .check_availability(full_block.into())
+            .expect("should check availability")
+        {
+            available_blocks.push(block);
+        }
+    }
+
     beacon_chain
-        .import_historical_block_batch(historical_blocks.clone())
+        .import_historical_block_batch(available_blocks.clone())
         .unwrap();
     assert_eq!(beacon_chain.store.get_oldest_block_slot(), 0);
 
     // Resupplying the blocks should not fail, they can be safely ignored.
     beacon_chain
-        .import_historical_block_batch(historical_blocks)
+        .import_historical_block_batch(available_blocks)
         .unwrap();
 
     // The forwards iterator should now match the original chain
