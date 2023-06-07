@@ -1238,6 +1238,14 @@ pub struct ForkChoiceNode {
     pub execution_block_hash: Option<Hash256>,
 }
 
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(bound = "T: Serialize + serde::de::DeserializeOwned")]
+pub struct NextWithdrawalsResponse<T: Serialize + serde::de::DeserializeOwned> {
+    pub execution_optimistic: bool,
+    pub finalized: bool,
+    pub data: T,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
