@@ -9,7 +9,8 @@ use superstruct::superstruct;
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
-pub type KzgCommitments<T> = VariableList<KzgCommitment, <T as EthSpec>::MaxBlobsPerBlock>;
+pub type KzgCommitments<T> =
+    VariableList<KzgCommitment, <T as EthSpec>::MaxBlobCommitmentsPerBlock>;
 
 /// The body of a `BeaconChain` block, containing operations.
 ///

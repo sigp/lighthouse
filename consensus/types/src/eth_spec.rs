@@ -106,6 +106,7 @@ pub trait EthSpec:
      * New in Deneb
      */
     type MaxBlobsPerBlock: Unsigned + Clone + Sync + Send + Debug + PartialEq + Unpin;
+    type MaxBlobCommitmentsPerBlock: Unsigned + Clone + Sync + Send + Debug + PartialEq + Unpin;
     type FieldElementsPerBlob: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type BytesPerFieldElement: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     /*
@@ -300,6 +301,7 @@ impl EthSpec for MainnetEthSpec {
     type MinGasLimit = U5000;
     type MaxExtraDataBytes = U32;
     type MaxBlobsPerBlock = U4;
+    type MaxBlobCommitmentsPerBlock = U4096;
     type BytesPerFieldElement = U32;
     type FieldElementsPerBlob = U4096;
     type BytesPerBlob = U131072;
@@ -335,6 +337,7 @@ impl EthSpec for MinimalEthSpec {
     type MaxWithdrawalsPerPayload = U4;
     type FieldElementsPerBlob = U4; //FIXME(sean) this is spec'd out currently but will likely change
     type BytesPerBlob = U128; //FIXME(sean) this is spec'd out currently but will likely change
+    type MaxBlobCommitmentsPerBlock = U16;
 
     params_from_eth_spec!(MainnetEthSpec {
         JustificationBitsLength,
@@ -404,6 +407,7 @@ impl EthSpec for GnosisEthSpec {
     type MaxBlsToExecutionChanges = U16;
     type MaxWithdrawalsPerPayload = U8;
     type MaxBlobsPerBlock = U4;
+    type MaxBlobCommitmentsPerBlock = U4096;
     type FieldElementsPerBlob = U4096;
     type BytesPerFieldElement = U32;
     type BytesPerBlob = U131072;
