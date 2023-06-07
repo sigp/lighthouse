@@ -12,12 +12,13 @@ use types::{
 };
 
 impl<T: EthSpec> ExecutionLayer<T> {
-    /// Verify `payload.block_hash` locally within Lighthouse.
+    /// Calculate the block hash of an execution block.
     ///
-    /// No remote calls to the execution client will be made, so this is quite a cheap check.
-    pub fn verify_payload_block_hash(&self, payload: ExecutionPayloadRef<T>) -> Result<(), Error> {
-        let _timer = metrics::start_timer(&metrics::EXECUTION_LAYER_VERIFY_BLOCK_HASH);
-
+    /// Return `(block_hash, transactions_root)`, where `transactions_root` is the root of the RLP
+    /// transactions.
+    pub fn calculate_execution_block_hash(
+        payload: ExecutionPayloadRef<T>,
+    ) -> (ExecutionBlockHash, Hash256) {
         // Calculate the transactions root.
         // We're currently using a deprecated Parity library for this. We should move to a
         // better alternative when one appears, possibly following Reth.
@@ -51,7 +52,19 @@ impl<T: EthSpec> ExecutionLayer<T> {
 
         // Hash the RLP encoding of the block header.
         let rlp_block_header = rlp_encode_block_header(&exec_block_header);
-        let header_hash = ExecutionBlockHash::from_root(keccak256(&rlp_block_header));
+        (
+            ExecutionBlockHash::from_root(keccak256(&rlp_block_header)),
+            rlp_transactions_root,
+        )
+    }
+
+    /// Verify `payload.block_hash` locally within Lighthouse.
+    ///
+    /// No remote calls to the execution client will be made, so this is quite a cheap check.
+    pub fn verify_payload_block_hash(&self, payload: ExecutionPayloadRef<T>) -> Result<(), Error> {
+        let _timer = metrics::start_timer(&metrics::EXECUTION_LAYER_VERIFY_BLOCK_HASH);
+
+        let (header_hash, rlp_transactions_root) = Self::calculate_execution_block_hash(payload);
 
         if header_hash != payload.block_hash() {
             return Err(Error::BlockHashMismatch {

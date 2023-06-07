@@ -660,6 +660,15 @@ impl<E: EthSpec> AsBlock<E> for BlockWrapper<E> {
     }
 }
 
+impl<E: EthSpec> BlockWrapper<E> {
+    pub fn n_blobs(&self) -> usize {
+        match self {
+            BlockWrapper::Block(_) => 0,
+            BlockWrapper::BlockAndBlobs(_, blobs) => blobs.len(),
+        }
+    }
+}
+
 impl<E: EthSpec> From<Arc<SignedBeaconBlock<E>>> for BlockWrapper<E> {
     fn from(value: Arc<SignedBeaconBlock<E>>) -> Self {
         Self::Block(value)

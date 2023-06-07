@@ -1269,6 +1269,7 @@ pub fn set_network_config(
     // Light client server config.
     config.enable_light_client_server = cli_args.is_present("light-client-server");
 
+    // The self limiter is disabled by default.
     // This flag can be used both with or without a value. Try to parse it first with a value, if
     // no value is defined but the flag is present, use the default params.
     config.outbound_rate_limiter_config = clap_utils::parse_optional(cli_args, "self-limiter")?;
@@ -1289,7 +1290,22 @@ pub fn set_network_config(
         config.proposer_only = true;
         warn!(log, "Proposer-only mode enabled"; "info"=> "Do not connect a validator client to this node unless via the --proposer-nodes flag");
     }
-
+    // The inbound rate limiter is enabled by default unless `disabled` is passed to the
+    // `inbound-rate-limiter` flag. Any other value should be parsed as a configuration string.
+    config.inbound_rate_limiter_config = match cli_args.value_of("inbound-rate-limiter") {
+        None => {
+            // Enabled by default, with default values
+            Some(Default::default())
+        }
+        Some("disabled") => {
+            // Explicitly disabled
+            None
+        }
+        Some(config_str) => {
+            // Enabled with a custom configuration
+            Some(config_str.parse()?)
+        }
+    };
     Ok(())
 }
 

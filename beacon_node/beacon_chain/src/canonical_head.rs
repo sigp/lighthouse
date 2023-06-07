@@ -758,8 +758,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         drop(old_cached_head);
 
         // Prune blobs in the background.
-        self.store_migrator
-            .process_prune_blobs(self.data_availability_boundary());
+        if let Some(data_availability_boundary) = self.data_availability_boundary() {
+            self.store_migrator
+                .process_prune_blobs(data_availability_boundary);
+        }
 
         // If the finalized checkpoint changed, perform some updates.
         //

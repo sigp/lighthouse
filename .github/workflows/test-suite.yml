@@ -12,8 +12,7 @@ on:
 env:
   # Deny warnings in CI
   # Disable debug info (see https://github.com/sigp/lighthouse/issues/4005)
-  # FIXME: temporarily allow warnings on 4844 branch. Revert to original later: RUSTFLAGS: "-D warnings -C debuginfo=0"
-  RUSTFLAGS: "-C debuginfo=0"
+  RUSTFLAGS: "-D warnings -C debuginfo=0"
   # The Nightly version used for cargo-udeps, might need updating from time to time.
   PINNED_NIGHTLY: nightly-2023-04-16
   # Prevent Github API rate limiting.

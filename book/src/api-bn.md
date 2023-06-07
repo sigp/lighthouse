@@ -5,7 +5,7 @@ specification][OpenAPI]. Please follow that link for a full description of each 
 
 ## Starting the server
 
-A Lighthouse beacon node can be configured to expose a HTTP server by supplying the `--http` flag. The default listen address is `127.0.0.1:5052`.
+A Lighthouse beacon node can be configured to expose an HTTP server by supplying the `--http` flag. The default listen address is `http://127.0.0.1:5052`.
 
 The following CLI flags control the HTTP server:
 
@@ -55,11 +55,8 @@ Additional risks to be aware of include:
 
 ## CLI Example
 
-Start the beacon node with the HTTP server listening on [http://localhost:5052](http://localhost:5052):
+Start a beacon node and an execution node according to [Run a node](./run_a_node.md). Note that since [The Merge](https://ethereum.org/en/roadmap/merge/), an execution client is required to be running along with a beacon node. Hence, the query on Beacon Node APIs requires users to run both. While there are some Beacon Node APIs that you can query with only the beacon node, such as the [node version](https://ethereum.github.io/beacon-APIs/#/Node/getNodeVersion), in general an execution client is required to get the updated information about the beacon chain, such as [state root](https://ethereum.github.io/beacon-APIs/#/Beacon/getStateRoot), [headers](https://ethereum.github.io/beacon-APIs/#/Beacon/getBlockHeaders) and many others, which are dynamically progressing with time.
 
-```bash
-lighthouse bn --http
-```
 
 ## HTTP Request/Response Examples
 
@@ -77,40 +74,46 @@ curl -X GET "http://localhost:5052/eth/v1/beacon/headers/head" -H  "accept: appl
 
 ```json
 {
+  "execution_optimistic": false,
+  "finalized": false,
   "data": {
-    "root": "0x4381454174fc28c7095077e959dcab407ae5717b5dca447e74c340c1b743d7b2",
+    "root": "0x9059bbed6b8891e0ba2f656dbff93fc40f8c7b2b7af8fea9df83cfce5ee5e3d8",
     "canonical": true,
     "header": {
       "message": {
-        "slot": "3199",
-        "proposer_index": "19077",
-        "parent_root": "0xf1934973041c5896d0d608e52847c3cd9a5f809c59c64e76f6020e3d7cd0c7cd",
-        "state_root": "0xe8e468f9f5961655dde91968f66480868dab8d4147de9498111df2b7e4e6fe60",
-        "body_root": "0x6f183abc6c4e97f832900b00d4e08d4373bfdc819055d76b0f4ff850f559b883"
+        "slot": "6271829",
+        "proposer_index": "114398",
+        "parent_root": "0x1d2b4fa8247f754a7a86d36e1d0283a5e425491c431533716764880a7611d225",
+        "state_root": "0x2b48adea290712f56b517658dde2da5d36ee01c41aebe7af62b7873b366de245",
+        "body_root": "0x6fa74c995ce6f397fa293666cde054d6a9741f7ec280c640bee51220b4641e2d"
       },
-      "signature": "0x988064a2f9cf13fe3aae051a3d85f6a4bca5a8ff6196f2f504e32f1203b549d5f86a39c6509f7113678880701b1881b50925a0417c1c88a750c8da7cd302dda5aabae4b941e3104d0cf19f5043c4f22a7d75d0d50dad5dbdaf6991381dc159ab"
+      "signature": "0x8258e64fea426033676a0045c50543978bf173114ba94822b12188e23cbc8d8e89e0b5c628a881bf3075d325bc11341105a4e3f9332ac031d89a93b422525b79e99325928a5262f17dfa6cc3ddf84ca2466fcad86a3c168af0d045f79ef52036"
     }
   }
 }
 ```
+
+The `jq` tool is used to format the JSON data properly. If it returns `jq: command not found`, then you can install `jq` with `sudo apt install -y jq`. After that, run the command again, and it should return the head state of the beacon chain.
 
 ### View the status of a validator
 
 Shows the status of validator at index `1` at the `head` state.
 
 ```bash
-curl -X GET "http://localhost:5052/eth/v1/beacon/states/head/validators/1" -H  "accept: application/json" | jq
+curl -X GET "http://localhost:5052/eth/v1/beacon/states/head/validators/1" -H  "accept: application/json"
 ```
 
 ```json
 {
+  "execution_optimistic": false,
+  "finalized": false,
   "data": {
     "index": "1",
-    "balance": "63985937939",
-    "status": "Active",
+    "balance": "32004587169",
+    "status": "active_ongoing",
     "validator": {
-      "pubkey": "0x873e73ee8b3e4fcf1d2fb0f1036ba996ac9910b5b348f6438b5f8ef50857d4da9075d0218a9d1b99a9eae235a39703e1",
-      "withdrawal_credentials": "0x00b8cdcf79ba7e74300a07e9d8f8121dd0d8dd11dcfd6d3f2807c45b426ac968",
+      "pubkey": "0xa1d1ad0714035353258038e964ae9675dc0252ee22cea896825c01458e1807bfad2f9969338798548d9858a571f7425c",
+      "withdrawal_credentials": "0x01000000000000000000000015f4b914a0ccd14333d850ff311d6dafbfbaa32b",
       "effective_balance": "32000000000",
       "slashed": false,
       "activation_eligibility_epoch": "0",
@@ -121,6 +124,7 @@ curl -X GET "http://localhost:5052/eth/v1/beacon/states/head/validators/1" -H  "
   }
 }
 ```
+You can replace `1` in the above command with the validator index that you would like to query. Other API query can be done similarly by changing the link according to the Beacon API.
 
 ## Serving the HTTP API over TLS
 > **Warning**: This feature is currently experimental.
@@ -147,9 +151,18 @@ openssl req -x509 -nodes -newkey rsa:4096 -keyout key.pem -out cert.pem -days 36
 Note that currently Lighthouse only accepts keys that are not password protected.
 This means we need to run with the `-nodes` flag (short for 'no DES').
 
-Once generated, we can run Lighthouse:
+Once generated, we can run Lighthouse and an execution node according to [Run a node](./run_a_node.md). In addition, add the flags `--http-enable-tls --http-tls-cert cert.pem --http-tls-key key.pem` to Lighthouse, the command should look like:
+
 ```bash
-lighthouse bn --http --http-enable-tls --http-tls-cert cert.pem --http-tls-key key.pem
+lighthouse bn \
+  --network mainnet \
+  --execution-endpoint http://localhost:8551 \
+  --execution-jwt /secrets/jwt.hex \
+  --checkpoint-sync-url https://mainnet.checkpoint.sigp.io \
+  --http \
+  --http-enable-tls \
+  --http-tls-cert cert.pem \
+  --http-tls-key key.pem
 ```
 Note that the user running Lighthouse must have permission to read the
 certificate and key.
@@ -159,6 +172,7 @@ The API is now being served at `https://localhost:5052`.
 To test connectivity, you can run the following:
 ```bash
 curl -X GET "https://localhost:5052/eth/v1/node/version" -H  "accept: application/json" --cacert cert.pem | jq
+
 ```
 ### Connecting a validator client
 In order to connect a validator client to a beacon node over TLS, the validator
@@ -201,13 +215,13 @@ Ensure the `--http` flag has been supplied at the CLI.
 You can quickly check that the HTTP endpoint is up using `curl`:
 
 ```bash
-curl -X GET "http://localhost:5052/eth/v1/node/version" -H  "accept: application/json" | jq
+curl -X GET "http://localhost:5052/eth/v1/node/version" -H  "accept:application/json"
 ```
 
 The beacon node should respond with its version:
 
 ```json
-{"data":{"version":"Lighthouse/v0.2.9-6f7b4768a/x86_64-linux"}}
+{"data":{"version":"Lighthouse/v4.1.0-693886b/x86_64-linux"}
 ```
 
 If this doesn't work, the server might not be started or there might be a
