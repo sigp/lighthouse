@@ -3,7 +3,6 @@
 //! determines whether attestations should be aggregated and/or passed to the beacon node.
 
 use super::SubnetServiceMessage;
-#[cfg(all(test, feature = "spec-mainnet"))]
 use std::collections::HashSet;
 use std::collections::{HashMap, VecDeque};
 use std::pin::Pin;
@@ -180,7 +179,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
         }
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, feature = "spec-mainnet"))]
     pub(crate) fn long_lived_subscriptions(&self) -> &HashSet<SubnetId> {
         &self.long_lived_subscriptions
     }

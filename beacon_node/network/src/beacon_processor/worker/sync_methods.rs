@@ -22,7 +22,7 @@ use slot_clock::SlotClock;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc;
 use types::blob_sidecar::FixedBlobSidecarList;
-use types::{Epoch, Hash256, SignedBeaconBlock};
+use types::{Epoch, Hash256};
 
 /// Id associated to a batch processing request, either a sync batch or a parent lookup.
 #[derive(Clone, Debug, PartialEq)]
