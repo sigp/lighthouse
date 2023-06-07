@@ -95,7 +95,7 @@ impl<TSpec: EthSpec> OutboundRequest<TSpec> {
     }
 
     /// Gives the corresponding `SupportedProtocol` to this request.
-    pub fn protocol(&self) -> SupportedProtocol {
+    pub fn versioned_protocol(&self) -> SupportedProtocol {
         match self {
             OutboundRequest::Status(_) => SupportedProtocol::StatusV1,
             OutboundRequest::Goodbye(_) => SupportedProtocol::GoodbyeV1,

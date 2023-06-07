@@ -507,7 +507,7 @@ impl<TSpec: EthSpec> InboundRequest<TSpec> {
     }
 
     /// Gives the corresponding `SupportedProtocol` to this request.
-    pub fn protocol(&self) -> SupportedProtocol {
+    pub fn versioned_protocol(&self) -> SupportedProtocol {
         match self {
             InboundRequest::Status(_) => SupportedProtocol::StatusV1,
             InboundRequest::Goodbye(_) => SupportedProtocol::GoodbyeV1,

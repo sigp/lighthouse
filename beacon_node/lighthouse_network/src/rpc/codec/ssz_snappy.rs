@@ -807,7 +807,7 @@ mod tests {
     fn encode_then_decode_request(req: OutboundRequest<Spec>, fork_name: ForkName) {
         let fork_context = Arc::new(fork_context(fork_name));
         let max_packet_size = max_rpc_size(&fork_context);
-        let protocol = ProtocolId::new(req.protocol(), Encoding::SSZSnappy);
+        let protocol = ProtocolId::new(req.versioned_protocol(), Encoding::SSZSnappy);
         // Encode a request we send
         let mut buf = BytesMut::new();
         let mut outbound_codec = SSZSnappyOutboundCodec::<Spec>::new(
