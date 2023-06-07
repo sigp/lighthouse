@@ -1856,6 +1856,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                     block_hash: deneb_block.block_hash,
                     transactions: convert_transactions(deneb_block.transactions)?,
                     withdrawals,
+                    data_gas_used: deneb_block.data_gas_used,
                     excess_data_gas: deneb_block.excess_data_gas,
                 })
             }
