@@ -113,7 +113,7 @@ There are two types of withdrawal credentials, `0x00` and `0x01`. To check which
    | 1000000 | 8.68	| 8.77 |
 </div>
 
-> Note: Ideal scenario assumes no block proposals are missed. This means a total of withdrawals of 7200 blocks/day * 16 withdrawals/block = 115200 withdrawals/day. Practical scenario assumes 1% of blocks are missed per day.
+> Note: Ideal scenario assumes no block proposals are missed. This means a total of withdrawals of 7200 blocks/day * 16 withdrawals/block = 115200 withdrawals/day. Practical scenario assumes 1% of blocks are missed per day. As an example, if there are 700000 eligible validators, one would expect a waiting time of slightly more than 6 days.
 
 
 
