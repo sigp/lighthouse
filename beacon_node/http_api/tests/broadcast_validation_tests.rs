@@ -44,17 +44,29 @@ pub async fn gossip_invalid() {
     let num_initial: u64 = 31;
     let tester = InteractiveTester::<E>::new(None, validator_count).await;
 
-    /* produce a block wih zero parent and state roots in order to reproduce the initial exploit */
-    let block: SignedBeaconBlock<E> = BeaconBlock::empty(&tester.harness.chain.spec).sign(
-        &tester.harness.validator_keypairs[0].sk,
-        &tester
-            .harness
-            .chain
-            .spec
-            .fork_at_epoch(Epoch::new(Slot::new(num_initial).into())),
-        tester.harness.chain.genesis_validators_root,
-        &tester.harness.chain.spec,
-    );
+    // Create some chain depth.
+    tester.harness.advance_slot();
+    tester
+        .harness
+        .extend_chain(
+            num_initial as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    let chain_state_before = tester.harness.get_current_state();
+    let slot = chain_state_before.slot() + 1;
+
+    tester.harness.advance_slot();
+
+    let (block, _): (SignedBeaconBlock<E>, _) = tester
+        .harness
+        .make_block_with_modifier(chain_state_before, slot, |b| {
+            *b.state_root_mut() = H256::zero();
+            *b.parent_root_mut() = H256::zero();
+        })
+        .await;
 
     let response: Result<(), eth2::Error> = tester
         .client
@@ -68,7 +80,7 @@ pub async fn gossip_invalid() {
     assert_eq!(error_response.status(), Some(StatusCode::BAD_REQUEST));
 
     assert!(
-        matches!(error_response, eth2::Error::ServerMessage(err) if err.message == "BAD_REQUEST: Invalid block".to_string())
+        matches!(error_response, eth2::Error::ServerMessage(err) if err.message == "BAD_REQUEST: NotFinalizedDescendant { block_parent_root: 0x0000000000000000000000000000000000000000000000000000000000000000 }".to_string())
     );
 }
 
