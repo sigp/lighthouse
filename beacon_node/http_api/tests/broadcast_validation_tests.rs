@@ -11,9 +11,30 @@ use eth2::reqwest::StatusCode;
 
 type E = MainnetEthSpec;
 
+/*
+ * We have the following test cases:
+ *
+ * -  `broadcast_validation=gossip`
+ *   -  Invalid (400)
+ *   -  Full Pass (200)
+ *   -  Partial Pass (202)
+ *  -  `broadcast_validation=consensus`
+ *    -  Invalid (400)
+ *    -  Only gossip (400)
+ *    -  Only consensus pass (i.e., equivocates) (200)
+ *    -  Full pass (200)
+ *  -  `broadcast_validation=consensus_and_equivocation`
+ *    -  Invalid (400)
+ *    -  Invalid due to early equivocation (400)
+ *    -  Only gossip (400)
+ *    -  Only consensus (400)
+ *    -  Pass (200)
+ *
+ */
+
 /// This test checks that a block that is **invalid** from a gossip perspective gets rejected when using `broadcast_validation=gossip`.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-pub async fn gossip_reject() {
+pub async fn gossip_invalid() {
     /* this test targets gossip-level validation */
     let validation_level: Option<BroadcastValidation> = Some(BroadcastValidation::Gossip);
 
@@ -53,7 +74,7 @@ pub async fn gossip_reject() {
 
 /// This test checks that a block that is valid from a gossip perspective is accepted when using `broadcast_validation=gossip`.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-pub async fn gossip_accept_gossip() {
+pub async fn gossip_partial_pass() {
     /* this test targets gossip-level validation */
     let validation_level: Option<BroadcastValidation> = Some(BroadcastValidation::Gossip);
 
@@ -98,7 +119,7 @@ pub async fn gossip_accept_gossip() {
 
 // This test checks that a block that is valid from both a gossip and consensus perspective is accepted when using `broadcast_validation=gossip`.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-pub async fn gossip_accept_consensus() {
+pub async fn gossip_full_pass() {
     /* this test targets gossip-level validation */
     let validation_level: Option<BroadcastValidation> = Some(BroadcastValidation::Gossip);
 
@@ -134,7 +155,7 @@ pub async fn gossip_accept_consensus() {
 
 /// This test checks that a block that is only valid from a gossip perspective is rejected when using `broadcast_validation=consensus`.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-pub async fn consensus_accept_gossip() {
+pub async fn consensus_partial_pass_only_gossip() {
     /* this test targets gossip-level validation */
     let validation_level: Option<BroadcastValidation> = Some(BroadcastValidation::Consensus);
 
@@ -185,7 +206,7 @@ pub async fn consensus_accept_gossip() {
 
 /// This test checks that a block that is valid from both a gossip and consensus perspective is accepted when using `broadcast_validation=consensus`.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-pub async fn consensus_accept_consensus() {
+pub async fn consensus_partial_pass_only_consensus() {
     /* this test targets gossip-level validation */
     let validation_level: Option<BroadcastValidation> = Some(BroadcastValidation::Consensus);
 
