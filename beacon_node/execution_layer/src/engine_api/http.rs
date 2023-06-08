@@ -1105,19 +1105,18 @@ impl HttpJsonRpc {
         execution_payload: ExecutionPayload<T>,
         versioned_hashes_opt: Option<Vec<VersionedHash>>,
     ) -> Result<PayloadStatusV1, Error> {
-        let engine_capabilities = self.get_engine_capabilities(None).await?;
-        if engine_capabilities.new_payload_v3 {
-            let Some(versioned_hashes) = versioned_hashes_opt else {
-                return Err(Error::IncorrectStateVariant);
-            };
-            self.new_payload_v3(execution_payload, versioned_hashes)
-                .await
-        } else if engine_capabilities.new_payload_v2 {
-            self.new_payload_v2(execution_payload).await
-        } else if engine_capabilities.new_payload_v1 {
-            self.new_payload_v1(execution_payload).await
-        } else {
-            Err(Error::RequiredMethodUnsupported("engine_newPayload"))
+        // TODO(sean): opting to just use one struct one endpoint approach for simplicity,
+        // also this is in the pipeline:https://github.com/ethereum/execution-apis/pull/418/files
+        match execution_payload {
+            ExecutionPayload::Merge(_) => self.new_payload_v1(execution_payload).await,
+            ExecutionPayload::Capella(_) => self.new_payload_v2(execution_payload).await,
+            ExecutionPayload::Deneb(_) => {
+                let Some(versioned_hashes) = versioned_hashes_opt else {
+                    return Err(Error::IncorrectStateVariant);
+                };
+                self.new_payload_v3(execution_payload, versioned_hashes)
+                    .await
+            }
         }
     }
 

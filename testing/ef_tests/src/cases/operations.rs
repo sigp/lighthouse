@@ -20,9 +20,10 @@ use state_processing::{
 use std::fmt::Debug;
 use std::path::Path;
 use types::{
-    map_fork_name, map_fork_name_with, Attestation, AttesterSlashing, BeaconBlock, BeaconBlockBody,
-    BeaconState, BlindedPayload, ChainSpec, Deposit, EthSpec, ExecutionPayload, ForkName,
-    FullPayload, ProposerSlashing, SignedBlsToExecutionChange, SignedVoluntaryExit, SyncAggregate,
+    Attestation, AttesterSlashing, BeaconBlock, BeaconBlockBody, BeaconBlockBodyCapella,
+    BeaconBlockBodyDeneb, BeaconBlockBodyMerge, BeaconState, BlindedPayload, ChainSpec, Deposit,
+    EthSpec, ExecutionPayload, ForkName, FullPayload, ProposerSlashing, SignedBlsToExecutionChange,
+    SignedVoluntaryExit, SyncAggregate,
 };
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -275,7 +276,12 @@ impl<E: EthSpec> Operation<E> for BeaconBlockBody<E, FullPayload<E>> {
 
     fn decode(path: &Path, fork_name: ForkName, _spec: &ChainSpec) -> Result<Self, Error> {
         ssz_decode_file_with(path, |bytes| {
-            Ok(map_fork_name!(fork_name, Self, <_>::from_ssz_bytes(bytes)?))
+            Ok(match fork_name {
+                ForkName::Merge => BeaconBlockBody::Merge(<_>::from_ssz_bytes(bytes)?),
+                ForkName::Capella => BeaconBlockBody::Capella(<_>::from_ssz_bytes(bytes)?),
+                ForkName::Deneb => BeaconBlockBody::Deneb(<_>::from_ssz_bytes(bytes)?),
+                _ => panic!(),
+            })
         })
     }
 
@@ -311,7 +317,21 @@ impl<E: EthSpec> Operation<E> for BeaconBlockBody<E, BlindedPayload<E>> {
 
     fn decode(path: &Path, fork_name: ForkName, _spec: &ChainSpec) -> Result<Self, Error> {
         ssz_decode_file_with(path, |bytes| {
-            Ok(map_fork_name!(fork_name, Self, <_>::from_ssz_bytes(bytes)?))
+            Ok(match fork_name {
+                ForkName::Merge => {
+                    let inner = <BeaconBlockBodyMerge<E, FullPayload<E>>>::from_ssz_bytes(bytes)?;
+                    BeaconBlockBody::Merge(inner.clone_as_blinded())
+                }
+                ForkName::Capella => {
+                    let inner = <BeaconBlockBodyCapella<E, FullPayload<E>>>::from_ssz_bytes(bytes)?;
+                    BeaconBlockBody::Capella(inner.clone_as_blinded())
+                }
+                ForkName::Deneb => {
+                    let inner = <BeaconBlockBodyDeneb<E, FullPayload<E>>>::from_ssz_bytes(bytes)?;
+                    BeaconBlockBody::Deneb(inner.clone_as_blinded())
+                }
+                _ => panic!(),
+            })
         })
     }
 

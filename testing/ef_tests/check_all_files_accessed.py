@@ -54,7 +54,8 @@ excluded_paths = [
     # FIXME(sean)
     "tests/mainnet/capella/light_client/single_merkle_proof/BeaconBlockBody/*",
     "tests/mainnet/deneb/light_client/single_merkle_proof/BeaconBlockBody/*",
-    "tests/general/deneb/kzg"
+    "tests/general/deneb/kzg",
+    "tests/.*/eip6110"
 ]
 
 
