@@ -151,6 +151,7 @@ pub async fn gossip_full_pass() {
             AttestationStrategy::AllValidators,
         )
         .await;
+    tester.harness.advance_slot();
 
     let slot_a = Slot::new(num_initial);
     let slot_b = slot_a + 1;
@@ -162,6 +163,7 @@ pub async fn gossip_full_pass() {
         .client
         .post_beacon_blocks_v2(&block, validation_level)
         .await;
+
     assert!(response.is_ok());
 }
 
@@ -238,6 +240,7 @@ pub async fn consensus_partial_pass_only_consensus() {
             AttestationStrategy::AllValidators,
         )
         .await;
+    tester.harness.advance_slot();
 
     let slot_a = Slot::new(num_initial);
     let slot_b = slot_a + 1;
