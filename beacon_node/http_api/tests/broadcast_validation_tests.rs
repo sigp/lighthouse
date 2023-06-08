@@ -167,7 +167,7 @@ pub async fn gossip_full_pass() {
 
 /// This test checks that a block that is only valid from a gossip perspective is rejected when using `broadcast_validation=consensus`.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-pub async fn consensus_partial_pass_only_gossip() {
+pub async fn consensus_gossip() {
     /* this test targets gossip-level validation */
     let validation_level: Option<BroadcastValidation> = Some(BroadcastValidation::Consensus);
 
@@ -212,7 +212,7 @@ pub async fn consensus_partial_pass_only_gossip() {
     assert_eq!(error_response.status(), Some(StatusCode::BAD_REQUEST));
 
     assert!(
-        matches!(error_response, eth2::Error::ServerMessage(err) if err.message == "BAD_REQUEST: Invalid block".to_string())
+        matches!(error_response, eth2::Error::ServerMessage(err) if err.message == "BAD_REQUEST: FutureSlot { present_slot: Slot(31), block_slot: Slot(32) }".to_string())
     );
 }
 
