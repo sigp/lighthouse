@@ -414,23 +414,14 @@ where
         let weak_subj_block_root = weak_subj_block.canonical_root();
         let weak_subj_state_root = weak_subj_block.state_root();
 
-        // Check that the given block lies on an epoch boundary. Due to the database only storing
+        // Check that the given state lies on an epoch boundary. Due to the database only storing
         // full states on epoch boundaries and at restore points it would be difficult to support
         // starting from a mid-epoch state.
         if weak_subj_slot % TEthSpec::slots_per_epoch() != 0 {
             return Err(format!(
-                "Checkpoint block at slot {} is not aligned to epoch start. \
-                 Please supply an aligned checkpoint with block.slot % 32 == 0",
-                weak_subj_block.slot(),
-            ));
-        }
-
-        // Check that the block and state have consistent slots and state roots.
-        if weak_subj_state.slot() != weak_subj_block.slot() {
-            return Err(format!(
-                "Slot of snapshot block ({}) does not match snapshot state ({})",
-                weak_subj_block.slot(),
-                weak_subj_state.slot(),
+                "Checkpoint state at slot {} is not aligned to epoch start. \
+                 Please supply an aligned checkpoint with state.slot % 32 == 0",
+                weak_subj_slot,
             ));
         }
 
@@ -503,13 +494,12 @@ where
         let fc_store = BeaconForkChoiceStore::get_forkchoice_store(store, &snapshot)
             .map_err(|e| format!("Unable to initialize fork choice store: {e:?}"))?;
 
-        let current_slot = Some(snapshot.beacon_block.slot());
         let fork_choice = ForkChoice::from_anchor(
             fc_store,
             snapshot.beacon_block_root,
             &snapshot.beacon_block,
             &snapshot.beacon_state,
-            current_slot,
+            Some(weak_subj_slot),
             &self.spec,
         )
         .map_err(|e| format!("Unable to initialize ForkChoice: {:?}", e))?;
