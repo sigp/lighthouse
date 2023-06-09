@@ -2,30 +2,220 @@ mod kzg_commitment;
 mod kzg_proof;
 mod trusted_setup;
 
+use std::ops::Deref;
+
 pub use crate::{kzg_commitment::KzgCommitment, kzg_proof::KzgProof, trusted_setup::TrustedSetup};
-pub use c_kzg::{
-    Blob, Error as CKzgError, KzgSettings, BYTES_PER_BLOB, BYTES_PER_FIELD_ELEMENT,
-    FIELD_ELEMENTS_PER_BLOB,
-};
-use c_kzg::{Bytes32, Bytes48};
-use std::path::PathBuf;
+pub use c_kzg::{Bytes32, Bytes48};
 
 #[derive(Debug)]
 pub enum Error {
-    InvalidTrustedSetup(CKzgError),
-    InvalidKzgProof(CKzgError),
-    InvalidBytes(CKzgError),
-    KzgProofComputationFailed(CKzgError),
-    InvalidBlob(CKzgError),
+    InvalidTrustedSetup(CryptoError),
+    InvalidKzgProof(CryptoError),
+    InvalidBytes(CryptoError),
+    KzgProofComputationFailed(CryptoError),
+    InvalidBlob(CryptoError),
 }
+
+#[derive(Debug)]
+pub enum CryptoError {
+    CKzg(c_kzg::Error),
+    CKzgMin(c_kzg_min::Error),
+}
+
+impl From<c_kzg::Error> for CryptoError {
+    fn from(e: c_kzg::Error) -> Self {
+        Self::CKzg(e)
+    }
+}
+
+impl From<c_kzg_min::Error> for CryptoError {
+    fn from(e: c_kzg_min::Error) -> Self {
+        Self::CKzgMin(e)
+    }
+}
+
+pub trait KzgPreset {
+    type KzgSettings;
+    type Blob;
+    type Bytes32: From<[u8; 32]> + Deref<Target = [u8; 32]>;
+    type Bytes48: From<KzgCommitment> + From<KzgProof>;
+    type Error: Into<CryptoError>;
+
+    const BYTES_PER_BLOB: usize;
+    const BYTES_PER_FIELD_ELEMENT: usize;
+    const FIELD_ELEMENTS_PER_BLOB: usize;
+
+    fn bytes32_in(bytes: Bytes32) -> Self::Bytes32 {
+        let bytes: [u8; 32] = *bytes;
+        Self::Bytes32::from(bytes)
+    }
+
+    fn bytes32_out(bytes: Self::Bytes32) -> Bytes32 {
+        let bytes: [u8; 32] = *bytes;
+        Bytes32::from(bytes)
+    }
+
+    fn load_trusted_setup(trusted_setup: TrustedSetup) -> Result<Self::KzgSettings, CryptoError>;
+
+    fn compute_blob_kzg_proof(
+        blob: Self::Blob,
+        kzg_commitment: KzgCommitment,
+        trusted_setup: &Self::KzgSettings,
+    ) -> Result<KzgProof, CryptoError>;
+
+    fn verify_blob_kzg_proof(
+        blob: Self::Blob,
+        kzg_commitment: KzgCommitment,
+        kzg_proof: KzgProof,
+        trusted_setup: &Self::KzgSettings,
+    ) -> Result<bool, CryptoError>;
+
+    fn verify_blob_kzg_proof_batch(
+        blobs: &[Self::Blob],
+        commitments_bytes: &[Self::Bytes48],
+        proofs_bytes: &[Self::Bytes48],
+        trusted_setup: &Self::KzgSettings,
+    ) -> Result<bool, CryptoError>;
+
+    fn blob_to_kzg_commitment(
+        blob: Self::Blob,
+        trusted_setup: &Self::KzgSettings,
+    ) -> Result<KzgCommitment, CryptoError>;
+
+    fn compute_kzg_proof(
+        blob: Self::Blob,
+        z: Self::Bytes32,
+        trusted_setup: &Self::KzgSettings,
+    ) -> Result<(KzgProof, Self::Bytes32), CryptoError>;
+
+    fn verify_kzg_proof(
+        kzg_commitment: KzgCommitment,
+        z: Self::Bytes32,
+        y: Self::Bytes32,
+        kzg_proof: KzgProof,
+        trusted_setup: &Self::KzgSettings,
+    ) -> Result<bool, CryptoError>;
+}
+
+macro_rules! implement_kzg_preset {
+    ($preset_type:ident, $module_name:ident) => {
+        impl KzgPreset for $preset_type {
+            type KzgSettings = $module_name::KzgSettings;
+            type Blob = $module_name::Blob;
+            type Bytes32 = $module_name::Bytes32;
+            type Bytes48 = $module_name::Bytes48;
+            type Error = $module_name::Error;
+
+            const BYTES_PER_BLOB: usize = $module_name::BYTES_PER_BLOB;
+            const BYTES_PER_FIELD_ELEMENT: usize = $module_name::BYTES_PER_FIELD_ELEMENT;
+            const FIELD_ELEMENTS_PER_BLOB: usize = $module_name::FIELD_ELEMENTS_PER_BLOB;
+
+            fn load_trusted_setup(
+                trusted_setup: TrustedSetup,
+            ) -> Result<Self::KzgSettings, CryptoError> {
+                $module_name::KzgSettings::load_trusted_setup(
+                    trusted_setup.g1_points(),
+                    trusted_setup.g2_points(),
+                )
+                .map_err(CryptoError::from)
+            }
+
+            fn compute_blob_kzg_proof(
+                blob: Self::Blob,
+                kzg_commitment: KzgCommitment,
+                trusted_setup: &Self::KzgSettings,
+            ) -> Result<KzgProof, CryptoError> {
+                $module_name::KzgProof::compute_blob_kzg_proof(
+                    blob,
+                    kzg_commitment.into(),
+                    trusted_setup,
+                )
+                .map(|proof| KzgProof(proof.to_bytes().into_inner()))
+                .map_err(CryptoError::from)
+            }
+
+            fn verify_blob_kzg_proof(
+                blob: Self::Blob,
+                kzg_commitment: KzgCommitment,
+                kzg_proof: KzgProof,
+                trusted_setup: &Self::KzgSettings,
+            ) -> Result<bool, CryptoError> {
+                $module_name::KzgProof::verify_blob_kzg_proof(
+                    blob,
+                    kzg_commitment.into(),
+                    kzg_proof.into(),
+                    trusted_setup,
+                )
+                .map_err(CryptoError::from)
+            }
+
+            fn verify_blob_kzg_proof_batch(
+                blobs: &[Self::Blob],
+                commitments_bytes: &[Self::Bytes48],
+                proofs_bytes: &[Self::Bytes48],
+                trusted_setup: &Self::KzgSettings,
+            ) -> Result<bool, CryptoError> {
+                $module_name::KzgProof::verify_blob_kzg_proof_batch(
+                    blobs,
+                    commitments_bytes,
+                    proofs_bytes,
+                    trusted_setup,
+                )
+                .map_err(CryptoError::from)
+            }
+
+            fn blob_to_kzg_commitment(
+                blob: Self::Blob,
+                trusted_setup: &Self::KzgSettings,
+            ) -> Result<KzgCommitment, CryptoError> {
+                $module_name::KzgCommitment::blob_to_kzg_commitment(blob, trusted_setup)
+                    .map(|com| KzgCommitment(com.to_bytes().into_inner()))
+                    .map_err(CryptoError::from)
+            }
+
+            fn compute_kzg_proof(
+                blob: Self::Blob,
+                z: Self::Bytes32,
+                trusted_setup: &Self::KzgSettings,
+            ) -> Result<(KzgProof, Self::Bytes32), CryptoError> {
+                $module_name::KzgProof::compute_kzg_proof(blob, z, trusted_setup)
+                    .map(|(proof, y)| (KzgProof(proof.to_bytes().into_inner()), y))
+                    .map_err(CryptoError::from)
+            }
+
+            fn verify_kzg_proof(
+                kzg_commitment: KzgCommitment,
+                z: Self::Bytes32,
+                y: Self::Bytes32,
+                kzg_proof: KzgProof,
+                trusted_setup: &Self::KzgSettings,
+            ) -> Result<bool, CryptoError> {
+                $module_name::KzgProof::verify_kzg_proof(
+                    kzg_commitment.into(),
+                    z,
+                    y,
+                    kzg_proof.into(),
+                    trusted_setup,
+                )
+                .map_err(CryptoError::from)
+            }
+        }
+    };
+}
+
+pub struct MainnetKzgPreset;
+pub struct MinimalKzgPreset;
+
+implement_kzg_preset!(MainnetKzgPreset, c_kzg);
+implement_kzg_preset!(MinimalKzgPreset, c_kzg_min);
 
 /// A wrapper over a kzg library that holds the trusted setup parameters.
 #[derive(Debug)]
-pub struct Kzg {
-    trusted_setup: KzgSettings,
+pub struct Kzg<P: KzgPreset> {
+    trusted_setup: P::KzgSettings,
 }
 
-impl Kzg {
+impl<P: KzgPreset> Kzg<P> {
     /// Load the kzg trusted setup parameters from a vec of G1 and G2 points.
     ///
     /// The number of G1 points should be equal to FIELD_ELEMENTS_PER_BLOB
@@ -33,22 +223,7 @@ impl Kzg {
     /// The number of G2 points should be equal to 65.
     pub fn new_from_trusted_setup(trusted_setup: TrustedSetup) -> Result<Self, Error> {
         Ok(Self {
-            trusted_setup: KzgSettings::load_trusted_setup(
-                trusted_setup.g1_points(),
-                trusted_setup.g2_points(),
-            )
-            .map_err(Error::InvalidTrustedSetup)?,
-        })
-    }
-
-    /// Loads a trusted setup given the path to the file containing the trusted setup values.
-    /// The format is specified in `c_kzg::KzgSettings::load_trusted_setup_file`.
-    ///
-    /// Note: This function will likely be deprecated. Use `Kzg::new_from_trusted_setup` instead.
-    #[deprecated]
-    pub fn new_from_file(file_path: PathBuf) -> Result<Self, Error> {
-        Ok(Self {
-            trusted_setup: KzgSettings::load_trusted_setup_file(file_path)
+            trusted_setup: P::load_trusted_setup(trusted_setup)
                 .map_err(Error::InvalidTrustedSetup)?,
         })
     }
@@ -56,28 +231,22 @@ impl Kzg {
     /// Compute the kzg proof given a blob and its kzg commitment.
     pub fn compute_blob_kzg_proof(
         &self,
-        blob: Blob,
+        blob: P::Blob,
         kzg_commitment: KzgCommitment,
     ) -> Result<KzgProof, Error> {
-        c_kzg::KzgProof::compute_blob_kzg_proof(blob, kzg_commitment.into(), &self.trusted_setup)
+        P::compute_blob_kzg_proof(blob, kzg_commitment, &self.trusted_setup)
             .map_err(Error::KzgProofComputationFailed)
-            .map(|proof| KzgProof(proof.to_bytes().into_inner()))
     }
 
     /// Verify a kzg proof given the blob, kzg commitment and kzg proof.
     pub fn verify_blob_kzg_proof(
         &self,
-        blob: Blob,
+        blob: P::Blob,
         kzg_commitment: KzgCommitment,
         kzg_proof: KzgProof,
     ) -> Result<bool, Error> {
-        c_kzg::KzgProof::verify_blob_kzg_proof(
-            blob,
-            kzg_commitment.into(),
-            kzg_proof.into(),
-            &self.trusted_setup,
-        )
-        .map_err(Error::InvalidKzgProof)
+        P::verify_blob_kzg_proof(blob, kzg_commitment, kzg_proof, &self.trusted_setup)
+            .map_err(Error::InvalidKzgProof)
     }
 
     /// Verify a batch of blob commitment proof triplets.
@@ -86,22 +255,21 @@ impl Kzg {
     /// TODO(pawan): test performance against a parallelized rayon impl.
     pub fn verify_blob_kzg_proof_batch(
         &self,
-        blobs: &[Blob],
+        blobs: &[P::Blob],
         kzg_commitments: &[KzgCommitment],
         kzg_proofs: &[KzgProof],
     ) -> Result<bool, Error> {
         let commitments_bytes = kzg_commitments
             .iter()
-            .map(|comm| Bytes48::from_bytes(&comm.0))
-            .collect::<Result<Vec<Bytes48>, _>>()
-            .map_err(Error::InvalidBytes)?;
+            .map(|comm| P::Bytes48::from(*comm))
+            .collect::<Vec<_>>();
 
         let proofs_bytes = kzg_proofs
             .iter()
-            .map(|proof| Bytes48::from_bytes(&proof.0))
-            .collect::<Result<Vec<Bytes48>, _>>()
-            .map_err(Error::InvalidBytes)?;
-        c_kzg::KzgProof::verify_blob_kzg_proof_batch(
+            .map(|proof| P::Bytes48::from(*proof))
+            .collect::<Vec<_>>();
+
+        P::verify_blob_kzg_proof_batch(
             blobs,
             &commitments_bytes,
             &proofs_bytes,
@@ -111,17 +279,19 @@ impl Kzg {
     }
 
     /// Converts a blob to a kzg commitment.
-    pub fn blob_to_kzg_commitment(&self, blob: Blob) -> Result<KzgCommitment, Error> {
-        c_kzg::KzgCommitment::blob_to_kzg_commitment(blob, &self.trusted_setup)
-            .map_err(Error::InvalidBlob)
-            .map(|com| KzgCommitment(com.to_bytes().into_inner()))
+    pub fn blob_to_kzg_commitment(&self, blob: P::Blob) -> Result<KzgCommitment, Error> {
+        P::blob_to_kzg_commitment(blob, &self.trusted_setup).map_err(Error::InvalidBlob)
     }
 
     /// Computes the kzg proof for a given `blob` and an evaluation point `z`
-    pub fn compute_kzg_proof(&self, blob: Blob, z: Bytes32) -> Result<(KzgProof, Bytes32), Error> {
-        c_kzg::KzgProof::compute_kzg_proof(blob, z, &self.trusted_setup)
+    pub fn compute_kzg_proof(
+        &self,
+        blob: P::Blob,
+        z: Bytes32,
+    ) -> Result<(KzgProof, Bytes32), Error> {
+        P::compute_kzg_proof(blob, P::bytes32_in(z), &self.trusted_setup)
             .map_err(Error::KzgProofComputationFailed)
-            .map(|(proof, y)| (KzgProof(proof.to_bytes().into_inner()), y))
+            .map(|(proof, y)| (proof, P::bytes32_out(y)))
     }
 
     /// Verifies a `kzg_proof` for a `kzg_commitment` that evaluating a polynomial at `z` results in `y`
@@ -132,11 +302,11 @@ impl Kzg {
         y: Bytes32,
         kzg_proof: KzgProof,
     ) -> Result<bool, Error> {
-        c_kzg::KzgProof::verify_kzg_proof(
-            kzg_commitment.into(),
-            z,
-            y,
-            kzg_proof.into(),
+        P::verify_kzg_proof(
+            kzg_commitment,
+            P::bytes32_in(z),
+            P::bytes32_in(y),
+            kzg_proof,
             &self.trusted_setup,
         )
         .map_err(Error::InvalidKzgProof)
