@@ -1237,7 +1237,7 @@ pub struct ForkChoiceNode {
     pub execution_block_hash: Option<Hash256>,
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum BroadcastValidation {
     Gossip,

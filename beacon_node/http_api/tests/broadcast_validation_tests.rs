@@ -5,6 +5,7 @@ use beacon_chain::{
 use eth2::types::{BeaconBlock, BroadcastValidation, SignedBeaconBlock};
 use http_api::test_utils::InteractiveTester;
 use std::sync::Arc;
+use tree_hash::TreeHash;
 use types::{Epoch, MainnetEthSpec, Slot, H256};
 
 use eth2::reqwest::StatusCode;
@@ -298,13 +299,37 @@ pub async fn consensus_partial_pass_only_consensus() {
     let slot_b = slot_a + 1;
 
     let state_a = tester.harness.get_current_state();
-    let (block, _): (SignedBeaconBlock<E>, _) = tester.harness.make_block(state_a, slot_b).await; /* TODO: induce equivocation */
+    let (block_a, state_after_a): (SignedBeaconBlock<E>, _) =
+        tester.harness.make_block(state_a.clone(), slot_b).await;
+    let (block_b, state_after_b): (SignedBeaconBlock<E>, _) =
+        tester.harness.make_block(state_a, slot_b).await; 
 
+    /* check for `make_block` curios */
+    assert_eq!(block_a.state_root(), state_after_a.tree_hash_root());
+    assert_eq!(block_b.state_root(), state_after_b.tree_hash_root());
+    assert_ne!(block_a.state_root(), block_b.state_root());
+
+    /* submit `block_a` as valid */
+    assert!(tester
+        .client
+        .post_beacon_blocks_v2(&block_a, validation_level)
+        .await
+        .is_ok());
+
+    /* submit `block_b` which should induce equivocation */
     let response: Result<(), eth2::Error> = tester
         .client
-        .post_beacon_blocks_v2(&block, validation_level)
+        .post_beacon_blocks_v2(&block_b, validation_level)
         .await;
-    assert!(response.is_ok());
+    assert!(response.is_err());
+
+    let error_response: eth2::Error = response.err().unwrap();
+
+    assert_eq!(error_response.status(), Some(StatusCode::BAD_REQUEST));
+
+    assert!(
+        matches!(error_response, eth2::Error::ServerMessage(err) if err.message ==  "BAD_REQUEST: RepeatProposal { proposer: 44, slot: Slot(32) }")
+    );
 }
 
 /// This test checks that a block that is **invalid** from a gossip perspective gets rejected when using `broadcast_validation=consensus_and_equivocation`.
