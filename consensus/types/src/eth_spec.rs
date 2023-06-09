@@ -1,5 +1,6 @@
 use crate::*;
 
+use kzg::{BlobTrait, KzgPreset, MainnetKzgPreset, MinimalKzgPreset};
 use safe_arith::SafeArith;
 use serde_derive::{Deserialize, Serialize};
 use ssz_types::typenum::{
@@ -51,6 +52,8 @@ impl fmt::Display for EthSpecId {
 pub trait EthSpec:
     'static + Default + Sync + Send + Clone + Debug + PartialEq + Eq + for<'a> arbitrary::Arbitrary<'a>
 {
+    type Kzg: KzgPreset;
+
     /*
      * Constants
      */
@@ -255,6 +258,10 @@ pub trait EthSpec:
     fn max_blobs_per_block() -> usize {
         Self::MaxBlobsPerBlock::to_usize()
     }
+
+    fn blob_from_bytes(bytes: &[u8]) -> Result<<Self::Kzg as KzgPreset>::Blob, kzg::Error> {
+        <Self::Kzg as KzgPreset>::Blob::from_bytes(bytes)
+    }
 }
 
 /// Macro to inherit some type values from another EthSpec.
@@ -270,6 +277,8 @@ macro_rules! params_from_eth_spec {
 pub struct MainnetEthSpec;
 
 impl EthSpec for MainnetEthSpec {
+    type Kzg = MainnetKzgPreset;
+
     type JustificationBitsLength = U4;
     type SubnetBitfieldLength = U64;
     type MaxValidatorsPerCommittee = U2048;
@@ -318,6 +327,8 @@ impl EthSpec for MainnetEthSpec {
 pub struct MinimalEthSpec;
 
 impl EthSpec for MinimalEthSpec {
+    type Kzg = MinimalKzgPreset;
+
     type SlotsPerEpoch = U8;
     type EpochsPerEth1VotingPeriod = U4;
     type SlotsPerHistoricalRoot = U64;
@@ -369,6 +380,8 @@ impl EthSpec for MinimalEthSpec {
 pub struct GnosisEthSpec;
 
 impl EthSpec for GnosisEthSpec {
+    type Kzg = MainnetKzgPreset;
+
     type JustificationBitsLength = U4;
     type SubnetBitfieldLength = U64;
     type MaxValidatorsPerCommittee = U2048;

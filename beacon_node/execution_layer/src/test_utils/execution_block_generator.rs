@@ -8,7 +8,7 @@ use crate::{
     },
     BlobsBundleV1, ExecutionBlockWithTransactions,
 };
-use kzg::{Kzg, BYTES_PER_BLOB, BYTES_PER_FIELD_ELEMENT, FIELD_ELEMENTS_PER_BLOB};
+use kzg::{Kzg, KzgPreset};
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use ssz::Encode;
@@ -130,7 +130,7 @@ pub struct ExecutionBlockGenerator<T: EthSpec> {
      * deneb stuff
      */
     pub blobs_bundles: HashMap<PayloadId, BlobsBundleV1<T>>,
-    pub kzg: Option<Arc<Kzg>>,
+    pub kzg: Option<Arc<Kzg<T::Kzg>>>,
 }
 
 impl<T: EthSpec> ExecutionBlockGenerator<T> {
@@ -140,7 +140,7 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
         terminal_block_hash: ExecutionBlockHash,
         shanghai_time: Option<u64>,
         deneb_time: Option<u64>,
-        kzg: Option<Kzg>,
+        kzg: Option<Kzg<T::Kzg>>,
     ) -> Self {
         let mut gen = Self {
             head_block: <_>::default(),
@@ -635,29 +635,31 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
         let mut transactions = vec![];
         for blob_index in 0..n_blobs {
             // fill a vector with random bytes
-            let mut blob_bytes = [0u8; BYTES_PER_BLOB];
+            let mut blob_bytes = vec![0u8; T::Kzg::BYTES_PER_BLOB];
             rand::thread_rng().fill_bytes(&mut blob_bytes);
             // Ensure that the blob is canonical by ensuring that
             // each field element contained in the blob is < BLS_MODULUS
-            for i in 0..FIELD_ELEMENTS_PER_BLOB {
-                blob_bytes[i * BYTES_PER_FIELD_ELEMENT + BYTES_PER_FIELD_ELEMENT - 1] = 0;
+            for i in 0..T::Kzg::FIELD_ELEMENTS_PER_BLOB {
+                blob_bytes
+                    [i * T::Kzg::BYTES_PER_FIELD_ELEMENT + T::Kzg::BYTES_PER_FIELD_ELEMENT - 1] = 0;
             }
 
-            let blob = Blob::<T>::new(Vec::from(blob_bytes))
+            let blob = Blob::<T>::new(blob_bytes)
                 .map_err(|e| format!("error constructing random blob: {:?}", e))?;
+            let kzg_blob = T::blob_from_bytes(&blob_bytes).unwrap();
 
             let commitment = self
                 .kzg
                 .as_ref()
                 .ok_or("kzg not initialized")?
-                .blob_to_kzg_commitment(blob_bytes.into())
+                .blob_to_kzg_commitment(kzg_blob.clone())
                 .map_err(|e| format!("error computing kzg commitment: {:?}", e))?;
 
             let proof = self
                 .kzg
                 .as_ref()
                 .ok_or("kzg not initialized")?
-                .compute_blob_kzg_proof(blob_bytes.into(), commitment)
+                .compute_blob_kzg_proof(kzg_blob, commitment)
                 .map_err(|e| format!("error computing kzg proof: {:?}", e))?;
 
             let versioned_hash = commitment.calculate_versioned_hash();

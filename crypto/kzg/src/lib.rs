@@ -2,6 +2,8 @@ mod kzg_commitment;
 mod kzg_proof;
 mod trusted_setup;
 
+use serde_derive::{Deserialize, Serialize};
+use std::fmt::Debug;
 use std::ops::Deref;
 
 pub use crate::{kzg_commitment::KzgCommitment, kzg_proof::KzgProof, trusted_setup::TrustedSetup};
@@ -34,9 +36,15 @@ impl From<c_kzg_min::Error> for CryptoError {
     }
 }
 
-pub trait KzgPreset {
-    type KzgSettings;
-    type Blob;
+pub trait BlobTrait: Sized + Clone {
+    fn from_bytes(bytes: &[u8]) -> Result<Self, Error>;
+}
+
+pub trait KzgPreset:
+    'static + Default + Sync + Send + Clone + Debug + PartialEq + Eq + for<'a> arbitrary::Arbitrary<'a>
+{
+    type KzgSettings: Debug;
+    type Blob: BlobTrait;
     type Bytes32: From<[u8; 32]> + Deref<Target = [u8; 32]>;
     type Bytes48: From<KzgCommitment> + From<KzgProof>;
     type Error: Into<CryptoError>;
@@ -200,10 +208,20 @@ macro_rules! implement_kzg_preset {
                 .map_err(CryptoError::from)
             }
         }
+
+        impl BlobTrait for $module_name::Blob {
+            fn from_bytes(bytes: &[u8]) -> Result<Self, Error> {
+                Self::from_bytes(bytes)
+                    .map_err(CryptoError::from)
+                    .map_err(Error::InvalidBlob)
+            }
+        }
     };
 }
 
+#[derive(Clone, PartialEq, Eq, Debug, Default, Serialize, Deserialize, arbitrary::Arbitrary)]
 pub struct MainnetKzgPreset;
+#[derive(Clone, PartialEq, Eq, Debug, Default, Serialize, Deserialize, arbitrary::Arbitrary)]
 pub struct MinimalKzgPreset;
 
 implement_kzg_preset!(MainnetKzgPreset, c_kzg);
