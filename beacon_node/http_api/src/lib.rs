@@ -1937,8 +1937,12 @@ pub fn serve<T: BeaconChainTypes>(
      * builder/states
      */
 
-    let builder_states_path = eth_v1.and(warp::path("states")).and(chain_filter.clone());
+    let builder_states_path = eth_v1
+        .and(warp::path("builder"))
+        .and(warp::path("states"))
+        .and(chain_filter.clone());
 
+    // GET builder/states/{state_id}/expected_withdrawals
     let get_expected_withdrawals = builder_states_path
         .clone()
         .and(warp::path::param::<StateId>())
@@ -3878,6 +3882,7 @@ pub fn serve<T: BeaconChainTypes>(
                 .uor(get_lighthouse_block_packing_efficiency)
                 .uor(get_lighthouse_merge_readiness)
                 .uor(get_events)
+                .uor(get_expected_withdrawals)
                 .uor(lighthouse_log_events.boxed())
                 .recover(warp_utils::reject::handle_rejection),
         )

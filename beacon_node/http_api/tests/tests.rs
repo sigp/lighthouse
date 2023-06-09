@@ -4152,6 +4152,15 @@ impl ApiTester {
         self
     }
 
+    pub async fn test_get_expected_withdrawals(self) -> Self {
+        for state_id in self.interesting_state_ids() {
+            let result = self.client
+                .get_expected_withdrawals(state_id)
+                .await
+                .unwrap();
+        }
+    }
+
     pub async fn test_get_events_altair(self) -> Self {
         let topics = vec![EventTopic::ContributionAndProof];
         let mut events_future = self
@@ -4890,5 +4899,15 @@ async fn optimistic_responses() {
     ApiTester::new_with_hard_forks(true, true)
         .await
         .test_check_optimistic_responses()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_expected_withdrawals() {
+    let mut config = ApiTesterConfig::default();
+    config.spec.altair_fork_epoch = Some(Epoch::new(0));
+    ApiTester::new_from_config(config)
+        .await
+        .test_get_expected_withdrawals()
         .await;
 }
