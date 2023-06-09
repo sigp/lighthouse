@@ -362,7 +362,7 @@ where
                     "state_root" => ?state_root
                 );
                 let mut state = remote
-                    .get_debug_beacon_states_ssz::<TEthSpec>(StateId::Root(state_root), &spec)
+                    .get_debug_beacon_states_ssz::<TEthSpec>(StateId::Slot(block.slot()), &spec)
                     .await
                     .map_err(|e| {
                         format!(
