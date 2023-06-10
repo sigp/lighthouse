@@ -1963,11 +1963,13 @@ pub fn serve<T: BeaconChainTypes>(
                     .cached_head()
                     .forkchoice_update_parameters();
                 match chain.get_expected_withdrawals(&forkchoice_update_parameters, state.slot()) {
-                    Ok(withdrawals) => Ok(api_types::NextWithdrawalsResponse {
-                        data: withdrawals,
-                        execution_optimistic: execution_optimistic,
-                        finalized: finalized,
-                    }),
+                    Ok(withdrawals) => Ok(api_types::GenericResponse::from(
+                        api_types::NextWithdrawalsResponse {
+                            data: withdrawals,
+                            execution_optimistic: execution_optimistic,
+                            finalized: finalized,
+                        },
+                    )),
                     //.map(|resp| )),
                     Err(_) => Err(warp_utils::reject::custom_bad_request(
                         "The specified state is not a capella state.".to_string(),
