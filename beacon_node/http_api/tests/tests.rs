@@ -4175,7 +4175,7 @@ impl ApiTester {
 
         match result {
             Ok(response) => {}
-            _ => panic!("query did not fail correctly"),
+            _ => panic!("query failed incorrectly"),
         }
 
         self
