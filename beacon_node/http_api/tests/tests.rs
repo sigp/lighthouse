@@ -4152,6 +4152,21 @@ impl ApiTester {
         self
     }
 
+    pub async fn test_get_expected_withdrawals_invalid_state(self) -> Self {
+        let state_id = CoreStateId::Root(Hash256::zero());
+
+        let result = self.client.get_expected_withdrawals::<E>(&state_id).await;
+
+        match result {
+            Err(e) => {
+                assert_eq!(e.status().unwrap(), 404);
+            }
+            _ => panic!("query did not fail correctly"),
+        }
+
+        self
+    }
+
     pub async fn test_get_expected_withdrawals_capella(self) -> Self {
         let slot = self.chain.slot().unwrap();
         let state_id = CoreStateId::Slot(slot);
@@ -4934,8 +4949,8 @@ async fn expected_withdrawals_invalid_pre_capella() {
         .await;
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn expected_withdrawals_invalid_state() {
-    // StateId(CoreStateId::Root(Hash256::zero()))
     let mut config = ApiTesterConfig {
         builder_threshold: Some(0),
         spec: E::default_spec(),
@@ -4945,7 +4960,7 @@ async fn expected_withdrawals_invalid_state() {
     config.spec.capella_fork_epoch = Some(Epoch::new(0));
     ApiTester::new_from_config(config)
         .await
-        .test_get_expected_withdrawals_capella()
+        .test_get_expected_withdrawals_invalid_state()
         .await;
 }
 
