@@ -3,8 +3,7 @@
 
 use crate::Error as ServerError;
 use lighthouse_network::{ConnectionDirection, Enr, Multiaddr, PeerConnectionStatus};
-use mediatype::names;
-use mediatype::{MediaType, MediaTypeList};
+use mediatype::{names, MediaType, MediaTypeList};
 use serde::{Deserialize, Serialize};
 use std::convert::TryFrom;
 use std::fmt;
@@ -1291,7 +1290,7 @@ mod tests {
             Accept::from_str("text/plain"),
             Err("accept header is not supported".to_string())
         );
-        
+
         assert_eq!(
             Accept::from_str("application/json;message=\"Hello, world!\";q=0.3,*/*;q=0.6").unwrap(),
             Accept::Any
