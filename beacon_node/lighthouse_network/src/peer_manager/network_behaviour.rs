@@ -6,7 +6,7 @@ use libp2p::identity::PeerId;
 use libp2p::swarm::behaviour::{ConnectionClosed, ConnectionEstablished, DialFailure, FromSwarm};
 use libp2p::swarm::dial_opts::{DialOpts, PeerCondition};
 use libp2p::swarm::dummy::ConnectionHandler;
-use libp2p::swarm::{ConnectionId, NetworkBehaviour, NetworkBehaviourAction, PollParameters};
+use libp2p::swarm::{ConnectionId, NetworkBehaviour, ToSwarm, PollParameters};
 use slog::{debug, error};
 use types::EthSpec;
 
@@ -70,7 +70,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
         &mut self,
         cx: &mut Context<'_>,
         _params: &mut impl PollParameters,
-    ) -> Poll<NetworkBehaviourAction<Self::OutEvent, void::Void>> {
+    ) -> Poll<ToSwarm<Self::OutEvent, void::Void>> {
         // perform the heartbeat when necessary
         while self.heartbeat.poll_tick(cx).is_ready() {
             self.heartbeat();
@@ -122,14 +122,14 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
         }
 
         if !self.events.is_empty() {
-            return Poll::Ready(NetworkBehaviourAction::GenerateEvent(self.events.remove(0)));
+            return Poll::Ready(ToSwarm::GenerateEvent(self.events.remove(0)));
         } else {
             self.events.shrink_to_fit();
         }
 
         if let Some((peer_id, maybe_enr)) = self.peers_to_dial.pop_first() {
             self.inject_peer_connection(&peer_id, ConnectingType::Dialing, maybe_enr);
-            return Poll::Ready(NetworkBehaviourAction::Dial {
+            return Poll::Ready(ToSwarm::Dial {
                 opts: DialOpts::peer_id(peer_id)
                     .condition(PeerCondition::Disconnected)
                     .build(),

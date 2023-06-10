@@ -7,7 +7,7 @@
 use futures::future::FutureExt;
 use handler::{HandlerEvent, RPCHandler};
 use libp2p::swarm::{
-    handler::ConnectionHandler, ConnectionId, NetworkBehaviour, NetworkBehaviourAction,
+    handler::ConnectionHandler, ConnectionId, NetworkBehaviour, ToSwarm,
     NotifyHandler, PollParameters, SubstreamProtocol,
 };
 use libp2p::swarm::{FromSwarm, THandlerInEvent};
@@ -104,7 +104,7 @@ pub struct RPCMessage<Id, TSpec: EthSpec> {
     pub event: HandlerEvent<Id, TSpec>,
 }
 
-type BehaviourAction<Id, TSpec> = NetworkBehaviourAction<RPCMessage<Id, TSpec>, RPCSend<Id, TSpec>>;
+type BehaviourAction<Id, TSpec> = ToSwarm<RPCMessage<Id, TSpec>, RPCSend<Id, TSpec>>;
 
 /// Implements the libp2p `NetworkBehaviour` trait and therefore manages network-level
 /// logic.
@@ -160,7 +160,7 @@ impl<Id: ReqId, TSpec: EthSpec> RPC<Id, TSpec> {
         id: (ConnectionId, SubstreamId),
         event: RPCCodedResponse<TSpec>,
     ) {
-        self.events.push(NetworkBehaviourAction::NotifyHandler {
+        self.events.push(ToSwarm::NotifyHandler {
             peer_id,
             handler: NotifyHandler::One(id.0),
             event: RPCSend::Response(id.1, event),
@@ -180,7 +180,7 @@ impl<Id: ReqId, TSpec: EthSpec> RPC<Id, TSpec> {
                 }
             }
         } else {
-            NetworkBehaviourAction::NotifyHandler {
+            ToSwarm::NotifyHandler {
                 peer_id,
                 handler: NotifyHandler::Any,
                 event: RPCSend::Request(request_id, req),
@@ -193,7 +193,7 @@ impl<Id: ReqId, TSpec: EthSpec> RPC<Id, TSpec> {
     /// Lighthouse wishes to disconnect from this peer by sending a Goodbye message. This
     /// gracefully terminates the RPC behaviour with a goodbye message.
     pub fn shutdown(&mut self, peer_id: PeerId, id: Id, reason: GoodbyeReason) {
-        self.events.push(NetworkBehaviourAction::NotifyHandler {
+        self.events.push(ToSwarm::NotifyHandler {
             peer_id,
             handler: NotifyHandler::Any,
             event: RPCSend::Shutdown(id, reason),
@@ -258,7 +258,7 @@ where
                     Ok(()) => {
                         // send the event to the user
                         self.events
-                            .push(NetworkBehaviourAction::GenerateEvent(RPCMessage {
+                            .push(ToSwarm::GenerateEvent(RPCMessage {
                                 peer_id,
                                 conn_id,
                                 event,
@@ -301,7 +301,7 @@ where
             } else {
                 // No rate limiting, send the event to the user
                 self.events
-                    .push(NetworkBehaviourAction::GenerateEvent(RPCMessage {
+                    .push(ToSwarm::GenerateEvent(RPCMessage {
                         peer_id,
                         conn_id,
                         event,
@@ -309,7 +309,7 @@ where
             }
         } else {
             self.events
-                .push(NetworkBehaviourAction::GenerateEvent(RPCMessage {
+                .push(ToSwarm::GenerateEvent(RPCMessage {
                     peer_id,
                     conn_id,
                     event,
@@ -321,7 +321,7 @@ where
         &mut self,
         cx: &mut Context,
         _: &mut impl PollParameters,
-    ) -> Poll<NetworkBehaviourAction<Self::OutEvent, THandlerInEvent<Self>>> {
+    ) -> Poll<ToSwarm<Self::OutEvent, THandlerInEvent<Self>>> {
         // let the rate limiter prune.
         if let Some(limiter) = self.limiter.as_mut() {
             let _ = limiter.poll_unpin(cx);

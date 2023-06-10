@@ -29,7 +29,7 @@ pub use libp2p::{
     identity::PeerId,
     swarm::{
         dummy::ConnectionHandler, ConnectionId, DialError, NetworkBehaviour,
-        NetworkBehaviourAction as NBAction, NotifyHandler, PollParameters, SubstreamProtocol,
+        ToSwarm as NBAction, NotifyHandler, PollParameters, SubstreamProtocol,
     },
 };
 use lru::LruCache;
