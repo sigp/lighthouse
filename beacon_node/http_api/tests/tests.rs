@@ -4174,9 +4174,7 @@ impl ApiTester {
         let result = self.client.get_expected_withdrawals::<E>(&state_id).await;
 
         match result {
-            Ok(response) => {
-                print!("{:?}", response);
-            }
+            Ok(response) => {}
             _ => panic!("query did not fail correctly"),
         }
 
