@@ -3,7 +3,7 @@
 
 use crate::Error as ServerError;
 use lighthouse_network::{ConnectionDirection, Enr, Multiaddr, PeerConnectionStatus};
-use mediatype::names::{APPLICATION, JSON, OCTET_STREAM, Q, _STAR};
+use mediatype::names;
 use mediatype::{MediaType, MediaTypeList};
 use serde::{Deserialize, Serialize};
 use std::convert::TryFrom;
@@ -1178,11 +1178,11 @@ impl FromStr for Accept {
         let mut highest_q = 0_u16;
         let mut accept_type = None;
 
-        const _APPLICATION: &str = APPLICATION.as_str();
-        const _OCTET_STREAM: &str = OCTET_STREAM.as_str();
-        const _JSON: &str = JSON.as_str();
-        const __STAR: &str = _STAR.as_str();
-        const _Q: &str = Q.as_str();
+        const APPLICATION: &str = names::APPLICATION.as_str();
+        const OCTET_STREAM: &str = names::OCTET_STREAM.as_str();
+        const JSON: &str = names::JSON.as_str();
+        const STAR: &str = names::_STAR.as_str();
+        const Q: &str = names::Q.as_str();
 
         media_type_list.into_iter().for_each(|item| {
             if let Ok(MediaType {
@@ -1193,16 +1193,16 @@ impl FromStr for Accept {
             }) = item
             {
                 let q_accept = match (ty.as_str(), subty.as_str()) {
-                    (_APPLICATION, _OCTET_STREAM) => Some(Accept::Ssz),
-                    (_APPLICATION, _JSON) => Some(Accept::Json),
-                    (__STAR, __STAR) => Some(Accept::Any),
+                    (APPLICATION, OCTET_STREAM) => Some(Accept::Ssz),
+                    (APPLICATION, JSON) => Some(Accept::Json),
+                    (STAR, STAR) => Some(Accept::Any),
                     _ => None,
                 }
                 .map(|item_accept_type| {
                     let q_val = params
                         .iter()
                         .find_map(|(n, v)| match n.as_str() {
-                            _Q => {
+                            Q => {
                                 Some((v.as_str().parse::<f32>().unwrap_or(0_f32) * 1000_f32) as u16)
                             }
                             _ => None,
@@ -1291,7 +1291,7 @@ mod tests {
             Accept::from_str("text/plain"),
             Err("accept header is not supported".to_string())
         );
-
+        
         assert_eq!(
             Accept::from_str("application/json;message=\"Hello, world!\";q=0.3,*/*;q=0.6").unwrap(),
             Accept::Any
