@@ -7,8 +7,8 @@
 use futures::future::FutureExt;
 use handler::{HandlerEvent, RPCHandler};
 use libp2p::swarm::{
-    handler::ConnectionHandler, ConnectionId, NetworkBehaviour, ToSwarm,
-    NotifyHandler, PollParameters, SubstreamProtocol,
+    handler::ConnectionHandler, ConnectionId, NetworkBehaviour, NotifyHandler, PollParameters,
+    SubstreamProtocol, ToSwarm,
 };
 use libp2p::swarm::{FromSwarm, THandlerInEvent};
 use libp2p::PeerId;
@@ -257,12 +257,11 @@ where
                 match limiter.allows(&peer_id, req) {
                     Ok(()) => {
                         // send the event to the user
-                        self.events
-                            .push(ToSwarm::GenerateEvent(RPCMessage {
-                                peer_id,
-                                conn_id,
-                                event,
-                            }))
+                        self.events.push(ToSwarm::GenerateEvent(RPCMessage {
+                            peer_id,
+                            conn_id,
+                            event,
+                        }))
                     }
                     Err(RateLimitedErr::TooLarge) => {
                         // we set the batch sizes, so this is a coding/config err for most protocols
@@ -300,20 +299,18 @@ where
                 }
             } else {
                 // No rate limiting, send the event to the user
-                self.events
-                    .push(ToSwarm::GenerateEvent(RPCMessage {
-                        peer_id,
-                        conn_id,
-                        event,
-                    }))
-            }
-        } else {
-            self.events
-                .push(ToSwarm::GenerateEvent(RPCMessage {
+                self.events.push(ToSwarm::GenerateEvent(RPCMessage {
                     peer_id,
                     conn_id,
                     event,
-                }));
+                }))
+            }
+        } else {
+            self.events.push(ToSwarm::GenerateEvent(RPCMessage {
+                peer_id,
+                conn_id,
+                event,
+            }));
         }
     }
 

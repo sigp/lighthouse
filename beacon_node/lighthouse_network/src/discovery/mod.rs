@@ -28,8 +28,8 @@ pub use libp2p::{
     core::{ConnectedPoint, Multiaddr},
     identity::PeerId,
     swarm::{
-        dummy::ConnectionHandler, ConnectionId, DialError, NetworkBehaviour,
-        ToSwarm as NBAction, NotifyHandler, PollParameters, SubstreamProtocol,
+        dummy::ConnectionHandler, ConnectionId, DialError, NetworkBehaviour, NotifyHandler,
+        PollParameters, SubstreamProtocol, ToSwarm,
     },
 };
 use lru::LruCache;
@@ -1006,7 +1006,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
         &mut self,
         cx: &mut Context,
         _: &mut impl PollParameters,
-    ) -> Poll<NBAction<Self::OutEvent, THandlerInEvent<Self>>> {
+    ) -> Poll<ToSwarm<Self::OutEvent, THandlerInEvent<Self>>> {
         if !self.started {
             return Poll::Pending;
         }
@@ -1017,7 +1017,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
         // Drive the queries and return any results from completed queries
         if let Some(peers) = self.poll_queries(cx) {
             // return the result to the peer manager
-            return Poll::Ready(NBAction::GenerateEvent(DiscoveredPeers { peers }));
+            return Poll::Ready(ToSwarm::GenerateEvent(DiscoveredPeers { peers }));
         }
 
         // Process the server event stream
@@ -1091,7 +1091,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
                             if let Some(address) = addr {
                                 // NOTE: This doesn't actually track the external TCP port. More sophisticated NAT handling
                                 // should handle this.
-                                return Poll::Ready(NBAction::ReportObservedAddr {
+                                return Poll::Ready(ToSwarm::ReportObservedAddr {
                                     address,
                                     score: AddressScore::Finite(1),
                                 });
@@ -1113,8 +1113,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
     fn on_dial_failure(&mut self, peer_id: Option<PeerId>, error: &DialError) {
         if let Some(peer_id) = peer_id {
             match error {
-                DialError::Banned
-                | DialError::LocalPeerId { .. }
+                DialError::LocalPeerId { .. }
                 | DialError::InvalidPeerId(_)
                 | DialError::Denied { .. }
                 | DialError::NoAddresses
@@ -1124,9 +1123,9 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                     debug!(self.log, "Marking peer disconnected in DHT"; "peer_id" => %peer_id);
                     self.disconnect_peer(&peer_id);
                 }
-                DialError::ConnectionLimit(_)
-                | DialError::DialPeerConditionFalse(_)
-                | DialError::Aborted => {}
+                DialError::DialPeerConditionFalse(_) | DialError::Aborted => {}
+                #[allow(deprecated)]
+                DialError::ConnectionLimit(_) | DialError::Banned => {}
             }
         }
     }

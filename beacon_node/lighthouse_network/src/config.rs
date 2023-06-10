@@ -7,7 +7,7 @@ use directory::{
 };
 use discv5::{Discv5Config, Discv5ConfigBuilder};
 use libp2p::gossipsub::{
-    ConfigBuilder as GossipsubConfigBuilder, Config as GossipsubConfig, FastMessageId,
+    Config as GossipsubConfig, ConfigBuilder as GossipsubConfigBuilder, FastMessageId,
     Message as GossipsubMessage, MessageId, RawMessage as RawGossipsubMessage, ValidationMode,
 };
 use libp2p::Multiaddr;

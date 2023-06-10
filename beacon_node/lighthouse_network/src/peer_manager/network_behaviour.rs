@@ -6,7 +6,7 @@ use libp2p::identity::PeerId;
 use libp2p::swarm::behaviour::{ConnectionClosed, ConnectionEstablished, DialFailure, FromSwarm};
 use libp2p::swarm::dial_opts::{DialOpts, PeerCondition};
 use libp2p::swarm::dummy::ConnectionHandler;
-use libp2p::swarm::{ConnectionId, NetworkBehaviour, ToSwarm, PollParameters};
+use libp2p::swarm::{ConnectionId, NetworkBehaviour, PollParameters, ToSwarm};
 use slog::{debug, error};
 use types::EthSpec;
 
