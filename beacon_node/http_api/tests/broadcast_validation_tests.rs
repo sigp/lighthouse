@@ -4,9 +4,12 @@ use beacon_chain::{
 };
 use eth2::types::{BeaconBlock, BroadcastValidation, SignedBeaconBlock};
 use http_api::test_utils::InteractiveTester;
+use http_api::{publish_block, ProvenancedBlock};
 use std::sync::Arc;
 use tree_hash::TreeHash;
 use types::{Epoch, MainnetEthSpec, Slot, H256};
+use warp::Rejection;
+use warp_utils::reject::CustomBadRequest;
 
 use eth2::reqwest::StatusCode;
 
@@ -302,7 +305,7 @@ pub async fn consensus_partial_pass_only_consensus() {
     let (block_a, state_after_a): (SignedBeaconBlock<E>, _) =
         tester.harness.make_block(state_a.clone(), slot_b).await;
     let (block_b, state_after_b): (SignedBeaconBlock<E>, _) =
-        tester.harness.make_block(state_a, slot_b).await; 
+        tester.harness.make_block(state_a, slot_b).await;
 
     /* check for `make_block` curios */
     assert_eq!(block_a.state_root(), state_after_a.tree_hash_root());
@@ -436,7 +439,9 @@ pub async fn equivocation_gossip() {
     );
 }
 
-/// This test checks that a block that is valid from both a gossip and consensus perspective is rejected when using `broadcast_validation=equivocation_and_consensus`.
+/// This test checks that a block that is valid from both a gossip and consensus perspective but that equivocates **late** is rejected when using `broadcast_validation=consensus_and_equivocation`.
+///
+/// This test is unique in that we can't actually test the HTTP API directly, but instead have to hook into the `publish_blocks` code manually. This is in order to handle the late equivocation case.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 pub async fn equivocation_consensus() {
     /* this test targets gossip-level validation */
@@ -447,6 +452,7 @@ pub async fn equivocation_consensus() {
     let validator_count = 64;
     let num_initial: u64 = 31;
     let tester = InteractiveTester::<E>::new(None, validator_count).await;
+    let test_logger = tester.harness.logger().clone();
 
     // Create some chain depth.
     tester.harness.advance_slot();
@@ -464,11 +470,34 @@ pub async fn equivocation_consensus() {
     let slot_b = slot_a + 1;
 
     let state_a = tester.harness.get_current_state();
-    let (block, _): (SignedBeaconBlock<E>, _) = tester.harness.make_block(state_a, slot_b).await; /* TODO: induce equivocation */
+    let (block_a, state_after_a): (SignedBeaconBlock<E>, _) =
+        tester.harness.make_block(state_a.clone(), slot_b).await;
+    let (block_b, state_after_b): (SignedBeaconBlock<E>, _) =
+        tester.harness.make_block(state_a, slot_b).await;
 
-    let response: Result<(), eth2::Error> = tester
-        .client
-        .post_beacon_blocks_v2(&block, validation_level)
-        .await;
-    assert!(response.is_ok());
+    /* check for `make_block` curios */
+    assert_eq!(block_a.state_root(), state_after_a.tree_hash_root());
+    assert_eq!(block_b.state_root(), state_after_b.tree_hash_root());
+    assert_ne!(block_a.state_root(), block_b.state_root());
+
+    let gossip_block_b = GossipVerifiedBlock::new(block_b.clone().into(), &tester.harness.chain);
+    assert!(gossip_block_b.is_ok());
+    let gossip_block_a = GossipVerifiedBlock::new(block_a.clone().into(), &tester.harness.chain);
+    assert!(gossip_block_a.is_err());
+
+    let publication_result: Result<(), Rejection> = publish_block(
+        Some(block_b.state_root()),
+        ProvenancedBlock::Builder(Arc::new(block_b.clone())),
+        tester.harness.chain,
+        &tokio::sync::mpsc::unbounded_channel().0,
+        test_logger,
+        validation_level.unwrap(),
+    )
+    .await;
+
+    assert!(publication_result.is_err());
+
+    let publication_error: Rejection = publication_result.unwrap_err();
+
+    assert!(publication_error.find::<CustomBadRequest>().is_some());
 }

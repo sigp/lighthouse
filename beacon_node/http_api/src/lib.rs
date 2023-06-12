@@ -39,7 +39,7 @@ use lighthouse_version::version_with_platform;
 use network::{NetworkMessage, NetworkSenders, ValidatorSubscriptionMessage};
 use operation_pool::ReceivedPreCapella;
 use parking_lot::RwLock;
-use publish_blocks::ProvenancedBlock;
+pub use publish_blocks::{publish_block, ProvenancedBlock};
 use serde::{Deserialize, Serialize};
 use slog::{crit, debug, error, info, warn, Logger};
 use slot_clock::SlotClock;
