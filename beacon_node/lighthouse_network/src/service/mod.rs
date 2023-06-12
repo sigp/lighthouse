@@ -43,8 +43,8 @@ use std::{
 };
 use types::ForkName;
 use types::{
-    consts::altair::SYNC_COMMITTEE_SUBNET_COUNT, EnrForkId, EthSpec, ForkContext, Slot, SubnetId,
-    consts::deneb::BLOB_SIDECAR_SUBNET_COUNT,
+    consts::altair::SYNC_COMMITTEE_SUBNET_COUNT, consts::deneb::BLOB_SIDECAR_SUBNET_COUNT,
+    EnrForkId, EthSpec, ForkContext, Slot, SubnetId,
 };
 use utils::{build_transport, strip_peer_id, Context as ServiceContext, MAX_CONNECTIONS_PER_PEER};
 
