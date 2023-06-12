@@ -2,6 +2,7 @@ use libp2p::gossipsub::{IdentTopic as Topic, TopicHash};
 use serde_derive::{Deserialize, Serialize};
 use strum::AsRefStr;
 use types::{EthSpec, ForkName, SubnetId, SyncSubnetId};
+use types::consts::deneb::BLOB_SIDECAR_SUBNET_COUNT;
 
 use crate::Subnet;
 
@@ -52,7 +53,7 @@ pub fn fork_core_topics<T: EthSpec>(fork_name: &ForkName) -> Vec<GossipKind> {
         ForkName::Deneb => {
             // All of deneb blob topics are core topics
             let mut deneb_blob_topics = Vec::new();
-            for i in 0..T::max_blobs_per_block() {
+            for i in 0..BLOB_SIDECAR_SUBNET_COUNT {
                 deneb_blob_topics.push(GossipKind::BlobSidecar(i as u64));
             }
             let mut deneb_topics = DENEB_CORE_TOPICS.to_vec();
