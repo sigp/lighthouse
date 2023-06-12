@@ -335,6 +335,44 @@ pub async fn consensus_partial_pass_only_consensus() {
     );
 }
 
+/// This test checks that a block that is valid from both a gossip and consensus perspective is accepted when using `broadcast_validation=consensus`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+pub async fn consensus_full_pass() {
+    /* this test targets gossip-level validation */
+    let validation_level: Option<BroadcastValidation> = Some(BroadcastValidation::Consensus);
+
+    // Validator count needs to be at least 32 or proposer boost gets set to 0 when computing
+    // `validator_count // 32`.
+    let validator_count = 64;
+    let num_initial: u64 = 31;
+    let tester = InteractiveTester::<E>::new(None, validator_count).await;
+
+    // Create some chain depth.
+    tester.harness.advance_slot();
+    tester
+        .harness
+        .extend_chain(
+            num_initial as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+    tester.harness.advance_slot();
+
+    let slot_a = Slot::new(num_initial);
+    let slot_b = slot_a + 1;
+
+    let state_a = tester.harness.get_current_state();
+    let (block, _): (SignedBeaconBlock<E>, _) = tester.harness.make_block(state_a, slot_b).await;
+
+    let response: Result<(), eth2::Error> = tester
+        .client
+        .post_beacon_blocks_v2(&block, validation_level)
+        .await;
+
+    assert!(response.is_ok());
+}
+
 /// This test checks that a block that is **invalid** from a gossip perspective gets rejected when using `broadcast_validation=consensus_and_equivocation`.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 pub async fn equivocation_invalid() {
@@ -562,4 +600,43 @@ pub async fn equivocation_consensus_late_equivocation() {
     let publication_error: Rejection = publication_result.unwrap_err();
 
     assert!(publication_error.find::<CustomBadRequest>().is_some());
+}
+
+/// This test checks that a block that is valid from both a gossip and consensus perspective (and does not equivocate) is accepted when using `broadcast_validation=consensus_and_equivocation`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+pub async fn equivocation_full_pass() {
+    /* this test targets gossip-level validation */
+    let validation_level: Option<BroadcastValidation> =
+        Some(BroadcastValidation::ConsensusAndEquivocation);
+
+    // Validator count needs to be at least 32 or proposer boost gets set to 0 when computing
+    // `validator_count // 32`.
+    let validator_count = 64;
+    let num_initial: u64 = 31;
+    let tester = InteractiveTester::<E>::new(None, validator_count).await;
+
+    // Create some chain depth.
+    tester.harness.advance_slot();
+    tester
+        .harness
+        .extend_chain(
+            num_initial as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+    tester.harness.advance_slot();
+
+    let slot_a = Slot::new(num_initial);
+    let slot_b = slot_a + 1;
+
+    let state_a = tester.harness.get_current_state();
+    let (block, _): (SignedBeaconBlock<E>, _) = tester.harness.make_block(state_a, slot_b).await;
+
+    let response: Result<(), eth2::Error> = tester
+        .client
+        .post_beacon_blocks_v2(&block, validation_level)
+        .await;
+
+    assert!(response.is_ok());
 }
