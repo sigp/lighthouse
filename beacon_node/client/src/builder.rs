@@ -338,10 +338,25 @@ where
                     None
                 };
 
-                debug!(context.log(), "Downloading finalized block");
-                // Find a suitable finalized block.
+                debug!(
+                    context.log(),
+                    "Downloading finalized state";
+                );
+                let mut state = remote
+                    .get_debug_beacon_states_ssz::<TEthSpec>(StateId::Finalized, &spec)
+                    .await
+                    .map_err(|e| format!("Error loading checkpoint state from remote: {:?}", e))?
+                    .ok_or_else(|| "Checkpoint state missing from remote".to_string())?;
+
+                debug!(context.log(), "Downloaded finalized state"; "slot" => ?state.slot());
+
+                let block_root = state.get_block_root(state.slot()).map_err(|e| {
+                    format!("Unable to get block root for slot {}: {e:?}", state.slot())
+                })?;
+
+                debug!(context.log(), "Downloading finalized block"; "block_root" => ?block_root);
                 let block = remote
-                    .get_beacon_blocks_ssz::<TEthSpec>(BlockId::Finalized, &spec)
+                    .get_beacon_blocks_ssz::<TEthSpec>(BlockId::Root(*block_root), &spec)
                     .await
                     .map_err(|e| match e {
                         ApiError::InvalidSsz(e) => format!(
@@ -355,29 +370,13 @@ where
 
                 debug!(context.log(), "Downloaded finalized block");
 
-                let state_root = block.state_root();
-                debug!(
-                    context.log(),
-                    "Downloading finalized state";
-                    "state_root" => ?state_root
-                );
-                let mut state = remote
-                    .get_debug_beacon_states_ssz::<TEthSpec>(StateId::Slot(block.slot()), &spec)
-                    .await
-                    .map_err(|e| {
-                        format!(
-                            "Error loading checkpoint state from remote {:?}: {:?}",
-                            state_root, e
-                        )
-                    })?
-                    .ok_or_else(|| {
-                        format!("Checkpoint state missing from remote: {:?}", state_root)
-                    })?;
-
-                debug!(context.log(), "Downloaded finalized state");
+                let epoch_boundary_slot = state.slot() % slots_per_epoch;
+                if epoch_boundary_slot != 0 {
+                    debug!(context.log(), "Advancing state to epoch boundary"; "state_slot" => state.slot(), "epoch_boundary_slot" => epoch_boundary_slot);
+                }
 
                 while state.slot() % slots_per_epoch != 0 {
-                    per_slot_processing(&mut state, Some(state_root), &spec)
+                    per_slot_processing(&mut state, None, &spec)
                         .map_err(|e| format!("Error advancing state: {:?}", e))?;
                 }
 
@@ -390,7 +389,6 @@ where
                     "block_slot" => block.slot(),
                     "state_slot" => state.slot(),
                     "block_root" => ?block.canonical_root(),
-                    "state_root" => ?state_root,
                 );
 
                 let service =

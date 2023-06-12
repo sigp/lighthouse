@@ -985,6 +985,7 @@ mod test_compute_deltas {
 
         let mut fc = ProtoArrayForkChoice::new::<MainnetEthSpec>(
             genesis_slot,
+            genesis_slot,
             state_root,
             genesis_checkpoint,
             genesis_checkpoint,

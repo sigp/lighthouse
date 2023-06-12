@@ -430,15 +430,22 @@ where
         weak_subj_state
             .build_all_caches(&self.spec)
             .map_err(|e| format!("Error building caches on checkpoint state: {e:?}"))?;
-
-        let computed_state_root = weak_subj_state
+        weak_subj_state
             .update_tree_hash_cache()
             .map_err(|e| format!("Error computing checkpoint state root: {:?}", e))?;
 
-        if weak_subj_state_root != computed_state_root {
+        let state_slot_block_root = weak_subj_state
+            .get_block_root(weak_subj_state.slot())
+            .map_err(|e| {
+                format!(
+                    "Unable to get block root for slot {}: {e:?}",
+                    weak_subj_state.slot()
+                )
+            })?;
+        if weak_subj_block_root != *state_slot_block_root {
             return Err(format!(
-                "Snapshot state root does not match block, expected: {:?}, got: {:?}",
-                weak_subj_state_root, computed_state_root
+                "Snapshot state's most recent block root does not match block, expected: {:?}, got: {:?}",
+                weak_subj_block_root, state_slot_block_root
             ));
         }
 
