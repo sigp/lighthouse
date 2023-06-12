@@ -440,6 +440,13 @@ where
             .update_tree_hash_cache()
             .map_err(|e| format!("Error computing checkpoint state root: {:?}", e))?;
 
+        if weak_subj_state_root != computed_state_root {
+            return Err(format!(
+                "Snapshot state root does not match block, expected: {:?}, got: {:?}",
+                weak_subj_state_root, computed_state_root
+            ));
+        }
+
         // Check that the checkpoint state is for the same network as the genesis state.
         // This check doesn't do much for security but should prevent mistakes.
         if weak_subj_state.genesis_validators_root() != genesis_state.genesis_validators_root() {
