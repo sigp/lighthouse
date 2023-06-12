@@ -388,6 +388,68 @@ pub async fn equivocation_invalid() {
     );
 }
 
+/// This test checks that a block that is valid from both a gossip and consensus perspective is rejected when using `broadcast_validation=consensus_and_equivocation`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+pub async fn equivocation_consensus_early_equivocation() {
+    /* this test targets gossip-level validation */
+    let validation_level: Option<BroadcastValidation> =
+        Some(BroadcastValidation::ConsensusAndEquivocation);
+
+    // Validator count needs to be at least 32 or proposer boost gets set to 0 when computing
+    // `validator_count // 32`.
+    let validator_count = 64;
+    let num_initial: u64 = 31;
+    let tester = InteractiveTester::<E>::new(None, validator_count).await;
+
+    // Create some chain depth.
+    tester.harness.advance_slot();
+    tester
+        .harness
+        .extend_chain(
+            num_initial as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+    tester.harness.advance_slot();
+
+    let slot_a = Slot::new(num_initial);
+    let slot_b = slot_a + 1;
+
+    let state_a = tester.harness.get_current_state();
+    let (block_a, state_after_a): (SignedBeaconBlock<E>, _) =
+        tester.harness.make_block(state_a.clone(), slot_b).await;
+    let (block_b, state_after_b): (SignedBeaconBlock<E>, _) =
+        tester.harness.make_block(state_a, slot_b).await;
+
+    /* check for `make_block` curios */
+    assert_eq!(block_a.state_root(), state_after_a.tree_hash_root());
+    assert_eq!(block_b.state_root(), state_after_b.tree_hash_root());
+    assert_ne!(block_a.state_root(), block_b.state_root());
+
+    /* submit `block_a` as valid */
+    assert!(tester
+        .client
+        .post_beacon_blocks_v2(&block_a, validation_level)
+        .await
+        .is_ok());
+
+    /* submit `block_b` which should induce equivocation */
+    let response: Result<(), eth2::Error> = tester
+        .client
+        .post_beacon_blocks_v2(&block_b, validation_level)
+        .await;
+    assert!(response.is_err());
+
+    let error_response: eth2::Error = response.err().unwrap();
+
+    assert_eq!(error_response.status(), Some(StatusCode::BAD_REQUEST));
+
+    assert!(
+        matches!(error_response, eth2::Error::ServerMessage(err) if err.message ==  "BAD_REQUEST: RepeatProposal { proposer: 44, slot: Slot(32) }")
+    );
+}
+
 /// This test checks that a block that is only valid from a gossip perspective is rejected when using `broadcast_validation=consensus_and_equivocation`.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 pub async fn equivocation_gossip() {
@@ -443,7 +505,7 @@ pub async fn equivocation_gossip() {
 ///
 /// This test is unique in that we can't actually test the HTTP API directly, but instead have to hook into the `publish_blocks` code manually. This is in order to handle the late equivocation case.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-pub async fn equivocation_consensus() {
+pub async fn equivocation_consensus_late_equivocation() {
     /* this test targets gossip-level validation */
     let validation_level: Option<BroadcastValidation> = Some(BroadcastValidation::Consensus);
 
