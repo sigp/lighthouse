@@ -44,6 +44,7 @@ use std::{
 use types::ForkName;
 use types::{
     consts::altair::SYNC_COMMITTEE_SUBNET_COUNT, EnrForkId, EthSpec, ForkContext, Slot, SubnetId,
+    consts::deneb::MAX_BLOBS_PER_BLOCK,
 };
 use utils::{build_transport, strip_peer_id, Context as ServiceContext, MAX_CONNECTIONS_PER_PEER};
 
@@ -236,10 +237,11 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                     possible_fork_digests,
                     ctx.chain_spec.attestation_subnet_count,
                     SYNC_COMMITTEE_SUBNET_COUNT,
-                    4, // TODO(pawan): get this from chainspec
+                    MAX_BLOBS_PER_BLOCK,
                 ),
                 max_subscribed_topics: 200,
-                max_subscriptions_per_request: 150, // 148 in theory = (64 attestation + 4 sync committee + 6 core topics) * 2
+                // 162 in theory = (64 attestation + 4 sync committee + 7 core topics + 6 blob topics) * 2
+                max_subscriptions_per_request: 160,
             };
 
             config.gs_config = gossipsub_config(config.network_load, ctx.fork_context.clone());
