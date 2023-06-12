@@ -36,4 +36,5 @@ pub mod deneb {
     }
     pub const BLOB_TX_TYPE: u8 = 3;
     pub const VERSIONED_HASH_VERSION_KZG: u8 = 1;
+    pub const BLOB_SIDECAR_SUBNET_COUNT: u64 = 6;
 }
