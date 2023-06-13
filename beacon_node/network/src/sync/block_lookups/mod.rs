@@ -497,20 +497,14 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             None
         });
 
-        let (triggered_parent_request, request) = match lookup {
-            Some((triggered_parent_request, req)) => (triggered_parent_request, req),
-            None => {
-                if matches!(stream_terminator, StreamTerminator::False,) {
-                    debug!(
-                        self.log,
-                        "Block returned for single block lookup not present";
-                        "response_type" => ?response_type,
-                    );
-                }
-                return None;
-            }
-        };
-        Some((triggered_parent_request, request))
+        if lookup.is_none() && matches!(stream_terminator, StreamTerminator::False) {
+            warn!(
+                self.log,
+                "Block returned for single block lookup not present";
+                "response_type" => ?response_type,
+            );
+        }
+        return lookup;
     }
 
     /// Process a response received from a parent lookup request.
