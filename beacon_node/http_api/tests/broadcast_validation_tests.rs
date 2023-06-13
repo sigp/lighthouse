@@ -509,18 +509,16 @@ pub async fn equivocation_gossip() {
             AttestationStrategy::AllValidators,
         )
         .await;
+    tester.harness.advance_slot();
 
     let slot_a = Slot::new(num_initial);
     let slot_b = slot_a + 1;
 
     let state_a = tester.harness.get_current_state();
-    let (mut block, _): (SignedBeaconBlock<E>, _) =
-        tester.harness.make_block(state_a, slot_b).await;
-
-    /* an incorrect proposer index should cause consensus checks to fail (due to
-        https://github.com/ethereum/consensus-specs/blob/dev/specs/phase0/beacon-chain.md#beacon-chain-state-transition-function
-    ), which is the aim of this test */
-    *block.message_mut().proposer_index_mut() += 1;
+    let (block, _): (SignedBeaconBlock<E>, _) = tester
+        .harness
+        .make_block_with_modifier(state_a, slot_b, |b| *b.state_root_mut() = Hash256::random())
+        .await;
 
     let response: Result<(), eth2::Error> = tester
         .client
@@ -533,8 +531,10 @@ pub async fn equivocation_gossip() {
     /* mandated by Beacon API spec */
     assert_eq!(error_response.status(), Some(StatusCode::BAD_REQUEST));
 
+    dbg!(&error_response);
+
     assert!(
-        matches!(error_response, eth2::Error::ServerMessage(err) if err.message == "BAD_REQUEST: FutureSlot { present_slot: Slot(31), block_slot: Slot(32) }".to_string())
+        matches!(error_response, eth2::Error::ServerMessage(err) if err.message == "BAD_REQUEST: Invalid block".to_string())
     );
 }
 
