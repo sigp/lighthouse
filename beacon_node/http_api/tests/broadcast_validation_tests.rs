@@ -4,7 +4,7 @@ use beacon_chain::{
 };
 use eth2::types::{BeaconBlock, BroadcastValidation, SignedBeaconBlock, SignedBlindedBeaconBlock};
 use http_api::test_utils::InteractiveTester;
-use http_api::{publish_block, reconstruct_block, ProvenancedBlock};
+use http_api::{publish_blinded_block, publish_block, reconstruct_block, ProvenancedBlock};
 use std::sync::Arc;
 use tree_hash::TreeHash;
 use types::{Epoch, MainnetEthSpec, Slot, H256};
@@ -1225,9 +1225,8 @@ pub async fn blinded_equivocation_consensus_late_equivocation() {
     assert!(gossip_block_a.is_err());
     */
 
-    let publication_result: Result<(), Rejection> = publish_block(
-        Some(block_b.state_root()),
-        unblinded_block_b,
+    let publication_result: Result<(), Rejection> = publish_blinded_block(
+        block_b,
         tester.harness.chain,
         &tokio::sync::mpsc::unbounded_channel().0,
         test_logger,
