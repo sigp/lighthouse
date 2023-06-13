@@ -154,7 +154,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         cx: &mut SyncNetworkContext<T>,
     ) {
         self.search_block_with(block_root, None, None, &[peer_source]);
-        self.trigger_request(block_root, cx)
+        self.trigger_single_lookup(block_root, cx)
     }
 
     pub fn search_block_delayed(&mut self, block_root: Hash256, peer_source: PeerShouldHave) {
@@ -170,7 +170,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         cx: &mut SyncNetworkContext<T>,
     ) {
         self.search_block_with(block_root, block, blobs, peer_source);
-        self.trigger_request(block_root, cx)
+        self.trigger_single_lookup(block_root, cx)
     }
 
     pub fn search_child_delayed(
@@ -183,17 +183,25 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         self.search_block_with(block_root, block, blobs, peer_source);
     }
 
-    pub fn trigger_request(&mut self, block_root: Hash256, cx: &mut SyncNetworkContext<T>) {
-        for single_block_request in &mut self.single_block_lookups {
+    /// Attempts to trigger the request matching the given `block_root`. If the requests for
+    /// blocks and blobs could not have been made or are no longer required, this also removes the lookup.
+    pub fn trigger_single_lookup(&mut self, block_root: Hash256, cx: &mut SyncNetworkContext<T>) {
+        let mut drop_lookup = None;
+        for (index, single_block_request) in self.single_block_lookups.iter_mut().enumerate() {
             if single_block_request
                 .block_request_state
                 .requested_block_root
                 == block_root
                 && !single_block_request.triggered
             {
-                single_block_request.request_block_and_blobs(cx);
+                if single_block_request.request_block_and_blobs(cx).is_err() {
+                    drop_lookup = Some(index);
+                }
                 single_block_request.triggered = true;
             }
+        }
+        if let Some(index) = drop_lookup {
+            self.single_block_lookups.swap_remove(index);
         }
     }
 

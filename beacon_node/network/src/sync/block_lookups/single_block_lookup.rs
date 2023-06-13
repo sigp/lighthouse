@@ -225,7 +225,10 @@ impl<const MAX_ATTEMPTS: u8, T: BeaconChainTypes> SingleBlockLookup<MAX_ATTEMPTS
         self.block_request_state.requested_block_root == block_root
     }
 
-    pub fn request_block_and_blobs(&mut self, cx: &mut SyncNetworkContext<T>) {
+    /// Send the necessary request for blobs and blocks and update `self.id` with the latest
+    /// request `Id`s. This will return `Err(())` if neither the block nor blob request could be made
+    /// or are no longer required.
+    pub fn request_block_and_blobs(&mut self, cx: &mut SyncNetworkContext<T>) -> Result<(), ()> {
         let block_request_id = if let Ok(Some((peer_id, block_request))) = self.request_block() {
             cx.single_block_lookup_request(peer_id, block_request).ok()
         } else {
@@ -238,10 +241,15 @@ impl<const MAX_ATTEMPTS: u8, T: BeaconChainTypes> SingleBlockLookup<MAX_ATTEMPTS
             None
         };
 
+        if block_request_id.is_none() && blob_request_id.is_none() {
+            return Err(());
+        }
+
         self.id = LookupId {
             block_request_id,
             blob_request_id,
         };
+        Ok(())
     }
 
     pub fn update_blobs_request(&mut self) {

@@ -676,7 +676,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             }
             SyncMessage::MissingGossipBlockComponentsDelayed(block_root) => {
                 self.block_lookups
-                    .trigger_request(block_root, &mut self.network);
+                    .trigger_single_lookup(block_root, &mut self.network);
             }
             SyncMessage::Disconnect(peer_id) => {
                 self.peer_disconnect(&peer_id);
