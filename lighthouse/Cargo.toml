@@ -1,13 +1,13 @@
 [package]
 name = "lighthouse"
-version = "4.1.0"
+version = "4.2.0"
 authors = ["Sigma Prime <contact@sigmaprime.io>"]
 edition = "2021"
 autotests = false
 rust-version = "1.68.2"
 
 [features]
-default = ["slasher-mdbx"]
+default = ["slasher-lmdb"]
 # Writes debugging .ssz files to /tmp during block processing.
 write_ssz_files = ["beacon_node/write_ssz_files"]
 # Compiles the BLS crypto code so that the binary is portable across machines.
@@ -33,7 +33,7 @@ slog = { version = "2.5.2", features = ["max_level_trace"] }
 sloggers = { version = "2.1.1", features = ["json"] }
 types = { "path" = "../consensus/types" }
 bls = { path = "../crypto/bls" }
-eth2_hashing = "0.3.0"
+ethereum_hashing = "1.0.0-beta.2"
 clap = "2.33.3"
 env_logger = "0.9.0"
 environment = { path = "./environment" }
@@ -55,7 +55,7 @@ malloc_utils = { path = "../common/malloc_utils" }
 directory = { path = "../common/directory" }
 unused_port = { path = "../common/unused_port" }
 database_manager = { path = "../database_manager" }
-slasher = { path = "../slasher", default-features = false }
+slasher = { path = "../slasher" }
 
 [dev-dependencies]
 tempfile = "3.1.0"

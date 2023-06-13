@@ -88,7 +88,8 @@ use state_processing::{
     },
     per_slot_processing,
     state_advance::{complete_state_advance, partial_state_advance},
-    BlockSignatureStrategy, ConsensusContext, SigVerifiedOp, VerifyBlockRoot, VerifyOperation,
+    BlockSignatureStrategy, ConsensusContext, SigVerifiedOp, StateProcessingStrategy,
+    VerifyBlockRoot, VerifyOperation,
 };
 use std::borrow::Cow;
 use std::cmp::Ordering;
@@ -420,6 +421,8 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub slasher: Option<Arc<Slasher<T::EthSpec>>>,
     /// Provides monitoring of a set of explicitly defined validators.
     pub validator_monitor: RwLock<ValidatorMonitor<T::EthSpec>>,
+    /// The slot at which blocks are downloaded back to.
+    pub genesis_backfill_slot: Slot,
 }
 
 type BeaconBlockAndState<T, Payload> = (BeaconBlock<T, Payload>, BeaconState<T>);
@@ -552,7 +555,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     /// Persists `self.eth1_chain` and its caches to disk.
     pub fn persist_eth1_cache(&self) -> Result<(), Error> {
-        let _timer = metrics::start_timer(&metrics::PERSIST_OP_POOL);
+        let _timer = metrics::start_timer(&metrics::PERSIST_ETH1_CACHE);
 
         if let Some(eth1_chain) = self.eth1_chain.as_ref() {
             self.store
@@ -4652,6 +4655,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             &mut state,
             &block,
             signature_strategy,
+            StateProcessingStrategy::Accurate,
             VerifyBlockRoot::True,
             &mut ctxt,
             &self.spec,
@@ -5475,6 +5479,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let shuffling_id = BlockShufflingIds {
             current: head_block.current_epoch_shuffling_id.clone(),
             next: head_block.next_epoch_shuffling_id.clone(),
+            previous: None,
             block_root: head_block.root,
         }
         .id_for_epoch(shuffling_epoch)

@@ -11,7 +11,8 @@ use slasher::{Config as SlasherConfig, Slasher};
 use state_processing::{
     common::get_indexed_attestation,
     per_block_processing::{per_block_processing, BlockSignatureStrategy},
-    per_slot_processing, BlockProcessingError, ConsensusContext, VerifyBlockRoot,
+    per_slot_processing, BlockProcessingError, ConsensusContext, StateProcessingStrategy,
+    VerifyBlockRoot,
 };
 use std::marker::PhantomData;
 use std::sync::Arc;
@@ -1172,6 +1173,7 @@ async fn add_base_block_to_altair_chain() {
                 &mut state,
                 &base_block,
                 BlockSignatureStrategy::NoVerification,
+                StateProcessingStrategy::Accurate,
                 VerifyBlockRoot::True,
                 &mut ctxt,
                 &harness.chain.spec,
@@ -1311,6 +1313,7 @@ async fn add_altair_block_to_base_chain() {
                 &mut state,
                 &altair_block,
                 BlockSignatureStrategy::NoVerification,
+                StateProcessingStrategy::Accurate,
                 VerifyBlockRoot::True,
                 &mut ctxt,
                 &harness.chain.spec,

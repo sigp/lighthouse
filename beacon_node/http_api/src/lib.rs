@@ -36,6 +36,7 @@ use eth2::types::{
 };
 use lighthouse_network::{types::SyncState, EnrExt, NetworkGlobals, PeerId, PubsubMessage};
 use lighthouse_version::version_with_platform;
+use logging::SSELoggingComponents;
 use network::{NetworkMessage, NetworkSenders, ValidatorSubscriptionMessage};
 use operation_pool::ReceivedPreCapella;
 use parking_lot::RwLock;
@@ -110,6 +111,7 @@ pub struct Context<T: BeaconChainTypes> {
     pub network_senders: Option<NetworkSenders<T::EthSpec>>,
     pub network_globals: Option<Arc<NetworkGlobals<T::EthSpec>>>,
     pub eth1_service: Option<eth1::Service>,
+    pub sse_logging_components: Option<SSELoggingComponents>,
     pub log: Logger,
 }
 
@@ -450,6 +452,9 @@ pub fn serve<T: BeaconChainTypes>(
     // Create a `warp` filter that provides access to the logger.
     let inner_ctx = ctx.clone();
     let log_filter = warp::any().map(move || inner_ctx.log.clone());
+
+    let inner_components = ctx.sse_logging_components.clone();
+    let sse_component_filter = warp::any().map(move || inner_components.clone());
 
     // Create a `warp` filter that provides access to local system information.
     let system_info = Arc::new(RwLock::new(sysinfo::System::new()));
@@ -2279,12 +2284,8 @@ pub fn serve<T: BeaconChainTypes>(
                                 .parent
                                 .and_then(|index| proto_array.nodes.get(index))
                                 .map(|parent| parent.root),
-                            justified_epoch: node
-                                .justified_checkpoint
-                                .map(|checkpoint| checkpoint.epoch),
-                            finalized_epoch: node
-                                .finalized_checkpoint
-                                .map(|checkpoint| checkpoint.epoch),
+                            justified_epoch: node.justified_checkpoint.epoch,
+                            finalized_epoch: node.finalized_checkpoint.epoch,
                             weight: node.weight,
                             validity: execution_status,
                             execution_block_hash: node
@@ -2366,28 +2367,40 @@ pub fn serve<T: BeaconChainTypes>(
         .and(chain_filter.clone())
         .and_then(
             |network_globals: Arc<NetworkGlobals<T::EthSpec>>, chain: Arc<BeaconChain<T>>| {
-                blocking_json_task(move || {
-                    let head_slot = chain.canonical_head.cached_head().head_slot();
-                    let current_slot = chain.slot_clock.now_or_genesis().ok_or_else(|| {
-                        warp_utils::reject::custom_server_error("Unable to read slot clock".into())
-                    })?;
-
-                    // Taking advantage of saturating subtraction on slot.
-                    let sync_distance = current_slot - head_slot;
-
-                    let is_optimistic = chain
-                        .is_optimistic_or_invalid_head()
-                        .map_err(warp_utils::reject::beacon_chain_error)?;
-
-                    let syncing_data = api_types::SyncingData {
-                        is_syncing: network_globals.sync_state.read().is_syncing(),
-                        is_optimistic: Some(is_optimistic),
-                        head_slot,
-                        sync_distance,
+                async move {
+                    let el_offline = if let Some(el) = &chain.execution_layer {
+                        el.is_offline_or_erroring().await
+                    } else {
+                        true
                     };
 
-                    Ok(api_types::GenericResponse::from(syncing_data))
-                })
+                    blocking_json_task(move || {
+                        let head_slot = chain.canonical_head.cached_head().head_slot();
+                        let current_slot = chain.slot_clock.now_or_genesis().ok_or_else(|| {
+                            warp_utils::reject::custom_server_error(
+                                "Unable to read slot clock".into(),
+                            )
+                        })?;
+
+                        // Taking advantage of saturating subtraction on slot.
+                        let sync_distance = current_slot - head_slot;
+
+                        let is_optimistic = chain
+                            .is_optimistic_or_invalid_head()
+                            .map_err(warp_utils::reject::beacon_chain_error)?;
+
+                        let syncing_data = api_types::SyncingData {
+                            is_syncing: network_globals.sync_state.read().is_syncing(),
+                            is_optimistic: Some(is_optimistic),
+                            el_offline: Some(el_offline),
+                            head_slot,
+                            sync_distance,
+                        };
+
+                        Ok(api_types::GenericResponse::from(syncing_data))
+                    })
+                    .await
+                }
             },
         );
 
@@ -3798,6 +3811,44 @@ pub fn serve<T: BeaconChainTypes>(
             },
         );
 
+    // Subscribe to logs via Server Side Events
+    // /lighthouse/logs
+    let lighthouse_log_events = warp::path("lighthouse")
+        .and(warp::path("logs"))
+        .and(warp::path::end())
+        .and(sse_component_filter)
+        .and_then(|sse_component: Option<SSELoggingComponents>| {
+            blocking_response_task(move || {
+                if let Some(logging_components) = sse_component {
+                    // Build a JSON stream
+                    let s =
+                        BroadcastStream::new(logging_components.sender.subscribe()).map(|msg| {
+                            match msg {
+                                Ok(data) => {
+                                    // Serialize to json
+                                    match data.to_json_string() {
+                                        // Send the json as a Server Side Event
+                                        Ok(json) => Ok(Event::default().data(json)),
+                                        Err(e) => Err(warp_utils::reject::server_sent_event_error(
+                                            format!("Unable to serialize to JSON {}", e),
+                                        )),
+                                    }
+                                }
+                                Err(e) => Err(warp_utils::reject::server_sent_event_error(
+                                    format!("Unable to receive event {}", e),
+                                )),
+                            }
+                        });
+
+                    Ok::<_, warp::Rejection>(warp::sse::reply(warp::sse::keep_alive().stream(s)))
+                } else {
+                    Err(warp_utils::reject::custom_server_error(
+                        "SSE Logging is not enabled".to_string(),
+                    ))
+                }
+            })
+        });
+
     // Define the ultimate set of routes that will be provided to the server.
     // Use `uor` rather than `or` in order to simplify types (see `UnifyingOrFilter`).
     let routes = warp::get()
@@ -3865,6 +3916,7 @@ pub fn serve<T: BeaconChainTypes>(
                 .uor(get_lighthouse_block_packing_efficiency)
                 .uor(get_lighthouse_merge_readiness)
                 .uor(get_events)
+                .uor(lighthouse_log_events.boxed())
                 .recover(warp_utils::reject::handle_rejection),
         )
         .boxed()

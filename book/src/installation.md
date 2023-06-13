@@ -29,6 +29,10 @@ After [The Merge](https://ethereum.org/en/roadmap/merge/) on 15<sup>th</sup> Sep
 
 
 * CPU: Quad-core AMD Ryzen, Intel Broadwell, ARMv8 or newer
-* Memory: 16 GB RAM or more
-* Storage: 2 TB solid state storage
+* Memory: 32 GB RAM*
+* Storage: 2 TB solid state drive
 * Network: 100 Mb/s download, 20 Mb/s upload broadband connection
+
+> *Note: 16 GB RAM is becoming rather limited due to the increased resources required. 16 GB RAM would likely result in out of memory errors in the case of a spike in computing demand (e.g., caused by a bug) or during periods of non-finality of the beacon chain. Users with 16 GB RAM also have a limited choice when it comes to selecting an execution client, which does not help with the [client diversity](https://clientdiversity.org/). We therefore recommend users to have at least 32 GB RAM for long term health of the node, while also giving users the flexibility to change client should the thought arise. 
+
+Last update: April 2023
