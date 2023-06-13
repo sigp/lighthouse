@@ -690,7 +690,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                             "blob_root" => %blob.block_root,
                             "parent_root" => %blob.block_parent_root
                         );
-                        self.send_sync_message(SyncMessage::BlobParentUnknown(peer_id, blob));
+                        self.send_sync_message(SyncMessage::UnknownParentBlob(peer_id, blob));
                     }
                     BlobError::ProposerSignatureInvalid
                     | BlobError::UnknownValidator(_)
@@ -934,7 +934,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     "Unknown parent for gossip block";
                     "root" => ?block_root
                 );
-                self.send_sync_message(SyncMessage::UnknownBlock(peer_id, block, block_root));
+                self.send_sync_message(SyncMessage::UnknownParentBlock(peer_id, block, block_root));
                 return None;
             }
             Err(e @ BlockError::BeaconChainError(_)) => {
@@ -1155,7 +1155,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     "Block with unknown parent attempted to be processed";
                     "peer_id" => %peer_id
                 );
-                self.send_sync_message(SyncMessage::UnknownBlock(
+                self.send_sync_message(SyncMessage::UnknownParentBlock(
                     peer_id,
                     block.clone(),
                     block_root,

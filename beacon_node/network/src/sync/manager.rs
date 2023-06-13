@@ -41,6 +41,8 @@ use super::range_sync::{RangeSync, RangeSyncType, EPOCHS_PER_BATCH};
 use crate::beacon_processor::{ChainSegmentProcessId, WorkEvent as BeaconWorkEvent};
 use crate::service::NetworkMessage;
 use crate::status::ToStatusMessage;
+use crate::sync::block_lookups::delayed_lookup;
+use crate::sync::block_lookups::delayed_lookup::DelayedLookupMessage;
 pub use crate::sync::block_lookups::ResponseType;
 use crate::sync::range_sync::ByRangeRequestType;
 use beacon_chain::blob_verification::AsBlock;
@@ -58,13 +60,11 @@ use lighthouse_network::{PeerAction, PeerId};
 use slog::{crit, debug, error, info, trace, warn, Logger};
 use slot_clock::SlotClock;
 use std::boxed::Box;
-use std::collections::HashMap;
 use std::ops::IndexMut;
 use std::ops::Sub;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
-use tokio::time::sleep;
 use types::blob_sidecar::FixedBlobSidecarList;
 use types::{BlobSidecar, EthSpec, Hash256, SignedBeaconBlock, Slot};
 
@@ -126,27 +126,24 @@ pub enum SyncMessage<T: EthSpec> {
     },
 
     /// A block with an unknown parent has been received.
-    UnknownBlock(PeerId, BlockWrapper<T>, Hash256),
+    UnknownParentBlock(PeerId, BlockWrapper<T>, Hash256),
 
     /// A blob with an unknown parent has been received.
-    BlobParentUnknown(PeerId, Arc<BlobSidecar<T>>),
-
-    /// Used to re-trigger requests after delaying the lookup for the block + blobs in the
-    /// current slot.
-    MergedParentUnknown(
-        Hash256,
-        Vec<PeerShouldHave>,
-        Option<Arc<SignedBeaconBlock<T>>>,
-        Option<FixedBlobSidecarList<T>>,
-    ),
+    UnknownParentBlob(PeerId, Arc<BlobSidecar<T>>),
 
     /// A peer has sent an attestation that references a block that is unknown. This triggers the
     /// manager to attempt to find the block matching the unknown hash.
     UnknownBlockHashFromAttestation(PeerId, Hash256),
 
-    /// A peer has sent a blob that references a block that is unknown. This triggers the
-    /// manager to attempt to find the block matching the unknown hash when the specified delay expires.
+    /// A peer has sent a blob that references a block that is unknown or a peer has sent a block for
+    /// which we haven't received blobs.
+    ///
+    /// We will either attempt to find the block matching the unknown hash immediately or queue a lookup,
+    /// which will then trigger the request when we receive `MissingGossipBlockComponentsDelayed`.
     MissingGossipBlockComponents(Slot, PeerId, Hash256),
+
+    /// This message triggers a request for missing block components after a delay.
+    MissingGossipBlockComponentsDelayed(Hash256),
 
     /// A peer has disconnected.
     Disconnect(PeerId),
@@ -226,7 +223,7 @@ pub struct SyncManager<T: BeaconChainTypes> {
 
     block_lookups: BlockLookups<T>,
 
-    delayed_lookups: mpsc::Sender<SyncMessage<T::EthSpec>>,
+    delayed_lookups: mpsc::Sender<DelayedLookupMessage>,
 
     /// The logger for the import manager.
     log: Logger,
@@ -249,8 +246,8 @@ pub fn spawn<T: BeaconChainTypes>(
     );
     // generate the message channel
     let (sync_send, sync_recv) = mpsc::unbounded_channel::<SyncMessage<T::EthSpec>>();
-    let (delayed_lookups_send, mut delayed_lookups_recv) =
-        mpsc::channel::<SyncMessage<T::EthSpec>>(DELAY_QUEUE_CHANNEL_SIZE);
+    let (delayed_lookups_send, delayed_lookups_recv) =
+        mpsc::channel::<DelayedLookupMessage>(DELAY_QUEUE_CHANNEL_SIZE);
 
     // create an instance of the SyncManager
     let mut sync_manager = SyncManager {
@@ -276,90 +273,12 @@ pub fn spawn<T: BeaconChainTypes>(
 
     let log_clone = log.clone();
     let sync_send_clone = sync_send.clone();
-    executor.spawn(
-        async move {
-            let slot_duration = beacon_chain.slot_clock.slot_duration();
-            // TODO(sean) think about what this should be
-            let delay = beacon_chain.slot_clock.unagg_attestation_production_delay();
-
-            loop {
-                let sleep_duration = match (
-                    beacon_chain.slot_clock.duration_to_next_slot(),
-                    beacon_chain.slot_clock.seconds_from_current_slot_start(),
-                ) {
-                    (Some(duration_to_next_slot), Some(seconds_from_current_slot_start)) => {
-                        if seconds_from_current_slot_start > delay {
-                            duration_to_next_slot + delay
-                        } else {
-                            delay - seconds_from_current_slot_start
-                        }
-                    }
-                    _ => {
-                        error!(log, "Failed to read slot clock");
-                        // If we can't read the slot clock, just wait another slot.
-                        sleep(slot_duration).await;
-                        continue;
-                    }
-                };
-
-                sleep(sleep_duration).await;
-
-                let mut merged = HashMap::new();
-
-                while let Ok(msg) = delayed_lookups_recv.try_recv() {
-                    match msg {
-                        SyncMessage::BlobParentUnknown(peer_id, blob)  => {
-                            let blob_index = blob.index;
-                            if blob_index < T::EthSpec::max_blobs_per_block() as u64 {
-                                let (_, blobs, peers) = merged.entry(blob.block_root).or_insert_with(||{
-                                    (None,  Some(FixedBlobSidecarList::default()), vec![])
-                                });
-                                if let Some(blobs) = blobs {
-                                    *blobs.index_mut(blob_index as usize) = Some(blob);
-                                }
-                                peers.push(PeerShouldHave::Neither(peer_id));
-                            } else {
-                                warn!(log, "Received blob with invalid index"; "index" => blob_index, "peer_id" => %peer_id);
-                            }
-                        }
-                        SyncMessage::UnknownBlock(peer_id, block, root) => {
-                            let (block, blobs) = block.deconstruct();
-                            let (cached_block, cached_blobs, peers) = merged.entry(root).or_insert_with(||{
-                                (None,  Some(FixedBlobSidecarList::default()), vec![])
-                            });
-                            if let (Some(cached_blobs), Some( mut blobs)) = (cached_blobs, blobs) {
-                                for blob in blobs.iter_mut() {
-                                   if let Some(blob) = blob.take() {
-                                       let blob_index = blob.index;
-                                       if blob_index < T::EthSpec::max_blobs_per_block() as u64 {
-                                           *cached_blobs.index_mut(blob_index as usize) = Some(blob);
-                                       } else {
-                                           warn!(log, "Received blob with invalid index"; "index" => blob_index, "peer_id" => %peer_id);
-                                       }
-                                   }
-                                }
-                            }
-                            *cached_block = Some(block);
-                            peers.push(PeerShouldHave::Neither(peer_id));
-                        }
-                        _ => {
-                            if let Err(e) = sync_send.send(msg) {
-                                warn!(log, "Failed to send delayed lookup message"; "error" => ?e);
-                            }
-                        }
-                    }
-                }
-
-                // Send `MergedParentUnknown` messages to the sync manager.
-                for (root, (block, blobs, peers)) in merged {
-                    let msg = SyncMessage::MergedParentUnknown(root, peers, block, blobs);
-                    if let Err(e) = sync_send.send(msg) {
-                        warn!(log, "Failed to send merged delayed lookup message"; "error" => ?e);
-                    }
-                }
-            }
-        },
-        "delayed_lookups",
+    delayed_lookup::spawn_delayed_lookup_service(
+        &executor,
+        beacon_chain,
+        delayed_lookups_recv,
+        sync_send,
+        log,
     );
 
     // spawn the sync manager thread
@@ -696,82 +615,37 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 blob_sidecar,
                 seen_timestamp,
             } => self.rpc_blob_received(request_id, peer_id, blob_sidecar, seen_timestamp),
-            SyncMessage::UnknownBlock(peer_id, block, block_root) => {
+            SyncMessage::UnknownParentBlock(peer_id, block, block_root) => {
                 let block_slot = block.slot();
 
-                if self.should_search_for_block(block_slot, &peer_id) {
-                    let parent_root = block.parent_root();
-                    self.block_lookups.search_parent(
-                        block_slot,
-                        block_root,
-                        parent_root,
-                        peer_id,
-                        &mut self.network,
-                    );
-                    if self.should_delay_lookup(block_slot) {
-                        if let Err(e) = self
-                            .delayed_lookups
-                            .try_send(SyncMessage::UnknownBlock(peer_id, block, block_root))
-                        {
-                            warn!(self.log, "Delayed lookups dropped for block"; "block_root" => ?block_root, "error" => ?e);
-                        }
-                    } else {
+                self.handle_unknown_parent(
+                    peer_id,
+                    block_root,
+                    block.parent_root(),
+                    block_slot,
+                    move || {
                         let (block, blobs) = block.deconstruct();
-                        self.block_lookups
-                            .search_current_unknown_parent_block_and_blobs(
-                                block_root,
-                                Some(block),
-                                blobs,
-                                &[PeerShouldHave::Neither(peer_id)],
-                                &mut self.network,
-                            );
-                    }
-                }
+                        (Some(block), blobs)
+                    },
+                );
             }
-            SyncMessage::BlobParentUnknown(peer_id, blob) => {
+            SyncMessage::UnknownParentBlob(peer_id, blob) => {
                 let blob_slot = blob.slot;
-
-                if self.should_search_for_block(blob_slot, &peer_id) {
-                    let block_root = blob.block_root;
-                    let parent_root = blob.block_parent_root;
-                    let blob_index = blob.index;
-                    self.block_lookups.search_parent(
-                        blob_slot,
-                        block_root,
-                        parent_root,
-                        peer_id,
-                        &mut self.network,
-                    );
-                    if self.should_delay_lookup(blob_slot) {
-                        if let Err(e) = self
-                            .delayed_lookups
-                            .try_send(SyncMessage::BlobParentUnknown(peer_id, blob))
-                        {
-                            warn!(self.log, "Delayed lookups dropped for blob"; "block_root" => ?block_root, "error" => ?e);
-                        }
-                    } else {
+                let block_root = blob.block_root;
+                let parent_root = blob.block_parent_root;
+                let blob_index = blob.index;
+                self.handle_unknown_parent(
+                    peer_id,
+                    block_root,
+                    parent_root,
+                    blob_slot,
+                    move || {
+                        //TODO(sean) index validation
                         let mut blobs = FixedBlobSidecarList::default();
                         *blobs.index_mut(blob_index as usize) = Some(blob);
-                        self.block_lookups
-                            .search_current_unknown_parent_block_and_blobs(
-                                block_root,
-                                None,
-                                Some(blobs),
-                                &[PeerShouldHave::Neither(peer_id)],
-                                &mut self.network,
-                            );
-                    }
-                }
-            }
-            SyncMessage::MergedParentUnknown(block_root, peers, block, blobs) => {
-                self.block_lookups
-                    .search_current_unknown_parent_block_and_blobs(
-                        block_root,
-                        block,
-                        blobs,
-                        peers.as_slice(),
-                        &mut self.network,
-                    );
+                        (None, Some(blobs))
+                    },
+                );
             }
             SyncMessage::UnknownBlockHashFromAttestation(peer_id, block_hash) => {
                 // If we are not synced, ignore this block.
@@ -783,24 +657,31 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     );
                 }
             }
-            SyncMessage::MissingGossipBlockComponents(slot, peer_id, block_hash) => {
+            SyncMessage::MissingGossipBlockComponents(slot, peer_id, block_root) => {
                 // If we are not synced, ignore this block.
                 if self.synced_and_connected(&peer_id) {
                     if self.should_delay_lookup(slot) {
-                        if let Err(e) = self.delayed_lookups.try_send(
-                            SyncMessage::UnknownBlockHashFromAttestation(peer_id, block_hash),
-                        ) {
+                        self.block_lookups
+                            .search_block_delayed(block_root, PeerShouldHave::Neither(peer_id));
+                        if let Err(e) = self
+                            .delayed_lookups
+                            .try_send(DelayedLookupMessage::MissingComponents(block_root))
+                        {
                             warn!(self.log, "Delayed lookup dropped for block referenced by a blob";
-                                "block_root" => ?block_hash, "error" => ?e);
+                                "block_root" => ?block_root, "error" => ?e);
                         }
                     } else {
                         self.block_lookups.search_block(
-                            block_hash,
+                            block_root,
                             PeerShouldHave::Neither(peer_id),
                             &mut self.network,
                         )
                     }
                 }
+            }
+            SyncMessage::MissingGossipBlockComponentsDelayed(block_root) => {
+                self.block_lookups
+                    .trigger_single_lookup(block_root, &mut self.network);
             }
             SyncMessage::Disconnect(peer_id) => {
                 self.peer_disconnect(&peer_id);
@@ -854,6 +735,53 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         }
     }
 
+    fn handle_unknown_parent<
+        F: FnOnce() -> (
+            Option<Arc<SignedBeaconBlock<T::EthSpec>>>,
+            Option<FixedBlobSidecarList<T::EthSpec>>,
+        ),
+    >(
+        &mut self,
+        peer_id: PeerId,
+        block_root: Hash256,
+        parent_root: Hash256,
+        slot: Slot,
+        block_component_closure: F,
+    ) {
+        let (block, blobs) = block_component_closure();
+        if self.should_search_for_block(slot, &peer_id) {
+            self.block_lookups.search_parent(
+                slot,
+                block_root,
+                parent_root,
+                peer_id,
+                &mut self.network,
+            );
+            if self.should_delay_lookup(slot) {
+                self.block_lookups.search_child_delayed(
+                    block_root,
+                    block,
+                    blobs,
+                    &[PeerShouldHave::Neither(peer_id)],
+                );
+                if let Err(e) = self
+                    .delayed_lookups
+                    .try_send(DelayedLookupMessage::MissingComponents(block_root))
+                {
+                    warn!(self.log, "Delayed lookups dropped for block"; "block_root" => ?block_root, "error" => ?e);
+                }
+            } else {
+                self.block_lookups.search_child_block(
+                    block_root,
+                    block,
+                    blobs,
+                    &[PeerShouldHave::Neither(peer_id)],
+                    &mut self.network,
+                );
+            }
+        }
+    }
+
     fn should_delay_lookup(&mut self, slot: Slot) -> bool {
         let earliest_slot = self
             .chain
@@ -870,7 +798,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 .slot_clock
                 .seconds_from_current_slot_start()
                 .map_or(false, |secs_into_slot| {
-                    secs_into_slot < self.chain.slot_clock.unagg_attestation_production_delay()
+                    secs_into_slot < self.chain.slot_clock.single_lookup_delay()
                 });
             msg_for_current_slot && delay_threshold_unmet
         } else {

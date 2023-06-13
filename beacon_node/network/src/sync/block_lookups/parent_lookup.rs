@@ -58,12 +58,6 @@ pub enum RequestError {
 }
 
 impl<T: BeaconChainTypes> ParentLookup<T> {
-    pub fn contains_block(&self, block_root: &Hash256) -> bool {
-        self.downloaded_blocks
-            .iter()
-            .any(|(root, _d_block)| root == block_root)
-    }
-
     pub fn new(
         block_root: Hash256,
         parent_root: Hash256,
@@ -78,6 +72,16 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
             downloaded_blocks: vec![],
             current_parent_request,
         }
+    }
+
+    pub fn contains_block(&self, block_root: &Hash256) -> bool {
+        self.downloaded_blocks
+            .iter()
+            .any(|(root, _d_block)| root == block_root)
+    }
+
+    pub fn is_for_block(&self, block_root: Hash256) -> bool {
+        self.current_parent_request.is_for_block(block_root)
     }
 
     /// Attempts to request the next unknown parent. If the request fails, it should be removed.
@@ -321,13 +325,8 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
         Ok(blobs)
     }
 
-    pub fn add_peers_if_useful(
-        &mut self,
-        block_root: &Hash256,
-        peer_source: &[PeerShouldHave],
-    ) -> bool {
-        self.current_parent_request
-            .add_peers_if_useful(block_root, peer_source)
+    pub fn add_peers(&mut self, peer_source: &[PeerShouldHave]) {
+        self.current_parent_request.add_peers(peer_source)
     }
 
     pub fn used_peers(&self, response_type: ResponseType) -> impl Iterator<Item = &PeerId> + '_ {

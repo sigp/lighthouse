@@ -22,9 +22,12 @@ pub struct SingleBlockLookup<const MAX_ATTEMPTS: u8, T: BeaconChainTypes> {
     pub block_request_state: BlockRequestState<MAX_ATTEMPTS>,
     pub blob_request_state: BlobRequestState<MAX_ATTEMPTS, T::EthSpec>,
     pub da_checker: Arc<DataAvailabilityChecker<T>>,
-    /// Only necessary for requests triggered by an `UnknownParent` because any
+    /// Only necessary for requests triggered by an `UnknownBlockParent` or `UnknownBlockParent` because any
     /// blocks or blobs without parents won't hit the data availability cache.
     pub unknown_parent_components: Option<UnknownParentComponents<T::EthSpec>>,
+    /// We may want to delay the actual request trigger to give us a chance to receive all block
+    /// components over gossip.
+    pub triggered: bool,
 }
 
 #[derive(Default, Clone)]
@@ -125,6 +128,10 @@ impl<const MAX_ATTEMPTS: u8, T: BeaconChainTypes> SingleBlockLookup<MAX_ATTEMPTS
     }
 }
 
+/// For requests triggered by an `UnknownBlockParent` or `UnknownBlockParent`, this struct
+/// is used to cache components as they are sent to the networking layer. We can't use the
+/// data availability cache currently because any blocks or blobs without parents won't hit
+/// won't pass validation and therefore won't make it into the cache.
 #[derive(Default)]
 pub struct UnknownParentComponents<E: EthSpec> {
     pub downloaded_block: Option<Arc<SignedBeaconBlock<E>>>,
@@ -214,10 +221,18 @@ impl<const MAX_ATTEMPTS: u8, T: BeaconChainTypes> SingleBlockLookup<MAX_ATTEMPTS
             blob_request_state: BlobRequestState::new(peers),
             da_checker,
             unknown_parent_components,
+            triggered: false,
         }
     }
 
-    pub fn request_block_and_blobs(&mut self, cx: &mut SyncNetworkContext<T>) {
+    pub fn is_for_block(&self, block_root: Hash256) -> bool {
+        self.block_request_state.requested_block_root == block_root
+    }
+
+    /// Send the necessary request for blobs and blocks and update `self.id` with the latest
+    /// request `Id`s. This will return `Err(())` if neither the block nor blob request could be made
+    /// or are no longer required.
+    pub fn request_block_and_blobs(&mut self, cx: &mut SyncNetworkContext<T>) -> Result<(), ()> {
         let block_request_id = if let Ok(Some((peer_id, block_request))) = self.request_block() {
             cx.single_block_lookup_request(peer_id, block_request).ok()
         } else {
@@ -230,10 +245,15 @@ impl<const MAX_ATTEMPTS: u8, T: BeaconChainTypes> SingleBlockLookup<MAX_ATTEMPTS
             None
         };
 
+        if block_request_id.is_none() && blob_request_id.is_none() {
+            return Err(());
+        }
+
         self.id = LookupId {
             block_request_id,
             blob_request_id,
         };
+        Ok(())
     }
 
     pub fn update_blobs_request(&mut self) {
@@ -566,10 +586,7 @@ impl<const MAX_ATTEMPTS: u8, T: BeaconChainTypes> SingleBlockLookup<MAX_ATTEMPTS
         }
     }
 
-    pub fn add_peers_if_useful(&mut self, block_root: &Hash256, peers: &[PeerShouldHave]) -> bool {
-        if *block_root != self.block_request_state.requested_block_root {
-            return false;
-        }
+    pub fn add_peers(&mut self, peers: &[PeerShouldHave]) {
         for peer in peers {
             match peer {
                 PeerShouldHave::BlockAndBlobs(peer_id) => {
@@ -582,8 +599,6 @@ impl<const MAX_ATTEMPTS: u8, T: BeaconChainTypes> SingleBlockLookup<MAX_ATTEMPTS
                 }
             }
         }
-
-        true
     }
 
     pub fn processing_peer(&self, response_type: ResponseType) -> Result<PeerShouldHave, ()> {
@@ -662,7 +677,7 @@ impl<const MAX_ATTEMPTS: u8> SingleLookupRequestState<MAX_ATTEMPTS> {
     }
 
     pub fn add_potential_peer(&mut self, peer_id: &PeerId) {
-        if self.available_peers.contains(peer_id) {
+        if !self.available_peers.contains(peer_id) {
             self.potential_peers.insert(*peer_id);
         }
     }
