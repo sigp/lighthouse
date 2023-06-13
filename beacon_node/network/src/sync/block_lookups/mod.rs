@@ -537,7 +537,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 "response_type" => ?response_type,
             );
         }
-        return lookup;
+        lookup
     }
 
     /// Process a response received from a parent lookup request.
