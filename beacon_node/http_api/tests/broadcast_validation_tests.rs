@@ -7,7 +7,7 @@ use http_api::test_utils::InteractiveTester;
 use http_api::{publish_blinded_block, publish_block, reconstruct_block, ProvenancedBlock};
 use std::sync::Arc;
 use tree_hash::TreeHash;
-use types::{MainnetEthSpec, Slot, H256};
+use types::{Hash256, MainnetEthSpec, Slot};
 use warp::Rejection;
 use warp_utils::reject::CustomBadRequest;
 
@@ -67,8 +67,8 @@ pub async fn gossip_invalid() {
     let (block, _): (SignedBeaconBlock<E>, _) = tester
         .harness
         .make_block_with_modifier(chain_state_before, slot, |b| {
-            *b.state_root_mut() = H256::zero();
-            *b.parent_root_mut() = H256::zero();
+            *b.state_root_mut() = Hash256::zero();
+            *b.parent_root_mut() = Hash256::zero();
         })
         .await;
 
@@ -119,7 +119,7 @@ pub async fn gossip_partial_pass() {
     let (block, _): (SignedBeaconBlock<E>, _) = tester
         .harness
         .make_block_with_modifier(chain_state_before, slot, |b| {
-            *b.state_root_mut() = H256::random()
+            *b.state_root_mut() = Hash256::random()
         })
         .await;
 
@@ -202,8 +202,8 @@ pub async fn consensus_invalid() {
     let (block, _): (SignedBeaconBlock<E>, _) = tester
         .harness
         .make_block_with_modifier(chain_state_before, slot, |b| {
-            *b.state_root_mut() = H256::zero();
-            *b.parent_root_mut() = H256::zero();
+            *b.state_root_mut() = Hash256::zero();
+            *b.parent_root_mut() = Hash256::zero();
         })
         .await;
 
@@ -405,8 +405,8 @@ pub async fn equivocation_invalid() {
     let (block, _): (SignedBeaconBlock<E>, _) = tester
         .harness
         .make_block_with_modifier(chain_state_before, slot, |b| {
-            *b.state_root_mut() = H256::zero();
-            *b.parent_root_mut() = H256::zero();
+            *b.state_root_mut() = Hash256::zero();
+            *b.parent_root_mut() = Hash256::zero();
         })
         .await;
 
@@ -672,8 +672,8 @@ pub async fn blinded_gossip_invalid() {
     let (block, _): (SignedBeaconBlock<E>, _) = tester
         .harness
         .make_block_with_modifier(chain_state_before, slot, |b| {
-            *b.state_root_mut() = H256::zero();
-            *b.parent_root_mut() = H256::zero();
+            *b.state_root_mut() = Hash256::zero();
+            *b.parent_root_mut() = Hash256::zero();
         })
         .await;
 
@@ -726,12 +726,11 @@ pub async fn blinded_gossip_partial_pass() {
     let (block, _): (SignedBeaconBlock<E>, _) = tester
         .harness
         .make_block_with_modifier(chain_state_before, slot, |b| {
-            *b.state_root_mut() = H256::random()
+            *b.state_root_mut() = Hash256::random()
         })
         .await;
 
     let blinded_block: SignedBlindedBeaconBlock<E> = block.into();
-
 
     let response: Result<(), eth2::Error> = tester
         .client
@@ -810,8 +809,8 @@ pub async fn blinded_consensus_invalid() {
     let (block, _): (SignedBeaconBlock<E>, _) = tester
         .harness
         .make_block_with_modifier(chain_state_before, slot, |b| {
-            *b.state_root_mut() = H256::zero();
-            *b.parent_root_mut() = H256::zero();
+            *b.state_root_mut() = Hash256::zero();
+            *b.parent_root_mut() = Hash256::zero();
         })
         .await;
 
@@ -1018,8 +1017,8 @@ pub async fn blinded_equivocation_invalid() {
     let (block, _): (SignedBeaconBlock<E>, _) = tester
         .harness
         .make_block_with_modifier(chain_state_before, slot, |b| {
-            *b.state_root_mut() = H256::zero();
-            *b.parent_root_mut() = H256::zero();
+            *b.state_root_mut() = Hash256::zero();
+            *b.parent_root_mut() = Hash256::zero();
         })
         .await;
 
