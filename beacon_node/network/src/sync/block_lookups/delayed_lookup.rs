@@ -1,10 +1,11 @@
 use crate::sync::SyncMessage;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
-use slog::{error, warn};
+use slog::{crit, warn};
 use slot_clock::SlotClock;
 use std::sync::Arc;
 use tokio::sync::mpsc;
-use tokio::time::sleep;
+use tokio::time::interval_at;
+use tokio::time::Instant;
 use types::Hash256;
 
 #[derive(Debug)]
@@ -14,8 +15,7 @@ pub enum DelayedLookupMessage {
 }
 
 /// This service is responsible for collecting lookup messages and sending them back to sync
-/// for processing after a short delay. Additionally it will merge duplicate requests for components
-/// of the same block root in order to minimize the downloading we end up doing.
+/// for processing after a short delay.
 ///
 /// We want to delay lookups triggered from gossip for the following reasons:
 ///
@@ -42,29 +42,30 @@ pub fn spawn_delayed_lookup_service<T: BeaconChainTypes>(
         async move {
             let slot_duration = beacon_chain.slot_clock.slot_duration();
             let delay = beacon_chain.slot_clock.single_lookup_delay();
+            let interval_start = match (
+                beacon_chain.slot_clock.duration_to_next_slot(),
+                beacon_chain.slot_clock.seconds_from_current_slot_start(),
+            ) {
+                (Some(duration_to_next_slot), Some(seconds_from_current_slot_start)) => {
+                    let duration_until_start = if seconds_from_current_slot_start > delay {
+                        duration_to_next_slot + delay
+                    } else {
+                        delay - seconds_from_current_slot_start
+                    };
+                    tokio::time::Instant::now() + duration_until_start
+                                  }
+                _ => {
+                    crit!(log,
+                        "Failed to read slot clock, delayed lookup service timing will be inaccurate.\
+                         This may degrade performance"
+                    );
+                    Instant::now()
+                }
+            };
 
+            let mut interval = interval_at(interval_start, slot_duration);
             loop {
-                let sleep_duration = match (
-                    beacon_chain.slot_clock.duration_to_next_slot(),
-                    beacon_chain.slot_clock.seconds_from_current_slot_start(),
-                ) {
-                    (Some(duration_to_next_slot), Some(seconds_from_current_slot_start)) => {
-                        if seconds_from_current_slot_start > delay {
-                            duration_to_next_slot + delay
-                        } else {
-                            delay - seconds_from_current_slot_start
-                        }
-                    }
-                    _ => {
-                        error!(log, "Failed to read slot clock");
-                        // If we can't read the slot clock, just wait another slot.
-                        sleep(slot_duration).await;
-                        continue;
-                    }
-                };
-
-                sleep(sleep_duration).await;
-
+                interval.tick().await;
                 while let Ok(msg) = delayed_lookups_recv.try_recv() {
                     match msg {
                         DelayedLookupMessage::MissingComponents(block_root) => {
