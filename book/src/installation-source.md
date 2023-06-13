@@ -5,7 +5,7 @@ the instructions below, and then proceed to [Building Lighthouse](#build-lightho
 
 ## Dependencies
 
-First, **install Rust** using [rustup](https://rustup.rs/)： 
+First, **install Rust** using [rustup](https://rustup.rs/)：
 
 ```bash
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
@@ -64,10 +64,10 @@ After this, you are ready to [build Lighthouse](#build-lighthouse).
 
 1. Install [Git](https://git-scm.com/download/win).
 1. Install the [Chocolatey](https://chocolatey.org/install) package manager for Windows.
-    > Tips: 
+    > Tips:
     > - Use PowerShell to install. In Windows, search for PowerShell and run as administrator.
     > - You must ensure `Get-ExecutionPolicy` is not Restricted. To test this, run `Get-ExecutionPolicy` in PowerShell. If it returns `restricted`, then run `Set-ExecutionPolicy AllSigned`, and then run
-    ```bash 
+    ```bash
     Set-ExecutionPolicy Bypass -Scope Process -Force; [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072; iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
     ```
     > - To verify that Chocolatey is ready, run `choco` and it should return the version.
@@ -159,13 +159,13 @@ Commonly used features include:
 * `gnosis`: support for the Gnosis Beacon Chain.
 * `portable`: support for legacy hardware.
 * `modern`: support for exclusively modern hardware.
-* `slasher-mdbx`: support for the MDBX slasher backend. Enabled by default.
-* `slasher-lmdb`: support for the LMDB slasher backend.
+* `slasher-lmdb`: support for the LMDB slasher backend. Enabled by default.
+* `slasher-mdbx`: support for the MDBX slasher backend.
 * `jemalloc`: use [`jemalloc`][jemalloc] to allocate memory. Enabled by default on Linux and macOS.
   Not supported on Windows.
 * `spec-minimal`: support for the minimal preset (useful for testing).
 
-Default features (e.g. `slasher-mdbx`) may be opted out of using the `--no-default-features`
+Default features (e.g. `slasher-lmdb`) may be opted out of using the `--no-default-features`
 argument for `cargo`, which can be plumbed in via the `CARGO_INSTALL_EXTRA_FLAGS` environment variable.
 E.g.
 

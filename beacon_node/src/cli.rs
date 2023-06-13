@@ -834,8 +834,9 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("slasher-broadcast")
                 .long("slasher-broadcast")
                 .help("Broadcast slashings found by the slasher to the rest of the network \
-                       [disabled by default].")
-                .requires("slasher")
+                       [Enabled by default].")
+                .takes_value(true)
+                .default_value("true")
         )
         .arg(
             Arg::with_name("slasher-backend")

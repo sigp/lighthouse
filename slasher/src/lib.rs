@@ -21,7 +21,7 @@ pub use crate::slasher::Slasher;
 pub use attestation_queue::{AttestationBatch, AttestationQueue, SimpleBatch};
 pub use attester_record::{AttesterRecord, CompactAttesterRecord, IndexedAttesterRecord};
 pub use block_queue::BlockQueue;
-pub use config::{Config, DatabaseBackend};
+pub use config::{Config, DatabaseBackend, DatabaseBackendOverride};
 pub use database::{
     interface::{Database, Environment, RwTransaction},
     IndexedAttestationId, SlasherDB,
