@@ -1607,12 +1607,14 @@ where
 {
     let participation_cache =
         ParticipationCache::new(state, spec).map_err(Error::ParticipationCacheBuild)?;
+    let slot = state.slot();
+    let epoch = state.current_epoch();
 
     // Check previous epoch target balances
     let previous_target_balance = participation_cache.previous_epoch_target_attesting_balance()?;
     if previous_target_balance != cached_previous_target_balance {
         return Err(Error::ProgressiveBalancesCacheCheckFailed(
-            "Previous epoch target attesting balance mismatch".to_string(),
+            format!("Previous epoch target attesting balance mismatch, slot: {}, epoch: {}, actual: {}, cached: {}", slot, epoch, previous_target_balance, cached_previous_target_balance)
         ));
     }
 
@@ -1620,7 +1622,7 @@ where
     let current_target_balance = participation_cache.current_epoch_target_attesting_balance()?;
     if current_target_balance != cached_current_target_balance {
         return Err(Error::ProgressiveBalancesCacheCheckFailed(
-            "Current epoch target attesting balance mismatch".to_string(),
+            format!("Current epoch target attesting balance mismatch, slot: {}, epoch: {}, actual: {}, cached: {}", slot, epoch, current_target_balance, cached_current_target_balance)
         ));
     }
 
@@ -1628,7 +1630,7 @@ where
     let total_active_balance = participation_cache.current_epoch_total_active_balance();
     if total_active_balance != cached_total_active_balance {
         return Err(Error::ProgressiveBalancesCacheCheckFailed(
-            "Current epoch total active balance mismatch".to_string(),
+            format!("Current epoch total active balance mismatch, slot: {}, epoch: {}, actual: {}, cached: {}", slot, epoch, total_active_balance, cached_total_active_balance)
         ));
     }
 
