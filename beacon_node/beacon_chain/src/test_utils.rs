@@ -734,7 +734,7 @@ where
 
     pub async fn make_blinded_block(
         &self,
-        mut state: BeaconState<E>,
+        state: BeaconState<E>,
         slot: Slot,
     ) -> (SignedBlindedBeaconBlock<E>, BeaconState<E>) {
         let (unblinded, new_state) = self.make_block(state, slot).await;

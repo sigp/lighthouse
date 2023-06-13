@@ -77,7 +77,7 @@ pub async fn publish_block<T: BeaconChainTypes>(
             log.clone(),
             seen_timestamp,
         )
-        .map_err(|e| warp_utils::reject::custom_bad_request("unable to publish".into()))?;
+        .map_err(|_| warp_utils::reject::custom_bad_request("unable to publish".into()))?;
     }
 
     /* only publish if gossip- and consensus-valid and equivocation-free */
