@@ -14,3 +14,13 @@ Once you have successfully arrived to the main dashboard, use the sidebar to acc
 
 ## 5. Why doesn't my validator balance graph show any data?
 If your graph is not showing data, it usually means your validator node is still caching data. The application must wait at least 3 epochs before it can render any graphical visualizations. This could take up to 20min.
+
+## 4. Does Siren support reverse proxy or DNS named addresses?
+Yes, if you need to access your beacon or validator from an address such as `https://merp-server:9909/eth2-vc` you should follow the following steps for configuration:
+1. Toggle `https` as your protocol
+2. Add your address as `merp-server/eth2-vc`
+3. Add your Beacon and Validator ports as `9909`
+
+If you have configured it correctly you should see a green checkmark indicating Siren is now connected to your Validator Client and Beacon Node.
+
+If you have separate address setups for your Validator Client and Beacon Node respectively you should access the `Advance Settings` on the configuration and repeat the steps above for each address.

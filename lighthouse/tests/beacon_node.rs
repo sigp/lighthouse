@@ -1806,10 +1806,12 @@ fn no_reconstruct_historic_states_flag() {
 }
 
 // Tests for Slasher flags.
+// Using `--slasher-max-db-size` to work around https://github.com/sigp/lighthouse/issues/2342
 #[test]
 fn slasher_flag() {
     CommandLineTest::new()
         .flag("slasher", None)
+        .flag("slasher-max-db-size", Some("1"))
         .run_with_zero_port()
         .with_config_and_dir(|config, dir| {
             if let Some(slasher_config) = &config.slasher {
@@ -1827,6 +1829,7 @@ fn slasher_dir_flag() {
     let dir = TempDir::new().expect("Unable to create temporary directory");
     CommandLineTest::new()
         .flag("slasher", None)
+        .flag("slasher-max-db-size", Some("1"))
         .flag("slasher-dir", dir.path().as_os_str().to_str())
         .run_with_zero_port()
         .with_config(|config| {
@@ -1841,6 +1844,7 @@ fn slasher_dir_flag() {
 fn slasher_update_period_flag() {
     CommandLineTest::new()
         .flag("slasher", None)
+        .flag("slasher-max-db-size", Some("1"))
         .flag("slasher-update-period", Some("100"))
         .run_with_zero_port()
         .with_config(|config| {
@@ -1855,6 +1859,7 @@ fn slasher_update_period_flag() {
 fn slasher_slot_offset_flag() {
     CommandLineTest::new()
         .flag("slasher", None)
+        .flag("slasher-max-db-size", Some("1"))
         .flag("slasher-slot-offset", Some("11.25"))
         .run_with_zero_port()
         .with_config(|config| {
@@ -1867,6 +1872,7 @@ fn slasher_slot_offset_flag() {
 fn slasher_slot_offset_nan_flag() {
     CommandLineTest::new()
         .flag("slasher", None)
+        .flag("slasher-max-db-size", Some("1"))
         .flag("slasher-slot-offset", Some("NaN"))
         .run_with_zero_port();
 }
@@ -1874,6 +1880,7 @@ fn slasher_slot_offset_nan_flag() {
 fn slasher_history_length_flag() {
     CommandLineTest::new()
         .flag("slasher", None)
+        .flag("slasher-max-db-size", Some("1"))
         .flag("slasher-history-length", Some("2048"))
         .run_with_zero_port()
         .with_config(|config| {
@@ -1888,20 +1895,21 @@ fn slasher_history_length_flag() {
 fn slasher_max_db_size_flag() {
     CommandLineTest::new()
         .flag("slasher", None)
-        .flag("slasher-max-db-size", Some("10"))
+        .flag("slasher-max-db-size", Some("2"))
         .run_with_zero_port()
         .with_config(|config| {
             let slasher_config = config
                 .slasher
                 .as_ref()
                 .expect("Unable to parse Slasher config");
-            assert_eq!(slasher_config.max_db_size_mbs, 10240);
+            assert_eq!(slasher_config.max_db_size_mbs, 2048);
         });
 }
 #[test]
 fn slasher_attestation_cache_size_flag() {
     CommandLineTest::new()
         .flag("slasher", None)
+        .flag("slasher-max-db-size", Some("1"))
         .flag("slasher-att-cache-size", Some("10000"))
         .run_with_zero_port()
         .with_config(|config| {
@@ -1916,6 +1924,7 @@ fn slasher_attestation_cache_size_flag() {
 fn slasher_chunk_size_flag() {
     CommandLineTest::new()
         .flag("slasher", None)
+        .flag("slasher-max-db-size", Some("1"))
         .flag("slasher-chunk-size", Some("32"))
         .run_with_zero_port()
         .with_config(|config| {
@@ -1930,6 +1939,7 @@ fn slasher_chunk_size_flag() {
 fn slasher_validator_chunk_size_flag() {
     CommandLineTest::new()
         .flag("slasher", None)
+        .flag("slasher-max-db-size", Some("1"))
         .flag("slasher-validator-chunk-size", Some("512"))
         .run_with_zero_port()
         .with_config(|config| {
@@ -1941,9 +1951,10 @@ fn slasher_validator_chunk_size_flag() {
         });
 }
 #[test]
-fn slasher_broadcast_flag() {
+fn slasher_broadcast_flag_no_args() {
     CommandLineTest::new()
         .flag("slasher", None)
+        .flag("slasher-max-db-size", Some("1"))
         .flag("slasher-broadcast", None)
         .run_with_zero_port()
         .with_config(|config| {
@@ -1954,29 +1965,62 @@ fn slasher_broadcast_flag() {
             assert!(slasher_config.broadcast);
         });
 }
-
 #[test]
-fn slasher_backend_default() {
+fn slasher_broadcast_flag_no_default() {
     CommandLineTest::new()
         .flag("slasher", None)
+        .flag("slasher-max-db-size", Some("1"))
         .run_with_zero_port()
         .with_config(|config| {
-            let slasher_config = config.slasher.as_ref().unwrap();
-            assert_eq!(slasher_config.backend, slasher::DatabaseBackend::Mdbx);
+            let slasher_config = config
+                .slasher
+                .as_ref()
+                .expect("Unable to parse Slasher config");
+            assert!(slasher_config.broadcast);
         });
 }
-
+#[test]
+fn slasher_broadcast_flag_true() {
+    CommandLineTest::new()
+        .flag("slasher", None)
+        .flag("slasher-max-db-size", Some("1"))
+        .flag("slasher-broadcast", Some("true"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            let slasher_config = config
+                .slasher
+                .as_ref()
+                .expect("Unable to parse Slasher config");
+            assert!(slasher_config.broadcast);
+        });
+}
+#[test]
+fn slasher_broadcast_flag_false() {
+    CommandLineTest::new()
+        .flag("slasher", None)
+        .flag("slasher-max-db-size", Some("1"))
+        .flag("slasher-broadcast", Some("false"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            let slasher_config = config
+                .slasher
+                .as_ref()
+                .expect("Unable to parse Slasher config");
+            assert!(!slasher_config.broadcast);
+        });
+}
 #[test]
 fn slasher_backend_override_to_default() {
     // Hard to test this flag because all but one backend is disabled by default and the backend
     // called "disabled" results in a panic.
     CommandLineTest::new()
         .flag("slasher", None)
-        .flag("slasher-backend", Some("mdbx"))
+        .flag("slasher-max-db-size", Some("1"))
+        .flag("slasher-backend", Some("lmdb"))
         .run_with_zero_port()
         .with_config(|config| {
             let slasher_config = config.slasher.as_ref().unwrap();
-            assert_eq!(slasher_config.backend, slasher::DatabaseBackend::Mdbx);
+            assert_eq!(slasher_config.backend, slasher::DatabaseBackend::Lmdb);
         });
 }
 
