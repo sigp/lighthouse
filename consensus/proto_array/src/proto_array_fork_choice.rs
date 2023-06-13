@@ -345,6 +345,7 @@ pub struct ProtoArrayForkChoice {
 impl ProtoArrayForkChoice {
     #[allow(clippy::too_many_arguments)]
     pub fn new<E: EthSpec>(
+        current_slot: Slot,
         finalized_block_slot: Slot,
         finalized_block_state_root: Hash256,
         justified_checkpoint: Checkpoint,
@@ -380,7 +381,7 @@ impl ProtoArrayForkChoice {
         };
 
         proto_array
-            .on_block::<E>(block, finalized_block_slot)
+            .on_block::<E>(block, current_slot)
             .map_err(|e| format!("Failed to add finalized block to proto_array: {:?}", e))?;
 
         Ok(Self {
@@ -984,6 +985,7 @@ mod test_compute_deltas {
 
         let mut fc = ProtoArrayForkChoice::new::<MainnetEthSpec>(
             genesis_slot,
+            genesis_slot,
             state_root,
             genesis_checkpoint,
             genesis_checkpoint,
@@ -1108,6 +1110,7 @@ mod test_compute_deltas {
         };
 
         let mut fc = ProtoArrayForkChoice::new::<MainnetEthSpec>(
+            genesis_slot,
             genesis_slot,
             junk_state_root,
             genesis_checkpoint,

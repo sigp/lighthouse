@@ -352,7 +352,7 @@ where
         spec: &ChainSpec,
     ) -> Result<Self, Error<T::Error>> {
         // Sanity check: the anchor must lie on an epoch boundary.
-        if anchor_block.slot() % E::slots_per_epoch() != 0 {
+        if anchor_state.slot() % E::slots_per_epoch() != 0 {
             return Err(Error::InvalidAnchor {
                 block_slot: anchor_block.slot(),
                 state_slot: anchor_state.slot(),
@@ -388,6 +388,7 @@ where
         let current_slot = current_slot.unwrap_or_else(|| fc_store.get_current_slot());
 
         let proto_array = ProtoArrayForkChoice::new::<E>(
+            current_slot,
             finalized_block_slot,
             finalized_block_state_root,
             *fc_store.justified_checkpoint(),
