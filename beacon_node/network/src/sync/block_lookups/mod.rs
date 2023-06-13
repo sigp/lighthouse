@@ -78,17 +78,31 @@ impl From<bool> for StreamTerminator {
 pub type BlockRequestId = Id;
 pub type BlobRequestId = Id;
 
+/// Used to track block or blob responses in places we want to reduce code duplication in
+/// response handling.
+// NOTE: a better solution may be to wrap request `Id` in an enum.
 #[derive(Debug, Copy, Clone)]
 pub enum ResponseType {
     Block,
     Blob,
 }
 
+/// This enum is used to track what a peer *should* be able to respond with respond based on
+/// other messages we've seen from this peer on the network. This is useful for peer scoring.
+/// We expect a peer tracked by the `BlockAndBlobs` variant to be able to respond to all
+/// components of a block. This peer has either sent an attestation for the requested block
+/// or has forwarded a block or blob that is a descendant of the requested block. An honest node
+/// should not attest unless it has all components of a block, and it should not forward
+/// messages if it does not have all components of the parent block. A peer tracked by the
+/// `Neither` variant has likely just sent us a block or blob over gossip, in which case we
+/// can't know whether the peer has all components of the block, and could be acting honestly
+/// by forwarding a message without any other block components.
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Copy, Display)]
 pub enum PeerShouldHave {
     BlockAndBlobs(PeerId),
     Neither(PeerId),
 }
+
 impl PeerShouldHave {
     fn as_peer_id(&self) -> &PeerId {
         match self {
@@ -110,6 +124,7 @@ impl PeerShouldHave {
     }
 }
 
+/// Tracks the conditions under which we want to drop a parent or single block lookup.
 #[derive(Debug, Copy, Clone)]
 pub enum ShouldRemoveLookup {
     True,
