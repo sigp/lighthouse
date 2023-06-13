@@ -432,15 +432,19 @@ pub fn process_execution_payload<T: EthSpec, Payload: AbstractExecPayload<T>>(
 /// These functions will definitely be called before the merge. Their entire purpose is to check if
 /// the merge has happened or if we're on the transition block. Thus we don't want to propagate
 /// errors from the `BeaconState` being an earlier variant than `BeaconStateMerge` as we'd have to
-/// repeaetedly write code to treat these errors as false.
+/// repeatedly write code to treat these errors as false.
 /// https://github.com/ethereum/consensus-specs/blob/dev/specs/bellatrix/beacon-chain.md#is_merge_transition_complete
 pub fn is_merge_transition_complete<T: EthSpec>(state: &BeaconState<T>) -> bool {
-    // We must check defaultness against the payload header with 0x0 roots, as that's what's meant
-    // by `ExecutionPayloadHeader()` in the spec.
-    state
-        .latest_execution_payload_header()
-        .map(|header| !header.is_default_with_zero_roots())
-        .unwrap_or(false)
+    match state {
+        // We must check defaultness against the payload header with 0x0 roots, as that's what's meant
+        // by `ExecutionPayloadHeader()` in the spec.
+        BeaconState::Merge(_) => state
+            .latest_execution_payload_header()
+            .map(|header| !header.is_default_with_zero_roots())
+            .unwrap_or(false),
+        BeaconState::Deneb(_) | BeaconState::Capella(_) => true,
+        BeaconState::Base(_) | BeaconState::Altair(_) => false,
+    }
 }
 /// https://github.com/ethereum/consensus-specs/blob/dev/specs/bellatrix/beacon-chain.md#is_merge_transition_block
 pub fn is_merge_transition_block<T: EthSpec, Payload: AbstractExecPayload<T>>(
