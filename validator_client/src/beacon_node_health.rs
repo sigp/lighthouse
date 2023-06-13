@@ -98,7 +98,19 @@ impl Display for BeaconNodeHealthTier {
 
 impl Ord for BeaconNodeHealthTier {
     fn cmp(&self, other: &Self) -> Ordering {
-        self.tier.cmp(&other.tier)
+        let ordering = self.tier.cmp(&other.tier);
+        if ordering == Ordering::Equal {
+            // These tiers represent `synced`.
+            if [1, 3, 5, 6].contains(&self.tier) {
+                // Don't tie-break on sync distance in these cases.
+                // This ensures validator clients don't artificially prefer one node.
+                ordering
+            } else {
+                self.sync_distance.cmp(&other.sync_distance)
+            }
+        } else {
+            ordering
+        }
     }
 }
 
