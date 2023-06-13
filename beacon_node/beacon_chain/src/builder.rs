@@ -449,11 +449,17 @@ where
             .update_tree_hash_cache()
             .map_err(|e| format!("Error computing checkpoint state root: {:?}", e))?;
 
-        if weak_subj_state_root != computed_state_root {
-            return Err(format!(
-                "Snapshot state root does not match block, expected: {:?}, got: {:?}",
-                weak_subj_state_root, computed_state_root
-            ));
+        let latest_block_slot = weak_subj_state.latest_block_header().slot;
+
+        // We can only validate the block root if it exists in the state. We can't calculated it
+        // from the `latest_block_header` because the state root might be set to the zero hash.
+        if let Ok(state_slot_block_root) = weak_subj_state.get_block_root(latest_block_slot) {
+            if weak_subj_block_root != *state_slot_block_root {
+                return Err(format!(
+                    "Snapshot state's most recent block root does not match block, expected: {:?}, got: {:?}",
+                    weak_subj_block_root, state_slot_block_root
+                ));
+            }
         }
 
         // Check that the checkpoint state is for the same network as the genesis state.
