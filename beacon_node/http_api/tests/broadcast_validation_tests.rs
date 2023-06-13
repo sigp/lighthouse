@@ -732,8 +732,6 @@ pub async fn blinded_gossip_partial_pass() {
 
     let blinded_block: SignedBlindedBeaconBlock<E> = block.into();
 
-    /* assert that the block is actually gossip-valid */
-    //assert!(GossipVerifiedBlock::new(Arc::new(block.clone()), &tester.harness.chain).is_ok());
 
     let response: Result<(), eth2::Error> = tester
         .client
