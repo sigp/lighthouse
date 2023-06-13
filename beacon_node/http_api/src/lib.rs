@@ -1296,24 +1296,24 @@ pub fn serve<T: BeaconChainTypes>(
     let post_beacon_blinded_blocks_v2 = eth_v2
         .and(warp::path("beacon"))
         .and(warp::path("blinded_blocks"))
+        .and(warp::query::<api_types::BroadcastValidationQuery>())
         .and(warp::path::end())
         .and(warp::body::json())
         .and(chain_filter.clone())
         .and(network_tx_filter.clone())
         .and(log_filter.clone())
-        .and(warp::query::<BroadcastValidation>())
         .then(
-            |block: SignedBeaconBlock<T::EthSpec, BlindedPayload<_>>,
+            |validation_level: api_types::BroadcastValidationQuery,
+             block: SignedBeaconBlock<T::EthSpec, BlindedPayload<_>>,
              chain: Arc<BeaconChain<T>>,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
-             log: Logger,
-             validation_level: BroadcastValidation| async move {
+             log: Logger| async move {
                 match publish_blocks::publish_blinded_block(
                     block,
                     chain,
                     &network_tx,
                     log,
-                    validation_level,
+                    validation_level.broadcast_validation,
                 )
                 .await
                 {
