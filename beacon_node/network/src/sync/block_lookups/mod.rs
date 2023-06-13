@@ -1052,7 +1052,6 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             }
             BlockProcessingResult::Err(BlockError::ParentUnknown(block)) => {
                 parent_lookup.add_unknown_parent_block(block);
-                //TODO(sean) not yet making request for components of the parent if necessary
                 self.request_parent_block_and_blobs(parent_lookup, cx);
             }
             BlockProcessingResult::Ok(AvailabilityProcessingStatus::Imported(_))
