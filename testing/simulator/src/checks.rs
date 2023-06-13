@@ -1,5 +1,6 @@
 use crate::local_network::LocalNetwork;
 use node_test_rig::eth2::types::{BlockId, StateId};
+
 use std::time::Duration;
 use types::{Epoch, EthSpec, ExecPayload, ExecutionBlockHash, Hash256, Slot, Unsigned};
 
@@ -242,4 +243,68 @@ pub async fn verify_transition_block_finalized<E: EthSpec>(
             block_hashes
         ))
     }
+}
+
+pub async fn disconnect_from_execution_layer<E: EthSpec>(
+    network: LocalNetwork<E>,
+    transition_epoch: Epoch,
+    slot_duration: Duration,
+) -> Result<(), String> {
+    epoch_delay(transition_epoch + 1, slot_duration, E::slots_per_epoch()).await;
+
+    eprintln!("Disabling Execution Layer");
+
+    // Take the execution node at position 0 and force it to return the `syncing` status.
+    network.execution_nodes.read()[0]
+        .server
+        .all_payloads_syncing(false);
+
+    // Run for 2 epochs with the 0th execution node stalled.
+    epoch_delay(
+        transition_epoch + 1 + 2,
+        slot_duration,
+        E::slots_per_epoch(),
+    )
+    .await;
+
+    // Restore the functionality of the 0th execution node.
+    network.execution_nodes.read()[0]
+        .server
+        .all_payloads_valid();
+
+    eprintln!("Re-enabling Execution Layer");
+    Ok(())
+}
+
+/// Ensure all validators have attested correctly.
+pub async fn check_attestation_correctness<E: EthSpec>(
+    network: LocalNetwork<E>,
+    upto_epoch: Epoch,
+    slots_per_epoch: u64,
+    slot_duration: Duration,
+) -> Result<(), String> {
+    let upto_slot = upto_epoch.start_slot(slots_per_epoch);
+    slot_delay(upto_slot, slot_duration).await;
+
+    let remote_node = &network.remote_nodes()?[1];
+
+    let results = remote_node
+        .get_lighthouse_analysis_attestation_performance(
+            Epoch::new(2),
+            upto_epoch - 2,
+            "global".to_string(),
+        )
+        .await
+        .map_err(|e| format!("Unable to get attestation performance: {e}"))?;
+
+    for result in results {
+        for epochs in result.epochs.values() {
+            assert!(epochs.active);
+            assert!(epochs.head);
+            assert!(epochs.target);
+            assert!(epochs.source);
+        }
+    }
+
+    Ok(())
 }

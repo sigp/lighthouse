@@ -1,5 +1,6 @@
 mod attestation_service;
 mod beacon_node_fallback;
+mod beacon_node_health;
 mod block_service;
 mod check_synced;
 mod cli;
@@ -334,15 +335,18 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             .collect::<Result<Vec<BeaconNodeHttpClient>, String>>()?;
 
         let num_nodes = beacon_nodes.len();
+
         let candidates = beacon_nodes
             .into_iter()
-            .map(CandidateBeaconNode::new)
+            .zip(0..num_nodes)
+            .map(|(node, id)| CandidateBeaconNode::new(node, id))
             .collect();
 
         let proposer_nodes_num = proposer_nodes.len();
         let proposer_candidates = proposer_nodes
             .into_iter()
-            .map(CandidateBeaconNode::new)
+            .zip(0..num_nodes)
+            .map(|(node, id)| CandidateBeaconNode::new(node, id))
             .collect();
 
         // Set the count for beacon node fallbacks excluding the primary beacon node.
@@ -364,14 +368,14 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
 
         let mut beacon_nodes: BeaconNodeFallback<_, T> = BeaconNodeFallback::new(
             candidates,
-            config.disable_run_on_all,
+            config.beacon_node_fallback,
             context.eth2_config.spec.clone(),
             log.clone(),
         );
 
         let mut proposer_nodes: BeaconNodeFallback<_, T> = BeaconNodeFallback::new(
             proposer_candidates,
-            config.disable_run_on_all,
+            config.beacon_node_fallback,
             context.eth2_config.spec.clone(),
             log.clone(),
         );
@@ -625,10 +629,10 @@ async fn init_from_beacon_node<E: EthSpec>(
         proposer_nodes.update_all_candidates().await;
 
         let num_available = beacon_nodes.num_available().await;
-        let num_total = beacon_nodes.num_total();
+        let num_total = beacon_nodes.num_total().await;
 
         let proposer_available = proposer_nodes.num_available().await;
-        let proposer_total = proposer_nodes.num_total();
+        let proposer_total = proposer_nodes.num_total().await;
 
         if proposer_total > 0 && proposer_available == 0 {
             warn!(

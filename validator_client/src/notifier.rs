@@ -49,7 +49,7 @@ async fn notify<T: SlotClock + 'static, E: EthSpec>(
         &http_metrics::metrics::SYNCED_BEACON_NODES_COUNT,
         num_synced as i64,
     );
-    let num_total = duties_service.beacon_nodes.num_total();
+    let num_total = duties_service.beacon_nodes.num_total().await;
     set_gauge(
         &http_metrics::metrics::TOTAL_BEACON_NODES_COUNT,
         num_total as i64,

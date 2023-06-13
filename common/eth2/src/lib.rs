@@ -108,7 +108,7 @@ impl fmt::Display for Error {
 
 /// A struct to define a variety of different timeouts for different validator tasks to ensure
 /// proper fallback behaviour.
-#[derive(Clone)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Timeouts {
     pub attestation: Duration,
     pub attester_duties: Duration,
@@ -141,12 +141,20 @@ impl Timeouts {
 
 /// A wrapper around `reqwest::Client` which provides convenience methods for interfacing with a
 /// Lighthouse Beacon Node HTTP server (`http_api`).
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct BeaconNodeHttpClient {
     client: reqwest::Client,
     server: SensitiveUrl,
     timeouts: Timeouts,
 }
+
+impl PartialEq for BeaconNodeHttpClient {
+    fn eq(&self, other: &Self) -> bool {
+        self.server == other.server && self.timeouts == other.timeouts
+    }
+}
+
+impl Eq for BeaconNodeHttpClient {}
 
 impl fmt::Display for BeaconNodeHttpClient {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -686,7 +694,7 @@ impl BeaconNodeHttpClient {
     ///
     /// Returns `Ok(None)` on a 404 error.
     pub async fn post_beacon_blocks<T: EthSpec, Payload: AbstractExecPayload<T>>(
-        &self,
+        self,
         block: &SignedBeaconBlock<T, Payload>,
     ) -> Result<(), Error> {
         let mut path = self.eth_path(V1)?;

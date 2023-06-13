@@ -145,14 +145,14 @@ pub struct ProposerFallback<T, E: EthSpec> {
 
 impl<T: SlotClock, E: EthSpec> ProposerFallback<T, E> {
     // Try `func` on `self.proposer_nodes` first. If that doesn't work, try `self.beacon_nodes`.
-    pub async fn first_success_try_proposers_first<'a, F, O, Err, R>(
-        &'a self,
+    pub async fn first_success_try_proposers_first<F, O, Err, R>(
+        &self,
         require_synced: RequireSynced,
         offline_on_failure: OfflineOnFailure,
         func: F,
     ) -> Result<O, Errors<Err>>
     where
-        F: Fn(&'a BeaconNodeHttpClient) -> R + Clone,
+        F: Fn(BeaconNodeHttpClient) -> R + Clone,
         R: Future<Output = Result<O, Err>>,
         Err: Debug,
     {
@@ -173,14 +173,14 @@ impl<T: SlotClock, E: EthSpec> ProposerFallback<T, E> {
     }
 
     // Try `func` on `self.beacon_nodes` first. If that doesn't work, try `self.proposer_nodes`.
-    pub async fn first_success_try_proposers_last<'a, F, O, Err, R>(
-        &'a self,
+    pub async fn first_success_try_proposers_last<F, O, Err, R>(
+        &self,
         require_synced: RequireSynced,
         offline_on_failure: OfflineOnFailure,
         func: F,
     ) -> Result<O, Errors<Err>>
     where
-        F: Fn(&'a BeaconNodeHttpClient) -> R + Clone,
+        F: Fn(BeaconNodeHttpClient) -> R + Clone,
         R: Future<Output = Result<O, Err>>,
         Err: Debug,
     {

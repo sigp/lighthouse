@@ -19,6 +19,7 @@ extern crate clap;
 mod checks;
 mod cli;
 mod eth1_sim;
+mod fallback_sim;
 mod local_network;
 mod no_eth1_sim;
 mod retry;
@@ -55,6 +56,13 @@ fn main() {
             Ok(()) => println!("Simulation exited successfully"),
             Err(e) => {
                 eprintln!("Simulation exited with error: {}", e);
+                std::process::exit(1)
+            }
+        },
+        ("fallback-sim", Some(matches)) => match fallback_sim::run_fallback_sim(matches) {
+            Ok(()) => println!("Simulation exited successfully"),
+            Err(e) => {
+                eprintln!("Simulation exited with an error: {}", e);
                 std::process::exit(1)
             }
         },

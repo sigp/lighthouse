@@ -1,5 +1,5 @@
 use crate::graffiti_file::GraffitiFile;
-use crate::{http_api, http_metrics};
+use crate::{beacon_node_fallback, http_api, http_metrics};
 use clap::ArgMatches;
 use clap_utils::{flags::DISABLE_MALLOC_TUNING_FLAG, parse_optional, parse_required};
 use directory::{
@@ -19,7 +19,7 @@ use types::{Address, GRAFFITI_BYTES_LEN};
 pub const DEFAULT_BEACON_NODE: &str = "http://localhost:5052/";
 
 /// Stores the core configuration for this validator instance.
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Config {
     /// The data directory, which stores all validator databases
     pub validator_dir: PathBuf,
@@ -50,6 +50,8 @@ pub struct Config {
     pub http_api: http_api::Config,
     /// Configuration for the HTTP REST API.
     pub http_metrics: http_metrics::Config,
+    /// Configuration for the Beacon Node fallback.
+    pub beacon_node_fallback: beacon_node_fallback::Config,
     /// Configuration for sending metrics to a remote explorer endpoint.
     pub monitoring_api: Option<monitoring_api::Config>,
     /// If true, enable functionality that monitors the network for attestations or proposals from
@@ -73,8 +75,6 @@ pub struct Config {
     ///
     /// This is *not* recommended in prod and should only be used for testing.
     pub block_delay: Option<Duration>,
-    /// Disables publishing http api requests to all beacon nodes for select api calls.
-    pub disable_run_on_all: bool,
     /// Enables a service which attempts to measure latency between the VC and BNs.
     pub enable_latency_measurement_service: bool,
     /// Defines the number of validators per `validator/register_validator` request sent to the BN.
@@ -109,6 +109,7 @@ impl Default for Config {
             fee_recipient: None,
             http_api: <_>::default(),
             http_metrics: <_>::default(),
+            beacon_node_fallback: <_>::default(),
             monitoring_api: None,
             enable_doppelganger_protection: false,
             enable_high_validator_count_metrics: false,
@@ -117,7 +118,6 @@ impl Default for Config {
             builder_proposals: false,
             builder_registration_timestamp_override: None,
             gas_limit: None,
-            disable_run_on_all: false,
             enable_latency_measurement_service: true,
             validator_registration_batch_size: 500,
         }
@@ -215,7 +215,6 @@ impl Config {
                 "msg" => "it no longer has any effect",
             );
         }
-        config.disable_run_on_all = cli_args.is_present("disable-run-on-all");
         config.disable_auto_discover = cli_args.is_present("disable-auto-discover");
         config.init_slashing_protection = cli_args.is_present("init-slashing-protection");
         config.use_long_timeouts = cli_args.is_present("use-long-timeouts");
@@ -256,6 +255,20 @@ impl Config {
 
         if let Some(tls_certs) = parse_optional::<String>(cli_args, "beacon-nodes-tls-certs")? {
             config.beacon_nodes_tls_certs = Some(tls_certs.split(',').map(PathBuf::from).collect());
+        }
+
+        /*
+         * Beacon node fallback
+         */
+
+        config.beacon_node_fallback.disable_run_on_all = cli_args.is_present("disable-run-on-all");
+
+        if let Some(sync_tolerance) = cli_args.value_of("beacon-node-sync-tolerance") {
+            config.beacon_node_fallback.sync_tolerance = Some(
+                sync_tolerance
+                    .parse::<u64>()
+                    .map_err(|_| "beacon-node-sync-tolerance is not a valid u64.")?,
+            );
         }
 
         /*

@@ -487,7 +487,7 @@ fn monitoring_endpoint() {
 #[test]
 fn disable_run_on_all_default() {
     CommandLineTest::new().run().with_config(|config| {
-        assert!(!config.disable_run_on_all);
+        assert!(!config.beacon_node_fallback.disable_run_on_all);
     });
 }
 
@@ -497,7 +497,17 @@ fn disable_run_on_all() {
         .flag("disable-run-on-all", None)
         .run()
         .with_config(|config| {
-            assert!(config.disable_run_on_all);
+            assert!(config.beacon_node_fallback.disable_run_on_all);
+        });
+}
+
+#[test]
+fn sync_tolerance_flag() {
+    CommandLineTest::new()
+        .flag("beacon-node-sync-tolerance", Some("8"))
+        .run()
+        .with_config(|config| {
+            assert_eq!(config.beacon_node_fallback.sync_tolerance, Some(8));
         });
 }
 

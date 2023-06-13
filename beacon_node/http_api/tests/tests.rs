@@ -1231,7 +1231,11 @@ impl ApiTester {
     pub async fn test_post_beacon_blocks_valid(mut self) -> Self {
         let next_block = &self.next_block;
 
-        self.client.post_beacon_blocks(next_block).await.unwrap();
+        self.client
+            .clone()
+            .post_beacon_blocks(next_block)
+            .await
+            .unwrap();
 
         assert!(
             self.network_rx.network_recv.recv().await.is_some(),
@@ -1270,7 +1274,13 @@ impl ApiTester {
             .await
             .0;
 
-        assert!(self.client.post_beacon_blocks(&block).await.is_err());
+
+        assert!(self
+            .client
+            .clone()
+            .post_beacon_blocks(&next_block)
+            .await
+            .is_err());
 
         assert!(
             self.network_rx.network_recv.recv().await.is_some(),
@@ -2419,7 +2429,11 @@ impl ApiTester {
 
             let signed_block = block.sign(&sk, &fork, genesis_validators_root, &self.chain.spec);
 
-            self.client.post_beacon_blocks(&signed_block).await.unwrap();
+            self.client
+                .clone()
+                .post_beacon_blocks(&signed_block)
+                .await
+                .unwrap();
 
             assert_eq!(self.chain.head_beacon_block().as_ref(), &signed_block);
 
@@ -4281,6 +4295,7 @@ impl ApiTester {
         });
 
         self.client
+            .clone()
             .post_beacon_blocks(&self.next_block)
             .await
             .unwrap();
@@ -4312,6 +4327,7 @@ impl ApiTester {
         self.harness.advance_slot();
 
         self.client
+            .clone()
             .post_beacon_blocks(&self.reorg_block)
             .await
             .unwrap();
@@ -4389,6 +4405,7 @@ impl ApiTester {
         });
 
         self.client
+            .clone()
             .post_beacon_blocks(&self.next_block)
             .await
             .unwrap();

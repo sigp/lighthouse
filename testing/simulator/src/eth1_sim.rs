@@ -64,7 +64,7 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
     let mut env = EnvironmentBuilder::minimal()
         .initialize_logger(LoggerConfig {
             path: None,
-            debug_level: String::from("debug"),
+            debug_level: String::from("info"),
             logfile_debug_level: String::from("debug"),
             log_format: None,
             logfile_format: None,
