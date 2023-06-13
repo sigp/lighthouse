@@ -126,10 +126,10 @@ pub enum SyncMessage<T: EthSpec> {
     },
 
     /// A block with an unknown parent has been received.
-    UnknownBlock(PeerId, BlockWrapper<T>, Hash256),
+    UnknownParentBlock(PeerId, BlockWrapper<T>, Hash256),
 
     /// A blob with an unknown parent has been received.
-    UnknownBlob(PeerId, Arc<BlobSidecar<T>>),
+    UnknownParentBlob(PeerId, Arc<BlobSidecar<T>>),
 
     /// A peer has sent an attestation that references a block that is unknown. This triggers the
     /// manager to attempt to find the block matching the unknown hash.
@@ -610,7 +610,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 blob_sidecar,
                 seen_timestamp,
             } => self.rpc_blob_received(request_id, peer_id, blob_sidecar, seen_timestamp),
-            SyncMessage::UnknownBlock(peer_id, block, block_root) => {
+            SyncMessage::UnknownParentBlock(peer_id, block, block_root) => {
                 let block_slot = block.slot();
 
                 self.handle_unknown_parent(
@@ -624,7 +624,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     },
                 );
             }
-            SyncMessage::UnknownBlob(peer_id, blob) => {
+            SyncMessage::UnknownParentBlob(peer_id, blob) => {
                 let blob_slot = blob.slot;
                 let block_root = blob.block_root;
                 let parent_root = blob.block_parent_root;
