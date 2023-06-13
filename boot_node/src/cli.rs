@@ -13,13 +13,19 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .settings(&[clap::AppSettings::ColoredHelp])
         .arg(
             Arg::with_name("enr-address")
-                .value_name("IP-ADDRESS")
-                .help("The external IP address/ DNS address to broadcast to other peers on how to reach this node. \
-                If a DNS address is provided, the enr-address is set to the IP address it resolves to and \
-                does not auto-update based on PONG responses in discovery.")
+                .long("enr-address")
+                .value_name("ADDRESS")
+                .help("The IP address/ DNS address to broadcast to other peers on how to reach \
+                      this node. If a DNS address is provided, the enr-address is set to the IP \
+                      address it resolves to and does not auto-update based on PONG responses in \
+                      discovery. Set this only if you are sure other nodes can connect to your \
+                      local node on this address. This will update the `ip4` or `ip6` ENR fields \
+                      accordingly. To update both, set this flag twice with the different values.")
+                .multiple(true)
+                .max_values(2)
                 .required(true)
-                .takes_value(true)
                 .conflicts_with("network-dir")
+                .takes_value(true),
         )
         .arg(
             Arg::with_name("port")
@@ -30,10 +36,28 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true)
         )
         .arg(
+            Arg::with_name("port6")
+                .long("port6")
+                .value_name("PORT")
+                .help("The UDP port to listen on over IpV6 when listening over both Ipv4 and \
+                      Ipv6. Defaults to 9090 when required.")
+                .default_value("9090")
+                .takes_value(true),
+        )
+        .arg(
             Arg::with_name("listen-address")
                 .long("listen-address")
                 .value_name("ADDRESS")
-                .help("The address the bootnode will listen for UDP connections.")
+                .help("The address the bootnode will listen for UDP communications. To listen \
+                      over IpV4 and IpV6 set this flag twice with the different values.\n\
+                      Examples:\n\
+                      - --listen-address '0.0.0.0' will listen over Ipv4.\n\
+                      - --listen-address '::' will listen over Ipv6.\n\
+                      - --listen-address '0.0.0.0' --listen-address '::' will listen over both \
+                      Ipv4 and Ipv6. The order of the given addresses is not relevant. However, \
+                      multiple Ipv4, or multiple Ipv6 addresses will not be accepted.")
+                .multiple(true)
+                .max_values(2)
                 .default_value("0.0.0.0")
                 .takes_value(true)
         )
@@ -59,6 +83,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .value_name("PORT")
                 .help("The UDP6 port of the local ENR. Set this only if you are sure other nodes \
                       can connect to your local node on this port over IpV6.")
+                .conflicts_with("network-dir")
                 .takes_value(true),
         )
         .arg(
