@@ -135,7 +135,6 @@ pub enum ShouldRemoveLookup {
 /// is require to cache `UnknownParentComponents`.
 pub enum LookupSource {
     UnknownParent,
-    AttestationUnknown,
     MissingComponents,
 }
 
@@ -159,20 +158,26 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         &mut self,
         block_root: Hash256,
         peer_source: PeerShouldHave,
-        lookup_source: LookupSource,
         cx: &mut SyncNetworkContext<T>,
     ) {
-        self.search_block_with(block_root, None, None, &[peer_source], lookup_source);
+        self.search_block_with(
+            block_root,
+            None,
+            None,
+            &[peer_source],
+            LookupSource::MissingComponents,
+        );
         self.trigger_single_lookup(block_root, cx)
     }
 
-    pub fn search_block_delayed(
-        &mut self,
-        block_root: Hash256,
-        peer_source: PeerShouldHave,
-        lookup_source: LookupSource,
-    ) {
-        self.search_block_with(block_root, None, None, &[peer_source], lookup_source);
+    pub fn search_block_delayed(&mut self, block_root: Hash256, peer_source: PeerShouldHave) {
+        self.search_block_with(
+            block_root,
+            None,
+            None,
+            &[peer_source],
+            LookupSource::MissingComponents,
+        );
     }
 
     pub fn search_child_block(
@@ -181,10 +186,15 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         block: Option<Arc<SignedBeaconBlock<T::EthSpec>>>,
         blobs: Option<FixedBlobSidecarList<T::EthSpec>>,
         peer_source: &[PeerShouldHave],
-        lookup_source: LookupSource,
         cx: &mut SyncNetworkContext<T>,
     ) {
-        self.search_block_with(block_root, block, blobs, peer_source, lookup_source);
+        self.search_block_with(
+            block_root,
+            block,
+            blobs,
+            peer_source,
+            LookupSource::UnknownParent,
+        );
         self.trigger_single_lookup(block_root, cx)
     }
 
@@ -194,9 +204,14 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         block: Option<Arc<SignedBeaconBlock<T::EthSpec>>>,
         blobs: Option<FixedBlobSidecarList<T::EthSpec>>,
         peer_source: &[PeerShouldHave],
-        lookup_source: LookupSource,
     ) {
-        self.search_block_with(block_root, block, blobs, peer_source, lookup_source);
+        self.search_block_with(
+            block_root,
+            block,
+            blobs,
+            peer_source,
+            LookupSource::UnknownParent,
+        );
     }
 
     /// Attempts to trigger the request matching the given `block_root`. If the requests for
@@ -1033,7 +1048,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 _,
                 block_root,
             )) => {
-                self.search_block(block_root, peer_id, LookupSource::MissingComponents, cx);
+                self.search_block(block_root, peer_id, cx);
             }
             BlockProcessingResult::Err(BlockError::ParentUnknown(block)) => {
                 parent_lookup.add_unknown_parent_block(block);

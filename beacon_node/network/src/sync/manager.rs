@@ -34,7 +34,7 @@
 //! search for the block and subsequently search for parents if needed.
 
 use super::backfill_sync::{BackFillSync, ProcessResult, SyncStart};
-use super::block_lookups::{BlockLookups, LookupSource, PeerShouldHave};
+use super::block_lookups::{BlockLookups, PeerShouldHave};
 use super::network_context::{BlockOrBlob, SyncNetworkContext};
 use super::peer_sync_info::{remote_sync_type, PeerSyncType};
 use super::range_sync::{RangeSync, RangeSyncType, EPOCHS_PER_BATCH};
@@ -653,7 +653,6 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     self.block_lookups.search_block(
                         block_hash,
                         PeerShouldHave::BlockAndBlobs(peer_id),
-                        LookupSource::AttestationUnknown,
                         &mut self.network,
                     );
                 }
@@ -662,11 +661,8 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 // If we are not synced, ignore this block.
                 if self.synced_and_connected(&peer_id) {
                     if self.should_delay_lookup(slot) {
-                        self.block_lookups.search_block_delayed(
-                            block_root,
-                            PeerShouldHave::Neither(peer_id),
-                            LookupSource::MissingComponents,
-                        );
+                        self.block_lookups
+                            .search_block_delayed(block_root, PeerShouldHave::Neither(peer_id));
                         if let Err(e) = self
                             .delayed_lookups
                             .try_send(DelayedLookupMessage::MissingComponents(block_root))
@@ -678,7 +674,6 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         self.block_lookups.search_block(
                             block_root,
                             PeerShouldHave::Neither(peer_id),
-                            LookupSource::MissingComponents,
                             &mut self.network,
                         )
                     }
@@ -768,7 +763,6 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     block,
                     blobs,
                     &[PeerShouldHave::Neither(peer_id)],
-                    LookupSource::UnknownParent,
                 );
                 if let Err(e) = self
                     .delayed_lookups
@@ -782,7 +776,6 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     block,
                     blobs,
                     &[PeerShouldHave::Neither(peer_id)],
-                    LookupSource::UnknownParent,
                     &mut self.network,
                 );
             }
