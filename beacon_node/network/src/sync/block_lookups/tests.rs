@@ -1224,7 +1224,7 @@ mod deneb_only {
                         let child_root = child_block.canonical_root();
                         let parent_root = block_root;
                         block_root = child_root;
-                        bl.search_current_unknown_parent_block_and_blobs(
+                        bl.search_child_block(
                             child_root,
                             Some(child_block),
                             None,
@@ -1263,7 +1263,7 @@ mod deneb_only {
 
                         let mut blobs = FixedBlobSidecarList::default();
                         *blobs.index_mut(0) = Some(child_blob);
-                        bl.search_current_unknown_parent_block_and_blobs(
+                        bl.search_child_block(
                             child_root,
                             None,
                             Some(blobs),

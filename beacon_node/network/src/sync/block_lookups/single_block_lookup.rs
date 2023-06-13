@@ -25,6 +25,9 @@ pub struct SingleBlockLookup<const MAX_ATTEMPTS: u8, T: BeaconChainTypes> {
     /// Only necessary for requests triggered by an `UnknownParent` because any
     /// blocks or blobs without parents won't hit the data availability cache.
     pub unknown_parent_components: Option<UnknownParentComponents<T::EthSpec>>,
+    /// We may want to delay the actual request trigger to give us a chance to receive all block
+    /// components over gossip.
+    pub triggered: bool,
 }
 
 #[derive(Default, Clone)]
@@ -214,7 +217,12 @@ impl<const MAX_ATTEMPTS: u8, T: BeaconChainTypes> SingleBlockLookup<MAX_ATTEMPTS
             blob_request_state: BlobRequestState::new(peers),
             da_checker,
             unknown_parent_components,
+            triggered: false,
         }
+    }
+
+    pub fn is_for_block(&self, block_root: Hash256) -> bool {
+        self.block_request_state.requested_block_root == block_root
     }
 
     pub fn request_block_and_blobs(&mut self, cx: &mut SyncNetworkContext<T>) {
@@ -566,10 +574,7 @@ impl<const MAX_ATTEMPTS: u8, T: BeaconChainTypes> SingleBlockLookup<MAX_ATTEMPTS
         }
     }
 
-    pub fn add_peers_if_useful(&mut self, block_root: &Hash256, peers: &[PeerShouldHave]) -> bool {
-        if *block_root != self.block_request_state.requested_block_root {
-            return false;
-        }
+    pub fn add_peers(&mut self, peers: &[PeerShouldHave]) {
         for peer in peers {
             match peer {
                 PeerShouldHave::BlockAndBlobs(peer_id) => {
@@ -582,8 +587,6 @@ impl<const MAX_ATTEMPTS: u8, T: BeaconChainTypes> SingleBlockLookup<MAX_ATTEMPTS
                 }
             }
         }
-
-        true
     }
 
     pub fn processing_peer(&self, response_type: ResponseType) -> Result<PeerShouldHave, ()> {

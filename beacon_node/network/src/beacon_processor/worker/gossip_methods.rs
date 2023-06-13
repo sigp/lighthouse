@@ -690,7 +690,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                             "blob_root" => %blob.block_root,
                             "parent_root" => %blob.block_parent_root
                         );
-                        self.send_sync_message(SyncMessage::BlobParentUnknown(peer_id, blob));
+                        self.send_sync_message(SyncMessage::UnknownBlob(peer_id, blob));
                     }
                     BlobError::ProposerSignatureInvalid
                     | BlobError::UnknownValidator(_)
