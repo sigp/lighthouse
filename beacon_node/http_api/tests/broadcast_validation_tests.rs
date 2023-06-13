@@ -1218,12 +1218,19 @@ pub async fn blinded_equivocation_consensus_late_equivocation() {
     .await
     .unwrap();
 
-    /*
-    let gossip_block_b = GossipVerifiedBlock::new(unblinded_block_b.into(), &tester.harness.chain);
+    let inner_block_a = match unblinded_block_a {
+        ProvenancedBlock::Local(a) => a,
+        ProvenancedBlock::Builder(a) => a,
+    };
+    let inner_block_b = match unblinded_block_b {
+        ProvenancedBlock::Local(b) => b,
+        ProvenancedBlock::Builder(b) => b,
+    };
+
+    let gossip_block_b = GossipVerifiedBlock::new(inner_block_b, &tester.harness.chain);
     assert!(gossip_block_b.is_ok());
-    let gossip_block_a = GossipVerifiedBlock::new(unblinded_block_a.into(), &tester.harness.chain);
+    let gossip_block_a = GossipVerifiedBlock::new(inner_block_a, &tester.harness.chain);
     assert!(gossip_block_a.is_err());
-    */
 
     let publication_result: Result<(), Rejection> = publish_blinded_block(
         block_b,
