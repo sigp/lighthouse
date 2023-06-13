@@ -677,7 +677,7 @@ impl<const MAX_ATTEMPTS: u8> SingleLookupRequestState<MAX_ATTEMPTS> {
     }
 
     pub fn add_potential_peer(&mut self, peer_id: &PeerId) {
-        if self.available_peers.contains(peer_id) {
+        if !self.available_peers.contains(peer_id) {
             self.potential_peers.insert(*peer_id);
         }
     }
