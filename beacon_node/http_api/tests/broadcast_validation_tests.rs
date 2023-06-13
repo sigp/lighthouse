@@ -123,14 +123,15 @@ pub async fn gossip_partial_pass() {
         })
         .await;
 
-    /* assert that the block is actually gossip-valid */
-    //assert!(GossipVerifiedBlock::new(Arc::new(block.clone()), &tester.harness.chain).is_ok());
-
     let response: Result<(), eth2::Error> = tester
         .client
         .post_beacon_blocks_v2(&block, validation_level)
         .await;
-    assert!(response.is_ok());
+    assert!(response.is_err());
+
+    let error_response = response.unwrap_err();
+
+    assert_eq!(error_response.status(), Some(StatusCode::ACCEPTED));
 }
 
 // This test checks that a block that is valid from both a gossip and consensus perspective is accepted when using `broadcast_validation=gossip`.
@@ -736,7 +737,11 @@ pub async fn blinded_gossip_partial_pass() {
         .client
         .post_beacon_blinded_blocks_v2(&blinded_block, validation_level)
         .await;
-    assert!(response.is_ok());
+    assert!(response.is_err());
+
+    let error_response = response.unwrap_err();
+
+    assert_eq!(error_response.status(), Some(StatusCode::ACCEPTED));
 }
 
 // This test checks that a block that is valid from both a gossip and consensus perspective is accepted when using `broadcast_validation=gossip`.
