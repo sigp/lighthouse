@@ -246,6 +246,7 @@ pub async fn consensus_gossip() {
             AttestationStrategy::AllValidators,
         )
         .await;
+    tester.harness.advance_slot();
 
     let slot_a = Slot::new(num_initial);
     let slot_b = slot_a + 1;
@@ -268,7 +269,7 @@ pub async fn consensus_gossip() {
     assert_eq!(error_response.status(), Some(StatusCode::BAD_REQUEST));
 
     assert!(
-        matches!(error_response, eth2::Error::ServerMessage(err) if err.message == "BAD_REQUEST: FutureSlot { present_slot: Slot(31), block_slot: Slot(32) }".to_string())
+        matches!(error_response, eth2::Error::ServerMessage(err) if err.message == "BAD_REQUEST: Invalid block".to_string())
     );
 }
 
