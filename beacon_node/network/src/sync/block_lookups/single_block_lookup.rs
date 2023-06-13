@@ -22,7 +22,7 @@ pub struct SingleBlockLookup<const MAX_ATTEMPTS: u8, T: BeaconChainTypes> {
     pub block_request_state: BlockRequestState<MAX_ATTEMPTS>,
     pub blob_request_state: BlobRequestState<MAX_ATTEMPTS, T::EthSpec>,
     pub da_checker: Arc<DataAvailabilityChecker<T>>,
-    /// Only necessary for requests triggered by an `UnknownParent` because any
+    /// Only necessary for requests triggered by an `UnknownBlockParent` or `UnknownBlockParent` because any
     /// blocks or blobs without parents won't hit the data availability cache.
     pub unknown_parent_components: Option<UnknownParentComponents<T::EthSpec>>,
     /// We may want to delay the actual request trigger to give us a chance to receive all block
@@ -128,6 +128,10 @@ impl<const MAX_ATTEMPTS: u8, T: BeaconChainTypes> SingleBlockLookup<MAX_ATTEMPTS
     }
 }
 
+/// For requests triggered by an `UnknownBlockParent` or `UnknownBlockParent`, this struct
+/// is used to cache components as they are sent to the networking layer. We can't use the
+/// data availability cache currently because any blocks or blobs without parents won't hit
+/// won't pass validation and therefore won't make it into the cache.
 #[derive(Default)]
 pub struct UnknownParentComponents<E: EthSpec> {
     pub downloaded_block: Option<Arc<SignedBeaconBlock<E>>>,
@@ -673,7 +677,7 @@ impl<const MAX_ATTEMPTS: u8> SingleLookupRequestState<MAX_ATTEMPTS> {
     }
 
     pub fn add_potential_peer(&mut self, peer_id: &PeerId) {
-        if !self.available_peers.contains(peer_id) {
+        if self.available_peers.contains(peer_id) {
             self.potential_peers.insert(*peer_id);
         }
     }

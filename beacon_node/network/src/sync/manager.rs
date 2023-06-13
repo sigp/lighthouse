@@ -34,7 +34,7 @@
 //! search for the block and subsequently search for parents if needed.
 
 use super::backfill_sync::{BackFillSync, ProcessResult, SyncStart};
-use super::block_lookups::{BlockLookups, PeerShouldHave};
+use super::block_lookups::{BlockLookups, LookupSource, PeerShouldHave};
 use super::network_context::{BlockOrBlob, SyncNetworkContext};
 use super::peer_sync_info::{remote_sync_type, PeerSyncType};
 use super::range_sync::{RangeSync, RangeSyncType, EPOCHS_PER_BATCH};
@@ -135,9 +135,14 @@ pub enum SyncMessage<T: EthSpec> {
     /// manager to attempt to find the block matching the unknown hash.
     UnknownBlockHashFromAttestation(PeerId, Hash256),
 
-    /// A peer has sent a blob that references a block that is unknown. This triggers the
-    /// manager to attempt to find the block matching the unknown hash when the specified delay expires.
+    /// A peer has sent a blob that references a block that is unknown or a peer has sent a block for
+    /// which we haven't received blobs.
+    ///
+    /// We will either attempt to find the block matching the unknown hash immediately or queue a lookup,
+    /// which will then trigger the request when we receive `MissingGossipBlockComponentsDelayed`.
     MissingGossipBlockComponents(Slot, PeerId, Hash256),
+
+    /// This message triggers a request for missing block components after a delay.
     MissingGossipBlockComponentsDelayed(Hash256),
 
     /// A peer has disconnected.
@@ -648,6 +653,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     self.block_lookups.search_block(
                         block_hash,
                         PeerShouldHave::BlockAndBlobs(peer_id),
+                        LookupSource::AttestationUnknown,
                         &mut self.network,
                     );
                 }
@@ -656,8 +662,11 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 // If we are not synced, ignore this block.
                 if self.synced_and_connected(&peer_id) {
                     if self.should_delay_lookup(slot) {
-                        self.block_lookups
-                            .search_block_delayed(block_root, PeerShouldHave::Neither(peer_id));
+                        self.block_lookups.search_block_delayed(
+                            block_root,
+                            PeerShouldHave::Neither(peer_id),
+                            LookupSource::MissingComponents,
+                        );
                         if let Err(e) = self
                             .delayed_lookups
                             .try_send(DelayedLookupMessage::MissingComponents(block_root))
@@ -669,6 +678,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         self.block_lookups.search_block(
                             block_root,
                             PeerShouldHave::Neither(peer_id),
+                            LookupSource::MissingComponents,
                             &mut self.network,
                         )
                     }
@@ -758,6 +768,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     block,
                     blobs,
                     &[PeerShouldHave::Neither(peer_id)],
+                    LookupSource::UnknownParent,
                 );
                 if let Err(e) = self
                     .delayed_lookups
@@ -771,6 +782,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     block,
                     blobs,
                     &[PeerShouldHave::Neither(peer_id)],
+                    LookupSource::UnknownParent,
                     &mut self.network,
                 );
             }

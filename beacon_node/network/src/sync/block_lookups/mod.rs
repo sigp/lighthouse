@@ -59,6 +59,9 @@ pub(crate) struct BlockLookups<T: BeaconChainTypes> {
     log: Logger,
 }
 
+pub type BlockRequestId = Id;
+pub type BlobRequestId = Id;
+
 #[derive(Debug, PartialEq)]
 enum StreamTerminator {
     True,
@@ -74,9 +77,6 @@ impl From<bool> for StreamTerminator {
         }
     }
 }
-
-pub type BlockRequestId = Id;
-pub type BlobRequestId = Id;
 
 /// Used to track block or blob responses in places we want to reduce code duplication in
 /// response handling.
@@ -131,6 +131,14 @@ pub enum ShouldRemoveLookup {
     False,
 }
 
+/// Tracks the event that triggered the lookup. This is useful to know whether the lookup
+/// is require to cache `UnknownParentComponents`.
+pub enum LookupSource {
+    UnknownParent,
+    AttestationUnknown,
+    MissingComponents,
+}
+
 impl<T: BeaconChainTypes> BlockLookups<T> {
     pub fn new(da_checker: Arc<DataAvailabilityChecker<T>>, log: Logger) -> Self {
         Self {
@@ -151,14 +159,20 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         &mut self,
         block_root: Hash256,
         peer_source: PeerShouldHave,
+        lookup_source: LookupSource,
         cx: &mut SyncNetworkContext<T>,
     ) {
-        self.search_block_with(block_root, None, None, &[peer_source]);
+        self.search_block_with(block_root, None, None, &[peer_source], lookup_source);
         self.trigger_single_lookup(block_root, cx)
     }
 
-    pub fn search_block_delayed(&mut self, block_root: Hash256, peer_source: PeerShouldHave) {
-        self.search_block_with(block_root, None, None, &[peer_source]);
+    pub fn search_block_delayed(
+        &mut self,
+        block_root: Hash256,
+        peer_source: PeerShouldHave,
+        lookup_source: LookupSource,
+    ) {
+        self.search_block_with(block_root, None, None, &[peer_source], lookup_source);
     }
 
     pub fn search_child_block(
@@ -167,9 +181,10 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         block: Option<Arc<SignedBeaconBlock<T::EthSpec>>>,
         blobs: Option<FixedBlobSidecarList<T::EthSpec>>,
         peer_source: &[PeerShouldHave],
+        lookup_source: LookupSource,
         cx: &mut SyncNetworkContext<T>,
     ) {
-        self.search_block_with(block_root, block, blobs, peer_source);
+        self.search_block_with(block_root, block, blobs, peer_source, lookup_source);
         self.trigger_single_lookup(block_root, cx)
     }
 
@@ -179,8 +194,9 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         block: Option<Arc<SignedBeaconBlock<T::EthSpec>>>,
         blobs: Option<FixedBlobSidecarList<T::EthSpec>>,
         peer_source: &[PeerShouldHave],
+        lookup_source: LookupSource,
     ) {
-        self.search_block_with(block_root, block, blobs, peer_source);
+        self.search_block_with(block_root, block, blobs, peer_source, lookup_source);
     }
 
     /// Attempts to trigger the request matching the given `block_root`. If the requests for
@@ -213,6 +229,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         block: Option<Arc<SignedBeaconBlock<T::EthSpec>>>,
         blobs: Option<FixedBlobSidecarList<T::EthSpec>>,
         peers: &[PeerShouldHave],
+        lookup_source: LookupSource,
     ) {
         // Do not re-request a block that is already being requested
         if let Some(lookup) = self
@@ -256,8 +273,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             "block" => ?block_root
         );
 
-        let triggered_by_unknown_parent = block.is_some() || blobs.is_some();
-        let unknown_parent_components = if triggered_by_unknown_parent {
+        let unknown_parent_components = if matches!(lookup_source, LookupSource::UnknownParent) {
             Some(UnknownParentComponents {
                 downloaded_block: block,
                 downloaded_blobs: blobs.unwrap_or_default(),
@@ -497,14 +513,20 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             None
         });
 
-        if lookup.is_none() && matches!(stream_terminator, StreamTerminator::False) {
-            warn!(
-                self.log,
-                "Block returned for single block lookup not present";
-                "response_type" => ?response_type,
-            );
-        }
-        return lookup;
+        let (triggered_parent_request, request) = match lookup {
+            Some((triggered_parent_request, req)) => (triggered_parent_request, req),
+            None => {
+                if matches!(stream_terminator, StreamTerminator::False,) {
+                    debug!(
+                        self.log,
+                        "Block returned for single block lookup not present";
+                        "response_type" => ?response_type,
+                    );
+                }
+                return None;
+            }
+        };
+        Some((triggered_parent_request, request))
     }
 
     /// Process a response received from a parent lookup request.
@@ -1015,10 +1037,11 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 _,
                 block_root,
             )) => {
-                self.search_block(block_root, peer_id, cx);
+                self.search_block(block_root, peer_id, LookupSource::MissingComponents, cx);
             }
             BlockProcessingResult::Err(BlockError::ParentUnknown(block)) => {
                 parent_lookup.add_unknown_parent_block(block);
+                //TODO(sean) not yet making request for components of the parent if necessary
                 self.request_parent_block_and_blobs(parent_lookup, cx);
             }
             BlockProcessingResult::Ok(AvailabilityProcessingStatus::Imported(_))
