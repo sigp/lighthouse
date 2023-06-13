@@ -740,19 +740,19 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         peer_id: PeerId,
         block_root: Hash256,
         parent_root: Hash256,
-        block_slot: Slot,
+        slot: Slot,
         block_component_closure: F,
     ) {
         let (block, blobs) = block_component_closure();
-        if self.should_search_for_block(block_slot, &peer_id) {
+        if self.should_search_for_block(slot, &peer_id) {
             self.block_lookups.search_parent(
-                block_slot,
+                slot,
                 block_root,
                 parent_root,
                 peer_id,
                 &mut self.network,
             );
-            if self.should_delay_lookup(block_slot) {
+            if self.should_delay_lookup(slot) {
                 self.block_lookups.search_child_delayed(
                     block_root,
                     block,
