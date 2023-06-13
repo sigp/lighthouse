@@ -27,9 +27,7 @@ pub use self::committee_cache::{
     CommitteeCache,
 };
 pub use crate::beacon_state::balance::Balance;
-pub use crate::beacon_state::progressive_balances_cache::{
-    ProgressiveBalancesCache, ProgressiveBalancesMode,
-};
+pub use crate::beacon_state::progressive_balances_cache::*;
 use crate::historical_summary::HistoricalSummary;
 pub use clone_config::CloneConfig;
 pub use eth_spec::*;

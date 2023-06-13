@@ -1,6 +1,6 @@
 use crate::per_epoch_processing::altair::ParticipationCache;
 use std::borrow::Cow;
-use types::{BeaconState, BeaconStateError, ChainSpec, EthSpec};
+use types::{is_progressive_balances_enabled, BeaconState, BeaconStateError, ChainSpec, EthSpec};
 
 /// Initializes the `ProgressiveBalancesCache` cache using balance values from the
 /// `ParticipationCache`. If the optional `&ParticipationCache` is not supplied, it will be computed
@@ -37,12 +37,4 @@ pub fn initialize_progressive_balances_cache<E: EthSpec>(
     );
 
     Ok(())
-}
-
-/// `ProgressiveBalancesCache` is only enabled from `Altair` as it requires `ParticipationCache`.
-fn is_progressive_balances_enabled<E: EthSpec>(state: &BeaconState<E>) -> bool {
-    match state {
-        BeaconState::Base(_) => false,
-        BeaconState::Altair(_) | BeaconState::Merge(_) | BeaconState::Capella(_) => true,
-    }
 }

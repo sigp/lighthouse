@@ -1,5 +1,5 @@
 use crate::beacon_state::balance::Balance;
-use crate::{BeaconStateError, ChainSpec, Epoch};
+use crate::{BeaconState, BeaconStateError, ChainSpec, Epoch, EthSpec};
 use arbitrary::Arbitrary;
 use safe_arith::SafeArith;
 use serde_derive::{Deserialize, Serialize};
@@ -68,10 +68,16 @@ impl ProgressiveBalancesCache {
     /// validator's effective balance to exclude the validator weight.
     pub fn on_slashing(
         &mut self,
+        is_previous_epoch_target_attester: bool,
         is_current_epoch_target_attester: bool,
         effective_balance: u64,
     ) -> Result<(), BeaconStateError> {
         let cache = self.get_inner_mut()?;
+        if is_previous_epoch_target_attester {
+            cache
+                .previous_epoch_target_attesting_balance
+                .safe_sub_assign(effective_balance)?;
+        }
         if is_current_epoch_target_attester {
             cache
                 .current_epoch_target_attesting_balance
@@ -153,4 +159,12 @@ pub enum ProgressiveBalancesMode {
     Checked,
     /// Enable the usage of progressive cache, with no comparative checks (fast, eventual goal).
     Fast,
+}
+
+/// `ProgressiveBalancesCache` is only enabled from `Altair` as it requires `ParticipationCache`.
+pub fn is_progressive_balances_enabled<E: EthSpec>(state: &BeaconState<E>) -> bool {
+    match state {
+        BeaconState::Base(_) => false,
+        BeaconState::Altair(_) | BeaconState::Merge(_) | BeaconState::Capella(_) => true,
+    }
 }

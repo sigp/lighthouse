@@ -253,21 +253,43 @@ fn update_progressive_balances_cache<T: EthSpec>(
     state: &mut BeaconState<T>,
     validator_index: usize,
 ) -> Result<(), BlockProcessingError> {
-    if let Ok(current_epoch_participation) = state.current_epoch_participation() {
-        let current_epoch_participation = current_epoch_participation;
-        let participation_flags = current_epoch_participation
-            .get(validator_index)
-            .ok_or(BeaconStateError::UnknownValidator(validator_index))?;
-        let is_current_epoch_target_attester =
-            participation_flags.has_flag(TIMELY_TARGET_FLAG_INDEX)?;
+    if is_progressive_balances_enabled(state) {
+        let is_previous_epoch_target_attester = match state.previous_epoch_participation() {
+            Ok(previous_epoch_participation) => {
+                is_target_attester_in_epoch::<T>(previous_epoch_participation, validator_index)?
+            }
+            Err(_) => false,
+        };
+
+        let is_current_epoch_target_attester = match state.current_epoch_participation() {
+            Ok(current_epoch_participation) => {
+                is_target_attester_in_epoch::<T>(current_epoch_participation, validator_index)?
+            }
+            Err(_) => false,
+        };
+
         let validator_effective_balance = state.get_effective_balance(validator_index)?;
+
         state.progressive_balances_cache_mut().on_slashing(
+            is_previous_epoch_target_attester,
             is_current_epoch_target_attester,
             validator_effective_balance,
         )?;
     }
 
     Ok(())
+}
+
+fn is_target_attester_in_epoch<T: EthSpec>(
+    epoch_participation: &VariableList<ParticipationFlags, T::ValidatorRegistryLimit>,
+    validator_index: usize,
+) -> Result<bool, BlockProcessingError> {
+    let participation_flags = epoch_participation
+        .get(validator_index)
+        .ok_or(BeaconStateError::UnknownValidator(validator_index))?;
+    participation_flags
+        .has_flag(TIMELY_TARGET_FLAG_INDEX)
+        .map_err(|e| e.into())
 }
 
 /// Wrapper function to handle calling the correct version of `process_attestations` based on
