@@ -2,12 +2,12 @@ use beacon_chain::{
     test_utils::{AttestationStrategy, BlockStrategy},
     GossipVerifiedBlock,
 };
-use eth2::types::{BeaconBlock, BroadcastValidation, SignedBeaconBlock, SignedBlindedBeaconBlock};
+use eth2::types::{BroadcastValidation, SignedBeaconBlock, SignedBlindedBeaconBlock};
 use http_api::test_utils::InteractiveTester;
 use http_api::{publish_blinded_block, publish_block, reconstruct_block, ProvenancedBlock};
 use std::sync::Arc;
 use tree_hash::TreeHash;
-use types::{Epoch, MainnetEthSpec, Slot, H256};
+use types::{MainnetEthSpec, Slot, H256};
 use warp::Rejection;
 use warp_utils::reject::CustomBadRequest;
 
