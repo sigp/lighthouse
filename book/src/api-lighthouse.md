@@ -1,8 +1,8 @@
 # Lighthouse Non-Standard APIs
 
 Lighthouse fully supports the standardization efforts at
-[github.com/ethereum/beacon-APIs](https://github.com/ethereum/beacon-APIs),
-however sometimes development requires additional endpoints that shouldn't
+[github.com/ethereum/beacon-APIs](https://github.com/ethereum/beacon-APIs).
+However, sometimes development requires additional endpoints that shouldn't
 necessarily be defined as a broad-reaching standard.  Such endpoints are placed
 behind the `/lighthouse` path.
 
@@ -16,10 +16,12 @@ Although we don't recommend that users rely on these endpoints, we
 document them briefly so they can be utilized by developers and
 researchers.
 
+
+
 ### `/lighthouse/health`
+*Note: This endpoint is presently only available on Linux.*
 
-*Presently only available on Linux.*
-
+Returns information regarding the health of the host machine.
 ```bash
 curl -X GET "http://localhost:5052/lighthouse/health" -H  "accept: application/json" | jq
 ```
@@ -63,7 +65,7 @@ curl -X GET "http://localhost:5052/lighthouse/health" -H  "accept: application/j
 ```
 
 ### `/lighthouse/ui/health`
-
+Returns information regarding the health of the host machine.
 
 ```bash
 curl -X GET "http://localhost:5052/lighthouse/ui/health" -H  "accept: application/json" | jq
@@ -83,24 +85,24 @@ curl -X GET "http://localhost:5052/lighthouse/ui/health" -H  "accept: applicatio
     "global_cpu_frequency": 3.4,
     "disk_bytes_total": 502390845440,
     "disk_bytes_free": 9981386752,
-    "network_name": "wlp0s20f3",
-    "network_bytes_total_received": 14105556611,
-    "network_bytes_total_transmit": 3649489389,
-    "nat_open": true,
-    "connected_peers": 80,
-    "sync_state": "Synced",
     "system_uptime": 660706,
     "app_uptime": 105,
     "system_name": "Arch Linux",
     "kernel_version": "5.19.13-arch1-1",
     "os_version": "Linux rolling Arch Linux",
     "host_name": "Computer1"
+    "network_name": "wlp0s20f3",
+    "network_bytes_total_received": 14105556611,
+    "network_bytes_total_transmit": 3649489389,
+    "nat_open": true,
+    "connected_peers": 80,
+    "sync_state": "Synced",
   }
 }
 ```
 
 ### `/lighthouse/ui/validator_count`
-
+Returns an overview of validators.
 ```bash
 curl -X GET "http://localhost:5052/lighthouse/ui/validator_count" -H "accept: application/json" | jq
 ```
@@ -121,9 +123,9 @@ curl -X GET "http://localhost:5052/lighthouse/ui/validator_count" -H "accept: ap
 }
 ```
 
+
 ### `/lighthouse/ui/validator_metrics`
-Re-exposes certain metrics from the validator monitor to the HTTP API.
-Will only return metrics for the validators currently being monitored and are present in the POST data.
+Re-exposes certain metrics from the validator monitor to the HTTP API. This API requires that the beacon node to have the flag `--validator-monitor-auto`. This API will only return metrics for the validators currently being monitored and present in the POST data, or the validators running in the validator client. 
 ```bash
 curl -X POST "http://localhost:5052/lighthouse/ui/validator_metrics" -d '{"indices": [12345]}' -H "Content-Type: application/json" | jq
 ```
@@ -148,24 +150,40 @@ curl -X POST "http://localhost:5052/lighthouse/ui/validator_metrics" -d '{"indic
   }
 }
 ```
+Running this API without the flag `--validator-monitor-auto` in the beacon node will return null:
+```json
+{
+  "data": {
+    "validators": {}
+  }
+}
+```
 
 ### `/lighthouse/syncing`
-
+Returns the sync status of the beacon node.
 ```bash
 curl -X GET "http://localhost:5052/lighthouse/syncing" -H  "accept: application/json" | jq
 ```
 
-```json
-{
-  "data": {
-    "SyncingFinalized": {
-      "start_slot": 3104,
-      "head_slot": 343744,
-      "head_root": "0x1b434b5ed702338df53eb5e3e24336a90373bb51f74b83af42840be7421dd2bf"
+There are two possible outcomes, depending on whether the beacon node is syncing or synced.
+
+1. Syncing:
+   ```json
+    {
+      "data": {
+        "SyncingFinalized": {
+          "start_slot": "5478848",
+          "target_slot": "5478944"
+        }
+      }
     }
-  }
-}
-```
+   ```
+1. Synced:
+   ```json
+   {
+     "data": "Synced"
+   }
+   ```
 
 ### `/lighthouse/peers`
 
@@ -173,96 +191,137 @@ curl -X GET "http://localhost:5052/lighthouse/syncing" -H  "accept: application/
 curl -X GET "http://localhost:5052/lighthouse/peers" -H  "accept: application/json" | jq
 ```
 
+
 ```json
 [
   {
-    "peer_id": "16Uiu2HAmA9xa11dtNv2z5fFbgF9hER3yq35qYNTPvN7TdAmvjqqv",
+    "peer_id": "16Uiu2HAm2ZoWQ2zkzsMFvf5o7nXa7R5F7H1WzZn2w7biU3afhgov",
     "peer_info": {
-      "_status": "Healthy",
       "score": {
-        "score": 0
+        "Real": {
+          "lighthouse_score": 0,
+          "gossipsub_score": -18371.409037358582,
+          "ignore_negative_gossipsub_score": false,
+          "score": -21.816048231863316
+        }
       },
       "client": {
         "kind": "Lighthouse",
-        "version": "v0.2.9-1c9a055c",
-        "os_version": "aarch64-linux",
-        "protocol_version": "lighthouse/libp2p",
-        "agent_string": "Lighthouse/v0.2.9-1c9a055c/aarch64-linux"
+        "version": "v4.1.0-693886b",
+        "os_version": "x86_64-linux",
+        "protocol_version": "eth2/1.0.0",
+        "agent_string": "Lighthouse/v4.1.0-693886b/x86_64-linux"
       },
       "connection_status": {
         "status": "disconnected",
         "connections_in": 0,
         "connections_out": 0,
-        "last_seen": 1082,
+        "last_seen": 9028,
         "banned_ips": []
       },
       "listening_addresses": [
-        "/ip4/80.109.35.174/tcp/9000",
-        "/ip4/127.0.0.1/tcp/9000",
-        "/ip4/192.168.0.73/tcp/9000",
-        "/ip4/172.17.0.1/tcp/9000",
-        "/ip6/::1/tcp/9000"
+        "/ip4/212.102.59.173/tcp/23452",
+        "/ip4/23.124.84.197/tcp/23452",
+        "/ip4/127.0.0.1/tcp/23452",
+        "/ip4/192.168.0.2/tcp/23452",
+        "/ip4/192.168.122.1/tcp/23452"
+      ],
+      "seen_addresses": [
+        "23.124.84.197:23452"
       ],
       "sync_status": {
-        "Advanced": {
+        "Synced": {
           "info": {
-            "status_head_slot": 343829,
-            "status_head_root": "0xe34e43efc2bb462d9f364bc90e1f7f0094e74310fd172af698b5a94193498871",
-            "status_finalized_epoch": 10742,
-            "status_finalized_root": "0x1b434b5ed702338df53eb5e3e24336a90373bb51f74b83af42840be7421dd2bf"
+            "head_slot": "5468141",
+            "head_root": "0x7acc017a199c0cf0693a19e0ed3a445a02165c03ea6f46cb5ffb8f60bf0ebf35",
+            "finalized_epoch": "170877",
+            "finalized_root": "0xbbc3541637976bd03b526de73e60a064e452a4b873b65f43fa91fefbba140410"
           }
         }
       },
       "meta_data": {
-        "seq_number": 160,
-        "attnets": "0x0000000800000080"
-      }
+        "V2": {
+          "seq_number": 501,
+          "attnets": "0x0000020000000000",
+          "syncnets": "0x00"
+        }
+      },
+      "subnets": [],
+      "is_trusted": false,
+      "connection_direction": "Outgoing",
+      "enr": "enr:-L64QI37ReMIki2Uqln3pcgQyAH8Y3ceSYrtJp1FlDEGSM37F7ngCpS9k-SKQ1bOHp0zFCkNxpvFlf_3o5OUkBRw0qyCAfqHYXR0bmV0c4gAAAIAAAAAAIRldGgykGKJQe8DABAg__________-CaWSCdjSCaXCEF3xUxYlzZWNwMjU2azGhAmoW921eIvf8pJhOvOwuxLSxKnpLY2inE_bUILdlZvhdiHN5bmNuZXRzAIN0Y3CCW5yDdWRwgluc"
     }
   }
 ]
 ```
 
 ### `/lighthouse/peers/connected`
-
+Returns information about connected peers.
 ```bash
 curl -X GET "http://localhost:5052/lighthouse/peers/connected" -H  "accept: application/json" | jq
 ```
 
+
+
 ```json
 [
-  {
-    "peer_id": "16Uiu2HAkzJC5TqDSKuLgVUsV4dWat9Hr8EjNZUb6nzFb61mrfqBv",
+ {
+    "peer_id": "16Uiu2HAmCAvpoYE6ABGdQJaW4iufVqNCTJU5AqzyZPB2D9qba7ZU",
     "peer_info": {
-      "_status": "Healthy",
       "score": {
-        "score": 0
+        "Real": {
+          "lighthouse_score": 0,
+          "gossipsub_score": 0,
+          "ignore_negative_gossipsub_score": false,
+          "score": 0
+        }
       },
       "client": {
         "kind": "Lighthouse",
-        "version": "v0.2.8-87181204+",
+        "version": "v3.5.1-319cc61",
         "os_version": "x86_64-linux",
-        "protocol_version": "lighthouse/libp2p",
-        "agent_string": "Lighthouse/v0.2.8-87181204+/x86_64-linux"
+        "protocol_version": "eth2/1.0.0",
+        "agent_string": "Lighthouse/v3.5.1-319cc61/x86_64-linux"
       },
       "connection_status": {
         "status": "connected",
-        "connections_in": 1,
-        "connections_out": 0,
-        "last_seen": 0,
-        "banned_ips": []
+        "connections_in": 0,
+        "connections_out": 1,
+        "last_seen": 0
       },
       "listening_addresses": [
-        "/ip4/34.204.178.218/tcp/9000",
+        "/ip4/144.91.92.17/tcp/9000",
         "/ip4/127.0.0.1/tcp/9000",
-        "/ip4/172.31.67.58/tcp/9000",
-        "/ip4/172.17.0.1/tcp/9000",
-        "/ip6/::1/tcp/9000"
+        "/ip4/172.19.0.3/tcp/9000"
       ],
-      "sync_status": "Unknown",
+      "seen_addresses": [
+        "144.91.92.17:9000"
+      ],
+      "sync_status": {
+        "Synced": {
+          "info": {
+            "head_slot": "5468930",
+            "head_root": "0x25409073c65d2f6f5cee20ac2eff5ab980b576ca7053111456063f8ff8f67474",
+            "finalized_epoch": "170902",
+            "finalized_root": "0xab59473289e2f708341d8e5aafd544dd88e09d56015c90550ea8d16c50b4436f"
+          }
+        }
+      },
       "meta_data": {
-        "seq_number": 1819,
-        "attnets": "0xffffffffffffffff"
-      }
+        "V2": {
+          "seq_number": 67,
+          "attnets": "0x0000000080000000",
+          "syncnets": "0x00"
+        }
+      },
+      "subnets": [
+        {
+          "Attestation": "39"
+        }
+      ],
+      "is_trusted": false,
+      "connection_direction": "Outgoing",
+      "enr": "enr:-Ly4QHd3RHJdkuR1iE6MtVtibC5S-aiWGPbwi4cG3wFGbqxRAkAgLDseTzPFQQIehQ7LmO7KIAZ5R1fotjMQ_LjA8n1Dh2F0dG5ldHOIAAAAAAAQAACEZXRoMpBiiUHvAwAQIP__________gmlkgnY0gmlwhJBbXBGJc2VjcDI1NmsxoQL4z8A7B-NS29zOgvkTX1YafKandwOtrqQ1XRnUJj3se4hzeW5jbmV0cwCDdGNwgiMog3VkcIIjKA"
     }
   }
 ]
@@ -297,7 +356,8 @@ health of the execution node that the beacon node is connected to.
 - `latest_cached_block_number` & `latest_cached_block_timestamp`: the block
 number and timestamp of the latest block we have in our block cache.
 	- For correct execution client voting this timestamp should be later than the
-`voting_period_start_timestamp`.
+`voting_target_timestamp`. 
+
 - `voting_target_timestamp`: The latest timestamp allowed for an execution layer block in this voting period.
 - `eth1_node_sync_status_percentage` (float): An estimate of how far the head of the
   execution node is from the head of the execution chain.
@@ -420,11 +480,11 @@ curl -X GET "http://localhost:5052/lighthouse/beacon/states/0/ssz" | jq
 ### `/lighthouse/liveness`
 
 POST request that checks if any of the given validators have attested in the given epoch. Returns a list
-of objects, each including the validator index, epoch, and `is_live` status of a requested validator.
+of objects, each including the validator index, epoch, and `is_live` status of a requested validator. 
 
-This endpoint is used in doppelganger detection, and will only provide accurate information for the
-current, previous, or next epoch.
+This endpoint is used in doppelganger detection, and can only provide accurate information for the current, previous, or next epoch. 
 
+> Note that for this API, if you insert an arbitrary epoch other than the previous, current or next epoch of the network, it will return `"code:400"` and `BAD_REQUEST`.
 
 ```bash
 curl -X POST "http://localhost:5052/lighthouse/liveness" -d '{"indices":["0","1"],"epoch":"1"}' -H  "content-type: application/json" | jq
@@ -442,6 +502,8 @@ curl -X POST "http://localhost:5052/lighthouse/liveness" -d '{"indices":["0","1"
 }
 ```
 
+
+
 ### `/lighthouse/database/info`
 
 Information about the database's split point and anchor info.
@@ -450,26 +512,29 @@ Information about the database's split point and anchor info.
 curl "http://localhost:5052/lighthouse/database/info" | jq
 ```
 
+
 ```json
 {
-  "schema_version": 5,
+  "schema_version": 16,
   "config": {
-    "slots_per_restore_point": 2048,
+    "slots_per_restore_point": 8192,
+    "slots_per_restore_point_set_explicitly": false,
     "block_cache_size": 5,
     "historic_state_cache_size": 1,
     "compact_on_init": false,
-    "compact_on_prune": true
+    "compact_on_prune": true,
+    "prune_payloads": true
   },
   "split": {
-    "slot": "2034912",
-    "state_root": "0x11c8516aa7d4d1613e84121e3a557ceca34618b4c1a38f05b66ad045ff82b33b"
+    "slot": "5485952",
+    "state_root": "0xcfe5d41e6ab5a9dab0de00d89d97ae55ecaeed3b08e4acda836e69b2bef698b4"
   },
   "anchor": {
-    "anchor_slot": "2034720",
-    "oldest_block_slot": "1958881",
-    "oldest_block_parent": "0x1fd3d855d03e9df28d8a41a0f9cb9d4c540832b3ca1c3e1d7e09cd75b874cc87",
-    "state_upper_limit": "2035712",
-    "state_lower_limit": "0"
+    "anchor_slot": "5414688",
+    "oldest_block_slot": "0",
+    "oldest_block_parent": "0x0000000000000000000000000000000000000000000000000000000000000000",
+    "state_upper_limit": "5414912",
+    "state_lower_limit": "8192"
   }
 }
 ```
@@ -504,12 +569,12 @@ Manually provide `SignedBeaconBlock`s to backfill the database. This is intended
 for use by Lighthouse developers during testing only.
 
 ### `/lighthouse/merge_readiness`
-
+Returns the current difficulty and terminal total difficulty of the network. Before [The Merge](https://ethereum.org/en/roadmap/merge/) on 15<sup>th</sup> September 2022, you will see that the current difficulty is less than the terminal total difficulty, An example is shown below:
 ```bash
 curl -X GET "http://localhost:5052/lighthouse/merge_readiness" | jq
 ```
 
-```
+```json
 {
     "data":{
        "type":"ready",
@@ -520,6 +585,21 @@ curl -X GET "http://localhost:5052/lighthouse/merge_readiness" | jq
     }
  }
 ```
+
+As all testnets and Mainnet have been merged, both values will be the same after The Merge. An example of response on the Goerli testnet:
+
+```json
+{
+  "data": {
+    "type": "ready",
+    "config": {
+      "terminal_total_difficulty": "10790000"
+    },
+    "current_difficulty": "10790000"
+  }
+}
+```
+
 
 ### `/lighthouse/analysis/attestation_performance/{index}`
 
@@ -611,20 +691,35 @@ Two query parameters are required:
 Example:
 
 ```bash
-curl -X GET "http://localhost:5052/lighthouse/analysis/block_rewards?start_slot=1&end_slot=32" | jq
+curl -X GET "http://localhost:5052/lighthouse/analysis/block_rewards?start_slot=1&end_slot=1" | jq
 ```
+
+
+The first few lines of the response would look like:
 
 ```json
 [
   {
-    "block_root": "0x51576c2fcf0ab68d7d93c65e6828e620efbb391730511ffa35584d6c30e51410",
-    "attestation_rewards": {
-      "total": 4941156,
+    "total": 637260,
+    "block_root": "0x4a089c5e390bb98e66b27358f157df825128ea953cee9d191229c0bcf423a4f6",
+    "meta": {
+      "slot": "1",
+      "parent_slot": "0",
+      "proposer_index": 93,
+      "graffiti": "EF #vm-eth2-raw-iron-prater-101"
     },
-    ..
-  },
-  ..
-]
+    "attestation_rewards": {
+      "total": 637260,
+      "prev_epoch_total": 0,
+      "curr_epoch_total": 637260,
+      "per_attestation_rewards": [
+        {
+          "50102": 780,
+        }
+      ]
+    }
+  }
+]      
 ```
 
 Caveats:
@@ -652,6 +747,8 @@ Two query parameters are required:
 ```bash
 curl -X GET "http://localhost:5052/lighthouse/analysis/block_packing_efficiency?start_epoch=1&end_epoch=1" | jq
 ```
+
+An excerpt of the response looks like:
 
 ```json
 [
@@ -707,3 +804,16 @@ Should provide an output that emits log events as they occur:
 	}
 }
 ```
+
+### `/lighthouse/nat`
+Checks if the ports are open.
+
+```bash
+curl -X GET "http://localhost:5052/lighthouse/nat" | jq
+```
+
+An open port will return:
+```json
+{
+  "data": true
+}
