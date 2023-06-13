@@ -359,13 +359,11 @@ where
 
                 debug!(context.log(), "Downloaded finalized state"; "slot" => ?state.slot());
 
-                let block_root = state.get_block_root(state.slot()).map_err(|e| {
-                    format!("Unable to get block root for slot {}: {e:?}", state.slot())
-                })?;
+                let finalized_block_slot = state.latest_block_header().slot;
 
-                debug!(context.log(), "Downloading finalized block"; "block_root" => ?block_root);
+                debug!(context.log(), "Downloading finalized block"; "block_slot" => ?finalized_block_slot);
                 let block = remote
-                    .get_beacon_blocks_ssz::<TEthSpec>(BlockId::Root(*block_root), &spec)
+                    .get_beacon_blocks_ssz::<TEthSpec>(BlockId::Slot(finalized_block_slot), &spec)
                     .await
                     .map_err(|e| match e {
                         ApiError::InvalidSsz(e) => format!(
