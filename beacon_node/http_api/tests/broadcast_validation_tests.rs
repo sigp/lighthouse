@@ -251,13 +251,10 @@ pub async fn consensus_gossip() {
     let slot_b = slot_a + 1;
 
     let state_a = tester.harness.get_current_state();
-    let (mut block, _): (SignedBeaconBlock<E>, _) =
-        tester.harness.make_block(state_a, slot_b).await;
-
-    /* an incorrect proposer index should cause consensus checks to fail (due to
-        https://github.com/ethereum/consensus-specs/blob/dev/specs/phase0/beacon-chain.md#beacon-chain-state-transition-function
-    ), which is the aim of this test */
-    *block.message_mut().proposer_index_mut() += 1;
+    let (block, _): (SignedBeaconBlock<E>, _) = tester
+        .harness
+        .make_block_with_modifier(state_a, slot_b, |b| *b.state_root_mut() = Hash256::zero())
+        .await;
 
     let response: Result<(), eth2::Error> = tester
         .client
