@@ -18,7 +18,8 @@ use fork_choice::{
 use store::MemoryStore;
 use types::{
     test_utils::generate_deterministic_keypair, BeaconBlockRef, BeaconState, ChainSpec, Checkpoint,
-    Epoch, EthSpec, Hash256, IndexedAttestation, MainnetEthSpec, SignedBeaconBlock, Slot, SubnetId,
+    Epoch, EthSpec, ForkName, Hash256, IndexedAttestation, MainnetEthSpec, ProgressiveBalancesMode,
+    RelativeEpoch, SignedBeaconBlock, Slot, SubnetId,
 };
 
 pub type E = MainnetEthSpec;
@@ -209,6 +210,23 @@ impl ForkChoiceTest {
                 AttestationStrategy::AllValidators,
             )
             .await;
+
+        self
+    }
+
+    /// Slash a validator from the previous epoch committee.
+    pub async fn add_previous_epoch_attester_slashing(self) -> Self {
+        let state = self.harness.get_current_state();
+        let previous_epoch_shuffling = state.get_shuffling(RelativeEpoch::Previous).unwrap();
+        let validator_indices = previous_epoch_shuffling
+            .iter()
+            .map(|idx| *idx as u64)
+            .take(1)
+            .collect();
+
+        self.harness
+            .add_attester_slashing(validator_indices)
+            .unwrap();
 
         self
     }
@@ -1246,6 +1264,36 @@ async fn weak_subjectivity_check_epoch_boundary_is_skip_slot() {
         .await
         .assert_finalized_epoch(5)
         .assert_shutdown_signal_not_sent();
+}
+
+#[tokio::test]
+async fn progressive_balances_cache_checked_previous_epoch_attester_slashed() {
+    // genesis with latest fork (at least altair required to test the cache)
+    let spec = ForkName::latest().make_genesis_spec(ChainSpec::default());
+
+    // enable progressive balances check
+    let harness = BeaconChainHarness::builder(MainnetEthSpec)
+        .spec(spec)
+        .chain_config(ChainConfig {
+            progressive_balances_mode: ProgressiveBalancesMode::Checked,
+            ..ChainConfig::default()
+        })
+        .deterministic_keypairs(VALIDATOR_COUNT)
+        .fresh_ephemeral_store()
+        .mock_execution_layer()
+        .build();
+
+    ForkChoiceTest { harness }
+        // first two epochs
+        .apply_blocks_while(|_, state| state.finalized_checkpoint().epoch == 0)
+        .await
+        .unwrap()
+        .add_previous_epoch_attester_slashing()
+        .await
+        // expect fork choice to import blocks successfully, which means previous epoch target
+        // attester balances from cache is matching actual value from `ParticipationCache`.
+        .apply_blocks(1)
+        .await;
 }
 
 #[tokio::test]

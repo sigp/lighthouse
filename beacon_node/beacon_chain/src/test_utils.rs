@@ -1515,6 +1515,21 @@ where
         .sign(sk, &fork, genesis_validators_root, &self.chain.spec)
     }
 
+    pub fn add_attester_slashing(&self, validator_indices: Vec<u64>) -> Result<(), String> {
+        let attester_slashing = self.make_attester_slashing(validator_indices);
+        if let ObservationOutcome::New(verified_attester_slashing) = self
+            .chain
+            .verify_attester_slashing_for_gossip(attester_slashing)
+            .expect("should verify attester slashing for gossip")
+        {
+            self.chain
+                .import_attester_slashing(verified_attester_slashing);
+            Ok(())
+        } else {
+            Err("should observe new attester slashing".to_string())
+        }
+    }
+
     pub fn add_bls_to_execution_change(
         &self,
         validator_index: u64,
