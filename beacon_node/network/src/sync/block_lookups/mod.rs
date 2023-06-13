@@ -485,6 +485,10 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         );
     }
 
+    /// Returns the lookup along with a `bool` representing whether the lookup has an outstanding
+    /// parent lookup that has yet to be resolved. This determines whether we send the
+    /// block or blob for processing because we would fail block processing and trigger a new lookup
+    /// via `UnknownParentBlock` or `UnknownParentBlob` until we process the parent.
     fn find_single_lookup_request(
         &mut self,
         target_id: Id,
@@ -501,13 +505,11 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             };
             if let Some(lookup_id) = id_opt {
                 if lookup_id == target_id {
-                    // Only send for processing if we don't have parent requests that were triggered by
-                    // this block.
-                    let triggered_parent_request = self.parent_lookups.iter().any(|lookup| {
+                    let has_pending_parent_request = self.parent_lookups.iter().any(|lookup| {
                         lookup.chain_hash() == req.block_request_state.requested_block_root
                     });
 
-                    return Some((triggered_parent_request, req));
+                    return Some((has_pending_parent_request, req));
                 }
             }
             None
