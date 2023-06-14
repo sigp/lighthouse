@@ -1,6 +1,5 @@
-use crate::beacon_node_fallback::{BeaconNodeFallback, RequireSynced};
+use crate::beacon_node_fallback::BeaconNodeFallback;
 use crate::validator_store::{DoppelgangerStatus, Error as ValidatorStoreError, ValidatorStore};
-use crate::OfflineOnFailure;
 use bls::PublicKeyBytes;
 use environment::RuntimeContext;
 use parking_lot::RwLock;
@@ -342,15 +341,11 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
         let preparation_entries = preparation_data.as_slice();
         match self
             .beacon_nodes
-            .run(
-                RequireSynced::No,
-                OfflineOnFailure::Yes,
-                |beacon_node| async move {
-                    beacon_node
-                        .post_validator_prepare_beacon_proposer(preparation_entries)
-                        .await
-                },
-            )
+            .run(|beacon_node| async move {
+                beacon_node
+                    .post_validator_prepare_beacon_proposer(preparation_entries)
+                    .await
+            })
             .await
         {
             Ok(()) => debug!(
@@ -476,13 +471,9 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
             for batch in signed.chunks(self.validator_registration_batch_size) {
                 match self
                     .beacon_nodes
-                    .first_success(
-                        RequireSynced::No,
-                        OfflineOnFailure::No,
-                        |beacon_node| async move {
-                            beacon_node.post_validator_register_validator(batch).await
-                        },
-                    )
+                    .first_success(|beacon_node| async move {
+                        beacon_node.post_validator_register_validator(batch).await
+                    })
                     .await
                 {
                     Ok(()) => info!(

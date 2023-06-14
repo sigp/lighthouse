@@ -29,8 +29,7 @@ use sensitive_url::SensitiveUrl;
 pub use slashing_protection::{SlashingDatabase, SLASHING_PROTECTION_FILENAME};
 
 use crate::beacon_node_fallback::{
-    start_fallback_updater_service, BeaconNodeFallback, CandidateBeaconNode, OfflineOnFailure,
-    RequireSynced,
+    start_fallback_updater_service, BeaconNodeFallback, CandidateBeaconNode,
 };
 use crate::doppelganger_service::DoppelgangerService;
 use crate::graffiti_file::GraffitiFile;
@@ -678,11 +677,7 @@ async fn init_from_beacon_node<E: EthSpec>(
 
     let genesis = loop {
         match beacon_nodes
-            .first_success(
-                RequireSynced::No,
-                OfflineOnFailure::Yes,
-                |node| async move { node.get_beacon_genesis().await },
-            )
+            .first_success(|node| async move { node.get_beacon_genesis().await })
             .await
         {
             Ok(genesis) => break genesis.data,
@@ -769,11 +764,7 @@ async fn poll_whilst_waiting_for_genesis<E: EthSpec>(
 ) -> Result<(), String> {
     loop {
         match beacon_nodes
-            .first_success(
-                RequireSynced::No,
-                OfflineOnFailure::Yes,
-                |beacon_node| async move { beacon_node.get_lighthouse_staking().await },
-            )
+            .first_success(|beacon_node| async move { beacon_node.get_lighthouse_staking().await })
             .await
         {
             Ok(is_staking) => {

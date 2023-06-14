@@ -1274,7 +1274,6 @@ impl ApiTester {
             .await
             .0;
 
-
         assert!(self
             .client
             .clone()

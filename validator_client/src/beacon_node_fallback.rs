@@ -5,14 +5,14 @@
 use crate::beacon_node_health::{
     BeaconNodeHealth, BeaconNodeSyncDistanceTiers, ExecutionEngineHealth, SyncDistanceTier,
 };
-use crate::check_synced::{check_node_health, check_synced};
+use crate::check_synced::check_node_health;
 use crate::http_metrics::metrics::{inc_counter_vec, ENDPOINT_ERRORS, ENDPOINT_REQUESTS};
 use environment::RuntimeContext;
 use eth2::BeaconNodeHttpClient;
 use futures::future;
 use parking_lot::RwLock as PLRwLock;
 use serde_derive::{Deserialize, Serialize};
-use slog::{debug, error, info, warn, Logger};
+use slog::{debug, error, warn, Logger};
 use slot_clock::SlotClock;
 use std::cmp::Ordering;
 use std::fmt;
@@ -88,30 +88,6 @@ pub fn start_fallback_updater_service<T: SlotClock + 'static, E: EthSpec>(
     executor.spawn(future, "fallback");
 
     Ok(())
-}
-
-/// Indicates if a beacon node must be synced before some action is performed on it.
-#[derive(PartialEq, Clone, Copy)]
-pub enum RequireSynced {
-    Yes,
-    No,
-}
-
-/// Indicates if a beacon node should be set to `Offline` if a request fails.
-#[derive(PartialEq, Clone, Copy)]
-pub enum OfflineOnFailure {
-    Yes,
-    No,
-}
-
-impl PartialEq<bool> for RequireSynced {
-    fn eq(&self, other: &bool) -> bool {
-        if *other {
-            *self == RequireSynced::Yes
-        } else {
-            *self == RequireSynced::No
-        }
-    }
 }
 
 #[derive(Debug)]
@@ -207,48 +183,8 @@ impl<E: EthSpec> CandidateBeaconNode<E> {
     }
 
     /// Returns the status of `self`.
-    ///
-    /// If `RequiredSynced::No`, any `NotSynced` node will be ignored and mapped to `Ok(())`.
-    pub async fn status(&self, synced: RequireSynced) -> Result<(), CandidateError> {
-        match *self.status.read().await {
-            Err(CandidateError::NotSynced) if synced == false => Ok(()),
-            other => other,
-        }
-    }
-
-    /// Indicate that `self` is offline.
-    pub async fn set_offline(&self) {
-        *self.status.write().await = Err(CandidateError::Offline)
-    }
-
-    /// Perform some queries against the node to determine if it is a good candidate, updating
-    /// `self.status` and returning that result.
-    pub async fn refresh_status<T: SlotClock>(
-        &self,
-        slot_clock: Option<&T>,
-        spec: &ChainSpec,
-        log: &Logger,
-    ) -> Result<(), CandidateError> {
-        let previous_status = self.status(RequireSynced::Yes).await;
-        let was_offline = matches!(previous_status, Err(CandidateError::Offline));
-
-        let new_status = if let Err(e) = self.is_online(was_offline, log).await {
-            Err(e)
-        } else if let Err(e) = self.is_compatible(spec, log).await {
-            Err(e)
-        } else if let Err(e) = self.is_synced(slot_clock, log).await {
-            Err(e)
-        } else {
-            Ok(())
-        };
-
-        // In case of concurrent use, the latest value will always be used. It's possible that a
-        // long time out might over-ride a recent successful response, leading to a falsely-offline
-        // status. I deem this edge-case acceptable in return for the concurrency benefits of not
-        // holding a write-lock whilst we check the online status of the node.
-        *self.status.write().await = new_status;
-
-        new_status
+    pub async fn status(&self) -> Result<(), CandidateError> {
+        *self.status.read().await
     }
 
     pub async fn refresh_health<T: SlotClock>(
@@ -306,38 +242,6 @@ impl<E: EthSpec> CandidateBeaconNode<E> {
             // Assume compatible nodes are available.
             *self.status.write().await = Ok(());
             Ok(())
-        }
-    }
-
-    /// Checks if the node is reachable.
-    async fn is_online(&self, was_offline: bool, log: &Logger) -> Result<(), CandidateError> {
-        let result = self
-            .beacon_node
-            .get_node_version()
-            .await
-            .map(|body| body.data.version);
-
-        match result {
-            Ok(version) => {
-                if was_offline {
-                    info!(
-                        log,
-                        "Connected to beacon node";
-                        "version" => version,
-                        "endpoint" => %self.beacon_node,
-                    );
-                }
-                Ok(())
-            }
-            Err(e) => {
-                warn!(
-                    log,
-                    "Offline beacon node";
-                    "error" => %e,
-                    "endpoint" => %self.beacon_node,
-                );
-                Err(CandidateError::Offline)
-            }
         }
     }
 
@@ -404,20 +308,6 @@ impl<E: EthSpec> CandidateBeaconNode<E> {
         }
 
         Ok(())
-    }
-
-    /// Checks if the beacon node is synced.
-    async fn is_synced<T: SlotClock>(
-        &self,
-        slot_clock: Option<&T>,
-        log: &Logger,
-    ) -> Result<(), CandidateError> {
-        if let Some(slot_clock) = slot_clock {
-            check_synced(&self.beacon_node, slot_clock, Some(log)).await
-        } else {
-            // Skip this check if we don't supply a slot clock.
-            Ok(())
-        }
     }
 }
 
@@ -504,7 +394,7 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
     pub async fn num_available(&self) -> usize {
         let mut n = 0;
         for candidate in self.candidates.read().await.iter() {
-            if candidate.status(RequireSynced::No).await.is_ok() {
+            if candidate.status().await.is_ok() {
                 n += 1
             }
         }
@@ -588,12 +478,7 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
     /// First this function will try all nodes with a suitable status. If no candidates are suitable
     /// or all the requests fail, it will try updating the status of all unsuitable nodes and
     /// re-running `func` again.
-    pub async fn first_success<F, O, Err, R>(
-        &self,
-        _require_synced: RequireSynced,
-        _offline_on_failure: OfflineOnFailure,
-        func: F,
-    ) -> Result<O, Errors<Err>>
+    pub async fn first_success<F, O, Err, R>(&self, func: F) -> Result<O, Errors<Err>>
     where
         F: Fn(BeaconNodeHttpClient) -> R,
         R: Future<Output = Result<O, Err>>,
@@ -626,9 +511,6 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
                         // There exists a race condition where the candidate may have been marked
                         // as ready between the `func` call and now. We deem this an acceptable
                         // inefficiency.
-                        //if matches!(offline_on_failure, OfflineOnFailure::Yes) {
-                        //    $candidate.set_offline().await;
-                        //}
                         errors.push(($candidate.beacon_node.to_string(), Error::RequestFailed(e)));
                         inc_counter_vec(&ENDPOINT_ERRORS, &[$candidate.beacon_node.as_ref()]);
                     }
@@ -658,12 +540,7 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
     /// It returns a list of errors along with the beacon node id that failed for `func`.
     /// Since this ignores the actual result of `func`, this function should only be used for beacon
     /// node calls whose results we do not care about, only that they completed successfully.
-    pub async fn run_on_all<F, O, Err, R>(
-        &self,
-        _require_synced: RequireSynced,
-        _offline_on_failure: OfflineOnFailure,
-        func: F,
-    ) -> Result<(), Errors<Err>>
+    pub async fn run_on_all<F, O, Err, R>(&self, func: F) -> Result<(), Errors<Err>>
     where
         F: Fn(BeaconNodeHttpClient) -> R,
         R: Future<Output = Result<O, Err>>,
@@ -688,9 +565,6 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
                         // There exists a race condition where the candidate may have been marked
                         // as ready between the `func` call and now. We deem this an acceptable
                         // inefficiency.
-                        //if matches!(offline_on_failure, OfflineOnFailure::Yes) {
-                        //    $candidate.set_offline().await;
-                        //}
                         results.push(Err((
                             $candidate.beacon_node.to_string(),
                             Error::RequestFailed(e),
@@ -720,24 +594,17 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
 
     /// Call `func` on first beacon node that returns success or on all beacon nodes
     /// depending on the value of `disable_run_on_all`.
-    pub async fn run<F, Err, R>(
-        &self,
-        require_synced: RequireSynced,
-        offline_on_failure: OfflineOnFailure,
-        func: F,
-    ) -> Result<(), Errors<Err>>
+    pub async fn run<F, Err, R>(&self, func: F) -> Result<(), Errors<Err>>
     where
         F: Fn(BeaconNodeHttpClient) -> R,
         R: Future<Output = Result<(), Err>>,
         Err: Debug,
     {
         if self.disable_run_on_all {
-            self.first_success(require_synced, offline_on_failure, func)
-                .await?;
+            self.first_success(func).await?;
             Ok(())
         } else {
-            self.run_on_all(require_synced, offline_on_failure, func)
-                .await
+            self.run_on_all(func).await
         }
     }
 }
