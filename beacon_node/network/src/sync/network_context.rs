@@ -112,7 +112,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             self.log,
             "Sending BlocksByRange Request";
             "method" => "BlocksByRange",
-            "count" => request.count,
+            "count" => request.count(),
             "peer" => %peer_id,
         );
         let request = Request::BlocksByRange(request);
@@ -138,7 +138,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             self.log,
             "Sending backfill BlocksByRange Request";
             "method" => "BlocksByRange",
-            "count" => request.count,
+            "count" => request.count(),
             "peer" => %peer_id,
         );
         let request = Request::BlocksByRange(request);
@@ -185,7 +185,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             self.log,
             "Sending BlocksByRoot Request";
             "method" => "BlocksByRoot",
-            "count" => request.block_roots.len(),
+            "count" => request.block_roots().len(),
             "peer" => %peer_id
         );
         let request = Request::BlocksByRoot(request);
@@ -209,7 +209,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             self.log,
             "Sending BlocksByRoot Request";
             "method" => "BlocksByRoot",
-            "count" => request.block_roots.len(),
+            "count" => request.block_roots().len(),
             "peer" => %peer_id
         );
         let request = Request::BlocksByRoot(request);

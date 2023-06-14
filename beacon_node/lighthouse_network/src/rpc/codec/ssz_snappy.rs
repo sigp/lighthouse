@@ -1,9 +1,9 @@
+use crate::rpc::methods::*;
 use crate::rpc::{
     codec::base::OutboundCodec,
-    protocol::{Encoding, Protocol, ProtocolId, RPCError, Version, ERROR_TYPE_MAX, ERROR_TYPE_MIN},
+    protocol::{Encoding, ProtocolId, RPCError, SupportedProtocol, ERROR_TYPE_MAX, ERROR_TYPE_MIN},
 };
 use crate::rpc::{InboundRequest, OutboundRequest, RPCCodedResponse, RPCResponse};
-use crate::{rpc::methods::*, EnrSyncCommitteeBitfield};
 use libp2p::bytes::BytesMut;
 use snap::read::FrameDecoder;
 use snap::write::FrameEncoder;
@@ -76,27 +76,14 @@ impl<TSpec: EthSpec> Encoder<RPCCodedResponse<TSpec>> for SSZSnappyInboundCodec<
                 RPCResponse::MetaData(res) =>
                 // Encode the correct version of the MetaData response based on the negotiated version.
                 {
-                    match self.protocol.version {
-                        Version::V1 => MetaData::<TSpec>::V1(MetaDataV1 {
-                            seq_number: *res.seq_number(),
-                            attnets: res.attnets().clone(),
-                        })
-                        .as_ssz_bytes(),
-                        Version::V2 => {
-                            // `res` is of type MetaDataV2, return the ssz bytes
-                            if res.syncnets().is_ok() {
-                                res.as_ssz_bytes()
-                            } else {
-                                // `res` is of type MetaDataV1, create a MetaDataV2 by adding a default syncnets field
-                                // Note: This code path is redundant as `res` would be always of type MetaDataV2
-                                MetaData::<TSpec>::V2(MetaDataV2 {
-                                    seq_number: *res.seq_number(),
-                                    attnets: res.attnets().clone(),
-                                    syncnets: EnrSyncCommitteeBitfield::<TSpec>::default(),
-                                })
-                                .as_ssz_bytes()
-                            }
-                        }
+                    match self.protocol.versioned_protocol {
+                        SupportedProtocol::MetaDataV1 => res.metadata_v1().as_ssz_bytes(),
+                        // We always send V2 metadata responses from the behaviour
+                        // No change required.
+                        SupportedProtocol::MetaDataV2 => res.metadata_v2().as_ssz_bytes(),
+                        _ => unreachable!(
+                            "We only send metadata responses on negotiating metadata requests"
+                        ),
                     }
                 }
             },
@@ -139,8 +126,11 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyInboundCodec<TSpec> {
     type Error = RPCError;
 
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
-        if self.protocol.message_name == Protocol::MetaData {
-            return Ok(Some(InboundRequest::MetaData(PhantomData)));
+        if self.protocol.versioned_protocol == SupportedProtocol::MetaDataV1 {
+            return Ok(Some(InboundRequest::MetaData(MetadataRequest::new_v1())));
+        }
+        if self.protocol.versioned_protocol == SupportedProtocol::MetaDataV2 {
+            return Ok(Some(InboundRequest::MetaData(MetadataRequest::new_v2())));
         }
         let length = match handle_length(&mut self.inner, &mut self.len, src)? {
             Some(len) => len,
@@ -152,8 +142,8 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyInboundCodec<TSpec> {
         let ssz_limits = self.protocol.rpc_request_limits();
         if ssz_limits.is_out_of_bounds(length, self.max_packet_size) {
             return Err(RPCError::InvalidData(format!(
-                "RPC request length is out of bounds, length {}",
-                length
+                "RPC request length for protocol {:?} is out of bounds, length {}",
+                self.protocol.versioned_protocol, length
             )));
         }
         // Calculate worst case compression length for given uncompressed length
@@ -170,11 +160,7 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyInboundCodec<TSpec> {
                 let n = reader.get_ref().get_ref().position();
                 self.len = None;
                 let _read_bytes = src.split_to(n as usize);
-
-                match self.protocol.version {
-                    Version::V1 => handle_v1_request(self.protocol.message_name, &decoded_buffer),
-                    Version::V2 => handle_v2_request(self.protocol.message_name, &decoded_buffer),
-                }
+                handle_rpc_request(self.protocol.versioned_protocol, &decoded_buffer)
             }
             Err(e) => handle_error(e, reader.get_ref().get_ref().position(), max_compressed_len),
         }
@@ -228,11 +214,16 @@ impl<TSpec: EthSpec> Encoder<OutboundRequest<TSpec>> for SSZSnappyOutboundCodec<
         let bytes = match item {
             OutboundRequest::Status(req) => req.as_ssz_bytes(),
             OutboundRequest::Goodbye(req) => req.as_ssz_bytes(),
-            OutboundRequest::BlocksByRange(req) => req.as_ssz_bytes(),
-            OutboundRequest::BlocksByRoot(req) => req.block_roots.as_ssz_bytes(),
+            OutboundRequest::BlocksByRange(r) => match r {
+                OldBlocksByRangeRequest::V1(req) => req.as_ssz_bytes(),
+                OldBlocksByRangeRequest::V2(req) => req.as_ssz_bytes(),
+            },
+            OutboundRequest::BlocksByRoot(r) => match r {
+                BlocksByRootRequest::V1(req) => req.block_roots.as_ssz_bytes(),
+                BlocksByRootRequest::V2(req) => req.block_roots.as_ssz_bytes(),
+            },
             OutboundRequest::Ping(req) => req.as_ssz_bytes(),
             OutboundRequest::MetaData(_) => return Ok(()), // no metadata to encode
-            OutboundRequest::LightClientBootstrap(req) => req.as_ssz_bytes(),
         };
         // SSZ encoded bytes should be within `max_packet_size`
         if bytes.len() > self.max_packet_size {
@@ -311,15 +302,10 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyOutboundCodec<TSpec> {
                 let n = reader.get_ref().get_ref().position();
                 self.len = None;
                 let _read_bytes = src.split_to(n as usize);
-
-                match self.protocol.version {
-                    Version::V1 => handle_v1_response(self.protocol.message_name, &decoded_buffer),
-                    Version::V2 => handle_v2_response(
-                        self.protocol.message_name,
-                        &decoded_buffer,
-                        &mut self.fork_name,
-                    ),
-                }
+                // Safe to `take` from `self.fork_name` as we have all the bytes we need to
+                // decode an ssz object at this point.
+                let fork_name = self.fork_name.take();
+                handle_rpc_response(self.protocol.versioned_protocol, &decoded_buffer, fork_name)
             }
             Err(e) => handle_error(e, reader.get_ref().get_ref().position(), max_compressed_len),
         }
@@ -456,181 +442,150 @@ fn handle_length(
     }
 }
 
-/// Decodes a `Version::V1` `InboundRequest` from the byte stream.
+/// Decodes an `InboundRequest` from the byte stream.
 /// `decoded_buffer` should be an ssz-encoded bytestream with
 // length = length-prefix received in the beginning of the stream.
-fn handle_v1_request<T: EthSpec>(
-    protocol: Protocol,
+fn handle_rpc_request<T: EthSpec>(
+    versioned_protocol: SupportedProtocol,
     decoded_buffer: &[u8],
 ) -> Result<Option<InboundRequest<T>>, RPCError> {
-    match protocol {
-        Protocol::Status => Ok(Some(InboundRequest::Status(StatusMessage::from_ssz_bytes(
-            decoded_buffer,
-        )?))),
-        Protocol::Goodbye => Ok(Some(InboundRequest::Goodbye(
+    match versioned_protocol {
+        SupportedProtocol::StatusV1 => Ok(Some(InboundRequest::Status(
+            StatusMessage::from_ssz_bytes(decoded_buffer)?,
+        ))),
+        SupportedProtocol::GoodbyeV1 => Ok(Some(InboundRequest::Goodbye(
             GoodbyeReason::from_ssz_bytes(decoded_buffer)?,
         ))),
-        Protocol::BlocksByRange => Ok(Some(InboundRequest::BlocksByRange(
-            OldBlocksByRangeRequest::from_ssz_bytes(decoded_buffer)?,
+        SupportedProtocol::BlocksByRangeV2 => Ok(Some(InboundRequest::BlocksByRange(
+            OldBlocksByRangeRequest::V2(OldBlocksByRangeRequestV2::from_ssz_bytes(decoded_buffer)?),
         ))),
-        Protocol::BlocksByRoot => Ok(Some(InboundRequest::BlocksByRoot(BlocksByRootRequest {
-            block_roots: VariableList::from_ssz_bytes(decoded_buffer)?,
-        }))),
-        Protocol::Ping => Ok(Some(InboundRequest::Ping(Ping {
+        SupportedProtocol::BlocksByRangeV1 => Ok(Some(InboundRequest::BlocksByRange(
+            OldBlocksByRangeRequest::V1(OldBlocksByRangeRequestV1::from_ssz_bytes(decoded_buffer)?),
+        ))),
+        SupportedProtocol::BlocksByRootV2 => Ok(Some(InboundRequest::BlocksByRoot(
+            BlocksByRootRequest::V2(BlocksByRootRequestV2 {
+                block_roots: VariableList::from_ssz_bytes(decoded_buffer)?,
+            }),
+        ))),
+        SupportedProtocol::BlocksByRootV1 => Ok(Some(InboundRequest::BlocksByRoot(
+            BlocksByRootRequest::V1(BlocksByRootRequestV1 {
+                block_roots: VariableList::from_ssz_bytes(decoded_buffer)?,
+            }),
+        ))),
+        SupportedProtocol::PingV1 => Ok(Some(InboundRequest::Ping(Ping {
             data: u64::from_ssz_bytes(decoded_buffer)?,
         }))),
-        Protocol::LightClientBootstrap => Ok(Some(InboundRequest::LightClientBootstrap(
-            LightClientBootstrapRequest {
+        SupportedProtocol::LightClientBootstrapV1 => Ok(Some(
+            InboundRequest::LightClientBootstrap(LightClientBootstrapRequest {
                 root: Hash256::from_ssz_bytes(decoded_buffer)?,
-            },
-        ))),
+            }),
+        )),
         // MetaData requests return early from InboundUpgrade and do not reach the decoder.
         // Handle this case just for completeness.
-        Protocol::MetaData => {
+        SupportedProtocol::MetaDataV2 => {
             if !decoded_buffer.is_empty() {
                 Err(RPCError::InternalError(
                     "Metadata requests shouldn't reach decoder",
                 ))
             } else {
-                Ok(Some(InboundRequest::MetaData(PhantomData)))
+                Ok(Some(InboundRequest::MetaData(MetadataRequest::new_v2())))
             }
         }
-    }
-}
-
-/// Decodes a `Version::V2` `InboundRequest` from the byte stream.
-/// `decoded_buffer` should be an ssz-encoded bytestream with
-// length = length-prefix received in the beginning of the stream.
-fn handle_v2_request<T: EthSpec>(
-    protocol: Protocol,
-    decoded_buffer: &[u8],
-) -> Result<Option<InboundRequest<T>>, RPCError> {
-    match protocol {
-        Protocol::BlocksByRange => Ok(Some(InboundRequest::BlocksByRange(
-            OldBlocksByRangeRequest::from_ssz_bytes(decoded_buffer)?,
-        ))),
-        Protocol::BlocksByRoot => Ok(Some(InboundRequest::BlocksByRoot(BlocksByRootRequest {
-            block_roots: VariableList::from_ssz_bytes(decoded_buffer)?,
-        }))),
-        // MetaData requests return early from InboundUpgrade and do not reach the decoder.
-        // Handle this case just for completeness.
-        Protocol::MetaData => {
+        SupportedProtocol::MetaDataV1 => {
             if !decoded_buffer.is_empty() {
                 Err(RPCError::InvalidData("Metadata request".to_string()))
             } else {
-                Ok(Some(InboundRequest::MetaData(PhantomData)))
+                Ok(Some(InboundRequest::MetaData(MetadataRequest::new_v1())))
             }
         }
-        _ => Err(RPCError::ErrorResponse(
-            RPCResponseErrorCode::InvalidRequest,
-            format!("{} does not support version 2", protocol),
-        )),
     }
 }
 
-/// Decodes a `Version::V1` `RPCResponse` from the byte stream.
+/// Decodes a `RPCResponse` from the byte stream.
 /// `decoded_buffer` should be an ssz-encoded bytestream with
-// length = length-prefix received in the beginning of the stream.
-fn handle_v1_response<T: EthSpec>(
-    protocol: Protocol,
-    decoded_buffer: &[u8],
-) -> Result<Option<RPCResponse<T>>, RPCError> {
-    match protocol {
-        Protocol::Status => Ok(Some(RPCResponse::Status(StatusMessage::from_ssz_bytes(
-            decoded_buffer,
-        )?))),
-        // This case should be unreachable as `Goodbye` has no response.
-        Protocol::Goodbye => Err(RPCError::InvalidData(
-            "Goodbye RPC message has no valid response".to_string(),
-        )),
-        Protocol::BlocksByRange => Ok(Some(RPCResponse::BlocksByRange(Arc::new(
-            SignedBeaconBlock::Base(SignedBeaconBlockBase::from_ssz_bytes(decoded_buffer)?),
-        )))),
-        Protocol::BlocksByRoot => Ok(Some(RPCResponse::BlocksByRoot(Arc::new(
-            SignedBeaconBlock::Base(SignedBeaconBlockBase::from_ssz_bytes(decoded_buffer)?),
-        )))),
-        Protocol::Ping => Ok(Some(RPCResponse::Pong(Ping {
-            data: u64::from_ssz_bytes(decoded_buffer)?,
-        }))),
-        Protocol::MetaData => Ok(Some(RPCResponse::MetaData(MetaData::V1(
-            MetaDataV1::from_ssz_bytes(decoded_buffer)?,
-        )))),
-        Protocol::LightClientBootstrap => Ok(Some(RPCResponse::LightClientBootstrap(
-            LightClientBootstrap::from_ssz_bytes(decoded_buffer)?,
-        ))),
-    }
-}
-
-/// Decodes a `Version::V2` `RPCResponse` from the byte stream.
-/// `decoded_buffer` should be an ssz-encoded bytestream with
-// length = length-prefix received in the beginning of the stream.
+/// length = length-prefix received in the beginning of the stream.
 ///
 /// For BlocksByRange/BlocksByRoot reponses, decodes the appropriate response
 /// according to the received `ForkName`.
-fn handle_v2_response<T: EthSpec>(
-    protocol: Protocol,
+fn handle_rpc_response<T: EthSpec>(
+    versioned_protocol: SupportedProtocol,
     decoded_buffer: &[u8],
-    fork_name: &mut Option<ForkName>,
+    fork_name: Option<ForkName>,
 ) -> Result<Option<RPCResponse<T>>, RPCError> {
-    // MetaData does not contain context_bytes
-    if let Protocol::MetaData = protocol {
-        Ok(Some(RPCResponse::MetaData(MetaData::V2(
+    match versioned_protocol {
+        SupportedProtocol::StatusV1 => Ok(Some(RPCResponse::Status(
+            StatusMessage::from_ssz_bytes(decoded_buffer)?,
+        ))),
+        // This case should be unreachable as `Goodbye` has no response.
+        SupportedProtocol::GoodbyeV1 => Err(RPCError::InvalidData(
+            "Goodbye RPC message has no valid response".to_string(),
+        )),
+        SupportedProtocol::BlocksByRangeV1 => Ok(Some(RPCResponse::BlocksByRange(Arc::new(
+            SignedBeaconBlock::Base(SignedBeaconBlockBase::from_ssz_bytes(decoded_buffer)?),
+        )))),
+        SupportedProtocol::BlocksByRootV1 => Ok(Some(RPCResponse::BlocksByRoot(Arc::new(
+            SignedBeaconBlock::Base(SignedBeaconBlockBase::from_ssz_bytes(decoded_buffer)?),
+        )))),
+        SupportedProtocol::PingV1 => Ok(Some(RPCResponse::Pong(Ping {
+            data: u64::from_ssz_bytes(decoded_buffer)?,
+        }))),
+        SupportedProtocol::MetaDataV1 => Ok(Some(RPCResponse::MetaData(MetaData::V1(
+            MetaDataV1::from_ssz_bytes(decoded_buffer)?,
+        )))),
+        SupportedProtocol::LightClientBootstrapV1 => Ok(Some(RPCResponse::LightClientBootstrap(
+            LightClientBootstrap::from_ssz_bytes(decoded_buffer)?,
+        ))),
+        // MetaData V2 responses have no context bytes, so behave similarly to V1 responses
+        SupportedProtocol::MetaDataV2 => Ok(Some(RPCResponse::MetaData(MetaData::V2(
             MetaDataV2::from_ssz_bytes(decoded_buffer)?,
-        ))))
-    } else {
-        let fork_name = fork_name.take().ok_or_else(|| {
-            RPCError::ErrorResponse(
-                RPCResponseErrorCode::InvalidRequest,
-                format!("No context bytes provided for {} response", protocol),
-            )
-        })?;
-        match protocol {
-            Protocol::BlocksByRange => match fork_name {
-                ForkName::Altair => Ok(Some(RPCResponse::BlocksByRange(Arc::new(
-                    SignedBeaconBlock::Altair(SignedBeaconBlockAltair::from_ssz_bytes(
-                        decoded_buffer,
-                    )?),
-                )))),
+        )))),
+        SupportedProtocol::BlocksByRangeV2 => match fork_name {
+            Some(ForkName::Altair) => Ok(Some(RPCResponse::BlocksByRange(Arc::new(
+                SignedBeaconBlock::Altair(SignedBeaconBlockAltair::from_ssz_bytes(decoded_buffer)?),
+            )))),
 
-                ForkName::Base => Ok(Some(RPCResponse::BlocksByRange(Arc::new(
-                    SignedBeaconBlock::Base(SignedBeaconBlockBase::from_ssz_bytes(decoded_buffer)?),
-                )))),
-                ForkName::Merge => Ok(Some(RPCResponse::BlocksByRange(Arc::new(
-                    SignedBeaconBlock::Merge(SignedBeaconBlockMerge::from_ssz_bytes(
-                        decoded_buffer,
-                    )?),
-                )))),
-                ForkName::Capella => Ok(Some(RPCResponse::BlocksByRange(Arc::new(
-                    SignedBeaconBlock::Capella(SignedBeaconBlockCapella::from_ssz_bytes(
-                        decoded_buffer,
-                    )?),
-                )))),
-            },
-            Protocol::BlocksByRoot => match fork_name {
-                ForkName::Altair => Ok(Some(RPCResponse::BlocksByRoot(Arc::new(
-                    SignedBeaconBlock::Altair(SignedBeaconBlockAltair::from_ssz_bytes(
-                        decoded_buffer,
-                    )?),
-                )))),
-                ForkName::Base => Ok(Some(RPCResponse::BlocksByRoot(Arc::new(
-                    SignedBeaconBlock::Base(SignedBeaconBlockBase::from_ssz_bytes(decoded_buffer)?),
-                )))),
-                ForkName::Merge => Ok(Some(RPCResponse::BlocksByRoot(Arc::new(
-                    SignedBeaconBlock::Merge(SignedBeaconBlockMerge::from_ssz_bytes(
-                        decoded_buffer,
-                    )?),
-                )))),
-                ForkName::Capella => Ok(Some(RPCResponse::BlocksByRoot(Arc::new(
-                    SignedBeaconBlock::Capella(SignedBeaconBlockCapella::from_ssz_bytes(
-                        decoded_buffer,
-                    )?),
-                )))),
-            },
-            _ => Err(RPCError::ErrorResponse(
+            Some(ForkName::Base) => Ok(Some(RPCResponse::BlocksByRange(Arc::new(
+                SignedBeaconBlock::Base(SignedBeaconBlockBase::from_ssz_bytes(decoded_buffer)?),
+            )))),
+            Some(ForkName::Merge) => Ok(Some(RPCResponse::BlocksByRange(Arc::new(
+                SignedBeaconBlock::Merge(SignedBeaconBlockMerge::from_ssz_bytes(decoded_buffer)?),
+            )))),
+            Some(ForkName::Capella) => Ok(Some(RPCResponse::BlocksByRange(Arc::new(
+                SignedBeaconBlock::Capella(SignedBeaconBlockCapella::from_ssz_bytes(
+                    decoded_buffer,
+                )?),
+            )))),
+            None => Err(RPCError::ErrorResponse(
                 RPCResponseErrorCode::InvalidRequest,
-                "Invalid v2 request".to_string(),
+                format!(
+                    "No context bytes provided for {:?} response",
+                    versioned_protocol
+                ),
             )),
-        }
+        },
+        SupportedProtocol::BlocksByRootV2 => match fork_name {
+            Some(ForkName::Altair) => Ok(Some(RPCResponse::BlocksByRoot(Arc::new(
+                SignedBeaconBlock::Altair(SignedBeaconBlockAltair::from_ssz_bytes(decoded_buffer)?),
+            )))),
+            Some(ForkName::Base) => Ok(Some(RPCResponse::BlocksByRoot(Arc::new(
+                SignedBeaconBlock::Base(SignedBeaconBlockBase::from_ssz_bytes(decoded_buffer)?),
+            )))),
+            Some(ForkName::Merge) => Ok(Some(RPCResponse::BlocksByRoot(Arc::new(
+                SignedBeaconBlock::Merge(SignedBeaconBlockMerge::from_ssz_bytes(decoded_buffer)?),
+            )))),
+            Some(ForkName::Capella) => Ok(Some(RPCResponse::BlocksByRoot(Arc::new(
+                SignedBeaconBlock::Capella(SignedBeaconBlockCapella::from_ssz_bytes(
+                    decoded_buffer,
+                )?),
+            )))),
+            None => Err(RPCError::ErrorResponse(
+                RPCResponseErrorCode::InvalidRequest,
+                format!(
+                    "No context bytes provided for {:?} response",
+                    versioned_protocol
+                ),
+            )),
+        },
     }
 }
 
@@ -742,18 +697,20 @@ mod tests {
         }
     }
 
-    fn bbrange_request() -> OldBlocksByRangeRequest {
-        OldBlocksByRangeRequest {
-            start_slot: 0,
-            count: 10,
-            step: 1,
-        }
+    fn bbrange_request_v1() -> OldBlocksByRangeRequest {
+        OldBlocksByRangeRequest::new_v1(0, 10, 1)
     }
 
-    fn bbroot_request() -> BlocksByRootRequest {
-        BlocksByRootRequest {
-            block_roots: VariableList::from(vec![Hash256::zero()]),
-        }
+    fn bbrange_request_v2() -> OldBlocksByRangeRequest {
+        OldBlocksByRangeRequest::new(0, 10, 1)
+    }
+
+    fn bbroot_request_v1() -> BlocksByRootRequest {
+        BlocksByRootRequest::new_v1(vec![Hash256::zero()].into())
+    }
+
+    fn bbroot_request_v2() -> BlocksByRootRequest {
+        BlocksByRootRequest::new(vec![Hash256::zero()].into())
     }
 
     fn ping_message() -> Ping {
@@ -777,12 +734,11 @@ mod tests {
 
     /// Encodes the given protocol response as bytes.
     fn encode_response(
-        protocol: Protocol,
-        version: Version,
+        protocol: SupportedProtocol,
         message: RPCCodedResponse<Spec>,
         fork_name: ForkName,
     ) -> Result<BytesMut, RPCError> {
-        let snappy_protocol_id = ProtocolId::new(protocol, version, Encoding::SSZSnappy);
+        let snappy_protocol_id = ProtocolId::new(protocol, Encoding::SSZSnappy);
         let fork_context = Arc::new(fork_context(fork_name));
         let max_packet_size = max_rpc_size(&fork_context);
 
@@ -824,12 +780,11 @@ mod tests {
 
     /// Attempts to decode the given protocol bytes as an rpc response
     fn decode_response(
-        protocol: Protocol,
-        version: Version,
+        protocol: SupportedProtocol,
         message: &mut BytesMut,
         fork_name: ForkName,
     ) -> Result<Option<RPCResponse<Spec>>, RPCError> {
-        let snappy_protocol_id = ProtocolId::new(protocol, version, Encoding::SSZSnappy);
+        let snappy_protocol_id = ProtocolId::new(protocol, Encoding::SSZSnappy);
         let fork_context = Arc::new(fork_context(fork_name));
         let max_packet_size = max_rpc_size(&fork_context);
         let mut snappy_outbound_codec =
@@ -840,63 +795,55 @@ mod tests {
 
     /// Encodes the provided protocol message as bytes and tries to decode the encoding bytes.
     fn encode_then_decode_response(
-        protocol: Protocol,
-        version: Version,
+        protocol: SupportedProtocol,
         message: RPCCodedResponse<Spec>,
         fork_name: ForkName,
     ) -> Result<Option<RPCResponse<Spec>>, RPCError> {
-        let mut encoded = encode_response(protocol, version.clone(), message, fork_name)?;
-        decode_response(protocol, version, &mut encoded, fork_name)
+        let mut encoded = encode_response(protocol, message, fork_name)?;
+        decode_response(protocol, &mut encoded, fork_name)
     }
 
     /// Verifies that requests we send are encoded in a way that we would correctly decode too.
     fn encode_then_decode_request(req: OutboundRequest<Spec>, fork_name: ForkName) {
         let fork_context = Arc::new(fork_context(fork_name));
         let max_packet_size = max_rpc_size(&fork_context);
-        for protocol in req.supported_protocols() {
-            // Encode a request we send
-            let mut buf = BytesMut::new();
-            let mut outbound_codec = SSZSnappyOutboundCodec::<Spec>::new(
-                protocol.clone(),
-                max_packet_size,
-                fork_context.clone(),
-            );
-            outbound_codec.encode(req.clone(), &mut buf).unwrap();
+        let protocol = ProtocolId::new(req.versioned_protocol(), Encoding::SSZSnappy);
+        // Encode a request we send
+        let mut buf = BytesMut::new();
+        let mut outbound_codec = SSZSnappyOutboundCodec::<Spec>::new(
+            protocol.clone(),
+            max_packet_size,
+            fork_context.clone(),
+        );
+        outbound_codec.encode(req.clone(), &mut buf).unwrap();
 
-            let mut inbound_codec = SSZSnappyInboundCodec::<Spec>::new(
-                protocol.clone(),
-                max_packet_size,
-                fork_context.clone(),
-            );
+        let mut inbound_codec =
+            SSZSnappyInboundCodec::<Spec>::new(protocol.clone(), max_packet_size, fork_context);
 
-            let decoded = inbound_codec.decode(&mut buf).unwrap().unwrap_or_else(|| {
-                panic!(
-                    "Should correctly decode the request {} over protocol {:?} and fork {}",
-                    req, protocol, fork_name
-                )
-            });
-            match req.clone() {
-                OutboundRequest::Status(status) => {
-                    assert_eq!(decoded, InboundRequest::Status(status))
-                }
-                OutboundRequest::Goodbye(goodbye) => {
-                    assert_eq!(decoded, InboundRequest::Goodbye(goodbye))
-                }
-                OutboundRequest::BlocksByRange(bbrange) => {
-                    assert_eq!(decoded, InboundRequest::BlocksByRange(bbrange))
-                }
-                OutboundRequest::BlocksByRoot(bbroot) => {
-                    assert_eq!(decoded, InboundRequest::BlocksByRoot(bbroot))
-                }
-                OutboundRequest::Ping(ping) => {
-                    assert_eq!(decoded, InboundRequest::Ping(ping))
-                }
-                OutboundRequest::MetaData(metadata) => {
-                    assert_eq!(decoded, InboundRequest::MetaData(metadata))
-                }
-                OutboundRequest::LightClientBootstrap(bootstrap) => {
-                    assert_eq!(decoded, InboundRequest::LightClientBootstrap(bootstrap))
-                }
+        let decoded = inbound_codec.decode(&mut buf).unwrap().unwrap_or_else(|| {
+            panic!(
+                "Should correctly decode the request {} over protocol {:?} and fork {}",
+                req, protocol, fork_name
+            )
+        });
+        match req {
+            OutboundRequest::Status(status) => {
+                assert_eq!(decoded, InboundRequest::Status(status))
+            }
+            OutboundRequest::Goodbye(goodbye) => {
+                assert_eq!(decoded, InboundRequest::Goodbye(goodbye))
+            }
+            OutboundRequest::BlocksByRange(bbrange) => {
+                assert_eq!(decoded, InboundRequest::BlocksByRange(bbrange))
+            }
+            OutboundRequest::BlocksByRoot(bbroot) => {
+                assert_eq!(decoded, InboundRequest::BlocksByRoot(bbroot))
+            }
+            OutboundRequest::Ping(ping) => {
+                assert_eq!(decoded, InboundRequest::Ping(ping))
+            }
+            OutboundRequest::MetaData(metadata) => {
+                assert_eq!(decoded, InboundRequest::MetaData(metadata))
             }
         }
     }
@@ -906,8 +853,7 @@ mod tests {
     fn test_encode_then_decode_v1() {
         assert_eq!(
             encode_then_decode_response(
-                Protocol::Status,
-                Version::V1,
+                SupportedProtocol::StatusV1,
                 RPCCodedResponse::Success(RPCResponse::Status(status_message())),
                 ForkName::Base,
             ),
@@ -916,8 +862,7 @@ mod tests {
 
         assert_eq!(
             encode_then_decode_response(
-                Protocol::Ping,
-                Version::V1,
+                SupportedProtocol::PingV1,
                 RPCCodedResponse::Success(RPCResponse::Pong(ping_message())),
                 ForkName::Base,
             ),
@@ -926,8 +871,7 @@ mod tests {
 
         assert_eq!(
             encode_then_decode_response(
-                Protocol::BlocksByRange,
-                Version::V1,
+                SupportedProtocol::BlocksByRangeV1,
                 RPCCodedResponse::Success(RPCResponse::BlocksByRange(Arc::new(empty_base_block()))),
                 ForkName::Base,
             ),
@@ -939,8 +883,7 @@ mod tests {
         assert!(
             matches!(
                 encode_then_decode_response(
-                    Protocol::BlocksByRange,
-                    Version::V1,
+                    SupportedProtocol::BlocksByRangeV1,
                     RPCCodedResponse::Success(RPCResponse::BlocksByRange(Arc::new(altair_block()))),
                     ForkName::Altair,
                 )
@@ -952,8 +895,7 @@ mod tests {
 
         assert_eq!(
             encode_then_decode_response(
-                Protocol::BlocksByRoot,
-                Version::V1,
+                SupportedProtocol::BlocksByRootV1,
                 RPCCodedResponse::Success(RPCResponse::BlocksByRoot(Arc::new(empty_base_block()))),
                 ForkName::Base,
             ),
@@ -965,8 +907,7 @@ mod tests {
         assert!(
             matches!(
                 encode_then_decode_response(
-                    Protocol::BlocksByRoot,
-                    Version::V1,
+                    SupportedProtocol::BlocksByRootV1,
                     RPCCodedResponse::Success(RPCResponse::BlocksByRoot(Arc::new(altair_block()))),
                     ForkName::Altair,
                 )
@@ -978,18 +919,7 @@ mod tests {
 
         assert_eq!(
             encode_then_decode_response(
-                Protocol::MetaData,
-                Version::V1,
-                RPCCodedResponse::Success(RPCResponse::MetaData(metadata())),
-                ForkName::Base,
-            ),
-            Ok(Some(RPCResponse::MetaData(metadata()))),
-        );
-
-        assert_eq!(
-            encode_then_decode_response(
-                Protocol::MetaData,
-                Version::V1,
+                SupportedProtocol::MetaDataV1,
                 RPCCodedResponse::Success(RPCResponse::MetaData(metadata())),
                 ForkName::Base,
             ),
@@ -999,8 +929,7 @@ mod tests {
         // A MetaDataV2 still encodes as a MetaDataV1 since version is Version::V1
         assert_eq!(
             encode_then_decode_response(
-                Protocol::MetaData,
-                Version::V1,
+                SupportedProtocol::MetaDataV1,
                 RPCCodedResponse::Success(RPCResponse::MetaData(metadata_v2())),
                 ForkName::Base,
             ),
@@ -1011,38 +940,9 @@ mod tests {
     // Test RPCResponse encoding/decoding for V1 messages
     #[test]
     fn test_encode_then_decode_v2() {
-        assert!(
-            matches!(
-                encode_then_decode_response(
-                    Protocol::Status,
-                    Version::V2,
-                    RPCCodedResponse::Success(RPCResponse::Status(status_message())),
-                    ForkName::Base,
-                )
-                .unwrap_err(),
-                RPCError::ErrorResponse(RPCResponseErrorCode::InvalidRequest, _),
-            ),
-            "status does not have V2 message"
-        );
-
-        assert!(
-            matches!(
-                encode_then_decode_response(
-                    Protocol::Ping,
-                    Version::V2,
-                    RPCCodedResponse::Success(RPCResponse::Pong(ping_message())),
-                    ForkName::Base,
-                )
-                .unwrap_err(),
-                RPCError::ErrorResponse(RPCResponseErrorCode::InvalidRequest, _),
-            ),
-            "ping does not have V2 message"
-        );
-
         assert_eq!(
             encode_then_decode_response(
-                Protocol::BlocksByRange,
-                Version::V2,
+                SupportedProtocol::BlocksByRangeV2,
                 RPCCodedResponse::Success(RPCResponse::BlocksByRange(Arc::new(empty_base_block()))),
                 ForkName::Base,
             ),
@@ -1056,8 +956,7 @@ mod tests {
         // the current_fork's rpc limit
         assert_eq!(
             encode_then_decode_response(
-                Protocol::BlocksByRange,
-                Version::V2,
+                SupportedProtocol::BlocksByRangeV2,
                 RPCCodedResponse::Success(RPCResponse::BlocksByRange(Arc::new(empty_base_block()))),
                 ForkName::Altair,
             ),
@@ -1068,8 +967,7 @@ mod tests {
 
         assert_eq!(
             encode_then_decode_response(
-                Protocol::BlocksByRange,
-                Version::V2,
+                SupportedProtocol::BlocksByRangeV2,
                 RPCCodedResponse::Success(RPCResponse::BlocksByRange(Arc::new(altair_block()))),
                 ForkName::Altair,
             ),
@@ -1081,8 +979,7 @@ mod tests {
 
         assert_eq!(
             encode_then_decode_response(
-                Protocol::BlocksByRange,
-                Version::V2,
+                SupportedProtocol::BlocksByRangeV2,
                 RPCCodedResponse::Success(RPCResponse::BlocksByRange(Arc::new(
                     merge_block_small.clone()
                 ))),
@@ -1100,8 +997,7 @@ mod tests {
         assert!(
             matches!(
                 decode_response(
-                    Protocol::BlocksByRange,
-                    Version::V2,
+                    SupportedProtocol::BlocksByRangeV2,
                     &mut encoded,
                     ForkName::Merge,
                 )
@@ -1113,8 +1009,7 @@ mod tests {
 
         assert_eq!(
             encode_then_decode_response(
-                Protocol::BlocksByRoot,
-                Version::V2,
+                SupportedProtocol::BlocksByRootV2,
                 RPCCodedResponse::Success(RPCResponse::BlocksByRoot(Arc::new(empty_base_block()))),
                 ForkName::Base,
             ),
@@ -1128,8 +1023,7 @@ mod tests {
         // the current_fork's rpc limit
         assert_eq!(
             encode_then_decode_response(
-                Protocol::BlocksByRoot,
-                Version::V2,
+                SupportedProtocol::BlocksByRootV2,
                 RPCCodedResponse::Success(RPCResponse::BlocksByRoot(Arc::new(empty_base_block()))),
                 ForkName::Altair,
             ),
@@ -1140,8 +1034,7 @@ mod tests {
 
         assert_eq!(
             encode_then_decode_response(
-                Protocol::BlocksByRoot,
-                Version::V2,
+                SupportedProtocol::BlocksByRootV2,
                 RPCCodedResponse::Success(RPCResponse::BlocksByRoot(Arc::new(altair_block()))),
                 ForkName::Altair,
             ),
@@ -1150,8 +1043,7 @@ mod tests {
 
         assert_eq!(
             encode_then_decode_response(
-                Protocol::BlocksByRoot,
-                Version::V2,
+                SupportedProtocol::BlocksByRootV2,
                 RPCCodedResponse::Success(RPCResponse::BlocksByRoot(Arc::new(
                     merge_block_small.clone()
                 ))),
@@ -1167,8 +1059,7 @@ mod tests {
         assert!(
             matches!(
                 decode_response(
-                    Protocol::BlocksByRoot,
-                    Version::V2,
+                    SupportedProtocol::BlocksByRootV2,
                     &mut encoded,
                     ForkName::Merge,
                 )
@@ -1181,8 +1072,7 @@ mod tests {
         // A MetaDataV1 still encodes as a MetaDataV2 since version is Version::V2
         assert_eq!(
             encode_then_decode_response(
-                Protocol::MetaData,
-                Version::V2,
+                SupportedProtocol::MetaDataV2,
                 RPCCodedResponse::Success(RPCResponse::MetaData(metadata())),
                 ForkName::Base,
             ),
@@ -1191,8 +1081,7 @@ mod tests {
 
         assert_eq!(
             encode_then_decode_response(
-                Protocol::MetaData,
-                Version::V2,
+                SupportedProtocol::MetaDataV2,
                 RPCCodedResponse::Success(RPCResponse::MetaData(metadata_v2())),
                 ForkName::Altair,
             ),
@@ -1207,8 +1096,7 @@ mod tests {
 
         // Removing context bytes for v2 messages should error
         let mut encoded_bytes = encode_response(
-            Protocol::BlocksByRange,
-            Version::V2,
+            SupportedProtocol::BlocksByRangeV2,
             RPCCodedResponse::Success(RPCResponse::BlocksByRange(Arc::new(empty_base_block()))),
             ForkName::Base,
         )
@@ -1218,8 +1106,7 @@ mod tests {
 
         assert!(matches!(
             decode_response(
-                Protocol::BlocksByRange,
-                Version::V2,
+                SupportedProtocol::BlocksByRangeV2,
                 &mut encoded_bytes,
                 ForkName::Base
             )
@@ -1228,8 +1115,7 @@ mod tests {
         ));
 
         let mut encoded_bytes = encode_response(
-            Protocol::BlocksByRoot,
-            Version::V2,
+            SupportedProtocol::BlocksByRootV2,
             RPCCodedResponse::Success(RPCResponse::BlocksByRoot(Arc::new(empty_base_block()))),
             ForkName::Base,
         )
@@ -1239,8 +1125,7 @@ mod tests {
 
         assert!(matches!(
             decode_response(
-                Protocol::BlocksByRange,
-                Version::V2,
+                SupportedProtocol::BlocksByRangeV2,
                 &mut encoded_bytes,
                 ForkName::Base
             )
@@ -1250,8 +1135,7 @@ mod tests {
 
         // Trying to decode a base block with altair context bytes should give ssz decoding error
         let mut encoded_bytes = encode_response(
-            Protocol::BlocksByRange,
-            Version::V2,
+            SupportedProtocol::BlocksByRangeV2,
             RPCCodedResponse::Success(RPCResponse::BlocksByRange(Arc::new(empty_base_block()))),
             ForkName::Altair,
         )
@@ -1264,8 +1148,7 @@ mod tests {
 
         assert!(matches!(
             decode_response(
-                Protocol::BlocksByRange,
-                Version::V2,
+                SupportedProtocol::BlocksByRangeV2,
                 &mut wrong_fork_bytes,
                 ForkName::Altair
             )
@@ -1275,8 +1158,7 @@ mod tests {
 
         // Trying to decode an altair block with base context bytes should give ssz decoding error
         let mut encoded_bytes = encode_response(
-            Protocol::BlocksByRoot,
-            Version::V2,
+            SupportedProtocol::BlocksByRootV2,
             RPCCodedResponse::Success(RPCResponse::BlocksByRoot(Arc::new(altair_block()))),
             ForkName::Altair,
         )
@@ -1288,8 +1170,7 @@ mod tests {
 
         assert!(matches!(
             decode_response(
-                Protocol::BlocksByRange,
-                Version::V2,
+                SupportedProtocol::BlocksByRangeV2,
                 &mut wrong_fork_bytes,
                 ForkName::Altair
             )
@@ -1302,8 +1183,7 @@ mod tests {
         encoded_bytes.extend_from_slice(&fork_context.to_context_bytes(ForkName::Altair).unwrap());
         encoded_bytes.extend_from_slice(
             &encode_response(
-                Protocol::MetaData,
-                Version::V2,
+                SupportedProtocol::MetaDataV2,
                 RPCCodedResponse::Success(RPCResponse::MetaData(metadata())),
                 ForkName::Altair,
             )
@@ -1311,8 +1191,7 @@ mod tests {
         );
 
         assert!(decode_response(
-            Protocol::MetaData,
-            Version::V2,
+            SupportedProtocol::MetaDataV2,
             &mut encoded_bytes,
             ForkName::Altair
         )
@@ -1320,8 +1199,7 @@ mod tests {
 
         // Sending context bytes which do not correspond to any fork should return an error
         let mut encoded_bytes = encode_response(
-            Protocol::BlocksByRoot,
-            Version::V2,
+            SupportedProtocol::BlocksByRootV2,
             RPCCodedResponse::Success(RPCResponse::BlocksByRoot(Arc::new(empty_base_block()))),
             ForkName::Altair,
         )
@@ -1333,8 +1211,7 @@ mod tests {
 
         assert!(matches!(
             decode_response(
-                Protocol::BlocksByRange,
-                Version::V2,
+                SupportedProtocol::BlocksByRangeV2,
                 &mut wrong_fork_bytes,
                 ForkName::Altair
             )
@@ -1344,8 +1221,7 @@ mod tests {
 
         // Sending bytes less than context bytes length should wait for more bytes by returning `Ok(None)`
         let mut encoded_bytes = encode_response(
-            Protocol::BlocksByRoot,
-            Version::V2,
+            SupportedProtocol::BlocksByRootV2,
             RPCCodedResponse::Success(RPCResponse::BlocksByRoot(Arc::new(empty_base_block()))),
             ForkName::Altair,
         )
@@ -1355,8 +1231,7 @@ mod tests {
 
         assert_eq!(
             decode_response(
-                Protocol::BlocksByRange,
-                Version::V2,
+                SupportedProtocol::BlocksByRangeV2,
                 &mut part,
                 ForkName::Altair
             ),
@@ -1370,9 +1245,12 @@ mod tests {
             OutboundRequest::Ping(ping_message()),
             OutboundRequest::Status(status_message()),
             OutboundRequest::Goodbye(GoodbyeReason::Fault),
-            OutboundRequest::BlocksByRange(bbrange_request()),
-            OutboundRequest::BlocksByRoot(bbroot_request()),
-            OutboundRequest::MetaData(PhantomData::<Spec>),
+            OutboundRequest::BlocksByRange(bbrange_request_v1()),
+            OutboundRequest::BlocksByRange(bbrange_request_v2()),
+            OutboundRequest::BlocksByRoot(bbroot_request_v1()),
+            OutboundRequest::BlocksByRoot(bbroot_request_v2()),
+            OutboundRequest::MetaData(MetadataRequest::new_v1()),
+            OutboundRequest::MetaData(MetadataRequest::new_v2()),
         ];
         for req in requests.iter() {
             for fork_name in ForkName::list_all() {
@@ -1432,7 +1310,7 @@ mod tests {
 
         // 10 (for stream identifier) + 80 + 42 = 132 > `max_compressed_len`. Hence, decoding should fail with `InvalidData`.
         assert!(matches!(
-            decode_response(Protocol::Status, Version::V1, &mut dst, ForkName::Base).unwrap_err(),
+            decode_response(SupportedProtocol::StatusV1, &mut dst, ForkName::Base).unwrap_err(),
             RPCError::InvalidData(_)
         ));
     }
@@ -1490,8 +1368,7 @@ mod tests {
         // 10 (for stream identifier) + 176156 + 8103 = 184269 > `max_compressed_len`. Hence, decoding should fail with `InvalidData`.
         assert!(matches!(
             decode_response(
-                Protocol::BlocksByRange,
-                Version::V2,
+                SupportedProtocol::BlocksByRangeV2,
                 &mut dst,
                 ForkName::Altair
             )
@@ -1534,7 +1411,7 @@ mod tests {
         dst.extend_from_slice(writer.get_ref());
 
         assert!(matches!(
-            decode_response(Protocol::Status, Version::V1, &mut dst, ForkName::Base).unwrap_err(),
+            decode_response(SupportedProtocol::StatusV1, &mut dst, ForkName::Base).unwrap_err(),
             RPCError::InvalidData(_)
         ));
     }
