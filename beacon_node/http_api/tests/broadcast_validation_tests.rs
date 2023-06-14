@@ -585,8 +585,8 @@ pub async fn equivocation_consensus_late_equivocation() {
     assert!(gossip_block_a.is_err());
 
     let publication_result: Result<(), Rejection> = publish_block(
-        Some(block_b.state_root()),
-        ProvenancedBlock::Builder(Arc::new(block_b.clone())),
+        None,
+        ProvenancedBlock::Local(Arc::new(block_b.clone())),
         tester.harness.chain,
         &tokio::sync::mpsc::unbounded_channel().0,
         test_logger,
