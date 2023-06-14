@@ -715,7 +715,7 @@ impl BeaconNodeHttpClient {
             self.post_beacon_blocks_v2_path(validation_level)?,
             block,
             Some(self.timeouts.proposal),
-            ForkName::Capella,
+            block.message().body().fork_name(),
         )
         .await?;
 
@@ -732,7 +732,7 @@ impl BeaconNodeHttpClient {
             self.post_beacon_blinded_blocks_v2_path(validation_level)?,
             block,
             Some(self.timeouts.proposal),
-            ForkName::Capella,
+            block.message().body().fork_name(),
         )
         .await?;
 
