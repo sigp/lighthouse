@@ -1412,7 +1412,7 @@ async fn import_duplicate_block_unrealized_justification() {
     let unrealized_justification = fc.unrealized_justified_checkpoint();
     assert_eq!(unrealized_justification.epoch, 2);
 
-    // The fork choice node for the block should unrealized justification.
+    // The fork choice node for the block should have unrealized justification.
     let fc_block = fc.get_block(&block_root).unwrap();
     assert_eq!(
         fc_block.unrealized_justified_checkpoint,
