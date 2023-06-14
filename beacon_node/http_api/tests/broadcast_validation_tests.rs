@@ -170,6 +170,10 @@ pub async fn gossip_full_pass() {
         .await;
 
     assert!(response.is_ok());
+    assert!(tester
+        .harness
+        .chain
+        .block_is_known_to_fork_choice(&block.canonical_root()));
 }
 
 /// This test checks that a block that is **invalid** from a gossip perspective gets rejected when using `broadcast_validation=consensus`.
@@ -317,6 +321,10 @@ pub async fn consensus_partial_pass_only_consensus() {
         .post_beacon_blocks_v2(&block_a, validation_level)
         .await
         .is_ok());
+    assert!(tester
+        .harness
+        .chain
+        .block_is_known_to_fork_choice(&block_a.canonical_root()));
 
     /* submit `block_b` which should induce equivocation */
     let response: Result<(), eth2::Error> = tester
@@ -370,6 +378,10 @@ pub async fn consensus_full_pass() {
         .await;
 
     assert!(response.is_ok());
+    assert!(tester
+        .harness
+        .chain
+        .block_is_known_to_fork_choice(&block.canonical_root()));
 }
 
 /// This test checks that a block that is **invalid** from a gossip perspective gets rejected when using `broadcast_validation=consensus_and_equivocation`.
@@ -470,6 +482,10 @@ pub async fn equivocation_consensus_early_equivocation() {
         .post_beacon_blocks_v2(&block_a, validation_level)
         .await
         .is_ok());
+    assert!(tester
+        .harness
+        .chain
+        .block_is_known_to_fork_choice(&block_a.canonical_root()));
 
     /* submit `block_b` which should induce equivocation */
     let response: Result<(), eth2::Error> = tester
@@ -638,6 +654,10 @@ pub async fn equivocation_full_pass() {
         .await;
 
     assert!(response.is_ok());
+    assert!(tester
+        .harness
+        .chain
+        .block_is_known_to_fork_choice(&block.canonical_root()));
 }
 
 /// This test checks that a block that is **invalid** from a gossip perspective gets rejected when using `broadcast_validation=gossip`.
@@ -779,6 +799,10 @@ pub async fn blinded_gossip_full_pass() {
         .await;
 
     assert!(response.is_ok());
+    assert!(tester
+        .harness
+        .chain
+        .block_is_known_to_fork_choice(&block.canonical_root()));
 }
 
 /// This test checks that a block that is **invalid** from a gossip perspective gets rejected when using `broadcast_validation=consensus`.
@@ -932,6 +956,10 @@ pub async fn blinded_consensus_partial_pass_only_consensus() {
         .post_beacon_blinded_blocks_v2(&block_a, validation_level)
         .await
         .is_ok());
+    assert!(tester
+        .harness
+        .chain
+        .block_is_known_to_fork_choice(&block_a.canonical_root()));
 
     /* submit `block_b` which should induce equivocation */
     let response: Result<(), eth2::Error> = tester
@@ -986,6 +1014,10 @@ pub async fn blinded_consensus_full_pass() {
         .await;
 
     assert!(response.is_ok());
+    assert!(tester
+        .harness
+        .chain
+        .block_is_known_to_fork_choice(&block.canonical_root()));
 }
 
 /// This test checks that a block that is **invalid** from a gossip perspective gets rejected when using `broadcast_validation=consensus_and_equivocation`.
@@ -1090,6 +1122,10 @@ pub async fn blinded_equivocation_consensus_early_equivocation() {
         .post_beacon_blinded_blocks_v2(&block_a, validation_level)
         .await
         .is_ok());
+    assert!(tester
+        .harness
+        .chain
+        .block_is_known_to_fork_choice(&block_a.canonical_root()));
 
     /* submit `block_b` which should induce equivocation */
     let response: Result<(), eth2::Error> = tester
@@ -1286,4 +1322,8 @@ pub async fn blinded_equivocation_full_pass() {
         .await;
 
     assert!(response.is_ok());
+    assert!(tester
+        .harness
+        .chain
+        .block_is_known_to_fork_choice(&block.canonical_root()));
 }
