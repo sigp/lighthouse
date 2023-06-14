@@ -676,6 +676,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                 peer_client,
                 block,
                 reprocess_tx.clone(),
+                invalid_block_storage.clone(),
                 seen_duration,
             )
             .await
@@ -707,6 +708,7 @@ impl<T: BeaconChainTypes> Worker<T> {
     /// if it passes gossip propagation criteria, tell the network thread to forward it.
     ///
     /// Returns the `GossipVerifiedBlock` if verification passes and raises a log if there are errors.
+    #[allow(clippy::too_many_arguments)]
     pub async fn process_gossip_unverified_block(
         &self,
         message_id: MessageId,
@@ -714,6 +716,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         peer_client: Client,
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
         reprocess_tx: mpsc::Sender<ReprocessQueueMessage<T>>,
+        invalid_block_storage: InvalidBlockStorage,
         seen_duration: Duration,
     ) -> Option<GossipVerifiedBlock<T>> {
         let block_delay =
@@ -817,6 +820,20 @@ impl<T: BeaconChainTypes> Worker<T> {
                     "gossip_block_high",
                 );
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+
+                // Store repeat proposals on disk. These blocks are interesting
+                // and may come in handy for manually reconstructing proposer
+                // slashings.
+                if matches!(e, BlockError::RepeatProposal { .. }) {
+                    self.maybe_store_invalid_block(
+                        &invalid_block_storage,
+                        block_root,
+                        &block,
+                        &e,
+                        &self.log,
+                    );
+                }
+
                 return None;
             }
             Err(ref e @ BlockError::ExecutionPayloadError(ref epe)) if !epe.penalize_peer() => {
@@ -2528,7 +2545,7 @@ impl<T: BeaconChainTypes> Worker<T> {
     }
 
     /// Stores a block as a SSZ file, if and where `invalid_block_storage` dictates.
-    fn maybe_store_invalid_block(
+    pub fn maybe_store_invalid_block(
         &self,
         invalid_block_storage: &InvalidBlockStorage,
         block_root: Hash256,
@@ -2572,7 +2589,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                 } else {
                     info!(
                         log,
-                        "Stored invalid block/error ";
+                        "Stored invalid block/error";
                         "path" => ?path,
                         "root" => ?block_root,
                         "slot" => block.slot(),

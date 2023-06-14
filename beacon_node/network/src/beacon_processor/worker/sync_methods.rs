@@ -3,7 +3,7 @@ use std::time::Duration;
 use super::{super::work_reprocessing_queue::ReprocessQueueMessage, Worker};
 use crate::beacon_processor::work_reprocessing_queue::QueuedRpcBlock;
 use crate::beacon_processor::worker::FUTURE_SLOT_TOLERANCE;
-use crate::beacon_processor::DuplicateCache;
+use crate::beacon_processor::{DuplicateCache, InvalidBlockStorage};
 use crate::metrics;
 use crate::sync::manager::{BlockProcessType, SyncMessage};
 use crate::sync::{BatchProcessResult, ChainId};
@@ -51,6 +51,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         process_type: BlockProcessType,
         reprocess_tx: mpsc::Sender<ReprocessQueueMessage<T>>,
         duplicate_cache: DuplicateCache,
+        invalid_block_storage: InvalidBlockStorage,
         should_process: bool,
     ) {
         if !should_process {
@@ -168,7 +169,7 @@ impl<T: BeaconChainTypes> Worker<T> {
             .chain
             .process_block(
                 block_root,
-                block,
+                block.clone(),
                 CountUnrealized::True,
                 NotifyExecutionLayer::Yes,
             )
@@ -200,6 +201,22 @@ impl<T: BeaconChainTypes> Worker<T> {
                 self.chain.recompute_head_at_current_slot().await;
             }
         }
+
+        // Store repeat proposals on disk. These blocks are interesting
+        // and may come in handy for manually reconstructing proposer
+        // slashings.
+        if let Err(e) = &result {
+            if matches!(e, BlockError::RepeatProposal { .. }) {
+                self.maybe_store_invalid_block(
+                    &invalid_block_storage,
+                    block_root,
+                    &block,
+                    e,
+                    &self.log,
+                );
+            }
+        }
+
         // Sync handles these results
         self.send_sync_message(SyncMessage::BlockProcessed {
             process_type,
