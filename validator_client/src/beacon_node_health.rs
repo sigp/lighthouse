@@ -15,7 +15,7 @@ type SyncDistance = Slot;
 type OptimisticStatus = bool;
 
 /// Helpful enum which is used when pattern matching to determine health tier.
-#[derive(PartialEq, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum SyncDistanceTier {
     Synced,
     Small,
@@ -88,6 +88,7 @@ pub enum ExecutionEngineHealth {
 pub struct BeaconNodeHealthTier {
     pub tier: HealthTier,
     pub sync_distance: SyncDistance,
+    pub distance_tier: SyncDistanceTier,
 }
 
 impl Display for BeaconNodeHealthTier {
@@ -100,8 +101,7 @@ impl Ord for BeaconNodeHealthTier {
     fn cmp(&self, other: &Self) -> Ordering {
         let ordering = self.tier.cmp(&other.tier);
         if ordering == Ordering::Equal {
-            // These tiers represent `synced`.
-            if [1, 3, 5, 6].contains(&self.tier) {
+            if self.distance_tier == SyncDistanceTier::Synced {
                 // Don't tie-break on sync distance in these cases.
                 // This ensures validator clients don't artificially prefer one node.
                 ordering
@@ -121,10 +121,15 @@ impl PartialOrd for BeaconNodeHealthTier {
 }
 
 impl BeaconNodeHealthTier {
-    pub fn new(tier: HealthTier, sync_distance: SyncDistance) -> Self {
+    pub fn new(
+        tier: HealthTier,
+        sync_distance: SyncDistance,
+        distance_tier: SyncDistanceTier,
+    ) -> Self {
         Self {
             tier,
             sync_distance,
+            distance_tier,
         }
     }
 }
@@ -218,52 +223,52 @@ impl BeaconNodeHealth {
 
         match health {
             (SyncDistanceTier::Synced, false, ExecutionEngineHealth::Healthy) => {
-                BeaconNodeHealthTier::new(1, sync_distance)
+                BeaconNodeHealthTier::new(1, sync_distance, sync_distance_tier)
             }
             (SyncDistanceTier::Small, false, ExecutionEngineHealth::Healthy) => {
-                BeaconNodeHealthTier::new(2, sync_distance)
+                BeaconNodeHealthTier::new(2, sync_distance, sync_distance_tier)
             }
             (SyncDistanceTier::Synced, false, ExecutionEngineHealth::Unhealthy) => {
-                BeaconNodeHealthTier::new(3, sync_distance)
+                BeaconNodeHealthTier::new(3, sync_distance, sync_distance_tier)
             }
             (SyncDistanceTier::Medium, false, ExecutionEngineHealth::Healthy) => {
-                BeaconNodeHealthTier::new(4, sync_distance)
+                BeaconNodeHealthTier::new(4, sync_distance, sync_distance_tier)
             }
             (SyncDistanceTier::Synced, true, ExecutionEngineHealth::Healthy) => {
-                BeaconNodeHealthTier::new(5, sync_distance)
+                BeaconNodeHealthTier::new(5, sync_distance, sync_distance_tier)
             }
             (SyncDistanceTier::Synced, true, ExecutionEngineHealth::Unhealthy) => {
-                BeaconNodeHealthTier::new(6, sync_distance)
+                BeaconNodeHealthTier::new(6, sync_distance, sync_distance_tier)
             }
             (SyncDistanceTier::Small, false, ExecutionEngineHealth::Unhealthy) => {
-                BeaconNodeHealthTier::new(7, sync_distance)
+                BeaconNodeHealthTier::new(7, sync_distance, sync_distance_tier)
             }
             (SyncDistanceTier::Small, true, ExecutionEngineHealth::Healthy) => {
-                BeaconNodeHealthTier::new(8, sync_distance)
+                BeaconNodeHealthTier::new(8, sync_distance, sync_distance_tier)
             }
             (SyncDistanceTier::Small, true, ExecutionEngineHealth::Unhealthy) => {
-                BeaconNodeHealthTier::new(9, sync_distance)
+                BeaconNodeHealthTier::new(9, sync_distance, sync_distance_tier)
             }
             (SyncDistanceTier::Large, false, ExecutionEngineHealth::Healthy) => {
-                BeaconNodeHealthTier::new(10, sync_distance)
+                BeaconNodeHealthTier::new(10, sync_distance, sync_distance_tier)
             }
             (SyncDistanceTier::Medium, false, ExecutionEngineHealth::Unhealthy) => {
-                BeaconNodeHealthTier::new(11, sync_distance)
+                BeaconNodeHealthTier::new(11, sync_distance, sync_distance_tier)
             }
             (SyncDistanceTier::Medium, true, ExecutionEngineHealth::Healthy) => {
-                BeaconNodeHealthTier::new(12, sync_distance)
+                BeaconNodeHealthTier::new(12, sync_distance, sync_distance_tier)
             }
             (SyncDistanceTier::Medium, true, ExecutionEngineHealth::Unhealthy) => {
-                BeaconNodeHealthTier::new(13, sync_distance)
+                BeaconNodeHealthTier::new(13, sync_distance, sync_distance_tier)
             }
             (SyncDistanceTier::Large, false, ExecutionEngineHealth::Unhealthy) => {
-                BeaconNodeHealthTier::new(14, sync_distance)
+                BeaconNodeHealthTier::new(14, sync_distance, sync_distance_tier)
             }
             (SyncDistanceTier::Large, true, ExecutionEngineHealth::Healthy) => {
-                BeaconNodeHealthTier::new(15, sync_distance)
+                BeaconNodeHealthTier::new(15, sync_distance, sync_distance_tier)
             }
             (SyncDistanceTier::Large, true, ExecutionEngineHealth::Unhealthy) => {
-                BeaconNodeHealthTier::new(16, sync_distance)
+                BeaconNodeHealthTier::new(16, sync_distance, sync_distance_tier)
             }
         }
     }

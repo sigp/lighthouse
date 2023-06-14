@@ -621,116 +621,84 @@ mod tests {
 
     #[test]
     fn check_candidate_order() {
-        let candidate_1: CandidateBeaconNode<E> = CandidateBeaconNode::new(
-            BeaconNodeHttpClient::new(
-                SensitiveUrl::parse("http://example_1.com").unwrap(),
-                Timeouts::set_all(Duration::from_secs(1)),
-            ),
-            1,
-        );
-        let expected_candidate_1: CandidateBeaconNode<E> = CandidateBeaconNode::new(
-            BeaconNodeHttpClient::new(
-                SensitiveUrl::parse("http://example_1.com").unwrap(),
-                Timeouts::set_all(Duration::from_secs(1)),
-            ),
-            1,
-        );
-        let candidate_2: CandidateBeaconNode<E> = CandidateBeaconNode::new(
-            BeaconNodeHttpClient::new(
-                SensitiveUrl::parse("http://example_2.com").unwrap(),
-                Timeouts::set_all(Duration::from_secs(2)),
-            ),
-            2,
-        );
-        let expected_candidate_2: CandidateBeaconNode<E> = CandidateBeaconNode::new(
-            BeaconNodeHttpClient::new(
-                SensitiveUrl::parse("http://example_2.com").unwrap(),
-                Timeouts::set_all(Duration::from_secs(2)),
-            ),
-            2,
-        );
-        let candidate_3: CandidateBeaconNode<E> = CandidateBeaconNode::new(
-            BeaconNodeHttpClient::new(
-                SensitiveUrl::parse("http://example_3.com").unwrap(),
-                Timeouts::set_all(Duration::from_secs(3)),
-            ),
-            3,
-        );
-        let expected_candidate_3: CandidateBeaconNode<E> = CandidateBeaconNode::new(
-            BeaconNodeHttpClient::new(
-                SensitiveUrl::parse("http://example_3.com").unwrap(),
-                Timeouts::set_all(Duration::from_secs(3)),
-            ),
-            3,
-        );
-        let candidate_4: CandidateBeaconNode<E> = CandidateBeaconNode::new(
-            BeaconNodeHttpClient::new(
-                SensitiveUrl::parse("http://example_4.com").unwrap(),
-                Timeouts::set_all(Duration::from_secs(4)),
-            ),
-            3,
-        );
-        let expected_candidate_4: CandidateBeaconNode<E> = CandidateBeaconNode::new(
-            BeaconNodeHttpClient::new(
-                SensitiveUrl::parse("http://example_4.com").unwrap(),
-                Timeouts::set_all(Duration::from_secs(4)),
-            ),
-            3,
-        );
-        let candidate_5: CandidateBeaconNode<E> = CandidateBeaconNode::new(
-            BeaconNodeHttpClient::new(
-                SensitiveUrl::parse("http://example_5.com").unwrap(),
-                Timeouts::set_all(Duration::from_secs(5)),
-            ),
-            3,
-        );
-        let expected_candidate_5: CandidateBeaconNode<E> = CandidateBeaconNode::new(
-            BeaconNodeHttpClient::new(
-                SensitiveUrl::parse("http://example_5.com").unwrap(),
-                Timeouts::set_all(Duration::from_secs(5)),
-            ),
-            3,
-        );
+        fn new_candidate(id: usize) -> CandidateBeaconNode<E> {
+            let beacon_node = BeaconNodeHttpClient::new(
+                SensitiveUrl::parse(&format!("http://example_{id}.com")).unwrap(),
+                Timeouts::set_all(Duration::from_secs(id as u64)),
+            );
+            CandidateBeaconNode::new(beacon_node, id)
+        }
 
-        // All health parameters other than `health_tier` are irrelevant for ordering.
+        // These fields is irrelvant for sorting. They are set to arbitrary values.
+        let head = Slot::new(99);
+        let optimistic_status = false;
+        let execution_status = ExecutionEngineHealth::Healthy;
+
+        let candidate_1 = new_candidate(1);
+        let expected_candidate_1 = new_candidate(1);
+        let candidate_2 = new_candidate(2);
+        let expected_candidate_2 = new_candidate(2);
+        let candidate_3 = new_candidate(3);
+        let expected_candidate_3 = new_candidate(3);
+        let candidate_4 = new_candidate(4);
+        let expected_candidate_4 = new_candidate(4);
+        let candidate_5 = new_candidate(5);
+        let expected_candidate_5 = new_candidate(5);
+        let candidate_6 = new_candidate(6);
+        let expected_candidate_6 = new_candidate(6);
+
+        let synced = SyncDistanceTier::Synced;
+        let small = SyncDistanceTier::Small;
+
+        // Despite `health_1` having a larger sync distance, it is inside the `synced` range which
+        // does not tie-break on sync distance and so will tie-break on `id` instead.
         let health_1 = BeaconNodeHealth {
             id: 1,
-            head: Slot::new(99),
-            optimistic_status: false,
-            execution_status: ExecutionEngineHealth::Healthy,
-            health_tier: BeaconNodeHealthTier::new(1, Slot::new(1)),
+            head,
+            optimistic_status,
+            execution_status,
+            health_tier: BeaconNodeHealthTier::new(1, Slot::new(2), synced),
         };
-
         let health_2 = BeaconNodeHealth {
             id: 2,
-            head: Slot::new(99),
-            optimistic_status: false,
-            execution_status: ExecutionEngineHealth::Healthy,
-            health_tier: BeaconNodeHealthTier::new(2, Slot::new(1)),
+            head,
+            optimistic_status,
+            execution_status,
+            health_tier: BeaconNodeHealthTier::new(2, Slot::new(1), synced),
         };
 
+        // `health_3` and `health_4` have the same health tier and sync distance so should
+        // tie-break on `id`.
         let health_3 = BeaconNodeHealth {
             id: 3,
-            head: Slot::new(99),
-            optimistic_status: false,
-            execution_status: ExecutionEngineHealth::Healthy,
-            health_tier: BeaconNodeHealthTier::new(3, Slot::new(1)),
+            head,
+            optimistic_status,
+            execution_status,
+            health_tier: BeaconNodeHealthTier::new(3, Slot::new(8), small),
         };
-
         let health_4 = BeaconNodeHealth {
             id: 4,
-            head: Slot::new(99),
-            optimistic_status: false,
-            execution_status: ExecutionEngineHealth::Healthy,
-            health_tier: BeaconNodeHealthTier::new(4, Slot::new(1)),
+            head,
+            optimistic_status,
+            execution_status,
+            health_tier: BeaconNodeHealthTier::new(3, Slot::new(8), small),
         };
 
+        // `health_5` has a smaller sync distance and is outside the `synced` range so should be
+        // sorted first.
         let health_5 = BeaconNodeHealth {
             id: 5,
-            head: Slot::new(99),
-            optimistic_status: false,
-            execution_status: ExecutionEngineHealth::Unhealthy,
-            health_tier: BeaconNodeHealthTier::new(4, Slot::new(5)),
+            head,
+            optimistic_status,
+            execution_status,
+            health_tier: BeaconNodeHealthTier::new(4, Slot::new(8), small),
+        };
+        let health_6 = BeaconNodeHealth {
+            id: 6,
+            head,
+            optimistic_status,
+            execution_status,
+            health_tier: BeaconNodeHealthTier::new(4, Slot::new(9), small),
         };
 
         *candidate_1.health.write() = Some(health_1);
@@ -738,9 +706,11 @@ mod tests {
         *candidate_3.health.write() = Some(health_3);
         *candidate_4.health.write() = Some(health_4);
         *candidate_5.health.write() = Some(health_5);
+        *candidate_6.health.write() = Some(health_6);
 
         let mut candidates = vec![
             candidate_3,
+            candidate_6,
             candidate_5,
             candidate_1,
             candidate_4,
@@ -752,6 +722,7 @@ mod tests {
             expected_candidate_3,
             expected_candidate_4,
             expected_candidate_5,
+            expected_candidate_6,
         ];
 
         candidates.sort();
