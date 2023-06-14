@@ -101,6 +101,20 @@ lazy_static! {
         ])
     .as_ssz_bytes()
     .len();
+
+    pub static ref BLOBS_BY_ROOT_REQUEST_MIN: usize =
+        VariableList::<Hash256, MaxRequestBlobSidecars>::from(Vec::<Hash256>::new())
+    .as_ssz_bytes()
+    .len();
+    pub static ref BLOBS_BY_ROOT_REQUEST_MAX: usize =
+        VariableList::<Hash256, MaxRequestBlobSidecars>::from(vec![
+            Hash256::zero();
+            MAX_REQUEST_BLOB_SIDECARS
+                as usize
+        ])
+    .as_ssz_bytes()
+    .len();
+
     pub static ref ERROR_TYPE_MIN: usize =
         VariableList::<u8, MaxErrorLen>::from(Vec::<u8>::new())
     .as_ssz_bytes()
@@ -116,10 +130,6 @@ lazy_static! {
 
     pub static ref BLOB_SIDECAR_MIN: usize = BlobSidecar::<MainnetEthSpec>::empty().as_ssz_bytes().len();
     pub static ref BLOB_SIDECAR_MAX: usize = BlobSidecar::<MainnetEthSpec>::max_size();
-
-    //FIXME(sean) these are underestimates
-    pub static ref SIGNED_BLOCK_AND_BLOBS_MIN: usize = *BLOB_SIDECAR_MIN + *SIGNED_BEACON_BLOCK_BASE_MIN;
-    pub static ref SIGNED_BLOCK_AND_BLOBS_MAX: usize =*BLOB_SIDECAR_MAX + *SIGNED_BEACON_BLOCK_DENEB_MAX;
 }
 
 /// The maximum bytes that can be sent across the RPC pre-merge.
@@ -359,8 +369,7 @@ impl ProtocolId {
                 <BlobsByRangeRequest as Encode>::ssz_fixed_len(),
             ),
             Protocol::BlobsByRoot => {
-                // TODO: This looks wrong to me
-                RpcLimits::new(*BLOCKS_BY_ROOT_REQUEST_MIN, *BLOCKS_BY_ROOT_REQUEST_MAX)
+                RpcLimits::new(*BLOBS_BY_ROOT_REQUEST_MIN, *BLOBS_BY_ROOT_REQUEST_MAX)
             }
             Protocol::Ping => RpcLimits::new(
                 <Ping as Encode>::ssz_fixed_len(),
@@ -385,10 +394,7 @@ impl ProtocolId {
             Protocol::BlocksByRange => rpc_block_limits_by_fork(fork_context.current_fork()),
             Protocol::BlocksByRoot => rpc_block_limits_by_fork(fork_context.current_fork()),
             Protocol::BlobsByRange => RpcLimits::new(*BLOB_SIDECAR_MIN, *BLOB_SIDECAR_MAX),
-            Protocol::BlobsByRoot => {
-                // TODO: wrong too
-                RpcLimits::new(*SIGNED_BLOCK_AND_BLOBS_MIN, *SIGNED_BLOCK_AND_BLOBS_MAX)
-            }
+            Protocol::BlobsByRoot => RpcLimits::new(*BLOB_SIDECAR_MIN, *BLOB_SIDECAR_MAX),
             Protocol::Ping => RpcLimits::new(
                 <Ping as Encode>::ssz_fixed_len(),
                 <Ping as Encode>::ssz_fixed_len(),
