@@ -333,6 +333,16 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .default_value("true")
                 .takes_value(true),
         )
+        .arg(
+            Arg::with_name("validator-registration-batch-size")
+                .long("validator-registration-batch-size")
+                .value_name("INTEGER")
+                .help("Defines the number of validators per \
+                    validator/register_validator request sent to the BN. This value \
+                    can be reduced to avoid timeouts from builders.")
+                .default_value("500")
+                .takes_value(true),
+        )
         /*
          * Experimental/development options.
          */

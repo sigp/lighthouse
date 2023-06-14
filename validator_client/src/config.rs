@@ -77,6 +77,8 @@ pub struct Config {
     pub disable_run_on_all: bool,
     /// Enables a service which attempts to measure latency between the VC and BNs.
     pub enable_latency_measurement_service: bool,
+    /// Defines the number of validators per `validator/register_validator` request sent to the BN.
+    pub validator_registration_batch_size: usize,
 }
 
 impl Default for Config {
@@ -117,6 +119,7 @@ impl Default for Config {
             gas_limit: None,
             disable_run_on_all: false,
             enable_latency_measurement_service: true,
+            validator_registration_batch_size: 500,
         }
     }
 }
@@ -379,6 +382,12 @@ impl Config {
 
         config.enable_latency_measurement_service =
             parse_optional(cli_args, "latency-measurement-service")?.unwrap_or(true);
+
+        config.validator_registration_batch_size =
+            parse_required(cli_args, "validator-registration-batch-size")?;
+        if config.validator_registration_batch_size == 0 {
+            return Err("validator-registration-batch-size cannot be 0".to_string());
+        }
 
         /*
          * Experimental
