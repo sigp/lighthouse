@@ -86,32 +86,29 @@ pub async fn publish_block<T: BeaconChainTypes>(
     let log_clone = log.clone();
     let sender_clone = network_tx.clone();
 
-    let consensus_and_equivocation_publish_fn = move || {
-        if chain_clone
-            .observed_block_producers
-            .write()
-            .observe_proposal(block_root, block_clone.message())
-            .map_err(|e| BlockError::BeaconChainError(e.into()))?
-            .is_slashable()
-        {
-            warn!(
-                log_clone,
-                "Not publishing block, another block detected";
-                "slot" => block_clone.slot()
-            );
-            return Err(BlockError::SlashablePublish);
-        } else {
-            publish_block(block_clone, sender_clone, log_clone, seen_timestamp)?;
+    let publish_fn = move || match validation_level {
+        BroadcastValidation::Gossip | BroadcastValidation::Consensus => {
+            publish_block(block_clone, sender_clone, log_clone, seen_timestamp)
         }
-        Ok(())
+        BroadcastValidation::ConsensusAndEquivocation => {
+            if chain_clone
+                .observed_block_producers
+                .write()
+                .observe_proposal(block_root, block_clone.message())
+                .map_err(|e| BlockError::BeaconChainError(e.into()))?
+                .is_slashable()
+            {
+                warn!(
+                    log_clone,
+                    "Not publishing block, another block detected";
+                    "slot" => block_clone.slot()
+                );
+                Err(BlockError::SlashablePublish)
+            } else {
+                publish_block(block_clone, sender_clone, log_clone, seen_timestamp)
+            }
+        }
     };
-
-    /* decide which publishing scheme we're going to use */
-    let publish_fn: Box<dyn FnOnce() -> Result<(), BlockError<T::EthSpec>> + Send + 'static> =
-        match validation_level {
-            BroadcastValidation::Gossip => Box::new(move || Ok(())),
-            _ => Box::new(consensus_and_equivocation_publish_fn),
-        };
 
     match chain
         .process_block(
