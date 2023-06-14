@@ -1,4 +1,8 @@
 //! ENR extension trait to support libp2p integration.
+
+// TODO: super annoying stuff I really don't want to deal with right now
+#![allow(deprecated)]
+
 use crate::{Enr, Multiaddr, PeerId};
 use discv5::enr::{CombinedKey, CombinedPublicKey};
 use libp2p::core::multiaddr::Protocol;
