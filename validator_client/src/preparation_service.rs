@@ -473,7 +473,7 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
                     Ok(()) => info!(
                         log,
                         "Published validator registrations to the builder network";
-                        "count" => registration_data_len,
+                        "count" => batch.len(),
                     ),
                     Err(e) => warn!(
                         log,
