@@ -617,16 +617,14 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             } => self.rpc_blob_received(request_id, peer_id, blob_sidecar, seen_timestamp),
             SyncMessage::UnknownParentBlock(peer_id, block, block_root) => {
                 let block_slot = block.slot();
-
+                let (block, blobs) = block.deconstruct();
                 self.handle_unknown_parent(
                     peer_id,
                     block_root,
                     block.parent_root(),
                     block_slot,
-                    move || {
-                        let (block, blobs) = block.deconstruct();
-                        (Some(block), blobs)
-                    },
+                    Some(block),
+                    blobs,
                 );
             }
             SyncMessage::UnknownParentBlob(peer_id, blob) => {
@@ -634,17 +632,15 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 let block_root = blob.block_root;
                 let parent_root = blob.block_parent_root;
                 let blob_index = blob.index;
+                let mut blobs = FixedBlobSidecarList::default();
+                *blobs.index_mut(blob_index as usize) = Some(blob);
                 self.handle_unknown_parent(
                     peer_id,
                     block_root,
                     parent_root,
                     blob_slot,
-                    move || {
-                        //TODO(sean) index validation
-                        let mut blobs = FixedBlobSidecarList::default();
-                        *blobs.index_mut(blob_index as usize) = Some(blob);
-                        (None, Some(blobs))
-                    },
+                    None,
+                    Some(blobs),
                 );
             }
             SyncMessage::UnknownBlockHashFromAttestation(peer_id, block_hash) => {
@@ -735,20 +731,15 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         }
     }
 
-    fn handle_unknown_parent<
-        F: FnOnce() -> (
-            Option<Arc<SignedBeaconBlock<T::EthSpec>>>,
-            Option<FixedBlobSidecarList<T::EthSpec>>,
-        ),
-    >(
+    fn handle_unknown_parent(
         &mut self,
         peer_id: PeerId,
         block_root: Hash256,
         parent_root: Hash256,
         slot: Slot,
-        block_component_closure: F,
+        block: Option<Arc<SignedBeaconBlock<T::EthSpec>>>,
+        blobs: Option<FixedBlobSidecarList<T::EthSpec>>,
     ) {
-        let (block, blobs) = block_component_closure();
         if self.should_search_for_block(slot, &peer_id) {
             self.block_lookups.search_parent(
                 slot,
