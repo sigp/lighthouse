@@ -18,7 +18,9 @@ The additional requirements for developers are:
   the networking stack.
 - [`java 11 runtime`](https://openjdk.java.net/projects/jdk/). 11 is the minimum,
   used by web3signer_tests.
-
+- [`libpq-dev`](https://www.postgresql.org/docs/devel/libpq.html). Also know as
+  `libpq-devel` on some systems. 
+- [`docker`](https://www.docker.com/). Some tests need docker installed and **running**.
 
 ## Using `make`
 Commands to run the test suite are available via the `Makefile` in the

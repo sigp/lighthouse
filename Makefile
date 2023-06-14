@@ -145,8 +145,9 @@ test-op-pool-%:
 
 # Run the tests in the `slasher` crate for all supported database backends.
 test-slasher:
-	cargo test --release -p slasher --features mdbx
-	cargo test --release -p slasher --no-default-features --features lmdb
+	cargo test --release -p slasher --features lmdb
+	cargo test --release -p slasher --no-default-features --features mdbx
+	cargo test --release -p slasher --features lmdb,mdbx # both backends enabled
 
 # Runs only the tests/state_transition_vectors tests.
 run-state-transition-tests:

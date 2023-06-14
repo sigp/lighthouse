@@ -79,7 +79,8 @@ jobs:
         choco install python protoc visualstudio2019-workload-vctools -y
         npm config set msvs_version 2019
     - name: Install anvil
-      run: cargo install --git https://github.com/foundry-rs/foundry --locked anvil
+      # Extra feature to work around https://github.com/foundry-rs/foundry/issues/5115
+      run: cargo install --git https://github.com/foundry-rs/foundry --locked anvil --features ethers/ipc
     - name: Install make
       run: choco install -y make
     - uses: KyleMayes/install-llvm-action@v1

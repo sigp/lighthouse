@@ -380,7 +380,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
 
     /// Attempt to retrieve a full payload from the payload cache by the payload root
     pub fn get_payload_by_root(&self, root: &Hash256) -> Option<ExecutionPayload<T>> {
-        self.inner.payload_cache.pop(root)
+        self.inner.payload_cache.get(root)
     }
 
     pub fn executor(&self) -> &TaskExecutor {
@@ -826,16 +826,23 @@ impl<T: EthSpec> ExecutionLayer<T> {
 
                             let relay_value = relay.data.message.value;
                             let local_value = *local.block_value();
-                            if !self.inner.always_prefer_builder_payload
-                                && local_value >= relay_value
-                            {
-                                info!(
-                                    self.log(),
-                                    "Local block is more profitable than relay block";
-                                    "local_block_value" => %local_value,
-                                    "relay_value" => %relay_value
-                                );
-                                return Ok(ProvenancedPayload::Local(local));
+                            if !self.inner.always_prefer_builder_payload {
+                                if local_value >= relay_value {
+                                    info!(
+                                        self.log(),
+                                        "Local block is more profitable than relay block";
+                                        "local_block_value" => %local_value,
+                                        "relay_value" => %relay_value
+                                    );
+                                    return Ok(ProvenancedPayload::Local(local));
+                                } else {
+                                    info!(
+                                        self.log(),
+                                        "Relay block is more profitable than local block";
+                                        "local_block_value" => %local_value,
+                                        "relay_value" => %relay_value
+                                    );
+                                }
                             }
 
                             match verify_builder_bid(
