@@ -8,7 +8,7 @@ use beacon_chain::{
     light_client_optimistic_update_verification::Error as LightClientOptimisticUpdateError,
     observed_operations::ObservationOutcome,
     sync_committee_verification::{self, Error as SyncCommitteeError},
-    validator_monitor::get_block_delay_ms,
+    validator_monitor::{get_block_delay_ms, get_slot_delay_ms},
     AvailabilityProcessingStatus, BeaconChainError, BeaconChainTypes, BlockError, CountUnrealized,
     ForkChoiceError, GossipVerifiedBlock, NotifyExecutionLayer,
 };
@@ -659,11 +659,15 @@ impl<T: BeaconChainTypes> Worker<T> {
         _peer_client: Client,
         blob_index: u64,
         signed_blob: SignedBlobSidecar<T::EthSpec>,
-        _seen_duration: Duration,
+        seen_duration: Duration,
     ) {
         let slot = signed_blob.message.slot;
         let root = signed_blob.message.block_root;
         let index = signed_blob.message.index;
+        let delay = get_slot_delay_ms(seen_duration, slot, &self.chain.slot_clock);
+        // Log metrics to track delay from other nodes on the network.
+        metrics::observe_duration(&metrics::BEACON_BLOB_GOSSIP_SLOT_START_DELAY_TIME, delay);
+        metrics::set_gauge(&metrics::BEACON_BLOB_LAST_DELAY, delay.as_millis() as i64);
         match self
             .chain
             .verify_blob_sidecar_for_gossip(signed_blob, blob_index)
@@ -676,8 +680,9 @@ impl<T: BeaconChainTypes> Worker<T> {
                             "root" => %root,
                             "index" => %index
                 );
+                metrics::inc_counter(&metrics::BEACON_PROCESSOR_GOSSIP_BLOB_VERIFIED_TOTAL);
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
-                self.process_gossip_verified_blob(peer_id, gossip_verified_blob, _seen_duration)
+                self.process_gossip_verified_blob(peer_id, gossip_verified_blob, seen_duration)
                     .await
             }
             Err(err) => {
