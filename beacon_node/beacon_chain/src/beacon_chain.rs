@@ -2930,6 +2930,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let availability = cache_fn(self.clone())?;
         match availability {
             Availability::Available(block) => {
+                // This is the time since start of the slot where all the components of the block have become available
+                let delay =
+                    get_slot_delay_ms(timestamp_now(), block.block.slot(), &self.slot_clock);
+                metrics::observe_duration(&metrics::BLOCK_AVAILABILITY_DELAY, delay);
+                // Block is fully available, import into fork choice
                 self.import_available_block(block, count_unrealized).await
             }
             Availability::MissingComponents(block_root) => Ok(
