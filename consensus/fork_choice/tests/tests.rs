@@ -1267,36 +1267,6 @@ async fn weak_subjectivity_check_epoch_boundary_is_skip_slot() {
 }
 
 #[tokio::test]
-async fn progressive_balances_cache_checked_previous_epoch_attester_slashed() {
-    // genesis with latest fork (at least altair required to test the cache)
-    let spec = ForkName::latest().make_genesis_spec(ChainSpec::default());
-
-    // enable progressive balances check
-    let harness = BeaconChainHarness::builder(MainnetEthSpec)
-        .spec(spec)
-        .chain_config(ChainConfig {
-            progressive_balances_mode: ProgressiveBalancesMode::Checked,
-            ..ChainConfig::default()
-        })
-        .deterministic_keypairs(VALIDATOR_COUNT)
-        .fresh_ephemeral_store()
-        .mock_execution_layer()
-        .build();
-
-    ForkChoiceTest { harness }
-        // first two epochs
-        .apply_blocks_while(|_, state| state.finalized_checkpoint().epoch == 0)
-        .await
-        .unwrap()
-        .add_previous_epoch_attester_slashing()
-        .await
-        // expect fork choice to import blocks successfully, which means previous epoch target
-        // attester balances from cache is matching actual value from `ParticipationCache`.
-        .apply_blocks(1)
-        .await;
-}
-
-#[tokio::test]
 async fn weak_subjectivity_check_epoch_boundary_is_skip_slot_failure() {
     let setup_harness = ForkChoiceTest::new()
         // first two epochs
@@ -1339,4 +1309,42 @@ async fn weak_subjectivity_check_epoch_boundary_is_skip_slot_failure() {
         .unwrap_err()
         .assert_finalized_epoch_is_less_than(checkpoint.epoch)
         .assert_shutdown_signal_sent();
+}
+
+#[tokio::test]
+async fn progressive_balances_cache_checked_attester_slashing() {
+    // genesis with latest fork (at least altair required to test the cache)
+    let spec = ForkName::latest().make_genesis_spec(ChainSpec::default());
+
+    // enable progressive balances check
+    let harness = BeaconChainHarness::builder(MainnetEthSpec)
+        .spec(spec)
+        .chain_config(ChainConfig {
+            // `Checked` mode will `BlockProcessingError` if the cached balance doesn't match balances from
+            // `ParticipationCache`.
+            progressive_balances_mode: ProgressiveBalancesMode::Checked,
+            ..ChainConfig::default()
+        })
+        .deterministic_keypairs(VALIDATOR_COUNT)
+        .fresh_ephemeral_store()
+        .mock_execution_layer()
+        .build();
+
+    ForkChoiceTest { harness }
+        // first two epochs
+        .apply_blocks_while(|_, state| state.finalized_checkpoint().epoch == 0)
+        .await
+        .unwrap()
+        .add_previous_epoch_attester_slashing()
+        .await
+        // expect fork choice to import blocks successfully after a previous epoch attester is
+        // slashed, i.e. the slashed attester's balance is correctly excluded from
+        // the previous epoch total balance in `ProgressiveBalancesCache`.
+        .apply_blocks(1)
+        .await
+        // expect fork choice to import another epoch of blocks successfully - the slashed
+        // attester's balance should be excluded from the current epoch total balance in
+        // `ProgressiveBalancesCache` as well.
+        .apply_blocks(MainnetEthSpec::slots_per_epoch() as usize)
+        .await;
 }
