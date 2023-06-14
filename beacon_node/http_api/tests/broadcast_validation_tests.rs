@@ -600,11 +600,13 @@ pub async fn equivocation_consensus_late_equivocation() {
     let gossip_block_a = GossipVerifiedBlock::new(block_a.clone().into(), &tester.harness.chain);
     assert!(gossip_block_a.is_err());
 
+    let channel = tokio::sync::mpsc::unbounded_channel();
+
     let publication_result: Result<(), Rejection> = publish_block(
         None,
         ProvenancedBlock::Local(Arc::new(block_b.clone())),
         tester.harness.chain,
-        &tokio::sync::mpsc::unbounded_channel().0,
+        &channel.0,
         test_logger,
         validation_level.unwrap(),
     )
@@ -1268,10 +1270,12 @@ pub async fn blinded_equivocation_consensus_late_equivocation() {
     let gossip_block_a = GossipVerifiedBlock::new(inner_block_a, &tester.harness.chain);
     assert!(gossip_block_a.is_err());
 
+    let channel = tokio::sync::mpsc::unbounded_channel();
+
     let publication_result: Result<(), Rejection> = publish_blinded_block(
         block_b,
         tester.harness.chain,
-        &tokio::sync::mpsc::unbounded_channel().0,
+        &channel.0,
         test_logger,
         validation_level.unwrap(),
     )
