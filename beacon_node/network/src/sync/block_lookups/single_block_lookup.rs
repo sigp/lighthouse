@@ -139,6 +139,15 @@ pub struct UnknownParentComponents<E: EthSpec> {
 }
 
 impl<E: EthSpec> UnknownParentComponents<E> {
+    pub fn new(
+        block: Option<Arc<SignedBeaconBlock<E>>>,
+        blobs: Option<FixedBlobSidecarList<E>>,
+    ) -> Self {
+        Self {
+            downloaded_block: block,
+            downloaded_blobs: blobs.unwrap_or_default(),
+        }
+    }
     pub fn add_unknown_parent_block(&mut self, block: Arc<SignedBeaconBlock<E>>) {
         self.downloaded_block = Some(block);
     }
@@ -302,8 +311,25 @@ impl<const MAX_ATTEMPTS: u8, T: BeaconChainTypes> SingleBlockLookup<MAX_ATTEMPTS
             })
     }
 
+    pub fn add_unknown_parent_components(
+        &mut self,
+        components: UnknownParentComponents<T::EthSpec>,
+    ) {
+        if let Some(ref mut existing_components) = self.unknown_parent_components {
+            let UnknownParentComponents {
+                downloaded_block,
+                downloaded_blobs,
+            } = components;
+            if let Some(block) = downloaded_block {
+                existing_components.add_unknown_parent_block(block);
+            }
+            existing_components.add_unknown_parent_blobs(downloaded_blobs);
+        } else {
+            self.unknown_parent_components = Some(components);
+        }
+    }
     pub fn add_unknown_parent_block(&mut self, block: Arc<SignedBeaconBlock<T::EthSpec>>) {
-        if let Some(ref mut components) = self.unknown_parent_components.as_mut() {
+        if let Some(ref mut components) = self.unknown_parent_components {
             components.add_unknown_parent_block(block)
         } else {
             self.unknown_parent_components = Some(UnknownParentComponents {
@@ -314,7 +340,7 @@ impl<const MAX_ATTEMPTS: u8, T: BeaconChainTypes> SingleBlockLookup<MAX_ATTEMPTS
     }
 
     pub fn add_unknown_parent_blobs(&mut self, blobs: FixedBlobSidecarList<T::EthSpec>) {
-        if let Some(ref mut components) = self.unknown_parent_components.as_mut() {
+        if let Some(ref mut components) = self.unknown_parent_components {
             components.add_unknown_parent_blobs(blobs)
         } else {
             self.unknown_parent_components = Some(UnknownParentComponents {

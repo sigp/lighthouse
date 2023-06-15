@@ -26,7 +26,8 @@ use super::{
 };
 use crate::beacon_processor::{ChainSegmentProcessId, WorkEvent};
 use crate::metrics;
-use crate::sync::block_lookups::single_block_lookup::{LookupId, UnknownParentComponents};
+use crate::sync::block_lookups::single_block_lookup::LookupId;
+pub use single_block_lookup::UnknownParentComponents;
 
 pub(crate) mod delayed_lookup;
 mod parent_lookup;
@@ -131,13 +132,6 @@ pub enum ShouldRemoveLookup {
     False,
 }
 
-/// Tracks the event that triggered the lookup. This is useful to know whether the lookup
-/// is require to cache `UnknownParentComponents`.
-pub enum LookupSource {
-    UnknownParent,
-    MissingComponents,
-}
-
 impl<T: BeaconChainTypes> BlockLookups<T> {
     pub fn new(da_checker: Arc<DataAvailabilityChecker<T>>, log: Logger) -> Self {
         Self {
@@ -154,86 +148,109 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
 
     /* Lookup requests */
 
+    /// Creates a lookup for the block with the given `block_root` and immediately triggers it.
     pub fn search_block(
         &mut self,
         block_root: Hash256,
         peer_source: PeerShouldHave,
         cx: &mut SyncNetworkContext<T>,
     ) {
-        self.search_block_with(
-            block_root,
-            None,
-            None,
-            &[peer_source],
-            LookupSource::MissingComponents,
-        );
-        self.trigger_single_lookup(block_root, cx)
+        let lookup = self.search_block_with(block_root, None, &[peer_source]);
+        if let Some(lookup) = lookup {
+            self.trigger_single_lookup(lookup, cx);
+        }
     }
-
+    /// Creates a lookup for the block with the given `block_root`.
+    ///
+    /// The request is not immediately triggered, and should be triggered by a call to
+    /// `trigger_lookup_by_root`.
     pub fn search_block_delayed(&mut self, block_root: Hash256, peer_source: PeerShouldHave) {
-        self.search_block_with(
-            block_root,
-            None,
-            None,
-            &[peer_source],
-            LookupSource::MissingComponents,
-        );
+        let lookup = self.search_block_with(block_root, None, &[peer_source]);
+        if let Some(lookup) = lookup {
+            self.add_single_lookup(lookup)
+        }
     }
 
+    /// Creates a lookup for the block with the given `block_root`, while caching other block
+    /// components we've already received. The block components are cached here because we haven't
+    /// imported it's parent and therefore can't fully validate it and store it in the data
+    /// availability cache.
+    ///
+    /// The request is immediately triggered.
     pub fn search_child_block(
         &mut self,
         block_root: Hash256,
-        block: Option<Arc<SignedBeaconBlock<T::EthSpec>>>,
-        blobs: Option<FixedBlobSidecarList<T::EthSpec>>,
+        parent_components: Option<UnknownParentComponents<T::EthSpec>>,
         peer_source: &[PeerShouldHave],
         cx: &mut SyncNetworkContext<T>,
     ) {
-        self.search_block_with(
-            block_root,
-            block,
-            blobs,
-            peer_source,
-            LookupSource::UnknownParent,
-        );
-        self.trigger_single_lookup(block_root, cx)
+        let lookup = self.search_block_with(block_root, parent_components, peer_source);
+        if let Some(lookup) = lookup {
+            self.trigger_single_lookup(lookup, cx);
+        }
     }
 
+    /// Creates a lookup for the block with the given `block_root`, while caching other block
+    /// components we've already received. The block components are cached here because we haven't
+    /// imported it's parent and therefore can't fully validate it and store it in the data
+    /// availability cache.
+    ///
+    /// The request is not immediately triggered, and should be triggered by a call to
+    /// `trigger_lookup_by_root`.
     pub fn search_child_delayed(
         &mut self,
         block_root: Hash256,
-        block: Option<Arc<SignedBeaconBlock<T::EthSpec>>>,
-        blobs: Option<FixedBlobSidecarList<T::EthSpec>>,
+        parent_components: Option<UnknownParentComponents<T::EthSpec>>,
         peer_source: &[PeerShouldHave],
     ) {
-        self.search_block_with(
-            block_root,
-            block,
-            blobs,
-            peer_source,
-            LookupSource::UnknownParent,
+        let lookup = self.search_block_with(block_root, parent_components, peer_source);
+        if let Some(lookup) = lookup {
+            self.add_single_lookup(lookup)
+        }
+    }
+
+    /// Attempts to trigger the request matching the given `block_root`.
+    pub fn trigger_single_lookup(
+        &mut self,
+        mut single_block_lookup: SingleBlockLookup<SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS, T>,
+        cx: &mut SyncNetworkContext<T>,
+    ) {
+        if !single_block_lookup.triggered && single_block_lookup.request_block_and_blobs(cx).is_ok()
+        {
+            single_block_lookup.triggered = true;
+            self.add_single_lookup(single_block_lookup)
+        }
+    }
+
+    pub fn add_single_lookup(
+        &mut self,
+        single_block_lookup: SingleBlockLookup<SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS, T>,
+    ) {
+        self.single_block_lookups.push(single_block_lookup);
+
+        metrics::set_gauge(
+            &metrics::SYNC_SINGLE_BLOCK_LOOKUPS,
+            self.single_block_lookups.len() as i64,
         );
     }
 
-    /// Attempts to trigger the request matching the given `block_root`. If the requests for
-    /// blocks and blobs could not have been made or are no longer required, this also removes the lookup.
-    pub fn trigger_single_lookup(&mut self, block_root: Hash256, cx: &mut SyncNetworkContext<T>) {
-        let mut drop_lookup = None;
-        for (index, single_block_request) in self.single_block_lookups.iter_mut().enumerate() {
-            if single_block_request
-                .block_request_state
-                .requested_block_root
-                == block_root
-                && !single_block_request.triggered
-            {
-                if single_block_request.request_block_and_blobs(cx).is_err() {
-                    drop_lookup = Some(index);
-                }
-                single_block_request.triggered = true;
+    pub fn trigger_lookup_by_root(
+        &mut self,
+        block_root: Hash256,
+        cx: &mut SyncNetworkContext<T>,
+    ) -> Result<(), ()> {
+        for lookup in self.single_block_lookups.iter_mut() {
+            if lookup.block_request_state.requested_block_root == block_root && !lookup.triggered {
+                lookup.request_block_and_blobs(cx)?;
+                lookup.triggered = true;
             }
         }
-        if let Some(index) = drop_lookup {
-            self.single_block_lookups.swap_remove(index);
-        }
+        Ok(())
+    }
+
+    pub fn remove_lookup_by_root(&mut self, block_root: Hash256) {
+        self.single_block_lookups
+            .retain(|lookup| lookup.block_request_state.requested_block_root != block_root);
     }
 
     /// Searches for a single block hash. If the blocks parent is unknown, a chain of blocks is
@@ -241,11 +258,9 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     pub fn search_block_with(
         &mut self,
         block_root: Hash256,
-        block: Option<Arc<SignedBeaconBlock<T::EthSpec>>>,
-        blobs: Option<FixedBlobSidecarList<T::EthSpec>>,
+        parent_components: Option<UnknownParentComponents<T::EthSpec>>,
         peers: &[PeerShouldHave],
-        lookup_source: LookupSource,
-    ) {
+    ) -> Option<SingleBlockLookup<SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS, T>> {
         // Do not re-request a block that is already being requested
         if let Some(lookup) = self
             .single_block_lookups
@@ -253,13 +268,10 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             .find(|lookup| lookup.is_for_block(block_root))
         {
             lookup.add_peers(peers);
-            if let Some(block) = block {
-                lookup.add_unknown_parent_block(block)
+            if let Some(components) = parent_components {
+                lookup.add_unknown_parent_components(components);
             }
-            if let Some(blobs) = blobs {
-                lookup.add_unknown_parent_blobs(blobs)
-            }
-            return;
+            return None;
         }
 
         if let Some(parent_lookup) = self.parent_lookups.iter_mut().find(|parent_req| {
@@ -269,7 +281,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
 
             // If the block was already downloaded, or is being downloaded in this moment, do not
             // request it.
-            return;
+            return None;
         }
 
         if self
@@ -278,7 +290,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             .any(|(hashes, _last_parent_request)| hashes.contains(&block_root))
         {
             // we are already processing this block, ignore it.
-            return;
+            return None;
         }
 
         debug!(
@@ -288,27 +300,12 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             "block" => ?block_root
         );
 
-        let unknown_parent_components = if matches!(lookup_source, LookupSource::UnknownParent) {
-            Some(UnknownParentComponents {
-                downloaded_block: block,
-                downloaded_blobs: blobs.unwrap_or_default(),
-            })
-        } else {
-            None
-        };
-
-        let single_block_request = SingleBlockLookup::new(
+        Some(SingleBlockLookup::new(
             block_root,
-            unknown_parent_components,
+            parent_components,
             peers,
             self.da_checker.clone(),
-        );
-        self.single_block_lookups.push(single_block_request);
-
-        metrics::set_gauge(
-            &metrics::SYNC_SINGLE_BLOCK_LOOKUPS,
-            self.single_block_lookups.len() as i64,
-        );
+        ))
     }
 
     /// If a block is attempted to be processed but we do not know its parent, this function is
@@ -1443,9 +1440,9 @@ fn retry_request_after_failure<T: BeaconChainTypes>(
                 }
                 Ok(Some(Err(e))) => {
                     debug!(log, "Single block lookup failed";
-                    "peer_id" => %initial_peer_id, 
-                    "error" => ?e, 
-                    "block_root" => ?requested_block_root, 
+                    "peer_id" => %initial_peer_id,
+                    "error" => ?e,
+                    "block_root" => ?requested_block_root,
                     "response_type" => ?response_type);
                     return ShouldRemoveLookup::True;
                 }
@@ -1455,9 +1452,9 @@ fn retry_request_after_failure<T: BeaconChainTypes>(
                 }
                 Err(e) => {
                     debug!(log, "Single block lookup failed";
-                    "peer_id" => %initial_peer_id, 
-                    "error" => ?e, 
-                    "block_root" => ?requested_block_root, 
+                    "peer_id" => %initial_peer_id,
+                    "error" => ?e,
+                    "block_root" => ?requested_block_root,
                     "response_type" => ?response_type);
                     return ShouldRemoveLookup::True;
                 }
@@ -1475,9 +1472,9 @@ fn retry_request_after_failure<T: BeaconChainTypes>(
                 }
                 Ok(Some(Err(e))) => {
                     debug!(log, "Single block lookup failed";
-                    "peer_id" => %initial_peer_id, 
-                    "error" => ?e, 
-                    "block_root" => ?requested_block_root, 
+                    "peer_id" => %initial_peer_id,
+                    "error" => ?e,
+                    "block_root" => ?requested_block_root,
                     "response_type" => ?response_type);
                     return ShouldRemoveLookup::True;
                 }
@@ -1487,9 +1484,9 @@ fn retry_request_after_failure<T: BeaconChainTypes>(
                 }
                 Err(e) => {
                     debug!(log, "Single block lookup failed";
-                    "peer_id" => %initial_peer_id, 
-                    "error" => ?e, 
-                    "block_root" => ?requested_block_root, 
+                    "peer_id" => %initial_peer_id,
+                    "error" => ?e,
+                    "block_root" => ?requested_block_root,
                     "response_type" => ?response_type);
                     return ShouldRemoveLookup::True;
                 }

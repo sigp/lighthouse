@@ -2672,10 +2672,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     .await
                 {
                     Ok(status) => {
-                        imported_blocks += 1;
                         match status {
                             AvailabilityProcessingStatus::Imported(_) => {
                                 // The block was imported successfully.
+                                imported_blocks += 1;
                             }
                             AvailabilityProcessingStatus::MissingComponents(slot, block_root) => {
                                 warn!(self.log, "Blobs missing in response to range request";
