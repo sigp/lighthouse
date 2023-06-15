@@ -44,6 +44,7 @@ use crate::status::ToStatusMessage;
 use crate::sync::block_lookups::delayed_lookup;
 use crate::sync::block_lookups::delayed_lookup::DelayedLookupMessage;
 pub use crate::sync::block_lookups::ResponseType;
+use crate::sync::block_lookups::UnknownParentComponents;
 use crate::sync::range_sync::ByRangeRequestType;
 use beacon_chain::blob_verification::AsBlock;
 use beacon_chain::blob_verification::BlockWrapper;
@@ -618,13 +619,14 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             SyncMessage::UnknownParentBlock(peer_id, block, block_root) => {
                 let block_slot = block.slot();
                 let (block, blobs) = block.deconstruct();
+                let parent_root = block.parent_root();
+                let parent_components = UnknownParentComponents::new(Some(block), blobs);
                 self.handle_unknown_parent(
                     peer_id,
                     block_root,
-                    block.parent_root(),
+                    parent_root,
                     block_slot,
-                    Some(block),
-                    blobs,
+                    Some(parent_components),
                 );
             }
             SyncMessage::UnknownParentBlob(peer_id, blob) => {
@@ -639,8 +641,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     block_root,
                     parent_root,
                     blob_slot,
-                    None,
-                    Some(blobs),
+                    Some(UnknownParentComponents::new(None, Some(blobs))),
                 );
             }
             SyncMessage::UnknownBlockHashFromAttestation(peer_id, block_hash) => {
@@ -676,9 +677,10 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 }
             }
             SyncMessage::MissingGossipBlockComponentsDelayed(block_root) => {
-                if let Err(()) = self
+                if self
                     .block_lookups
                     .trigger_lookup_by_root(block_root, &mut self.network)
+                    .is_err()
                 {
                     // No request was made for block or blob so the lookup is dropped.
                     self.block_lookups.remove_lookup_by_root(block_root);
@@ -742,8 +744,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         block_root: Hash256,
         parent_root: Hash256,
         slot: Slot,
-        block: Option<Arc<SignedBeaconBlock<T::EthSpec>>>,
-        blobs: Option<FixedBlobSidecarList<T::EthSpec>>,
+        parent_components: Option<UnknownParentComponents<T::EthSpec>>,
     ) {
         if self.should_search_for_block(slot, &peer_id) {
             self.block_lookups.search_parent(
@@ -756,8 +757,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             if self.should_delay_lookup(slot) {
                 self.block_lookups.search_child_delayed(
                     block_root,
-                    block,
-                    blobs,
+                    parent_components,
                     &[PeerShouldHave::Neither(peer_id)],
                 );
                 if let Err(e) = self
@@ -769,8 +769,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             } else {
                 self.block_lookups.search_child_block(
                     block_root,
-                    block,
-                    blobs,
+                    parent_components,
                     &[PeerShouldHave::Neither(peer_id)],
                     &mut self.network,
                 );
