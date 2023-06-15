@@ -66,10 +66,6 @@ pub enum NetworkEvent<AppReqId: ReqId, TSpec: EthSpec> {
     PeerConnectedIncoming(PeerId),
     /// A peer has disconnected.
     PeerDisconnected(PeerId),
-    /// The peer needs to be banned.
-    PeerBanned(PeerId),
-    /// The peer has been unbanned.
-    PeerUnbanned(PeerId),
     /// An RPC Request that was sent failed.
     RPCFailed {
         /// The id of the failed request.
@@ -1373,14 +1369,12 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                 Some(NetworkEvent::PeerDisconnected(peer_id))
             }
             PeerManagerEvent::Banned(peer_id, associated_ips) => {
-                self.swarm.ban_peer_id(peer_id);
                 self.discovery_mut().ban_peer(&peer_id, associated_ips);
-                Some(NetworkEvent::PeerBanned(peer_id))
+                None
             }
             PeerManagerEvent::UnBanned(peer_id, associated_ips) => {
-                self.swarm.unban_peer_id(peer_id);
                 self.discovery_mut().unban_peer(&peer_id, associated_ips);
-                Some(NetworkEvent::PeerUnbanned(peer_id))
+                None
             }
             PeerManagerEvent::Status(peer_id) => {
                 // it's time to status. We don't keep a beacon chain reference here, so we inform
