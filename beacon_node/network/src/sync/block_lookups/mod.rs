@@ -156,8 +156,9 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         cx: &mut SyncNetworkContext<T>,
     ) {
         let lookup = self.search_block_with(block_root, None, &[peer_source]);
-
-        self.trigger_single_lookup(lookup, cx);
+        if let Some(lookup) = lookup {
+            self.trigger_single_lookup(lookup, cx);
+        }
     }
     /// Creates a lookup for the block with the given `block_root`.
     ///
@@ -165,8 +166,9 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     /// `trigger_lookup_by_root`.
     pub fn search_block_delayed(&mut self, block_root: Hash256, peer_source: PeerShouldHave) {
         let lookup = self.search_block_with(block_root, None, &[peer_source]);
-
-        self.add_single_lookup(lookup)
+        if let Some(lookup) = lookup {
+            self.add_single_lookup(lookup)
+        }
     }
 
     /// Creates a lookup for the block with the given `block_root`, while caching other block
@@ -183,8 +185,9 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         cx: &mut SyncNetworkContext<T>,
     ) {
         let lookup = self.search_block_with(block_root, parent_components, peer_source);
-
-        self.trigger_single_lookup(lookup, cx);
+        if let Some(lookup) = lookup {
+            self.trigger_single_lookup(lookup, cx);
+        }
     }
 
     /// Creates a lookup for the block with the given `block_root`, while caching other block
@@ -201,41 +204,34 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         peer_source: &[PeerShouldHave],
     ) {
         let lookup = self.search_block_with(block_root, parent_components, peer_source);
-
-        self.add_single_lookup(lookup)
+        if let Some(lookup) = lookup {
+            self.add_single_lookup(lookup)
+        }
     }
 
     /// Attempts to trigger the request matching the given `block_root`.
     pub fn trigger_single_lookup(
         &mut self,
-        mut single_block_lookup: Option<SingleBlockLookup<SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS, T>>,
+        mut single_block_lookup: SingleBlockLookup<SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS, T>,
         cx: &mut SyncNetworkContext<T>,
     ) {
-        if let Some(single_block_lookup) = single_block_lookup.as_mut() {
-            if !single_block_lookup.triggered
-                && single_block_lookup.request_block_and_blobs(cx).is_ok()
-            {
-                single_block_lookup.triggered = true;
-            } else {
-                // Return early if the request fails to drop the lookup.
-                return;
-            }
+        if !single_block_lookup.triggered && single_block_lookup.request_block_and_blobs(cx).is_ok()
+        {
+            single_block_lookup.triggered = true;
+            self.add_single_lookup(single_block_lookup)
         }
-        self.add_single_lookup(single_block_lookup)
     }
 
     pub fn add_single_lookup(
         &mut self,
-        single_block_lookup: Option<SingleBlockLookup<SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS, T>>,
+        single_block_lookup: SingleBlockLookup<SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS, T>,
     ) {
-        if let Some(single_block_lookup) = single_block_lookup {
-            self.single_block_lookups.push(single_block_lookup);
+        self.single_block_lookups.push(single_block_lookup);
 
-            metrics::set_gauge(
-                &metrics::SYNC_SINGLE_BLOCK_LOOKUPS,
-                self.single_block_lookups.len() as i64,
-            );
-        }
+        metrics::set_gauge(
+            &metrics::SYNC_SINGLE_BLOCK_LOOKUPS,
+            self.single_block_lookups.len() as i64,
+        );
     }
 
     pub fn trigger_lookup_by_root(
