@@ -3,7 +3,8 @@
 //! succeed.
 
 use crate::beacon_node_health::{
-    BeaconNodeHealth, BeaconNodeSyncDistanceTiers, ExecutionEngineHealth, SyncDistanceTier,
+    BeaconNodeHealth, BeaconNodeSyncDistanceTiers, ExecutionEngineHealth, IsOptimistic,
+    SyncDistanceTier,
 };
 use crate::check_synced::check_node_health;
 use crate::http_metrics::metrics::{inc_counter_vec, ENDPOINT_ERRORS, ENDPOINT_REQUESTS};
@@ -209,10 +210,16 @@ impl<E: EthSpec> CandidateBeaconNode<E> {
                         ExecutionEngineHealth::Healthy
                     };
 
+                    let optimistic_status = if is_optimistic {
+                        IsOptimistic::Yes
+                    } else {
+                        IsOptimistic::No
+                    };
+
                     let new_health = BeaconNodeHealth::from_status(
                         self.id,
                         head,
-                        is_optimistic,
+                        optimistic_status,
                         execution_status,
                         distance_tiers,
                         slot_clock,
@@ -631,7 +638,7 @@ mod tests {
 
         // These fields is irrelvant for sorting. They are set to arbitrary values.
         let head = Slot::new(99);
-        let optimistic_status = false;
+        let optimistic_status = IsOptimistic::No;
         let execution_status = ExecutionEngineHealth::Healthy;
 
         let candidate_1 = new_candidate(1);
