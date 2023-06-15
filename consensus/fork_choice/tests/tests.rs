@@ -24,7 +24,7 @@ use types::{
 
 pub type E = MainnetEthSpec;
 
-pub const VALIDATOR_COUNT: usize = 32;
+pub const VALIDATOR_COUNT: usize = 64;
 
 /// Defines some delay between when an attestation is created and when it is mutated.
 pub enum MutationDelay {

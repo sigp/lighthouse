@@ -166,7 +166,10 @@ pub mod altair {
                         get_base_reward(state, index, base_reward_per_increment, spec)?
                             .safe_mul(weight)?,
                     )?;
-                    if flag_index == TIMELY_TARGET_FLAG_INDEX {
+
+                    if flag_index == TIMELY_TARGET_FLAG_INDEX
+                        && !state.get_validator(index)?.slashed
+                    {
                         let validator_effective_balance = state.get_effective_balance(index)?;
                         state
                             .progressive_balances_cache_mut()
