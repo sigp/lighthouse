@@ -676,8 +676,13 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 }
             }
             SyncMessage::MissingGossipBlockComponentsDelayed(block_root) => {
-                self.block_lookups
-                    .trigger_single_lookup(block_root, &mut self.network);
+                if let Err(()) = self
+                    .block_lookups
+                    .trigger_lookup_by_root(block_root, &mut self.network)
+                {
+                    // No request was made for block or blob so the lookup is dropped.
+                    self.block_lookups.remove_lookup_by_root(block_root);
+                }
             }
             SyncMessage::Disconnect(peer_id) => {
                 self.peer_disconnect(&peer_id);
