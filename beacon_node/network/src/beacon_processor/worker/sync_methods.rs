@@ -5,7 +5,7 @@ use crate::beacon_processor::work_reprocessing_queue::QueuedRpcBlock;
 use crate::beacon_processor::worker::FUTURE_SLOT_TOLERANCE;
 use crate::beacon_processor::DuplicateCache;
 use crate::metrics;
-use crate::sync::manager::{BlockProcessType, SyncMessage};
+use crate::sync::manager::{BlockProcessType, ResponseType, SyncMessage};
 use crate::sync::{BatchProcessResult, ChainId};
 use beacon_chain::blob_verification::BlockWrapper;
 use beacon_chain::blob_verification::{AsBlock, MaybeAvailableBlock};
@@ -21,6 +21,7 @@ use slog::{debug, error, info, warn};
 use slot_clock::SlotClock;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc;
+use types::blob_sidecar::FixedBlobSidecarList;
 use types::{Epoch, Hash256};
 
 /// Id associated to a batch processing request, either a sync batch or a parent lookup.
@@ -57,9 +58,10 @@ impl<T: BeaconChainTypes> Worker<T> {
     ) {
         if !should_process {
             // Sync handles these results
-            self.send_sync_message(SyncMessage::BlockProcessed {
+            self.send_sync_message(SyncMessage::BlockComponentProcessed {
                 process_type,
-                result: crate::sync::manager::BlockProcessResult::Ignored,
+                result: crate::sync::manager::BlockProcessingResult::Ignored,
+                response_type: crate::sync::manager::ResponseType::Block,
             });
             return;
         }
@@ -180,7 +182,8 @@ impl<T: BeaconChainTypes> Worker<T> {
         metrics::inc_counter(&metrics::BEACON_PROCESSOR_RPC_BLOCK_IMPORTED_TOTAL);
 
         // RPC block imported, regardless of process type
-        //TODO(sean) handle pending availability variants
+        //TODO(sean) do we need to do anything here for missing blobs? or is passing the result
+        // along to sync enough?
         if let &Ok(AvailabilityProcessingStatus::Imported(hash)) = &result {
             info!(self.log, "New RPC block received"; "slot" => slot, "hash" => %hash);
 
@@ -205,13 +208,48 @@ impl<T: BeaconChainTypes> Worker<T> {
             }
         }
         // Sync handles these results
-        self.send_sync_message(SyncMessage::BlockProcessed {
+        self.send_sync_message(SyncMessage::BlockComponentProcessed {
             process_type,
             result: result.into(),
+            response_type: ResponseType::Block,
         });
 
         // Drop the handle to remove the entry from the cache
         drop(handle);
+    }
+
+    pub async fn process_rpc_blobs(
+        self,
+        block_root: Hash256,
+        blobs: FixedBlobSidecarList<T::EthSpec>,
+        _seen_timestamp: Duration,
+        process_type: BlockProcessType,
+    ) {
+        let Some(slot) = blobs.iter().find_map(|blob|{
+            blob.as_ref().map(|blob| blob.slot)
+        }) else {
+            return;
+        };
+
+        let result = self
+            .chain
+            .check_availability_and_maybe_import(
+                slot,
+                |chain| {
+                    chain
+                        .data_availability_checker
+                        .put_rpc_blobs(block_root, blobs)
+                },
+                CountUnrealized::True,
+            )
+            .await;
+
+        // Sync handles these results
+        self.send_sync_message(SyncMessage::BlockComponentProcessed {
+            process_type,
+            result: result.into(),
+            response_type: ResponseType::Blob,
+        });
     }
 
     /// Attempt to import the chain segment (`blocks`) to the beacon chain, informing the sync

@@ -16,15 +16,17 @@ use eth2::types::BlockContentsTuple;
 use kzg::Kzg;
 use slog::{debug, warn};
 use ssz_derive::{Decode, Encode};
+use ssz_types::FixedVector;
 use std::borrow::Cow;
+use types::blob_sidecar::{BlobIdentifier, FixedBlobSidecarList};
 use types::{
-    BeaconBlockRef, BeaconState, BeaconStateError, BlobSidecar, BlobSidecarList, ChainSpec,
-    CloneConfig, Epoch, EthSpec, FullPayload, Hash256, KzgCommitment, RelativeEpoch,
-    SignedBeaconBlock, SignedBeaconBlockHeader, SignedBlobSidecar, Slot,
+    BeaconBlockRef, BeaconState, BeaconStateError, BlobSidecar, ChainSpec, CloneConfig, Epoch,
+    EthSpec, FullPayload, Hash256, KzgCommitment, RelativeEpoch, SignedBeaconBlock,
+    SignedBeaconBlockHeader, SignedBlobSidecar, Slot,
 };
 
 #[derive(Debug)]
-pub enum BlobError {
+pub enum BlobError<T: EthSpec> {
     /// The blob sidecar is from a slot that is later than the current slot (with respect to the
     /// gossip clock disparity).
     ///
@@ -96,10 +98,7 @@ pub enum BlobError {
     /// ## Peer scoring
     ///
     /// We cannot process the blob without validating its parent, the peer isn't necessarily faulty.
-    BlobParentUnknown {
-        blob_root: Hash256,
-        blob_parent_root: Hash256,
-    },
+    BlobParentUnknown(Arc<BlobSidecar<T>>),
 
     /// A blob has already been seen for the given `(sidecar.block_root, sidecar.index)` tuple
     /// over gossip or no gossip sources.
@@ -114,13 +113,13 @@ pub enum BlobError {
     },
 }
 
-impl From<BeaconChainError> for BlobError {
+impl<T: EthSpec> From<BeaconChainError> for BlobError<T> {
     fn from(e: BeaconChainError) -> Self {
         BlobError::BeaconChainError(e)
     }
 }
 
-impl From<BeaconStateError> for BlobError {
+impl<T: EthSpec> From<BeaconStateError> for BlobError<T> {
     fn from(e: BeaconStateError) -> Self {
         BlobError::BeaconChainError(BeaconChainError::BeaconStateError(e))
     }
@@ -128,14 +127,23 @@ impl From<BeaconStateError> for BlobError {
 
 /// A wrapper around a `BlobSidecar` that indicates it has been approved for re-gossiping on
 /// the p2p network.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct GossipVerifiedBlob<T: EthSpec> {
     blob: Arc<BlobSidecar<T>>,
 }
 
 impl<T: EthSpec> GossipVerifiedBlob<T> {
+    pub fn id(&self) -> BlobIdentifier {
+        self.blob.id()
+    }
     pub fn block_root(&self) -> Hash256 {
         self.blob.block_root
+    }
+    pub fn to_blob(self) -> Arc<BlobSidecar<T>> {
+        self.blob
+    }
+    pub fn slot(&self) -> Slot {
+        self.blob.slot
     }
 }
 
@@ -143,12 +151,12 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
     signed_blob_sidecar: SignedBlobSidecar<T::EthSpec>,
     subnet: u64,
     chain: &BeaconChain<T>,
-) -> Result<GossipVerifiedBlob<T::EthSpec>, BlobError> {
+) -> Result<GossipVerifiedBlob<T::EthSpec>, BlobError<T::EthSpec>> {
     let blob_slot = signed_blob_sidecar.message.slot;
     let blob_index = signed_blob_sidecar.message.index;
-    let block_root = signed_blob_sidecar.message.block_root;
     let block_parent_root = signed_blob_sidecar.message.block_parent_root;
     let blob_proposer_index = signed_blob_sidecar.message.proposer_index;
+    let block_root = signed_blob_sidecar.message.block_root;
 
     // Verify that the blob_sidecar was received on the correct subnet.
     if blob_index != subnet {
@@ -211,10 +219,7 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
             });
         }
     } else {
-        return Err(BlobError::BlobParentUnknown {
-            blob_root: block_root,
-            blob_parent_root: block_parent_root,
-        });
+        return Err(BlobError::BlobParentUnknown(signed_blob_sidecar.message));
     }
 
     // Note: We check that the proposer_index matches against the shuffling first to avoid
@@ -366,7 +371,7 @@ fn cheap_state_advance_to_obtain_committees<'a, E: EthSpec>(
     state_root_opt: Option<Hash256>,
     blob_slot: Slot,
     spec: &ChainSpec,
-) -> Result<Cow<'a, BeaconState<E>>, BlobError> {
+) -> Result<Cow<'a, BeaconState<E>>, BlobError<E>> {
     let block_epoch = blob_slot.epoch(E::slots_per_epoch());
 
     if state.current_epoch() == block_epoch {
@@ -443,19 +448,14 @@ impl<T: EthSpec> KzgVerifiedBlob<T> {
 ///
 /// Returns an error if the kzg verification check fails.
 pub fn verify_kzg_for_blob<T: EthSpec>(
-    blob: GossipVerifiedBlob<T>,
+    blob: Arc<BlobSidecar<T>>,
     kzg: &Kzg,
 ) -> Result<KzgVerifiedBlob<T>, AvailabilityCheckError> {
     //TODO(sean) remove clone
-    if validate_blob::<T>(
-        kzg,
-        blob.blob.blob.clone(),
-        blob.blob.kzg_commitment,
-        blob.blob.kzg_proof,
-    )
-    .map_err(AvailabilityCheckError::Kzg)?
+    if validate_blob::<T>(kzg, blob.blob.clone(), blob.kzg_commitment, blob.kzg_proof)
+        .map_err(AvailabilityCheckError::Kzg)?
     {
-        Ok(KzgVerifiedBlob { blob: blob.blob })
+        Ok(KzgVerifiedBlob { blob })
     } else {
         Err(AvailabilityCheckError::KzgVerificationFailed)
     }
@@ -467,7 +467,7 @@ pub fn verify_kzg_for_blob<T: EthSpec>(
 /// Note: This function should be preferred over calling `verify_kzg_for_blob`
 /// in a loop since this function kzg verifies a list of blobs more efficiently.
 pub fn verify_kzg_for_blob_list<T: EthSpec>(
-    blob_list: BlobSidecarList<T>,
+    blob_list: Vec<Arc<BlobSidecar<T>>>,
     kzg: &Kzg,
 ) -> Result<KzgVerifiedBlobList<T>, AvailabilityCheckError> {
     let (blobs, (commitments, proofs)): (Vec<_>, (Vec<_>, Vec<_>)) = blob_list
@@ -608,7 +608,16 @@ impl<E: EthSpec> AsBlock<E> for &MaybeAvailableBlock<E> {
 #[derivative(Hash(bound = "E: EthSpec"))]
 pub enum BlockWrapper<E: EthSpec> {
     Block(Arc<SignedBeaconBlock<E>>),
-    BlockAndBlobs(Arc<SignedBeaconBlock<E>>, Vec<Arc<BlobSidecar<E>>>),
+    BlockAndBlobs(Arc<SignedBeaconBlock<E>>, FixedBlobSidecarList<E>),
+}
+
+impl<E: EthSpec> BlockWrapper<E> {
+    pub fn deconstruct(self) -> (Arc<SignedBeaconBlock<E>>, Option<FixedBlobSidecarList<E>>) {
+        match self {
+            BlockWrapper::Block(block) => (block, None),
+            BlockWrapper::BlockAndBlobs(block, blobs) => (block, Some(blobs)),
+        }
+    }
 }
 
 impl<E: EthSpec> AsBlock<E> for BlockWrapper<E> {
@@ -675,13 +684,15 @@ impl<E: EthSpec> From<SignedBeaconBlock<E>> for BlockWrapper<E> {
 impl<E: EthSpec> From<BlockContentsTuple<E, FullPayload<E>>> for BlockWrapper<E> {
     fn from(value: BlockContentsTuple<E, FullPayload<E>>) -> Self {
         match value.1 {
-            Some(variable_list) => Self::BlockAndBlobs(
-                Arc::new(value.0),
-                Vec::from(variable_list)
-                    .into_iter()
-                    .map(|signed_blob| signed_blob.message)
-                    .collect::<Vec<_>>(),
-            ),
+            Some(variable_list) => {
+                let mut blobs = Vec::with_capacity(E::max_blobs_per_block());
+                for blob in variable_list {
+                    if blob.message.index < E::max_blobs_per_block() as u64 {
+                        blobs.insert(blob.message.index as usize, Some(blob.message));
+                    }
+                }
+                Self::BlockAndBlobs(Arc::new(value.0), FixedVector::from(blobs))
+            }
             None => Self::Block(Arc::new(value.0)),
         }
     }

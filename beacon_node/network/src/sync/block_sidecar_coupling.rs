@@ -1,4 +1,5 @@
 use beacon_chain::blob_verification::BlockWrapper;
+use ssz_types::FixedVector;
 use std::{collections::VecDeque, sync::Arc};
 use types::{BlobSidecar, EthSpec, SignedBeaconBlock};
 
@@ -55,7 +56,22 @@ impl<T: EthSpec> BlocksAndBlobsRequestInfo<T> {
             if blob_list.is_empty() {
                 responses.push(BlockWrapper::Block(block))
             } else {
-                responses.push(BlockWrapper::BlockAndBlobs(block, blob_list))
+                let mut blobs_fixed = vec![None; T::max_blobs_per_block()];
+                for blob in blob_list {
+                    let blob_index = blob.index as usize;
+                    let Some(blob_opt) = blobs_fixed.get_mut(blob_index) else {
+                        return Err("Invalid blob index");
+                    };
+                    if blob_opt.is_some() {
+                        return Err("Repeat blob index");
+                    } else {
+                        *blob_opt = Some(blob);
+                    }
+                }
+                responses.push(BlockWrapper::BlockAndBlobs(
+                    block,
+                    FixedVector::from(blobs_fixed),
+                ))
             }
         }
 

@@ -28,6 +28,7 @@ use network::{NetworkConfig, NetworkSenders, NetworkService};
 use slasher::Slasher;
 use slasher_service::SlasherService;
 use slog::{debug, info, warn, Logger};
+use state_processing::per_slot_processing;
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -346,10 +347,23 @@ where
                     None
                 };
 
-                debug!(context.log(), "Downloading finalized block");
-                // Find a suitable finalized block on an epoch boundary.
-                let mut block = remote
-                    .get_beacon_blocks_ssz::<TEthSpec>(BlockId::Finalized, &spec)
+                debug!(
+                    context.log(),
+                    "Downloading finalized state";
+                );
+                let mut state = remote
+                    .get_debug_beacon_states_ssz::<TEthSpec>(StateId::Finalized, &spec)
+                    .await
+                    .map_err(|e| format!("Error loading checkpoint state from remote: {:?}", e))?
+                    .ok_or_else(|| "Checkpoint state missing from remote".to_string())?;
+
+                debug!(context.log(), "Downloaded finalized state"; "slot" => ?state.slot());
+
+                let finalized_block_slot = state.latest_block_header().slot;
+
+                debug!(context.log(), "Downloading finalized block"; "block_slot" => ?finalized_block_slot);
+                let block = remote
+                    .get_beacon_blocks_ssz::<TEthSpec>(BlockId::Slot(finalized_block_slot), &spec)
                     .await
                     .map_err(|e| match e {
                         ApiError::InvalidSsz(e) => format!(
@@ -363,55 +377,15 @@ where
 
                 debug!(context.log(), "Downloaded finalized block");
 
-                let mut block_slot = block.slot();
-
-                while block.slot() % slots_per_epoch != 0 {
-                    block_slot = (block_slot / slots_per_epoch - 1) * slots_per_epoch;
-
-                    debug!(
-                        context.log(),
-                        "Searching for aligned checkpoint block";
-                        "block_slot" => block_slot
-                    );
-
-                    if let Some(found_block) = remote
-                        .get_beacon_blocks_ssz::<TEthSpec>(BlockId::Slot(block_slot), &spec)
-                        .await
-                        .map_err(|e| {
-                            format!("Error fetching block at slot {}: {:?}", block_slot, e)
-                        })?
-                    {
-                        block = found_block;
-                    }
+                let epoch_boundary_slot = state.slot() % slots_per_epoch;
+                if epoch_boundary_slot != 0 {
+                    debug!(context.log(), "Advancing state to epoch boundary"; "state_slot" => state.slot(), "epoch_boundary_slot" => epoch_boundary_slot);
                 }
 
-                debug!(
-                    context.log(),
-                    "Downloaded aligned finalized block";
-                    "block_root" => ?block.canonical_root(),
-                    "block_slot" => block.slot(),
-                );
-
-                let state_root = block.state_root();
-                debug!(
-                    context.log(),
-                    "Downloading finalized state";
-                    "state_root" => ?state_root
-                );
-                let state = remote
-                    .get_debug_beacon_states_ssz::<TEthSpec>(StateId::Root(state_root), &spec)
-                    .await
-                    .map_err(|e| {
-                        format!(
-                            "Error loading checkpoint state from remote {:?}: {:?}",
-                            state_root, e
-                        )
-                    })?
-                    .ok_or_else(|| {
-                        format!("Checkpoint state missing from remote: {:?}", state_root)
-                    })?;
-
-                debug!(context.log(), "Downloaded finalized state");
+                while state.slot() % slots_per_epoch != 0 {
+                    per_slot_processing(&mut state, None, &spec)
+                        .map_err(|e| format!("Error advancing state: {:?}", e))?;
+                }
 
                 let genesis_state = BeaconState::from_ssz_bytes(&genesis_state_bytes, &spec)
                     .map_err(|e| format!("Unable to parse genesis state SSZ: {:?}", e))?;
@@ -419,9 +393,9 @@ where
                 info!(
                     context.log(),
                     "Loaded checkpoint block and state";
-                    "slot" => block.slot(),
+                    "block_slot" => block.slot(),
+                    "state_slot" => state.slot(),
                     "block_root" => ?block.canonical_root(),
-                    "state_root" => ?state_root,
                 );
 
                 let service =

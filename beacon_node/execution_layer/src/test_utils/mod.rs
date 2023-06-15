@@ -24,7 +24,9 @@ use types::{EthSpec, ExecutionBlockHash, Uint256};
 use warp::{http::StatusCode, Filter, Rejection};
 
 use crate::EngineCapabilities;
-pub use execution_block_generator::{generate_pow_block, Block, ExecutionBlockGenerator};
+pub use execution_block_generator::{
+    generate_pow_block, generate_random_blobs, Block, ExecutionBlockGenerator,
+};
 pub use hook::Hook;
 pub use mock_builder::{Context as MockBuilderContext, MockBuilder, Operation, TestingBuilder};
 pub use mock_execution_layer::MockExecutionLayer;

@@ -137,4 +137,13 @@ pub trait SlotClock: Send + Sync + Sized + Clone {
         slot_clock.set_current_time(freeze_at);
         slot_clock
     }
+
+    /// Returns the delay between the start of the slot and when a request for block components
+    /// missed over gossip in the current slot should be made via RPC.
+    ///
+    /// Currently set equal to 1/2 of the `unagg_attestation_production_delay`, but this may be
+    /// changed in the future.
+    fn single_lookup_delay(&self) -> Duration {
+        self.unagg_attestation_production_delay() / 2
+    }
 }

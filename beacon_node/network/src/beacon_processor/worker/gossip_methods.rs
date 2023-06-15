@@ -682,19 +682,15 @@ impl<T: BeaconChainTypes> Worker<T> {
             }
             Err(err) => {
                 match err {
-                    BlobError::BlobParentUnknown {
-                        blob_root,
-                        blob_parent_root,
-                    } => {
+                    BlobError::BlobParentUnknown(blob) => {
                         debug!(
                             self.log,
                             "Unknown parent hash for blob";
                             "action" => "requesting parent",
-                            "blob_root" => %blob_root,
-                            "parent_root" => %blob_parent_root
+                            "blob_root" => %blob.block_root,
+                            "parent_root" => %blob.block_parent_root
                         );
-                        // TODO: send blob to reprocessing queue and queue a sync request for the blob.
-                        todo!();
+                        self.send_sync_message(SyncMessage::UnknownParentBlob(peer_id, blob));
                     }
                     BlobError::ProposerSignatureInvalid
                     | BlobError::UnknownValidator(_)
@@ -757,28 +753,42 @@ impl<T: BeaconChainTypes> Worker<T> {
         // This value is not used presently, but it might come in handy for debugging.
         _seen_duration: Duration,
     ) {
-        // TODO
+        let blob_root = verified_blob.block_root();
+        let blob_slot = verified_blob.slot();
+        let blob_clone = verified_blob.clone().to_blob();
         match self
             .chain
             .process_blob(verified_blob, CountUnrealized::True)
             .await
         {
             Ok(AvailabilityProcessingStatus::Imported(_hash)) => {
-                todo!()
-                // add to metrics
-                // logging
+                //TODO(sean) add metrics and logging
+                self.chain.recompute_head_at_current_slot().await;
             }
-            Ok(AvailabilityProcessingStatus::PendingBlobs(pending_blobs)) => self
-                .send_sync_message(SyncMessage::UnknownBlobHash {
+            Ok(AvailabilityProcessingStatus::MissingComponents(slot, block_hash)) => {
+                self.send_sync_message(SyncMessage::MissingGossipBlockComponents(
+                    slot, peer_id, block_hash,
+                ));
+            }
+            Err(err) => {
+                debug!(
+                    self.log,
+                    "Invalid gossip blob";
+                    "outcome" => ?err,
+                    "block root" => ?blob_root,
+                    "block slot" =>  blob_slot,
+                    "blob index" =>  blob_clone.index,
+                );
+                self.gossip_penalize_peer(
                     peer_id,
-                    pending_blobs,
-                }),
-            Ok(AvailabilityProcessingStatus::PendingBlock(block_hash)) => {
-                self.send_sync_message(SyncMessage::UnknownBlockHash(peer_id, block_hash));
-            }
-            Err(_err) => {
-                // handle errors
-                todo!()
+                    PeerAction::MidToleranceError,
+                    "bad_gossip_blob_ssz",
+                );
+                trace!(
+                    self.log,
+                    "Invalid gossip blob ssz";
+                    "ssz" => format_args!("0x{}", hex::encode(blob_clone.as_ssz_bytes())),
+                );
             }
         }
     }
@@ -918,16 +928,13 @@ impl<T: BeaconChainTypes> Worker<T> {
 
                 verified_block
             }
-            Err(BlockError::AvailabilityCheck(_err)) => {
-                todo!()
-            }
             Err(BlockError::ParentUnknown(block)) => {
                 debug!(
                     self.log,
                     "Unknown parent for gossip block";
                     "root" => ?block_root
                 );
-                self.send_sync_message(SyncMessage::UnknownBlock(peer_id, block, block_root));
+                self.send_sync_message(SyncMessage::UnknownParentBlock(peer_id, block, block_root));
                 return None;
             }
             Err(e @ BlockError::BeaconChainError(_)) => {
@@ -987,8 +994,8 @@ impl<T: BeaconChainTypes> Worker<T> {
                 );
                 return None;
             }
-            Err(e @ BlockError::BlobValidation(_)) => {
-                warn!(self.log, "Could not verify blob for gossip. Rejecting the block and blob";
+            Err(e @ BlockError::BlobValidation(_)) | Err(e @ BlockError::AvailabilityCheck(_)) => {
+                warn!(self.log, "Could not verify block against known blobs in gossip. Rejecting the block";
                             "error" => %e);
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
                 self.gossip_penalize_peer(
@@ -1132,23 +1139,13 @@ impl<T: BeaconChainTypes> Worker<T> {
 
                 self.chain.recompute_head_at_current_slot().await;
             }
-            Ok(AvailabilityProcessingStatus::PendingBlock(block_root)) => {
-                // This error variant doesn't make any sense in this context
-                crit!(
-                    self.log,
-                    "Internal error. Cannot get AvailabilityProcessingStatus::PendingBlock on processing block";
-                    "block_root" => %block_root
-                );
-            }
-            Ok(AvailabilityProcessingStatus::PendingBlobs(pending_blobs)) => {
+            Ok(AvailabilityProcessingStatus::MissingComponents(slot, block_root)) => {
                 // make rpc request for blob
-                self.send_sync_message(SyncMessage::UnknownBlobHash {
+                self.send_sync_message(SyncMessage::MissingGossipBlockComponents(
+                    *slot,
                     peer_id,
-                    pending_blobs: pending_blobs.to_vec(),
-                });
-            }
-            Err(BlockError::AvailabilityCheck(_)) => {
-                todo!()
+                    *block_root,
+                ));
             }
             Err(BlockError::ParentUnknown(block)) => {
                 // Inform the sync manager to find parents for this block
@@ -1158,7 +1155,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     "Block with unknown parent attempted to be processed";
                     "peer_id" => %peer_id
                 );
-                self.send_sync_message(SyncMessage::UnknownBlock(
+                self.send_sync_message(SyncMessage::UnknownParentBlock(
                     peer_id,
                     block.clone(),
                     block_root,
@@ -1997,7 +1994,10 @@ impl<T: BeaconChainTypes> Worker<T> {
                     // We don't know the block, get the sync manager to handle the block lookup, and
                     // send the attestation to be scheduled for re-processing.
                     self.sync_tx
-                        .send(SyncMessage::UnknownBlockHash(peer_id, *beacon_block_root))
+                        .send(SyncMessage::UnknownBlockHashFromAttestation(
+                            peer_id,
+                            *beacon_block_root,
+                        ))
                         .unwrap_or_else(|_| {
                             warn!(
                                 self.log,

@@ -117,7 +117,7 @@ use tokio_stream::Stream;
 use tree_hash::TreeHash;
 use types::beacon_block_body::KzgCommitments;
 use types::beacon_state::CloneConfig;
-use types::blob_sidecar::{BlobIdentifier, BlobSidecarList, Blobs};
+use types::blob_sidecar::{BlobSidecarList, Blobs};
 use types::consts::deneb::MIN_EPOCHS_FOR_BLOB_SIDECARS_REQUESTS;
 use types::*;
 
@@ -185,12 +185,10 @@ pub enum WhenSlotSkipped {
 
 #[derive(Debug, PartialEq)]
 pub enum AvailabilityProcessingStatus {
-    PendingBlobs(Vec<BlobIdentifier>),
-    PendingBlock(Hash256),
+    MissingComponents(Slot, Hash256),
     Imported(Hash256),
 }
 
-//TODO(sean) using this in tests for now
 impl TryInto<SignedBeaconBlockHash> for AvailabilityProcessingStatus {
     type Error = ();
 
@@ -468,7 +466,7 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     /// The slot at which blocks are downloaded back to.
     pub genesis_backfill_slot: Slot,
     pub proposal_blob_cache: BlobCache<T::EthSpec>,
-    pub data_availability_checker: DataAvailabilityChecker<T>,
+    pub data_availability_checker: Arc<DataAvailabilityChecker<T>>,
     pub kzg: Option<Arc<Kzg>>,
 }
 
@@ -1985,8 +1983,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self: &Arc<Self>,
         blob_sidecar: SignedBlobSidecar<T::EthSpec>,
         subnet_id: u64,
-    ) -> Result<GossipVerifiedBlob<T::EthSpec>, BlobError> // TODO(pawan): make a GossipVerifedBlob type
-    {
+    ) -> Result<GossipVerifiedBlob<T::EthSpec>, BlobError<T::EthSpec>> {
         blob_verification::validate_blob_sidecar_for_gossip(blob_sidecar, subnet_id, self)
     }
 
@@ -2674,7 +2671,24 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     )
                     .await
                 {
-                    Ok(_) => imported_blocks += 1,
+                    Ok(status) => {
+                        match status {
+                            AvailabilityProcessingStatus::Imported(_) => {
+                                // The block was imported successfully.
+                                imported_blocks += 1;
+                            }
+                            AvailabilityProcessingStatus::MissingComponents(slot, block_root) => {
+                                warn!(self.log, "Blobs missing in response to range request";
+                                    "block_root" => ?block_root, "slot" => slot);
+                                return ChainSegmentResult::Failed {
+                                    imported_blocks,
+                                    error: BlockError::AvailabilityCheck(
+                                        AvailabilityCheckError::MissingBlobs,
+                                    ),
+                                };
+                            }
+                        }
+                    }
                     Err(error) => {
                         return ChainSegmentResult::Failed {
                             imported_blocks,
@@ -2748,6 +2762,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         count_unrealized: CountUnrealized,
     ) -> Result<AvailabilityProcessingStatus, BlockError<T::EthSpec>> {
         self.check_availability_and_maybe_import(
+            blob.slot(),
             |chain| chain.data_availability_checker.put_gossip_blob(blob),
             count_unrealized,
         )
@@ -2804,6 +2819,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
             ExecutedBlock::AvailabilityPending(block) => {
                 self.check_availability_and_maybe_import(
+                    block.block.slot(),
                     |chain| {
                         chain
                             .data_availability_checker
@@ -2907,6 +2923,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// (i.e., this function is not atomic).
     pub async fn check_availability_and_maybe_import(
         self: &Arc<Self>,
+        slot: Slot,
         cache_fn: impl FnOnce(Arc<Self>) -> Result<Availability<T::EthSpec>, AvailabilityCheckError>,
         count_unrealized: CountUnrealized,
     ) -> Result<AvailabilityProcessingStatus, BlockError<T::EthSpec>> {
@@ -2915,12 +2932,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             Availability::Available(block) => {
                 self.import_available_block(block, count_unrealized).await
             }
-            Availability::PendingBlock(block_root) => {
-                Ok(AvailabilityProcessingStatus::PendingBlock(block_root))
-            }
-            Availability::PendingBlobs(blob_ids) => {
-                Ok(AvailabilityProcessingStatus::PendingBlobs(blob_ids))
-            }
+            Availability::MissingComponents(block_root) => Ok(
+                AvailabilityProcessingStatus::MissingComponents(slot, block_root),
+            ),
         }
     }
 

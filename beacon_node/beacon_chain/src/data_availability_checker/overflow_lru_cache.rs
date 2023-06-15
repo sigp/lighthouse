@@ -11,7 +11,9 @@ use ssz_derive::{Decode, Encode};
 use ssz_types::FixedVector;
 use std::{collections::HashSet, sync::Arc};
 use types::blob_sidecar::BlobIdentifier;
-use types::{BlobSidecar, Epoch, EthSpec, Hash256};
+use types::{BlobSidecar, Epoch, EthSpec, Hash256, SignedBeaconBlock};
+
+type MissingBlobInfo<T> = (Option<Arc<SignedBeaconBlock<T>>>, HashSet<usize>);
 
 /// Caches partially available blobs and execution verified blocks corresponding
 /// to a given `block_hash` that are received over gossip.
@@ -25,10 +27,12 @@ pub struct PendingComponents<T: EthSpec> {
 }
 
 impl<T: EthSpec> PendingComponents<T> {
-    pub fn new_from_blob(blob: KzgVerifiedBlob<T>) -> Self {
+    pub fn new_from_blobs(blobs: &[KzgVerifiedBlob<T>]) -> Self {
         let mut verified_blobs = FixedVector::<_, _>::default();
-        if let Some(mut_maybe_blob) = verified_blobs.get_mut(blob.blob_index() as usize) {
-            *mut_maybe_blob = Some(blob);
+        for blob in blobs {
+            if let Some(mut_maybe_blob) = verified_blobs.get_mut(blob.blob_index() as usize) {
+                *mut_maybe_blob = Some(blob.clone());
+            }
         }
 
         Self {
@@ -81,6 +85,20 @@ impl<T: EthSpec> PendingComponents<T> {
                 }
                 None
             })
+    }
+
+    pub fn get_missing_blob_info(&self) -> MissingBlobInfo<T> {
+        let block_opt = self
+            .executed_block
+            .as_ref()
+            .map(|block| block.block.block.clone());
+        let blobs = self
+            .verified_blobs
+            .iter()
+            .enumerate()
+            .filter_map(|(i, maybe_blob)| maybe_blob.as_ref().map(|_| i))
+            .collect::<HashSet<_>>();
+        (block_opt, blobs)
     }
 }
 
@@ -193,11 +211,27 @@ impl<T: BeaconChainTypes> OverflowStore<T> {
         Ok(disk_keys)
     }
 
+    pub fn load_block(
+        &self,
+        block_root: &Hash256,
+    ) -> Result<Option<AvailabilityPendingExecutedBlock<T::EthSpec>>, AvailabilityCheckError> {
+        let key = OverflowKey::from_block_root(*block_root);
+
+        self.0
+            .hot_db
+            .get_bytes(DBColumn::OverflowLRUCache.as_str(), &key.as_ssz_bytes())?
+            .map(|block_bytes| {
+                AvailabilityPendingExecutedBlock::from_ssz_bytes(block_bytes.as_slice())
+            })
+            .transpose()
+            .map_err(|e| e.into())
+    }
+
     pub fn load_blob(
         &self,
         blob_id: &BlobIdentifier,
     ) -> Result<Option<Arc<BlobSidecar<T::EthSpec>>>, AvailabilityCheckError> {
-        let key = OverflowKey::from_blob_id::<T::EthSpec>(blob_id.clone())?;
+        let key = OverflowKey::from_blob_id::<T::EthSpec>(*blob_id)?;
 
         self.0
             .hot_db
@@ -320,6 +354,41 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
         })
     }
 
+    pub fn has_block(&self, block_root: &Hash256) -> bool {
+        let read_lock = self.critical.read();
+        if read_lock
+            .in_memory
+            .peek(block_root)
+            .map_or(false, |cache| cache.executed_block.is_some())
+        {
+            true
+        } else if read_lock.store_keys.contains(block_root) {
+            drop(read_lock);
+            // If there's some kind of error reading from the store, we should just return false
+            self.overflow_store
+                .load_block(block_root)
+                .map_or(false, |maybe_block| maybe_block.is_some())
+        } else {
+            false
+        }
+    }
+
+    pub fn get_missing_blob_info(&self, block_root: Hash256) -> MissingBlobInfo<T::EthSpec> {
+        let read_lock = self.critical.read();
+        if let Some(cache) = read_lock.in_memory.peek(&block_root) {
+            cache.get_missing_blob_info()
+        } else if read_lock.store_keys.contains(&block_root) {
+            drop(read_lock);
+            // return default if there's an error reading from the store
+            match self.overflow_store.get_pending_components(block_root) {
+                Ok(Some(pending_components)) => pending_components.get_missing_blob_info(),
+                _ => Default::default(),
+            }
+        } else {
+            Default::default()
+        }
+    }
+
     pub fn peek_blob(
         &self,
         blob_id: &BlobIdentifier,
@@ -335,27 +404,39 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
         }
     }
 
-    pub fn put_kzg_verified_blob(
+    pub fn put_kzg_verified_blobs(
         &self,
-        kzg_verified_blob: KzgVerifiedBlob<T::EthSpec>,
+        block_root: Hash256,
+        kzg_verified_blobs: &[KzgVerifiedBlob<T::EthSpec>],
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
+        for blob in kzg_verified_blobs {
+            let blob_block_root = blob.block_root();
+            if blob_block_root != block_root {
+                return Err(AvailabilityCheckError::BlockBlobRootMismatch {
+                    block_root,
+                    blob_block_root,
+                });
+            }
+        }
         let mut write_lock = self.critical.write();
-        let block_root = kzg_verified_blob.block_root();
 
         let availability = if let Some(mut pending_components) =
             write_lock.pop_pending_components(block_root, &self.overflow_store)?
         {
-            let blob_index = kzg_verified_blob.blob_index();
-            *pending_components
-                .verified_blobs
-                .get_mut(blob_index as usize)
-                .ok_or(AvailabilityCheckError::BlobIndexInvalid(blob_index))? =
-                Some(kzg_verified_blob);
+            for kzg_verified_blob in kzg_verified_blobs {
+                let blob_index = kzg_verified_blob.blob_index() as usize;
+                if let Some(maybe_verified_blob) =
+                    pending_components.verified_blobs.get_mut(blob_index)
+                {
+                    *maybe_verified_blob = Some(kzg_verified_blob.clone())
+                } else {
+                    return Err(AvailabilityCheckError::BlobIndexInvalid(blob_index as u64));
+                }
+            }
 
             if let Some(executed_block) = pending_components.executed_block.take() {
                 self.check_block_availability_maybe_cache(
                     write_lock,
-                    block_root,
                     pending_components,
                     executed_block,
                 )?
@@ -365,17 +446,17 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
                     pending_components,
                     &self.overflow_store,
                 )?;
-                Availability::PendingBlock(block_root)
+                Availability::MissingComponents(block_root)
             }
         } else {
             // not in memory or store -> put new in memory
-            let new_pending_components = PendingComponents::new_from_blob(kzg_verified_blob);
+            let new_pending_components = PendingComponents::new_from_blobs(kzg_verified_blobs);
             write_lock.put_pending_components(
                 block_root,
                 new_pending_components,
                 &self.overflow_store,
             )?;
-            Availability::PendingBlock(block_root)
+            Availability::MissingComponents(block_root)
         };
 
         Ok(availability)
@@ -394,7 +475,6 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
             match write_lock.pop_pending_components(block_root, &self.overflow_store)? {
                 Some(pending_components) => self.check_block_availability_maybe_cache(
                     write_lock,
-                    block_root,
                     pending_components,
                     executed_block,
                 )?,
@@ -422,7 +502,7 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
                         new_pending_components,
                         &self.overflow_store,
                     )?;
-                    Availability::PendingBlobs(all_blob_ids)
+                    Availability::MissingComponents(block_root)
                 }
             };
 
@@ -435,11 +515,10 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
     /// Returns an error if there was an error when matching the block commitments against blob commitments.
     ///
     /// Returns `Ok(Availability::Available(_))` if all blobs for the block are present in cache.
-    /// Returns `Ok(Availability::PendingBlobs(_))` if all corresponding blobs have not been received in the cache.
+    /// Returns `Ok(Availability::MissingComponents(_))` if all corresponding blobs have not been received in the cache.
     fn check_block_availability_maybe_cache(
         &self,
         mut write_lock: RwLockWriteGuard<Critical<T>>,
-        block_root: Hash256,
         mut pending_components: PendingComponents<T::EthSpec>,
         executed_block: AvailabilityPendingExecutedBlock<T::EthSpec>,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
@@ -451,11 +530,12 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
                 payload_verification_outcome,
             } = executed_block;
 
-            let verified_blobs = Vec::from(pending_components.verified_blobs)
+            let Some(verified_blobs) = Vec::from(pending_components.verified_blobs)
                 .into_iter()
                 .take(num_blobs_expected)
-                .map(|maybe_blob| maybe_blob.ok_or(AvailabilityCheckError::MissingBlobs))
-                .collect::<Result<Vec<_>, _>>()?;
+                .collect::<Option<Vec<_>>>() else {
+                 return Ok(Availability::MissingComponents(import_data.block_root))
+            };
 
             let available_block = block.make_available(verified_blobs)?;
             Ok(Availability::Available(Box::new(
@@ -466,14 +546,7 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
                 ),
             )))
         } else {
-            let missing_blob_ids = executed_block.get_filtered_blob_ids(|index| {
-                pending_components
-                    .verified_blobs
-                    .get(index as usize)
-                    .map(|maybe_blob| maybe_blob.is_none())
-                    .unwrap_or(true)
-            });
-
+            let block_root = executed_block.import_data.block_root;
             let _ = pending_components.executed_block.insert(executed_block);
             write_lock.put_pending_components(
                 block_root,
@@ -481,7 +554,7 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
                 &self.overflow_store,
             )?;
 
-            Ok(Availability::PendingBlobs(missing_blob_ids))
+            Ok(Availability::MissingComponents(block_root))
         }
     }
 
@@ -1080,7 +1153,7 @@ mod test {
             );
         } else {
             assert!(
-                matches!(availability, Availability::PendingBlobs(_)),
+                matches!(availability, Availability::MissingComponents(_)),
                 "should be pending blobs"
             );
             assert_eq!(
@@ -1100,16 +1173,18 @@ mod test {
             .as_ref()
             .cloned()
             .expect("kzg should exist");
+        let mut kzg_verified_blobs = Vec::new();
         for (blob_index, gossip_blob) in blobs.into_iter().enumerate() {
-            let kzg_verified_blob =
-                verify_kzg_for_blob(gossip_blob, kzg.as_ref()).expect("kzg should verify");
+            let kzg_verified_blob = verify_kzg_for_blob(gossip_blob.to_blob(), kzg.as_ref())
+                .expect("kzg should verify");
+            kzg_verified_blobs.push(kzg_verified_blob);
             let availability = cache
-                .put_kzg_verified_blob(kzg_verified_blob)
+                .put_kzg_verified_blobs(root, kzg_verified_blobs.as_slice())
                 .expect("should put blob");
             if blob_index == blobs_expected - 1 {
                 assert!(matches!(availability, Availability::Available(_)));
             } else {
-                assert!(matches!(availability, Availability::PendingBlobs(_)));
+                assert!(matches!(availability, Availability::MissingComponents(_)));
                 assert_eq!(cache.critical.read().in_memory.len(), 1);
             }
         }
@@ -1126,15 +1201,17 @@ mod test {
             "should have expected number of blobs"
         );
         let root = pending_block.import_data.block_root;
+        let mut kzg_verified_blobs = vec![];
         for gossip_blob in blobs {
-            let kzg_verified_blob =
-                verify_kzg_for_blob(gossip_blob, kzg.as_ref()).expect("kzg should verify");
+            let kzg_verified_blob = verify_kzg_for_blob(gossip_blob.to_blob(), kzg.as_ref())
+                .expect("kzg should verify");
+            kzg_verified_blobs.push(kzg_verified_blob);
             let availability = cache
-                .put_kzg_verified_blob(kzg_verified_blob)
+                .put_kzg_verified_blobs(root, kzg_verified_blobs.as_slice())
                 .expect("should put blob");
             assert_eq!(
                 availability,
-                Availability::PendingBlock(root),
+                Availability::MissingComponents(root),
                 "should be pending block"
             );
             assert_eq!(cache.critical.read().in_memory.len(), 1);
@@ -1270,11 +1347,13 @@ mod test {
 
         let blobs_0 = pending_blobs.pop_front().expect("should have blobs");
         let expected_blobs = blobs_0.len();
+        let mut kzg_verified_blobs = vec![];
         for (blob_index, gossip_blob) in blobs_0.into_iter().enumerate() {
-            let kzg_verified_blob =
-                verify_kzg_for_blob(gossip_blob, kzg.as_ref()).expect("kzg should verify");
+            let kzg_verified_blob = verify_kzg_for_blob(gossip_blob.to_blob(), kzg.as_ref())
+                .expect("kzg should verify");
+            kzg_verified_blobs.push(kzg_verified_blob);
             let availability = cache
-                .put_kzg_verified_blob(kzg_verified_blob)
+                .put_kzg_verified_blobs(roots[0], kzg_verified_blobs.as_slice())
                 .expect("should put blob");
             if blob_index == expected_blobs - 1 {
                 assert!(matches!(availability, Availability::Available(_)));
@@ -1284,7 +1363,7 @@ mod test {
                     cache.critical.read().in_memory.peek(&roots[0]).is_some(),
                     "first block should be in memory"
                 );
-                assert!(matches!(availability, Availability::PendingBlobs(_)));
+                assert!(matches!(availability, Availability::MissingComponents(_)));
             }
         }
         assert_eq!(
@@ -1360,13 +1439,17 @@ mod test {
 
         for _ in 0..(n_epochs * capacity) {
             let pending_block = pending_blocks.pop_front().expect("should have block");
+            let mut pending_block_blobs = pending_blobs.pop_front().expect("should have blobs");
+            let block_root = pending_block.block.as_block().canonical_root();
             let expected_blobs = pending_block.num_blobs_expected();
             if expected_blobs > 1 {
                 // might as well add a blob too
-                let mut pending_blobs = pending_blobs.pop_front().expect("should have blobs");
-                let one_blob = pending_blobs.pop().expect("should have at least one blob");
-                let kzg_verified_blob =
-                    verify_kzg_for_blob(one_blob, kzg.as_ref()).expect("kzg should verify");
+                let one_blob = pending_block_blobs
+                    .pop()
+                    .expect("should have at least one blob");
+                let kzg_verified_blob = verify_kzg_for_blob(one_blob.to_blob(), kzg.as_ref())
+                    .expect("kzg should verify");
+                let kzg_verified_blobs = vec![kzg_verified_blob];
                 // generate random boolean
                 let block_first = (rand::random::<usize>() % 2) == 0;
                 if block_first {
@@ -1374,43 +1457,41 @@ mod test {
                         .put_pending_executed_block(pending_block)
                         .expect("should put block");
                     assert!(
-                        matches!(availability, Availability::PendingBlobs(_)),
+                        matches!(availability, Availability::MissingComponents(_)),
                         "should have pending blobs"
                     );
                     let availability = cache
-                        .put_kzg_verified_blob(kzg_verified_blob)
+                        .put_kzg_verified_blobs(block_root, kzg_verified_blobs.as_slice())
                         .expect("should put blob");
                     assert!(
-                        matches!(availability, Availability::PendingBlobs(_)),
+                        matches!(availability, Availability::MissingComponents(_)),
                         "availabilty should be pending blobs: {:?}",
                         availability
                     );
                 } else {
                     let availability = cache
-                        .put_kzg_verified_blob(kzg_verified_blob)
+                        .put_kzg_verified_blobs(block_root, kzg_verified_blobs.as_slice())
                         .expect("should put blob");
                     let root = pending_block.block.as_block().canonical_root();
                     assert_eq!(
                         availability,
-                        Availability::PendingBlock(root),
+                        Availability::MissingComponents(root),
                         "should be pending block"
                     );
                     let availability = cache
                         .put_pending_executed_block(pending_block)
                         .expect("should put block");
                     assert!(
-                        matches!(availability, Availability::PendingBlobs(_)),
+                        matches!(availability, Availability::MissingComponents(_)),
                         "should have pending blobs"
                     );
                 }
             } else {
-                // still need to pop front so the blob count is correct
-                pending_blobs.pop_front().expect("should have blobs");
                 let availability = cache
                     .put_pending_executed_block(pending_block)
                     .expect("should put block");
                 assert!(
-                    matches!(availability, Availability::PendingBlobs(_)),
+                    matches!(availability, Availability::MissingComponents(_)),
                     "should be pending blobs"
                 );
             }
@@ -1511,63 +1592,63 @@ mod test {
         let mut remaining_blobs = HashMap::new();
         for _ in 0..(n_epochs * capacity) {
             let pending_block = pending_blocks.pop_front().expect("should have block");
+            let mut pending_block_blobs = pending_blobs.pop_front().expect("should have blobs");
             let block_root = pending_block.block.as_block().canonical_root();
             let expected_blobs = pending_block.num_blobs_expected();
             if expected_blobs > 1 {
                 // might as well add a blob too
-                let mut pending_blobs = pending_blobs.pop_front().expect("should have blobs");
-                let one_blob = pending_blobs.pop().expect("should have at least one blob");
-                let kzg_verified_blob =
-                    verify_kzg_for_blob(one_blob, kzg.as_ref()).expect("kzg should verify");
+                let one_blob = pending_block_blobs
+                    .pop()
+                    .expect("should have at least one blob");
+                let kzg_verified_blob = verify_kzg_for_blob(one_blob.to_blob(), kzg.as_ref())
+                    .expect("kzg should verify");
+                let kzg_verified_blobs = vec![kzg_verified_blob];
                 // generate random boolean
                 let block_first = (rand::random::<usize>() % 2) == 0;
-                remaining_blobs.insert(block_root, pending_blobs);
                 if block_first {
                     let availability = cache
                         .put_pending_executed_block(pending_block)
                         .expect("should put block");
                     assert!(
-                        matches!(availability, Availability::PendingBlobs(_)),
+                        matches!(availability, Availability::MissingComponents(_)),
                         "should have pending blobs"
                     );
                     let availability = cache
-                        .put_kzg_verified_blob(kzg_verified_blob)
+                        .put_kzg_verified_blobs(block_root, kzg_verified_blobs.as_slice())
                         .expect("should put blob");
                     assert!(
-                        matches!(availability, Availability::PendingBlobs(_)),
+                        matches!(availability, Availability::MissingComponents(_)),
                         "availabilty should be pending blobs: {:?}",
                         availability
                     );
                 } else {
                     let availability = cache
-                        .put_kzg_verified_blob(kzg_verified_blob)
+                        .put_kzg_verified_blobs(block_root, kzg_verified_blobs.as_slice())
                         .expect("should put blob");
                     let root = pending_block.block.as_block().canonical_root();
                     assert_eq!(
                         availability,
-                        Availability::PendingBlock(root),
+                        Availability::MissingComponents(root),
                         "should be pending block"
                     );
                     let availability = cache
                         .put_pending_executed_block(pending_block)
                         .expect("should put block");
                     assert!(
-                        matches!(availability, Availability::PendingBlobs(_)),
+                        matches!(availability, Availability::MissingComponents(_)),
                         "should have pending blobs"
                     );
                 }
             } else {
-                // still need to pop front so the blob count is correct
-                let pending_blobs = pending_blobs.pop_front().expect("should have blobs");
-                remaining_blobs.insert(block_root, pending_blobs);
                 let availability = cache
                     .put_pending_executed_block(pending_block)
                     .expect("should put block");
                 assert!(
-                    matches!(availability, Availability::PendingBlobs(_)),
+                    matches!(availability, Availability::MissingComponents(_)),
                     "should be pending blobs"
                 );
             }
+            remaining_blobs.insert(block_root, pending_block_blobs);
         }
 
         // now we should have a full cache spanning multiple epochs
@@ -1626,18 +1707,20 @@ mod test {
         );
 
         // now lets insert the remaining blobs until the cache is empty
-        for (_, blobs) in remaining_blobs {
+        for (root, blobs) in remaining_blobs {
             let additional_blobs = blobs.len();
+            let mut kzg_verified_blobs = vec![];
             for (i, gossip_blob) in blobs.into_iter().enumerate() {
-                let kzg_verified_blob =
-                    verify_kzg_for_blob(gossip_blob, kzg.as_ref()).expect("kzg should verify");
+                let kzg_verified_blob = verify_kzg_for_blob(gossip_blob.to_blob(), kzg.as_ref())
+                    .expect("kzg should verify");
+                kzg_verified_blobs.push(kzg_verified_blob);
                 let availability = recovered_cache
-                    .put_kzg_verified_blob(kzg_verified_blob)
+                    .put_kzg_verified_blobs(root, kzg_verified_blobs.as_slice())
                     .expect("should put blob");
                 if i == additional_blobs - 1 {
                     assert!(matches!(availability, Availability::Available(_)))
                 } else {
-                    assert!(matches!(availability, Availability::PendingBlobs(_)));
+                    assert!(matches!(availability, Availability::MissingComponents(_)));
                 }
             }
         }

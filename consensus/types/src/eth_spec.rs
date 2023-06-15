@@ -105,7 +105,7 @@ pub trait EthSpec:
     /*
      * New in Deneb
      */
-    type MaxBlobsPerBlock: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+    type MaxBlobsPerBlock: Unsigned + Clone + Sync + Send + Debug + PartialEq + Unpin;
     type FieldElementsPerBlob: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type BytesPerFieldElement: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     /*
@@ -254,6 +254,11 @@ pub trait EthSpec:
     /// Returns the `MAX_BLOBS_PER_BLOCK` constant for this specification.
     fn max_blobs_per_block() -> usize {
         Self::MaxBlobsPerBlock::to_usize()
+    }
+
+    /// Returns the `BYTES_PER_BLOB` constant for this specification.
+    fn bytes_per_blob() -> usize {
+        Self::BytesPerBlob::to_usize()
     }
 }
 

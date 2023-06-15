@@ -63,7 +63,7 @@ use types::{typenum::U4294967296, *};
 // 4th September 2019
 pub const HARNESS_GENESIS_TIME: u64 = 1_567_552_690;
 // Environment variable to read if `fork_from_env` feature is enabled.
-const FORK_NAME_ENV_VAR: &str = "FORK_NAME";
+pub const FORK_NAME_ENV_VAR: &str = "FORK_NAME";
 
 // Default target aggregators to set during testing, this ensures an aggregator at each slot.
 //
