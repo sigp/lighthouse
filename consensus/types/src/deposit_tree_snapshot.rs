@@ -30,8 +30,10 @@ impl From<&DepositTreeSnapshot> for FinalizedExecutionBlock {
 pub struct DepositTreeSnapshot {
     pub finalized: Vec<Hash256>,
     pub deposit_root: Hash256,
+    #[serde(with = "serde_utils::quoted_u64")]
     pub deposit_count: u64,
     pub execution_block_hash: Hash256,
+    #[serde(with = "serde_utils::quoted_u64")]
     pub execution_block_height: u64,
 }
 
