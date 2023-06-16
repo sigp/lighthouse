@@ -194,21 +194,6 @@ impl<T> From<proto_array::Error> for Error<T> {
     }
 }
 
-/// Indicates whether the unrealized justification of a block should be calculated and tracked.
-/// If a block has been finalized, this can be set to false. This is useful when syncing finalized
-/// portions of the chain. Otherwise this should always be set to true.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum CountUnrealized {
-    True,
-    False,
-}
-
-impl CountUnrealized {
-    pub fn is_true(&self) -> bool {
-        matches!(self, CountUnrealized::True)
-    }
-}
-
 /// Indicates if a block has been verified by an execution payload.
 ///
 /// There is no variant for "invalid", since such a block should never be added to fork choice.
@@ -679,9 +664,15 @@ where
         state: &BeaconState<E>,
         payload_verification_status: PayloadVerificationStatus,
         spec: &ChainSpec,
-        count_unrealized: CountUnrealized,
         progressive_balances_mode: ProgressiveBalancesMode,
     ) -> Result<(), Error<T::Error>> {
+        // If this block has already been processed we do not need to reprocess it.
+        // We check this immediately in case re-processing the block mutates some property of the
+        // global fork choice store, e.g. the justified checkpoints or the proposer boost root.
+        if self.proto_array.contains_block(&block_root) {
+            return Ok(());
+        }
+
         // Provide the slot (as per the system clock) to the `fc_store` and then return its view of
         // the current slot. The `fc_store` will ensure that the `current_slot` is never
         // decreasing, a property which we must maintain.
@@ -747,35 +738,28 @@ where
         )?;
 
         // Update unrealized justified/finalized checkpoints.
-        let (unrealized_justified_checkpoint, unrealized_finalized_checkpoint) = if count_unrealized
-            .is_true()
-        {
-            let block_epoch = block.slot().epoch(E::slots_per_epoch());
+        let block_epoch = block.slot().epoch(E::slots_per_epoch());
 
-            // If the parent checkpoints are already at the same epoch as the block being imported,
-            // it's impossible for the unrealized checkpoints to differ from the parent's. This
-            // holds true because:
-            //
-            // 1. A child block cannot have lower FFG checkpoints than its parent.
-            // 2. A block in epoch `N` cannot contain attestations which would justify an epoch higher than `N`.
-            // 3. A block in epoch `N` cannot contain attestations which would finalize an epoch higher than `N - 1`.
-            //
-            // This is an optimization. It should reduce the amount of times we run
-            // `process_justification_and_finalization` by approximately 1/3rd when the chain is
-            // performing optimally.
-            let parent_checkpoints = parent_block
-                .unrealized_justified_checkpoint
-                .zip(parent_block.unrealized_finalized_checkpoint)
-                .filter(|(parent_justified, parent_finalized)| {
-                    parent_justified.epoch == block_epoch
-                        && parent_finalized.epoch + 1 >= block_epoch
-                });
+        // If the parent checkpoints are already at the same epoch as the block being imported,
+        // it's impossible for the unrealized checkpoints to differ from the parent's. This
+        // holds true because:
+        //
+        // 1. A child block cannot have lower FFG checkpoints than its parent.
+        // 2. A block in epoch `N` cannot contain attestations which would justify an epoch higher than `N`.
+        // 3. A block in epoch `N` cannot contain attestations which would finalize an epoch higher than `N - 1`.
+        //
+        // This is an optimization. It should reduce the amount of times we run
+        // `process_justification_and_finalization` by approximately 1/3rd when the chain is
+        // performing optimally.
+        let parent_checkpoints = parent_block
+            .unrealized_justified_checkpoint
+            .zip(parent_block.unrealized_finalized_checkpoint)
+            .filter(|(parent_justified, parent_finalized)| {
+                parent_justified.epoch == block_epoch && parent_finalized.epoch + 1 >= block_epoch
+            });
 
-            let (unrealized_justified_checkpoint, unrealized_finalized_checkpoint) = if let Some(
-                (parent_justified, parent_finalized),
-            ) =
-                parent_checkpoints
-            {
+        let (unrealized_justified_checkpoint, unrealized_finalized_checkpoint) =
+            if let Some((parent_justified, parent_finalized)) = parent_checkpoints {
                 (parent_justified, parent_finalized)
             } else {
                 let justification_and_finalization_state = match block {
@@ -821,35 +805,27 @@ where
                 )
             };
 
-            // Update best known unrealized justified & finalized checkpoints
-            if unrealized_justified_checkpoint.epoch
-                > self.fc_store.unrealized_justified_checkpoint().epoch
-            {
-                self.fc_store
-                    .set_unrealized_justified_checkpoint(unrealized_justified_checkpoint);
-            }
-            if unrealized_finalized_checkpoint.epoch
-                > self.fc_store.unrealized_finalized_checkpoint().epoch
-            {
-                self.fc_store
-                    .set_unrealized_finalized_checkpoint(unrealized_finalized_checkpoint);
-            }
+        // Update best known unrealized justified & finalized checkpoints
+        if unrealized_justified_checkpoint.epoch
+            > self.fc_store.unrealized_justified_checkpoint().epoch
+        {
+            self.fc_store
+                .set_unrealized_justified_checkpoint(unrealized_justified_checkpoint);
+        }
+        if unrealized_finalized_checkpoint.epoch
+            > self.fc_store.unrealized_finalized_checkpoint().epoch
+        {
+            self.fc_store
+                .set_unrealized_finalized_checkpoint(unrealized_finalized_checkpoint);
+        }
 
-            // If block is from past epochs, try to update store's justified & finalized checkpoints right away
-            if block.slot().epoch(E::slots_per_epoch()) < current_slot.epoch(E::slots_per_epoch()) {
-                self.pull_up_store_checkpoints(
-                    unrealized_justified_checkpoint,
-                    unrealized_finalized_checkpoint,
-                )?;
-            }
-
-            (
-                Some(unrealized_justified_checkpoint),
-                Some(unrealized_finalized_checkpoint),
-            )
-        } else {
-            (None, None)
-        };
+        // If block is from past epochs, try to update store's justified & finalized checkpoints right away
+        if block.slot().epoch(E::slots_per_epoch()) < current_slot.epoch(E::slots_per_epoch()) {
+            self.pull_up_store_checkpoints(
+                unrealized_justified_checkpoint,
+                unrealized_finalized_checkpoint,
+            )?;
+        }
 
         let target_slot = block
             .slot()
@@ -920,8 +896,8 @@ where
                 justified_checkpoint: state.current_justified_checkpoint(),
                 finalized_checkpoint: state.finalized_checkpoint(),
                 execution_status,
-                unrealized_justified_checkpoint,
-                unrealized_finalized_checkpoint,
+                unrealized_justified_checkpoint: Some(unrealized_justified_checkpoint),
+                unrealized_finalized_checkpoint: Some(unrealized_finalized_checkpoint),
             },
             current_slot,
         )?;

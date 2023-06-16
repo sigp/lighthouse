@@ -12,7 +12,6 @@ use beacon_chain::{
     BeaconChainError, BeaconChainTypes, BeaconSnapshot, ChainConfig, NotifyExecutionLayer,
     ServerSentEventHandler, WhenSlotSkipped,
 };
-use fork_choice::CountUnrealized;
 use lazy_static::lazy_static;
 use logging::test_logger;
 use maplit::hashset;
@@ -2151,7 +2150,6 @@ async fn weak_subjectivity_sync() {
             .process_block(
                 full_block.canonical_root(),
                 Arc::new(full_block),
-                CountUnrealized::True,
                 NotifyExecutionLayer::Yes,
             )
             .await

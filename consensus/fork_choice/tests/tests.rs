@@ -12,8 +12,7 @@ use beacon_chain::{
     StateSkipConfig, WhenSlotSkipped,
 };
 use fork_choice::{
-    CountUnrealized, ForkChoiceStore, InvalidAttestation, InvalidBlock, PayloadVerificationStatus,
-    QueuedAttestation,
+    ForkChoiceStore, InvalidAttestation, InvalidBlock, PayloadVerificationStatus, QueuedAttestation,
 };
 use store::MemoryStore;
 use types::{
@@ -340,7 +339,6 @@ impl ForkChoiceTest {
                 &state,
                 PayloadVerificationStatus::Verified,
                 &self.harness.chain.spec,
-                CountUnrealized::True,
                 self.harness.chain.config.progressive_balances_mode,
             )
             .unwrap();
@@ -384,7 +382,6 @@ impl ForkChoiceTest {
                 &state,
                 PayloadVerificationStatus::Verified,
                 &self.harness.chain.spec,
-                CountUnrealized::True,
                 self.harness.chain.config.progressive_balances_mode,
             )
             .err()
