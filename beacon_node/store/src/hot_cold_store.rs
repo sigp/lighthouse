@@ -1256,12 +1256,22 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 );
                 assert_eq!(summary.diff_base_slot, state.slot());
 
-                let mut base_buffer = HDiffBuffer::from_state(state);
+                let pre_state = state.clone();
+                let mut base_buffer = HDiffBuffer::from_state(pre_state.clone());
                 diff.apply(&mut base_buffer)?;
                 state = base_buffer.into_state(&self.spec)?;
 
                 state.update_tree_hash_cache()?;
                 state.build_all_caches(&self.spec)?;
+
+                // Rebase state before adding it to the cache, to ensure it uses minimal memory.
+                let t = std::time::Instant::now();
+                state.rebase_on(&pre_state)?;
+                debug!(
+                    self.log,
+                    "State diff applied and rebased";
+                    "rebase_time_ms" => t.elapsed().as_millis()
+                );
 
                 // Add state to the cache, it is by definition an epoch boundary state and likely
                 // to be useful.

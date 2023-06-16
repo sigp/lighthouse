@@ -218,6 +218,12 @@ impl From<BeaconStateHash> for Hash256 {
                 map_beacon_state_base_fields(),
                 map_beacon_state_base_tree_list_fields(mutable, fallible, groups(tree_lists)),
             ),
+            bimappings(bimap_beacon_state_base_tree_list_fields(
+                other_type = "BeaconStateBase",
+                self_mutable,
+                fallible,
+                groups(tree_lists)
+            )),
             num_fields(all()),
         )),
         Altair(metastruct(
@@ -225,6 +231,12 @@ impl From<BeaconStateHash> for Hash256 {
                 map_beacon_state_altair_fields(),
                 map_beacon_state_altair_tree_list_fields(mutable, fallible, groups(tree_lists)),
             ),
+            bimappings(bimap_beacon_state_altair_tree_list_fields(
+                other_type = "BeaconStateAltair",
+                self_mutable,
+                fallible,
+                groups(tree_lists)
+            )),
             num_fields(all()),
         )),
         Merge(metastruct(
@@ -232,6 +244,12 @@ impl From<BeaconStateHash> for Hash256 {
                 map_beacon_state_bellatrix_fields(),
                 map_beacon_state_bellatrix_tree_list_fields(mutable, fallible, groups(tree_lists)),
             ),
+            bimappings(bimap_beacon_state_merge_tree_list_fields(
+                other_type = "BeaconStateMerge",
+                self_mutable,
+                fallible,
+                groups(tree_lists)
+            )),
             num_fields(all()),
         )),
         Capella(metastruct(
@@ -239,6 +257,12 @@ impl From<BeaconStateHash> for Hash256 {
                 map_beacon_state_capella_fields(),
                 map_beacon_state_capella_tree_list_fields(mutable, fallible, groups(tree_lists)),
             ),
+            bimappings(bimap_beacon_state_capella_tree_list_fields(
+                other_type = "BeaconStateCapella",
+                self_mutable,
+                fallible,
+                groups(tree_lists)
+            )),
             num_fields(all()),
         )),
     ),
@@ -287,6 +311,8 @@ where
     #[metastruct(exclude_from(tree_lists))]
     pub eth1_data: Eth1Data,
     #[test_random(default)]
+    // FIXME(sproul): excluded due to `rebase_on` issue
+    #[metastruct(exclude_from(tree_lists))]
     pub eth1_data_votes: VList<Eth1Data, T::SlotsPerEth1VotingPeriod>,
     #[superstruct(getter(copy))]
     #[metastruct(exclude_from(tree_lists))]
@@ -1789,6 +1815,44 @@ impl<T: EthSpec, GenericValidator: ValidatorTrait> BeaconState<T, GenericValidat
             Self::Capella(inner) => {
                 map_beacon_state_capella_tree_list_fields!(inner, |_, x| { x.apply_updates() })
             }
+        }
+        self.eth1_data_votes_mut().apply_updates()?;
+        Ok(())
+    }
+
+    // FIXME(sproul): missing eth1 data votes, they would need a ResetListDiff
+    pub fn rebase_on(&mut self, base: &Self) -> Result<(), Error> {
+        match (self, base) {
+            (Self::Base(self_inner), Self::Base(base_inner)) => {
+                bimap_beacon_state_base_tree_list_fields!(
+                    self_inner,
+                    base_inner,
+                    |_, self_field, base_field| { self_field.rebase_on(base_field) }
+                );
+            }
+            (Self::Altair(self_inner), Self::Altair(base_inner)) => {
+                bimap_beacon_state_altair_tree_list_fields!(
+                    self_inner,
+                    base_inner,
+                    |_, self_field, base_field| { self_field.rebase_on(base_field) }
+                );
+            }
+            (Self::Merge(self_inner), Self::Merge(base_inner)) => {
+                bimap_beacon_state_merge_tree_list_fields!(
+                    self_inner,
+                    base_inner,
+                    |_, self_field, base_field| { self_field.rebase_on(base_field) }
+                );
+            }
+            (Self::Capella(self_inner), Self::Capella(base_inner)) => {
+                bimap_beacon_state_capella_tree_list_fields!(
+                    self_inner,
+                    base_inner,
+                    |_, self_field, base_field| { self_field.rebase_on(base_field) }
+                );
+            }
+            // Do not rebase across forks, this should be OK for most situations.
+            _ => {}
         }
         Ok(())
     }
