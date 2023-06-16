@@ -49,6 +49,7 @@ pub mod graffiti;
 pub mod historical_batch;
 pub mod historical_summary;
 pub mod indexed_attestation;
+pub mod lazy_attestation;
 pub mod light_client_bootstrap;
 pub mod light_client_finality_update;
 pub mod light_client_optimistic_update;
@@ -147,6 +148,7 @@ pub use crate::fork_versioned_response::{ForkVersionDeserialize, ForkVersionedRe
 pub use crate::graffiti::{Graffiti, GRAFFITI_BYTES_LEN};
 pub use crate::historical_batch::HistoricalBatch;
 pub use crate::indexed_attestation::IndexedAttestation;
+pub use crate::lazy_attestation::LazyAttestation;
 pub use crate::light_client_finality_update::LightClientFinalityUpdate;
 pub use crate::light_client_optimistic_update::LightClientOptimisticUpdate;
 pub use crate::participation_flags::ParticipationFlags;
