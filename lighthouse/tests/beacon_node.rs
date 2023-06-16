@@ -2295,7 +2295,7 @@ fn progressive_balances_default() {
         .with_config(|config| {
             assert_eq!(
                 config.chain.progressive_balances_mode,
-                ProgressiveBalancesMode::Disabled
+                ProgressiveBalancesMode::Checked
             )
         });
 }

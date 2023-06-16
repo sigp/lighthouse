@@ -790,7 +790,9 @@ where
                                 &participation_cache,
                             )?
                         }
-                        ProgressiveBalancesMode::Fast | ProgressiveBalancesMode::Checked => {
+                        ProgressiveBalancesMode::Fast
+                        | ProgressiveBalancesMode::Checked
+                        | ProgressiveBalancesMode::Strict => {
                             process_justification_and_finalization_from_progressive_cache::<E, T>(
                                 state,
                                 spec,
@@ -1574,14 +1576,30 @@ where
         progressive_balances_cache.current_epoch_target_attesting_balance()?;
     let total_active_balance = state.get_total_active_balance()?;
 
-    if let ProgressiveBalancesMode::Checked = progressive_balances_mode {
-        check_progressive_balances::<E, T>(
+    if progressive_balances_mode.perform_comparative_checks() {
+        let participation_cache =
+            ParticipationCache::new(state, spec).map_err(Error::ParticipationCacheBuild)?;
+
+        if let Err(e) = check_progressive_balances::<E, T>(
             state,
-            spec,
+            &participation_cache,
             previous_target_balance,
             current_target_balance,
             total_active_balance,
-        )?;
+        ) {
+            return if progressive_balances_mode == ProgressiveBalancesMode::Strict {
+                // if comparative check fails in `Strict` mode, return error
+                Err(e)
+            } else {
+                // if comparative check fails in `Checked` mode, fall back to the epoch processing
+                // method.
+                per_epoch_processing::altair::process_justification_and_finalization(
+                    state,
+                    &participation_cache,
+                )
+                .map_err(Error::from)
+            };
+        }
     }
 
     weigh_justification_and_finalization(
@@ -1596,7 +1614,7 @@ where
 /// Perform comparative checks against `ParticipationCache`, will return error if there's a mismatch.
 fn check_progressive_balances<E, T>(
     state: &BeaconState<E>,
-    spec: &ChainSpec,
+    participation_cache: &ParticipationCache,
     cached_previous_target_balance: u64,
     cached_current_target_balance: u64,
     cached_total_active_balance: u64,
@@ -1605,8 +1623,6 @@ where
     E: EthSpec,
     T: ForkChoiceStore<E>,
 {
-    let participation_cache =
-        ParticipationCache::new(state, spec).map_err(Error::ParticipationCacheBuild)?;
     let slot = state.slot();
     let epoch = state.current_epoch();
 

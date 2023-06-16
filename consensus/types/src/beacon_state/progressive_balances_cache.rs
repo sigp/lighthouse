@@ -153,12 +153,26 @@ impl ProgressiveBalancesCache {
 )]
 #[strum(serialize_all = "lowercase")]
 pub enum ProgressiveBalancesMode {
-    /// Disable the usage of progressive cache, and use the existing method (slower but safer).
+    /// Disable the usage of progressive cache, and use the existing `ParticipationCache` calculation.
     Disabled,
-    /// Enable the usage of progressive cache, with checks against participation cache.
+    /// Enable the usage of progressive cache, with checks against the `ParticipationCache` and falls
+    /// back to the existing calculation if there is a balance mismatch.
     Checked,
-    /// Enable the usage of progressive cache, with no comparative checks (fast, eventual goal).
+    /// Enable the usage of progressive cache, with checks against the `ParticipationCache`. Errors
+    /// if there is a balance mismatch. Used in testing only.
+    Strict,
+    /// Enable the usage of progressive cache, with no comparative checks against the
+    /// `ParticipationCache`. This is fast but an experimental mode, use with caution.
     Fast,
+}
+
+impl ProgressiveBalancesMode {
+    pub fn perform_comparative_checks(&self) -> bool {
+        match self {
+            Self::Disabled | Self::Fast => false,
+            Self::Checked | Self::Strict => true,
+        }
+    }
 }
 
 /// `ProgressiveBalancesCache` is only enabled from `Altair` as it requires `ParticipationCache`.

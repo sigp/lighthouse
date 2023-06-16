@@ -114,7 +114,7 @@ impl Default for ChainConfig {
             genesis_backfill: false,
             always_prepare_payload: false,
             enable_backfill_rate_limiting: true,
-            progressive_balances_mode: ProgressiveBalancesMode::Disabled,
+            progressive_balances_mode: ProgressiveBalancesMode::Checked,
         }
     }
 }

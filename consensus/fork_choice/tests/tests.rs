@@ -1345,11 +1345,11 @@ async fn weak_subjectivity_check_epoch_boundary_is_skip_slot_failure() {
         .assert_shutdown_signal_sent();
 }
 
+/// Checks that `ProgressiveBalancesCache` is updated correctly after an attester slashing event,
+/// where the slashed validator is a target attester in previous / current epoch.
 #[tokio::test]
-async fn progressive_balances_cache_checked_attester_slashing() {
-    // `Checked` mode will `BlockProcessingError` if the cached balance doesn't match balances from
-    // `ParticipationCache`.
-    ForkChoiceTest::new_with_progressive_balances_mode(ProgressiveBalancesMode::Checked)
+async fn progressive_balances_cache_attester_slashing() {
+    ForkChoiceTest::new_with_progressive_balances_mode(ProgressiveBalancesMode::Strict)
         // first two epochs
         .apply_blocks_while(|_, state| state.finalized_checkpoint().epoch == 0)
         .await
@@ -1368,11 +1368,11 @@ async fn progressive_balances_cache_checked_attester_slashing() {
         .await;
 }
 
+/// Checks that `ProgressiveBalancesCache` is updated correctly after a proposer slashing event,
+/// where the slashed validator is a target attester in previous / current epoch.
 #[tokio::test]
-async fn progressive_balances_cache_checked_proposer_slashing() {
-    // `Checked` mode will `BlockProcessingError` if the cached balance doesn't match balances from
-    // `ParticipationCache`.
-    ForkChoiceTest::new_with_progressive_balances_mode(ProgressiveBalancesMode::Checked)
+async fn progressive_balances_cache_proposer_slashing() {
+    ForkChoiceTest::new_with_progressive_balances_mode(ProgressiveBalancesMode::Strict)
         // first two epochs
         .apply_blocks_while(|_, state| state.finalized_checkpoint().epoch == 0)
         .await
