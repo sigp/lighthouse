@@ -2290,7 +2290,7 @@ dependencies = [
  "futures-util",
  "libsecp256k1",
  "lighthouse_network",
- "mime",
+ "mediatype",
  "procinfo",
  "proto_array",
  "psutil",
@@ -4961,6 +4961,12 @@ dependencies = [
  "cmake",
  "libc",
 ]
+
+[[package]]
+name = "mediatype"
+version = "0.19.13"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fea6e62614ab2fc0faa58bb15102a0382d368f896a9fa4776592589ab55c4de7"
 
 [[package]]
 name = "memchr"
