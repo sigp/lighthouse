@@ -41,7 +41,7 @@ mod verify_proposer_slashing;
 use crate::common::decrease_balance;
 use crate::StateProcessingStrategy;
 
-use crate::common::initialize_progressive_balances_cache::initialize_progressive_balances_cache;
+use crate::common::update_progressive_balances_cache::initialize_progressive_balances_cache;
 #[cfg(feature = "arbitrary-fuzz")]
 use arbitrary::Arbitrary;
 

@@ -1,4 +1,4 @@
-use crate::common::initialize_progressive_balances_cache::initialize_progressive_balances_cache;
+use crate::common::update_progressive_balances_cache::initialize_progressive_balances_cache;
 use crate::common::{get_attestation_participation_flag_indices, get_attesting_indices};
 use std::mem;
 use std::sync::Arc;

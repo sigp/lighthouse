@@ -4,7 +4,7 @@ use crate::case_result::compare_beacon_state_results_without_caches;
 use crate::decode::{ssz_decode_file, ssz_decode_file_with, ssz_decode_state, yaml_decode_file};
 use crate::testing_spec;
 use serde_derive::Deserialize;
-use state_processing::common::initialize_progressive_balances_cache::initialize_progressive_balances_cache;
+use state_processing::common::update_progressive_balances_cache::initialize_progressive_balances_cache;
 use state_processing::{
     per_block_processing::{
         errors::BlockProcessingError,

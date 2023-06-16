@@ -7,9 +7,7 @@ use crate::common::{
 use crate::per_block_processing::errors::{BlockProcessingError, IntoWithIndex};
 use crate::VerifySignatures;
 use safe_arith::SafeArith;
-use types::consts::altair::{
-    PARTICIPATION_FLAG_WEIGHTS, PROPOSER_WEIGHT, TIMELY_TARGET_FLAG_INDEX, WEIGHT_DENOMINATOR,
-};
+use types::consts::altair::{PARTICIPATION_FLAG_WEIGHTS, PROPOSER_WEIGHT, WEIGHT_DENOMINATOR};
 
 pub fn process_operations<T: EthSpec, Payload: AbstractExecPayload<T>>(
     state: &mut BeaconState<T>,
@@ -99,6 +97,7 @@ pub mod base {
 
 pub mod altair {
     use super::*;
+    use crate::common::update_progressive_balances_cache::update_progressive_balances_on_attestation;
     use types::consts::altair::TIMELY_TARGET_FLAG_INDEX;
 
     pub fn process_attestations<T: EthSpec>(
@@ -167,16 +166,12 @@ pub mod altair {
                             .safe_mul(weight)?,
                     )?;
 
-                    if flag_index == TIMELY_TARGET_FLAG_INDEX
-                        && !state.get_validator(index)?.slashed
-                    {
-                        let validator_effective_balance = state.get_effective_balance(index)?;
-                        state
-                            .progressive_balances_cache_mut()
-                            .on_new_target_attestation(
-                                data.target.epoch,
-                                validator_effective_balance,
-                            )?;
+                    if flag_index == TIMELY_TARGET_FLAG_INDEX {
+                        update_progressive_balances_on_attestation(
+                            state,
+                            data.target.epoch,
+                            index,
+                        )?;
                     }
                 }
             }
@@ -245,54 +240,10 @@ pub fn process_attester_slashings<T: EthSpec>(
 
         for i in slashable_indices {
             slash_validator(state, i as usize, None, ctxt, spec)?;
-            update_progressive_balances_cache(state, i as usize)?;
         }
     }
 
     Ok(())
-}
-
-fn update_progressive_balances_cache<T: EthSpec>(
-    state: &mut BeaconState<T>,
-    validator_index: usize,
-) -> Result<(), BlockProcessingError> {
-    if is_progressive_balances_enabled(state) {
-        let is_previous_epoch_target_attester = match state.previous_epoch_participation() {
-            Ok(previous_epoch_participation) => {
-                is_target_attester_in_epoch::<T>(previous_epoch_participation, validator_index)?
-            }
-            Err(_) => false,
-        };
-
-        let is_current_epoch_target_attester = match state.current_epoch_participation() {
-            Ok(current_epoch_participation) => {
-                is_target_attester_in_epoch::<T>(current_epoch_participation, validator_index)?
-            }
-            Err(_) => false,
-        };
-
-        let validator_effective_balance = state.get_effective_balance(validator_index)?;
-
-        state.progressive_balances_cache_mut().on_slashing(
-            is_previous_epoch_target_attester,
-            is_current_epoch_target_attester,
-            validator_effective_balance,
-        )?;
-    }
-
-    Ok(())
-}
-
-fn is_target_attester_in_epoch<T: EthSpec>(
-    epoch_participation: &VariableList<ParticipationFlags, T::ValidatorRegistryLimit>,
-    validator_index: usize,
-) -> Result<bool, BlockProcessingError> {
-    let participation_flags = epoch_participation
-        .get(validator_index)
-        .ok_or(BeaconStateError::UnknownValidator(validator_index))?;
-    participation_flags
-        .has_flag(TIMELY_TARGET_FLAG_INDEX)
-        .map_err(|e| e.into())
 }
 
 /// Wrapper function to handle calling the correct version of `process_attestations` based on
