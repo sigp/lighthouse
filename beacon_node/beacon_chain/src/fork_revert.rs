@@ -104,6 +104,7 @@ pub fn reset_fork_choice_to_finalization<E: EthSpec, Hot: ItemStore<E>, Cold: It
     current_slot: Option<Slot>,
     spec: &ChainSpec,
     progressive_balances_mode: ProgressiveBalancesMode,
+    log: &Logger,
 ) -> Result<ForkChoice<BeaconForkChoiceStore<E, Hot, Cold>, E>, String> {
     // Fetch finalized block.
     let finalized_checkpoint = head_state.finalized_checkpoint();
@@ -203,6 +204,7 @@ pub fn reset_fork_choice_to_finalization<E: EthSpec, Hot: ItemStore<E>, Cold: It
                 payload_verification_status,
                 spec,
                 progressive_balances_mode,
+                log,
             )
             .map_err(|e| format!("Error applying replayed block to fork choice: {:?}", e))?;
     }

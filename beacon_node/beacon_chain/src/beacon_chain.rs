@@ -2897,6 +2897,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     payload_verification_status,
                     &self.spec,
                     self.config.progressive_balances_mode,
+                    &self.log,
                 )
                 .map_err(|e| BlockError::BeaconChainError(e.into()))?;
         }

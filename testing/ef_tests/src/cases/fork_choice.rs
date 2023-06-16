@@ -441,6 +441,7 @@ impl<E: EthSpec> Tester<E> {
                         PayloadVerificationStatus::Irrelevant,
                         &self.harness.chain.spec,
                         self.harness.chain.config.progressive_balances_mode,
+                        self.harness.logger(),
                     );
 
                 if result.is_ok() {

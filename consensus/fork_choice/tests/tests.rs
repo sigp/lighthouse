@@ -340,6 +340,7 @@ impl ForkChoiceTest {
                 PayloadVerificationStatus::Verified,
                 &self.harness.chain.spec,
                 self.harness.chain.config.progressive_balances_mode,
+                self.harness.logger(),
             )
             .unwrap();
         self
@@ -383,6 +384,7 @@ impl ForkChoiceTest {
                 PayloadVerificationStatus::Verified,
                 &self.harness.chain.spec,
                 self.harness.chain.config.progressive_balances_mode,
+                self.harness.logger(),
             )
             .err()
             .expect("on_block did not return an error");

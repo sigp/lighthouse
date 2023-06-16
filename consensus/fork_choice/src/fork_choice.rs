@@ -4,7 +4,7 @@ use proto_array::{
     Block as ProtoBlock, DisallowedReOrgOffsets, ExecutionStatus, ProposerHeadError,
     ProposerHeadInfo, ProtoArrayForkChoice, ReOrgThreshold,
 };
-use slog::{crit, debug, warn, Logger};
+use slog::{crit, debug, error, warn, Logger};
 use ssz_derive::{Decode, Encode};
 use state_processing::per_epoch_processing::altair::ParticipationCache;
 use state_processing::per_epoch_processing::{
@@ -665,6 +665,7 @@ where
         payload_verification_status: PayloadVerificationStatus,
         spec: &ChainSpec,
         progressive_balances_mode: ProgressiveBalancesMode,
+        log: &Logger,
     ) -> Result<(), Error<T::Error>> {
         // If this block has already been processed we do not need to reprocess it.
         // We check this immediately in case re-processing the block mutates some property of the
@@ -781,6 +782,7 @@ where
                                 state,
                                 spec,
                                 progressive_balances_mode,
+                                log,
                             )?
                         }
                     },
@@ -1534,6 +1536,7 @@ fn process_justification_and_finalization_from_progressive_cache<E, T>(
     state: &BeaconState<E>,
     spec: &ChainSpec,
     progressive_balances_mode: ProgressiveBalancesMode,
+    log: &Logger,
 ) -> Result<JustificationAndFinalizationState<E>, Error<T::Error>>
 where
     E: EthSpec,
@@ -1567,6 +1570,10 @@ where
                 // if comparative check fails in `Strict` mode, return error
                 Err(e)
             } else {
+                error!(log,
+                    "Progressive balances mismatch, falling back to epoch processing calculation.";
+                    "error" => ?e,
+                );
                 // if comparative check fails in `Checked` mode, fall back to the epoch processing
                 // method.
                 per_epoch_processing::altair::process_justification_and_finalization(
