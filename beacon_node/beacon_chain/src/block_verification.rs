@@ -141,8 +141,6 @@ pub enum BlockError<T: EthSpec> {
     /// It's unclear if this block is valid, but it cannot be processed without already knowing
     /// its parent.
     ParentUnknown(Arc<SignedBeaconBlock<T>>),
-    /// The block skips too many slots and is a DoS risk.
-    TooManySkippedSlots { parent_slot: Slot, block_slot: Slot },
     /// The block slot is greater than the present slot.
     ///
     /// ## Peer scoring
@@ -786,9 +784,6 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
                 parent_block.root
             };
 
-        // Reject any block that exceeds our limit on skipped slots.
-        check_block_skip_slots(chain, parent_block.slot, block.message())?;
-
         // We assign to a variable instead of using `if let Some` directly to ensure we drop the
         // write lock before trying to acquire it again in the `else` clause.
         let proposer_opt = chain
@@ -941,9 +936,6 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
         check_block_against_anchor_slot(block.message(), chain)?;
 
         let (mut parent, block) = load_parent(block_root, block, chain)?;
-
-        // Reject any block that exceeds our limit on skipped slots.
-        check_block_skip_slots(chain, parent.beacon_block.slot(), block.message())?;
 
         let state = cheap_state_advance_to_obtain_committees(
             &mut parent.pre_state,
@@ -1134,9 +1126,6 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
             //  genesis).
             return Err(BlockError::ParentUnknown(block));
         }
-
-        // Reject any block that exceeds our limit on skipped slots.
-        check_block_skip_slots(chain, parent.beacon_block.slot(), block.message())?;
 
         /*
          *  Perform cursory checks to see if the block is even worth processing.
@@ -1490,30 +1479,6 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
             payload_verification_handle,
         })
     }
-}
-
-/// Check that the count of skip slots between the block and its parent does not exceed our maximum
-/// value.
-///
-/// Whilst this is not part of the specification, we include this to help prevent us from DoS
-/// attacks. In times of dire network circumstance, the user can configure the
-/// `import_max_skip_slots` value.
-fn check_block_skip_slots<T: BeaconChainTypes>(
-    chain: &BeaconChain<T>,
-    parent_slot: Slot,
-    block: BeaconBlockRef<'_, T::EthSpec>,
-) -> Result<(), BlockError<T::EthSpec>> {
-    // Reject any block that exceeds our limit on skipped slots.
-    if let Some(max_skip_slots) = chain.config.import_max_skip_slots {
-        if block.slot() > parent_slot + max_skip_slots {
-            return Err(BlockError::TooManySkippedSlots {
-                parent_slot,
-                block_slot: block.slot(),
-            });
-        }
-    }
-
-    Ok(())
 }
 
 /// Returns `Ok(())` if the block's slot is greater than the anchor block's slot (if any).
