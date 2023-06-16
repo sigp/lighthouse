@@ -70,6 +70,24 @@ impl ForkChoiceTest {
         Self { harness }
     }
 
+    /// Creates a new tester with the specified `ProgressiveBalancesMode` and genesis from latest fork.
+    fn new_with_progressive_balances_mode(mode: ProgressiveBalancesMode) -> ForkChoiceTest {
+        // genesis with latest fork (at least altair required to test the cache)
+        let spec = ForkName::latest().make_genesis_spec(ChainSpec::default());
+        let harness = BeaconChainHarness::builder(MainnetEthSpec)
+            .spec(spec)
+            .chain_config(ChainConfig {
+                progressive_balances_mode: mode,
+                ..ChainConfig::default()
+            })
+            .deterministic_keypairs(VALIDATOR_COUNT)
+            .fresh_ephemeral_store()
+            .mock_execution_layer()
+            .build();
+
+        Self { harness }
+    }
+
     /// Get a value from the `ForkChoice` instantiation.
     fn get<T, U>(&self, func: T) -> U
     where
@@ -227,6 +245,22 @@ impl ForkChoiceTest {
         self.harness
             .add_attester_slashing(validator_indices)
             .unwrap();
+
+        self
+    }
+
+    /// Slash the proposer of a block in the previous epoch.
+    pub async fn add_previous_epoch_proposer_slashing(self, slots_per_epoch: u64) -> Self {
+        let previous_epoch_slot = self.harness.get_current_slot() - slots_per_epoch;
+        let previous_epoch_block = self
+            .harness
+            .chain
+            .block_at_slot(previous_epoch_slot, WhenSlotSkipped::None)
+            .unwrap()
+            .unwrap();
+        let proposer_index: u64 = previous_epoch_block.message().proposer_index();
+
+        self.harness.add_proposer_slashing(proposer_index).unwrap();
 
         self
     }
@@ -1313,24 +1347,9 @@ async fn weak_subjectivity_check_epoch_boundary_is_skip_slot_failure() {
 
 #[tokio::test]
 async fn progressive_balances_cache_checked_attester_slashing() {
-    // genesis with latest fork (at least altair required to test the cache)
-    let spec = ForkName::latest().make_genesis_spec(ChainSpec::default());
-
-    // enable progressive balances check
-    let harness = BeaconChainHarness::builder(MainnetEthSpec)
-        .spec(spec)
-        .chain_config(ChainConfig {
-            // `Checked` mode will `BlockProcessingError` if the cached balance doesn't match balances from
-            // `ParticipationCache`.
-            progressive_balances_mode: ProgressiveBalancesMode::Checked,
-            ..ChainConfig::default()
-        })
-        .deterministic_keypairs(VALIDATOR_COUNT)
-        .fresh_ephemeral_store()
-        .mock_execution_layer()
-        .build();
-
-    ForkChoiceTest { harness }
+    // `Checked` mode will `BlockProcessingError` if the cached balance doesn't match balances from
+    // `ParticipationCache`.
+    ForkChoiceTest::new_with_progressive_balances_mode(ProgressiveBalancesMode::Checked)
         // first two epochs
         .apply_blocks_while(|_, state| state.finalized_checkpoint().epoch == 0)
         .await
@@ -1344,6 +1363,29 @@ async fn progressive_balances_cache_checked_attester_slashing() {
         .await
         // expect fork choice to import another epoch of blocks successfully - the slashed
         // attester's balance should be excluded from the current epoch total balance in
+        // `ProgressiveBalancesCache` as well.
+        .apply_blocks(MainnetEthSpec::slots_per_epoch() as usize)
+        .await;
+}
+
+#[tokio::test]
+async fn progressive_balances_cache_checked_proposer_slashing() {
+    // `Checked` mode will `BlockProcessingError` if the cached balance doesn't match balances from
+    // `ParticipationCache`.
+    ForkChoiceTest::new_with_progressive_balances_mode(ProgressiveBalancesMode::Checked)
+        // first two epochs
+        .apply_blocks_while(|_, state| state.finalized_checkpoint().epoch == 0)
+        .await
+        .unwrap()
+        .add_previous_epoch_proposer_slashing(MainnetEthSpec::slots_per_epoch())
+        .await
+        // expect fork choice to import blocks successfully after a previous epoch proposer is
+        // slashed, i.e. the slashed proposer's balance is correctly excluded from
+        // the previous epoch total balance in `ProgressiveBalancesCache`.
+        .apply_blocks(1)
+        .await
+        // expect fork choice to import another epoch of blocks successfully - the slashed
+        // proposer's balance should be excluded from the current epoch total balance in
         // `ProgressiveBalancesCache` as well.
         .apply_blocks(MainnetEthSpec::slots_per_epoch() as usize)
         .await;

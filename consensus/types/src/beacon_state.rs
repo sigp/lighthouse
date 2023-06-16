@@ -771,7 +771,7 @@ impl<T: EthSpec> BeaconState<T> {
         Ok(signature_hash_int.safe_rem(modulo)? == 0)
     }
 
-    /// Returns the beacon proposer index for the `slot` in the given `relative_epoch`.
+    /// Returns the beacon proposer index for the `slot` in `self.current_epoch()`.
     ///
     /// Spec v0.12.1
     pub fn get_beacon_proposer_index(&self, slot: Slot, spec: &ChainSpec) -> Result<usize, Error> {
