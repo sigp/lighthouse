@@ -1,7 +1,6 @@
 #![cfg(not(debug_assertions))] // Tests run too slow in debug.
 
 use beacon_chain::test_utils::BeaconChainHarness;
-use beacon_chain::ChainConfig;
 use execution_layer::test_utils::Block;
 use types::*;
 
@@ -42,10 +41,6 @@ async fn base_altair_merge_capella() {
     let harness = BeaconChainHarness::builder(E::default())
         .spec(spec)
         .logger(logging::test_logger())
-        .chain_config(ChainConfig {
-            progressive_balances_mode: ProgressiveBalancesMode::Checked,
-            ..Default::default()
-        })
         .deterministic_keypairs(VALIDATOR_COUNT)
         .fresh_ephemeral_store()
         .mock_execution_layer()
