@@ -271,6 +271,24 @@ impl Config {
             );
         }
 
+        if let Some(small_modifier) = cli_args.value_of("beacon-node-small-sync-distance-modifier")
+        {
+            config.beacon_node_fallback.small_sync_distance_modifier = Some(
+                small_modifier
+                    .parse::<u64>()
+                    .map_err(|_| "beacon-node-small-sync-distance-modifier is not a valid u64.")?,
+            );
+        }
+
+        if let Some(medium_modifier) =
+            cli_args.value_of("beacon-node-medium-sync-distance-modifier")
+        {
+            config.beacon_node_fallback.medium_sync_distance_modifier =
+                Some(medium_modifier.parse::<u64>().map_err(|_| {
+                    "beacon-node-medium-sync-distance-modifier is not a valid u64."
+                })?);
+        }
+
         /*
          * Http API server
          */

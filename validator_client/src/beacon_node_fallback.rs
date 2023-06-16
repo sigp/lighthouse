@@ -45,6 +45,12 @@ pub struct Config {
     /// Sets the number of slots behind the head a beacon node is allowed to be to still be
     /// considered `synced`.
     pub sync_tolerance: Option<u64>,
+    /// Sets the size of the range of the `small` sync distance tier. This range starts immediately
+    /// after `sync_tolerance`.
+    pub small_sync_distance_modifier: Option<u64>,
+    /// Sets the size of the range of the `medium` sync distance tier. This range starts immediately
+    /// after the `small` range.
+    pub medium_sync_distance_modifier: Option<u64>,
 }
 
 /// Indicates a measurement of latency between the VC and a BN.
@@ -628,6 +634,11 @@ mod tests {
 
     #[test]
     fn check_candidate_order() {
+        // These fields is irrelvant for sorting. They are set to arbitrary values.
+        let head = Slot::new(99);
+        let optimistic_status = IsOptimistic::No;
+        let execution_status = ExecutionEngineHealth::Healthy;
+
         fn new_candidate(id: usize) -> CandidateBeaconNode<E> {
             let beacon_node = BeaconNodeHttpClient::new(
                 SensitiveUrl::parse(&format!("http://example_{id}.com")).unwrap(),
@@ -635,11 +646,6 @@ mod tests {
             );
             CandidateBeaconNode::new(beacon_node, id)
         }
-
-        // These fields is irrelvant for sorting. They are set to arbitrary values.
-        let head = Slot::new(99);
-        let optimistic_status = IsOptimistic::No;
-        let execution_status = ExecutionEngineHealth::Healthy;
 
         let candidate_1 = new_candidate(1);
         let expected_candidate_1 = new_candidate(1);
@@ -681,31 +687,31 @@ mod tests {
             head,
             optimistic_status,
             execution_status,
-            health_tier: BeaconNodeHealthTier::new(3, Slot::new(8), small),
+            health_tier: BeaconNodeHealthTier::new(3, Slot::new(9), small),
         };
         let health_4 = BeaconNodeHealth {
             id: 4,
             head,
             optimistic_status,
             execution_status,
-            health_tier: BeaconNodeHealthTier::new(3, Slot::new(8), small),
+            health_tier: BeaconNodeHealthTier::new(3, Slot::new(9), small),
         };
 
         // `health_5` has a smaller sync distance and is outside the `synced` range so should be
-        // sorted first.
+        // sorted first. Note the values of `id`.
         let health_5 = BeaconNodeHealth {
-            id: 5,
-            head,
-            optimistic_status,
-            execution_status,
-            health_tier: BeaconNodeHealthTier::new(4, Slot::new(8), small),
-        };
-        let health_6 = BeaconNodeHealth {
             id: 6,
             head,
             optimistic_status,
             execution_status,
             health_tier: BeaconNodeHealthTier::new(4, Slot::new(9), small),
+        };
+        let health_6 = BeaconNodeHealth {
+            id: 5,
+            head,
+            optimistic_status,
+            execution_status,
+            health_tier: BeaconNodeHealthTier::new(4, Slot::new(10), small),
         };
 
         *candidate_1.health.write() = Some(health_1);

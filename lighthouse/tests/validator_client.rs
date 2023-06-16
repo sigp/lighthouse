@@ -501,13 +501,38 @@ fn disable_run_on_all() {
         });
 }
 
+/// Tests for validator fallback parameter flags.
 #[test]
-fn sync_tolerance_flag() {
+fn beacon_node_sync_tolerance_flag() {
     CommandLineTest::new()
-        .flag("beacon-node-sync-tolerance", Some("8"))
+        .flag("beacon-node-sync-tolerance", Some("4"))
         .run()
         .with_config(|config| {
-            assert_eq!(config.beacon_node_fallback.sync_tolerance, Some(8));
+            assert_eq!(config.beacon_node_fallback.sync_tolerance, Some(4));
+        });
+}
+#[test]
+fn beacon_node_small_sync_distance_modifier_flag() {
+    CommandLineTest::new()
+        .flag("beacon-node-small-sync-distance-modifer", Some("16"))
+        .run()
+        .with_config(|config| {
+            assert_eq!(
+                config.beacon_node_fallback.small_sync_distance_modifier,
+                Some(16)
+            );
+        });
+}
+#[test]
+fn beacon_node_medium_sync_distance_modifier_flag() {
+    CommandLineTest::new()
+        .flag("beacon-node-medium-sync-distance-modifer", Some("32"))
+        .run()
+        .with_config(|config| {
+            assert_eq!(
+                config.beacon_node_fallback.medium_sync_distance_modifier,
+                Some(32)
+            );
         });
 }
 

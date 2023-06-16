@@ -6,9 +6,15 @@ use types::Slot;
 
 // Sync distances between 0 and DEFAULT_SYNC_TOLERANCE are considered `synced`.
 // Sync distance tiers are determined by the different modifiers.
-const DEFAULT_SYNC_TOLERANCE: Slot = Slot::new(4);
-const SYNC_DISTANCE_SMALL_MODIFIER: Slot = Slot::new(7);
-const SYNC_DISTANCE_MEDIUM_MODIFIER: Slot = Slot::new(31);
+//
+// The default range is the following:
+// Synced: 0..=8
+// Small: 9..=16
+// Medium: 17..=64
+// Large: 65..
+const DEFAULT_SYNC_TOLERANCE: Slot = Slot::new(8);
+const DEFAULT_SMALL_SYNC_DISTANCE_MODIFIER: Slot = Slot::new(8);
+const DEFAULT_MEDIUM_SYNC_DISTANCE_MODIFIER: Slot = Slot::new(48);
 
 type HealthTier = u8;
 type SyncDistance = Slot;
@@ -23,7 +29,7 @@ pub enum SyncDistanceTier {
 }
 
 /// Contains the different sync distance tiers which are determined at runtime by the
-/// `sync_tolerance` CLI flag.
+/// `sync_tolerance` CLI flag and the `sync_distance_modifier` flags.
 #[derive(Clone, Debug)]
 pub struct BeaconNodeSyncDistanceTiers {
     synced: SyncDistance,
@@ -33,14 +39,23 @@ pub struct BeaconNodeSyncDistanceTiers {
 
 impl BeaconNodeSyncDistanceTiers {
     pub fn from_config(config: &Config) -> Self {
-        if let Some(sync_tolerance) = config.sync_tolerance {
-            Self {
-                synced: Slot::new(sync_tolerance),
-                small: Slot::new(sync_tolerance) + SYNC_DISTANCE_SMALL_MODIFIER,
-                medium: Slot::new(sync_tolerance) + SYNC_DISTANCE_MEDIUM_MODIFIER,
-            }
-        } else {
-            Self::default()
+        let synced = config
+            .sync_tolerance
+            .map(Slot::new)
+            .unwrap_or(DEFAULT_SYNC_TOLERANCE);
+        let small_mod = config
+            .small_sync_distance_modifier
+            .map(Slot::new)
+            .unwrap_or(DEFAULT_SMALL_SYNC_DISTANCE_MODIFIER);
+        let medium_mod = config
+            .medium_sync_distance_modifier
+            .map(Slot::new)
+            .unwrap_or(DEFAULT_MEDIUM_SYNC_DISTANCE_MODIFIER);
+
+        Self {
+            synced,
+            small: synced + small_mod,
+            medium: synced + small_mod + medium_mod,
         }
     }
 
@@ -69,8 +84,10 @@ impl Default for BeaconNodeSyncDistanceTiers {
     fn default() -> Self {
         Self {
             synced: DEFAULT_SYNC_TOLERANCE,
-            small: DEFAULT_SYNC_TOLERANCE + SYNC_DISTANCE_SMALL_MODIFIER,
-            medium: DEFAULT_SYNC_TOLERANCE + SYNC_DISTANCE_MEDIUM_MODIFIER,
+            small: DEFAULT_SYNC_TOLERANCE + DEFAULT_SMALL_SYNC_DISTANCE_MODIFIER,
+            medium: DEFAULT_SYNC_TOLERANCE
+                + DEFAULT_SMALL_SYNC_DISTANCE_MODIFIER
+                + DEFAULT_MEDIUM_SYNC_DISTANCE_MODIFIER,
         }
     }
 }
@@ -284,7 +301,10 @@ impl BeaconNodeHealth {
 mod tests {
 
     use super::ExecutionEngineHealth::{Healthy, Unhealthy};
-    use super::{BeaconNodeHealth, BeaconNodeSyncDistanceTiers, IsOptimistic, SyncDistanceTier};
+    use super::{
+        BeaconNodeHealth, BeaconNodeHealthTier, BeaconNodeSyncDistanceTiers, IsOptimistic,
+        SyncDistanceTier,
+    };
     use crate::beacon_node_fallback::Config;
     use slot_clock::{SlotClock, TestingSlotClock};
     use std::time::Duration;
@@ -302,7 +322,7 @@ mod tests {
 
         let mut health_vec = vec![];
 
-        for head_slot in (0..=64).rev() {
+        for head_slot in 0..=64 {
             for optimistic_status in &[IsOptimistic::No, IsOptimistic::Yes] {
                 for ee_health in &[Healthy, Unhealthy] {
                     let health = BeaconNodeHealth::from_status(
@@ -352,63 +372,73 @@ mod tests {
         }
     }
 
-    #[test]
-    fn sync_tolerance() {
-        let config = Config {
-            disable_run_on_all: false,
-            sync_tolerance: Some(8),
-        };
-        let distance_tiers = BeaconNodeSyncDistanceTiers::from_config(&config);
+    fn new_distance_tier(
+        distance: u64,
+        distance_tiers: &BeaconNodeSyncDistanceTiers,
+    ) -> BeaconNodeHealthTier {
+        BeaconNodeHealth::compute_health_tier(
+            Slot::new(distance),
+            IsOptimistic::No,
+            Healthy,
+            distance_tiers,
+        )
+    }
 
-        let synced_low = BeaconNodeHealth::compute_health_tier(
-            Slot::new(0),
-            IsOptimistic::No,
-            Healthy,
-            &distance_tiers,
-        );
-        let synced_high = BeaconNodeHealth::compute_health_tier(
-            Slot::new(8),
-            IsOptimistic::No,
-            Healthy,
-            &distance_tiers,
-        );
-        let small_low = BeaconNodeHealth::compute_health_tier(
-            Slot::new(9),
-            IsOptimistic::No,
-            Healthy,
-            &distance_tiers,
-        );
-        let small_high = BeaconNodeHealth::compute_health_tier(
-            Slot::new(15),
-            IsOptimistic::No,
-            Healthy,
-            &distance_tiers,
-        );
-        let medium_low = BeaconNodeHealth::compute_health_tier(
-            Slot::new(16),
-            IsOptimistic::No,
-            Healthy,
-            &distance_tiers,
-        );
-        let medium_high = BeaconNodeHealth::compute_health_tier(
-            Slot::new(39),
-            IsOptimistic::No,
-            Healthy,
-            &distance_tiers,
-        );
-        let large = BeaconNodeHealth::compute_health_tier(
-            Slot::new(40),
-            IsOptimistic::No,
-            Healthy,
-            &distance_tiers,
-        );
+    #[test]
+    fn sync_tolerance_default() {
+        let distance_tiers = BeaconNodeSyncDistanceTiers::default();
+
+        let synced_low = new_distance_tier(0, &distance_tiers);
+        let synced_high = new_distance_tier(8, &distance_tiers);
+
+        let small_low = new_distance_tier(9, &distance_tiers);
+        let small_high = new_distance_tier(16, &distance_tiers);
+
+        let medium_low = new_distance_tier(17, &distance_tiers);
+        let medium_high = new_distance_tier(64, &distance_tiers);
+        let large = new_distance_tier(65, &distance_tiers);
 
         assert!(synced_low.tier == 1);
         assert!(synced_high.tier == 1);
         assert!(small_low.tier == 2);
         assert!(small_high.tier == 2);
         assert!(medium_low.tier == 4);
-        assert!(medium_high.tier == 4);
+        assert_eq!(medium_high.tier, 4);
+        assert!(large.tier == 10);
+    }
+
+    #[test]
+    fn sync_tolerance_from_config() {
+        // Config should set the tiers as:
+        // synced: 0..=4
+        // small: 5..=8
+        // medium 9..=12
+        // large: 13..
+        let config = Config {
+            disable_run_on_all: false,
+            sync_tolerance: Some(4),
+            small_sync_distance_modifier: Some(4),
+            medium_sync_distance_modifier: Some(4),
+        };
+        let distance_tiers = BeaconNodeSyncDistanceTiers::from_config(&config);
+
+        let synced_low = new_distance_tier(0, &distance_tiers);
+        let synced_high = new_distance_tier(4, &distance_tiers);
+
+        let small_low = new_distance_tier(5, &distance_tiers);
+        let small_high = new_distance_tier(8, &distance_tiers);
+
+        let medium_low = new_distance_tier(9, &distance_tiers);
+        let medium_high = new_distance_tier(12, &distance_tiers);
+
+        let large = new_distance_tier(13, &distance_tiers);
+
+        assert!(synced_low.tier == 1);
+        assert!(synced_high.tier == 1);
+        assert!(small_low.tier == 2);
+        assert!(small_high.tier == 2);
+        assert!(medium_low.tier == 4);
+        assert_eq!(medium_high.tier, 4);
         assert!(large.tier == 10);
     }
 }
