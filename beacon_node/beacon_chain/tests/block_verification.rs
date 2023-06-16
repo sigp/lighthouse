@@ -1374,8 +1374,6 @@ async fn import_duplicate_block_unrealized_justification() {
 
     // The store's justified checkpoint must still be at epoch 0, while unrealized justification
     // must be at epoch 1.
-    // FIXME(sproul): this also kinda seems like a bug, I don't think we should be computing
-    // unrealized justification for epoch 1.
     let fc = chain.canonical_head.fork_choice_read_lock();
     assert_eq!(fc.justified_checkpoint().epoch, 0);
     assert_eq!(fc.unrealized_justified_checkpoint().epoch, 1);
