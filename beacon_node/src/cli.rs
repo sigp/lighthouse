@@ -1122,9 +1122,12 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("progressive-balances")
                 .long("progressive-balances")
                 .value_name("MODE")
-                .help("Options to enable / disable the usage of progressive balances cache for \
-                        unrealized FFG progression calculation. This optimization is disabled by default \
-                        and not recommended for mainnet usage at this time.")
+                .help("Options to enable or disable the progressive balances cache for \
+                        unrealized FFG progression calculation. The default `checked` mode compares \
+                        the progressive balances from the cache against results from the existing \
+                        method. If there is a mismatch, it falls back to the existing method. The \
+                        optimized mode (`fast`) is faster but is still experimental, and is \
+                        not recommended for mainnet usage at this time.")
                 .takes_value(true)
                 .possible_values(ProgressiveBalancesMode::VARIANTS)
         )
