@@ -10,10 +10,10 @@ use types::{BeaconState, EthSpec, Hash256, Slot};
 ///
 /// For a given block at slot `n`, the 0th index of its corresponding `Vec` will
 /// be at slot `n + 1`. The 1st index will be at slot `n + 2`, and so on.
-type AdvancedStates<E> = HashMap<Hash256, Vec<BeaconState<E>>>;
+type AdvancedStates<E> = HashMap<Hash256, Vec<StateWithRoot<E>>>;
 
-#[derive(Debug)]
-pub struct FinalizedState<E: EthSpec> {
+#[derive(Debug, Clone)]
+pub struct StateWithRoot<E: EthSpec> {
     state_root: Hash256,
     state: BeaconState<E>,
 }
@@ -34,7 +34,7 @@ pub struct SlotMap {
 pub struct StateCache<E: EthSpec> {
     /// Holds the finalized state separate to other states. The finalized state
     /// should never be dropped, just updated.
-    finalized_state: Option<FinalizedState<E>>,
+    finalized_state: Option<StateWithRoot<E>>,
     /// Holds a pool of recently-used states.
     states: LruCache<Hash256, BeaconState<E>>,
     /// Maps a block root to its appropriate state in `self.states` or
@@ -99,7 +99,7 @@ impl<E: EthSpec> StateCache<E> {
         }
 
         // Update finalized state.
-        self.finalized_state = Some(FinalizedState { state_root, state });
+        self.finalized_state = Some(StateWithRoot { state_root, state });
         Ok(())
     }
 
@@ -191,6 +191,7 @@ impl<E: EthSpec> StateCache<E> {
         &mut self,
         block_root: Hash256,
         block_slot: Slot,
+        state_root: Hash256,
         state: BeaconState<E>,
     ) -> Result<(), Error> {
         let existing_states = self.advanced_states.entry(block_root).or_default();
@@ -200,7 +201,7 @@ impl<E: EthSpec> StateCache<E> {
         // already stored in the database.
         let previous_slot = existing_states
             .last()
-            .map(|s| s.slot())
+            .map(|s| s.state.slot())
             .unwrap_or(block_slot);
         if previous_slot + 1 != state.slot() {
             return Err(Error::AdvancedStateMissesSlot {
@@ -209,28 +210,29 @@ impl<E: EthSpec> StateCache<E> {
             });
         }
 
-        existing_states.push(state);
+        existing_states.push(StateWithRoot { state_root, state });
 
         Ok(())
     }
 
     /// Returns a state which descends from `block_root` with a `slot` this
     /// *less than or equal to* the given `slot` (or `None`).
-    pub fn get_best_advanced_state(
+    pub(crate) fn get_best_advanced_state(
         &self,
         block_root: Hash256,
         slot: Slot,
-    ) -> Option<BeaconState<E>> {
+    ) -> Option<(Hash256, BeaconState<E>)> {
         let states = self.advanced_states.get(&block_root)?;
         states
             .iter()
             // Try to return a state at the exact `slot`.
-            .find(|state| state.slot() == slot)
+            .find(|state| state.state.slot() == slot)
             // If the exact slot doesn't exist, return the latest `state`. The
             // consistency conditions on advanced state insertion will guarantee
             // that this state has a slot lower that `slot`.
             .or_else(|| states.last())
             .cloned()
+            .map(|StateWithRoot { state_root, state }| (state_root, state))
     }
 
     /// Drops all advanced states that do not descend from a root in

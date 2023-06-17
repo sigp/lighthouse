@@ -713,7 +713,11 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         slot: Slot,
         state_root: Hash256,
     ) -> Result<Option<(Hash256, BeaconState<E>)>, Error> {
-        if let Some(cached) = self.state_cache.lock().get_by_block_root(block_root, slot) {
+        if let Some(cached) = self
+            .state_cache
+            .lock()
+            .get_best_advanced_state(block_root, slot)
+        {
             return Ok(Some(cached));
         }
         Ok(self
