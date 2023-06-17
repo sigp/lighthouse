@@ -5,6 +5,9 @@ use std::hash::Hash;
 use std::num::NonZeroUsize;
 use types::{BeaconState, EthSpec, Hash256, Slot};
 
+// TODO(paul): create a wrapper around states in the cache to prevent them from
+// being mutated outside this cache.
+
 /// Maps block roots to a list of states that have been pre-emptively advanced
 /// to future slots (i.e. `per_slot_processing` has been run on them).
 ///
@@ -41,8 +44,11 @@ pub struct StateCache<E: EthSpec> {
     /// `self.finalized_state`. Notably, this map will not return states in
     /// `self.advanced_states`.
     block_map: BlockMap,
-    /// Contains states which have been pre-emptively advanced beyond the slot of
-    /// their latest block.
+    /// Contains states which have been pre-emptively advanced beyond the slot
+    /// of their latest block.
+    ///
+    /// Advanced states are stored in their own special place to ensure that we
+    /// retain either all or no states in a given "chain" of advanced states.
     advanced_states: AdvancedStates<E>,
 }
 

@@ -703,10 +703,11 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         }
     }
 
-    /// Get a state with `latest_block_root == block_root` advanced through to at most `slot`.
+    /// Get a state with `latest_block_root == block_root` advanced through to
+    /// at most `slot`.
     ///
-    /// The `state_root` argument is used to look up the block's un-advanced state in case of a
-    /// cache miss.
+    /// If there is no cached advanced state then the `state_root` argument will
+    /// be used to load a state from the database.
     pub fn get_advanced_state(
         &self,
         block_root: Hash256,
@@ -723,6 +724,34 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         Ok(self
             .get_hot_state(&state_root)?
             .map(|state| (state_root, state)))
+    }
+
+    /// Get a state with `latest_block_root == block_root` advanced through to
+    /// at most `slot`.
+    ///
+    /// Only returns cached states, will never read from the database.
+    pub fn get_advanced_state_cached_only(
+        &self,
+        block_root: Hash256,
+        slot: Slot,
+    ) -> Option<(Hash256, BeaconState<E>)> {
+        self.state_cache
+            .lock()
+            .get_best_advanced_state(block_root, slot)
+    }
+
+    // Caches a `state` which has been "advanced" via `per_slot_processing` to
+    // some slot later than `block_slot`.
+    pub fn put_advanced_state(
+        &mut self,
+        block_root: Hash256,
+        block_slot: Slot,
+        state_root: Hash256,
+        state: BeaconState<E>,
+    ) -> Result<(), Error> {
+        self.state_cache
+            .lock()
+            .insert_advanced_state(block_root, block_slot, state_root, state)
     }
 
     /// Delete a state, ensuring it is removed from the LRU cache, as well as from on-disk.
