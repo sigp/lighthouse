@@ -1,7 +1,7 @@
 use crate::metrics;
 use beacon_chain::validator_monitor::{get_block_delay_ms, timestamp_now};
 use beacon_chain::{
-    BeaconChain, BeaconChainTypes, BlockError, CountUnrealized, GossipVerifiedBlock,
+    BeaconChain, BeaconChainTypes, BlockError, GossipVerifiedBlock,
     NotifyExecutionLayer,
 };
 use eth2::types::BroadcastValidation;
@@ -114,7 +114,6 @@ pub async fn publish_block<T: BeaconChainTypes>(
         .process_block(
             block_root,
             gossip_verified_block,
-            CountUnrealized::True,
             NotifyExecutionLayer::Yes,
             publish_fn,
         )

@@ -22,7 +22,6 @@ use execution_layer::{
     },
     ExecutionLayer,
 };
-use fork_choice::CountUnrealized;
 use futures::channel::mpsc::Receiver;
 pub use genesis::{interop_genesis_state_with_eth1, DEFAULT_ETH1_BLOCK_HASH};
 use int_to_bytes::int_to_bytes32;
@@ -1705,7 +1704,6 @@ where
             .process_block(
                 block_root,
                 Arc::new(block),
-                CountUnrealized::True,
                 NotifyExecutionLayer::Yes,
                 || Ok(()),
             )
@@ -1724,7 +1722,6 @@ where
             .process_block(
                 block.canonical_root(),
                 Arc::new(block),
-                CountUnrealized::True,
                 NotifyExecutionLayer::Yes,
                 || Ok(()),
             )

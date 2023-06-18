@@ -7,7 +7,7 @@ use beacon_chain::{
         obtain_indexed_attestation_and_committees_per_slot, VerifiedAttestation,
     },
     test_utils::{BeaconChainHarness, EphemeralHarnessType},
-    BeaconChainTypes, CachedHead, CountUnrealized, NotifyExecutionLayer,
+    BeaconChainTypes, CachedHead, NotifyExecutionLayer,
 };
 use execution_layer::{json_structures::JsonPayloadStatusV1Status, PayloadStatusV1};
 use serde::Deserialize;
@@ -381,7 +381,6 @@ impl<E: EthSpec> Tester<E> {
         let result = self.block_on_dangerous(self.harness.chain.process_block(
             block_root,
             block.clone(),
-            CountUnrealized::True,
             NotifyExecutionLayer::Yes,
             || Ok(()),
         ))?;
@@ -442,7 +441,6 @@ impl<E: EthSpec> Tester<E> {
                         &state,
                         PayloadVerificationStatus::Irrelevant,
                         &self.harness.chain.spec,
-                        CountUnrealized::True,
                     );
 
                 if result.is_ok() {

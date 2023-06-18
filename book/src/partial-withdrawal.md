@@ -16,7 +16,7 @@ After the [Capella](https://ethereum.org/en/history/#capella) upgrade on 12<sup>
 
 3. Do I have to do anything to get my rewards after I update the withdrawal credentials to type `0x01`?
 
-    No. The "validator sweep" occurs automatically and you can expect to receive the rewards every few days. 
+    No. The "validator sweep" occurs automatically and you can expect to receive the rewards every *n* days, [more information here](./voluntary-exit.md#4-when-will-i-get-my-staked-fund-after-voluntary-exit-if-my-validator-is-of-type-0x01). 
 
     Figure below summarizes partial withdrawals.
 

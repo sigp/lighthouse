@@ -17,9 +17,7 @@ use execution_layer::{
     test_utils::ExecutionBlockGenerator,
     ExecutionLayer, ForkchoiceState, PayloadAttributes,
 };
-use fork_choice::{
-    CountUnrealized, Error as ForkChoiceError, InvalidationOperation, PayloadVerificationStatus,
-};
+use fork_choice::{Error as ForkChoiceError, InvalidationOperation, PayloadVerificationStatus};
 use logging::test_logger;
 use proto_array::{Error as ProtoArrayError, ExecutionStatus};
 use slot_clock::SlotClock;
@@ -698,7 +696,6 @@ async fn invalidates_all_descendants() {
         .process_block(
             fork_block.canonical_root(),
             Arc::new(fork_block),
-            CountUnrealized::True,
             NotifyExecutionLayer::Yes,
             || Ok(()),
         )
@@ -796,7 +793,6 @@ async fn switches_heads() {
         .process_block(
             fork_block.canonical_root(),
             Arc::new(fork_block),
-            CountUnrealized::True,
             NotifyExecutionLayer::Yes,
             || Ok(()),
         )
@@ -1052,7 +1048,7 @@ async fn invalid_parent() {
 
     // Ensure the block built atop an invalid payload is invalid for import.
     assert!(matches!(
-        rig.harness.chain.process_block(block.canonical_root(), block.clone(), CountUnrealized::True, NotifyExecutionLayer::Yes,
+        rig.harness.chain.process_block(block.canonical_root(), block.clone(), NotifyExecutionLayer::Yes,
             || Ok(()),
         ).await,
         Err(BlockError::ParentExecutionPayloadInvalid { parent_root: invalid_root })
@@ -1069,7 +1065,7 @@ async fn invalid_parent() {
             &state,
             PayloadVerificationStatus::Optimistic,
             &rig.harness.chain.spec,
-            CountUnrealized::True,
+
         ),
         Err(ForkChoiceError::ProtoArrayStringError(message))
         if message.contains(&format!(
@@ -1343,7 +1339,6 @@ async fn build_optimistic_chain(
             .process_block(
                 block.canonical_root(),
                 block,
-                CountUnrealized::True,
                 NotifyExecutionLayer::Yes,
                 || Ok(()),
             )
@@ -1905,7 +1900,6 @@ async fn recover_from_invalid_head_by_importing_blocks() {
         .process_block(
             fork_block.canonical_root(),
             fork_block.clone(),
-            CountUnrealized::True,
             NotifyExecutionLayer::Yes,
             || Ok(()),
         )

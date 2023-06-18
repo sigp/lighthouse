@@ -218,7 +218,11 @@ impl BeaconNodeHttpClient {
 
     /// Perform a HTTP GET request, returning `None` on a 404 error.
     async fn get_opt<T: DeserializeOwned, U: IntoUrl>(&self, url: U) -> Result<Option<T>, Error> {
-        match self.get_response(url, |b| b).await.optional()? {
+        match self
+            .get_response(url, |b| b.accept(Accept::Json))
+            .await
+            .optional()?
+        {
             Some(response) => Ok(Some(response.json().await?)),
             None => Ok(None),
         }
@@ -231,7 +235,7 @@ impl BeaconNodeHttpClient {
         timeout: Duration,
     ) -> Result<Option<T>, Error> {
         let opt_response = self
-            .get_response(url, |b| b.timeout(timeout))
+            .get_response(url, |b| b.timeout(timeout).accept(Accept::Json))
             .await
             .optional()?;
         match opt_response {
@@ -1072,16 +1076,14 @@ impl BeaconNodeHttpClient {
 
     /// `GET beacon/deposit_snapshot`
     pub async fn get_deposit_snapshot(&self) -> Result<Option<types::DepositTreeSnapshot>, Error> {
-        use ssz::Decode;
         let mut path = self.eth_path(V1)?;
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
             .push("beacon")
             .push("deposit_snapshot");
-        self.get_bytes_opt_accept_header(path, Accept::Ssz, self.timeouts.get_deposit_snapshot)
-            .await?
-            .map(|bytes| DepositTreeSnapshot::from_ssz_bytes(&bytes).map_err(Error::InvalidSsz))
-            .transpose()
+        self.get_opt_with_timeout::<GenericResponse<_>, _>(path, self.timeouts.get_deposit_snapshot)
+            .await
+            .map(|opt| opt.map(|r| r.data))
     }
 
     /// `POST beacon/rewards/sync_committee`

@@ -8,8 +8,8 @@ use beacon_chain::{
     observed_operations::ObservationOutcome,
     sync_committee_verification::{self, Error as SyncCommitteeError},
     validator_monitor::get_block_delay_ms,
-    BeaconChainError, BeaconChainTypes, BlockError, CountUnrealized, ForkChoiceError,
-    GossipVerifiedBlock, NotifyExecutionLayer,
+    BeaconChainError, BeaconChainTypes, BlockError, ForkChoiceError, GossipVerifiedBlock,
+    NotifyExecutionLayer,
 };
 use lighthouse_network::{Client, MessageAcceptance, MessageId, PeerAction, PeerId, ReportSource};
 use operation_pool::ReceivedPreCapella;
@@ -956,7 +956,6 @@ impl<T: BeaconChainTypes> Worker<T> {
             .process_block(
                 block_root,
                 verified_block,
-                CountUnrealized::True,
                 NotifyExecutionLayer::Yes,
                 || Ok(()),
             )

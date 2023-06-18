@@ -3,8 +3,9 @@
 use beacon_chain::test_utils::{
     AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
 };
-use beacon_chain::{BeaconSnapshot, BlockError, ChainSegmentResult, NotifyExecutionLayer};
-use fork_choice::CountUnrealized;
+use beacon_chain::{
+    BeaconSnapshot, BlockError, ChainSegmentResult, IntoExecutionPendingBlock, NotifyExecutionLayer,
+};
 use lazy_static::lazy_static;
 use logging::test_logger;
 use slasher::{Config as SlasherConfig, Slasher};
@@ -148,18 +149,14 @@ async fn chain_segment_full_segment() {
     // Sneak in a little check to ensure we can process empty chain segments.
     harness
         .chain
-        .process_chain_segment(vec![], CountUnrealized::True, NotifyExecutionLayer::Yes)
+        .process_chain_segment(vec![], NotifyExecutionLayer::Yes)
         .await
         .into_block_error()
         .expect("should import empty chain segment");
 
     harness
         .chain
-        .process_chain_segment(
-            blocks.clone(),
-            CountUnrealized::True,
-            NotifyExecutionLayer::Yes,
-        )
+        .process_chain_segment(blocks.clone(), NotifyExecutionLayer::Yes)
         .await
         .into_block_error()
         .expect("should import chain segment");
@@ -188,11 +185,7 @@ async fn chain_segment_varying_chunk_size() {
         for chunk in blocks.chunks(*chunk_size) {
             harness
                 .chain
-                .process_chain_segment(
-                    chunk.to_vec(),
-                    CountUnrealized::True,
-                    NotifyExecutionLayer::Yes,
-                )
+                .process_chain_segment(chunk.to_vec(), NotifyExecutionLayer::Yes)
                 .await
                 .into_block_error()
                 .unwrap_or_else(|_| panic!("should import chain segment of len {}", chunk_size));
@@ -228,7 +221,7 @@ async fn chain_segment_non_linear_parent_roots() {
         matches!(
             harness
                 .chain
-                .process_chain_segment(blocks, CountUnrealized::True, NotifyExecutionLayer::Yes)
+                .process_chain_segment(blocks, NotifyExecutionLayer::Yes)
                 .await
                 .into_block_error(),
             Err(BlockError::NonLinearParentRoots)
@@ -248,7 +241,7 @@ async fn chain_segment_non_linear_parent_roots() {
         matches!(
             harness
                 .chain
-                .process_chain_segment(blocks, CountUnrealized::True, NotifyExecutionLayer::Yes)
+                .process_chain_segment(blocks, NotifyExecutionLayer::Yes)
                 .await
                 .into_block_error(),
             Err(BlockError::NonLinearParentRoots)
@@ -279,7 +272,7 @@ async fn chain_segment_non_linear_slots() {
         matches!(
             harness
                 .chain
-                .process_chain_segment(blocks, CountUnrealized::True, NotifyExecutionLayer::Yes)
+                .process_chain_segment(blocks, NotifyExecutionLayer::Yes)
                 .await
                 .into_block_error(),
             Err(BlockError::NonLinearSlots)
@@ -300,7 +293,7 @@ async fn chain_segment_non_linear_slots() {
         matches!(
             harness
                 .chain
-                .process_chain_segment(blocks, CountUnrealized::True, NotifyExecutionLayer::Yes)
+                .process_chain_segment(blocks, NotifyExecutionLayer::Yes)
                 .await
                 .into_block_error(),
             Err(BlockError::NonLinearSlots)
@@ -326,7 +319,7 @@ async fn assert_invalid_signature(
         matches!(
             harness
                 .chain
-                .process_chain_segment(blocks, CountUnrealized::True, NotifyExecutionLayer::Yes)
+                .process_chain_segment(blocks, NotifyExecutionLayer::Yes)
                 .await
                 .into_block_error(),
             Err(BlockError::InvalidSignature)
@@ -348,11 +341,7 @@ async fn assert_invalid_signature(
     // imported prior to this test.
     let _ = harness
         .chain
-        .process_chain_segment(
-            ancestor_blocks,
-            CountUnrealized::True,
-            NotifyExecutionLayer::Yes,
-        )
+        .process_chain_segment(ancestor_blocks, NotifyExecutionLayer::Yes)
         .await;
     harness.chain.recompute_head_at_current_slot().await;
 
@@ -361,7 +350,6 @@ async fn assert_invalid_signature(
         .process_block(
             snapshots[block_index].beacon_block.canonical_root(),
             snapshots[block_index].beacon_block.clone(),
-            CountUnrealized::True,
             NotifyExecutionLayer::Yes,
             || Ok(()),
         )
@@ -415,11 +403,7 @@ async fn invalid_signature_gossip_block() {
             .collect();
         harness
             .chain
-            .process_chain_segment(
-                ancestor_blocks,
-                CountUnrealized::True,
-                NotifyExecutionLayer::Yes,
-            )
+            .process_chain_segment(ancestor_blocks, NotifyExecutionLayer::Yes)
             .await
             .into_block_error()
             .expect("should import all blocks prior to the one being tested");
@@ -431,7 +415,6 @@ async fn invalid_signature_gossip_block() {
                     .process_block(
                         signed_block.canonical_root(),
                         Arc::new(signed_block),
-                        CountUnrealized::True,
                         NotifyExecutionLayer::Yes,
                         || Ok(()),
                     )
@@ -467,7 +450,7 @@ async fn invalid_signature_block_proposal() {
             matches!(
                 harness
                     .chain
-                    .process_chain_segment(blocks, CountUnrealized::True, NotifyExecutionLayer::Yes)
+                    .process_chain_segment(blocks, NotifyExecutionLayer::Yes)
                     .await
                     .into_block_error(),
                 Err(BlockError::InvalidSignature)
@@ -665,7 +648,7 @@ async fn invalid_signature_deposit() {
             !matches!(
                 harness
                     .chain
-                    .process_chain_segment(blocks, CountUnrealized::True, NotifyExecutionLayer::Yes)
+                    .process_chain_segment(blocks, NotifyExecutionLayer::Yes)
                     .await
                     .into_block_error(),
                 Err(BlockError::InvalidSignature)
@@ -745,7 +728,6 @@ async fn block_gossip_verification() {
             .process_block(
                 gossip_verified.block_root,
                 gossip_verified,
-                CountUnrealized::True,
                 NotifyExecutionLayer::Yes,
                 || Ok(()),
             )
@@ -1018,7 +1000,6 @@ async fn verify_block_for_gossip_slashing_detection() {
         .process_block(
             verified_block.block_root,
             verified_block,
-            CountUnrealized::True,
             NotifyExecutionLayer::Yes,
             || Ok(()),
         )
@@ -1059,7 +1040,6 @@ async fn verify_block_for_gossip_doppelganger_detection() {
         .process_block(
             verified_block.block_root,
             verified_block,
-            CountUnrealized::True,
             NotifyExecutionLayer::Yes,
             || Ok(()),
         )
@@ -1208,7 +1188,6 @@ async fn add_base_block_to_altair_chain() {
             .process_block(
                 base_block.canonical_root(),
                 Arc::new(base_block.clone()),
-                CountUnrealized::True,
                 NotifyExecutionLayer::Yes,
                 || Ok(()),
             )
@@ -1225,11 +1204,7 @@ async fn add_base_block_to_altair_chain() {
     assert!(matches!(
         harness
             .chain
-            .process_chain_segment(
-                vec![Arc::new(base_block)],
-                CountUnrealized::True,
-                NotifyExecutionLayer::Yes,
-            )
+            .process_chain_segment(vec![Arc::new(base_block)], NotifyExecutionLayer::Yes,)
             .await,
         ChainSegmentResult::Failed {
             imported_blocks: 0,
@@ -1348,7 +1323,6 @@ async fn add_altair_block_to_base_chain() {
             .process_block(
                 altair_block.canonical_root(),
                 Arc::new(altair_block.clone()),
-                CountUnrealized::True,
                 NotifyExecutionLayer::Yes,
                 || Ok(()),
             )
@@ -1365,11 +1339,7 @@ async fn add_altair_block_to_base_chain() {
     assert!(matches!(
         harness
             .chain
-            .process_chain_segment(
-                vec![Arc::new(altair_block)],
-                CountUnrealized::True,
-                NotifyExecutionLayer::Yes
-            )
+            .process_chain_segment(vec![Arc::new(altair_block)], NotifyExecutionLayer::Yes)
             .await,
         ChainSegmentResult::Failed {
             imported_blocks: 0,
@@ -1379,4 +1349,101 @@ async fn add_altair_block_to_base_chain() {
             })
         }
     ));
+}
+
+#[tokio::test]
+async fn import_duplicate_block_unrealized_justification() {
+    let spec = MainnetEthSpec::default_spec();
+
+    let harness = BeaconChainHarness::builder(MainnetEthSpec)
+        .spec(spec)
+        .keypairs(KEYPAIRS[..].to_vec())
+        .fresh_ephemeral_store()
+        .mock_execution_layer()
+        .build();
+    let chain = &harness.chain;
+
+    // Move out of the genesis slot.
+    harness.advance_slot();
+
+    // Build the chain out to the first justification opportunity 2/3rds of the way through epoch 2.
+    let num_slots = E::slots_per_epoch() as usize * 8 / 3;
+    harness
+        .extend_chain(
+            num_slots,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    // Move into the next empty slot.
+    harness.advance_slot();
+
+    // The store's justified checkpoint must still be at epoch 0, while unrealized justification
+    // must be at epoch 1.
+    let fc = chain.canonical_head.fork_choice_read_lock();
+    assert_eq!(fc.justified_checkpoint().epoch, 0);
+    assert_eq!(fc.unrealized_justified_checkpoint().epoch, 1);
+    drop(fc);
+
+    // Produce a block to justify epoch 2.
+    let state = harness.get_current_state();
+    let slot = harness.get_current_slot();
+    let (block, _) = harness.make_block(state.clone(), slot).await;
+    let block = Arc::new(block);
+    let block_root = block.canonical_root();
+
+    // Create two verified variants of the block, representing the same block being processed in
+    // parallel.
+    let notify_execution_layer = NotifyExecutionLayer::Yes;
+    let verified_block1 = block
+        .clone()
+        .into_execution_pending_block(block_root, &chain, notify_execution_layer)
+        .unwrap();
+    let verified_block2 = block
+        .into_execution_pending_block(block_root, &chain, notify_execution_layer)
+        .unwrap();
+
+    // Import the first block, simulating a block processed via a finalized chain segment.
+    chain
+        .clone()
+        .import_execution_pending_block(verified_block1)
+        .await
+        .unwrap();
+
+    // Unrealized justification should NOT have updated.
+    let fc = chain.canonical_head.fork_choice_read_lock();
+    assert_eq!(fc.justified_checkpoint().epoch, 0);
+    let unrealized_justification = fc.unrealized_justified_checkpoint();
+    assert_eq!(unrealized_justification.epoch, 2);
+
+    // The fork choice node for the block should have unrealized justification.
+    let fc_block = fc.get_block(&block_root).unwrap();
+    assert_eq!(
+        fc_block.unrealized_justified_checkpoint,
+        Some(unrealized_justification)
+    );
+    drop(fc);
+
+    // Import the second verified block, simulating a block processed via RPC.
+    chain
+        .clone()
+        .import_execution_pending_block(verified_block2)
+        .await
+        .unwrap();
+
+    // Unrealized justification should still be updated.
+    let fc = chain.canonical_head.fork_choice_read_lock();
+    assert_eq!(fc.justified_checkpoint().epoch, 0);
+    assert_eq!(
+        fc.unrealized_justified_checkpoint(),
+        unrealized_justification
+    );
+
+    // The fork choice node for the block should still have the unrealized justified checkpoint.
+    let fc_block = fc.get_block(&block_root).unwrap();
+    assert_eq!(
+        fc_block.unrealized_justified_checkpoint,
+        Some(unrealized_justification)
+    );
 }
