@@ -1,8 +1,7 @@
 use crate::metrics;
 use beacon_chain::validator_monitor::{get_block_delay_ms, timestamp_now};
 use beacon_chain::{
-    BeaconChain, BeaconChainTypes, BlockError, GossipVerifiedBlock,
-    NotifyExecutionLayer,
+    BeaconChain, BeaconChainTypes, BlockError, GossipVerifiedBlock, NotifyExecutionLayer,
 };
 use eth2::types::BroadcastValidation;
 use execution_layer::ProvenancedPayload;

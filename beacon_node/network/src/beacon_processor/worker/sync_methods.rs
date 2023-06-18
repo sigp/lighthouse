@@ -165,12 +165,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         let parent_root = block.message().parent_root();
         let result = self
             .chain
-            .process_block(
-                block_root,
-                block,
-                NotifyExecutionLayer::Yes,
-                || Ok(()),
-            )
+            .process_block(block_root, block, NotifyExecutionLayer::Yes, || Ok(()))
             .await;
 
         metrics::inc_counter(&metrics::BEACON_PROCESSOR_RPC_BLOCK_IMPORTED_TOTAL);
