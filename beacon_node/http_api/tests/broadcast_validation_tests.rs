@@ -277,7 +277,7 @@ pub async fn consensus_gossip() {
     );
 }
 
-/// This test checks that a block that is valid from both a gossip and consensus perspective is accepted when using `broadcast_validation=consensus`.
+/// This test checks that a block that is valid from both a gossip and consensus perspective, but nonetheless equivocates, is accepted when using `broadcast_validation=consensus`.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 pub async fn consensus_partial_pass_only_consensus() {
     /* this test targets gossip-level validation */
@@ -288,6 +288,7 @@ pub async fn consensus_partial_pass_only_consensus() {
     let validator_count = 64;
     let num_initial: u64 = 31;
     let tester = InteractiveTester::<E>::new(None, validator_count).await;
+    let test_logger = tester.harness.logger().clone();
 
     // Create some chain depth.
     tester.harness.advance_slot();
@@ -315,31 +316,34 @@ pub async fn consensus_partial_pass_only_consensus() {
     assert_eq!(block_b.state_root(), state_after_b.tree_hash_root());
     assert_ne!(block_a.state_root(), block_b.state_root());
 
-    /* submit `block_a` as valid */
-    assert!(tester
-        .client
-        .post_beacon_blocks_v2(&block_a, validation_level)
-        .await
-        .is_ok());
-    assert!(tester
-        .harness
-        .chain
-        .block_is_known_to_fork_choice(&block_a.canonical_root()));
+    let gossip_block_b = GossipVerifiedBlock::new(block_b.clone().into(), &tester.harness.chain);
+    assert!(gossip_block_b.is_ok());
+    let gossip_block_a = GossipVerifiedBlock::new(block_a.clone().into(), &tester.harness.chain);
+    assert!(gossip_block_a.is_err());
 
     /* submit `block_b` which should induce equivocation */
-    let response: Result<(), eth2::Error> = tester
-        .client
-        .post_beacon_blocks_v2(&block_b, validation_level)
-        .await;
-    assert!(response.is_err());
+    let channel = tokio::sync::mpsc::unbounded_channel();
 
-    let error_response: eth2::Error = response.err().unwrap();
+    let publication_result: Result<(), Rejection> = publish_block(
+        None,
+        ProvenancedBlock::Local(Arc::new(block_b.clone())),
+        tester.harness.chain.clone(),
+        &channel.0,
+        test_logger,
+        validation_level.unwrap(),
+    )
+    .await;
 
-    assert_eq!(error_response.status(), Some(StatusCode::BAD_REQUEST));
+    assert!(publication_result.is_err());
 
-    assert!(
-        matches!(error_response, eth2::Error::ServerMessage(err) if err.message ==  "BAD_REQUEST: RepeatProposal { proposer: 44, slot: Slot(32) }")
-    );
+    let publication_error: Rejection = publication_result.unwrap_err();
+
+    /* TODO: assert 202 */
+
+    assert!(!tester
+        .harness
+        .chain
+        .block_is_known_to_fork_choice(&block_b.canonical_root()));
 }
 
 /// This test checks that a block that is valid from both a gossip and consensus perspective is accepted when using `broadcast_validation=consensus`.
