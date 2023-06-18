@@ -754,6 +754,13 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             .insert_advanced_state(block_root, block_slot, state_root, state)
     }
 
+    /// Drops all advanced states that do not descend from a root in
+    /// `blocks_roots_to_retain`.
+    pub fn prune_advanced_states(&mut self, blocks_roots_to_retain: &[Hash256]) {
+        self.advanced_states
+            .retain(|key, _value| blocks_roots_to_retain.iter().any(|root| key == root));
+    }
+
     /// Delete a state, ensuring it is removed from the LRU cache, as well as from on-disk.
     ///
     /// It is assumed that all states being deleted reside in the hot DB, even if their slot is less

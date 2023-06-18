@@ -223,7 +223,7 @@ impl<E: EthSpec> StateCache<E> {
 
     /// Returns a state which descends from `block_root` with a `slot` this
     /// *less than or equal to* the given `slot` (or `None`).
-    pub(crate) fn get_best_advanced_state(
+    pub fn get_best_advanced_state(
         &self,
         block_root: Hash256,
         slot: Slot,

@@ -282,11 +282,14 @@ fn advance_heads<T: BeaconChainTypes>(
     log: &Logger,
 ) -> Result<(), Error> {
     let current_slot = beacon_chain.slot()?;
+    let head_snapshot = beacon_chain.head_snapshot();
 
-    // TODO(paul): prune irrelevant states.
+    // Prune all advanced states, except for those that descend from the head.
+    beacon_chain
+        .store
+        .prune_advanced_states(&[head_snapshot.beacon_block_root]);
 
     // Advance the state of the block at the head of the chain.
-    let head_snapshot = beacon_chain.head_snapshot();
     advance_state(
         beacon_chain,
         current_slot,
