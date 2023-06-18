@@ -1171,22 +1171,22 @@ pub async fn blinded_equivocation_gossip() {
             AttestationStrategy::AllValidators,
         )
         .await;
+    tester.harness.advance_slot();
 
     let slot_a = Slot::new(num_initial);
     let slot_b = slot_a + 1;
 
     let state_a = tester.harness.get_current_state();
-    let (mut block, _): (SignedBlindedBeaconBlock<E>, _) =
-        tester.harness.make_blinded_block(state_a, slot_b).await;
+    let (block, _): (SignedBeaconBlock<E>, _) = tester
+        .harness
+        .make_block_with_modifier(state_a, slot_b, |b| *b.state_root_mut() = Hash256::zero())
+        .await;
 
-    /* an incorrect proposer index should cause consensus checks to fail (due to
-        https://github.com/ethereum/consensus-specs/blob/dev/specs/phase0/beacon-chain.md#beacon-chain-state-transition-function
-    ), which is the aim of this test */
-    *block.message_mut().proposer_index_mut() += 1;
+    let blinded_block: SignedBlindedBeaconBlock<E> = block.into();
 
     let response: Result<(), eth2::Error> = tester
         .client
-        .post_beacon_blinded_blocks_v2(&block, validation_level)
+        .post_beacon_blinded_blocks_v2(&blinded_block, validation_level)
         .await;
     assert!(response.is_err());
 
@@ -1196,7 +1196,7 @@ pub async fn blinded_equivocation_gossip() {
     assert_eq!(error_response.status(), Some(StatusCode::BAD_REQUEST));
 
     assert!(
-        matches!(error_response, eth2::Error::ServerMessage(err) if err.message == "BAD_REQUEST: FutureSlot { present_slot: Slot(31), block_slot: Slot(32) }".to_string())
+        matches!(error_response, eth2::Error::ServerMessage(err) if err.message == "BAD_REQUEST: Invalid block".to_string())
     );
 }
 
