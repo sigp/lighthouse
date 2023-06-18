@@ -1262,10 +1262,14 @@ pub fn serve<T: BeaconChainTypes>(
                 .await
                 {
                     Ok(()) => warp::reply().into_response(),
-                    Err(e) => warp_utils::reject::handle_rejection(e)
-                        .await
-                        .unwrap()
+                    Err(e) => match warp_utils::reject::handle_rejection(e).await {
+                        Ok(reply) => reply.into_response(),
+                        Err(_) => warp::reply::with_status(
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            eth2::StatusCode::INTERNAL_SERVER_ERROR,
+                        )
                         .into_response(),
+                    },
                 }
             },
         );
@@ -1325,10 +1329,14 @@ pub fn serve<T: BeaconChainTypes>(
                 .await
                 {
                     Ok(()) => warp::reply().into_response(),
-                    Err(e) => warp_utils::reject::handle_rejection(e)
-                        .await
-                        .unwrap()
+                    Err(e) => match warp_utils::reject::handle_rejection(e).await {
+                        Ok(reply) => reply.into_response(),
+                        Err(_) => warp::reply::with_status(
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            eth2::StatusCode::INTERNAL_SERVER_ERROR,
+                        )
                         .into_response(),
+                    },
                 }
             },
         );
