@@ -1,7 +1,11 @@
+use account_utils::eth2_keystore::keypair_from_secret;
 use clap::ArgMatches;
 use clap_utils::{parse_optional, parse_required, parse_ssz_optional};
-use eth2_hashing::hash;
 use eth2_network_config::{Eth2NetworkConfig, TRUSTED_SETUP};
+use eth2_wallet::bip39::Seed;
+use eth2_wallet::bip39::{Language, Mnemonic};
+use eth2_wallet::{recover_validator_secret_from_mnemonic, KeyType};
+use ethereum_hashing::hash;
 use kzg::TrustedSetup;
 use ssz::Decode;
 use ssz::Encode;
@@ -16,8 +20,8 @@ use types::ExecutionBlockHash;
 use types::{
     test_utils::generate_deterministic_keypairs, Address, BeaconState, ChainSpec, Config, Epoch,
     Eth1Data, EthSpec, ExecutionPayloadHeader, ExecutionPayloadHeaderCapella,
-    ExecutionPayloadHeaderDeneb, ExecutionPayloadHeaderMerge, ForkName, Hash256, Keypair,
-    PublicKey, Validator,
+    ExecutionPayloadHeaderDeneb, ExecutionPayloadHeaderMerge, ExecutionPayloadHeaderRefMut,
+    ForkName, Hash256, Keypair, PublicKey, Validator,
 };
 
 pub fn run<T: EthSpec>(testnet_dir_path: PathBuf, matches: &ArgMatches) -> Result<(), String> {
@@ -90,61 +94,59 @@ pub fn run<T: EthSpec>(testnet_dir_path: PathBuf, matches: &ArgMatches) -> Resul
         spec.terminal_total_difficulty = ttd;
     }
 
-    let genesis_state_bytes = if matches.is_present("interop-genesis-state") {
-        let execution_payload_header: Option<ExecutionPayloadHeader<T>> =
-            parse_optional(matches, "execution-payload-header")?
-                .map(|filename: String| {
-                    let mut bytes = vec![];
-                    let mut file = File::open(filename.as_str())
-                        .map_err(|e| format!("Unable to open {}: {}", filename, e))?;
-                    file.read_to_end(&mut bytes)
-                        .map_err(|e| format!("Unable to read {}: {}", filename, e))?;
-                    let fork_name = spec.fork_name_at_epoch(Epoch::new(0));
-                    match fork_name {
-                        ForkName::Base | ForkName::Altair => Err(ssz::DecodeError::BytesInvalid(
-                            "genesis fork must be post-merge".to_string(),
-                        )),
-                        ForkName::Merge => {
-                            ExecutionPayloadHeaderMerge::<T>::from_ssz_bytes(bytes.as_slice())
-                                .map(ExecutionPayloadHeader::Merge)
-                        }
-                        ForkName::Capella => {
-                            ExecutionPayloadHeaderCapella::<T>::from_ssz_bytes(bytes.as_slice())
-                                .map(ExecutionPayloadHeader::Capella)
-                        }
-                        ForkName::Deneb => {
-                            ExecutionPayloadHeaderDeneb::<T>::from_ssz_bytes(bytes.as_slice())
-                                .map(ExecutionPayloadHeader::Deneb)
-                        }
+    let validator_count = parse_required(matches, "validator-count")?;
+    let execution_payload_header: Option<ExecutionPayloadHeader<T>> =
+        parse_optional(matches, "execution-payload-header")?
+            .map(|filename: String| {
+                let mut bytes = vec![];
+                let mut file = File::open(filename.as_str())
+                    .map_err(|e| format!("Unable to open {}: {}", filename, e))?;
+                file.read_to_end(&mut bytes)
+                    .map_err(|e| format!("Unable to read {}: {}", filename, e))?;
+                let fork_name = spec.fork_name_at_epoch(Epoch::new(0));
+                match fork_name {
+                    ForkName::Base | ForkName::Altair => Err(ssz::DecodeError::BytesInvalid(
+                        "genesis fork must be post-merge".to_string(),
+                    )),
+                    ForkName::Merge => {
+                        ExecutionPayloadHeaderMerge::<T>::from_ssz_bytes(bytes.as_slice())
+                            .map(ExecutionPayloadHeader::Merge)
                     }
-                    .map_err(|e| format!("SSZ decode failed: {:?}", e))
-                })
-                .transpose()?;
+                    ForkName::Capella => {
+                        ExecutionPayloadHeaderCapella::<T>::from_ssz_bytes(bytes.as_slice())
+                            .map(ExecutionPayloadHeader::Capella)
+                    }
+                    ForkName::Deneb => {
+                        ExecutionPayloadHeaderDeneb::<T>::from_ssz_bytes(bytes.as_slice())
+                            .map(ExecutionPayloadHeader::Deneb)
+                    }
+                }
+                .map_err(|e| format!("SSZ decode failed: {:?}", e))
+            })
+            .transpose()?;
 
-        let (eth1_block_hash, genesis_time) = if let Some(payload) =
-            execution_payload_header.as_ref()
-        {
-            let eth1_block_hash =
-                parse_optional(matches, "eth1-block-hash")?.unwrap_or_else(|| payload.block_hash());
-            let genesis_time =
-                parse_optional(matches, "genesis-time")?.unwrap_or_else(|| payload.timestamp());
-            (eth1_block_hash, genesis_time)
-        } else {
-            let eth1_block_hash = parse_required(matches, "eth1-block-hash").map_err(|_| {
-                "One of `--execution-payload-header` or `--eth1-block-hash` must be set".to_string()
-            })?;
-            let genesis_time = parse_optional(matches, "genesis-time")?.unwrap_or(
-                SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .map_err(|e| format!("Unable to get time: {:?}", e))?
-                    .as_secs(),
-            );
-            (eth1_block_hash, genesis_time)
-        };
+    let (eth1_block_hash, genesis_time) = if let Some(payload) = execution_payload_header.as_ref() {
+        let eth1_block_hash =
+            parse_optional(matches, "eth1-block-hash")?.unwrap_or_else(|| payload.block_hash());
+        let genesis_time =
+            parse_optional(matches, "genesis-time")?.unwrap_or_else(|| payload.timestamp());
+        (eth1_block_hash, genesis_time)
+    } else {
+        let eth1_block_hash = parse_required(matches, "eth1-block-hash").map_err(|_| {
+            "One of `--execution-payload-header` or `--eth1-block-hash` must be set".to_string()
+        })?;
+        let genesis_time = parse_optional(matches, "genesis-time")?.unwrap_or(
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map_err(|e| format!("Unable to get time: {:?}", e))?
+                .as_secs(),
+        );
+        (eth1_block_hash, genesis_time)
+    };
 
-        let validator_count = parse_required(matches, "validator-count")?;
-
+    let genesis_state_bytes = if matches.is_present("interop-genesis-state") {
         let keypairs = generate_deterministic_keypairs(validator_count);
+        let keypairs: Vec<_> = keypairs.into_iter().map(|kp| (kp.clone(), kp)).collect();
 
         let genesis_state = initialize_state_with_validators::<T>(
             &keypairs,
@@ -154,6 +156,41 @@ pub fn run<T: EthSpec>(testnet_dir_path: PathBuf, matches: &ArgMatches) -> Resul
             &spec,
         )?;
 
+        Some(genesis_state.as_ssz_bytes())
+    } else if matches.is_present("derived-genesis-state") {
+        let mnemonic_phrase: String = clap_utils::parse_required(matches, "mnemonic-phrase")?;
+        let mnemonic = Mnemonic::from_phrase(&mnemonic_phrase, Language::English).map_err(|e| {
+            format!(
+                "Unable to derive mnemonic from string {:?}: {:?}",
+                mnemonic_phrase, e
+            )
+        })?;
+        let seed = Seed::new(&mnemonic, "");
+        let keypairs = (0..validator_count as u32)
+            .map(|index| {
+                let (secret, _) =
+                    recover_validator_secret_from_mnemonic(seed.as_bytes(), index, KeyType::Voting)
+                        .unwrap();
+
+                let voting_keypair = keypair_from_secret(secret.as_bytes()).unwrap();
+
+                let (secret, _) = recover_validator_secret_from_mnemonic(
+                    seed.as_bytes(),
+                    index,
+                    KeyType::Withdrawal,
+                )
+                .unwrap();
+                let withdrawal_keypair = keypair_from_secret(secret.as_bytes()).unwrap();
+                (voting_keypair, withdrawal_keypair)
+            })
+            .collect::<Vec<_>>();
+        let genesis_state = initialize_state_with_validators::<T>(
+            &keypairs,
+            genesis_time,
+            eth1_block_hash.into_root(),
+            execution_payload_header,
+            &spec,
+        )?;
         Some(genesis_state.as_ssz_bytes())
     } else {
         None
@@ -182,25 +219,30 @@ pub fn run<T: EthSpec>(testnet_dir_path: PathBuf, matches: &ArgMatches) -> Resul
     testnet.write_to_file(testnet_dir_path, overwrite_files)
 }
 
+/// Returns a `BeaconState` with the given validator keypairs embedded into the
+/// genesis state. This allows us to start testnets without having to deposit validators
+/// manually.
+///
+/// The optional `execution_payload_header` allows us to start a network from the bellatrix
+/// fork without the need to transition to altair and bellatrix.
+///
+/// We need to ensure that `eth1_block_hash` is equal to the genesis block hash that is
+/// generated from the execution side `genesis.json`.
 fn initialize_state_with_validators<T: EthSpec>(
-    keypairs: &[Keypair],
+    keypairs: &[(Keypair, Keypair)], // Voting and Withdrawal keypairs
     genesis_time: u64,
     eth1_block_hash: Hash256,
     execution_payload_header: Option<ExecutionPayloadHeader<T>>,
     spec: &ChainSpec,
 ) -> Result<BeaconState<T>, String> {
-    let default_header = ExecutionPayloadHeaderMerge {
-        gas_limit: 10,
-        base_fee_per_gas: 10.into(),
-        timestamp: genesis_time,
-        block_hash: ExecutionBlockHash(eth1_block_hash),
-        prev_randao: Hash256::random(),
-        parent_hash: ExecutionBlockHash::zero(),
-        transactions_root: Hash256::random(),
-        ..ExecutionPayloadHeaderMerge::default()
-    };
-    let execution_payload_header =
-        execution_payload_header.or(Some(ExecutionPayloadHeader::Merge(default_header)));
+    // If no header is provided, then start from a Bellatrix state by default
+    let default_header: ExecutionPayloadHeader<T> =
+        ExecutionPayloadHeader::Merge(ExecutionPayloadHeaderMerge {
+            block_hash: ExecutionBlockHash::from_root(eth1_block_hash),
+            parent_hash: ExecutionBlockHash::zero(),
+            ..ExecutionPayloadHeaderMerge::default()
+        });
+    let execution_payload_header = execution_payload_header.unwrap_or(default_header);
     // Empty eth1 data
     let eth1_data = Eth1Data {
         block_hash: eth1_block_hash,
@@ -224,8 +266,8 @@ fn initialize_state_with_validators<T: EthSpec>(
         let amount = spec.max_effective_balance;
         // Create a new validator.
         let validator = Validator {
-            pubkey: keypair.pk.clone().into(),
-            withdrawal_credentials: withdrawal_credentials(&keypair.pk),
+            pubkey: keypair.0.pk.clone().into(),
+            withdrawal_credentials: withdrawal_credentials(&keypair.1.pk),
             activation_eligibility_epoch: spec.far_future_epoch,
             activation_epoch: spec.far_future_epoch,
             exit_epoch: spec.far_future_epoch,
@@ -264,12 +306,24 @@ fn initialize_state_with_validators<T: EthSpec>(
         // Override latest execution payload header.
         // See https://github.com/ethereum/consensus-specs/blob/v1.1.0/specs/merge/beacon-chain.md#testing
 
-        if let Some(ExecutionPayloadHeader::Merge(ref header)) = execution_payload_header {
-            *state
-                .latest_execution_payload_header_merge_mut()
-                .map_err(|_| {
-                    "State must contain bellatrix execution payload header".to_string()
-                })? = header.clone();
+        // Currently, we only support starting from a bellatrix state
+        match state
+            .latest_execution_payload_header_mut()
+            .map_err(|e| format!("Failed to get execution payload header: {:?}", e))?
+        {
+            ExecutionPayloadHeaderRefMut::Merge(header_mut) => {
+                if let ExecutionPayloadHeader::Merge(eph) = execution_payload_header {
+                    *header_mut = eph;
+                } else {
+                    return Err("Execution payload header must be a bellatrix header".to_string());
+                }
+            }
+            ExecutionPayloadHeaderRefMut::Capella(_) => {
+                return Err("Cannot start genesis from a capella state".to_string())
+            }
+            ExecutionPayloadHeaderRefMut::Deneb(_) => {
+                return Err("Cannot start genesis from a deneb state".to_string())
+            }
         }
     }
 

@@ -199,6 +199,7 @@ pub struct ValidatorMetrics {
     pub attestation_head_misses: u64,
     pub attestation_target_hits: u64,
     pub attestation_target_misses: u64,
+    pub latest_attestation_inclusion_distance: u64,
 }
 
 impl ValidatorMetrics {
@@ -224,6 +225,10 @@ impl ValidatorMetrics {
 
     pub fn increment_head_misses(&mut self) {
         self.attestation_head_misses += 1;
+    }
+
+    pub fn set_latest_inclusion_distance(&mut self, distance: u64) {
+        self.latest_attestation_inclusion_distance = distance;
     }
 }
 
@@ -568,7 +573,6 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                 } else {
                     validator_metrics.increment_misses()
                 }
-                drop(validator_metrics);
 
                 // Indicates if any attestation made it on-chain.
                 //
@@ -693,8 +697,10 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                             &[id],
                             inclusion_delay as i64,
                         );
+                        validator_metrics.set_latest_inclusion_distance(inclusion_delay);
                     }
                 }
+                drop(validator_metrics);
 
                 // Indicates the number of sync committee signatures that made it into
                 // a sync aggregate in the current_epoch (state.epoch - 1).

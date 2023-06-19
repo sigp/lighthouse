@@ -8,7 +8,7 @@ use crate::fork_revert::{reset_fork_choice_to_finalization, revert_to_fork_bound
 use crate::head_tracker::HeadTracker;
 use crate::migrate::{BackgroundMigrator, MigratorConfig};
 use crate::persisted_beacon_chain::PersistedBeaconChain;
-use crate::shuffling_cache::ShufflingCache;
+use crate::shuffling_cache::{BlockShufflingIds, ShufflingCache};
 use crate::snapshot_cache::{SnapshotCache, DEFAULT_SNAPSHOT_CACHE_SIZE};
 use crate::timeout_rw_lock::TimeoutRwLock;
 use crate::validator_monitor::ValidatorMonitor;
@@ -419,23 +419,14 @@ where
         let weak_subj_block_root = weak_subj_block.canonical_root();
         let weak_subj_state_root = weak_subj_block.state_root();
 
-        // Check that the given block lies on an epoch boundary. Due to the database only storing
+        // Check that the given state lies on an epoch boundary. Due to the database only storing
         // full states on epoch boundaries and at restore points it would be difficult to support
         // starting from a mid-epoch state.
         if weak_subj_slot % TEthSpec::slots_per_epoch() != 0 {
             return Err(format!(
-                "Checkpoint block at slot {} is not aligned to epoch start. \
-                 Please supply an aligned checkpoint with block.slot % 32 == 0",
-                weak_subj_block.slot(),
-            ));
-        }
-
-        // Check that the block and state have consistent slots and state roots.
-        if weak_subj_state.slot() != weak_subj_block.slot() {
-            return Err(format!(
-                "Slot of snapshot block ({}) does not match snapshot state ({})",
-                weak_subj_block.slot(),
-                weak_subj_state.slot(),
+                "Checkpoint state at slot {} is not aligned to epoch start. \
+                 Please supply an aligned checkpoint with state.slot % 32 == 0",
+                weak_subj_slot,
             ));
         }
 
@@ -444,16 +435,21 @@ where
         weak_subj_state
             .build_all_caches(&self.spec)
             .map_err(|e| format!("Error building caches on checkpoint state: {e:?}"))?;
-
-        let computed_state_root = weak_subj_state
+        weak_subj_state
             .update_tree_hash_cache()
             .map_err(|e| format!("Error computing checkpoint state root: {:?}", e))?;
 
-        if weak_subj_state_root != computed_state_root {
-            return Err(format!(
-                "Snapshot state root does not match block, expected: {:?}, got: {:?}",
-                weak_subj_state_root, computed_state_root
-            ));
+        let latest_block_slot = weak_subj_state.latest_block_header().slot;
+
+        // We can only validate the block root if it exists in the state. We can't calculated it
+        // from the `latest_block_header` because the state root might be set to the zero hash.
+        if let Ok(state_slot_block_root) = weak_subj_state.get_block_root(latest_block_slot) {
+            if weak_subj_block_root != *state_slot_block_root {
+                return Err(format!(
+                    "Snapshot state's most recent block root does not match block, expected: {:?}, got: {:?}",
+                    weak_subj_block_root, state_slot_block_root
+                ));
+            }
         }
 
         // Check that the checkpoint state is for the same network as the genesis state.
@@ -508,13 +504,12 @@ where
         let fc_store = BeaconForkChoiceStore::get_forkchoice_store(store, &snapshot)
             .map_err(|e| format!("Unable to initialize fork choice store: {e:?}"))?;
 
-        let current_slot = Some(snapshot.beacon_block.slot());
         let fork_choice = ForkChoice::from_anchor(
             fc_store,
             snapshot.beacon_block_root,
             &snapshot.beacon_block,
             &snapshot.beacon_state,
-            current_slot,
+            Some(weak_subj_slot),
             &self.spec,
         )
         .map_err(|e| format!("Unable to initialize ForkChoice: {:?}", e))?;
@@ -710,6 +705,8 @@ where
             )?;
         }
 
+        let head_shuffling_ids = BlockShufflingIds::try_from_head(head_block_root, &head_state)?;
+
         let mut head_snapshot = BeaconSnapshot {
             beacon_block_root: head_block_root,
             beacon_block: Arc::new(head_block),
@@ -791,6 +788,29 @@ where
         let canonical_head = CanonicalHead::new(fork_choice, Arc::new(head_snapshot));
         let shuffling_cache_size = self.chain_config.shuffling_cache_size;
 
+        // Calculate the weak subjectivity point in which to backfill blocks to.
+        let genesis_backfill_slot = if self.chain_config.genesis_backfill {
+            Slot::new(0)
+        } else {
+            let backfill_epoch_range = (self.spec.min_validator_withdrawability_delay
+                + self.spec.churn_limit_quotient)
+                .as_u64()
+                / 2;
+            match slot_clock.now() {
+                Some(current_slot) => {
+                    let genesis_backfill_epoch = current_slot
+                        .epoch(TEthSpec::slots_per_epoch())
+                        .saturating_sub(backfill_epoch_range);
+                    genesis_backfill_epoch.start_slot(TEthSpec::slots_per_epoch())
+                }
+                None => {
+                    // The slot clock cannot derive the current slot. We therefore assume we are
+                    // at or prior to genesis and backfill should sync all the way to genesis.
+                    Slot::new(0)
+                }
+            }
+        };
+
         let beacon_chain = BeaconChain {
             spec: self.spec.clone(),
             config: self.chain_config,
@@ -845,7 +865,11 @@ where
                 DEFAULT_SNAPSHOT_CACHE_SIZE,
                 head_for_snapshot_cache,
             )),
-            shuffling_cache: TimeoutRwLock::new(ShufflingCache::new(shuffling_cache_size)),
+            shuffling_cache: TimeoutRwLock::new(ShufflingCache::new(
+                shuffling_cache_size,
+                head_shuffling_ids,
+                log.clone(),
+            )),
             eth1_finalization_cache: TimeoutRwLock::new(Eth1FinalizationCache::new(log.clone())),
             beacon_proposer_cache: <_>::default(),
             block_times_cache: <_>::default(),
@@ -860,14 +884,12 @@ where
             graffiti: self.graffiti,
             slasher: self.slasher.clone(),
             validator_monitor: RwLock::new(validator_monitor),
+            genesis_backfill_slot,
             //TODO(sean) should we move kzg solely to the da checker?
-            data_availability_checker: DataAvailabilityChecker::new(
-                slot_clock,
-                kzg.clone(),
-                store,
-                self.spec,
-            )
-            .map_err(|e| format!("Error initializing DataAvailabiltyChecker: {:?}", e))?,
+            data_availability_checker: Arc::new(
+                DataAvailabilityChecker::new(slot_clock, kzg.clone(), store, self.spec)
+                    .map_err(|e| format!("Error initializing DataAvailabiltyChecker: {:?}", e))?,
+            ),
             proposal_blob_cache: BlobCache::default(),
             kzg,
         };
@@ -933,9 +955,11 @@ where
         }
 
         // Prune blobs sidecars older than the blob data availability boundary in the background.
-        beacon_chain
-            .store_migrator
-            .process_prune_blobs(beacon_chain.data_availability_boundary());
+        if let Some(data_availability_boundary) = beacon_chain.data_availability_boundary() {
+            beacon_chain
+                .store_migrator
+                .process_prune_blobs(data_availability_boundary);
+        }
 
         Ok(beacon_chain)
     }
@@ -1036,7 +1060,7 @@ mod test {
     use super::*;
     use crate::test_utils::EphemeralHarnessType;
     use crate::validator_monitor::DEFAULT_INDIVIDUAL_TRACKING_THRESHOLD;
-    use eth2_hashing::hash;
+    use ethereum_hashing::hash;
     use genesis::{
         generate_deterministic_keypairs, interop_genesis_state, DEFAULT_ETH1_BLOCK_HASH,
     };

@@ -1,6 +1,6 @@
 use crate::impls::hash256_iter;
 use crate::{CacheArena, CachedTreeHash, Error, Hash256, TreeHashCache};
-use eth2_hashing::ZERO_HASHES;
+use ethereum_hashing::ZERO_HASHES;
 use quickcheck_macros::quickcheck;
 use ssz_types::{
     typenum::{Unsigned, U16, U255, U256, U257},

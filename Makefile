@@ -106,7 +106,7 @@ build-release-tarballs:
 # Runs the full workspace tests in **release**, without downloading any additional
 # test vectors.
 test-release:
-	cargo test --workspace --release --exclude ef_tests --exclude beacon_chain --exclude slasher
+	cargo test --workspace --release --exclude ef_tests --exclude beacon_chain --exclude slasher 
 
 # Runs the full workspace tests in **debug**, without downloading any additional test
 # vectors.
@@ -143,10 +143,18 @@ test-op-pool-%:
 		--features 'beacon_chain/fork_from_env'\
 		-p operation_pool
 
+test-network-minimal: $(patsubst %,test-network-minimal-%,$(FORKS))
+
+test-network-minimal-%:
+	env FORK_NAME=$* cargo test --release \
+		--features 'fork_from_env,spec-minimal'\
+		-p network
+
 # Run the tests in the `slasher` crate for all supported database backends.
 test-slasher:
-	cargo test --release -p slasher --features mdbx
-	cargo test --release -p slasher --no-default-features --features lmdb
+	cargo test --release -p slasher --features lmdb
+	cargo test --release -p slasher --no-default-features --features mdbx
+	cargo test --release -p slasher --features lmdb,mdbx # both backends enabled
 
 # Runs only the tests/state_transition_vectors tests.
 run-state-transition-tests:

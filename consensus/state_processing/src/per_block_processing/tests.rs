@@ -1,11 +1,11 @@
 #![cfg(all(test, not(feature = "fake_crypto")))]
 
-use crate::per_block_processing;
 use crate::per_block_processing::errors::{
     AttestationInvalid, AttesterSlashingInvalid, BlockOperationError, BlockProcessingError,
     DepositInvalid, HeaderInvalid, IndexedAttestationInvalid, IntoWithIndex,
     ProposerSlashingInvalid,
 };
+use crate::{per_block_processing, StateProcessingStrategy};
 use crate::{
     per_block_processing::{process_operations, verify_exit::verify_exit},
     BlockSignatureStrategy, ConsensusContext, VerifyBlockRoot, VerifySignatures,
@@ -72,6 +72,7 @@ async fn valid_block_ok() {
         &mut state,
         &block,
         BlockSignatureStrategy::VerifyIndividual,
+        StateProcessingStrategy::Accurate,
         VerifyBlockRoot::True,
         &mut ctxt,
         &spec,
@@ -97,6 +98,7 @@ async fn invalid_block_header_state_slot() {
         &mut state,
         &SignedBeaconBlock::from_block(block, signature),
         BlockSignatureStrategy::VerifyIndividual,
+        StateProcessingStrategy::Accurate,
         VerifyBlockRoot::True,
         &mut ctxt,
         &spec,
@@ -129,6 +131,7 @@ async fn invalid_parent_block_root() {
         &mut state,
         &SignedBeaconBlock::from_block(block, signature),
         BlockSignatureStrategy::VerifyIndividual,
+        StateProcessingStrategy::Accurate,
         VerifyBlockRoot::True,
         &mut ctxt,
         &spec,
@@ -162,6 +165,7 @@ async fn invalid_block_signature() {
         &mut state,
         &SignedBeaconBlock::from_block(block, Signature::empty()),
         BlockSignatureStrategy::VerifyIndividual,
+        StateProcessingStrategy::Accurate,
         VerifyBlockRoot::True,
         &mut ctxt,
         &spec,
@@ -195,6 +199,7 @@ async fn invalid_randao_reveal_signature() {
         &mut state,
         &signed_block,
         BlockSignatureStrategy::VerifyIndividual,
+        StateProcessingStrategy::Accurate,
         VerifyBlockRoot::True,
         &mut ctxt,
         &spec,

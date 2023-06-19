@@ -6,13 +6,15 @@ use kzg::{KzgCommitment, KzgProof};
 use serde_derive::{Deserialize, Serialize};
 use ssz::Encode;
 use ssz_derive::{Decode, Encode};
-use ssz_types::VariableList;
+use ssz_types::{FixedVector, VariableList};
 use std::sync::Arc;
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
 /// Container of the data that identifies an individual blob.
-#[derive(Serialize, Deserialize, Encode, Decode, TreeHash, Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(
+    Serialize, Deserialize, Encode, Decode, TreeHash, Copy, Clone, Debug, PartialEq, Eq, Hash,
+)]
 pub struct BlobIdentifier {
     pub block_root: Hash256,
     pub index: u64,
@@ -48,11 +50,11 @@ impl Ord for BlobIdentifier {
 #[derivative(PartialEq, Eq, Hash(bound = "T: EthSpec"))]
 pub struct BlobSidecar<T: EthSpec> {
     pub block_root: Hash256,
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub index: u64,
     pub slot: Slot,
     pub block_parent_root: Hash256,
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub proposer_index: u64,
     #[serde(with = "ssz_types::serde_utils::hex_fixed_vec")]
     pub blob: Blob<T>,
@@ -73,6 +75,8 @@ impl<T: EthSpec> Ord for BlobSidecar<T> {
 }
 
 pub type BlobSidecarList<T> = VariableList<Arc<BlobSidecar<T>>, <T as EthSpec>::MaxBlobsPerBlock>;
+pub type FixedBlobSidecarList<T> =
+    FixedVector<Option<Arc<BlobSidecar<T>>>, <T as EthSpec>::MaxBlobsPerBlock>;
 pub type Blobs<T> = VariableList<Blob<T>, <T as EthSpec>::MaxBlobsPerBlock>;
 
 impl<T: EthSpec> SignedRoot for BlobSidecar<T> {}

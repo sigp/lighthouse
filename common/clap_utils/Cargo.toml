@@ -11,7 +11,7 @@ clap = "2.33.3"
 hex = "0.4.2"
 dirs = "3.0.1"
 eth2_network_config = { path = "../eth2_network_config" }
-eth2_ssz = "0.4.1"
+ethereum_ssz = "0.5.0"
 ethereum-types = "0.14.1"
 serde = "1.0.116"
 serde_json = "1.0.59"

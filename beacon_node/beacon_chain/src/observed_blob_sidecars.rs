@@ -379,7 +379,7 @@ mod tests {
 
         // Try adding an out of bounds index
         let invalid_index = E::max_blobs_per_block() as u64;
-        let sidecar_d = get_blob_sidecar(0, block_root_a, 4);
+        let sidecar_d = get_blob_sidecar(0, block_root_a, invalid_index);
         assert_eq!(
             cache.observe_sidecar(&sidecar_d),
             Err(Error::InvalidBlobIndex(invalid_index)),

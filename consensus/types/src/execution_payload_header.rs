@@ -53,21 +53,21 @@ pub struct ExecutionPayloadHeader<T: EthSpec> {
     pub logs_bloom: FixedVector<u8, T::BytesPerLogsBloom>,
     #[superstruct(getter(copy))]
     pub prev_randao: Hash256,
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     #[superstruct(getter(copy))]
     pub block_number: u64,
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     #[superstruct(getter(copy))]
     pub gas_limit: u64,
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     #[superstruct(getter(copy))]
     pub gas_used: u64,
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     #[superstruct(getter(copy))]
     pub timestamp: u64,
     #[serde(with = "ssz_types::serde_utils::hex_var_list")]
     pub extra_data: VariableList<u8, T::MaxExtraDataBytes>,
-    #[serde(with = "eth2_serde_utils::quoted_u256")]
+    #[serde(with = "serde_utils::quoted_u256")]
     #[superstruct(getter(copy))]
     pub base_fee_per_gas: Uint256,
     #[superstruct(getter(copy))]
@@ -78,7 +78,7 @@ pub struct ExecutionPayloadHeader<T: EthSpec> {
     #[superstruct(getter(copy))]
     pub withdrawals_root: Hash256,
     #[superstruct(only(Deneb))]
-    #[serde(with = "eth2_serde_utils::quoted_u256")]
+    #[serde(with = "serde_utils::quoted_u256")]
     #[superstruct(getter(copy))]
     pub excess_data_gas: Uint256,
 }

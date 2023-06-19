@@ -51,7 +51,7 @@ peers for your node and overall improve the Ethereum consensus network.
 Lighthouse currently supports UPnP. If UPnP is enabled on your router,
 Lighthouse will automatically establish the port mappings for you (the beacon
 node will inform you of established routes in this case). If UPnP is not
-enabled, we recommend you manually set up port mappings to both of Lighthouse's
+enabled, we recommend you to manually set up port mappings to both of Lighthouse's
 TCP and UDP ports (9000 by default).
 
 > Note: Lighthouse needs to advertise its publicly accessible ports in
@@ -62,6 +62,28 @@ TCP and UDP ports (9000 by default).
 > same (i.e external 5050 UDP/TCP mapping to internal 9000 is fine). If you are setting up differing external UDP and TCP ports, you should
 > explicitly specify them using the `--enr-tcp-port` and `--enr-udp-port` as
 > explained in the following section.
+
+### How to Open Ports
+
+The steps to do port forwarding depends on the router, but the general steps are given below:
+1. Determine the default gateway IP:
+- On Linux: open a terminal and run `ip route | grep default`, the result should look something similar to `default via 192.168.50.1 dev wlp2s0 proto dhcp metric 600`. The `192.168.50.1` is your router management default gateway IP. 
+- On MacOS: open a terminal and run `netstat -nr|grep default` and it should return the default gateway IP.
+- On Windows: open a command prompt and run `ipconfig` and look for the `Default Gateway` which will show you the gateway IP.
+
+  The default gateway IP usually looks like 192.168.X.X. Once you obtain the IP, enter it to a web browser and it will lead you to the router management page.
+
+2. Login to the router management page. The login credentials are usually available in the manual or the router, or it can be found on a sticker underneath the router. You can also try the login credentials for some common router brands listed [here](https://www.noip.com/support/knowledgebase/general-port-forwarding-guide/).
+
+3. Navigate to the port forward settings in your router. The exact step depends on the router, but typically it will fall under the "Advanced" section, under the name "port forwarding" or "virtual server". 
+
+4. Configure a port forwarding rule as below:
+- Protocol: select `TCP/UDP` or `BOTH`
+- External port: `9000`
+- Internal port: `9000`
+- IP address: Usually there is a dropdown list for you to select the device. Choose the device that is running Lighthouse
+
+5. To check that you have successfully open the ports, go to [yougetsignal](https://www.yougetsignal.com/tools/open-ports/) and enter `9000` in the `port number`. If it shows "open", then you have successfully set up port forwarding. If it shows "closed", double check your settings, and also check that you have allowed firewall rules on port 9000. 
 
 
 ### ENR Configuration
@@ -81,7 +103,7 @@ and if it is, it will update your ENR to the correct public IP and port address
 (meaning you do not need to set it manually). Lighthouse persists its ENR, so
 on reboot it will re-load the settings it had discovered previously.
 
-Modifying the ENR settings can degrade the discovery of your node making it
+Modifying the ENR settings can degrade the discovery of your node, making it
 harder for peers to find you or potentially making it harder for other peers to
 find each other. We recommend not touching these settings unless for a more
 advanced use case.

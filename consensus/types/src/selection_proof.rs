@@ -1,7 +1,7 @@
 use crate::{
     ChainSpec, Domain, EthSpec, Fork, Hash256, PublicKey, SecretKey, Signature, SignedRoot, Slot,
 };
-use eth2_hashing::hash;
+use ethereum_hashing::hash;
 use safe_arith::{ArithError, SafeArith};
 use ssz::Encode;
 use std::cmp;

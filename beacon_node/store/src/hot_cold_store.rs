@@ -30,7 +30,7 @@ use slog::{debug, error, info, trace, warn, Logger};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use state_processing::{
-    BlockProcessingError, BlockReplayer, SlotProcessingError, StateRootStrategy,
+    BlockProcessingError, BlockReplayer, SlotProcessingError, StateProcessingStrategy,
 };
 use std::cmp::min;
 use std::convert::TryInto;
@@ -70,6 +70,8 @@ pub struct HotColdDB<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> {
     blob_cache: Mutex<LruCache<Hash256, BlobSidecarList<E>>>,
     /// LRU cache of deserialized blocks. Updated whenever a block is loaded.
     block_cache: Mutex<LruCache<Hash256, SignedBeaconBlock<E>>>,
+    /// LRU cache of replayed states.
+    state_cache: Mutex<LruCache<Slot, BeaconState<E>>>,
     /// Chain spec.
     pub(crate) spec: ChainSpec,
     /// Logger.
@@ -143,6 +145,7 @@ impl<E: EthSpec> HotColdDB<E, MemoryStore<E>, MemoryStore<E>> {
             blobs_db: Some(MemoryStore::open()),
             hot_db: MemoryStore::open(),
             block_cache: Mutex::new(LruCache::new(config.block_cache_size)),
+            state_cache: Mutex::new(LruCache::new(config.historic_state_cache_size)),
             blob_cache: Mutex::new(LruCache::new(config.blob_cache_size)),
             config,
             spec,
@@ -180,6 +183,7 @@ impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
             blobs_db: None,
             hot_db: LevelDB::open(hot_path)?,
             block_cache: Mutex::new(LruCache::new(config.block_cache_size)),
+            state_cache: Mutex::new(LruCache::new(config.historic_state_cache_size)),
             blob_cache: Mutex::new(LruCache::new(config.blob_cache_size)),
             config,
             spec,
@@ -632,10 +636,10 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 // chain. This way we avoid returning a state that doesn't match `state_root`.
                 self.load_cold_state(state_root)
             } else {
-                self.load_hot_state(state_root, StateRootStrategy::Accurate)
+                self.load_hot_state(state_root, StateProcessingStrategy::Accurate)
             }
         } else {
-            match self.load_hot_state(state_root, StateRootStrategy::Accurate)? {
+            match self.load_hot_state(state_root, StateProcessingStrategy::Accurate)? {
                 Some(state) => Ok(Some(state)),
                 None => self.load_cold_state(state_root),
             }
@@ -673,7 +677,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             }
             .into())
         } else {
-            self.load_hot_state(state_root, StateRootStrategy::Inconsistent)
+            self.load_hot_state(state_root, StateProcessingStrategy::Inconsistent)
         }
     }
 
@@ -763,10 +767,13 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         {
             // NOTE: minor inefficiency here because we load an unnecessary hot state summary
             //
-            // `StateRootStrategy` should be irrelevant here since we never replay blocks for an epoch
+            // `StateProcessingStrategy` should be irrelevant here since we never replay blocks for an epoch
             // boundary state in the hot DB.
             let state = self
-                .load_hot_state(&epoch_boundary_state_root, StateRootStrategy::Accurate)?
+                .load_hot_state(
+                    &epoch_boundary_state_root,
+                    StateProcessingStrategy::Accurate,
+                )?
                 .ok_or(HotColdDBError::MissingEpochBoundaryState(
                     epoch_boundary_state_root,
                 ))?;
@@ -1026,7 +1033,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     pub fn load_hot_state(
         &self,
         state_root: &Hash256,
-        state_root_strategy: StateRootStrategy,
+        state_processing_strategy: StateProcessingStrategy,
     ) -> Result<Option<BeaconState<E>>, Error> {
         metrics::inc_counter(&metrics::BEACON_STATE_HOT_GET_COUNT);
 
@@ -1059,7 +1066,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                     blocks,
                     slot,
                     no_state_root_iter(),
-                    state_root_strategy,
+                    state_processing_strategy,
                 )?
             };
 
@@ -1173,40 +1180,70 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
     /// Load a frozen state that lies between restore points.
     fn load_cold_intermediate_state(&self, slot: Slot) -> Result<BeaconState<E>, Error> {
+        if let Some(state) = self.state_cache.lock().get(&slot) {
+            return Ok(state.clone());
+        }
+
         // 1. Load the restore points either side of the intermediate state.
         let low_restore_point_idx = slot.as_u64() / self.config.slots_per_restore_point;
         let high_restore_point_idx = low_restore_point_idx + 1;
 
+        // Use low restore point as the base state.
+        let mut low_slot: Slot =
+            Slot::new(low_restore_point_idx * self.config.slots_per_restore_point);
+        let mut low_state: Option<BeaconState<E>> = None;
+
+        // Try to get a more recent state from the cache to avoid massive blocks replay.
+        for (s, state) in self.state_cache.lock().iter() {
+            if s.as_u64() / self.config.slots_per_restore_point == low_restore_point_idx
+                && *s < slot
+                && low_slot < *s
+            {
+                low_slot = *s;
+                low_state = Some(state.clone());
+            }
+        }
+
+        // If low_state is still None, use load_restore_point_by_index to load the state.
+        let low_state = match low_state {
+            Some(state) => state,
+            None => self.load_restore_point_by_index(low_restore_point_idx)?,
+        };
+
         // Acquire the read lock, so that the split can't change while this is happening.
         let split = self.split.read_recursive();
 
-        let low_restore_point = self.load_restore_point_by_index(low_restore_point_idx)?;
         let high_restore_point = self.get_restore_point(high_restore_point_idx, &split)?;
 
-        // 2. Load the blocks from the high restore point back to the low restore point.
+        // 2. Load the blocks from the high restore point back to the low point.
         let blocks = self.load_blocks_to_replay(
-            low_restore_point.slot(),
+            low_slot,
             slot,
             self.get_high_restore_point_block_root(&high_restore_point, slot)?,
         )?;
 
-        // 3. Replay the blocks on top of the low restore point.
+        // 3. Replay the blocks on top of the low point.
         // Use a forwards state root iterator to avoid doing any tree hashing.
         // The state root of the high restore point should never be used, so is safely set to 0.
         let state_root_iter = self.forwards_state_roots_iterator_until(
-            low_restore_point.slot(),
+            low_slot,
             slot,
             || Ok((high_restore_point, Hash256::zero())),
             &self.spec,
         )?;
 
-        self.replay_blocks(
-            low_restore_point,
+        let state = self.replay_blocks(
+            low_state,
             blocks,
             slot,
             Some(state_root_iter),
-            StateRootStrategy::Accurate,
-        )
+            StateProcessingStrategy::Accurate,
+        )?;
+
+        // If state is not error, put it in the cache.
+        self.state_cache.lock().put(slot, state.clone());
+
+        Ok(state)
     }
 
     /// Get the restore point with the given index, or if it is out of bounds, the split state.
@@ -1292,10 +1329,10 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         blocks: Vec<SignedBeaconBlock<E, BlindedPayload<E>>>,
         target_slot: Slot,
         state_root_iter: Option<impl Iterator<Item = Result<(Hash256, Slot), Error>>>,
-        state_root_strategy: StateRootStrategy,
+        state_processing_strategy: StateProcessingStrategy,
     ) -> Result<BeaconState<E>, Error> {
         let mut block_replayer = BlockReplayer::new(state, &self.spec)
-            .state_root_strategy(state_root_strategy)
+            .state_processing_strategy(state_processing_strategy)
             .no_signature_verification()
             .minimal_block_root_verification();
 
@@ -1868,23 +1905,22 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             min_current_epoch.saturating_sub(*MIN_EPOCHS_FOR_BLOB_SIDECARS_REQUESTS),
         );
 
-        self.try_prune_blobs(force, Some(min_data_availability_boundary))
+        self.try_prune_blobs(force, min_data_availability_boundary)
     }
 
     /// Try to prune blobs older than the data availability boundary.
     pub fn try_prune_blobs(
         &self,
         force: bool,
-        data_availability_boundary: Option<Epoch>,
+        data_availability_boundary: Epoch,
     ) -> Result<(), Error> {
-        let (data_availability_boundary, deneb_fork) =
-            match (data_availability_boundary, self.spec.deneb_fork_epoch) {
-                (Some(boundary_epoch), Some(fork_epoch)) => (boundary_epoch, fork_epoch),
-                _ => {
-                    debug!(self.log, "Deneb fork is disabled");
-                    return Ok(());
-                }
-            };
+        let deneb_fork = match self.spec.deneb_fork_epoch {
+            Some(epoch) => epoch,
+            None => {
+                debug!(self.log, "Deneb fork is disabled");
+                return Ok(());
+            }
+        };
 
         let should_prune_blobs = self.get_config().prune_blobs;
         if !should_prune_blobs && !force {
@@ -1916,7 +1952,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             && last_pruned_epoch.as_u64() + self.get_config().epochs_per_blob_prune
                 > end_epoch.as_u64()
         {
-            info!(self.log, "Blobs sidecars are pruned");
+            debug!(self.log, "Blobs sidecars are pruned");
             return Ok(());
         }
 

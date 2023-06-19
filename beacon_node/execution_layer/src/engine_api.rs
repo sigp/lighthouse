@@ -142,11 +142,11 @@ pub enum BlockByNumberQuery<'a> {
 pub struct ExecutionBlock {
     #[serde(rename = "hash")]
     pub block_hash: ExecutionBlockHash,
-    #[serde(rename = "number", with = "eth2_serde_utils::u64_hex_be")]
+    #[serde(rename = "number", with = "serde_utils::u64_hex_be")]
     pub block_number: u64,
     pub parent_hash: ExecutionBlockHash,
     pub total_difficulty: Uint256,
-    #[serde(with = "eth2_serde_utils::u64_hex_be")]
+    #[serde(with = "serde_utils::u64_hex_be")]
     pub timestamp: u64,
 }
 
@@ -172,13 +172,13 @@ pub struct ExecutionBlockWithTransactions<T: EthSpec> {
     pub logs_bloom: FixedVector<u8, T::BytesPerLogsBloom>,
     #[serde(alias = "mixHash")]
     pub prev_randao: Hash256,
-    #[serde(rename = "number", with = "eth2_serde_utils::u64_hex_be")]
+    #[serde(rename = "number", with = "serde_utils::u64_hex_be")]
     pub block_number: u64,
-    #[serde(with = "eth2_serde_utils::u64_hex_be")]
+    #[serde(with = "serde_utils::u64_hex_be")]
     pub gas_limit: u64,
-    #[serde(with = "eth2_serde_utils::u64_hex_be")]
+    #[serde(with = "serde_utils::u64_hex_be")]
     pub gas_used: u64,
-    #[serde(with = "eth2_serde_utils::u64_hex_be")]
+    #[serde(with = "serde_utils::u64_hex_be")]
     pub timestamp: u64,
     #[serde(with = "ssz_types::serde_utils::hex_var_list")]
     pub extra_data: VariableList<u8, T::MaxExtraDataBytes>,
@@ -189,7 +189,7 @@ pub struct ExecutionBlockWithTransactions<T: EthSpec> {
     #[superstruct(only(Capella, Deneb))]
     pub withdrawals: Vec<JsonWithdrawal>,
     #[superstruct(only(Deneb))]
-    #[serde(with = "eth2_serde_utils::u256_hex_be")]
+    #[serde(with = "serde_utils::u256_hex_be")]
     pub excess_data_gas: Uint256,
 }
 

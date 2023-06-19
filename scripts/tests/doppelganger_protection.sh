@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# Requires `lighthouse`, ``lcli`, `geth`, `curl`, `jq`
+# Requires `lighthouse`, `lcli`, `geth`, `bootnode`, `curl`, `jq`
 
 
 BEHAVIOR=$1
@@ -49,12 +49,14 @@ exit_if_fails ../local_testnet/geth.sh $HOME/.lighthouse/local-testnet/geth_data
 
 sleep 20
 
-# Reset the `genesis.json` config file fork times.
-sed -i 's/"shanghaiTime".*$/"shanghaiTime": 0,/g' genesis.json
-sed -i 's/"shardingForkTime".*$/"shardingForkTime": 0,/g' genesis.json
+echo "Starting local execution nodes"
 
-exit_if_fails ../local_testnet/beacon_node.sh $HOME/.lighthouse/local-testnet/node_1 9000 8000 http://localhost:5000 $HOME/.lighthouse/local-testnet/geth_datadir1/geth/jwtsecret &> /dev/null &
-exit_if_fails ../local_testnet/beacon_node.sh $HOME/.lighthouse/local-testnet/node_2 9100 8100 http://localhost:5100 $HOME/.lighthouse/local-testnet/geth_datadir2/geth/jwtsecret &> beacon1.log &
+exit_if_fails ../local_testnet/geth.sh $HOME/.lighthouse/local-testnet/geth_datadir1 7000 6000 5000 $genesis_file &> geth.log &
+exit_if_fails ../local_testnet/geth.sh $HOME/.lighthouse/local-testnet/geth_datadir2 7100 6100 5100 $genesis_file &> /dev/null &
+exit_if_fails ../local_testnet/geth.sh $HOME/.lighthouse/local-testnet/geth_datadir3 7200 6200 5200 $genesis_file &> /dev/null &
+
+exit_if_fails ../local_testnet/beacon_node.sh -d debug $HOME/.lighthouse/local-testnet/node_1 9000 8000 http://localhost:5000 $HOME/.lighthouse/local-testnet/geth_datadir1/geth/jwtsecret &> beacon1.log &
+exit_if_fails ../local_testnet/beacon_node.sh $HOME/.lighthouse/local-testnet/node_2 9100 8100 http://localhost:5100 $HOME/.lighthouse/local-testnet/geth_datadir2/geth/jwtsecret &> /dev/null &
 exit_if_fails ../local_testnet/beacon_node.sh $HOME/.lighthouse/local-testnet/node_3 9200 8200 http://localhost:5200 $HOME/.lighthouse/local-testnet/geth_datadir3/geth/jwtsecret &> /dev/null &
 
 echo "Starting local validator clients"

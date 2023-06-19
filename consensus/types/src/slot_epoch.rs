@@ -38,7 +38,7 @@ use std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Rem, Sub, SubAssi
     Deserialize,
 )]
 #[serde(transparent)]
-pub struct Slot(#[serde(with = "eth2_serde_utils::quoted_u64")] u64);
+pub struct Slot(#[serde(with = "serde_utils::quoted_u64")] u64);
 
 #[derive(
     arbitrary::Arbitrary,
@@ -54,7 +54,7 @@ pub struct Slot(#[serde(with = "eth2_serde_utils::quoted_u64")] u64);
     Deserialize,
 )]
 #[serde(transparent)]
-pub struct Epoch(#[serde(with = "eth2_serde_utils::quoted_u64")] u64);
+pub struct Epoch(#[serde(with = "serde_utils::quoted_u64")] u64);
 
 impl_common!(Slot);
 impl_common!(Epoch);

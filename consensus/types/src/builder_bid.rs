@@ -41,7 +41,7 @@ pub struct BuilderBid<E: EthSpec, Payload: AbstractExecPayload<E>> {
     pub header: Payload,
     #[superstruct(only(Deneb))]
     pub blinded_blobs_bundle: BlindedBlobsBundle<E>,
-    #[serde(with = "eth2_serde_utils::quoted_u256")]
+    #[serde(with = "serde_utils::quoted_u256")]
     pub value: Uint256,
     pub pubkey: PublicKeyBytes,
     #[serde(skip)]
