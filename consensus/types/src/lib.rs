@@ -89,7 +89,6 @@ pub mod sync_committee_contribution;
 pub mod sync_committee_message;
 pub mod sync_selection_proof;
 pub mod sync_subnet_id;
-mod tree_hash_impls;
 pub mod validator_registration_data;
 pub mod withdrawal;
 
@@ -114,7 +113,7 @@ pub use crate::beacon_block_body::{
 };
 pub use crate::beacon_block_header::BeaconBlockHeader;
 pub use crate::beacon_committee::{BeaconCommittee, OwnedBeaconCommittee};
-pub use crate::beacon_state::{BeaconTreeHashCache, Error as BeaconStateError, *};
+pub use crate::beacon_state::{compact_state::CompactBeaconState, Error as BeaconStateError, *};
 pub use crate::bls_to_execution_change::BlsToExecutionChange;
 pub use crate::chain_spec::{ChainSpec, Config, Domain};
 pub use crate::checkpoint::Checkpoint;
@@ -184,7 +183,7 @@ pub use crate::sync_committee_subscription::SyncCommitteeSubscription;
 pub use crate::sync_duty::SyncDuty;
 pub use crate::sync_selection_proof::SyncSelectionProof;
 pub use crate::sync_subnet_id::SyncSubnetId;
-pub use crate::validator::Validator;
+pub use crate::validator::{Validator, ValidatorMutable};
 pub use crate::validator_registration_data::*;
 pub use crate::validator_subscription::ValidatorSubscription;
 pub use crate::voluntary_exit::VoluntaryExit;
@@ -203,5 +202,6 @@ pub use bls::{
     AggregatePublicKey, AggregateSignature, Keypair, PublicKey, PublicKeyBytes, SecretKey,
     Signature, SignatureBytes,
 };
-pub use ssz_types::{typenum, typenum::Unsigned, BitList, BitVector, FixedVector, VariableList};
+pub use milhouse::{self, Vector as FixedVector};
+pub use ssz_types::{typenum, typenum::Unsigned, BitList, BitVector, VariableList};
 pub use superstruct::superstruct;

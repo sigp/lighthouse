@@ -15,8 +15,7 @@ use smallvec::SmallVec;
 use state_processing::state_advance::partial_state_advance;
 use std::cmp::Ordering;
 use types::{
-    BeaconState, BeaconStateError, ChainSpec, CloneConfig, Epoch, EthSpec, Fork, Hash256, Slot,
-    Unsigned,
+    BeaconState, BeaconStateError, ChainSpec, Epoch, EthSpec, Fork, Hash256, Slot, Unsigned,
 };
 
 /// The number of sets of proposer indices that should be cached.
@@ -143,10 +142,7 @@ pub fn compute_proposer_duties_from_head<T: BeaconChainTypes>(
     let (mut state, head_state_root, head_block_root) = {
         let head = chain.canonical_head.cached_head();
         // Take a copy of the head state.
-        let head_state = head
-            .snapshot
-            .beacon_state
-            .clone_with(CloneConfig::committee_caches_only());
+        let head_state = head.snapshot.beacon_state.clone();
         let head_state_root = head.head_state_root();
         let head_block_root = head.head_block_root();
         (head_state, head_state_root, head_block_root)

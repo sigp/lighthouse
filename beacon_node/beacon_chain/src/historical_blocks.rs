@@ -9,7 +9,7 @@ use std::borrow::Cow;
 use std::iter;
 use std::sync::Arc;
 use std::time::Duration;
-use store::{chunked_vector::BlockRoots, AnchorInfo, ChunkWriter, KeyValueStore};
+use store::{get_key_for_col, AnchorInfo, DBColumn, KeyValueStore, KeyValueStoreOp};
 use types::{Hash256, SignedBlindedBeaconBlock, Slot};
 
 /// Use a longer timeout on the pubkey cache.
@@ -89,11 +89,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let mut expected_block_root = anchor_info.oldest_block_parent;
         let mut prev_block_slot = anchor_info.oldest_block_slot;
-        let mut chunk_writer =
-            ChunkWriter::<BlockRoots, _, _>::new(&self.store.cold_db, prev_block_slot.as_usize())?;
 
         let mut cold_batch = Vec::with_capacity(blocks.len());
-        let mut hot_batch = Vec::with_capacity(blocks.len());
 
         for block in blocks_to_import.iter().rev() {
             // Check chain integrity.
@@ -109,11 +106,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             // Store block in the hot database without payload.
             self.store
-                .blinded_block_as_kv_store_ops(&block_root, block, &mut hot_batch);
+                .blinded_block_as_cold_kv_store_ops(&block_root, block, &mut cold_batch)?;
 
             // Store block roots, including at all skip slots in the freezer DB.
-            for slot in (block.slot().as_usize()..prev_block_slot.as_usize()).rev() {
-                chunk_writer.set(slot, block_root, &mut cold_batch)?;
+            for slot in (block.slot().as_usize() + 1..prev_block_slot.as_usize()).rev() {
+                cold_batch.push(KeyValueStoreOp::PutKeyValue(
+                    get_key_for_col(DBColumn::BeaconBlockRoots.into(), &slot.to_be_bytes()),
+                    block_root.as_bytes().to_vec(),
+                ));
             }
 
             prev_block_slot = block.slot();
@@ -123,17 +123,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             // anchor slot to 0 to indicate completion.
             if expected_block_root == self.genesis_block_root {
                 let genesis_slot = self.spec.genesis_slot;
-                chunk_writer.set(
-                    genesis_slot.as_usize(),
-                    self.genesis_block_root,
-                    &mut cold_batch,
-                )?;
+                cold_batch.push(KeyValueStoreOp::PutKeyValue(
+                    get_key_for_col(
+                        DBColumn::BeaconBlockRoots.into(),
+                        &genesis_slot.as_u64().to_be_bytes(),
+                    ),
+                    self.genesis_block_root.as_bytes().to_vec(),
+                ));
                 prev_block_slot = genesis_slot;
                 expected_block_root = Hash256::zero();
                 break;
             }
         }
-        chunk_writer.write(&mut cold_batch)?;
 
         // Verify signatures in one batch, holding the pubkey cache lock for the shortest duration
         // possible. For each block fetch the parent root from its successor. Slicing from index 1
@@ -177,10 +178,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         drop(verify_timer);
         drop(sig_timer);
 
-        // Write the I/O batches to disk, writing the blocks themselves first, as it's better
-        // for the hot DB to contain extra blocks than for the cold DB to point to blocks that
-        // do not exist.
-        self.store.hot_db.do_atomically(hot_batch)?;
+        // Write the I/O batch to disk.
         self.store.cold_db.do_atomically(cold_batch)?;
 
         // Update the anchor.

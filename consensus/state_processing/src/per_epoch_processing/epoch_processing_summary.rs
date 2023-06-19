@@ -101,9 +101,7 @@ impl<T: EthSpec> EpochProcessingSummary<T> {
             EpochProcessingSummary::Altair {
                 participation_cache,
                 ..
-            } => participation_cache
-                .is_active_unslashed_in_current_epoch(val_index)
-                .unwrap_or(false),
+            } => participation_cache.is_active_unslashed_in_current_epoch(val_index),
         }
     }
 
@@ -204,9 +202,7 @@ impl<T: EthSpec> EpochProcessingSummary<T> {
             EpochProcessingSummary::Altair {
                 participation_cache,
                 ..
-            } => participation_cache
-                .is_active_unslashed_in_previous_epoch(val_index)
-                .unwrap_or(false),
+            } => participation_cache.is_active_unslashed_in_previous_epoch(val_index),
         }
     }
 

@@ -39,7 +39,7 @@ pub fn upgrade_to_v12<T: BeaconChainTypes>(
         .unrealized_justified_checkpoint
         .root;
     let justified_block = db
-        .get_blinded_block(&justified_block_root)?
+        .get_blinded_block(&justified_block_root, None)?
         .ok_or_else(|| {
             Error::SchemaMigrationError(format!(
                 "unrealized justified block missing for migration: {justified_block_root:?}",
@@ -160,7 +160,7 @@ pub fn upgrade_to_v12<T: BeaconChainTypes>(
         proposer_slashings,
         voluntary_exits,
     });
-    Ok(vec![v12.as_kv_store_op(OP_POOL_DB_KEY)])
+    Ok(vec![v12.as_kv_store_op(OP_POOL_DB_KEY)?])
 }
 
 pub fn downgrade_from_v12<T: BeaconChainTypes>(
@@ -220,5 +220,5 @@ pub fn downgrade_from_v12<T: BeaconChainTypes>(
         proposer_slashings_v5,
         voluntary_exits_v5,
     };
-    Ok(vec![v5.as_kv_store_op(OP_POOL_DB_KEY)])
+    Ok(vec![v5.as_kv_store_op(OP_POOL_DB_KEY)?])
 }

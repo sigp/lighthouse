@@ -18,6 +18,7 @@ type BlockRoot = Hash256;
 #[derive(Clone, Default)]
 pub struct Timestamps {
     pub observed: Option<Duration>,
+    pub attestable: Option<Duration>,
     pub imported: Option<Duration>,
     pub set_as_head: Option<Duration>,
 }
@@ -26,6 +27,7 @@ pub struct Timestamps {
 #[derive(Default)]
 pub struct BlockDelays {
     pub observed: Option<Duration>,
+    pub attestable: Option<Duration>,
     pub imported: Option<Duration>,
     pub set_as_head: Option<Duration>,
 }
@@ -35,6 +37,9 @@ impl BlockDelays {
         let observed = times
             .observed
             .and_then(|observed_time| observed_time.checked_sub(slot_start_time));
+        let attestable = times
+            .attestable
+            .and_then(|attestable_time| attestable_time.checked_sub(slot_start_time));
         let imported = times
             .imported
             .and_then(|imported_time| imported_time.checked_sub(times.observed?));
@@ -43,6 +48,7 @@ impl BlockDelays {
             .and_then(|set_as_head_time| set_as_head_time.checked_sub(times.imported?));
         BlockDelays {
             observed,
+            attestable,
             imported,
             set_as_head,
         }
@@ -97,6 +103,14 @@ impl BlockTimesCache {
             id: peer_id,
             client: peer_client,
         };
+    }
+
+    pub fn set_time_attestable(&mut self, block_root: BlockRoot, slot: Slot, timestamp: Duration) {
+        let block_times = self
+            .cache
+            .entry(block_root)
+            .or_insert_with(|| BlockTimesCacheValue::new(slot));
+        block_times.timestamps.attestable = Some(timestamp);
     }
 
     pub fn set_time_imported(&mut self, block_root: BlockRoot, slot: Slot, timestamp: Duration) {

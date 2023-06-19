@@ -1,3 +1,4 @@
+use beacon_chain::migrate::MigratorConfig;
 use beacon_chain::validator_monitor::DEFAULT_INDIVIDUAL_TRACKING_THRESHOLD;
 use directory::DEFAULT_ROOT_DIR;
 use environment::LoggerConfig;
@@ -70,6 +71,7 @@ pub struct Config {
     /// via the CLI at runtime, instead of from a configuration file saved to disk.
     pub genesis: ClientGenesis,
     pub store: store::StoreConfig,
+    pub store_migrator: MigratorConfig,
     pub network: network::NetworkConfig,
     pub chain: beacon_chain::ChainConfig,
     pub eth1: eth1::Config,
@@ -91,6 +93,7 @@ impl Default for Config {
             log_file: PathBuf::from(""),
             genesis: <_>::default(),
             store: <_>::default(),
+            store_migrator: <_>::default(),
             network: NetworkConfig::default(),
             chain: <_>::default(),
             dummy_eth1_backend: false,

@@ -86,7 +86,7 @@ where
     }
 }
 
-impl<T, N: Unsigned> TestRandom for FixedVector<T, N>
+impl<T, N: Unsigned> TestRandom for ssz_types::FixedVector<T, N>
 where
     T: TestRandom,
 {

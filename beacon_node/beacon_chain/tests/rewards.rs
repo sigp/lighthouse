@@ -99,8 +99,8 @@ async fn test_sync_committee_rewards() {
             .get_validator_index(&validator.pubkey)
             .unwrap()
             .unwrap();
-        let pre_state_balance = parent_state.balances()[validator_index];
-        let post_state_balance = state.balances()[validator_index];
+        let pre_state_balance = *parent_state.balances().get(validator_index).unwrap();
+        let post_state_balance = *state.balances().get(validator_index).unwrap();
         let sync_committee_reward = rewards.get(&(validator_index as u64)).unwrap_or(&0);
 
         if validator_index == proposer_index {

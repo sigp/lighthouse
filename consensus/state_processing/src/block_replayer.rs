@@ -6,17 +6,18 @@ use crate::{
 use std::marker::PhantomData;
 use types::{BeaconState, BlindedPayload, ChainSpec, EthSpec, Hash256, SignedBeaconBlock, Slot};
 
-type PreBlockHook<'a, E, Error> = Box<
+pub type PreBlockHook<'a, E, Error> = Box<
     dyn FnMut(&mut BeaconState<E>, &SignedBeaconBlock<E, BlindedPayload<E>>) -> Result<(), Error>
         + 'a,
 >;
-type PostBlockHook<'a, E, Error> = PreBlockHook<'a, E, Error>;
-type PreSlotHook<'a, E, Error> = Box<dyn FnMut(&mut BeaconState<E>) -> Result<(), Error> + 'a>;
-type PostSlotHook<'a, E, Error> = Box<
+pub type PostBlockHook<'a, E, Error> = PreBlockHook<'a, E, Error>;
+pub type PreSlotHook<'a, E, Error> =
+    Box<dyn FnMut(Option<Hash256>, &mut BeaconState<E>) -> Result<(), Error> + 'a>;
+pub type PostSlotHook<'a, E, Error> = Box<
     dyn FnMut(&mut BeaconState<E>, Option<EpochProcessingSummary<E>>, bool) -> Result<(), Error>
         + 'a,
 >;
-type StateRootIterDefault<Error> = std::iter::Empty<Result<(Hash256, Slot), Error>>;
+pub type StateRootIterDefault<Error> = std::iter::Empty<Result<(Hash256, Slot), Error>>;
 
 /// Efficiently apply blocks to a state while configuring various parameters.
 ///
@@ -29,7 +30,6 @@ pub struct BlockReplayer<
 > {
     state: BeaconState<Spec>,
     spec: &'a ChainSpec,
-    state_processing_strategy: StateProcessingStrategy,
     block_sig_strategy: BlockSignatureStrategy,
     verify_block_root: Option<VerifyBlockRoot>,
     pre_block_hook: Option<PreBlockHook<'a, Spec, Error>>,
@@ -87,7 +87,6 @@ where
         Self {
             state,
             spec,
-            state_processing_strategy: StateProcessingStrategy::Accurate,
             block_sig_strategy: BlockSignatureStrategy::VerifyBulk,
             verify_block_root: Some(VerifyBlockRoot::True),
             pre_block_hook: None,
@@ -105,10 +104,10 @@ where
         mut self,
         state_processing_strategy: StateProcessingStrategy,
     ) -> Self {
+        // FIXME(sproul): no-op
         if state_processing_strategy == StateProcessingStrategy::Inconsistent {
             self.verify_block_root = None;
         }
-        self.state_processing_strategy = state_processing_strategy;
         self
     }
 
@@ -184,11 +183,6 @@ where
         blocks: &[SignedBeaconBlock<E, BlindedPayload<E>>],
         i: usize,
     ) -> Result<Option<Hash256>, Error> {
-        // If we don't care about state roots then return immediately.
-        if self.state_processing_strategy == StateProcessingStrategy::Inconsistent {
-            return Ok(Some(Hash256::zero()));
-        }
-
         // If a state root iterator is configured, use it to find the root.
         if let Some(ref mut state_root_iter) = self.state_root_iter {
             let opt_root = state_root_iter
@@ -230,11 +224,12 @@ where
             }
 
             while self.state.slot() < block.slot() {
+                let state_root = self.get_state_root(self.state.slot(), &blocks, i)?;
+
                 if let Some(ref mut pre_slot_hook) = self.pre_slot_hook {
-                    pre_slot_hook(&mut self.state)?;
+                    pre_slot_hook(state_root, &mut self.state)?;
                 }
 
-                let state_root = self.get_state_root(self.state.slot(), &blocks, i)?;
                 let summary = per_slot_processing(&mut self.state, state_root, self.spec)
                     .map_err(BlockReplayError::from)?;
 
@@ -248,15 +243,11 @@ where
                 pre_block_hook(&mut self.state, block)?;
             }
 
-            let verify_block_root = self.verify_block_root.unwrap_or_else(|| {
-                // If no explicit policy is set, verify only the first 1 or 2 block roots if using
-                // accurate state roots. Inaccurate state roots require block root verification to
-                // be off.
-                if i <= 1 && self.state_processing_strategy == StateProcessingStrategy::Accurate {
-                    VerifyBlockRoot::True
-                } else {
-                    VerifyBlockRoot::False
-                }
+            // If no explicit policy is set, verify only the first 1 or 2 block roots.
+            let verify_block_root = self.verify_block_root.unwrap_or(if i <= 1 {
+                VerifyBlockRoot::True
+            } else {
+                VerifyBlockRoot::False
             });
             // Proposer index was already checked when this block was originally processed, we
             // can omit recomputing it during replay.
@@ -266,7 +257,7 @@ where
                 &mut self.state,
                 block,
                 self.block_sig_strategy,
-                self.state_processing_strategy,
+                StateProcessingStrategy::Accurate,
                 verify_block_root,
                 &mut ctxt,
                 self.spec,
@@ -280,11 +271,12 @@ where
 
         if let Some(target_slot) = target_slot {
             while self.state.slot() < target_slot {
+                let state_root = self.get_state_root(self.state.slot(), &blocks, blocks.len())?;
+
                 if let Some(ref mut pre_slot_hook) = self.pre_slot_hook {
-                    pre_slot_hook(&mut self.state)?;
+                    pre_slot_hook(state_root, &mut self.state)?;
                 }
 
-                let state_root = self.get_state_root(self.state.slot(), &blocks, blocks.len())?;
                 let summary = per_slot_processing(&mut self.state, state_root, self.spec)
                     .map_err(BlockReplayError::from)?;
 

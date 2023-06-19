@@ -7,6 +7,7 @@ edition = "2021"
 [dev-dependencies]
 tempfile = "3.1.0"
 beacon_chain = {path = "../beacon_chain"}
+logging = { path = "../../common/logging" }
 
 [dependencies]
 db-key = "0.0.5"
@@ -16,13 +17,20 @@ itertools = "0.10.0"
 ethereum_ssz = "0.5.0"
 ethereum_ssz_derive = "0.5.0"
 types = { path =  "../../consensus/types" }
+safe_arith = { path = "../../consensus/safe_arith" }
 state_processing = { path = "../../consensus/state_processing" }
 slog = "2.5.2"
 serde = "1.0.116"
 serde_derive = "1.0.116"
 lazy_static = "1.4.0"
 lighthouse_metrics = { path = "../../common/lighthouse_metrics" }
-lru = "0.7.1"
+lru = "0.10.0"
 sloggers = { version = "2.1.1", features = ["json"] }
 directory = { path = "../../common/directory" }
+tree_hash = "0.5.0"
+take-until = "0.1.0"
+zstd = "0.11.0"
 strum = { version = "0.24.0", features = ["derive"] }
+bls = { path = "../../crypto/bls" }
+smallvec = "1.0.0"
+xdelta3 = "0.1.5" # FIXME(sproul): fix bindgen version issues

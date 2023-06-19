@@ -46,7 +46,6 @@ use slog::{crit, debug, error, info, warn, Logger};
 use slot_clock::SlotClock;
 use ssz::Encode;
 pub use state_id::StateId;
-use std::borrow::Cow;
 use std::future::Future;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
@@ -613,7 +612,7 @@ pub fn serve<T: BeaconChainTypes>(
                                             query.id.as_ref().map_or(true, |ids| {
                                                 ids.iter().any(|id| match id {
                                                     ValidatorId::PublicKey(pubkey) => {
-                                                        &validator.pubkey == pubkey
+                                                        validator.pubkey() == pubkey
                                                     }
                                                     ValidatorId::Index(param_index) => {
                                                         *param_index == *index as u64
@@ -673,7 +672,7 @@ pub fn serve<T: BeaconChainTypes>(
                                             query.id.as_ref().map_or(true, |ids| {
                                                 ids.iter().any(|id| match id {
                                                     ValidatorId::PublicKey(pubkey) => {
-                                                        &validator.pubkey == pubkey
+                                                        validator.pubkey() == pubkey
                                                     }
                                                     ValidatorId::Index(param_index) => {
                                                         *param_index == *index as u64
@@ -731,9 +730,13 @@ pub fn serve<T: BeaconChainTypes>(
                 "Invalid validator ID".to_string(),
             ))
         }))
+        .and(log_filter.clone())
         .and(warp::path::end())
         .and_then(
-            |state_id: StateId, chain: Arc<BeaconChain<T>>, validator_id: ValidatorId| {
+            |state_id: StateId,
+             chain: Arc<BeaconChain<T>>,
+             validator_id: ValidatorId,
+             log: Logger| {
                 blocking_json_task(move || {
                     let (data, execution_optimistic, finalized) = state_id
                         .map_state_and_execution_optimistic_and_finalized(
@@ -741,7 +744,23 @@ pub fn serve<T: BeaconChainTypes>(
                             |state, execution_optimistic, finalized| {
                                 let index_opt = match &validator_id {
                                     ValidatorId::PublicKey(pubkey) => {
-                                        state.validators().iter().position(|v| v.pubkey == *pubkey)
+                                        // Fast path: use the pubkey cache which is probably
+                                        // initialised at the head.
+                                        match state.get_validator_index_read_only(pubkey) {
+                                            Ok(result) => result,
+                                            Err(e) => {
+                                                // Slow path, fall back to iteration.
+                                                debug!(
+                                                    log,
+                                                    "Validator look-up cache miss";
+                                                    "reason" => ?e,
+                                                );
+                                                state
+                                                    .validators()
+                                                    .iter()
+                                                    .position(|v| v.pubkey() == pubkey)
+                                            }
+                                        }
                                     }
                                     ValidatorId::Index(index) => Some(*index as usize),
                                 };
@@ -832,10 +851,10 @@ pub fn serve<T: BeaconChainTypes>(
                                     None
                                 };
 
-                                let committee_cache = if let Some(ref shuffling) =
+                                let committee_cache = if let Some(shuffling) =
                                     maybe_cached_shuffling
                                 {
-                                    Cow::Borrowed(&**shuffling)
+                                    shuffling
                                 } else {
                                     let possibly_built_cache =
                                         match RelativeEpoch::from_epoch(current_epoch, epoch) {
@@ -846,14 +865,13 @@ pub fn serve<T: BeaconChainTypes>(
                                             {
                                                 state
                                                     .committee_cache(relative_epoch)
-                                                    .map(Cow::Borrowed)
+                                                    .map(Arc::clone)
                                             }
                                             _ => CommitteeCache::initialized(
                                                 state,
                                                 epoch,
                                                 &chain.spec,
-                                            )
-                                            .map(Cow::Owned),
+                                            ),
                                         }
                                         .map_err(|e| {
                                             match e {
@@ -901,7 +919,7 @@ pub fn serve<T: BeaconChainTypes>(
                                             {
                                                 cache_write.insert_committee_cache(
                                                     shuffling_id,
-                                                    &*possibly_built_cache,
+                                                    &possibly_built_cache,
                                                 );
                                             }
                                         }

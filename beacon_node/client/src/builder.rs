@@ -168,6 +168,7 @@ where
             .task_executor(context.executor.clone())
             .custom_spec(spec.clone())
             .chain_config(chain_config)
+            .store_migrator_config(config.store_migrator.clone())
             .graffiti(graffiti)
             .event_handler(event_handler)
             .execution_layer(execution_layer)

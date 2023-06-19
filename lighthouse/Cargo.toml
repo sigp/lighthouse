@@ -21,7 +21,7 @@ spec-minimal = []
 # Support Gnosis spec and Gnosis Beacon Chain.
 gnosis = []
 # Support slasher MDBX backend.
-slasher-mdbx = ["slasher/mdbx"]
+# slasher-mdbx = ["slasher/mdbx"]
 # Support slasher LMDB backend.
 slasher-lmdb = ["slasher/lmdb"]
 # Use jemalloc.
@@ -54,6 +54,7 @@ task_executor = { path = "../common/task_executor" }
 malloc_utils = { path = "../common/malloc_utils" }
 directory = { path = "../common/directory" }
 unused_port = { path = "../common/unused_port" }
+store = { path = "../beacon_node/store" }
 database_manager = { path = "../database_manager" }
 slasher = { path = "../slasher" }
 

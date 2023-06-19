@@ -1,7 +1,9 @@
 use crate::{
     generic_aggregate_public_key::TAggregatePublicKey,
     generic_aggregate_signature::TAggregateSignature,
-    generic_public_key::{GenericPublicKey, TPublicKey, PUBLIC_KEY_BYTES_LEN},
+    generic_public_key::{
+        GenericPublicKey, TPublicKey, PUBLIC_KEY_BYTES_LEN, PUBLIC_KEY_UNCOMPRESSED_BYTES_LEN,
+    },
     generic_secret_key::{TSecretKey, SECRET_KEY_BYTES_LEN},
     generic_signature::{TSignature, SIGNATURE_BYTES_LEN},
     Error, Hash256, ZeroizeHash,
@@ -76,13 +78,19 @@ pub fn verify_signature_sets<'a>(
 
 impl TPublicKey for milagro::PublicKey {
     fn serialize(&self) -> [u8; PUBLIC_KEY_BYTES_LEN] {
-        let mut bytes = [0; PUBLIC_KEY_BYTES_LEN];
-        bytes[..].copy_from_slice(&self.as_bytes());
-        bytes
+        self.as_bytes()
+    }
+
+    fn serialize_uncompressed(&self) -> [u8; PUBLIC_KEY_UNCOMPRESSED_BYTES_LEN] {
+        self.as_uncompressed_bytes()
     }
 
     fn deserialize(bytes: &[u8]) -> Result<Self, Error> {
         Self::from_bytes(bytes).map_err(Into::into)
+    }
+
+    fn deserialize_uncompressed(bytes: &[u8]) -> Result<Self, Error> {
+        Self::from_uncompressed_bytes(bytes).map_err(Into::into)
     }
 }
 

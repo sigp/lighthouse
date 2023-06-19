@@ -7,10 +7,8 @@ use crate::head_tracker::HeadTracker;
 use crate::migrate::{BackgroundMigrator, MigratorConfig};
 use crate::persisted_beacon_chain::PersistedBeaconChain;
 use crate::shuffling_cache::{BlockShufflingIds, ShufflingCache};
-use crate::snapshot_cache::{SnapshotCache, DEFAULT_SNAPSHOT_CACHE_SIZE};
 use crate::timeout_rw_lock::TimeoutRwLock;
 use crate::validator_monitor::ValidatorMonitor;
-use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use crate::ChainConfig;
 use crate::{
     BeaconChain, BeaconChainTypes, BeaconForkChoiceStore, BeaconSnapshot, Eth1Chain,
@@ -84,7 +82,6 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
     slot_clock: Option<T::SlotClock>,
     shutdown_sender: Option<Sender<ShutdownReason>>,
     head_tracker: Option<HeadTracker>,
-    validator_pubkey_cache: Option<ValidatorPubkeyCache<T>>,
     spec: ChainSpec,
     chain_config: ChainConfig,
     log: Option<Logger>,
@@ -125,7 +122,6 @@ where
             slot_clock: None,
             shutdown_sender: None,
             head_tracker: None,
-            validator_pubkey_cache: None,
             spec: TEthSpec::default_spec(),
             chain_config: ChainConfig::default(),
             log: None,
@@ -281,7 +277,7 @@ where
             .ok_or("Fork choice not found in store")?;
 
         let genesis_block = store
-            .get_blinded_block(&chain.genesis_block_root)
+            .get_blinded_block(&chain.genesis_block_root, Some(Slot::new(0)))
             .map_err(|e| descriptive_db_error("genesis block", &e))?
             .ok_or("Genesis block not found in store")?;
         let genesis_state = store
@@ -306,16 +302,12 @@ where
                 .unwrap_or_else(OperationPool::new),
         );
 
-        let pubkey_cache = ValidatorPubkeyCache::load_from_store(store)
-            .map_err(|e| format!("Unable to open persisted pubkey cache: {:?}", e))?;
-
         self.genesis_block_root = Some(chain.genesis_block_root);
         self.genesis_state_root = Some(genesis_block.state_root());
         self.head_tracker = Some(
             HeadTracker::from_ssz_container(&chain.ssz_head_tracker)
                 .map_err(|e| format!("Failed to decode head tracker for database: {:?}", e))?,
         );
-        self.validator_pubkey_cache = Some(pubkey_cache);
         self.fork_choice = Some(fork_choice);
 
         Ok(self)
@@ -336,6 +328,7 @@ where
             .ok_or("set_genesis_state requires a store")?;
 
         let beacon_block = genesis_block(&mut beacon_state, &self.spec)?;
+        let blinded_block = beacon_block.clone_as_blinded();
 
         beacon_state
             .build_all_caches(&self.spec)
@@ -345,15 +338,18 @@ where
         let beacon_block_root = beacon_block.canonical_root();
 
         store
+            .update_finalized_state(beacon_state_root, beacon_block_root, beacon_state.clone())
+            .map_err(|e| format!("Failed to set genesis state as finalized state: {:?}", e))?;
+        store
             .put_state(&beacon_state_root, &beacon_state)
             .map_err(|e| format!("Failed to store genesis state: {:?}", e))?;
         store
-            .put_block(&beacon_block_root, beacon_block.clone())
+            .put_cold_blinded_block(&beacon_block_root, &blinded_block)
             .map_err(|e| format!("Failed to store genesis block: {:?}", e))?;
 
         // Store the genesis block under the `ZERO_HASH` key.
         store
-            .put_block(&Hash256::zero(), beacon_block.clone())
+            .put_cold_blinded_block(&Hash256::zero(), &blinded_block)
             .map_err(|e| {
                 format!(
                     "Failed to store genesis block under 0x00..00 alias: {:?}",
@@ -468,8 +464,21 @@ where
         let (_, updated_builder) = self.set_genesis_state(genesis_state)?;
         self = updated_builder;
 
+        // Build the committee caches before storing. The database assumes that states have
+        // committee caches built before storing.
+        weak_subj_state
+            .build_all_committee_caches(&self.spec)
+            .map_err(|e| format!("Error building caches on checkpoint state: {:?}", e))?;
+
         // Write the state and block non-atomically, it doesn't matter if they're forgotten
         // about on a crash restart.
+        store
+            .update_finalized_state(
+                weak_subj_state_root,
+                weak_subj_block_root,
+                weak_subj_state.clone(),
+            )
+            .map_err(|e| format!("Failed to set checkpoint state as finalized state: {:?}", e))?;
         store
             .put_state(&weak_subj_state_root, &weak_subj_state)
             .map_err(|e| format!("Failed to store weak subjectivity state: {:?}", e))?;
@@ -480,7 +489,11 @@ where
         // Stage the database's metadata fields for atomic storage when `build` is called.
         // This prevents the database from restarting in an inconsistent state if the anchor
         // info or split point is written before the `PersistedBeaconChain`.
-        self.pending_io_batch.push(store.store_split_in_batch());
+        self.pending_io_batch.push(
+            store
+                .store_split_in_batch()
+                .map_err(|e| format!("Failed to store split: {:?}", e))?,
+        );
         self.pending_io_batch.push(
             store
                 .init_anchor_info(weak_subj_block.message())
@@ -488,11 +501,14 @@ where
         );
 
         // Store pruning checkpoint to prevent attempting to prune before the anchor state.
-        self.pending_io_batch
-            .push(store.pruning_checkpoint_store_op(Checkpoint {
-                root: weak_subj_block_root,
-                epoch: weak_subj_state.slot().epoch(TEthSpec::slots_per_epoch()),
-            }));
+        self.pending_io_batch.push(
+            store
+                .pruning_checkpoint_store_op(Checkpoint {
+                    root: weak_subj_block_root,
+                    epoch: weak_subj_state.slot().epoch(TEthSpec::slots_per_epoch()),
+                })
+                .map_err(|e| format!("{:?}", e))?,
+        );
 
         let snapshot = BeaconSnapshot {
             beacon_block_root: weak_subj_block_root,
@@ -645,7 +661,7 @@ where
         // Try to decode the head block according to the current fork, if that fails, try
         // to backtrack to before the most recent fork.
         let (head_block_root, head_block, head_reverted) =
-            match store.get_full_block(&initial_head_block_root) {
+            match store.get_full_block(&initial_head_block_root, None) {
                 Ok(Some(block)) => (initial_head_block_root, block, false),
                 Ok(None) => return Err("Head block not found in store".into()),
                 Err(StoreError::SszDecodeError(_)) => {
@@ -717,10 +733,16 @@ where
             ));
         }
 
-        let validator_pubkey_cache = self.validator_pubkey_cache.map(Ok).unwrap_or_else(|| {
-            ValidatorPubkeyCache::new(&head_snapshot.beacon_state, store.clone())
-                .map_err(|e| format!("Unable to init validator pubkey cache: {:?}", e))
-        })?;
+        let validator_pubkey_cache = store.immutable_validators.clone();
+
+        // Update pubkey cache on first start in case we have started from genesis.
+        let store_ops = validator_pubkey_cache
+            .write()
+            .import_new_pubkeys(&head_snapshot.beacon_state)
+            .map_err(|e| format!("error initializing pubkey cache: {e:?}"))?;
+        store
+            .do_atomically(store_ops)
+            .map_err(|e| format!("error writing validator store: {e:?}"))?;
 
         let migrator_config = self.store_migrator_config.unwrap_or_default();
         let store_migrator = BackgroundMigrator::new(
@@ -756,12 +778,12 @@ where
             Witness<TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>,
         >::persist_head_in_batch_standalone(
             genesis_block_root, &head_tracker
-        ));
+        ).map_err(|e| format!("{:?}", e))?);
         self.pending_io_batch.push(BeaconChain::<
             Witness<TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>,
         >::persist_fork_choice_in_batch_standalone(
             &fork_choice
-        ));
+        ).map_err(|e| format!("{:?}", e))?);
         store
             .hot_db
             .do_atomically(self.pending_io_batch)
@@ -769,7 +791,6 @@ where
 
         let genesis_validators_root = head_snapshot.beacon_state.genesis_validators_root();
         let genesis_time = head_snapshot.beacon_state.genesis_time();
-        let head_for_snapshot_cache = head_snapshot.clone();
         let canonical_head = CanonicalHead::new(fork_choice, Arc::new(head_snapshot));
         let shuffling_cache_size = self.chain_config.shuffling_cache_size;
 
@@ -844,10 +865,6 @@ where
             fork_choice_signal_rx,
             event_handler: self.event_handler,
             head_tracker,
-            snapshot_cache: TimeoutRwLock::new(SnapshotCache::new(
-                DEFAULT_SNAPSHOT_CACHE_SIZE,
-                head_for_snapshot_cache,
-            )),
             shuffling_cache: TimeoutRwLock::new(ShufflingCache::new(
                 shuffling_cache_size,
                 head_shuffling_ids,
@@ -857,7 +874,7 @@ where
             beacon_proposer_cache: <_>::default(),
             block_times_cache: <_>::default(),
             pre_finalization_block_cache: <_>::default(),
-            validator_pubkey_cache: TimeoutRwLock::new(validator_pubkey_cache),
+            validator_pubkey_cache,
             attester_cache: <_>::default(),
             early_attester_cache: <_>::default(),
             shutdown_sender: self
@@ -1112,7 +1129,7 @@ mod test {
         assert_eq!(
             chain
                 .store
-                .get_blinded_block(&Hash256::zero())
+                .get_blinded_block(&Hash256::zero(), None)
                 .expect("should read db")
                 .expect("should find genesis block"),
             block.clone_as_blinded(),
@@ -1167,14 +1184,15 @@ mod test {
         }
 
         for v in state.validators() {
-            let creds = v.withdrawal_credentials.as_bytes();
+            let creds = v.withdrawal_credentials();
+            let creds = creds.as_bytes();
             assert_eq!(
                 creds[0], spec.bls_withdrawal_prefix_byte,
                 "first byte of withdrawal creds should be bls prefix"
             );
             assert_eq!(
                 &creds[1..],
-                &hash(&v.pubkey.as_ssz_bytes())[1..],
+                &hash(&v.pubkey().as_ssz_bytes())[1..],
                 "rest of withdrawal creds should be pubkey hash"
             )
         }

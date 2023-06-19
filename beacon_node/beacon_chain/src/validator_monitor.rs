@@ -405,10 +405,10 @@ impl<T: EthSpec> ValidatorMonitor<T> {
             .skip(self.indices.len())
             .for_each(|(i, validator)| {
                 let i = i as u64;
-                if let Some(validator) = self.validators.get_mut(&validator.pubkey) {
+                if let Some(validator) = self.validators.get_mut(validator.pubkey()) {
                     validator.set_index(i)
                 }
-                self.indices.insert(i, validator.pubkey);
+                self.indices.insert(i, *validator.pubkey());
             });
 
         // Update metrics for individual validators.
@@ -444,12 +444,12 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                     metrics::set_int_gauge(
                         &metrics::VALIDATOR_MONITOR_EFFECTIVE_BALANCE_GWEI,
                         &[id],
-                        u64_to_i64(validator.effective_balance),
+                        u64_to_i64(validator.effective_balance()),
                     );
                     metrics::set_int_gauge(
                         &metrics::VALIDATOR_MONITOR_SLASHED,
                         &[id],
-                        i64::from(validator.slashed),
+                        i64::from(validator.slashed()),
                     );
                     metrics::set_int_gauge(
                         &metrics::VALIDATOR_MONITOR_ACTIVE,
@@ -469,22 +469,22 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                     metrics::set_int_gauge(
                         &metrics::VALIDATOR_ACTIVATION_ELIGIBILITY_EPOCH,
                         &[id],
-                        u64_to_i64(validator.activation_eligibility_epoch),
+                        u64_to_i64(validator.activation_eligibility_epoch()),
                     );
                     metrics::set_int_gauge(
                         &metrics::VALIDATOR_ACTIVATION_EPOCH,
                         &[id],
-                        u64_to_i64(validator.activation_epoch),
+                        u64_to_i64(validator.activation_epoch()),
                     );
                     metrics::set_int_gauge(
                         &metrics::VALIDATOR_EXIT_EPOCH,
                         &[id],
-                        u64_to_i64(validator.exit_epoch),
+                        u64_to_i64(validator.exit_epoch()),
                     );
                     metrics::set_int_gauge(
                         &metrics::VALIDATOR_WITHDRAWABLE_EPOCH,
                         &[id],
-                        u64_to_i64(validator.withdrawable_epoch),
+                        u64_to_i64(validator.withdrawable_epoch()),
                     );
                 }
             }

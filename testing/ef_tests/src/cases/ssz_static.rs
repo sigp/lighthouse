@@ -42,7 +42,7 @@ fn load_from_dir<T: SszStaticType>(path: &Path) -> Result<(SszStaticRoots, Vec<u
     let roots = yaml_decode_file(&path.join("roots.yaml"))?;
     let serialized = snappy_decode_file(&path.join("serialized.ssz_snappy"))
         .expect("serialized.ssz_snappy exists");
-    let value = yaml_decode_file(&path.join("value.yaml"))?;
+    let value = yaml_decode_file(&path.join("value.yaml")).unwrap();
 
     Ok((roots, serialized, value))
 }
@@ -119,7 +119,6 @@ impl<E: EthSpec> Case for SszStaticTHC<BeaconState<E>> {
         check_tree_hash(&self.roots.root, self.value.tree_hash_root().as_bytes())?;
 
         let mut state = self.value.clone();
-        state.initialize_tree_hash_cache();
         let cached_tree_hash_root = state.update_tree_hash_cache().unwrap();
         check_tree_hash(&self.roots.root, cached_tree_hash_root.as_bytes())?;
 

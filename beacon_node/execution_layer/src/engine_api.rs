@@ -12,13 +12,14 @@ use http::deposit_methods::RpcError;
 pub use json_structures::{JsonWithdrawal, TransitionConfigurationV1};
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
+use ssz_types::FixedVector;
 use std::convert::TryFrom;
 use strum::IntoStaticStr;
 use superstruct::superstruct;
 pub use types::{
     Address, EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadHeader,
-    ExecutionPayloadRef, FixedVector, ForkName, Hash256, Transactions, Uint256, VariableList,
-    Withdrawal, Withdrawals,
+    ExecutionPayloadRef, ForkName, Hash256, Transactions, Uint256, VariableList, Withdrawal,
+    Withdrawals,
 };
 use types::{ExecutionPayloadCapella, ExecutionPayloadMerge};
 

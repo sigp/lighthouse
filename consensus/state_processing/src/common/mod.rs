@@ -24,8 +24,7 @@ pub fn increase_balance<E: EthSpec>(
     index: usize,
     delta: u64,
 ) -> Result<(), BeaconStateError> {
-    state.get_balance_mut(index)?.safe_add_assign(delta)?;
-    Ok(())
+    increase_balance_directly(state.get_balance_mut(index)?, delta)
 }
 
 /// Decrease the balance of a validator, saturating upon overflow, as per the spec.
@@ -34,7 +33,17 @@ pub fn decrease_balance<E: EthSpec>(
     index: usize,
     delta: u64,
 ) -> Result<(), BeaconStateError> {
-    let balance = state.get_balance_mut(index)?;
+    decrease_balance_directly(state.get_balance_mut(index)?, delta)
+}
+
+/// Increase the balance of a validator, erroring upon overflow, as per the spec.
+pub fn increase_balance_directly(balance: &mut u64, delta: u64) -> Result<(), BeaconStateError> {
+    balance.safe_add_assign(delta)?;
+    Ok(())
+}
+
+/// Decrease the balance of a validator, saturating upon overflow, as per the spec.
+pub fn decrease_balance_directly(balance: &mut u64, delta: u64) -> Result<(), BeaconStateError> {
     *balance = balance.saturating_sub(delta);
     Ok(())
 }

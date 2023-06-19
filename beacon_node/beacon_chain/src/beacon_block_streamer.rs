@@ -429,7 +429,7 @@ impl<T: BeaconChainTypes> BeaconBlockStreamer<T> {
                 continue;
             }
 
-            match self.beacon_chain.store.try_get_full_block(&root) {
+            match self.beacon_chain.store.try_get_full_block(&root, None) {
                 Err(e) => db_blocks.push((root, Err(e.into()))),
                 Ok(opt_block) => db_blocks.push((
                     root,

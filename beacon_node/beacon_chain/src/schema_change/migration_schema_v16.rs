@@ -40,7 +40,7 @@ pub fn drop_balances_cache<T: BeaconChainTypes>(
     // Drop all items in the balances cache.
     persisted_fork_choice.fork_choice_store.balances_cache = <_>::default();
 
-    let kv_op = persisted_fork_choice.as_kv_store_op(FORK_CHOICE_DB_KEY);
+    let kv_op = persisted_fork_choice.as_kv_store_op(FORK_CHOICE_DB_KEY)?;
 
     Ok(vec![kv_op])
 }

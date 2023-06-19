@@ -1,11 +1,12 @@
 use super::*;
 use serde::{Deserialize, Serialize};
+use ssz_types::FixedVector;
 use strum::EnumString;
 use superstruct::superstruct;
 use types::{
-    EthSpec, ExecutionBlockHash, FixedVector, Transactions, Unsigned, VariableList, Withdrawal,
+    EthSpec, ExecutionBlockHash, ExecutionPayloadCapella, ExecutionPayloadMerge, Transactions,
+    Unsigned, VariableList, Withdrawal,
 };
-use types::{ExecutionPayload, ExecutionPayloadCapella, ExecutionPayloadMerge};
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

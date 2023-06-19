@@ -1,12 +1,12 @@
 use super::*;
 use crate::common::{
-    altair::{get_base_reward, BaseRewardPerIncrement},
     get_attestation_participation_flag_indices, increase_balance, initiate_validator_exit,
     slash_validator,
 };
 use crate::per_block_processing::errors::{BlockProcessingError, IntoWithIndex};
 use crate::VerifySignatures;
 use safe_arith::SafeArith;
+use std::sync::Arc;
 use types::consts::altair::{PARTICIPATION_FLAG_WEIGHTS, PROPOSER_WEIGHT, WEIGHT_DENOMINATOR};
 
 pub fn process_operations<T: EthSpec, Payload: AbstractExecPayload<T>>(
@@ -126,7 +126,7 @@ pub mod altair {
 
         let proposer_index = ctxt.get_proposer_index(state, spec)?;
 
-        let attesting_indices = &verify_attestation_for_block_inclusion(
+        let attesting_indices = verify_attestation_for_block_inclusion(
             state,
             attestation,
             ctxt,
@@ -134,7 +134,8 @@ pub mod altair {
             spec,
         )
         .map_err(|e| e.into_with_index(att_index))?
-        .attesting_indices;
+        .attesting_indices
+        .clone();
 
         // Matching roots, participation flag indices
         let data = &attestation.data;
@@ -143,10 +144,8 @@ pub mod altair {
             get_attestation_participation_flag_indices(state, data, inclusion_delay, spec)?;
 
         // Update epoch participation flags.
-        let total_active_balance = state.get_total_active_balance()?;
-        let base_reward_per_increment = BaseRewardPerIncrement::new(total_active_balance, spec)?;
         let mut proposer_reward_numerator = 0;
-        for index in attesting_indices {
+        for index in &attesting_indices {
             let index = *index as usize;
 
             for (flag_index, &weight) in PARTICIPATION_FLAG_WEIGHTS.iter().enumerate() {
@@ -160,8 +159,7 @@ pub mod altair {
                 {
                     validator_participation.add_flag(flag_index)?;
                     proposer_reward_numerator.safe_add_assign(
-                        get_base_reward(state, index, base_reward_per_increment, spec)?
-                            .safe_mul(weight)?,
+                        ctxt.get_base_reward(state, index, spec)?.safe_mul(weight)?,
                     )?;
                 }
             }
@@ -392,17 +390,19 @@ pub fn process_deposit<T: EthSpec>(
 
         // Create a new validator.
         let validator = Validator {
-            pubkey: deposit.data.pubkey,
-            withdrawal_credentials: deposit.data.withdrawal_credentials,
-            activation_eligibility_epoch: spec.far_future_epoch,
-            activation_epoch: spec.far_future_epoch,
-            exit_epoch: spec.far_future_epoch,
-            withdrawable_epoch: spec.far_future_epoch,
-            effective_balance: std::cmp::min(
-                amount.safe_sub(amount.safe_rem(spec.effective_balance_increment)?)?,
-                spec.max_effective_balance,
-            ),
-            slashed: false,
+            pubkey: Arc::new(deposit.data.pubkey),
+            mutable: ValidatorMutable {
+                withdrawal_credentials: deposit.data.withdrawal_credentials,
+                activation_eligibility_epoch: spec.far_future_epoch,
+                activation_epoch: spec.far_future_epoch,
+                exit_epoch: spec.far_future_epoch,
+                withdrawable_epoch: spec.far_future_epoch,
+                effective_balance: std::cmp::min(
+                    amount.safe_sub(amount.safe_rem(spec.effective_balance_increment)?)?,
+                    spec.max_effective_balance,
+                ),
+                slashed: false,
+            },
         };
         state.validators_mut().push(validator)?;
         state.balances_mut().push(deposit.data.amount)?;

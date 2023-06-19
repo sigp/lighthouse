@@ -10,30 +10,28 @@
 #[macro_use]
 extern crate lazy_static;
 
-mod chunk_writer;
-pub mod chunked_iter;
-pub mod chunked_vector;
 pub mod config;
 pub mod errors;
 mod forwards_iter;
 mod garbage_collection;
+pub mod hdiff;
 pub mod hot_cold_store;
+mod hot_state_iter;
 mod impls;
 mod leveldb_store;
 mod memory_store;
 pub mod metadata;
 pub mod metrics;
-mod partial_beacon_state;
 pub mod reconstruct;
+mod state_cache;
+pub mod validator_pubkey_cache;
 
 pub mod iter;
 
-pub use self::chunk_writer::ChunkWriter;
 pub use self::config::StoreConfig;
 pub use self::hot_cold_store::{HotColdDB, HotStateSummary, Split};
 pub use self::leveldb_store::LevelDB;
 pub use self::memory_store::MemoryStore;
-pub use self::partial_beacon_state::PartialBeaconState;
 pub use errors::Error;
 pub use impls::beacon_state::StorageContainer as BeaconStateStorageContainer;
 pub use metadata::AnchorInfo;
@@ -42,8 +40,9 @@ use parking_lot::MutexGuard;
 use std::sync::Arc;
 use strum::{EnumString, IntoStaticStr};
 pub use types::*;
+pub use validator_pubkey_cache::ValidatorPubkeyCache;
 
-pub type ColumnIter<'a> = Box<dyn Iterator<Item = Result<(Hash256, Vec<u8>), Error>> + 'a>;
+pub type ColumnIter<'a, K> = Box<dyn Iterator<Item = Result<(K, Vec<u8>), Error>> + 'a>;
 pub type ColumnKeyIter<'a> = Box<dyn Iterator<Item = Result<Hash256, Error>> + 'a>;
 
 pub trait KeyValueStore<E: EthSpec>: Sync + Send + Sized + 'static {
@@ -80,7 +79,11 @@ pub trait KeyValueStore<E: EthSpec>: Sync + Send + Sized + 'static {
     fn compact(&self) -> Result<(), Error>;
 
     /// Iterate through all keys and values in a particular column.
-    fn iter_column(&self, _column: DBColumn) -> ColumnIter {
+    fn iter_column<K: Key>(&self, column: DBColumn) -> ColumnIter<K> {
+        self.iter_column_from(column, &vec![0; column.key_size()])
+    }
+
+    fn iter_column_from<K: Key>(&self, _column: DBColumn, _from: &[u8]) -> ColumnIter<K> {
         // Default impl for non LevelDB databases
         Box::new(std::iter::empty())
     }
@@ -89,6 +92,26 @@ pub trait KeyValueStore<E: EthSpec>: Sync + Send + Sized + 'static {
     fn iter_column_keys(&self, _column: DBColumn) -> ColumnKeyIter {
         // Default impl for non LevelDB databases
         Box::new(std::iter::empty())
+    }
+}
+
+pub trait Key: Sized + 'static {
+    fn from_bytes(key: &[u8]) -> Result<Self, Error>;
+}
+
+impl Key for Hash256 {
+    fn from_bytes(key: &[u8]) -> Result<Self, Error> {
+        if key.len() == 32 {
+            Ok(Hash256::from_slice(key))
+        } else {
+            Err(Error::InvalidKey)
+        }
+    }
+}
+
+impl Key for Vec<u8> {
+    fn from_bytes(key: &[u8]) -> Result<Self, Error> {
+        Ok(key.to_vec())
     }
 }
 
@@ -110,7 +133,7 @@ pub trait ItemStore<E: EthSpec>: KeyValueStore<E> + Sync + Send + Sized + 'stati
         let column = I::db_column().into();
         let key = key.as_bytes();
 
-        self.put_bytes(column, key, &item.as_store_bytes())
+        self.put_bytes(column, key, &item.as_store_bytes()?)
             .map_err(Into::into)
     }
 
@@ -118,7 +141,7 @@ pub trait ItemStore<E: EthSpec>: KeyValueStore<E> + Sync + Send + Sized + 'stati
         let column = I::db_column().into();
         let key = key.as_bytes();
 
-        self.put_bytes_sync(column, key, &item.as_store_bytes())
+        self.put_bytes_sync(column, key, &item.as_store_bytes()?)
             .map_err(Into::into)
     }
 
@@ -155,7 +178,6 @@ pub trait ItemStore<E: EthSpec>: KeyValueStore<E> + Sync + Send + Sized + 'stati
 pub enum StoreOp<'a, E: EthSpec> {
     PutBlock(Hash256, Arc<SignedBeaconBlock<E>>),
     PutState(Hash256, &'a BeaconState<E>),
-    PutStateSummary(Hash256, HotStateSummary),
     PutStateTemporaryFlag(Hash256),
     DeleteStateTemporaryFlag(Hash256),
     DeleteBlock(Hash256),
@@ -170,11 +192,28 @@ pub enum DBColumn {
     /// For data related to the database itself.
     #[strum(serialize = "bma")]
     BeaconMeta,
+    /// Data related to blocks.
+    ///
+    /// - Key: `Hash256` block root.
+    /// - Value in hot DB: SSZ-encoded blinded block.
+    /// - Value in cold DB: 8-byte slot of block.
     #[strum(serialize = "blk")]
     BeaconBlock,
+    /// Frozen beacon blocks.
+    ///
+    /// - Key: 8-byte slot.
+    /// - Value: ZSTD-compressed SSZ-encoded blinded block.
+    #[strum(serialize = "bbf")]
+    BeaconBlockFrozen,
     /// For full `BeaconState`s in the hot database (finalized or fork-boundary states).
     #[strum(serialize = "ste")]
     BeaconState,
+    /// For beacon state snapshots in the freezer DB.
+    #[strum(serialize = "bsn")]
+    BeaconStateSnapshot,
+    /// For compact `BeaconStateDiff`s in the freezer DB.
+    #[strum(serialize = "bsd")]
+    BeaconStateDiff,
     /// For the mapping from state roots to their slots or summaries.
     #[strum(serialize = "bss")]
     BeaconStateSummary,
@@ -196,7 +235,7 @@ pub enum DBColumn {
     ForkChoice,
     #[strum(serialize = "pkc")]
     PubkeyCache,
-    /// For the table mapping restore point numbers to state roots.
+    /// For the legacy table mapping restore point numbers to state roots.
     #[strum(serialize = "brp")]
     BeaconRestorePoint,
     #[strum(serialize = "bbr")]
@@ -230,6 +269,36 @@ impl DBColumn {
     pub fn as_bytes(self) -> &'static [u8] {
         self.as_str().as_bytes()
     }
+
+    /// Most database keys are 32 bytes, but some freezer DB keys are 8 bytes.
+    ///
+    /// This function returns the number of bytes used by keys in a given column.
+    pub fn key_size(self) -> usize {
+        match self {
+            Self::BeaconMeta
+            | Self::BeaconBlock
+            | Self::BeaconState
+            | Self::BeaconStateSummary
+            | Self::BeaconStateTemporary
+            | Self::ExecPayload
+            | Self::BeaconChain
+            | Self::OpPool
+            | Self::Eth1Cache
+            | Self::ForkChoice
+            | Self::PubkeyCache
+            | Self::BeaconRestorePoint
+            | Self::DhtEnrs
+            | Self::OptimisticTransitionBlock => 32,
+            Self::BeaconBlockRoots
+            | Self::BeaconStateRoots
+            | Self::BeaconHistoricalRoots
+            | Self::BeaconHistoricalSummaries
+            | Self::BeaconRandaoMixes
+            | Self::BeaconBlockFrozen
+            | Self::BeaconStateSnapshot
+            | Self::BeaconStateDiff => 8,
+        }
+    }
 }
 
 /// An item that may stored in a `Store` by serializing and deserializing from bytes.
@@ -238,16 +307,16 @@ pub trait StoreItem: Sized {
     fn db_column() -> DBColumn;
 
     /// Serialize `self` as bytes.
-    fn as_store_bytes(&self) -> Vec<u8>;
+    fn as_store_bytes(&self) -> Result<Vec<u8>, Error>;
 
     /// De-serialize `self` from bytes.
     ///
     /// Return an instance of the type and the number of bytes that were read.
     fn from_store_bytes(bytes: &[u8]) -> Result<Self, Error>;
 
-    fn as_kv_store_op(&self, key: Hash256) -> KeyValueStoreOp {
+    fn as_kv_store_op(&self, key: Hash256) -> Result<KeyValueStoreOp, Error> {
         let db_key = get_key_for_col(Self::db_column().into(), key.as_bytes());
-        KeyValueStoreOp::PutKeyValue(db_key, self.as_store_bytes())
+        Ok(KeyValueStoreOp::PutKeyValue(db_key, self.as_store_bytes()?))
     }
 }
 
@@ -269,8 +338,8 @@ mod tests {
             DBColumn::BeaconBlock
         }
 
-        fn as_store_bytes(&self) -> Vec<u8> {
-            self.as_ssz_bytes()
+        fn as_store_bytes(&self) -> Result<Vec<u8>, Error> {
+            Ok(self.as_ssz_bytes())
         }
 
         fn from_store_bytes(bytes: &[u8]) -> Result<Self, Error> {

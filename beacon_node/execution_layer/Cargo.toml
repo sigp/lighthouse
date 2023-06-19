@@ -26,7 +26,7 @@ ethereum_ssz = "0.5.0"
 ssz_types = "0.5.0"
 eth2 = { path = "../../common/eth2" }
 state_processing = { path = "../../consensus/state_processing" }
-superstruct = "0.6.0"
+superstruct = "0.7.0"
 lru = "0.7.1"
 exit-future = "0.2.0"
 tree_hash = "0.5.0"

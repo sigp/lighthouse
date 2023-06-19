@@ -44,8 +44,8 @@ impl StoreItem for PersistedDht {
         DBColumn::DhtEnrs
     }
 
-    fn as_store_bytes(&self) -> Vec<u8> {
-        rlp::encode_list(&self.enrs).to_vec()
+    fn as_store_bytes(&self) -> Result<Vec<u8>, StoreError> {
+        Ok(rlp::encode_list(&self.enrs).to_vec())
     }
 
     fn from_store_bytes(bytes: &[u8]) -> Result<Self, StoreError> {

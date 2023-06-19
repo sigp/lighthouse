@@ -59,6 +59,11 @@ pub fn per_slot_processing<T: EthSpec>(
         if spec.capella_fork_epoch == Some(state.current_epoch()) {
             upgrade_to_capella(state, spec)?;
         }
+
+        // Additionally build all caches so that all valid states that are advanced always have
+        // committee caches built, and we don't have to worry about initialising them at higher
+        // layers.
+        state.build_all_caches(spec)?;
     }
 
     Ok(summary)

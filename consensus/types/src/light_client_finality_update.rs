@@ -29,6 +29,7 @@ pub struct LightClientFinalityUpdate<T: EthSpec> {
     /// The last `BeaconBlockHeader` from the last attested finalized block (end of epoch).
     pub finalized_header: BeaconBlockHeader,
     /// Merkle proof attesting finalized header.
+    #[test_random(default)]
     pub finality_branch: FixedVector<Hash256, FinalizedRootProofLen>,
     /// current sync aggreggate
     pub sync_aggregate: SyncAggregate<T>,

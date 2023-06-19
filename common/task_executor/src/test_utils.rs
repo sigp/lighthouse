@@ -1,4 +1,5 @@
 use crate::TaskExecutor;
+use logging::test_logger;
 use slog::Logger;
 use sloggers::{null::NullLoggerBuilder, Build};
 use std::sync::Arc;
@@ -26,7 +27,7 @@ impl Default for TestRuntime {
     fn default() -> Self {
         let (runtime_shutdown, exit) = exit_future::signal();
         let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
-        let log = null_logger().unwrap();
+        let log = test_logger();
 
         let (runtime, handle) = if let Ok(handle) = runtime::Handle::try_current() {
             (None, handle)

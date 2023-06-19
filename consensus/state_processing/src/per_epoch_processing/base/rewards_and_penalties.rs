@@ -1,4 +1,7 @@
-use crate::common::{base::get_base_reward, decrease_balance, increase_balance};
+use crate::common::{
+    base::{get_base_reward, SqrtTotalActiveBalance},
+    decrease_balance, increase_balance,
+};
 use crate::per_epoch_processing::{
     base::{TotalBalances, ValidatorStatus, ValidatorStatuses},
     Delta, Error,
@@ -78,7 +81,6 @@ pub fn get_attestation_deltas<T: EthSpec>(
     validator_statuses: &ValidatorStatuses,
     spec: &ChainSpec,
 ) -> Result<Vec<AttestationDelta>, Error> {
-    let previous_epoch = state.previous_epoch();
     let finality_delay = state
         .previous_epoch()
         .safe_sub(state.finalized_checkpoint().epoch)?
@@ -87,17 +89,22 @@ pub fn get_attestation_deltas<T: EthSpec>(
     let mut deltas = vec![AttestationDelta::default(); state.validators().len()];
 
     let total_balances = &validator_statuses.total_balances;
+    let sqrt_total_active_balance = SqrtTotalActiveBalance::new(total_balances.current_epoch());
 
     for (index, validator) in validator_statuses.statuses.iter().enumerate() {
         // Ignore ineligible validators. All sub-functions of the spec do this except for
         // `get_inclusion_delay_deltas`. It's safe to do so here because any validator that is in
         // the unslashed indices of the matching source attestations is active, and therefore
         // eligible.
-        if !state.is_eligible_validator(previous_epoch, index)? {
+        if !validator.is_eligible {
             continue;
         }
 
-        let base_reward = get_base_reward(state, index, total_balances.current_epoch(), spec)?;
+        let base_reward = get_base_reward(
+            validator.current_epoch_effective_balance,
+            sqrt_total_active_balance,
+            spec,
+        )?;
 
         let source_delta =
             get_source_delta(validator, base_reward, total_balances, finality_delay, spec)?;

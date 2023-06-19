@@ -3,11 +3,13 @@
 use super::BeaconState;
 use crate::*;
 use core::num::NonZeroUsize;
+use derivative::Derivative;
 use safe_arith::SafeArith;
 use serde_derive::{Deserialize, Serialize};
 use ssz::{four_byte_option_impl, Decode, DecodeError, Encode};
 use ssz_derive::{Decode, Encode};
 use std::ops::Range;
+use std::sync::Arc;
 use swap_or_not_shuffle::shuffle_list;
 
 mod tests;
@@ -19,14 +21,42 @@ four_byte_option_impl!(four_byte_option_non_zero_usize, NonZeroUsize);
 
 /// Computes and stores the shuffling for an epoch. Provides various getters to allow callers to
 /// read the committees for the given epoch.
-#[derive(Debug, Default, PartialEq, Clone, Serialize, Deserialize, Encode, Decode)]
+#[derive(Derivative, Debug, Default, Clone, Serialize, Deserialize, Encode, Decode)]
+#[derivative(PartialEq)]
 pub struct CommitteeCache {
     #[ssz(with = "four_byte_option_epoch")]
     initialized_epoch: Option<Epoch>,
     shuffling: Vec<usize>,
+    #[derivative(PartialEq(compare_with = "compare_shuffling_positions"))]
     shuffling_positions: Vec<NonZeroUsizeOption>,
     committees_per_slot: u64,
     slots_per_epoch: u64,
+}
+
+/// Equivalence function for `shuffling_positions` that ignores trailing `None` entries.
+///
+/// It can happen that states from different epochs computing the same cache have different
+/// numbers of validators in `state.validators()` due to recent deposits. These new validators
+/// cannot be active however and will always be ommitted from the shuffling. This function checks
+/// that two lists of shuffling positions are equivalent by ensuring that they are identical on all
+/// common entries, and that new entries at the end are all `None`.
+///
+/// In practice this is only used in tests.
+#[allow(clippy::indexing_slicing)]
+fn compare_shuffling_positions(xs: &Vec<NonZeroUsizeOption>, ys: &Vec<NonZeroUsizeOption>) -> bool {
+    use std::cmp::Ordering;
+
+    let (shorter, longer) = match xs.len().cmp(&ys.len()) {
+        Ordering::Equal => {
+            return xs == ys;
+        }
+        Ordering::Less => (xs, ys),
+        Ordering::Greater => (ys, xs),
+    };
+    shorter == &longer[..shorter.len()]
+        && longer[shorter.len()..]
+            .iter()
+            .all(|new| *new == NonZeroUsizeOption(None))
 }
 
 impl CommitteeCache {
@@ -37,7 +67,7 @@ impl CommitteeCache {
         state: &BeaconState<T>,
         epoch: Epoch,
         spec: &ChainSpec,
-    ) -> Result<CommitteeCache, Error> {
+    ) -> Result<Arc<CommitteeCache>, Error> {
         // Check that the cache is being built for an in-range epoch.
         //
         // We allow caches to be constructed for historic epochs, per:
@@ -87,13 +117,13 @@ impl CommitteeCache {
                 .ok_or(Error::ShuffleIndexOutOfBounds(v))? = NonZeroUsize::new(i + 1).into();
         }
 
-        Ok(CommitteeCache {
+        Ok(Arc::new(CommitteeCache {
             initialized_epoch: Some(epoch),
             shuffling,
             shuffling_positions,
             committees_per_slot,
             slots_per_epoch: T::slots_per_epoch(),
-        })
+        }))
     }
 
     /// Returns `true` if the cache has been initialized at the supplied `epoch`.
@@ -322,16 +352,20 @@ pub fn epoch_committee_count(committees_per_slot: usize, slots_per_epoch: usize)
 /// `epoch`.
 ///
 /// Spec v0.12.1
-pub fn get_active_validator_indices(validators: &[Validator], epoch: Epoch) -> Vec<usize> {
-    let mut active = Vec::with_capacity(validators.len());
+pub fn get_active_validator_indices<'a, V, I>(validators: V, epoch: Epoch) -> Vec<usize>
+where
+    V: IntoIterator<Item = &'a Validator, IntoIter = I>,
+    I: ExactSizeIterator + Iterator<Item = &'a Validator>,
+{
+    let iter = validators.into_iter();
 
-    for (index, validator) in validators.iter().enumerate() {
+    let mut active = Vec::with_capacity(iter.len());
+
+    for (index, validator) in iter.enumerate() {
         if validator.is_active_at(epoch) {
             active.push(index)
         }
     }
-
-    active.shrink_to_fit();
 
     active
 }

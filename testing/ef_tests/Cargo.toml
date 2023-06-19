@@ -35,4 +35,6 @@ fs2 = "0.4.3"
 beacon_chain = { path = "../../beacon_node/beacon_chain" }
 store = { path = "../../beacon_node/store" }
 fork_choice = { path = "../../consensus/fork_choice" }
+malloc_utils = { path = "../../common/malloc_utils" }
+logging = { path = "../../common/logging" }
 execution_layer = { path = "../../beacon_node/execution_layer" }

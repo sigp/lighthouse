@@ -54,17 +54,13 @@ lazy_static! {
         "store_beacon_state_hot_get_total",
         "Total number of hot beacon states requested from the store (cache or DB)"
     );
-    pub static ref BEACON_STATE_CACHE_HIT_COUNT: Result<IntCounter> = try_create_int_counter(
-        "store_beacon_state_cache_hit_total",
-        "Number of hits to the store's state cache"
-    );
-    pub static ref BEACON_STATE_CACHE_CLONE_TIME: Result<Histogram> = try_create_histogram(
-        "store_beacon_state_cache_clone_time",
-        "Time to load a beacon block from the block cache"
-    );
     pub static ref BEACON_STATE_READ_TIMES: Result<Histogram> = try_create_histogram(
         "store_beacon_state_read_seconds",
-        "Total time required to read a BeaconState from the database"
+        "Total time required to read a full BeaconState from the database"
+    );
+    pub static ref BEACON_HOT_STATE_READ_TIMES: Result<Histogram> = try_create_histogram(
+        "store_beacon_hot_state_read_seconds",
+        "Total time required to read a hot BeaconState from the database"
     );
     pub static ref BEACON_STATE_READ_OVERHEAD_TIMES: Result<Histogram> = try_create_histogram(
         "store_beacon_state_read_overhead_seconds",
@@ -89,6 +85,33 @@ lazy_static! {
     pub static ref BEACON_STATE_WRITE_BYTES: Result<IntCounter> = try_create_int_counter(
         "store_beacon_state_write_bytes_total",
         "Total number of beacon state bytes written to the DB"
+    );
+    /*
+     * Beacon state diffs
+     */
+    pub static ref BEACON_STATE_DIFF_WRITE_BYTES: Result<IntCounter> = try_create_int_counter(
+        "store_beacon_state_diff_write_bytes_total",
+        "Total number of bytes written for beacon state diffs"
+    );
+    pub static ref BEACON_STATE_DIFF_WRITE_COUNT: Result<IntCounter> = try_create_int_counter(
+        "store_beacon_state_diff_write_count_total",
+        "Total number of beacon state diffs written"
+    );
+    pub static ref BEACON_STATE_DIFF_COMPRESSION_RATIO: Result<Gauge> = try_create_float_gauge(
+        "store_beacon_state_diff_compression_ratio",
+        "Compression ratio for beacon state diffs (higher is better)"
+    );
+    pub static ref BEACON_STATE_DIFF_COMPUTE_TIME: Result<Histogram> = try_create_histogram(
+        "store_beacon_state_diff_compute_time",
+        "Time to calculate a beacon state diff"
+    );
+    pub static ref BEACON_STATE_DIFF_ENCODE_TIME: Result<Histogram> = try_create_histogram(
+        "store_beacon_state_diff_encode_time",
+        "Time to encode a beacon state diff as SSZ"
+    );
+    pub static ref BEACON_STATE_DIFF_COMPRESSION_TIME: Result<Histogram> = try_create_histogram(
+        "store_beacon_state_diff_compression_time",
+        "Time to compress beacon state SSZ using Flate2"
     );
     /*
      * Beacon Block

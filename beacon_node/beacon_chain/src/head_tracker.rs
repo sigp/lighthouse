@@ -83,8 +83,8 @@ impl PartialEq<HeadTracker> for HeadTracker {
 /// This is used when persisting the state of the `BeaconChain` to disk.
 #[derive(Encode, Decode, Clone)]
 pub struct SszHeadTracker {
-    roots: Vec<Hash256>,
-    slots: Vec<Slot>,
+    pub roots: Vec<Hash256>,
+    pub slots: Vec<Slot>,
 }
 
 impl SszHeadTracker {

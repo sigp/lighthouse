@@ -18,12 +18,13 @@ fn get_slot_clock<T: BeaconChainTypes>(
     log: &Logger,
 ) -> Result<Option<T::SlotClock>, Error> {
     let spec = db.get_chain_spec();
-    let genesis_block = if let Some(block) = db.get_blinded_block(&Hash256::zero())? {
-        block
-    } else {
-        error!(log, "Missing genesis block");
-        return Ok(None);
-    };
+    let genesis_block =
+        if let Some(block) = db.get_blinded_block(&Hash256::zero(), Some(Slot::new(0)))? {
+            block
+        } else {
+            error!(log, "Missing genesis block");
+            return Ok(None);
+        };
     let genesis_state =
         if let Some(state) = db.get_state(&genesis_block.state_root(), Some(Slot::new(0)))? {
             state
@@ -66,7 +67,7 @@ pub fn upgrade_to_v14<T: BeaconChainTypes>(
         voluntary_exits,
         bls_to_execution_changes,
     });
-    Ok(vec![v14.as_kv_store_op(OP_POOL_DB_KEY)])
+    Ok(vec![v14.as_kv_store_op(OP_POOL_DB_KEY)?])
 }
 
 pub fn downgrade_from_v14<T: BeaconChainTypes>(
@@ -121,5 +122,5 @@ pub fn downgrade_from_v14<T: BeaconChainTypes>(
         proposer_slashings,
         voluntary_exits,
     };
-    Ok(vec![v12.as_kv_store_op(OP_POOL_DB_KEY)])
+    Ok(vec![v12.as_kv_store_op(OP_POOL_DB_KEY)?])
 }

@@ -35,7 +35,7 @@ pub fn upgrade_to_v15<T: BeaconChainTypes>(
         // Initialize with empty set
         capella_bls_change_broadcast_indices: <_>::default(),
     });
-    Ok(vec![v15.as_kv_store_op(OP_POOL_DB_KEY)])
+    Ok(vec![v15.as_kv_store_op(OP_POOL_DB_KEY)?])
 }
 
 pub fn downgrade_from_v15<T: BeaconChainTypes>(
@@ -72,5 +72,5 @@ pub fn downgrade_from_v15<T: BeaconChainTypes>(
         voluntary_exits,
         bls_to_execution_changes,
     };
-    Ok(vec![v14.as_kv_store_op(OP_POOL_DB_KEY)])
+    Ok(vec![v14.as_kv_store_op(OP_POOL_DB_KEY)?])
 }

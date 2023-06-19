@@ -46,10 +46,12 @@ regex = "1.5.5"
 lazy_static = "1.4.0"
 parking_lot = "0.12.0"
 itertools = "0.10.0"
-superstruct = "0.6.0"
+superstruct = "0.7.0"
 metastruct = "0.1.0"
 serde_json = "1.0.74"
 smallvec = "1.8.0"
+milhouse = { git = "https://github.com/sigp/milhouse", branch = "main" }
+rpds = "0.11.0"
 serde_with = "1.13.0"
 maplit = "1.0.2"
 

@@ -2,7 +2,7 @@ use beacon_chain::{
     builder::Witness, eth1_chain::CachingEth1Backend, schema_change::migrate_schema,
     slot_clock::SystemTimeSlotClock,
 };
-use beacon_node::{get_data_dir, get_slots_per_restore_point, ClientConfig};
+use beacon_node::{get_data_dir, ClientConfig};
 use clap::{App, Arg, ArgMatches};
 use environment::{Environment, RuntimeContext};
 use slog::{info, Logger};
@@ -15,7 +15,7 @@ use store::{
     DBColumn, HotColdDB, KeyValueStore, LevelDB,
 };
 use strum::{EnumString, EnumVariantNames, VariantNames};
-use types::EthSpec;
+use types::{EthSpec, VList};
 
 pub const CMD: &str = "database_manager";
 
@@ -61,6 +61,24 @@ pub fn inspect_cli_app<'a, 'b>() -> App<'a, 'b> {
                 .possible_values(InspectTarget::VARIANTS),
         )
         .arg(
+            Arg::with_name("skip")
+                .long("skip")
+                .value_name("N")
+                .help("Skip over the first N keys"),
+        )
+        .arg(
+            Arg::with_name("limit")
+                .long("limit")
+                .value_name("N")
+                .help("Output at most N keys"),
+        )
+        .arg(
+            Arg::with_name("freezer")
+                .long("freezer")
+                .help("Inspect the freezer DB rather than the hot DB")
+                .takes_value(false),
+        )
+        .arg(
             Arg::with_name("output-dir")
                 .long("output-dir")
                 .value_name("DIR")
@@ -73,6 +91,26 @@ pub fn prune_payloads_app<'a, 'b>() -> App<'a, 'b> {
     App::new("prune_payloads")
         .setting(clap::AppSettings::ColoredHelp)
         .about("Prune finalized execution payloads")
+}
+
+pub fn diff_app<'a, 'b>() -> App<'a, 'b> {
+    App::new("diff")
+        .setting(clap::AppSettings::ColoredHelp)
+        .about("Diff SSZ balances")
+        .arg(
+            Arg::with_name("first")
+                .long("first")
+                .value_name("PATH")
+                .takes_value(true)
+                .required(true),
+        )
+        .arg(
+            Arg::with_name("second")
+                .long("second")
+                .value_name("PATH")
+                .takes_value(true)
+                .required(true),
+        )
 }
 
 pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
@@ -102,6 +140,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .subcommand(version_cli_app())
         .subcommand(inspect_cli_app())
         .subcommand(prune_payloads_app())
+        .subcommand(diff_app())
 }
 
 fn parse_client_config<E: EthSpec>(
@@ -115,10 +154,6 @@ fn parse_client_config<E: EthSpec>(
     if let Some(freezer_dir) = clap_utils::parse_optional(cli_args, "freezer-dir")? {
         client_config.freezer_db_path = Some(freezer_dir);
     }
-
-    let (sprp, sprp_explicit) = get_slots_per_restore_point::<E>(cli_args)?;
-    client_config.store.slots_per_restore_point = sprp;
-    client_config.store.slots_per_restore_point_set_explicitly = sprp_explicit;
 
     Ok(client_config)
 }
@@ -158,7 +193,7 @@ pub fn display_db_version<E: EthSpec>(
     Ok(())
 }
 
-#[derive(Debug, EnumString, EnumVariantNames)]
+#[derive(Debug, PartialEq, Eq, EnumString, EnumVariantNames)]
 pub enum InspectTarget {
     #[strum(serialize = "sizes")]
     ValueSizes,
@@ -166,11 +201,16 @@ pub enum InspectTarget {
     ValueTotal,
     #[strum(serialize = "values")]
     Values,
+    #[strum(serialize = "gaps")]
+    Gaps,
 }
 
 pub struct InspectConfig {
     column: DBColumn,
     target: InspectTarget,
+    skip: Option<usize>,
+    limit: Option<usize>,
+    freezer: bool,
     /// Configures where the inspect output should be stored.
     output_dir: PathBuf,
 }
@@ -178,11 +218,18 @@ pub struct InspectConfig {
 fn parse_inspect_config(cli_args: &ArgMatches) -> Result<InspectConfig, String> {
     let column = clap_utils::parse_required(cli_args, "column")?;
     let target = clap_utils::parse_required(cli_args, "output")?;
+    let skip = clap_utils::parse_optional(cli_args, "skip")?;
+    let limit = clap_utils::parse_optional(cli_args, "limit")?;
+    let freezer = cli_args.is_present("freezer");
+
     let output_dir: PathBuf =
         clap_utils::parse_optional(cli_args, "output-dir")?.unwrap_or_else(PathBuf::new);
     Ok(InspectConfig {
         column,
         target,
+        skip,
+        limit,
+        freezer,
         output_dir,
     })
 }
@@ -208,6 +255,20 @@ pub fn inspect_db<E: EthSpec>(
     .map_err(|e| format!("{:?}", e))?;
 
     let mut total = 0;
+    let mut num_keys = 0;
+
+    let sub_db = if inspect_config.freezer {
+        &db.cold_db
+    } else {
+        &db.hot_db
+    };
+
+    let skip = inspect_config.skip.unwrap_or(0);
+    let limit = inspect_config.limit.unwrap_or(usize::MAX);
+
+    let mut prev_key = 0;
+    let mut found_gaps = false;
+
     let base_path = &inspect_config.output_dir;
 
     if let InspectTarget::Values = inspect_config.target {
@@ -215,20 +276,41 @@ pub fn inspect_db<E: EthSpec>(
             .map_err(|e| format!("Unable to create import directory: {:?}", e))?;
     }
 
-    for res in db.hot_db.iter_column(inspect_config.column) {
+    for res in sub_db
+        .iter_column::<Vec<u8>>(inspect_config.column)
+        .skip(skip)
+        .take(limit)
+    {
         let (key, value) = res.map_err(|e| format!("{:?}", e))?;
 
         match inspect_config.target {
             InspectTarget::ValueSizes => {
-                println!("{:?}: {} bytes", key, value.len());
-                total += value.len();
+                println!("{}: {} bytes", hex::encode(&key), value.len());
             }
-            InspectTarget::ValueTotal => {
-                total += value.len();
+            InspectTarget::Gaps => {
+                // Convert last 8 bytes of key to u64.
+                let numeric_key = u64::from_be_bytes(
+                    key[key.len() - 8..]
+                        .try_into()
+                        .expect("key is at least 8 bytes"),
+                );
+
+                if numeric_key > prev_key + 1 {
+                    println!(
+                        "gap between keys {} and {} (offset: {})",
+                        prev_key, numeric_key, num_keys,
+                    );
+                    found_gaps = true;
+                }
+                prev_key = numeric_key;
             }
+            InspectTarget::ValueTotal => (),
             InspectTarget::Values => {
-                let file_path =
-                    base_path.join(format!("{}_{}.ssz", inspect_config.column.as_str(), key));
+                let file_path = base_path.join(format!(
+                    "{}_{}.ssz",
+                    inspect_config.column.as_str(),
+                    hex::encode(&key)
+                ));
 
                 let write_result = fs::OpenOptions::new()
                     .create(true)
@@ -248,13 +330,16 @@ pub fn inspect_db<E: EthSpec>(
                 total += value.len();
             }
         }
+        total += value.len();
+        num_keys += 1;
     }
 
-    match inspect_config.target {
-        InspectTarget::ValueSizes | InspectTarget::ValueTotal | InspectTarget::Values => {
-            println!("Total: {} bytes", total);
-        }
+    if inspect_config.target == InspectTarget::Gaps && !found_gaps {
+        println!("No gaps found!");
     }
+
+    println!("Num keys: {}", num_keys);
+    println!("Total: {} bytes", total);
 
     Ok(())
 }
@@ -310,6 +395,57 @@ pub fn migrate_db<E: EthSpec>(
     )
 }
 
+pub struct DiffConfig {
+    first: PathBuf,
+    second: PathBuf,
+}
+
+fn parse_diff_config(cli_args: &ArgMatches) -> Result<DiffConfig, String> {
+    let first = clap_utils::parse_required(cli_args, "first")?;
+    let second = clap_utils::parse_required(cli_args, "second")?;
+
+    Ok(DiffConfig { first, second })
+}
+
+pub fn diff<E: EthSpec>(diff_config: &DiffConfig, log: Logger) -> Result<(), Error> {
+    use ssz::{Decode, Encode};
+    use std::fs::File;
+    use std::io::Read;
+    use store::StoreConfig;
+
+    let mut first_file = File::open(&diff_config.first).unwrap();
+    let mut second_file = File::open(&diff_config.second).unwrap();
+
+    let mut first_bytes = vec![];
+    first_file.read_to_end(&mut first_bytes).unwrap();
+    let first: VList<u64, E::ValidatorRegistryLimit> = VList::from_ssz_bytes(&first_bytes).unwrap();
+
+    let mut second_bytes = vec![];
+    second_file.read_to_end(&mut second_bytes).unwrap();
+    let second: VList<u64, E::ValidatorRegistryLimit> =
+        VList::from_ssz_bytes(&second_bytes).unwrap();
+
+    let mut diff_balances = Vec::with_capacity(second.len());
+
+    for (i, new_balance) in second.iter().enumerate() {
+        let old_balance = first.get(i).copied().unwrap_or(0);
+        let diff = new_balance.wrapping_sub(old_balance);
+        diff_balances.push(diff);
+    }
+
+    let diff_ssz_bytes = diff_balances.as_ssz_bytes();
+    let config = StoreConfig::default();
+    let compressed_diff_bytes = config.compress_bytes(&diff_ssz_bytes).unwrap();
+
+    info!(
+        log,
+        "Compressed diff to {} bytes (from {})",
+        compressed_diff_bytes.len(),
+        diff_ssz_bytes.len()
+    );
+    Ok(())
+}
+
 pub fn prune_payloads<E: EthSpec>(
     client_config: ClientConfig,
     runtime_context: &RuntimeContext<E>,
@@ -355,6 +491,10 @@ pub fn run<T: EthSpec>(cli_args: &ArgMatches<'_>, env: Environment<T>) -> Result
         }
         ("prune_payloads", Some(_)) => {
             prune_payloads(client_config, &context, log).map_err(format_err)
+        }
+        ("diff", Some(cli_args)) => {
+            let diff_config = parse_diff_config(cli_args)?;
+            diff::<T>(&diff_config, log).map_err(format_err)
         }
         _ => Err("Unknown subcommand, for help `lighthouse database_manager --help`".into()),
     }

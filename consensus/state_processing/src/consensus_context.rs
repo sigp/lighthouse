@@ -1,5 +1,7 @@
 use crate::common::get_indexed_attestation;
 use crate::per_block_processing::errors::{AttestationInvalid, BlockOperationError};
+use crate::{EpochCache, EpochCacheError};
+use std::borrow::Cow;
 use std::collections::{hash_map::Entry, HashMap};
 use std::marker::PhantomData;
 use tree_hash::TreeHash;
@@ -8,7 +10,7 @@ use types::{
     ChainSpec, Epoch, EthSpec, Hash256, IndexedAttestation, SignedBeaconBlock, Slot,
 };
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ConsensusContext<T: EthSpec> {
     /// Slot to act as an identifier/safeguard
     slot: Slot,
@@ -16,6 +18,8 @@ pub struct ConsensusContext<T: EthSpec> {
     proposer_index: Option<u64>,
     /// Block root of the block at `slot`.
     current_block_root: Option<Hash256>,
+    /// Epoch cache of values that are useful for block processing that are static over an epoch.
+    epoch_cache: Option<EpochCache>,
     /// Cache of indexed attestations constructed during block processing.
     indexed_attestations:
         HashMap<(AttestationData, BitList<T::MaxValidatorsPerCommittee>), IndexedAttestation<T>>,
@@ -25,6 +29,7 @@ pub struct ConsensusContext<T: EthSpec> {
 #[derive(Debug, PartialEq, Clone)]
 pub enum ContextError {
     BeaconState(BeaconStateError),
+    EpochCache(EpochCacheError),
     SlotMismatch { slot: Slot, expected: Slot },
     EpochMismatch { epoch: Epoch, expected: Epoch },
 }
@@ -35,12 +40,19 @@ impl From<BeaconStateError> for ContextError {
     }
 }
 
+impl From<EpochCacheError> for ContextError {
+    fn from(e: EpochCacheError) -> Self {
+        Self::EpochCache(e)
+    }
+}
+
 impl<T: EthSpec> ConsensusContext<T> {
     pub fn new(slot: Slot) -> Self {
         Self {
             slot,
             proposer_index: None,
             current_block_root: None,
+            epoch_cache: None,
             indexed_attestations: HashMap::new(),
             _phantom: PhantomData,
         }
@@ -131,6 +143,31 @@ impl<T: EthSpec> ConsensusContext<T> {
         } else {
             Err(ContextError::EpochMismatch { epoch, expected })
         }
+    }
+
+    pub fn set_epoch_cache(mut self, epoch_cache: EpochCache) -> Self {
+        self.epoch_cache = Some(epoch_cache);
+        self
+    }
+
+    pub fn get_base_reward(
+        &mut self,
+        state: &BeaconState<T>,
+        validator_index: usize,
+        spec: &ChainSpec,
+    ) -> Result<u64, ContextError> {
+        self.check_slot(state.slot())?;
+
+        // Build epoch cache if not already built.
+        let epoch_cache = if let Some(ref cache) = self.epoch_cache {
+            Cow::Borrowed(cache)
+        } else {
+            let cache = EpochCache::new(state, spec)?;
+            self.epoch_cache = Some(cache.clone());
+            Cow::Owned(cache)
+        };
+
+        Ok(epoch_cache.get_base_reward(validator_index)?)
     }
 
     pub fn get_indexed_attestation(

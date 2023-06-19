@@ -65,7 +65,7 @@ pub fn upgrade_to_v17<T: BeaconChainTypes>(
         "Removing unused best_justified_checkpoint from fork choice store."
     );
 
-    Ok(vec![v17.as_kv_store_op(FORK_CHOICE_DB_KEY)])
+    Ok(vec![v17.as_kv_store_op(FORK_CHOICE_DB_KEY)?])
 }
 
 pub fn downgrade_from_v17<T: BeaconChainTypes>(
@@ -84,5 +84,5 @@ pub fn downgrade_from_v17<T: BeaconChainTypes>(
         "Adding junk best_justified_checkpoint to fork choice store."
     );
 
-    Ok(vec![v11.as_kv_store_op(FORK_CHOICE_DB_KEY)])
+    Ok(vec![v11.as_kv_store_op(FORK_CHOICE_DB_KEY)?])
 }

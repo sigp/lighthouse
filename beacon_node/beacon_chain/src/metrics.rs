@@ -4,11 +4,7 @@ use crate::{BeaconChain, BeaconChainError, BeaconChainTypes};
 use lazy_static::lazy_static;
 pub use lighthouse_metrics::*;
 use slot_clock::SlotClock;
-use std::time::Duration;
 use types::{BeaconState, Epoch, EthSpec, Hash256, Slot};
-
-/// The maximum time to wait for the snapshot cache lock during a metrics scrape.
-const SNAPSHOT_CACHE_TIMEOUT: Duration = Duration::from_millis(100);
 
 lazy_static! {
     /*
@@ -813,7 +809,10 @@ lazy_static! {
         "Number of attester slashings seen",
         &["src", "validator"]
     );
+}
 
+// Fourth lazy-static block is used to account for macro recursion limit.
+lazy_static! {
     /*
      * Block Delay Metrics
      */
@@ -834,7 +833,11 @@ lazy_static! {
         "Duration between the time the block was imported and the time when it was set as head.",
         // [0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2, 5]
         decimal_buckets(-2,-1)
-        );
+    );
+    pub static ref BEACON_BLOCK_HEAD_ATTESTABLE_DELAY_TIME: Result<Histogram> = try_create_histogram(
+        "beacon_block_head_attestable_delay_time",
+        "Duration between the start of the slot and the time at which the block could be attested to.",
+    );
     pub static ref BEACON_BLOCK_HEAD_SLOT_START_DELAY_TIME: Result<Histogram> = try_create_histogram_with_buckets(
         "beacon_block_head_slot_start_delay_time",
         "Duration between the start of the block's slot and the time when it was set as head.",
@@ -846,6 +849,22 @@ lazy_static! {
         "Triggered when the duration between the start of the block's slot and the current time \
         will result in failed attestations.",
     );
+    pub static ref BEACON_BLOCK_HEAD_MISSED_ATT_DEADLINE_LATE: Result<IntCounter> = try_create_int_counter(
+        "beacon_block_head_missed_att_deadline_late",
+        "Total number of delayed head blocks that arrived late"
+    );
+    pub static ref BEACON_BLOCK_HEAD_MISSED_ATT_DEADLINE_BORDERLINE: Result<IntCounter> = try_create_int_counter(
+        "beacon_block_head_missed_att_deadline_borderline",
+        "Total number of delayed head blocks that arrived very close to the deadline"
+    );
+    pub static ref BEACON_BLOCK_HEAD_MISSED_ATT_DEADLINE_SLOW: Result<IntCounter> = try_create_int_counter(
+        "beacon_block_head_missed_att_deadline_slow",
+        "Total number of delayed head blocks that arrived on time but not processed in time"
+    );
+    pub static ref BEACON_BLOCK_HEAD_MISSED_ATT_DEADLINE_OTHER: Result<IntCounter> = try_create_int_counter(
+        "beacon_block_head_missed_att_deadline_other",
+        "Total number of delayed head blocks that were not late and not slow to process"
+    );
 
     /*
      * General block metrics
@@ -855,10 +874,7 @@ lazy_static! {
             "gossip_beacon_block_skipped_slots",
             "For each gossip blocks, the number of skip slots between it and its parent"
         );
-}
 
-// Fourth lazy-static block is used to account for macro recursion limit.
-lazy_static! {
     /*
      * Sync Committee Message Verification
      */
@@ -1015,15 +1031,10 @@ pub fn scrape_for_metrics<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>) {
 
     let attestation_stats = beacon_chain.op_pool.attestation_stats();
 
-    if let Some(snapshot_cache) = beacon_chain
-        .snapshot_cache
-        .try_write_for(SNAPSHOT_CACHE_TIMEOUT)
-    {
-        set_gauge(
-            &BLOCK_PROCESSING_SNAPSHOT_CACHE_SIZE,
-            snapshot_cache.len() as i64,
-        )
-    }
+    set_gauge_by_usize(
+        &BLOCK_PROCESSING_SNAPSHOT_CACHE_SIZE,
+        beacon_chain.store.state_cache_len(),
+    );
 
     if let Some((size, num_lookups)) = beacon_chain.pre_finalization_block_cache.metrics() {
         set_gauge_by_usize(&PRE_FINALIZATION_BLOCK_CACHE_SIZE, size);
@@ -1135,7 +1146,7 @@ fn scrape_head_state<T: EthSpec>(state: &BeaconState<T>, state_root: Hash256) {
             num_active += 1;
         }
 
-        if v.slashed {
+        if v.slashed() {
             num_slashed += 1;
         }
 

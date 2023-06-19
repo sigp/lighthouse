@@ -37,10 +37,7 @@ use sensitive_url::SensitiveUrl;
 use slog::Logger;
 use slot_clock::{SlotClock, TestingSlotClock};
 use state_processing::per_block_processing::compute_timestamp_at_slot;
-use state_processing::{
-    state_advance::{complete_state_advance, partial_state_advance},
-    StateProcessingStrategy,
-};
+use state_processing::state_advance::complete_state_advance;
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
@@ -664,10 +661,7 @@ where
     pub fn get_current_state_and_root(&self) -> (BeaconState<E>, Hash256) {
         let head = self.chain.head_snapshot();
         let state_root = head.beacon_state_root();
-        (
-            head.beacon_state.clone_with_only_committee_caches(),
-            state_root,
-        )
+        (head.beacon_state.clone(), state_root)
     }
 
     pub fn head_slot(&self) -> Slot {
@@ -710,8 +704,9 @@ where
     pub fn get_hot_state(&self, state_hash: BeaconStateHash) -> Option<BeaconState<E>> {
         self.chain
             .store
-            .load_hot_state(&state_hash.into(), StateProcessingStrategy::Accurate)
+            .load_hot_state(&state_hash.into())
             .unwrap()
+            .map(|(state, _)| state)
     }
 
     pub fn get_cold_state(&self, state_hash: BeaconStateHash) -> Option<BeaconState<E>> {
@@ -891,9 +886,7 @@ where
             return Err(BeaconChainError::CannotAttestToFutureState);
         } else if state.current_epoch() < epoch {
             let mut_state = state.to_mut();
-            // Only perform a "partial" state advance since we do not require the state roots to be
-            // accurate.
-            partial_state_advance(
+            complete_state_advance(
                 mut_state,
                 Some(state_root),
                 epoch.start_slot(E::slots_per_epoch()),

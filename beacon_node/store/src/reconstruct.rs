@@ -8,7 +8,7 @@ use state_processing::{
     StateProcessingStrategy, VerifyBlockRoot,
 };
 use std::sync::Arc;
-use types::{EthSpec, Hash256};
+use types::EthSpec;
 
 impl<E, Hot, Cold> HotColdDB<E, Hot, Cold>
 where
@@ -16,7 +16,10 @@ where
     Hot: ItemStore<E>,
     Cold: ItemStore<E>,
 {
-    pub fn reconstruct_historic_states(self: &Arc<Self>) -> Result<(), Error> {
+    pub fn reconstruct_historic_states(
+        self: &Arc<Self>,
+        num_blocks: Option<usize>,
+    ) -> Result<(), Error> {
         let mut anchor = if let Some(anchor) = self.get_anchor_info() {
             anchor
         } else {
@@ -37,26 +40,17 @@ where
             "start_slot" => anchor.state_lower_limit,
         );
 
-        let slots_per_restore_point = self.config.slots_per_restore_point;
-
         // Iterate blocks from the state lower limit to the upper limit.
-        let lower_limit_slot = anchor.state_lower_limit;
         let split = self.get_split_info();
-        let upper_limit_state = self.get_restore_point(
-            anchor.state_upper_limit.as_u64() / slots_per_restore_point,
-            &split,
-        )?;
-        let upper_limit_slot = upper_limit_state.slot();
+        let lower_limit_slot = anchor.state_lower_limit;
+        let upper_limit_slot = std::cmp::min(split.slot, anchor.state_upper_limit);
 
-        // Use a dummy root, as we never read the block for the upper limit state.
-        let upper_limit_block_root = Hash256::repeat_byte(0xff);
-
-        let block_root_iter = self.forwards_block_roots_iterator(
-            lower_limit_slot,
-            upper_limit_state,
-            upper_limit_block_root,
-            &self.spec,
-        )?;
+        // If `num_blocks` is not specified iterate all blocks.
+        let block_root_iter = self
+            .forwards_block_roots_iterator_until(lower_limit_slot, upper_limit_slot - 1, || {
+                panic!("FIXME(sproul): reconstruction doesn't need this state")
+            })?
+            .take(num_blocks.unwrap_or(usize::MAX));
 
         // The state to be advanced.
         let mut state = self
@@ -77,7 +71,7 @@ where
                     None
                 } else {
                     Some(
-                        self.get_blinded_block(&block_root)?
+                        self.get_blinded_block(&block_root, Some(slot))?
                             .ok_or(Error::BlockNotFound(block_root))?,
                     )
                 };
@@ -114,7 +108,7 @@ where
                 self.store_cold_state(&state_root, &state, &mut io_batch)?;
 
                 // If the slot lies on an epoch boundary, commit the batch and update the anchor.
-                if slot % slots_per_restore_point == 0 || slot + 1 == upper_limit_slot {
+                if slot % E::slots_per_epoch() == 0 || slot + 1 == upper_limit_slot {
                     info!(
                         self.log,
                         "State reconstruction in progress";

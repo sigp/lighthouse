@@ -15,6 +15,7 @@ mod new_testnet;
 mod parse_ssz;
 mod replace_state_pubkeys;
 mod skip_slots;
+mod state_diff;
 mod transition_blocks;
 
 use clap::{App, Arg, ArgMatches, SubCommand};
@@ -841,6 +842,22 @@ fn main() {
                         .help("Number of repeat runs, useful for benchmarking."),
                 )
         )
+        .subcommand(
+            SubCommand::with_name("state-diff")
+                .about("Compute a state diff for a pair of states")
+                .arg(
+                    Arg::with_name("state1")
+                        .value_name("STATE1")
+                        .takes_value(true)
+                        .help("Path to first SSZ state"),
+                )
+                .arg(
+                    Arg::with_name("state2")
+                        .value_name("STATE2")
+                        .takes_value(true)
+                        .help("Path to second SSZ state"),
+                )
+        )
         .get_matches();
 
     let result = matches
@@ -934,6 +951,8 @@ fn run<T: EthSpec>(
             .map_err(|e| format!("Failed to run indexed-attestations command: {}", e)),
         ("block-root", Some(matches)) => block_root::run::<T>(env, matches)
             .map_err(|e| format!("Failed to run block-root command: {}", e)),
+        ("state-diff", Some(matches)) => state_diff::run::<T>(env, matches)
+            .map_err(|e| format!("Failed to run state-diff command: {}", e)),
         (other, _) => Err(format!("Unknown subcommand {}. See --help.", other)),
     }
 }

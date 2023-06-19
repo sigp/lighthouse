@@ -6,7 +6,7 @@ edition = "2021"
 
 [features]
 default = ["lmdb"]
-mdbx = ["dep:mdbx"]
+# mdbx = ["dep:mdbx"]
 lmdb = ["lmdb-rkv", "lmdb-rkv-sys"]
 
 [dependencies]
@@ -32,7 +32,7 @@ types = { path = "../consensus/types" }
 strum = { version = "0.24.1", features = ["derive"] }
 
 # MDBX is pinned at the last version with Windows and macOS support.
-mdbx = { package = "libmdbx", git = "https://github.com/sigp/libmdbx-rs", tag = "v0.1.4", optional = true }
+# mdbx = { package = "libmdbx", git = "https://github.com/sigp/libmdbx-rs", tag = "v0.1.4", optional = true }
 lmdb-rkv = { git = "https://github.com/sigp/lmdb-rs", rev = "f33845c6469b94265319aac0ed5085597862c27e", optional = true }
 lmdb-rkv-sys = { git = "https://github.com/sigp/lmdb-rs", rev = "f33845c6469b94265319aac0ed5085597862c27e", optional = true }
 

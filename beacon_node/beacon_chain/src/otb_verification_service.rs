@@ -85,8 +85,8 @@ impl StoreItem for OptimisticTransitionBlock {
         OTBColumn
     }
 
-    fn as_store_bytes(&self) -> Vec<u8> {
-        self.as_ssz_bytes()
+    fn as_store_bytes(&self) -> Result<Vec<u8>, StoreError> {
+        Ok(self.as_ssz_bytes())
     }
 
     fn from_store_bytes(bytes: &[u8]) -> Result<Self, StoreError> {
@@ -119,10 +119,13 @@ pub fn start_otb_verification_service<T: BeaconChainTypes>(
 pub fn load_optimistic_transition_blocks<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
 ) -> Result<Vec<OptimisticTransitionBlock>, StoreError> {
-    process_results(chain.store.hot_db.iter_column(OTBColumn), |iter| {
-        iter.map(|(_, bytes)| OptimisticTransitionBlock::from_store_bytes(&bytes))
-            .collect()
-    })?
+    process_results(
+        chain.store.hot_db.iter_column::<Hash256>(OTBColumn),
+        |iter| {
+            iter.map(|(_, bytes)| OptimisticTransitionBlock::from_store_bytes(&bytes))
+                .collect()
+        },
+    )?
 }
 
 #[derive(Debug)]

@@ -1,6 +1,6 @@
 use super::*;
 use crate::bls_setting::BlsSetting;
-use crate::case_result::compare_beacon_state_results_without_caches;
+use crate::case_result::{check_state_diff, compare_beacon_state_results_without_caches};
 use crate::decode::{ssz_decode_state, yaml_decode_file};
 use crate::type_name;
 use crate::type_name::TypeName;
@@ -147,16 +147,17 @@ impl<E: EthSpec> EpochTransition<E> for Slashings {
                 validator_statuses.process_attestations(state)?;
                 process_slashings(
                     state,
+                    None,
                     validator_statuses.total_balances.current_epoch(),
                     spec,
                 )?;
             }
             BeaconState::Altair(_) | BeaconState::Merge(_) | BeaconState::Capella(_) => {
+                let mut cache = altair::ParticipationCache::new(state, spec).unwrap();
                 process_slashings(
                     state,
-                    altair::ParticipationCache::new(state, spec)
-                        .unwrap()
-                        .current_epoch_total_active_balance(),
+                    Some(cache.process_slashings_indices()),
+                    cache.current_epoch_total_active_balance(),
                     spec,
                 )?;
             }
@@ -237,7 +238,7 @@ impl<E: EthSpec> EpochTransition<E> for InactivityUpdates {
             BeaconState::Altair(_) | BeaconState::Merge(_) | BeaconState::Capella(_) => {
                 altair::process_inactivity_updates(
                     state,
-                    &altair::ParticipationCache::new(state, spec).unwrap(),
+                    &mut altair::ParticipationCache::new(state, spec).unwrap(),
                     spec,
                 )
             }
@@ -312,18 +313,22 @@ impl<E: EthSpec, T: EpochTransition<E>> Case for EpochProcessing<E, T> {
     fn result(&self, _case_index: usize, fork_name: ForkName) -> Result<(), Error> {
         self.metadata.bls_setting.unwrap_or_default().check()?;
 
-        let mut state = self.pre.clone();
+        let spec = &testing_spec::<E>(fork_name);
+        let mut pre_state = self.pre.clone();
+
+        // Processing requires the committee caches.
+        pre_state.build_all_committee_caches(spec).unwrap();
+
+        let mut state = pre_state.clone();
         let mut expected = self.post.clone();
 
-        let spec = &testing_spec::<E>(fork_name);
+        if let Some(post_state) = expected.as_mut() {
+            post_state.build_all_committee_caches(spec).unwrap();
+        }
 
-        let mut result = (|| {
-            // Processing requires the committee caches.
-            state.build_all_committee_caches(spec)?;
+        let mut result = T::run(&mut state, spec).map(|_| state);
 
-            T::run(&mut state, spec).map(|_| state)
-        })();
-
+        check_state_diff(&pre_state, &expected)?;
         compare_beacon_state_results_without_caches(&mut result, &mut expected)
     }
 }

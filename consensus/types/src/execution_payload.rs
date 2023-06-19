@@ -6,6 +6,9 @@ use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
+// FIXME(sproul): try milhouse FixedVector
+use ssz_types::FixedVector;
+
 pub type Transaction<N> = VariableList<u8, N>;
 pub type Transactions<T> = VariableList<
     Transaction<<T as EthSpec>::MaxBytesPerTransaction>,

@@ -2,7 +2,7 @@ use super::*;
 use compare_fields::{CompareFields, Comparison, FieldComparison};
 use std::fmt::Debug;
 use std::path::{Path, PathBuf};
-use types::BeaconState;
+use types::{beacon_state::BeaconStateDiff, milhouse::diff::Diff, BeaconState};
 
 pub const MAX_VALUE_STRING_LEN: usize = 500;
 
@@ -39,6 +39,9 @@ pub fn compare_beacon_state_results_without_caches<T: EthSpec, E: Debug>(
     if let (Ok(ref mut result), Some(ref mut expected)) = (result.as_mut(), expected.as_mut()) {
         result.drop_all_caches().unwrap();
         expected.drop_all_caches().unwrap();
+
+        result.apply_pending_mutations().unwrap();
+        expected.apply_pending_mutations().unwrap();
     }
 
     compare_result_detailed(result, expected)
@@ -112,6 +115,23 @@ where
                 )))
             }
         }
+    }
+}
+
+pub fn check_state_diff<T: EthSpec>(
+    pre_state: &BeaconState<T>,
+    opt_post_state: &Option<BeaconState<T>>,
+) -> Result<(), Error> {
+    if let Some(post_state) = opt_post_state {
+        let diff = BeaconStateDiff::compute_diff(pre_state, post_state)
+            .expect("BeaconStateDiff should compute");
+        let mut diffed_state = pre_state.clone();
+        diff.apply_diff(&mut diffed_state)
+            .expect("BeaconStateDiff should apply");
+
+        compare_result_detailed::<_, ()>(&Ok(diffed_state), opt_post_state)
+    } else {
+        Ok(())
     }
 }
 

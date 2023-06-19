@@ -178,14 +178,15 @@ mod test {
         }
 
         for v in state.validators() {
-            let creds = v.withdrawal_credentials.as_bytes();
+            let creds = v.withdrawal_credentials();
             assert_eq!(
-                creds[0], spec.bls_withdrawal_prefix_byte,
+                creds.as_bytes()[0],
+                spec.bls_withdrawal_prefix_byte,
                 "first byte of withdrawal creds should be bls prefix"
             );
             assert_eq!(
-                &creds[1..],
-                &hash(&v.pubkey.as_ssz_bytes())[1..],
+                &creds.as_bytes()[1..],
+                &hash(&v.pubkey().as_ssz_bytes())[1..],
                 "rest of withdrawal creds should be pubkey hash"
             )
         }

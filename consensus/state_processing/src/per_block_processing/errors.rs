@@ -1,5 +1,5 @@
 use super::signature_sets::Error as SignatureSetError;
-use crate::ContextError;
+use crate::{ContextError, EpochCacheError};
 use merkle_proof::MerkleTreeError;
 use safe_arith::ArithError;
 use ssz::DecodeError;
@@ -78,6 +78,8 @@ pub enum BlockProcessingError {
     },
     ExecutionInvalid,
     ConsensusContext(ContextError),
+    MilhouseError(milhouse::Error),
+    EpochCacheError(EpochCacheError),
     WithdrawalsRootMismatch {
         expected: Hash256,
         found: Hash256,
@@ -124,6 +126,18 @@ impl From<SyncAggregateInvalid> for BlockProcessingError {
 impl From<ContextError> for BlockProcessingError {
     fn from(e: ContextError) -> Self {
         BlockProcessingError::ConsensusContext(e)
+    }
+}
+
+impl From<EpochCacheError> for BlockProcessingError {
+    fn from(e: EpochCacheError) -> Self {
+        BlockProcessingError::EpochCacheError(e)
+    }
+}
+
+impl From<milhouse::Error> for BlockProcessingError {
+    fn from(e: milhouse::Error) -> Self {
+        Self::MilhouseError(e)
     }
 }
 

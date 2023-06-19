@@ -92,7 +92,7 @@ async fn shuffles_for_the_right_epoch() {
         .map(|i| Hash256::from_low_u64_be(i as u64))
         .collect();
 
-    *state.randao_mixes_mut() = FixedVector::from(distinct_hashes);
+    *state.randao_mixes_mut() = FixedVector::try_from_iter(distinct_hashes).unwrap();
 
     let previous_seed = state
         .get_seed(state.previous_epoch(), Domain::BeaconAttester, spec)

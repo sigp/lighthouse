@@ -171,7 +171,7 @@ vectors_and_tests!(
     invalid_exit_already_initiated,
     ExitTest {
         state_modifier: Box::new(|state| {
-            state.validators_mut().get_mut(0).unwrap().exit_epoch = STATE_EPOCH + 1;
+            *state.validators_mut().get_mut(0).unwrap().exit_epoch_mut() = STATE_EPOCH + 1;
         }),
         expected: Err(BlockProcessingError::ExitInvalid {
             index: 0,
@@ -190,8 +190,11 @@ vectors_and_tests!(
     invalid_not_active_before_activation_epoch,
     ExitTest {
         state_modifier: Box::new(|state| {
-            state.validators_mut().get_mut(0).unwrap().activation_epoch =
-                E::default_spec().far_future_epoch;
+            *state
+                .validators_mut()
+                .get_mut(0)
+                .unwrap()
+                .activation_epoch_mut() = E::default_spec().far_future_epoch;
         }),
         expected: Err(BlockProcessingError::ExitInvalid {
             index: 0,
@@ -210,7 +213,7 @@ vectors_and_tests!(
     invalid_not_active_after_exit_epoch,
     ExitTest {
         state_modifier: Box::new(|state| {
-            state.validators_mut().get_mut(0).unwrap().exit_epoch = STATE_EPOCH;
+            *state.validators_mut().get_mut(0).unwrap().exit_epoch_mut() = STATE_EPOCH;
         }),
         expected: Err(BlockProcessingError::ExitInvalid {
             index: 0,

@@ -638,7 +638,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true)
         )
         /*
-         * Database purging and compaction.
+         * Database.
          */
         .arg(
             Arg::with_name("purge-db")
@@ -659,6 +659,21 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .default_value("true")
         )
         .arg(
+            Arg::with_name("state-cache-size")
+                .long("state-cache-size")
+                .value_name("SIZE")
+                .help("Specifies how many states the database should cache in memory [default: 128]")
+                .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("compression-level")
+                .long("compression-level")
+                .value_name("LEVEL")
+                .help("Compression level (-99 to 22) for zstd compression applied to states on disk \
+                       [default: 1]. You may change the compression level freely without re-syncing.")
+                .takes_value(true)
+        )
+        .arg(
             Arg::with_name("prune-payloads")
                 .long("prune-payloads")
                 .help("Prune execution payloads from Lighthouse's database. This saves space but \
@@ -667,7 +682,26 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true)
                 .default_value("true")
         )
-
+        .arg(
+            Arg::with_name("db-migration-period")
+                .long("db-migration-period")
+                .value_name("EPOCHS")
+                .help("Specifies the number of epochs to wait between applying each finalization \
+                       migration to the database. Applying migrations less frequently can lead to \
+                       less total disk writes.")
+                .default_value("4")
+                .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("epochs-per-state-diff")
+                .long("epochs-per-state-diff")
+                .value_name("EPOCHS")
+                .help("Number of epochs between state diffs stored in the database. Lower values \
+                       result in more writes and more data stored, while higher values result in \
+                       more block replaying and longer load times in case of cache miss.")
+                .default_value("4")
+                .takes_value(true)
+        )
         /*
          * Misc.
          */
@@ -1116,5 +1150,11 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     the block SSZ as a file at this path. This feature is only recommended for \
                     developers. This directory is not pruned, users should be careful to avoid \
                     filling up their disks.")
+        )
+        .arg(
+            Arg::with_name("unsafe-and-dangerous-mode")
+            .long("unsafe-and-dangerous-mode")
+            .help("Don't use this flag unless you know what you're doing. Go back and download a \
+                   stable Lighthouse release")
         )
 }

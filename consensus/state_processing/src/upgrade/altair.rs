@@ -3,13 +3,13 @@ use std::mem;
 use std::sync::Arc;
 use types::{
     BeaconState, BeaconStateAltair, BeaconStateError as Error, ChainSpec, EthSpec, Fork,
-    ParticipationFlags, PendingAttestation, RelativeEpoch, SyncCommittee, VariableList,
+    ParticipationFlags, PendingAttestation, RelativeEpoch, SyncCommittee, VList,
 };
 
 /// Translate the participation information from the epoch prior to the fork into Altair's format.
 pub fn translate_participation<E: EthSpec>(
     state: &mut BeaconState<E>,
-    pending_attestations: &VariableList<PendingAttestation<E>, E::MaxPendingAttestations>,
+    pending_attestations: &VList<PendingAttestation<E>, E::MaxPendingAttestations>,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
     // Previous epoch committee cache is required for `get_attesting_indices`.
@@ -50,8 +50,8 @@ pub fn upgrade_to_altair<E: EthSpec>(
     let pre = pre_state.as_base_mut()?;
 
     let default_epoch_participation =
-        VariableList::new(vec![ParticipationFlags::default(); pre.validators.len()])?;
-    let inactivity_scores = VariableList::new(vec![0; pre.validators.len()])?;
+        VList::new(vec![ParticipationFlags::default(); pre.validators.len()])?;
+    let inactivity_scores = VList::new(vec![0; pre.validators.len()])?;
 
     let temp_sync_committee = Arc::new(SyncCommittee::temporary()?);
 
@@ -104,7 +104,6 @@ pub fn upgrade_to_altair<E: EthSpec>(
         committee_caches: mem::take(&mut pre.committee_caches),
         pubkey_cache: mem::take(&mut pre.pubkey_cache),
         exit_cache: mem::take(&mut pre.exit_cache),
-        tree_hash_cache: mem::take(&mut pre.tree_hash_cache),
     });
 
     // Fill in previous epoch participation from the pre state's pending attestations.

@@ -35,10 +35,7 @@ use crate::beacon_chain::ATTESTATION_CACHE_LOCK_TIMEOUT;
 use crate::persisted_fork_choice::PersistedForkChoice;
 use crate::shuffling_cache::BlockShufflingIds;
 use crate::{
-    beacon_chain::{
-        BeaconForkChoice, BeaconStore, OverrideForkchoiceUpdate,
-        BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT, FORK_CHOICE_DB_KEY,
-    },
+    beacon_chain::{BeaconForkChoice, BeaconStore, OverrideForkchoiceUpdate, FORK_CHOICE_DB_KEY},
     block_times_cache::BlockTimesCache,
     events::ServerSentEventHandler,
     metrics,
@@ -296,7 +293,7 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
         let fork_choice_view = fork_choice.cached_fork_choice_view();
         let beacon_block_root = fork_choice_view.head_block_root;
         let beacon_block = store
-            .get_full_block(&beacon_block_root)?
+            .get_full_block(&beacon_block_root, None)?
             .ok_or(Error::MissingBeaconBlock(beacon_block_root))?;
         let beacon_state_root = beacon_block.state_root();
         let beacon_state = store
@@ -465,9 +462,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn head_beacon_state_cloned(&self) -> BeaconState<T::EthSpec> {
         // Don't clone whilst holding the read-lock, take an Arc-clone to reduce lock contention.
         let snapshot: Arc<_> = self.head_snapshot();
-        snapshot
-            .beacon_state
-            .clone_with(CloneConfig::committee_caches_only())
+        snapshot.beacon_state.clone()
     }
 
     /// Execute the fork choice algorithm and enthrone the result as the canonical head.
@@ -651,44 +646,27 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let new_cached_head = if new_view.head_block_root != old_view.head_block_root {
             metrics::inc_counter(&metrics::FORK_CHOICE_CHANGED_HEAD);
 
-            // Try and obtain the snapshot for `beacon_block_root` from the snapshot cache, falling
-            // back to a database read if that fails.
-            let new_snapshot = self
-                .snapshot_cache
-                .try_read_for(BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT)
-                .and_then(|snapshot_cache| {
-                    snapshot_cache.get_cloned(
-                        new_view.head_block_root,
-                        CloneConfig::committee_caches_only(),
-                    )
-                })
-                .map::<Result<_, Error>, _>(Ok)
-                .unwrap_or_else(|| {
-                    let beacon_block = self
-                        .store
-                        .get_full_block(&new_view.head_block_root)?
-                        .ok_or(Error::MissingBeaconBlock(new_view.head_block_root))?;
+            let mut new_snapshot = {
+                let beacon_block = self
+                    .store
+                    .get_full_block(&new_view.head_block_root, None)?
+                    .ok_or(Error::MissingBeaconBlock(new_view.head_block_root))?;
 
-                    let beacon_state_root = beacon_block.state_root();
-                    let beacon_state: BeaconState<T::EthSpec> = self
-                        .get_state(&beacon_state_root, Some(beacon_block.slot()))?
-                        .ok_or(Error::MissingBeaconState(beacon_state_root))?;
+                let beacon_state_root = beacon_block.state_root();
+                let beacon_state: BeaconState<T::EthSpec> = self
+                    .get_state(&beacon_state_root, Some(beacon_block.slot()))?
+                    .ok_or(Error::MissingBeaconState(beacon_state_root))?;
 
-                    Ok(BeaconSnapshot {
-                        beacon_block: Arc::new(beacon_block),
-                        beacon_block_root: new_view.head_block_root,
-                        beacon_state,
-                    })
-                })
-                .and_then(|mut snapshot| {
-                    // Regardless of where we got the state from, attempt to build the committee
-                    // caches.
-                    snapshot
-                        .beacon_state
-                        .build_all_committee_caches(&self.spec)
-                        .map_err(Into::into)
-                        .map(|()| snapshot)
-                })?;
+                BeaconSnapshot {
+                    beacon_block: Arc::new(beacon_block),
+                    beacon_block_root: new_view.head_block_root,
+                    beacon_state,
+                }
+            };
+
+            // Regardless of where we got the state from, attempt to build all the
+            // caches except the tree hash cache.
+            new_snapshot.beacon_state.build_all_caches(&self.spec)?;
 
             let new_cached_head = CachedHead {
                 snapshot: Arc::new(new_snapshot),
@@ -829,25 +807,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .beacon_state
             .attester_shuffling_decision_root(self.genesis_block_root, RelativeEpoch::Current);
 
-        // Update the snapshot cache with the latest head value.
-        //
-        // This *could* be done inside `recompute_head`, however updating the head on the snapshot
-        // cache is not critical so we avoid placing it on a critical path. Note that this function
-        // will not return an error if the update fails, it will just log an error.
-        self.snapshot_cache
-            .try_write_for(BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT)
-            .map(|mut snapshot_cache| {
-                snapshot_cache.update_head(new_snapshot.beacon_block_root);
-            })
-            .unwrap_or_else(|| {
-                error!(
-                    self.log,
-                    "Failed to obtain cache write lock";
-                    "lock" => "snapshot_cache",
-                    "task" => "update head"
-                );
-            });
-
         match BlockShufflingIds::try_from_head(
             new_snapshot.beacon_block_root,
             &new_snapshot.beacon_state,
@@ -979,26 +938,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .start_slot(T::EthSpec::slots_per_epoch()),
         );
 
-        self.snapshot_cache
-            .try_write_for(BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT)
-            .map(|mut snapshot_cache| {
-                snapshot_cache.prune(new_view.finalized_checkpoint.epoch);
-                debug!(
-                    self.log,
-                    "Snapshot cache pruned";
-                    "new_len" => snapshot_cache.len(),
-                    "remaining_roots" => ?snapshot_cache.beacon_block_roots(),
-                );
-            })
-            .unwrap_or_else(|| {
-                error!(
-                    self.log,
-                    "Failed to obtain cache write lock";
-                    "lock" => "snapshot_cache",
-                    "task" => "prune"
-                );
-            });
-
         self.attester_cache
             .prune_below(new_view.finalized_checkpoint.epoch);
 
@@ -1053,14 +992,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 
     /// Return a database operation for writing fork choice to disk.
-    pub fn persist_fork_choice_in_batch(&self) -> KeyValueStoreOp {
+    pub fn persist_fork_choice_in_batch(&self) -> Result<KeyValueStoreOp, store::Error> {
         Self::persist_fork_choice_in_batch_standalone(&self.canonical_head.fork_choice_read_lock())
     }
 
     /// Return a database operation for writing fork choice to disk.
     pub fn persist_fork_choice_in_batch_standalone(
         fork_choice: &BeaconForkChoice<T>,
-    ) -> KeyValueStoreOp {
+    ) -> Result<KeyValueStoreOp, store::Error> {
         let persisted_fork_choice = PersistedForkChoice {
             fork_choice: fork_choice.to_persisted(),
             fork_choice_store: fork_choice.fc_store().to_persisted(),
@@ -1447,6 +1386,7 @@ fn observe_head_block_delays<E: EthSpec, S: SlotClock>(
                 block_delay: block_delay_total,
                 observed_delay: block_delays.observed,
                 imported_delay: block_delays.imported,
+                attestable_delay: block_delays.attestable,
                 set_as_head_delay: block_delays.set_as_head,
                 execution_optimistic: head_block_is_optimistic,
             }));

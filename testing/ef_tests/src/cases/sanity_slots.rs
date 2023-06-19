@@ -1,6 +1,6 @@
 use super::*;
 use crate::bls_setting::BlsSetting;
-use crate::case_result::compare_beacon_state_results_without_caches;
+use crate::case_result::{check_state_diff, compare_beacon_state_results_without_caches};
 use crate::decode::{ssz_decode_state, yaml_decode_file};
 use serde_derive::Deserialize;
 use state_processing::per_slot_processing;
@@ -67,6 +67,15 @@ impl<E: EthSpec> Case for SanitySlots<E> {
             .try_for_each(|_| per_slot_processing(&mut state, None, spec).map(|_| ()))
             .map(|_| state);
 
-        compare_beacon_state_results_without_caches(&mut result, &mut expected)
+        compare_beacon_state_results_without_caches(&mut result, &mut expected)?;
+
+        // Check state diff (requires fully built committee caches).
+        let mut pre = self.pre.clone();
+        pre.build_all_committee_caches(spec).unwrap();
+        let post = self.post.clone().map(|mut post| {
+            post.build_all_committee_caches(spec).unwrap();
+            post
+        });
+        check_state_diff(&pre, &post)
     }
 }
