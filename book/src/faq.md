@@ -386,7 +386,7 @@ For these reasons, we recommend that you make your node publicly accessible.
 
 Lighthouse supports UPnP. If you are behind a NAT with a router that supports
 UPnP, you can simply ensure UPnP is enabled (Lighthouse will inform you in its
-initial logs if a route has been established). You can also manually [set up port mappings](./advanced_networking.md) in your router to your local Lighthouse instance. By default,
+initial logs if a route has been established). You can also manually [set up port mappings/port forwarding](./advanced_networking.md/#how-to-open-ports) in your router to your local Lighthouse instance. By default,
 Lighthouse uses port 9000 for both TCP and UDP. Opening both these ports will
 make your Lighthouse node maximally contactable.
 

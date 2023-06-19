@@ -202,10 +202,10 @@ impl<T: EthSpec, B: BatchConfig> BatchInfo<T, B> {
 
     /// Returns a BlocksByRange request associated with the batch.
     pub fn to_blocks_by_range_request(&self) -> BlocksByRangeRequest {
-        BlocksByRangeRequest {
-            start_slot: self.start_slot.into(),
-            count: self.end_slot.sub(self.start_slot).into(),
-        }
+        BlocksByRangeRequest::new(
+            self.start_slot.into(),
+            self.end_slot.sub(self.start_slot).into(),
+        )
     }
 
     /// After different operations over a batch, this could be in a state that allows it to
