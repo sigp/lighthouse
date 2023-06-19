@@ -171,8 +171,7 @@ pub async fn publish_block<T: BeaconChainTypes>(
         Err(e) => {
             if let BroadcastValidation::Gossip = validation_level {
                 Err(warp_utils::reject::broadcast_without_import(format!(
-                    "{}",
-                    e
+                    "{e}"
                 )))
             } else {
                 let msg = format!("{:?}", e);
