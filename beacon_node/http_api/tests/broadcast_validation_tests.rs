@@ -551,7 +551,6 @@ pub async fn equivocation_gossip() {
     /* mandated by Beacon API spec */
     assert_eq!(error_response.status(), Some(StatusCode::BAD_REQUEST));
 
-    dbg!(&error_response);
 
     assert!(
         matches!(error_response, eth2::Error::ServerMessage(err) if err.message == "BAD_REQUEST: Invalid block".to_string())
