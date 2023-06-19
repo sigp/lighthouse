@@ -86,7 +86,8 @@ pub async fn publish_block<T: BeaconChainTypes>(
     let sender_clone = network_tx.clone();
 
     let publish_fn = move || match validation_level {
-        BroadcastValidation::Gossip | BroadcastValidation::Consensus => {
+        BroadcastValidation::Gossip => Ok(()),
+        BroadcastValidation::Consensus => {
             publish_block(block_clone, sender_clone, log_clone, seen_timestamp)
         }
         BroadcastValidation::ConsensusAndEquivocation => {
