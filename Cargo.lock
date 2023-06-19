@@ -5047,16 +5047,18 @@ dependencies = [
 
 [[package]]
 name = "metastruct"
-version = "0.1.0"
-source = "git+https://github.com/sigp/metastruct?branch=bimapping#4095d62b5c97b2a34e829c02a75fe1e8129cbe84"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ccfbb8826226b09b05bb62a0937cf6abb16f1f7d4b746eb95a83db14aec60f06"
 dependencies = [
  "metastruct_macro",
 ]
 
 [[package]]
 name = "metastruct_macro"
-version = "0.1.0"
-source = "git+https://github.com/sigp/metastruct?branch=bimapping#4095d62b5c97b2a34e829c02a75fe1e8129cbe84"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "37cb4045d5677b7da537f8cb5d0730d5b6414e3cc81c61e4b50e1f0cbdc73909"
 dependencies = [
  "darling 0.13.4",
  "itertools",
@@ -5119,7 +5121,7 @@ dependencies = [
 [[package]]
 name = "milhouse"
 version = "0.1.0"
-source = "git+https://github.com/sigp/milhouse?branch=rebase#f95d2322f47b9072257ffa76def736528d0aafbf"
+source = "git+https://github.com/sigp/milhouse?branch=main#248bc353849c113bdf078c5a81e629285c1c0589"
 dependencies = [
  "arbitrary",
  "derivative",
