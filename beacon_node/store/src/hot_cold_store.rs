@@ -703,22 +703,59 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         }
     }
 
-    /// Get a state with `latest_block_root == block_root` advanced through to at most `slot`.
+    /// Get a state with `latest_block_root == block_root` advanced through to
+    /// at most `slot`.
     ///
-    /// The `state_root` argument is used to look up the block's un-advanced state in case of a
-    /// cache miss.
+    /// If there is no cached advanced state then the `state_root` argument will
+    /// be used to load a state from the database.
     pub fn get_advanced_state(
         &self,
         block_root: Hash256,
         slot: Slot,
         state_root: Hash256,
     ) -> Result<Option<(Hash256, BeaconState<E>)>, Error> {
-        if let Some(cached) = self.state_cache.lock().get_by_block_root(block_root, slot) {
+        if let Some(cached) = self
+            .state_cache
+            .lock()
+            .get_best_advanced_state(block_root, slot)
+        {
             return Ok(Some(cached));
         }
         Ok(self
             .get_hot_state(&state_root)?
             .map(|state| (state_root, state)))
+    }
+
+    /// Get a state with `latest_block_root == block_root` advanced through to
+    /// at most `slot`.
+    ///
+    /// Only returns cached states, will never read from the database.
+    pub fn get_advanced_state_cached_only(
+        &self,
+        block_root: Hash256,
+        slot: Slot,
+    ) -> Option<(Hash256, BeaconState<E>)> {
+        self.state_cache
+            .lock()
+            .get_best_advanced_state(block_root, slot)
+    }
+
+    pub fn put_advanced_state(
+        &self,
+        block_root: Hash256,
+        block_slot: Slot,
+        state_root: Hash256,
+        state: BeaconState<E>,
+    ) -> Result<(), Error> {
+        self.state_cache
+            .lock()
+            .insert_advanced_state(block_root, block_slot, state_root, state)
+    }
+
+    pub fn retain_advanced_states(&self, blocks_roots_to_retain: &[Hash256]) {
+        self.state_cache
+            .lock()
+            .retain_advanced_states(blocks_roots_to_retain)
     }
 
     /// Delete a state, ensuring it is removed from the LRU cache, as well as from on-disk.
@@ -1573,7 +1610,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             (start_slot.as_u64()..=end_slot.as_u64())
                 .map(Slot::new)
                 .map(|slot| self.get_cold_blinded_block_by_slot(slot)),
-            |iter| iter.filter_map(|x| x).collect(),
+            |iter| iter.flatten().collect(),
         )
     }
 

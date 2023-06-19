@@ -71,6 +71,10 @@ pub enum Error {
     Hdiff(hdiff::Error),
     InconsistentFork(InconsistentFork),
     ZeroCacheSize,
+    AdvancedStateMissesSlot {
+        previous_slot: Slot,
+        state_slot: Slot,
+    },
 }
 
 pub trait HandleUnavailable<T> {

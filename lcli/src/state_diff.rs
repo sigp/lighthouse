@@ -1,14 +1,12 @@
 use crate::transition_blocks::load_from_ssz_with;
 use clap::ArgMatches;
-use clap_utils::{parse_optional, parse_required};
+use clap_utils::parse_required;
 use environment::Environment;
-use eth2::{types::BlockId, BeaconNodeHttpClient, SensitiveUrl, Timeouts};
 use std::path::PathBuf;
-use std::time::{Duration, Instant};
 use store::hdiff::{HDiff, HDiffBuffer};
-use types::{BeaconState, EthSpec, FullPayload, SignedBeaconBlock};
+use types::{BeaconState, EthSpec};
 
-pub fn run<T: EthSpec>(env: Environment<T>, matches: &ArgMatches) -> Result<(), String> {
+pub fn run<T: EthSpec>(_env: Environment<T>, matches: &ArgMatches) -> Result<(), String> {
     let state1_path: PathBuf = parse_required(matches, "state1")?;
     let state2_path: PathBuf = parse_required(matches, "state2")?;
     let spec = &T::default_spec();
