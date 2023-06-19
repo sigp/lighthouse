@@ -16,7 +16,7 @@ use eth2::reqwest::StatusCode;
 type E = MainnetEthSpec;
 
 /*
- * We have the following test cases:
+ * We have the following test cases, which are duplicated for the blinded variant of the route:
  *
  * -  `broadcast_validation=gossip`
  *   -  Invalid (400)
@@ -278,7 +278,6 @@ pub async fn consensus_gossip() {
     );
 }
 
-/* TODO: bang (200) */
 /// This test checks that a block that is valid from both a gossip and consensus perspective, but nonetheless equivocates, is accepted when using `broadcast_validation=consensus`.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 pub async fn consensus_partial_pass_only_consensus() {
@@ -328,7 +327,7 @@ pub async fn consensus_partial_pass_only_consensus() {
 
     let publication_result: Result<(), Rejection> = publish_block(
         None,
-        ProvenancedBlock::local(Arc::new(block_b.clone())),
+        ProvenancedBlock::local(gossip_block_b.unwrap()),
         tester.harness.chain.clone(),
         &channel.0,
         test_logger,
@@ -914,7 +913,6 @@ pub async fn blinded_consensus_gossip() {
     );
 }
 
-/* TODO: bang (200) */
 /// This test checks that a block that is valid from both a gossip and consensus perspective is accepted when using `broadcast_validation=consensus`.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 pub async fn blinded_consensus_partial_pass_only_consensus() {
