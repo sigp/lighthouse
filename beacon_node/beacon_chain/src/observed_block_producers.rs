@@ -125,15 +125,27 @@ impl<E: EthSpec> ObservedBlockProducers<E> {
     ///
     /// - `block.proposer_index` is greater than `VALIDATOR_REGISTRY_LIMIT`.
     /// - `block.slot` is equal to or less than the latest pruned `finalized_slot`.
-    pub fn proposer_has_been_observed(&self, block: BeaconBlockRef<'_, E>) -> Result<bool, Error> {
-        self.sanitize_block(block)?;
+    pub fn proposer_has_been_observed(
+        &self,
+        block: BeaconBlockRef<'_, E>,
+    ) -> Result<SeenBlock, Error> {
+        if let Err(e) = self.sanitize_block(block) {
+            match e {
+                Error::FinalizedBlock { .. } => return Ok(SeenBlock::Slashable),
+                _ => return Err(e),
+            }
+        }
 
         let exists = self.items.get(&block.slot()).map_or(false, |set| {
             set.iter()
                 .any(|proposal| proposal.proposer == block.proposer_index())
         });
 
-        Ok(exists)
+        if exists {
+            Ok(SeenBlock::Duplicate)
+        } else {
+            Ok(SeenBlock::UniqueNonSlashable)
+        }
     }
 
     /// Returns `Ok(())` if the given `block` is sane.
@@ -343,7 +355,9 @@ mod tests {
         let block_root_a = block_a.canonical_root();
 
         assert_eq!(
-            cache.proposer_has_been_observed(block_a.to_ref()),
+            cache
+                .proposer_has_been_observed(block_a.to_ref())
+                .map(|x| x.proposer_previously_observed()),
             Ok(false),
             "no observation in empty cache"
         );
@@ -355,7 +369,9 @@ mod tests {
             "can observe proposer, indicates proposer unobserved"
         );
         assert_eq!(
-            cache.proposer_has_been_observed(block_a.to_ref()),
+            cache
+                .proposer_has_been_observed(block_a.to_ref())
+                .map(|x| x.proposer_previously_observed()),
             Ok(true),
             "observed block is indicated as true"
         );
@@ -384,7 +400,9 @@ mod tests {
         let block_root_b = block_b.canonical_root();
 
         assert_eq!(
-            cache.proposer_has_been_observed(block_b.to_ref()),
+            cache
+                .proposer_has_been_observed(block_b.to_ref())
+                .map(|x| x.proposer_previously_observed()),
             Ok(false),
             "no observation for new slot"
         );
@@ -396,7 +414,9 @@ mod tests {
             "can observe proposer for new slot, indicates proposer unobserved"
         );
         assert_eq!(
-            cache.proposer_has_been_observed(block_b.to_ref()),
+            cache
+                .proposer_has_been_observed(block_b.to_ref())
+                .map(|x| x.proposer_previously_observed()),
             Ok(true),
             "observed block in slot 1 is indicated as true"
         );
@@ -434,7 +454,9 @@ mod tests {
         let block_root_c = block_c.canonical_root();
 
         assert_eq!(
-            cache.proposer_has_been_observed(block_c.to_ref()),
+            cache
+                .proposer_has_been_observed(block_c.to_ref())
+                .map(|x| x.proposer_previously_observed()),
             Ok(false),
             "no observation for new proposer"
         );
@@ -446,7 +468,9 @@ mod tests {
             "can observe new proposer, indicates proposer unobserved"
         );
         assert_eq!(
-            cache.proposer_has_been_observed(block_c.to_ref()),
+            cache
+                .proposer_has_been_observed(block_c.to_ref())
+                .map(|x| x.proposer_previously_observed()),
             Ok(true),
             "observed new proposer block is indicated as true"
         );

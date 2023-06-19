@@ -790,6 +790,7 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
             .read()
             .proposer_has_been_observed(block.message())
             .map_err(|e| BlockError::BeaconChainError(e.into()))?
+            .proposer_previously_observed()
         {
             return Err(BlockError::RepeatProposal {
                 proposer: block.message().proposer_index(),

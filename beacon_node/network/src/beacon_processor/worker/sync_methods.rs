@@ -105,7 +105,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                 .read()
                 .proposer_has_been_observed(block.message())
             {
-                Ok(is_observed) => is_observed,
+                Ok(seen_status) => seen_status.proposer_previously_observed(),
                 // Both of these blocks will be rejected, so reject them now rather
                 // than re-queuing them.
                 Err(ObserveError::FinalizedBlock { .. })
