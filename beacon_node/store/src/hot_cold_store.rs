@@ -740,10 +740,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             .get_best_advanced_state(block_root, slot)
     }
 
-    // Caches a `state` which has been "advanced" via `per_slot_processing` to
-    // some slot later than `block_slot`.
     pub fn put_advanced_state(
-        &mut self,
+        &self,
         block_root: Hash256,
         block_slot: Slot,
         state_root: Hash256,
@@ -754,11 +752,10 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             .insert_advanced_state(block_root, block_slot, state_root, state)
     }
 
-    /// Drops all advanced states that do not descend from a root in
-    /// `blocks_roots_to_retain`.
-    pub fn prune_advanced_states(&mut self, blocks_roots_to_retain: &[Hash256]) {
-        self.advanced_states
-            .retain(|key, _value| blocks_roots_to_retain.iter().any(|root| key == root));
+    pub fn prune_advanced_states(&self, blocks_roots_to_retain: &[Hash256]) {
+        self.state_cache
+            .lock()
+            .prune_advanced_states(blocks_roots_to_retain)
     }
 
     /// Delete a state, ensuring it is removed from the LRU cache, as well as from on-disk.

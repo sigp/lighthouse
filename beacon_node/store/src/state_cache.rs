@@ -1,12 +1,8 @@
 use crate::Error;
 use lru::LruCache;
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::hash::Hash;
 use std::num::NonZeroUsize;
 use types::{BeaconState, EthSpec, Hash256, Slot};
-
-// TODO(paul): create a wrapper around states in the cache to prevent them from
-// being mutated outside this cache.
 
 /// Maps block roots to a list of states that have been pre-emptively advanced
 /// to future slots (i.e. `per_slot_processing` has been run on them).
@@ -156,26 +152,6 @@ impl<E: EthSpec> StateCache<E> {
             }
         }
         self.states.get(&state_root).cloned()
-    }
-
-    pub fn get_by_block_root(
-        &mut self,
-        block_root: Hash256,
-        slot: Slot,
-    ) -> Option<(Hash256, BeaconState<E>)> {
-        let slot_map = self.block_map.blocks.get(&block_root)?;
-
-        // Find the state at `slot`, or failing that the most recent ancestor.
-        let state_root = slot_map
-            .slots
-            .iter()
-            .rev()
-            .find_map(|(ancestor_slot, state_root)| {
-                (*ancestor_slot <= slot).then_some(*state_root)
-            })?;
-
-        let state = self.get_by_state_root(state_root)?;
-        Some((state_root, state))
     }
 
     pub fn delete_state(&mut self, state_root: &Hash256) {

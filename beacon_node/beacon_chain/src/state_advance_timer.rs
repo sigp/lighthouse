@@ -58,14 +58,9 @@ enum Error {
     BeaconChain(BeaconChainError),
     BeaconState(BeaconStateError),
     Store(store::Error),
-    HeadMissingFromSnapshotCache(Hash256),
     MaxDistanceExceeded {
         current_slot: Slot,
         existing_slot: Slot,
-    },
-    BadStateSlot {
-        _state_slot: Slot,
-        _current_slot: Slot,
     },
 }
 
@@ -313,9 +308,6 @@ fn advance_state<T: BeaconChainTypes>(
     let (existing_state_root, existing_state) = beacon_chain
         .store
         .get_advanced_state_cached_only(block_root, current_slot)
-        // If there was a state returned from the cache, clone it. This prevents
-        // mutating states in the cache.
-        .clone()
         .unwrap_or_else(|| (block.state_root(), state.clone()));
     let existing_slot = existing_state.slot();
 
