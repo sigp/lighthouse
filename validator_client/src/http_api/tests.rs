@@ -28,12 +28,14 @@ use slot_clock::{SlotClock, TestingSlotClock};
 use std::future::Future;
 use std::marker::PhantomData;
 use std::net::{IpAddr, Ipv4Addr};
+use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 use task_executor::TaskExecutor;
 use tempfile::{tempdir, TempDir};
 use tokio::runtime::Runtime;
 use tokio::sync::oneshot;
+use types::graffiti::GraffitiString;
 
 const PASSWORD_BYTES: &[u8] = &[42, 50, 37];
 pub const TEST_DEFAULT_FEE_RECIPIENT: Address = Address::repeat_byte(42);
@@ -533,7 +535,7 @@ impl ApiTester {
         let validator = &self.client.get_lighthouse_validators().await.unwrap().data[index];
 
         self.client
-            .patch_lighthouse_validators(&validator.voting_pubkey, Some(enabled), None, None)
+            .patch_lighthouse_validators(&validator.voting_pubkey, Some(enabled), None, None, None)
             .await
             .unwrap();
 
@@ -575,7 +577,13 @@ impl ApiTester {
         let validator = &self.client.get_lighthouse_validators().await.unwrap().data[index];
 
         self.client
-            .patch_lighthouse_validators(&validator.voting_pubkey, None, Some(gas_limit), None)
+            .patch_lighthouse_validators(
+                &validator.voting_pubkey,
+                None,
+                Some(gas_limit),
+                None,
+                None,
+            )
             .await
             .unwrap();
 
@@ -602,6 +610,7 @@ impl ApiTester {
                 None,
                 None,
                 Some(builder_proposals),
+                None,
             )
             .await
             .unwrap();
@@ -616,6 +625,34 @@ impl ApiTester {
             self.validator_store
                 .get_builder_proposals(&validator.voting_pubkey),
             builder_proposals
+        );
+
+        self
+    }
+
+    pub async fn set_graffiti(self, index: usize, graffiti: &str) -> Self {
+        let validator = &self.client.get_lighthouse_validators().await.unwrap().data[index];
+        let graffiti_str = GraffitiString::from_str(graffiti).unwrap();
+        self.client
+            .patch_lighthouse_validators(
+                &validator.voting_pubkey,
+                None,
+                None,
+                None,
+                Some(graffiti_str),
+            )
+            .await
+            .unwrap();
+
+        self
+    }
+
+    pub async fn assert_graffiti(self, index: usize, graffiti: &str) -> Self {
+        let validator = &self.client.get_lighthouse_validators().await.unwrap().data[index];
+        let graffiti_str = GraffitiString::from_str(graffiti).unwrap();
+        assert_eq!(
+            self.validator_store.graffiti(&validator.voting_pubkey),
+            Some(graffiti_str.into())
         );
 
         self
@@ -723,7 +760,13 @@ fn routes_with_invalid_auth() {
             .await
             .test_with_invalid_auth(|client| async move {
                 client
-                    .patch_lighthouse_validators(&PublicKeyBytes::empty(), Some(false), None, None)
+                    .patch_lighthouse_validators(
+                        &PublicKeyBytes::empty(),
+                        Some(false),
+                        None,
+                        None,
+                        None,
+                    )
                     .await
             })
             .await
@@ -927,6 +970,41 @@ fn validator_builder_proposals() {
             .await
             .assert_enabled_validators_count(2)
             .assert_builder_proposals(0, false)
+            .await
+    });
+}
+
+#[test]
+fn validator_graffiti() {
+    let runtime = build_runtime();
+    let weak_runtime = Arc::downgrade(&runtime);
+    runtime.block_on(async {
+        ApiTester::new(weak_runtime)
+            .await
+            .create_hd_validators(HdValidatorScenario {
+                count: 2,
+                specify_mnemonic: false,
+                key_derivation_path_offset: 0,
+                disabled: vec![],
+            })
+            .await
+            .assert_enabled_validators_count(2)
+            .assert_validators_count(2)
+            .set_graffiti(0, "Mr F was here")
+            .await
+            .assert_graffiti(0, "Mr F was here")
+            .await
+            // Test setting graffiti while the validator is disabled
+            .set_validator_enabled(0, false)
+            .await
+            .assert_enabled_validators_count(1)
+            .assert_validators_count(2)
+            .set_graffiti(0, "Mr F was here again")
+            .await
+            .set_validator_enabled(0, true)
+            .await
+            .assert_enabled_validators_count(2)
+            .assert_graffiti(0, "Mr F was here again")
             .await
     });
 }

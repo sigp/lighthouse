@@ -628,7 +628,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                 blocking_signed_json_task(signer, move || {
                     let initialized_validators_rw_lock = validator_store.initialized_validators();
                     let mut initialized_validators = initialized_validators_rw_lock.write();
-
+                    let maybe_graffiti = body.graffiti.clone().map(Into::into);
                     match (
                         initialized_validators.is_enabled(&validator_pubkey),
                         initialized_validators.validator(&validator_pubkey.compress()),
@@ -641,7 +641,8 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                             if Some(is_enabled) == body.enabled
                                 && initialized_validator.get_gas_limit() == body.gas_limit
                                 && initialized_validator.get_builder_proposals()
-                                    == body.builder_proposals =>
+                                    == body.builder_proposals
+                                && initialized_validator.get_graffiti() == maybe_graffiti =>
                         {
                             Ok(())
                         }
@@ -654,6 +655,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                                             body.enabled,
                                             body.gas_limit,
                                             body.builder_proposals,
+                                            body.graffiti,
                                         ),
                                     )
                                     .map_err(|e| {

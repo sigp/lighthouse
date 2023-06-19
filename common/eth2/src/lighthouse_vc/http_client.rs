@@ -16,6 +16,7 @@ use std::path::Path;
 
 pub use reqwest;
 pub use reqwest::{Response, StatusCode, Url};
+use types::graffiti::GraffitiString;
 
 /// A wrapper around `reqwest::Client` which provides convenience methods for interfacing with a
 /// Lighthouse Validator Client HTTP server (`validator_client/src/http_api`).
@@ -467,6 +468,7 @@ impl ValidatorClientHttpClient {
         enabled: Option<bool>,
         gas_limit: Option<u64>,
         builder_proposals: Option<bool>,
+        graffiti: Option<GraffitiString>,
     ) -> Result<(), Error> {
         let mut path = self.server.full.clone();
 
@@ -482,6 +484,7 @@ impl ValidatorClientHttpClient {
                 enabled,
                 gas_limit,
                 builder_proposals,
+                graffiti,
             },
         )
         .await

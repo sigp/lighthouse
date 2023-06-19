@@ -27,6 +27,7 @@ use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
+use types::graffiti::GraffitiString;
 use types::{Address, Graffiti, Keypair, PublicKey, PublicKeyBytes};
 use url::{ParseError, Url};
 use validator_dir::Builder as ValidatorDirBuilder;
@@ -146,6 +147,10 @@ impl InitializedValidator {
 
     pub fn get_index(&self) -> Option<u64> {
         self.index
+    }
+
+    pub fn get_graffiti(&self) -> Option<Graffiti> {
+        self.graffiti
     }
 }
 
@@ -691,6 +696,7 @@ impl InitializedValidators {
         enabled: Option<bool>,
         gas_limit: Option<u64>,
         builder_proposals: Option<bool>,
+        graffiti: Option<GraffitiString>,
     ) -> Result<(), Error> {
         if let Some(def) = self
             .definitions
@@ -708,6 +714,9 @@ impl InitializedValidators {
             if let Some(builder_proposals) = builder_proposals {
                 def.builder_proposals = Some(builder_proposals);
             }
+            if let Some(graffiti) = graffiti.clone() {
+                def.graffiti = Some(graffiti);
+            }
         }
 
         self.update_validators().await?;
@@ -722,6 +731,9 @@ impl InitializedValidators {
             }
             if let Some(builder_proposals) = builder_proposals {
                 val.builder_proposals = Some(builder_proposals);
+            }
+            if let Some(graffiti) = graffiti {
+                val.graffiti = Some(graffiti.into());
             }
         }
 
