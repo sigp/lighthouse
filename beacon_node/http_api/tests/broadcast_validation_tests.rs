@@ -271,8 +271,10 @@ pub async fn consensus_gossip() {
     /* mandated by Beacon API spec */
     assert_eq!(error_response.status(), Some(StatusCode::BAD_REQUEST));
 
+    dbg!(&error_response);
+
     assert!(
-        matches!(error_response, eth2::Error::ServerMessage(err) if err.message == "BAD_REQUEST: Invalid block".to_string())
+        matches!(error_response, eth2::Error::ServerMessage(err) if err.message == "BAD_REQUEST: Invalid block: StateRootMismatch { block: 0x0000000000000000000000000000000000000000000000000000000000000000, local: 0xfc675d642ff7a06458eb33c7d7b62a5813e34d1b2bb1aee3e395100b579da026 }".to_string())
     );
 }
 
@@ -531,7 +533,7 @@ pub async fn equivocation_gossip() {
     let state_a = tester.harness.get_current_state();
     let (block, _): (SignedBeaconBlock<E>, _) = tester
         .harness
-        .make_block_with_modifier(state_a, slot_b, |b| *b.state_root_mut() = Hash256::random())
+        .make_block_with_modifier(state_a, slot_b, |b| *b.state_root_mut() = Hash256::zero())
         .await;
 
     let response: Result<(), eth2::Error> = tester
@@ -545,8 +547,10 @@ pub async fn equivocation_gossip() {
     /* mandated by Beacon API spec */
     assert_eq!(error_response.status(), Some(StatusCode::BAD_REQUEST));
 
+    dbg!(&error_response);
+
     assert!(
-        matches!(error_response, eth2::Error::ServerMessage(err) if err.message == "BAD_REQUEST: Invalid block".to_string())
+        matches!(error_response, eth2::Error::ServerMessage(err) if err.message == "BAD_REQUEST: Invalid block: StateRootMismatch { block: 0x0000000000000000000000000000000000000000000000000000000000000000, local: 0xfc675d642ff7a06458eb33c7d7b62a5813e34d1b2bb1aee3e395100b579da026 }".to_string())
     );
 }
 
@@ -743,7 +747,7 @@ pub async fn blinded_gossip_partial_pass() {
     let (block, _): (SignedBeaconBlock<E>, _) = tester
         .harness
         .make_block_with_modifier(chain_state_before, slot, |b| {
-            *b.state_root_mut() = Hash256::random()
+            *b.state_root_mut() = Hash256::zero()
         })
         .await;
 
@@ -904,7 +908,7 @@ pub async fn blinded_consensus_gossip() {
     assert_eq!(error_response.status(), Some(StatusCode::BAD_REQUEST));
 
     assert!(
-        matches!(error_response, eth2::Error::ServerMessage(err) if err.message == "BAD_REQUEST: Invalid block".to_string())
+        matches!(error_response, eth2::Error::ServerMessage(err) if err.message == "BAD_REQUEST: Invalid block: StateRootMismatch { block: 0x0000000000000000000000000000000000000000000000000000000000000000, local: 0xfc675d642ff7a06458eb33c7d7b62a5813e34d1b2bb1aee3e395100b579da026 }".to_string())
     );
 }
 
@@ -1188,7 +1192,7 @@ pub async fn blinded_equivocation_gossip() {
     assert_eq!(error_response.status(), Some(StatusCode::BAD_REQUEST));
 
     assert!(
-        matches!(error_response, eth2::Error::ServerMessage(err) if err.message == "BAD_REQUEST: Invalid block".to_string())
+        matches!(error_response, eth2::Error::ServerMessage(err) if err.message == "BAD_REQUEST: Invalid block: StateRootMismatch { block: 0x0000000000000000000000000000000000000000000000000000000000000000, local: 0xfc675d642ff7a06458eb33c7d7b62a5813e34d1b2bb1aee3e395100b579da026 }".to_string())
     );
 }
 
