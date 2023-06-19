@@ -785,8 +785,12 @@ impl<T: BeaconChainTypes> Worker<T> {
 
                 verified_block
             }
-            Err(BlockError::PublishError) | Err(BlockError::SlashablePublish) => {
-                error!(self.log, "Gossip block triggered publish error");
+            Err(e @ BlockError::PublishError) | Err(e @ BlockError::SlashablePublish) => {
+                error!(
+                    self.log,
+                    "Gossip block triggered publish error";
+                    "error" => ?e
+                );
                 return None;
             }
             Err(BlockError::ParentUnknown(block)) => {
