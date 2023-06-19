@@ -1225,7 +1225,7 @@ pub fn serve<T: BeaconChainTypes>(
              log: Logger| async move {
                 publish_blocks::publish_block(
                     None,
-                    ProvenancedBlock::Local(block),
+                    ProvenancedBlock::local(block),
                     chain,
                     &network_tx,
                     log,
@@ -1253,7 +1253,7 @@ pub fn serve<T: BeaconChainTypes>(
              log: Logger| async move {
                 match publish_blocks::publish_block(
                     None,
-                    ProvenancedBlock::Local(block),
+                    ProvenancedBlock::local(block),
                     chain,
                     &network_tx,
                     log,

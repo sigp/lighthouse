@@ -1,6 +1,6 @@
 use beacon_chain::{
     test_utils::{AttestationStrategy, BlockStrategy},
-    GossipVerifiedBlock,
+    GossipVerifiedBlock, IntoGossipVerifiedBlock,
 };
 use eth2::types::{BroadcastValidation, SignedBeaconBlock, SignedBlindedBeaconBlock};
 use http_api::test_utils::InteractiveTester;
@@ -278,6 +278,7 @@ pub async fn consensus_gossip() {
     );
 }
 
+/* TODO: bang (200) */
 /// This test checks that a block that is valid from both a gossip and consensus perspective, but nonetheless equivocates, is accepted when using `broadcast_validation=consensus`.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 pub async fn consensus_partial_pass_only_consensus() {
@@ -327,7 +328,7 @@ pub async fn consensus_partial_pass_only_consensus() {
 
     let publication_result: Result<(), Rejection> = publish_block(
         None,
-        ProvenancedBlock::Local(Arc::new(block_b.clone())),
+        ProvenancedBlock::local(Arc::new(block_b.clone())),
         tester.harness.chain.clone(),
         &channel.0,
         test_logger,
@@ -604,7 +605,7 @@ pub async fn equivocation_consensus_late_equivocation() {
 
     let publication_result: Result<(), Rejection> = publish_block(
         None,
-        ProvenancedBlock::Local(Arc::new(block_b.clone())),
+        ProvenancedBlock::local(gossip_block_b.unwrap()),
         tester.harness.chain,
         &channel.0,
         test_logger,
@@ -616,6 +617,7 @@ pub async fn equivocation_consensus_late_equivocation() {
 
     let publication_error: Rejection = publication_result.unwrap_err();
 
+    /* TODO: fix this to assert the entire error message */
     assert!(publication_error.find::<CustomBadRequest>().is_some());
 }
 
@@ -912,6 +914,7 @@ pub async fn blinded_consensus_gossip() {
     );
 }
 
+/* TODO: bang (200) */
 /// This test checks that a block that is valid from both a gossip and consensus perspective is accepted when using `broadcast_validation=consensus`.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 pub async fn blinded_consensus_partial_pass_only_consensus() {
@@ -1239,7 +1242,7 @@ pub async fn blinded_equivocation_consensus_late_equivocation() {
     assert_eq!(block_b.state_root(), state_after_b.tree_hash_root());
     assert_ne!(block_a.state_root(), block_b.state_root());
 
-    let unblinded_block_a: ProvenancedBlock<E> = reconstruct_block(
+    let unblinded_block_a = reconstruct_block(
         tester.harness.chain.clone(),
         block_a.state_root(),
         block_a,
@@ -1247,7 +1250,7 @@ pub async fn blinded_equivocation_consensus_late_equivocation() {
     )
     .await
     .unwrap();
-    let unblinded_block_b: ProvenancedBlock<E> = reconstruct_block(
+    let unblinded_block_b = reconstruct_block(
         tester.harness.chain.clone(),
         block_b.clone().state_root(),
         block_b.clone(),
@@ -1257,12 +1260,12 @@ pub async fn blinded_equivocation_consensus_late_equivocation() {
     .unwrap();
 
     let inner_block_a = match unblinded_block_a {
-        ProvenancedBlock::Local(a) => a,
-        ProvenancedBlock::Builder(a) => a,
+        ProvenancedBlock::Local(a, _) => a,
+        ProvenancedBlock::Builder(a, _) => a,
     };
     let inner_block_b = match unblinded_block_b {
-        ProvenancedBlock::Local(b) => b,
-        ProvenancedBlock::Builder(b) => b,
+        ProvenancedBlock::Local(b, _) => b,
+        ProvenancedBlock::Builder(b, _) => b,
     };
 
     let gossip_block_b = GossipVerifiedBlock::new(inner_block_b, &tester.harness.chain);

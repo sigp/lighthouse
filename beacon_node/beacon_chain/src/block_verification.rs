@@ -654,6 +654,40 @@ pub struct ExecutionPendingBlock<T: BeaconChainTypes> {
     pub payload_verification_handle: PayloadVerificationHandle<T::EthSpec>,
 }
 
+pub trait IntoGossipVerifiedBlock<T: BeaconChainTypes>: Sized {
+    fn into_gossip_verified_block(
+        self,
+        chain: &BeaconChain<T>,
+    ) -> Result<GossipVerifiedBlock<T>, BlockError<T::EthSpec>>;
+    fn into_inner(&self) -> Arc<SignedBeaconBlock<T::EthSpec>>;
+}
+
+impl<T: BeaconChainTypes> IntoGossipVerifiedBlock<T> for GossipVerifiedBlock<T> {
+    fn into_gossip_verified_block(
+        self,
+        _chain: &BeaconChain<T>,
+    ) -> Result<GossipVerifiedBlock<T>, BlockError<T::EthSpec>> {
+        Ok(self)
+    }
+
+    fn into_inner(&self) -> Arc<SignedBeaconBlock<T::EthSpec>> {
+        self.block.clone()
+    }
+}
+
+impl<T: BeaconChainTypes> IntoGossipVerifiedBlock<T> for Arc<SignedBeaconBlock<T::EthSpec>> {
+    fn into_gossip_verified_block(
+        self,
+        chain: &BeaconChain<T>,
+    ) -> Result<GossipVerifiedBlock<T>, BlockError<T::EthSpec>> {
+        GossipVerifiedBlock::new(self, chain)
+    }
+
+    fn into_inner(&self) -> Arc<SignedBeaconBlock<T::EthSpec>> {
+        self.clone()
+    }
+}
+
 /// Implemented on types that can be converted into a `ExecutionPendingBlock`.
 ///
 /// Used to allow functions to accept blocks at various stages of verification.
