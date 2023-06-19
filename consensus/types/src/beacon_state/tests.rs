@@ -1,13 +1,10 @@
 #![cfg(test)]
 use crate::{test_utils::*, ForkName};
-use beacon_chain::test_utils::{
-    interop_genesis_state_with_eth1, test_spec, BeaconChainHarness, EphemeralHarnessType,
-    DEFAULT_ETH1_BLOCK_HASH,
-};
+use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
 use beacon_chain::types::{
-    test_utils::TestRandom, BeaconState, BeaconStateAltair, BeaconStateBase, BeaconStateError,
-    BeaconStateMerge, ChainSpec, Domain, Epoch, EthSpec, FixedVector, Hash256, Keypair,
-    MainnetEthSpec, MinimalEthSpec, RelativeEpoch, Slot,
+    test_utils::TestRandom, BeaconState, BeaconStateAltair, BeaconStateBase, BeaconStateCapella,
+    BeaconStateError, BeaconStateMerge, ChainSpec, Domain, Epoch, EthSpec, FixedVector, Hash256,
+    Keypair, MainnetEthSpec, MinimalEthSpec, RelativeEpoch, Slot,
 };
 use ssz::Encode;
 use std::ops::Mul;
@@ -418,6 +415,7 @@ fn check_num_fields_pow2() {
             ForkName::Base => BeaconStateBase::<E>::NUM_FIELDS,
             ForkName::Altair => BeaconStateAltair::<E>::NUM_FIELDS,
             ForkName::Merge => BeaconStateMerge::<E>::NUM_FIELDS,
+            ForkName::Capella => BeaconStateCapella::<E>::NUM_FIELDS,
         };
         assert_eq!(
             num_fields.next_power_of_two(),

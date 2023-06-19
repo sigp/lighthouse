@@ -331,7 +331,7 @@ mod tests {
 
         let xor_diff = XorDiff::compute(&x_values, &y_values).unwrap();
 
-        let mut y_from_xor = x_values.clone();
+        let mut y_from_xor = x_values;
         xor_diff.apply(&mut y_from_xor).unwrap();
 
         assert_eq!(y_values, y_from_xor);

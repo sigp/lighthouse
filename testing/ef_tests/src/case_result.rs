@@ -2,7 +2,7 @@ use super::*;
 use compare_fields::{CompareFields, Comparison, FieldComparison};
 use std::fmt::Debug;
 use std::path::{Path, PathBuf};
-use types::{beacon_state::BeaconStateDiff, milhouse::diff::Diff, BeaconState};
+use types::BeaconState;
 
 pub const MAX_VALUE_STRING_LEN: usize = 500;
 
@@ -119,9 +119,13 @@ where
 }
 
 pub fn check_state_diff<T: EthSpec>(
-    pre_state: &BeaconState<T>,
-    opt_post_state: &Option<BeaconState<T>>,
+    _pre_state: &BeaconState<T>,
+    _opt_post_state: &Option<BeaconState<T>>,
 ) -> Result<(), Error> {
+    unimplemented!("`BeaconStateDiff` is not defined");
+    /*
+     * TODO(sproul): `BeaconStateDiff` is not defined.
+     *
     if let Some(post_state) = opt_post_state {
         let diff = BeaconStateDiff::compute_diff(pre_state, post_state)
             .expect("BeaconStateDiff should compute");
@@ -133,6 +137,7 @@ pub fn check_state_diff<T: EthSpec>(
     } else {
         Ok(())
     }
+    */
 }
 
 fn fmt_val<T: Debug>(val: T) -> String {
