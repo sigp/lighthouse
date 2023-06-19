@@ -676,8 +676,8 @@ impl InitializedValidators {
         self.validators.get(public_key)
     }
 
-    /// Sets the `InitializedValidator` and `ValidatorDefinition` `enabled`, `gas_limit`, and `builder_proposals`
-    /// values.
+    /// Sets the `InitializedValidator` and `ValidatorDefinition` `enabled`, `gas_limit`,
+    /// `builder_proposals`, and `graffiti` values.
     ///
     /// ## Notes
     ///
@@ -687,7 +687,7 @@ impl InitializedValidators {
     ///
     /// If a `gas_limit` is included in the call to this function, it will also be updated and saved
     /// to disk. If `gas_limit` is `None` the `gas_limit` *will not* be unset in `ValidatorDefinition`
-    /// or `InitializedValidator`. The same logic applies to `builder_proposals`.
+    /// or `InitializedValidator`. The same logic applies to `builder_proposals` and `graffiti`.
     ///
     /// Saves the `ValidatorDefinitions` to file, even if no definitions were changed.
     pub async fn set_validator_definition_fields(
