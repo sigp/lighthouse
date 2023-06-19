@@ -219,7 +219,7 @@ impl<E: EthSpec> StateCache<E> {
 
     /// Drops all advanced states that do not descend from a root in
     /// `blocks_roots_to_retain`.
-    pub fn prune_advanced_states(&mut self, blocks_roots_to_retain: &[Hash256]) {
+    pub fn retain_advanced_states(&mut self, blocks_roots_to_retain: &[Hash256]) {
         self.advanced_states
             .retain(|key, _value| blocks_roots_to_retain.iter().any(|root| key == root));
     }

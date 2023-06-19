@@ -58,10 +58,6 @@ enum Error {
     BeaconChain(BeaconChainError),
     BeaconState(BeaconStateError),
     Store(store::Error),
-    MaxDistanceExceeded {
-        current_slot: Slot,
-        existing_slot: Slot,
-    },
 }
 
 impl From<BeaconChainError> for Error {
@@ -137,9 +133,9 @@ async fn state_advance_timer<T: BeaconChainTypes>(
             }
         };
 
-        // Run the state advance 3/4 of the way through the slot (9s on mainnet).
+        // Start running state advance functions 3/4 of the way through the slot (9s on mainnet).
         let state_advance_offset = slot_duration / 4;
-        let state_advance_instant = if duration_to_next_slot > state_advance_offset {
+        let state_advance_window_start = if duration_to_next_slot > state_advance_offset {
             Instant::now() + duration_to_next_slot - state_advance_offset
         } else {
             // Skip the state advance for the current slot and wait until the next one.
@@ -155,8 +151,17 @@ async fn state_advance_timer<T: BeaconChainTypes>(
             Instant::now() + duration_to_next_slot + slot_duration - fork_choice_offset
         };
 
+        // Stop running state advance functions 500ms before we start to run
+        // fork choice. Although we don't *start* state advance functions before
+        // running fork choice, long-running instances might still be going.
+        // 500ms is a buffer to ensure the two are separate.
+        let state_advance_window_end = fork_choice_instant
+            .checked_sub(slot_duration / (FORK_CHOICE_LOOKAHEAD_FACTOR - 1))
+            // Just default to the `fork_choice_instant` if things will overflow.
+            .unwrap_or(fork_choice_instant);
+
         // Wait for the state advance.
-        sleep_until(state_advance_instant).await;
+        sleep_until(state_advance_window_start).await;
 
         // Compute the current slot here at approx 3/4 through the slot. Even though this slot is
         // only used by fork choice we need to calculate it here rather than after the state
@@ -183,26 +188,13 @@ async fn state_advance_timer<T: BeaconChainTypes>(
 
             executor.spawn_blocking(
                 move || {
-                    match advance_heads(&beacon_chain, &log) {
+                    match advance_heads(&beacon_chain, current_slot, state_advance_window_end, &log)
+                    {
                         Ok(()) => (),
-                        Err(Error::BeaconChain(e)) => error!(
+                        Err(e) => error!(
                             log,
                             "Failed to advance head state";
                             "error" => ?e
-                        ),
-                        Err(Error::MaxDistanceExceeded {
-                            current_slot,
-                            existing_slot,
-                        }) => debug!(
-                            log,
-                            "Refused to advance head state";
-                            "existing_slot" => existing_slot,
-                            "current_slot" => current_slot,
-                        ),
-                        other => warn!(
-                            log,
-                            "Did not advance head state";
-                            "reason" => ?other
                         ),
                     };
 
@@ -274,25 +266,55 @@ async fn state_advance_timer<T: BeaconChainTypes>(
 
 fn advance_heads<T: BeaconChainTypes>(
     beacon_chain: &Arc<BeaconChain<T>>,
+    current_slot: Slot,
+    state_advance_window_end: Instant,
     log: &Logger,
 ) -> Result<(), Error> {
-    let current_slot = beacon_chain.slot()?;
     let head_snapshot = beacon_chain.head_snapshot();
 
     // Prune all advanced states, except for those that descend from the head.
+    //
+    // Note: it's important to ensure that any states advanced in this function
+    // are included in this list to prevent them being pruned.
     beacon_chain
         .store
-        .prune_advanced_states(&[head_snapshot.beacon_block_root]);
+        .retain_advanced_states(&[head_snapshot.beacon_block_root]);
 
-    // Advance the state of the block at the head of the chain.
-    advance_state(
-        beacon_chain,
-        current_slot,
-        head_snapshot.beacon_block_root,
-        head_snapshot.beacon_block.message(),
-        &head_snapshot.beacon_state,
-        log,
-    )?;
+    // Try to advance the head state to the current slot. Always attempt to
+    // advance it one slot, then only keep attempting more advances while
+    // there's still time left in the state advance window.
+    for i in 0..MAX_ADVANCE_DISTANCE {
+        // Stop advancing the state if the head block has changed.
+        if beacon_chain.head_snapshot().beacon_block_root != head_snapshot.beacon_block_root {
+            break;
+        }
+
+        // Advance the state of the block at the head of the chain.
+        let outcome = advance_state(
+            beacon_chain,
+            current_slot,
+            head_snapshot.beacon_block_root,
+            head_snapshot.beacon_block.message(),
+            &head_snapshot.beacon_state,
+            log,
+        )?;
+
+        debug!(
+            log,
+            "Advanced head state";
+            "iteration" => i
+        );
+
+        match outcome {
+            // The state was advanced and there's till time left. Try to advance
+            // the head state again.
+            AdvanceStateOutcome::StateAdvanced if Instant::now() < state_advance_window_end => (),
+            // The state was advanced and there's not enough time left, or there
+            // was no state advance performed. Break and try to do something
+            // else.
+            AdvanceStateOutcome::StateAdvanced | AdvanceStateOutcome::Noop => break,
+        }
+    }
 
     Ok(())
 }
@@ -327,10 +349,13 @@ fn advance_state<T: BeaconChainTypes>(
 
     // Don't run this when syncing or if lagging too far behind.
     if existing_slot + MAX_ADVANCE_DISTANCE < current_slot {
-        return Err(Error::MaxDistanceExceeded {
-            current_slot,
-            existing_slot,
-        });
+        debug!(
+            log,
+            "Refused to advance state";
+            "existing_slot" => existing_slot,
+            "current_slot" => current_slot,
+        );
+        return Ok(AdvanceStateOutcome::Noop);
     }
 
     // Re-assign the `state` variable to prevent confusion between the `state` and `existing_state`.

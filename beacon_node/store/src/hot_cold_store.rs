@@ -752,10 +752,10 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             .insert_advanced_state(block_root, block_slot, state_root, state)
     }
 
-    pub fn prune_advanced_states(&self, blocks_roots_to_retain: &[Hash256]) {
+    pub fn retain_advanced_states(&self, blocks_roots_to_retain: &[Hash256]) {
         self.state_cache
             .lock()
-            .prune_advanced_states(blocks_roots_to_retain)
+            .retain_advanced_states(blocks_roots_to_retain)
     }
 
     /// Delete a state, ensuring it is removed from the LRU cache, as well as from on-disk.
