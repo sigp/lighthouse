@@ -299,7 +299,6 @@ impl BeaconNodeHealth {
 
 #[cfg(test)]
 mod tests {
-
     use super::ExecutionEngineHealth::{Healthy, Unhealthy};
     use super::{
         BeaconNodeHealth, BeaconNodeHealthTier, BeaconNodeSyncDistanceTiers, IsOptimistic,

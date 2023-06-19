@@ -514,7 +514,7 @@ fn beacon_node_sync_tolerance_flag() {
 #[test]
 fn beacon_node_small_sync_distance_modifier_flag() {
     CommandLineTest::new()
-        .flag("beacon-node-small-sync-distance-modifer", Some("16"))
+        .flag("beacon-node-small-sync-distance-modifier", Some("16"))
         .run()
         .with_config(|config| {
             assert_eq!(
@@ -526,7 +526,7 @@ fn beacon_node_small_sync_distance_modifier_flag() {
 #[test]
 fn beacon_node_medium_sync_distance_modifier_flag() {
     CommandLineTest::new()
-        .flag("beacon-node-medium-sync-distance-modifer", Some("32"))
+        .flag("beacon-node-medium-sync-distance-modifier", Some("32"))
         .run()
         .with_config(|config| {
             assert_eq!(
