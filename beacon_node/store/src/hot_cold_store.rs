@@ -1573,7 +1573,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             (start_slot.as_u64()..=end_slot.as_u64())
                 .map(Slot::new)
                 .map(|slot| self.get_cold_blinded_block_by_slot(slot)),
-            |iter| iter.filter_map(|x| x).collect(),
+            |iter| iter.flatten().collect(),
         )
     }
 

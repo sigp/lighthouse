@@ -241,7 +241,8 @@ mod test {
         }
 
         for (index, v) in state.validators().iter().enumerate() {
-            let creds = v.withdrawal_credentials.as_bytes();
+            let withdrawal_credientials = v.withdrawal_credentials();
+            let creds = withdrawal_credientials.as_bytes();
             if index % 2 == 0 {
                 assert_eq!(
                     creds[0], spec.bls_withdrawal_prefix_byte,

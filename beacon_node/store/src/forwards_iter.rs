@@ -234,7 +234,7 @@ impl<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>
                     // of the pre iterator.
                     None => {
                         let continuation_data = continuation_data.take();
-                        let start_slot = Slot::from(iter.limit);
+                        let start_slot = iter.limit;
 
                         *self = PostFinalizationLazy {
                             continuation_data,
