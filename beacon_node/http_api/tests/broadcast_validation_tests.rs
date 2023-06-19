@@ -335,7 +335,7 @@ pub async fn consensus_partial_pass_only_consensus() {
     .await;
 
     assert!(publication_result.is_ok());
-    assert!(!tester
+    assert!(tester
         .harness
         .chain
         .block_is_known_to_fork_choice(&block_b.canonical_root()));
