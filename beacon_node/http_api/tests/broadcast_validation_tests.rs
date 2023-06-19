@@ -179,7 +179,6 @@ pub async fn gossip_full_pass() {
 /// This test checks that a block that is **invalid** from a gossip perspective gets rejected when using `broadcast_validation=consensus`.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 pub async fn consensus_invalid() {
-    /* this test targets gossip-level validation */
     let validation_level: Option<BroadcastValidation> = Some(BroadcastValidation::Consensus);
 
     // Validator count needs to be at least 32 or proposer boost gets set to 0 when computing
