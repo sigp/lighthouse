@@ -27,7 +27,7 @@ impl KzgProof {
 
 impl fmt::Display for KzgProof {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", eth2_serde_utils::hex::encode(self.0))
+        write!(f, "{}", serde_utils::hex::encode(self.0))
     }
 }
 
@@ -128,7 +128,7 @@ impl FromStr for KzgProof {
 
 impl Debug for KzgProof {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", eth2_serde_utils::hex::encode(self.0))
+        write!(f, "{}", serde_utils::hex::encode(self.0))
     }
 }
 

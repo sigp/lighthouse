@@ -126,36 +126,6 @@ pub fn get_enr(node: &LibP2PService<ReqId, E>) -> Enr {
     node.local_enr()
 }
 
-// Returns `n` libp2p peers in fully connected topology.
-#[allow(dead_code)]
-/*
-pub async fn build_full_mesh(
-    rt: Weak<Runtime>,
-    log: slog::Logger,
-    n: usize,
-    fork_name: ForkName,
-) -> Vec<Libp2pInstance> {
-    let mut nodes = Vec::with_capacity(n);
-    for _ in 0..n {
-        nodes.push(build_libp2p_instance(rt.clone(), vec![], log.clone(), fork_name).await);
-    }
-    let multiaddrs: Vec<Multiaddr> = nodes
-        .iter()
-        .map(|x| get_enr(x).multiaddr()[1].clone())
-        .collect();
-
-    for (i, node) in nodes.iter_mut().enumerate().take(n) {
-        for (j, multiaddr) in multiaddrs.iter().enumerate().skip(i) {
-            if i != j {
-                match libp2p::Swarm::dial(&mut node.swarm, multiaddr.clone()) {
-                    Ok(()) => debug!(log, "Connected"),
-                    Err(_) => error!(log, "Failed to connect"),
-                };
-            }
-        }
-    }
-    nodes
-}*/
 // Constructs a pair of nodes with separate loggers. The sender dials the receiver.
 // This returns a (sender, receiver) pair.
 #[allow(dead_code)]

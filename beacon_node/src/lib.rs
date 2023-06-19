@@ -16,7 +16,7 @@ pub use client::{Client, ClientBuilder, ClientConfig, ClientGenesis};
 pub use config::{get_config, get_data_dir, get_slots_per_restore_point, set_network_config};
 use environment::RuntimeContext;
 pub use eth2_config::Eth2Config;
-use slasher::Slasher;
+use slasher::{DatabaseBackendOverride, Slasher};
 use slog::{info, warn};
 use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
@@ -93,7 +93,27 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
                 log.clone(),
             )?;
 
-        let builder = if let Some(slasher_config) = client_config.slasher.clone() {
+        let builder = if let Some(mut slasher_config) = client_config.slasher.clone() {
+            match slasher_config.override_backend() {
+                DatabaseBackendOverride::Success(old_backend) => {
+                    info!(
+                        log,
+                        "Slasher backend overriden";
+                        "reason" => "database exists",
+                        "configured_backend" => %old_backend,
+                        "override_backend" => %slasher_config.backend,
+                    );
+                }
+                DatabaseBackendOverride::Failure(path) => {
+                    warn!(
+                        log,
+                        "Slasher backend override failed";
+                        "advice" => "delete old MDBX database or enable MDBX backend",
+                        "path" => path.display()
+                    );
+                }
+                _ => {}
+            }
             let slasher = Arc::new(
                 Slasher::open(slasher_config, log.new(slog::o!("service" => "slasher")))
                     .map_err(|e| format!("Slasher open error: {:?}", e))?,

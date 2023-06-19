@@ -34,17 +34,24 @@
 //! search for the block and subsequently search for parents if needed.
 
 use super::backfill_sync::{BackFillSync, ProcessResult, SyncStart};
-use super::block_lookups::BlockLookups;
+use super::block_lookups::{BlockLookups, PeerShouldHave};
 use super::network_context::{BlockOrBlob, SyncNetworkContext};
 use super::peer_sync_info::{remote_sync_type, PeerSyncType};
 use super::range_sync::{RangeSync, RangeSyncType, EPOCHS_PER_BATCH};
 use crate::beacon_processor::{ChainSegmentProcessId, WorkEvent as BeaconWorkEvent};
 use crate::service::NetworkMessage;
 use crate::status::ToStatusMessage;
+use crate::sync::block_lookups::delayed_lookup;
+use crate::sync::block_lookups::delayed_lookup::DelayedLookupMessage;
+pub use crate::sync::block_lookups::ResponseType;
+use crate::sync::block_lookups::UnknownParentComponents;
 use crate::sync::range_sync::ByRangeRequestType;
 use beacon_chain::blob_verification::AsBlock;
 use beacon_chain::blob_verification::BlockWrapper;
-use beacon_chain::{BeaconChain, BeaconChainTypes, BlockError, EngineState};
+use beacon_chain::{
+    AvailabilityProcessingStatus, BeaconChain, BeaconChainTypes, BlockError, EngineState,
+    MAXIMUM_GOSSIP_CLOCK_DISPARITY,
+};
 use futures::StreamExt;
 use lighthouse_network::rpc::methods::MAX_REQUEST_BLOCKS;
 use lighthouse_network::rpc::RPCError;
@@ -52,12 +59,14 @@ use lighthouse_network::types::{NetworkGlobals, SyncState};
 use lighthouse_network::SyncInfo;
 use lighthouse_network::{PeerAction, PeerId};
 use slog::{crit, debug, error, info, trace, warn, Logger};
+use slot_clock::SlotClock;
 use std::boxed::Box;
+use std::ops::IndexMut;
 use std::ops::Sub;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
-use types::blob_sidecar::BlobIdentifier;
+use types::blob_sidecar::FixedBlobSidecarList;
 use types::{BlobSidecar, EthSpec, Hash256, SignedBeaconBlock, Slot};
 
 /// The number of slots ahead of us that is allowed before requesting a long-range (batch)  Sync
@@ -68,6 +77,9 @@ use types::{BlobSidecar, EthSpec, Hash256, SignedBeaconBlock, Slot};
 /// gossip if no peers are further than this range ahead of us that we have not already downloaded
 /// blocks for.
 pub const SLOT_IMPORT_TOLERANCE: usize = 32;
+/// The maximum number of messages the delay queue can handle in a single slot before messages are
+/// dropped.
+pub const DELAY_QUEUE_CHANNEL_SIZE: usize = 128;
 
 pub type Id = u32;
 
@@ -81,11 +93,11 @@ pub enum RequestId {
     /// Request was from the backfill sync algorithm.
     BackFillBlocks { id: Id },
     /// Backfill request that is composed by both a block range request and a blob range request.
-    BackFillBlobs { id: Id },
+    BackFillBlockAndBlobs { id: Id },
     /// The request was from a chain in the range sync algorithm.
     RangeBlocks { id: Id },
     /// Range request that is composed by both a block range request and a blob range request.
-    RangeBlobs { id: Id },
+    RangeBlockAndBlobs { id: Id },
 }
 
 // TODO(diva) I'm updating functions what at a time, but this should be revisited because I think
@@ -115,18 +127,24 @@ pub enum SyncMessage<T: EthSpec> {
     },
 
     /// A block with an unknown parent has been received.
-    UnknownBlock(PeerId, BlockWrapper<T>, Hash256),
+    UnknownParentBlock(PeerId, BlockWrapper<T>, Hash256),
 
-    /// A peer has sent an object that references a block that is unknown. This triggers the
+    /// A blob with an unknown parent has been received.
+    UnknownParentBlob(PeerId, Arc<BlobSidecar<T>>),
+
+    /// A peer has sent an attestation that references a block that is unknown. This triggers the
     /// manager to attempt to find the block matching the unknown hash.
-    UnknownBlockHash(PeerId, Hash256),
+    UnknownBlockHashFromAttestation(PeerId, Hash256),
 
-    /// A peer has sent us a block that we haven't received all the blobs for. This triggers
-    /// the manager to attempt to find the pending blobs for the given block root.
-    UnknownBlobHash {
-        peer_id: PeerId,
-        pending_blobs: Vec<BlobIdentifier>,
-    },
+    /// A peer has sent a blob that references a block that is unknown or a peer has sent a block for
+    /// which we haven't received blobs.
+    ///
+    /// We will either attempt to find the block matching the unknown hash immediately or queue a lookup,
+    /// which will then trigger the request when we receive `MissingGossipBlockComponentsDelayed`.
+    MissingGossipBlockComponents(Slot, PeerId, Hash256),
+
+    /// This message triggers a request for missing block components after a delay.
+    MissingGossipBlockComponentsDelayed(Hash256),
 
     /// A peer has disconnected.
     Disconnect(PeerId),
@@ -145,9 +163,10 @@ pub enum SyncMessage<T: EthSpec> {
     },
 
     /// Block processed
-    BlockProcessed {
+    BlockComponentProcessed {
         process_type: BlockProcessType,
-        result: BlockProcessResult<T>,
+        result: BlockProcessingResult<T>,
+        response_type: ResponseType,
     },
 }
 
@@ -159,8 +178,8 @@ pub enum BlockProcessType {
 }
 
 #[derive(Debug)]
-pub enum BlockProcessResult<T: EthSpec> {
-    Ok,
+pub enum BlockProcessingResult<T: EthSpec> {
+    Ok(AvailabilityProcessingStatus),
     Err(BlockError<T>),
     Ignored,
 }
@@ -205,6 +224,8 @@ pub struct SyncManager<T: BeaconChainTypes> {
 
     block_lookups: BlockLookups<T>,
 
+    delayed_lookups: mpsc::Sender<DelayedLookupMessage>,
+
     /// The logger for the import manager.
     log: Logger,
 }
@@ -226,6 +247,8 @@ pub fn spawn<T: BeaconChainTypes>(
     );
     // generate the message channel
     let (sync_send, sync_recv) = mpsc::unbounded_channel::<SyncMessage<T::EthSpec>>();
+    let (delayed_lookups_send, delayed_lookups_recv) =
+        mpsc::channel::<DelayedLookupMessage>(DELAY_QUEUE_CHANNEL_SIZE);
 
     // create an instance of the SyncManager
     let mut sync_manager = SyncManager {
@@ -240,15 +263,29 @@ pub fn spawn<T: BeaconChainTypes>(
             log.clone(),
         ),
         range_sync: RangeSync::new(beacon_chain.clone(), log.clone()),
-        backfill_sync: BackFillSync::new(beacon_chain, network_globals, log.clone()),
-        block_lookups: BlockLookups::new(log.clone()),
+        backfill_sync: BackFillSync::new(beacon_chain.clone(), network_globals, log.clone()),
+        block_lookups: BlockLookups::new(
+            beacon_chain.data_availability_checker.clone(),
+            log.clone(),
+        ),
+        delayed_lookups: delayed_lookups_send,
         log: log.clone(),
     };
 
+    let log_clone = log.clone();
+    let sync_send_clone = sync_send.clone();
+    delayed_lookup::spawn_delayed_lookup_service(
+        &executor,
+        beacon_chain,
+        delayed_lookups_recv,
+        sync_send,
+        log,
+    );
+
     // spawn the sync manager thread
-    debug!(log, "Sync Manager started");
+    debug!(log_clone, "Sync Manager started");
     executor.spawn(async move { Box::pin(sync_manager.main()).await }, "sync");
-    sync_send
+    sync_send_clone
 }
 
 impl<T: BeaconChainTypes> SyncManager<T> {
@@ -291,8 +328,12 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         trace!(self.log, "Sync manager received a failed RPC");
         match request_id {
             RequestId::SingleBlock { id } => {
-                self.block_lookups
-                    .single_block_lookup_failed(id, &mut self.network);
+                self.block_lookups.single_block_lookup_failed(
+                    id,
+                    &peer_id,
+                    &mut self.network,
+                    error,
+                );
             }
             RequestId::ParentLookup { id } => {
                 self.block_lookups
@@ -313,7 +354,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 }
             }
 
-            RequestId::BackFillBlobs { id } => {
+            RequestId::BackFillBlockAndBlobs { id } => {
                 if let Some(batch_id) = self
                     .network
                     .backfill_request_failed(id, ByRangeRequestType::BlocksAndBlobs)
@@ -342,7 +383,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     self.update_sync_state()
                 }
             }
-            RequestId::RangeBlobs { id } => {
+            RequestId::RangeBlockAndBlobs { id } => {
                 if let Some((chain_id, batch_id)) = self
                     .network
                     .range_sync_request_failed(id, ByRangeRequestType::BlocksAndBlobs)
@@ -567,48 +608,83 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 beacon_block,
                 seen_timestamp,
             } => {
-                self.rpc_block_or_blob_received(
-                    request_id,
+                self.rpc_block_received(request_id, peer_id, beacon_block, seen_timestamp);
+            }
+            SyncMessage::RpcBlob {
+                request_id,
+                peer_id,
+                blob_sidecar,
+                seen_timestamp,
+            } => self.rpc_blob_received(request_id, peer_id, blob_sidecar, seen_timestamp),
+            SyncMessage::UnknownParentBlock(peer_id, block, block_root) => {
+                let block_slot = block.slot();
+                let (block, blobs) = block.deconstruct();
+                let parent_root = block.parent_root();
+                let parent_components = UnknownParentComponents::new(Some(block), blobs);
+                self.handle_unknown_parent(
                     peer_id,
-                    beacon_block.into(),
-                    seen_timestamp,
+                    block_root,
+                    parent_root,
+                    block_slot,
+                    Some(parent_components),
                 );
             }
-            SyncMessage::UnknownBlock(peer_id, block, block_root) => {
-                // If we are not synced or within SLOT_IMPORT_TOLERANCE of the block, ignore
-                if !self.network_globals.sync_state.read().is_synced() {
-                    let head_slot = self.chain.canonical_head.cached_head().head_slot();
-                    let unknown_block_slot = block.slot();
-
-                    // if the block is far in the future, ignore it. If its within the slot tolerance of
-                    // our current head, regardless of the syncing state, fetch it.
-                    if (head_slot >= unknown_block_slot
-                        && head_slot.sub(unknown_block_slot).as_usize() > SLOT_IMPORT_TOLERANCE)
-                        || (head_slot < unknown_block_slot
-                            && unknown_block_slot.sub(head_slot).as_usize() > SLOT_IMPORT_TOLERANCE)
-                    {
-                        return;
+            SyncMessage::UnknownParentBlob(peer_id, blob) => {
+                let blob_slot = blob.slot;
+                let block_root = blob.block_root;
+                let parent_root = blob.block_parent_root;
+                let blob_index = blob.index;
+                let mut blobs = FixedBlobSidecarList::default();
+                *blobs.index_mut(blob_index as usize) = Some(blob);
+                self.handle_unknown_parent(
+                    peer_id,
+                    block_root,
+                    parent_root,
+                    blob_slot,
+                    Some(UnknownParentComponents::new(None, Some(blobs))),
+                );
+            }
+            SyncMessage::UnknownBlockHashFromAttestation(peer_id, block_hash) => {
+                // If we are not synced, ignore this block.
+                if self.synced_and_connected(&peer_id) {
+                    self.block_lookups.search_block(
+                        block_hash,
+                        PeerShouldHave::BlockAndBlobs(peer_id),
+                        &mut self.network,
+                    );
+                }
+            }
+            SyncMessage::MissingGossipBlockComponents(slot, peer_id, block_root) => {
+                // If we are not synced, ignore this block.
+                if self.synced_and_connected(&peer_id) {
+                    if self.should_delay_lookup(slot) {
+                        self.block_lookups
+                            .search_block_delayed(block_root, PeerShouldHave::Neither(peer_id));
+                        if let Err(e) = self
+                            .delayed_lookups
+                            .try_send(DelayedLookupMessage::MissingComponents(block_root))
+                        {
+                            warn!(self.log, "Delayed lookup dropped for block referenced by a blob";
+                                "block_root" => ?block_root, "error" => ?e);
+                        }
+                    } else {
+                        self.block_lookups.search_block(
+                            block_root,
+                            PeerShouldHave::Neither(peer_id),
+                            &mut self.network,
+                        )
                     }
                 }
-                if self.network_globals.peers.read().is_connected(&peer_id)
-                    && self.network.is_execution_engine_online()
-                {
-                    self.block_lookups
-                        .search_parent(block_root, block, peer_id, &mut self.network);
-                }
             }
-            SyncMessage::UnknownBlockHash(peer_id, block_hash) => {
-                // If we are not synced, ignore this block.
-                if self.network_globals.sync_state.read().is_synced()
-                    && self.network_globals.peers.read().is_connected(&peer_id)
-                    && self.network.is_execution_engine_online()
+            SyncMessage::MissingGossipBlockComponentsDelayed(block_root) => {
+                if self
+                    .block_lookups
+                    .trigger_lookup_by_root(block_root, &mut self.network)
+                    .is_err()
                 {
-                    self.block_lookups
-                        .search_block(block_hash, peer_id, &mut self.network);
+                    // No request was made for block or blob so the lookup is dropped.
+                    self.block_lookups.remove_lookup_by_root(block_root);
                 }
-            }
-            SyncMessage::UnknownBlobHash { .. } => {
-                unimplemented!()
             }
             SyncMessage::Disconnect(peer_id) => {
                 self.peer_disconnect(&peer_id);
@@ -618,17 +694,17 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 request_id,
                 error,
             } => self.inject_error(peer_id, request_id, error),
-            SyncMessage::BlockProcessed {
+            SyncMessage::BlockComponentProcessed {
                 process_type,
                 result,
+                response_type,
             } => match process_type {
-                BlockProcessType::SingleBlock { id } => {
-                    self.block_lookups
-                        .single_block_processed(id, result, &mut self.network)
-                }
+                BlockProcessType::SingleBlock { id } => self
+                    .block_lookups
+                    .single_block_component_processed(id, result, response_type, &mut self.network),
                 BlockProcessType::ParentLookup { chain_hash } => self
                     .block_lookups
-                    .parent_block_processed(chain_hash, result, &mut self.network),
+                    .parent_block_processed(chain_hash, result, response_type, &mut self.network),
             },
             SyncMessage::BatchProcessed { sync_type, result } => match sync_type {
                 ChainSegmentProcessId::RangeBatchId(chain_id, epoch, _) => {
@@ -659,18 +735,95 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     .block_lookups
                     .parent_chain_processed(chain_hash, result, &mut self.network),
             },
-            SyncMessage::RpcBlob {
-                request_id,
-                peer_id,
-                blob_sidecar,
-                seen_timestamp,
-            } => self.rpc_block_or_blob_received(
-                request_id,
-                peer_id,
-                blob_sidecar.into(),
-                seen_timestamp,
-            ),
         }
+    }
+
+    fn handle_unknown_parent(
+        &mut self,
+        peer_id: PeerId,
+        block_root: Hash256,
+        parent_root: Hash256,
+        slot: Slot,
+        parent_components: Option<UnknownParentComponents<T::EthSpec>>,
+    ) {
+        if self.should_search_for_block(slot, &peer_id) {
+            self.block_lookups.search_parent(
+                slot,
+                block_root,
+                parent_root,
+                peer_id,
+                &mut self.network,
+            );
+            if self.should_delay_lookup(slot) {
+                self.block_lookups.search_child_delayed(
+                    block_root,
+                    parent_components,
+                    &[PeerShouldHave::Neither(peer_id)],
+                );
+                if let Err(e) = self
+                    .delayed_lookups
+                    .try_send(DelayedLookupMessage::MissingComponents(block_root))
+                {
+                    warn!(self.log, "Delayed lookups dropped for block"; "block_root" => ?block_root, "error" => ?e);
+                }
+            } else {
+                self.block_lookups.search_child_block(
+                    block_root,
+                    parent_components,
+                    &[PeerShouldHave::Neither(peer_id)],
+                    &mut self.network,
+                );
+            }
+        }
+    }
+
+    fn should_delay_lookup(&mut self, slot: Slot) -> bool {
+        let earliest_slot = self
+            .chain
+            .slot_clock
+            .now_with_past_tolerance(MAXIMUM_GOSSIP_CLOCK_DISPARITY);
+        let latest_slot = self
+            .chain
+            .slot_clock
+            .now_with_future_tolerance(MAXIMUM_GOSSIP_CLOCK_DISPARITY);
+        if let (Some(earliest_slot), Some(latest_slot)) = (earliest_slot, latest_slot) {
+            let msg_for_current_slot = slot >= earliest_slot && slot <= latest_slot;
+            let delay_threshold_unmet = self
+                .chain
+                .slot_clock
+                .seconds_from_current_slot_start()
+                .map_or(false, |secs_into_slot| {
+                    secs_into_slot < self.chain.slot_clock.single_lookup_delay()
+                });
+            msg_for_current_slot && delay_threshold_unmet
+        } else {
+            false
+        }
+    }
+
+    fn should_search_for_block(&mut self, block_slot: Slot, peer_id: &PeerId) -> bool {
+        if !self.network_globals.sync_state.read().is_synced() {
+            let head_slot = self.chain.canonical_head.cached_head().head_slot();
+
+            // if the block is far in the future, ignore it. If its within the slot tolerance of
+            // our current head, regardless of the syncing state, fetch it.
+            if (head_slot >= block_slot
+                && head_slot.sub(block_slot).as_usize() > SLOT_IMPORT_TOLERANCE)
+                || (head_slot < block_slot
+                    && block_slot.sub(head_slot).as_usize() > SLOT_IMPORT_TOLERANCE)
+            {
+                return false;
+            }
+        }
+
+        self.network_globals.peers.read().is_connected(peer_id)
+            && self.network.is_execution_engine_online()
+    }
+
+    fn synced_and_connected(&mut self, peer_id: &PeerId) -> bool {
+        self.network_globals.sync_state.read().is_synced()
+            && self.network_globals.peers.read().is_connected(peer_id)
+            && self.network.is_execution_engine_online()
     }
 
     fn handle_new_execution_engine_state(&mut self, engine_state: EngineState) {
@@ -728,50 +881,30 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         }
     }
 
-    fn rpc_block_or_blob_received(
+    fn rpc_block_received(
         &mut self,
         request_id: RequestId,
         peer_id: PeerId,
-        block_or_blob: BlockOrBlob<T::EthSpec>,
+        block: Option<Arc<SignedBeaconBlock<T::EthSpec>>>,
         seen_timestamp: Duration,
     ) {
         match request_id {
-            RequestId::SingleBlock { id } => {
-                // TODO(diva) adjust when dealing with by root requests. This code is here to
-                // satisfy dead code analysis
-                match block_or_blob {
-                    BlockOrBlob::Block(maybe_block) => {
-                        self.block_lookups.single_block_lookup_response(
-                            id,
-                            peer_id,
-                            maybe_block.map(BlockWrapper::Block),
-                            seen_timestamp,
-                            &mut self.network,
-                        )
-                    }
-                    BlockOrBlob::Sidecar(_) => unimplemented!("Mimatch between BlockWrapper and what the network receives needs to be handled first."),
-                }
-            }
-            RequestId::ParentLookup { id } => {
-                // TODO(diva) adjust when dealing with by root requests. This code is here to
-                // satisfy dead code analysis
-                match block_or_blob {
-                    BlockOrBlob::Block(maybe_block) => self.block_lookups.parent_lookup_response(
-                        id,
-                        peer_id,
-                        maybe_block.map(BlockWrapper::Block),
-                        seen_timestamp,
-                        &mut self.network,
-                    ),
-                    BlockOrBlob::Sidecar(_) => unimplemented!("Mimatch between BlockWrapper and what the network receives needs to be handled first."),
-                }
-            }
+            RequestId::SingleBlock { id } => self.block_lookups.single_block_lookup_response(
+                id,
+                peer_id,
+                block,
+                seen_timestamp,
+                &mut self.network,
+            ),
+            RequestId::ParentLookup { id } => self.block_lookups.parent_lookup_response(
+                id,
+                peer_id,
+                block,
+                seen_timestamp,
+                &mut self.network,
+            ),
             RequestId::BackFillBlocks { id } => {
-                let maybe_block = match block_or_blob {
-                    BlockOrBlob::Block(maybe_block) => maybe_block,
-                    BlockOrBlob::Sidecar(_) => todo!("I think this is unreachable"),
-                };
-                let is_stream_terminator = maybe_block.is_none();
+                let is_stream_terminator = block.is_none();
                 if let Some(batch_id) = self
                     .network
                     .backfill_sync_only_blocks_response(id, is_stream_terminator)
@@ -781,7 +914,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         batch_id,
                         &peer_id,
                         id,
-                        maybe_block.map(|block| block.into()),
+                        block.map(BlockWrapper::Block),
                     ) {
                         Ok(ProcessResult::SyncCompleted) => self.update_sync_state(),
                         Ok(ProcessResult::Successful) => {}
@@ -794,14 +927,10 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 }
             }
             RequestId::RangeBlocks { id } => {
-                let maybe_block = match block_or_blob {
-                    BlockOrBlob::Block(maybe_block) => maybe_block,
-                    BlockOrBlob::Sidecar(_) => todo!("I think this should be unreachable, since this is a range only-blocks request, and the network should not accept this chunk at all. Needs better handling"),
-                };
-                let is_stream_terminator = maybe_block.is_none();
+                let is_stream_terminator = block.is_none();
                 if let Some((chain_id, batch_id)) = self
                     .network
-                    .range_sync_block_response(id, is_stream_terminator)
+                    .range_sync_block_only_response(id, is_stream_terminator)
                 {
                     self.range_sync.blocks_by_range_response(
                         &mut self.network,
@@ -809,17 +938,53 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         chain_id,
                         batch_id,
                         id,
-                        maybe_block.map(|block| block.into()),
+                        block.map(BlockWrapper::Block),
                     );
                     self.update_sync_state();
                 }
             }
-
-            RequestId::BackFillBlobs { id } => {
-                self.backfill_block_and_blobs_response(id, peer_id, block_or_blob)
+            RequestId::BackFillBlockAndBlobs { id } => {
+                self.backfill_block_and_blobs_response(id, peer_id, block.into())
             }
-            RequestId::RangeBlobs { id } => {
-                self.range_block_and_blobs_response(id, peer_id, block_or_blob)
+            RequestId::RangeBlockAndBlobs { id } => {
+                self.range_block_and_blobs_response(id, peer_id, block.into())
+            }
+        }
+    }
+
+    fn rpc_blob_received(
+        &mut self,
+        request_id: RequestId,
+        peer_id: PeerId,
+        blob: Option<Arc<BlobSidecar<T::EthSpec>>>,
+        seen_timestamp: Duration,
+    ) {
+        match request_id {
+            RequestId::SingleBlock { id } => self.block_lookups.single_blob_lookup_response(
+                id,
+                peer_id,
+                blob,
+                seen_timestamp,
+                &mut self.network,
+            ),
+            RequestId::ParentLookup { id } => self.block_lookups.parent_lookup_blob_response(
+                id,
+                peer_id,
+                blob,
+                seen_timestamp,
+                &mut self.network,
+            ),
+            RequestId::BackFillBlocks { id: _ } => {
+                crit!(self.log, "Blob received during backfill block request"; "peer_id" => %peer_id  );
+            }
+            RequestId::RangeBlocks { id: _ } => {
+                crit!(self.log, "Blob received during range block request"; "peer_id" => %peer_id  );
+            }
+            RequestId::BackFillBlockAndBlobs { id } => {
+                self.backfill_block_and_blobs_response(id, peer_id, blob.into())
+            }
+            RequestId::RangeBlockAndBlobs { id } => {
+                self.range_block_and_blobs_response(id, peer_id, blob.into())
             }
         }
     }
@@ -863,7 +1028,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     "peer_id" => %peer_id, "batch_id" => resp.batch_id, "error" => e
                     );
                     // TODO: penalize the peer for being a bad boy
-                    let id = RequestId::RangeBlobs { id };
+                    let id = RequestId::RangeBlockAndBlobs { id };
                     self.inject_error(peer_id, id, RPCError::InvalidData(e.into()))
                 }
             }
@@ -915,7 +1080,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         "peer_id" => %peer_id, "batch_id" => resp.batch_id, "error" => e
                     );
                     // TODO: penalize the peer for being a bad boy
-                    let id = RequestId::BackFillBlobs { id };
+                    let id = RequestId::BackFillBlockAndBlobs { id };
                     self.inject_error(peer_id, id, RPCError::InvalidData(e.into()))
                 }
             }
@@ -923,17 +1088,19 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     }
 }
 
-impl<IgnoredOkVal, T: EthSpec> From<Result<IgnoredOkVal, BlockError<T>>> for BlockProcessResult<T> {
-    fn from(result: Result<IgnoredOkVal, BlockError<T>>) -> Self {
+impl<T: EthSpec> From<Result<AvailabilityProcessingStatus, BlockError<T>>>
+    for BlockProcessingResult<T>
+{
+    fn from(result: Result<AvailabilityProcessingStatus, BlockError<T>>) -> Self {
         match result {
-            Ok(_) => BlockProcessResult::Ok,
-            Err(e) => e.into(),
+            Ok(status) => BlockProcessingResult::Ok(status),
+            Err(e) => BlockProcessingResult::Err(e),
         }
     }
 }
 
-impl<T: EthSpec> From<BlockError<T>> for BlockProcessResult<T> {
+impl<T: EthSpec> From<BlockError<T>> for BlockProcessingResult<T> {
     fn from(e: BlockError<T>) -> Self {
-        BlockProcessResult::Err(e)
+        BlockProcessingResult::Err(e)
     }
 }

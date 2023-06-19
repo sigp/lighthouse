@@ -6,7 +6,7 @@
 #![allow(clippy::unit_arg)]
 
 use crate::beacon_processor::{
-    BeaconProcessor, WorkEvent as BeaconWorkEvent, MAX_WORK_EVENT_QUEUE_LEN,
+    BeaconProcessor, InvalidBlockStorage, WorkEvent as BeaconWorkEvent, MAX_WORK_EVENT_QUEUE_LEN,
 };
 use crate::error;
 use crate::service::{NetworkMessage, RequestId};
@@ -80,6 +80,7 @@ impl<T: BeaconChainTypes> Router<T> {
         network_globals: Arc<NetworkGlobals<T::EthSpec>>,
         network_send: mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
         executor: task_executor::TaskExecutor,
+        invalid_block_storage: InvalidBlockStorage,
         log: slog::Logger,
     ) -> error::Result<mpsc::UnboundedSender<RouterMessage<T::EthSpec>>> {
         let message_handler_log = log.new(o!("service"=> "router"));
@@ -111,6 +112,7 @@ impl<T: BeaconChainTypes> Router<T> {
             max_workers: cmp::max(1, num_cpus::get()),
             current_workers: 0,
             importing_blocks: Default::default(),
+            invalid_block_storage,
             log: log.clone(),
         }
         .spawn_manager(beacon_processor_receive, None);
@@ -451,8 +453,8 @@ impl<T: BeaconChainTypes> Router<T> {
                 }
                 id @ (SyncId::BackFillBlocks { .. }
                 | SyncId::RangeBlocks { .. }
-                | SyncId::BackFillBlobs { .. }
-                | SyncId::RangeBlobs { .. }) => id,
+                | SyncId::BackFillBlockAndBlobs { .. }
+                | SyncId::RangeBlockAndBlobs { .. }) => id,
             },
             RequestId::Router => unreachable!("All BBRange requests belong to sync"),
         };
@@ -510,8 +512,8 @@ impl<T: BeaconChainTypes> Router<T> {
                 id @ (SyncId::SingleBlock { .. } | SyncId::ParentLookup { .. }) => id,
                 SyncId::BackFillBlocks { .. }
                 | SyncId::RangeBlocks { .. }
-                | SyncId::RangeBlobs { .. }
-                | SyncId::BackFillBlobs { .. } => {
+                | SyncId::RangeBlockAndBlobs { .. }
+                | SyncId::BackFillBlockAndBlobs { .. } => {
                     unreachable!("Batch syncing do not request BBRoot requests")
                 }
             },
@@ -543,8 +545,8 @@ impl<T: BeaconChainTypes> Router<T> {
                 id @ (SyncId::SingleBlock { .. } | SyncId::ParentLookup { .. }) => id,
                 SyncId::BackFillBlocks { .. }
                 | SyncId::RangeBlocks { .. }
-                | SyncId::RangeBlobs { .. }
-                | SyncId::BackFillBlobs { .. } => {
+                | SyncId::RangeBlockAndBlobs { .. }
+                | SyncId::BackFillBlockAndBlobs { .. } => {
                     unreachable!("Batch syncing does not request BBRoot requests")
                 }
             },

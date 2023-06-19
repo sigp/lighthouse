@@ -7,11 +7,11 @@ use super::range_sync::{BatchId, ByRangeRequestType, ChainId};
 use crate::beacon_processor::WorkEvent;
 use crate::service::{NetworkMessage, RequestId};
 use crate::status::ToStatusMessage;
-use crate::sync::block_lookups::ForceBlockRequest;
+use crate::sync::block_lookups::{BlobRequestId, BlockRequestId};
 use beacon_chain::blob_verification::BlockWrapper;
 use beacon_chain::{BeaconChain, BeaconChainTypes, EngineState};
 use fnv::FnvHashMap;
-use lighthouse_network::rpc::methods::BlobsByRangeRequest;
+use lighthouse_network::rpc::methods::{BlobsByRangeRequest, BlobsByRootRequest};
 use lighthouse_network::rpc::{BlocksByRangeRequest, BlocksByRootRequest, GoodbyeReason};
 use lighthouse_network::{Client, NetworkGlobals, PeerAction, PeerId, ReportSource, Request};
 use slog::{debug, trace, warn};
@@ -62,7 +62,7 @@ pub struct SyncNetworkContext<T: BeaconChainTypes> {
     /// Channel to send work to the beacon processor.
     beacon_processor_send: mpsc::Sender<WorkEvent<T>>,
 
-    chain: Arc<BeaconChain<T>>,
+    pub chain: Arc<BeaconChain<T>>,
 
     /// Logger for the `SyncNetworkContext`.
     log: slog::Logger,
@@ -71,7 +71,7 @@ pub struct SyncNetworkContext<T: BeaconChainTypes> {
 /// Small enumeration to make dealing with block and blob requests easier.
 pub enum BlockOrBlob<T: EthSpec> {
     Block(Option<Arc<SignedBeaconBlock<T>>>),
-    Sidecar(Option<Arc<BlobSidecar<T>>>),
+    Blob(Option<Arc<BlobSidecar<T>>>),
 }
 
 impl<T: EthSpec> From<Option<Arc<SignedBeaconBlock<T>>>> for BlockOrBlob<T> {
@@ -82,7 +82,7 @@ impl<T: EthSpec> From<Option<Arc<SignedBeaconBlock<T>>>> for BlockOrBlob<T> {
 
 impl<T: EthSpec> From<Option<Arc<BlobSidecar<T>>>> for BlockOrBlob<T> {
     fn from(blob: Option<Arc<BlobSidecar<T>>>) -> Self {
-        BlockOrBlob::Sidecar(blob)
+        BlockOrBlob::Blob(blob)
     }
 }
 
@@ -187,7 +187,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
 
                 // create the shared request id. This is fine since the rpc handles substream ids.
                 let id = self.next_id();
-                let request_id = RequestId::Sync(SyncRequestId::RangeBlobs { id });
+                let request_id = RequestId::Sync(SyncRequestId::RangeBlockAndBlobs { id });
 
                 // Create the blob request based on the blob request.
                 let blobs_request = Request::BlobsByRange(BlobsByRangeRequest {
@@ -260,7 +260,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
 
                 // create the shared request id. This is fine since the rpc handles substream ids.
                 let id = self.next_id();
-                let request_id = RequestId::Sync(SyncRequestId::BackFillBlobs { id });
+                let request_id = RequestId::Sync(SyncRequestId::BackFillBlockAndBlobs { id });
 
                 // Create the blob request based on the blob request.
                 let blobs_request = Request::BlobsByRange(BlobsByRangeRequest {
@@ -289,7 +289,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
     }
 
     /// Response for a request that is only for blocks.
-    pub fn range_sync_block_response(
+    pub fn range_sync_block_only_response(
         &mut self,
         request_id: Id,
         is_stream_terminator: bool,
@@ -313,7 +313,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 let info = &mut req.block_blob_info;
                 match block_or_blob {
                     BlockOrBlob::Block(maybe_block) => info.add_block_response(maybe_block),
-                    BlockOrBlob::Sidecar(maybe_sidecar) => info.add_sidecar_response(maybe_sidecar),
+                    BlockOrBlob::Blob(maybe_sidecar) => info.add_sidecar_response(maybe_sidecar),
                 }
                 if info.is_finished() {
                     // If the request is finished, dequeue everything
@@ -390,7 +390,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 let (_, info) = entry.get_mut();
                 match block_or_blob {
                     BlockOrBlob::Block(maybe_block) => info.add_block_response(maybe_block),
-                    BlockOrBlob::Sidecar(maybe_sidecar) => info.add_sidecar_response(maybe_sidecar),
+                    BlockOrBlob::Blob(maybe_sidecar) => info.add_sidecar_response(maybe_sidecar),
                 }
                 if info.is_finished() {
                     // If the request is finished, dequeue everything
@@ -409,83 +409,101 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         }
     }
 
-    /// Sends a blocks by root request for a single block lookup.
+    /// Sends a blocks by root request for a parent request.
     pub fn single_block_lookup_request(
         &mut self,
         peer_id: PeerId,
         request: BlocksByRootRequest,
     ) -> Result<Id, &'static str> {
-        let request = if self
-            .chain
-            .is_data_availability_check_required()
-            .map_err(|_| "Unable to read slot clock")?
-        {
-            trace!(
-                self.log,
-                "Sending BlobsByRoot Request";
-                "method" => "BlobsByRoot",
-                "count" => request.block_roots.len(),
-                "peer" => %peer_id
-            );
-            unimplemented!("There is no longer such thing as a single block lookup, since we nede to ask for blobs and blocks separetely");
-        } else {
-            trace!(
-                self.log,
-                "Sending BlocksByRoot Request";
-                "method" => "BlocksByRoot",
-                "count" => request.block_roots.len(),
-                "peer" => %peer_id
-            );
-            Request::BlocksByRoot(request)
-        };
         let id = self.next_id();
         let request_id = RequestId::Sync(SyncRequestId::SingleBlock { id });
+
+        trace!(
+            self.log,
+            "Sending BlocksByRoot Request";
+            "method" => "BlocksByRoot",
+            "count" => request.block_roots.len(),
+            "peer" => %peer_id
+        );
+
         self.send_network_msg(NetworkMessage::SendRequest {
             peer_id,
-            request,
+            request: Request::BlocksByRoot(request),
+            request_id,
+        })?;
+        Ok(id)
+    }
+
+    /// Sends a blobs by root request for a parent request.
+    pub fn single_blobs_lookup_request(
+        &mut self,
+        peer_id: PeerId,
+        request: BlobsByRootRequest,
+    ) -> Result<Id, &'static str> {
+        let id = self.next_id();
+        let request_id = RequestId::Sync(SyncRequestId::SingleBlock { id });
+
+        trace!(
+            self.log,
+            "Sending BlobsByRoot Request";
+            "method" => "BlobsByRoot",
+            "count" => request.blob_ids.len(),
+            "peer" => %peer_id
+        );
+
+        self.send_network_msg(NetworkMessage::SendRequest {
+            peer_id,
+            request: Request::BlobsByRoot(request),
             request_id,
         })?;
         Ok(id)
     }
 
     /// Sends a blocks by root request for a parent request.
-    pub fn parent_lookup_request(
+    pub fn parent_lookup_block_request(
         &mut self,
         peer_id: PeerId,
         request: BlocksByRootRequest,
-        force_block_request: ForceBlockRequest,
-    ) -> Result<Id, &'static str> {
-        let request = if self
-            .chain
-            .is_data_availability_check_required()
-            .map_err(|_| "Unable to read slot clock")?
-            && matches!(force_block_request, ForceBlockRequest::False)
-        {
-            trace!(
-                self.log,
-                "Sending BlobsByRoot Request";
-                "method" => "BlobsByRoot",
-                "count" => request.block_roots.len(),
-                "peer" => %peer_id
-            );
-            unimplemented!(
-                "Parent requests now need to interleave blocks and blobs or something like that."
-            )
-        } else {
-            trace!(
-                self.log,
-                "Sending BlocksByRoot Request";
-                "method" => "BlocksByRoot",
-                "count" => request.block_roots.len(),
-                "peer" => %peer_id
-            );
-            Request::BlocksByRoot(request)
-        };
+    ) -> Result<BlockRequestId, &'static str> {
         let id = self.next_id();
         let request_id = RequestId::Sync(SyncRequestId::ParentLookup { id });
+
+        trace!(
+            self.log,
+            "Sending parent BlocksByRoot Request";
+            "method" => "BlocksByRoot",
+            "count" => request.block_roots.len(),
+            "peer" => %peer_id
+        );
+
         self.send_network_msg(NetworkMessage::SendRequest {
             peer_id,
-            request,
+            request: Request::BlocksByRoot(request),
+            request_id,
+        })?;
+        Ok(id)
+    }
+
+    /// Sends a blocks by root request for a parent request.
+    pub fn parent_lookup_blobs_request(
+        &mut self,
+        peer_id: PeerId,
+        request: BlobsByRootRequest,
+    ) -> Result<BlobRequestId, &'static str> {
+        let id = self.next_id();
+        let request_id = RequestId::Sync(SyncRequestId::ParentLookup { id });
+
+        trace!(
+            self.log,
+            "Sending parent BlobsByRoot Request";
+            "method" => "BlobsByRoot",
+            "count" => request.blob_ids.len(),
+            "peer" => %peer_id
+        );
+
+        self.send_network_msg(NetworkMessage::SendRequest {
+            peer_id,
+            request: Request::BlobsByRoot(request),
             request_id,
         })?;
         Ok(id)

@@ -586,7 +586,8 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
                     ForkName::Deneb => {
                         // get random number between 0 and Max Blobs
                         let num_blobs = rand::random::<usize>() % T::max_blobs_per_block();
-                        let (bundle, transactions) = self.generate_random_blobs(num_blobs)?;
+                        let kzg = self.kzg.as_ref().ok_or("kzg not initialized")?;
+                        let (bundle, transactions) = generate_random_blobs(num_blobs, kzg)?;
                         for tx in Vec::from(transactions) {
                             execution_payload
                                 .transactions_mut()
@@ -626,88 +627,82 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
             payload_id: id.map(Into::into),
         })
     }
+}
 
-    fn generate_random_blobs(
-        &self,
-        n_blobs: usize,
-    ) -> Result<(BlobsBundleV1<T>, Transactions<T>), String> {
-        let mut bundle = BlobsBundleV1::<T>::default();
-        let mut transactions = vec![];
-        for blob_index in 0..n_blobs {
-            // fill a vector with random bytes
-            let mut blob_bytes = [0u8; BYTES_PER_BLOB];
-            rand::thread_rng().fill_bytes(&mut blob_bytes);
-            // Ensure that the blob is canonical by ensuring that
-            // each field element contained in the blob is < BLS_MODULUS
-            for i in 0..FIELD_ELEMENTS_PER_BLOB {
-                blob_bytes[i * BYTES_PER_FIELD_ELEMENT + BYTES_PER_FIELD_ELEMENT - 1] = 0;
-            }
-
-            let blob = Blob::<T>::new(Vec::from(blob_bytes))
-                .map_err(|e| format!("error constructing random blob: {:?}", e))?;
-
-            let commitment = self
-                .kzg
-                .as_ref()
-                .ok_or("kzg not initialized")?
-                .blob_to_kzg_commitment(blob_bytes.into())
-                .map_err(|e| format!("error computing kzg commitment: {:?}", e))?;
-
-            let proof = self
-                .kzg
-                .as_ref()
-                .ok_or("kzg not initialized")?
-                .compute_blob_kzg_proof(blob_bytes.into(), commitment)
-                .map_err(|e| format!("error computing kzg proof: {:?}", e))?;
-
-            let versioned_hash = commitment.calculate_versioned_hash();
-
-            let blob_transaction = BlobTransaction {
-                chain_id: Default::default(),
-                nonce: 0,
-                max_priority_fee_per_gas: Default::default(),
-                max_fee_per_gas: Default::default(),
-                gas: 100000,
-                to: None,
-                value: Default::default(),
-                data: Default::default(),
-                access_list: Default::default(),
-                max_fee_per_data_gas: Default::default(),
-                versioned_hashes: vec![versioned_hash].into(),
-            };
-            let bad_signature = EcdsaSignature {
-                y_parity: false,
-                r: Uint256::from(0),
-                s: Uint256::from(0),
-            };
-            let signed_blob_transaction = SignedBlobTransaction {
-                message: blob_transaction,
-                signature: bad_signature,
-            };
-            // calculate transaction bytes
-            let tx_bytes = [BLOB_TX_TYPE]
-                .into_iter()
-                .chain(signed_blob_transaction.as_ssz_bytes().into_iter())
-                .collect::<Vec<_>>();
-            let tx = Transaction::<T::MaxBytesPerTransaction>::from(tx_bytes);
-
-            transactions.push(tx);
-            bundle
-                .blobs
-                .push(blob)
-                .map_err(|_| format!("blobs are full, blob index: {:?}", blob_index))?;
-            bundle
-                .commitments
-                .push(commitment)
-                .map_err(|_| format!("blobs are full, blob index: {:?}", blob_index))?;
-            bundle
-                .proofs
-                .push(proof)
-                .map_err(|_| format!("blobs are full, blob index: {:?}", blob_index))?;
+pub fn generate_random_blobs<T: EthSpec>(
+    n_blobs: usize,
+    kzg: &Kzg,
+) -> Result<(BlobsBundleV1<T>, Transactions<T>), String> {
+    let mut bundle = BlobsBundleV1::<T>::default();
+    let mut transactions = vec![];
+    for blob_index in 0..n_blobs {
+        // fill a vector with random bytes
+        let mut blob_bytes = [0u8; BYTES_PER_BLOB];
+        rand::thread_rng().fill_bytes(&mut blob_bytes);
+        // Ensure that the blob is canonical by ensuring that
+        // each field element contained in the blob is < BLS_MODULUS
+        for i in 0..FIELD_ELEMENTS_PER_BLOB {
+            blob_bytes[i * BYTES_PER_FIELD_ELEMENT + BYTES_PER_FIELD_ELEMENT - 1] = 0;
         }
 
-        Ok((bundle, transactions.into()))
+        let blob = Blob::<T>::new(Vec::from(blob_bytes))
+            .map_err(|e| format!("error constructing random blob: {:?}", e))?;
+
+        let commitment = kzg
+            .blob_to_kzg_commitment(blob_bytes.into())
+            .map_err(|e| format!("error computing kzg commitment: {:?}", e))?;
+
+        let proof = kzg
+            .compute_blob_kzg_proof(blob_bytes.into(), commitment)
+            .map_err(|e| format!("error computing kzg proof: {:?}", e))?;
+
+        let versioned_hash = commitment.calculate_versioned_hash();
+
+        let blob_transaction = BlobTransaction {
+            chain_id: Default::default(),
+            nonce: 0,
+            max_priority_fee_per_gas: Default::default(),
+            max_fee_per_gas: Default::default(),
+            gas: 100000,
+            to: None,
+            value: Default::default(),
+            data: Default::default(),
+            access_list: Default::default(),
+            max_fee_per_data_gas: Default::default(),
+            versioned_hashes: vec![versioned_hash].into(),
+        };
+        let bad_signature = EcdsaSignature {
+            y_parity: false,
+            r: Uint256::from(0),
+            s: Uint256::from(0),
+        };
+        let signed_blob_transaction = SignedBlobTransaction {
+            message: blob_transaction,
+            signature: bad_signature,
+        };
+        // calculate transaction bytes
+        let tx_bytes = [BLOB_TX_TYPE]
+            .into_iter()
+            .chain(signed_blob_transaction.as_ssz_bytes().into_iter())
+            .collect::<Vec<_>>();
+        let tx = Transaction::<T::MaxBytesPerTransaction>::from(tx_bytes);
+
+        transactions.push(tx);
+        bundle
+            .blobs
+            .push(blob)
+            .map_err(|_| format!("blobs are full, blob index: {:?}", blob_index))?;
+        bundle
+            .commitments
+            .push(commitment)
+            .map_err(|_| format!("blobs are full, blob index: {:?}", blob_index))?;
+        bundle
+            .proofs
+            .push(proof)
+            .map_err(|_| format!("blobs are full, blob index: {:?}", blob_index))?;
     }
+
+    Ok((bundle, transactions.into()))
 }
 
 fn payload_id_from_u64(n: u64) -> PayloadId {

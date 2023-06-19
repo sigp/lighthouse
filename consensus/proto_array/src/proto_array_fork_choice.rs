@@ -345,6 +345,7 @@ pub struct ProtoArrayForkChoice {
 impl ProtoArrayForkChoice {
     #[allow(clippy::too_many_arguments)]
     pub fn new<E: EthSpec>(
+        current_slot: Slot,
         finalized_block_slot: Slot,
         finalized_block_state_root: Hash256,
         justified_checkpoint: Checkpoint,
@@ -380,7 +381,7 @@ impl ProtoArrayForkChoice {
         };
 
         proto_array
-            .on_block::<E>(block, finalized_block_slot)
+            .on_block::<E>(block, current_slot)
             .map_err(|e| format!("Failed to add finalized block to proto_array: {:?}", e))?;
 
         Ok(Self {
@@ -754,29 +755,20 @@ impl ProtoArrayForkChoice {
             .and_then(|i| self.proto_array.nodes.get(i))
             .map(|parent| parent.root);
 
-        // If a node does not have a `finalized_checkpoint` or `justified_checkpoint` populated,
-        // it means it is not a descendant of the finalized checkpoint, so it is valid to return
-        // `None` here.
-        if let (Some(justified_checkpoint), Some(finalized_checkpoint)) =
-            (block.justified_checkpoint, block.finalized_checkpoint)
-        {
-            Some(Block {
-                slot: block.slot,
-                root: block.root,
-                parent_root,
-                state_root: block.state_root,
-                target_root: block.target_root,
-                current_epoch_shuffling_id: block.current_epoch_shuffling_id.clone(),
-                next_epoch_shuffling_id: block.next_epoch_shuffling_id.clone(),
-                justified_checkpoint,
-                finalized_checkpoint,
-                execution_status: block.execution_status,
-                unrealized_justified_checkpoint: block.unrealized_justified_checkpoint,
-                unrealized_finalized_checkpoint: block.unrealized_finalized_checkpoint,
-            })
-        } else {
-            None
-        }
+        Some(Block {
+            slot: block.slot,
+            root: block.root,
+            parent_root,
+            state_root: block.state_root,
+            target_root: block.target_root,
+            current_epoch_shuffling_id: block.current_epoch_shuffling_id.clone(),
+            next_epoch_shuffling_id: block.next_epoch_shuffling_id.clone(),
+            justified_checkpoint: block.justified_checkpoint,
+            finalized_checkpoint: block.finalized_checkpoint,
+            execution_status: block.execution_status,
+            unrealized_justified_checkpoint: block.unrealized_justified_checkpoint,
+            unrealized_finalized_checkpoint: block.unrealized_finalized_checkpoint,
+        })
     }
 
     /// Returns the `block.execution_status` field, if the block is present.
@@ -993,6 +985,7 @@ mod test_compute_deltas {
 
         let mut fc = ProtoArrayForkChoice::new::<MainnetEthSpec>(
             genesis_slot,
+            genesis_slot,
             state_root,
             genesis_checkpoint,
             genesis_checkpoint,
@@ -1117,6 +1110,7 @@ mod test_compute_deltas {
         };
 
         let mut fc = ProtoArrayForkChoice::new::<MainnetEthSpec>(
+            genesis_slot,
             genesis_slot,
             junk_state_root,
             genesis_checkpoint,
