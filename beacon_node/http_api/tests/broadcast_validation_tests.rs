@@ -333,12 +333,7 @@ pub async fn consensus_partial_pass_only_consensus() {
     )
     .await;
 
-    assert!(publication_result.is_err());
-
-    let publication_error: Rejection = publication_result.unwrap_err();
-
-    /* TODO: assert 202 */
-
+    assert!(publication_result.is_ok());
     assert!(!tester
         .harness
         .chain
@@ -549,7 +544,6 @@ pub async fn equivocation_gossip() {
 
     /* mandated by Beacon API spec */
     assert_eq!(error_response.status(), Some(StatusCode::BAD_REQUEST));
-
 
     assert!(
         matches!(error_response, eth2::Error::ServerMessage(err) if err.message == "BAD_REQUEST: Invalid block".to_string())
