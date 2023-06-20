@@ -65,6 +65,7 @@ hex = "0.4.2"
 exit-future = "0.2.0"
 unused_port = {path = "../../common/unused_port"}
 oneshot_broadcast = { path = "../../common/oneshot_broadcast" }
+beacon_processor = { path = "../beacon_processor" }
 
 [[test]]
 name = "beacon_chain_tests"

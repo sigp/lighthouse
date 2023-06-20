@@ -39,7 +39,9 @@
 //! task.
 
 use crate::work_reprocessing_queue::{
-    spawn_reprocess_scheduler, QueuedBackfillBatch, ReadyWork, ReprocessQueueMessage,
+    spawn_reprocess_scheduler, ChainSegmentProcessId, QueuedAggregate, QueuedBackfillBatch,
+    QueuedGossipBlock, QueuedLightClientUpdate, QueuedRpcBlock, QueuedUnaggregate, ReadyWork,
+    ReprocessQueueMessage,
 };
 use futures::stream::{Stream, StreamExt};
 use futures::task::Poll;
@@ -59,8 +61,12 @@ use std::{cmp, collections::HashSet};
 use task_executor::TaskExecutor;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TrySendError;
-use types::{Attestation, EthSpec, Hash256, SignedAggregateAndProof, SignedBeaconBlock};
-use work_reprocessing_queue::{ChainSegmentProcessId, GenericBlock};
+use types::{
+    Attestation, EthSpec, Hash256, LightClientOptimisticUpdate, SignedAggregateAndProof,
+    SignedBeaconBlock,
+};
+
+pub use work_reprocessing_queue::GenericBlock;
 
 // TODO(paul): re-enable tests.
 // mod tests;
@@ -350,92 +356,74 @@ impl DuplicateCache {
 
 /// An event to be processed by the manager task.
 #[derive(Debug)]
-pub struct WorkEvent<E: EthSpec> {
+pub struct WorkEvent<E: EthSpec, GBlock> {
     drop_during_sync: bool,
-    work: Work<E>,
+    work: Work<E, GBlock>,
 }
 
-impl<E: EthSpec> std::convert::From<ReadyWork<E>> for WorkEvent<E> {
-    fn from(ready_work: ReadyWork<T>) -> Self {
+impl<E: EthSpec, GBlock> std::convert::From<ReadyWork<E, GBlock>> for WorkEvent<E, GBlock> {
+    fn from(ready_work: ReadyWork<E, GBlock>) -> Self {
         match ready_work {
-            ReadyWork::Block(QueuedGossipBlock {
-                peer_id,
-                block,
-                seen_timestamp,
-            }) => Self {
+            ReadyWork::Block(QueuedGossipBlock { block, process_fn }) => Self {
                 drop_during_sync: false,
-                work: Work::DelayedImportBlock {
-                    peer_id,
-                    block,
-                    seen_timestamp,
-                },
+                work: Work::DelayedImportBlock { block, process_fn },
             },
             ReadyWork::RpcBlock(QueuedRpcBlock {
-                block_root,
                 block,
-                seen_timestamp,
-                process_type,
                 should_process,
+                process_fn,
             }) => Self {
                 drop_during_sync: false,
                 work: Work::RpcBlock {
-                    block_root,
                     block,
-                    seen_timestamp,
-                    process_type,
                     should_process,
+                    process_fn,
                 },
             },
             ReadyWork::Unaggregate(QueuedUnaggregate {
-                peer_id,
-                message_id,
                 attestation,
-                subnet_id,
-                should_import,
-                seen_timestamp,
+                process_fn,
             }) => Self {
                 drop_during_sync: true,
                 work: Work::UnknownBlockAttestation {
-                    message_id,
-                    peer_id,
                     attestation,
-                    subnet_id,
-                    should_import,
-                    seen_timestamp,
+                    process_fn,
                 },
             },
             ReadyWork::Aggregate(QueuedAggregate {
-                peer_id,
-                message_id,
                 attestation,
-                seen_timestamp,
+                process_fn,
             }) => Self {
                 drop_during_sync: true,
                 work: Work::UnknownBlockAggregate {
-                    message_id,
-                    peer_id,
-                    aggregate: attestation,
-                    seen_timestamp,
+                    attestation,
+                    process_fn,
                 },
             },
             ReadyWork::LightClientUpdate(QueuedLightClientUpdate {
-                peer_id,
-                message_id,
                 light_client_optimistic_update,
-                seen_timestamp,
-                ..
+                parent_root,
+                process_fn,
             }) => Self {
                 drop_during_sync: true,
                 work: Work::UnknownLightClientOptimisticUpdate {
-                    message_id,
-                    peer_id,
                     light_client_optimistic_update,
-                    seen_timestamp,
+                    parent_root,
+                    process_fn,
                 },
             },
-            ReadyWork::BackfillSync(QueuedBackfillBatch { process_id, blocks }) => {
-                WorkEvent::chain_segment(process_id, blocks)
-            }
+            ReadyWork::BackfillSync(QueuedBackfillBatch {
+                process_id,
+                blocks,
+                process_fn,
+            }) => Self {
+                drop_during_sync: false,
+                work: Work::ChainSegment {
+                    process_id,
+                    blocks,
+                    process_fn,
+                },
+            },
         }
     }
 }
@@ -444,13 +432,16 @@ type BlockingWork = Box<dyn Fn() + Send + Sync>;
 
 /// Indicates the type of work to be performed and therefore its priority and
 /// queuing specifics.
-pub enum Work<E: EthSpec> {
+pub enum Work<E: EthSpec, GBlock> {
     GossipAttestation {
         attestation: Attestation<E>,
         process_individual: Box<dyn Fn(Attestation<E>) + Send + Sync>,
         process_batch: Box<dyn Fn(Vec<Attestation<E>>) + Send + Sync>,
     },
-    UnknownBlockAttestation(BlockingWork),
+    UnknownBlockAttestation {
+        attestation: Box<Attestation<E>>,
+        process_fn: Box<dyn Fn(Box<Attestation<E>>) + Send + Sync>,
+    },
     GossipAttestationBatch {
         attestations: Vec<Attestation<E>>,
         process_batch: Box<dyn Fn(Vec<Attestation<E>>) + Send + Sync>,
@@ -460,14 +451,24 @@ pub enum Work<E: EthSpec> {
         process_individual: Box<dyn Fn(SignedAggregateAndProof<E>) + Send + Sync>,
         process_batch: Box<dyn Fn(Vec<SignedAggregateAndProof<E>>) + Send + Sync>,
     },
-    UnknownBlockAggregate(BlockingWork),
-    UnknownLightClientOptimisticUpdate(BlockingWork),
+    UnknownBlockAggregate {
+        attestation: Box<SignedAggregateAndProof<E>>,
+        process_fn: Box<dyn Fn(Box<SignedAggregateAndProof<E>>) + Send + Sync>,
+    },
+    UnknownLightClientOptimisticUpdate {
+        light_client_optimistic_update: Box<LightClientOptimisticUpdate<E>>,
+        parent_root: Hash256,
+        process_fn: Box<dyn Fn(Box<LightClientOptimisticUpdate<E>>) + Send + Sync>,
+    },
     GossipAggregateBatch {
         aggregates: Vec<SignedAggregateAndProof<E>>,
         process_batch: Box<dyn Fn(Vec<SignedAggregateAndProof<E>>) + Send + Sync>,
     },
     GossipBlock(BlockingWork),
-    DelayedImportBlock(BlockingWork),
+    DelayedImportBlock {
+        block: GBlock,
+        process_fn: Box<dyn Fn(GBlock) + Send + Sync>,
+    },
     GossipVoluntaryExit(BlockingWork),
     GossipProposerSlashing(BlockingWork),
     GossipAttesterSlashing(BlockingWork),
@@ -475,11 +476,15 @@ pub enum Work<E: EthSpec> {
     GossipSyncContribution(BlockingWork),
     GossipLightClientFinalityUpdate(BlockingWork),
     GossipLightClientOptimisticUpdate(BlockingWork),
-    RpcBlock(BlockingWork),
+    RpcBlock {
+        block: Arc<SignedBeaconBlock<E>>,
+        should_process: bool,
+        process_fn: Box<dyn Fn(Arc<SignedBeaconBlock<E>>) + Send + Sync>,
+    },
     ChainSegment {
         process_id: ChainSegmentProcessId,
         blocks: Vec<Arc<SignedBeaconBlock<E>>>,
-        process_fn: Box<dyn Fn(Vec<Arc<SignedBeaconBlock<E>>>) + Send + Sync>,
+        process_fn: Arc<Box<dyn Fn(Vec<Arc<SignedBeaconBlock<E>>>) + Send + Sync>>,
     },
     ChainSegmentBackSync(BlockingWork),
     Status(BlockingWork),
@@ -489,13 +494,13 @@ pub enum Work<E: EthSpec> {
     LightClientBootstrapRequest(BlockingWork),
 }
 
-impl<E: EthSpec> fmt::Debug for Work<E> {
+impl<E: EthSpec, GBlock> fmt::Debug for Work<E, GBlock> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.str_id())
     }
 }
 
-impl<E: EthSpec> Work<E> {
+impl<E: EthSpec, GBlock> Work<E, GBlock> {
     /// Provides a `&str` that uniquely identifies each enum variant.
     fn str_id(&self) -> &'static str {
         match self {
@@ -504,7 +509,7 @@ impl<E: EthSpec> Work<E> {
             Work::GossipAggregate { .. } => GOSSIP_AGGREGATE,
             Work::GossipAggregateBatch { .. } => GOSSIP_AGGREGATE_BATCH,
             Work::GossipBlock(_) => GOSSIP_BLOCK,
-            Work::DelayedImportBlock(_) => DELAYED_IMPORT_BLOCK,
+            Work::DelayedImportBlock { .. } => DELAYED_IMPORT_BLOCK,
             Work::GossipVoluntaryExit(_) => GOSSIP_VOLUNTARY_EXIT,
             Work::GossipProposerSlashing(_) => GOSSIP_PROPOSER_SLASHING,
             Work::GossipAttesterSlashing(_) => GOSSIP_ATTESTER_SLASHING,
@@ -512,29 +517,29 @@ impl<E: EthSpec> Work<E> {
             Work::GossipSyncContribution(_) => GOSSIP_SYNC_CONTRIBUTION,
             Work::GossipLightClientFinalityUpdate(_) => GOSSIP_LIGHT_CLIENT_FINALITY_UPDATE,
             Work::GossipLightClientOptimisticUpdate(_) => GOSSIP_LIGHT_CLIENT_OPTIMISTIC_UPDATE,
-            Work::RpcBlock(_) => RPC_BLOCK,
+            Work::RpcBlock { .. } => RPC_BLOCK,
             Work::ChainSegment { .. } => CHAIN_SEGMENT,
             Work::ChainSegmentBackSync(_) => CHAIN_SEGMENT_BACKFILL,
             Work::Status(_) => STATUS_PROCESSING,
             Work::BlocksByRangeRequest(_) => BLOCKS_BY_RANGE_REQUEST,
             Work::BlocksByRootsRequest(_) => BLOCKS_BY_ROOTS_REQUEST,
             Work::LightClientBootstrapRequest(_) => LIGHT_CLIENT_BOOTSTRAP_REQUEST,
-            Work::UnknownBlockAttestation(_) => UNKNOWN_BLOCK_ATTESTATION,
-            Work::UnknownBlockAggregate(_) => UNKNOWN_BLOCK_AGGREGATE,
+            Work::UnknownBlockAttestation { .. } => UNKNOWN_BLOCK_ATTESTATION,
+            Work::UnknownBlockAggregate { .. } => UNKNOWN_BLOCK_AGGREGATE,
             Work::GossipBlsToExecutionChange(_) => GOSSIP_BLS_TO_EXECUTION_CHANGE,
-            Work::UnknownLightClientOptimisticUpdate(_) => UNKNOWN_LIGHT_CLIENT_UPDATE,
+            Work::UnknownLightClientOptimisticUpdate { .. } => UNKNOWN_LIGHT_CLIENT_UPDATE,
         }
     }
 }
 
 /// Unifies all the messages processed by the `BeaconProcessor`.
-enum InboundEvent<E: EthSpec> {
+enum InboundEvent<E: EthSpec, GBlock> {
     /// A worker has completed a task and is free.
     WorkerIdle,
     /// There is new work to be done.
-    WorkEvent(WorkEvent<E>),
+    WorkEvent(WorkEvent<E, GBlock>),
     /// A work event that was queued for re-processing has become ready.
-    ReprocessingWork(WorkEvent<E>),
+    ReprocessingWork(WorkEvent<E, GBlock>),
 }
 
 /// Combines the various incoming event streams for the `BeaconProcessor` into a single stream.
@@ -545,13 +550,13 @@ struct InboundEvents<E: EthSpec, GBlock> {
     /// Used by workers when they finish a task.
     idle_rx: mpsc::Receiver<()>,
     /// Used by upstream processes to send new work to the `BeaconProcessor`.
-    event_rx: mpsc::Receiver<WorkEvent<E>>,
+    event_rx: mpsc::Receiver<WorkEvent<E, GBlock>>,
     /// Used internally for queuing work ready to be re-processed.
     reprocess_work_rx: mpsc::Receiver<ReadyWork<E, GBlock>>,
 }
 
 impl<E: EthSpec, GBlock> Stream for InboundEvents<E, GBlock> {
-    type Item = InboundEvent<E>;
+    type Item = InboundEvent<E, GBlock>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         // Always check for idle workers before anything else. This allows us to ensure that a big
@@ -626,10 +631,9 @@ impl<E: EthSpec> BeaconProcessor<E> {
     ///
     /// The optional `work_journal_tx` allows for an outside process to receive a log of all work
     /// events processed by `self`. This should only be used during testing.
-    pub fn spawn_manager<S: SlotClock, GBlock: GenericBlock>(
+    pub fn spawn_manager<S: SlotClock + 'static, GBlock: GenericBlock + 'static>(
         mut self,
-        event_rx: mpsc::Receiver<WorkEvent<E>>,
-        ready_work_rx: mpsc::Receiver<WorkEvent<E>>,
+        event_rx: mpsc::Receiver<WorkEvent<E, GBlock>>,
         work_journal_tx: Option<mpsc::Sender<&'static str>>,
         slot_clock: S,
     ) {
@@ -790,6 +794,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
                     .as_ref()
                     .map_or(false, |event| event.drop_during_sync);
 
+                let idle_tx = idle_tx.clone();
                 match work_event {
                     // There is no new work event, but we are able to spawn a new worker.
                     //
@@ -854,7 +859,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
 
                                 if let Some(process_batch) = process_batch_opt {
                                     // Process all aggregates with a single worker.
-                                    self.spawn_worker(
+                                    self.spawn_worker::<GBlock>(
                                         Work::GossipAggregateBatch {
                                             aggregates,
                                             process_batch,
@@ -915,7 +920,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
 
                                 if let Some(process_batch) = process_batch_opt {
                                     // Process all attestations with a single worker.
-                                    self.spawn_worker(
+                                    self.spawn_worker::<GBlock>(
                                         Work::GossipAttestationBatch {
                                             attestations,
                                             process_batch,
@@ -1171,7 +1176,11 @@ impl<E: EthSpec> BeaconProcessor<E> {
     /// Spawns a blocking worker thread to process some `Work`.
     ///
     /// Sends an message on `idle_tx` when the work is complete and the task is stopping.
-    fn spawn_worker(&mut self, work: Work<E>, idle_tx: mpsc::Sender<()>) {
+    fn spawn_worker<GBlock: GenericBlock + 'static>(
+        &mut self,
+        work: Work<E, GBlock>,
+        idle_tx: mpsc::Sender<()>,
+    ) {
         let work_id = work.str_id();
         let worker_timer =
             metrics::start_timer_vec(&metrics::BEACON_PROCESSOR_WORKER_TIME, &[work_id]);
@@ -1186,7 +1195,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
         // This helps ensure that the worker is always freed in the case of an early exit or panic.
         // As such, this instantiation should happen as early in the function as possible.
         let send_idle_on_drop = SendOnDrop {
-            tx: idle_tx,
+            tx: idle_tx.clone(),
             _worker_timer: worker_timer,
             log: self.log.clone(),
         };
@@ -1208,20 +1217,19 @@ impl<E: EthSpec> BeaconProcessor<E> {
             send_idle_on_drop,
         };
 
-        let sub_executor = executor;
         match work {
             Work::GossipAttestation {
                 attestation,
                 process_individual,
                 process_batch: _,
-            } => task_spawner.spawn_blocking(|| {
+            } => task_spawner.spawn_blocking(move || {
                 process_individual(attestation);
                 drop(idle_tx);
             }),
             Work::GossipAttestationBatch {
                 attestations,
                 process_batch,
-            } => task_spawner.spawn_blocking(|| {
+            } => task_spawner.spawn_blocking(move || {
                 process_batch(attestations);
                 drop(idle_tx);
             }),
@@ -1229,14 +1237,14 @@ impl<E: EthSpec> BeaconProcessor<E> {
                 aggregate,
                 process_individual,
                 process_batch: _,
-            } => task_spawner.spawn_blocking(|| {
+            } => task_spawner.spawn_blocking(move || {
                 process_individual(aggregate);
                 drop(idle_tx);
             }),
             Work::GossipAggregateBatch {
                 aggregates,
                 process_batch,
-            } => task_spawner.spawn_blocking(|| {
+            } => task_spawner.spawn_blocking(move || {
                 process_batch(aggregates);
                 drop(idle_tx);
             }),
@@ -1244,15 +1252,47 @@ impl<E: EthSpec> BeaconProcessor<E> {
                 process_id: _,
                 blocks,
                 process_fn,
-            } => task_spawner.spawn_blocking(|| {
+            } => task_spawner.spawn_blocking(move || {
                 process_fn(blocks);
                 drop(idle_tx);
             }),
-            Work::UnknownBlockAttestation(work)
-            | Work::UnknownBlockAggregate(work)
-            | Work::UnknownLightClientOptimisticUpdate(work)
-            | Work::GossipBlock(work)
-            | Work::DelayedImportBlock(work)
+            Work::UnknownBlockAttestation {
+                attestation,
+                process_fn,
+            } => task_spawner.spawn_blocking(move || {
+                process_fn(attestation);
+                drop(idle_tx);
+            }),
+            Work::UnknownBlockAggregate {
+                attestation,
+                process_fn,
+            } => task_spawner.spawn_blocking(move || {
+                process_fn(attestation);
+                drop(idle_tx);
+            }),
+            Work::UnknownLightClientOptimisticUpdate {
+                light_client_optimistic_update,
+                parent_root: _,
+                process_fn,
+            } => task_spawner.spawn_blocking(move || {
+                process_fn(light_client_optimistic_update);
+                drop(idle_tx);
+            }),
+            Work::DelayedImportBlock { block, process_fn } => {
+                task_spawner.spawn_blocking(move || {
+                    process_fn(block);
+                    drop(idle_tx);
+                })
+            }
+            Work::RpcBlock {
+                block,
+                should_process: _,
+                process_fn,
+            } => task_spawner.spawn_blocking(move || {
+                process_fn(block);
+                drop(idle_tx);
+            }),
+            Work::GossipBlock(work)
             | Work::GossipVoluntaryExit(work)
             | Work::GossipProposerSlashing(work)
             | Work::GossipAttesterSlashing(work)
@@ -1260,13 +1300,12 @@ impl<E: EthSpec> BeaconProcessor<E> {
             | Work::GossipSyncContribution(work)
             | Work::GossipLightClientFinalityUpdate(work)
             | Work::GossipLightClientOptimisticUpdate(work)
-            | Work::RpcBlock(work)
             | Work::ChainSegmentBackSync(work)
             | Work::Status(work)
             | Work::BlocksByRangeRequest(work)
             | Work::BlocksByRootsRequest(work)
             | Work::GossipBlsToExecutionChange(work)
-            | Work::LightClientBootstrapRequest(work) => task_spawner.spawn_blocking(|| {
+            | Work::LightClientBootstrapRequest(work) => task_spawner.spawn_blocking(move || {
                 work();
                 drop(idle_tx);
             }),

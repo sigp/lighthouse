@@ -17,7 +17,6 @@ use fnv::FnvHashMap;
 use futures::task::Poll;
 use futures::{Stream, StreamExt};
 use itertools::Itertools;
-use lighthouse_network::{MessageId, PeerId};
 use logging::TimeLatch;
 use slog::{crit, debug, error, trace, warn, Logger};
 use slot_clock::SlotClock;
@@ -34,7 +33,7 @@ use tokio::time::error::Error as TimeError;
 use tokio_util::time::delay_queue::{DelayQueue, Key as DelayKey};
 use types::{
     Attestation, Epoch, EthSpec, Hash256, LightClientOptimisticUpdate, SignedAggregateAndProof,
-    SignedBeaconBlock, Slot, SubnetId,
+    SignedBeaconBlock, Slot,
 };
 
 const TASK_NAME: &str = "beacon_processor_reprocess_queue";
@@ -129,12 +128,8 @@ pub enum ReadyWork<T: EthSpec, GBlock> {
 /// An Attestation for which the corresponding block was not seen while processing, queued for
 /// later.
 pub struct QueuedUnaggregate<T: EthSpec> {
-    pub peer_id: PeerId,
-    pub message_id: MessageId,
     pub attestation: Box<Attestation<T>>,
-    pub subnet_id: SubnetId,
-    pub should_import: bool,
-    pub seen_timestamp: Duration,
+    pub process_fn: Box<dyn Fn(Box<Attestation<T>>) + Send + Sync>,
 }
 
 // TODO(paul): move to `lighthouse_network`
@@ -148,20 +143,16 @@ pub enum BlockProcessType {
 /// An aggregated attestation for which the corresponding block was not seen while processing, queued for
 /// later.
 pub struct QueuedAggregate<T: EthSpec> {
-    pub peer_id: PeerId,
-    pub message_id: MessageId,
     pub attestation: Box<SignedAggregateAndProof<T>>,
-    pub seen_timestamp: Duration,
+    pub process_fn: Box<dyn Fn(Box<SignedAggregateAndProof<T>>) + Send + Sync>,
 }
 
 /// A light client update for which the corresponding parent block was not seen while processing,
 /// queued for later.
 pub struct QueuedLightClientUpdate<T: EthSpec> {
-    pub peer_id: PeerId,
-    pub message_id: MessageId,
     pub light_client_optimistic_update: Box<LightClientOptimisticUpdate<T>>,
     pub parent_root: Hash256,
-    pub seen_timestamp: Duration,
+    pub process_fn: Box<dyn Fn(Box<LightClientOptimisticUpdate<T>>) + Send + Sync>,
 }
 
 pub trait GenericBlock: Send + Sync {
@@ -171,34 +162,30 @@ pub trait GenericBlock: Send + Sync {
 
 /// A block that arrived early and has been queued for later import.
 pub struct QueuedGossipBlock<GBlock> {
-    pub peer_id: PeerId,
     pub block: GBlock,
-    pub seen_timestamp: Duration,
+    pub process_fn: Box<dyn Fn(GBlock) + Send + Sync>,
 }
 
 /// A block that arrived for processing when the same block was being imported over gossip.
 /// It is queued for later import.
 pub struct QueuedRpcBlock<T: EthSpec> {
-    pub block_root: Hash256,
     pub block: Arc<SignedBeaconBlock<T>>,
-    pub process_type: BlockProcessType,
-    pub seen_timestamp: Duration,
-    /// Indicates if the beacon chain should process this block or not.
-    /// We use this to ignore block processing when rpc block queues are full.
     pub should_process: bool,
+    pub process_fn: Box<dyn Fn(Arc<SignedBeaconBlock<T>>) + Send + Sync>,
 }
 
+#[derive(Clone)]
 /// A backfill batch work that has been queued for processing later.
 pub struct QueuedBackfillBatch<E: EthSpec> {
     pub process_id: ChainSegmentProcessId,
     pub blocks: Vec<Arc<SignedBeaconBlock<E>>>,
-    pub process_fn: Box<dyn Fn(Vec<Arc<SignedBeaconBlock<E>>>) + Send + Sync>,
+    pub process_fn: Arc<Box<dyn Fn(Vec<Arc<SignedBeaconBlock<E>>>) + Send + Sync>>,
 }
 
-impl<T: EthSpec> TryFrom<WorkEvent<T>> for QueuedBackfillBatch<T> {
-    type Error = WorkEvent<T>;
+impl<T: EthSpec, GBlock> TryFrom<WorkEvent<T, GBlock>> for QueuedBackfillBatch<T> {
+    type Error = WorkEvent<T, GBlock>;
 
-    fn try_from(event: WorkEvent<T>) -> Result<Self, WorkEvent<T>> {
+    fn try_from(event: WorkEvent<T, GBlock>) -> Result<Self, WorkEvent<T, GBlock>> {
         match event {
             WorkEvent {
                 work:
@@ -218,8 +205,8 @@ impl<T: EthSpec> TryFrom<WorkEvent<T>> for QueuedBackfillBatch<T> {
     }
 }
 
-impl<T: EthSpec> From<QueuedBackfillBatch<T>> for WorkEvent<T> {
-    fn from(queued_backfill_batch: QueuedBackfillBatch<T>) -> WorkEvent<T> {
+impl<T: EthSpec, GBlock> From<QueuedBackfillBatch<T>> for WorkEvent<T, GBlock> {
+    fn from(queued_backfill_batch: QueuedBackfillBatch<T>) -> WorkEvent<T, GBlock> {
         WorkEvent {
             drop_during_sync: false,
             work: Work::ChainSegment {
@@ -407,7 +394,11 @@ impl<T: EthSpec, S: SlotClock, GBlock: GenericBlock> Stream for ReprocessQueue<T
 /// Starts the job that manages scheduling works that need re-processing. The returned `Sender`
 /// gives the communicating channel to receive those works. Once a work is ready, it is sent back
 /// via `ready_work_tx`.
-pub fn spawn_reprocess_scheduler<T: EthSpec, S: SlotClock, GBlock: GenericBlock>(
+pub fn spawn_reprocess_scheduler<
+    T: EthSpec,
+    S: SlotClock + 'static,
+    GBlock: GenericBlock + 'static,
+>(
     ready_work_tx: Sender<ReadyWork<T, GBlock>>,
     executor: &TaskExecutor,
     slot_clock: S,
@@ -917,7 +908,7 @@ impl<T: EthSpec, S: SlotClock, GBlock: GenericBlock> ReprocessQueue<T, S, GBlock
 
                 if self
                     .ready_work_tx
-                    .try_send(ReadyWork::BackfillSync(queued_backfill_batch))
+                    .try_send(ReadyWork::BackfillSync(queued_backfill_batch.clone()))
                     .is_err()
                 {
                     error!(

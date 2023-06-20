@@ -82,6 +82,7 @@ use state_processing::{
 };
 use std::borrow::Cow;
 use std::fs;
+use std::hash::Hash;
 use std::io::Write;
 use std::sync::Arc;
 use std::time::Duration;
@@ -596,6 +597,16 @@ pub struct GossipVerifiedBlock<T: BeaconChainTypes> {
     pub block_root: Hash256,
     parent: Option<PreProcessingSnapshot<T::EthSpec>>,
     consensus_context: ConsensusContext<T::EthSpec>,
+}
+
+impl<T: BeaconChainTypes> beacon_processor::GenericBlock for GossipVerifiedBlock<T> {
+    fn slot(&self) -> Slot {
+        self.block.slot()
+    }
+
+    fn block_root(&self) -> Hash256 {
+        self.block_root
+    }
 }
 
 /// A wrapper around a `SignedBeaconBlock` that indicates that all signatures (except the deposit

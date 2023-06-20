@@ -612,6 +612,7 @@ dependencies = [
 name = "beacon_chain"
 version = "0.2.0"
 dependencies = [
+ "beacon_processor",
  "bitvec 0.20.4",
  "bls",
  "derivative",
