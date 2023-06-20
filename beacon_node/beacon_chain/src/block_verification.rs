@@ -306,7 +306,7 @@ pub enum BlockError<T: EthSpec> {
         parent_root: Hash256,
     },
     PublishError,
-    SlashablePublish,
+    SlashableProposal,
 }
 
 /// Returned when block validation failed due to some issue verifying
@@ -909,7 +909,7 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
             .observe_proposal(block_root, block.message())
             .map_err(|e| BlockError::BeaconChainError(e.into()))?
         {
-            SeenBlock::Slashable => return Err(BlockError::SlashablePublish),
+            SeenBlock::Slashable => return Err(BlockError::SlashableProposal),
             SeenBlock::Duplicate => return Err(BlockError::BlockIsAlreadyKnown),
             _ => {}
         };

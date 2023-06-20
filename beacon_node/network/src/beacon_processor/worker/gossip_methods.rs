@@ -785,7 +785,7 @@ impl<T: BeaconChainTypes> Worker<T> {
 
                 verified_block
             }
-            Err(e @ BlockError::SlashablePublish) => {
+            Err(e @ BlockError::SlashableProposal) => {
                 warn!(
                     self.log,
                     "Received equivocating block from peer";

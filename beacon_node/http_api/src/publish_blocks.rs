@@ -115,7 +115,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
                     "Not publishing block, another block detected";
                     "slot" => block_clone.slot()
                 );
-                Err(BlockError::SlashablePublish)
+                Err(BlockError::SlashableProposal)
             } else {
                 publish_block(block_clone, sender_clone, log_clone, seen_timestamp)
             }
@@ -172,7 +172,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
         Err(BlockError::PublishError) => Err(warp_utils::reject::custom_server_error(
             "unable to publish to network channel".to_string(),
         )),
-        Err(BlockError::SlashablePublish) => Err(warp_utils::reject::custom_bad_request(
+        Err(BlockError::SlashableProposal) => Err(warp_utils::reject::custom_bad_request(
             "proposal for this slot and proposer has already been seen".to_string(),
         )),
         Err(BlockError::BlockIsAlreadyKnown) => Ok(()),
