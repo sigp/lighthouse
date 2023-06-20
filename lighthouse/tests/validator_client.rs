@@ -517,9 +517,6 @@ fn validator_registration_batch_size() {
 #[should_panic]
 fn validator_registration_batch_size_zero_value() {
     CommandLineTest::new()
-        .flag("latency-measurement-service", Some("0"))
-        .run()
-        .with_config(|config| {
-            assert!(!config.enable_latency_measurement_service);
-        });
+        .flag("validator-registration-batch-size", Some("0"))
+        .run();
 }
