@@ -79,7 +79,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
         warp_utils::reject::custom_bad_request(e.to_string())
     })?;
 
-    let block_root = block_root.unwrap_or_else(|| beacon_block.canonical_root());
+    let block_root = block_root.unwrap_or(gossip_verified_block.block_root);
 
     if let BroadcastValidation::Gossip = validation_level {
         publish_block(
