@@ -11,8 +11,10 @@
 //! Aggregated and unaggregated attestations that failed verification due to referencing an unknown
 //! block will be re-queued until their block is imported, or until they expire.
 use super::MAX_SCHEDULED_WORK_QUEUE_LEN;
+use crate::beacon_processor::{ChainSegmentProcessId, Work, WorkEvent};
 use crate::metrics;
-use crate::{Work, WorkEvent};
+use crate::sync::manager::BlockProcessType;
+use beacon_chain::{BeaconChainTypes, GossipVerifiedBlock, MAXIMUM_GOSSIP_CLOCK_DISPARITY};
 use fnv::FnvHashMap;
 use futures::task::Poll;
 use futures::{Stream, StreamExt};
@@ -33,7 +35,7 @@ use tokio::sync::mpsc::{self, Receiver, Sender};
 use tokio::time::error::Error as TimeError;
 use tokio_util::time::delay_queue::{DelayQueue, Key as DelayKey};
 use types::{
-    Attestation, Epoch, EthSpec, Hash256, LightClientOptimisticUpdate, SignedAggregateAndProof,
+    Attestation, EthSpec, Hash256, LightClientOptimisticUpdate, SignedAggregateAndProof,
     SignedBeaconBlock, SubnetId,
 };
 
@@ -80,25 +82,14 @@ pub const BACKFILL_SCHEDULE_IN_SLOT: [(u32, u32); 3] = [
     (4, 5),
 ];
 
-/// Id associated to a batch processing request, either a sync batch or a parent lookup.
-#[derive(Clone, Debug, PartialEq)]
-pub enum ChainSegmentProcessId {
-    /// Processing Id of a range syncing batch.
-    RangeBatchId(u64, Epoch),
-    /// Processing ID for a backfill syncing batch.
-    BackSyncBatchId(Epoch),
-    /// Processing Id of the parent lookup of a block.
-    ParentLookup(Hash256),
-}
-
 /// Messages that the scheduler can receive.
 #[derive(AsRefStr)]
-pub enum ReprocessQueueMessage<T: EthSpec> {
+pub enum ReprocessQueueMessage<T: BeaconChainTypes> {
     /// A block that has been received early and we should queue for later processing.
     EarlyBlock(QueuedGossipBlock<T>),
     /// A gossip block for hash `X` is being imported, we should queue the rpc block for the same
     /// hash until the gossip block is imported.
-    RpcBlock(QueuedRpcBlock<T>),
+    RpcBlock(QueuedRpcBlock<T::EthSpec>),
     /// A block that was successfully processed. We use this to handle attestations and light client updates
     /// for unknown blocks.
     BlockImported {
@@ -106,23 +97,23 @@ pub enum ReprocessQueueMessage<T: EthSpec> {
         parent_root: Hash256,
     },
     /// An unaggregated attestation that references an unknown block.
-    UnknownBlockUnaggregate(QueuedUnaggregate<T>),
+    UnknownBlockUnaggregate(QueuedUnaggregate<T::EthSpec>),
     /// An aggregated attestation that references an unknown block.
-    UnknownBlockAggregate(QueuedAggregate<T>),
+    UnknownBlockAggregate(QueuedAggregate<T::EthSpec>),
     /// A light client optimistic update that references a parent root that has not been seen as a parent.
-    UnknownLightClientOptimisticUpdate(QueuedLightClientUpdate<T>),
+    UnknownLightClientOptimisticUpdate(QueuedLightClientUpdate<T::EthSpec>),
     /// A new backfill batch that needs to be scheduled for processing.
-    BackfillSync(QueuedBackfillBatch<T>),
+    BackfillSync(QueuedBackfillBatch<T::EthSpec>),
 }
 
 /// Events sent by the scheduler once they are ready for re-processing.
-pub enum ReadyWork<T: EthSpec> {
+pub enum ReadyWork<T: BeaconChainTypes> {
     Block(QueuedGossipBlock<T>),
-    RpcBlock(QueuedRpcBlock<T>),
-    Unaggregate(QueuedUnaggregate<T>),
-    Aggregate(QueuedAggregate<T>),
-    LightClientUpdate(QueuedLightClientUpdate<T>),
-    BackfillSync(QueuedBackfillBatch<T>),
+    RpcBlock(QueuedRpcBlock<T::EthSpec>),
+    Unaggregate(QueuedUnaggregate<T::EthSpec>),
+    Aggregate(QueuedAggregate<T::EthSpec>),
+    LightClientUpdate(QueuedLightClientUpdate<T::EthSpec>),
+    BackfillSync(QueuedBackfillBatch<T::EthSpec>),
 }
 
 /// An Attestation for which the corresponding block was not seen while processing, queued for
@@ -134,13 +125,6 @@ pub struct QueuedUnaggregate<T: EthSpec> {
     pub subnet_id: SubnetId,
     pub should_import: bool,
     pub seen_timestamp: Duration,
-}
-
-/// The type of processing specified for a received block.
-#[derive(Debug, Clone)]
-pub enum BlockProcessType {
-    SingleBlock { id: u32 },
-    ParentLookup { chain_hash: Hash256 },
 }
 
 /// An aggregated attestation for which the corresponding block was not seen while processing, queued for
@@ -163,7 +147,7 @@ pub struct QueuedLightClientUpdate<T: EthSpec> {
 }
 
 /// A block that arrived early and has been queued for later import.
-pub struct QueuedGossipBlock<T: EthSpec> {
+pub struct QueuedGossipBlock<T: BeaconChainTypes> {
     pub peer_id: PeerId,
     pub block: Box<GossipVerifiedBlock<T>>,
     pub seen_timestamp: Duration,
@@ -188,7 +172,7 @@ pub struct QueuedBackfillBatch<E: EthSpec> {
     pub blocks: Vec<Arc<SignedBeaconBlock<E>>>,
 }
 
-impl<T: EthSpec> TryFrom<WorkEvent<T>> for QueuedBackfillBatch<T> {
+impl<T: BeaconChainTypes> TryFrom<WorkEvent<T>> for QueuedBackfillBatch<T::EthSpec> {
     type Error = WorkEvent<T>;
 
     fn try_from(event: WorkEvent<T>) -> Result<Self, WorkEvent<T>> {
@@ -206,8 +190,8 @@ impl<T: EthSpec> TryFrom<WorkEvent<T>> for QueuedBackfillBatch<T> {
     }
 }
 
-impl<T: EthSpec> From<QueuedBackfillBatch<T>> for WorkEvent<T> {
-    fn from(queued_backfill_batch: QueuedBackfillBatch<T>) -> WorkEvent<T> {
+impl<T: BeaconChainTypes> From<QueuedBackfillBatch<T::EthSpec>> for WorkEvent<T> {
+    fn from(queued_backfill_batch: QueuedBackfillBatch<T::EthSpec>) -> WorkEvent<T> {
         WorkEvent::chain_segment(
             queued_backfill_batch.process_id,
             queued_backfill_batch.blocks,
@@ -216,18 +200,18 @@ impl<T: EthSpec> From<QueuedBackfillBatch<T>> for WorkEvent<T> {
 }
 
 /// Unifies the different messages processed by the block delay queue.
-enum InboundEvent<T: EthSpec> {
+enum InboundEvent<T: BeaconChainTypes> {
     /// A gossip block that was queued for later processing and is ready for import.
     ReadyGossipBlock(QueuedGossipBlock<T>),
     /// A rpc block that was queued because the same gossip block was being imported
     /// will now be retried for import.
-    ReadyRpcBlock(QueuedRpcBlock<T>),
+    ReadyRpcBlock(QueuedRpcBlock<T::EthSpec>),
     /// An aggregated or unaggregated attestation is ready for re-processing.
     ReadyAttestation(QueuedAttestationId),
     /// A light client update that is ready for re-processing.
     ReadyLightClientUpdate(QueuedLightClientUpdateId),
     /// A backfill batch that was queued is ready for processing.
-    ReadyBackfillSync(QueuedBackfillBatch<T>),
+    ReadyBackfillSync(QueuedBackfillBatch<T::EthSpec>),
     /// A `DelayQueue` returned an error.
     DelayQueueError(TimeError, &'static str),
     /// A message sent to the `ReprocessQueue`
@@ -235,7 +219,7 @@ enum InboundEvent<T: EthSpec> {
 }
 
 /// Manages scheduling works that need to be later re-processed.
-struct ReprocessQueue<T: EthSpec, S> {
+struct ReprocessQueue<T: BeaconChainTypes> {
     /// Receiver of messages relevant to schedule works for reprocessing.
     work_reprocessing_rx: Receiver<ReprocessQueueMessage<T>>,
     /// Sender of works once they become ready
@@ -245,7 +229,7 @@ struct ReprocessQueue<T: EthSpec, S> {
     /// Queue to manage scheduled early blocks.
     gossip_block_delay_queue: DelayQueue<QueuedGossipBlock<T>>,
     /// Queue to manage scheduled early blocks.
-    rpc_block_delay_queue: DelayQueue<QueuedRpcBlock<T>>,
+    rpc_block_delay_queue: DelayQueue<QueuedRpcBlock<T::EthSpec>>,
     /// Queue to manage scheduled attestations.
     attestations_delay_queue: DelayQueue<QueuedAttestationId>,
     /// Queue to manage scheduled light client updates.
@@ -255,17 +239,17 @@ struct ReprocessQueue<T: EthSpec, S> {
     /// Queued blocks.
     queued_gossip_block_roots: HashSet<Hash256>,
     /// Queued aggregated attestations.
-    queued_aggregates: FnvHashMap<usize, (QueuedAggregate<T>, DelayKey)>,
+    queued_aggregates: FnvHashMap<usize, (QueuedAggregate<T::EthSpec>, DelayKey)>,
     /// Queued attestations.
-    queued_unaggregates: FnvHashMap<usize, (QueuedUnaggregate<T>, DelayKey)>,
+    queued_unaggregates: FnvHashMap<usize, (QueuedUnaggregate<T::EthSpec>, DelayKey)>,
     /// Attestations (aggregated and unaggregated) per root.
     awaiting_attestations_per_root: HashMap<Hash256, Vec<QueuedAttestationId>>,
     /// Queued Light Client Updates.
-    queued_lc_updates: FnvHashMap<usize, (QueuedLightClientUpdate<T>, DelayKey)>,
+    queued_lc_updates: FnvHashMap<usize, (QueuedLightClientUpdate<T::EthSpec>, DelayKey)>,
     /// Light Client Updates per parent_root.
     awaiting_lc_updates_per_parent_root: HashMap<Hash256, Vec<QueuedLightClientUpdateId>>,
     /// Queued backfill batches
-    queued_backfill_batches: Vec<QueuedBackfillBatch<T>>,
+    queued_backfill_batches: Vec<QueuedBackfillBatch<T::EthSpec>>,
 
     /* Aux */
     /// Next attestation id, used for both aggregated and unaggregated attestations
@@ -276,7 +260,7 @@ struct ReprocessQueue<T: EthSpec, S> {
     attestation_delay_debounce: TimeLatch,
     lc_update_delay_debounce: TimeLatch,
     next_backfill_batch_event: Option<Pin<Box<tokio::time::Sleep>>>,
-    slot_clock: Pin<Box<S>>,
+    slot_clock: Pin<Box<T::SlotClock>>,
 }
 
 pub type QueuedLightClientUpdateId = usize;
@@ -299,7 +283,7 @@ impl<T: EthSpec> QueuedUnaggregate<T> {
     }
 }
 
-impl<T: EthSpec, S: SlotClock> Stream for ReprocessQueue<T, S> {
+impl<T: BeaconChainTypes> Stream for ReprocessQueue<T> {
     type Item = InboundEvent<T>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
@@ -391,13 +375,15 @@ impl<T: EthSpec, S: SlotClock> Stream for ReprocessQueue<T, S> {
 /// Starts the job that manages scheduling works that need re-processing. The returned `Sender`
 /// gives the communicating channel to receive those works. Once a work is ready, it is sent back
 /// via `ready_work_tx`.
-pub fn spawn_reprocess_scheduler<T: EthSpec, S: SlotClock>(
+pub fn spawn_reprocess_scheduler<T: BeaconChainTypes>(
     ready_work_tx: Sender<ReadyWork<T>>,
     executor: &TaskExecutor,
-    slot_clock: S,
+    slot_clock: T::SlotClock,
     log: Logger,
 ) -> Sender<ReprocessQueueMessage<T>> {
     let (work_reprocessing_tx, work_reprocessing_rx) = mpsc::channel(MAX_SCHEDULED_WORK_QUEUE_LEN);
+    // Basic sanity check.
+    assert!(ADDITIONAL_QUEUED_BLOCK_DELAY < MAXIMUM_GOSSIP_CLOCK_DISPARITY);
 
     let mut queue = ReprocessQueue {
         work_reprocessing_rx,
@@ -441,8 +427,8 @@ pub fn spawn_reprocess_scheduler<T: EthSpec, S: SlotClock>(
     work_reprocessing_tx
 }
 
-impl<T: EthSpec, S: SlotClock> ReprocessQueue<T, S> {
-    fn handle_message(&mut self, msg: InboundEvent<T>, slot_clock: &S, log: &Logger) {
+impl<T: BeaconChainTypes> ReprocessQueue<T> {
+    fn handle_message(&mut self, msg: InboundEvent<T>, slot_clock: &T::SlotClock, log: &Logger) {
         use ReprocessQueueMessage::*;
         match msg {
             // Some block has been indicated as "early" and should be processed when the
@@ -950,7 +936,7 @@ impl<T: EthSpec, S: SlotClock> ReprocessQueue<T, S> {
 
     /// Returns duration until the next scheduled processing time. The schedule ensure that backfill
     /// processing is done in windows of time that aren't critical
-    fn duration_until_next_backfill_batch_event(slot_clock: &S) -> Duration {
+    fn duration_until_next_backfill_batch_event(slot_clock: &T::SlotClock) -> Duration {
         let slot_duration = slot_clock.slot_duration();
         slot_clock
             .millis_from_current_slot_start()

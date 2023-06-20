@@ -718,6 +718,7 @@ dependencies = [
  "operation_pool",
  "slog",
  "slot_clock",
+ "store",
  "strum",
  "task_executor",
  "tokio",

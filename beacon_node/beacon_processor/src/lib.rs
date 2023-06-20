@@ -38,16 +38,19 @@
 //! checks the queues to see if there are more parcels of work that can be spawned in a new worker
 //! task.
 
+use crate::work_reprocessing_queue::{
+    spawn_reprocess_scheduler, QueuedBackfillBatch, ReprocessQueueMessage,
+};
 use beacon_chain::parking_lot::Mutex;
 use futures::stream::{Stream, StreamExt};
 use futures::task::Poll;
 use lighthouse_network::NetworkGlobals;
 use logging::TimeLatch;
 use slog::{crit, debug, error, trace, warn, Logger};
+use slot_clock::SlotClock;
 use std::collections::VecDeque;
 use std::fmt;
 use std::future::Future;
-use std::marker::PhantomData;
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -56,7 +59,7 @@ use std::{cmp, collections::HashSet};
 use task_executor::TaskExecutor;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TrySendError;
-use types::{EthSpec, Hash256};
+use types::{Attestation, EthSpec, Hash256, SignedAggregateAndProof};
 
 // TODO(paul): re-enable tests.
 // mod tests;
@@ -346,36 +349,36 @@ impl DuplicateCache {
 
 /// An event to be processed by the manager task.
 #[derive(Debug)]
-pub struct WorkEvent<Att, AggAtt> {
+pub struct WorkEvent<E: EthSpec> {
     drop_during_sync: bool,
-    work: Work<Att, AggAtt>,
+    work: Work<E>,
 }
 
 type BlockingWork = Box<dyn Fn() + Send + Sync>;
 
 /// Indicates the type of work to be performed and therefore its priority and
 /// queuing specifics.
-pub enum Work<Att, AggAtt> {
+pub enum Work<E: EthSpec> {
     GossipAttestation {
-        attestation: Att,
-        process_individual: Box<dyn Fn(Att) + Send + Sync>,
-        process_batch: Box<dyn Fn(Vec<Att>) + Send + Sync>,
+        attestation: Attestation<E>,
+        process_individual: Box<dyn Fn(Attestation<E>) + Send + Sync>,
+        process_batch: Box<dyn Fn(Vec<Attestation<E>>) + Send + Sync>,
     },
     UnknownBlockAttestation(BlockingWork),
     GossipAttestationBatch {
-        attestations: Vec<Att>,
-        process_batch: Box<dyn Fn(Vec<Att>) + Send + Sync>,
+        attestations: Vec<Attestation<E>>,
+        process_batch: Box<dyn Fn(Vec<Attestation<E>>) + Send + Sync>,
     },
     GossipAggregate {
-        aggregate: AggAtt,
-        process_individual: Box<dyn Fn(AggAtt) + Send + Sync>,
-        process_batch: Box<dyn Fn(Vec<AggAtt>) + Send + Sync>,
+        aggregate: SignedAggregateAndProof<E>,
+        process_individual: Box<dyn Fn(SignedAggregateAndProof<E>) + Send + Sync>,
+        process_batch: Box<dyn Fn(Vec<SignedAggregateAndProof<E>>) + Send + Sync>,
     },
     UnknownBlockAggregate(BlockingWork),
     UnknownLightClientOptimisticUpdate(BlockingWork),
     GossipAggregateBatch {
-        aggregates: Vec<AggAtt>,
-        process_batch: Box<dyn Fn(Vec<AggAtt>) + Send + Sync>,
+        aggregates: Vec<SignedAggregateAndProof<E>>,
+        process_batch: Box<dyn Fn(Vec<SignedAggregateAndProof<E>>) + Send + Sync>,
     },
     GossipBlock(BlockingWork),
     DelayedImportBlock(BlockingWork),
@@ -396,13 +399,13 @@ pub enum Work<Att, AggAtt> {
     LightClientBootstrapRequest(BlockingWork),
 }
 
-impl<Att, AggAtt> fmt::Debug for Work<Att, AggAtt> {
+impl<E: EthSpec> fmt::Debug for Work<E> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.str_id())
     }
 }
 
-impl<Att, AggAtt> Work<Att, AggAtt> {
+impl<E: EthSpec> Work<E> {
     /// Provides a `&str` that uniquely identifies each enum variant.
     fn str_id(&self) -> &'static str {
         match self {
@@ -435,30 +438,30 @@ impl<Att, AggAtt> Work<Att, AggAtt> {
 }
 
 /// Unifies all the messages processed by the `BeaconProcessor`.
-enum InboundEvent<Att, AggAtt> {
+enum InboundEvent<E: EthSpec> {
     /// A worker has completed a task and is free.
     WorkerIdle,
     /// There is new work to be done.
-    WorkEvent(WorkEvent<Att, AggAtt>),
+    WorkEvent(WorkEvent<E>),
     /// A work event that was queued for re-processing has become ready.
-    ReprocessingWork(WorkEvent<Att, AggAtt>),
+    ReprocessingWork(WorkEvent<E>),
 }
 
 /// Combines the various incoming event streams for the `BeaconProcessor` into a single stream.
 ///
 /// This struct has a similar purpose to `tokio::select!`, however it allows for more fine-grained
 /// control (specifically in the ordering of event processing).
-struct InboundEvents<Att, AggAtt> {
+struct InboundEvents<E: EthSpec> {
     /// Used by workers when they finish a task.
     idle_rx: mpsc::Receiver<()>,
     /// Used by upstream processes to send new work to the `BeaconProcessor`.
-    event_rx: mpsc::Receiver<WorkEvent<Att, AggAtt>>,
+    event_rx: mpsc::Receiver<WorkEvent<E>>,
     /// Used internally for queuing work ready to be re-processed.
-    reprocess_work_rx: mpsc::Receiver<WorkEvent<Att, AggAtt>>,
+    reprocess_work_rx: mpsc::Receiver<WorkEvent<E>>,
 }
 
-impl<Att, AggAtt> Stream for InboundEvents<Att, AggAtt> {
-    type Item = InboundEvent<Att, AggAtt>;
+impl<E: EthSpec> Stream for InboundEvents<E> {
+    type Item = InboundEvent<E>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         // Always check for idle workers before anything else. This allows us to ensure that a big
@@ -510,18 +513,18 @@ pub enum InvalidBlockStorage {
 /// that need to be processed by the `BeaconChain`
 ///
 /// See module level documentation for more information.
-pub struct BeaconProcessor<E: EthSpec, Att, AggAtt> {
+pub struct BeaconProcessor<E: EthSpec> {
     pub network_globals: Arc<NetworkGlobals<E>>,
     pub executor: TaskExecutor,
     pub max_workers: usize,
     pub current_workers: usize,
     pub importing_blocks: DuplicateCache,
     pub invalid_block_storage: InvalidBlockStorage,
+    pub enable_backfill_rate_limiting: bool,
     pub log: Logger,
-    pub _phantom: PhantomData<(Att, AggAtt)>,
 }
 
-impl<E: EthSpec, Att: Send, AggAtt: Send> BeaconProcessor<E, Att, AggAtt> {
+impl<E: EthSpec> BeaconProcessor<E> {
     /// Spawns the "manager" task which checks the receiver end of the returned `Sender` for
     /// messages which contain some new work which will be:
     ///
@@ -533,11 +536,12 @@ impl<E: EthSpec, Att: Send, AggAtt: Send> BeaconProcessor<E, Att, AggAtt> {
     ///
     /// The optional `work_journal_tx` allows for an outside process to receive a log of all work
     /// events processed by `self`. This should only be used during testing.
-    pub fn spawn_manager(
+    pub fn spawn_manager<S: SlotClock>(
         mut self,
-        event_rx: mpsc::Receiver<WorkEvent<Att, AggAtt>>,
-        ready_work_rx: mpsc::Receiver<WorkEvent<Att, AggAtt>>,
+        event_rx: mpsc::Receiver<WorkEvent<E>>,
+        ready_work_rx: mpsc::Receiver<WorkEvent<E>>,
         work_journal_tx: Option<mpsc::Sender<&'static str>>,
+        slot_clock: S,
     ) {
         // Used by workers to communicate that they are finished a task.
         let (idle_tx, idle_rx) = mpsc::channel::<()>(MAX_IDLE_QUEUE_LEN);
@@ -590,6 +594,12 @@ impl<E: EthSpec, Att: Send, AggAtt: Send> BeaconProcessor<E, Att, AggAtt> {
 
         let mut lcbootstrap_queue = FifoQueue::new(MAX_LIGHT_CLIENT_BOOTSTRAP_QUEUE_LEN);
 
+        // Channels for sending work to the re-process scheduler (`work_reprocessing_tx`) and to
+        // receive them back once they are ready (`ready_work_rx`).
+        let (ready_work_tx, ready_work_rx) = mpsc::channel(MAX_SCHEDULED_WORK_QUEUE_LEN);
+        let work_reprocessing_tx =
+            spawn_reprocess_scheduler(ready_work_tx, &self.executor, slot_clock, self.log.clone());
+
         let executor = self.executor.clone();
 
         // The manager future will run on the core executor and delegate tasks to worker
@@ -601,7 +611,7 @@ impl<E: EthSpec, Att: Send, AggAtt: Send> BeaconProcessor<E, Att, AggAtt> {
                 reprocess_work_rx: ready_work_rx,
             };
 
-            let enable_backfill_rate_limiting = chain.config.enable_backfill_rate_limiting;
+            let enable_backfill_rate_limiting = self.enable_backfill_rate_limiting;
 
             loop {
                 let work_event = match inbound_events.next().await {
@@ -1070,7 +1080,7 @@ impl<E: EthSpec, Att: Send, AggAtt: Send> BeaconProcessor<E, Att, AggAtt> {
     /// Spawns a blocking worker thread to process some `Work`.
     ///
     /// Sends an message on `idle_tx` when the work is complete and the task is stopping.
-    fn spawn_worker(&mut self, work: Work<Att, AggAtt>, idle_tx: mpsc::Sender<()>) {
+    fn spawn_worker(&mut self, work: Work<E>, idle_tx: mpsc::Sender<()>) {
         let work_id = work.str_id();
         let worker_timer =
             metrics::start_timer_vec(&metrics::BEACON_PROCESSOR_WORKER_TIME, &[work_id]);

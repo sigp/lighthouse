@@ -27,3 +27,4 @@ ethereum_ssz = "0.5.0"
 lazy_static = "1.4.0"
 lighthouse_metrics = { path = "../../common/lighthouse_metrics" }
 operation_pool =  { path = "../operation_pool" }
+store =  { path = "../store" }
