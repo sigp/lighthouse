@@ -80,6 +80,7 @@ pub const BACKFILL_SCHEDULE_IN_SLOT: [(u32, u32); 3] = [
     (4, 5),
 ];
 
+// TODO(paul): move to `lighthouse_network`
 /// Id associated to a batch processing request, either a sync batch or a parent lookup.
 #[derive(Clone, Debug, PartialEq)]
 pub enum ChainSegmentProcessId {
@@ -136,6 +137,7 @@ pub struct QueuedUnaggregate<T: EthSpec> {
     pub seen_timestamp: Duration,
 }
 
+// TODO(paul): move to `lighthouse_network`
 /// The type of processing specified for a received block.
 #[derive(Debug, Clone)]
 pub enum BlockProcessType {
