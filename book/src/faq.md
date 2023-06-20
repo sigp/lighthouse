@@ -29,7 +29,7 @@
 - [How can I monitor my validators?](#net-monitor)
 - [My beacon node and validator client are on different servers. How can I point the validator client to the beacon node?](#net-bn-vc)
 - [Should I do anything to the beacon node or validator client settings if I have a relocation of the node / change of IP address?](#net-ip)
-- 
+- [How to change the TCP/UDP port 9000 that Lighthouse listens on?](#net-port)
 
 
 ## [Miscellaneous](#miscellaneous-1)
