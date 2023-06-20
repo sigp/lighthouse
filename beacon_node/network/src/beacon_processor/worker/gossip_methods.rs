@@ -785,7 +785,21 @@ impl<T: BeaconChainTypes> Worker<T> {
 
                 verified_block
             }
-            Err(e @ BlockError::PublishError) | Err(e @ BlockError::SlashablePublish) => {
+            Err(e @ BlockError::SlashablePublish) => {
+                warn!(
+                    self.log,
+                    "Received equivocating block from peer";
+                    "error" => ?e
+                );
+                /* punish peer for submitting an equivocation, but not too harshly as honest peers may conceivably forward equivocating blocks to us from time to time */
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::LowToleranceError,
+                    "gossip_block_low",
+                );
+                return None;
+            }
+            Err(e @ BlockError::PublishError) => {
                 error!(
                     self.log,
                     "Gossip block triggered publish error";
