@@ -784,20 +784,6 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
             return Err(BlockError::BlockIsAlreadyKnown);
         }
 
-        // Check that we have not already received a block with a valid signature for this slot.
-        if chain
-            .observed_block_producers
-            .read()
-            .proposer_has_been_observed(block.message())
-            .map_err(|e| BlockError::BeaconChainError(e.into()))?
-            .proposer_previously_observed()
-        {
-            return Err(BlockError::RepeatProposal {
-                proposer: block.message().proposer_index(),
-                slot: block.slot(),
-            });
-        }
-
         // Do not process a block that doesn't descend from the finalized root.
         //
         // We check this *before* we load the parent so that we can return a more detailed error.
