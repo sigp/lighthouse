@@ -1249,7 +1249,7 @@ mod release_tests {
         // Each validator will have a multiple of 1_000_000_000 wei.
         // Safe from overflow unless there are about 18B validators (2^64 / 1_000_000_000).
         for i in 0..state.validators().len() {
-            state.validators_mut()[i].effective_balance = 1_000_000_000 * i as u64;
+            state.validators_mut().get_mut(i).unwrap().effective_balance = 1_000_000_000 * i as u64;
         }
 
         let num_validators = num_committees

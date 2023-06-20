@@ -345,7 +345,7 @@ impl ForkChoiceTest {
         let state_root = harness
             .chain
             .store
-            .get_blinded_block(&fc.fc_store().justified_checkpoint().root)
+            .get_blinded_block(&fc.fc_store().justified_checkpoint().root, None)
             .unwrap()
             .unwrap()
             .message()
@@ -361,7 +361,7 @@ impl ForkChoiceTest {
             .into_iter()
             .map(|v| {
                 if v.is_active_at(state.current_epoch()) {
-                    v.effective_balance
+                    v.effective_balance()
                 } else {
                     0
                 }
