@@ -52,7 +52,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
         ProvenancedBlock::Local(block, _) => (block, true),
         ProvenancedBlock::Builder(block, _) => (block, false),
     };
-    let beacon_block = block.into_inner();
+    let beacon_block = block.inner();
     let delay = get_block_delay_ms(seen_timestamp, beacon_block.message(), &chain.slot_clock);
     debug!(log, "Signed block received in HTTP API"; "slot" => beacon_block.slot());
 

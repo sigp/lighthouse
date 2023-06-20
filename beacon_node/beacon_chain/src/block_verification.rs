@@ -659,7 +659,7 @@ pub trait IntoGossipVerifiedBlock<T: BeaconChainTypes>: Sized {
         self,
         chain: &BeaconChain<T>,
     ) -> Result<GossipVerifiedBlock<T>, BlockError<T::EthSpec>>;
-    fn into_inner(&self) -> Arc<SignedBeaconBlock<T::EthSpec>>;
+    fn inner(&self) -> Arc<SignedBeaconBlock<T::EthSpec>>;
 }
 
 impl<T: BeaconChainTypes> IntoGossipVerifiedBlock<T> for GossipVerifiedBlock<T> {
@@ -670,7 +670,7 @@ impl<T: BeaconChainTypes> IntoGossipVerifiedBlock<T> for GossipVerifiedBlock<T> 
         Ok(self)
     }
 
-    fn into_inner(&self) -> Arc<SignedBeaconBlock<T::EthSpec>> {
+    fn inner(&self) -> Arc<SignedBeaconBlock<T::EthSpec>> {
         self.block.clone()
     }
 }
@@ -683,7 +683,7 @@ impl<T: BeaconChainTypes> IntoGossipVerifiedBlock<T> for Arc<SignedBeaconBlock<T
         GossipVerifiedBlock::new(self, chain)
     }
 
-    fn into_inner(&self) -> Arc<SignedBeaconBlock<T::EthSpec>> {
+    fn inner(&self) -> Arc<SignedBeaconBlock<T::EthSpec>> {
         self.clone()
     }
 }
