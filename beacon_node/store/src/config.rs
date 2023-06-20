@@ -10,6 +10,7 @@ pub const DEFAULT_EPOCHS_PER_STATE_DIFF: u64 = 4;
 pub const DEFAULT_BLOCK_CACHE_SIZE: usize = 64;
 pub const DEFAULT_STATE_CACHE_SIZE: usize = 128;
 pub const DEFAULT_COMPRESSION_LEVEL: i32 = 1;
+pub const DEFAULT_DIFF_BUFFER_CACHE_SIZE: usize = 16;
 const EST_COMPRESSION_FACTOR: usize = 2;
 pub const DEFAULT_HISTORIC_STATE_CACHE_SIZE: usize = 1;
 
@@ -22,8 +23,10 @@ pub struct StoreConfig {
     pub block_cache_size: usize,
     /// Maximum number of states to store in the in-memory state cache.
     pub state_cache_size: usize,
-    /// Compression level for `BeaconStateDiff`s.
+    /// Compression level for blocks, state diffs and other compressed values.
     pub compression_level: i32,
+    /// Maximum number of `HDiffBuffer`s to store in memory.
+    pub diff_buffer_cache_size: usize,
     /// Maximum number of states from freezer database to store in the in-memory state cache.
     pub historic_state_cache_size: usize,
     /// Whether to compact the database on initialization.
@@ -60,6 +63,7 @@ impl Default for StoreConfig {
             epochs_per_state_diff: DEFAULT_EPOCHS_PER_STATE_DIFF,
             block_cache_size: DEFAULT_BLOCK_CACHE_SIZE,
             state_cache_size: DEFAULT_STATE_CACHE_SIZE,
+            diff_buffer_cache_size: DEFAULT_DIFF_BUFFER_CACHE_SIZE,
             compression_level: DEFAULT_COMPRESSION_LEVEL,
             historic_state_cache_size: DEFAULT_HISTORIC_STATE_CACHE_SIZE,
             compact_on_init: false,

@@ -44,9 +44,6 @@ use types::EthSpec;
 use types::*;
 use zstd::{Decoder, Encoder};
 
-// FIXME(sproul): configurable
-const DIFF_BUFFER_CACHE_SIZE: usize = 16;
-
 pub const MAX_PARENT_STATES_TO_CACHE: u64 = 1;
 
 /// On-disk database that stores finalized states efficiently.
@@ -155,7 +152,7 @@ impl<E: EthSpec> HotColdDB<E, MemoryStore<E>, MemoryStore<E>> {
         let historic_state_cache_size =
             NonZeroUsize::new(config.historic_state_cache_size).ok_or(Error::ZeroCacheSize)?;
         let diff_buffer_cache_size =
-            NonZeroUsize::new(DIFF_BUFFER_CACHE_SIZE).ok_or(Error::ZeroCacheSize)?;
+            NonZeroUsize::new(config.diff_buffer_cache_size).ok_or(Error::ZeroCacheSize)?;
 
         let db = HotColdDB {
             split: RwLock::new(Split::default()),
@@ -202,7 +199,7 @@ impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
         let historic_state_cache_size =
             NonZeroUsize::new(config.historic_state_cache_size).ok_or(Error::ZeroCacheSize)?;
         let diff_buffer_cache_size =
-            NonZeroUsize::new(DIFF_BUFFER_CACHE_SIZE).ok_or(Error::ZeroCacheSize)?;
+            NonZeroUsize::new(config.diff_buffer_cache_size).ok_or(Error::ZeroCacheSize)?;
 
         let db = HotColdDB {
             split: RwLock::new(Split::default()),
