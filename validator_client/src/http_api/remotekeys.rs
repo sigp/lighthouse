@@ -125,6 +125,8 @@ fn import_single_remotekey<T: SlotClock + 'static, E: EthSpec>(
         suggested_fee_recipient: None,
         gas_limit: None,
         builder_proposals: None,
+        builder_pubkey_override: None,
+        builder_timestamp_override: None,
         description: String::from("Added by remotekey API"),
         signing_definition: SigningDefinition::Web3Signer(Web3SignerDefinition {
             url,

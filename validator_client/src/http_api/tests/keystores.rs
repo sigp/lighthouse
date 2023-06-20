@@ -42,6 +42,8 @@ fn web3signer_validator_with_pubkey(pubkey: PublicKey) -> Web3SignerValidatorReq
         suggested_fee_recipient: None,
         gas_limit: None,
         builder_proposals: None,
+        builder_pubkey_override: None,
+        builder_timestamp_override: None,
         voting_public_key: pubkey,
         url: web3_signer_url(),
         root_certificate_path: None,
@@ -468,7 +470,7 @@ fn import_and_delete_conflicting_web3_signer_keystores() {
         for pubkey in &pubkeys {
             tester
                 .client
-                .patch_lighthouse_validators(pubkey, Some(false), None, None)
+                .patch_lighthouse_validators(pubkey, Some(false), None, None, None, None)
                 .await
                 .unwrap();
         }

@@ -391,6 +391,8 @@ mod tests {
                     suggested_fee_recipient: None,
                     gas_limit: None,
                     builder_proposals: None,
+                    builder_pubkey_override: None,
+                    builder_timestamp_override: None,
                     description: String::default(),
                     signing_definition: SigningDefinition::LocalKeystore {
                         voting_keystore_path: signer_rig.keystore_path.clone(),
@@ -409,6 +411,8 @@ mod tests {
                     suggested_fee_recipient: None,
                     gas_limit: None,
                     builder_proposals: None,
+                    builder_pubkey_override: None,
+                    builder_timestamp_override: None,
                     description: String::default(),
                     signing_definition: SigningDefinition::Web3Signer(Web3SignerDefinition {
                         url: signer_rig.url.to_string(),
@@ -551,7 +555,7 @@ mod tests {
                 |pubkey, validator_store| async move {
                     let val_reg_data = get_validator_registration(pubkey);
                     validator_store
-                        .sign_validator_registration_data(val_reg_data)
+                        .sign_validator_registration_data(pubkey, val_reg_data)
                         .await
                         .unwrap()
                 },
@@ -638,7 +642,7 @@ mod tests {
                 |pubkey, validator_store| async move {
                     let val_reg_data = get_validator_registration(pubkey);
                     validator_store
-                        .sign_validator_registration_data(val_reg_data)
+                        .sign_validator_registration_data(pubkey, val_reg_data)
                         .await
                         .unwrap()
                 },
