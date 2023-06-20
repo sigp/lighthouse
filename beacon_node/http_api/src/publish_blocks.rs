@@ -105,8 +105,8 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
         BroadcastValidation::ConsensusAndEquivocation => {
             if chain_clone
                 .observed_block_producers
-                .write()
-                .observe_proposal(block_root, block_clone.message())
+                .read()
+                .proposer_has_been_observed(block_clone.message(), block_clone.canonical_root())
                 .map_err(|e| BlockError::BeaconChainError(e.into()))?
                 .is_slashable()
             {
