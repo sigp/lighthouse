@@ -56,8 +56,6 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
     let delay = get_block_delay_ms(seen_timestamp, beacon_block.message(), &chain.slot_clock);
     debug!(log, "Signed block received in HTTP API"; "slot" => beacon_block.slot());
 
-    let block_root = block_root.unwrap_or_else(|| beacon_block.canonical_root());
-
     /* actually publish a block */
     let publish_block = move |block: Arc<SignedBeaconBlock<T::EthSpec>>,
                               sender,
@@ -80,6 +78,8 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
         warn!(log, "Not publishing block, not gossip verified"; "slot" => beacon_block.slot(), "error" => ?e);
         warp_utils::reject::custom_bad_request(e.to_string())
     })?;
+
+    let block_root = block_root.unwrap_or_else(|| beacon_block.canonical_root());
 
     if let BroadcastValidation::Gossip = validation_level {
         publish_block(
