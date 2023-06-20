@@ -390,6 +390,11 @@ pub fn get_config<E: EthSpec>(
     if let Some(state_cache_size) = clap_utils::parse_optional(cli_args, "state-cache-size")? {
         client_config.store.state_cache_size = state_cache_size;
     }
+    if let Some(diff_buffer_cache_size) =
+        clap_utils::parse_optional(cli_args, "diff-buffer-cache-size")?
+    {
+        client_config.store.diff_buffer_cache_size = diff_buffer_cache_size;
+    }
     if let Some(compression_level) = clap_utils::parse_optional(cli_args, "compression-level")? {
         client_config.store.compression_level = compression_level;
     }

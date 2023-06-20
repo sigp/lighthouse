@@ -666,6 +666,14 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true)
         )
         .arg(
+            Arg::with_name("diff-buffer-cache-size")
+                .long("diff-buffer-cache-size")
+                .value_name("SIZE")
+                .help("The maximum number of diff buffers to hold in memory. This cache is used \
+                       when fetching historic states [default: 16]")
+                .takes_value(true)
+        )
+        .arg(
             Arg::with_name("compression-level")
                 .long("compression-level")
                 .value_name("LEVEL")
