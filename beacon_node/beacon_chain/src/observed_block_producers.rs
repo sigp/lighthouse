@@ -17,8 +17,8 @@ pub enum Error {
 
 #[derive(Eq, Hash, PartialEq, Default)]
 struct ProposalKey {
+    slot: Slot,
     proposer: u64,
-    block_root: Hash256,
 }
 
 /// Maintains a cache of observed `(block.slot, block.proposer)`.
@@ -34,7 +34,7 @@ struct ProposalKey {
 /// known_distinct_shufflings` which is much smaller.
 pub struct ObservedBlockProducers<E: EthSpec> {
     finalized_slot: Slot,
-    items: HashMap<Slot, HashSet<ProposalKey>>,
+    items: HashMap<ProposalKey, HashSet<Hash256>>,
     _phantom: PhantomData<E>,
 }
 
@@ -84,32 +84,32 @@ impl<E: EthSpec> ObservedBlockProducers<E> {
     ) -> Result<SeenBlock, Error> {
         self.sanitize_block(block)?;
 
-        let entry = self.items.entry(block.slot());
+        let key = ProposalKey {
+            slot: block.slot(),
+            proposer: block.proposer_index(),
+        };
+
+        let entry = self.items.entry(key);
 
         let slashable_proposal = match entry {
             Entry::Occupied(mut occupied_entry) => {
                 let block_roots = occupied_entry.get_mut();
-                let proposer_has_been_observed = block_roots
-                    .iter()
-                    .any(|proposal| proposal.proposer == block.proposer_index());
-                let newly_inserted = block_roots.insert(ProposalKey {
-                    proposer: block.proposer_index(),
-                    block_root,
-                });
-                if proposer_has_been_observed && newly_inserted {
+                let newly_inserted = block_roots.insert(block_root);
+
+                let is_equivocation = block_roots.len() > 1;
+
+                if is_equivocation {
                     SeenBlock::Slashable
-                } else if proposer_has_been_observed {
+                } else if !newly_inserted {
                     SeenBlock::Duplicate
                 } else {
                     SeenBlock::UniqueNonSlashable
                 }
             }
             Entry::Vacant(vacant_entry) => {
-                let proposals = HashSet::from([ProposalKey {
-                    proposer: block.proposer_index(),
-                    block_root,
-                }]);
-                vacant_entry.insert(proposals);
+                let block_roots = HashSet::from([block_root]);
+                vacant_entry.insert(block_roots);
+
                 SeenBlock::UniqueNonSlashable
             }
         };
@@ -125,28 +125,24 @@ impl<E: EthSpec> ObservedBlockProducers<E> {
     ///
     /// - `block.proposer_index` is greater than `VALIDATOR_REGISTRY_LIMIT`.
     /// - `block.slot` is equal to or less than the latest pruned `finalized_slot`.
-    pub fn proposer_has_been_observed(
-        &self,
-        block: BeaconBlockRef<'_, E>,
-    ) -> Result<SeenBlock, Error> {
-        if let Err(e) = self.sanitize_block(block) {
-            match e {
-                Error::FinalizedBlock { .. } => return Ok(SeenBlock::Slashable),
-                _ => return Err(e),
-            }
-        }
-
-        let exists = self.items.get(&block.slot()).map_or(false, |set| {
-            set.iter()
-                .any(|proposal| proposal.proposer == block.proposer_index())
-        });
-
-        if exists {
-            Ok(SeenBlock::Duplicate)
-        } else {
-            Ok(SeenBlock::UniqueNonSlashable)
-        }
-    }
+    //    pub fn proposer_has_been_observed(
+    //        &self,
+    //        block: BeaconBlockRef<'_, E>,
+    //    ) -> Result<SeenBlock, Error> {
+    //        self.sanitize_block(block)?;
+    //
+    //        let key = ProposalKey { slot: block.slot(), proposer: block.proposer_index() };
+    //
+    //        if let Some(block_roots) = self.items.get(&key) {
+    //            if block_roots.len() > 1 {
+    //                Ok(SeenBlock::Slashable)
+    //            } else {
+    //                todo!()
+    //            }
+    //        } else {
+    //            Ok(SeenBlock::UniqueNonSlashable)
+    //        }
+    //    }
 
     /// Returns `Ok(())` if the given `block` is sane.
     fn sanitize_block(&self, block: BeaconBlockRef<'_, E>) -> Result<(), Error> {
@@ -177,18 +173,15 @@ impl<E: EthSpec> ObservedBlockProducers<E> {
         }
 
         self.finalized_slot = finalized_slot;
-        self.items.retain(|slot, _set| *slot > finalized_slot);
+        self.items.retain(|key, _| key.slot > finalized_slot);
     }
 
     /// Returns `true` if the given `validator_index` has been stored in `self` at `epoch`.
     ///
     /// This is useful for doppelganger detection.
     pub fn index_seen_at_epoch(&self, validator_index: u64, epoch: Epoch) -> bool {
-        self.items.iter().any(|(slot, producers)| {
-            slot.epoch(E::slots_per_epoch()) == epoch
-                && producers
-                    .iter()
-                    .any(|proposal| proposal.proposer == validator_index)
+        self.items.iter().any(|(key, _)| {
+            key.slot.epoch(E::slots_per_epoch()) == epoch && key.proposer == validator_index
         })
     }
 }
