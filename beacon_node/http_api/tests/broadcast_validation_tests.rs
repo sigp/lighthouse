@@ -506,7 +506,8 @@ pub async fn equivocation_consensus_early_equivocation() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 pub async fn equivocation_gossip() {
     /* this test targets gossip-level validation */
-    let validation_level: Option<BroadcastValidation> = Some(BroadcastValidation::Consensus);
+    let validation_level: Option<BroadcastValidation> =
+        Some(BroadcastValidation::ConsensusAndEquivocation);
 
     // Validator count needs to be at least 32 or proposer boost gets set to 0 when computing
     // `validator_count // 32`.
@@ -559,7 +560,8 @@ pub async fn equivocation_gossip() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 pub async fn equivocation_consensus_late_equivocation() {
     /* this test targets gossip-level validation */
-    let validation_level: Option<BroadcastValidation> = Some(BroadcastValidation::Consensus);
+    let validation_level: Option<BroadcastValidation> =
+        Some(BroadcastValidation::ConsensusAndEquivocation);
 
     // Validator count needs to be at least 32 or proposer boost gets set to 0 when computing
     // `validator_count // 32`.
@@ -613,10 +615,14 @@ pub async fn equivocation_consensus_late_equivocation() {
 
     assert!(publication_result.is_err());
 
-    let publication_error: Rejection = publication_result.unwrap_err();
+    let publication_error = publication_result.unwrap_err();
 
-    /* TODO: fix this to assert the entire error message */
     assert!(publication_error.find::<CustomBadRequest>().is_some());
+
+    assert_eq!(
+        *publication_error.find::<CustomBadRequest>().unwrap().0,
+        "proposal for this slot and proposer has already been seen".to_string()
+    );
 }
 
 /// This test checks that a block that is valid from both a gossip and consensus perspective (and does not equivocate) is accepted when using `broadcast_validation=consensus_and_equivocation`.
@@ -1149,7 +1155,8 @@ pub async fn blinded_equivocation_consensus_early_equivocation() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 pub async fn blinded_equivocation_gossip() {
     /* this test targets gossip-level validation */
-    let validation_level: Option<BroadcastValidation> = Some(BroadcastValidation::Consensus);
+    let validation_level: Option<BroadcastValidation> =
+        Some(BroadcastValidation::ConsensusAndEquivocation);
 
     // Validator count needs to be at least 32 or proposer boost gets set to 0 when computing
     // `validator_count // 32`.
@@ -1202,7 +1209,8 @@ pub async fn blinded_equivocation_gossip() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 pub async fn blinded_equivocation_consensus_late_equivocation() {
     /* this test targets gossip-level validation */
-    let validation_level: Option<BroadcastValidation> = Some(BroadcastValidation::Consensus);
+    let validation_level: Option<BroadcastValidation> =
+        Some(BroadcastValidation::ConsensusAndEquivocation);
 
     // Validator count needs to be at least 32 or proposer boost gets set to 0 when computing
     // `validator_count // 32`.
