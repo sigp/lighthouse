@@ -61,6 +61,7 @@ use types::{EthSpec, Hash256};
 // TODO(paul): re-enable tests.
 // mod tests;
 mod metrics;
+mod work_reprocessing_queue;
 
 /// The maximum size of the channel for work events to the `BeaconProcessor`.
 ///
