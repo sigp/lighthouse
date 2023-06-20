@@ -807,11 +807,11 @@ impl HttpJsonRpc {
 
     pub async fn new_payload_v3<T: EthSpec>(
         &self,
-        execution_payload: ExecutionPayload<T>,
+        execution_payload: ExecutionPayloadDeneb<T>,
         versioned_hashes: Vec<VersionedHash>,
     ) -> Result<PayloadStatusV1, Error> {
         let params = json!([
-            JsonExecutionPayload::from(execution_payload),
+            JsonExecutionPayload::V3(execution_payload.into()),
             versioned_hashes
         ]);
 
@@ -891,26 +891,6 @@ impl HttpJsonRpc {
         let params = json!([JsonPayloadIdRequest::from(payload_id)]);
 
         match fork_name {
-            ForkName::Merge => {
-                let response: JsonGetPayloadResponseV1<T> = self
-                    .rpc_request(
-                        ENGINE_GET_PAYLOAD_V2,
-                        params,
-                        ENGINE_GET_PAYLOAD_TIMEOUT * self.execution_timeout_multiplier,
-                    )
-                    .await?;
-                Ok(JsonGetPayloadResponse::V1(response).into())
-            }
-            ForkName::Capella => {
-                let response: JsonGetPayloadResponseV2<T> = self
-                    .rpc_request(
-                        ENGINE_GET_PAYLOAD_V2,
-                        params,
-                        ENGINE_GET_PAYLOAD_TIMEOUT * self.execution_timeout_multiplier,
-                    )
-                    .await?;
-                Ok(JsonGetPayloadResponse::V2(response).into())
-            }
             ForkName::Deneb => {
                 let response: JsonGetPayloadResponseV3<T> = self
                     .rpc_request(
@@ -921,7 +901,7 @@ impl HttpJsonRpc {
                     .await?;
                 Ok(JsonGetPayloadResponse::V3(response).into())
             }
-            ForkName::Base | ForkName::Altair => Err(Error::UnsupportedForkVariant(format!(
+            _ => Err(Error::UnsupportedForkVariant(format!(
                 "called get_payload_v3 with {}",
                 fork_name
             ))),
@@ -1105,17 +1085,27 @@ impl HttpJsonRpc {
         execution_payload: ExecutionPayload<T>,
         versioned_hashes_opt: Option<Vec<VersionedHash>>,
     ) -> Result<PayloadStatusV1, Error> {
-        // TODO(sean): opting to just use one struct one endpoint approach for simplicity,
-        // also this is in the pipeline:https://github.com/ethereum/execution-apis/pull/418/files
+        let engine_capabilities = self.get_engine_capabilities(None).await?;
         match execution_payload {
-            ExecutionPayload::Merge(_) => self.new_payload_v1(execution_payload).await,
-            ExecutionPayload::Capella(_) => self.new_payload_v2(execution_payload).await,
-            ExecutionPayload::Deneb(_) => {
+            ExecutionPayload::Merge(_) | ExecutionPayload::Capella(_) => {
+                if engine_capabilities.new_payload_v2 {
+                    self.new_payload_v2(execution_payload).await
+                } else if engine_capabilities.new_payload_v1 {
+                    self.new_payload_v1(execution_payload).await
+                } else {
+                    Err(Error::RequiredMethodUnsupported("engine_newPayload"))
+                }
+            },
+            ExecutionPayload::Deneb(execution_payload_deneb) => {
                 let Some(versioned_hashes) = versioned_hashes_opt else {
                     return Err(Error::IncorrectStateVariant);
                 };
-                self.new_payload_v3(execution_payload, versioned_hashes)
-                    .await
+                if engine_capabilities.new_payload_v3 {
+                    self.new_payload_v3(execution_payload_deneb, versioned_hashes)
+                        .await
+                } else {
+                    Err(Error::RequiredMethodUnsupported("engine_newPayloadV3"))
+                }
             }
         }
     }
@@ -1128,14 +1118,29 @@ impl HttpJsonRpc {
         payload_id: PayloadId,
     ) -> Result<GetPayloadResponse<T>, Error> {
         let engine_capabilities = self.get_engine_capabilities(None).await?;
-        if engine_capabilities.get_payload_v3 {
-            self.get_payload_v3(fork_name, payload_id).await
-        } else if engine_capabilities.get_payload_v2 {
-            self.get_payload_v2(fork_name, payload_id).await
-        } else if engine_capabilities.new_payload_v1 {
-            self.get_payload_v1(payload_id).await
-        } else {
-            Err(Error::RequiredMethodUnsupported("engine_getPayload"))
+        match fork_name {
+            ForkName::Merge | ForkName::Capella => {
+                if engine_capabilities.get_payload_v2 {
+                    self.get_payload_v2(fork_name, payload_id).await
+                } else if engine_capabilities.new_payload_v1 {
+                    self.get_payload_v1(payload_id).await
+                } else {
+                    Err(Error::RequiredMethodUnsupported("engine_getPayload"))
+                }
+            }
+            ForkName::Deneb => {
+                if engine_capabilities.get_payload_v3 {
+                    self.get_payload_v3(fork_name, payload_id).await
+                } else {
+                    Err(Error::RequiredMethodUnsupported("engine_getPayloadV3"))
+                }
+            }
+            ForkName::Base | ForkName::Altair => {
+                Err(Error::UnsupportedForkVariant(format!(
+                    "called get_payload with {}",
+                    fork_name
+                )))
+            }
         }
     }
 
