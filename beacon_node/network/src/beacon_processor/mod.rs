@@ -38,29 +38,51 @@
 //! checks the queues to see if there are more parcels of work that can be spawned in a new worker
 //! task.
 
+use crate::sync::manager::BlockProcessType;
+use crate::{metrics, service::NetworkMessage, sync::SyncMessage};
 use beacon_chain::parking_lot::Mutex;
+use beacon_chain::{BeaconChain, BeaconChainTypes, GossipVerifiedBlock, NotifyExecutionLayer};
+use derivative::Derivative;
 use futures::stream::{Stream, StreamExt};
 use futures::task::Poll;
-use lighthouse_network::NetworkGlobals;
+use lighthouse_network::rpc::LightClientBootstrapRequest;
+use lighthouse_network::{
+    rpc::{BlocksByRangeRequest, BlocksByRootRequest, StatusMessage},
+    Client, MessageId, NetworkGlobals, PeerId, PeerRequestId,
+};
 use logging::TimeLatch;
 use slog::{crit, debug, error, trace, warn, Logger};
 use std::collections::VecDeque;
-use std::fmt;
 use std::future::Future;
-use std::marker::PhantomData;
 use std::path::PathBuf;
 use std::pin::Pin;
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 use std::task::Context;
+use std::time::Duration;
 use std::{cmp, collections::HashSet};
 use task_executor::TaskExecutor;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TrySendError;
-use types::{EthSpec, Hash256};
+use types::{
+    Attestation, AttesterSlashing, Hash256, LightClientFinalityUpdate, LightClientOptimisticUpdate,
+    ProposerSlashing, SignedAggregateAndProof, SignedBeaconBlock, SignedBlsToExecutionChange,
+    SignedContributionAndProof, SignedVoluntaryExit, SubnetId, SyncCommitteeMessage, SyncSubnetId,
+};
+use work_reprocessing_queue::{
+    spawn_reprocess_scheduler, QueuedAggregate, QueuedLightClientUpdate, QueuedRpcBlock,
+    QueuedUnaggregate, ReadyWork,
+};
 
-// TODO(paul): re-enable tests.
-// mod tests;
-mod metrics;
+use worker::{Toolbox, Worker};
+
+mod tests;
+mod work_reprocessing_queue;
+mod worker;
+
+use crate::beacon_processor::work_reprocessing_queue::{
+    QueuedBackfillBatch, QueuedGossipBlock, ReprocessQueueMessage,
+};
+pub use worker::{ChainSegmentProcessId, GossipAggregatePackage, GossipAttestationPackage};
 
 /// The maximum size of the channel for work events to the `BeaconProcessor`.
 ///
@@ -344,64 +366,524 @@ impl DuplicateCache {
 }
 
 /// An event to be processed by the manager task.
-#[derive(Debug)]
-pub struct WorkEvent<Att, AggAtt> {
+#[derive(Derivative)]
+#[derivative(Debug(bound = "T: BeaconChainTypes"))]
+pub struct WorkEvent<T: BeaconChainTypes> {
     drop_during_sync: bool,
-    work: Work<Att, AggAtt>,
+    work: Work<T>,
 }
 
-type BlockingWork = Box<dyn Fn() + Send + Sync>;
+impl<T: BeaconChainTypes> WorkEvent<T> {
+    /// Create a new `Work` event for some unaggregated attestation.
+    pub fn unaggregated_attestation(
+        message_id: MessageId,
+        peer_id: PeerId,
+        attestation: Attestation<T::EthSpec>,
+        subnet_id: SubnetId,
+        should_import: bool,
+        seen_timestamp: Duration,
+    ) -> Self {
+        Self {
+            drop_during_sync: true,
+            work: Work::GossipAttestation {
+                message_id,
+                peer_id,
+                attestation: Box::new(attestation),
+                subnet_id,
+                should_import,
+                seen_timestamp,
+            },
+        }
+    }
 
-/// Indicates the type of work to be performed and therefore its priority and
-/// queuing specifics.
-pub enum Work<Att, AggAtt> {
-    GossipAttestation {
-        attestation: Att,
-        process_individual: Box<dyn Fn(Att) + Send + Sync>,
-        process_batch: Box<dyn Fn(Vec<Att>) + Send + Sync>,
-    },
-    UnknownBlockAttestation(BlockingWork),
-    GossipAttestationBatch {
-        attestations: Vec<Att>,
-        process_batch: Box<dyn Fn(Vec<Att>) + Send + Sync>,
-    },
-    GossipAggregate {
-        aggregate: AggAtt,
-        process_individual: Box<dyn Fn(AggAtt) + Send + Sync>,
-        process_batch: Box<dyn Fn(Vec<AggAtt>) + Send + Sync>,
-    },
-    UnknownBlockAggregate(BlockingWork),
-    UnknownLightClientOptimisticUpdate(BlockingWork),
-    GossipAggregateBatch {
-        aggregates: Vec<AggAtt>,
-        process_batch: Box<dyn Fn(Vec<AggAtt>) + Send + Sync>,
-    },
-    GossipBlock(BlockingWork),
-    DelayedImportBlock(BlockingWork),
-    GossipVoluntaryExit(BlockingWork),
-    GossipProposerSlashing(BlockingWork),
-    GossipAttesterSlashing(BlockingWork),
-    GossipSyncSignature(BlockingWork),
-    GossipSyncContribution(BlockingWork),
-    GossipLightClientFinalityUpdate(BlockingWork),
-    GossipLightClientOptimisticUpdate(BlockingWork),
-    RpcBlock(BlockingWork),
-    ChainSegment(BlockingWork),
-    ChainSegmentBackSync(BlockingWork),
-    Status(BlockingWork),
-    BlocksByRangeRequest(BlockingWork),
-    BlocksByRootsRequest(BlockingWork),
-    GossipBlsToExecutionChange(BlockingWork),
-    LightClientBootstrapRequest(BlockingWork),
-}
+    /// Create a new `Work` event for some aggregated attestation.
+    pub fn aggregated_attestation(
+        message_id: MessageId,
+        peer_id: PeerId,
+        aggregate: SignedAggregateAndProof<T::EthSpec>,
+        seen_timestamp: Duration,
+    ) -> Self {
+        Self {
+            drop_during_sync: true,
+            work: Work::GossipAggregate {
+                message_id,
+                peer_id,
+                aggregate: Box::new(aggregate),
+                seen_timestamp,
+            },
+        }
+    }
 
-impl<Att, AggAtt> fmt::Debug for Work<Att, AggAtt> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.str_id())
+    /// Create a new `Work` event for some block.
+    pub fn gossip_beacon_block(
+        message_id: MessageId,
+        peer_id: PeerId,
+        peer_client: Client,
+        block: Arc<SignedBeaconBlock<T::EthSpec>>,
+        seen_timestamp: Duration,
+    ) -> Self {
+        Self {
+            drop_during_sync: false,
+            work: Work::GossipBlock {
+                message_id,
+                peer_id,
+                peer_client,
+                block,
+                seen_timestamp,
+            },
+        }
+    }
+
+    /// Create a new `Work` event for some sync committee signature.
+    pub fn gossip_sync_signature(
+        message_id: MessageId,
+        peer_id: PeerId,
+        sync_signature: SyncCommitteeMessage,
+        subnet_id: SyncSubnetId,
+        seen_timestamp: Duration,
+    ) -> Self {
+        Self {
+            drop_during_sync: true,
+            work: Work::GossipSyncSignature {
+                message_id,
+                peer_id,
+                sync_signature: Box::new(sync_signature),
+                subnet_id,
+                seen_timestamp,
+            },
+        }
+    }
+
+    /// Create a new `Work` event for some sync committee contribution.
+    pub fn gossip_sync_contribution(
+        message_id: MessageId,
+        peer_id: PeerId,
+        sync_contribution: SignedContributionAndProof<T::EthSpec>,
+        seen_timestamp: Duration,
+    ) -> Self {
+        Self {
+            drop_during_sync: true,
+            work: Work::GossipSyncContribution {
+                message_id,
+                peer_id,
+                sync_contribution: Box::new(sync_contribution),
+                seen_timestamp,
+            },
+        }
+    }
+
+    /// Create a new `Work` event for some exit.
+    pub fn gossip_voluntary_exit(
+        message_id: MessageId,
+        peer_id: PeerId,
+        voluntary_exit: Box<SignedVoluntaryExit>,
+    ) -> Self {
+        Self {
+            drop_during_sync: false,
+            work: Work::GossipVoluntaryExit {
+                message_id,
+                peer_id,
+                voluntary_exit,
+            },
+        }
+    }
+
+    /// Create a new `Work` event for some proposer slashing.
+    pub fn gossip_proposer_slashing(
+        message_id: MessageId,
+        peer_id: PeerId,
+        proposer_slashing: Box<ProposerSlashing>,
+    ) -> Self {
+        Self {
+            drop_during_sync: false,
+            work: Work::GossipProposerSlashing {
+                message_id,
+                peer_id,
+                proposer_slashing,
+            },
+        }
+    }
+
+    /// Create a new `Work` event for some light client finality update.
+    pub fn gossip_light_client_finality_update(
+        message_id: MessageId,
+        peer_id: PeerId,
+        light_client_finality_update: Box<LightClientFinalityUpdate<T::EthSpec>>,
+        seen_timestamp: Duration,
+    ) -> Self {
+        Self {
+            drop_during_sync: true,
+            work: Work::GossipLightClientFinalityUpdate {
+                message_id,
+                peer_id,
+                light_client_finality_update,
+                seen_timestamp,
+            },
+        }
+    }
+
+    /// Create a new `Work` event for some light client optimistic update.
+    pub fn gossip_light_client_optimistic_update(
+        message_id: MessageId,
+        peer_id: PeerId,
+        light_client_optimistic_update: Box<LightClientOptimisticUpdate<T::EthSpec>>,
+        seen_timestamp: Duration,
+    ) -> Self {
+        Self {
+            drop_during_sync: true,
+            work: Work::GossipLightClientOptimisticUpdate {
+                message_id,
+                peer_id,
+                light_client_optimistic_update,
+                seen_timestamp,
+            },
+        }
+    }
+
+    /// Create a new `Work` event for some attester slashing.
+    pub fn gossip_attester_slashing(
+        message_id: MessageId,
+        peer_id: PeerId,
+        attester_slashing: Box<AttesterSlashing<T::EthSpec>>,
+    ) -> Self {
+        Self {
+            drop_during_sync: false,
+            work: Work::GossipAttesterSlashing {
+                message_id,
+                peer_id,
+                attester_slashing,
+            },
+        }
+    }
+
+    /// Create a new `Work` event for some BLS to execution change.
+    pub fn gossip_bls_to_execution_change(
+        message_id: MessageId,
+        peer_id: PeerId,
+        bls_to_execution_change: Box<SignedBlsToExecutionChange>,
+    ) -> Self {
+        Self {
+            drop_during_sync: false,
+            work: Work::GossipBlsToExecutionChange {
+                message_id,
+                peer_id,
+                bls_to_execution_change,
+            },
+        }
+    }
+
+    /// Create a new `Work` event for some block, where the result from computation (if any) is
+    /// sent to the other side of `result_tx`.
+    pub fn rpc_beacon_block(
+        block_root: Hash256,
+        block: Arc<SignedBeaconBlock<T::EthSpec>>,
+        seen_timestamp: Duration,
+        process_type: BlockProcessType,
+    ) -> Self {
+        Self {
+            drop_during_sync: false,
+            work: Work::RpcBlock {
+                block_root,
+                block,
+                seen_timestamp,
+                process_type,
+                should_process: true,
+            },
+        }
+    }
+
+    /// Create a new work event to import `blocks` as a beacon chain segment.
+    pub fn chain_segment(
+        process_id: ChainSegmentProcessId,
+        blocks: Vec<Arc<SignedBeaconBlock<T::EthSpec>>>,
+    ) -> Self {
+        Self {
+            drop_during_sync: false,
+            work: Work::ChainSegment { process_id, blocks },
+        }
+    }
+
+    /// Create a new work event to process `StatusMessage`s from the RPC network.
+    pub fn status_message(peer_id: PeerId, message: StatusMessage) -> Self {
+        Self {
+            drop_during_sync: false,
+            work: Work::Status { peer_id, message },
+        }
+    }
+
+    /// Create a new work event to process `BlocksByRangeRequest`s from the RPC network.
+    pub fn blocks_by_range_request(
+        peer_id: PeerId,
+        request_id: PeerRequestId,
+        request: BlocksByRangeRequest,
+    ) -> Self {
+        Self {
+            drop_during_sync: false,
+            work: Work::BlocksByRangeRequest {
+                peer_id,
+                request_id,
+                request,
+            },
+        }
+    }
+
+    /// Create a new work event to process `BlocksByRootRequest`s from the RPC network.
+    pub fn blocks_by_roots_request(
+        peer_id: PeerId,
+        request_id: PeerRequestId,
+        request: BlocksByRootRequest,
+    ) -> Self {
+        Self {
+            drop_during_sync: false,
+            work: Work::BlocksByRootsRequest {
+                peer_id,
+                request_id,
+                request,
+            },
+        }
+    }
+
+    /// Create a new work event to process `LightClientBootstrap`s from the RPC network.
+    pub fn lightclient_bootstrap_request(
+        peer_id: PeerId,
+        request_id: PeerRequestId,
+        request: LightClientBootstrapRequest,
+    ) -> Self {
+        Self {
+            drop_during_sync: true,
+            work: Work::LightClientBootstrapRequest {
+                peer_id,
+                request_id,
+                request,
+            },
+        }
+    }
+
+    /// Get a `str` representation of the type of work this `WorkEvent` contains.
+    pub fn work_type(&self) -> &'static str {
+        self.work.str_id()
     }
 }
 
-impl<Att, AggAtt> Work<Att, AggAtt> {
+impl<T: BeaconChainTypes> std::convert::From<ReadyWork<T>> for WorkEvent<T> {
+    fn from(ready_work: ReadyWork<T>) -> Self {
+        match ready_work {
+            ReadyWork::Block(QueuedGossipBlock {
+                peer_id,
+                block,
+                seen_timestamp,
+            }) => Self {
+                drop_during_sync: false,
+                work: Work::DelayedImportBlock {
+                    peer_id,
+                    block,
+                    seen_timestamp,
+                },
+            },
+            ReadyWork::RpcBlock(QueuedRpcBlock {
+                block_root,
+                block,
+                seen_timestamp,
+                process_type,
+                should_process,
+            }) => Self {
+                drop_during_sync: false,
+                work: Work::RpcBlock {
+                    block_root,
+                    block,
+                    seen_timestamp,
+                    process_type,
+                    should_process,
+                },
+            },
+            ReadyWork::Unaggregate(QueuedUnaggregate {
+                peer_id,
+                message_id,
+                attestation,
+                subnet_id,
+                should_import,
+                seen_timestamp,
+            }) => Self {
+                drop_during_sync: true,
+                work: Work::UnknownBlockAttestation {
+                    message_id,
+                    peer_id,
+                    attestation,
+                    subnet_id,
+                    should_import,
+                    seen_timestamp,
+                },
+            },
+            ReadyWork::Aggregate(QueuedAggregate {
+                peer_id,
+                message_id,
+                attestation,
+                seen_timestamp,
+            }) => Self {
+                drop_during_sync: true,
+                work: Work::UnknownBlockAggregate {
+                    message_id,
+                    peer_id,
+                    aggregate: attestation,
+                    seen_timestamp,
+                },
+            },
+            ReadyWork::LightClientUpdate(QueuedLightClientUpdate {
+                peer_id,
+                message_id,
+                light_client_optimistic_update,
+                seen_timestamp,
+                ..
+            }) => Self {
+                drop_during_sync: true,
+                work: Work::UnknownLightClientOptimisticUpdate {
+                    message_id,
+                    peer_id,
+                    light_client_optimistic_update,
+                    seen_timestamp,
+                },
+            },
+            ReadyWork::BackfillSync(QueuedBackfillBatch { process_id, blocks }) => {
+                WorkEvent::chain_segment(process_id, blocks)
+            }
+        }
+    }
+}
+
+/// A consensus message (or multiple) from the network that requires processing.
+#[derive(Derivative)]
+#[derivative(Debug(bound = "T: BeaconChainTypes"))]
+pub enum Work<T: BeaconChainTypes> {
+    GossipAttestation {
+        message_id: MessageId,
+        peer_id: PeerId,
+        attestation: Box<Attestation<T::EthSpec>>,
+        subnet_id: SubnetId,
+        should_import: bool,
+        seen_timestamp: Duration,
+    },
+    UnknownBlockAttestation {
+        message_id: MessageId,
+        peer_id: PeerId,
+        attestation: Box<Attestation<T::EthSpec>>,
+        subnet_id: SubnetId,
+        should_import: bool,
+        seen_timestamp: Duration,
+    },
+    GossipAttestationBatch {
+        packages: Vec<GossipAttestationPackage<T::EthSpec>>,
+    },
+    GossipAggregate {
+        message_id: MessageId,
+        peer_id: PeerId,
+        aggregate: Box<SignedAggregateAndProof<T::EthSpec>>,
+        seen_timestamp: Duration,
+    },
+    UnknownBlockAggregate {
+        message_id: MessageId,
+        peer_id: PeerId,
+        aggregate: Box<SignedAggregateAndProof<T::EthSpec>>,
+        seen_timestamp: Duration,
+    },
+    UnknownLightClientOptimisticUpdate {
+        message_id: MessageId,
+        peer_id: PeerId,
+        light_client_optimistic_update: Box<LightClientOptimisticUpdate<T::EthSpec>>,
+        seen_timestamp: Duration,
+    },
+    GossipAggregateBatch {
+        packages: Vec<GossipAggregatePackage<T::EthSpec>>,
+    },
+    GossipBlock {
+        message_id: MessageId,
+        peer_id: PeerId,
+        peer_client: Client,
+        block: Arc<SignedBeaconBlock<T::EthSpec>>,
+        seen_timestamp: Duration,
+    },
+    DelayedImportBlock {
+        peer_id: PeerId,
+        block: Box<GossipVerifiedBlock<T>>,
+        seen_timestamp: Duration,
+    },
+    GossipVoluntaryExit {
+        message_id: MessageId,
+        peer_id: PeerId,
+        voluntary_exit: Box<SignedVoluntaryExit>,
+    },
+    GossipProposerSlashing {
+        message_id: MessageId,
+        peer_id: PeerId,
+        proposer_slashing: Box<ProposerSlashing>,
+    },
+    GossipAttesterSlashing {
+        message_id: MessageId,
+        peer_id: PeerId,
+        attester_slashing: Box<AttesterSlashing<T::EthSpec>>,
+    },
+    GossipSyncSignature {
+        message_id: MessageId,
+        peer_id: PeerId,
+        sync_signature: Box<SyncCommitteeMessage>,
+        subnet_id: SyncSubnetId,
+        seen_timestamp: Duration,
+    },
+    GossipSyncContribution {
+        message_id: MessageId,
+        peer_id: PeerId,
+        sync_contribution: Box<SignedContributionAndProof<T::EthSpec>>,
+        seen_timestamp: Duration,
+    },
+    GossipLightClientFinalityUpdate {
+        message_id: MessageId,
+        peer_id: PeerId,
+        light_client_finality_update: Box<LightClientFinalityUpdate<T::EthSpec>>,
+        seen_timestamp: Duration,
+    },
+    GossipLightClientOptimisticUpdate {
+        message_id: MessageId,
+        peer_id: PeerId,
+        light_client_optimistic_update: Box<LightClientOptimisticUpdate<T::EthSpec>>,
+        seen_timestamp: Duration,
+    },
+    RpcBlock {
+        block_root: Hash256,
+        block: Arc<SignedBeaconBlock<T::EthSpec>>,
+        seen_timestamp: Duration,
+        process_type: BlockProcessType,
+        should_process: bool,
+    },
+    ChainSegment {
+        process_id: ChainSegmentProcessId,
+        blocks: Vec<Arc<SignedBeaconBlock<T::EthSpec>>>,
+    },
+    Status {
+        peer_id: PeerId,
+        message: StatusMessage,
+    },
+    BlocksByRangeRequest {
+        peer_id: PeerId,
+        request_id: PeerRequestId,
+        request: BlocksByRangeRequest,
+    },
+    BlocksByRootsRequest {
+        peer_id: PeerId,
+        request_id: PeerRequestId,
+        request: BlocksByRootRequest,
+    },
+    GossipBlsToExecutionChange {
+        message_id: MessageId,
+        peer_id: PeerId,
+        bls_to_execution_change: Box<SignedBlsToExecutionChange>,
+    },
+    LightClientBootstrapRequest {
+        peer_id: PeerId,
+        request_id: PeerRequestId,
+        request: LightClientBootstrapRequest,
+    },
+}
+
+impl<T: BeaconChainTypes> Work<T> {
     /// Provides a `&str` that uniquely identifies each enum variant.
     fn str_id(&self) -> &'static str {
         match self {
@@ -409,55 +891,58 @@ impl<Att, AggAtt> Work<Att, AggAtt> {
             Work::GossipAttestationBatch { .. } => GOSSIP_ATTESTATION_BATCH,
             Work::GossipAggregate { .. } => GOSSIP_AGGREGATE,
             Work::GossipAggregateBatch { .. } => GOSSIP_AGGREGATE_BATCH,
-            Work::GossipBlock(_) => GOSSIP_BLOCK,
-            Work::DelayedImportBlock(_) => DELAYED_IMPORT_BLOCK,
-            Work::GossipVoluntaryExit(_) => GOSSIP_VOLUNTARY_EXIT,
-            Work::GossipProposerSlashing(_) => GOSSIP_PROPOSER_SLASHING,
-            Work::GossipAttesterSlashing(_) => GOSSIP_ATTESTER_SLASHING,
-            Work::GossipSyncSignature(_) => GOSSIP_SYNC_SIGNATURE,
-            Work::GossipSyncContribution(_) => GOSSIP_SYNC_CONTRIBUTION,
-            Work::GossipLightClientFinalityUpdate(_) => GOSSIP_LIGHT_CLIENT_FINALITY_UPDATE,
-            Work::GossipLightClientOptimisticUpdate(_) => GOSSIP_LIGHT_CLIENT_OPTIMISTIC_UPDATE,
-            Work::RpcBlock(_) => RPC_BLOCK,
-            Work::ChainSegment(_) => CHAIN_SEGMENT,
-            Work::ChainSegmentBackSync(_) => CHAIN_SEGMENT_BACKFILL,
-            Work::Status(_) => STATUS_PROCESSING,
-            Work::BlocksByRangeRequest(_) => BLOCKS_BY_RANGE_REQUEST,
-            Work::BlocksByRootsRequest(_) => BLOCKS_BY_ROOTS_REQUEST,
-            Work::LightClientBootstrapRequest(_) => LIGHT_CLIENT_BOOTSTRAP_REQUEST,
-            Work::UnknownBlockAttestation(_) => UNKNOWN_BLOCK_ATTESTATION,
-            Work::UnknownBlockAggregate(_) => UNKNOWN_BLOCK_AGGREGATE,
-            Work::GossipBlsToExecutionChange(_) => GOSSIP_BLS_TO_EXECUTION_CHANGE,
-            Work::UnknownLightClientOptimisticUpdate(_) => UNKNOWN_LIGHT_CLIENT_UPDATE,
+            Work::GossipBlock { .. } => GOSSIP_BLOCK,
+            Work::DelayedImportBlock { .. } => DELAYED_IMPORT_BLOCK,
+            Work::GossipVoluntaryExit { .. } => GOSSIP_VOLUNTARY_EXIT,
+            Work::GossipProposerSlashing { .. } => GOSSIP_PROPOSER_SLASHING,
+            Work::GossipAttesterSlashing { .. } => GOSSIP_ATTESTER_SLASHING,
+            Work::GossipSyncSignature { .. } => GOSSIP_SYNC_SIGNATURE,
+            Work::GossipSyncContribution { .. } => GOSSIP_SYNC_CONTRIBUTION,
+            Work::GossipLightClientFinalityUpdate { .. } => GOSSIP_LIGHT_CLIENT_FINALITY_UPDATE,
+            Work::GossipLightClientOptimisticUpdate { .. } => GOSSIP_LIGHT_CLIENT_OPTIMISTIC_UPDATE,
+            Work::RpcBlock { .. } => RPC_BLOCK,
+            Work::ChainSegment {
+                process_id: ChainSegmentProcessId::BackSyncBatchId { .. },
+                ..
+            } => CHAIN_SEGMENT_BACKFILL,
+            Work::ChainSegment { .. } => CHAIN_SEGMENT,
+            Work::Status { .. } => STATUS_PROCESSING,
+            Work::BlocksByRangeRequest { .. } => BLOCKS_BY_RANGE_REQUEST,
+            Work::BlocksByRootsRequest { .. } => BLOCKS_BY_ROOTS_REQUEST,
+            Work::LightClientBootstrapRequest { .. } => LIGHT_CLIENT_BOOTSTRAP_REQUEST,
+            Work::UnknownBlockAttestation { .. } => UNKNOWN_BLOCK_ATTESTATION,
+            Work::UnknownBlockAggregate { .. } => UNKNOWN_BLOCK_AGGREGATE,
+            Work::GossipBlsToExecutionChange { .. } => GOSSIP_BLS_TO_EXECUTION_CHANGE,
+            Work::UnknownLightClientOptimisticUpdate { .. } => UNKNOWN_LIGHT_CLIENT_UPDATE,
         }
     }
 }
 
 /// Unifies all the messages processed by the `BeaconProcessor`.
-enum InboundEvent<Att, AggAtt> {
+enum InboundEvent<T: BeaconChainTypes> {
     /// A worker has completed a task and is free.
     WorkerIdle,
     /// There is new work to be done.
-    WorkEvent(WorkEvent<Att, AggAtt>),
+    WorkEvent(WorkEvent<T>),
     /// A work event that was queued for re-processing has become ready.
-    ReprocessingWork(WorkEvent<Att, AggAtt>),
+    ReprocessingWork(WorkEvent<T>),
 }
 
 /// Combines the various incoming event streams for the `BeaconProcessor` into a single stream.
 ///
 /// This struct has a similar purpose to `tokio::select!`, however it allows for more fine-grained
 /// control (specifically in the ordering of event processing).
-struct InboundEvents<Att, AggAtt> {
+struct InboundEvents<T: BeaconChainTypes> {
     /// Used by workers when they finish a task.
     idle_rx: mpsc::Receiver<()>,
     /// Used by upstream processes to send new work to the `BeaconProcessor`.
-    event_rx: mpsc::Receiver<WorkEvent<Att, AggAtt>>,
+    event_rx: mpsc::Receiver<WorkEvent<T>>,
     /// Used internally for queuing work ready to be re-processed.
-    reprocess_work_rx: mpsc::Receiver<WorkEvent<Att, AggAtt>>,
+    reprocess_work_rx: mpsc::Receiver<ReadyWork<T>>,
 }
 
-impl<Att, AggAtt> Stream for InboundEvents<Att, AggAtt> {
-    type Item = InboundEvent<Att, AggAtt>;
+impl<T: BeaconChainTypes> Stream for InboundEvents<T> {
+    type Item = InboundEvent<T>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         // Always check for idle workers before anything else. This allows us to ensure that a big
@@ -509,18 +994,20 @@ pub enum InvalidBlockStorage {
 /// that need to be processed by the `BeaconChain`
 ///
 /// See module level documentation for more information.
-pub struct BeaconProcessor<E: EthSpec, Att, AggAtt> {
-    pub network_globals: Arc<NetworkGlobals<E>>,
+pub struct BeaconProcessor<T: BeaconChainTypes> {
+    pub beacon_chain: Weak<BeaconChain<T>>,
+    pub network_tx: mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
+    pub sync_tx: mpsc::UnboundedSender<SyncMessage<T::EthSpec>>,
+    pub network_globals: Arc<NetworkGlobals<T::EthSpec>>,
     pub executor: TaskExecutor,
     pub max_workers: usize,
     pub current_workers: usize,
     pub importing_blocks: DuplicateCache,
     pub invalid_block_storage: InvalidBlockStorage,
     pub log: Logger,
-    pub _phantom: PhantomData<(Att, AggAtt)>,
 }
 
-impl<E: EthSpec, Att: Send, AggAtt: Send> BeaconProcessor<E, Att, AggAtt> {
+impl<T: BeaconChainTypes> BeaconProcessor<T> {
     /// Spawns the "manager" task which checks the receiver end of the returned `Sender` for
     /// messages which contain some new work which will be:
     ///
@@ -534,8 +1021,7 @@ impl<E: EthSpec, Att: Send, AggAtt: Send> BeaconProcessor<E, Att, AggAtt> {
     /// events processed by `self`. This should only be used during testing.
     pub fn spawn_manager(
         mut self,
-        event_rx: mpsc::Receiver<WorkEvent<Att, AggAtt>>,
-        ready_work_rx: mpsc::Receiver<WorkEvent<Att, AggAtt>>,
+        event_rx: mpsc::Receiver<WorkEvent<T>>,
         work_journal_tx: Option<mpsc::Sender<&'static str>>,
     ) {
         // Used by workers to communicate that they are finished a task.
@@ -588,6 +1074,23 @@ impl<E: EthSpec, Att: Send, AggAtt: Send> BeaconProcessor<E, Att, AggAtt> {
             FifoQueue::new(MAX_BLS_TO_EXECUTION_CHANGE_QUEUE_LEN);
 
         let mut lcbootstrap_queue = FifoQueue::new(MAX_LIGHT_CLIENT_BOOTSTRAP_QUEUE_LEN);
+
+        let chain = match self.beacon_chain.upgrade() {
+            Some(chain) => chain,
+            // No need to proceed any further if the beacon chain has been dropped, the client
+            // is shutting down.
+            None => return,
+        };
+
+        // Channels for sending work to the re-process scheduler (`work_reprocessing_tx`) and to
+        // receive them back once they are ready (`ready_work_rx`).
+        let (ready_work_tx, ready_work_rx) = mpsc::channel(MAX_SCHEDULED_WORK_QUEUE_LEN);
+        let work_reprocessing_tx = spawn_reprocess_scheduler(
+            ready_work_tx,
+            &self.executor,
+            chain.slot_clock.clone(),
+            self.log.clone(),
+        );
 
         let executor = self.executor.clone();
 
@@ -694,22 +1197,27 @@ impl<E: EthSpec, Att: Send, AggAtt: Send> BeaconProcessor<E, Att, AggAtt> {
                     // We don't check the `work.drop_during_sync` here. We assume that if it made
                     // it into the queue at any point then we should process it.
                     None if can_spawn => {
+                        let toolbox = Toolbox {
+                            idle_tx: idle_tx.clone(),
+                            work_reprocessing_tx: work_reprocessing_tx.clone(),
+                        };
+
                         // Check for chain segments first, they're the most efficient way to get
                         // blocks into the system.
                         if let Some(item) = chain_segment_queue.pop() {
-                            self.spawn_worker(item, idle_tx);
+                            self.spawn_worker(item, toolbox);
                         // Check sync blocks before gossip blocks, since we've already explicitly
                         // requested these blocks.
                         } else if let Some(item) = rpc_block_queue.pop() {
-                            self.spawn_worker(item, idle_tx);
+                            self.spawn_worker(item, toolbox);
                         // Check delayed blocks before gossip blocks, the gossip blocks might rely
                         // on the delayed ones.
                         } else if let Some(item) = delayed_block_queue.pop() {
-                            self.spawn_worker(item, idle_tx);
+                            self.spawn_worker(item, toolbox);
                         // Check gossip blocks before gossip attestations, since a block might be
                         // required to verify some attestations.
                         } else if let Some(item) = gossip_block_queue.pop() {
-                            self.spawn_worker(item, idle_tx);
+                            self.spawn_worker(item, toolbox);
                         // Check the aggregates, *then* the unaggregates since we assume that
                         // aggregates are more valuable to local validators and effectively give us
                         // more information with less signature verification time.
@@ -720,7 +1228,7 @@ impl<E: EthSpec, Att: Send, AggAtt: Send> BeaconProcessor<E, Att, AggAtt> {
                             if batch_size < 2 {
                                 // One single aggregate is in the queue, process it individually.
                                 if let Some(item) = aggregate_queue.pop() {
-                                    self.spawn_worker(item, idle_tx);
+                                    self.spawn_worker(item, toolbox);
                                 }
                             } else {
                                 // Collect two or more aggregates into a batch, so they can take
@@ -728,45 +1236,32 @@ impl<E: EthSpec, Att: Send, AggAtt: Send> BeaconProcessor<E, Att, AggAtt> {
                                 //
                                 // Note: this will convert the `Work::GossipAggregate` item into a
                                 // `Work::GossipAggregateBatch` item.
-                                let mut aggregates = Vec::with_capacity(batch_size);
-                                let mut process_batch_opt = None;
+                                let mut packages = Vec::with_capacity(batch_size);
                                 for _ in 0..batch_size {
                                     if let Some(item) = aggregate_queue.pop() {
                                         match item {
                                             Work::GossipAggregate {
+                                                message_id,
+                                                peer_id,
                                                 aggregate,
-                                                process_individual: _,
-                                                process_batch,
+                                                seen_timestamp,
                                             } => {
-                                                aggregates.push(aggregate);
-                                                if process_batch_opt.is_none() {
-                                                    process_batch_opt = Some(process_batch);
-                                                }
+                                                packages.push(GossipAggregatePackage::new(
+                                                    message_id,
+                                                    peer_id,
+                                                    aggregate,
+                                                    seen_timestamp,
+                                                ));
                                             }
                                             _ => {
-                                                error!(self.log, "Invalid item in aggregate queue");
+                                                error!(self.log, "Invalid item in aggregate queue")
                                             }
                                         }
                                     }
                                 }
 
-                                if let Some(process_batch) = process_batch_opt {
-                                    // Process all aggregates with a single worker.
-                                    self.spawn_worker(
-                                        Work::GossipAggregateBatch {
-                                            aggregates,
-                                            process_batch,
-                                        },
-                                        idle_tx,
-                                    )
-                                } else {
-                                    // There is no good reason for this to
-                                    // happen, it is a serious logic error.
-                                    // Since we only form batches when multiple
-                                    // work items exist, we should always have a
-                                    // work closure at this point.
-                                    crit!(self.log, "Missing aggregate work");
-                                }
+                                // Process all aggregates with a single worker.
+                                self.spawn_worker(Work::GossipAggregateBatch { packages }, toolbox)
                             }
                         // Check the unaggregated attestation queue.
                         //
@@ -780,7 +1275,7 @@ impl<E: EthSpec, Att: Send, AggAtt: Send> BeaconProcessor<E, Att, AggAtt> {
                             if batch_size < 2 {
                                 // One single attestation is in the queue, process it individually.
                                 if let Some(item) = attestation_queue.pop() {
-                                    self.spawn_worker(item, idle_tx);
+                                    self.spawn_worker(item, toolbox);
                                 }
                             } else {
                                 // Collect two or more attestations into a batch, so they can take
@@ -788,20 +1283,26 @@ impl<E: EthSpec, Att: Send, AggAtt: Send> BeaconProcessor<E, Att, AggAtt> {
                                 //
                                 // Note: this will convert the `Work::GossipAttestation` item into a
                                 // `Work::GossipAttestationBatch` item.
-                                let mut attestations = Vec::with_capacity(batch_size);
-                                let mut process_batch_opt = None;
+                                let mut packages = Vec::with_capacity(batch_size);
                                 for _ in 0..batch_size {
                                     if let Some(item) = attestation_queue.pop() {
                                         match item {
                                             Work::GossipAttestation {
+                                                message_id,
+                                                peer_id,
                                                 attestation,
-                                                process_individual: _,
-                                                process_batch,
+                                                subnet_id,
+                                                should_import,
+                                                seen_timestamp,
                                             } => {
-                                                attestations.push(attestation);
-                                                if process_batch_opt.is_none() {
-                                                    process_batch_opt = Some(process_batch);
-                                                }
+                                                packages.push(GossipAttestationPackage::new(
+                                                    message_id,
+                                                    peer_id,
+                                                    attestation,
+                                                    subnet_id,
+                                                    should_import,
+                                                    seen_timestamp,
+                                                ));
                                             }
                                             _ => error!(
                                                 self.log,
@@ -811,66 +1312,54 @@ impl<E: EthSpec, Att: Send, AggAtt: Send> BeaconProcessor<E, Att, AggAtt> {
                                     }
                                 }
 
-                                if let Some(process_batch) = process_batch_opt {
-                                    // Process all attestations with a single worker.
-                                    self.spawn_worker(
-                                        Work::GossipAttestationBatch {
-                                            attestations,
-                                            process_batch,
-                                        },
-                                        idle_tx,
-                                    )
-                                } else {
-                                    // There is no good reason for this to
-                                    // happen, it is a serious logic error.
-                                    // Since we only form batches when multiple
-                                    // work items exist, we should always have a
-                                    // work closure at this point.
-                                    crit!(self.log, "Missing attestations work");
-                                }
+                                // Process all attestations with a single worker.
+                                self.spawn_worker(
+                                    Work::GossipAttestationBatch { packages },
+                                    toolbox,
+                                )
                             }
                         // Check sync committee messages after attestations as their rewards are lesser
                         // and they don't influence fork choice.
                         } else if let Some(item) = sync_contribution_queue.pop() {
-                            self.spawn_worker(item, idle_tx);
+                            self.spawn_worker(item, toolbox);
                         } else if let Some(item) = sync_message_queue.pop() {
-                            self.spawn_worker(item, idle_tx);
+                            self.spawn_worker(item, toolbox);
                         // Aggregates and unaggregates queued for re-processing are older and we
                         // care about fresher ones, so check those first.
                         } else if let Some(item) = unknown_block_aggregate_queue.pop() {
-                            self.spawn_worker(item, idle_tx);
+                            self.spawn_worker(item, toolbox);
                         } else if let Some(item) = unknown_block_attestation_queue.pop() {
-                            self.spawn_worker(item, idle_tx);
+                            self.spawn_worker(item, toolbox);
                         // Check RPC methods next. Status messages are needed for sync so
                         // prioritize them over syncing requests from other peers (BlocksByRange
                         // and BlocksByRoot)
                         } else if let Some(item) = status_queue.pop() {
-                            self.spawn_worker(item, idle_tx);
+                            self.spawn_worker(item, toolbox);
                         } else if let Some(item) = bbrange_queue.pop() {
-                            self.spawn_worker(item, idle_tx);
+                            self.spawn_worker(item, toolbox);
                         } else if let Some(item) = bbroots_queue.pop() {
-                            self.spawn_worker(item, idle_tx);
+                            self.spawn_worker(item, toolbox);
                         // Check slashings after all other consensus messages so we prioritize
                         // following head.
                         //
                         // Check attester slashings before proposer slashings since they have the
                         // potential to slash multiple validators at once.
                         } else if let Some(item) = gossip_attester_slashing_queue.pop() {
-                            self.spawn_worker(item, idle_tx);
+                            self.spawn_worker(item, toolbox);
                         } else if let Some(item) = gossip_proposer_slashing_queue.pop() {
-                            self.spawn_worker(item, idle_tx);
+                            self.spawn_worker(item, toolbox);
                         // Check exits and address changes late since our validators don't get
                         // rewards from them.
                         } else if let Some(item) = gossip_voluntary_exit_queue.pop() {
-                            self.spawn_worker(item, idle_tx);
+                            self.spawn_worker(item, toolbox);
                         } else if let Some(item) = gossip_bls_to_execution_change_queue.pop() {
-                            self.spawn_worker(item, idle_tx);
+                            self.spawn_worker(item, toolbox);
                         // Handle backfill sync chain segments.
                         } else if let Some(item) = backfill_chain_segment.pop() {
-                            self.spawn_worker(item, idle_tx);
+                            self.spawn_worker(item, toolbox);
                         // This statement should always be the final else statement.
                         } else if let Some(item) = lcbootstrap_queue.pop() {
-                            self.spawn_worker(item, idle_tx);
+                            self.spawn_worker(item, toolbox);
                         } else {
                             // Let the journal know that a worker is freed and there's nothing else
                             // for it to do.
@@ -912,9 +1401,13 @@ impl<E: EthSpec, Att: Send, AggAtt: Send> BeaconProcessor<E, Att, AggAtt> {
                     // it.
                     Some(WorkEvent { work, .. }) => {
                         let work_id = work.str_id();
+                        let toolbox = Toolbox {
+                            idle_tx: idle_tx.clone(),
+                            work_reprocessing_tx: work_reprocessing_tx.clone(),
+                        };
 
                         match work {
-                            _ if can_spawn => self.spawn_worker(work, idle_tx),
+                            _ if can_spawn => self.spawn_worker(work, toolbox),
                             Work::GossipAttestation { .. } => attestation_queue.push(work),
                             // Attestation batches are formed internally within the
                             // `BeaconProcessor`, they are not sent from external services.
@@ -957,12 +1450,15 @@ impl<E: EthSpec, Att: Send, AggAtt: Send> BeaconProcessor<E, Att, AggAtt> {
                                 optimistic_update_queue.push(work, work_id, &self.log)
                             }
                             Work::RpcBlock { .. } => rpc_block_queue.push(work, work_id, &self.log),
-                            Work::ChainSegment { .. } => {
-                                chain_segment_queue.push(work, work_id, &self.log)
-                            }
-                            Work::ChainSegmentBackSync { .. } => {
-                                backfill_chain_segment.push(work, work_id, &self.log)
-                            }
+                            Work::ChainSegment { ref process_id, .. } => match process_id {
+                                ChainSegmentProcessId::RangeBatchId { .. }
+                                | ChainSegmentProcessId::ParentLookup { .. } => {
+                                    chain_segment_queue.push(work, work_id, &self.log)
+                                }
+                                ChainSegmentProcessId::BackSyncBatchId { .. } => {
+                                    backfill_chain_segment.push(work, work_id, &self.log)
+                                }
+                            },
                             Work::Status { .. } => status_queue.push(work, work_id, &self.log),
                             Work::BlocksByRangeRequest { .. } => {
                                 bbrange_queue.push(work, work_id, &self.log)
@@ -1069,7 +1565,10 @@ impl<E: EthSpec, Att: Send, AggAtt: Send> BeaconProcessor<E, Att, AggAtt> {
     /// Spawns a blocking worker thread to process some `Work`.
     ///
     /// Sends an message on `idle_tx` when the work is complete and the task is stopping.
-    fn spawn_worker(&mut self, work: Work<Att, AggAtt>, idle_tx: mpsc::Sender<()>) {
+    fn spawn_worker(&mut self, work: Work<T>, toolbox: Toolbox<T>) {
+        let idle_tx = toolbox.idle_tx;
+        let work_reprocessing_tx = toolbox.work_reprocessing_tx;
+
         let work_id = work.str_id();
         let worker_timer =
             metrics::start_timer_vec(&metrics::BEACON_PROCESSOR_WORKER_TIME, &[work_id]);
@@ -1092,7 +1591,26 @@ impl<E: EthSpec, Att: Send, AggAtt: Send> BeaconProcessor<E, Att, AggAtt> {
         let worker_id = self.current_workers;
         self.current_workers = self.current_workers.saturating_add(1);
 
+        let chain = if let Some(chain) = self.beacon_chain.upgrade() {
+            chain
+        } else {
+            debug!(
+                self.log,
+                "Beacon chain dropped, shutting down";
+            );
+            return;
+        };
+
         let executor = self.executor.clone();
+
+        let worker = Worker {
+            chain,
+            network_tx: self.network_tx.clone(),
+            sync_tx: self.sync_tx.clone(),
+            log: self.log.clone(),
+        };
+
+        let duplicate_cache = self.importing_blocks.clone();
 
         trace!(
             self.log,
@@ -1108,58 +1626,342 @@ impl<E: EthSpec, Att: Send, AggAtt: Send> BeaconProcessor<E, Att, AggAtt> {
 
         let sub_executor = executor;
         match work {
+            /*
+             * Individual unaggregated attestation verification.
+             */
             Work::GossipAttestation {
+                message_id,
+                peer_id,
                 attestation,
-                process_individual,
-                process_batch: _,
-            } => task_spawner.spawn_blocking(|| {
-                process_individual(attestation);
-                drop(idle_tx);
+                subnet_id,
+                should_import,
+                seen_timestamp,
+            } => task_spawner.spawn_blocking(move || {
+                worker.process_gossip_attestation(
+                    message_id,
+                    peer_id,
+                    attestation,
+                    subnet_id,
+                    should_import,
+                    Some(work_reprocessing_tx),
+                    seen_timestamp,
+                )
             }),
-            Work::GossipAttestationBatch {
-                attestations,
-                process_batch,
-            } => task_spawner.spawn_blocking(|| {
-                process_batch(attestations);
-                drop(idle_tx);
+            /*
+             * Batched unaggregated attestation verification.
+             */
+            Work::GossipAttestationBatch { packages } => task_spawner.spawn_blocking(|| {
+                worker.process_gossip_attestation_batch(packages, Some(work_reprocessing_tx))
             }),
+            /*
+             * Individual aggregated attestation verification.
+             */
             Work::GossipAggregate {
+                message_id,
+                peer_id,
                 aggregate,
-                process_individual,
-                process_batch: _,
-            } => task_spawner.spawn_blocking(|| {
-                process_individual(aggregate);
-                drop(idle_tx);
+                seen_timestamp,
+            } => task_spawner.spawn_blocking(move || {
+                worker.process_gossip_aggregate(
+                    message_id,
+                    peer_id,
+                    aggregate,
+                    Some(work_reprocessing_tx),
+                    seen_timestamp,
+                )
             }),
-            Work::GossipAggregateBatch {
-                aggregates,
-                process_batch,
-            } => task_spawner.spawn_blocking(|| {
-                process_batch(aggregates);
-                drop(idle_tx);
+            /*
+             * Batched aggregated attestation verification.
+             */
+            Work::GossipAggregateBatch { packages } => task_spawner.spawn_blocking(|| {
+                worker.process_gossip_aggregate_batch(packages, Some(work_reprocessing_tx))
             }),
-            Work::UnknownBlockAttestation(work)
-            | Work::UnknownBlockAggregate(work)
-            | Work::UnknownLightClientOptimisticUpdate(work)
-            | Work::GossipBlock(work)
-            | Work::DelayedImportBlock(work)
-            | Work::GossipVoluntaryExit(work)
-            | Work::GossipProposerSlashing(work)
-            | Work::GossipAttesterSlashing(work)
-            | Work::GossipSyncSignature(work)
-            | Work::GossipSyncContribution(work)
-            | Work::GossipLightClientFinalityUpdate(work)
-            | Work::GossipLightClientOptimisticUpdate(work)
-            | Work::RpcBlock(work)
-            | Work::ChainSegment(work)
-            | Work::ChainSegmentBackSync(work)
-            | Work::Status(work)
-            | Work::BlocksByRangeRequest(work)
-            | Work::BlocksByRootsRequest(work)
-            | Work::GossipBlsToExecutionChange(work)
-            | Work::LightClientBootstrapRequest(work) => task_spawner.spawn_blocking(|| {
-                work();
-                drop(idle_tx);
+            /*
+             * Verification for beacon blocks received on gossip.
+             */
+            Work::GossipBlock {
+                message_id,
+                peer_id,
+                peer_client,
+                block,
+                seen_timestamp,
+            } => {
+                let invalid_block_storage = self.invalid_block_storage.clone();
+                task_spawner.spawn_async(async move {
+                    worker
+                        .process_gossip_block(
+                            message_id,
+                            peer_id,
+                            peer_client,
+                            block,
+                            work_reprocessing_tx,
+                            duplicate_cache,
+                            invalid_block_storage,
+                            seen_timestamp,
+                        )
+                        .await
+                })
+            }
+            /*
+             * Import for blocks that we received earlier than their intended slot.
+             */
+            Work::DelayedImportBlock {
+                peer_id,
+                block,
+                seen_timestamp,
+            } => {
+                let invalid_block_storage = self.invalid_block_storage.clone();
+                task_spawner.spawn_async(worker.process_gossip_verified_block(
+                    peer_id,
+                    *block,
+                    work_reprocessing_tx,
+                    invalid_block_storage,
+                    seen_timestamp,
+                ))
+            }
+            /*
+             * Voluntary exits received on gossip.
+             */
+            Work::GossipVoluntaryExit {
+                message_id,
+                peer_id,
+                voluntary_exit,
+            } => task_spawner.spawn_blocking(move || {
+                worker.process_gossip_voluntary_exit(message_id, peer_id, *voluntary_exit)
+            }),
+            /*
+             * Proposer slashings received on gossip.
+             */
+            Work::GossipProposerSlashing {
+                message_id,
+                peer_id,
+                proposer_slashing,
+            } => task_spawner.spawn_blocking(move || {
+                worker.process_gossip_proposer_slashing(message_id, peer_id, *proposer_slashing)
+            }),
+            /*
+             * Attester slashings received on gossip.
+             */
+            Work::GossipAttesterSlashing {
+                message_id,
+                peer_id,
+                attester_slashing,
+            } => task_spawner.spawn_blocking(move || {
+                worker.process_gossip_attester_slashing(message_id, peer_id, *attester_slashing)
+            }),
+            /*
+             * Sync committee message verification.
+             */
+            Work::GossipSyncSignature {
+                message_id,
+                peer_id,
+                sync_signature,
+                subnet_id,
+                seen_timestamp,
+            } => task_spawner.spawn_blocking(move || {
+                worker.process_gossip_sync_committee_signature(
+                    message_id,
+                    peer_id,
+                    *sync_signature,
+                    subnet_id,
+                    seen_timestamp,
+                )
+            }),
+            /*
+             * Sync contribution verification.
+             */
+            Work::GossipSyncContribution {
+                message_id,
+                peer_id,
+                sync_contribution,
+                seen_timestamp,
+            } => task_spawner.spawn_blocking(move || {
+                worker.process_sync_committee_contribution(
+                    message_id,
+                    peer_id,
+                    *sync_contribution,
+                    seen_timestamp,
+                )
+            }),
+            /*
+             * BLS to execution change verification.
+             */
+            Work::GossipBlsToExecutionChange {
+                message_id,
+                peer_id,
+                bls_to_execution_change,
+            } => task_spawner.spawn_blocking(move || {
+                worker.process_gossip_bls_to_execution_change(
+                    message_id,
+                    peer_id,
+                    *bls_to_execution_change,
+                )
+            }),
+            /*
+             * Light client finality update verification.
+             */
+            Work::GossipLightClientFinalityUpdate {
+                message_id,
+                peer_id,
+                light_client_finality_update,
+                seen_timestamp,
+            } => task_spawner.spawn_blocking(move || {
+                worker.process_gossip_finality_update(
+                    message_id,
+                    peer_id,
+                    *light_client_finality_update,
+                    seen_timestamp,
+                )
+            }),
+            /*
+             * Light client optimistic update verification.
+             */
+            Work::GossipLightClientOptimisticUpdate {
+                message_id,
+                peer_id,
+                light_client_optimistic_update,
+                seen_timestamp,
+            } => task_spawner.spawn_blocking(move || {
+                worker.process_gossip_optimistic_update(
+                    message_id,
+                    peer_id,
+                    *light_client_optimistic_update,
+                    Some(work_reprocessing_tx),
+                    seen_timestamp,
+                )
+            }),
+            /*
+             * Verification for beacon blocks received during syncing via RPC.
+             */
+            Work::RpcBlock {
+                block_root,
+                block,
+                seen_timestamp,
+                process_type,
+                should_process,
+            } => task_spawner.spawn_async(worker.process_rpc_block(
+                block_root,
+                block,
+                seen_timestamp,
+                process_type,
+                work_reprocessing_tx,
+                duplicate_cache,
+                should_process,
+            )),
+            /*
+             * Verification for a chain segment (multiple blocks).
+             */
+            Work::ChainSegment { process_id, blocks } => {
+                let notify_execution_layer = if self
+                    .network_globals
+                    .sync_state
+                    .read()
+                    .is_syncing_finalized()
+                {
+                    NotifyExecutionLayer::No
+                } else {
+                    NotifyExecutionLayer::Yes
+                };
+
+                task_spawner.spawn_async(async move {
+                    worker
+                        .process_chain_segment(process_id, blocks, notify_execution_layer)
+                        .await
+                })
+            }
+            /*
+             * Processing of Status Messages.
+             */
+            Work::Status { peer_id, message } => {
+                task_spawner.spawn_blocking(move || worker.process_status(peer_id, message))
+            }
+            /*
+             * Processing of range syncing requests from other peers.
+             */
+            Work::BlocksByRangeRequest {
+                peer_id,
+                request_id,
+                request,
+            } => task_spawner.spawn_blocking_with_manual_send_idle(move |send_idle_on_drop| {
+                worker.handle_blocks_by_range_request(
+                    sub_executor,
+                    send_idle_on_drop,
+                    peer_id,
+                    request_id,
+                    request,
+                )
+            }),
+            /*
+             * Processing of blocks by roots requests from other peers.
+             */
+            Work::BlocksByRootsRequest {
+                peer_id,
+                request_id,
+                request,
+            } => task_spawner.spawn_blocking_with_manual_send_idle(move |send_idle_on_drop| {
+                worker.handle_blocks_by_root_request(
+                    sub_executor,
+                    send_idle_on_drop,
+                    peer_id,
+                    request_id,
+                    request,
+                )
+            }),
+            /*
+             * Processing of lightclient bootstrap requests from other peers.
+             */
+            Work::LightClientBootstrapRequest {
+                peer_id,
+                request_id,
+                request,
+            } => task_spawner.spawn_blocking(move || {
+                worker.handle_light_client_bootstrap(peer_id, request_id, request)
+            }),
+            Work::UnknownBlockAttestation {
+                message_id,
+                peer_id,
+                attestation,
+                subnet_id,
+                should_import,
+                seen_timestamp,
+            } => task_spawner.spawn_blocking(move || {
+                worker.process_gossip_attestation(
+                    message_id,
+                    peer_id,
+                    attestation,
+                    subnet_id,
+                    should_import,
+                    None, // Do not allow this attestation to be re-processed beyond this point.
+                    seen_timestamp,
+                )
+            }),
+            Work::UnknownBlockAggregate {
+                message_id,
+                peer_id,
+                aggregate,
+                seen_timestamp,
+            } => task_spawner.spawn_blocking(move || {
+                worker.process_gossip_aggregate(
+                    message_id,
+                    peer_id,
+                    aggregate,
+                    None,
+                    seen_timestamp,
+                )
+            }),
+            Work::UnknownLightClientOptimisticUpdate {
+                message_id,
+                peer_id,
+                light_client_optimistic_update,
+                seen_timestamp,
+            } => task_spawner.spawn_blocking(move || {
+                worker.process_gossip_optimistic_update(
+                    message_id,
+                    peer_id,
+                    *light_client_optimistic_update,
+                    None,
+                    seen_timestamp,
+                )
             }),
         };
     }
