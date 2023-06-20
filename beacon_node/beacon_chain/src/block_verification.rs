@@ -52,6 +52,7 @@ use crate::execution_payload::{
     is_optimistic_candidate_block, validate_execution_payload_for_gossip, validate_merge_block,
     AllowOptimisticImport, NotifyExecutionLayer, PayloadNotifier,
 };
+use crate::observed_block_producers::SeenBlock;
 use crate::snapshot_cache::PreProcessingSnapshot;
 use crate::validator_monitor::HISTORIC_EPOCHS as VALIDATOR_MONITOR_HISTORIC_EPOCHS;
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
@@ -902,18 +903,16 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         //
         // It's important to double-check that the proposer still hasn't been observed so we don't
         // have a race-condition when verifying two blocks simultaneously.
-        if chain
+        match chain
             .observed_block_producers
             .write()
             .observe_proposal(block_root, block.message())
             .map_err(|e| BlockError::BeaconChainError(e.into()))?
-            .proposer_previously_observed()
         {
-            return Err(BlockError::RepeatProposal {
-                proposer: block.message().proposer_index(),
-                slot: block.slot(),
-            });
-        }
+            SeenBlock::Slashable => return Err(BlockError::SlashablePublish),
+            SeenBlock::Duplicate => return Err(BlockError::BlockIsAlreadyKnown),
+            _ => {}
+        };
 
         if block.message().proposer_index() != expected_proposer as u64 {
             return Err(BlockError::IncorrectBlockProposer {
