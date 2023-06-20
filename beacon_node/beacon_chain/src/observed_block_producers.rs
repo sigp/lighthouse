@@ -15,7 +15,7 @@ pub enum Error {
     ValidatorIndexTooHigh(u64),
 }
 
-#[derive(Eq, Hash, PartialEq, Default)]
+#[derive(Eq, Hash, PartialEq, Debug, Default)]
 struct ProposalKey {
     slot: Slot,
     proposer: u64,
@@ -507,28 +507,22 @@ mod tests {
         );
 
         assert_eq!(cache.finalized_slot, 0, "finalized slot is zero");
-        assert_eq!(cache.items.len(), 2, "two slots should be present");
+        assert_eq!(cache.items.len(), 3, "three slots should be present");
         assert_eq!(
             cache
                 .items
-                .get(&ProposalKey {
-                    slot: Slot::new(0),
-                    proposer: 0
-                })
-                .expect("slot zero should be present")
-                .len(),
+                .iter()
+                .filter(|(k, _)| k.slot == cache.finalized_slot)
+                .count(),
             2,
             "two proposers should be present in slot 0"
         );
         assert_eq!(
             cache
                 .items
-                .get(&ProposalKey {
-                    slot: Slot::new(1),
-                    proposer: 0
-                })
-                .expect("slot zero should be present")
-                .len(),
+                .iter()
+                .filter(|(k, _)| k.slot == Slot::new(1))
+                .count(),
             1,
             "only one proposer should be present in slot 1"
         );
