@@ -2521,7 +2521,8 @@ impl ApiTester {
                 .get_validator_blinded_blocks::<E, Payload>(slot, &randao_reveal, None)
                 .await
                 .unwrap()
-                .data;
+                .data
+                .block();
 
             let signed_block = block.sign(&sk, &fork, genesis_validators_root, &self.chain.spec);
 
@@ -2544,7 +2545,7 @@ impl ApiTester {
         for _ in 0..E::slots_per_epoch() {
             let slot = self.chain.slot().unwrap();
 
-            let block = self
+            let block_contents = self
                 .client
                 .get_validator_blinded_blocks_modular::<E, Payload>(
                     slot,
@@ -2555,7 +2556,7 @@ impl ApiTester {
                 .await
                 .unwrap()
                 .data;
-            assert_eq!(block.slot(), slot);
+            assert_eq!(block_contents.block().slot(), slot);
             self.chain.slot_clock.set_slot(slot.as_u64() + 1);
         }
 
@@ -3028,6 +3029,7 @@ impl ApiTester {
             .await
             .unwrap()
             .data
+            .block()
             .body()
             .execution_payload()
             .unwrap()
@@ -3068,6 +3070,7 @@ impl ApiTester {
             .await
             .unwrap()
             .data
+            .block()
             .body()
             .execution_payload()
             .unwrap()
@@ -3111,6 +3114,7 @@ impl ApiTester {
             .await
             .unwrap()
             .data
+            .block()
             .body()
             .execution_payload()
             .unwrap()
@@ -3160,6 +3164,7 @@ impl ApiTester {
             .await
             .unwrap()
             .data
+            .block()
             .body()
             .execution_payload()
             .unwrap()
@@ -3208,6 +3213,7 @@ impl ApiTester {
             .await
             .unwrap()
             .data
+            .block()
             .body()
             .execution_payload()
             .unwrap()
@@ -3255,6 +3261,7 @@ impl ApiTester {
             .await
             .unwrap()
             .data
+            .block()
             .body()
             .execution_payload()
             .unwrap()
@@ -3301,6 +3308,7 @@ impl ApiTester {
             .await
             .unwrap()
             .data
+            .block()
             .body()
             .execution_payload()
             .unwrap()
@@ -3337,6 +3345,7 @@ impl ApiTester {
             .await
             .unwrap()
             .data
+            .block()
             .body()
             .execution_payload()
             .unwrap()
@@ -3374,6 +3383,7 @@ impl ApiTester {
             .await
             .unwrap()
             .data
+            .block()
             .body()
             .execution_payload()
             .unwrap()
@@ -3417,6 +3427,7 @@ impl ApiTester {
             .await
             .unwrap()
             .data
+            .block()
             .body()
             .execution_payload()
             .unwrap()
@@ -3446,6 +3457,7 @@ impl ApiTester {
             .await
             .unwrap()
             .data
+            .block()
             .body()
             .execution_payload()
             .unwrap()
@@ -3495,6 +3507,7 @@ impl ApiTester {
             .await
             .unwrap()
             .data
+            .block()
             .body()
             .execution_payload()
             .unwrap()
@@ -3534,6 +3547,7 @@ impl ApiTester {
             .await
             .unwrap()
             .data
+            .block()
             .body()
             .execution_payload()
             .unwrap()
@@ -3577,6 +3591,7 @@ impl ApiTester {
             .await
             .unwrap()
             .data
+            .block()
             .body()
             .execution_payload()
             .unwrap()
@@ -3618,6 +3633,7 @@ impl ApiTester {
             .await
             .unwrap()
             .data
+            .block()
             .body()
             .execution_payload()
             .unwrap()
@@ -3655,6 +3671,7 @@ impl ApiTester {
             .await
             .unwrap()
             .data
+            .block()
             .body()
             .execution_payload()
             .unwrap()
@@ -3692,6 +3709,7 @@ impl ApiTester {
             .await
             .unwrap()
             .data
+            .block()
             .body()
             .execution_payload()
             .unwrap()
@@ -3729,6 +3747,7 @@ impl ApiTester {
             .await
             .unwrap()
             .data
+            .block()
             .body()
             .execution_payload()
             .unwrap()
@@ -3779,6 +3798,7 @@ impl ApiTester {
             .await
             .unwrap()
             .data
+            .block()
             .body()
             .execution_payload()
             .unwrap()
@@ -3821,6 +3841,7 @@ impl ApiTester {
             .await
             .unwrap()
             .data
+            .block()
             .body()
             .execution_payload()
             .unwrap()

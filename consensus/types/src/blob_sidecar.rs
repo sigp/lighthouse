@@ -1,5 +1,7 @@
 use crate::test_utils::TestRandom;
-use crate::{Blob, ChainSpec, Domain, EthSpec, Fork, Hash256, SignedBlobSidecar, SignedRoot, Slot};
+use crate::{
+    Blob, BlobRoot, ChainSpec, Domain, EthSpec, Fork, Hash256, SignedBlobSidecar, SignedRoot, Slot,
+};
 use bls::SecretKey;
 use derivative::Derivative;
 use kzg::{KzgCommitment, KzgProof};
@@ -123,3 +125,33 @@ impl<T: EthSpec> BlobSidecar<T> {
         }
     }
 }
+
+#[derive(
+    Debug,
+    Clone,
+    Serialize,
+    Deserialize,
+    Encode,
+    Decode,
+    TreeHash,
+    Default,
+    TestRandom,
+    Derivative,
+    arbitrary::Arbitrary,
+)]
+#[derivative(PartialEq, Eq, Hash)]
+pub struct BlindedBlobSidecar {
+    pub block_root: Hash256,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub index: u64,
+    pub slot: Slot,
+    pub block_parent_root: Hash256,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub proposer_index: u64,
+    pub blob_root: BlobRoot,
+    pub kzg_commitment: KzgCommitment,
+    pub kzg_proof: KzgProof,
+}
+
+pub type BlindedBlobSidecarList<T> =
+    VariableList<Arc<BlindedBlobSidecar>, <T as EthSpec>::MaxBlobsPerBlock>;

@@ -69,3 +69,27 @@ impl<T: EthSpec> SignedBlobSidecar<T> {
         self.signature.verify(pubkey, message)
     }
 }
+
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Serialize,
+    Deserialize,
+    Encode,
+    Decode,
+    TestRandom,
+    TreeHash,
+    Derivative,
+    arbitrary::Arbitrary,
+)]
+#[serde(bound = "T: EthSpec")]
+#[arbitrary(bound = "T: EthSpec")]
+#[derivative(Hash(bound = "T: EthSpec"))]
+pub struct SignedBlindedBlobSidecar<T: EthSpec> {
+    pub message: Arc<BlobSidecar<T>>,
+    pub signature: Signature,
+}
+
+pub type SignedBlindedBlobSidecarList<T> =
+    VariableList<SignedBlindedBlobSidecar<T>, <T as EthSpec>::MaxBlobsPerBlock>;
