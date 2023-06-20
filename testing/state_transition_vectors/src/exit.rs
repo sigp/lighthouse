@@ -336,17 +336,17 @@ mod custom_tests {
     fn assert_exited(state: &BeaconState<E>, validator_index: usize) {
         let spec = E::default_spec();
 
-        let validator = &state.validators()[validator_index];
+        let validator = &state.validators().get(validator_index).unwrap();
         assert_eq!(
-            validator.exit_epoch,
+            validator.exit_epoch(),
             // This is correct until we exceed the churn limit. If that happens, we
             // need to introduce more complex logic.
             state.current_epoch() + 1 + spec.max_seed_lookahead,
             "exit epoch"
         );
         assert_eq!(
-            validator.withdrawable_epoch,
-            validator.exit_epoch + E::default_spec().min_validator_withdrawability_delay,
+            validator.withdrawable_epoch(),
+            validator.exit_epoch() + E::default_spec().min_validator_withdrawability_delay,
             "withdrawable epoch"
         );
     }

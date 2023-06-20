@@ -65,7 +65,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .zip(sync_aggregate.sync_committee_bits.iter())
         {
             let participant_balance = balances
-                .get_mut(&validator_index)
+                .get_mut(validator_index)
                 .ok_or(BeaconChainError::SyncCommitteeRewardsSyncError)?;
 
             if participant_bit {

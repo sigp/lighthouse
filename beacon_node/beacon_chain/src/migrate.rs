@@ -400,7 +400,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
                     .max_by_key(|f| f.finalized_checkpoint.epoch);
 
                 // Do a bit of state reconstruction first if required.
-                if let Some(_) = reconstruction_notif {
+                if reconstruction_notif.is_some() {
                     let timer = std::time::Instant::now();
 
                     match db.reconstruct_historic_states(Some(BLOCKS_PER_RECONSTRUCTION)) {

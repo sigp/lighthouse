@@ -230,7 +230,15 @@ impl Validator {
     }
 }
 
-/*
+impl Default for Validator {
+    fn default() -> Self {
+        Validator {
+            pubkey: Arc::new(PublicKeyBytes::empty()),
+            mutable: <_>::default(),
+        }
+    }
+}
+
 impl Default for ValidatorMutable {
     fn default() -> Self {
         ValidatorMutable {
@@ -244,7 +252,6 @@ impl Default for ValidatorMutable {
         }
     }
 }
-*/
 
 impl TreeHash for Validator {
     fn tree_hash_type() -> tree_hash::TreeHashType {

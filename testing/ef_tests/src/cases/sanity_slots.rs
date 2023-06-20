@@ -76,6 +76,6 @@ impl<E: EthSpec> Case for SanitySlots<E> {
             post.build_all_committee_caches(spec).unwrap();
             post
         });
-        check_state_diff(&pre, &post)
+        check_state_diff(&pre, &post, spec)
     }
 }
