@@ -328,7 +328,7 @@ impl<E: EthSpec, T: EpochTransition<E>> Case for EpochProcessing<E, T> {
 
         let mut result = T::run(&mut state, spec).map(|_| state);
 
-        check_state_diff(&pre_state, &expected)?;
+        check_state_diff(&pre_state, &expected, spec)?;
         compare_beacon_state_results_without_caches(&mut result, &mut expected)
     }
 }

@@ -475,7 +475,7 @@ impl<E: EthSpec, O: Operation<E>> Case for Operations<E, O> {
             .apply_to(&mut state, spec, self)
             .map(|()| state);
 
-        check_state_diff(&pre_state, &expected)?;
+        check_state_diff(&pre_state, &expected, spec)?;
         compare_beacon_state_results_without_caches(&mut result, &mut expected)
     }
 }
