@@ -114,8 +114,6 @@ pub(crate) const MAX_RPC_SIZE_POST_MERGE: usize = 10 * 1_048_576; // 10M
 pub(crate) const MAX_RPC_SIZE_POST_CAPELLA: usize = 10 * 1_048_576; // 10M
 /// The protocol prefix the RPC protocol id.
 const PROTOCOL_PREFIX: &str = "/eth2/beacon_chain/req";
-/// Time allowed for the first byte of a request to arrive before we time out (Time To First Byte).
-const TTFB_TIMEOUT: u64 = 5;
 /// The number of seconds to wait for the first bytes of a request once a protocol has been
 /// established before the stream is terminated.
 const REQUEST_TIMEOUT: u64 = 15;
@@ -412,7 +410,7 @@ where
                 }
             };
             let mut timed_socket = TimeoutStream::new(socket);
-            timed_socket.set_read_timeout(Some(Duration::from_secs(TTFB_TIMEOUT)));
+            timed_socket.set_read_timeout(Some(Duration::from_secs(TSpec::default_spec().ttfb_timeout)));
 
             let socket = Framed::new(Box::pin(timed_socket), codec);
 
