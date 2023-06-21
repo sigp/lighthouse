@@ -903,7 +903,7 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         {
             SeenBlock::Slashable => return Err(BlockError::SlashableProposal),
             SeenBlock::Duplicate => return Err(BlockError::BlockIsAlreadyKnown),
-            _ => {}
+            SeenBlock::UniqueNonSlashable => {}
         };
 
         if block.message().proposer_index() != expected_proposer as u64 {

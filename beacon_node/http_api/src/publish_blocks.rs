@@ -106,13 +106,13 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
             if chain_clone
                 .observed_block_producers
                 .read()
-                .proposer_has_been_observed(block_clone.message(), block_clone.canonical_root())
+                .proposer_has_been_observed(block_clone.message(), block_root)
                 .map_err(|e| BlockError::BeaconChainError(e.into()))?
                 .is_slashable()
             {
                 warn!(
                     log_clone,
-                    "Not publishing block, another block detected";
+                    "Not publishing equivocating block";
                     "slot" => block_clone.slot()
                 );
                 Err(BlockError::SlashableProposal)
