@@ -109,8 +109,6 @@ lazy_static! {
     .len();
 }
 
-/// The maximum bytes that can be sent across the RPC pre-merge.
-pub(crate) const MAX_RPC_SIZE: usize = 1_048_576; // 1M
 /// The maximum bytes that can be sent across the RPC post-merge.
 pub(crate) const MAX_RPC_SIZE_POST_MERGE: usize = 10 * 1_048_576; // 10M
 pub(crate) const MAX_RPC_SIZE_POST_CAPELLA: usize = 10 * 1_048_576; // 10M
@@ -125,7 +123,7 @@ const REQUEST_TIMEOUT: u64 = 15;
 /// Returns the maximum bytes that can be sent across the RPC.
 pub fn max_rpc_size(fork_context: &ForkContext) -> usize {
     match fork_context.current_fork() {
-        ForkName::Altair | ForkName::Base => MAX_RPC_SIZE,
+        ForkName::Altair | ForkName::Base => MainnetEthSpec::default_spec().max_chunk_size,
         ForkName::Merge => MAX_RPC_SIZE_POST_MERGE,
         ForkName::Capella => MAX_RPC_SIZE_POST_CAPELLA,
     }

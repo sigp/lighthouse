@@ -661,7 +661,7 @@ mod tests {
     use std::sync::Arc;
     use types::{
         BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockMerge, EmptyBlock, Epoch,
-        ForkContext, FullPayload, Hash256, Signature, SignedBeaconBlock, Slot,
+        ForkContext, FullPayload, Hash256, Signature, SignedBeaconBlock, Slot, MainnetEthSpec,
     };
 
     use snap::write::FrameEncoder;
@@ -1522,7 +1522,7 @@ mod tests {
         let mut dst = BytesMut::with_capacity(1024);
 
         // Insert length-prefix
-        uvi_codec.encode(MAX_RPC_SIZE + 1, &mut dst).unwrap();
+        uvi_codec.encode(MainnetEthSpec::default_spec().max_chunk_size + 1, &mut dst).unwrap();
 
         // Insert snappy stream identifier
         dst.extend_from_slice(stream_identifier);
