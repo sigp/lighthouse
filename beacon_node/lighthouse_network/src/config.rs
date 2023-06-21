@@ -36,7 +36,6 @@ pub const DUPLICATE_CACHE_TIME: Duration = Duration::from_secs(33 * 12 + 1);
 // We treat uncompressed messages as invalid and never use the INVALID_SNAPPY_DOMAIN as in the
 // specification. We leave it here for posterity.
 // const MESSAGE_DOMAIN_INVALID_SNAPPY: [u8; 4] = [0, 0, 0, 0];
-const MESSAGE_DOMAIN_VALID_SNAPPY: [u8; 4] = [1, 0, 0, 0];
 
 /// The maximum size of gossip messages.
 pub fn gossip_max_size<TSpec:EthSpec>(is_merge_enabled: bool) -> usize {
@@ -442,7 +441,7 @@ pub fn gossipsub_config<TSpec:EthSpec>(network_load: u8, fork_context: Arc<ForkC
     let gossip_message_id = move |message: &GossipsubMessage| {
         MessageId::from(
             &Sha256::digest(
-                prefix(MESSAGE_DOMAIN_VALID_SNAPPY, message, fork_context.clone()).as_slice(),
+                prefix(TSpec::default_spec().message_domain_valid_snappy, message, fork_context.clone()).as_slice(),
             )[..20],
         )
     };
