@@ -473,7 +473,7 @@ impl<T: BeaconChainTypes> Router<T> {
         });
     }
 
-    fn send_beacon_processor_work(&mut self, work: BeaconWorkEvent<T>) {
+    fn send_beacon_processor_work(&mut self, work: BeaconWorkEvent<T::EthSpec>) {
         self.beacon_processor_send
             .try_send(work)
             .unwrap_or_else(|e| {

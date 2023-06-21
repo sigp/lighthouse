@@ -45,7 +45,7 @@ impl<T: BeaconChainTypes> Worker<T> {
 }
 
 /// Contains the necessary items for a worker to do their job.
-pub struct Toolbox<T: BeaconChainTypes> {
+pub struct Toolbox {
     pub idle_tx: mpsc::Sender<()>,
-    pub work_reprocessing_tx: mpsc::Sender<ReprocessQueueMessage<T>>,
+    pub work_reprocessing_tx: mpsc::Sender<ReprocessQueueMessage>,
 }

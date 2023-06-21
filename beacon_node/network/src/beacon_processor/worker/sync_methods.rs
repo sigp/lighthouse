@@ -4,7 +4,7 @@ use super::Worker;
 use crate::beacon_processor::worker::FUTURE_SLOT_TOLERANCE;
 use crate::metrics;
 use crate::sync::manager::{BlockProcessType, SyncMessage};
-use crate::sync::{BatchProcessResult, ChainId};
+use crate::sync::BatchProcessResult;
 use beacon_chain::{
     observed_block_producers::Error as ObserveError, validator_monitor::get_block_delay_ms,
     BeaconChainError, BeaconChainTypes, BlockError, ChainSegmentResult, HistoricalBlockError,
@@ -12,24 +12,13 @@ use beacon_chain::{
 };
 use beacon_processor::work_reprocessing_queue::QueuedRpcBlock;
 use beacon_processor::{work_reprocessing_queue::ReprocessQueueMessage, DuplicateCache};
-use lighthouse_network::PeerAction;
+use lighthouse_network::{types::ChainSegmentProcessId, PeerAction};
 use slog::{debug, error, info, warn};
 use slot_clock::SlotClock;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc;
-use types::{Epoch, Hash256, SignedBeaconBlock};
-
-/// Id associated to a batch processing request, either a sync batch or a parent lookup.
-#[derive(Clone, Debug, PartialEq)]
-pub enum ChainSegmentProcessId {
-    /// Processing Id of a range syncing batch.
-    RangeBatchId(ChainId, Epoch),
-    /// Processing ID for a backfill syncing batch.
-    BackSyncBatchId(Epoch),
-    /// Processing Id of the parent lookup of a block.
-    ParentLookup(Hash256),
-}
+use types::{Hash256, SignedBeaconBlock};
 
 /// Returned when a chain segment import fails.
 struct ChainSegmentFailed {
@@ -48,7 +37,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
         seen_timestamp: Duration,
         process_type: BlockProcessType,
-        reprocess_tx: mpsc::Sender<ReprocessQueueMessage<T>>,
+        reprocess_tx: mpsc::Sender<ReprocessQueueMessage>,
         duplicate_cache: DuplicateCache,
         should_process: bool,
     ) {

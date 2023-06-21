@@ -19,8 +19,8 @@ pub enum Error {
 }
 
 impl<T: Debug> From<TrySendError<T>> for Error {
-    fn from(self) -> Error {
-        Error::TrySendError(format!("{}", self))
+    fn from(e: TrySendError<T>) -> Self {
+        Error::TrySendError(format!("{}", e))
     }
 }
 
@@ -35,14 +35,14 @@ pub struct NetworkBeaconProcessor<T: BeaconChainTypes> {
 }
 
 impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
-    fn worker(&self) -> Result<Worker<T>, Error> {
+    fn worker(&self) -> Result<Arc<Worker<T>>, Error> {
         let chain = self.chain.upgrade().ok_or(Error::ShuttingDown)?;
-        Ok(Worker {
-            chain: self.chain.clone(),
+        Ok(Arc::new(Worker {
+            chain,
             network_tx: self.network_tx.clone(),
             sync_tx: self.sync_tx.clone(),
             log: self.log.clone(),
-        })
+        }))
     }
 
     pub fn process_chain_segment(
@@ -52,6 +52,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     ) -> Result<(), Error> {
         let worker = self.worker()?;
         let network_globals = self.network_globals.clone();
+
+        // Define a closure to execute the task.
         let process_fn = async move {
             let notify_execution_layer = if network_globals.sync_state.read().is_syncing_finalized()
             {
@@ -59,14 +61,18 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             } else {
                 NotifyExecutionLayer::Yes
             };
-            worker.process_chain_segment(sync_type, downloaded_blocks, notify_execution_layer)
+            worker
+                .process_chain_segment(sync_type, downloaded_blocks, notify_execution_layer)
+                .await;
         };
+
+        // Send the closure to the beacon processor.
         self.beacon_processor_send
             .try_send(BeaconWorkEvent {
                 drop_during_sync: false,
                 work: BeaconWork::ChainSegment {
                     process_id: sync_type,
-                    process_fn,
+                    process_fn: Box::pin(process_fn),
                 },
             })
             .map_err(Into::into)

@@ -243,13 +243,13 @@ impl<T: BeaconChainTypes> Worker<T> {
     /// Raises a log if there are errors.
     #[allow(clippy::too_many_arguments)]
     pub fn process_gossip_attestation(
-        self,
+        self: Arc<Self>,
         message_id: MessageId,
         peer_id: PeerId,
         attestation: Box<Attestation<T::EthSpec>>,
         subnet_id: SubnetId,
         should_import: bool,
-        reprocess_tx: Option<mpsc::Sender<ReprocessQueueMessage<T>>>,
+        reprocess_tx: Option<mpsc::Sender<ReprocessQueueMessage>>,
         seen_timestamp: Duration,
     ) {
         let result = match self
@@ -275,9 +275,9 @@ impl<T: BeaconChainTypes> Worker<T> {
     }
 
     pub fn process_gossip_attestation_batch(
-        self,
+        self: Arc<Self>,
         packages: Vec<GossipAttestationPackage<T::EthSpec>>,
-        reprocess_tx: Option<mpsc::Sender<ReprocessQueueMessage<T>>>,
+        reprocess_tx: Option<mpsc::Sender<ReprocessQueueMessage>>,
     ) {
         let attestations_and_subnets = packages
             .iter()
@@ -351,7 +351,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         message_id: MessageId,
         peer_id: PeerId,
         subnet_id: SubnetId,
-        reprocess_tx: Option<mpsc::Sender<ReprocessQueueMessage<T>>>,
+        reprocess_tx: Option<mpsc::Sender<ReprocessQueueMessage>>,
         should_import: bool,
         seen_timestamp: Duration,
     ) {
@@ -458,7 +458,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         message_id: MessageId,
         peer_id: PeerId,
         aggregate: Box<SignedAggregateAndProof<T::EthSpec>>,
-        reprocess_tx: Option<mpsc::Sender<ReprocessQueueMessage<T>>>,
+        reprocess_tx: Option<mpsc::Sender<ReprocessQueueMessage>>,
         seen_timestamp: Duration,
     ) {
         let beacon_block_root = aggregate.message.aggregate.data.beacon_block_root;
@@ -490,7 +490,7 @@ impl<T: BeaconChainTypes> Worker<T> {
     pub fn process_gossip_aggregate_batch(
         self,
         packages: Vec<GossipAggregatePackage<T::EthSpec>>,
-        reprocess_tx: Option<mpsc::Sender<ReprocessQueueMessage<T>>>,
+        reprocess_tx: Option<mpsc::Sender<ReprocessQueueMessage>>,
     ) {
         let aggregates = packages.iter().map(|package| package.aggregate.as_ref());
 
@@ -558,7 +558,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         beacon_block_root: Hash256,
         message_id: MessageId,
         peer_id: PeerId,
-        reprocess_tx: Option<mpsc::Sender<ReprocessQueueMessage<T>>>,
+        reprocess_tx: Option<mpsc::Sender<ReprocessQueueMessage>>,
         seen_timestamp: Duration,
     ) {
         match result {
@@ -657,12 +657,12 @@ impl<T: BeaconChainTypes> Worker<T> {
     /// Raises a log if there are errors.
     #[allow(clippy::too_many_arguments)]
     pub async fn process_gossip_block(
-        self,
+        self: Arc<Self>,
         message_id: MessageId,
         peer_id: PeerId,
         peer_client: Client,
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
-        reprocess_tx: mpsc::Sender<ReprocessQueueMessage<T>>,
+        reprocess_tx: mpsc::Sender<ReprocessQueueMessage>,
         duplicate_cache: DuplicateCache,
         invalid_block_storage: InvalidBlockStorage,
         seen_duration: Duration,
@@ -706,12 +706,12 @@ impl<T: BeaconChainTypes> Worker<T> {
     ///
     /// Returns the `GossipVerifiedBlock` if verification passes and raises a log if there are errors.
     pub async fn process_gossip_unverified_block(
-        &self,
+        self: &Arc<Self>,
         message_id: MessageId,
         peer_id: PeerId,
         peer_client: Client,
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
-        reprocess_tx: mpsc::Sender<ReprocessQueueMessage<T>>,
+        reprocess_tx: mpsc::Sender<ReprocessQueueMessage>,
         seen_duration: Duration,
     ) -> Option<GossipVerifiedBlock<T>> {
         let block_delay =
@@ -934,10 +934,10 @@ impl<T: BeaconChainTypes> Worker<T> {
     ///
     /// Raises a log if there are errors.
     pub async fn process_gossip_verified_block(
-        self,
+        self: Arc<Self>,
         peer_id: PeerId,
         verified_block: GossipVerifiedBlock<T>,
-        reprocess_tx: mpsc::Sender<ReprocessQueueMessage<T>>,
+        reprocess_tx: mpsc::Sender<ReprocessQueueMessage>,
         invalid_block_storage: InvalidBlockStorage,
         // This value is not used presently, but it might come in handy for debugging.
         _seen_duration: Duration,
@@ -1477,7 +1477,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         message_id: MessageId,
         peer_id: PeerId,
         light_client_optimistic_update: LightClientOptimisticUpdate<T::EthSpec>,
-        reprocess_tx: Option<mpsc::Sender<ReprocessQueueMessage<T>>>,
+        reprocess_tx: Option<mpsc::Sender<ReprocessQueueMessage>>,
         seen_timestamp: Duration,
     ) {
         match self.chain.verify_optimistic_update_for_gossip(
@@ -1609,7 +1609,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         peer_id: PeerId,
         message_id: MessageId,
         failed_att: FailedAtt<T::EthSpec>,
-        reprocess_tx: Option<mpsc::Sender<ReprocessQueueMessage<T>>>,
+        reprocess_tx: Option<mpsc::Sender<ReprocessQueueMessage>>,
         error: AttnError,
         seen_timestamp: Duration,
     ) {
