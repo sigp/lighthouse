@@ -38,14 +38,13 @@ use super::block_lookups::BlockLookups;
 use super::network_context::SyncNetworkContext;
 use super::peer_sync_info::{remote_sync_type, PeerSyncType};
 use super::range_sync::{RangeSync, RangeSyncType, EPOCHS_PER_BATCH};
-use crate::beacon_processor::{ChainSegmentProcessId, WorkEvent as BeaconWorkEvent};
+use crate::beacon_processor::NetworkBeaconProcessor;
 use crate::service::NetworkMessage;
 use crate::status::ToStatusMessage;
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockError, EngineState};
 use futures::StreamExt;
 use lighthouse_network::rpc::methods::MAX_REQUEST_BLOCKS;
-use lighthouse_network::types::BlockProcessType;
-use lighthouse_network::types::{NetworkGlobals, SyncState};
+use lighthouse_network::types::{ChainSegmentProcessId, NetworkGlobals, SyncState};
 use lighthouse_network::SyncInfo;
 use lighthouse_network::{PeerAction, PeerId};
 use slog::{crit, debug, error, info, trace, Logger};
@@ -123,6 +122,13 @@ pub enum SyncMessage<T: EthSpec> {
     },
 }
 
+/// The type of processing specified for a received block.
+#[derive(Debug, Clone)]
+pub enum BlockProcessType {
+    SingleBlock { id: Id },
+    ParentLookup { chain_hash: Hash256 },
+}
+
 #[derive(Debug)]
 pub enum BlockProcessResult<T: EthSpec> {
     Ok,
@@ -182,7 +188,7 @@ pub fn spawn<T: BeaconChainTypes>(
     beacon_chain: Arc<BeaconChain<T>>,
     network_globals: Arc<NetworkGlobals<T::EthSpec>>,
     network_send: mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
-    beacon_processor_send: mpsc::Sender<BeaconWorkEvent<T>>,
+    beacon_processor: Arc<NetworkBeaconProcessor<T>>,
     log: slog::Logger,
 ) -> mpsc::UnboundedSender<SyncMessage<T::EthSpec>> {
     assert!(
@@ -200,7 +206,7 @@ pub fn spawn<T: BeaconChainTypes>(
         network: SyncNetworkContext::new(
             network_send,
             network_globals.clone(),
-            beacon_processor_send,
+            beacon_processor,
             log.clone(),
         ),
         range_sync: RangeSync::new(beacon_chain.clone(), log.clone()),

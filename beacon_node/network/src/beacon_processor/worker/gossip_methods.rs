@@ -30,14 +30,12 @@ use types::{
     SyncCommitteeMessage, SyncSubnetId,
 };
 
-use super::{
-    super::work_reprocessing_queue::{
-        QueuedAggregate, QueuedGossipBlock, QueuedLightClientUpdate, QueuedUnaggregate,
-        ReprocessQueueMessage,
-    },
-    Worker,
+use super::Worker;
+use beacon_processor::work_reprocessing_queue::{
+    QueuedAggregate, QueuedGossipBlock, QueuedLightClientUpdate, QueuedUnaggregate,
+    ReprocessQueueMessage,
 };
-use crate::beacon_processor::{DuplicateCache, InvalidBlockStorage};
+use beacon_processor::{DuplicateCache, InvalidBlockStorage};
 
 /// Set to `true` to introduce stricter penalties for peers who send some types of late consensus
 /// messages.

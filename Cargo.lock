@@ -5429,6 +5429,7 @@ name = "network"
 version = "0.2.0"
 dependencies = [
  "beacon_chain",
+ "beacon_processor",
  "delay_map",
  "derivative",
  "environment",

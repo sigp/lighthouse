@@ -375,11 +375,11 @@ mod tests {
     use crate::NetworkMessage;
 
     use super::*;
-    use crate::beacon_processor::WorkEvent as BeaconWorkEvent;
     use beacon_chain::builder::Witness;
     use beacon_chain::eth1_chain::CachingEth1Backend;
     use beacon_chain::parking_lot::RwLock;
     use beacon_chain::EngineState;
+    use beacon_processor::WorkEvent as BeaconWorkEvent;
     use lighthouse_network::rpc::BlocksByRangeRequest;
     use lighthouse_network::Request;
     use lighthouse_network::{rpc::StatusMessage, NetworkGlobals};

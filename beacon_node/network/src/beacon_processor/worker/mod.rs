@@ -1,6 +1,6 @@
-use super::work_reprocessing_queue::ReprocessQueueMessage;
 use crate::{service::NetworkMessage, sync::SyncMessage};
 use beacon_chain::{BeaconChain, BeaconChainTypes};
+use beacon_processor::work_reprocessing_queue::ReprocessQueueMessage;
 use slog::{debug, Logger};
 use std::sync::Arc;
 use tokio::sync::mpsc;
