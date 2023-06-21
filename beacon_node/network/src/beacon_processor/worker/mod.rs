@@ -1,28 +1,18 @@
 use crate::{service::NetworkMessage, sync::SyncMessage};
-use beacon_chain::{BeaconChain, BeaconChainTypes};
-use beacon_processor::work_reprocessing_queue::ReprocessQueueMessage;
-use slog::{debug, Logger};
-use std::sync::Arc;
-use tokio::sync::mpsc;
+use beacon_chain::BeaconChainTypes;
+use slog::debug;
 
 mod gossip_methods;
 mod rpc_methods;
 mod sync_methods;
 
 pub use gossip_methods::{GossipAggregatePackage, GossipAttestationPackage};
-pub use sync_methods::ChainSegmentProcessId;
+
+use super::NetworkBeaconProcessor;
 
 pub(crate) const FUTURE_SLOT_TOLERANCE: u64 = 1;
 
-/// Contains the context necessary to import blocks, attestations, etc to the beacon chain.
-pub struct Worker<T: BeaconChainTypes> {
-    pub chain: Arc<BeaconChain<T>>,
-    pub network_tx: mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
-    pub sync_tx: mpsc::UnboundedSender<SyncMessage<T::EthSpec>>,
-    pub log: Logger,
-}
-
-impl<T: BeaconChainTypes> Worker<T> {
+impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     /// Send a message to `sync_tx`.
     ///
     /// Creates a log if there is an internal error.
@@ -42,10 +32,4 @@ impl<T: BeaconChainTypes> Worker<T> {
                 "error" => %e)
         });
     }
-}
-
-/// Contains the necessary items for a worker to do their job.
-pub struct Toolbox {
-    pub idle_tx: mpsc::Sender<()>,
-    pub work_reprocessing_tx: mpsc::Sender<ReprocessQueueMessage>,
 }

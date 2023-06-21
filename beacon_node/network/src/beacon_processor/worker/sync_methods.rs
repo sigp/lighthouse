@@ -1,7 +1,6 @@
 use std::time::Duration;
 
-use super::Worker;
-use crate::beacon_processor::worker::FUTURE_SLOT_TOLERANCE;
+use crate::beacon_processor::{worker::FUTURE_SLOT_TOLERANCE, NetworkBeaconProcessor};
 use crate::metrics;
 use crate::sync::manager::{BlockProcessType, SyncMessage};
 use crate::sync::BatchProcessResult;
@@ -28,7 +27,7 @@ struct ChainSegmentFailed {
     peer_action: Option<PeerAction>,
 }
 
-impl<T: BeaconChainTypes> Worker<T> {
+impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     /// Attempt to process a block received from a direct RPC request.
     #[allow(clippy::too_many_arguments)]
     pub async fn process_rpc_block(

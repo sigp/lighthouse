@@ -4,7 +4,7 @@ use crate::sync::{
 };
 use beacon_chain::BeaconChainTypes;
 use fnv::FnvHashMap;
-use lighthouse_network::{ChainSegmentProcessId, PeerAction, PeerId};
+use lighthouse_network::{types::ChainSegmentProcessId, PeerAction, PeerId};
 use rand::seq::SliceRandom;
 use slog::{crit, debug, o, warn};
 use std::collections::{btree_map::Entry, BTreeMap, HashSet};

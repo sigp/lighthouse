@@ -1,4 +1,6 @@
-use crate::{metrics, service::NetworkMessage, sync::SyncMessage};
+use crate::{
+    beacon_processor::NetworkBeaconProcessor, metrics, service::NetworkMessage, sync::SyncMessage,
+};
 
 use beacon_chain::store::Error;
 use beacon_chain::{
@@ -30,7 +32,6 @@ use types::{
     SyncCommitteeMessage, SyncSubnetId,
 };
 
-use super::Worker;
 use beacon_processor::work_reprocessing_queue::{
     QueuedAggregate, QueuedGossipBlock, QueuedLightClientUpdate, QueuedUnaggregate,
     ReprocessQueueMessage,
@@ -200,7 +201,7 @@ impl<E: EthSpec> GossipAggregatePackage<E> {
     }
 }
 
-impl<T: BeaconChainTypes> Worker<T> {
+impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     /* Auxiliary functions */
 
     /// Penalizes a peer for misbehaviour.

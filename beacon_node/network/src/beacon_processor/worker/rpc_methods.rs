@@ -1,4 +1,4 @@
-use crate::beacon_processor::{worker::FUTURE_SLOT_TOLERANCE, SendOnDrop};
+use crate::beacon_processor::{worker::FUTURE_SLOT_TOLERANCE, NetworkBeaconProcessor, SendOnDrop};
 use crate::service::NetworkMessage;
 use crate::status::ToStatusMessage;
 use crate::sync::SyncMessage;
@@ -13,9 +13,7 @@ use task_executor::TaskExecutor;
 use tokio_stream::StreamExt;
 use types::{light_client_bootstrap::LightClientBootstrap, Epoch, EthSpec, Hash256, Slot};
 
-use super::Worker;
-
-impl<T: BeaconChainTypes> Worker<T> {
+impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     /* Auxiliary functions */
 
     /// Disconnects and ban's a peer, sending a Goodbye request with the associated reason.
