@@ -13,7 +13,7 @@ pub use engine_api::*;
 pub use engine_api::{http, http::deposit_methods, http::HttpJsonRpc};
 use engines::{Engine, EngineError};
 pub use engines::{EngineState, ForkchoiceState};
-use eth2::types::{builder_bid::SignedBuilderBid, ForkVersionedResponse};
+use eth2::types::{builder_bid::SignedBuilderBid, BlobsOrBlobRoots, ForkVersionedResponse};
 use ethers_core::abi::ethereum_types::FromStrRadixErr;
 use ethers_core::types::transaction::eip2930::AccessListItem;
 use ethers_core::types::{Transaction as EthersTransaction, U64};
@@ -206,7 +206,7 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> BlockProposalContents<T, Paylo
     ) -> (
         Payload,
         Option<KzgCommitments<T>>,
-        Option<Blobs<T>>,
+        Option<BlobsOrBlobRoots<T>>,
         Option<KzgProofs<T>>,
     ) {
         match self {
@@ -220,14 +220,24 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> BlockProposalContents<T, Paylo
                 kzg_commitments,
                 blobs,
                 proofs,
-            } => (payload, Some(kzg_commitments), Some(blobs), Some(proofs)),
+            } => (
+                payload,
+                Some(kzg_commitments),
+                Some(BlobsOrBlobRoots::blobs(blobs)),
+                Some(proofs),
+            ),
             Self::PayloadAndBlindedBlobs {
-                payload: _,
+                payload,
                 block_value: _,
-                kzg_commitments: _,
-                blob_roots: _,
-                proofs: _,
-            } => unimplemented!("need to work out how to handle blinded blobs"),
+                kzg_commitments,
+                blob_roots,
+                proofs,
+            } => (
+                payload,
+                Some(kzg_commitments),
+                Some(BlobsOrBlobRoots::blob_roots(blob_roots)),
+                Some(proofs),
+            ),
         }
     }
 

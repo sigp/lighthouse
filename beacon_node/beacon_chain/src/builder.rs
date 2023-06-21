@@ -891,6 +891,7 @@ where
                     .map_err(|e| format!("Error initializing DataAvailabiltyChecker: {:?}", e))?,
             ),
             proposal_blob_cache: BlobCache::default(),
+            proposal_blinded_blob_cache: BlobCache::default(),
             kzg,
         };
 

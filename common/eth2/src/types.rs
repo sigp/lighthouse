@@ -11,7 +11,7 @@ use std::convert::TryFrom;
 use std::fmt;
 use std::str::{from_utf8, FromStr};
 use std::time::Duration;
-use types::blob_sidecar::BlindedBlobSidecarList;
+use types::blob_sidecar::{BlindedBlobSidecarList, BlobRoots, Blobs};
 pub use types::*;
 
 #[cfg(feature = "lighthouse")]
@@ -1271,6 +1271,50 @@ mod tests {
             Accept::from_str("text/plain"),
             Err("accept header is not supported".to_string())
         )
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(bound = "T: EthSpec")]
+pub struct BlobsWrapper<T: EthSpec> {
+    pub blobs: Blobs<T>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(bound = "T: EthSpec")]
+pub struct BlobRootsWrapper<T: EthSpec> {
+    pub blob_roots: BlobRoots<T>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(untagged)]
+#[serde(bound = "T: EthSpec")]
+pub enum BlobsOrBlobRoots<T: EthSpec> {
+    Blobs(BlobsWrapper<T>),
+    BlobRoots(BlobRootsWrapper<T>),
+}
+
+impl<T: EthSpec> BlobsOrBlobRoots<T> {
+    pub fn blob_roots(blob_roots: BlobRoots<T>) -> Self {
+        Self::BlobRoots(BlobRootsWrapper { blob_roots })
+    }
+
+    pub fn blobs(blobs: Blobs<T>) -> Self {
+        Self::Blobs(BlobsWrapper { blobs })
+    }
+
+    pub fn len(&self) -> usize {
+        match self {
+            Self::Blobs(BlobsWrapper { blobs }) => blobs.len(),
+            Self::BlobRoots(BlobRootsWrapper { blob_roots }) => blob_roots.len(),
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        match self {
+            Self::Blobs(BlobsWrapper { blobs }) => blobs.is_empty(),
+            Self::BlobRoots(BlobRootsWrapper { blob_roots }) => blob_roots.is_empty(),
+        }
     }
 }
 
