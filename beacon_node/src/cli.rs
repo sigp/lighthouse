@@ -685,7 +685,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("max-skip-slots")
                 .long("max-skip-slots")
                 .help(
-                    "Refuse to skip more than this many slots when processing a block or attestation. \
+                    "Refuse to skip more than this many slots when processing an attestation. \
                     This prevents nodes on minority forks from wasting our time and disk space, \
                     but could also cause unnecessary consensus failures, so is disabled by default."
                 )
