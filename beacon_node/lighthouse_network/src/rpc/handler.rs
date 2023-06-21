@@ -31,9 +31,6 @@ use tokio::time::{sleep_until, Instant as TInstant, Sleep};
 use tokio_util::time::{delay_queue, DelayQueue};
 use types::{EthSpec, ForkContext};
 
-/// The time (in seconds) before a substream that is awaiting a response from the user times out.
-pub const RESPONSE_TIMEOUT: u64 = 10;
-
 /// The number of times to retry an outbound upgrade in the case of IO errors.
 const IO_ERROR_RETRIES: u8 = 3;
 
@@ -351,7 +348,7 @@ where
             // new outbound request. Store the stream and tag the output.
             let delay_key = self.outbound_substreams_delay.insert(
                 self.current_outbound_substream_id,
-                Duration::from_secs(RESPONSE_TIMEOUT),
+                Duration::from_secs(TSpec::default_spec().resp_timeout),
             );
             let awaiting_stream = OutboundSubstreamState::RequestPendingResponse {
                 substream: Box::new(out),
@@ -402,7 +399,7 @@ where
                 // Store the stream and tag the output.
                 let delay_key = self.inbound_substreams_delay.insert(
                     self.current_inbound_substream_id,
-                    Duration::from_secs(RESPONSE_TIMEOUT),
+                    Duration::from_secs(TSpec::default_spec().resp_timeout),
                 );
                 let awaiting_stream = InboundState::Idle(substream);
                 self.inbound_substreams.insert(
@@ -714,7 +711,7 @@ where
                                 // Each chunk is allowed RESPONSE_TIMEOUT to be sent.
                                 if let Some(ref delay_key) = info.delay_key {
                                     self.inbound_substreams_delay
-                                        .reset(delay_key, Duration::from_secs(RESPONSE_TIMEOUT));
+                                        .reset(delay_key, Duration::from_secs(TSpec::default_spec().resp_timeout));
                                 }
 
                                 // The stream may be currently idle. Attempt to process more
@@ -848,7 +845,7 @@ where
                                     };
                                 substream_entry.remaining_chunks = Some(remaining_chunks);
                                 self.outbound_substreams_delay
-                                    .reset(delay_key, Duration::from_secs(RESPONSE_TIMEOUT));
+                                    .reset(delay_key, Duration::from_secs(TSpec::default_spec().resp_timeout));
                             }
                         } else {
                             // either this is a single response request or this response closes the
