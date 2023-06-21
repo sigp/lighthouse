@@ -441,7 +441,7 @@ pub type AsyncGossipBlockFn<GBlock> = Box<dyn Fn(GBlock) -> DynFuture + Send + S
 /// queuing specifics.
 pub enum Work<E: EthSpec, GBlock> {
     GossipAttestation {
-        attestation: Attestation<E>,
+        attestation: Box<Attestation<E>>,
         process_individual: Box<dyn Fn(Attestation<E>) + Send + Sync>,
         process_batch: Box<dyn Fn(Vec<Attestation<E>>) + Send + Sync>,
     },
@@ -454,7 +454,7 @@ pub enum Work<E: EthSpec, GBlock> {
         process_batch: Box<dyn Fn(Vec<Attestation<E>>) + Send + Sync>,
     },
     GossipAggregate {
-        aggregate: SignedAggregateAndProof<E>,
+        aggregate: Box<SignedAggregateAndProof<E>>,
         process_individual: Box<dyn Fn(SignedAggregateAndProof<E>) + Send + Sync>,
         process_batch: Box<dyn Fn(Vec<SignedAggregateAndProof<E>>) + Send + Sync>,
     },
@@ -473,7 +473,7 @@ pub enum Work<E: EthSpec, GBlock> {
     },
     GossipBlock(DynFuture),
     DelayedImportBlock {
-        block: GBlock,
+        block: Box<GBlock>,
         process_fn: AsyncGossipBlockFn<GBlock>,
     },
     GossipVoluntaryExit(BlockingFn),
@@ -852,7 +852,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
                                                 process_individual: _,
                                                 process_batch,
                                             } => {
-                                                aggregates.push(aggregate);
+                                                aggregates.push(*aggregate);
                                                 if process_batch_opt.is_none() {
                                                     process_batch_opt = Some(process_batch);
                                                 }
@@ -912,7 +912,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
                                                 process_individual: _,
                                                 process_batch,
                                             } => {
-                                                attestations.push(attestation);
+                                                attestations.push(*attestation);
                                                 if process_batch_opt.is_none() {
                                                     process_batch_opt = Some(process_batch);
                                                 }
@@ -1230,7 +1230,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
                 process_individual,
                 process_batch: _,
             } => task_spawner.spawn_blocking(move || {
-                process_individual(attestation);
+                process_individual(*attestation);
             }),
             Work::GossipAttestationBatch {
                 attestations,
@@ -1243,7 +1243,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
                 process_individual,
                 process_batch: _,
             } => task_spawner.spawn_blocking(move || {
-                process_individual(aggregate);
+                process_individual(*aggregate);
             }),
             Work::GossipAggregateBatch {
                 aggregates,
@@ -1279,7 +1279,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
             }),
             Work::DelayedImportBlock { block, process_fn } => {
                 task_spawner.spawn_async(async move {
-                    process_fn(block).await;
+                    process_fn(*block).await;
                 })
             }
             Work::RpcBlock {

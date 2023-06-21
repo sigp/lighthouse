@@ -162,7 +162,7 @@ pub trait GenericBlock: Send + Sync {
 
 /// A block that arrived early and has been queued for later import.
 pub struct QueuedGossipBlock<GBlock> {
-    pub block: GBlock,
+    pub block: Box<GBlock>,
     pub process_fn: AsyncGossipBlockFn<GBlock>,
 }
 
@@ -1014,7 +1014,7 @@ mod tests {
             let duration_to_next_event = ReprocessQueue::<
                 E,
                 TestingSlotClock,
-                GossipVerifiedBlock<E>,
+                GossipVerifiedBlock<TestBeaconChainType>,
             >::duration_until_next_backfill_batch_event(
                 &slot_clock
             );
@@ -1031,10 +1031,13 @@ mod tests {
 
         // check for next event beyond the current slot
         let duration_to_next_slot = slot_clock.duration_to_next_slot().unwrap();
-        let duration_to_next_event =
-            ReprocessQueue::<E, TestingSlotClock, GossipVerifiedBlock<E>>::duration_until_next_backfill_batch_event(
-                &slot_clock,
-            );
+        let duration_to_next_event = ReprocessQueue::<
+            E,
+            TestingSlotClock,
+            GossipVerifiedBlock<TestBeaconChainType>,
+        >::duration_until_next_backfill_batch_event(
+            &slot_clock
+        );
         assert_eq!(
             duration_to_next_event,
             duration_to_next_slot + event_times[0]
