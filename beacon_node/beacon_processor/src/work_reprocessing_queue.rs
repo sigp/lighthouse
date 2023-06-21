@@ -17,6 +17,7 @@ use fnv::FnvHashMap;
 use futures::task::Poll;
 use futures::{Stream, StreamExt};
 use itertools::Itertools;
+use lighthouse_network::types::ChainSegmentProcessId;
 use logging::TimeLatch;
 use slog::{crit, debug, error, trace, warn, Logger};
 use slot_clock::SlotClock;
@@ -30,7 +31,7 @@ use task_executor::TaskExecutor;
 use tokio::sync::mpsc::{self, Receiver, Sender};
 use tokio::time::error::Error as TimeError;
 use tokio_util::time::delay_queue::{DelayQueue, Key as DelayKey};
-use types::{Epoch, EthSpec, Hash256, Slot};
+use types::{EthSpec, Hash256, Slot};
 
 const TASK_NAME: &str = "beacon_processor_reprocess_queue";
 const GOSSIP_BLOCKS: &str = "gossip_blocks";
@@ -75,18 +76,6 @@ pub const BACKFILL_SCHEDULE_IN_SLOT: [(u32, u32); 3] = [
     (4, 5),
 ];
 
-// TODO(paul): move to `lighthouse_network`
-/// Id associated to a batch processing request, either a sync batch or a parent lookup.
-#[derive(Clone, Debug, PartialEq)]
-pub enum ChainSegmentProcessId {
-    /// Processing Id of a range syncing batch.
-    RangeBatchId(u64, Epoch),
-    /// Processing ID for a backfill syncing batch.
-    BackSyncBatchId(Epoch),
-    /// Processing Id of the parent lookup of a block.
-    ParentLookup(Hash256),
-}
-
 /// Messages that the scheduler can receive.
 #[derive(AsRefStr)]
 pub enum ReprocessQueueMessage {
@@ -126,14 +115,6 @@ pub enum ReadyWork {
 pub struct QueuedUnaggregate {
     pub beacon_block_root: Hash256,
     pub process_fn: BlockingFn,
-}
-
-// TODO(paul): move to `lighthouse_network`
-/// The type of processing specified for a received block.
-#[derive(Debug, Clone)]
-pub enum BlockProcessType {
-    SingleBlock { id: u32 },
-    ParentLookup { chain_hash: Hash256 },
 }
 
 /// An aggregated attestation for which the corresponding block was not seen while processing, queued for

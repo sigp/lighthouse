@@ -39,13 +39,12 @@
 //! task.
 
 use crate::work_reprocessing_queue::{
-    spawn_reprocess_scheduler, ChainSegmentProcessId, QueuedAggregate, QueuedBackfillBatch,
-    QueuedGossipBlock, QueuedLightClientUpdate, QueuedRpcBlock, QueuedUnaggregate, ReadyWork,
-    ReprocessQueueMessage,
+    spawn_reprocess_scheduler, QueuedAggregate, QueuedBackfillBatch, QueuedGossipBlock,
+    QueuedLightClientUpdate, QueuedRpcBlock, QueuedUnaggregate, ReadyWork, ReprocessQueueMessage,
 };
 use futures::stream::{Stream, StreamExt};
 use futures::task::Poll;
-use lighthouse_network::NetworkGlobals;
+use lighthouse_network::{types::ChainSegmentProcessId, NetworkGlobals};
 use logging::TimeLatch;
 use parking_lot::Mutex;
 use slog::{crit, debug, error, trace, warn, Logger};

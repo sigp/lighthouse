@@ -44,6 +44,7 @@ use crate::status::ToStatusMessage;
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockError, EngineState};
 use futures::StreamExt;
 use lighthouse_network::rpc::methods::MAX_REQUEST_BLOCKS;
+use lighthouse_network::types::BlockProcessType;
 use lighthouse_network::types::{NetworkGlobals, SyncState};
 use lighthouse_network::SyncInfo;
 use lighthouse_network::{PeerAction, PeerId};
@@ -120,13 +121,6 @@ pub enum SyncMessage<T: EthSpec> {
         process_type: BlockProcessType,
         result: BlockProcessResult<T>,
     },
-}
-
-/// The type of processing specified for a received block.
-#[derive(Debug, Clone)]
-pub enum BlockProcessType {
-    SingleBlock { id: Id },
-    ParentLookup { chain_hash: Hash256 },
 }
 
 #[derive(Debug)]
