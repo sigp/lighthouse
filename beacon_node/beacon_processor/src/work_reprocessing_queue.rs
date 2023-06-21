@@ -12,7 +12,7 @@
 //! block will be re-queued until their block is imported, or until they expire.
 use super::MAX_SCHEDULED_WORK_QUEUE_LEN;
 use crate::metrics;
-use crate::{Work, WorkEvent};
+use crate::{AsyncBeaconBlockFn, AsyncBeaconBlockVecFn, AsyncGossipBlockFn, Work, WorkEvent};
 use fnv::FnvHashMap;
 use futures::task::Poll;
 use futures::{Stream, StreamExt};
@@ -163,7 +163,7 @@ pub trait GenericBlock: Send + Sync {
 /// A block that arrived early and has been queued for later import.
 pub struct QueuedGossipBlock<GBlock> {
     pub block: GBlock,
-    pub process_fn: Box<dyn Fn(GBlock) + Send + Sync>,
+    pub process_fn: AsyncGossipBlockFn<GBlock>,
 }
 
 /// A block that arrived for processing when the same block was being imported over gossip.
@@ -171,7 +171,7 @@ pub struct QueuedGossipBlock<GBlock> {
 pub struct QueuedRpcBlock<T: EthSpec> {
     pub block: Arc<SignedBeaconBlock<T>>,
     pub should_process: bool,
-    pub process_fn: Box<dyn Fn(Arc<SignedBeaconBlock<T>>) + Send + Sync>,
+    pub process_fn: AsyncBeaconBlockFn<T>,
 }
 
 #[derive(Clone)]
@@ -179,7 +179,7 @@ pub struct QueuedRpcBlock<T: EthSpec> {
 pub struct QueuedBackfillBatch<E: EthSpec> {
     pub process_id: ChainSegmentProcessId,
     pub blocks: Vec<Arc<SignedBeaconBlock<E>>>,
-    pub process_fn: Arc<Box<dyn Fn(Vec<Arc<SignedBeaconBlock<E>>>) + Send + Sync>>,
+    pub process_fn: Arc<AsyncBeaconBlockVecFn<E>>,
 }
 
 impl<T: EthSpec, GBlock> TryFrom<WorkEvent<T, GBlock>> for QueuedBackfillBatch<T> {
@@ -991,6 +991,7 @@ mod tests {
     use super::*;
     use beacon_chain::builder::Witness;
     use beacon_chain::eth1_chain::CachingEth1Backend;
+    use beacon_chain::GossipVerifiedBlock;
     use slot_clock::TestingSlotClock;
     use store::MemoryStore;
     use types::MainnetEthSpec as E;
@@ -1010,10 +1011,13 @@ mod tests {
             .map(|(multiplier, divisor)| (slot_duration / divisor) * multiplier);
 
         for &event_duration_from_slot_start in event_times.iter() {
-            let duration_to_next_event =
-                ReprocessQueue::<E, TestingSlotClock>::duration_until_next_backfill_batch_event(
-                    &slot_clock,
-                );
+            let duration_to_next_event = ReprocessQueue::<
+                E,
+                TestingSlotClock,
+                GossipVerifiedBlock<E>,
+            >::duration_until_next_backfill_batch_event(
+                &slot_clock
+            );
 
             let current_time = slot_clock.millis_from_current_slot_start().unwrap();
 
@@ -1028,7 +1032,7 @@ mod tests {
         // check for next event beyond the current slot
         let duration_to_next_slot = slot_clock.duration_to_next_slot().unwrap();
         let duration_to_next_event =
-            ReprocessQueue::<E, TestingSlotClock>::duration_until_next_backfill_batch_event(
+            ReprocessQueue::<E, TestingSlotClock, GossipVerifiedBlock<E>>::duration_until_next_backfill_batch_event(
                 &slot_clock,
             );
         assert_eq!(

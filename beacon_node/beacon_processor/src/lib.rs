@@ -71,7 +71,7 @@ pub use work_reprocessing_queue::GenericBlock;
 // TODO(paul): re-enable tests.
 // mod tests;
 mod metrics;
-mod work_reprocessing_queue;
+pub mod work_reprocessing_queue;
 
 /// The maximum size of the channel for work events to the `BeaconProcessor`.
 ///
@@ -428,7 +428,14 @@ impl<E: EthSpec, GBlock> std::convert::From<ReadyWork<E, GBlock>> for WorkEvent<
     }
 }
 
-type BlockingWork = Box<dyn Fn() + Send + Sync>;
+type DynFuture = Pin<Box<dyn Future<Output = ()> + Send + Sync>>;
+
+pub type BlockingFn = Box<dyn Fn() + Send + Sync>;
+pub type BlockingFnWithManualSendOnIdle = Box<dyn Fn(SendOnDrop) + Send + Sync>;
+pub type AsyncBeaconBlockFn<E> = Box<dyn Fn(Arc<SignedBeaconBlock<E>>) -> DynFuture + Send + Sync>;
+pub type AsyncBeaconBlockVecFn<E> =
+    Box<dyn Fn(Vec<Arc<SignedBeaconBlock<E>>>) -> DynFuture + Send + Sync>;
+pub type AsyncGossipBlockFn<GBlock> = Box<dyn Fn(GBlock) -> DynFuture + Send + Sync>;
 
 /// Indicates the type of work to be performed and therefore its priority and
 /// queuing specifics.
@@ -464,34 +471,34 @@ pub enum Work<E: EthSpec, GBlock> {
         aggregates: Vec<SignedAggregateAndProof<E>>,
         process_batch: Box<dyn Fn(Vec<SignedAggregateAndProof<E>>) + Send + Sync>,
     },
-    GossipBlock(BlockingWork),
+    GossipBlock(DynFuture),
     DelayedImportBlock {
         block: GBlock,
-        process_fn: Box<dyn Fn(GBlock) + Send + Sync>,
+        process_fn: AsyncGossipBlockFn<GBlock>,
     },
-    GossipVoluntaryExit(BlockingWork),
-    GossipProposerSlashing(BlockingWork),
-    GossipAttesterSlashing(BlockingWork),
-    GossipSyncSignature(BlockingWork),
-    GossipSyncContribution(BlockingWork),
-    GossipLightClientFinalityUpdate(BlockingWork),
-    GossipLightClientOptimisticUpdate(BlockingWork),
+    GossipVoluntaryExit(BlockingFn),
+    GossipProposerSlashing(BlockingFn),
+    GossipAttesterSlashing(BlockingFn),
+    GossipSyncSignature(BlockingFn),
+    GossipSyncContribution(BlockingFn),
+    GossipLightClientFinalityUpdate(BlockingFn),
+    GossipLightClientOptimisticUpdate(BlockingFn),
     RpcBlock {
         block: Arc<SignedBeaconBlock<E>>,
         should_process: bool,
-        process_fn: Box<dyn Fn(Arc<SignedBeaconBlock<E>>) + Send + Sync>,
+        process_fn: AsyncBeaconBlockFn<E>,
     },
     ChainSegment {
         process_id: ChainSegmentProcessId,
         blocks: Vec<Arc<SignedBeaconBlock<E>>>,
-        process_fn: Arc<Box<dyn Fn(Vec<Arc<SignedBeaconBlock<E>>>) + Send + Sync>>,
+        process_fn: Arc<AsyncBeaconBlockVecFn<E>>,
     },
-    ChainSegmentBackSync(BlockingWork),
-    Status(BlockingWork),
-    BlocksByRangeRequest(BlockingWork),
-    BlocksByRootsRequest(BlockingWork),
-    GossipBlsToExecutionChange(BlockingWork),
-    LightClientBootstrapRequest(BlockingWork),
+    ChainSegmentBackSync(BlockingFn),
+    Status(BlockingFn),
+    BlocksByRangeRequest(BlockingFnWithManualSendOnIdle),
+    BlocksByRootsRequest(BlockingFnWithManualSendOnIdle),
+    GossipBlsToExecutionChange(BlockingFn),
+    LightClientBootstrapRequest(BlockingFn),
 }
 
 impl<E: EthSpec, GBlock> fmt::Debug for Work<E, GBlock> {
@@ -1195,7 +1202,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
         // This helps ensure that the worker is always freed in the case of an early exit or panic.
         // As such, this instantiation should happen as early in the function as possible.
         let send_idle_on_drop = SendOnDrop {
-            tx: idle_tx.clone(),
+            tx: idle_tx,
             _worker_timer: worker_timer,
             log: self.log.clone(),
         };
@@ -1213,7 +1220,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
         );
 
         let task_spawner = TaskSpawner {
-            executor: executor.clone(),
+            executor,
             send_idle_on_drop,
         };
 
@@ -1224,14 +1231,12 @@ impl<E: EthSpec> BeaconProcessor<E> {
                 process_batch: _,
             } => task_spawner.spawn_blocking(move || {
                 process_individual(attestation);
-                drop(idle_tx);
             }),
             Work::GossipAttestationBatch {
                 attestations,
                 process_batch,
             } => task_spawner.spawn_blocking(move || {
                 process_batch(attestations);
-                drop(idle_tx);
             }),
             Work::GossipAggregate {
                 aggregate,
@@ -1239,14 +1244,12 @@ impl<E: EthSpec> BeaconProcessor<E> {
                 process_batch: _,
             } => task_spawner.spawn_blocking(move || {
                 process_individual(aggregate);
-                drop(idle_tx);
             }),
             Work::GossipAggregateBatch {
                 aggregates,
                 process_batch,
             } => task_spawner.spawn_blocking(move || {
                 process_batch(aggregates);
-                drop(idle_tx);
             }),
             Work::ChainSegment {
                 process_id: _,
@@ -1254,21 +1257,18 @@ impl<E: EthSpec> BeaconProcessor<E> {
                 process_fn,
             } => task_spawner.spawn_blocking(move || {
                 process_fn(blocks);
-                drop(idle_tx);
             }),
             Work::UnknownBlockAttestation {
                 attestation,
                 process_fn,
             } => task_spawner.spawn_blocking(move || {
                 process_fn(attestation);
-                drop(idle_tx);
             }),
             Work::UnknownBlockAggregate {
                 attestation,
                 process_fn,
             } => task_spawner.spawn_blocking(move || {
                 process_fn(attestation);
-                drop(idle_tx);
             }),
             Work::UnknownLightClientOptimisticUpdate {
                 light_client_optimistic_update,
@@ -1276,24 +1276,26 @@ impl<E: EthSpec> BeaconProcessor<E> {
                 process_fn,
             } => task_spawner.spawn_blocking(move || {
                 process_fn(light_client_optimistic_update);
-                drop(idle_tx);
             }),
             Work::DelayedImportBlock { block, process_fn } => {
-                task_spawner.spawn_blocking(move || {
-                    process_fn(block);
-                    drop(idle_tx);
+                task_spawner.spawn_async(async move {
+                    process_fn(block).await;
                 })
             }
             Work::RpcBlock {
                 block,
                 should_process: _,
                 process_fn,
-            } => task_spawner.spawn_blocking(move || {
-                process_fn(block);
-                drop(idle_tx);
+            } => task_spawner.spawn_async(async move {
+                process_fn(block).await;
             }),
-            Work::GossipBlock(work)
-            | Work::GossipVoluntaryExit(work)
+            Work::GossipBlock(work) => task_spawner.spawn_async(async move {
+                work.await;
+            }),
+            Work::BlocksByRangeRequest(work) | Work::BlocksByRootsRequest(work) => {
+                task_spawner.spawn_blocking_with_manual_send_idle(work)
+            }
+            Work::GossipVoluntaryExit(work)
             | Work::GossipProposerSlashing(work)
             | Work::GossipAttesterSlashing(work)
             | Work::GossipSyncSignature(work)
@@ -1302,12 +1304,9 @@ impl<E: EthSpec> BeaconProcessor<E> {
             | Work::GossipLightClientOptimisticUpdate(work)
             | Work::ChainSegmentBackSync(work)
             | Work::Status(work)
-            | Work::BlocksByRangeRequest(work)
-            | Work::BlocksByRootsRequest(work)
             | Work::GossipBlsToExecutionChange(work)
             | Work::LightClientBootstrapRequest(work) => task_spawner.spawn_blocking(move || {
                 work();
-                drop(idle_tx);
             }),
         };
     }
