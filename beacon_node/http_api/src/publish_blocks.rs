@@ -175,7 +175,10 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
         Err(BlockError::SlashableProposal) => Err(warp_utils::reject::custom_bad_request(
             "proposal for this slot and proposer has already been seen".to_string(),
         )),
-        Err(BlockError::BlockIsAlreadyKnown) => Ok(()),
+        Err(BlockError::BlockIsAlreadyKnown) => {
+            info!(log, "Block from HTTP API already known"; "block" => ?block_root);
+            Ok(())
+        }
         Err(BlockError::RepeatProposal { proposer, slot }) => {
             warn!(
                 log,
