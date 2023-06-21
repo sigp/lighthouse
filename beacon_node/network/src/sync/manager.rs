@@ -43,7 +43,6 @@ use crate::service::NetworkMessage;
 use crate::status::ToStatusMessage;
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockError, EngineState};
 use futures::StreamExt;
-use lighthouse_network::rpc::methods::MAX_REQUEST_BLOCKS;
 use lighthouse_network::types::{NetworkGlobals, SyncState};
 use lighthouse_network::SyncInfo;
 use lighthouse_network::{PeerAction, PeerId};
@@ -192,7 +191,7 @@ pub fn spawn<T: BeaconChainTypes>(
     log: slog::Logger,
 ) -> mpsc::UnboundedSender<SyncMessage<T::EthSpec>> {
     assert!(
-        MAX_REQUEST_BLOCKS >= T::EthSpec::slots_per_epoch() * EPOCHS_PER_BATCH,
+        T::EthSpec::default_spec().max_request_blocks >= T::EthSpec::slots_per_epoch() * EPOCHS_PER_BATCH,
         "Max blocks that can be requested in a single batch greater than max allowed blocks in a single request"
     );
     // generate the message channel

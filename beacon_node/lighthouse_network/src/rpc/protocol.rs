@@ -2,7 +2,7 @@ use super::methods::*;
 use crate::rpc::{
     codec::{base::BaseInboundCodec, ssz_snappy::SSZSnappyInboundCodec, InboundCodec},
     methods::{MaxErrorLen, ResponseTermination, MAX_ERROR_LEN},
-    MaxRequestBlocks, MAX_REQUEST_BLOCKS,
+    MaxRequestBlocks,
 };
 use futures::future::BoxFuture;
 use futures::prelude::{AsyncRead, AsyncWrite};
@@ -90,7 +90,7 @@ lazy_static! {
     pub static ref BLOCKS_BY_ROOT_REQUEST_MAX: usize =
         VariableList::<Hash256, MaxRequestBlocks>::from(vec![
             Hash256::zero();
-            MAX_REQUEST_BLOCKS
+            MainnetEthSpec::default_spec().max_request_blocks
                 as usize
         ])
     .as_ssz_bytes()

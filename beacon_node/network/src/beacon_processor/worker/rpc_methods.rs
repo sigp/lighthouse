@@ -297,8 +297,8 @@ impl<T: BeaconChainTypes> Worker<T> {
         );
 
         // Should not send more than max request blocks
-        if req.count > MAX_REQUEST_BLOCKS {
-            req.count = MAX_REQUEST_BLOCKS;
+        if req.count > T::EthSpec::default_spec().max_request_blocks {
+            req.count = T::EthSpec::default_spec().max_request_blocks;
         }
 
         let forwards_block_root_iter = match self
