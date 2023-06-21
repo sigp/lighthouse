@@ -175,7 +175,6 @@ pub struct ChainSpec {
     attestation_subnet_extra_bits: u8,
     // Shift networking configuration into configs
     pub gossip_max_size: usize,
-    pub gossip_max_size_post_merge: usize,
     pub max_request_blocks: u64,
     // min_epochs_for_block_requests??
     pub max_chunk_size: usize,
@@ -645,7 +644,6 @@ impl ChainSpec {
             epochs_per_subnet_subscription: 256,
             attestation_subnet_extra_bits: 6,
             gossip_max_size: 1_048_576,
-            gossip_max_size_post_merge: 10 * 1_048_576,
             max_request_blocks: 1024,
             max_chunk_size: 1_048_576,
             ttfb_timeout: 5,
@@ -879,7 +877,6 @@ impl ChainSpec {
             epochs_per_subnet_subscription: 256,
             attestation_subnet_extra_bits: 6,
             gossip_max_size: 1_048_576,
-            gossip_max_size_post_merge: 10 * 1_048_576,
             max_request_blocks: 1024,
             max_chunk_size: 1_048_576,
             ttfb_timeout: 5,
