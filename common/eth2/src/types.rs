@@ -581,6 +581,11 @@ pub struct SyncingData {
     pub sync_distance: Slot,
 }
 
+#[derive(Serialize, Deserialize)]
+pub struct ExpectedWithdrawalsQuery {
+    pub proposal_slot: Option<Slot>,
+}
+
 #[derive(Clone, PartialEq, Debug, Deserialize)]
 #[serde(try_from = "String", bound = "T: FromStr")]
 pub struct QueryVec<T: FromStr> {

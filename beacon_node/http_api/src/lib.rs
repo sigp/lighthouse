@@ -1946,37 +1946,45 @@ pub fn serve<T: BeaconChainTypes>(
     let get_expected_withdrawals = builder_states_path
         .clone()
         .and(warp::path::param::<StateId>())
+        .and(warp::query::<api_types::ExpectedWithdrawalsQuery>())
         .and(warp::path("expected_withdrawals"))
         .and(warp::path::end())
-        .and_then(|chain: Arc<BeaconChain<T>>, state_id: StateId| {
-            blocking_json_task(move || {
-                let (state, execution_optimistic, finalized) = match state_id.state(&chain) {
-                    Ok(state) => state,
-                    Err(_) => {
-                        return Err(warp_utils::reject::custom_not_found(
-                            "State not found".to_string(),
-                        ))
+        .and_then(
+            |chain: Arc<BeaconChain<T>>,
+             state_id: StateId,
+             query: api_types::ExpectedWithdrawalsQuery| {
+                blocking_json_task(move || {
+                    let proposal_slot = query.proposal_slot.unwrap_or(Slot::new(1));
+                    let (state, execution_optimistic, finalized) = match state_id.state(&chain) {
+                        Ok(state) => state,
+                        Err(_) => {
+                            return Err(warp_utils::reject::custom_not_found(
+                                "State not found".to_string(),
+                            ))
+                        }
+                    };
+                    let forkchoice_update_parameters = chain
+                        .canonical_head
+                        .cached_head()
+                        .forkchoice_update_parameters();
+                    match chain.get_expected_withdrawals(
+                        &forkchoice_update_parameters,
+                        state.slot() + proposal_slot,
+                    ) {
+                        Ok(withdrawals) => Ok(api_types::GenericResponse::from(
+                            api_types::NextWithdrawalsResponse {
+                                data: withdrawals,
+                                execution_optimistic,
+                                finalized,
+                            },
+                        )),
+                        Err(_) => Err(warp_utils::reject::custom_bad_request(
+                            "The specified state is not a capella state.".to_string(),
+                        )),
                     }
-                };
-                let forkchoice_update_parameters = chain
-                    .canonical_head
-                    .cached_head()
-                    .forkchoice_update_parameters();
-                match chain.get_expected_withdrawals(&forkchoice_update_parameters, state.slot()) {
-                    Ok(withdrawals) => Ok(api_types::GenericResponse::from(
-                        api_types::NextWithdrawalsResponse {
-                            data: withdrawals,
-                            execution_optimistic: execution_optimistic,
-                            finalized: finalized,
-                        },
-                    )),
-                    //.map(|resp| )),
-                    Err(_) => Err(warp_utils::reject::custom_bad_request(
-                        "The specified state is not a capella state.".to_string(),
-                    )),
-                }
-            })
-        });
+                })
+            },
+        );
 
     /*
      * beacon/rewards
