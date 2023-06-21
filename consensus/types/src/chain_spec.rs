@@ -173,6 +173,18 @@ pub struct ChainSpec {
     pub subnets_per_node: u8,
     pub epochs_per_subnet_subscription: u64,
     attestation_subnet_extra_bits: u8,
+    // Shift networking configuration into configs
+    pub gossip_max_size: usize,
+    pub gossip_max_size_post_merge: usize,
+    pub max_request_blocks: u64,
+    // min_epochs_for_block_requests??
+    pub max_chunk_size: usize,
+    pub ttfb_timeout: u64,
+    pub resp_timeout: u64,
+    // attestation_propagation_slot_range??
+    // maximum_gossip_clock_disparity??
+    // message_domain_invalid_snappy??
+    pub message_domain_valid_snappy: [u8; 4],
 
     /*
      * Application params
@@ -632,6 +644,13 @@ impl ChainSpec {
             epochs_per_random_subnet_subscription: 256,
             epochs_per_subnet_subscription: 256,
             attestation_subnet_extra_bits: 6,
+            gossip_max_size: 1_048_576,
+            gossip_max_size_post_merge: 10 * 1_048_576,
+            max_request_blocks: 1024,
+            max_chunk_size: 1_048_576,
+            ttfb_timeout: 5,
+            resp_timeout: 10,
+            message_domain_valid_snappy: [1, 0, 0, 0],
 
             /*
              * Application specific
@@ -859,6 +878,13 @@ impl ChainSpec {
             epochs_per_random_subnet_subscription: 256,
             epochs_per_subnet_subscription: 256,
             attestation_subnet_extra_bits: 6,
+            gossip_max_size: 1_048_576,
+            gossip_max_size_post_merge: 10 * 1_048_576,
+            max_request_blocks: 1024,
+            max_chunk_size: 1_048_576,
+            ttfb_timeout: 5,
+            resp_timeout: 10,
+            message_domain_valid_snappy: [1, 0, 0, 0],
 
             /*
              * Application specific
