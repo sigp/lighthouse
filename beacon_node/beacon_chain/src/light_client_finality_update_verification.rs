@@ -1,12 +1,12 @@
 use crate::{
-    beacon_chain::MAXIMUM_GOSSIP_CLOCK_DISPARITY, BeaconChain, BeaconChainError, BeaconChainTypes,
+    BeaconChain, BeaconChainError, BeaconChainTypes,
 };
 use derivative::Derivative;
 use slot_clock::SlotClock;
 use std::time::Duration;
 use strum::AsRefStr;
 use types::{
-    light_client_update::Error as LightClientUpdateError, LightClientFinalityUpdate, Slot,
+    light_client_update::Error as LightClientUpdateError, LightClientFinalityUpdate, Slot, EthSpec,
 };
 
 /// Returned when a light client finality update was not successfully verified. It might not have been verified for
@@ -103,7 +103,7 @@ impl<T: BeaconChainTypes> VerifiedLightClientFinalityUpdate<T> {
         // verify that enough time has passed for the block to have been propagated
         match start_time {
             Some(time) => {
-                if seen_timestamp + MAXIMUM_GOSSIP_CLOCK_DISPARITY < time + one_third_slot_duration
+                if seen_timestamp + Duration::from_millis(T::EthSpec::default_spec().maximum_gossip_clock_disparity_millis) < time + one_third_slot_duration
                 {
                     return Err(Error::TooEarly);
                 }

@@ -35,7 +35,7 @@
 mod batch;
 
 use crate::{
-    beacon_chain::{MAXIMUM_GOSSIP_CLOCK_DISPARITY, VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT},
+    beacon_chain::VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT,
     metrics,
     observed_aggregates::ObserveOutcome,
     observed_attesters::Error as ObservedAttestersError,
@@ -53,7 +53,7 @@ use state_processing::{
         signed_aggregate_selection_proof_signature_set, signed_aggregate_signature_set,
     },
 };
-use std::borrow::Cow;
+use std::{borrow::Cow, time::Duration};
 use strum::AsRefStr;
 use tree_hash::TreeHash;
 use types::{
@@ -1035,9 +1035,9 @@ pub fn verify_propagation_slot_range<S: SlotClock, E: EthSpec>(
     attestation: &Attestation<E>,
 ) -> Result<(), Error> {
     let attestation_slot = attestation.data.slot;
-
+    let maximum_gossip_clock_disparity = Duration::from_millis(E::default_spec().maximum_gossip_clock_disparity_millis);
     let latest_permissible_slot = slot_clock
-        .now_with_future_tolerance(MAXIMUM_GOSSIP_CLOCK_DISPARITY)
+        .now_with_future_tolerance(maximum_gossip_clock_disparity)
         .ok_or(BeaconChainError::UnableToReadSlot)?;
     if attestation_slot > latest_permissible_slot {
         return Err(Error::FutureSlot {
@@ -1048,7 +1048,7 @@ pub fn verify_propagation_slot_range<S: SlotClock, E: EthSpec>(
 
     // Taking advantage of saturating subtraction on `Slot`.
     let earliest_permissible_slot = slot_clock
-        .now_with_past_tolerance(MAXIMUM_GOSSIP_CLOCK_DISPARITY)
+        .now_with_past_tolerance(maximum_gossip_clock_disparity)
         .ok_or(BeaconChainError::UnableToReadSlot)?
         - E::slots_per_epoch();
     if attestation_slot < earliest_permissible_slot {

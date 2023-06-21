@@ -58,7 +58,7 @@ use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use crate::{
     beacon_chain::{
         BeaconForkChoice, ForkChoiceError, BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT,
-        MAXIMUM_GOSSIP_CLOCK_DISPARITY, VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT,
+        VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT,
     },
     metrics, BeaconChain, BeaconChainError, BeaconChainTypes,
 };
@@ -697,7 +697,7 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         // Do not gossip or process blocks from future slots.
         let present_slot_with_tolerance = chain
             .slot_clock
-            .now_with_future_tolerance(MAXIMUM_GOSSIP_CLOCK_DISPARITY)
+            .now_with_future_tolerance(Duration::from_millis(T::EthSpec::default_spec().maximum_gossip_clock_disparity_millis))
             .ok_or(BeaconChainError::UnableToReadSlot)?;
         if block.slot() > present_slot_with_tolerance {
             return Err(BlockError::FutureSlot {

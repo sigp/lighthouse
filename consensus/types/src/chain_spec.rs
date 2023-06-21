@@ -181,7 +181,6 @@ pub struct ChainSpec {
     pub ttfb_timeout: u64,
     pub resp_timeout: u64,
     // attestation_propagation_slot_range??
-    // maximum_gossip_clock_disparity??
     // message_domain_invalid_snappy??
     pub message_domain_valid_snappy: [u8; 4],
 
