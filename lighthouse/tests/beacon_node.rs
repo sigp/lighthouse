@@ -1125,7 +1125,7 @@ fn default_backfill_rate_limiting_flag() {
 }
 #[test]
 fn default_boot_nodes() {
-    let number_of_boot_nodes = 13;
+    let number_of_boot_nodes = 15;
 
     CommandLineTest::new()
         .run_with_zero_port()
