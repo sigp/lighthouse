@@ -6,7 +6,7 @@ use beacon_chain::sync_committee_verification::{
 };
 use beacon_chain::{
     validator_monitor::timestamp_now, BeaconChain, BeaconChainError, BeaconChainTypes,
-    StateSkipConfig, MAXIMUM_GOSSIP_CLOCK_DISPARITY,
+    StateSkipConfig,
 };
 use eth2::types::{self as api_types};
 use lighthouse_network::PubsubMessage;
@@ -15,6 +15,7 @@ use slog::{debug, error, warn, Logger};
 use slot_clock::SlotClock;
 use std::cmp::max;
 use std::collections::HashMap;
+use std::time::Duration;
 use tokio::sync::mpsc::UnboundedSender;
 use types::{
     slot_data::SlotData, BeaconStateError, Epoch, EthSpec, SignedContributionAndProof,
@@ -85,7 +86,7 @@ fn duties_from_state_load<T: BeaconChainTypes>(
     let current_epoch = chain.epoch()?;
     let tolerant_current_epoch = chain
         .slot_clock
-        .now_with_future_tolerance(MAXIMUM_GOSSIP_CLOCK_DISPARITY)
+        .now_with_future_tolerance(Duration::from_millis(T::EthSpec::default_spec().maximum_gossip_clock_disparity_millis))
         .ok_or(BeaconChainError::UnableToReadSlot)?
         .epoch(T::EthSpec::slots_per_epoch());
 

@@ -3,13 +3,13 @@
 use crate::state_id::StateId;
 use beacon_chain::{
     beacon_proposer_cache::{compute_proposer_duties_from_head, ensure_state_is_in_epoch},
-    BeaconChain, BeaconChainError, BeaconChainTypes, MAXIMUM_GOSSIP_CLOCK_DISPARITY,
+    BeaconChain, BeaconChainError, BeaconChainTypes,
 };
 use eth2::types::{self as api_types};
 use safe_arith::SafeArith;
 use slog::{debug, Logger};
 use slot_clock::SlotClock;
-use std::cmp::Ordering;
+use std::{cmp::Ordering, time::Duration};
 use types::{CloneConfig, Epoch, EthSpec, Hash256, Slot};
 
 /// The struct that is returned to the requesting HTTP client.
@@ -33,7 +33,7 @@ pub fn proposer_duties<T: BeaconChainTypes>(
     // will equal `current_epoch + 1`
     let tolerant_current_epoch = chain
         .slot_clock
-        .now_with_future_tolerance(MAXIMUM_GOSSIP_CLOCK_DISPARITY)
+        .now_with_future_tolerance(Duration::from_millis(T::EthSpec::default_spec().maximum_gossip_clock_disparity_millis))
         .ok_or_else(|| warp_utils::reject::custom_server_error("unable to read slot clock".into()))?
         .epoch(T::EthSpec::slots_per_epoch());
 

@@ -14,7 +14,7 @@ use super::MAX_SCHEDULED_WORK_QUEUE_LEN;
 use crate::beacon_processor::{ChainSegmentProcessId, Work, WorkEvent};
 use crate::metrics;
 use crate::sync::manager::BlockProcessType;
-use beacon_chain::{BeaconChainTypes, GossipVerifiedBlock, MAXIMUM_GOSSIP_CLOCK_DISPARITY};
+use beacon_chain::{BeaconChainTypes, GossipVerifiedBlock};
 use fnv::FnvHashMap;
 use futures::task::Poll;
 use futures::{Stream, StreamExt};
@@ -383,7 +383,7 @@ pub fn spawn_reprocess_scheduler<T: BeaconChainTypes>(
 ) -> Sender<ReprocessQueueMessage<T>> {
     let (work_reprocessing_tx, work_reprocessing_rx) = mpsc::channel(MAX_SCHEDULED_WORK_QUEUE_LEN);
     // Basic sanity check.
-    assert!(ADDITIONAL_QUEUED_BLOCK_DELAY < MAXIMUM_GOSSIP_CLOCK_DISPARITY);
+    assert!(ADDITIONAL_QUEUED_BLOCK_DELAY < Duration::from_millis(T::EthSpec::default_spec().maximum_gossip_clock_disparity_millis));
 
     let mut queue = ReprocessQueue {
         work_reprocessing_rx,
