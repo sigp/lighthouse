@@ -16,6 +16,7 @@ pub mod types;
 
 use self::mixin::{RequestAccept, ResponseOptional};
 use self::types::{Error as ResponseError, *};
+use ::types::deneb_types::AbstractSidecar;
 use futures::Stream;
 use futures_util::StreamExt;
 use lighthouse_network::PeerId;
@@ -1384,24 +1385,32 @@ impl BeaconNodeHttpClient {
     }
 
     /// `GET v2/validator/blocks/{slot}`
-    pub async fn get_validator_blocks<T: EthSpec, Payload: AbstractExecPayload<T>>(
+    pub async fn get_validator_blocks<
+        T: EthSpec,
+        Payload: AbstractExecPayload<T>,
+        Sidecar: AbstractSidecar<T>,
+    >(
         &self,
         slot: Slot,
         randao_reveal: &SignatureBytes,
         graffiti: Option<&Graffiti>,
-    ) -> Result<ForkVersionedResponse<BlockContents<T, Payload>>, Error> {
+    ) -> Result<ForkVersionedResponse<BlockContents<T, Payload, Sidecar>>, Error> {
         self.get_validator_blocks_modular(slot, randao_reveal, graffiti, SkipRandaoVerification::No)
             .await
     }
 
     /// `GET v2/validator/blocks/{slot}`
-    pub async fn get_validator_blocks_modular<T: EthSpec, Payload: AbstractExecPayload<T>>(
+    pub async fn get_validator_blocks_modular<
+        T: EthSpec,
+        Payload: AbstractExecPayload<T>,
+        Sidecar: AbstractSidecar<T>,
+    >(
         &self,
         slot: Slot,
         randao_reveal: &SignatureBytes,
         graffiti: Option<&Graffiti>,
         skip_randao_verification: SkipRandaoVerification,
-    ) -> Result<ForkVersionedResponse<BlockContents<T, Payload>>, Error> {
+    ) -> Result<ForkVersionedResponse<BlockContents<T, Payload, Sidecar>>, Error> {
         let mut path = self.eth_path(V2)?;
 
         path.path_segments_mut()

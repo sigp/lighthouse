@@ -2634,9 +2634,9 @@ pub fn serve<T: BeaconChainTypes>(
                     .map_err(inconsistent_fork_rejection)?;
 
                 let block_contents =
-                    build_block_contents::build_block_contents(fork_name, chain, block);
+                    build_block_contents::build_block_contents(fork_name, chain, block)?;
 
-                fork_versioned_response(endpoint_version, fork_name, block_contents?)
+                fork_versioned_response(endpoint_version, fork_name, block_contents)
                     .map(|response| warp::reply::json(&response).into_response())
             },
         );
@@ -2692,8 +2692,11 @@ pub fn serve<T: BeaconChainTypes>(
                     .fork_name(&chain.spec)
                     .map_err(inconsistent_fork_rejection)?;
 
+                let block_contents =
+                    build_block_contents::build_blinded_block_contents(fork_name, chain, block)?;
+
                 // Pose as a V2 endpoint so we return the fork `version`.
-                fork_versioned_response(V2, fork_name, block)
+                fork_versioned_response(V2, fork_name, block_contents)
                     .map(|response| warp::reply::json(&response).into_response())
             },
         );

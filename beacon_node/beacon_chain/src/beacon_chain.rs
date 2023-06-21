@@ -119,6 +119,7 @@ use types::beacon_block_body::KzgCommitments;
 use types::beacon_state::CloneConfig;
 use types::blob_sidecar::{BlobSidecarList, Blobs};
 use types::consts::deneb::MIN_EPOCHS_FOR_BLOB_SIDECARS_REQUESTS;
+use types::deneb_types::BlindedBlobSidecar;
 use types::*;
 
 pub type ForkChoiceError = fork_choice::Error<crate::ForkChoiceStoreError>;
@@ -465,7 +466,8 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub validator_monitor: RwLock<ValidatorMonitor<T::EthSpec>>,
     /// The slot at which blocks are downloaded back to.
     pub genesis_backfill_slot: Slot,
-    pub proposal_blob_cache: BlobCache<T::EthSpec>,
+    pub proposal_blob_cache: BlobCache<T::EthSpec, BlobSidecar<T::EthSpec>>,
+    pub proposal_blinded_blob_cache: BlobCache<T::EthSpec, BlindedBlobSidecar>,
     pub data_availability_checker: Arc<DataAvailabilityChecker<T>>,
     pub kzg: Option<Arc<Kzg>>,
 }

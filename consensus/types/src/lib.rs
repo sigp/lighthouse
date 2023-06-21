@@ -98,6 +98,7 @@ pub mod slot_data;
 pub mod sqlite;
 
 pub mod blob_sidecar;
+pub mod deneb_types;
 pub mod signed_blob;
 pub mod transaction;
 

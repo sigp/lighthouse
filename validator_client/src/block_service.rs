@@ -19,6 +19,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio::time::sleep;
+use types::deneb_types::AbstractSidecar;
 use types::{
     AbstractExecPayload, BlindedPayload, BlockType, EthSpec, FullPayload, Graffiti, PublicKeyBytes,
     Slot,
@@ -581,22 +582,26 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
         Ok::<_, BlockError>(())
     }
 
-    async fn get_validator_block<Payload: AbstractExecPayload<E>>(
+    async fn get_validator_block<Payload: AbstractExecPayload<E>, Sidecar: AbstractSidecar<E>>(
         beacon_node: &BeaconNodeHttpClient,
         slot: Slot,
         randao_reveal_ref: &SignatureBytes,
         graffiti: Option<Graffiti>,
         proposer_index: Option<u64>,
         log: &Logger,
-    ) -> Result<BlockContents<E, Payload>, BlockError> {
-        let block_contents: BlockContents<E, Payload> = match Payload::block_type() {
+    ) -> Result<BlockContents<E, Payload, Sidecar>, BlockError> {
+        let block_contents: BlockContents<E, Payload, Sidecar> = match Payload::block_type() {
             BlockType::Full => {
                 let _get_timer = metrics::start_timer_vec(
                     &metrics::BLOCK_SERVICE_TIMES,
                     &[metrics::BEACON_BLOCK_HTTP_GET],
                 );
                 beacon_node
-                    .get_validator_blocks::<E, Payload>(slot, randao_reveal_ref, graffiti.as_ref())
+                    .get_validator_blocks::<E, Payload, Sidecar>(
+                        slot,
+                        randao_reveal_ref,
+                        graffiti.as_ref(),
+                    )
                     .await
                     .map_err(|e| {
                         BlockError::Recoverable(format!(

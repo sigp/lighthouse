@@ -11,6 +11,7 @@ use std::convert::TryFrom;
 use std::fmt;
 use std::str::{from_utf8, FromStr};
 use std::time::Duration;
+use types::deneb_types::{AbstractSidecar, SidecarList};
 pub use types::*;
 
 #[cfg(feature = "lighthouse")]
@@ -1277,32 +1278,43 @@ mod tests {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(untagged)]
 #[serde(bound = "T: EthSpec")]
-pub enum BlockContents<T: EthSpec, Payload: AbstractExecPayload<T>> {
-    BlockAndBlobSidecars(BeaconBlockAndBlobSidecars<T, Payload>),
+// TODO(jimmy): we should be able to remove the `Sidecar: AbstractSidecar<T>> generic type parameter
+pub enum BlockContents<T: EthSpec, Payload: AbstractExecPayload<T>, Sidecar: AbstractSidecar<T>> {
+    BlockAndBlobSidecars(BeaconBlockAndBlobSidecars<T, Payload, Sidecar>),
+    BlindedBlockAndBlobSidecars(BlindedBeaconBlockAndBlobSidecars<T, Payload, Sidecar>),
     Block(BeaconBlock<T, Payload>),
 }
 
-impl<T: EthSpec, Payload: AbstractExecPayload<T>> BlockContents<T, Payload> {
+impl<T: EthSpec, Payload: AbstractExecPayload<T>, Sidecar: AbstractSidecar<T>>
+    BlockContents<T, Payload, Sidecar>
+{
     pub fn block(&self) -> &BeaconBlock<T, Payload> {
         match self {
             BlockContents::BlockAndBlobSidecars(block_and_sidecars) => &block_and_sidecars.block,
+            BlockContents::BlindedBlockAndBlobSidecars(block_and_sidecars) => {
+                &block_and_sidecars.blinded_block
+            }
             BlockContents::Block(block) => block,
         }
     }
 
-    pub fn deconstruct(self) -> (BeaconBlock<T, Payload>, Option<BlobSidecarList<T>>) {
+    pub fn deconstruct(self) -> (BeaconBlock<T, Payload>, Option<SidecarList<T, Sidecar>>) {
         match self {
             BlockContents::BlockAndBlobSidecars(block_and_sidecars) => (
                 block_and_sidecars.block,
                 Some(block_and_sidecars.blob_sidecars),
+            ),
+            BlockContents::BlindedBlockAndBlobSidecars(block_and_sidecars) => (
+                block_and_sidecars.blinded_block,
+                Some(block_and_sidecars.blinded_blob_sidecars),
             ),
             BlockContents::Block(block) => (block, None),
         }
     }
 }
 
-impl<T: EthSpec, Payload: AbstractExecPayload<T>> ForkVersionDeserialize
-    for BlockContents<T, Payload>
+impl<T: EthSpec, Payload: AbstractExecPayload<T>, Sidecar: AbstractSidecar<T>>
+    ForkVersionDeserialize for BlockContents<T, Payload, Sidecar>
 {
     fn deserialize_by_fork<'de, D: serde::Deserializer<'de>>(
         value: serde_json::value::Value,
@@ -1322,12 +1334,15 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> ForkVersionDeserialize
     }
 }
 
-impl<T: EthSpec, Payload: AbstractExecPayload<T>> Into<BeaconBlock<T, Payload>>
-    for BlockContents<T, Payload>
+impl<T: EthSpec, Payload: AbstractExecPayload<T>, Sidecar: AbstractSidecar<T>>
+    Into<BeaconBlock<T, Payload>> for BlockContents<T, Payload, Sidecar>
 {
     fn into(self) -> BeaconBlock<T, Payload> {
         match self {
             Self::BlockAndBlobSidecars(block_and_sidecars) => block_and_sidecars.block,
+            Self::BlindedBlockAndBlobSidecars(block_and_sidecars) => {
+                block_and_sidecars.blinded_block
+            }
             Self::Block(block) => block,
         }
     }
@@ -1407,30 +1422,72 @@ pub struct SignedBeaconBlockAndBlobSidecars<T: EthSpec, Payload: AbstractExecPay
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Encode)]
-#[serde(bound = "T: EthSpec, Payload: AbstractExecPayload<T>")]
-pub struct BeaconBlockAndBlobSidecars<T: EthSpec, Payload: AbstractExecPayload<T>> {
+#[serde(bound = "T: EthSpec, Payload: AbstractExecPayload<T>, Sidecar: AbstractSidecar<T>")]
+pub struct BeaconBlockAndBlobSidecars<
+    T: EthSpec,
+    Payload: AbstractExecPayload<T>,
+    Sidecar: AbstractSidecar<T>,
+> {
     pub block: BeaconBlock<T, Payload>,
-    pub blob_sidecars: BlobSidecarList<T>,
+    pub blob_sidecars: SidecarList<T, Sidecar>,
 }
 
-impl<T: EthSpec, Payload: AbstractExecPayload<T>> ForkVersionDeserialize
-    for BeaconBlockAndBlobSidecars<T, Payload>
+impl<T: EthSpec, Payload: AbstractExecPayload<T>, Sidecar: AbstractSidecar<T>>
+    ForkVersionDeserialize for BeaconBlockAndBlobSidecars<T, Payload, Sidecar>
 {
     fn deserialize_by_fork<'de, D: serde::Deserializer<'de>>(
         value: serde_json::value::Value,
         fork_name: ForkName,
     ) -> Result<Self, D::Error> {
         #[derive(Deserialize)]
-        #[serde(bound = "T: EthSpec")]
-        struct Helper<T: EthSpec> {
+        #[serde(bound = "T: EthSpec, Sidecar: AbstractSidecar<T>")]
+        struct Helper<T: EthSpec, Sidecar: AbstractSidecar<T>> {
             block: serde_json::Value,
-            blob_sidecars: BlobSidecarList<T>,
+            blob_sidecars: SidecarList<T, Sidecar>,
         }
-        let helper: Helper<T> = serde_json::from_value(value).map_err(serde::de::Error::custom)?;
+        let helper: Helper<T, Sidecar> =
+            serde_json::from_value(value).map_err(serde::de::Error::custom)?;
 
         Ok(Self {
             block: BeaconBlock::deserialize_by_fork::<'de, D>(helper.block, fork_name)?,
             blob_sidecars: helper.blob_sidecars,
+        })
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Encode)]
+#[serde(bound = "T: EthSpec")]
+pub struct BlindedBeaconBlockAndBlobSidecars<
+    T: EthSpec,
+    Payload: AbstractExecPayload<T>,
+    Sidecar: AbstractSidecar<T>,
+> {
+    pub blinded_block: BeaconBlock<T, Payload>,
+    pub blinded_blob_sidecars: SidecarList<T, Sidecar>,
+}
+
+impl<T: EthSpec, Payload: AbstractExecPayload<T>, Sidecar: AbstractSidecar<T>>
+    ForkVersionDeserialize for BlindedBeaconBlockAndBlobSidecars<T, Payload, Sidecar>
+{
+    fn deserialize_by_fork<'de, D: serde::Deserializer<'de>>(
+        value: serde_json::value::Value,
+        fork_name: ForkName,
+    ) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(bound = "T: EthSpec, Sidecar: AbstractSidecar<T>,")]
+        struct Helper<T: EthSpec, Sidecar: AbstractSidecar<T>> {
+            blinded_block: serde_json::Value,
+            blinded_blob_sidecars: SidecarList<T, Sidecar>,
+        }
+        let helper: Helper<T, Sidecar> =
+            serde_json::from_value(value).map_err(serde::de::Error::custom)?;
+
+        Ok(Self {
+            blinded_block: BeaconBlock::deserialize_by_fork::<'de, D>(
+                helper.blinded_block,
+                fork_name,
+            )?,
+            blinded_blob_sidecars: helper.blinded_blob_sidecars,
         })
     }
 }
