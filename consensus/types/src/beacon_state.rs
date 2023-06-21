@@ -218,6 +218,12 @@ impl From<BeaconStateHash> for Hash256 {
                 map_beacon_state_base_fields(),
                 map_beacon_state_base_tree_list_fields(mutable, fallible, groups(tree_lists)),
             ),
+            bimappings(bimap_beacon_state_base_tree_list_fields(
+                other_type = "BeaconStateBase",
+                self_mutable,
+                fallible,
+                groups(tree_lists)
+            )),
             num_fields(all()),
         )),
         Altair(metastruct(
@@ -225,6 +231,12 @@ impl From<BeaconStateHash> for Hash256 {
                 map_beacon_state_altair_fields(),
                 map_beacon_state_altair_tree_list_fields(mutable, fallible, groups(tree_lists)),
             ),
+            bimappings(bimap_beacon_state_altair_tree_list_fields(
+                other_type = "BeaconStateAltair",
+                self_mutable,
+                fallible,
+                groups(tree_lists)
+            )),
             num_fields(all()),
         )),
         Merge(metastruct(
@@ -232,6 +244,12 @@ impl From<BeaconStateHash> for Hash256 {
                 map_beacon_state_bellatrix_fields(),
                 map_beacon_state_bellatrix_tree_list_fields(mutable, fallible, groups(tree_lists)),
             ),
+            bimappings(bimap_beacon_state_merge_tree_list_fields(
+                other_type = "BeaconStateMerge",
+                self_mutable,
+                fallible,
+                groups(tree_lists)
+            )),
             num_fields(all()),
         )),
         Capella(metastruct(
@@ -239,6 +257,12 @@ impl From<BeaconStateHash> for Hash256 {
                 map_beacon_state_capella_fields(),
                 map_beacon_state_capella_tree_list_fields(mutable, fallible, groups(tree_lists)),
             ),
+            bimappings(bimap_beacon_state_capella_tree_list_fields(
+                other_type = "BeaconStateCapella",
+                self_mutable,
+                fallible,
+                groups(tree_lists)
+            )),
             num_fields(all()),
         )),
     ),
@@ -287,6 +311,8 @@ where
     #[metastruct(exclude_from(tree_lists))]
     pub eth1_data: Eth1Data,
     #[test_random(default)]
+    // FIXME(sproul): excluded due to `rebase_on` issue
+    #[metastruct(exclude_from(tree_lists))]
     pub eth1_data_votes: VList<Eth1Data, T::SlotsPerEth1VotingPeriod>,
     #[superstruct(getter(copy))]
     #[metastruct(exclude_from(tree_lists))]
@@ -1739,6 +1765,101 @@ impl<T: EthSpec> BeaconState<T> {
         };
         Ok(sync_committee)
     }
+
+    // FIXME(sproul): missing eth1 data votes, they would need a ResetListDiff
+    #[allow(clippy::integer_arithmetic)]
+    pub fn rebase_on(&mut self, base: &Self, spec: &ChainSpec) -> Result<(), Error> {
+        // Required for macros (which use type-hints internally).
+        type GenericValidator = Validator;
+
+        match (&mut *self, base) {
+            (Self::Base(self_inner), Self::Base(base_inner)) => {
+                bimap_beacon_state_base_tree_list_fields!(
+                    self_inner,
+                    base_inner,
+                    |_, self_field, base_field| { self_field.rebase_on(base_field) }
+                );
+            }
+            (Self::Altair(self_inner), Self::Altair(base_inner)) => {
+                bimap_beacon_state_altair_tree_list_fields!(
+                    self_inner,
+                    base_inner,
+                    |_, self_field, base_field| { self_field.rebase_on(base_field) }
+                );
+            }
+            (Self::Merge(self_inner), Self::Merge(base_inner)) => {
+                bimap_beacon_state_merge_tree_list_fields!(
+                    self_inner,
+                    base_inner,
+                    |_, self_field, base_field| { self_field.rebase_on(base_field) }
+                );
+            }
+            (Self::Capella(self_inner), Self::Capella(base_inner)) => {
+                bimap_beacon_state_capella_tree_list_fields!(
+                    self_inner,
+                    base_inner,
+                    |_, self_field, base_field| { self_field.rebase_on(base_field) }
+                );
+            }
+            // Do not rebase across forks, this should be OK for most situations.
+            _ => {}
+        }
+
+        // Use sync committees from `base` if they are equal.
+        if let Ok(current_sync_committee) = self.current_sync_committee_mut() {
+            if let Ok(base_sync_committee) = base.current_sync_committee() {
+                if current_sync_committee == base_sync_committee {
+                    *current_sync_committee = base_sync_committee.clone();
+                }
+            }
+        }
+        if let Ok(next_sync_committee) = self.next_sync_committee_mut() {
+            if let Ok(base_sync_committee) = base.next_sync_committee() {
+                if next_sync_committee == base_sync_committee {
+                    *next_sync_committee = base_sync_committee.clone();
+                }
+            }
+        }
+
+        // Rebase caches like the committee caches and the pubkey cache, which are expensive to
+        // rebuild and likely to be re-usable from the base state.
+        self.rebase_caches_on(base, spec)?;
+
+        Ok(())
+    }
+
+    pub fn rebase_caches_on(&mut self, base: &Self, spec: &ChainSpec) -> Result<(), Error> {
+        // Use pubkey cache from `base` if it contains superior information (likely if our cache is
+        // uninitialized).
+        let num_validators = self.validators().len();
+        let pubkey_cache = self.pubkey_cache_mut();
+        let base_pubkey_cache = base.pubkey_cache();
+        if pubkey_cache.len() < base_pubkey_cache.len() && pubkey_cache.len() < num_validators {
+            *pubkey_cache = base_pubkey_cache.clone();
+        }
+
+        // Use committee caches from `base` if they are relevant.
+        let epochs = [
+            self.previous_epoch(),
+            self.current_epoch(),
+            self.next_epoch()?,
+        ];
+        for (index, epoch) in epochs.into_iter().enumerate() {
+            if let Ok(base_relative_epoch) = RelativeEpoch::from_epoch(base.current_epoch(), epoch)
+            {
+                *self.committee_cache_at_index_mut(index)? =
+                    base.committee_cache(base_relative_epoch)?.clone();
+
+                // Ensure total active balance cache remains built whenever current committee
+                // cache is built.
+                if epoch == self.current_epoch() {
+                    self.build_total_active_balance_cache(spec)?;
+                }
+            }
+        }
+
+        Ok(())
+    }
 }
 
 impl<T: EthSpec, GenericValidator: ValidatorTrait> BeaconState<T, GenericValidator> {
@@ -1790,6 +1911,7 @@ impl<T: EthSpec, GenericValidator: ValidatorTrait> BeaconState<T, GenericValidat
                 map_beacon_state_capella_tree_list_fields!(inner, |_, x| { x.apply_updates() })
             }
         }
+        self.eth1_data_votes_mut().apply_updates()?;
         Ok(())
     }
 
