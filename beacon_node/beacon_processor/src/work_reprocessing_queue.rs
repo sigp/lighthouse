@@ -12,7 +12,7 @@
 //! block will be re-queued until their block is imported, or until they expire.
 use super::MAX_SCHEDULED_WORK_QUEUE_LEN;
 use crate::metrics;
-use crate::{AsyncBeaconBlockFn, AsyncBeaconBlockVecFn, AsyncGossipBlockFn, Work, WorkEvent};
+use crate::{AsyncFn, BlockingFn, Work, WorkEvent};
 use fnv::FnvHashMap;
 use futures::task::Poll;
 use futures::{Stream, StreamExt};
@@ -23,7 +23,6 @@ use slot_clock::SlotClock;
 use std::collections::{HashMap, HashSet};
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::Arc;
 use std::task::Context;
 use std::time::Duration;
 use strum::AsRefStr;
@@ -31,10 +30,7 @@ use task_executor::TaskExecutor;
 use tokio::sync::mpsc::{self, Receiver, Sender};
 use tokio::time::error::Error as TimeError;
 use tokio_util::time::delay_queue::{DelayQueue, Key as DelayKey};
-use types::{
-    Attestation, Epoch, EthSpec, Hash256, LightClientOptimisticUpdate, SignedAggregateAndProof,
-    SignedBeaconBlock, Slot,
-};
+use types::{Epoch, EthSpec, Hash256, Slot};
 
 const TASK_NAME: &str = "beacon_processor_reprocess_queue";
 const GOSSIP_BLOCKS: &str = "gossip_blocks";
@@ -93,12 +89,12 @@ pub enum ChainSegmentProcessId {
 
 /// Messages that the scheduler can receive.
 #[derive(AsRefStr)]
-pub enum ReprocessQueueMessage<T: EthSpec, GBlock> {
+pub enum ReprocessQueueMessage {
     /// A block that has been received early and we should queue for later processing.
-    EarlyBlock(QueuedGossipBlock<GBlock>),
+    EarlyBlock(QueuedGossipBlock),
     /// A gossip block for hash `X` is being imported, we should queue the rpc block for the same
     /// hash until the gossip block is imported.
-    RpcBlock(QueuedRpcBlock<T>),
+    RpcBlock(QueuedRpcBlock),
     /// A block that was successfully processed. We use this to handle attestations and light client updates
     /// for unknown blocks.
     BlockImported {
@@ -106,30 +102,30 @@ pub enum ReprocessQueueMessage<T: EthSpec, GBlock> {
         parent_root: Hash256,
     },
     /// An unaggregated attestation that references an unknown block.
-    UnknownBlockUnaggregate(QueuedUnaggregate<T>),
+    UnknownBlockUnaggregate(QueuedUnaggregate),
     /// An aggregated attestation that references an unknown block.
-    UnknownBlockAggregate(QueuedAggregate<T>),
+    UnknownBlockAggregate(QueuedAggregate),
     /// A light client optimistic update that references a parent root that has not been seen as a parent.
-    UnknownLightClientOptimisticUpdate(QueuedLightClientUpdate<T>),
+    UnknownLightClientOptimisticUpdate(QueuedLightClientUpdate),
     /// A new backfill batch that needs to be scheduled for processing.
-    BackfillSync(QueuedBackfillBatch<T>),
+    BackfillSync(QueuedBackfillBatch),
 }
 
 /// Events sent by the scheduler once they are ready for re-processing.
-pub enum ReadyWork<T: EthSpec, GBlock> {
-    Block(QueuedGossipBlock<GBlock>),
-    RpcBlock(QueuedRpcBlock<T>),
-    Unaggregate(QueuedUnaggregate<T>),
-    Aggregate(QueuedAggregate<T>),
-    LightClientUpdate(QueuedLightClientUpdate<T>),
-    BackfillSync(QueuedBackfillBatch<T>),
+pub enum ReadyWork {
+    Block(QueuedGossipBlock),
+    RpcBlock(QueuedRpcBlock),
+    Unaggregate(QueuedUnaggregate),
+    Aggregate(QueuedAggregate),
+    LightClientUpdate(QueuedLightClientUpdate),
+    BackfillSync(QueuedBackfillBatch),
 }
 
 /// An Attestation for which the corresponding block was not seen while processing, queued for
 /// later.
-pub struct QueuedUnaggregate<T: EthSpec> {
-    pub attestation: Box<Attestation<T>>,
-    pub process_fn: Box<dyn Fn(Box<Attestation<T>>) + Send + Sync>,
+pub struct QueuedUnaggregate {
+    pub beacon_block_root: Hash256,
+    pub process_fn: BlockingFn,
 }
 
 // TODO(paul): move to `lighthouse_network`
@@ -142,62 +138,53 @@ pub enum BlockProcessType {
 
 /// An aggregated attestation for which the corresponding block was not seen while processing, queued for
 /// later.
-pub struct QueuedAggregate<T: EthSpec> {
-    pub attestation: Box<SignedAggregateAndProof<T>>,
-    pub process_fn: Box<dyn Fn(Box<SignedAggregateAndProof<T>>) + Send + Sync>,
+pub struct QueuedAggregate {
+    pub beacon_block_root: Hash256,
+    pub process_fn: BlockingFn,
 }
 
 /// A light client update for which the corresponding parent block was not seen while processing,
 /// queued for later.
-pub struct QueuedLightClientUpdate<T: EthSpec> {
-    pub light_client_optimistic_update: Box<LightClientOptimisticUpdate<T>>,
+pub struct QueuedLightClientUpdate {
     pub parent_root: Hash256,
-    pub process_fn: Box<dyn Fn(Box<LightClientOptimisticUpdate<T>>) + Send + Sync>,
-}
-
-pub trait GenericBlock: Send + Sync {
-    fn slot(&self) -> Slot;
-    fn block_root(&self) -> Hash256;
+    pub process_fn: BlockingFn,
 }
 
 /// A block that arrived early and has been queued for later import.
-pub struct QueuedGossipBlock<GBlock> {
-    pub block: Box<GBlock>,
-    pub process_fn: AsyncGossipBlockFn<GBlock>,
+pub struct QueuedGossipBlock {
+    pub beacon_block_slot: Slot,
+    pub beacon_block_root: Hash256,
+    pub process_fn: AsyncFn,
 }
 
 /// A block that arrived for processing when the same block was being imported over gossip.
 /// It is queued for later import.
-pub struct QueuedRpcBlock<T: EthSpec> {
-    pub block: Arc<SignedBeaconBlock<T>>,
+pub struct QueuedRpcBlock {
+    pub beacon_block_root: Hash256,
     pub should_process: bool,
-    pub process_fn: AsyncBeaconBlockFn<T>,
+    pub process_fn: AsyncFn,
 }
 
-#[derive(Clone)]
 /// A backfill batch work that has been queued for processing later.
-pub struct QueuedBackfillBatch<E: EthSpec> {
+pub struct QueuedBackfillBatch {
     pub process_id: ChainSegmentProcessId,
-    pub blocks: Vec<Arc<SignedBeaconBlock<E>>>,
-    pub process_fn: Arc<AsyncBeaconBlockVecFn<E>>,
+    pub process_fn: AsyncFn,
 }
 
-impl<T: EthSpec, GBlock> TryFrom<WorkEvent<T, GBlock>> for QueuedBackfillBatch<T> {
-    type Error = WorkEvent<T, GBlock>;
+impl<T: EthSpec> TryFrom<WorkEvent<T>> for QueuedBackfillBatch {
+    type Error = WorkEvent<T>;
 
-    fn try_from(event: WorkEvent<T, GBlock>) -> Result<Self, WorkEvent<T, GBlock>> {
+    fn try_from(event: WorkEvent<T>) -> Result<Self, WorkEvent<T>> {
         match event {
             WorkEvent {
                 work:
                     Work::ChainSegment {
                         process_id: process_id @ ChainSegmentProcessId::BackSyncBatchId(_),
-                        blocks,
                         process_fn,
                     },
                 ..
             } => Ok(QueuedBackfillBatch {
                 process_id,
-                blocks,
                 process_fn,
             }),
             _ => Err(event),
@@ -205,13 +192,12 @@ impl<T: EthSpec, GBlock> TryFrom<WorkEvent<T, GBlock>> for QueuedBackfillBatch<T
     }
 }
 
-impl<T: EthSpec, GBlock> From<QueuedBackfillBatch<T>> for WorkEvent<T, GBlock> {
-    fn from(queued_backfill_batch: QueuedBackfillBatch<T>) -> WorkEvent<T, GBlock> {
+impl<T: EthSpec> From<QueuedBackfillBatch> for WorkEvent<T> {
+    fn from(queued_backfill_batch: QueuedBackfillBatch) -> WorkEvent<T> {
         WorkEvent {
             drop_during_sync: false,
             work: Work::ChainSegment {
                 process_id: queued_backfill_batch.process_id,
-                blocks: queued_backfill_batch.blocks,
                 process_fn: queued_backfill_batch.process_fn,
             },
         }
@@ -219,36 +205,36 @@ impl<T: EthSpec, GBlock> From<QueuedBackfillBatch<T>> for WorkEvent<T, GBlock> {
 }
 
 /// Unifies the different messages processed by the block delay queue.
-enum InboundEvent<T: EthSpec, GBlock> {
+enum InboundEvent {
     /// A gossip block that was queued for later processing and is ready for import.
-    ReadyGossipBlock(QueuedGossipBlock<GBlock>),
+    ReadyGossipBlock(QueuedGossipBlock),
     /// A rpc block that was queued because the same gossip block was being imported
     /// will now be retried for import.
-    ReadyRpcBlock(QueuedRpcBlock<T>),
+    ReadyRpcBlock(QueuedRpcBlock),
     /// An aggregated or unaggregated attestation is ready for re-processing.
     ReadyAttestation(QueuedAttestationId),
     /// A light client update that is ready for re-processing.
     ReadyLightClientUpdate(QueuedLightClientUpdateId),
     /// A backfill batch that was queued is ready for processing.
-    ReadyBackfillSync(QueuedBackfillBatch<T>),
+    ReadyBackfillSync(QueuedBackfillBatch),
     /// A `DelayQueue` returned an error.
     DelayQueueError(TimeError, &'static str),
     /// A message sent to the `ReprocessQueue`
-    Msg(ReprocessQueueMessage<T, GBlock>),
+    Msg(ReprocessQueueMessage),
 }
 
 /// Manages scheduling works that need to be later re-processed.
-struct ReprocessQueue<T: EthSpec, S, GBlock> {
+struct ReprocessQueue<S> {
     /// Receiver of messages relevant to schedule works for reprocessing.
-    work_reprocessing_rx: Receiver<ReprocessQueueMessage<T, GBlock>>,
+    work_reprocessing_rx: Receiver<ReprocessQueueMessage>,
     /// Sender of works once they become ready
-    ready_work_tx: Sender<ReadyWork<T, GBlock>>,
+    ready_work_tx: Sender<ReadyWork>,
 
     /* Queues */
     /// Queue to manage scheduled early blocks.
-    gossip_block_delay_queue: DelayQueue<QueuedGossipBlock<GBlock>>,
+    gossip_block_delay_queue: DelayQueue<QueuedGossipBlock>,
     /// Queue to manage scheduled early blocks.
-    rpc_block_delay_queue: DelayQueue<QueuedRpcBlock<T>>,
+    rpc_block_delay_queue: DelayQueue<QueuedRpcBlock>,
     /// Queue to manage scheduled attestations.
     attestations_delay_queue: DelayQueue<QueuedAttestationId>,
     /// Queue to manage scheduled light client updates.
@@ -258,17 +244,17 @@ struct ReprocessQueue<T: EthSpec, S, GBlock> {
     /// Queued blocks.
     queued_gossip_block_roots: HashSet<Hash256>,
     /// Queued aggregated attestations.
-    queued_aggregates: FnvHashMap<usize, (QueuedAggregate<T>, DelayKey)>,
+    queued_aggregates: FnvHashMap<usize, (QueuedAggregate, DelayKey)>,
     /// Queued attestations.
-    queued_unaggregates: FnvHashMap<usize, (QueuedUnaggregate<T>, DelayKey)>,
+    queued_unaggregates: FnvHashMap<usize, (QueuedUnaggregate, DelayKey)>,
     /// Attestations (aggregated and unaggregated) per root.
     awaiting_attestations_per_root: HashMap<Hash256, Vec<QueuedAttestationId>>,
     /// Queued Light Client Updates.
-    queued_lc_updates: FnvHashMap<usize, (QueuedLightClientUpdate<T>, DelayKey)>,
+    queued_lc_updates: FnvHashMap<usize, (QueuedLightClientUpdate, DelayKey)>,
     /// Light Client Updates per parent_root.
     awaiting_lc_updates_per_parent_root: HashMap<Hash256, Vec<QueuedLightClientUpdateId>>,
     /// Queued backfill batches
-    queued_backfill_batches: Vec<QueuedBackfillBatch<T>>,
+    queued_backfill_batches: Vec<QueuedBackfillBatch>,
 
     /* Aux */
     /// Next attestation id, used for both aggregated and unaggregated attestations
@@ -290,20 +276,20 @@ enum QueuedAttestationId {
     Unaggregate(usize),
 }
 
-impl<T: EthSpec> QueuedAggregate<T> {
+impl QueuedAggregate {
     pub fn beacon_block_root(&self) -> &Hash256 {
-        &self.attestation.message.aggregate.data.beacon_block_root
+        &self.beacon_block_root
     }
 }
 
-impl<T: EthSpec> QueuedUnaggregate<T> {
+impl QueuedUnaggregate {
     pub fn beacon_block_root(&self) -> &Hash256 {
-        &self.attestation.data.beacon_block_root
+        &self.beacon_block_root
     }
 }
 
-impl<T: EthSpec, S: SlotClock, GBlock: GenericBlock> Stream for ReprocessQueue<T, S, GBlock> {
-    type Item = InboundEvent<T, GBlock>;
+impl<S: SlotClock> Stream for ReprocessQueue<S> {
+    type Item = InboundEvent;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         // NOTE: implementing `Stream` is not necessary but allows to maintain the future selection
@@ -394,16 +380,12 @@ impl<T: EthSpec, S: SlotClock, GBlock: GenericBlock> Stream for ReprocessQueue<T
 /// Starts the job that manages scheduling works that need re-processing. The returned `Sender`
 /// gives the communicating channel to receive those works. Once a work is ready, it is sent back
 /// via `ready_work_tx`.
-pub fn spawn_reprocess_scheduler<
-    T: EthSpec,
-    S: SlotClock + 'static,
-    GBlock: GenericBlock + 'static,
->(
-    ready_work_tx: Sender<ReadyWork<T, GBlock>>,
+pub fn spawn_reprocess_scheduler<S: SlotClock + 'static>(
+    ready_work_tx: Sender<ReadyWork>,
     executor: &TaskExecutor,
     slot_clock: S,
     log: Logger,
-) -> Sender<ReprocessQueueMessage<T, GBlock>> {
+) -> Sender<ReprocessQueueMessage> {
     let (work_reprocessing_tx, work_reprocessing_rx) = mpsc::channel(MAX_SCHEDULED_WORK_QUEUE_LEN);
 
     let mut queue = ReprocessQueue {
@@ -448,15 +430,15 @@ pub fn spawn_reprocess_scheduler<
     work_reprocessing_tx
 }
 
-impl<T: EthSpec, S: SlotClock, GBlock: GenericBlock> ReprocessQueue<T, S, GBlock> {
-    fn handle_message(&mut self, msg: InboundEvent<T, GBlock>, slot_clock: &S, log: &Logger) {
+impl<S: SlotClock> ReprocessQueue<S> {
+    fn handle_message(&mut self, msg: InboundEvent, slot_clock: &S, log: &Logger) {
         use ReprocessQueueMessage::*;
         match msg {
             // Some block has been indicated as "early" and should be processed when the
             // appropriate slot arrives.
             InboundEvent::Msg(EarlyBlock(early_block)) => {
-                let block_slot = early_block.block.slot();
-                let block_root = early_block.block.block_root();
+                let block_slot = early_block.beacon_block_slot;
+                let block_root = early_block.beacon_block_root;
 
                 // Don't add the same block to the queue twice. This prevents DoS attacks.
                 if self.queued_gossip_block_roots.contains(&block_root) {
@@ -550,7 +532,7 @@ impl<T: EthSpec, S: SlotClock, GBlock: GenericBlock> ReprocessQueue<T, S, GBlock
                 debug!(
                     log,
                     "Sending rpc block for reprocessing";
-                    "block_root" => %queued_rpc_block.block.canonical_root()
+                    "block_root" => %queued_rpc_block.beacon_block_root
                 );
                 if self
                     .ready_work_tx
@@ -788,7 +770,7 @@ impl<T: EthSpec, S: SlotClock, GBlock: GenericBlock> ReprocessQueue<T, S, GBlock
             }
             // A block that was queued for later processing is now ready to be processed.
             InboundEvent::ReadyGossipBlock(ready_block) => {
-                let block_root = ready_block.block.block_root();
+                let block_root = ready_block.beacon_block_root;
 
                 if !self.queued_gossip_block_roots.remove(&block_root) {
                     // Log an error to alert that we've made a bad assumption about how this
@@ -906,18 +888,28 @@ impl<T: EthSpec, S: SlotClock, GBlock: GenericBlock> ReprocessQueue<T, S, GBlock
                     "millis_from_slot_start" => millis_from_slot_start
                 );
 
-                if self
+                match self
                     .ready_work_tx
-                    .try_send(ReadyWork::BackfillSync(queued_backfill_batch.clone()))
-                    .is_err()
+                    .try_send(ReadyWork::BackfillSync(queued_backfill_batch))
                 {
-                    error!(
+                    // The message was sent successfully.
+                    Ok(()) => (),
+                    // The message was not sent, recover it from the returned `Err`.
+                    Err(mpsc::error::TrySendError::Full(ReadyWork::BackfillSync(batch)))
+                    | Err(mpsc::error::TrySendError::Closed(ReadyWork::BackfillSync(batch))) => {
+                        error!(
+                            log,
+                            "Failed to send scheduled backfill work";
+                            "info" => "sending work back to queue"
+                        );
+                        self.queued_backfill_batches.insert(0, batch)
+                    }
+                    // The message was not sent and we didn't get the correct
+                    // return result. This is a logic error.
+                    _ => crit!(
                         log,
-                        "Failed to send scheduled backfill work";
-                        "info" => "sending work back to queue"
-                    );
-                    self.queued_backfill_batches
-                        .insert(0, queued_backfill_batch);
+                        "Unexpected return from try_send error";
+                    ),
                 }
             }
         }
@@ -948,9 +940,7 @@ impl<T: EthSpec, S: SlotClock, GBlock: GenericBlock> ReprocessQueue<T, S, GBlock
         // only recompute the `next_backfill_batch_event` if there are backfill batches in the queue
         if !self.queued_backfill_batches.is_empty() {
             self.next_backfill_batch_event = Some(Box::pin(tokio::time::sleep(
-                ReprocessQueue::<T, S, GBlock>::duration_until_next_backfill_batch_event(
-                    &self.slot_clock,
-                ),
+                ReprocessQueue::<S>::duration_until_next_backfill_batch_event(&self.slot_clock),
             )));
         } else {
             self.next_backfill_batch_event = None
@@ -989,16 +979,8 @@ impl<T: EthSpec, S: SlotClock, GBlock: GenericBlock> ReprocessQueue<T, S, GBlock
 #[cfg(test)]
 mod tests {
     use super::*;
-    use beacon_chain::builder::Witness;
-    use beacon_chain::eth1_chain::CachingEth1Backend;
-    use beacon_chain::GossipVerifiedBlock;
     use slot_clock::TestingSlotClock;
-    use store::MemoryStore;
-    use types::MainnetEthSpec as E;
     use types::Slot;
-
-    type TestBeaconChainType =
-        Witness<TestingSlotClock, CachingEth1Backend<E>, E, MemoryStore<E>, MemoryStore<E>>;
 
     #[test]
     fn backfill_processing_schedule_calculation() {
@@ -1011,13 +993,10 @@ mod tests {
             .map(|(multiplier, divisor)| (slot_duration / divisor) * multiplier);
 
         for &event_duration_from_slot_start in event_times.iter() {
-            let duration_to_next_event = ReprocessQueue::<
-                E,
-                TestingSlotClock,
-                GossipVerifiedBlock<TestBeaconChainType>,
-            >::duration_until_next_backfill_batch_event(
-                &slot_clock
-            );
+            let duration_to_next_event =
+                ReprocessQueue::<TestingSlotClock>::duration_until_next_backfill_batch_event(
+                    &slot_clock,
+                );
 
             let current_time = slot_clock.millis_from_current_slot_start().unwrap();
 
@@ -1031,13 +1010,10 @@ mod tests {
 
         // check for next event beyond the current slot
         let duration_to_next_slot = slot_clock.duration_to_next_slot().unwrap();
-        let duration_to_next_event = ReprocessQueue::<
-            E,
-            TestingSlotClock,
-            GossipVerifiedBlock<TestBeaconChainType>,
-        >::duration_until_next_backfill_batch_event(
-            &slot_clock
-        );
+        let duration_to_next_event =
+            ReprocessQueue::<TestingSlotClock>::duration_until_next_backfill_batch_event(
+                &slot_clock,
+            );
         assert_eq!(
             duration_to_next_event,
             duration_to_next_slot + event_times[0]

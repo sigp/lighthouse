@@ -299,19 +299,3 @@ lazy_static::lazy_static! {
             &["type"]
         );
 }
-
-pub fn register_finality_update_error(error: &impl AsRef<str>) {
-    inc_counter_vec(&GOSSIP_FINALITY_UPDATE_ERRORS_PER_TYPE, &[error.as_ref()]);
-}
-
-pub fn register_optimistic_update_error(error: &impl AsRef<str>) {
-    inc_counter_vec(&GOSSIP_OPTIMISTIC_UPDATE_ERRORS_PER_TYPE, &[error.as_ref()]);
-}
-
-pub fn register_attestation_error(error: &impl AsRef<str>) {
-    inc_counter_vec(&GOSSIP_ATTESTATION_ERRORS_PER_TYPE, &[error.as_ref()]);
-}
-
-pub fn register_sync_committee_error(error: &impl AsRef<str>) {
-    inc_counter_vec(&GOSSIP_SYNC_COMMITTEE_ERRORS_PER_TYPE, &[error.as_ref()]);
-}
