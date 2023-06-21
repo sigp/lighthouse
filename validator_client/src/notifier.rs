@@ -1,7 +1,7 @@
 use crate::http_metrics;
 use crate::{DutiesService, ProductionValidatorClient};
 use lighthouse_metrics::set_gauge;
-use slog::{error, info, Logger};
+use slog::{debug, error, info, Logger};
 use slot_clock::SlotClock;
 use tokio::time::{sleep, Duration};
 use types::EthSpec;
@@ -39,6 +39,7 @@ async fn notify<T: SlotClock + 'static, E: EthSpec>(
     duties_service: &DutiesService<T, E>,
     log: &Logger,
 ) {
+    let candidate_info = duties_service.beacon_nodes.get_all_candidate_info().await;
     let num_available = duties_service.beacon_nodes.num_available().await;
     set_gauge(
         &http_metrics::metrics::AVAILABLE_BEACON_NODES_COUNT,
@@ -55,9 +56,14 @@ async fn notify<T: SlotClock + 'static, E: EthSpec>(
         num_total as i64,
     );
     if num_synced > 0 {
+        let primary = candidate_info
+            .get(0)
+            .map(|candidate| candidate.node.as_str())
+            .unwrap_or("None");
         info!(
             log,
             "Connected to beacon node(s)";
+            "primary" => primary,
             "total" => num_total,
             "available" => num_available,
             "synced" => num_synced,
@@ -76,6 +82,31 @@ async fn notify<T: SlotClock + 'static, E: EthSpec>(
         set_gauge(&http_metrics::metrics::ETH2_FALLBACK_CONNECTED, 1);
     } else {
         set_gauge(&http_metrics::metrics::ETH2_FALLBACK_CONNECTED, 0);
+    }
+
+    // TODO(mac) Store all connected node info into metrics.
+    for info in candidate_info {
+        if let Some(health) = info.health {
+            debug!(
+                log,
+                "Beacon node info";
+                "status" => "Connected",
+                "id" => info.id,
+                "endpoint" => info.node,
+                "head_slot" => %health.head,
+                "is_optimistic" => ?health.optimistic_status,
+                "execution_engine_status" => ?health.execution_status,
+                "health_tier" => ?health.health_tier,
+            );
+        } else {
+            debug!(
+                log,
+                "Beacon node info";
+                "status" => "Disconnected",
+                "id" => info.id,
+                "endpoint" => info.node,
+            );
+        }
     }
 
     if let Some(slot) = duties_service.slot_clock.now() {

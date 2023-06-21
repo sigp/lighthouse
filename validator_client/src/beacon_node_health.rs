@@ -158,7 +158,7 @@ impl BeaconNodeHealthTier {
 }
 
 /// Beacon Node Health metrics.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct BeaconNodeHealth {
     // The ID of the Beacon Node. This should correspond with its position in the `--beacon-nodes`
     // list. Note that the ID field is used to tie-break nodes with the same health so that nodes

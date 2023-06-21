@@ -137,8 +137,14 @@ pub enum CandidateError {
     Uninitialized,
     Offline,
     Incompatible,
-    NotSynced,
     TimeDiscrepancy,
+}
+
+#[derive(Debug, Clone)]
+pub struct CandidateInfo {
+    pub id: usize,
+    pub node: String,
+    pub health: Option<BeaconNodeHealth>,
 }
 
 /// Represents a `BeaconNodeHttpClient` inside a `BeaconNodeFallback` that may or may not be used
@@ -147,8 +153,7 @@ pub enum CandidateError {
 pub struct CandidateBeaconNode<E> {
     id: usize,
     beacon_node: BeaconNodeHttpClient,
-    health: PLRwLock<Option<BeaconNodeHealth>>,
-    status: RwLock<Result<(), CandidateError>>,
+    health: PLRwLock<Result<BeaconNodeHealth, CandidateError>>,
     _phantom: PhantomData<E>,
 }
 
@@ -162,11 +167,11 @@ impl<E: EthSpec> Eq for CandidateBeaconNode<E> {}
 
 impl<E: EthSpec> Ord for CandidateBeaconNode<E> {
     fn cmp(&self, other: &Self) -> Ordering {
-        match (&(*self.health.read()), &(*other.health.read())) {
-            (None, None) => Ordering::Equal,
-            (None, _) => Ordering::Greater,
-            (_, None) => Ordering::Less,
-            (Some(health_1), Some(health_2)) => health_1.cmp(health_2),
+        match (&(self.health()), &(other.health())) {
+            (Err(_), Err(_)) => Ordering::Equal,
+            (Err(_), _) => Ordering::Greater,
+            (_, Err(_)) => Ordering::Less,
+            (Ok(health_1), Ok(health_2)) => health_1.cmp(health_2),
         }
     }
 }
@@ -183,15 +188,14 @@ impl<E: EthSpec> CandidateBeaconNode<E> {
         Self {
             id,
             beacon_node,
-            health: PLRwLock::new(None),
-            status: RwLock::new(Err(CandidateError::Uninitialized)),
+            health: PLRwLock::new(Err(CandidateError::Uninitialized)),
             _phantom: PhantomData,
         }
     }
 
-    /// Returns the status of `self`.
-    pub async fn status(&self) -> Result<(), CandidateError> {
-        *self.status.read().await
+    /// Returns the health of `self`.
+    pub fn health(&self) -> Result<BeaconNodeHealth, CandidateError> {
+        *self.health.read()
     }
 
     pub async fn refresh_health<T: SlotClock>(
@@ -202,7 +206,7 @@ impl<E: EthSpec> CandidateBeaconNode<E> {
         log: &Logger,
     ) -> Result<(), CandidateError> {
         if let Err(e) = self.is_compatible(spec, log).await {
-            *self.status.write().await = Err(e);
+            *self.health.write() = Err(e);
             return Ok(());
         }
 
@@ -231,29 +235,20 @@ impl<E: EthSpec> CandidateBeaconNode<E> {
                         slot_clock,
                     );
 
-                    warn!(
-                        log,
-                        "Health of Beacon Node: {}, updated. Health tier: {}",
-                        new_health.get_id(),
-                        new_health.get_health_tier()
-                    );
+                    // TODO(mac): Set metric here.
 
-                    *self.health.write() = Some(new_health);
-                    *self.status.write().await = Ok(());
-
+                    *self.health.write() = Ok(new_health);
                     Ok(())
                 }
-                Err(status) => {
-                    // Set the health as None which is sorted last in the list.
-                    *self.health.write() = None;
-                    *self.status.write().await = Err(status);
+                Err(e) => {
+                    // Set the health as `Err` which is sorted last in the list.
+                    *self.health.write() = Err(e);
                     Ok(())
                 }
             }
         } else {
-            // Slot clock will only be None at startup.
+            // Slot clock will only be `None` at startup.
             // Assume compatible nodes are available.
-            *self.status.write().await = Ok(());
             Ok(())
         }
     }
@@ -373,7 +368,7 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
     pub async fn num_synced(&self) -> usize {
         let mut n = 0;
         for candidate in self.candidates.read().await.iter() {
-            if let Some(cand) = candidate.health.read().as_ref() {
+            if let Ok(cand) = candidate.health().as_ref() {
                 if self
                     .distance_tiers
                     .distance_tier(cand.health_tier.sync_distance)
@@ -390,7 +385,7 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
     pub async fn num_synced_fallback(&self) -> usize {
         let mut n = 0;
         for candidate in self.candidates.read().await.iter().skip(1) {
-            if let Some(cand) = candidate.health.read().as_ref() {
+            if let Ok(cand) = candidate.health().as_ref() {
                 if self
                     .distance_tiers
                     .distance_tier(cand.health_tier.sync_distance)
@@ -407,11 +402,24 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
     pub async fn num_available(&self) -> usize {
         let mut n = 0;
         for candidate in self.candidates.read().await.iter() {
-            if candidate.status().await.is_ok() {
+            if candidate.health().is_ok() {
                 n += 1
             }
         }
         n
+    }
+
+    pub async fn get_all_candidate_info(&self) -> Vec<CandidateInfo> {
+        let candidates = self.candidates.read().await;
+        let mut results = Vec::with_capacity(candidates.len());
+        for candidate in candidates.iter() {
+            let id = candidate.id;
+            let node = candidate.beacon_node.to_string();
+            let health = candidate.health().ok();
+            let info = CandidateInfo { id, node, health };
+            results.push(info);
+        }
+        results
     }
 
     /// Loop through ALL candidates in `self.candidates` and update their sync status.
@@ -421,21 +429,33 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
     /// A previous implementation of this function polled only the unavailable BNs.
     pub async fn update_all_candidates(&self) {
         let candidates = self.candidates.read().await;
+        let mut futures = Vec::with_capacity(candidates.len());
+        let mut nodes = Vec::with_capacity(candidates.len());
 
-        let futures = candidates
-            .iter()
-            .map(|candidate| {
-                candidate.refresh_health(
-                    &self.distance_tiers,
-                    self.slot_clock.as_ref(),
-                    &self.spec,
-                    &self.log,
-                )
-            })
-            .collect::<Vec<_>>();
+        for candidate in candidates.iter() {
+            futures.push(candidate.refresh_health(
+                &self.distance_tiers,
+                self.slot_clock.as_ref(),
+                &self.spec,
+                &self.log,
+            ));
+            nodes.push(candidate.beacon_node.to_string());
+        }
 
-        // Run all updates concurrently and ignore errors.
-        let _ = future::join_all(futures).await;
+        // Run all updates concurrently.
+        let future_results = future::join_all(futures).await;
+        let results = future_results.iter().zip(nodes);
+
+        for (result, node) in results {
+            if let Err(e) = result {
+                warn!(
+                    self.log,
+                    "A connected beacon node errored during routine health check.";
+                    "error" => ?e,
+                    "endpoint" => node,
+                );
+            }
+        }
 
         drop(candidates);
 
@@ -519,11 +539,7 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
                             "node" => $candidate.beacon_node.to_string(),
                             "error" => ?e,
                         );
-                        // If we have an error on this function, make the client as not-ready.
-                        //
-                        // There exists a race condition where the candidate may have been marked
-                        // as ready between the `func` call and now. We deem this an acceptable
-                        // inefficiency.
+
                         errors.push(($candidate.beacon_node.to_string(), Error::RequestFailed(e)));
                         inc_counter_vec(&ENDPOINT_ERRORS, &[$candidate.beacon_node.as_ref()]);
                     }
@@ -573,11 +589,6 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
                 match func($candidate.beacon_node.clone()).await {
                     Ok(val) => results.push(Ok(val)),
                     Err(e) => {
-                        // If we have an error on this function, make the client as not-ready.
-                        //
-                        // There exists a race condition where the candidate may have been marked
-                        // as ready between the `func` call and now. We deem this an acceptable
-                        // inefficiency.
                         results.push(Err((
                             $candidate.beacon_node.to_string(),
                             Error::RequestFailed(e),
@@ -714,12 +725,12 @@ mod tests {
             health_tier: BeaconNodeHealthTier::new(4, Slot::new(10), small),
         };
 
-        *candidate_1.health.write() = Some(health_1);
-        *candidate_2.health.write() = Some(health_2);
-        *candidate_3.health.write() = Some(health_3);
-        *candidate_4.health.write() = Some(health_4);
-        *candidate_5.health.write() = Some(health_5);
-        *candidate_6.health.write() = Some(health_6);
+        *candidate_1.health.write() = Ok(health_1);
+        *candidate_2.health.write() = Ok(health_2);
+        *candidate_3.health.write() = Ok(health_3);
+        *candidate_4.health.write() = Ok(health_4);
+        *candidate_5.health.write() = Ok(health_5);
+        *candidate_6.health.write() = Ok(health_6);
 
         let mut candidates = vec![
             candidate_3,
