@@ -555,11 +555,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 let (chain_hash, blocks, hashes, request) = parent_lookup.parts_for_processing();
                 let process_id = ChainSegmentProcessId::ParentLookup(chain_hash);
 
-                let event = WorkEvent::chain_segment(
-                    process_id,
-                    beacon_processor.process_fn_process_chain_segment(process_id, blocks),
-                );
-                match beacon_processor.beacon_processor_send.try_send(event) {
+                match beacon_processor.send_chain_segment(process_id, blocks) {
                     Ok(_) => {
                         self.processing_parent_lookups
                             .insert(chain_hash, (hashes, request));
