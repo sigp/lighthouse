@@ -99,16 +99,17 @@ impl<T: BeaconChainTypes> Router<T> {
 
         let network_beacon_processor = NetworkBeaconProcessor {
             beacon_processor_send,
-            duplicate_cache: beacon_processor.duplicate_cache.clone(),
+            duplicate_cache: beacon_processor.importing_blocks.clone(),
             chain: beacon_chain.clone(),
             network_tx: network_send.clone(),
             sync_tx: sync_send.clone(),
             reprocess_tx: beacon_processor_reprocess_tx,
             network_globals: network_globals.clone(),
-            invalid_block_storage: beacon_processor.invalid_block_storage.clone(),
+            invalid_block_storage,
             executor: executor.clone(),
             log: log.clone(),
         };
+        let network_beacon_processor = Arc::new(network_beacon_processor);
 
         // spawn the sync thread
         let sync_send = crate::sync::manager::spawn(
@@ -126,7 +127,7 @@ impl<T: BeaconChainTypes> Router<T> {
             chain: beacon_chain,
             sync_send,
             network: HandlerNetworkContext::new(network_send, log.clone()),
-            network_beacon_processor: Arc::new(network_beacon_processor),
+            network_beacon_processor: network_beacon_processor,
             log: message_handler_log,
         };
 
