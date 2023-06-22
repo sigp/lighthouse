@@ -628,6 +628,16 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             .map(|payload| payload.is_some())
     }
 
+    /// Store an execution payload in the hot database.
+    pub fn put_execution_payload(
+        &self,
+        block_root: &Hash256,
+        execution_payload: &ExecutionPayload<E>,
+    ) -> Result<(), Error> {
+        self.hot_db
+            .do_atomically(vec![execution_payload.as_kv_store_op(*block_root)?])
+    }
+
     /// Determine whether a block exists in the database (hot *or* cold).
     pub fn block_exists(&self, block_root: &Hash256) -> Result<bool, Error> {
         Ok(self

@@ -83,16 +83,10 @@ pub trait KeyValueStore<E: EthSpec>: Sync + Send + Sized + 'static {
         self.iter_column_from(column, &vec![0; column.key_size()])
     }
 
-    fn iter_column_from<K: Key>(&self, _column: DBColumn, _from: &[u8]) -> ColumnIter<K> {
-        // Default impl for non LevelDB databases
-        Box::new(std::iter::empty())
-    }
+    fn iter_column_from<K: Key>(&self, column: DBColumn, from: &[u8]) -> ColumnIter<K>;
 
     /// Iterate through all keys in a particular column.
-    fn iter_column_keys(&self, _column: DBColumn) -> ColumnKeyIter {
-        // Default impl for non LevelDB databases
-        Box::new(std::iter::empty())
-    }
+    fn iter_column_keys(&self, column: DBColumn) -> ColumnKeyIter;
 }
 
 pub trait Key: Sized + 'static {

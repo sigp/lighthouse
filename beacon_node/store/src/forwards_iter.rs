@@ -67,8 +67,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 /// Forwards root iterator that makes use of a flat field table in the freezer DB.
 pub struct FrozenForwardsIterator<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> {
     inner: ColumnIter<'a, Vec<u8>>,
-    limit: Slot,
-    finished: bool,
+    next_slot: Slot,
+    end_slot: Slot,
     _phantom: PhantomData<(E, Hot, Cold)>,
 }
 
@@ -88,8 +88,8 @@ impl<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>
         let start = start_slot.as_u64().to_be_bytes();
         Self {
             inner: store.cold_db.iter_column_from(column, &start),
-            limit: end_slot,
-            finished: false,
+            next_slot: start_slot,
+            end_slot,
             _phantom: PhantomData,
         }
     }
@@ -101,7 +101,7 @@ impl<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> Iterator
     type Item = Result<(Hash256, Slot)>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.finished {
+        if self.next_slot == self.end_slot {
             return None;
         }
 
@@ -114,9 +114,9 @@ impl<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> Iterator
                     let slot = Slot::new(u64::from_be_bytes(slot_bytes.try_into().unwrap()));
                     let root = Hash256::from_slice(&root_bytes);
 
-                    if slot + 1 == self.limit {
-                        self.finished = true;
-                    }
+                    assert_eq!(slot, self.next_slot);
+                    self.next_slot += 1;
+
                     Ok(Some((root, slot)))
                 }
             })
@@ -234,7 +234,7 @@ impl<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>
                     // of the pre iterator.
                     None => {
                         let continuation_data = continuation_data.take();
-                        let start_slot = iter.limit;
+                        let start_slot = iter.end_slot;
 
                         *self = PostFinalizationLazy {
                             continuation_data,
