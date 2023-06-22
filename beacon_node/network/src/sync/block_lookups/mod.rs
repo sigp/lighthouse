@@ -667,14 +667,12 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         match cx.beacon_processor_if_enabled() {
             Some(beacon_processor) => {
                 trace!(self.log, "Sending block for processing"; "block" => ?block_root, "process" => ?process_type);
-                let event =
-                    WorkEvent::rpc_beacon_block(beacon_processor.process_fn_rpc_beacon_block(
-                        block_root,
-                        block,
-                        duration,
-                        process_type,
-                    ));
-                if let Err(e) = beacon_processor.beacon_processor_send.try_send(event) {
+                if let Err(e) = beacon_processor.send_rpc_beacon_block(
+                    block_root,
+                    block,
+                    duration,
+                    process_type,
+                ) {
                     error!(
                         self.log,
                         "Failed to send sync block to processor";

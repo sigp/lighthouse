@@ -97,16 +97,6 @@ impl<T: BeaconChainTypes> Router<T> {
 
         let sync_logger = log.new(o!("service"=> "sync"));
 
-        // spawn the sync thread
-        let sync_send = crate::sync::manager::spawn(
-            executor.clone(),
-            beacon_chain.clone(),
-            network_globals.clone(),
-            network_send.clone(),
-            beacon_processor_send.clone(),
-            sync_logger,
-        );
-
         let network_beacon_processor = NetworkBeaconProcessor {
             beacon_processor_send,
             duplicate_cache: beacon_processor.duplicate_cache.clone(),
@@ -119,6 +109,16 @@ impl<T: BeaconChainTypes> Router<T> {
             executor: executor.clone(),
             log: log.clone(),
         };
+
+        // spawn the sync thread
+        let sync_send = crate::sync::manager::spawn(
+            executor.clone(),
+            beacon_chain.clone(),
+            network_globals.clone(),
+            network_send.clone(),
+            network_beacon_processor.clone(),
+            sync_logger,
+        );
 
         // generate the Message handler
         let mut handler = Router {
@@ -194,14 +194,17 @@ impl<T: BeaconChainTypes> Router<T> {
             Request::Status(status_message) => {
                 self.on_status_request(peer_id, request_id, status_message)
             }
-            Request::BlocksByRange(request) => self.send_beacon_processor_work(
-                BeaconWorkEvent::blocks_by_range_request(peer_id, request_id, request),
+            Request::BlocksByRange(request) => self.handle_beacon_processor_send_result(
+                self.network_beacon_processor
+                    .send_blocks_by_range_request(peer_id, request_id, request),
             ),
-            Request::BlocksByRoot(request) => self.send_beacon_processor_work(
-                BeaconWorkEvent::blocks_by_roots_request(peer_id, request_id, request),
+            Request::BlocksByRoot(request) => self.handle_beacon_processor_send_result(
+                self.network_beacon_processor
+                    .send_blocks_by_roots_request(peer_id, request_id, request),
             ),
-            Request::LightClientBootstrap(request) => self.send_beacon_processor_work(
-                BeaconWorkEvent::lightclient_bootstrap_request(peer_id, request_id, request),
+            Request::LightClientBootstrap(request) => self.handle_beacon_processor_send_result(
+                self.network_beacon_processor
+                    .send_lightclient_bootstrap_request(peer_id, request_id, request),
             ),
         }
     }
@@ -216,10 +219,10 @@ impl<T: BeaconChainTypes> Router<T> {
         match response {
             Response::Status(status_message) => {
                 debug!(self.log, "Received Status Response"; "peer_id" => %peer_id, &status_message);
-                self.send_beacon_processor_work(BeaconWorkEvent::status_message(
-                    peer_id,
-                    status_message,
-                ))
+                self.handle_beacon_processor_send_result(
+                    self.network_beacon_processor
+                        .send_status_message(peer_id, status_message),
+                )
             }
             Response::BlocksByRange(beacon_block) => {
                 self.on_blocks_by_range_response(peer_id, request_id, beacon_block);
@@ -244,36 +247,40 @@ impl<T: BeaconChainTypes> Router<T> {
     ) {
         match gossip_message {
             PubsubMessage::AggregateAndProofAttestation(aggregate_and_proof) => self
-                .send_beacon_processor_work(BeaconWorkEvent::aggregated_attestation(
-                    message_id,
-                    peer_id,
-                    *aggregate_and_proof,
-                    timestamp_now(),
-                )),
-            PubsubMessage::Attestation(subnet_attestation) => {
-                self.send_beacon_processor_work(BeaconWorkEvent::unaggregated_attestation(
-                    message_id,
-                    peer_id,
-                    subnet_attestation.1,
-                    subnet_attestation.0,
-                    should_process,
-                    timestamp_now(),
-                ))
-            }
-            PubsubMessage::BeaconBlock(block) => {
-                self.send_beacon_processor_work(BeaconWorkEvent::gossip_beacon_block(
+                .handle_beacon_processor_send_result(
+                    self.network_beacon_processor.send_aggregated_attestation(
+                        message_id,
+                        peer_id,
+                        *aggregate_and_proof,
+                        timestamp_now(),
+                    ),
+                ),
+            PubsubMessage::Attestation(subnet_attestation) => self
+                .handle_beacon_processor_send_result(
+                    self.network_beacon_processor.send_unaggregated_attestation(
+                        message_id,
+                        peer_id,
+                        subnet_attestation.1,
+                        subnet_attestation.0,
+                        should_process,
+                        timestamp_now(),
+                    ),
+                ),
+            PubsubMessage::BeaconBlock(block) => self.handle_beacon_processor_send_result(
+                self.network_beacon_processor.send_gossip_beacon_block(
                     message_id,
                     peer_id,
                     self.network_globals.client(&peer_id),
                     block,
                     timestamp_now(),
-                ))
-            }
+                ),
+            ),
             PubsubMessage::VoluntaryExit(exit) => {
                 debug!(self.log, "Received a voluntary exit"; "peer_id" => %peer_id);
-                self.send_beacon_processor_work(BeaconWorkEvent::gossip_voluntary_exit(
-                    message_id, peer_id, exit,
-                ))
+                self.handle_beacon_processor_send_result(
+                    self.network_beacon_processor
+                        .send_gossip_voluntary_exit(message_id, peer_id, exit),
+                )
             }
             PubsubMessage::ProposerSlashing(proposer_slashing) => {
                 debug!(
@@ -281,11 +288,13 @@ impl<T: BeaconChainTypes> Router<T> {
                     "Received a proposer slashing";
                     "peer_id" => %peer_id
                 );
-                self.send_beacon_processor_work(BeaconWorkEvent::gossip_proposer_slashing(
-                    message_id,
-                    peer_id,
-                    proposer_slashing,
-                ))
+                self.handle_beacon_processor_send_result(
+                    self.network_beacon_processor.send_gossip_proposer_slashing(
+                        message_id,
+                        peer_id,
+                        proposer_slashing,
+                    ),
+                )
             }
             PubsubMessage::AttesterSlashing(attester_slashing) => {
                 debug!(
@@ -293,11 +302,13 @@ impl<T: BeaconChainTypes> Router<T> {
                     "Received a attester slashing";
                     "peer_id" => %peer_id
                 );
-                self.send_beacon_processor_work(BeaconWorkEvent::gossip_attester_slashing(
-                    message_id,
-                    peer_id,
-                    attester_slashing,
-                ))
+                self.handle_beacon_processor_send_result(
+                    self.network_beacon_processor.send_gossip_attester_slashing(
+                        message_id,
+                        peer_id,
+                        attester_slashing,
+                    ),
+                )
             }
             PubsubMessage::SignedContributionAndProof(contribution_and_proof) => {
                 trace!(
@@ -305,12 +316,14 @@ impl<T: BeaconChainTypes> Router<T> {
                     "Received sync committee aggregate";
                     "peer_id" => %peer_id
                 );
-                self.send_beacon_processor_work(BeaconWorkEvent::gossip_sync_contribution(
-                    message_id,
-                    peer_id,
-                    *contribution_and_proof,
-                    timestamp_now(),
-                ))
+                self.handle_beacon_processor_send_result(
+                    self.network_beacon_processor.send_gossip_sync_contribution(
+                        message_id,
+                        peer_id,
+                        *contribution_and_proof,
+                        timestamp_now(),
+                    ),
+                )
             }
             PubsubMessage::SyncCommitteeMessage(sync_committtee_msg) => {
                 trace!(
@@ -318,13 +331,15 @@ impl<T: BeaconChainTypes> Router<T> {
                     "Received sync committee signature";
                     "peer_id" => %peer_id
                 );
-                self.send_beacon_processor_work(BeaconWorkEvent::gossip_sync_signature(
-                    message_id,
-                    peer_id,
-                    sync_committtee_msg.1,
-                    sync_committtee_msg.0,
-                    timestamp_now(),
-                ))
+                self.handle_beacon_processor_send_result(
+                    self.network_beacon_processor.send_gossip_sync_signature(
+                        message_id,
+                        peer_id,
+                        sync_committtee_msg.1,
+                        sync_committtee_msg.0,
+                        timestamp_now(),
+                    ),
+                )
             }
             PubsubMessage::LightClientFinalityUpdate(light_client_finality_update) => {
                 trace!(
@@ -332,13 +347,14 @@ impl<T: BeaconChainTypes> Router<T> {
                     "Received light client finality update";
                     "peer_id" => %peer_id
                 );
-                self.send_beacon_processor_work(
-                    BeaconWorkEvent::gossip_light_client_finality_update(
-                        message_id,
-                        peer_id,
-                        light_client_finality_update,
-                        timestamp_now(),
-                    ),
+                self.handle_beacon_processor_send_result(
+                    self.network_beacon_processor
+                        .send_gossip_light_client_finality_update(
+                            message_id,
+                            peer_id,
+                            *light_client_finality_update,
+                            timestamp_now(),
+                        ),
                 )
             }
             PubsubMessage::LightClientOptimisticUpdate(light_client_optimistic_update) => {
@@ -347,21 +363,25 @@ impl<T: BeaconChainTypes> Router<T> {
                     "Received light client optimistic update";
                     "peer_id" => %peer_id
                 );
-                self.send_beacon_processor_work(
-                    BeaconWorkEvent::gossip_light_client_optimistic_update(
-                        message_id,
-                        peer_id,
-                        light_client_optimistic_update,
-                        timestamp_now(),
-                    ),
+                self.handle_beacon_processor_send_result(
+                    self.network_beacon_processor
+                        .send_gossip_light_client_optimistic_update(
+                            message_id,
+                            peer_id,
+                            *light_client_optimistic_update,
+                            timestamp_now(),
+                        ),
                 )
             }
             PubsubMessage::BlsToExecutionChange(bls_to_execution_change) => self
-                .send_beacon_processor_work(BeaconWorkEvent::gossip_bls_to_execution_change(
-                    message_id,
-                    peer_id,
-                    bls_to_execution_change,
-                )),
+                .handle_beacon_processor_send_result(
+                    self.network_beacon_processor
+                        .send_gossip_bls_to_execution_change(
+                            message_id,
+                            peer_id,
+                            bls_to_execution_change,
+                        ),
+                ),
         }
     }
 
@@ -412,7 +432,10 @@ impl<T: BeaconChainTypes> Router<T> {
             request_id,
         );
 
-        self.send_beacon_processor_work(BeaconWorkEvent::status_message(peer_id, status))
+        self.handle_beacon_processor_send_result(
+            self.network_beacon_processor
+                .send_status_message(peer_id, status),
+        )
     }
 
     /// Handle a `BlocksByRange` response from the peer.
@@ -477,18 +500,19 @@ impl<T: BeaconChainTypes> Router<T> {
         });
     }
 
-    fn send_beacon_processor_work(&mut self, work: BeaconWorkEvent<T::EthSpec>) {
-        self.network_beacon_processor
-            .beacon_processor_send
-            .try_send(work)
-            .unwrap_or_else(|e| {
-                let work_type = match &e {
-                    mpsc::error::TrySendError::Closed(work)
-                    | mpsc::error::TrySendError::Full(work) => work.work_type(),
-                };
-                error!(&self.log, "Unable to send message to the beacon processor";
+    fn handle_beacon_processor_send_result(
+        &mut self,
+        result: Result<(), crate::beacon_processor::Error<T::EthSpec>>,
+    ) {
+        if let Err(e) = result {
+            let work_type = match &e {
+                mpsc::error::TrySendError::Closed(work) | mpsc::error::TrySendError::Full(work) => {
+                    work.work_type()
+                }
+            };
+            error!(&self.log, "Unable to send message to the beacon processor";
                     "error" => %e, "type" => work_type)
-            })
+        }
     }
 }
 
