@@ -20,13 +20,13 @@ use std::sync::Arc;
 use task_executor::TaskExecutor;
 use types::{
     attestation::Error as AttestationError, graffiti::GraffitiString, AbstractExecPayload, Address,
-    AggregateAndProof, Attestation, BeaconBlock, BlindedPayload, BlobSidecarList, ChainSpec,
-    ContributionAndProof, Domain, Epoch, EthSpec, Fork, Graffiti, Hash256, Keypair, PublicKeyBytes,
-    SelectionProof, Signature, SignedAggregateAndProof, SignedBeaconBlock, SignedBlobSidecar,
-    SignedBlobSidecarList, SignedContributionAndProof, SignedRoot, SignedValidatorRegistrationData,
-    SignedVoluntaryExit, Slot, SyncAggregatorSelectionData, SyncCommitteeContribution,
-    SyncCommitteeMessage, SyncSelectionProof, SyncSubnetId, ValidatorRegistrationData,
-    VoluntaryExit,
+    AggregateAndProof, Attestation, BeaconBlock, BlindedPayload, BlobSidecar, BlobSidecarList,
+    ChainSpec, ContributionAndProof, Domain, Epoch, EthSpec, Fork, Graffiti, Hash256, Keypair,
+    PublicKeyBytes, SelectionProof, Signature, SignedAggregateAndProof, SignedBeaconBlock,
+    SignedBlobSidecar, SignedContributionAndProof, SignedRoot, SignedSidecarList,
+    SignedValidatorRegistrationData, SignedVoluntaryExit, Slot, SyncAggregatorSelectionData,
+    SyncCommitteeContribution, SyncCommitteeMessage, SyncSelectionProof, SyncSubnetId,
+    ValidatorRegistrationData, VoluntaryExit,
 };
 use validator_dir::ValidatorDir;
 
@@ -546,7 +546,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         &self,
         validator_pubkey: PublicKeyBytes,
         blob_sidecars: BlobSidecarList<E>,
-    ) -> Result<SignedBlobSidecarList<E>, Error> {
+    ) -> Result<SignedSidecarList<E, BlobSidecar<E>>, Error> {
         let mut signed_blob_sidecars = Vec::new();
 
         for blob_sidecar in blob_sidecars.into_iter() {
@@ -569,6 +569,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             signed_blob_sidecars.push(SignedBlobSidecar {
                 message: blob_sidecar,
                 signature,
+                _phantom: PhantomData,
             });
         }
 

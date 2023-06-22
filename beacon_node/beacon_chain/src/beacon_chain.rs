@@ -117,9 +117,10 @@ use tokio_stream::Stream;
 use tree_hash::TreeHash;
 use types::beacon_block_body::KzgCommitments;
 use types::beacon_state::CloneConfig;
-use types::blob_sidecar::{BlobRoots, BlobSidecarList, Blobs};
+use types::blob_sidecar::{
+    BlindedBlobSidecar, BlindedBlobSidecarList, BlobRoots, BlobSidecarList, Blobs, BlobsOrBlobRoots,
+};
 use types::consts::deneb::MIN_EPOCHS_FOR_BLOB_SIDECARS_REQUESTS;
-use types::deneb_types::{BlindedBlobSidecar, BlobsOrBlobRoots, SidecarList};
 use types::*;
 
 pub type ForkChoiceError = fork_choice::Error<crate::ForkChoiceStoreError>;
@@ -4820,29 +4821,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok((block, state))
     }
 
-    fn compute_blob_kzg_proofs(
-        kzg: &Arc<Kzg>,
-        blobs: &Blobs<T::EthSpec>,
-        expected_kzg_commitments: &KzgCommitments<T::EthSpec>,
-        slot: Slot,
-    ) -> Result<Vec<KzgProof>, BlockProductionError> {
-        blobs
-            .iter()
-            .enumerate()
-            .map(|(blob_index, blob)| {
-                let kzg_commitment = expected_kzg_commitments.get(blob_index).ok_or(
-                    BlockProductionError::MissingKzgCommitment(format!(
-                        "Missing KZG commitment for slot {} blob index {}",
-                        slot, blob_index
-                    )),
-                )?;
-
-                kzg_utils::compute_blob_kzg_proof::<T::EthSpec>(kzg, blob, *kzg_commitment)
-                    .map_err(BlockProductionError::KzgError)
-            })
-            .collect::<Result<Vec<KzgProof>, BlockProductionError>>()
-    }
-
     /// This method must be called whenever an execution engine indicates that a payload is
     /// invalid.
     ///
@@ -6165,7 +6143,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let beacon_block_root = block.canonical_root();
         let slot = block.slot();
 
-        let blob_sidecars = SidecarList::<T::EthSpec, BlindedBlobSidecar>::from(
+        let blob_sidecars = BlindedBlobSidecarList::<T::EthSpec>::from(
             blob_roots
                 .into_iter()
                 .enumerate()
@@ -6202,6 +6180,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(())
     }
 
+    #[allow(clippy::type_complexity)] //TODO(jimmy): fix type complexity
     fn merge_block_contents_into_beacon_block<E: EthSpec, Payload: AbstractExecPayload<E>>(
         partial_beacon_block: PartialBeaconBlock<E, Payload>,
         block_contents: Option<BlockProposalContents<E, Payload>>,

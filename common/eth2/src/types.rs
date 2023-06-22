@@ -11,7 +11,6 @@ use std::convert::TryFrom;
 use std::fmt;
 use std::str::{from_utf8, FromStr};
 use std::time::Duration;
-use types::deneb_types::{AbstractSidecar, SidecarList};
 pub use types::*;
 
 #[cfg(feature = "lighthouse")]
@@ -1347,35 +1346,49 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>, Sidecar: AbstractSidecar<T>>
     }
 }
 
-pub type BlockContentsTuple<T, Payload> = (
+pub type BlockContentsTuple<T, Payload, Sidecar> = (
     SignedBeaconBlock<T, Payload>,
-    Option<SignedBlobSidecarList<T>>,
+    Option<SignedSidecarList<T, Sidecar>>,
 );
 
 /// A wrapper over a [`SignedBeaconBlock`] or a [`SignedBeaconBlockAndBlobSidecars`].
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(untagged)]
 #[serde(bound = "T: EthSpec")]
-pub enum SignedBlockContents<T: EthSpec, Payload: AbstractExecPayload<T> = FullPayload<T>> {
-    BlockAndBlobSidecars(SignedBeaconBlockAndBlobSidecars<T, Payload>),
+pub enum SignedBlockContents<
+    T: EthSpec,
+    Payload: AbstractExecPayload<T> = FullPayload<T>,
+    Sidecar: AbstractSidecar<T> = BlobSidecar<T>,
+> {
+    BlockAndBlobSidecars(SignedBeaconBlockAndBlobSidecars<T, Payload, Sidecar>),
+    BlindedBlockAndBlobSidecars(SignedBlindedBeaconBlockAndBlobSidecars<T, Payload, Sidecar>),
     Block(SignedBeaconBlock<T, Payload>),
 }
 
-impl<T: EthSpec, Payload: AbstractExecPayload<T>> SignedBlockContents<T, Payload> {
+impl<T: EthSpec, Payload: AbstractExecPayload<T>, Sidecar: AbstractSidecar<T>>
+    SignedBlockContents<T, Payload, Sidecar>
+{
     pub fn signed_block(&self) -> &SignedBeaconBlock<T, Payload> {
         match self {
             SignedBlockContents::BlockAndBlobSidecars(block_and_sidecars) => {
                 &block_and_sidecars.signed_block
             }
+            SignedBlockContents::BlindedBlockAndBlobSidecars(block_and_sidecars) => {
+                &block_and_sidecars.signed_blinded_block
+            }
             SignedBlockContents::Block(block) => block,
         }
     }
 
-    pub fn deconstruct(self) -> BlockContentsTuple<T, Payload> {
+    pub fn deconstruct(self) -> BlockContentsTuple<T, Payload, Sidecar> {
         match self {
             SignedBlockContents::BlockAndBlobSidecars(block_and_sidecars) => (
                 block_and_sidecars.signed_block,
                 Some(block_and_sidecars.signed_blob_sidecars),
+            ),
+            SignedBlockContents::BlindedBlockAndBlobSidecars(block_and_sidecars) => (
+                block_and_sidecars.signed_blinded_block,
+                Some(block_and_sidecars.signed_blinded_blob_sidecars),
             ),
             SignedBlockContents::Block(block) => (block, None),
         }
@@ -1397,27 +1410,39 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> From<SignedBeaconBlock<T, Payl
     }
 }
 
-impl<T: EthSpec, Payload: AbstractExecPayload<T>> From<BlockContentsTuple<T, Payload>>
-    for SignedBlockContents<T, Payload>
+impl<T: EthSpec, Payload: AbstractExecPayload<T>, Sidecar: AbstractSidecar<T>>
+    From<BlockContentsTuple<T, Payload, Sidecar>> for SignedBlockContents<T, Payload, Sidecar>
 {
-    fn from(block_contents_tuple: BlockContentsTuple<T, Payload>) -> Self {
+    fn from(block_contents_tuple: BlockContentsTuple<T, Payload, Sidecar>) -> Self {
         match block_contents_tuple {
             (signed_block, None) => SignedBlockContents::Block(signed_block),
-            (signed_block, Some(signed_blob_sidecars)) => {
-                SignedBlockContents::BlockAndBlobSidecars(SignedBeaconBlockAndBlobSidecars {
-                    signed_block,
-                    signed_blob_sidecars,
-                })
-            }
+            (signed_block, Some(signed_blob_sidecars)) => match Payload::block_type() {
+                BlockType::Blinded => SignedBlockContents::BlindedBlockAndBlobSidecars(
+                    SignedBlindedBeaconBlockAndBlobSidecars {
+                        signed_blinded_block: signed_block,
+                        signed_blinded_blob_sidecars: signed_blob_sidecars,
+                    },
+                ),
+                BlockType::Full => {
+                    SignedBlockContents::BlockAndBlobSidecars(SignedBeaconBlockAndBlobSidecars {
+                        signed_block,
+                        signed_blob_sidecars,
+                    })
+                }
+            },
         }
     }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Encode)]
 #[serde(bound = "T: EthSpec")]
-pub struct SignedBeaconBlockAndBlobSidecars<T: EthSpec, Payload: AbstractExecPayload<T>> {
+pub struct SignedBeaconBlockAndBlobSidecars<
+    T: EthSpec,
+    Payload: AbstractExecPayload<T>,
+    Sidecar: AbstractSidecar<T>,
+> {
     pub signed_block: SignedBeaconBlock<T, Payload>,
-    pub signed_blob_sidecars: SignedBlobSidecarList<T>,
+    pub signed_blob_sidecars: SignedSidecarList<T, Sidecar>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Encode)]
@@ -1452,6 +1477,17 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>, Sidecar: AbstractSidecar<T>>
             blob_sidecars: helper.blob_sidecars,
         })
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Encode)]
+#[serde(bound = "T: EthSpec")]
+pub struct SignedBlindedBeaconBlockAndBlobSidecars<
+    T: EthSpec,
+    Payload: AbstractExecPayload<T>,
+    Sidecar: AbstractSidecar<T>,
+> {
+    pub signed_blinded_block: SignedBeaconBlock<T, Payload>,
+    pub signed_blinded_blob_sidecars: SignedSidecarList<T, Sidecar>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Encode)]

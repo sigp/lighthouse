@@ -19,10 +19,9 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio::time::sleep;
-use types::deneb_types::AbstractSidecar;
 use types::{
-    AbstractExecPayload, BlindedPayload, BlockType, EthSpec, FullPayload, Graffiti, PublicKeyBytes,
-    Slot,
+    AbstractExecPayload, AbstractSidecar, BlindedPayload, BlockType, EthSpec, FullPayload,
+    Graffiti, PublicKeyBytes, Slot,
 };
 
 #[derive(Debug)]

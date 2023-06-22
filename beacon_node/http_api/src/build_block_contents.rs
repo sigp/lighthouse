@@ -1,16 +1,17 @@
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockProductionError};
 use eth2::types::{BeaconBlockAndBlobSidecars, BlindedBeaconBlockAndBlobSidecars, BlockContents};
 use std::sync::Arc;
-use types::deneb_types::BlindedBlobSidecar;
-use types::{BeaconBlock, BlindedPayload, BlobSidecar, ForkName, FullPayload};
+use types::{BeaconBlock, BlindedBlobSidecar, BlindedPayload, BlobSidecar, ForkName, FullPayload};
 
 type Error = warp::reject::Rejection;
+type FullBlockContents<E> = BlockContents<E, FullPayload<E>, BlobSidecar<E>>;
+type BlindedBlockContents<E> = BlockContents<E, BlindedPayload<E>, BlindedBlobSidecar>;
 
 pub fn build_block_contents<T: BeaconChainTypes>(
     fork_name: ForkName,
     chain: Arc<BeaconChain<T>>,
     block: BeaconBlock<T::EthSpec, FullPayload<T::EthSpec>>,
-) -> Result<BlockContents<T::EthSpec, FullPayload<T::EthSpec>, BlobSidecar<T::EthSpec>>, Error> {
+) -> Result<FullBlockContents<T::EthSpec>, Error> {
     match fork_name {
         ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {
             Ok(BlockContents::Block(block))
@@ -37,7 +38,7 @@ pub fn build_blinded_block_contents<T: BeaconChainTypes>(
     fork_name: ForkName,
     chain: Arc<BeaconChain<T>>,
     block: BeaconBlock<T::EthSpec, BlindedPayload<T::EthSpec>>,
-) -> Result<BlockContents<T::EthSpec, BlindedPayload<T::EthSpec>, BlindedBlobSidecar>, Error> {
+) -> Result<BlindedBlockContents<T::EthSpec>, Error> {
     match fork_name {
         ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {
             Ok(BlockContents::Block(block))

@@ -1,7 +1,6 @@
 use lru::LruCache;
 use parking_lot::Mutex;
-use types::deneb_types::{AbstractSidecar, SidecarList};
-use types::{EthSpec, Hash256};
+use types::{AbstractSidecar, EthSpec, Hash256, SidecarList};
 
 pub const DEFAULT_BLOB_CACHE_SIZE: usize = 10;
 

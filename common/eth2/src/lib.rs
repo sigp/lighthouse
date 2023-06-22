@@ -16,7 +16,6 @@ pub mod types;
 
 use self::mixin::{RequestAccept, ResponseOptional};
 use self::types::{Error as ResponseError, *};
-use ::types::deneb_types::AbstractSidecar;
 use futures::Stream;
 use futures_util::StreamExt;
 use lighthouse_network::PeerId;

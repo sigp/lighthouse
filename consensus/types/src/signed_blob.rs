@@ -1,12 +1,13 @@
 use crate::{
-    test_utils::TestRandom, BlobSidecar, ChainSpec, Domain, EthSpec, Fork, Hash256, Signature,
-    SignedRoot, SigningData,
+    test_utils::TestRandom, AbstractSidecar, BlobSidecar, ChainSpec, Domain, EthSpec, Fork,
+    Hash256, Signature, SignedRoot, SigningData,
 };
 use bls::PublicKey;
 use derivative::Derivative;
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use ssz_types::VariableList;
+use std::marker::PhantomData;
 use std::sync::Arc;
 use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
@@ -25,17 +26,26 @@ use tree_hash_derive::TreeHash;
     Derivative,
     arbitrary::Arbitrary,
 )]
-#[serde(bound = "T: EthSpec")]
-#[arbitrary(bound = "T: EthSpec")]
-#[derivative(Hash(bound = "T: EthSpec"))]
-pub struct SignedBlobSidecar<T: EthSpec> {
-    pub message: Arc<BlobSidecar<T>>,
+#[serde(bound = "T: EthSpec, Sidecar: AbstractSidecar<T>")]
+#[arbitrary(bound = "T: EthSpec, Sidecar: AbstractSidecar<T>")]
+#[derivative(Hash(bound = "T: EthSpec, Sidecar: AbstractSidecar<T>"))]
+pub struct SignedSidecar<T: EthSpec, Sidecar: AbstractSidecar<T>> {
+    pub message: Arc<Sidecar>,
     pub signature: Signature,
+    #[ssz(skip_serializing, skip_deserializing)]
+    #[tree_hash(skip_hashing)]
+    #[serde(skip)]
+    #[arbitrary(default)]
+    pub _phantom: PhantomData<T>,
 }
 
-pub type SignedBlobSidecarList<T> =
-    VariableList<SignedBlobSidecar<T>, <T as EthSpec>::MaxBlobsPerBlock>;
+/// List of Signed Sidecars that implements `AbstractSidecar`.
+pub type SignedSidecarList<T, Sidecar> =
+    VariableList<SignedSidecar<T, Sidecar>, <T as EthSpec>::MaxBlobsPerBlock>;
 
+pub type SignedBlobSidecar<T> = SignedSidecar<T, BlobSidecar<T>>;
+
+// TODO(jimmy): impl on SignedSidecar instead?
 impl<T: EthSpec> SignedBlobSidecar<T> {
     /// Verify `self.signature`.
     ///

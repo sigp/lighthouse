@@ -42,14 +42,13 @@ use tokio::{
 use tokio_stream::wrappers::WatchStream;
 use tree_hash::TreeHash;
 use types::beacon_block_body::KzgCommitments;
-use types::blob_sidecar::Blobs;
+use types::blob_sidecar::BlobsOrBlobRoots;
 use types::builder_bid::BuilderBid;
 use types::consts::deneb::BLOB_TX_TYPE;
-use types::deneb_types::BlobsOrBlobRoots;
 use types::transaction::{AccessTuple, BlobTransaction, EcdsaSignature, SignedBlobTransaction};
 use types::{AbstractExecPayload, BeaconStateError, ExecPayload, VersionedHash};
 use types::{
-    BlindedPayload, BlockType, ChainSpec, Epoch, ExecutionBlockHash, ExecutionPayload,
+    BlindedPayload, Blobs, BlockType, ChainSpec, Epoch, ExecutionBlockHash, ExecutionPayload,
     ExecutionPayloadCapella, ExecutionPayloadDeneb, ExecutionPayloadMerge, ForkName,
 };
 use types::{KzgProofs, Withdrawals};
@@ -1187,6 +1186,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                     }
                 };
 
+                // TODO(jimmy): cache blobs bundle
                 let payload_response = async {
                     debug!(
                         self.log(),

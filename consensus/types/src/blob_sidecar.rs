@@ -1,15 +1,34 @@
-use crate::test_utils::TestRandom;
-use crate::{Blob, ChainSpec, Domain, EthSpec, Fork, Hash256, SignedBlobSidecar, SignedRoot, Slot};
-use bls::SecretKey;
+use std::hash::Hash;
+use std::marker::PhantomData;
+use std::sync::Arc;
+
 use derivative::Derivative;
-use kzg::{KzgCommitment, KzgProof};
+use serde::de::DeserializeOwned;
 use serde_derive::{Deserialize, Serialize};
-use ssz::Encode;
+use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use ssz_types::{FixedVector, VariableList};
-use std::sync::Arc;
-use test_random_derive::TestRandom;
+use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
+
+use bls::SecretKey;
+use kzg::{KzgCommitment, KzgProof};
+use test_random_derive::TestRandom;
+
+use crate::test_utils::TestRandom;
+use crate::{Blob, ChainSpec, Domain, EthSpec, Fork, Hash256, SignedBlobSidecar, SignedRoot, Slot};
+
+pub trait AbstractSidecar<E: EthSpec>:
+    serde::Serialize
+    + DeserializeOwned
+    + Encode
+    + Decode
+    + Hash
+    + TreeHash
+    + TestRandom
+    + for<'a> arbitrary::Arbitrary<'a>
+{
+}
 
 /// Container of the data that identifies an individual blob.
 #[derive(
@@ -62,6 +81,8 @@ pub struct BlobSidecar<T: EthSpec> {
     pub kzg_proof: KzgProof,
 }
 
+impl<E: EthSpec> AbstractSidecar<E> for BlobSidecar<E> {}
+
 impl<T: EthSpec> PartialOrd for BlobSidecar<T> {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         self.index.partial_cmp(&other.index)
@@ -73,12 +94,6 @@ impl<T: EthSpec> Ord for BlobSidecar<T> {
         self.index.cmp(&other.index)
     }
 }
-
-pub type BlobSidecarList<T> = VariableList<Arc<BlobSidecar<T>>, <T as EthSpec>::MaxBlobsPerBlock>;
-pub type FixedBlobSidecarList<T> =
-    FixedVector<Option<Arc<BlobSidecar<T>>>, <T as EthSpec>::MaxBlobsPerBlock>;
-pub type Blobs<T> = VariableList<Blob<T>, <T as EthSpec>::MaxBlobsPerBlock>;
-pub type BlobRoots<T> = VariableList<Hash256, <T as EthSpec>::MaxBlobsPerBlock>;
 
 impl<T: EthSpec> SignedRoot for BlobSidecar<T> {}
 
@@ -121,6 +136,70 @@ impl<T: EthSpec> BlobSidecar<T> {
         SignedBlobSidecar {
             message: self,
             signature,
+            _phantom: PhantomData,
+        }
+    }
+}
+
+#[derive(
+    Debug,
+    Clone,
+    Serialize,
+    Deserialize,
+    Encode,
+    Decode,
+    TreeHash,
+    Default,
+    TestRandom,
+    Derivative,
+    arbitrary::Arbitrary,
+)]
+#[derivative(PartialEq, Eq, Hash)]
+pub struct BlindedBlobSidecar {
+    pub block_root: Hash256,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub index: u64,
+    pub slot: Slot,
+    pub block_parent_root: Hash256,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub proposer_index: u64,
+    pub blob_root: Hash256,
+    pub kzg_commitment: KzgCommitment,
+    pub kzg_proof: KzgProof,
+}
+
+impl<E: EthSpec> AbstractSidecar<E> for BlindedBlobSidecar {}
+
+pub type SidecarList<T, Sidecar> = VariableList<Arc<Sidecar>, <T as EthSpec>::MaxBlobsPerBlock>;
+pub type BlobSidecarList<T> = SidecarList<T, BlobSidecar<T>>;
+pub type BlindedBlobSidecarList<T> = SidecarList<T, BlindedBlobSidecar>;
+
+pub type FixedBlobSidecarList<T> =
+    FixedVector<Option<Arc<BlobSidecar<T>>>, <T as EthSpec>::MaxBlobsPerBlock>;
+
+pub type Blobs<T> = VariableList<Blob<T>, <T as EthSpec>::MaxBlobsPerBlock>;
+pub type BlobRoots<T> = VariableList<Hash256, <T as EthSpec>::MaxBlobsPerBlock>;
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(untagged)]
+#[serde(bound = "T: EthSpec")]
+pub enum BlobsOrBlobRoots<T: EthSpec> {
+    Blobs(Blobs<T>),
+    BlobRoots(BlobRoots<T>),
+}
+
+impl<T: EthSpec> BlobsOrBlobRoots<T> {
+    pub fn len(&self) -> usize {
+        match self {
+            Self::Blobs(blobs) => blobs.len(),
+            Self::BlobRoots(blob_roots) => blob_roots.len(),
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        match self {
+            Self::Blobs(blobs) => blobs.is_empty(),
+            Self::BlobRoots(blob_roots) => blob_roots.is_empty(),
         }
     }
 }

@@ -16,8 +16,8 @@ use store::FixedVector;
 use tokio::sync::mpsc::UnboundedSender;
 use tree_hash::TreeHash;
 use types::{
-    AbstractExecPayload, BeaconBlockRef, BlindedPayload, EthSpec, ExecPayload, ExecutionBlockHash,
-    FullPayload, Hash256, SignedBeaconBlock,
+    AbstractExecPayload, BeaconBlockRef, BlindedBlobSidecar, BlindedPayload, EthSpec, ExecPayload,
+    ExecutionBlockHash, FullPayload, Hash256, SignedBeaconBlock,
 };
 use warp::Rejection;
 
@@ -185,13 +185,14 @@ pub async fn publish_block<T: BeaconChainTypes>(
 /// Handles a request from the HTTP API for blinded blocks. This converts blinded blocks into full
 /// blocks before publishing.
 pub async fn publish_blinded_block<T: BeaconChainTypes>(
-    block: SignedBeaconBlock<T::EthSpec, BlindedPayload<T::EthSpec>>,
+    block_contents: SignedBlockContents<T::EthSpec, BlindedPayload<T::EthSpec>, BlindedBlobSidecar>,
     chain: Arc<BeaconChain<T>>,
     network_tx: &UnboundedSender<NetworkMessage<T::EthSpec>>,
     log: Logger,
 ) -> Result<(), Rejection> {
-    let block_root = block.canonical_root();
-    let full_block = reconstruct_block(chain.clone(), block_root, block, log.clone()).await?;
+    let block_root = block_contents.signed_block().canonical_root();
+    let full_block =
+        reconstruct_block(chain.clone(), block_root, block_contents, log.clone()).await?;
     publish_block::<T>(Some(block_root), full_block, chain, network_tx, log).await
 }
 
@@ -201,9 +202,10 @@ pub async fn publish_blinded_block<T: BeaconChainTypes>(
 async fn reconstruct_block<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
     block_root: Hash256,
-    block: SignedBeaconBlock<T::EthSpec, BlindedPayload<T::EthSpec>>,
+    block_contents: SignedBlockContents<T::EthSpec, BlindedPayload<T::EthSpec>, BlindedBlobSidecar>,
     log: Logger,
 ) -> Result<ProvenancedBlock<T::EthSpec>, Rejection> {
+    let block = block_contents.signed_block();
     let full_payload_opt = if let Ok(payload_header) = block.message().body().execution_payload() {
         let el = chain.execution_layer.as_ref().ok_or_else(|| {
             warp_utils::reject::custom_server_error("Missing execution layer".to_string())
@@ -224,6 +226,7 @@ async fn reconstruct_block<T: BeaconChainTypes>(
             .into();
             ProvenancedPayload::Local(payload)
         // If we already have an execution payload with this transactions root cached, use it.
+        // TODO(jimmy) get cached blobs
         } else if let Some(cached_payload) =
             el.get_payload_by_root(&payload_header.tree_hash_root())
         {
@@ -245,8 +248,9 @@ async fn reconstruct_block<T: BeaconChainTypes>(
                 &log,
             );
 
+            // TODO(jimmy): handle blinded blobs bundle response
             let full_payload = el
-                .propose_blinded_beacon_block(block_root, &block)
+                .propose_blinded_beacon_block(block_root, block)
                 .await
                 .map_err(|e| {
                     warp_utils::reject::custom_server_error(format!(
@@ -262,6 +266,9 @@ async fn reconstruct_block<T: BeaconChainTypes>(
     } else {
         None
     };
+
+    // TODO(jimmy) convert full `SignedBlockSidecars`
+    let (block, _maybe_blobs) = block_contents.deconstruct();
 
     match full_payload_opt {
         // A block without a payload is pre-merge and we consider it locally

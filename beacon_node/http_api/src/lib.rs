@@ -59,11 +59,10 @@ use tokio::sync::mpsc::{Sender, UnboundedSender};
 use tokio_stream::{wrappers::BroadcastStream, StreamExt};
 use types::{
     Attestation, AttestationData, AttestationShufflingId, AttesterSlashing, BeaconStateError,
-    BlindedPayload, CommitteeCache, ConfigAndPreset, Epoch, EthSpec, ForkName, FullPayload,
-    ProposerPreparationData, ProposerSlashing, RelativeEpoch, SignedAggregateAndProof,
-    SignedBeaconBlock, SignedBlsToExecutionChange, SignedContributionAndProof,
-    SignedValidatorRegistrationData, SignedVoluntaryExit, Slot, SyncCommitteeMessage,
-    SyncContributionData,
+    BlindedBlobSidecar, BlindedPayload, CommitteeCache, ConfigAndPreset, Epoch, EthSpec, ForkName,
+    FullPayload, ProposerPreparationData, ProposerSlashing, RelativeEpoch, SignedAggregateAndProof,
+    SignedBlsToExecutionChange, SignedContributionAndProof, SignedValidatorRegistrationData,
+    SignedVoluntaryExit, Slot, SyncCommitteeMessage, SyncContributionData,
 };
 use version::{
     add_consensus_version_header, execution_optimistic_finalized_fork_versioned_response,
@@ -1243,11 +1242,15 @@ pub fn serve<T: BeaconChainTypes>(
         .and(network_tx_filter.clone())
         .and(log_filter.clone())
         .and_then(
-            |block: SignedBeaconBlock<T::EthSpec, BlindedPayload<_>>,
+            |block_contents: SignedBlockContents<
+                T::EthSpec,
+                BlindedPayload<_>,
+                BlindedBlobSidecar,
+            >,
              chain: Arc<BeaconChain<T>>,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
              log: Logger| async move {
-                publish_blocks::publish_blinded_block(block, chain, &network_tx, log)
+                publish_blocks::publish_blinded_block(block_contents, chain, &network_tx, log)
                     .await
                     .map(|()| warp::reply().into_response())
             },

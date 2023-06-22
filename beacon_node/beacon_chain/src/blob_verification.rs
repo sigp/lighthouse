@@ -681,8 +681,8 @@ impl<E: EthSpec> From<SignedBeaconBlock<E>> for BlockWrapper<E> {
     }
 }
 
-impl<E: EthSpec> From<BlockContentsTuple<E, FullPayload<E>>> for BlockWrapper<E> {
-    fn from(value: BlockContentsTuple<E, FullPayload<E>>) -> Self {
+impl<E: EthSpec> From<BlockContentsTuple<E, FullPayload<E>, BlobSidecar<E>>> for BlockWrapper<E> {
+    fn from(value: BlockContentsTuple<E, FullPayload<E>, BlobSidecar<E>>) -> Self {
         match value.1 {
             Some(variable_list) => {
                 let mut blobs = Vec::with_capacity(E::max_blobs_per_block());
