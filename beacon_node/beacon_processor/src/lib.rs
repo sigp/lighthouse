@@ -584,7 +584,7 @@ impl<E: EthSpec> std::convert::From<ReadyWork> for WorkEvent<E> {
 }
 
 pub type AsyncFn = Pin<Box<dyn Future<Output = ()> + Send + Sync>>;
-pub type BlockingFn = Box<dyn Fn() + Send + Sync>;
+pub type BlockingFn = Box<dyn FnOnce() + Send + Sync>;
 pub type BlockingFnWithManualSendOnIdle = Box<dyn Fn(SendOnDrop) + Send + Sync>;
 
 /// Indicates the type of work to be performed and therefore its priority and
