@@ -1,4 +1,4 @@
-///! This implements a time-based LRU cache for fast checking of duplicates
+//! This implements a time-based LRU cache for fast checking of duplicates
 use fnv::FnvHashSet;
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};

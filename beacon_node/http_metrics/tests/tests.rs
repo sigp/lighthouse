@@ -38,7 +38,7 @@ async fn returns_200_ok() {
         };
         let (listening_socket, server) = http_metrics::serve(ctx, server_shutdown).unwrap();
 
-        tokio::spawn(async { server.await });
+        tokio::spawn(server);
 
         let url = format!(
             "http://{}:{}/metrics",

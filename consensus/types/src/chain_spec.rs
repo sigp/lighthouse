@@ -168,11 +168,9 @@ pub struct ChainSpec {
     pub maximum_gossip_clock_disparity_millis: u64,
     pub target_aggregators_per_committee: u64,
     pub attestation_subnet_count: u64,
-    pub random_subnets_per_validator: u64,
-    pub epochs_per_random_subnet_subscription: u64,
     pub subnets_per_node: u8,
     pub epochs_per_subnet_subscription: u64,
-    attestation_subnet_extra_bits: u8,
+    pub attestation_subnet_extra_bits: u8,
     // Shift networking configuration into configs
     pub gossip_max_size: usize,
     pub max_request_blocks: u64,
@@ -464,17 +462,7 @@ impl ChainSpec {
 
     #[allow(clippy::integer_arithmetic)]
     pub const fn attestation_subnet_prefix_bits(&self) -> u32 {
-        // maybe use log2 when stable https://github.com/rust-lang/rust/issues/70887
-
-        // NOTE: this line is here simply to guarantee that if self.attestation_subnet_count type
-        // is changed, a compiler warning will be raised. This code depends on the type being u64.
-        let attestation_subnet_count: u64 = self.attestation_subnet_count;
-        let attestation_subnet_count_bits = if attestation_subnet_count == 0 {
-            0
-        } else {
-            63 - attestation_subnet_count.leading_zeros()
-        };
-
+        let attestation_subnet_count_bits = self.attestation_subnet_count.ilog2();
         self.attestation_subnet_extra_bits as u32 + attestation_subnet_count_bits
     }
 
@@ -634,11 +622,9 @@ impl ChainSpec {
             network_id: 1, // mainnet network id
             attestation_propagation_slot_range: 32,
             attestation_subnet_count: 64,
-            random_subnets_per_validator: 1,
-            subnets_per_node: 1,
+            subnets_per_node: 2,
             maximum_gossip_clock_disparity_millis: 500,
             target_aggregators_per_committee: 16,
-            epochs_per_random_subnet_subscription: 256,
             epochs_per_subnet_subscription: 256,
             attestation_subnet_extra_bits: 6,
             gossip_max_size: 10_485_760,
@@ -869,11 +855,9 @@ impl ChainSpec {
             network_id: 100, // Gnosis Chain network id
             attestation_propagation_slot_range: 32,
             attestation_subnet_count: 64,
-            random_subnets_per_validator: 1,
-            subnets_per_node: 1,
+            subnets_per_node: 4, // Make this larger than usual to avoid network damage
             maximum_gossip_clock_disparity_millis: 500,
             target_aggregators_per_committee: 16,
-            epochs_per_random_subnet_subscription: 256,
             epochs_per_subnet_subscription: 256,
             attestation_subnet_extra_bits: 6,
             gossip_max_size: 10_485_760,
@@ -971,6 +955,9 @@ pub struct Config {
     shard_committee_period: u64,
     #[serde(with = "serde_utils::quoted_u64")]
     eth1_follow_distance: u64,
+    #[serde(default = "default_subnets_per_node")]
+    #[serde(with = "serde_utils::quoted_u8")]
+    subnets_per_node: u8,
 
     #[serde(with = "serde_utils::quoted_u64")]
     inactivity_score_bias: u64,
@@ -1025,6 +1012,10 @@ fn default_terminal_block_hash_activation_epoch() -> Epoch {
 
 fn default_safe_slots_to_import_optimistically() -> u64 {
     128u64
+}
+
+fn default_subnets_per_node() -> u8 {
+    2u8
 }
 
 impl Default for Config {
@@ -1109,6 +1100,7 @@ impl Config {
             min_validator_withdrawability_delay: spec.min_validator_withdrawability_delay,
             shard_committee_period: spec.shard_committee_period,
             eth1_follow_distance: spec.eth1_follow_distance,
+            subnets_per_node: spec.subnets_per_node,
 
             inactivity_score_bias: spec.inactivity_score_bias,
             inactivity_score_recovery_rate: spec.inactivity_score_recovery_rate,
@@ -1155,6 +1147,7 @@ impl Config {
             min_validator_withdrawability_delay,
             shard_committee_period,
             eth1_follow_distance,
+            subnets_per_node,
             inactivity_score_bias,
             inactivity_score_recovery_rate,
             ejection_balance,
@@ -1187,6 +1180,7 @@ impl Config {
             min_validator_withdrawability_delay,
             shard_committee_period,
             eth1_follow_distance,
+            subnets_per_node,
             inactivity_score_bias,
             inactivity_score_recovery_rate,
             ejection_balance,

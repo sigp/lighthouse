@@ -242,7 +242,7 @@ where
             while let Some((id, req)) = self.dial_queue.pop() {
                 self.events_out.push(Err(HandlerErr::Outbound {
                     error: RPCError::Disconnected,
-                    proto: req.protocol(),
+                    proto: req.versioned_protocol().protocol(),
                     id,
                 }));
             }
@@ -266,7 +266,7 @@ where
             }
             _ => self.events_out.push(Err(HandlerErr::Outbound {
                 error: RPCError::Disconnected,
-                proto: req.protocol(),
+                proto: req.versioned_protocol().protocol(),
                 id,
             })),
         }
@@ -331,7 +331,7 @@ where
     ) {
         self.dial_negotiated -= 1;
         let (id, request) = request_info;
-        let proto = request.protocol();
+        let proto = request.versioned_protocol().protocol();
 
         // accept outbound connections only if the handler is not deactivated
         if matches!(self.state, HandlerState::Deactivated) {
@@ -411,7 +411,7 @@ where
                             128,
                         ) as usize),
                         delay_key: Some(delay_key),
-                        protocol: req.protocol(),
+                        protocol: req.versioned_protocol().protocol(),
                         request_start_time: Instant::now(),
                         remaining_chunks: expected_responses,
                     },
@@ -419,7 +419,7 @@ where
             } else {
                 self.events_out.push(Err(HandlerErr::Inbound {
                     id: self.current_inbound_substream_id,
-                    proto: req.protocol(),
+                    proto: req.versioned_protocol().protocol(),
                     error: RPCError::HandlerRejected,
                 }));
                 return self.shutdown(None);
@@ -495,7 +495,7 @@ where
         };
         self.events_out.push(Err(HandlerErr::Outbound {
             error,
-            proto: req.protocol(),
+            proto: req.versioned_protocol().protocol(),
             id,
         }));
     }
@@ -892,7 +892,7 @@ where
                         // else we return an error, stream should not have closed early.
                         let outbound_err = HandlerErr::Outbound {
                             id: request_id,
-                            proto: request.protocol(),
+                            proto: request.versioned_protocol().protocol(),
                             error: RPCError::IncompleteStream,
                         };
                         return Poll::Ready(ConnectionHandlerEvent::Custom(Err(outbound_err)));
