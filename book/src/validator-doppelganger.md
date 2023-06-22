@@ -43,9 +43,9 @@ DP works by staying silent on the network for 2-3 epochs before starting to sign
 Staying silent and refusing to sign messages will cause the following:
 
 - 2-3 missed attestations, incurring penalties and missed rewards.
-- 2-3 epochs of missed sync committee contributions (if the validator is in a sync committee, which is unlikely), incurring penalties and missed rewards.
 - Potentially missed rewards by missing a block proposal (if the validator is an elected block
     proposer, which is unlikely).
+- Sync committee contributions are not delayed as those are not slashable
 
 The loss of rewards and penalties incurred due to the missed duties will be very small in
 dollar-values. Generally, they will equate to around one US dollar (at August 2021 figures) or about
