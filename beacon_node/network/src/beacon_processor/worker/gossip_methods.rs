@@ -35,11 +35,13 @@ use types::{
     SyncCommitteeMessage, SyncSubnetId,
 };
 
-use beacon_processor::work_reprocessing_queue::{
-    QueuedAggregate, QueuedGossipBlock, QueuedLightClientUpdate, QueuedUnaggregate,
-    ReprocessQueueMessage,
+use beacon_processor::{
+    work_reprocessing_queue::{
+        QueuedAggregate, QueuedGossipBlock, QueuedLightClientUpdate, QueuedUnaggregate,
+        ReprocessQueueMessage,
+    },
+    DuplicateCache, GossipAggregatePackage, GossipAttestationPackage,
 };
-use beacon_processor::DuplicateCache;
 
 /// Set to `true` to introduce stricter penalties for peers who send some types of late consensus
 /// messages.
@@ -142,64 +144,6 @@ impl<T: EthSpec> FailedAtt<T> {
         match self {
             FailedAtt::Unaggregate { attestation, .. } => attestation,
             FailedAtt::Aggregate { attestation, .. } => &attestation.message.aggregate,
-        }
-    }
-}
-
-/// Items required to verify a batch of unaggregated gossip attestations.
-#[derive(Debug)]
-pub struct GossipAttestationPackage<E: EthSpec> {
-    message_id: MessageId,
-    peer_id: PeerId,
-    attestation: Box<Attestation<E>>,
-    subnet_id: SubnetId,
-    should_import: bool,
-    seen_timestamp: Duration,
-}
-
-impl<E: EthSpec> GossipAttestationPackage<E> {
-    pub fn new(
-        message_id: MessageId,
-        peer_id: PeerId,
-        attestation: Box<Attestation<E>>,
-        subnet_id: SubnetId,
-        should_import: bool,
-        seen_timestamp: Duration,
-    ) -> Self {
-        Self {
-            message_id,
-            peer_id,
-            attestation,
-            subnet_id,
-            should_import,
-            seen_timestamp,
-        }
-    }
-}
-
-/// Items required to verify a batch of aggregated gossip attestations.
-#[derive(Debug)]
-pub struct GossipAggregatePackage<E: EthSpec> {
-    message_id: MessageId,
-    peer_id: PeerId,
-    aggregate: Box<SignedAggregateAndProof<E>>,
-    beacon_block_root: Hash256,
-    seen_timestamp: Duration,
-}
-
-impl<E: EthSpec> GossipAggregatePackage<E> {
-    pub fn new(
-        message_id: MessageId,
-        peer_id: PeerId,
-        aggregate: Box<SignedAggregateAndProof<E>>,
-        seen_timestamp: Duration,
-    ) -> Self {
-        Self {
-            message_id,
-            peer_id,
-            beacon_block_root: aggregate.message.aggregate.data.beacon_block_root,
-            aggregate,
-            seen_timestamp,
         }
     }
 }

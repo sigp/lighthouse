@@ -45,6 +45,7 @@ use crate::work_reprocessing_queue::{
 use futures::stream::{Stream, StreamExt};
 use futures::task::Poll;
 use lighthouse_network::{types::ChainSegmentProcessId, NetworkGlobals};
+use lighthouse_network::{MessageId, PeerId};
 use logging::TimeLatch;
 use parking_lot::Mutex;
 use slog::{crit, debug, error, trace, warn, Logger};
@@ -55,11 +56,12 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::Context;
+use std::time::Duration;
 use std::{cmp, collections::HashSet};
 use task_executor::TaskExecutor;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TrySendError;
-use types::{Attestation, EthSpec, Hash256, SignedAggregateAndProof, Slot};
+use types::{Attestation, EthSpec, Hash256, SignedAggregateAndProof, Slot, SubnetId};
 
 // TODO(paul): re-enable tests.
 // mod tests;
@@ -425,6 +427,27 @@ impl<E: EthSpec> std::convert::From<ReadyWork> for WorkEvent<E> {
     }
 }
 
+/// Items required to verify a batch of unaggregated gossip attestations.
+#[derive(Debug)]
+pub struct GossipAttestationPackage<E: EthSpec> {
+    pub message_id: MessageId,
+    pub peer_id: PeerId,
+    pub attestation: Box<Attestation<E>>,
+    pub subnet_id: SubnetId,
+    pub should_import: bool,
+    pub seen_timestamp: Duration,
+}
+
+/// Items required to verify a batch of aggregated gossip attestations.
+#[derive(Debug)]
+pub struct GossipAggregatePackage<E: EthSpec> {
+    pub message_id: MessageId,
+    pub peer_id: PeerId,
+    pub aggregate: Box<SignedAggregateAndProof<E>>,
+    pub beacon_block_root: Hash256,
+    pub seen_timestamp: Duration,
+}
+
 pub type AsyncFn = Pin<Box<dyn Future<Output = ()> + Send + Sync>>;
 pub type BlockingFn = Box<dyn FnOnce() + Send + Sync>;
 pub type BlockingFnWithManualSendOnIdle = Box<dyn FnOnce(SendOnDrop) + Send + Sync>;
@@ -433,21 +456,21 @@ pub type BlockingFnWithManualSendOnIdle = Box<dyn FnOnce(SendOnDrop) + Send + Sy
 /// queuing specifics.
 pub enum Work<E: EthSpec> {
     GossipAttestation {
-        attestation: Box<Attestation<E>>,
-        process_individual: Box<dyn Fn(Attestation<E>) + Send + Sync>,
-        process_batch: Box<dyn Fn(Vec<Attestation<E>>) + Send + Sync>,
+        attestation: GossipAttestationPackage<E>,
+        process_individual: Box<dyn FnOnce(GossipAttestationPackage<E>) + Send + Sync>,
+        process_batch: Box<dyn FnOnce(Vec<GossipAttestationPackage<E>>) + Send + Sync>,
     },
     UnknownBlockAttestation {
         process_fn: BlockingFn,
     },
     GossipAttestationBatch {
-        attestations: Vec<Attestation<E>>,
-        process_batch: Box<dyn Fn(Vec<Attestation<E>>) + Send + Sync>,
+        attestations: Vec<GossipAttestationPackage<E>>,
+        process_batch: Box<dyn FnOnce(Vec<GossipAttestationPackage<E>>) + Send + Sync>,
     },
     GossipAggregate {
-        aggregate: Box<SignedAggregateAndProof<E>>,
-        process_individual: Box<dyn Fn(SignedAggregateAndProof<E>) + Send + Sync>,
-        process_batch: Box<dyn Fn(Vec<SignedAggregateAndProof<E>>) + Send + Sync>,
+        aggregate: GossipAggregatePackage<E>,
+        process_individual: Box<dyn FnOnce(GossipAggregatePackage<E>) + Send + Sync>,
+        process_batch: Box<dyn FnOnce(Vec<GossipAggregatePackage<E>>) + Send + Sync>,
     },
     UnknownBlockAggregate {
         process_fn: BlockingFn,
@@ -457,8 +480,8 @@ pub enum Work<E: EthSpec> {
         process_fn: BlockingFn,
     },
     GossipAggregateBatch {
-        aggregates: Vec<SignedAggregateAndProof<E>>,
-        process_batch: Box<dyn Fn(Vec<SignedAggregateAndProof<E>>) + Send + Sync>,
+        aggregates: Vec<GossipAggregatePackage<E>>,
+        process_batch: Box<dyn FnOnce(Vec<GossipAggregatePackage<E>>) + Send + Sync>,
     },
     GossipBlock(AsyncFn),
     DelayedImportBlock {
@@ -832,7 +855,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
                                                 process_individual: _,
                                                 process_batch,
                                             } => {
-                                                aggregates.push(*aggregate);
+                                                aggregates.push(aggregate);
                                                 if process_batch_opt.is_none() {
                                                     process_batch_opt = Some(process_batch);
                                                 }
@@ -892,7 +915,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
                                                 process_individual: _,
                                                 process_batch,
                                             } => {
-                                                attestations.push(*attestation);
+                                                attestations.push(attestation);
                                                 if process_batch_opt.is_none() {
                                                     process_batch_opt = Some(process_batch);
                                                 }
@@ -1206,7 +1229,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
                 process_individual,
                 process_batch: _,
             } => task_spawner.spawn_blocking(move || {
-                process_individual(*attestation);
+                process_individual(attestation);
             }),
             Work::GossipAttestationBatch {
                 attestations,
@@ -1219,7 +1242,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
                 process_individual,
                 process_batch: _,
             } => task_spawner.spawn_blocking(move || {
-                process_individual(*aggregate);
+                process_individual(aggregate);
             }),
             Work::GossipAggregateBatch {
                 aggregates,

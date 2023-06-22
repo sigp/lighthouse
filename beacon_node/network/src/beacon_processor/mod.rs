@@ -5,8 +5,8 @@ use crate::{
 use beacon_chain::BeaconChain;
 use beacon_chain::{BeaconChainTypes, GossipVerifiedBlock, NotifyExecutionLayer};
 use beacon_processor::{
-    work_reprocessing_queue::ReprocessQueueMessage, AsyncFn, DuplicateCache, Work,
-    WorkEvent as BeaconWorkEvent,
+    work_reprocessing_queue::ReprocessQueueMessage, AsyncFn, DuplicateCache,
+    GossipAggregatePackage, GossipAttestationPackage, Work, WorkEvent as BeaconWorkEvent,
 };
 use lighthouse_network::{
     rpc::{BlocksByRangeRequest, BlocksByRootRequest, LightClientBootstrapRequest, StatusMessage},
@@ -67,16 +67,16 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     ) -> Result<(), Error<T::EthSpec>> {
         // Define a closure for processing individual attestations.
         let processor = self.clone();
-        let process_individual = move |attestation| {
+        let process_individual = move |package: GossipAttestationPackage<T::EthSpec>| {
             let reprocess_tx = processor.reprocess_tx.clone();
             processor.process_gossip_attestation(
-                message_id,
-                peer_id,
-                attestation,
-                subnet_id,
-                should_import,
+                package.message_id,
+                package.peer_id,
+                package.attestation,
+                package.subnet_id,
+                package.should_import,
                 Some(reprocess_tx),
-                seen_timestamp,
+                package.seen_timestamp,
             )
         };
 
@@ -90,7 +90,14 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self.try_send(BeaconWorkEvent {
             drop_during_sync: true,
             work: Work::GossipAttestation {
-                attestation: Box::new(attestation),
+                attestation: GossipAttestationPackage {
+                    message_id,
+                    peer_id,
+                    attestation: Box::new(attestation),
+                    subnet_id,
+                    should_import,
+                    seen_timestamp,
+                },
                 process_individual: Box::new(process_individual),
                 process_batch: Box::new(process_batch),
             },
@@ -107,14 +114,14 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     ) -> Result<(), Error<T::EthSpec>> {
         // Define a closure for processing individual attestations.
         let processor = self.clone();
-        let process_individual = move |aggregate| {
+        let process_individual = move |package: GossipAggregatePackage<T::EthSpec>| {
             let reprocess_tx = processor.reprocess_tx.clone();
             processor.process_gossip_aggregate(
-                message_id,
-                peer_id,
-                aggregate,
+                package.message_id,
+                package.peer_id,
+                package.aggregate,
                 Some(reprocess_tx),
-                seen_timestamp,
+                package.seen_timestamp,
             )
         };
 
@@ -125,10 +132,17 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             processor.process_gossip_aggregate_batch(aggregates, Some(reprocess_tx))
         };
 
+        let beacon_block_root = aggregate.message.aggregate.data.beacon_block_root;
         self.try_send(BeaconWorkEvent {
             drop_during_sync: true,
             work: Work::GossipAggregate {
-                aggregate: Box::new(aggregate),
+                aggregate: GossipAggregatePackage {
+                    message_id,
+                    peer_id,
+                    aggregate: Box::new(aggregate),
+                    beacon_block_root,
+                    seen_timestamp,
+                },
                 process_individual: Box::new(process_individual),
                 process_batch: Box::new(process_batch),
             },
