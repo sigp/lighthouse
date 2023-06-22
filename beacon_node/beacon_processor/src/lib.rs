@@ -1238,6 +1238,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
                 process_fn,
             } => task_spawner.spawn_async(process_fn),
             Work::RpcBlock {
+                // TODO(paul): pass this value to `process_fn`.
                 should_process: _,
                 process_fn,
             } => task_spawner.spawn_async(process_fn),

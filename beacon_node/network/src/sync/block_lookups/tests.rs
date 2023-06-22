@@ -19,7 +19,7 @@ use types::MinimalEthSpec as E;
 type T = Witness<SystemTimeSlotClock, CachingEth1Backend<E>, E, MemoryStore<E>, MemoryStore<E>>;
 
 struct TestRig {
-    beacon_processor_rx: mpsc::Receiver<WorkEvent<T>>,
+    beacon_processor_rx: mpsc::Receiver<WorkEvent<E>>,
     network_rx: mpsc::UnboundedReceiver<NetworkMessage<E>>,
     rng: XorShiftRng,
 }
@@ -101,7 +101,7 @@ impl TestRig {
     fn expect_block_process(&mut self) {
         match self.beacon_processor_rx.try_recv() {
             Ok(work) => {
-                assert_eq!(work.work_type(), crate::beacon_processor::RPC_BLOCK);
+                assert_eq!(work.work_type(), beacon_processor::RPC_BLOCK);
             }
             other => panic!("Expected block process, found {:?}", other),
         }
@@ -111,7 +111,7 @@ impl TestRig {
     fn expect_parent_chain_process(&mut self) {
         match self.beacon_processor_rx.try_recv() {
             Ok(work) => {
-                assert_eq!(work.work_type(), crate::beacon_processor::CHAIN_SEGMENT);
+                assert_eq!(work.work_type(), beacon_processor::CHAIN_SEGMENT);
             }
             other => panic!("Expected chain segment process, found {:?}", other),
         }

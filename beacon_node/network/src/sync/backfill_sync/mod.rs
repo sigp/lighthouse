@@ -14,8 +14,9 @@ use crate::sync::range_sync::{
     BatchConfig, BatchId, BatchInfo, BatchOperationOutcome, BatchProcessingResult, BatchState,
 };
 use beacon_chain::{BeaconChain, BeaconChainTypes};
+use beacon_processor::{Work, WorkEvent};
 use lighthouse_network::types::{BackFillState, NetworkGlobals};
-use lighthouse_network::{PeerAction, PeerId};
+use lighthouse_network::{types::ChainSegmentProcessId, PeerAction, PeerId};
 use rand::seq::SliceRandom;
 use slog::{crit, debug, error, info, warn};
 use std::collections::{
@@ -535,7 +536,15 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
         let process_id = ChainSegmentProcessId::BackSyncBatchId(batch_id);
         self.current_processing_batch = Some(batch_id);
 
-        if let Err(e) = network.beacon_processor().chain_segment(process_id, blocks) {
+        let beacon_processor = network.beacon_processor();
+        let event = WorkEvent {
+            drop_during_sync: false,
+            work: Work::ChainSegment {
+                process_id,
+                process_fn: beacon_processor.process_fn_process_chain_segment(process_id, blocks),
+            },
+        };
+        if let Err(e) = beacon_processor.beacon_processor_send.try_send(event) {
             crit!(self.log, "Failed to send backfill segment to processor."; "msg" => "process_batch",
                 "error" => %e, "batch" => self.processing_target);
             // This is unlikely to happen but it would stall syncing since the batch now has no

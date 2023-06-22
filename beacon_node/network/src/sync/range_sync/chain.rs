@@ -2,7 +2,8 @@ use super::batch::{BatchInfo, BatchProcessingResult, BatchState};
 use crate::sync::{
     manager::Id, network_context::SyncNetworkContext, BatchOperationOutcome, BatchProcessResult,
 };
-use beacon_chain::BeaconChainTypes;
+use beacon_chain::{BeaconChainTypes, NotifyExecutionLayer};
+use beacon_processor::{Work as BeaconWork, WorkEvent as BeaconWorkEvent};
 use fnv::FnvHashMap;
 use lighthouse_network::{types::ChainSegmentProcessId, PeerAction, PeerId};
 use rand::seq::SliceRandom;
@@ -316,7 +317,14 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         let process_id = ChainSegmentProcessId::RangeBatchId(self.id, batch_id);
         self.current_processing_batch = Some(batch_id);
 
-        if let Err(e) = beacon_processor.chain_segment(process_id, blocks) {
+        let event = BeaconWorkEvent {
+            drop_during_sync: false,
+            work: BeaconWork::ChainSegment {
+                process_id,
+                process_fn: beacon_processor.process_fn_process_chain_segment(process_id, blocks),
+            },
+        };
+        if let Err(e) = beacon_processor.beacon_processor_send.try_send(event) {
             crit!(self.log, "Failed to send chain segment to processor."; "msg" => "process_batch",
                 "error" => %e, "batch" => self.processing_target);
             // This is unlikely to happen but it would stall syncing since the batch now has no
