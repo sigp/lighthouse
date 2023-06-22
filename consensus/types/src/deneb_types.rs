@@ -15,6 +15,7 @@ use crate::test_utils::TestRandom;
 use crate::{BeaconBlock, BlindedPayload, BlobSidecar, EthSpec, Hash256, SignedBeaconBlock, Slot};
 
 // TODO(jimmy): to be moved to respective type files.
+// TODO(jimmy): cleanup unused types.
 
 #[derive(
     Debug,
@@ -43,13 +44,16 @@ pub struct BlindedBlobSidecar {
     pub kzg_proof: KzgProof,
 }
 
+#[allow(unused)]
 type BlindedBlobSidecarList<E> = VariableList<BlindedBlobSidecar, <E as EthSpec>::MaxBlobsPerBlock>;
 
+#[allow(unused)]
 struct BlindedBlockContents<E: EthSpec> {
     blinded_block: BeaconBlock<E, BlindedPayload<E>>,
     blinded_blob_sidecars: BlindedBlobSidecarList<E>,
 }
 
+#[allow(unused)]
 struct SignedBlindedBlockContents<E: EthSpec> {
     signed_blinded_block: SignedBeaconBlock<E, BlindedPayload<E>>,
     signed_blinded_blob_sidecars: BlindedBlobSidecarList<E>,
