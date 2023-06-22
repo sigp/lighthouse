@@ -354,6 +354,171 @@ pub struct WorkEvent<E: EthSpec> {
     work: Work<E>,
 }
 
+impl<E: EthSpec> WorkEvent<E> {
+    /// Create a new `Work` event for some unaggregated attestation.
+    pub fn unaggregated_attestation(
+        attestation: Box<Attestation<E>>,
+        process_individual: Box<dyn Fn(Attestation<E>) + Send + Sync>,
+        process_batch: Box<dyn Fn(Vec<Attestation<E>>) + Send + Sync>,
+    ) -> Self {
+        Self {
+            drop_during_sync: true,
+            work: Work::GossipAttestation {
+                attestation,
+                process_individual,
+                process_batch,
+            },
+        }
+    }
+
+    /// Create a new `Work` event for some aggregated attestation.
+    pub fn aggregated_attestation(
+        aggregate: Box<SignedAggregateAndProof<E>>,
+        process_individual: Box<dyn Fn(SignedAggregateAndProof<E>) + Send + Sync>,
+        process_batch: Box<dyn Fn(Vec<SignedAggregateAndProof<E>>) + Send + Sync>,
+    ) -> Self {
+        Self {
+            drop_during_sync: true,
+            work: Work::GossipAggregate {
+                aggregate,
+                process_individual,
+                process_batch,
+            },
+        }
+    }
+
+    /// Create a new `Work` event for some block.
+    pub fn gossip_beacon_block(process_fn: AsyncFn) -> Self {
+        Self {
+            drop_during_sync: false,
+            work: Work::GossipBlock(process_fn),
+        }
+    }
+
+    /// Create a new `Work` event for some sync committee signature.
+    pub fn gossip_sync_signature(process_fn: BlockingFn) -> Self {
+        Self {
+            drop_during_sync: true,
+            work: Work::GossipSyncSignature(process_fn),
+        }
+    }
+
+    /// Create a new `Work` event for some sync committee contribution.
+    pub fn gossip_sync_contribution(process_fn: BlockingFn) -> Self {
+        Self {
+            drop_during_sync: true,
+            work: Work::GossipSyncContribution(process_fn),
+        }
+    }
+
+    /// Create a new `Work` event for some exit.
+    pub fn gossip_voluntary_exit(process_fn: BlockingFn) -> Self {
+        Self {
+            drop_during_sync: false,
+            work: Work::GossipVoluntaryExit(process_fn),
+        }
+    }
+
+    /// Create a new `Work` event for some proposer slashing.
+    pub fn gossip_proposer_slashing(process_fn: BlockingFn) -> Self {
+        Self {
+            drop_during_sync: false,
+            work: Work::GossipProposerSlashing(process_fn),
+        }
+    }
+
+    /// Create a new `Work` event for some light client finality update.
+    pub fn gossip_light_client_finality_update(process_fn: BlockingFn) -> Self {
+        Self {
+            drop_during_sync: true,
+            work: Work::GossipLightClientFinalityUpdate(process_fn),
+        }
+    }
+
+    /// Create a new `Work` event for some light client optimistic update.
+    pub fn gossip_light_client_optimistic_update(process_fn: BlockingFn) -> Self {
+        Self {
+            drop_during_sync: true,
+            work: Work::GossipLightClientOptimisticUpdate(process_fn),
+        }
+    }
+
+    /// Create a new `Work` event for some attester slashing.
+    pub fn gossip_attester_slashing(process_fn: BlockingFn) -> Self {
+        Self {
+            drop_during_sync: false,
+            work: Work::GossipAttesterSlashing(process_fn),
+        }
+    }
+
+    /// Create a new `Work` event for some BLS to execution change.
+    pub fn gossip_bls_to_execution_change(process_fn: BlockingFn) -> Self {
+        Self {
+            drop_during_sync: false,
+            work: Work::GossipBlsToExecutionChange(process_fn),
+        }
+    }
+
+    /// Create a new `Work` event for some block received via RPC.
+    pub fn rpc_beacon_block(process_fn: AsyncFn) -> Self {
+        Self {
+            drop_during_sync: false,
+            work: Work::RpcBlock {
+                should_process: true,
+                process_fn,
+            },
+        }
+    }
+
+    /// Create a new work event to import `blocks` as a beacon chain segment.
+    pub fn chain_segment(process_id: ChainSegmentProcessId, process_fn: AsyncFn) -> Self {
+        Self {
+            drop_during_sync: false,
+            work: Work::ChainSegment {
+                process_id,
+                process_fn,
+            },
+        }
+    }
+
+    /// Create a new work event to process `StatusMessage`s from the RPC network.
+    pub fn status_message(process_fn: BlockingFn) -> Self {
+        Self {
+            drop_during_sync: false,
+            work: Work::Status(process_fn),
+        }
+    }
+
+    /// Create a new work event to process `BlocksByRangeRequest`s from the RPC network.
+    pub fn blocks_by_range_request(process_fn: BlockingFnWithManualSendOnIdle) -> Self {
+        Self {
+            drop_during_sync: false,
+            work: Work::BlocksByRangeRequest(process_fn),
+        }
+    }
+
+    /// Create a new work event to process `BlocksByRootRequest`s from the RPC network.
+    pub fn blocks_by_roots_request(process_fn: BlockingFnWithManualSendOnIdle) -> Self {
+        Self {
+            drop_during_sync: false,
+            work: Work::BlocksByRootsRequest(process_fn),
+        }
+    }
+
+    /// Create a new work event to process `LightClientBootstrap`s from the RPC network.
+    pub fn lightclient_bootstrap_request(process_fn: BlockingFn) -> Self {
+        Self {
+            drop_during_sync: true,
+            work: Work::LightClientBootstrapRequest(process_fn),
+        }
+    }
+
+    /// Get a `str` representation of the type of work this `WorkEvent` contains.
+    pub fn work_type(&self) -> &'static str {
+        self.work.str_id()
+    }
+}
+
 impl<E: EthSpec> std::convert::From<ReadyWork> for WorkEvent<E> {
     fn from(ready_work: ReadyWork) -> Self {
         match ready_work {
