@@ -4171,14 +4171,17 @@ impl ApiTester {
         let slot = self.chain.slot().unwrap();
         let state_id = CoreStateId::Slot(slot);
 
-        let result = self.client.get_expected_withdrawals::<MainnetEthSpec>(&state_id).await;
+        let result = self
+            .client
+            .get_expected_withdrawals::<MainnetEthSpec>(&state_id)
+            .await;
 
         match result {
             Ok(_) => {}
             Err(e) => {
                 println!("{:?}", e);
                 panic!("query failed incorrectly");
-            },
+            }
         }
 
         self

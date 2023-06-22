@@ -1994,11 +1994,10 @@ pub fn serve<T: BeaconChainTypes>(
                                 ))
                             }),
                         _ => Ok(warp::reply::json(&api_types::NextWithdrawalsResponse {
-                                data: withdrawals,
-                                execution_optimistic,
-                                finalized,
-                            },
-                        )
+                            data: withdrawals,
+                            execution_optimistic,
+                            finalized,
+                        })
                         .into_response()),
                     }
                 })
