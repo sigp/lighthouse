@@ -828,7 +828,6 @@ impl<T: BeaconChainTypes> Worker<T> {
             Err(e @ BlockError::FutureSlot { .. })
             | Err(e @ BlockError::WouldRevertFinalizedSlot { .. })
             | Err(e @ BlockError::BlockIsAlreadyKnown)
-            | Err(e @ BlockError::RepeatProposal { .. })
             | Err(e @ BlockError::NotFinalizedDescendant { .. }) => {
                 debug!(self.log, "Could not verify block for gossip. Ignoring the block";
                             "error" => %e);

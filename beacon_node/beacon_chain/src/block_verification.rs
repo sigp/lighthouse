@@ -187,16 +187,6 @@ pub enum BlockError<T: EthSpec> {
     ///
     /// The block is valid and we have already imported a block with this hash.
     BlockIsAlreadyKnown,
-    /// A block for this proposer and slot has already been observed.
-    ///
-    /// ## Peer scoring
-    ///
-    /// The `proposer` has already proposed a block at this slot. The existing block may or may not
-    /// be equal to the given block.
-    RepeatProposal {
-        proposer: u64,
-        slot: Slot,
-    },
     /// The block slot exceeds the MAXIMUM_BLOCK_SLOT_NUMBER.
     ///
     /// ## Peer scoring

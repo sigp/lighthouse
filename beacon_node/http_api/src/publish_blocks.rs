@@ -179,18 +179,6 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
             info!(log, "Block from HTTP API already known"; "block" => ?block_root);
             Ok(())
         }
-        Err(BlockError::RepeatProposal { proposer, slot }) => {
-            warn!(
-                log,
-                "Block ignored due to repeat proposal";
-                "msg" => "this can happen when a VC uses fallback BNs. \
-                    whilst this is not necessarily an error, it can indicate issues with a BN \
-                    or between the VC and BN.",
-                "slot" => slot,
-                "proposer" => proposer,
-            );
-            Ok(())
-        }
         Err(e) => {
             if let BroadcastValidation::Gossip = validation_level {
                 Err(warp_utils::reject::broadcast_without_import(format!("{e}")))
