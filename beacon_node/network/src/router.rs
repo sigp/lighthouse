@@ -40,7 +40,7 @@ pub struct Router<T: BeaconChainTypes> {
     /// A network context to return and handle RPC requests.
     network: HandlerNetworkContext<T::EthSpec>,
     /// A multi-threaded, non-blocking processor for applying messages to the beacon chain.
-    beacon_processor: Arc<NetworkBeaconProcessor<T>>,
+    network_beacon_processor: Arc<NetworkBeaconProcessor<T>>,
     /// The `Router` logger.
     log: slog::Logger,
 }
@@ -474,7 +474,8 @@ impl<T: BeaconChainTypes> Router<T> {
     }
 
     fn send_beacon_processor_work(&mut self, work: BeaconWorkEvent<T::EthSpec>) {
-        self.beacon_processor_send
+        self.network_beacon_processor
+            .beacon_processor_send
             .try_send(work)
             .unwrap_or_else(|e| {
                 let work_type = match &e {

@@ -555,14 +555,10 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 let (chain_hash, blocks, hashes, request) = parent_lookup.parts_for_processing();
                 let process_id = ChainSegmentProcessId::ParentLookup(chain_hash);
 
-                let event = WorkEvent {
-                    drop_during_sync: false,
-                    work: Work::ChainSegment {
-                        process_id,
-                        process_fn: beacon_processor
-                            .process_fn_process_chain_segment(process_id, blocks),
-                    },
-                };
+                let event = WorkEvent::chain_segment(
+                    process_id,
+                    beacon_processor.process_fn_process_chain_segment(process_id, blocks),
+                );
                 match beacon_processor.beacon_processor_send.try_send(event) {
                     Ok(_) => {
                         self.processing_parent_lookups
@@ -675,18 +671,13 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         match cx.beacon_processor_if_enabled() {
             Some(beacon_processor) => {
                 trace!(self.log, "Sending block for processing"; "block" => ?block_root, "process" => ?process_type);
-                let event = WorkEvent {
-                    drop_during_sync: false,
-                    work: Work::RpcBlock {
-                        should_process: true,
-                        process_fn: beacon_processor.process_fn_rpc_beacon_block(
-                            block_root,
-                            block,
-                            duration,
-                            process_type,
-                        ),
-                    },
-                };
+                let event =
+                    WorkEvent::rpc_beacon_block(beacon_processor.process_fn_rpc_beacon_block(
+                        block_root,
+                        block,
+                        duration,
+                        process_type,
+                    ));
                 if let Err(e) = beacon_processor.beacon_processor_send.try_send(event) {
                     error!(
                         self.log,

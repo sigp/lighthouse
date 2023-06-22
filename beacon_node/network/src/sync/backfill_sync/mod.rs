@@ -537,13 +537,10 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
         self.current_processing_batch = Some(batch_id);
 
         let beacon_processor = network.beacon_processor();
-        let event = WorkEvent {
-            drop_during_sync: false,
-            work: Work::ChainSegment {
-                process_id,
-                process_fn: beacon_processor.process_fn_process_chain_segment(process_id, blocks),
-            },
-        };
+        let event = WorkEvent::chain_segment(
+            process_id,
+            beacon_processor.process_fn_process_chain_segment(process_id, blocks),
+        );
         if let Err(e) = beacon_processor.beacon_processor_send.try_send(event) {
             crit!(self.log, "Failed to send backfill segment to processor."; "msg" => "process_batch",
                 "error" => %e, "batch" => self.processing_target);
