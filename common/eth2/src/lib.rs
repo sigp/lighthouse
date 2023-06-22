@@ -1436,12 +1436,16 @@ impl BeaconNodeHttpClient {
     }
 
     /// `GET v2/validator/blinded_blocks/{slot}`
-    pub async fn get_validator_blinded_blocks<T: EthSpec, Payload: AbstractExecPayload<T>>(
+    pub async fn get_validator_blinded_blocks<
+        T: EthSpec,
+        Payload: AbstractExecPayload<T>,
+        Sidecar: AbstractSidecar<T>,
+    >(
         &self,
         slot: Slot,
         randao_reveal: &SignatureBytes,
         graffiti: Option<&Graffiti>,
-    ) -> Result<ForkVersionedResponse<BeaconBlock<T, Payload>>, Error> {
+    ) -> Result<ForkVersionedResponse<BlockContents<T, Payload, Sidecar>>, Error> {
         self.get_validator_blinded_blocks_modular(
             slot,
             randao_reveal,
@@ -1455,13 +1459,14 @@ impl BeaconNodeHttpClient {
     pub async fn get_validator_blinded_blocks_modular<
         T: EthSpec,
         Payload: AbstractExecPayload<T>,
+        Sidecar: AbstractSidecar<T>,
     >(
         &self,
         slot: Slot,
         randao_reveal: &SignatureBytes,
         graffiti: Option<&Graffiti>,
         skip_randao_verification: SkipRandaoVerification,
-    ) -> Result<ForkVersionedResponse<BeaconBlock<T, Payload>>, Error> {
+    ) -> Result<ForkVersionedResponse<BlockContents<T, Payload, Sidecar>>, Error> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()

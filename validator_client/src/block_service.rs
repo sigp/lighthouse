@@ -597,11 +597,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                     &[metrics::BEACON_BLOCK_HTTP_GET],
                 );
                 beacon_node
-                    .get_validator_blocks::<E, Payload, Sidecar>(
-                        slot,
-                        randao_reveal_ref,
-                        graffiti.as_ref(),
-                    )
+                    .get_validator_blocks(slot, randao_reveal_ref, graffiti.as_ref())
                     .await
                     .map_err(|e| {
                         BlockError::Recoverable(format!(
@@ -616,21 +612,16 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                     &metrics::BLOCK_SERVICE_TIMES,
                     &[metrics::BLINDED_BEACON_BLOCK_HTTP_GET],
                 );
-                todo!("implement blinded flow for blobs");
-                // beacon_node
-                //     .get_validator_blinded_blocks::<E, Payload>(
-                //         slot,
-                //         randao_reveal_ref,
-                //         graffiti.as_ref(),
-                //     )
-                //     .await
-                //     .map_err(|e| {
-                //         BlockError::Recoverable(format!(
-                //             "Error from beacon node when producing block: {:?}",
-                //             e
-                //         ))
-                //     })?
-                //     .data
+                beacon_node
+                    .get_validator_blinded_blocks(slot, randao_reveal_ref, graffiti.as_ref())
+                    .await
+                    .map_err(|e| {
+                        BlockError::Recoverable(format!(
+                            "Error from beacon node when producing block: {:?}",
+                            e
+                        ))
+                    })?
+                    .data
             }
         };
 

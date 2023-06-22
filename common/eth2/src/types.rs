@@ -1278,7 +1278,6 @@ mod tests {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(untagged)]
 #[serde(bound = "T: EthSpec")]
-// TODO(jimmy): we should be able to remove the `Sidecar: AbstractSidecar<T>> generic type parameter
 pub enum BlockContents<T: EthSpec, Payload: AbstractExecPayload<T>, Sidecar: AbstractSidecar<T>> {
     BlockAndBlobSidecars(BeaconBlockAndBlobSidecars<T, Payload, Sidecar>),
     BlindedBlockAndBlobSidecars(BlindedBeaconBlockAndBlobSidecars<T, Payload, Sidecar>),
