@@ -33,17 +33,13 @@ use types::{ForkContext, ForkName, EthSpec};
 /// another 500ms for "fudge factor".
 pub const DUPLICATE_CACHE_TIME: Duration = Duration::from_secs(33 * 12 + 1);
 
-// We treat uncompressed messages as invalid and never use the INVALID_SNAPPY_DOMAIN as in the
-// specification. We leave it here for posterity.
-// const MESSAGE_DOMAIN_INVALID_SNAPPY: [u8; 4] = [0, 0, 0, 0];
-
 /// The maximum size of gossip messages.
 pub fn gossip_max_size<TSpec:EthSpec>(is_merge_enabled: bool) -> usize {
     let gossip_max_size = TSpec::default_spec().gossip_max_size;
     if is_merge_enabled {
-        10 * gossip_max_size
-    } else {
         gossip_max_size
+    } else {
+        gossip_max_size / 10
     }
 }
 
