@@ -117,9 +117,9 @@ use tokio_stream::Stream;
 use tree_hash::TreeHash;
 use types::beacon_block_body::KzgCommitments;
 use types::beacon_state::CloneConfig;
-use types::blob_sidecar::{BlobSidecarList, Blobs};
+use types::blob_sidecar::{BlobRoots, BlobSidecarList, Blobs};
 use types::consts::deneb::MIN_EPOCHS_FOR_BLOB_SIDECARS_REQUESTS;
-use types::deneb_types::BlindedBlobSidecar;
+use types::deneb_types::{BlindedBlobSidecar, BlobsOrBlobRoots, SidecarList};
 use types::*;
 
 pub type ForkChoiceError = fork_choice::Error<crate::ForkChoiceStoreError>;
@@ -4716,167 +4716,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         block_contents: Option<BlockProposalContents<T::EthSpec, Payload>>,
         verification: ProduceBlockVerification,
     ) -> Result<BeaconBlockAndState<T::EthSpec, Payload>, BlockProductionError> {
-        let PartialBeaconBlock {
-            mut state,
-            slot,
-            proposer_index,
-            parent_root,
-            randao_reveal,
-            eth1_data,
-            graffiti,
-            proposer_slashings,
-            attester_slashings,
-            attestations,
-            deposits,
-            voluntary_exits,
-            sync_aggregate,
-            // We don't need the prepare payload handle since the `execution_payload` is passed into
-            // this function. We can assume that the handle has already been consumed in order to
-            // produce said `execution_payload`.
-            prepare_payload_handle: _,
-            bls_to_execution_changes,
-        } = partial_beacon_block;
-
-        let (inner_block, blobs_opt, proofs_opt) = match &state {
-            BeaconState::Base(_) => (
-                BeaconBlock::Base(BeaconBlockBase {
-                    slot,
-                    proposer_index,
-                    parent_root,
-                    state_root: Hash256::zero(),
-                    body: BeaconBlockBodyBase {
-                        randao_reveal,
-                        eth1_data,
-                        graffiti,
-                        proposer_slashings: proposer_slashings.into(),
-                        attester_slashings: attester_slashings.into(),
-                        attestations: attestations.into(),
-                        deposits: deposits.into(),
-                        voluntary_exits: voluntary_exits.into(),
-                        _phantom: PhantomData,
-                    },
-                }),
-                None,
-                None,
-            ),
-            BeaconState::Altair(_) => (
-                BeaconBlock::Altair(BeaconBlockAltair {
-                    slot,
-                    proposer_index,
-                    parent_root,
-                    state_root: Hash256::zero(),
-                    body: BeaconBlockBodyAltair {
-                        randao_reveal,
-                        eth1_data,
-                        graffiti,
-                        proposer_slashings: proposer_slashings.into(),
-                        attester_slashings: attester_slashings.into(),
-                        attestations: attestations.into(),
-                        deposits: deposits.into(),
-                        voluntary_exits: voluntary_exits.into(),
-                        sync_aggregate: sync_aggregate
-                            .ok_or(BlockProductionError::MissingSyncAggregate)?,
-                        _phantom: PhantomData,
-                    },
-                }),
-                None,
-                None,
-            ),
-            BeaconState::Merge(_) => {
-                let (payload, _, _, _) = block_contents
-                    .ok_or(BlockProductionError::MissingExecutionPayload)?
-                    .deconstruct();
-                (
-                    BeaconBlock::Merge(BeaconBlockMerge {
-                        slot,
-                        proposer_index,
-                        parent_root,
-                        state_root: Hash256::zero(),
-                        body: BeaconBlockBodyMerge {
-                            randao_reveal,
-                            eth1_data,
-                            graffiti,
-                            proposer_slashings: proposer_slashings.into(),
-                            attester_slashings: attester_slashings.into(),
-                            attestations: attestations.into(),
-                            deposits: deposits.into(),
-                            voluntary_exits: voluntary_exits.into(),
-                            sync_aggregate: sync_aggregate
-                                .ok_or(BlockProductionError::MissingSyncAggregate)?,
-                            execution_payload: payload
-                                .try_into()
-                                .map_err(|_| BlockProductionError::InvalidPayloadFork)?,
-                        },
-                    }),
-                    None,
-                    None,
-                )
-            }
-            BeaconState::Capella(_) => {
-                let (payload, _, _, _) = block_contents
-                    .ok_or(BlockProductionError::MissingExecutionPayload)?
-                    .deconstruct();
-                (
-                    BeaconBlock::Capella(BeaconBlockCapella {
-                        slot,
-                        proposer_index,
-                        parent_root,
-                        state_root: Hash256::zero(),
-                        body: BeaconBlockBodyCapella {
-                            randao_reveal,
-                            eth1_data,
-                            graffiti,
-                            proposer_slashings: proposer_slashings.into(),
-                            attester_slashings: attester_slashings.into(),
-                            attestations: attestations.into(),
-                            deposits: deposits.into(),
-                            voluntary_exits: voluntary_exits.into(),
-                            sync_aggregate: sync_aggregate
-                                .ok_or(BlockProductionError::MissingSyncAggregate)?,
-                            execution_payload: payload
-                                .try_into()
-                                .map_err(|_| BlockProductionError::InvalidPayloadFork)?,
-                            bls_to_execution_changes: bls_to_execution_changes.into(),
-                        },
-                    }),
-                    None,
-                    None,
-                )
-            }
-            BeaconState::Deneb(_) => {
-                let (payload, kzg_commitments, blobs, proofs) = block_contents
-                    .ok_or(BlockProductionError::MissingExecutionPayload)?
-                    .deconstruct();
-                (
-                    BeaconBlock::Deneb(BeaconBlockDeneb {
-                        slot,
-                        proposer_index,
-                        parent_root,
-                        state_root: Hash256::zero(),
-                        body: BeaconBlockBodyDeneb {
-                            randao_reveal,
-                            eth1_data,
-                            graffiti,
-                            proposer_slashings: proposer_slashings.into(),
-                            attester_slashings: attester_slashings.into(),
-                            attestations: attestations.into(),
-                            deposits: deposits.into(),
-                            voluntary_exits: voluntary_exits.into(),
-                            sync_aggregate: sync_aggregate
-                                .ok_or(BlockProductionError::MissingSyncAggregate)?,
-                            execution_payload: payload
-                                .try_into()
-                                .map_err(|_| BlockProductionError::InvalidPayloadFork)?,
-                            bls_to_execution_changes: bls_to_execution_changes.into(),
-                            blob_kzg_commitments: kzg_commitments
-                                .ok_or(BlockProductionError::InvalidPayloadFork)?,
-                        },
-                    }),
-                    blobs,
-                    proofs,
-                )
-            }
-        };
+        let (mut state, inner_block, blobs_opt, proofs_opt) =
+            Self::merge_block_contents_into_beacon_block(partial_beacon_block, block_contents)?;
 
         let block = SignedBeaconBlock::from_block(
             inner_block,
@@ -4926,70 +4767,44 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         //FIXME(sean)
         // - add a new timer for processing here
-        if let Some(blobs) = blobs_opt {
-            let kzg = self
-                .kzg
-                .as_ref()
-                .ok_or(BlockProductionError::TrustedSetupNotInitialized)?;
-            let beacon_block_root = block.canonical_root();
+        if let Some(blobs_or_blobs_roots) = blobs_opt {
             let expected_kzg_commitments = block.body().blob_kzg_commitments().map_err(|_| {
                 BlockProductionError::InvalidBlockVariant(
                     "DENEB block does not contain kzg commitments".to_string(),
                 )
             })?;
 
-            if expected_kzg_commitments.len() != blobs.len() {
+            if expected_kzg_commitments.len() != blobs_or_blobs_roots.len() {
                 return Err(BlockProductionError::MissingKzgCommitment(format!(
                     "Missing KZG commitment for slot {}. Expected {}, got: {}",
-                    slot,
-                    blobs.len(),
+                    block.slot(),
+                    blobs_or_blobs_roots.len(),
                     expected_kzg_commitments.len()
                 )));
             }
 
-            let kzg_proofs = if let Some(proofs) = proofs_opt {
-                Vec::from(proofs)
-            } else {
-                Self::compute_blob_kzg_proofs(kzg, &blobs, expected_kzg_commitments, slot)?
-            };
+            let kzg_proofs = proofs_opt
+                .ok_or(BlockProductionError::MissingKzgProof(format!(
+                    "Missing KZG proofs for slot {}",
+                    block.slot()
+                )))?
+                .to_vec();
 
-            kzg_utils::validate_blobs::<T::EthSpec>(
-                kzg,
-                expected_kzg_commitments,
-                &blobs,
-                &kzg_proofs,
-            )
-            .map_err(BlockProductionError::KzgError)?;
-
-            let blob_sidecars = BlobSidecarList::from(
-                blobs
-                    .into_iter()
-                    .enumerate()
-                    .map(|(blob_index, blob)| {
-                        let kzg_commitment = expected_kzg_commitments
-                            .get(blob_index)
-                            .expect("KZG commitment should exist for blob");
-
-                        let kzg_proof = kzg_proofs
-                            .get(blob_index)
-                            .expect("KZG proof should exist for blob");
-
-                        Ok(Arc::new(BlobSidecar {
-                            block_root: beacon_block_root,
-                            index: blob_index as u64,
-                            slot,
-                            block_parent_root: block.parent_root(),
-                            proposer_index,
-                            blob,
-                            kzg_commitment: *kzg_commitment,
-                            kzg_proof: *kzg_proof,
-                        }))
-                    })
-                    .collect::<Result<Vec<_>, BlockProductionError>>()?,
-            );
-
-            self.proposal_blob_cache
-                .put(beacon_block_root, blob_sidecars);
+            match blobs_or_blobs_roots {
+                BlobsOrBlobRoots::Blobs(blobs) => self.build_and_cache_blob_sidecars(
+                    &block,
+                    blobs,
+                    expected_kzg_commitments,
+                    kzg_proofs,
+                )?,
+                BlobsOrBlobRoots::BlobRoots(blob_roots) => self
+                    .build_and_cache_blinded_blob_sidecars(
+                        &block,
+                        blob_roots,
+                        expected_kzg_commitments,
+                        kzg_proofs,
+                    )?,
+            }
         }
 
         metrics::inc_counter(&metrics::BLOCK_PRODUCTION_SUCCESSES);
@@ -6288,6 +6103,285 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .deneb_fork_epoch
             .map(|fork_epoch| fork_epoch <= current_epoch)
             .unwrap_or(false))
+    }
+
+    fn build_and_cache_blob_sidecars<Payload: AbstractExecPayload<T::EthSpec>>(
+        &self,
+        block: &BeaconBlock<T::EthSpec, Payload>,
+        blobs: Blobs<T::EthSpec>,
+        expected_kzg_commitments: &KzgCommitments<T::EthSpec>,
+        kzg_proofs: Vec<KzgProof>,
+    ) -> Result<(), BlockProductionError> {
+        let kzg = self
+            .kzg
+            .as_ref()
+            .ok_or(BlockProductionError::TrustedSetupNotInitialized)?;
+        let beacon_block_root = block.canonical_root();
+        let slot = block.slot();
+
+        kzg_utils::validate_blobs::<T::EthSpec>(kzg, expected_kzg_commitments, &blobs, &kzg_proofs)
+            .map_err(BlockProductionError::KzgError)?;
+
+        let blob_sidecars = BlobSidecarList::from(
+            blobs
+                .into_iter()
+                .enumerate()
+                .map(|(blob_index, blob)| {
+                    let kzg_commitment = expected_kzg_commitments
+                        .get(blob_index)
+                        .expect("KZG commitment should exist for blob");
+
+                    let kzg_proof = kzg_proofs
+                        .get(blob_index)
+                        .expect("KZG proof should exist for blob");
+
+                    Ok(Arc::new(BlobSidecar {
+                        block_root: beacon_block_root,
+                        index: blob_index as u64,
+                        slot,
+                        block_parent_root: block.parent_root(),
+                        proposer_index: block.proposer_index(),
+                        blob,
+                        kzg_commitment: *kzg_commitment,
+                        kzg_proof: *kzg_proof,
+                    }))
+                })
+                .collect::<Result<Vec<_>, BlockProductionError>>()?,
+        );
+
+        self.proposal_blob_cache
+            .put(beacon_block_root, blob_sidecars);
+
+        Ok(())
+    }
+
+    fn build_and_cache_blinded_blob_sidecars<Payload: AbstractExecPayload<T::EthSpec>>(
+        &self,
+        block: &BeaconBlock<T::EthSpec, Payload>,
+        blob_roots: BlobRoots<T::EthSpec>,
+        expected_kzg_commitments: &KzgCommitments<T::EthSpec>,
+        kzg_proofs: Vec<KzgProof>,
+    ) -> Result<(), BlockProductionError> {
+        let beacon_block_root = block.canonical_root();
+        let slot = block.slot();
+
+        let blob_sidecars = SidecarList::<T::EthSpec, BlindedBlobSidecar>::from(
+            blob_roots
+                .into_iter()
+                .enumerate()
+                .map(|(blob_index, blob_root)| {
+                    let kzg_commitment = expected_kzg_commitments
+                        .get(blob_index)
+                        .expect("KZG commitment should exist for blob");
+
+                    let kzg_proof =
+                        kzg_proofs
+                            .get(blob_index)
+                            .ok_or(BlockProductionError::MissingKzgProof(format!(
+                                "Missing KZG proof for slot {} blob index: {}",
+                                slot, blob_index
+                            )))?;
+
+                    Ok(Arc::new(BlindedBlobSidecar {
+                        block_root: beacon_block_root,
+                        index: blob_index as u64,
+                        slot,
+                        block_parent_root: block.parent_root(),
+                        proposer_index: block.proposer_index(),
+                        blob_root,
+                        kzg_commitment: *kzg_commitment,
+                        kzg_proof: *kzg_proof,
+                    }))
+                })
+                .collect::<Result<Vec<_>, BlockProductionError>>()?,
+        );
+
+        self.proposal_blinded_blob_cache
+            .put(beacon_block_root, blob_sidecars);
+
+        Ok(())
+    }
+
+    fn merge_block_contents_into_beacon_block<E: EthSpec, Payload: AbstractExecPayload<E>>(
+        partial_beacon_block: PartialBeaconBlock<E, Payload>,
+        block_contents: Option<BlockProposalContents<E, Payload>>,
+    ) -> Result<
+        (
+            BeaconState<E>,
+            BeaconBlock<E, Payload>,
+            Option<BlobsOrBlobRoots<E>>,
+            Option<KzgProofs<E>>,
+        ),
+        BlockProductionError,
+    > {
+        let PartialBeaconBlock {
+            state,
+            slot,
+            proposer_index,
+            parent_root,
+            randao_reveal,
+            eth1_data,
+            graffiti,
+            proposer_slashings,
+            attester_slashings,
+            attestations,
+            deposits,
+            voluntary_exits,
+            sync_aggregate,
+            // We don't need the prepare payload handle since the `execution_payload` is passed into
+            // this function. We can assume that the handle has already been consumed in order to
+            // produce said `execution_payload`.
+            prepare_payload_handle: _,
+            bls_to_execution_changes,
+        } = partial_beacon_block;
+
+        let result = match &state {
+            BeaconState::Base(_) => (
+                state,
+                BeaconBlock::Base(BeaconBlockBase {
+                    slot,
+                    proposer_index,
+                    parent_root,
+                    state_root: Hash256::zero(),
+                    body: BeaconBlockBodyBase {
+                        randao_reveal,
+                        eth1_data,
+                        graffiti,
+                        proposer_slashings: proposer_slashings.into(),
+                        attester_slashings: attester_slashings.into(),
+                        attestations: attestations.into(),
+                        deposits: deposits.into(),
+                        voluntary_exits: voluntary_exits.into(),
+                        _phantom: PhantomData,
+                    },
+                }),
+                None,
+                None,
+            ),
+            BeaconState::Altair(_) => (
+                state,
+                BeaconBlock::Altair(BeaconBlockAltair {
+                    slot,
+                    proposer_index,
+                    parent_root,
+                    state_root: Hash256::zero(),
+                    body: BeaconBlockBodyAltair {
+                        randao_reveal,
+                        eth1_data,
+                        graffiti,
+                        proposer_slashings: proposer_slashings.into(),
+                        attester_slashings: attester_slashings.into(),
+                        attestations: attestations.into(),
+                        deposits: deposits.into(),
+                        voluntary_exits: voluntary_exits.into(),
+                        sync_aggregate: sync_aggregate
+                            .ok_or(BlockProductionError::MissingSyncAggregate)?,
+                        _phantom: PhantomData,
+                    },
+                }),
+                None,
+                None,
+            ),
+            BeaconState::Merge(_) => {
+                let (payload, _, _, _) = block_contents
+                    .ok_or(BlockProductionError::MissingExecutionPayload)?
+                    .deconstruct();
+                (
+                    state,
+                    BeaconBlock::Merge(BeaconBlockMerge {
+                        slot,
+                        proposer_index,
+                        parent_root,
+                        state_root: Hash256::zero(),
+                        body: BeaconBlockBodyMerge {
+                            randao_reveal,
+                            eth1_data,
+                            graffiti,
+                            proposer_slashings: proposer_slashings.into(),
+                            attester_slashings: attester_slashings.into(),
+                            attestations: attestations.into(),
+                            deposits: deposits.into(),
+                            voluntary_exits: voluntary_exits.into(),
+                            sync_aggregate: sync_aggregate
+                                .ok_or(BlockProductionError::MissingSyncAggregate)?,
+                            execution_payload: payload
+                                .try_into()
+                                .map_err(|_| BlockProductionError::InvalidPayloadFork)?,
+                        },
+                    }),
+                    None,
+                    None,
+                )
+            }
+            BeaconState::Capella(_) => {
+                let (payload, _, _, _) = block_contents
+                    .ok_or(BlockProductionError::MissingExecutionPayload)?
+                    .deconstruct();
+                (
+                    state,
+                    BeaconBlock::Capella(BeaconBlockCapella {
+                        slot,
+                        proposer_index,
+                        parent_root,
+                        state_root: Hash256::zero(),
+                        body: BeaconBlockBodyCapella {
+                            randao_reveal,
+                            eth1_data,
+                            graffiti,
+                            proposer_slashings: proposer_slashings.into(),
+                            attester_slashings: attester_slashings.into(),
+                            attestations: attestations.into(),
+                            deposits: deposits.into(),
+                            voluntary_exits: voluntary_exits.into(),
+                            sync_aggregate: sync_aggregate
+                                .ok_or(BlockProductionError::MissingSyncAggregate)?,
+                            execution_payload: payload
+                                .try_into()
+                                .map_err(|_| BlockProductionError::InvalidPayloadFork)?,
+                            bls_to_execution_changes: bls_to_execution_changes.into(),
+                        },
+                    }),
+                    None,
+                    None,
+                )
+            }
+            BeaconState::Deneb(_) => {
+                let (payload, kzg_commitments, blobs_or_blob_roots, proofs) = block_contents
+                    .ok_or(BlockProductionError::MissingExecutionPayload)?
+                    .deconstruct();
+                (
+                    state,
+                    BeaconBlock::Deneb(BeaconBlockDeneb {
+                        slot,
+                        proposer_index,
+                        parent_root,
+                        state_root: Hash256::zero(),
+                        body: BeaconBlockBodyDeneb {
+                            randao_reveal,
+                            eth1_data,
+                            graffiti,
+                            proposer_slashings: proposer_slashings.into(),
+                            attester_slashings: attester_slashings.into(),
+                            attestations: attestations.into(),
+                            deposits: deposits.into(),
+                            voluntary_exits: voluntary_exits.into(),
+                            sync_aggregate: sync_aggregate
+                                .ok_or(BlockProductionError::MissingSyncAggregate)?,
+                            execution_payload: payload
+                                .try_into()
+                                .map_err(|_| BlockProductionError::InvalidPayloadFork)?,
+                            bls_to_execution_changes: bls_to_execution_changes.into(),
+                            blob_kzg_commitments: kzg_commitments
+                                .ok_or(BlockProductionError::InvalidPayloadFork)?,
+                        },
+                    }),
+                    blobs_or_blob_roots,
+                    proofs,
+                )
+            }
+        };
+
+        Ok(result)
     }
 }
 

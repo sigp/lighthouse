@@ -10,6 +10,7 @@ use tree_hash_derive::TreeHash;
 use kzg::{KzgCommitment, KzgProof};
 use test_random_derive::TestRandom;
 
+use crate::blob_sidecar::{BlobRoots, Blobs};
 use crate::test_utils::TestRandom;
 use crate::{BeaconBlock, BlindedPayload, BlobSidecar, EthSpec, Hash256, SignedBeaconBlock, Slot};
 
@@ -63,3 +64,27 @@ impl<E: EthSpec> AbstractSidecar<E> for BlobSidecar<E> {}
 impl<E: EthSpec> AbstractSidecar<E> for BlindedBlobSidecar {}
 
 pub type SidecarList<E, Sidecar> = VariableList<Arc<Sidecar>, <E as EthSpec>::MaxBlobsPerBlock>;
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(untagged)]
+#[serde(bound = "T: EthSpec")]
+pub enum BlobsOrBlobRoots<T: EthSpec> {
+    Blobs(Blobs<T>),
+    BlobRoots(BlobRoots<T>),
+}
+
+impl<T: EthSpec> BlobsOrBlobRoots<T> {
+    pub fn len(&self) -> usize {
+        match self {
+            Self::Blobs(blobs) => blobs.len(),
+            Self::BlobRoots(blob_roots) => blob_roots.len(),
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        match self {
+            Self::Blobs(blobs) => blobs.is_empty(),
+            Self::BlobRoots(blob_roots) => blob_roots.is_empty(),
+        }
+    }
+}

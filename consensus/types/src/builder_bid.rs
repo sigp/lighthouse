@@ -1,21 +1,48 @@
-use crate::{
-    AbstractExecPayload, ChainSpec, EthSpec, ExecPayload, ExecutionPayloadHeader, ForkName,
-    ForkVersionDeserialize, SignedRoot, Uint256,
-};
-use bls::PublicKeyBytes;
-use bls::Signature;
+use std::marker::PhantomData;
+
 use serde::{Deserialize as De, Deserializer, Serialize as Ser, Serializer};
 use serde_derive::{Deserialize, Serialize};
-use serde_with::{serde_as, DeserializeAs, SerializeAs};
-use std::marker::PhantomData;
+use serde_with::{As, DeserializeAs, SerializeAs};
+use ssz_types::VariableList;
+use superstruct::superstruct;
 use tree_hash_derive::TreeHash;
 
-#[serde_as]
+use bls::PublicKeyBytes;
+use bls::Signature;
+
+use crate::beacon_block_body::KzgCommitments;
+use crate::{
+    AbstractExecPayload, ChainSpec, EthSpec, ExecPayload, ExecutionPayloadHeader, ForkName,
+    ForkVersionDeserialize, Hash256, KzgProofs, SignedRoot, Uint256,
+};
+
 #[derive(PartialEq, Debug, Serialize, Deserialize, TreeHash, Clone)]
-#[serde(bound = "E: EthSpec, Payload: ExecPayload<E>")]
+#[serde(bound = "E: EthSpec")]
+pub struct BlindedBlobsBundle<E: EthSpec> {
+    pub commitments: KzgCommitments<E>,
+    pub proofs: KzgProofs<E>,
+    pub blob_roots: VariableList<Hash256, E::MaxBlobsPerBlock>,
+}
+
+#[superstruct(
+    variants(Merge, Capella, Deneb),
+    variant_attributes(
+        derive(PartialEq, Debug, Serialize, Deserialize, TreeHash, Clone),
+        serde(bound = "E: EthSpec, Payload: ExecPayload<E>", deny_unknown_fields)
+    )
+)]
+#[derive(PartialEq, Debug, Serialize, Deserialize, TreeHash, Clone)]
+#[serde(
+    bound = "E: EthSpec, Payload: ExecPayload<E>",
+    deny_unknown_fields,
+    untagged
+)]
+#[tree_hash(enum_behaviour = "transparent")]
 pub struct BuilderBid<E: EthSpec, Payload: AbstractExecPayload<E>> {
-    #[serde_as(as = "BlindedPayloadAsHeader<E>")]
+    #[serde(with = "As::<BlindedPayloadAsHeader<E>>")]
     pub header: Payload,
+    #[superstruct(only(Deneb))]
+    pub blinded_blobs_bundle: BlindedBlobsBundle<E>,
     #[serde(with = "serde_utils::quoted_u256")]
     pub value: Uint256,
     pub pubkey: PublicKeyBytes,
@@ -37,32 +64,23 @@ pub struct SignedBuilderBid<E: EthSpec, Payload: AbstractExecPayload<E>> {
 impl<T: EthSpec, Payload: AbstractExecPayload<T>> ForkVersionDeserialize
     for BuilderBid<T, Payload>
 {
-    fn deserialize_by_fork<'de, D: serde::Deserializer<'de>>(
+    fn deserialize_by_fork<'de, D: Deserializer<'de>>(
         value: serde_json::value::Value,
         fork_name: ForkName,
     ) -> Result<Self, D::Error> {
-        let convert_err = |_| {
-            serde::de::Error::custom(
-                "BuilderBid failed to deserialize: unable to convert payload header to payload",
-            )
-        };
+        let convert_err =
+            |e| serde::de::Error::custom(format!("BuilderBid failed to deserialize: {:?}", e));
 
-        #[derive(Deserialize)]
-        struct Helper {
-            header: serde_json::Value,
-            #[serde(with = "serde_utils::quoted_u256")]
-            value: Uint256,
-            pubkey: PublicKeyBytes,
-        }
-        let helper: Helper = serde_json::from_value(value).map_err(serde::de::Error::custom)?;
-        let payload_header =
-            ExecutionPayloadHeader::deserialize_by_fork::<'de, D>(helper.header, fork_name)?;
-
-        Ok(Self {
-            header: Payload::try_from(payload_header).map_err(convert_err)?,
-            value: helper.value,
-            pubkey: helper.pubkey,
-            _phantom_data: Default::default(),
+        Ok(match fork_name {
+            ForkName::Merge => Self::Merge(serde_json::from_value(value).map_err(convert_err)?),
+            ForkName::Capella => Self::Capella(serde_json::from_value(value).map_err(convert_err)?),
+            ForkName::Deneb => Self::Deneb(serde_json::from_value(value).map_err(convert_err)?),
+            ForkName::Base | ForkName::Altair => {
+                return Err(serde::de::Error::custom(format!(
+                    "BuilderBid failed to deserialize: unsupported fork '{}'",
+                    fork_name
+                )));
+            }
         })
     }
 }
@@ -70,7 +88,7 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> ForkVersionDeserialize
 impl<T: EthSpec, Payload: AbstractExecPayload<T>> ForkVersionDeserialize
     for SignedBuilderBid<T, Payload>
 {
-    fn deserialize_by_fork<'de, D: serde::Deserializer<'de>>(
+    fn deserialize_by_fork<'de, D: Deserializer<'de>>(
         value: serde_json::value::Value,
         fork_name: ForkName,
     ) -> Result<Self, D::Error> {
@@ -115,7 +133,7 @@ impl<'de, E: EthSpec, Payload: AbstractExecPayload<E>> DeserializeAs<'de, Payloa
 impl<E: EthSpec, Payload: AbstractExecPayload<E>> SignedBuilderBid<E, Payload> {
     pub fn verify_signature(&self, spec: &ChainSpec) -> bool {
         self.message
-            .pubkey
+            .pubkey()
             .decompress()
             .map(|pubkey| {
                 let domain = spec.get_builder_domain();
