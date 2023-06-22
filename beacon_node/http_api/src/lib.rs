@@ -1949,11 +1949,13 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::query::<api_types::ExpectedWithdrawalsQuery>())
         .and(warp::path("expected_withdrawals"))
         .and(warp::path::end())
+        .and(warp::header::optional::<api_types::Accept>("accept"))
         .and_then(
             |chain: Arc<BeaconChain<T>>,
              state_id: StateId,
-             query: api_types::ExpectedWithdrawalsQuery| {
-                blocking_json_task(move || {
+             query: api_types::ExpectedWithdrawalsQuery,
+             accept_header: Option<api_types::Accept>| {
+                blocking_response_task(move || {
                     let proposal_slot = query.proposal_slot.unwrap_or(Slot::new(1));
                     let (state, execution_optimistic, finalized) = match state_id.state(&chain) {
                         Ok(state) => state,
@@ -1967,20 +1969,37 @@ pub fn serve<T: BeaconChainTypes>(
                         .canonical_head
                         .cached_head()
                         .forkchoice_update_parameters();
-                    match chain.get_expected_withdrawals(
+
+                    let withdrawals = match chain.get_expected_withdrawals(
                         &forkchoice_update_parameters,
                         state.slot() + proposal_slot,
                     ) {
-                        Ok(withdrawals) => Ok(api_types::GenericResponse::from(
-                            api_types::NextWithdrawalsResponse {
+                        Ok(withdrawals) => withdrawals,
+                        Err(_) => {
+                            return Err(warp_utils::reject::custom_bad_request(
+                                "The specified state is not a capella state.".to_string(),
+                            ))
+                        }
+                    };
+
+                    match accept_header {
+                        Some(api_types::Accept::Ssz) => Response::builder()
+                            .status(200)
+                            .header("Content-Type", "application/octet-stream")
+                            .body(withdrawals.as_ssz_bytes().into())
+                            .map_err(|e| {
+                                warp_utils::reject::custom_server_error(format!(
+                                    "failed to create response: {}",
+                                    e
+                                ))
+                            }),
+                        _ => Ok(warp::reply::json(&api_types::NextWithdrawalsResponse {
                                 data: withdrawals,
                                 execution_optimistic,
                                 finalized,
                             },
-                        )),
-                        Err(_) => Err(warp_utils::reject::custom_bad_request(
-                            "The specified state is not a capella state.".to_string(),
-                        )),
+                        )
+                        .into_response()),
                     }
                 })
             },
