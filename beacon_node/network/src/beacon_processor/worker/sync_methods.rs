@@ -31,7 +31,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     /// Attempt to process a block received from a direct RPC request.
     #[allow(clippy::too_many_arguments)]
     pub async fn process_rpc_block(
-        self,
+        self: Arc<NetworkBeaconProcessor<T>>,
         block_root: Hash256,
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
         seen_timestamp: Duration,
@@ -58,13 +58,17 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     "action" => "sending rpc block to reprocessing queue",
                     "block_root" => %block_root,
                 );
+
                 // Send message to work reprocess queue to retry the block
                 let reprocess_msg = ReprocessQueueMessage::RpcBlock(QueuedRpcBlock {
-                    block_root,
-                    block: block.clone(),
-                    process_type,
-                    seen_timestamp,
+                    beacon_block_root: block_root,
                     should_process: true,
+                    process_fn: self.clone().process_fn_rpc_beacon_block(
+                        block_root,
+                        block,
+                        seen_timestamp,
+                        process_type,
+                    ),
                 });
 
                 if reprocess_tx.try_send(reprocess_msg).is_err() {
@@ -131,11 +135,14 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
             // Send message to work reprocess queue to retry the block
             let reprocess_msg = ReprocessQueueMessage::RpcBlock(QueuedRpcBlock {
-                block_root,
-                block: block.clone(),
-                process_type,
-                seen_timestamp,
+                beacon_block_root: block_root,
                 should_process: true,
+                process_fn: self.clone().process_fn_rpc_beacon_block(
+                    block_root,
+                    block,
+                    seen_timestamp,
+                    process_type,
+                ),
             });
 
             if reprocess_tx.try_send(reprocess_msg).is_err() {

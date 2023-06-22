@@ -1,8 +1,9 @@
-use crate::beacon_processor::{worker::FUTURE_SLOT_TOLERANCE, NetworkBeaconProcessor, SendOnDrop};
+use crate::beacon_processor::{worker::FUTURE_SLOT_TOLERANCE, NetworkBeaconProcessor};
 use crate::service::NetworkMessage;
 use crate::status::ToStatusMessage;
 use crate::sync::SyncMessage;
 use beacon_chain::{BeaconChainError, BeaconChainTypes, HistoricalBlockError, WhenSlotSkipped};
+use beacon_processor::SendOnDrop;
 use itertools::process_results;
 use lighthouse_network::rpc::StatusMessage;
 use lighthouse_network::rpc::*;

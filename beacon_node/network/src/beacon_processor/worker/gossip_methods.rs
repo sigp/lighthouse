@@ -1,5 +1,8 @@
 use crate::{
-    beacon_processor::NetworkBeaconProcessor, metrics, service::NetworkMessage, sync::SyncMessage,
+    beacon_processor::{InvalidBlockStorage, NetworkBeaconProcessor},
+    metrics,
+    service::NetworkMessage,
+    sync::SyncMessage,
 };
 
 use beacon_chain::store::Error;
@@ -36,7 +39,7 @@ use beacon_processor::work_reprocessing_queue::{
     QueuedAggregate, QueuedGossipBlock, QueuedLightClientUpdate, QueuedUnaggregate,
     ReprocessQueueMessage,
 };
-use beacon_processor::{DuplicateCache, InvalidBlockStorage};
+use beacon_processor::DuplicateCache;
 
 /// Set to `true` to introduce stricter penalties for peers who send some types of late consensus
 /// messages.
@@ -347,7 +350,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     // cant' be mixed-up) and creating a struct would result in more complexity.
     #[allow(clippy::too_many_arguments)]
     fn process_gossip_attestation_result(
-        &self,
+        self: &Arc<Self>,
         result: Result<VerifiedUnaggregate<T>, RejectedUnaggregate<T::EthSpec>>,
         message_id: MessageId,
         peer_id: PeerId,
@@ -455,7 +458,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     ///
     /// Raises a log if there are errors.
     pub fn process_gossip_aggregate(
-        self,
+        self: Arc<Self>,
         message_id: MessageId,
         peer_id: PeerId,
         aggregate: Box<SignedAggregateAndProof<T::EthSpec>>,
@@ -489,7 +492,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     }
 
     pub fn process_gossip_aggregate_batch(
-        self,
+        self: Arc<Self>,
         packages: Vec<GossipAggregatePackage<T::EthSpec>>,
         reprocess_tx: Option<mpsc::Sender<ReprocessQueueMessage>>,
     ) {
@@ -554,7 +557,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     }
 
     fn process_gossip_aggregate_result(
-        &self,
+        self: &Arc<Self>,
         result: Result<VerifiedAggregate<T>, RejectedAggregate<T::EthSpec>>,
         beacon_block_root: Hash256,
         message_id: MessageId,
@@ -900,9 +903,13 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
                 if reprocess_tx
                     .try_send(ReprocessQueueMessage::EarlyBlock(QueuedGossipBlock {
-                        peer_id,
-                        block: Box::new(verified_block),
-                        seen_timestamp: seen_duration,
+                        beacon_block_slot: block_slot,
+                        beacon_block_root: block_root,
+                        process_fn: self.clone().process_fn_gossip_verified_block(
+                            peer_id,
+                            verified_block,
+                            seen_duration,
+                        ),
                     }))
                     .is_err()
                 {
@@ -1511,13 +1518,16 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         if let Some(sender) = reprocess_tx {
                             let msg = ReprocessQueueMessage::UnknownLightClientOptimisticUpdate(
                                 QueuedLightClientUpdate {
-                                    peer_id,
-                                    message_id,
-                                    light_client_optimistic_update: Box::new(
-                                        light_client_optimistic_update,
-                                    ),
                                     parent_root,
-                                    seen_timestamp,
+                                    process_fn: Box::new(|| {
+                                        self.process_gossip_optimistic_update(
+                                            message_id,
+                                            peer_id,
+                                            light_client_optimistic_update,
+                                            reprocess_tx,
+                                            seen_timestamp,
+                                        )
+                                    }),
                                 },
                             );
 
@@ -1606,7 +1616,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     /// Handle an error whilst verifying an `Attestation` or `SignedAggregateAndProof` from the
     /// network.
     fn handle_attestation_verification_failure(
-        &self,
+        self: &Arc<Self>,
         peer_id: PeerId,
         message_id: MessageId,
         failed_att: FailedAtt<T::EthSpec>,
@@ -1843,10 +1853,16 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                                 &metrics::BEACON_PROCESSOR_AGGREGATED_ATTESTATION_REQUEUED_TOTAL,
                             );
                             ReprocessQueueMessage::UnknownBlockAggregate(QueuedAggregate {
-                                peer_id,
-                                message_id,
-                                attestation,
-                                seen_timestamp,
+                                beacon_block_root: *beacon_block_root,
+                                process_fn: Box::new(|| {
+                                    self.process_gossip_aggregate(
+                                        message_id,
+                                        peer_id,
+                                        attestation,
+                                        None, // Do not allow this attestation to be re-processed beyond this point.
+                                        seen_timestamp,
+                                    )
+                                }),
                             })
                         }
                         FailedAtt::Unaggregate {
@@ -1859,12 +1875,18 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                                 &metrics::BEACON_PROCESSOR_UNAGGREGATED_ATTESTATION_REQUEUED_TOTAL,
                             );
                             ReprocessQueueMessage::UnknownBlockUnaggregate(QueuedUnaggregate {
-                                peer_id,
-                                message_id,
-                                attestation,
-                                subnet_id,
-                                should_import,
-                                seen_timestamp,
+                                beacon_block_root: *beacon_block_root,
+                                process_fn: Box::new(|| {
+                                    self.process_gossip_attestation(
+                                        message_id,
+                                        peer_id,
+                                        attestation,
+                                        subnet_id,
+                                        should_import,
+                                        None, // Do not allow this attestation to be re-processed beyond this point.
+                                        seen_timestamp,
+                                    )
+                                }),
                             })
                         }
                     };

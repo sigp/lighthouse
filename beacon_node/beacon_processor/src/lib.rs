@@ -586,13 +586,6 @@ impl<E: EthSpec> Stream for InboundEvents<E> {
     }
 }
 
-/// Defines if and where we will store the SSZ files of invalid blocks.
-#[derive(Clone)]
-pub enum InvalidBlockStorage {
-    Enabled(PathBuf),
-    Disabled,
-}
-
 /// A mutli-threaded processor for messages received on the network
 /// that need to be processed by the `BeaconChain`
 ///
@@ -603,7 +596,6 @@ pub struct BeaconProcessor<E: EthSpec> {
     pub max_workers: usize,
     pub current_workers: usize,
     pub importing_blocks: DuplicateCache,
-    pub invalid_block_storage: InvalidBlockStorage,
     pub enable_backfill_rate_limiting: bool,
     pub log: Logger,
 }
