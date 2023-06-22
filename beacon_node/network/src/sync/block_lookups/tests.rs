@@ -8,6 +8,7 @@ use super::*;
 
 use beacon_chain::builder::Witness;
 use beacon_chain::eth1_chain::CachingEth1Backend;
+use beacon_processor::WorkEvent;
 use lighthouse_network::{NetworkGlobals, Request};
 use slog::{Drain, Level};
 use slot_clock::SystemTimeSlotClock;

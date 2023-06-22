@@ -14,7 +14,6 @@ use crate::sync::range_sync::{
     BatchConfig, BatchId, BatchInfo, BatchOperationOutcome, BatchProcessingResult, BatchState,
 };
 use beacon_chain::{BeaconChain, BeaconChainTypes};
-use beacon_processor::{Work, WorkEvent};
 use lighthouse_network::types::{BackFillState, NetworkGlobals};
 use lighthouse_network::{types::ChainSegmentProcessId, PeerAction, PeerId};
 use rand::seq::SliceRandom;

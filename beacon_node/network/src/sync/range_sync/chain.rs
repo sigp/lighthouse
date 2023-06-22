@@ -2,8 +2,7 @@ use super::batch::{BatchInfo, BatchProcessingResult, BatchState};
 use crate::sync::{
     manager::Id, network_context::SyncNetworkContext, BatchOperationOutcome, BatchProcessResult,
 };
-use beacon_chain::{BeaconChainTypes, NotifyExecutionLayer};
-use beacon_processor::{Work as BeaconWork, WorkEvent as BeaconWorkEvent};
+use beacon_chain::BeaconChainTypes;
 use fnv::FnvHashMap;
 use lighthouse_network::{types::ChainSegmentProcessId, PeerAction, PeerId};
 use rand::seq::SliceRandom;

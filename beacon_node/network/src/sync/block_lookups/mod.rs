@@ -12,7 +12,6 @@ use std::sync::Arc;
 use store::{Hash256, SignedBeaconBlock};
 
 use crate::metrics;
-use beacon_processor::{Work, WorkEvent};
 
 use self::parent_lookup::PARENT_FAIL_TOLERANCE;
 use self::{
