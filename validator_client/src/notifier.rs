@@ -96,7 +96,7 @@ async fn notify<T: SlotClock + 'static, E: EthSpec>(
                 "head_slot" => %health.head,
                 "is_optimistic" => ?health.optimistic_status,
                 "execution_engine_status" => ?health.execution_status,
-                "health_tier" => ?health.health_tier,
+                "health_tier" => %health.health_tier,
             );
         } else {
             debug!(

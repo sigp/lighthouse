@@ -207,7 +207,7 @@ impl<E: EthSpec> CandidateBeaconNode<E> {
     ) -> Result<(), CandidateError> {
         if let Err(e) = self.is_compatible(spec, log).await {
             *self.health.write() = Err(e);
-            return Ok(());
+            return Err(e);
         }
 
         if let Some(slot_clock) = slot_clock {
@@ -243,7 +243,7 @@ impl<E: EthSpec> CandidateBeaconNode<E> {
                 Err(e) => {
                     // Set the health as `Err` which is sorted last in the list.
                     *self.health.write() = Err(e);
-                    Ok(())
+                    Err(e)
                 }
             }
         } else {
@@ -402,8 +402,9 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
     pub async fn num_available(&self) -> usize {
         let mut n = 0;
         for candidate in self.candidates.read().await.iter() {
-            if candidate.health().is_ok() {
-                n += 1
+            match candidate.health() {
+                Ok(_) | Err(CandidateError::Uninitialized) => n += 1,
+                Err(_) => continue,
             }
         }
         n
