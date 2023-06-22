@@ -33,7 +33,7 @@ pub fn proposer_duties<T: BeaconChainTypes>(
     // will equal `current_epoch + 1`
     let tolerant_current_epoch = chain
         .slot_clock
-        .now_with_future_tolerance(Duration::from_millis(T::EthSpec::default_spec().maximum_gossip_clock_disparity_millis))
+        .now_with_future_tolerance(Duration::from_millis(chain.spec.maximum_gossip_clock_disparity_millis))
         .ok_or_else(|| warp_utils::reject::custom_server_error("unable to read slot clock".into()))?
         .epoch(T::EthSpec::slots_per_epoch());
 
