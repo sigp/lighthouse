@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use crate::beacon_processor::{worker::FUTURE_SLOT_TOLERANCE, NetworkBeaconProcessor};
+use crate::beacon_processor::{worker::FUTURE_SLOT_TOLERANCE, AsyncFn, NetworkBeaconProcessor};
 use crate::metrics;
 use crate::sync::manager::{BlockProcessType, SyncMessage};
 use crate::sync::BatchProcessResult;
@@ -28,6 +28,35 @@ struct ChainSegmentFailed {
 }
 
 impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
+    /// Returns an async closure which processes a beacon block recieved via RPC.
+    ///
+    /// This separate function was required to prevent a cycle during compiler
+    /// type checking.
+    pub fn process_fn_rpc_beacon_block(
+        self: Arc<Self>,
+        block_root: Hash256,
+        block: Arc<SignedBeaconBlock<T::EthSpec>>,
+        seen_timestamp: Duration,
+        process_type: BlockProcessType,
+    ) -> AsyncFn {
+        let process_fn = async move {
+            let reprocess_tx = self.reprocess_tx.clone();
+            let duplicate_cache = self.duplicate_cache.clone();
+            let should_process = true;
+            self.process_rpc_block(
+                block_root,
+                block,
+                seen_timestamp,
+                process_type,
+                reprocess_tx,
+                duplicate_cache,
+                should_process,
+            )
+            .await;
+        };
+        Box::pin(process_fn)
+    }
+
     /// Attempt to process a block received from a direct RPC request.
     #[allow(clippy::too_many_arguments)]
     pub async fn process_rpc_block(

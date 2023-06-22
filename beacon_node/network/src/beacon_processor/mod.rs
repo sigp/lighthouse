@@ -77,34 +77,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         Box::pin(process_fn)
     }
 
-    /// Returns an async closure which processes a beacon block recieved via RPC.
-    pub fn process_fn_rpc_beacon_block(
-        self: Arc<Self>,
-        block_root: Hash256,
-        block: Arc<SignedBeaconBlock<T::EthSpec>>,
-        seen_timestamp: Duration,
-        process_type: BlockProcessType,
-    ) -> AsyncFn {
-        let process_fn = async move {
-            let reprocess_tx = self.reprocess_tx.clone();
-            let duplicate_cache = self.duplicate_cache.clone();
-            let should_process = true;
-            self.process_rpc_block(
-                block_root,
-                block,
-                seen_timestamp,
-                process_type,
-                reprocess_tx,
-                duplicate_cache,
-                should_process,
-            )
-            .await;
-        };
-        Box::pin(process_fn)
-    }
-
     /// Returns an async closure which processes a beacon block which has
     /// already been verified via gossip.
+    ///
+    /// TODO(paul): delete me.
     pub fn process_fn_gossip_verified_block(
         self: Arc<Self>,
         peer_id: PeerId,

@@ -52,7 +52,6 @@ use slot_clock::SlotClock;
 use std::collections::VecDeque;
 use std::fmt;
 use std::future::Future;
-use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::Context;
