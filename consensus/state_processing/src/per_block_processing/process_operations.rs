@@ -63,17 +63,9 @@ pub fn process_operations<T: EthSpec, Payload: AbstractExecPayload<T>>(
     }
 
     if let Ok(payload) = block_body.execution_payload() {
-        match payload.deposit_receipts() {
-            Ok(deposit_receipts) => {
-                // Check if there are any deposit receipts
-                if !deposit_receipts.is_empty() {
-                    for deposit_receipt in deposit_receipts.iter() {
-                        process_deposit_receipt(state, deposit_receipt, spec)?;
-                    }
-                }
-            }
-            Err(_) => {
-                // No deposit receipts, do nothing
+        if let Ok(deposit_receipts) = payload.deposit_receipts() {
+            for deposit_receipt in deposit_receipts.iter() {
+                process_deposit_receipt(state, deposit_receipt, spec)?;
             }
         }
     }
