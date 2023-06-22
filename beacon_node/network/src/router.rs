@@ -5,16 +5,15 @@
 //! syncing-related responses to the Sync manager.
 #![allow(clippy::unit_arg)]
 
-use crate::beacon_processor::NetworkBeaconProcessor;
+use crate::beacon_processor::{InvalidBlockStorage, NetworkBeaconProcessor};
 use crate::error;
 use crate::service::{NetworkMessage, RequestId};
 use crate::status::status_message;
 use crate::sync::manager::RequestId as SyncId;
 use crate::sync::SyncMessage;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
-use beacon_processor::{
-    BeaconProcessor, InvalidBlockStorage, WorkEvent as BeaconWorkEvent, MAX_WORK_EVENT_QUEUE_LEN,
-};
+use beacon_processor::work_reprocessing_queue::ReprocessQueueMessage;
+use beacon_processor::{BeaconProcessor, WorkEvent as BeaconWorkEvent, MAX_WORK_EVENT_QUEUE_LEN};
 use futures::prelude::*;
 use lighthouse_network::rpc::*;
 use lighthouse_network::{
@@ -84,6 +83,8 @@ impl<T: BeaconChainTypes> Router<T> {
         executor: task_executor::TaskExecutor,
         invalid_block_storage: InvalidBlockStorage,
         beacon_processor_send: mpsc::Sender<BeaconWorkEvent<T::EthSpec>>,
+        beacon_processor_reprocess_tx: mpsc::Sender<ReprocessQueueMessage>,
+        beacon_processor: BeaconProcessor<T::EthSpec>,
         log: slog::Logger,
     ) -> error::Result<mpsc::UnboundedSender<RouterMessage<T::EthSpec>>> {
         let message_handler_log = log.new(o!("service"=> "router"));
@@ -106,15 +107,18 @@ impl<T: BeaconChainTypes> Router<T> {
             sync_logger,
         );
 
-        let beacon_processor = NetworkBeaconProcessor {
+        let network_beacon_processor = NetworkBeaconProcessor {
             beacon_processor_send,
-            chain: Arc::downgrade(&beacon_chain),
+            duplicate_cache: beacon_processor.duplicate_cache.clone(),
+            chain: beacon_chain.clone(),
             network_tx: network_send.clone(),
             sync_tx: sync_send.clone(),
+            reprocess_tx: beacon_processor_reprocess_tx,
             network_globals: network_globals.clone(),
+            invalid_block_storage: beacon_processor.invalid_block_storage.clone(),
+            executor: executor.clone(),
             log: log.clone(),
         };
-        let beacon_processor = Arc::new(beacon_processor);
 
         // generate the Message handler
         let mut handler = Router {
@@ -122,7 +126,7 @@ impl<T: BeaconChainTypes> Router<T> {
             chain: beacon_chain,
             sync_send,
             network: HandlerNetworkContext::new(network_send, log.clone()),
-            beacon_processor,
+            network_beacon_processor: Arc::new(network_beacon_processor),
             log: message_handler_log,
         };
 

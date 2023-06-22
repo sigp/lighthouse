@@ -49,7 +49,7 @@ pub struct NetworkBeaconProcessor<T: BeaconChainTypes> {
 }
 
 impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
-    fn try_send(&self, event: BeaconWorkEvent<T::EthSpec>) -> Result<(), Error> {
+    fn try_send(&self, event: BeaconWorkEvent<T::EthSpec>) -> Result<(), Error<T::EthSpec>> {
         self.beacon_processor_send
             .try_send(event)
             .map_err(Into::into)

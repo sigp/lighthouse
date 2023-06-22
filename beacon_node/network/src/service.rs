@@ -9,6 +9,9 @@ use crate::{
     NetworkConfig,
 };
 use beacon_chain::{BeaconChain, BeaconChainTypes};
+use beacon_processor::{
+    work_reprocessing_queue::ReprocessQueueMessage, BeaconProcessor, WorkEvent,
+};
 use futures::channel::mpsc::Sender;
 use futures::future::OptionFuture;
 use futures::prelude::*;
@@ -224,6 +227,9 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         config: &NetworkConfig,
         executor: task_executor::TaskExecutor,
         gossipsub_registry: Option<&'_ mut Registry>,
+        beacon_processor_send: mpsc::Sender<WorkEvent<T::EthSpec>>,
+        beacon_processor_reprocess_tx: mpsc::Sender<ReprocessQueueMessage>,
+        beacon_processor: BeaconProcessor<T::EthSpec>,
     ) -> error::Result<(Arc<NetworkGlobals<T::EthSpec>>, NetworkSenders<T::EthSpec>)> {
         let network_log = executor.log().clone();
         // build the channels for external comms
@@ -311,6 +317,9 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             network_senders.network_send(),
             executor.clone(),
             invalid_block_storage,
+            beacon_processor_send,
+            beacon_processor_reprocess_tx,
+            beacon_processor,
             network_log.clone(),
         )?;
 

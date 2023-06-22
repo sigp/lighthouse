@@ -583,7 +583,7 @@ mod tests {
         fn expect_chain_segment(&mut self) {
             match self.beacon_processor_rx.try_recv() {
                 Ok(work) => {
-                    assert_eq!(work.work_type(), crate::beacon_processor::CHAIN_SEGMENT);
+                    assert_eq!(work.work_type(), beacon_processor::CHAIN_SEGMENT);
                 }
                 other => panic!("Expected chain segment process, found {:?}", other),
             }
