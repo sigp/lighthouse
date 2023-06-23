@@ -612,7 +612,6 @@ dependencies = [
 name = "beacon_chain"
 version = "0.2.0"
 dependencies = [
- "beacon_processor",
  "bitvec 0.20.4",
  "bls",
  "derivative",
@@ -704,7 +703,6 @@ dependencies = [
 name = "beacon_processor"
 version = "0.1.0"
 dependencies = [
- "beacon_chain",
  "derivative",
  "ethereum_ssz",
  "fnv",
@@ -715,15 +713,12 @@ dependencies = [
  "lighthouse_metrics",
  "lighthouse_network",
  "logging",
- "operation_pool",
  "parking_lot 0.12.1",
  "slog",
  "slot_clock",
- "store",
  "strum",
  "task_executor",
  "tokio",
- "tokio-stream",
  "tokio-util 0.6.10",
  "types",
 ]

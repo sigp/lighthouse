@@ -9,7 +9,7 @@ mod tests {
     use sloggers::{null::NullLoggerBuilder, Build};
     use std::str::FromStr;
     use std::sync::Arc;
-    use tokio::runtime::Runtime;
+    use tokio::{runtime::Runtime, sync::mpsc};
     use types::MinimalEthSpec;
 
     fn get_logger(actual_log: bool) -> Logger {
@@ -67,10 +67,20 @@ mod tests {
             // Create a new network service which implicitly gets dropped at the
             // end of the block.
 
-            let _network_service =
-                NetworkService::start(beacon_chain.clone(), &config, executor, None)
-                    .await
-                    .unwrap();
+            let (beacon_processor_send, _beacon_processor_receive) =
+                mpsc::channel(usize::max_value());
+            let (beacon_processor_reprocess_tx, _beacon_processor_reprocess_rx) =
+                mpsc::channel(usize::max_value());
+            let _network_service = NetworkService::start(
+                beacon_chain.clone(),
+                &config,
+                executor,
+                None,
+                beacon_processor_send,
+                beacon_processor_reprocess_tx,
+            )
+            .await
+            .unwrap();
             drop(signal);
         });
 
