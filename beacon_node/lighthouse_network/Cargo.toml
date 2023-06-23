@@ -40,7 +40,7 @@ directory = { path = "../../common/directory" }
 regex = "1.5.5"
 strum = { version = "0.24.0", features = ["derive"] }
 superstruct = "0.5.0"
-prometheus-client = "0.19.0"
+prometheus-client = "0.20.0"
 unused_port = { path = "../../common/unused_port" }
 delay_map = "0.3.0"
 void = "1"
@@ -48,7 +48,7 @@ void = "1"
 [dependencies.libp2p]
 # version = "0.51.3"
 git = "https://github.com/libp2p/rust-libp2p"
-rev = "25d14349cc32f7a8e3feffb931ba2e84cccb0013"
+rev = "c93f753018af3a63c07e38c09672e0e1e8f1a385"
 default-features = false
 features = ["websocket", "identify", "yamux", "noise", "gossipsub", "dns", "tcp", "tokio", "plaintext", "secp256k1", "macros", "ecdsa"]
 

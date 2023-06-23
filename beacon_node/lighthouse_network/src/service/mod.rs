@@ -237,7 +237,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
             // If metrics are enabled for gossipsub build the configuration
             let gossipsub_metrics = ctx
                 .gossipsub_registry
-                .map(|registry| (registry, gossipsub::MetricsConfig::default()));
+                .map(|registry| (registry, Default::default()));
 
             let snappy_transform = SnappyTransform::new(config.gs_config.max_transmit_size());
             let mut gossipsub = Gossipsub::new_with_subscription_filter_and_transform(
