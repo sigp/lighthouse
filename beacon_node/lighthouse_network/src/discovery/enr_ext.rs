@@ -289,7 +289,7 @@ mod tests {
 
         let libp2p_sk = libp2p::identity::secp256k1::SecretKey::from_bytes(sk_bytes).unwrap();
         let secp256k1_kp: libp2p::identity::secp256k1::Keypair = libp2p_sk.into();
-        let libp2p_kp = Keypair::Secp256k1(secp256k1_kp);
+        let libp2p_kp: Keypair = secp256k1_kp.into();
         let peer_id = libp2p_kp.public().to_peer_id();
 
         let enr = discv5::enr::EnrBuilder::new("v4")
@@ -310,7 +310,7 @@ mod tests {
 
         let libp2p_sk = libp2p::identity::ed25519::SecretKey::from_bytes(sk_bytes).unwrap();
         let secp256k1_kp: libp2p::identity::ed25519::Keypair = libp2p_sk.into();
-        let libp2p_kp = Keypair::Ed25519(secp256k1_kp);
+        let libp2p_kp: Keypair = secp256k1_kp.into();
         let peer_id = libp2p_kp.public().to_peer_id();
 
         let enr = discv5::enr::EnrBuilder::new("v4")
