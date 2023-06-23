@@ -30,7 +30,7 @@ pub fn run<T: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
     config.enr_tcp6_port = Some(tcp_port);
 
     let local_keypair = Keypair::generate_secp256k1();
-    let enr_key = CombinedKey::from_libp2p(&local_keypair)?;
+    let enr_key = CombinedKey::from_libp2p(local_keypair.clone())?;
     let enr_fork_id = EnrForkId {
         fork_digest: ChainSpec::compute_fork_digest(genesis_fork_version, Hash256::zero()),
         next_fork_version: genesis_fork_version,
@@ -47,8 +47,9 @@ pub fn run<T: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
         .write_all(enr.to_base64().as_bytes())
         .map_err(|e| format!("Unable to write ENR to {}: {:?}", ENR_FILENAME, e))?;
 
-    let secret_bytes = match local_keypair.into_secp256k1() {
-        Some(key) => key.secret().to_bytes(),
+    // TODO: this error should be unreachable.
+    let secret_bytes = match local_keypair.try_into_secp256k1() {
+        Ok(key) => key.secret().to_bytes(),
         _ => return Err("Key is not a secp256k1 key".into()),
     };
 

@@ -133,7 +133,7 @@ pub fn build_or_load_enr<T: EthSpec>(
     // Build the local ENR.
     // Note: Discovery should update the ENR record's IP to the external IP as seen by the
     // majority of our peers, if the CLI doesn't expressly forbid it.
-    let enr_key = CombinedKey::from_libp2p(&local_key)?;
+    let enr_key = CombinedKey::from_libp2p(local_key)?;
     let mut local_enr = build_enr::<T>(&enr_key, config, enr_fork_id)?;
 
     use_or_load_enr(&enr_key, &mut local_enr, config, log)?;

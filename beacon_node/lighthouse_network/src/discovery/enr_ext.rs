@@ -37,7 +37,7 @@ pub trait CombinedKeyPublicExt {
 /// Extend ENR CombinedKey for conversion to libp2p keys.
 pub trait CombinedKeyExt {
     /// Converts a libp2p key into an ENR combined key.
-    fn from_libp2p(key: &libp2p::identity::Keypair) -> Result<CombinedKey, &'static str>;
+    fn from_libp2p(key: Keypair) -> Result<CombinedKey, &'static str>;
 }
 
 impl EnrExt for Enr {
@@ -219,23 +219,21 @@ impl CombinedKeyPublicExt for CombinedPublicKey {
 }
 
 impl CombinedKeyExt for CombinedKey {
-    fn from_libp2p(key: &libp2p::identity::Keypair) -> Result<CombinedKey, &'static str> {
-        match key {
-            Keypair::Secp256k1(key) => {
-                let secret =
-                    discv5::enr::k256::ecdsa::SigningKey::from_slice(&key.secret().to_bytes())
-                        .expect("libp2p key must be valid");
-                Ok(CombinedKey::Secp256k1(secret))
-            }
-            Keypair::Ed25519(key) => {
-                let ed_keypair = discv5::enr::ed25519_dalek::SigningKey::from_bytes(
-                    &(key.encode()[..32])
-                        .try_into()
-                        .expect("libp2p key must be valid"),
-                );
-                Ok(CombinedKey::from(ed_keypair))
-            }
-            Keypair::Ecdsa(_) => Err("Ecdsa keypairs not supported"),
+    fn from_libp2p(key: Keypair) -> Result<CombinedKey, &'static str> {
+        // TODO: more clones that should not be happening.
+        if let Ok(key) = key.clone().try_into_secp256k1() {
+            let secret = discv5::enr::k256::ecdsa::SigningKey::from_slice(&key.secret().to_bytes())
+                .expect("libp2p key must be valid");
+            Ok(CombinedKey::Secp256k1(secret))
+        } else if let Ok(key) = key.try_into_ed25519() {
+            let ed_keypair = discv5::enr::ed25519_dalek::SigningKey::from_bytes(
+                &(key.to_bytes()[..32])
+                    .try_into()
+                    .expect("libp2p key must be valid"),
+            );
+            Ok(CombinedKey::from(ed_keypair))
+        } else {
+            Err("Unsupported keypair kind")
         }
     }
 }

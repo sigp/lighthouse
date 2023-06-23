@@ -269,22 +269,28 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
 
         let discovery = {
             // Build and start the discovery sub-behaviour
-            let mut discovery =
-                Discovery::new(&local_keypair, &config, network_globals.clone(), &log).await?;
+            let mut discovery = Discovery::new(
+                local_keypair.clone(),
+                &config,
+                network_globals.clone(),
+                &log,
+            )
+            .await?;
             // start searching for peers
             discovery.discover_peers(FIND_NODE_QUERY_CLOSEST_PEERS);
             discovery
         };
 
         let identify = {
+            let local_public_key = local_keypair.public();
             let identify_config = if config.private {
                 IdentifyConfig::new(
                     "".into(),
-                    local_keypair.public(), // Still send legitimate public key
+                    local_public_key, // Still send legitimate public key
                 )
                 .with_cache_size(0)
             } else {
-                IdentifyConfig::new("eth2/1.0.0".into(), local_keypair.public())
+                IdentifyConfig::new("eth2/1.0.0".into(), local_public_key)
                     .with_agent_version(lighthouse_version::version_with_platform())
                     .with_cache_size(0)
             };

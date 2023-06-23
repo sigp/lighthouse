@@ -80,7 +80,7 @@ impl<T: EthSpec> BootNodeConfig<T> {
         }
 
         let private_key = load_private_key(&network_config, &logger);
-        let local_key = CombinedKey::from_libp2p(&private_key)?;
+        let local_key = CombinedKey::from_libp2p(private_key)?;
 
         let local_enr = if let Some(dir) = matches.value_of("network-dir") {
             let network_dir: PathBuf = dir.into();
