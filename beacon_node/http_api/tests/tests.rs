@@ -4171,10 +4171,7 @@ impl ApiTester {
         let slot = self.chain.slot().unwrap();
         let state_id = CoreStateId::Slot(slot);
 
-        let result = self
-            .client
-            .get_expected_withdrawals::<MainnetEthSpec>(&state_id)
-            .await;
+        let result = self.client.get_expected_withdrawals::<E>(&state_id).await;
 
         match result {
             Ok(_) => {}
@@ -4955,10 +4952,7 @@ async fn expected_withdrawals_invalid_pre_capella() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn expected_withdrawals_invalid_state() {
-    let mut config = ApiTesterConfig {
-        builder_threshold: Some(0),
-        spec: E::default_spec(),
-    };
+    let mut config = ApiTesterConfig::default();
     config.spec.altair_fork_epoch = Some(Epoch::new(0));
     config.spec.bellatrix_fork_epoch = Some(Epoch::new(0));
     config.spec.capella_fork_epoch = Some(Epoch::new(0));
@@ -4970,10 +4964,7 @@ async fn expected_withdrawals_invalid_state() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn expected_withdrawals_valid_capella() {
-    let mut config = ApiTesterConfig {
-        builder_threshold: Some(0),
-        spec: E::default_spec(),
-    };
+    let mut config = ApiTesterConfig::default();
     config.spec.altair_fork_epoch = Some(Epoch::new(0));
     config.spec.bellatrix_fork_epoch = Some(Epoch::new(0));
     config.spec.capella_fork_epoch = Some(Epoch::new(0));
