@@ -24,7 +24,7 @@ pub use topics::{
 /// Id associated to a batch processing request, either a sync batch or a parent lookup.
 ///
 /// Shared with the `network` and `beacon_processor` crates.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum ChainSegmentProcessId {
     /// Processing Id of a range syncing batch.
     RangeBatchId(u64, Epoch),

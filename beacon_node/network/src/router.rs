@@ -90,9 +90,6 @@ impl<T: BeaconChainTypes> Router<T> {
 
         let (handler_send, handler_recv) = mpsc::unbounded_channel();
 
-        let (beacon_processor_send, beacon_processor_receive) =
-            mpsc::channel(MAX_WORK_EVENT_QUEUE_LEN);
-
         let sync_logger = log.new(o!("service"=> "sync"));
         // generate the message channel
         let (sync_send, sync_recv) = mpsc::unbounded_channel::<SyncMessage<T::EthSpec>>();
@@ -112,7 +109,7 @@ impl<T: BeaconChainTypes> Router<T> {
         let network_beacon_processor = Arc::new(network_beacon_processor);
 
         // spawn the sync thread
-        let sync_send = crate::sync::manager::spawn(
+        crate::sync::manager::spawn(
             executor.clone(),
             beacon_chain.clone(),
             network_globals.clone(),

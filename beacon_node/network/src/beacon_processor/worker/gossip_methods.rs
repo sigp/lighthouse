@@ -1,5 +1,5 @@
 use crate::{
-    beacon_processor::{InvalidBlockStorage, NetworkBeaconProcessor},
+    beacon_processor::{DuplicateCache, InvalidBlockStorage, NetworkBeaconProcessor},
     metrics,
     service::NetworkMessage,
     sync::SyncMessage,
@@ -40,7 +40,7 @@ use beacon_processor::{
         QueuedAggregate, QueuedGossipBlock, QueuedLightClientUpdate, QueuedUnaggregate,
         ReprocessQueueMessage,
     },
-    DuplicateCache, GossipAggregatePackage, GossipAttestationPackage,
+    GossipAggregatePackage, GossipAttestationPackage,
 };
 
 /// Set to `true` to introduce stricter penalties for peers who send some types of late consensus
@@ -993,7 +993,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     }
 
     pub fn process_gossip_voluntary_exit(
-        self,
+        self: &Arc<Self>,
         message_id: MessageId,
         peer_id: PeerId,
         voluntary_exit: SignedVoluntaryExit,
@@ -1051,7 +1051,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     }
 
     pub fn process_gossip_proposer_slashing(
-        self,
+        self: &Arc<Self>,
         message_id: MessageId,
         peer_id: PeerId,
         proposer_slashing: ProposerSlashing,
@@ -1113,7 +1113,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     }
 
     pub fn process_gossip_attester_slashing(
-        self,
+        self: &Arc<Self>,
         message_id: MessageId,
         peer_id: PeerId,
         attester_slashing: AttesterSlashing<T::EthSpec>,
@@ -1167,7 +1167,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     }
 
     pub fn process_gossip_bls_to_execution_change(
-        self,
+        self: &Arc<Self>,
         message_id: MessageId,
         peer_id: PeerId,
         bls_to_execution_change: SignedBlsToExecutionChange,
@@ -1250,7 +1250,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     ///
     /// Raises a log if there are errors.
     pub fn process_gossip_sync_committee_signature(
-        self,
+        self: &Arc<Self>,
         message_id: MessageId,
         peer_id: PeerId,
         sync_signature: SyncCommitteeMessage,
@@ -1313,7 +1313,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     ///
     /// Raises a log if there are errors.
     pub fn process_sync_committee_contribution(
-        self,
+        self: &Arc<Self>,
         message_id: MessageId,
         peer_id: PeerId,
         sync_contribution: SignedContributionAndProof<T::EthSpec>,
@@ -1368,7 +1368,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     }
 
     pub fn process_gossip_finality_update(
-        self,
+        self: &Arc<Self>,
         message_id: MessageId,
         peer_id: PeerId,
         light_client_finality_update: LightClientFinalityUpdate<T::EthSpec>,
@@ -1434,7 +1434,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     }
 
     pub fn process_gossip_optimistic_update(
-        self,
+        self: &Arc<Self>,
         message_id: MessageId,
         peer_id: PeerId,
         light_client_optimistic_update: LightClientOptimisticUpdate<T::EthSpec>,
@@ -1469,15 +1469,16 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         );
 
                         if let Some(sender) = reprocess_tx {
+                            let processor = self.clone();
                             let msg = ReprocessQueueMessage::UnknownLightClientOptimisticUpdate(
                                 QueuedLightClientUpdate {
                                     parent_root,
-                                    process_fn: Box::new(|| {
-                                        self.process_gossip_optimistic_update(
+                                    process_fn: Box::new(move || {
+                                        processor.process_gossip_optimistic_update(
                                             message_id,
                                             peer_id,
                                             light_client_optimistic_update,
-                                            reprocess_tx,
+                                            None, // Do not reprocess this message again.
                                             seen_timestamp,
                                         )
                                     }),
@@ -1805,10 +1806,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             metrics::inc_counter(
                                 &metrics::BEACON_PROCESSOR_AGGREGATED_ATTESTATION_REQUEUED_TOTAL,
                             );
+                            let processor = self.clone();
                             ReprocessQueueMessage::UnknownBlockAggregate(QueuedAggregate {
                                 beacon_block_root: *beacon_block_root,
-                                process_fn: Box::new(|| {
-                                    self.process_gossip_aggregate(
+                                process_fn: Box::new(move || {
+                                    processor.process_gossip_aggregate(
                                         message_id,
                                         peer_id,
                                         attestation,
@@ -1827,10 +1829,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             metrics::inc_counter(
                                 &metrics::BEACON_PROCESSOR_UNAGGREGATED_ATTESTATION_REQUEUED_TOTAL,
                             );
+                            let processor = self.clone();
                             ReprocessQueueMessage::UnknownBlockUnaggregate(QueuedUnaggregate {
                                 beacon_block_root: *beacon_block_root,
-                                process_fn: Box::new(|| {
-                                    self.process_gossip_attestation(
+                                process_fn: Box::new(move || {
+                                    processor.process_gossip_attestation(
                                         message_id,
                                         peer_id,
                                         attestation,

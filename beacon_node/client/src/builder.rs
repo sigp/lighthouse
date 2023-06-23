@@ -678,8 +678,8 @@ where
             let ctx = Arc::new(http_api::Context {
                 config: self.http_api_config.clone(),
                 chain: self.beacon_chain.clone(),
-                network_senders: self.network_senders.clone(),
-                network_globals: self.network_globals.clone(),
+                network_senders: Some(network_senders.clone()),
+                network_globals: Some(network_globals.clone()),
                 eth1_service: self.eth1_service.clone(),
                 sse_logging_components: runtime_context.sse_logging_components.clone(),
                 log: log.clone(),
@@ -850,7 +850,7 @@ where
 
         Ok(Client {
             beacon_chain: self.beacon_chain,
-            network_globals: self.network_globals,
+            network_globals: Some(network_globals),
             http_api_listen_addr,
             http_metrics_listen_addr,
         })

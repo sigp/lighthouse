@@ -10,6 +10,7 @@ use lighthouse_network::rpc::*;
 use lighthouse_network::{PeerId, PeerRequestId, ReportSource, Response, SyncInfo};
 use slog::{debug, error, warn};
 use slot_clock::SlotClock;
+use std::sync::Arc;
 use task_executor::TaskExecutor;
 use tokio_stream::StreamExt;
 use types::{light_client_bootstrap::LightClientBootstrap, Epoch, EthSpec, Hash256, Slot};
@@ -123,7 +124,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
     /// Handle a `BlocksByRoot` request from the peer.
     pub fn handle_blocks_by_root_request(
-        self,
+        self: Arc<Self>,
         executor: TaskExecutor,
         send_on_drop: SendOnDrop,
         peer_id: PeerId,
@@ -209,7 +210,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
     /// Handle a `BlocksByRoot` request from the peer.
     pub fn handle_light_client_bootstrap(
-        self,
+        self: &Arc<Self>,
         peer_id: PeerId,
         request_id: PeerRequestId,
         request: LightClientBootstrapRequest,
@@ -282,7 +283,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
     /// Handle a `BlocksByRange` request from the peer.
     pub fn handle_blocks_by_range_request(
-        self,
+        self: Arc<Self>,
         executor: TaskExecutor,
         send_on_drop: SendOnDrop,
         peer_id: PeerId,

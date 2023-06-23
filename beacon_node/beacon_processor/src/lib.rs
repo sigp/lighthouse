@@ -302,8 +302,8 @@ impl<T> LifoQueue<T> {
 /// An event to be processed by the manager task.
 #[derive(Debug)]
 pub struct WorkEvent<E: EthSpec> {
-    drop_during_sync: bool,
-    work: Work<E>,
+    pub drop_during_sync: bool,
+    pub work: Work<E>,
 }
 
 impl<E: EthSpec> WorkEvent<E> {

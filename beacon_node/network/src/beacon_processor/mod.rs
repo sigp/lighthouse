@@ -210,7 +210,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         seen_timestamp: Duration,
     ) -> Result<(), Error<T::EthSpec>> {
         let processor = self.clone();
-        let process_fn = async {
+        let process_fn = async move {
             let reprocess_tx = processor.reprocess_tx.clone();
             let invalid_block_storage = processor.invalid_block_storage.clone();
             let duplicate_cache = processor.duplicate_cache.clone();
@@ -244,7 +244,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         seen_timestamp: Duration,
     ) -> Result<(), Error<T::EthSpec>> {
         let processor = self.clone();
-        let process_fn = || {
+        let process_fn = move || {
             processor.process_gossip_sync_committee_signature(
                 message_id,
                 peer_id,
@@ -269,7 +269,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         seen_timestamp: Duration,
     ) -> Result<(), Error<T::EthSpec>> {
         let processor = self.clone();
-        let process_fn = || {
+        let process_fn = move || {
             processor.process_sync_committee_contribution(
                 message_id,
                 peer_id,
@@ -293,7 +293,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     ) -> Result<(), Error<T::EthSpec>> {
         let processor = self.clone();
         let process_fn =
-            || processor.process_gossip_voluntary_exit(message_id, peer_id, *voluntary_exit);
+            move || processor.process_gossip_voluntary_exit(message_id, peer_id, *voluntary_exit);
 
         self.try_send(BeaconWorkEvent {
             drop_during_sync: false,
@@ -309,8 +309,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         proposer_slashing: Box<ProposerSlashing>,
     ) -> Result<(), Error<T::EthSpec>> {
         let processor = self.clone();
-        let process_fn =
-            || processor.process_gossip_proposer_slashing(message_id, peer_id, *proposer_slashing);
+        let process_fn = move || {
+            processor.process_gossip_proposer_slashing(message_id, peer_id, *proposer_slashing)
+        };
 
         self.try_send(BeaconWorkEvent {
             drop_during_sync: false,
@@ -327,7 +328,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         seen_timestamp: Duration,
     ) -> Result<(), Error<T::EthSpec>> {
         let processor = self.clone();
-        let process_fn = || {
+        let process_fn = move || {
             processor.process_gossip_finality_update(
                 message_id,
                 peer_id,
@@ -351,7 +352,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         seen_timestamp: Duration,
     ) -> Result<(), Error<T::EthSpec>> {
         let processor = self.clone();
-        let process_fn = || {
+        let process_fn = move || {
             let reprocess_tx = processor.reprocess_tx.clone();
             processor.process_gossip_optimistic_update(
                 message_id,
@@ -376,8 +377,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         attester_slashing: Box<AttesterSlashing<T::EthSpec>>,
     ) -> Result<(), Error<T::EthSpec>> {
         let processor = self.clone();
-        let process_fn =
-            || processor.process_gossip_attester_slashing(message_id, peer_id, *attester_slashing);
+        let process_fn = move || {
+            processor.process_gossip_attester_slashing(message_id, peer_id, *attester_slashing)
+        };
 
         self.try_send(BeaconWorkEvent {
             drop_during_sync: false,
@@ -393,7 +395,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         bls_to_execution_change: Box<SignedBlsToExecutionChange>,
     ) -> Result<(), Error<T::EthSpec>> {
         let processor = self.clone();
-        let process_fn = || {
+        let process_fn = move || {
             processor.process_gossip_bls_to_execution_change(
                 message_id,
                 peer_id,
@@ -470,7 +472,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         message: StatusMessage,
     ) -> Result<(), Error<T::EthSpec>> {
         let processor = self.clone();
-        let process_fn = || processor.process_status(peer_id, message);
+        let process_fn = move || processor.process_status(peer_id, message);
 
         self.try_send(BeaconWorkEvent {
             drop_during_sync: false,
@@ -486,8 +488,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         request: BlocksByRangeRequest,
     ) -> Result<(), Error<T::EthSpec>> {
         let processor = self.clone();
-        let process_fn = |send_idle_on_drop| {
-            let executor = self.executor.clone();
+        let process_fn = move |send_idle_on_drop| {
+            let executor = processor.executor.clone();
             processor.handle_blocks_by_range_request(
                 executor,
                 send_idle_on_drop,
@@ -511,8 +513,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         request: BlocksByRootRequest,
     ) -> Result<(), Error<T::EthSpec>> {
         let processor = self.clone();
-        let process_fn = |send_idle_on_drop| {
-            let executor = self.executor.clone();
+        let process_fn = move |send_idle_on_drop| {
+            let executor = processor.executor.clone();
             processor.handle_blocks_by_root_request(
                 executor,
                 send_idle_on_drop,
@@ -536,7 +538,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         request: LightClientBootstrapRequest,
     ) -> Result<(), Error<T::EthSpec>> {
         let processor = self.clone();
-        let process_fn = || processor.handle_light_client_bootstrap(peer_id, request_id, request);
+        let process_fn =
+            move || processor.handle_light_client_bootstrap(peer_id, request_id, request);
 
         self.try_send(BeaconWorkEvent {
             drop_during_sync: true,
@@ -548,7 +551,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     ///
     /// TODO(paul): delete me.
     pub fn process_fn_process_chain_segment(
-        self: &Arc<Self>,
+        self: Arc<Self>,
         sync_type: ChainSegmentProcessId,
         downloaded_blocks: Vec<Arc<SignedBeaconBlock<T::EthSpec>>>,
     ) -> AsyncFn {
