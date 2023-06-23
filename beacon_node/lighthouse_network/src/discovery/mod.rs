@@ -1098,7 +1098,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                 }
                 DialError::DialPeerConditionFalse(_) | DialError::Aborted => {}
                 #[allow(deprecated)]
-                DialError::ConnectionLimit(_) | DialError::Banned => {}
+                DialError::ConnectionLimit(_) => {}
             }
         }
     }
