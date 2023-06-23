@@ -15,8 +15,7 @@ use engines::{Engine, EngineError};
 pub use engines::{EngineState, ForkchoiceState};
 use eth2::types::{builder_bid::SignedBuilderBid, ForkVersionedResponse};
 use ethers_core::abi::ethereum_types::FromStrRadixErr;
-use ethers_core::types::transaction::eip2930::AccessListItem;
-use ethers_core::types::{Transaction as EthersTransaction, U64};
+use ethers_core::types::Transaction as EthersTransaction;
 use fork_choice::ForkchoiceUpdateParameters;
 use lru::LruCache;
 use payload_status::process_payload_status;
@@ -25,7 +24,6 @@ use sensitive_url::SensitiveUrl;
 use serde::{Deserialize, Serialize};
 use slog::{crit, debug, error, info, trace, warn, Logger};
 use slot_clock::SlotClock;
-use ssz::Encode;
 use std::collections::HashMap;
 use std::fmt;
 use std::future::Future;
@@ -43,8 +41,6 @@ use tokio_stream::wrappers::WatchStream;
 use tree_hash::TreeHash;
 use types::beacon_block_body::KzgCommitments;
 use types::blob_sidecar::Blobs;
-use types::consts::deneb::BLOB_TX_TYPE;
-use types::transaction::{AccessTuple, BlobTransaction, EcdsaSignature, SignedBlobTransaction};
 use types::{AbstractExecPayload, BeaconStateError, ExecPayload, VersionedHash};
 use types::{
     BlindedPayload, BlockType, ChainSpec, Epoch, ExecutionBlockHash, ExecutionPayload,
@@ -2176,159 +2172,10 @@ impl From<serde_json::Error> for BlobTxConversionError {
     }
 }
 
-/// A utility function to convert a `ethers-rs` `Transaction` into the correct bytes encoding based
-/// on transaction type. That means RLP encoding if this is a transaction other than a
-/// `BLOB_TX_TYPE` transaction in which case, SSZ encoding will be used.
 fn ethers_tx_to_bytes<T: EthSpec>(
     transaction: EthersTransaction,
 ) -> Result<Transaction<T::MaxBytesPerTransaction>, BlobTxConversionError> {
-    let tx_type = transaction
-        .transaction_type
-        .ok_or(BlobTxConversionError::NoTransactionType)?
-        .as_u64();
-
-    let tx = if BLOB_TX_TYPE as u64 == tx_type {
-        let EthersTransaction {
-            hash: _,
-            nonce,
-            block_hash: _,
-            block_number: _,
-            transaction_index: _,
-            from: _,
-            to,
-            value,
-            gas_price: _,
-            gas,
-            input,
-            v,
-            r,
-            s,
-            transaction_type: _,
-            access_list,
-            max_priority_fee_per_gas,
-            max_fee_per_gas,
-            chain_id,
-            other,
-        } = transaction;
-
-        // ******************** BlobTransaction fields ********************
-
-        // chainId
-        let chain_id = chain_id.ok_or(BlobTxConversionError::NoChainId)?;
-
-        // nonce
-        let nonce = if nonce > Uint256::from(u64::MAX) {
-            return Err(BlobTxConversionError::NonceTooLarge);
-        } else {
-            nonce.as_u64()
-        };
-
-        // maxPriorityFeePerGas
-        let max_priority_fee_per_gas =
-            max_priority_fee_per_gas.ok_or(BlobTxConversionError::MaxPriorityFeePerGasMissing)?;
-
-        // maxFeePerGas
-        let max_fee_per_gas = max_fee_per_gas.ok_or(BlobTxConversionError::MaxFeePerGasMissing)?;
-
-        // gas
-        let gas = if gas > Uint256::from(u64::MAX) {
-            return Err(BlobTxConversionError::GasTooHigh);
-        } else {
-            gas.as_u64()
-        };
-
-        // data (a.k.a input)
-        let data = VariableList::new(input.to_vec())?;
-
-        // accessList
-        let access_list = VariableList::new(
-            access_list
-                .ok_or(BlobTxConversionError::AccessListMissing)?
-                .0
-                .into_iter()
-                .map(|access_tuple| {
-                    let AccessListItem {
-                        address,
-                        storage_keys,
-                    } = access_tuple;
-                    Ok(AccessTuple {
-                        address,
-                        storage_keys: VariableList::new(storage_keys)?,
-                    })
-                })
-                .collect::<Result<Vec<AccessTuple>, BlobTxConversionError>>()?,
-        )?;
-
-        // ******************** BlobTransaction `other` fields ********************
-        //
-        // Here we use the `other` field in the `ethers-rs` `Transaction` type because
-        // `ethers-rs` does not yet support SSZ and therefore the blobs transaction type.
-
-        // maxFeePerDataGas
-        let max_fee_per_data_gas = Uint256::from_str_radix(
-            other
-                .get("maxFeePerDataGas")
-                .ok_or(BlobTxConversionError::MaxFeePerDataGasMissing)?
-                .as_str()
-                .ok_or(BlobTxConversionError::MaxFeePerDataGasMissing)?,
-            16,
-        )
-        .map_err(BlobTxConversionError::FromStrRadix)?;
-
-        // versionedHashes
-        let versioned_hashes = other
-            .get("versionedHashes")
-            .ok_or(BlobTxConversionError::VersionedHashesMissing)?
-            .as_array()
-            .ok_or(BlobTxConversionError::VersionedHashesMissing)?
-            .iter()
-            .map(|versioned_hash| {
-                let hash_bytes = serde_utils::hex::decode(
-                    versioned_hash
-                        .as_str()
-                        .ok_or(BlobTxConversionError::VersionedHashesMissing)?,
-                )
-                .map_err(BlobTxConversionError::FromHex)?;
-                if hash_bytes.len() != Hash256::ssz_fixed_len() {
-                    Err(BlobTxConversionError::InvalidVersionedHashBytesLen)
-                } else {
-                    Ok(Hash256::from_slice(&hash_bytes))
-                }
-            })
-            .collect::<Result<Vec<VersionedHash>, BlobTxConversionError>>()?;
-        let message = BlobTransaction {
-            chain_id,
-            nonce,
-            max_priority_fee_per_gas,
-            max_fee_per_gas,
-            gas,
-            to,
-            value,
-            data,
-            access_list,
-            max_fee_per_data_gas,
-            versioned_hashes: VariableList::new(versioned_hashes)?,
-        };
-
-        // ******************** EcdsaSignature fields ********************
-
-        let y_parity = if v == U64::zero() {
-            false
-        } else if v == U64::one() {
-            true
-        } else {
-            return Err(BlobTxConversionError::InvalidYParity);
-        };
-        let signature = EcdsaSignature { y_parity, r, s };
-
-        // The `BLOB_TX_TYPE` should prepend the SSZ encoded `SignedBlobTransaction`.
-        let mut signed_tx = SignedBlobTransaction { message, signature }.as_ssz_bytes();
-        signed_tx.insert(0, BLOB_TX_TYPE);
-        signed_tx
-    } else {
-        transaction.rlp().to_vec()
-    };
-    VariableList::new(tx).map_err(Into::into)
+    VariableList::new(transaction.rlp().to_vec()).map_err(Into::into)
 }
 
 fn noop<T: EthSpec>(

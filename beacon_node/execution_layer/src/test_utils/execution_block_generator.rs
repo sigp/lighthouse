@@ -6,22 +6,18 @@ use crate::{
         },
         ExecutionBlock, PayloadAttributes, PayloadId, PayloadStatusV1, PayloadStatusV1Status,
     },
-    BlobsBundleV1, ExecutionBlockWithTransactions,
+    ethers_tx_to_bytes, BlobsBundleV1, ExecutionBlockWithTransactions,
 };
 use kzg::{Kzg, BYTES_PER_BLOB, BYTES_PER_FIELD_ELEMENT, FIELD_ELEMENTS_PER_BLOB};
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
-use ssz::Encode;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
-use types::consts::deneb::BLOB_TX_TYPE;
-use types::transaction::{BlobTransaction, EcdsaSignature, SignedBlobTransaction};
 use types::{
     Blob, EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadCapella,
-    ExecutionPayloadDeneb, ExecutionPayloadMerge, ForkName, Hash256, Transaction, Transactions,
-    Uint256,
+    ExecutionPayloadDeneb, ExecutionPayloadMerge, ForkName, Hash256, Transactions, Uint256,
 };
 
 const GAS_LIMIT: u64 = 16384;
@@ -349,9 +345,7 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
     }
 
     pub fn insert_block(&mut self, block: Block<T>) -> Result<ExecutionBlockHash, String> {
-        if self.blocks.contains_key(&block.block_hash()) {
-            return Err(format!("{:?} is already known", block.block_hash()));
-        } else if block.parent_hash() != ExecutionBlockHash::zero()
+        if block.parent_hash() != ExecutionBlockHash::zero()
             && !self.blocks.contains_key(&block.parent_hash())
         {
             return Err(format!("parent block {:?} is unknown", block.parent_hash()));
@@ -450,6 +444,14 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
         forkchoice_state: ForkchoiceState,
         payload_attributes: Option<PayloadAttributes>,
     ) -> Result<JsonForkchoiceUpdatedV1Response, String> {
+        // This is meant to cover starting post-merge transition at genesis. Useful for
+        // testing Capella forks and later.
+        if let Some(genesis_pow_block) = self.block_by_number(0) {
+            if genesis_pow_block.block_hash() == forkchoice_state.head_block_hash {
+                self.terminal_block_hash = forkchoice_state.head_block_hash;
+            }
+        }
+
         if let Some(payload) = self
             .pending_payloads
             .remove(&forkchoice_state.head_block_hash)
@@ -636,7 +638,7 @@ pub fn generate_random_blobs<T: EthSpec>(
         // Ensure that the blob is canonical by ensuring that
         // each field element contained in the blob is < BLS_MODULUS
         for i in 0..FIELD_ELEMENTS_PER_BLOB {
-            blob_bytes[i * BYTES_PER_FIELD_ELEMENT + BYTES_PER_FIELD_ELEMENT - 1] = 0;
+            blob_bytes[i * BYTES_PER_FIELD_ELEMENT] = 0;
         }
 
         let blob = Blob::<T>::new(Vec::from(blob_bytes))
@@ -650,36 +652,10 @@ pub fn generate_random_blobs<T: EthSpec>(
             .compute_blob_kzg_proof(blob_bytes.into(), commitment)
             .map_err(|e| format!("error computing kzg proof: {:?}", e))?;
 
-        let versioned_hash = commitment.calculate_versioned_hash();
-
-        let blob_transaction = BlobTransaction {
-            chain_id: Default::default(),
-            nonce: 0,
-            max_priority_fee_per_gas: Default::default(),
-            max_fee_per_gas: Default::default(),
-            gas: 100000,
-            to: None,
-            value: Default::default(),
-            data: Default::default(),
-            access_list: Default::default(),
-            max_fee_per_data_gas: Default::default(),
-            versioned_hashes: vec![versioned_hash].into(),
-        };
-        let bad_signature = EcdsaSignature {
-            y_parity: false,
-            r: Uint256::from(0),
-            s: Uint256::from(0),
-        };
-        let signed_blob_transaction = SignedBlobTransaction {
-            message: blob_transaction,
-            signature: bad_signature,
-        };
-        // calculate transaction bytes
-        let tx_bytes = [BLOB_TX_TYPE]
-            .into_iter()
-            .chain(signed_blob_transaction.as_ssz_bytes().into_iter())
-            .collect::<Vec<_>>();
-        let tx = Transaction::<T::MaxBytesPerTransaction>::from(tx_bytes);
+        // Calculate transaction bytes. We don't care about the contents of the transaction.
+        let tx_bytes = ethers_core::types::Transaction::default();
+        let tx = ethers_tx_to_bytes::<T>(tx_bytes)
+            .map_err(|e| format!("error converting tx bytes to SSZ: {:?}", e))?;
 
         transactions.push(tx);
         bundle
@@ -708,7 +684,7 @@ pub fn generate_pow_block(
     terminal_block_number: u64,
     block_number: u64,
     parent_hash: ExecutionBlockHash,
-) -> Result<PoWBlock, String> {
+) -> Result<PoWBlock, Stgring> {
     if block_number > terminal_block_number {
         return Err(format!(
             "{} is beyond terminal pow block {}",

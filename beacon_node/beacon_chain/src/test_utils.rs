@@ -16,6 +16,7 @@ use crate::{
 };
 use bls::get_withdrawal_credentials;
 use eth2::types::BlockContentsTuple;
+use execution_layer::test_utils::generate_pow_block;
 use execution_layer::{
     auth::JwtKey,
     test_utils::{
@@ -195,12 +196,35 @@ impl<E: EthSpec> Builder<EphemeralHarnessType<E>> {
             )
             .unwrap(),
         );
+        let genesis_fork = spec.fork_name_at_slot::<E>(spec.genesis_slot);
+        let genesis_block_hash = generate_pow_block(
+            spec.terminal_total_difficulty,
+            DEFAULT_TERMINAL_BLOCK,
+            0,
+            ExecutionBlockHash::zero(),
+        )
+        .ok()
+        .map(|block| block.block_hash);
         let mutator = move |builder: BeaconChainBuilder<_>| {
+            let header = match genesis_fork {
+                ForkName::Base | ForkName::Altair => None,
+                ForkName::Merge => Some(ExecutionPayloadHeader::<E>::Merge(<_>::default())),
+                ForkName::Capella => {
+                    let mut header = ExecutionPayloadHeader::Capella(<_>::default());
+                    *header.block_hash_mut() = genesis_block_hash.unwrap_or_default();
+                    Some(header)
+                }
+                ForkName::Deneb => {
+                    let mut header = ExecutionPayloadHeader::Capella(<_>::default());
+                    *header.block_hash_mut() = genesis_block_hash.unwrap_or_default();
+                    Some(header)
+                }
+            };
             let genesis_state = interop_genesis_state_with_eth1::<E>(
                 &validator_keypairs,
                 HARNESS_GENESIS_TIME,
                 Hash256::from_slice(DEFAULT_ETH1_BLOCK_HASH),
-                None,
+                header,
                 builder.get_spec(),
             )
             .expect("should generate interop state");
@@ -255,13 +279,44 @@ impl<E: EthSpec> Builder<DiskHarnessType<E>> {
             .validator_keypairs
             .clone()
             .expect("cannot build without validator keypairs");
+        let genesis_fork = self
+            .spec
+            .clone()
+            .map(|spec| spec.fork_name_at_slot::<E>(spec.genesis_slot))
+            .unwrap_or(ForkName::Base);
+
+        let genesis_block_hash = generate_pow_block(
+            self.spec
+                .clone()
+                .map(|spec| spec.terminal_total_difficulty)
+                .unwrap_or(Uint256::zero()),
+            DEFAULT_TERMINAL_BLOCK,
+            0,
+            ExecutionBlockHash::zero(),
+        )
+        .ok()
+        .map(|block| block.block_hash);
 
         let mutator = move |builder: BeaconChainBuilder<_>| {
+            let header = match genesis_fork {
+                ForkName::Base | ForkName::Altair => None,
+                ForkName::Merge => Some(ExecutionPayloadHeader::<E>::Merge(<_>::default())),
+                ForkName::Capella => {
+                    let mut header = ExecutionPayloadHeader::Capella(<_>::default());
+                    *header.block_hash_mut() = genesis_block_hash.unwrap_or_default();
+                    Some(header)
+                }
+                ForkName::Deneb => {
+                    let mut header = ExecutionPayloadHeader::Capella(<_>::default());
+                    *header.block_hash_mut() = genesis_block_hash.unwrap_or_default();
+                    Some(header)
+                }
+            };
             let genesis_state = interop_genesis_state_with_eth1::<E>(
                 &validator_keypairs,
                 HARNESS_GENESIS_TIME,
                 Hash256::from_slice(DEFAULT_ETH1_BLOCK_HASH),
-                None,
+                header,
                 builder.get_spec(),
             )
             .expect("should generate interop state");
@@ -393,7 +448,7 @@ where
         self
     }
 
-    pub fn execution_layer(mut self, urls: &[&str]) -> Self {
+    pub fn execution_layer_from_urls(mut self, urls: &[&str]) -> Self {
         assert!(
             self.execution_layer.is_none(),
             "execution layer already defined"
@@ -419,6 +474,11 @@ where
         .unwrap();
 
         self.execution_layer = Some(execution_layer);
+        self
+    }
+
+    pub fn execution_layer(mut self, el: Option<ExecutionLayer<E>>) -> Self {
+        self.execution_layer = el;
         self
     }
 

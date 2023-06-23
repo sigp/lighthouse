@@ -1095,7 +1095,7 @@ impl HttpJsonRpc {
                 } else {
                     Err(Error::RequiredMethodUnsupported("engine_newPayload"))
                 }
-            },
+            }
             ExecutionPayload::Deneb(execution_payload_deneb) => {
                 let Some(versioned_hashes) = versioned_hashes_opt else {
                     return Err(Error::IncorrectStateVariant);
@@ -1135,12 +1135,10 @@ impl HttpJsonRpc {
                     Err(Error::RequiredMethodUnsupported("engine_getPayloadV3"))
                 }
             }
-            ForkName::Base | ForkName::Altair => {
-                Err(Error::UnsupportedForkVariant(format!(
-                    "called get_payload with {}",
-                    fork_name
-                )))
-            }
+            ForkName::Base | ForkName::Altair => Err(Error::UnsupportedForkVariant(format!(
+                "called get_payload with {}",
+                fork_name
+            ))),
         }
     }
 

@@ -3,6 +3,7 @@ use crate::{Blob, ChainSpec, Domain, EthSpec, Fork, Hash256, SignedBlobSidecar, 
 use bls::SecretKey;
 use derivative::Derivative;
 use kzg::{KzgCommitment, KzgProof};
+use rand::Rng;
 use serde_derive::{Deserialize, Serialize};
 use ssz::Encode;
 use ssz_derive::{Decode, Encode};
@@ -91,6 +92,13 @@ impl<T: EthSpec> BlobSidecar<T> {
 
     pub fn empty() -> Self {
         Self::default()
+    }
+
+    pub fn random<R: Rng>(&mut self, rng: &mut R) {
+        //TODO(sean) hardcoded bytes per blob due to ckzg limitations
+        let mut blob_bytes = [0u8; 131072];
+        rng.fill_bytes(&mut blob_bytes);
+        self.blob = Blob::<T>::from(blob_bytes.to_vec());
     }
 
     #[allow(clippy::integer_arithmetic)]

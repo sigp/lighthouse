@@ -224,7 +224,7 @@ pub struct BlobsByRangeRequest {
     /// The starting slot to request blobs.
     pub start_slot: u64,
 
-    /// The number of blobs from the start slot.
+    /// The number of slots from the start slot.
     pub count: u64,
 }
 

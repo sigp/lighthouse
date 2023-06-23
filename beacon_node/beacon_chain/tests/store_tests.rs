@@ -5,6 +5,7 @@ use beacon_chain::builder::BeaconChainBuilder;
 use beacon_chain::schema_change::migrate_schema;
 use beacon_chain::test_utils::{
     test_spec, AttestationStrategy, BeaconChainHarness, BlockStrategy, DiskHarnessType,
+    HARNESS_GENESIS_TIME,
 };
 use beacon_chain::validator_monitor::DEFAULT_INDIVIDUAL_TRACKING_THRESHOLD;
 use beacon_chain::{
@@ -13,8 +14,10 @@ use beacon_chain::{
     ChainConfig, NotifyExecutionLayer, ServerSentEventHandler, WhenSlotSkipped,
 };
 use eth2_network_config::TRUSTED_SETUP;
+use execution_layer::auth::JwtKey;
+use execution_layer::test_utils::{MockExecutionLayer, DEFAULT_JWT_SECRET, DEFAULT_TERMINAL_BLOCK};
 use fork_choice::CountUnrealized;
-use kzg::TrustedSetup;
+use kzg::{Kzg, TrustedSetup};
 use lazy_static::lazy_static;
 use logging::test_logger;
 use maplit::hashset;
@@ -2118,31 +2121,54 @@ async fn weak_subjectivity_sync() {
         .map_err(|e| println!("Unable to read trusted setup file: {}", e))
         .unwrap();
 
-    // Initialise a new beacon chain from the finalized checkpoint
-    let beacon_chain = Arc::new(
-        BeaconChainBuilder::<DiskHarnessType<E>>::new(MinimalEthSpec)
-            .store(store.clone())
-            .custom_spec(test_spec::<E>())
-            .task_executor(harness.chain.task_executor.clone())
-            .weak_subjectivity_state(wss_state, wss_block.clone(), genesis_state)
-            .unwrap()
-            .logger(log.clone())
-            .store_migrator_config(MigratorConfig::default().blocking())
-            .dummy_eth1_backend()
-            .expect("should build dummy backend")
-            .testing_slot_clock(Duration::from_secs(seconds_per_slot))
-            .expect("should configure testing slot clock")
-            .shutdown_sender(shutdown_tx)
-            .chain_config(ChainConfig::default())
-            .event_handler(Some(ServerSentEventHandler::new_with_capacity(
-                log.clone(),
-                1,
-            )))
-            .monitor_validators(true, vec![], DEFAULT_INDIVIDUAL_TRACKING_THRESHOLD, log)
-            .trusted_setup(trusted_setup)
-            .build()
-            .expect("should build"),
+    let spec = harness.spec.clone();
+    let shanghai_time = spec.capella_fork_epoch.map(|epoch| {
+        HARNESS_GENESIS_TIME + spec.seconds_per_slot * E::slots_per_epoch() * epoch.as_u64()
+    });
+    let deneb_time = spec.deneb_fork_epoch.map(|epoch| {
+        HARNESS_GENESIS_TIME + spec.seconds_per_slot * E::slots_per_epoch() * epoch.as_u64()
+    });
+
+    let kzg = Kzg::new_from_trusted_setup(trusted_setup.clone()).expect("should create kzg");
+
+    let mock = MockExecutionLayer::new(
+        harness.runtime.task_executor.clone(),
+        DEFAULT_TERMINAL_BLOCK,
+        shanghai_time,
+        deneb_time,
+        None,
+        Some(JwtKey::from_slice(&DEFAULT_JWT_SECRET).unwrap()),
+        spec,
+        None,
+        Some(kzg),
     );
+
+    // Initialise a new beacon chain from the finalized checkpoint
+    let beacon_chain = BeaconChainBuilder::<DiskHarnessType<E>>::new(MinimalEthSpec)
+        .store(store.clone())
+        .custom_spec(test_spec::<E>())
+        .task_executor(harness.chain.task_executor.clone())
+        .weak_subjectivity_state(wss_state, wss_block.clone(), genesis_state)
+        .unwrap()
+        .logger(log.clone())
+        .store_migrator_config(MigratorConfig::default().blocking())
+        .dummy_eth1_backend()
+        .expect("should build dummy backend")
+        .testing_slot_clock(Duration::from_secs(seconds_per_slot))
+        .expect("should configure testing slot clock")
+        .shutdown_sender(shutdown_tx)
+        .chain_config(ChainConfig::default())
+        .event_handler(Some(ServerSentEventHandler::new_with_capacity(
+            log.clone(),
+            1,
+        )))
+        .execution_layer(Some(mock.el))
+        .monitor_validators(true, vec![], DEFAULT_INDIVIDUAL_TRACKING_THRESHOLD, log)
+        .trusted_setup(trusted_setup)
+        .build()
+        .expect("should build");
+
+    let beacon_chain = Arc::new(beacon_chain);
 
     // Apply blocks forward to reach head.
     let chain_dump = harness.chain.chain_dump().unwrap();
@@ -2340,7 +2366,7 @@ async fn finalizes_after_resuming_from_db() {
         .default_spec()
         .keypairs(KEYPAIRS[0..validator_count].to_vec())
         .resumed_disk_store(store)
-        .mock_execution_layer()
+        .execution_layer(original_chain.execution_layer.clone())
         .build();
 
     assert_chains_pretty_much_the_same(&original_chain, &resumed_harness.chain);

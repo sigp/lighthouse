@@ -1,4 +1,3 @@
-#![cfg(not(debug_assertions))] // Tests are too slow in debug.
 #![cfg(test)]
 
 use crate::beacon_processor::work_reprocessing_queue::{
@@ -9,12 +8,14 @@ use crate::{service::NetworkMessage, sync::SyncMessage};
 use beacon_chain::test_utils::{
     AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
 };
-use beacon_chain::{BeaconChain, ChainConfig, MAXIMUM_GOSSIP_CLOCK_DISPARITY};
+use beacon_chain::{BeaconChain, ChainConfig, WhenSlotSkipped, MAXIMUM_GOSSIP_CLOCK_DISPARITY};
+use lighthouse_network::discovery::ConnectionId;
+use lighthouse_network::rpc::SubstreamId;
 use lighthouse_network::{
     discv5::enr::{CombinedKey, EnrBuilder},
     rpc::methods::{MetaData, MetaDataV2},
     types::{EnrAttestationBitfield, EnrSyncCommitteeBitfield},
-    MessageId, NetworkGlobals, PeerId,
+    MessageId, NetworkGlobals, PeerId, Response,
 };
 use slot_clock::SlotClock;
 use std::cmp;
@@ -24,7 +25,7 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 use types::{
     Attestation, AttesterSlashing, Epoch, EthSpec, MainnetEthSpec, ProposerSlashing,
-    SignedBeaconBlock, SignedVoluntaryExit, SubnetId,
+    SignedBeaconBlock, SignedVoluntaryExit, Slot, SubnetId,
 };
 
 type E = MainnetEthSpec;
@@ -76,12 +77,16 @@ impl TestRig {
     pub async fn new_with_chain_config(chain_length: u64, chain_config: ChainConfig) -> Self {
         // This allows for testing voluntary exits without building out a massive chain.
         let mut spec = E::default_spec();
-        spec.shard_committee_period = 2;
+        spec.altair_fork_epoch = Some(Epoch::new(0));
+        spec.bellatrix_fork_epoch = Some(Epoch::new(0));
+        spec.capella_fork_epoch = Some(Epoch::new(0));
+        spec.deneb_fork_epoch = Some(Epoch::new(0));
 
         let harness = BeaconChainHarness::builder(MainnetEthSpec)
             .spec(spec)
             .deterministic_keypairs(VALIDATOR_COUNT)
             .fresh_ephemeral_store()
+            .mock_execution_layer()
             .chain_config(chain_config)
             .build();
 
@@ -264,6 +269,18 @@ impl TestRig {
             self.next_block.clone().into(),
             std::time::Duration::default(),
             BlockProcessType::SingleBlock { id: 1 },
+        );
+        self.beacon_processor_tx.try_send(event).unwrap();
+    }
+
+    pub fn enqueue_blobs_by_range_request(&self, count: u64) {
+        let event = WorkEvent::blobs_by_range_request(
+            PeerId::random(),
+            (ConnectionId::new(42), SubstreamId::new(24)),
+            BlobsByRangeRequest {
+                start_slot: 0,
+                count,
+            },
         );
         self.beacon_processor_tx.try_send(event).unwrap();
     }
@@ -933,4 +950,43 @@ async fn test_backfill_sync_processing_rate_limiting_disabled() {
         Duration::from_millis(100),
     )
     .await;
+}
+
+#[tokio::test]
+async fn test_blobs_by_range() {
+    let mut rig = TestRig::new(64).await;
+    let slot_count = 32;
+    rig.enqueue_blobs_by_range_request(slot_count);
+
+    let mut blob_count = 0;
+    for slot in 0..slot_count {
+        let root = rig
+            .chain
+            .block_root_at_slot(Slot::new(slot), WhenSlotSkipped::None)
+            .unwrap();
+        blob_count += root
+            .and_then(|root| {
+                rig.chain
+                    .get_blobs(&root)
+                    .unwrap_or_default()
+                    .map(|blobs| blobs.len())
+            })
+            .unwrap_or(0);
+    }
+    let mut actual_count = 0;
+    while let Some(next) = rig._network_rx.recv().await {
+        if let NetworkMessage::SendResponse {
+            peer_id: _,
+            response: Response::BlobsByRange(blob),
+            id: _,
+        } = next
+        {
+            if blob.is_some() {
+                actual_count += 1;
+            } else {
+                break;
+            }
+        }
+    }
+    assert_eq!(blob_count, actual_count);
 }
