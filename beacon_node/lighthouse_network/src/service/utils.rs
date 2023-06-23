@@ -105,7 +105,7 @@ pub fn load_private_key(config: &NetworkConfig, log: &slog::Logger) -> Keypair {
             Ok(_) => {
                 // only accept secp256k1 keys for now
                 if let Ok(secret_key) =
-                    libp2p::identity::secp256k1::SecretKey::from_bytes(&mut key_bytes)
+                    libp2p::identity::secp256k1::SecretKey::try_from_bytes(&mut key_bytes)
                 {
                     let kp: libp2p::identity::secp256k1::Keypair = secret_key.into();
                     debug!(log, "Loaded network key from disk.");
@@ -119,7 +119,9 @@ pub fn load_private_key(config: &NetworkConfig, log: &slog::Logger) -> Keypair {
 
     // if a key could not be loaded from disk, generate a new one and save it
     let local_private_key = Keypair::generate_secp256k1();
-    if let Some(key) = local_private_key.clone().into_secp256k1() {
+    // TODO: generate the spcific key type first and then convert it to the wrapper type. This
+    // avoids the clone and the awkward double conversion
+    if let Ok(key) = local_private_key.clone().try_into_secp256k1() {
         let _ = std::fs::create_dir_all(&config.network_dir);
         match File::create(network_key_f.clone())
             .and_then(|mut f| f.write_all(&key.secret().to_bytes()))
