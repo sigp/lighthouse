@@ -371,6 +371,7 @@ where
 
 #[cfg(test)]
 mod tests {
+    use crate::beacon_processor::NetworkBeaconProcessor;
     use crate::service::RequestId;
     use crate::NetworkMessage;
 
@@ -386,7 +387,7 @@ mod tests {
     use slog::{o, Drain};
     use tokio::sync::mpsc;
 
-    use slot_clock::SystemTimeSlotClock;
+    use slot_clock::ManualSlotClock;
     use std::collections::HashSet;
     use std::sync::Arc;
     use store::MemoryStore;
@@ -437,7 +438,7 @@ mod tests {
     }
 
     type TestBeaconChainType =
-        Witness<SystemTimeSlotClock, CachingEth1Backend<E>, E, MemoryStore<E>, MemoryStore<E>>;
+        Witness<ManualSlotClock, CachingEth1Backend<E>, E, MemoryStore<E>, MemoryStore<E>>;
 
     fn build_log(level: slog::Level, enabled: bool) -> slog::Logger {
         let decorator = slog_term::TermDecorator::new().build();
@@ -593,17 +594,18 @@ mod tests {
     fn range(log_enabled: bool) -> (TestRig, RangeSync<TestBeaconChainType, FakeStorage>) {
         let chain = Arc::new(FakeStorage::default());
         let log = build_log(slog::Level::Trace, log_enabled);
-        let (beacon_processor_tx, beacon_processor_rx) = mpsc::channel(10);
         let range_sync = RangeSync::<TestBeaconChainType, FakeStorage>::new(
             chain.clone(),
             log.new(o!("component" => "range")),
         );
         let (network_tx, network_rx) = mpsc::unbounded_channel();
         let globals = Arc::new(NetworkGlobals::new_test_globals(Vec::new(), &log));
+        let (network_beacon_processor, beacon_processor_rx) =
+            NetworkBeaconProcessor::null_for_testing(globals.clone());
         let cx = SyncNetworkContext::new(
             network_tx,
             globals.clone(),
-            beacon_processor_tx,
+            Arc::new(network_beacon_processor),
             log.new(o!("component" => "network_context")),
         );
         let test_rig = TestRig {

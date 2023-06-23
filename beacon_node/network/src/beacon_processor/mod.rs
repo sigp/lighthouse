@@ -2,12 +2,15 @@ use crate::{
     service::NetworkMessage,
     sync::{manager::BlockProcessType, SyncMessage},
 };
-use beacon_chain::BeaconChain;
+use beacon_chain::{
+    builder::Witness, eth1_chain::CachingEth1Backend, test_utils::BeaconChainHarness, BeaconChain,
+};
 use beacon_chain::{BeaconChainTypes, GossipVerifiedBlock, NotifyExecutionLayer};
 use beacon_processor::{
     work_reprocessing_queue::ReprocessQueueMessage, AsyncFn, GossipAggregatePackage,
     GossipAttestationPackage, Work, WorkEvent as BeaconWorkEvent,
 };
+use environment::null_logger;
 use lighthouse_network::{
     rpc::{BlocksByRangeRequest, BlocksByRootRequest, LightClientBootstrapRequest, StatusMessage},
     types::ChainSegmentProcessId,
@@ -15,10 +18,13 @@ use lighthouse_network::{
 };
 use parking_lot::Mutex;
 use slog::Logger;
+use slot_clock::ManualSlotClock;
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
+use store::MemoryStore;
+use task_executor::test_utils::TestRuntime;
 use task_executor::TaskExecutor;
 use tokio::sync::mpsc::{self, error::TrySendError};
 use types::*;
@@ -595,5 +601,48 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             .await;
         };
         Box::pin(process_fn)
+    }
+}
+
+type TestBeaconChainType<E> =
+    Witness<ManualSlotClock, CachingEth1Backend<E>, E, MemoryStore<E>, MemoryStore<E>>;
+
+impl<E: EthSpec> NetworkBeaconProcessor<TestBeaconChainType<E>> {
+    // Instantiates a mostly non-functional version of `Self` and returns the
+    // event receiver that would normally go to the beacon processor. This is
+    // useful for testing that messages are actually being sent to the beacon
+    // processor (but not much else).
+    pub fn null_for_testing(
+        network_globals: Arc<NetworkGlobals<E>>,
+    ) -> (Self, mpsc::Receiver<BeaconWorkEvent<E>>) {
+        let (beacon_processor_send, beacon_processor_receive) = mpsc::channel(usize::max_value());
+        let (network_tx, _network_rx) = mpsc::unbounded_channel();
+        let (sync_tx, _sync_rx) = mpsc::unbounded_channel();
+        let (reprocess_tx, _reprocess_rx) = mpsc::channel(usize::max_value());
+        let log = null_logger().unwrap();
+        let harness: BeaconChainHarness<TestBeaconChainType<E>> =
+            BeaconChainHarness::builder(E::default())
+                .spec(E::default_spec())
+                .deterministic_keypairs(8)
+                .logger(log.clone())
+                .fresh_ephemeral_store()
+                .mock_execution_layer()
+                .build();
+        let runtime = TestRuntime::default();
+
+        let network_beacon_processor = Self {
+            beacon_processor_send,
+            duplicate_cache: <_>::default(),
+            chain: harness.chain,
+            network_tx,
+            sync_tx,
+            reprocess_tx,
+            network_globals,
+            invalid_block_storage: InvalidBlockStorage::Disabled,
+            executor: runtime.task_executor.clone(),
+            log,
+        };
+
+        (network_beacon_processor, beacon_processor_receive)
     }
 }

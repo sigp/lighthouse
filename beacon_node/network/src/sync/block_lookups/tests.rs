@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use crate::beacon_processor::NetworkBeaconProcessor;
 use crate::service::RequestId;
 use crate::sync::manager::RequestId as SyncId;
 use crate::NetworkMessage;
@@ -11,13 +12,13 @@ use beacon_chain::eth1_chain::CachingEth1Backend;
 use beacon_processor::WorkEvent;
 use lighthouse_network::{NetworkGlobals, Request};
 use slog::{Drain, Level};
-use slot_clock::SystemTimeSlotClock;
+use slot_clock::ManualSlotClock;
 use store::MemoryStore;
 use tokio::sync::mpsc;
 use types::test_utils::{SeedableRng, TestRandom, XorShiftRng};
 use types::MinimalEthSpec as E;
 
-type T = Witness<SystemTimeSlotClock, CachingEth1Backend<E>, E, MemoryStore<E>, MemoryStore<E>>;
+type T = Witness<ManualSlotClock, CachingEth1Backend<E>, E, MemoryStore<E>, MemoryStore<E>>;
 
 struct TestRig {
     beacon_processor_rx: mpsc::Receiver<WorkEvent<E>>,
@@ -41,8 +42,10 @@ impl TestRig {
             }
         };
 
-        let (beacon_processor_tx, beacon_processor_rx) = mpsc::channel(100);
         let (network_tx, network_rx) = mpsc::unbounded_channel();
+        let globals = Arc::new(NetworkGlobals::new_test_globals(Vec::new(), &log));
+        let (network_beacon_processor, beacon_processor_rx) =
+            NetworkBeaconProcessor::null_for_testing(globals.clone());
         let rng = XorShiftRng::from_seed([42; 16]);
         let rig = TestRig {
             beacon_processor_rx,
@@ -51,11 +54,10 @@ impl TestRig {
         };
         let bl = BlockLookups::new(log.new(slog::o!("component" => "block_lookups")));
         let cx = {
-            let globals = Arc::new(NetworkGlobals::new_test_globals(Vec::new(), &log));
             SyncNetworkContext::new(
                 network_tx,
                 globals,
-                beacon_processor_tx,
+                Arc::new(network_beacon_processor),
                 log.new(slog::o!("component" => "network_context")),
             )
         };

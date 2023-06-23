@@ -846,23 +846,24 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 metrics::inc_counter(&metrics::BEACON_PROCESSOR_GOSSIP_BLOCK_REQUEUED_TOTAL);
 
                 let inner_self = self.clone();
+                let process_fn = Box::pin(async move {
+                    let reprocess_tx = inner_self.reprocess_tx.clone();
+                    let invalid_block_storage = inner_self.invalid_block_storage.clone();
+                    inner_self
+                        .process_gossip_verified_block(
+                            peer_id,
+                            verified_block,
+                            reprocess_tx,
+                            invalid_block_storage,
+                            seen_duration,
+                        )
+                        .await;
+                });
                 if reprocess_tx
                     .try_send(ReprocessQueueMessage::EarlyBlock(QueuedGossipBlock {
                         beacon_block_slot: block_slot,
                         beacon_block_root: block_root,
-                        process_fn: Box::pin(async move {
-                            let reprocess_tx = inner_self.reprocess_tx.clone();
-                            let invalid_block_storage = inner_self.invalid_block_storage.clone();
-                            inner_self
-                                .process_gossip_verified_block(
-                                    peer_id,
-                                    verified_block,
-                                    reprocess_tx,
-                                    invalid_block_storage,
-                                    seen_duration,
-                                )
-                                .await;
-                        }),
+                        process_fn,
                     }))
                     .is_err()
                 {
