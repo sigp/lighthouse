@@ -80,13 +80,16 @@ impl<T: EthSpec> Consts for SyncCommitteeContribution<T> {
 }
 
 /// A trait for types that implement a behaviour where one object of that type
-/// can be a subset of another.
+/// can be a subset/superset of another.
 pub trait SubsetItem {
     /// The item that is stored for later comparison with new incoming aggregate items.
     type Item;
 
-    /// Returns `true` if `self` is a subset of `other` and `false` otherwise.
+    /// Returns `true` if `self` is a non-strict subset of `other` and `false` otherwise.
     fn is_subset(&self, other: &Self::Item) -> bool;
+
+    /// Returns `true` if `self` is a non-strict superset of `other` and `false` otherwise.
+    fn is_superset(&self, other: &Self::Item) -> bool;
 
     /// Returns the item that gets stored in `ObservedAggregates` for later subset
     /// comparison with incoming aggregates.
@@ -101,6 +104,10 @@ impl<T: EthSpec> SubsetItem for Attestation<T> {
     type Item = BitList<T::MaxValidatorsPerCommittee>;
     fn is_subset(&self, other: &Self::Item) -> bool {
         self.aggregation_bits.is_subset(other)
+    }
+
+    fn is_superset(&self, other: &Self::Item) -> bool {
+        other.is_subset(&self.aggregation_bits)
     }
 
     /// Returns the sync contribution aggregation bits.
@@ -118,6 +125,10 @@ impl<T: EthSpec> SubsetItem for SyncCommitteeContribution<T> {
     type Item = BitVector<T::SyncSubcommitteeSize>;
     fn is_subset(&self, other: &Self::Item) -> bool {
         self.aggregation_bits.is_subset(other)
+    }
+
+    fn is_superset(&self, other: &Self::Item) -> bool {
+        other.is_subset(&self.aggregation_bits)
     }
 
     /// Returns the sync contribution aggregation bits.
@@ -164,8 +175,8 @@ pub enum Error {
 
 /// A `HashMap` that contains entries related to some `Slot`.
 struct SlotHashSet<I> {
-    /// Contains a vector of disjoint aggregation bitfields/bitvectors keyed to the hash of
-    /// the corresponding data.
+    /// Contains a vector of maximally-sized aggregation bitfields/bitvectors 
+    /// such that no bitfield/bitvector is a subset of any other in the list.
     map: HashMap<Hash256, Vec<I>>,
     slot: Slot,
     max_capacity: usize,
@@ -193,11 +204,18 @@ impl<I> SlotHashSet<I> {
             });
         }
 
-        // Check if `item` is a non-strict subset of any of the already observed aggregates for
-        // the given data root for this slot.
-        if let Some(aggregates) = self.map.get(&root) {
-            if aggregates.iter().any(|val| item.is_subset(val)) {
-                return Ok(ObserveOutcome::Subset);
+        if let Some(aggregates) = self.map.get_mut(&root) {
+            for existing in aggregates {
+                // Check if `item` is a subset of any of the observed aggregates
+                if item.is_subset(existing) {
+                    return Ok(ObserveOutcome::Subset);
+                // Check if `item` is a superset of any of the observed aggregates
+                // If true, we replace the new item with its existing subset. This allows us
+                // to hold fewer items in the list.
+                } else if item.is_superset(existing) {
+                    *existing = item.get_item();
+                    return Ok(ObserveOutcome::New);
+                }
             }
         }
 
