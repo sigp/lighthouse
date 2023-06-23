@@ -3,18 +3,18 @@ use crate::peer_manager::PeerManager;
 use crate::rpc::{ReqId, RPC};
 use crate::types::SnappyTransform;
 
+use libp2p::gossipsub;
 use libp2p::gossipsub::subscription_filter::{
     MaxCountSubscriptionFilter, WhitelistSubscriptionFilter,
 };
-use libp2p::gossipsub::Behaviour as BaseGossipsub;
-use libp2p::identify::Behaviour as Identify;
+use libp2p::identify;
 use libp2p::swarm::NetworkBehaviour;
 use types::EthSpec;
 
 use super::api_types::RequestId;
 
 pub type SubscriptionFilter = MaxCountSubscriptionFilter<WhitelistSubscriptionFilter>;
-pub type Gossipsub = BaseGossipsub<SnappyTransform, SubscriptionFilter>;
+pub type Gossipsub = gossipsub::Behaviour<SnappyTransform, SubscriptionFilter>;
 
 #[derive(NetworkBehaviour)]
 pub(crate) struct Behaviour<AppReqId, TSpec>
@@ -31,7 +31,7 @@ where
     /// Keep regular connection to peers and disconnect if absent.
     // NOTE: The id protocol is used for initial interop. This will be removed by mainnet.
     /// Provides IP addresses and peer information.
-    pub identify: Identify,
+    pub identify: identify::Behaviour,
     /// The peer manager that keeps track of peer's reputation and status.
     pub peer_manager: PeerManager<TSpec>,
     /// Keep track of active and pending connections to enforce hard limits.
