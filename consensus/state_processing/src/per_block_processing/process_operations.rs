@@ -105,11 +105,22 @@ pub mod altair {
         ctxt: &mut ConsensusContext<T>,
         spec: &ChainSpec,
     ) -> Result<(), BlockProcessingError> {
+        let previous_epoch = state.previous_epoch();
+        let current_epoch = state.current_epoch();
         attestations
             .iter()
             .enumerate()
             .try_for_each(|(i, attestation)| {
-                process_attestation(state, attestation, i, ctxt, verify_signatures, spec)
+                process_attestation(
+                    state,
+                    attestation,
+                    i,
+                    ctxt,
+                    verify_signatures,
+                    previous_epoch,
+                    current_epoch,
+                    spec,
+                )
             })
     }
 
@@ -119,6 +130,8 @@ pub mod altair {
         att_index: usize,
         ctxt: &mut ConsensusContext<T>,
         verify_signatures: VerifySignatures,
+        previous_epoch: Epoch,
+        current_epoch: Epoch,
         spec: &ChainSpec,
     ) -> Result<(), BlockProcessingError> {
         state.build_committee_cache(RelativeEpoch::Previous, spec)?;
@@ -149,18 +162,23 @@ pub mod altair {
             let index = *index as usize;
 
             for (flag_index, &weight) in PARTICIPATION_FLAG_WEIGHTS.iter().enumerate() {
-                let epoch_participation = state.get_epoch_participation_mut(data.target.epoch)?;
-                let validator_participation = epoch_participation
-                    .get_mut(index)
-                    .ok_or(BeaconStateError::ParticipationOutOfBounds(index))?;
+                let epoch_participation = state.get_epoch_participation_mut(
+                    data.target.epoch,
+                    previous_epoch,
+                    current_epoch,
+                )?;
 
-                if participation_flag_indices.contains(&flag_index)
-                    && !validator_participation.has_flag(flag_index)?
-                {
-                    validator_participation.add_flag(flag_index)?;
-                    proposer_reward_numerator.safe_add_assign(
-                        ctxt.get_base_reward(state, index, spec)?.safe_mul(weight)?,
-                    )?;
+                if participation_flag_indices.contains(&flag_index) {
+                    let validator_participation = epoch_participation
+                        .get_cow(index)
+                        .ok_or(BeaconStateError::ParticipationOutOfBounds(index))?;
+
+                    if !validator_participation.has_flag(flag_index)? {
+                        validator_participation.to_mut().add_flag(flag_index)?;
+                        proposer_reward_numerator.safe_add_assign(
+                            ctxt.get_base_reward(state, index, spec)?.safe_mul(weight)?,
+                        )?;
+                    }
                 }
             }
         }

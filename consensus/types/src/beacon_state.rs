@@ -1477,15 +1477,17 @@ impl<T: EthSpec> BeaconState<T> {
     pub fn get_epoch_participation_mut(
         &mut self,
         epoch: Epoch,
+        previous_epoch: Epoch,
+        current_epoch: Epoch,
     ) -> Result<&mut VList<ParticipationFlags, T::ValidatorRegistryLimit>, Error> {
-        if epoch == self.current_epoch() {
+        if epoch == current_epoch {
             match self {
                 BeaconState::Base(_) => Err(BeaconStateError::IncorrectStateVariant),
                 BeaconState::Altair(state) => Ok(&mut state.current_epoch_participation),
                 BeaconState::Merge(state) => Ok(&mut state.current_epoch_participation),
                 BeaconState::Capella(state) => Ok(&mut state.current_epoch_participation),
             }
-        } else if epoch == self.previous_epoch() {
+        } else if epoch == previous_epoch {
             match self {
                 BeaconState::Base(_) => Err(BeaconStateError::IncorrectStateVariant),
                 BeaconState::Altair(state) => Ok(&mut state.previous_epoch_participation),

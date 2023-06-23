@@ -202,8 +202,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             for index in attesting_indices {
                 let index = index as usize;
                 for (flag_index, &weight) in PARTICIPATION_FLAG_WEIGHTS.iter().enumerate() {
-                    let epoch_participation =
-                        state.get_epoch_participation_mut(data.target.epoch)?;
+                    let previous_epoch = state.previous_epoch();
+                    let current_epoch = state.current_epoch();
+                    let epoch_participation = state.get_epoch_participation_mut(
+                        data.target.epoch,
+                        previous_epoch,
+                        current_epoch,
+                    )?;
                     let validator_participation = epoch_participation
                         .get_mut(index)
                         .ok_or(BeaconStateError::ParticipationOutOfBounds(index))?;
