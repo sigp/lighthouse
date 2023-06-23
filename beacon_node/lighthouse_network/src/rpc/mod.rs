@@ -209,22 +209,6 @@ where
     type ConnectionHandler = RPCHandler<Id, TSpec>;
     type OutEvent = RPCMessage<Id, TSpec>;
 
-    fn new_handler(&mut self) -> Self::ConnectionHandler {
-        RPCHandler::new(
-            SubstreamProtocol::new(
-                RPCProtocol {
-                    fork_context: self.fork_context.clone(),
-                    max_rpc_size: max_rpc_size(&self.fork_context),
-                    enable_light_client_server: self.enable_light_client_server,
-                    phantom: PhantomData,
-                },
-                (),
-            ),
-            self.fork_context.clone(),
-            &self.log,
-        )
-    }
-
     fn on_swarm_event(&mut self, event: FromSwarm<Self::ConnectionHandler>) {
         match event {
             FromSwarm::ConnectionEstablished(_)
@@ -335,6 +319,45 @@ where
         }
 
         Poll::Pending
+    }
+
+    fn handle_pending_inbound_connection(
+        &mut self,
+        _connection_id: ConnectionId,
+        _local_addr: &libp2p::Multiaddr,
+        _remote_addr: &libp2p::Multiaddr,
+    ) -> Result<(), libp2p::swarm::ConnectionDenied> {
+        todo!()
+    }
+
+    fn handle_established_inbound_connection(
+        &mut self,
+        _connection_id: ConnectionId,
+        peer: PeerId,
+        local_addr: &libp2p::Multiaddr,
+        remote_addr: &libp2p::Multiaddr,
+    ) -> Result<libp2p::swarm::THandler<Self>, libp2p::swarm::ConnectionDenied> {
+        todo!()
+    }
+
+    fn handle_pending_outbound_connection(
+        &mut self,
+        _connection_id: ConnectionId,
+        maybe_peer: Option<PeerId>,
+        _addresses: &[libp2p::Multiaddr],
+        _effective_role: libp2p::core::Endpoint,
+    ) -> Result<Vec<libp2p::Multiaddr>, libp2p::swarm::ConnectionDenied> {
+        todo!()
+    }
+
+    fn handle_established_outbound_connection(
+        &mut self,
+        _connection_id: ConnectionId,
+        peer: PeerId,
+        addr: &libp2p::Multiaddr,
+        role_override: libp2p::core::Endpoint,
+    ) -> Result<libp2p::swarm::THandler<Self>, libp2p::swarm::ConnectionDenied> {
+        todo!()
     }
 }
 

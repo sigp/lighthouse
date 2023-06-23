@@ -928,21 +928,52 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
     type ConnectionHandler = ConnectionHandler;
     type OutEvent = DiscoveredPeers;
 
-    fn new_handler(&mut self) -> Self::ConnectionHandler {
-        ConnectionHandler
+    fn handle_pending_inbound_connection(
+        &mut self,
+        _connection_id: ConnectionId,
+        _local_addr: &Multiaddr,
+        _remote_addr: &Multiaddr,
+    ) -> Result<(), libp2p::swarm::ConnectionDenied> {
+        todo!()
     }
 
-    // Handles the libp2p request to obtain multiaddrs for peer_id's in order to dial them.
-    fn addresses_of_peer(&mut self, peer_id: &PeerId) -> Vec<Multiaddr> {
-        if let Some(enr) = self.enr_of_peer(peer_id) {
-            // ENR's may have multiple Multiaddrs. The multi-addr associated with the UDP
-            // port is removed, which is assumed to be associated with the discv5 protocol (and
-            // therefore irrelevant for other libp2p components).
-            enr.multiaddr_tcp()
-        } else {
-            // PeerId is not known
-            Vec::new()
+    fn handle_pending_outbound_connection(
+        &mut self,
+        _connection_id: ConnectionId,
+        maybe_peer: Option<PeerId>,
+        _addresses: &[Multiaddr],
+        _effective_role: libp2p::core::Endpoint,
+    ) -> Result<Vec<Multiaddr>, libp2p::swarm::ConnectionDenied> {
+        if let Some(peer_id) = maybe_peer {
+            if let Some(enr) = self.enr_of_peer(&peer_id) {
+                // ENR's may have multiple Multiaddrs. The multi-addr associated with the UDP
+                // port is removed, which is assumed to be associated with the discv5 protocol (and
+                // therefore irrelevant for other libp2p components).
+                return Ok(enr.multiaddr_tcp());
+            }
         }
+
+        Ok(vec![])
+    }
+
+    fn handle_established_inbound_connection(
+        &mut self,
+        _connection_id: ConnectionId,
+        peer: PeerId,
+        local_addr: &Multiaddr,
+        remote_addr: &Multiaddr,
+    ) -> Result<libp2p::swarm::THandler<Self>, libp2p::swarm::ConnectionDenied> {
+        todo!()
+    }
+
+    fn handle_established_outbound_connection(
+        &mut self,
+        _connection_id: ConnectionId,
+        peer: PeerId,
+        addr: &Multiaddr,
+        role_override: libp2p::core::Endpoint,
+    ) -> Result<libp2p::swarm::THandler<Self>, libp2p::swarm::ConnectionDenied> {
+        todo!()
     }
 
     fn on_swarm_event(&mut self, event: FromSwarm<Self::ConnectionHandler>) {

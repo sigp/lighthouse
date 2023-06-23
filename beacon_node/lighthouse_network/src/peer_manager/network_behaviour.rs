@@ -24,10 +24,6 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
 
     /* Required trait members */
 
-    fn new_handler(&mut self) -> Self::ConnectionHandler {
-        ConnectionHandler
-    }
-
     fn on_swarm_event(&mut self, event: FromSwarm<Self::ConnectionHandler>) {
         match event {
             FromSwarm::ConnectionEstablished(ConnectionEstablished {
@@ -178,6 +174,26 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
         }
 
         Poll::Pending
+    }
+
+    fn handle_established_inbound_connection(
+        &mut self,
+        _connection_id: ConnectionId,
+        peer: PeerId,
+        local_addr: &libp2p::Multiaddr,
+        remote_addr: &libp2p::Multiaddr,
+    ) -> Result<libp2p::swarm::THandler<Self>, libp2p::swarm::ConnectionDenied> {
+        todo!()
+    }
+
+    fn handle_established_outbound_connection(
+        &mut self,
+        _connection_id: ConnectionId,
+        peer: PeerId,
+        addr: &libp2p::Multiaddr,
+        role_override: libp2p::core::Endpoint,
+    ) -> Result<libp2p::swarm::THandler<Self>, libp2p::swarm::ConnectionDenied> {
+        todo!()
     }
 }
 
