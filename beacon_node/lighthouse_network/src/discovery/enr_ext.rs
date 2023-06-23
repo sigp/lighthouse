@@ -198,21 +198,20 @@ impl CombinedKeyPublicExt for CombinedPublicKey {
     ///
     /// This is only available with the `libp2p` feature flag.
     fn as_peer_id(&self) -> PeerId {
+        use libp2p::identity::{ed25519, secp256k1};
         match self {
             Self::Secp256k1(pk) => {
                 let pk_bytes = pk.to_sec1_bytes();
-                let libp2p_pk = libp2p::identity::PublicKey::Secp256k1(
-                    libp2p::identity::secp256k1::PublicKey::decode(&pk_bytes)
-                        .expect("valid public key"),
-                );
+                let libp2p_pk: PublicKey = secp256k1::PublicKey::try_from_bytes(&pk_bytes)
+                    .expect("valid public key")
+                    .into();
                 PeerId::from_public_key(&libp2p_pk)
             }
             Self::Ed25519(pk) => {
                 let pk_bytes = pk.to_bytes();
-                let libp2p_pk = libp2p::identity::PublicKey::Ed25519(
-                    libp2p::identity::ed25519::PublicKey::decode(&pk_bytes)
-                        .expect("valid public key"),
-                );
+                let libp2p_pk: PublicKey = ed25519::PublicKey::try_from_bytes(&pk_bytes)
+                    .expect("valid public key")
+                    .into();
                 PeerId::from_public_key(&libp2p_pk)
             }
         }
