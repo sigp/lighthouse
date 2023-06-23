@@ -24,13 +24,11 @@ use api_types::{PeerRequestId, Request, RequestId, Response};
 use futures::stream::StreamExt;
 use gossipsub_scoring_parameters::{lighthouse_gossip_thresholds, PeerScoreSettings};
 use libp2p::bandwidth::BandwidthSinks;
-use libp2p::gossipsub::metrics::Config as GossipsubMetricsConfig;
 use libp2p::gossipsub::subscription_filter::MaxCountSubscriptionFilter;
-use libp2p::gossipsub::PublishError;
 use libp2p::gossipsub::{
-    Event as GossipsubEvent, IdentTopic as Topic, MessageAcceptance, MessageAuthenticity, MessageId,
+    self, IdentTopic as Topic, MessageAcceptance, MessageAuthenticity, MessageId, PublishError,
 };
-use libp2p::identify::{Behaviour as Identify, Config as IdentifyConfig, Event as IdentifyEvent};
+use libp2p::identify;
 use libp2p::multiaddr::{Multiaddr, Protocol as MProtocol};
 use libp2p::swarm::{Swarm, SwarmBuilder, SwarmEvent};
 use libp2p::PeerId;
@@ -240,7 +238,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
             // If metrics are enabled for gossipsub build the configuration
             let gossipsub_metrics = ctx
                 .gossipsub_registry
-                .map(|registry| (registry, GossipsubMetricsConfig::default()));
+                .map(|registry| (registry, gossipsub::metrics::Config::default()));
 
             let snappy_transform = SnappyTransform::new(config.gs_config.max_transmit_size());
             let mut gossipsub = Gossipsub::new_with_subscription_filter_and_transform(
@@ -284,17 +282,17 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
         let identify = {
             let local_public_key = local_keypair.public();
             let identify_config = if config.private {
-                IdentifyConfig::new(
+                identify::Config::new(
                     "".into(),
                     local_public_key, // Still send legitimate public key
                 )
                 .with_cache_size(0)
             } else {
-                IdentifyConfig::new("eth2/1.0.0".into(), local_public_key)
+                identify::Config::new("eth2/1.0.0".into(), local_public_key)
                     .with_agent_version(lighthouse_version::version_with_platform())
                     .with_cache_size(0)
             };
-            Identify::new(identify_config)
+            identify::Behaviour::new(identify_config)
         };
 
         let peer_manager = {
@@ -500,7 +498,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
         &mut self.swarm.behaviour_mut().discovery
     }
     /// Provides IP addresses and peer information.
-    pub fn identify_mut(&mut self) -> &mut Identify {
+    pub fn identify_mut(&mut self) -> &mut identify::Behaviour {
         &mut self.swarm.behaviour_mut().identify
     }
     /// The peer manager that keeps track of peer's reputation and status.
@@ -521,7 +519,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
         &self.swarm.behaviour().discovery
     }
     /// Provides IP addresses and peer information.
-    pub fn identify(&self) -> &Identify {
+    pub fn identify(&self) -> &identify::Behaviour {
         &self.swarm.behaviour().identify
     }
     /// The peer manager that keeps track of peer's reputation and status.
@@ -1052,9 +1050,12 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
     /* Sub-behaviour event handling functions */
 
     /// Handle a gossipsub event.
-    fn inject_gs_event(&mut self, event: GossipsubEvent) -> Option<NetworkEvent<AppReqId, TSpec>> {
+    fn inject_gs_event(
+        &mut self,
+        event: gossipsub::Event,
+    ) -> Option<NetworkEvent<AppReqId, TSpec>> {
         match event {
-            GossipsubEvent::Message {
+            gossipsub::Event::Message {
                 propagation_source,
                 message_id: id,
                 message: gs_msg,
@@ -1084,7 +1085,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                     }
                 }
             }
-            GossipsubEvent::Subscribed { peer_id, topic } => {
+            gossipsub::Event::Subscribed { peer_id, topic } => {
                 if let Ok(topic) = GossipTopic::decode(topic.as_str()) {
                     if let Some(subnet_id) = topic.subnet_id() {
                         self.network_globals
@@ -1125,7 +1126,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                     }
                 }
             }
-            GossipsubEvent::Unsubscribed { peer_id, topic } => {
+            gossipsub::Event::Unsubscribed { peer_id, topic } => {
                 if let Some(subnet_id) = subnet_from_topic_hash(&topic) {
                     self.network_globals
                         .peers
@@ -1133,7 +1134,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                         .remove_subscription(&peer_id, &subnet_id);
                 }
             }
-            GossipsubEvent::GossipsubNotSupported { peer_id } => {
+            gossipsub::Event::GossipsubNotSupported { peer_id } => {
                 debug!(self.log, "Peer does not support gossipsub"; "peer_id" => %peer_id);
                 self.peer_manager_mut().report_peer(
                     &peer_id,
@@ -1347,10 +1348,10 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
     /// Handle an identify event.
     fn inject_identify_event(
         &mut self,
-        event: IdentifyEvent,
+        event: identify::Event,
     ) -> Option<NetworkEvent<AppReqId, TSpec>> {
         match event {
-            IdentifyEvent::Received { peer_id, mut info } => {
+            identify::Event::Received { peer_id, mut info } => {
                 if info.listen_addrs.len() > MAX_IDENTIFY_ADDRESSES {
                     debug!(
                         self.log,
@@ -1361,9 +1362,9 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                 // send peer info to the peer manager.
                 self.peer_manager_mut().identify(&peer_id, &info);
             }
-            IdentifyEvent::Sent { .. } => {}
-            IdentifyEvent::Error { .. } => {}
-            IdentifyEvent::Pushed { .. } => {}
+            identify::Event::Sent { .. } => {}
+            identify::Event::Error { .. } => {}
+            identify::Event::Pushed { .. } => {}
         }
         None
     }
