@@ -48,3 +48,4 @@ ethereum-types = { version = "0.14.1", optional = true }
 operation_pool =  { path = "../operation_pool" }
 execution_layer =  { path = "../execution_layer" }
 beacon_processor =  { path = "../beacon_processor" }
+parking_lot = "0.12.0"

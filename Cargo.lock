@@ -5453,6 +5453,7 @@ dependencies = [
  "matches",
  "num_cpus",
  "operation_pool",
+ "parking_lot 0.12.1",
  "rand 0.8.5",
  "rlp",
  "slog",

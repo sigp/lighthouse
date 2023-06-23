@@ -47,9 +47,9 @@ use futures::task::Poll;
 use lighthouse_network::{types::ChainSegmentProcessId, NetworkGlobals};
 use lighthouse_network::{MessageId, PeerId};
 use logging::TimeLatch;
-use parking_lot::Mutex;
 use slog::{crit, debug, error, trace, warn, Logger};
 use slot_clock::SlotClock;
+use std::cmp;
 use std::collections::VecDeque;
 use std::fmt;
 use std::future::Future;
@@ -57,7 +57,6 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::task::Context;
 use std::time::Duration;
-use std::{cmp, collections::HashSet};
 use task_executor::TaskExecutor;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TrySendError;
@@ -297,55 +296,6 @@ impl<T> LifoQueue<T> {
     /// Returns the current length of the queue.
     pub fn len(&self) -> usize {
         self.queue.len()
-    }
-}
-
-/// A handle that sends a message on the provided channel to a receiver when it gets dropped.
-///
-/// The receiver task is responsible for removing the provided `entry` from the `DuplicateCache`
-/// and perform any other necessary cleanup.
-pub struct DuplicateCacheHandle {
-    entry: Hash256,
-    cache: DuplicateCache,
-}
-
-impl Drop for DuplicateCacheHandle {
-    fn drop(&mut self) {
-        self.cache.remove(&self.entry);
-    }
-}
-
-/// A simple  cache for detecting duplicate block roots across multiple threads.
-#[derive(Clone, Default)]
-pub struct DuplicateCache {
-    inner: Arc<Mutex<HashSet<Hash256>>>,
-}
-
-impl DuplicateCache {
-    /// Checks if the given block_root exists and inserts it into the cache if
-    /// it doesn't exist.
-    ///
-    /// Returns a `Some(DuplicateCacheHandle)` if the block_root was successfully
-    /// inserted and `None` if the block root already existed in the cache.
-    ///
-    /// The handle removes the entry from the cache when it is dropped. This ensures that any unclean
-    /// shutdowns in the worker tasks does not leave inconsistent state in the cache.
-    pub fn check_and_insert(&self, block_root: Hash256) -> Option<DuplicateCacheHandle> {
-        let mut inner = self.inner.lock();
-        if inner.insert(block_root) {
-            Some(DuplicateCacheHandle {
-                entry: block_root,
-                cache: self.clone(),
-            })
-        } else {
-            None
-        }
-    }
-
-    /// Remove the given block_root from the cache.
-    pub fn remove(&self, block_root: &Hash256) {
-        let mut inner = self.inner.lock();
-        inner.remove(block_root);
     }
 }
 
@@ -620,11 +570,11 @@ impl<E: EthSpec> Stream for InboundEvents<E> {
 ///
 /// See module level documentation for more information.
 pub struct BeaconProcessor<E: EthSpec> {
+    pub work_reprocessing_rx: mpsc::Receiver<ReprocessQueueMessage>,
     pub network_globals: Arc<NetworkGlobals<E>>,
     pub executor: TaskExecutor,
     pub max_workers: usize,
     pub current_workers: usize,
-    pub importing_blocks: DuplicateCache,
     pub enable_backfill_rate_limiting: bool,
     pub log: Logger,
 }
@@ -644,6 +594,8 @@ impl<E: EthSpec> BeaconProcessor<E> {
     pub fn spawn_manager<S: SlotClock + 'static>(
         mut self,
         event_rx: mpsc::Receiver<WorkEvent<E>>,
+        work_reprocessing_tx: mpsc::Sender<ReprocessQueueMessage>,
+        work_reprocessing_rx: mpsc::Receiver<ReprocessQueueMessage>,
         work_journal_tx: Option<mpsc::Sender<&'static str>>,
         slot_clock: S,
     ) {
@@ -702,8 +654,13 @@ impl<E: EthSpec> BeaconProcessor<E> {
         // receive them back once they are ready (`ready_work_rx`).
         let (ready_work_tx, ready_work_rx) =
             mpsc::channel::<ReadyWork>(MAX_SCHEDULED_WORK_QUEUE_LEN);
-        let work_reprocessing_tx =
-            spawn_reprocess_scheduler(ready_work_tx, &self.executor, slot_clock, self.log.clone());
+        spawn_reprocess_scheduler(
+            ready_work_tx,
+            work_reprocessing_rx,
+            &self.executor,
+            slot_clock,
+            self.log.clone(),
+        );
 
         let executor = self.executor.clone();
 

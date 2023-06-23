@@ -363,12 +363,11 @@ impl<S: SlotClock> Stream for ReprocessQueue<S> {
 /// via `ready_work_tx`.
 pub fn spawn_reprocess_scheduler<S: SlotClock + 'static>(
     ready_work_tx: Sender<ReadyWork>,
+    work_reprocessing_rx: Receiver<ReprocessQueueMessage>,
     executor: &TaskExecutor,
     slot_clock: S,
     log: Logger,
-) -> Sender<ReprocessQueueMessage> {
-    let (work_reprocessing_tx, work_reprocessing_rx) = mpsc::channel(MAX_SCHEDULED_WORK_QUEUE_LEN);
-
+) {
     let mut queue = ReprocessQueue {
         work_reprocessing_rx,
         ready_work_tx,
@@ -407,8 +406,6 @@ pub fn spawn_reprocess_scheduler<S: SlotClock + 'static>(
         },
         TASK_NAME,
     );
-
-    work_reprocessing_tx
 }
 
 impl<S: SlotClock> ReprocessQueue<S> {

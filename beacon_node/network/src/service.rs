@@ -229,7 +229,6 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         gossipsub_registry: Option<&'_ mut Registry>,
         beacon_processor_send: mpsc::Sender<WorkEvent<T::EthSpec>>,
         beacon_processor_reprocess_tx: mpsc::Sender<ReprocessQueueMessage>,
-        beacon_processor: BeaconProcessor<T::EthSpec>,
     ) -> error::Result<(Arc<NetworkGlobals<T::EthSpec>>, NetworkSenders<T::EthSpec>)> {
         let network_log = executor.log().clone();
         // build the channels for external comms
@@ -319,7 +318,6 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             invalid_block_storage,
             beacon_processor_send,
             beacon_processor_reprocess_tx,
-            beacon_processor,
             network_log.clone(),
         )?;
 

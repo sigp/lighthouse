@@ -5,7 +5,7 @@
 //! syncing-related responses to the Sync manager.
 #![allow(clippy::unit_arg)]
 
-use crate::beacon_processor::{InvalidBlockStorage, NetworkBeaconProcessor};
+use crate::beacon_processor::{DuplicateCache, InvalidBlockStorage, NetworkBeaconProcessor};
 use crate::error;
 use crate::service::{NetworkMessage, RequestId};
 use crate::status::status_message;
@@ -21,7 +21,6 @@ use lighthouse_network::{
 };
 use slog::{debug, o, trace};
 use slog::{error, warn};
-use std::cmp;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc;
@@ -84,7 +83,6 @@ impl<T: BeaconChainTypes> Router<T> {
         invalid_block_storage: InvalidBlockStorage,
         beacon_processor_send: mpsc::Sender<BeaconWorkEvent<T::EthSpec>>,
         beacon_processor_reprocess_tx: mpsc::Sender<ReprocessQueueMessage>,
-        beacon_processor: BeaconProcessor<T::EthSpec>,
         log: slog::Logger,
     ) -> error::Result<mpsc::UnboundedSender<RouterMessage<T::EthSpec>>> {
         let message_handler_log = log.new(o!("service"=> "router"));
@@ -96,10 +94,12 @@ impl<T: BeaconChainTypes> Router<T> {
             mpsc::channel(MAX_WORK_EVENT_QUEUE_LEN);
 
         let sync_logger = log.new(o!("service"=> "sync"));
+        // generate the message channel
+        let (sync_send, sync_recv) = mpsc::unbounded_channel::<SyncMessage<T::EthSpec>>();
 
         let network_beacon_processor = NetworkBeaconProcessor {
             beacon_processor_send,
-            duplicate_cache: beacon_processor.importing_blocks.clone(),
+            duplicate_cache: DuplicateCache::default(),
             chain: beacon_chain.clone(),
             network_tx: network_send.clone(),
             sync_tx: sync_send.clone(),
@@ -118,6 +118,7 @@ impl<T: BeaconChainTypes> Router<T> {
             network_globals.clone(),
             network_send.clone(),
             network_beacon_processor.clone(),
+            sync_recv,
             sync_logger,
         );
 

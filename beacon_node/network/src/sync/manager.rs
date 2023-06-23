@@ -189,8 +189,9 @@ pub fn spawn<T: BeaconChainTypes>(
     network_globals: Arc<NetworkGlobals<T::EthSpec>>,
     network_send: mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
     beacon_processor: Arc<NetworkBeaconProcessor<T>>,
+    sync_recv: mpsc::UnboundedReceiver<SyncMessage<T::EthSpec>>,
     log: slog::Logger,
-) -> mpsc::UnboundedSender<SyncMessage<T::EthSpec>> {
+) {
     assert!(
         MAX_REQUEST_BLOCKS >= T::EthSpec::slots_per_epoch() * EPOCHS_PER_BATCH,
         "Max blocks that can be requested in a single batch greater than max allowed blocks in a single request"
@@ -218,7 +219,6 @@ pub fn spawn<T: BeaconChainTypes>(
     // spawn the sync manager thread
     debug!(log, "Sync Manager started");
     executor.spawn(async move { Box::pin(sync_manager.main()).await }, "sync");
-    sync_send
 }
 
 impl<T: BeaconChainTypes> SyncManager<T> {
