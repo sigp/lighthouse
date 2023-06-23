@@ -324,7 +324,7 @@ impl<T: BeaconChainTypes> VerifiedSyncContribution<T> {
             return Err(Error::AggregatorNotInCommittee { aggregator_index });
         };
 
-        // Ensure the valid sync contribution or it's superset has not already been seen locally.
+        // Ensure the valid sync contribution or its superset has not already been seen locally.
         let contribution_data_root = SyncCommitteeData {
             slot: contribution.slot,
             root: contribution.beacon_block_root,

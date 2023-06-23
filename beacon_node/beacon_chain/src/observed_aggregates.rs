@@ -175,7 +175,7 @@ pub enum Error {
 
 /// A `HashMap` that contains entries related to some `Slot`.
 struct SlotHashSet<I> {
-    /// Contains a vector of maximally-sized aggregation bitfields/bitvectors 
+    /// Contains a vector of maximally-sized aggregation bitfields/bitvectors
     /// such that no bitfield/bitvector is a subset of any other in the list.
     map: HashMap<Hash256, Vec<I>>,
     slot: Slot,
@@ -232,7 +232,7 @@ impl<I> SlotHashSet<I> {
         }
 
         let item = item.get_item();
-        self.map.entry(root).or_insert(Vec::new()).push(item);
+        self.map.entry(root).or_default().push(item);
         Ok(ObserveOutcome::New)
     }
 
