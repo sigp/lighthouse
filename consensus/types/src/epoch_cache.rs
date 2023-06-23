@@ -58,7 +58,6 @@ impl EpochCache {
         }
     }
 
-    // TODO: check at start of block processing
     pub fn check_validity<E: EthSpec>(
         &self,
         current_epoch: Epoch,
