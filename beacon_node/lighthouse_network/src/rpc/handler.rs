@@ -991,7 +991,6 @@ where
         self.outbound_io_error_retries = 0;
         // map the error
         let error = match error {
-            ConnectionHandlerUpgrErr::Timer => RPCError::InternalError("Timer failed"),
             ConnectionHandlerUpgrErr::Timeout => RPCError::NegotiationTimeout,
             ConnectionHandlerUpgrErr::Upgrade(UpgradeError::Apply(e)) => e,
             ConnectionHandlerUpgrErr::Upgrade(UpgradeError::Select(NegotiationError::Failed)) => {
