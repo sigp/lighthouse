@@ -8,8 +8,7 @@ use libp2p::bandwidth::BandwidthSinks;
 use libp2p::core::{
     identity::Keypair, multiaddr::Multiaddr, muxing::StreamMuxerBox, transport::Boxed,
 };
-use libp2p::gossipsub::subscription_filter::WhitelistSubscriptionFilter;
-use libp2p::gossipsub::IdentTopic as Topic;
+use libp2p::gossipsub;
 use libp2p::{core, noise, yamux, PeerId, Transport, TransportExt};
 use prometheus_client::registry::Registry;
 use slog::{debug, warn};
@@ -222,11 +221,11 @@ pub(crate) fn create_whitelist_filter(
     possible_fork_digests: Vec<[u8; 4]>,
     attestation_subnet_count: u64,
     sync_committee_subnet_count: u64,
-) -> WhitelistSubscriptionFilter {
+) -> gossipsub::WhitelistSubscriptionFilter {
     let mut possible_hashes = HashSet::new();
     for fork_digest in possible_fork_digests {
         let mut add = |kind| {
-            let topic: Topic =
+            let topic: gossipsub::IdentTopic =
                 GossipTopic::new(kind, GossipEncoding::SSZSnappy, fork_digest).into();
             possible_hashes.insert(topic.hash());
         };
@@ -248,7 +247,7 @@ pub(crate) fn create_whitelist_filter(
             add(SyncCommitteeMessage(SyncSubnetId::new(id)));
         }
     }
-    WhitelistSubscriptionFilter(possible_hashes)
+    gossipsub::WhitelistSubscriptionFilter(possible_hashes)
 }
 
 /// Persist metadata to disk

@@ -4,16 +4,14 @@ use crate::rpc::{ReqId, RPC};
 use crate::types::SnappyTransform;
 
 use libp2p::gossipsub;
-use libp2p::gossipsub::subscription_filter::{
-    MaxCountSubscriptionFilter, WhitelistSubscriptionFilter,
-};
 use libp2p::identify;
 use libp2p::swarm::NetworkBehaviour;
 use types::EthSpec;
 
 use super::api_types::RequestId;
 
-pub type SubscriptionFilter = MaxCountSubscriptionFilter<WhitelistSubscriptionFilter>;
+pub type SubscriptionFilter =
+    gossipsub::MaxCountSubscriptionFilter<gossipsub::WhitelistSubscriptionFilter>;
 pub type Gossipsub = gossipsub::Behaviour<SnappyTransform, SubscriptionFilter>;
 
 #[derive(NetworkBehaviour)]

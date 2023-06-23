@@ -24,7 +24,6 @@ use api_types::{PeerRequestId, Request, RequestId, Response};
 use futures::stream::StreamExt;
 use gossipsub_scoring_parameters::{lighthouse_gossip_thresholds, PeerScoreSettings};
 use libp2p::bandwidth::BandwidthSinks;
-use libp2p::gossipsub::subscription_filter::MaxCountSubscriptionFilter;
 use libp2p::gossipsub::{
     self, IdentTopic as Topic, MessageAcceptance, MessageAuthenticity, MessageId, PublishError,
 };
@@ -223,7 +222,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
             let update_gossipsub_scores = tokio::time::interval(params.decay_interval);
 
             let possible_fork_digests = ctx.fork_context.all_fork_digests();
-            let filter = MaxCountSubscriptionFilter {
+            let filter = gossipsub::MaxCountSubscriptionFilter {
                 filter: utils::create_whitelist_filter(
                     possible_fork_digests,
                     ctx.chain_spec.attestation_subnet_count,
@@ -238,7 +237,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
             // If metrics are enabled for gossipsub build the configuration
             let gossipsub_metrics = ctx
                 .gossipsub_registry
-                .map(|registry| (registry, gossipsub::metrics::Config::default()));
+                .map(|registry| (registry, gossipsub::MetricsConfig::default()));
 
             let snappy_transform = SnappyTransform::new(config.gs_config.max_transmit_size());
             let mut gossipsub = Gossipsub::new_with_subscription_filter_and_transform(
