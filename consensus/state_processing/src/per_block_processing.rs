@@ -1,22 +1,20 @@
+pub use self::verify_attester_slashing::{
+    get_slashable_indices, get_slashable_indices_modular, verify_attester_slashing,
+};
+pub use self::verify_proposer_slashing::verify_proposer_slashing;
 use crate::consensus_context::ConsensusContext;
+pub use altair::sync_committee::process_sync_aggregate;
+pub use block_signature_verifier::{BlockSignatureVerifier, ParallelSignatureSets};
+pub use deneb::deneb::process_blob_kzg_commitments;
 use errors::{BlockOperationError, BlockProcessingError, HeaderInvalid};
+pub use is_valid_indexed_attestation::is_valid_indexed_attestation;
+pub use process_operations::process_operations;
 use rayon::prelude::*;
 use safe_arith::{ArithError, SafeArith};
 use signature_sets::{block_proposal_signature_set, get_pubkey_from_state, randao_signature_set};
 use std::borrow::Cow;
 use tree_hash::TreeHash;
 use types::*;
-
-use self::process_operations::process_deposit;
-pub use self::verify_attester_slashing::{
-    get_slashable_indices, get_slashable_indices_modular, verify_attester_slashing,
-};
-pub use self::verify_proposer_slashing::verify_proposer_slashing;
-pub use altair::sync_committee::process_sync_aggregate;
-pub use block_signature_verifier::{BlockSignatureVerifier, ParallelSignatureSets};
-pub use deneb::deneb::process_blob_kzg_commitments;
-pub use is_valid_indexed_attestation::is_valid_indexed_attestation;
-pub use process_operations::process_operations;
 pub use verify_attestation::{
     verify_attestation_for_block_inclusion, verify_attestation_for_state,
 };
@@ -41,7 +39,7 @@ mod verify_deposit;
 mod verify_exit;
 mod verify_proposer_slashing;
 
-use crate::common::decrease_balance;
+use crate::common::{decrease_balance, increase_balance};
 use crate::StateProcessingStrategy;
 
 #[cfg(feature = "arbitrary-fuzz")]
@@ -446,20 +444,52 @@ pub fn process_deposit_receipt<T: EthSpec>(
                     deposit_receipt.index;
             }
 
-            let deposit_data = DepositData {
-                pubkey: deposit_receipt.pubkey,
-                withdrawal_credentials: deposit_receipt.withdrawal_credentials,
-                amount: deposit_receipt.amount,
-                signature: deposit_receipt.signature.clone(),
-            };
+            // `apply_deposit` logic from `process_deposit` function:
+            let amount = deposit_receipt.amount;
 
-            let deposit = Deposit {
-                proof: FixedVector::from_elem(Hash256::zero()),
-                data: deposit_data,
-            };
+            if let Ok(Some(index)) = get_existing_validator_index(state, &deposit_receipt.pubkey) {
+                increase_balance(state, index as usize, amount)?;
+            } else {
+                let deposit_data = DepositData {
+                    pubkey: deposit_receipt.pubkey,
+                    withdrawal_credentials: deposit_receipt.withdrawal_credentials,
+                    amount: deposit_receipt.amount,
+                    signature: deposit_receipt.signature.clone(),
+                };
 
-            process_deposit(state, &deposit, spec, false)?;
+                if verify_deposit_signature(&deposit_data, spec).is_err() {
+                    return Ok(());
+                }
+
+                let remainder = amount.safe_rem(spec.effective_balance_increment)?;
+                let effective_balance =
+                    std::cmp::min(amount.safe_sub(remainder)?, spec.max_effective_balance);
+
+                let validator = Validator {
+                    pubkey: deposit_receipt.pubkey,
+                    withdrawal_credentials: deposit_receipt.withdrawal_credentials,
+                    activation_eligibility_epoch: spec.far_future_epoch,
+                    activation_epoch: spec.far_future_epoch,
+                    exit_epoch: spec.far_future_epoch,
+                    withdrawable_epoch: spec.far_future_epoch,
+                    effective_balance,
+                    slashed: false,
+                };
+                state.validators_mut().push(validator)?;
+                state.balances_mut().push(deposit_receipt.amount)?;
+
+                if let Ok(previous_epoch_participation) = state.previous_epoch_participation_mut() {
+                    previous_epoch_participation.push(ParticipationFlags::default())?;
+                }
+                if let Ok(current_epoch_participation) = state.current_epoch_participation_mut() {
+                    current_epoch_participation.push(ParticipationFlags::default())?;
+                }
+                if let Ok(inactivity_scores) = state.inactivity_scores_mut() {
+                    inactivity_scores.push(0)?;
+                }
+            }
         }
+
         BeaconState::Base(_)
         | BeaconState::Altair(_)
         | BeaconState::Merge(_)

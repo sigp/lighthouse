@@ -55,7 +55,6 @@ pub fn process_operations<T: EthSpec, Payload: AbstractExecPayload<T>>(
         spec,
     )?;
     process_attestations(state, block_body, verify_signatures, ctxt, spec)?;
-    process_deposits(state, block_body.deposits(), spec)?;
     process_exits(state, block_body.voluntary_exits(), verify_signatures, spec)?;
 
     if let Ok(bls_to_execution_changes) = block_body.bls_to_execution_changes() {
@@ -68,6 +67,11 @@ pub fn process_operations<T: EthSpec, Payload: AbstractExecPayload<T>>(
                 process_deposit_receipt(state, deposit_receipt, spec)?;
             }
         }
+    }
+
+    // Only process deposits if expected_deposit_count is not zero.
+    if expected_deposit_count > 0 {
+        process_deposits(state, block_body.deposits(), spec)?;
     }
 
     Ok(())
