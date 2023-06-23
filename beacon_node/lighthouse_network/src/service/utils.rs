@@ -83,7 +83,7 @@ fn keypair_from_hex(hex_bytes: &str) -> error::Result<Keypair> {
 
 #[allow(dead_code)]
 fn keypair_from_bytes(mut bytes: Vec<u8>) -> error::Result<Keypair> {
-    libp2p::identity::secp256k1::SecretKey::from_bytes(&mut bytes)
+    libp2p::identity::secp256k1::SecretKey::try_from_bytes(&mut bytes)
         .map(|secret| {
             let keypair: libp2p::identity::secp256k1::Keypair = secret.into();
             keypair.into()

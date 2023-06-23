@@ -245,22 +245,22 @@ pub fn peer_id_to_node_id(peer_id: &PeerId) -> Result<discv5::enr::NodeId, Strin
     // if generated from a PublicKey with Identity multihash.
     let pk_bytes = &peer_id.to_bytes()[2..];
 
-    let public_key = PublicKey::from_protobuf_encoding(pk_bytes).map_err(|e| {
+    let public_key = PublicKey::try_decode_protobuf(pk_bytes).map_err(|e| {
         format!(
             " Cannot parse libp2p public key public key from peer id: {}",
             e
         )
     })?;
     // TODO: wait for libp2p to add a try_into that returns the original value.
-    if let Some(pk) = public_key.clone().into_secp256k1() {
-        let uncompressed_key_bytes = &pk.encode_uncompressed()[1..];
+    if let Ok(pk) = public_key.clone().try_into_secp256k1() {
+        let uncompressed_key_bytes = &pk.to_bytes_uncompressed()[1..];
         let mut output = [0_u8; 32];
         let mut hasher = Keccak::v256();
         hasher.update(uncompressed_key_bytes);
         hasher.finalize(&mut output);
         Ok(discv5::enr::NodeId::parse(&output).expect("Must be correct length"))
-    } else if let Some(pk) = public_key.into_ed25519() {
-        let uncompressed_key_bytes = pk.encode();
+    } else if let Ok(pk) = public_key.try_into_ed25519() {
+        let uncompressed_key_bytes = pk.to_bytes();
         let mut output = [0_u8; 32];
         let mut hasher = Keccak::v256();
         hasher.update(&uncompressed_key_bytes);
@@ -281,7 +281,7 @@ mod tests {
         let sk_bytes = hex::decode(sk_hex).unwrap();
         let secret_key = discv5::enr::k256::ecdsa::SigningKey::from_slice(&sk_bytes).unwrap();
 
-        let libp2p_sk = libp2p::identity::secp256k1::SecretKey::from_bytes(sk_bytes).unwrap();
+        let libp2p_sk = libp2p::identity::secp256k1::SecretKey::try_from_bytes(sk_bytes).unwrap();
         let secp256k1_kp: libp2p::identity::secp256k1::Keypair = libp2p_sk.into();
         let libp2p_kp: Keypair = secp256k1_kp.into();
         let peer_id = libp2p_kp.public().to_peer_id();
@@ -302,7 +302,7 @@ mod tests {
             &sk_bytes.clone().try_into().unwrap(),
         );
 
-        let libp2p_sk = libp2p::identity::ed25519::SecretKey::from_bytes(sk_bytes).unwrap();
+        let libp2p_sk = libp2p::identity::ed25519::SecretKey::try_from_bytes(sk_bytes).unwrap();
         let secp256k1_kp: libp2p::identity::ed25519::Keypair = libp2p_sk.into();
         let libp2p_kp: Keypair = secp256k1_kp.into();
         let peer_id = libp2p_kp.public().to_peer_id();
