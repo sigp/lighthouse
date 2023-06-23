@@ -499,3 +499,24 @@ fn latency_measurement_service() {
             assert!(!config.enable_latency_measurement_service);
         });
 }
+
+#[test]
+fn validator_registration_batch_size() {
+    CommandLineTest::new().run().with_config(|config| {
+        assert_eq!(config.validator_registration_batch_size, 500);
+    });
+    CommandLineTest::new()
+        .flag("validator-registration-batch-size", Some("100"))
+        .run()
+        .with_config(|config| {
+            assert_eq!(config.validator_registration_batch_size, 100);
+        });
+}
+
+#[test]
+#[should_panic]
+fn validator_registration_batch_size_zero_value() {
+    CommandLineTest::new()
+        .flag("validator-registration-batch-size", Some("0"))
+        .run();
+}
