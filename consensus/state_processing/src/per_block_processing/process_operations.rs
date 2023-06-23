@@ -124,6 +124,7 @@ pub mod altair {
             })
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn process_attestation<T: EthSpec>(
         state: &mut BeaconState<T>,
         attestation: &Attestation<T>,

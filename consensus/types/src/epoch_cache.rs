@@ -1,4 +1,4 @@
-use crate::{BeaconState, BeaconStateError, Epoch, EthSpec, Hash256, Slot};
+use crate::{BeaconStateError, Epoch, EthSpec, Hash256, Slot};
 use safe_arith::ArithError;
 use std::sync::Arc;
 
@@ -61,21 +61,19 @@ impl EpochCache {
     // TODO: check at start of block processing
     pub fn check_validity<E: EthSpec>(
         &self,
-        state: &BeaconState<E>,
+        current_epoch: Epoch,
+        state_decision_root: Hash256,
     ) -> Result<(), EpochCacheError> {
         let cache = self
             .inner
             .as_ref()
             .ok_or(EpochCacheError::CacheNotInitialized)?;
-        if cache.key.epoch != state.current_epoch() {
+        if cache.key.epoch != current_epoch {
             return Err(EpochCacheError::IncorrectEpoch {
                 cache: cache.key.epoch,
-                state: state.current_epoch(),
+                state: current_epoch,
             });
         }
-        let state_decision_root = state
-            .proposer_shuffling_decision_root(Hash256::zero())
-            .map_err(EpochCacheError::BeaconState)?;
         if cache.key.decision_block_root != state_decision_root {
             return Err(EpochCacheError::IncorrectDecisionBlock {
                 cache: cache.key.decision_block_root,

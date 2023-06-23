@@ -4,14 +4,23 @@ use crate::common::{altair, base};
 use types::epoch_cache::{EpochCache, EpochCacheError, EpochCacheKey};
 use types::{BeaconState, ChainSpec, Epoch, EthSpec, Hash256};
 
-pub fn initialize_epoch_cache<E: EthSpec>(
-    state: &BeaconState<E>,
+pub fn initialize_epoch_cache_if_required<E: EthSpec>(
+    state: &mut BeaconState<E>,
     epoch: Epoch,
     spec: &ChainSpec,
-) -> Result<EpochCache, EpochCacheError> {
+) -> Result<(), EpochCacheError> {
+    let epoch_cache: &EpochCache = state.epoch_cache();
     let decision_block_root = state
         .proposer_shuffling_decision_root(Hash256::zero())
         .map_err(EpochCacheError::BeaconState)?;
+
+    if epoch_cache
+        .check_validity::<E>(epoch, decision_block_root)
+        .is_ok()
+    {
+        // `EpochCache` has already been initialized and is valid, no need to initialize.
+        return Ok(());
+    }
 
     // The cache should never be constructed at slot 0 because it should only be used for
     // block processing (which implies slot > 0) or epoch processing (which implies slot >= 32).
@@ -42,11 +51,13 @@ pub fn initialize_epoch_cache<E: EthSpec>(
         base_rewards.push(base_reward);
     }
 
-    Ok(EpochCache::new(
+    *state.epoch_cache_mut() = EpochCache::new(
         EpochCacheKey {
             epoch,
             decision_block_root,
         },
         base_rewards,
-    ))
+    );
+
+    Ok(())
 }
