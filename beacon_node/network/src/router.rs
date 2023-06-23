@@ -13,7 +13,7 @@ use crate::sync::manager::RequestId as SyncId;
 use crate::sync::SyncMessage;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use beacon_processor::work_reprocessing_queue::ReprocessQueueMessage;
-use beacon_processor::{BeaconProcessor, WorkEvent as BeaconWorkEvent, MAX_WORK_EVENT_QUEUE_LEN};
+use beacon_processor::WorkEvent as BeaconWorkEvent;
 use futures::prelude::*;
 use lighthouse_network::rpc::*;
 use lighthouse_network::{

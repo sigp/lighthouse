@@ -196,8 +196,6 @@ pub fn spawn<T: BeaconChainTypes>(
         MAX_REQUEST_BLOCKS >= T::EthSpec::slots_per_epoch() * EPOCHS_PER_BATCH,
         "Max blocks that can be requested in a single batch greater than max allowed blocks in a single request"
     );
-    // generate the message channel
-    let (sync_send, sync_recv) = mpsc::unbounded_channel::<SyncMessage<T::EthSpec>>();
 
     // create an instance of the SyncManager
     let mut sync_manager = SyncManager {

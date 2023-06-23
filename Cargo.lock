@@ -1176,6 +1176,7 @@ name = "client"
 version = "0.2.0"
 dependencies = [
  "beacon_chain",
+ "beacon_processor",
  "directory",
  "dirs",
  "environment",
@@ -1193,6 +1194,7 @@ dependencies = [
  "logging",
  "monitoring_api",
  "network",
+ "num_cpus",
  "operation_pool",
  "parking_lot 0.12.1",
  "sensitive_url",

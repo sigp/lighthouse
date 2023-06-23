@@ -13,6 +13,7 @@ use beacon_chain::{
     store::{HotColdDB, ItemStore, LevelDB, StoreConfig},
     BeaconChain, BeaconChainTypes, Eth1ChainBackend, ServerSentEventHandler,
 };
+use beacon_processor::{BeaconProcessor, MAX_SCHEDULED_WORK_QUEUE_LEN, MAX_WORK_EVENT_QUEUE_LEN};
 use environment::RuntimeContext;
 use eth1::{Config as Eth1Config, Service as Eth1Service};
 use eth2::{
@@ -21,18 +22,20 @@ use eth2::{
 };
 use execution_layer::ExecutionLayer;
 use genesis::{interop_genesis_state, Eth1GenesisService, DEFAULT_ETH1_BLOCK_HASH};
-use lighthouse_network::{prometheus_client::registry::Registry, NetworkGlobals};
+use lighthouse_network::prometheus_client::registry::Registry;
 use monitoring_api::{MonitoringHttpClient, ProcessType};
-use network::{NetworkConfig, NetworkSenders, NetworkService};
+use network::{NetworkConfig, NetworkService};
 use slasher::Slasher;
 use slasher_service::SlasherService;
 use slog::{debug, info, warn, Logger};
+use std::cmp;
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::sync::Mutex;
 use std::time::Duration;
 use timer::spawn_timer;
-use tokio::sync::oneshot;
+use tokio::sync::{mpsc, oneshot};
 use types::{
     test_utils::generate_deterministic_keypairs, BeaconState, ChainSpec, EthSpec,
     ExecutionBlockHash, Hash256, SignedBeaconBlock,
@@ -541,10 +544,9 @@ where
     }
 
     /// Specifies the networking stack configuration.
-    pub async fn network(mut self, config: &NetworkConfig) -> Result<Self, String> {
-        let network_config = Some(self.config);
-
-        Ok(self)
+    pub fn network(mut self, config: NetworkConfig) -> Self {
+        self.network_config = Some(config);
+        self
     }
 
     /// Immediately starts the timer service.
@@ -604,8 +606,8 @@ where
     ///
     /// If type inference errors are being raised, see the comment on the definition of `Self`.
     #[allow(clippy::type_complexity)]
-    pub fn build(
-        mut self,
+    pub async fn build(
+        self,
     ) -> Result<Client<Witness<TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>>, String>
     {
         let runtime_context = self
@@ -630,18 +632,21 @@ where
         /*
          * Start the P2P networking stack.
          */
+        let network_config = self
+            .network_config
+            .ok_or("build requires a network_config")?;
 
         // If gossipsub metrics are required we build a registry to record them
-        let mut gossipsub_registry = if config.metrics_enabled {
+        let mut gossipsub_registry = if network_config.metrics_enabled {
             Some(Registry::default())
         } else {
             None
         };
 
         let (network_globals, network_senders) = NetworkService::start(
-            beacon_chain,
-            config,
-            context.executor,
+            beacon_chain.clone(),
+            &network_config,
+            runtime_context.executor.clone(),
             gossipsub_registry
                 .as_mut()
                 .map(|registry| registry.sub_registry_with_prefix("gossipsub")),
@@ -658,16 +663,17 @@ where
         BeaconProcessor {
             network_globals: network_globals.clone(),
             executor: beacon_processor_context.executor.clone(),
-            num_workers: cmp::max(1, num_cpus::get()),
+            max_workers: cmp::max(1, num_cpus::get()),
             current_workers: 0,
-            enable_backfill_rate_limiting,
-            log: beacon_processor_context.log(),
+            enable_backfill_rate_limiting: beacon_chain.config.enable_backfill_rate_limiting,
+            log: beacon_processor_context.log().clone(),
         }
         .spawn_manager(
             beacon_processor_receive,
             work_reprocessing_tx,
             work_reprocessing_rx,
             None,
+            beacon_chain.slot_clock.clone(),
         );
 
         /*
@@ -717,7 +723,7 @@ where
                 chain: self.beacon_chain.clone(),
                 db_path: self.db_path.clone(),
                 freezer_db_path: self.freezer_db_path.clone(),
-                gossipsub_registry: self.gossipsub_registry.take().map(std::sync::Mutex::new),
+                gossipsub_registry: gossipsub_registry.map(Mutex::new),
                 log: log.clone(),
             });
 
@@ -746,9 +752,9 @@ where
                 .ok_or("slot_notifier requires a chain spec")?
                 .seconds_per_slot;
             spawn_notifier(
-                runtime_context.executor,
-                beacon_chain,
-                network_globals,
+                runtime_context.executor.clone(),
+                beacon_chain.clone(),
+                network_globals.clone(),
                 seconds_per_slot,
             )
             .map_err(|e| format!("Unable to start slot notifier: {}", e))?;
@@ -760,7 +766,7 @@ where
 
         let slasher_context = runtime_context.service_context("slasher_service_ctxt".into());
         SlasherService::new(beacon_chain, network_senders.network_send())
-            .run(&slasher_context.executor);
+            .run(&slasher_context.executor)?;
 
         /*
          * Start beacon chain routine services.
@@ -825,23 +831,20 @@ where
                 }
 
                 // Spawn a service to publish BLS to execution changes at the Capella fork.
-                if let Some(network_senders) = self.network_senders {
-                    let inner_chain = beacon_chain.clone();
-                    let broadcast_context =
-                        runtime_context.service_context("addr_bcast".to_string());
-                    let log = broadcast_context.log().clone();
-                    broadcast_context.executor.spawn(
-                        async move {
-                            broadcast_address_changes_at_capella(
-                                &inner_chain,
-                                network_senders.network_send(),
-                                &log,
-                            )
-                            .await
-                        },
-                        "addr_broadcast",
-                    );
-                }
+                let inner_chain = beacon_chain.clone();
+                let broadcast_context = runtime_context.service_context("addr_bcast".to_string());
+                let log = broadcast_context.log().clone();
+                broadcast_context.executor.spawn(
+                    async move {
+                        broadcast_address_changes_at_capella(
+                            &inner_chain,
+                            network_senders.network_send(),
+                            &log,
+                        )
+                        .await
+                    },
+                    "addr_broadcast",
+                );
             }
 
             start_proposer_prep_service(runtime_context.executor.clone(), beacon_chain.clone());

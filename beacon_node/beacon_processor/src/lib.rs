@@ -79,7 +79,7 @@ pub const MAX_WORK_EVENT_QUEUE_LEN: usize = 16_384;
 const MAX_IDLE_QUEUE_LEN: usize = 16_384;
 
 /// The maximum size of the channel for re-processing work events.
-const MAX_SCHEDULED_WORK_QUEUE_LEN: usize = 3 * MAX_WORK_EVENT_QUEUE_LEN / 4;
+pub const MAX_SCHEDULED_WORK_QUEUE_LEN: usize = 3 * MAX_WORK_EVENT_QUEUE_LEN / 4;
 
 /// The maximum number of queued `Attestation` objects that will be stored before we start dropping
 /// them.
@@ -570,7 +570,6 @@ impl<E: EthSpec> Stream for InboundEvents<E> {
 ///
 /// See module level documentation for more information.
 pub struct BeaconProcessor<E: EthSpec> {
-    pub work_reprocessing_rx: mpsc::Receiver<ReprocessQueueMessage>,
     pub network_globals: Arc<NetworkGlobals<E>>,
     pub executor: TaskExecutor,
     pub max_workers: usize,

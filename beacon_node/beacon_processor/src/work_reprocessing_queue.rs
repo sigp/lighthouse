@@ -10,7 +10,6 @@
 //!
 //! Aggregated and unaggregated attestations that failed verification due to referencing an unknown
 //! block will be re-queued until their block is imported, or until they expire.
-use super::MAX_SCHEDULED_WORK_QUEUE_LEN;
 use crate::metrics;
 use crate::{AsyncFn, BlockingFn, Work, WorkEvent};
 use fnv::FnvHashMap;

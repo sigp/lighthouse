@@ -9,9 +9,7 @@ use crate::{
     NetworkConfig,
 };
 use beacon_chain::{BeaconChain, BeaconChainTypes};
-use beacon_processor::{
-    work_reprocessing_queue::ReprocessQueueMessage, BeaconProcessor, WorkEvent,
-};
+use beacon_processor::{work_reprocessing_queue::ReprocessQueueMessage, WorkEvent};
 use futures::channel::mpsc::Sender;
 use futures::future::OptionFuture;
 use futures::prelude::*;
