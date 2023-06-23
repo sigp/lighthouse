@@ -10,7 +10,7 @@ use libp2p::core::{
 };
 use libp2p::gossipsub::subscription_filter::WhitelistSubscriptionFilter;
 use libp2p::gossipsub::IdentTopic as Topic;
-use libp2p::{core, noise, PeerId, Transport, TransportExt};
+use libp2p::{core, noise, yamux, PeerId, Transport, TransportExt};
 use prometheus_client::registry::Registry;
 use slog::{debug, warn};
 use ssz::Decode;
@@ -53,8 +53,8 @@ pub fn build_transport(
     };
 
     // yamux config
-    let mut yamux_config = libp2p::yamux::YamuxConfig::default();
-    yamux_config.set_window_update_mode(libp2p::yamux::WindowUpdateMode::on_read());
+    let mut yamux_config = yamux::Config::default();
+    yamux_config.set_window_update_mode(yamux::WindowUpdateMode::on_read());
     let (transport, bandwidth) = transport
         .upgrade(core::upgrade::Version::V1)
         .authenticate(generate_noise_config(&local_private_key))
@@ -141,13 +141,8 @@ pub fn load_private_key(config: &NetworkConfig, log: &slog::Logger) -> Keypair {
 }
 
 /// Generate authenticated XX Noise config from identity keys
-fn generate_noise_config(
-    identity_keypair: &Keypair,
-) -> noise::NoiseAuthenticated<noise::XX, noise::X25519Spec, ()> {
-    let static_dh_keys = noise::Keypair::<noise::X25519Spec>::new()
-        .into_authentic(identity_keypair)
-        .expect("signing can fail only once during starting a node");
-    noise::NoiseConfig::xx(static_dh_keys).into_authenticated()
+fn generate_noise_config(identity_keypair: &Keypair) -> noise::Config {
+    noise::Config::new(identity_keypair).expect("signing can fail only once during starting a node")
 }
 
 /// For a multiaddr that ends with a peer id, this strips this suffix. Rust-libp2p
