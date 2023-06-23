@@ -64,6 +64,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
         _remote_addr: &libp2p::Multiaddr,
     ) -> Result<(), libp2p::swarm::ConnectionDenied> {
         // TODO... is it guaranteed that the ip the peer is connecting from is in the _remote_addr?
+        todo!()
     }
 
     fn handle_pending_outbound_connection(
@@ -78,22 +79,23 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
         // - _addresses: check if addresses to dial contain any banned ip
 
         // Check to make sure the peer is not supposed to be banned
-        if let Some(peer_id) = maybe_peer {
-            match self.ban_status(&peer_id) {
-                BanResult::BadScore | BanResult::BannedIp(_) => {
-                    // TODO: need to create an error type for this
-                    Err(libp2p::swarm::ConnectionDenied::new(()))
-                }
-                BanResult::NotBanned => {
-                    // TODO: do stuff.
-                    // check if the peer is being dialed (so this behaviour dialed)
-                    // if not, check if we want the peer, prevent the dial attempt otherwise
-                    //
-                    // What happens if another behaviour prevents our dial attempt? do we get any
-                    // notification to get the peer out of dialing state? dial failed?
-                }
-            }
-        }
+        todo!()
+        // if let Some(peer_id) = maybe_peer {
+        //     match self.ban_status(&peer_id) {
+        //         BanResult::BadScore | BanResult::BannedIp(_) => {
+        //             // TODO: need to create an error type for this
+        //             Err(libp2p::swarm::ConnectionDenied::new(()))
+        //         }
+        //         BanResult::NotBanned => {
+        //             // TODO: do stuff.
+        //             // check if the peer is being dialed (so this behaviour dialed)
+        //             // if not, check if we want the peer, prevent the dial attempt otherwise
+        //             //
+        //             // What happens if another behaviour prevents our dial attempt? do we get any
+        //             // notification to get the peer out of dialing state? dial failed?
+        //         }
+        //     }
+        // }
     }
 
     fn on_connection_handler_event(
