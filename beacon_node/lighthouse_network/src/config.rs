@@ -17,7 +17,7 @@ use std::net::{Ipv4Addr, Ipv6Addr};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
-use types::{ForkContext, ForkName, EthSpec};
+use types::{ForkContext, ForkName, EthSpec, ChainSpec};
 
 /// The cache time is set to accommodate the circulation time of an attestation.
 ///
@@ -34,8 +34,8 @@ use types::{ForkContext, ForkName, EthSpec};
 pub const DUPLICATE_CACHE_TIME: Duration = Duration::from_secs(33 * 12 + 1);
 
 /// The maximum size of gossip messages.
-pub fn gossip_max_size<TSpec:EthSpec>(is_merge_enabled: bool) -> usize {
-    let gossip_max_size = TSpec::default_spec().gossip_max_size;
+pub fn gossip_max_size<TSpec:EthSpec>(is_merge_enabled: bool, spec: &ChainSpec) -> usize {
+    let gossip_max_size = spec.gossip_max_size;
     if is_merge_enabled {
         gossip_max_size
     } else {
@@ -407,7 +407,7 @@ impl From<u8> for NetworkLoad {
 }
 
 /// Return a Lighthouse specific `GossipsubConfig` where the `message_id_fn` depends on the current fork.
-pub fn gossipsub_config<TSpec:EthSpec>(network_load: u8, fork_context: Arc<ForkContext>) -> GossipsubConfig {
+pub fn gossipsub_config<TSpec:EthSpec>(network_load: u8, fork_context: Arc<ForkContext>, spec: &ChainSpec) -> GossipsubConfig {
     // The function used to generate a gossipsub message id
     // We use the first 8 bytes of SHA256(topic, data) for content addressing
     let fast_gossip_message_id = |message: &RawGossipsubMessage| {
@@ -453,7 +453,7 @@ pub fn gossipsub_config<TSpec:EthSpec>(network_load: u8, fork_context: Arc<ForkC
     let load = NetworkLoad::from(network_load);
 
     GossipsubConfigBuilder::default()
-        .max_transmit_size(gossip_max_size::<TSpec>(is_merge_enabled))
+        .max_transmit_size(gossip_max_size::<TSpec>(is_merge_enabled, spec))
         .heartbeat_interval(load.heartbeat_interval)
         .mesh_n(load.mesh_n)
         .mesh_n_low(load.mesh_n_low)
