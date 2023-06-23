@@ -176,7 +176,7 @@ pub mod altair {
                     if !validator_participation.has_flag(flag_index)? {
                         validator_participation.add_flag(flag_index)?;
                         proposer_reward_numerator.safe_add_assign(
-                            ctxt.get_base_reward(state, index, spec)?.safe_mul(weight)?,
+                            ctxt.get_base_reward(state, index)?.safe_mul(weight)?,
                         )?;
                     }
                 }

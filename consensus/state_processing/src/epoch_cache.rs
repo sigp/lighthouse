@@ -2,13 +2,13 @@ use crate::common::altair::BaseRewardPerIncrement;
 use crate::common::base::SqrtTotalActiveBalance;
 use crate::common::{altair, base};
 use types::epoch_cache::{EpochCache, EpochCacheError, EpochCacheKey};
-use types::{BeaconState, ChainSpec, EthSpec, Hash256};
+use types::{BeaconState, ChainSpec, Epoch, EthSpec, Hash256};
 
 pub fn initialize_epoch_cache<E: EthSpec>(
     state: &BeaconState<E>,
+    epoch: Epoch,
     spec: &ChainSpec,
 ) -> Result<EpochCache, EpochCacheError> {
-    let epoch = state.current_epoch();
     let decision_block_root = state
         .proposer_shuffling_decision_root(Hash256::zero())
         .map_err(EpochCacheError::BeaconState)?;

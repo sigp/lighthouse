@@ -351,16 +351,9 @@ fn do_transition<T: EthSpec>(
     let mut ctxt = if let Some(ctxt) = saved_ctxt {
         ctxt.clone()
     } else {
-        let mut ctxt = ConsensusContext::new(pre_state.slot())
+        ConsensusContext::new(pre_state.slot())
             .set_current_block_root(block_root)
-            .set_proposer_index(block.message().proposer_index());
-
-        if config.exclude_cache_builds {
-            ctxt.build_epoch_cache(&pre_state, spec)
-                .map_err(|e| format!("{e:?}"))?;
-            *saved_ctxt = Some(ctxt.clone());
-        }
-        ctxt
+            .set_proposer_index(block.message().proposer_index())
     };
 
     if !config.no_signature_verification {

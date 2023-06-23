@@ -218,7 +218,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     {
                         validator_participation.add_flag(flag_index)?;
                         proposer_reward_numerator.safe_add_assign(
-                            ctxt.get_base_reward(state, index, &self.spec)
+                            ctxt.get_base_reward(state, index)
                                 .map_err(|_| BeaconChainError::BlockRewardAttestationError)?
                                 .safe_mul(weight)?,
                         )?;

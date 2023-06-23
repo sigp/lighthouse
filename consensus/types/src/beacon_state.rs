@@ -433,6 +433,7 @@ where
     #[test_random(default)]
     #[metastruct(exclude)]
     pub exit_cache: ExitCache,
+    /// Epoch cache of values that are useful for block processing that are static over an epoch.
     #[serde(skip_serializing, skip_deserializing)]
     #[ssz(skip_serializing, skip_deserializing)]
     #[tree_hash(skip_hashing)]
