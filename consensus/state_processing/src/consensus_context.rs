@@ -1,4 +1,5 @@
 use crate::common::get_indexed_attestation;
+use crate::epoch_cache::initialize_epoch_cache;
 use crate::per_block_processing::errors::{AttestationInvalid, BlockOperationError};
 use crate::{EpochCache, EpochCacheError};
 use std::borrow::Cow;
@@ -150,6 +151,19 @@ impl<T: EthSpec> ConsensusContext<T> {
         self
     }
 
+    pub fn build_epoch_cache(
+        &mut self,
+        state: &BeaconState<T>,
+        spec: &ChainSpec,
+    ) -> Result<(), ContextError> {
+        // Build epoch cache if not already built.
+        if self.epoch_cache.is_none() {
+            let cache = initialize_epoch_cache(state, spec)?;
+            self.epoch_cache = Some(cache);
+        }
+        Ok(())
+    }
+
     pub fn get_base_reward(
         &mut self,
         state: &BeaconState<T>,
@@ -162,7 +176,7 @@ impl<T: EthSpec> ConsensusContext<T> {
         let epoch_cache = if let Some(ref cache) = self.epoch_cache {
             Cow::Borrowed(cache)
         } else {
-            let cache = EpochCache::new(state, spec)?;
+            let cache = initialize_epoch_cache(state, spec)?;
             self.epoch_cache = Some(cache.clone());
             Cow::Owned(cache)
         };

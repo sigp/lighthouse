@@ -29,6 +29,7 @@ pub use self::committee_cache::{
     compute_committee_index_in_epoch, compute_committee_range_in_epoch, epoch_committee_count,
     CommitteeCache,
 };
+use crate::epoch_cache::EpochCache;
 pub use eth_spec::*;
 pub use iter::BlockRootsIter;
 pub use milhouse::{interface::Interface, List as VList, List, Vector as FixedVector};
@@ -432,6 +433,12 @@ where
     #[test_random(default)]
     #[metastruct(exclude)]
     pub exit_cache: ExitCache,
+    #[serde(skip_serializing, skip_deserializing)]
+    #[ssz(skip_serializing, skip_deserializing)]
+    #[tree_hash(skip_hashing)]
+    #[test_random(default)]
+    #[metastruct(exclude)]
+    pub epoch_cache: EpochCache,
 }
 
 impl<T: EthSpec> BeaconState<T> {
@@ -491,6 +498,7 @@ impl<T: EthSpec> BeaconState<T> {
             ],
             pubkey_cache: PubkeyCache::default(),
             exit_cache: ExitCache::default(),
+            epoch_cache: EpochCache::default(),
         })
     }
 

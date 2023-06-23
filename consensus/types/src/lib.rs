@@ -92,6 +92,7 @@ pub mod sync_subnet_id;
 pub mod validator_registration_data;
 pub mod withdrawal;
 
+pub mod epoch_cache;
 pub mod slot_data;
 #[cfg(feature = "sqlite")]
 pub mod sqlite;
@@ -126,6 +127,7 @@ pub use crate::deposit_data::DepositData;
 pub use crate::deposit_message::DepositMessage;
 pub use crate::deposit_tree_snapshot::{DepositTreeSnapshot, FinalizedExecutionBlock};
 pub use crate::enr_fork_id::EnrForkId;
+pub use crate::epoch_cache::{EpochCache, EpochCacheError, EpochCacheKey};
 pub use crate::eth1_data::Eth1Data;
 pub use crate::eth_spec::EthSpecId;
 pub use crate::execution_block_hash::ExecutionBlockHash;

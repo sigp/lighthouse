@@ -74,7 +74,7 @@ use eth2::{
 use ssz::Encode;
 use state_processing::{
     block_signature_verifier::BlockSignatureVerifier, per_block_processing, per_slot_processing,
-    BlockSignatureStrategy, ConsensusContext, EpochCache, StateProcessingStrategy, VerifyBlockRoot,
+    BlockSignatureStrategy, ConsensusContext, StateProcessingStrategy, VerifyBlockRoot,
 };
 use std::borrow::Cow;
 use std::fs::File;
@@ -356,10 +356,8 @@ fn do_transition<T: EthSpec>(
             .set_proposer_index(block.message().proposer_index());
 
         if config.exclude_cache_builds {
-            ctxt = ctxt.set_epoch_cache(
-                EpochCache::new(&pre_state, spec)
-                    .map_err(|e| format!("unable to build epoch cache: {e:?}"))?,
-            );
+            ctxt.build_epoch_cache(&pre_state, spec)
+                .map_err(|e| format!("{e:?}"))?;
             *saved_ctxt = Some(ctxt.clone());
         }
         ctxt
