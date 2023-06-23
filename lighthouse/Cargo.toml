@@ -21,7 +21,7 @@ spec-minimal = []
 # Support Gnosis spec and Gnosis Beacon Chain.
 gnosis = []
 # Support slasher MDBX backend.
-# slasher-mdbx = ["slasher/mdbx"]
+slasher-mdbx = ["slasher/mdbx"]
 # Support slasher LMDB backend.
 slasher-lmdb = ["slasher/lmdb"]
 # Use jemalloc.
