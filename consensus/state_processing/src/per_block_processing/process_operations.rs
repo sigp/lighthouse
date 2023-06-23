@@ -170,11 +170,11 @@ pub mod altair {
 
                 if participation_flag_indices.contains(&flag_index) {
                     let validator_participation = epoch_participation
-                        .get_cow(index)
+                        .get_mut(index)
                         .ok_or(BeaconStateError::ParticipationOutOfBounds(index))?;
 
                     if !validator_participation.has_flag(flag_index)? {
-                        validator_participation.to_mut().add_flag(flag_index)?;
+                        validator_participation.add_flag(flag_index)?;
                         proposer_reward_numerator.safe_add_assign(
                             ctxt.get_base_reward(state, index, spec)?.safe_mul(weight)?,
                         )?;

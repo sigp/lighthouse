@@ -16,6 +16,11 @@ An open-source Ethereum consensus client, written in Rust and maintained by Sigm
 
 ![Banner](https://i.postimg.cc/hjdTGKPd/photo-2020-10-23-09-52-16.jpg)
 
+| | `unstable` | `tree-states-fast`|
+| ----------- | ----------- | ------ |
+| Process Block | | 9 - 10 ms |
+| Post-block tree hash | | ~5ms |
+
 ## Overview
 
 Lighthouse is:
