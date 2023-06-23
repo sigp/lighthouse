@@ -251,32 +251,29 @@ pub fn peer_id_to_node_id(peer_id: &PeerId) -> Result<discv5::enr::NodeId, Strin
     // if generated from a PublicKey with Identity multihash.
     let pk_bytes = &peer_id.to_bytes()[2..];
 
-    match PublicKey::from_protobuf_encoding(pk_bytes).map_err(|e| {
+    let public_key = PublicKey::from_protobuf_encoding(pk_bytes).map_err(|e| {
         format!(
             " Cannot parse libp2p public key public key from peer id: {}",
             e
         )
-    })? {
-        PublicKey::Secp256k1(pk) => {
-            let uncompressed_key_bytes = &pk.encode_uncompressed()[1..];
-            let mut output = [0_u8; 32];
-            let mut hasher = Keccak::v256();
-            hasher.update(uncompressed_key_bytes);
-            hasher.finalize(&mut output);
-            Ok(discv5::enr::NodeId::parse(&output).expect("Must be correct length"))
-        }
-        PublicKey::Ed25519(pk) => {
-            let uncompressed_key_bytes = pk.encode();
-            let mut output = [0_u8; 32];
-            let mut hasher = Keccak::v256();
-            hasher.update(&uncompressed_key_bytes);
-            hasher.finalize(&mut output);
-            Ok(discv5::enr::NodeId::parse(&output).expect("Must be correct length"))
-        }
-        PublicKey::Ecdsa(_) => Err(format!(
-            "Unsupported public key (Ecdsa) from peer {}",
-            peer_id
-        )),
+    })?;
+    // TODO: wait for libp2p to add a try_into that returns the original value.
+    if let Some(pk) = public_key.clone().into_secp256k1() {
+        let uncompressed_key_bytes = &pk.encode_uncompressed()[1..];
+        let mut output = [0_u8; 32];
+        let mut hasher = Keccak::v256();
+        hasher.update(uncompressed_key_bytes);
+        hasher.finalize(&mut output);
+        Ok(discv5::enr::NodeId::parse(&output).expect("Must be correct length"))
+    } else if let Some(pk) = public_key.into_ed25519() {
+        let uncompressed_key_bytes = pk.encode();
+        let mut output = [0_u8; 32];
+        let mut hasher = Keccak::v256();
+        hasher.update(&uncompressed_key_bytes);
+        hasher.finalize(&mut output);
+        Ok(discv5::enr::NodeId::parse(&output).expect("Must be correct length"))
+    } else {
+        Err(format!("Unsupported public key from peer {}", peer_id))
     }
 }
 
