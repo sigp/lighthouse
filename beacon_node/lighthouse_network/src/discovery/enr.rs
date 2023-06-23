@@ -213,13 +213,17 @@ pub fn build_enr<T: EthSpec>(
 fn compare_enr(local_enr: &Enr, disk_enr: &Enr) -> bool {
     // take preference over disk_enr address if one is not specified
     (local_enr.ip4().is_none() || local_enr.ip4() == disk_enr.ip4())
+        &&
+    (local_enr.ip6().is_none() || local_enr.ip6() == disk_enr.ip6())
         // tcp ports must match
         && local_enr.tcp4() == disk_enr.tcp4()
+        && local_enr.tcp6() == disk_enr.tcp6()
         // must match on the same fork
         && local_enr.get(ETH2_ENR_KEY) == disk_enr.get(ETH2_ENR_KEY)
         // take preference over disk udp port if one is not specified
         && (local_enr.udp4().is_none() || local_enr.udp4() == disk_enr.udp4())
-        // we need the ATTESTATION_BITFIELD_ENR_KEY and SYNC_COMMITTEE_BITFIELD_ENR_KEY key to match, 
+        && (local_enr.udp6().is_none() || local_enr.udp6() == disk_enr.udp6())
+        // we need the ATTESTATION_BITFIELD_ENR_KEY and SYNC_COMMITTEE_BITFIELD_ENR_KEY key to match,
         // otherwise we use a new ENR. This will likely only be true for non-validating nodes
         && local_enr.get(ATTESTATION_BITFIELD_ENR_KEY) == disk_enr.get(ATTESTATION_BITFIELD_ENR_KEY)
         && local_enr.get(SYNC_COMMITTEE_BITFIELD_ENR_KEY) == disk_enr.get(SYNC_COMMITTEE_BITFIELD_ENR_KEY)
