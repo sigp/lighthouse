@@ -384,7 +384,7 @@ where
         }
         // return any events that need to be reported
         if !self.events_out.is_empty() {
-            return Poll::Ready(ConnectionHandlerEvent::Custom(self.events_out.remove(0)));
+            return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(self.events_out.remove(0)));
         } else {
             self.events_out.shrink_to_fit();
         }
@@ -448,7 +448,7 @@ where
                             error: RPCError::StreamTimeout,
                         };
                         // notify the user
-                        return Poll::Ready(ConnectionHandlerEvent::Custom(Err(outbound_err)));
+                        return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(Err(outbound_err)));
                     } else {
                         crit!(self.log, "timed out substream not in the books"; "stream_id" => outbound_id.get_ref());
                     }
@@ -708,7 +708,7 @@ where
                             }),
                         };
 
-                        return Poll::Ready(ConnectionHandlerEvent::Custom(received));
+                        return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(received));
                     }
                     Poll::Ready(None) => {
                         // stream closed
@@ -723,7 +723,7 @@ where
                         // notify the application error
                         if request.expected_responses() > 1 {
                             // return an end of stream result
-                            return Poll::Ready(ConnectionHandlerEvent::Custom(Ok(
+                            return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(Ok(
                                 RPCReceived::EndOfStream(request_id, request.stream_termination()),
                             )));
                         }
@@ -734,7 +734,7 @@ where
                             proto: request.versioned_protocol().protocol(),
                             error: RPCError::IncompleteStream,
                         };
-                        return Poll::Ready(ConnectionHandlerEvent::Custom(Err(outbound_err)));
+                        return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(Err(outbound_err)));
                     }
                     Poll::Pending => {
                         entry.get_mut().state =
@@ -750,7 +750,7 @@ where
                             error: e,
                         };
                         entry.remove_entry();
-                        return Poll::Ready(ConnectionHandlerEvent::Custom(Err(outbound_err)));
+                        return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(Err(outbound_err)));
                     }
                 },
                 OutboundSubstreamState::Closing(mut substream) => {
@@ -776,7 +776,7 @@ where
                             };
 
                             if let Some(termination) = termination {
-                                return Poll::Ready(ConnectionHandlerEvent::Custom(Ok(
+                                return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(Ok(
                                     RPCReceived::EndOfStream(request_id, termination),
                                 )));
                             }
