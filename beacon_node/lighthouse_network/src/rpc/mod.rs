@@ -8,20 +8,19 @@ use futures::future::FutureExt;
 use handler::{HandlerEvent, RPCHandler};
 use libp2p::swarm::{
     handler::ConnectionHandler, ConnectionId, NetworkBehaviour, NotifyHandler, PollParameters,
-    SubstreamProtocol, ToSwarm,
+    ToSwarm,
 };
 use libp2p::swarm::{FromSwarm, THandlerInEvent};
 use libp2p::PeerId;
 use rate_limiter::{RPCRateLimiter as RateLimiter, RateLimitedErr};
 use slog::{crit, debug, o};
-use std::marker::PhantomData;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 use types::{EthSpec, ForkContext};
 
 pub(crate) use handler::HandlerErr;
 pub(crate) use methods::{MetaData, MetaDataV1, MetaDataV2, Ping, RPCCodedResponse, RPCResponse};
-pub(crate) use protocol::{InboundRequest, RPCProtocol};
+pub(crate) use protocol::InboundRequest;
 
 pub use handler::SubstreamId;
 pub use methods::{
@@ -108,6 +107,7 @@ type BehaviourAction<Id, TSpec> = ToSwarm<RPCMessage<Id, TSpec>, RPCSend<Id, TSp
 
 /// Implements the libp2p `NetworkBehaviour` trait and therefore manages network-level
 /// logic.
+#[allow(unused)]
 pub struct RPC<Id: ReqId, TSpec: EthSpec> {
     /// Rate limiter
     limiter: Option<RateLimiter>,
@@ -321,6 +321,7 @@ where
         Poll::Pending
     }
 
+    #[allow(unused)]
     fn handle_pending_inbound_connection(
         &mut self,
         _connection_id: ConnectionId,
@@ -330,6 +331,7 @@ where
         todo!()
     }
 
+    #[allow(unused)]
     fn handle_established_inbound_connection(
         &mut self,
         _connection_id: ConnectionId,
@@ -340,6 +342,7 @@ where
         todo!()
     }
 
+    #[allow(unused)]
     fn handle_pending_outbound_connection(
         &mut self,
         _connection_id: ConnectionId,
@@ -350,6 +353,7 @@ where
         todo!()
     }
 
+    #[allow(unused)]
     fn handle_established_outbound_connection(
         &mut self,
         _connection_id: ConnectionId,
