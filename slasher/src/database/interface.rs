@@ -7,6 +7,8 @@ use std::path::PathBuf;
 use crate::database::lmdb_impl;
 #[cfg(feature = "mdbx")]
 use crate::database::mdbx_impl;
+#[cfg(feature = "redb")]
+use crate::database::redb_impl;
 
 #[derive(Debug)]
 pub enum Environment {
