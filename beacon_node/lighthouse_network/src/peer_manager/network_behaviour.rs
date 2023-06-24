@@ -63,6 +63,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
         todo!()
     }
 
+    #[allow(unused)]
     fn handle_pending_outbound_connection(
         &mut self,
         _connection_id: ConnectionId,
@@ -176,6 +177,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
         Poll::Pending
     }
 
+    #[allow(unused)]
     fn handle_established_inbound_connection(
         &mut self,
         _connection_id: ConnectionId,
@@ -186,6 +188,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
         todo!()
     }
 
+    #[allow(unused)]
     fn handle_established_outbound_connection(
         &mut self,
         _connection_id: ConnectionId,

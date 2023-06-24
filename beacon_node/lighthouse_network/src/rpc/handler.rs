@@ -12,10 +12,9 @@ use crate::rpc::protocol::InboundFramed;
 use fnv::FnvHashMap;
 use futures::prelude::*;
 use futures::{Sink, SinkExt};
-use libp2p::core::upgrade::{NegotiationError, ProtocolError, UpgradeError};
 use libp2p::swarm::handler::{
-    ConnectionEvent, ConnectionHandler, ConnectionHandlerEvent, ConnectionHandlerUpgrErr,
-    DialUpgradeError, FullyNegotiatedInbound, FullyNegotiatedOutbound, KeepAlive,
+    ConnectionEvent, ConnectionHandler, ConnectionHandlerEvent, DialUpgradeError,
+    FullyNegotiatedInbound, FullyNegotiatedOutbound, KeepAlive, StreamUpgradeError,
     SubstreamProtocol,
 };
 use libp2p::swarm::NegotiatedSubstream;
@@ -845,11 +844,11 @@ where
                 protocol,
                 info,
             }) => self.on_fully_negotiated_outbound(protocol, info),
-            ConnectionEvent::AddressChange(_) => todo!(),
             ConnectionEvent::DialUpgradeError(DialUpgradeError { info, error }) => {
                 self.on_dial_upgrade_error(info, error)
             }
-            ConnectionEvent::ListenUpgradeError(_) => todo!(),
+            // TODO(@divma): placeholders
+            _ => todo!(),
         }
     }
 }
@@ -973,43 +972,39 @@ where
     fn on_dial_upgrade_error(
         &mut self,
         request_info: (Id, OutboundRequest<TSpec>),
-        error: ConnectionHandlerUpgrErr<RPCError>,
+        error: StreamUpgradeError<RPCError>,
     ) {
         let (id, req) = request_info;
-        if let ConnectionHandlerUpgrErr::Upgrade(UpgradeError::Apply(RPCError::IoError(_))) = error
-        {
-            self.outbound_io_error_retries += 1;
-            if self.outbound_io_error_retries < IO_ERROR_RETRIES {
-                self.send_request(id, req);
-                return;
+
+        // map the error
+        let error = match error {
+            StreamUpgradeError::Timeout => RPCError::NegotiationTimeout,
+            StreamUpgradeError::Apply(RPCError::IoError(e)) => {
+                // TODO(@divma): we should revisit this logic
+                self.outbound_io_error_retries += 1;
+                if self.outbound_io_error_retries < IO_ERROR_RETRIES {
+                    self.send_request(id, req);
+                    return;
+                }
+                RPCError::IoError(e)
             }
-        }
+            // TODO(@divma): this might be wrong. A shame this info was lost.
+            StreamUpgradeError::NegotiationFailed => RPCError::UnsupportedProtocol,
+            StreamUpgradeError::Io(io_err) => {
+                self.outbound_io_error_retries += 1;
+                if self.outbound_io_error_retries < IO_ERROR_RETRIES {
+                    self.send_request(id, req);
+                    return;
+                }
+                RPCError::IoError(io_err.to_string())
+            }
+            StreamUpgradeError::Apply(other) => other,
+        };
 
         // This dialing is now considered failed
         self.dial_negotiated -= 1;
 
         self.outbound_io_error_retries = 0;
-        // map the error
-        let error = match error {
-            ConnectionHandlerUpgrErr::Timeout => RPCError::NegotiationTimeout,
-            ConnectionHandlerUpgrErr::Upgrade(UpgradeError::Apply(e)) => e,
-            ConnectionHandlerUpgrErr::Upgrade(UpgradeError::Select(NegotiationError::Failed)) => {
-                RPCError::UnsupportedProtocol
-            }
-            ConnectionHandlerUpgrErr::Upgrade(UpgradeError::Select(
-                NegotiationError::ProtocolError(e),
-            )) => match e {
-                ProtocolError::IoError(io_err) => RPCError::IoError(io_err.to_string()),
-                ProtocolError::InvalidProtocol => {
-                    RPCError::InternalError("Protocol was deemed invalid")
-                }
-                ProtocolError::InvalidMessage | ProtocolError::TooManyProtocols => {
-                    // Peer is sending invalid data during the negotiation phase, not
-                    // participating in the protocol
-                    RPCError::InvalidData("Invalid message during negotiation".to_string())
-                }
-            },
-        };
         self.events_out.push(Err(HandlerErr::Outbound {
             error,
             proto: req.versioned_protocol().protocol(),

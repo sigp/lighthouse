@@ -956,6 +956,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
         Ok(vec![])
     }
 
+    #[allow(unused)]
     fn handle_established_inbound_connection(
         &mut self,
         _connection_id: ConnectionId,
@@ -966,6 +967,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
         todo!()
     }
 
+    #[allow(unused)]
     fn handle_established_outbound_connection(
         &mut self,
         _connection_id: ConnectionId,
@@ -1128,8 +1130,6 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                     self.disconnect_peer(&peer_id);
                 }
                 DialError::DialPeerConditionFalse(_) | DialError::Aborted => {}
-                #[allow(deprecated)]
-                DialError::ConnectionLimit(_) => {}
             }
         }
     }
