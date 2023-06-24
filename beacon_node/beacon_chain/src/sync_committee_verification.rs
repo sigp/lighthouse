@@ -28,10 +28,8 @@
 
 use crate::observed_attesters::SlotSubcommitteeIndex;
 use crate::{
-    beacon_chain::VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT,
-    metrics,
-    observed_aggregates::ObserveOutcome,
-    BeaconChain, BeaconChainError, BeaconChainTypes,
+    beacon_chain::VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT, metrics,
+    observed_aggregates::ObserveOutcome, BeaconChain, BeaconChainError, BeaconChainTypes,
 };
 use bls::{verify_signature_sets, PublicKeyBytes};
 use derivative::Derivative;
@@ -43,8 +41,8 @@ use state_processing::signature_sets::{
     sync_committee_contribution_signature_set_from_pubkeys,
     sync_committee_message_set_from_pubkeys,
 };
-use std::{borrow::Cow, time::Duration};
 use std::collections::HashMap;
+use std::{borrow::Cow, time::Duration};
 use strum::AsRefStr;
 use tree_hash::TreeHash;
 use types::consts::altair::SYNC_COMMITTEE_SUBNET_COUNT;
@@ -52,8 +50,8 @@ use types::slot_data::SlotData;
 use types::sync_committee::Error as SyncCommitteeError;
 use types::{
     sync_committee_contribution::Error as ContributionError, AggregateSignature, BeaconStateError,
-    EthSpec, Hash256, SignedContributionAndProof, Slot, SyncCommitteeContribution,
-    SyncCommitteeMessage, SyncSelectionProof, SyncSubnetId, MainnetEthSpec,
+    EthSpec, Hash256, MainnetEthSpec, SignedContributionAndProof, Slot, SyncCommitteeContribution,
+    SyncCommitteeMessage, SyncSelectionProof, SyncSubnetId,
 };
 
 /// Returned when a sync committee contribution was not successfully verified. It might not have been verified for
@@ -560,7 +558,8 @@ pub fn verify_propagation_slot_range<S: SlotClock, U: SlotData>(
     sync_contribution: &U,
 ) -> Result<(), Error> {
     let message_slot = sync_contribution.get_slot();
-    let maximum_gossip_clock_disparity = Duration::from_millis(MainnetEthSpec::default_spec().maximum_gossip_clock_disparity_millis);
+    let maximum_gossip_clock_disparity =
+        Duration::from_millis(MainnetEthSpec::default_spec().maximum_gossip_clock_disparity_millis);
     let latest_permissible_slot = slot_clock
         .now_with_future_tolerance(maximum_gossip_clock_disparity)
         .ok_or(BeaconChainError::UnableToReadSlot)?;

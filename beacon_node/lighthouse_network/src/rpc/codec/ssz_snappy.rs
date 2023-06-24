@@ -1399,7 +1399,9 @@ mod tests {
         let mut dst = BytesMut::with_capacity(1024);
 
         // Insert length-prefix
-        uvi_codec.encode(Spec::default_spec().max_chunk_size + 1, &mut dst).unwrap();
+        uvi_codec
+            .encode(Spec::default_spec().max_chunk_size + 1, &mut dst)
+            .unwrap();
 
         // Insert snappy stream identifier
         dst.extend_from_slice(stream_identifier);

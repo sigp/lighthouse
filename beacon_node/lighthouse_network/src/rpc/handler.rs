@@ -710,8 +710,10 @@ where
                                 // If this substream has not ended, we reset the timer.
                                 // Each chunk is allowed RESPONSE_TIMEOUT to be sent.
                                 if let Some(ref delay_key) = info.delay_key {
-                                    self.inbound_substreams_delay
-                                        .reset(delay_key, Duration::from_secs(TSpec::default_spec().resp_timeout));
+                                    self.inbound_substreams_delay.reset(
+                                        delay_key,
+                                        Duration::from_secs(TSpec::default_spec().resp_timeout),
+                                    );
                                 }
 
                                 // The stream may be currently idle. Attempt to process more
@@ -844,8 +846,10 @@ where
                                         request,
                                     };
                                 substream_entry.remaining_chunks = Some(remaining_chunks);
-                                self.outbound_substreams_delay
-                                    .reset(delay_key, Duration::from_secs(TSpec::default_spec().resp_timeout));
+                                self.outbound_substreams_delay.reset(
+                                    delay_key,
+                                    Duration::from_secs(TSpec::default_spec().resp_timeout),
+                                );
                             }
                         } else {
                             // either this is a single response request or this response closes the

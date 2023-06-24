@@ -443,7 +443,9 @@ where
                 }
             };
             let mut timed_socket = TimeoutStream::new(socket);
-            timed_socket.set_read_timeout(Some(Duration::from_secs(TSpec::default_spec().ttfb_timeout)));
+            timed_socket.set_read_timeout(Some(Duration::from_secs(
+                TSpec::default_spec().ttfb_timeout,
+            )));
 
             let socket = Framed::new(Box::pin(timed_socket), codec);
 

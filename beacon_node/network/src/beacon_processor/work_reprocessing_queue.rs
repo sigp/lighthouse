@@ -383,7 +383,12 @@ pub fn spawn_reprocess_scheduler<T: BeaconChainTypes>(
 ) -> Sender<ReprocessQueueMessage<T>> {
     let (work_reprocessing_tx, work_reprocessing_rx) = mpsc::channel(MAX_SCHEDULED_WORK_QUEUE_LEN);
     // Basic sanity check.
-    assert!(ADDITIONAL_QUEUED_BLOCK_DELAY < Duration::from_millis(T::EthSpec::default_spec().maximum_gossip_clock_disparity_millis));
+    assert!(
+        ADDITIONAL_QUEUED_BLOCK_DELAY
+            < Duration::from_millis(
+                T::EthSpec::default_spec().maximum_gossip_clock_disparity_millis
+            )
+    );
 
     let mut queue = ReprocessQueue {
         work_reprocessing_rx,

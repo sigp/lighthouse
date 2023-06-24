@@ -86,7 +86,9 @@ fn duties_from_state_load<T: BeaconChainTypes>(
     let current_epoch = chain.epoch()?;
     let tolerant_current_epoch = chain
         .slot_clock
-        .now_with_future_tolerance(Duration::from_millis(chain.spec.maximum_gossip_clock_disparity_millis))
+        .now_with_future_tolerance(Duration::from_millis(
+            chain.spec.maximum_gossip_clock_disparity_millis,
+        ))
         .ok_or(BeaconChainError::UnableToReadSlot)?
         .epoch(T::EthSpec::slots_per_epoch());
 

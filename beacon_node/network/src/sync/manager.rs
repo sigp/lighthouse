@@ -191,7 +191,7 @@ pub fn spawn<T: BeaconChainTypes>(
     log: slog::Logger,
 ) -> mpsc::UnboundedSender<SyncMessage<T::EthSpec>> {
     assert!(
-        T::EthSpec::default_spec().max_request_blocks >= T::EthSpec::slots_per_epoch() * EPOCHS_PER_BATCH,
+        beacon_chain.spec.max_request_blocks >= T::EthSpec::slots_per_epoch() * EPOCHS_PER_BATCH,
         "Max blocks that can be requested in a single batch greater than max allowed blocks in a single request"
     );
     // generate the message channel

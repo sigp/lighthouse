@@ -1,6 +1,4 @@
-use crate::{
-    BeaconChain, BeaconChainError, BeaconChainTypes,
-};
+use crate::{BeaconChain, BeaconChainError, BeaconChainTypes};
 use derivative::Derivative;
 use slot_clock::SlotClock;
 use std::time::Duration;
@@ -103,7 +101,9 @@ impl<T: BeaconChainTypes> VerifiedLightClientFinalityUpdate<T> {
         // verify that enough time has passed for the block to have been propagated
         match start_time {
             Some(time) => {
-                if seen_timestamp + Duration::from_millis(chain.spec.maximum_gossip_clock_disparity_millis) < time + one_third_slot_duration
+                if seen_timestamp
+                    + Duration::from_millis(chain.spec.maximum_gossip_clock_disparity_millis)
+                    < time + one_third_slot_duration
                 {
                     return Err(Error::TooEarly);
                 }

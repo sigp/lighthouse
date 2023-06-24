@@ -35,10 +35,8 @@
 mod batch;
 
 use crate::{
-    beacon_chain::VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT,
-    metrics,
-    observed_aggregates::ObserveOutcome,
-    observed_attesters::Error as ObservedAttestersError,
+    beacon_chain::VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT, metrics,
+    observed_aggregates::ObserveOutcome, observed_attesters::Error as ObservedAttestersError,
     BeaconChain, BeaconChainError, BeaconChainTypes,
 };
 use bls::verify_signature_sets;
@@ -57,8 +55,8 @@ use std::{borrow::Cow, time::Duration};
 use strum::AsRefStr;
 use tree_hash::TreeHash;
 use types::{
-    Attestation, BeaconCommittee, CommitteeIndex, Epoch, EthSpec, Hash256, IndexedAttestation,
-    SelectionProof, SignedAggregateAndProof, Slot, SubnetId,
+    Attestation, BeaconCommittee, ChainSpec, CommitteeIndex, Epoch, EthSpec, Hash256,
+    IndexedAttestation, SelectionProof, SignedAggregateAndProof, Slot, SubnetId,
 };
 
 pub use batch::{batch_verify_aggregated_attestations, batch_verify_unaggregated_attestations};
@@ -454,7 +452,7 @@ impl<'a, T: BeaconChainTypes> IndexedAggregatedAttestation<'a, T> {
         // MAXIMUM_GOSSIP_CLOCK_DISPARITY allowance).
         //
         // We do not queue future attestations for later processing.
-        verify_propagation_slot_range(&chain.slot_clock, attestation)?;
+        verify_propagation_slot_range(&chain.slot_clock, attestation, &chain.spec)?;
 
         // Check the attestation's epoch matches its target.
         if attestation.data.slot.epoch(T::EthSpec::slots_per_epoch())
@@ -718,7 +716,7 @@ impl<'a, T: BeaconChainTypes> IndexedUnaggregatedAttestation<'a, T> {
         // MAXIMUM_GOSSIP_CLOCK_DISPARITY allowance).
         //
         // We do not queue future attestations for later processing.
-        verify_propagation_slot_range(&chain.slot_clock, attestation)?;
+        verify_propagation_slot_range(&chain.slot_clock, attestation, &chain.spec)?;
 
         // Check to ensure that the attestation is "unaggregated". I.e., it has exactly one
         // aggregation bit set.
@@ -1033,9 +1031,11 @@ fn verify_head_block_is_known<T: BeaconChainTypes>(
 pub fn verify_propagation_slot_range<S: SlotClock, E: EthSpec>(
     slot_clock: &S,
     attestation: &Attestation<E>,
+    spec: &ChainSpec,
 ) -> Result<(), Error> {
     let attestation_slot = attestation.data.slot;
-    let maximum_gossip_clock_disparity = Duration::from_millis(E::default_spec().maximum_gossip_clock_disparity_millis);
+    let maximum_gossip_clock_disparity =
+        Duration::from_millis(spec.maximum_gossip_clock_disparity_millis);
     let latest_permissible_slot = slot_clock
         .now_with_future_tolerance(maximum_gossip_clock_disparity)
         .ok_or(BeaconChainError::UnableToReadSlot)?;
