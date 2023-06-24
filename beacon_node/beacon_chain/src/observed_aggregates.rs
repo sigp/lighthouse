@@ -81,6 +81,8 @@ impl<T: EthSpec> Consts for SyncCommitteeContribution<T> {
 
 /// A trait for types that implement a behaviour where one object of that type
 /// can be a subset/superset of another.
+/// This trait allows us to be generic over the aggregate item that we store in the cache that
+/// we want to prevent duplicates/subsets for.
 pub trait SubsetItem {
     /// The item that is stored for later comparison with new incoming aggregate items.
     type Item;
