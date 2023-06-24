@@ -1448,6 +1448,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                 SwarmEvent::IncomingConnection {
                     local_addr,
                     send_back_addr,
+                    connection_id: _,
                 } => {
                     trace!(self.log, "Incoming connection"; "our_addr" => %local_addr, "from" => %send_back_addr);
                     None
@@ -1456,11 +1457,16 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                     local_addr,
                     send_back_addr,
                     error,
+                    connection_id: _,
                 } => {
                     debug!(self.log, "Failed incoming connection"; "our_addr" => %local_addr, "from" => %send_back_addr, "error" => %error);
                     None
                 }
-                SwarmEvent::OutgoingConnectionError { peer_id, error } => {
+                SwarmEvent::OutgoingConnectionError {
+                    peer_id,
+                    error,
+                    connection_id: _,
+                } => {
                     debug!(self.log, "Failed to dial address"; "peer_id" => ?peer_id,  "error" => %error);
                     None
                 }
@@ -1490,7 +1496,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                         None
                     }
                 }
-                SwarmEvent::Dialing(_) => None,
+                SwarmEvent::Dialing { .. } => None,
             };
 
             if let Some(ev) = maybe_event {
