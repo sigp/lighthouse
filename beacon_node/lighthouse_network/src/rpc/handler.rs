@@ -17,7 +17,7 @@ use libp2p::swarm::handler::{
     FullyNegotiatedInbound, FullyNegotiatedOutbound, KeepAlive, StreamUpgradeError,
     SubstreamProtocol,
 };
-use libp2p::swarm::NegotiatedSubstream;
+use libp2p::swarm::Stream;
 use slog::{crit, debug, trace, warn};
 use smallvec::SmallVec;
 use std::{
@@ -47,7 +47,7 @@ const MAX_INBOUND_SUBSTREAMS: usize = 32;
 #[derive(Debug, Clone, Copy, Hash, Eq, PartialEq)]
 pub struct SubstreamId(usize);
 
-type InboundSubstream<TSpec> = InboundFramed<NegotiatedSubstream, TSpec>;
+type InboundSubstream<TSpec> = InboundFramed<Stream, TSpec>;
 
 /// Events the handler emits to the behaviour.
 pub type HandlerEvent<Id, T> = Result<RPCReceived<Id, T>, HandlerErr<Id>>;
@@ -195,12 +195,12 @@ pub enum OutboundSubstreamState<TSpec: EthSpec> {
     /// handler because GOODBYE requests can be handled and responses dropped instantly.
     RequestPendingResponse {
         /// The framed negotiated substream.
-        substream: Box<OutboundFramed<NegotiatedSubstream, TSpec>>,
+        substream: Box<OutboundFramed<Stream, TSpec>>,
         /// Keeps track of the actual request sent.
         request: OutboundRequest<TSpec>,
     },
     /// Closing an outbound substream>
-    Closing(Box<OutboundFramed<NegotiatedSubstream, TSpec>>),
+    Closing(Box<OutboundFramed<Stream, TSpec>>),
     /// Temporary state during processing
     Poisoned,
 }
@@ -858,10 +858,7 @@ where
     Id: ReqId,
     TSpec: EthSpec,
 {
-    fn on_fully_negotiated_inbound(
-        &mut self,
-        substream: InboundOutput<NegotiatedSubstream, TSpec>,
-    ) {
+    fn on_fully_negotiated_inbound(&mut self, substream: InboundOutput<Stream, TSpec>) {
         // only accept new peer requests when active
         if !matches!(self.state, HandlerState::Active) {
             return;
@@ -917,7 +914,7 @@ where
 
     fn on_fully_negotiated_outbound(
         &mut self,
-        substream: OutboundFramed<NegotiatedSubstream, TSpec>,
+        substream: OutboundFramed<Stream, TSpec>,
         (id, request): (Id, OutboundRequest<TSpec>),
     ) {
         self.dial_negotiated -= 1;
