@@ -46,9 +46,7 @@ delay_map = "0.3.0"
 void = "1"
 
 [dependencies.libp2p]
-# version = "0.51.3"
-git = "https://github.com/libp2p/rust-libp2p"
-rev = "c2230f99481ddee2537c13cfd90c4349f4ee2515"
+version = "0.52.0"
 default-features = false
 features = ["websocket", "identify", "yamux", "noise", "gossipsub", "dns", "tcp", "tokio", "plaintext", "secp256k1", "macros", "ecdsa"]
 
