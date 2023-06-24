@@ -5,10 +5,9 @@ use crate::types::{
 };
 use crate::{GossipTopic, NetworkConfig};
 use libp2p::bandwidth::BandwidthSinks;
-use libp2p::core::{
-    identity::Keypair, multiaddr::Multiaddr, muxing::StreamMuxerBox, transport::Boxed,
-};
+use libp2p::core::{multiaddr::Multiaddr, muxing::StreamMuxerBox, transport::Boxed};
 use libp2p::gossipsub;
+use libp2p::identity::{self, Keypair};
 use libp2p::{core, noise, yamux, PeerId, Transport, TransportExt};
 use prometheus_client::registry::Registry;
 use slog::{debug, warn};
@@ -82,9 +81,9 @@ fn keypair_from_hex(hex_bytes: &str) -> error::Result<Keypair> {
 
 #[allow(dead_code)]
 fn keypair_from_bytes(mut bytes: Vec<u8>) -> error::Result<Keypair> {
-    libp2p::identity::secp256k1::SecretKey::try_from_bytes(&mut bytes)
+    identity::secp256k1::SecretKey::try_from_bytes(&mut bytes)
         .map(|secret| {
-            let keypair: libp2p::identity::secp256k1::Keypair = secret.into();
+            let keypair: identity::secp256k1::Keypair = secret.into();
             keypair.into()
         })
         .map_err(|e| format!("Unable to parse p2p secret key: {:?}", e).into())
@@ -104,9 +103,9 @@ pub fn load_private_key(config: &NetworkConfig, log: &slog::Logger) -> Keypair {
             Ok(_) => {
                 // only accept secp256k1 keys for now
                 if let Ok(secret_key) =
-                    libp2p::identity::secp256k1::SecretKey::try_from_bytes(&mut key_bytes)
+                    identity::secp256k1::SecretKey::try_from_bytes(&mut key_bytes)
                 {
-                    let kp: libp2p::identity::secp256k1::Keypair = secret_key.into();
+                    let kp: identity::secp256k1::Keypair = secret_key.into();
                     debug!(log, "Loaded network key from disk.");
                     return kp.into();
                 } else {
