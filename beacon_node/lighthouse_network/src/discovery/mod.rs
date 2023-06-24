@@ -1118,7 +1118,6 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
         if let Some(peer_id) = peer_id {
             match error {
                 DialError::LocalPeerId { .. }
-                | DialError::InvalidPeerId(_)
                 | DialError::Denied { .. }
                 | DialError::NoAddresses
                 | DialError::Transport(_)
