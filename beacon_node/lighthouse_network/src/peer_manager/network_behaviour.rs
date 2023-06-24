@@ -45,8 +45,9 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
             | FromSwarm::ExpiredListenAddr(_)
             | FromSwarm::ListenerError(_)
             | FromSwarm::ListenerClosed(_)
-            | FromSwarm::NewExternalAddr(_)
-            | FromSwarm::ExpiredExternalAddr(_) => {
+            | FromSwarm::NewExternalAddrCandidate(_)
+            | FromSwarm::ExternalAddrExpired(_)
+            | FromSwarm::ExternalAddrConfirmed(_) => {
                 // The rest of the events we ignore since they are handled in their associated
                 // `SwarmEvent`
             }

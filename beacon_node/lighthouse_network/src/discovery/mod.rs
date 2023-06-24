@@ -23,7 +23,7 @@ use futures::prelude::*;
 use futures::stream::FuturesUnordered;
 use libp2p::multiaddr::Protocol;
 use libp2p::swarm::behaviour::{DialFailure, FromSwarm};
-use libp2p::swarm::{AddressScore, THandlerInEvent};
+use libp2p::swarm::THandlerInEvent;
 pub use libp2p::{
     core::{ConnectedPoint, Multiaddr},
     identity::PeerId,
@@ -992,8 +992,9 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
             | FromSwarm::ExpiredListenAddr(_)
             | FromSwarm::ListenerError(_)
             | FromSwarm::ListenerClosed(_)
-            | FromSwarm::NewExternalAddr(_)
-            | FromSwarm::ExpiredExternalAddr(_) => {
+            | FromSwarm::NewExternalAddrCandidate(_)
+            | FromSwarm::ExternalAddrExpired(_)
+            | FromSwarm::ExternalAddrConfirmed(_) => {
                 // Ignore events not relevant to discovery
             }
         }
@@ -1097,10 +1098,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
                             if let Some(address) = addr {
                                 // NOTE: This doesn't actually track the external TCP port. More sophisticated NAT handling
                                 // should handle this.
-                                return Poll::Ready(ToSwarm::ReportObservedAddr {
-                                    address,
-                                    score: AddressScore::Finite(1),
-                                });
+                                return Poll::Ready(ToSwarm::NewExternalAddrCandidate(address));
                             }
                         }
                         Discv5Event::EnrAdded { .. }
