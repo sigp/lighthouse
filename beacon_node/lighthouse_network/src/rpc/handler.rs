@@ -315,8 +315,8 @@ where
     TSpec: EthSpec,
     Id: ReqId,
 {
-    type InEvent = RPCSend<Id, TSpec>;
-    type OutEvent = HandlerEvent<Id, TSpec>;
+    type FromBehaviour = RPCSend<Id, TSpec>;
+    type ToBehaviour = HandlerEvent<Id, TSpec>;
     type Error = RPCError;
     type InboundProtocol = RPCProtocol<TSpec>;
     type OutboundProtocol = OutboundRequestContainer<TSpec>;
@@ -327,7 +327,7 @@ where
         self.listen_protocol.clone()
     }
 
-    fn on_behaviour_event(&mut self, rpc_event: Self::InEvent) {
+    fn on_behaviour_event(&mut self, rpc_event: Self::FromBehaviour) {
         match rpc_event {
             RPCSend::Request(id, req) => self.send_request(id, req),
             RPCSend::Response(inbound_id, response) => self.send_response(inbound_id, response),
@@ -371,7 +371,7 @@ where
         ConnectionHandlerEvent<
             Self::OutboundProtocol,
             Self::OutboundOpenInfo,
-            Self::OutEvent,
+            Self::ToBehaviour,
             Self::Error,
         >,
     > {

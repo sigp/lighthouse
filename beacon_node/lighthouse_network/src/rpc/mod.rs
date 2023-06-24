@@ -207,7 +207,7 @@ where
     Id: ReqId,
 {
     type ConnectionHandler = RPCHandler<Id, TSpec>;
-    type OutEvent = RPCMessage<Id, TSpec>;
+    type ToSwarm = RPCMessage<Id, TSpec>;
 
     fn on_swarm_event(&mut self, event: FromSwarm<Self::ConnectionHandler>) {
         match event {
@@ -233,7 +233,7 @@ where
         &mut self,
         peer_id: PeerId,
         conn_id: ConnectionId,
-        event: <Self::ConnectionHandler as ConnectionHandler>::OutEvent,
+        event: <Self::ConnectionHandler as ConnectionHandler>::ToBehaviour,
     ) {
         if let Ok(RPCReceived::Request(ref id, ref req)) = event {
             if let Some(limiter) = self.limiter.as_mut() {
@@ -302,7 +302,7 @@ where
         &mut self,
         cx: &mut Context,
         _: &mut impl PollParameters,
-    ) -> Poll<ToSwarm<Self::OutEvent, THandlerInEvent<Self>>> {
+    ) -> Poll<ToSwarm<Self::ToSwarm, THandlerInEvent<Self>>> {
         // let the rate limiter prune.
         if let Some(limiter) = self.limiter.as_mut() {
             let _ = limiter.poll_unpin(cx);

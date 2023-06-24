@@ -926,7 +926,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
 impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
     // Discovery is not a real NetworkBehaviour...
     type ConnectionHandler = ConnectionHandler;
-    type OutEvent = DiscoveredPeers;
+    type ToSwarm = DiscoveredPeers;
 
     fn handle_pending_inbound_connection(
         &mut self,
@@ -1012,7 +1012,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
         &mut self,
         cx: &mut Context,
         _: &mut impl PollParameters,
-    ) -> Poll<ToSwarm<Self::OutEvent, THandlerInEvent<Self>>> {
+    ) -> Poll<ToSwarm<Self::ToSwarm, THandlerInEvent<Self>>> {
         if !self.started {
             return Poll::Pending;
         }

@@ -20,7 +20,7 @@ use super::{ConnectingType, PeerManager, PeerManagerEvent, ReportSource};
 impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
     type ConnectionHandler = ConnectionHandler;
 
-    type OutEvent = PeerManagerEvent;
+    type ToSwarm = PeerManagerEvent;
 
     /* Required trait members */
 
@@ -108,7 +108,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
         &mut self,
         cx: &mut Context<'_>,
         _params: &mut impl PollParameters,
-    ) -> Poll<ToSwarm<Self::OutEvent, void::Void>> {
+    ) -> Poll<ToSwarm<Self::ToSwarm, void::Void>> {
         // perform the heartbeat when necessary
         while self.heartbeat.poll_tick(cx).is_ready() {
             self.heartbeat();
