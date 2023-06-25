@@ -1,9 +1,12 @@
 #![cfg(feature = "redb")]
 
+use redb::TableDefinition;
+
 use crate::config::Config;
 use crate::database::{interface::OpenDatabases, *};
 use crate::Error;
 use std::marker::PhantomData;
+use std::path::PathBuf;
 
 pub struct Builder {
     builder: redb::Builder,
@@ -33,15 +36,21 @@ impl Builder {
 
 pub struct Environment {
     builder: redb::Builder,
+    dbi_open_mutex: Mutex<i32>,
 }
 
 impl Environment {
     pub fn new(config: &Config) -> Result<Environment, Error> {
         let builder = redb::Builder::new();
-        Ok(Environment { builder })
+        let mutex = Mutex::new(0);
+        Ok(Environment {
+            builder,
+            dbi_open_mutex: mutex,
+        })
     }
 
     pub fn create_databases(&self) -> Result<OpenDatabases, Error> {
+        let mutex = self.dbi_open_mutex.lock();
         let indexed_attestation_db = self.builder.create(INDEXED_ATTESTATION_DB).unwrap();
         let indexed_attestation_id_db = self.builder.create(INDEXED_ATTESTATION_ID_DB).unwrap();
         let attesters_db = self.builder.create(ATTESTERS_DB).unwrap();
@@ -59,6 +68,8 @@ impl Environment {
             })
         };
 
+        drop(mutex);
+
         Ok(OpenDatabases {
             indexed_attestation_db: wrap(indexed_attestation_db),
             indexed_attestation_id_db: wrap(indexed_attestation_id_db),
@@ -70,5 +81,16 @@ impl Environment {
             proposers_db: wrap(proposers_db),
             metadata_db: wrap(metadata_db),
         })
+    }
+
+    pub fn begin_rw_txn(&self) -> Result<RwTransaction, Error> {
+        todo!()
+    }
+
+    pub fn filenames(&self, config: &Config) -> Vec<PathBuf> {
+        vec![
+            config.database_path.join("data.mdb"),
+            config.database_path.join("lock.mdb"),
+        ]
     }
 }
