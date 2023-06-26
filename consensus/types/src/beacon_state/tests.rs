@@ -219,7 +219,7 @@ async fn clone_config() {
 
     let mut state = build_state::<MinimalEthSpec>(16).await;
 
-    state.build_all_caches(&spec).unwrap();
+    state.build_caches(&spec).unwrap();
     state
         .update_tree_hash_cache()
         .expect("should update tree hash cache");

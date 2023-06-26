@@ -1412,7 +1412,7 @@ impl<T: EthSpec> BeaconState<T> {
     }
 
     /// Build all caches (except the tree hash cache), if they need to be built.
-    pub fn build_all_caches(&mut self, spec: &ChainSpec) -> Result<(), Error> {
+    pub fn build_caches(&mut self, spec: &ChainSpec) -> Result<(), Error> {
         self.build_all_committee_caches(spec)?;
         self.update_pubkey_cache()?;
         self.build_exit_cache(spec)?;
