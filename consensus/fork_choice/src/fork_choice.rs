@@ -1570,8 +1570,10 @@ where
                 // if comparative check fails in `Strict` mode, return error
                 Err(e)
             } else {
-                error!(log,
-                    "Progressive balances mismatch, falling back to epoch processing calculation.";
+                error!(
+                    log,
+                    "Progressive balances mismatch";
+                    "info" => "falling back to epoch processing calculation",
                     "error" => ?e,
                 );
                 // if comparative check fails in `Checked` mode, fall back to the epoch processing

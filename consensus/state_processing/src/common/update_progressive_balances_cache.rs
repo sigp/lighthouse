@@ -35,11 +35,11 @@ pub fn initialize_progressive_balances_cache<E: EthSpec>(
 
     let previous_epoch_target_attesting_balance = participation_cache
         .previous_epoch_target_attesting_balance_raw()
-        .map_err(|e| BeaconStateError::ParticipationCacheError(format!("{:?}", e)))?;
+        .map_err(|e| BeaconStateError::ParticipationCacheError(format!("{e:?}")))?;
 
     let current_epoch_target_attesting_balance = participation_cache
         .current_epoch_target_attesting_balance_raw()
-        .map_err(|e| BeaconStateError::ParticipationCacheError(format!("{:?}", e)))?;
+        .map_err(|e| BeaconStateError::ParticipationCacheError(format!("{e:?}")))?;
 
     let current_epoch = state.current_epoch();
     state.progressive_balances_cache_mut().initialize(
