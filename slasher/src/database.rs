@@ -57,9 +57,6 @@ const METADATA_VERSION_KEY: &[u8] = &[0];
 /// Constant key under which the slasher configuration is stored in the `metadata_db`.
 const METADATA_CONFIG_KEY: &[u8] = &[1];
 
-/// Base file path for the database
-const DB_BASE_FILE_PATH: &str = "";
-
 const ATTESTER_KEY_SIZE: usize = 7;
 const PROPOSER_KEY_SIZE: usize = 16;
 const CURRENT_EPOCH_KEY_SIZE: usize = 8;
