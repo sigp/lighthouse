@@ -400,6 +400,12 @@ pub fn get_config<E: EthSpec>(
         client_config.store.prune_payloads = prune_payloads;
     }
 
+    if let Some(epochs_per_migration) =
+        clap_utils::parse_optional(cli_args, "epochs-per-migration")?
+    {
+        client_config.chain.epochs_per_migration = epochs_per_migration;
+    }
+
     /*
      * Zero-ports
      *
