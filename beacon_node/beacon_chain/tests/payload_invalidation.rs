@@ -1060,8 +1060,8 @@ async fn invalid_parent() {
             Duration::from_secs(0),
             &state,
             PayloadVerificationStatus::Optimistic,
-            &rig.harness.chain.spec,
             rig.harness.chain.config.progressive_balances_mode,
+            &rig.harness.chain.spec,
             rig.harness.logger()
         ),
         Err(ForkChoiceError::ProtoArrayStringError(message))

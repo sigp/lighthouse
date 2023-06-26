@@ -338,8 +338,8 @@ impl ForkChoiceTest {
                 Duration::from_secs(0),
                 &state,
                 PayloadVerificationStatus::Verified,
-                &self.harness.chain.spec,
                 self.harness.chain.config.progressive_balances_mode,
+                &self.harness.chain.spec,
                 self.harness.logger(),
             )
             .unwrap();
@@ -382,8 +382,8 @@ impl ForkChoiceTest {
                 Duration::from_secs(0),
                 &state,
                 PayloadVerificationStatus::Verified,
-                &self.harness.chain.spec,
                 self.harness.chain.config.progressive_balances_mode,
+                &self.harness.chain.spec,
                 self.harness.logger(),
             )
             .err()
