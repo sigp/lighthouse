@@ -101,7 +101,7 @@ impl Environment {
 }
 
 impl<'env> RwTransaction<'env> {
-    pub fn get<K: AsRef<[u8]> + ?Sized>(
+    pub fn x<K: AsRef<[u8]> + ?Sized>(
         &'env self,
         db: &Database<'env>,
         key: &K,

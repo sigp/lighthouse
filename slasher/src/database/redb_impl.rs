@@ -1,10 +1,14 @@
 #![cfg(feature = "redb")]
 
+use redb::{TableDefinition, ReadableTable};
+
 use crate::config::Config;
 use crate::database::{interface::OpenDatabases, *};
 use crate::Error;
 use std::marker::PhantomData;
 use std::path::PathBuf;
+
+const TABLE: TableDefinition<u8, u8> = TableDefinition::new("data");
 
 pub struct Builder {
     builder: redb::Builder,
@@ -16,7 +20,7 @@ pub struct Database<'db> {
     _phantom: PhantomData<&'db ()>,
 }
 
-pub struct WriteTransaction<'db> {
+pub struct RwTransaction<'db> {
     txn: redb::WriteTransaction<'db>,
 }
 
@@ -100,5 +104,17 @@ impl Environment {
 
     pub fn filenames(&self, config: &Config) -> Vec<PathBuf> {
         todo!()
+    }
+}
+
+impl<'db> RwTransaction<'db> {
+    pub fn get<K: std::borrow::Borrow<u8>>(
+        &'db self,
+        db: &Database<'db>,
+        key: &K,
+    ) {
+        let tx = db.db.begin_read().unwrap();
+        let table = tx.open_table(TABLE).unwrap();
+        table.get(*key.clone());
     }
 }
