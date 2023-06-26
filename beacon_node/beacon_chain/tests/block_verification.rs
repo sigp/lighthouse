@@ -926,11 +926,7 @@ async fn block_gossip_verification() {
     assert!(
         matches!(
             unwrap_err(harness.chain.verify_block_for_gossip(Arc::new(block.clone())).await),
-            BlockError::RepeatProposal {
-                proposer,
-                slot,
-            }
-            if proposer == other_proposer && slot == block.message().slot()
+            BlockError::BlockIsAlreadyKnown,
         ),
         "should register any valid signature against the proposer, even if the block failed later verification"
     );
@@ -959,11 +955,7 @@ async fn block_gossip_verification() {
                 .await
                 .err()
                 .expect("should error when processing known block"),
-            BlockError::RepeatProposal {
-                proposer,
-                slot,
-            }
-            if proposer == block.message().proposer_index() && slot == block.message().slot()
+            BlockError::BlockIsAlreadyKnown
         ),
         "the second proposal by this validator should be rejected"
     );
