@@ -9,8 +9,8 @@ use beacon_chain::{
     observed_operations::ObservationOutcome,
     sync_committee_verification::{self, Error as SyncCommitteeError},
     validator_monitor::get_block_delay_ms,
-    AvailabilityProcessingStatus, BeaconChainError, BeaconChainTypes, BlockError, CountUnrealized,
-    ForkChoiceError, GossipVerifiedBlock, NotifyExecutionLayer,
+    AvailabilityProcessingStatus, BeaconChainError, BeaconChainTypes, BlockError, ForkChoiceError,
+    GossipVerifiedBlock, NotifyExecutionLayer,
 };
 use lighthouse_network::{Client, MessageAcceptance, MessageId, PeerAction, PeerId, ReportSource};
 use operation_pool::ReceivedPreCapella;
@@ -756,11 +756,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         let blob_root = verified_blob.block_root();
         let blob_slot = verified_blob.slot();
         let blob_clone = verified_blob.clone().to_blob();
-        match self
-            .chain
-            .process_blob(verified_blob, CountUnrealized::True)
-            .await
-        {
+        match self.chain.process_blob(verified_blob).await {
             Ok(AvailabilityProcessingStatus::Imported(_hash)) => {
                 //TODO(sean) add metrics and logging
                 self.chain.recompute_head_at_current_slot().await;
@@ -978,7 +974,6 @@ impl<T: BeaconChainTypes> Worker<T> {
             | Err(e @ BlockError::NonLinearParentRoots)
             | Err(e @ BlockError::BlockIsNotLaterThanParent { .. })
             | Err(e @ BlockError::InvalidSignature)
-            | Err(e @ BlockError::TooManySkippedSlots { .. })
             | Err(e @ BlockError::WeakSubjectivityConflict)
             | Err(e @ BlockError::InconsistentFork(_))
             | Err(e @ BlockError::ExecutionPayloadError(_))
@@ -1103,12 +1098,7 @@ impl<T: BeaconChainTypes> Worker<T> {
 
         let result = self
             .chain
-            .process_block(
-                block_root,
-                verified_block,
-                CountUnrealized::True,
-                NotifyExecutionLayer::Yes,
-            )
+            .process_block(block_root, verified_block, NotifyExecutionLayer::Yes)
             .await;
 
         match &result {

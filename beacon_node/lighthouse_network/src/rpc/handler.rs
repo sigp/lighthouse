@@ -7,6 +7,7 @@ use super::protocol::{max_rpc_size, InboundRequest, Protocol, RPCError, RPCProto
 use super::{RPCReceived, RPCSend, ReqId};
 use crate::rpc::outbound::{OutboundFramed, OutboundRequest};
 use crate::rpc::protocol::InboundFramed;
+use crate::rpc::ResponseTermination;
 use fnv::FnvHashMap;
 use futures::prelude::*;
 use futures::{Sink, SinkExt};
@@ -245,7 +246,7 @@ where
             while let Some((id, req)) = self.dial_queue.pop() {
                 self.events_out.push(Err(HandlerErr::Outbound {
                     error: RPCError::Disconnected,
-                    proto: req.protocol(),
+                    proto: req.versioned_protocol().protocol(),
                     id,
                 }));
             }
@@ -269,7 +270,7 @@ where
             }
             _ => self.events_out.push(Err(HandlerErr::Outbound {
                 error: RPCError::Disconnected,
-                proto: req.protocol(),
+                proto: req.versioned_protocol().protocol(),
                 id,
             })),
         }
@@ -334,7 +335,7 @@ where
     ) {
         self.dial_negotiated -= 1;
         let (id, request) = request_info;
-        let proto = request.protocol();
+        let proto = request.versioned_protocol().protocol();
 
         // accept outbound connections only if the handler is not deactivated
         if matches!(self.state, HandlerState::Deactivated) {
@@ -414,7 +415,7 @@ where
                             128,
                         ) as usize),
                         delay_key: Some(delay_key),
-                        protocol: req.protocol(),
+                        protocol: req.versioned_protocol().protocol(),
                         request_start_time: Instant::now(),
                         remaining_chunks: expected_responses,
                     },
@@ -422,7 +423,7 @@ where
             } else {
                 self.events_out.push(Err(HandlerErr::Inbound {
                     id: self.current_inbound_substream_id,
-                    proto: req.protocol(),
+                    proto: req.versioned_protocol().protocol(),
                     error: RPCError::HandlerRejected,
                 }));
                 return self.shutdown(None);
@@ -498,7 +499,7 @@ where
         };
         self.events_out.push(Err(HandlerErr::Outbound {
             error,
-            proto: req.protocol(),
+            proto: req.versioned_protocol().protocol(),
             id,
         }));
     }
@@ -895,7 +896,7 @@ where
                         // else we return an error, stream should not have closed early.
                         let outbound_err = HandlerErr::Outbound {
                             id: request_id,
-                            proto: request.protocol(),
+                            proto: request.versioned_protocol().protocol(),
                             error: RPCError::IncompleteStream,
                         };
                         return Poll::Ready(ConnectionHandlerEvent::Custom(Err(outbound_err)));
@@ -933,8 +934,13 @@ where
                             // continue sending responses beyond what we would expect. Here
                             // we simply terminate the stream and report a stream
                             // termination to the application
+                            let termination = match protocol {
+                                Protocol::BlocksByRange => Some(ResponseTermination::BlocksByRange),
+                                Protocol::BlocksByRoot => Some(ResponseTermination::BlocksByRoot),
+                                _ => None, // all other protocols are do not have multiple responses and we do not inform the user, we simply drop the stream.
+                            };
 
-                            if let Some(termination) = protocol.terminator() {
+                            if let Some(termination) = termination {
                                 return Poll::Ready(ConnectionHandlerEvent::Custom(Ok(
                                     RPCReceived::EndOfStream(request_id, termination),
                                 )));

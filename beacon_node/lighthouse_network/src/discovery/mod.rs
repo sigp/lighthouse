@@ -209,13 +209,6 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
         info!(log, "ENR Initialised"; "enr" => local_enr.to_base64(), "seq" => local_enr.seq(), "id"=> %local_enr.node_id(),
               "ip4" => ?local_enr.ip4(), "udp4"=> ?local_enr.udp4(), "tcp4" => ?local_enr.tcp4(), "tcp6" => ?local_enr.tcp6(), "udp6" => ?local_enr.udp6()
         );
-        let listen_socket = match config.listen_addrs() {
-            crate::listen_addr::ListenAddress::V4(v4_addr) => v4_addr.udp_socket_addr(),
-            crate::listen_addr::ListenAddress::V6(v6_addr) => v6_addr.udp_socket_addr(),
-            crate::listen_addr::ListenAddress::DualStack(_v4_addr, v6_addr) => {
-                v6_addr.udp_socket_addr()
-            }
-        };
 
         // convert the keypair into an ENR key
         let enr_key: CombinedKey = CombinedKey::from_libp2p(local_key)?;
@@ -251,10 +244,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
 
         // Start the discv5 service and obtain an event stream
         let event_stream = if !config.disable_discovery {
-            discv5
-                .start(listen_socket)
-                .map_err(|e| e.to_string())
-                .await?;
+            discv5.start().map_err(|e| e.to_string()).await?;
             debug!(log, "Discovery service started");
             EventStream::Awaiting(Box::pin(discv5.event_stream()))
         } else {
@@ -413,7 +403,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
     /// If the external address needs to be modified, use `update_enr_udp_socket.
     pub fn update_enr_tcp_port(&mut self, port: u16) -> Result<(), String> {
         self.discv5
-            .enr_insert("tcp", &port.to_be_bytes())
+            .enr_insert("tcp", &port)
             .map_err(|e| format!("{:?}", e))?;
 
         // replace the global version
@@ -428,29 +418,12 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
     /// This is with caution. Discovery should automatically maintain this. This should only be
     /// used when automatic discovery is disabled.
     pub fn update_enr_udp_socket(&mut self, socket_addr: SocketAddr) -> Result<(), String> {
-        match socket_addr {
-            SocketAddr::V4(socket) => {
-                self.discv5
-                    .enr_insert("ip", &socket.ip().octets())
-                    .map_err(|e| format!("{:?}", e))?;
-                self.discv5
-                    .enr_insert("udp", &socket.port().to_be_bytes())
-                    .map_err(|e| format!("{:?}", e))?;
-            }
-            SocketAddr::V6(socket) => {
-                self.discv5
-                    .enr_insert("ip6", &socket.ip().octets())
-                    .map_err(|e| format!("{:?}", e))?;
-                self.discv5
-                    .enr_insert("udp6", &socket.port().to_be_bytes())
-                    .map_err(|e| format!("{:?}", e))?;
-            }
+        const IS_TCP: bool = false;
+        if self.discv5.update_local_enr_socket(socket_addr, IS_TCP) {
+            // persist modified enr to disk
+            enr::save_enr_to_disk(Path::new(&self.enr_dir), &self.local_enr(), &self.log);
         }
-
-        // replace the global version
         *self.network_globals.local_enr.write() = self.discv5.local_enr();
-        // persist modified enr to disk
-        enr::save_enr_to_disk(Path::new(&self.enr_dir), &self.local_enr(), &self.log);
         Ok(())
     }
 

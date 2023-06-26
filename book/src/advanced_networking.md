@@ -38,7 +38,6 @@ large peer count will not speed up sync.
 For these reasons, we recommend users do not modify the `--target-peers` count
 drastically and use the (recommended) default.
 
-
 ### NAT Traversal (Port Forwarding)
 
 Lighthouse, by default, uses port 9000 for both TCP and UDP. Lighthouse will
@@ -55,7 +54,7 @@ enabled, we recommend you to manually set up port mappings to both of Lighthouse
 TCP and UDP ports (9000 by default).
 
 > Note: Lighthouse needs to advertise its publicly accessible ports in
-> order to inform its peers that it is contactable and how to connect to it. 
+> order to inform its peers that it is contactable and how to connect to it.
 > Lighthouse has an automated way of doing this for the UDP port. This means
 > Lighthouse can detect its external UDP port. There is no such mechanism for the
 > TCP port. As such, we assume that the external UDP and external TCP port is the
@@ -107,3 +106,78 @@ Modifying the ENR settings can degrade the discovery of your node, making it
 harder for peers to find you or potentially making it harder for other peers to
 find each other. We recommend not touching these settings unless for a more
 advanced use case.
+
+
+### IPv6 support
+
+As noted in the previous sections, two fundamental parts to ensure good
+connectivity are: The parameters that configure the sockets over which
+Lighthouse listens for connections, and the parameters used to tell other peers
+how to connect to your node. This distinction is relevant and applies to most
+nodes that do not run directly on a public network.
+
+#### Configuring Lighthouse to listen over IPv4/IPv6/Dual stack
+
+To listen over only IPv6 use the same parameters as done when listening over
+IPv4 only:
+
+- `--listen-addresses :: --port 9909` will listen over IPv6 using port `9909` for
+TCP and UDP.
+- `--listen-addresses :: --port 9909 --discovery-port 9999` will listen over
+  IPv6 using port `9909` for TCP and port `9999` for UDP.
+
+To listen over both IPv4 and IPv6:
+- Set two listening addresses using the `--listen-addresses` flag twice ensuring
+  the two addresses are one IPv4, and the other IPv6. When doing so, the
+  `--port` and `--discovery-port` flags will apply exclusively to IPv4. Note
+  that this behaviour differs from the Ipv6 only case described above.
+- If necessary, set the `--port6` flag to configure the port used for TCP and
+  UDP over IPv6. This flag has no effect when listening over IPv6 only.
+- If necessary, set the `--discovery-port6` flag to configure the IPv6  UDP
+  port. This will default to the value given to `--port6` if not set. This flag
+  has no effect when listening over IPv6 only.
+
+##### Configuration Examples
+
+- `--listen-addresses :: --listen-addresses 0.0.0.0 --port 9909` will listen
+  over IPv4 using port `9909` for TCP and UDP. It will also listen over IPv6 but
+  using the default value for `--port6` for UDP and TCP (`9090`).
+- `--listen-addresses :: --listen-addresses --port 9909 --discovery-port6 9999`
+  will have the same configuration as before except for the IPv6 UDP socket,
+  which will use port `9999`.
+
+#### Configuring Lighthouse to advertise IPv6 reachable addresses
+Lighthouse supports IPv6 to connect to other nodes both over IPv6 exclusively,
+and dual stack using one socket for IPv6 and another socket for IPv6. In both
+scenarios, the previous sections still apply. In summary:
+
+> Beacon nodes must advertise their publicly reachable socket address
+
+In order to do so, lighthouse provides the following CLI options/parameters.
+
+- `--enr-udp-port` Use this to advertise the port that is publicly reachable
+  over UDP with a publicly reachable IPv4 address. This might differ from the
+  IPv4 port used to listen.
+- `--enr-udp6-port` Use this to advertise the port that is publicly reachable
+  over UDP with a publicly reachable IPv6 address. This might differ from the
+  IPv6 port used to listen.
+- `--enr-tcp-port` Use this to advertise the port that is publicly reachable
+  over TCP with a publicly reachable IPv4 address. This might differ from the
+  IPv4 port used to listen.
+- `--enr-tcp6-port` Use this to advertise the port that is publicly reachable
+  over TCP with a publicly reachable IPv6 address. This might differ from the
+  IPv6 port used to listen.
+- `--enr-addresses` Use this to advertise publicly reachable addresses. Takes at
+  most two values, one for IPv4 and one for IPv6. Note that a beacon node that
+  advertises some address, must be
+  reachable both over UDP and TCP.
+
+In the general case, an user will not require to set these explicitly. Update
+these options only if you can guarantee your node is reachable with these
+values.
+
+#### Known caveats
+
+IPv6 link local addresses are likely to have poor connectivity if used in
+topologies with more than one interface. Use global addresses for the general
+case.

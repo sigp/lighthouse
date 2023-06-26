@@ -71,7 +71,6 @@ use execution_layer::{
     BlockProposalContents, BuilderParams, ChainHealth, ExecutionLayer, FailedCondition,
     PayloadAttributes, PayloadStatus,
 };
-pub use fork_choice::CountUnrealized;
 use fork_choice::{
     AttestationFromBlock, ExecutionStatus, ForkChoice, ForkchoiceUpdateParameters,
     InvalidationOperation, PayloadVerificationStatus, ResetPayloadStatuses,
@@ -2599,7 +2598,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub async fn process_chain_segment(
         self: &Arc<Self>,
         chain_segment: Vec<BlockWrapper<T::EthSpec>>,
-        count_unrealized: CountUnrealized,
         notify_execution_layer: NotifyExecutionLayer,
     ) -> ChainSegmentResult<T::EthSpec> {
         let mut imported_blocks = 0;
@@ -2666,7 +2664,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     .process_block(
                         signature_verified_block.block_root(),
                         signature_verified_block,
-                        count_unrealized,
                         notify_execution_layer,
                     )
                     .await
@@ -2759,13 +2756,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub async fn process_blob(
         self: &Arc<Self>,
         blob: GossipVerifiedBlob<T::EthSpec>,
-        count_unrealized: CountUnrealized,
     ) -> Result<AvailabilityProcessingStatus, BlockError<T::EthSpec>> {
-        self.check_availability_and_maybe_import(
-            blob.slot(),
-            |chain| chain.data_availability_checker.put_gossip_blob(blob),
-            count_unrealized,
-        )
+        self.check_availability_and_maybe_import(blob.slot(), |chain| {
+            chain.data_availability_checker.put_gossip_blob(blob)
+        })
         .await
     }
 
@@ -2789,7 +2783,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self: &Arc<Self>,
         block_root: Hash256,
         unverified_block: B,
-        count_unrealized: CountUnrealized,
         notify_execution_layer: NotifyExecutionLayer,
     ) -> Result<AvailabilityProcessingStatus, BlockError<T::EthSpec>> {
         // Start the Prometheus timer.
@@ -2813,20 +2806,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .map_err(|e| self.handle_block_error(e))?;
 
         match executed_block {
-            ExecutedBlock::Available(block) => {
-                self.import_available_block(Box::new(block), count_unrealized)
-                    .await
-            }
+            ExecutedBlock::Available(block) => self.import_available_block(Box::new(block)).await,
             ExecutedBlock::AvailabilityPending(block) => {
-                self.check_availability_and_maybe_import(
-                    block.block.slot(),
-                    |chain| {
-                        chain
-                            .data_availability_checker
-                            .put_pending_executed_block(block)
-                    },
-                    count_unrealized,
-                )
+                self.check_availability_and_maybe_import(block.block.slot(), |chain| {
+                    chain
+                        .data_availability_checker
+                        .put_pending_executed_block(block)
+                })
                 .await
             }
         }
@@ -2836,7 +2822,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// get a fully `ExecutedBlock`
     ///
     /// An error is returned if the verification handle couldn't be awaited.
-    async fn into_executed_block(
+    pub async fn into_executed_block(
         self: Arc<Self>,
         execution_pending_block: ExecutionPendingBlock<T>,
     ) -> Result<ExecutedBlock<T::EthSpec>, BlockError<T::EthSpec>> {
@@ -2925,13 +2911,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self: &Arc<Self>,
         slot: Slot,
         cache_fn: impl FnOnce(Arc<Self>) -> Result<Availability<T::EthSpec>, AvailabilityCheckError>,
-        count_unrealized: CountUnrealized,
     ) -> Result<AvailabilityProcessingStatus, BlockError<T::EthSpec>> {
         let availability = cache_fn(self.clone())?;
         match availability {
-            Availability::Available(block) => {
-                self.import_available_block(block, count_unrealized).await
-            }
+            Availability::Available(block) => self.import_available_block(block).await,
             Availability::MissingComponents(block_root) => Ok(
                 AvailabilityProcessingStatus::MissingComponents(slot, block_root),
             ),
@@ -2941,7 +2924,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     async fn import_available_block(
         self: &Arc<Self>,
         block: Box<AvailableExecutedBlock<T::EthSpec>>,
-        count_unrealized: CountUnrealized,
     ) -> Result<AvailabilityProcessingStatus, BlockError<T::EthSpec>> {
         let AvailableExecutedBlock {
             block,
@@ -2971,7 +2953,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         state,
                         confirmed_state_roots,
                         payload_verification_outcome.payload_verification_status,
-                        count_unrealized,
                         parent_block,
                         parent_eth1_finalization_data,
                         consensus_context,
@@ -3017,7 +2998,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         mut state: BeaconState<T::EthSpec>,
         confirmed_state_roots: Vec<Hash256>,
         payload_verification_status: PayloadVerificationStatus,
-        count_unrealized: CountUnrealized,
         parent_block: SignedBlindedBeaconBlock<T::EthSpec>,
         parent_eth1_finalization_data: Eth1FinalizationData,
         mut consensus_context: ConsensusContext<T::EthSpec>,
@@ -3088,7 +3068,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     &state,
                     payload_verification_status,
                     &self.spec,
-                    count_unrealized,
                 )
                 .map_err(|e| BlockError::BeaconChainError(e.into()))?;
         }

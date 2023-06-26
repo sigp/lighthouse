@@ -491,9 +491,9 @@ impl<const MAX_ATTEMPTS: u8, T: BeaconChainTypes> SingleBlockLookup<MAX_ATTEMPTS
             self.block_request_state.state.state,
             State::AwaitingDownload
         ));
-        let request = BlocksByRootRequest {
-            block_roots: VariableList::from(vec![self.block_request_state.requested_block_root]),
-        };
+        let request = BlocksByRootRequest::new(VariableList::from(vec![
+            self.block_request_state.requested_block_root,
+        ]));
         let response_type = ResponseType::Block;
         if self.too_many_attempts(response_type) {
             Err(LookupRequestError::TooManyAttempts {

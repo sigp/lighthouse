@@ -13,7 +13,6 @@ use beacon_chain::{
     ChainConfig, NotifyExecutionLayer, ServerSentEventHandler, WhenSlotSkipped,
 };
 use eth2_network_config::TRUSTED_SETUP;
-use fork_choice::CountUnrealized;
 use kzg::TrustedSetup;
 use lazy_static::lazy_static;
 use logging::test_logger;
@@ -2165,7 +2164,6 @@ async fn weak_subjectivity_sync() {
             .process_block(
                 full_block.canonical_root(),
                 Arc::new(full_block),
-                CountUnrealized::True,
                 NotifyExecutionLayer::Yes,
             )
             .await

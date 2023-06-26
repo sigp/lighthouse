@@ -10,7 +10,6 @@ use types::EthSpec;
 
 pub async fn run<T: EthSpec>(config: BootNodeConfig<T>, log: slog::Logger) {
     let BootNodeConfig {
-        listen_socket,
         boot_nodes,
         local_enr,
         local_key,
@@ -31,7 +30,7 @@ pub async fn run<T: EthSpec>(config: BootNodeConfig<T>, log: slog::Logger) {
     let pretty_v6_socket = enr_v6_socket.as_ref().map(|addr| addr.to_string());
     info!(
         log, "Configuration parameters";
-        "listening_address" => %listen_socket,
+        "listening_address" => ?discv5_config.listen_config,
         "advertised_v4_address" => ?pretty_v4_socket,
         "advertised_v6_address" => ?pretty_v6_socket,
         "eth2" => eth2_field
@@ -41,6 +40,7 @@ pub async fn run<T: EthSpec>(config: BootNodeConfig<T>, log: slog::Logger) {
 
     // build the contactable multiaddr list, adding the p2p protocol
     info!(log, "Contact information"; "enr" => local_enr.to_base64());
+    info!(log, "Enr details"; "enr" => ?local_enr);
     info!(log, "Contact information"; "multiaddrs" => ?local_enr.multiaddr_p2p());
 
     // construct the discv5 server
@@ -64,7 +64,7 @@ pub async fn run<T: EthSpec>(config: BootNodeConfig<T>, log: slog::Logger) {
     }
 
     // start the server
-    if let Err(e) = discv5.start(listen_socket).await {
+    if let Err(e) = discv5.start().await {
         slog::crit!(log, "Could not start discv5 server"; "error" => %e);
         return;
     }
