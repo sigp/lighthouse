@@ -450,11 +450,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Checks if a state is finalized.
     /// The finalization check is done with the slot. The state root is used to verify that
     /// the finalized state is in the canonical chain.
-    pub fn is_finalized_state(
+    pub fn is_canonical_finalized_state(
         &self,
         state_root: &Hash256,
         state_slot: Slot,
-    ) -> Result<bool, Error> {
+    ) -> Result<(bool, bool), Error> {
         let finalized_slot = self
             .canonical_head
             .cached_head()
@@ -464,7 +464,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let is_canonical = self
             .state_root_at_slot(state_slot)?
             .map_or(false, |canonical_root| state_root == &canonical_root);
-        Ok(state_slot <= finalized_slot && is_canonical)
+        let is_finalized_slot = state_slot <= finalized_slot;
+        Ok((is_canonical, is_finalized_slot))
     }
 
     /// Persists the head tracker and fork choice.
