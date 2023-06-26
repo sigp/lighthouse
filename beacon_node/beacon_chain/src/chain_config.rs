@@ -17,8 +17,7 @@ pub const FORK_CHOICE_LOOKAHEAD_FACTOR: u32 = 24;
 
 #[derive(Debug, PartialEq, Eq, Clone, Deserialize, Serialize)]
 pub struct ChainConfig {
-    /// Maximum number of slots to skip when importing a consensus message (e.g., block,
-    /// attestation, etc).
+    /// Maximum number of slots to skip when importing an attestation.
     ///
     /// If `None`, there is no limit.
     pub import_max_skip_slots: Option<u64>,

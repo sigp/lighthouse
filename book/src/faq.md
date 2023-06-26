@@ -25,10 +25,11 @@
 ## [Network, Monitoring and Maintenance](#network-monitoring-and-maintenance-1)
 - [I have a low peer count and it is not increasing](#net-peer)
 - [How do I update lighthouse?](#net-update)
-- [Do I need to set up any port mappings (port forwarding)?](#net-port)
+- [Do I need to set up any port mappings (port forwarding)?](#net-port-forwarding)
 - [How can I monitor my validators?](#net-monitor)
 - [My beacon node and validator client are on different servers. How can I point the validator client to the beacon node?](#net-bn-vc)
 - [Should I do anything to the beacon node or validator client settings if I have a relocation of the node / change of IP address?](#net-ip)
+- [How to change the TCP/UDP port 9000 that Lighthouse listens on?](#net-port)
 
 
 ## [Miscellaneous](#miscellaneous-1)
@@ -360,7 +361,7 @@ $ docker pull sigp/lighthouse:v1.0.0
 If you are building a docker image, the process will be similar to the one described [here.](./docker.md#building-the-docker-image)
 You just need to make sure the code you have checked out is up to date.
 
-### <a name="net-port"></a> Do I need to set up any port mappings (port forwarding)?
+### <a name="net-port-forwarding"></a> Do I need to set up any port mappings (port forwarding)?
 
 It is not strictly required to open any ports for Lighthouse to connect and
 participate in the network. Lighthouse should work out-of-the-box. However, if
@@ -386,7 +387,7 @@ For these reasons, we recommend that you make your node publicly accessible.
 
 Lighthouse supports UPnP. If you are behind a NAT with a router that supports
 UPnP, you can simply ensure UPnP is enabled (Lighthouse will inform you in its
-initial logs if a route has been established). You can also manually [set up port mappings/port forwarding](./advanced_networking.md/#how-to-open-ports) in your router to your local Lighthouse instance. By default,
+initial logs if a route has been established). You can also manually [set up port mappings/port forwarding](./advanced_networking.md#how-to-open-ports) in your router to your local Lighthouse instance. By default,
 Lighthouse uses port 9000 for both TCP and UDP. Opening both these ports will
 make your Lighthouse node maximally contactable.
 
@@ -420,6 +421,9 @@ The settings are as follows:
 
 ### <a name="net-ip"></a> Should I do anything to the beacon node or validator client settings if I have a relocation of the node / change of IP address?
 No. Lighthouse will auto-detect the change and update your Ethereum Node Record (ENR). You just need to make sure you are not manually setting the ENR with `--enr-address` (which, for common use cases, this flag is not used).
+
+### <a name="net-port"></a> How to change the TCP/UDP port 9000 that Lighthouse listens on?
+Use the flag ```--port <PORT>``` in the beacon node. This flag can be useful when you are running two beacon nodes at the same time. You can leave one beacon node as the default port 9000, and configure the second beacon node to listen on, e.g., ```--port 9001```.
 
 ## Miscellaneous
 
