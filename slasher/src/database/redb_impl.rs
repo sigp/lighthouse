@@ -1,7 +1,5 @@
 #![cfg(feature = "redb")]
 
-use redb::TableDefinition;
-
 use crate::config::Config;
 use crate::database::{interface::OpenDatabases, *};
 use crate::Error;
@@ -37,6 +35,8 @@ impl Builder {
 pub struct Environment {
     builder: redb::Builder,
     dbi_open_mutex: Mutex<i32>,
+    max_num_dbs: u32,
+    database_path: PathBuf,
 }
 
 impl Environment {
@@ -46,20 +46,33 @@ impl Environment {
         Ok(Environment {
             builder,
             dbi_open_mutex: mutex,
+            max_num_dbs: MAX_NUM_DBS as u32,
+            database_path: config.database_path.clone(),
         })
+    }
+
+    pub fn create_database(&self, name: &str) -> Result<redb::Database, Error> {
+        match self.builder.create(self.database_path.join(name)) {
+            Ok(database) => Ok(database),
+            Err(_) => {
+                panic!("Failed to create db")
+            }
+        }
     }
 
     pub fn create_databases(&self) -> Result<OpenDatabases, Error> {
         let mutex = self.dbi_open_mutex.lock();
-        let indexed_attestation_db = self.builder.create(INDEXED_ATTESTATION_DB).unwrap();
-        let indexed_attestation_id_db = self.builder.create(INDEXED_ATTESTATION_ID_DB).unwrap();
-        let attesters_db = self.builder.create(ATTESTERS_DB).unwrap();
-        let attesters_max_targets_db = self.builder.create(ATTESTERS_MAX_TARGETS_DB).unwrap();
-        let min_targets_db = self.builder.create(MIN_TARGETS_DB).unwrap();
-        let max_targets_db = self.builder.create(MAX_TARGETS_DB).unwrap();
-        let current_epochs_db = self.builder.create(CURRENT_EPOCHS_DB).unwrap();
-        let proposers_db = self.builder.create(PROPOSERS_DB).unwrap();
-        let metadata_db = self.builder.create(METADATA_DB).unwrap();
+        let indexed_attestation_db = self.create_database(INDEXED_ATTESTATION_DB).unwrap();
+        let indexed_attestation_id_db = self.create_database(INDEXED_ATTESTATION_ID_DB).unwrap();
+        let attesters_db = self.create_database(ATTESTERS_DB).unwrap();
+        let attesters_max_targets_db = self.create_database(ATTESTERS_MAX_TARGETS_DB).unwrap();
+        let min_targets_db = self.create_database(MIN_TARGETS_DB).unwrap();
+        let max_targets_db = self.create_database(MAX_TARGETS_DB).unwrap();
+        let current_epochs_db = self.create_database(CURRENT_EPOCHS_DB).unwrap();
+        let proposers_db = self.create_database(PROPOSERS_DB).unwrap();
+        let metadata_db = self.create_database(METADATA_DB).unwrap();
+
+        drop(mutex);
 
         let wrap = |db| {
             crate::Database::Redb(Database {
@@ -67,8 +80,6 @@ impl Environment {
                 _phantom: PhantomData,
             })
         };
-
-        drop(mutex);
 
         Ok(OpenDatabases {
             indexed_attestation_db: wrap(indexed_attestation_db),
@@ -88,9 +99,6 @@ impl Environment {
     }
 
     pub fn filenames(&self, config: &Config) -> Vec<PathBuf> {
-        vec![
-            config.database_path.join("data.mdb"),
-            config.database_path.join("lock.mdb"),
-        ]
+        todo!()
     }
 }
