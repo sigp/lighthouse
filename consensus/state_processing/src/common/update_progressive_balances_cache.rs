@@ -79,19 +79,13 @@ pub fn update_progressive_balances_on_slashing<T: EthSpec>(
     validator_index: usize,
 ) -> Result<(), BlockProcessingError> {
     if is_progressive_balances_enabled(state) {
-        let is_previous_epoch_target_attester = match state.previous_epoch_participation() {
-            Ok(previous_epoch_participation) => {
-                is_target_attester_in_epoch::<T>(previous_epoch_participation, validator_index)?
-            }
-            Err(_) => false,
-        };
+        let previous_epoch_participation = state.previous_epoch_participation()?;
+        let is_previous_epoch_target_attester =
+            is_target_attester_in_epoch::<T>(previous_epoch_participation, validator_index)?;
 
-        let is_current_epoch_target_attester = match state.current_epoch_participation() {
-            Ok(current_epoch_participation) => {
-                is_target_attester_in_epoch::<T>(current_epoch_participation, validator_index)?
-            }
-            Err(_) => false,
-        };
+        let current_epoch_participation = state.current_epoch_participation()?;
+        let is_current_epoch_target_attester =
+            is_target_attester_in_epoch::<T>(current_epoch_participation, validator_index)?;
 
         let validator_effective_balance = state.get_effective_balance(validator_index)?;
 

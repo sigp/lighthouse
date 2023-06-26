@@ -202,8 +202,8 @@ pub fn reset_fork_choice_to_finalization<E: EthSpec, Hot: ItemStore<E>, Cold: It
                 Duration::from_secs(0),
                 &state,
                 payload_verification_status,
-                spec,
                 progressive_balances_mode,
+                spec,
                 log,
             )
             .map_err(|e| format!("Error applying replayed block to fork choice: {:?}", e))?;

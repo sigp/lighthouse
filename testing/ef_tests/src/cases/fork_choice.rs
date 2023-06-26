@@ -439,8 +439,8 @@ impl<E: EthSpec> Tester<E> {
                         block_delay,
                         &state,
                         PayloadVerificationStatus::Irrelevant,
-                        &self.harness.chain.spec,
                         self.harness.chain.config.progressive_balances_mode,
+                        &self.harness.chain.spec,
                         self.harness.logger(),
                     );
 

@@ -663,8 +663,8 @@ where
         block_delay: Duration,
         state: &BeaconState<E>,
         payload_verification_status: PayloadVerificationStatus,
-        spec: &ChainSpec,
         progressive_balances_mode: ProgressiveBalancesMode,
+        spec: &ChainSpec,
         log: &Logger,
     ) -> Result<(), Error<T::Error>> {
         // If this block has already been processed we do not need to reprocess it.
