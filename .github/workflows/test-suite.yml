@@ -104,7 +104,7 @@ jobs:
       with:
         repo-token: ${{ secrets.GITHUB_TOKEN }}
     - name: Run beacon_chain tests for all known forks
-      run: make test-beacon-chain
+      run: cc -v && ld -v && RUSTFLAGS="-v" make test-beacon-chain
   op-pool-tests:
     name: op-pool-tests
     runs-on: ubuntu-latest
