@@ -969,7 +969,7 @@ dependencies = [
 [[package]]
 name = "c-kzg"
 version = "0.1.0"
-source = "git+https://github.com/realbigsean//c-kzg-4844?rev=73d7bbc3ab29e46f158a76b8a05464e3faecc23c#73d7bbc3ab29e46f158a76b8a05464e3faecc23c"
+source = "git+https://github.com/realbigsean//c-kzg-4844?rev=bd5c507d8cfbf57ea4b351e6876745d26ec2037b#bd5c507d8cfbf57ea4b351e6876745d26ec2037b"
 dependencies = [
  "bindgen 0.64.0",
  "cc",
@@ -982,7 +982,7 @@ dependencies = [
 [[package]]
 name = "c-kzg"
 version = "0.1.0"
-source = "git+https://github.com/realbigsean/c-kzg-4844?rev=73d7bbc3ab29e46f158a76b8a05464e3faecc23c#73d7bbc3ab29e46f158a76b8a05464e3faecc23c"
+source = "git+https://github.com/realbigsean/c-kzg-4844?rev=bd5c507d8cfbf57ea4b351e6876745d26ec2037b#bd5c507d8cfbf57ea4b351e6876745d26ec2037b"
 dependencies = [
  "bindgen 0.64.0",
  "cc",
@@ -3952,8 +3952,8 @@ name = "kzg"
 version = "0.1.0"
 dependencies = [
  "arbitrary",
- "c-kzg 0.1.0 (git+https://github.com/realbigsean//c-kzg-4844?rev=73d7bbc3ab29e46f158a76b8a05464e3faecc23c)",
- "c-kzg 0.1.0 (git+https://github.com/realbigsean/c-kzg-4844?rev=73d7bbc3ab29e46f158a76b8a05464e3faecc23c)",
+ "c-kzg 0.1.0 (git+https://github.com/realbigsean//c-kzg-4844?rev=bd5c507d8cfbf57ea4b351e6876745d26ec2037b)",
+ "c-kzg 0.1.0 (git+https://github.com/realbigsean/c-kzg-4844?rev=bd5c507d8cfbf57ea4b351e6876745d26ec2037b)",
  "derivative",
  "ethereum_hashing",
  "ethereum_serde_utils",
