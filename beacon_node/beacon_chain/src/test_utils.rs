@@ -32,8 +32,8 @@ use int_to_bytes::int_to_bytes32;
 use kzg::{Kzg, TrustedSetup};
 use merkle_proof::MerkleTree;
 use operation_pool::ReceivedPreCapella;
-use parking_lot::Mutex;
 use parking_lot::RwLockWriteGuard;
+use parking_lot::{Mutex, RwLock};
 use rand::rngs::StdRng;
 use rand::Rng;
 use rand::SeedableRng;
@@ -512,7 +512,7 @@ where
         });
 
         let trusted_setup: TrustedSetup =
-            serde_json::from_reader(eth2_network_config::TRUSTED_SETUP)
+            serde_json::from_reader(eth2_network_config::get_trusted_setup::<E::Kzg>())
                 .map_err(|e| format!("Unable to read trusted setup file: {}", e))
                 .expect("should have trusted setup");
         let kzg = Kzg::new_from_trusted_setup(trusted_setup).expect("should create kzg");
@@ -550,7 +550,7 @@ where
             HARNESS_GENESIS_TIME + spec.seconds_per_slot * E::slots_per_epoch() * epoch.as_u64()
         });
         let trusted_setup: TrustedSetup =
-            serde_json::from_reader(eth2_network_config::TRUSTED_SETUP)
+            serde_json::from_reader(eth2_network_config::get_trusted_setup::<E::Kzg>())
                 .map_err(|e| format!("Unable to read trusted setup file: {}", e))
                 .expect("should have trusted setup");
         let kzg = Kzg::new_from_trusted_setup(trusted_setup).expect("should create kzg");
@@ -608,7 +608,7 @@ where
             .validator_keypairs
             .expect("cannot build without validator keypairs");
         let trusted_setup: TrustedSetup =
-            serde_json::from_reader(eth2_network_config::TRUSTED_SETUP)
+            serde_json::from_reader(eth2_network_config::get_trusted_setup::<E::Kzg>())
                 .map_err(|e| format!("Unable to read trusted setup file: {}", e))
                 .unwrap();
 
@@ -664,6 +664,7 @@ where
             runtime: self.runtime,
             mock_execution_layer: self.mock_execution_layer,
             mock_builder: self.mock_builder.map(Arc::new),
+            blob_signature_cache: <_>::default(),
             rng: make_rng(),
         }
     }
@@ -690,7 +691,27 @@ pub struct BeaconChainHarness<T: BeaconChainTypes> {
     pub mock_execution_layer: Option<MockExecutionLayer<T::EthSpec>>,
     pub mock_builder: Option<Arc<TestingBuilder<T::EthSpec>>>,
 
+    /// Cache for blob signature because we don't need them for import, but we do need them
+    /// to test gossip validation. We always make them during block production but drop them
+    /// before storing them in the db.
+    pub blob_signature_cache: Arc<RwLock<HashMap<BlobSignatureKey, Signature>>>,
+
     pub rng: Mutex<StdRng>,
+}
+
+#[derive(Clone, Debug, Hash, Eq, PartialEq)]
+pub struct BlobSignatureKey {
+    block_root: Hash256,
+    blob_index: u64,
+}
+
+impl BlobSignatureKey {
+    pub fn new(block_root: Hash256, blob_index: u64) -> Self {
+        Self {
+            block_root,
+            blob_index,
+        }
+    }
 }
 
 pub type CommitteeAttestations<E> = Vec<(Attestation<E>, SubnetId)>;
@@ -885,10 +906,23 @@ where
                     .proposal_blob_cache
                     .pop(&signed_block.canonical_root())
                 {
-                    let signed_blobs = Vec::from(blobs)
+                    let signed_blobs: SignedBlobSidecarList<E> = Vec::from(blobs)
                         .into_iter()
                         .map(|blob| {
-                            blob.sign(
+                            // Need to overwrite the proposer index before signing, not sure of a
+                            // better way to do this.
+                            let new_blob = BlobSidecar {
+                                block_root: blob.block_root,
+                                index: blob.index,
+                                slot: blob.slot,
+                                block_parent_root: blob.block_parent_root,
+                                proposer_index: proposer_index as u64,
+                                blob: blob.blob.clone(),
+                                kzg_commitment: blob.kzg_commitment,
+                                kzg_proof: blob.kzg_proof,
+                            };
+                            let new_blob = Arc::new(new_blob);
+                            new_blob.sign(
                                 &self.validator_keypairs[proposer_index].sk,
                                 &state.fork(),
                                 state.genesis_validators_root(),
@@ -897,6 +931,13 @@ where
                         })
                         .collect::<Vec<_>>()
                         .into();
+                    let mut guard = self.blob_signature_cache.write();
+                    for blob in &signed_blobs {
+                        guard.insert(
+                            BlobSignatureKey::new(blob.message.block_root, blob.message.index),
+                            blob.signature.clone(),
+                        );
+                    }
                     (signed_block, Some(signed_blobs))
                 } else {
                     (signed_block, None)

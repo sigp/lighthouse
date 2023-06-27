@@ -20,9 +20,9 @@ use ssz_types::FixedVector;
 use std::borrow::Cow;
 use types::blob_sidecar::{BlobIdentifier, FixedBlobSidecarList};
 use types::{
-    BeaconBlockRef, BeaconState, BeaconStateError, BlobSidecar, ChainSpec, CloneConfig, Epoch,
-    EthSpec, FullPayload, Hash256, KzgCommitment, RelativeEpoch, SignedBeaconBlock,
-    SignedBeaconBlockHeader, SignedBlobSidecar, Slot,
+    BeaconBlockRef, BeaconState, BeaconStateError, BlobSidecar, BlobSidecarList, ChainSpec,
+    CloneConfig, Epoch, EthSpec, FullPayload, Hash256, KzgCommitment, RelativeEpoch,
+    SignedBeaconBlock, SignedBeaconBlockHeader, SignedBlobSidecar, Slot,
 };
 
 #[derive(Debug)]
@@ -449,7 +449,7 @@ impl<T: EthSpec> KzgVerifiedBlob<T> {
 /// Returns an error if the kzg verification check fails.
 pub fn verify_kzg_for_blob<T: EthSpec>(
     blob: Arc<BlobSidecar<T>>,
-    kzg: &Kzg,
+    kzg: &Kzg<T::Kzg>,
 ) -> Result<KzgVerifiedBlob<T>, AvailabilityCheckError> {
     let _timer = crate::metrics::start_timer(&crate::metrics::KZG_VERIFICATION_SINGLE_TIMES);
     //TODO(sean) remove clone
@@ -469,7 +469,7 @@ pub fn verify_kzg_for_blob<T: EthSpec>(
 /// in a loop since this function kzg verifies a list of blobs more efficiently.
 pub fn verify_kzg_for_blob_list<T: EthSpec>(
     blob_list: Vec<Arc<BlobSidecar<T>>>,
-    kzg: &Kzg,
+    kzg: &Kzg<T::Kzg>,
 ) -> Result<KzgVerifiedBlobList<T>, AvailabilityCheckError> {
     let _timer = crate::metrics::start_timer(&crate::metrics::KZG_VERIFICATION_BATCH_TIMES);
     let (blobs, (commitments, proofs)): (Vec<_>, (Vec<_>, Vec<_>)) = blob_list
@@ -614,6 +614,15 @@ pub enum BlockWrapper<E: EthSpec> {
 }
 
 impl<E: EthSpec> BlockWrapper<E> {
+    pub fn new(block: Arc<SignedBeaconBlock<E>>, blobs: Option<BlobSidecarList<E>>) -> Self {
+        match blobs {
+            Some(blobs) => {
+                let blobs = FixedVector::from(blobs.into_iter().map(Some).collect::<Vec<_>>());
+                BlockWrapper::BlockAndBlobs(block, blobs)
+            }
+            None => BlockWrapper::Block(block),
+        }
+    }
     pub fn deconstruct(self) -> (Arc<SignedBeaconBlock<E>>, Option<FixedBlobSidecarList<E>>) {
         match self {
             BlockWrapper::Block(block) => (block, None),

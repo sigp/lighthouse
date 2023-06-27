@@ -13,7 +13,7 @@ use beacon_chain::{
     migrate::MigratorConfig, BeaconChain, BeaconChainError, BeaconChainTypes, BeaconSnapshot,
     ChainConfig, NotifyExecutionLayer, ServerSentEventHandler, WhenSlotSkipped,
 };
-use eth2_network_config::TRUSTED_SETUP;
+use eth2_network_config::get_trusted_setup;
 use execution_layer::auth::JwtKey;
 use execution_layer::test_utils::{MockExecutionLayer, DEFAULT_JWT_SECRET, DEFAULT_TERMINAL_BLOCK};
 use fork_choice::CountUnrealized;
@@ -2117,9 +2117,10 @@ async fn weak_subjectivity_sync() {
     let store = get_store(&temp2);
     let spec = test_spec::<E>();
     let seconds_per_slot = spec.seconds_per_slot;
-    let trusted_setup: TrustedSetup = serde_json::from_reader(TRUSTED_SETUP)
-        .map_err(|e| println!("Unable to read trusted setup file: {}", e))
-        .unwrap();
+    let trusted_setup: TrustedSetup =
+        serde_json::from_reader(get_trusted_setup::<<E as EthSpec>::Kzg>())
+            .map_err(|e| println!("Unable to read trusted setup file: {}", e))
+            .unwrap();
 
     let spec = harness.spec.clone();
     let shanghai_time = spec.capella_fork_epoch.map(|epoch| {

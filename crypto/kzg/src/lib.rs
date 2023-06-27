@@ -5,6 +5,7 @@ mod trusted_setup;
 use serde_derive::{Deserialize, Serialize};
 use std::fmt::Debug;
 use std::ops::Deref;
+use std::str::FromStr;
 
 pub use crate::{kzg_commitment::KzgCommitment, kzg_proof::KzgProof, trusted_setup::TrustedSetup};
 pub use c_kzg::{Bytes32, Bytes48};
@@ -40,10 +41,27 @@ pub trait BlobTrait: Sized + Clone {
     fn from_bytes(bytes: &[u8]) -> Result<Self, Error>;
 }
 
+pub enum KzgPresetId {
+    Mainnet,
+    Minimal,
+}
+
+impl FromStr for KzgPresetId {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "mainnet" => Ok(KzgPresetId::Mainnet),
+            "minimal" => Ok(KzgPresetId::Minimal),
+            _ => Err(format!("Unknown eth spec: {}", s)),
+        }
+    }
+}
+
 pub trait KzgPreset:
     'static + Default + Sync + Send + Clone + Debug + PartialEq + Eq + for<'a> arbitrary::Arbitrary<'a>
 {
-    type KzgSettings: Debug;
+    type KzgSettings: Debug + Sync + Send;
     type Blob: BlobTrait;
     type Bytes32: From<[u8; 32]> + Deref<Target = [u8; 32]>;
     type Bytes48: From<KzgCommitment> + From<KzgProof>;
@@ -52,6 +70,8 @@ pub trait KzgPreset:
     const BYTES_PER_BLOB: usize;
     const BYTES_PER_FIELD_ELEMENT: usize;
     const FIELD_ELEMENTS_PER_BLOB: usize;
+
+    fn spec_name() -> KzgPresetId;
 
     fn bytes32_in(bytes: Bytes32) -> Self::Bytes32 {
         let bytes: [u8; 32] = *bytes;
@@ -106,7 +126,7 @@ pub trait KzgPreset:
 }
 
 macro_rules! implement_kzg_preset {
-    ($preset_type:ident, $module_name:ident) => {
+    ($preset_type:ident, $module_name:ident, $preset_id:ident) => {
         impl KzgPreset for $preset_type {
             type KzgSettings = $module_name::KzgSettings;
             type Blob = $module_name::Blob;
@@ -117,6 +137,10 @@ macro_rules! implement_kzg_preset {
             const BYTES_PER_BLOB: usize = $module_name::BYTES_PER_BLOB;
             const BYTES_PER_FIELD_ELEMENT: usize = $module_name::BYTES_PER_FIELD_ELEMENT;
             const FIELD_ELEMENTS_PER_BLOB: usize = $module_name::FIELD_ELEMENTS_PER_BLOB;
+
+            fn spec_name() -> KzgPresetId {
+                KzgPresetId::$preset_id
+            }
 
             fn load_trusted_setup(
                 trusted_setup: TrustedSetup,
@@ -224,8 +248,8 @@ pub struct MainnetKzgPreset;
 #[derive(Clone, PartialEq, Eq, Debug, Default, Serialize, Deserialize, arbitrary::Arbitrary)]
 pub struct MinimalKzgPreset;
 
-implement_kzg_preset!(MainnetKzgPreset, c_kzg);
-implement_kzg_preset!(MinimalKzgPreset, c_kzg_min);
+implement_kzg_preset!(MainnetKzgPreset, c_kzg, Mainnet);
+implement_kzg_preset!(MinimalKzgPreset, c_kzg_min, Minimal);
 
 /// A wrapper over a kzg library that holds the trusted setup parameters.
 #[derive(Debug)]

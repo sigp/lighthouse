@@ -79,7 +79,7 @@ impl From<ssz::DecodeError> for AvailabilityCheckError {
 pub struct DataAvailabilityChecker<T: BeaconChainTypes> {
     availability_cache: Arc<OverflowLRUCache<T>>,
     slot_clock: T::SlotClock,
-    kzg: Option<Arc<Kzg>>,
+    kzg: Option<Arc<Kzg<<T::EthSpec as EthSpec>::Kzg>>>,
     spec: ChainSpec,
 }
 
@@ -108,7 +108,7 @@ impl<T: EthSpec> Availability<T> {
 impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     pub fn new(
         slot_clock: T::SlotClock,
-        kzg: Option<Arc<Kzg>>,
+        kzg: Option<Arc<Kzg<<T::EthSpec as EthSpec>::Kzg>>>,
         store: BeaconStore<T>,
         spec: ChainSpec,
     ) -> Result<Self, AvailabilityCheckError> {

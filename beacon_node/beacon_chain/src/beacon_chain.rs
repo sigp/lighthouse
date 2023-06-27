@@ -115,9 +115,8 @@ use store::{
 use task_executor::{ShutdownReason, TaskExecutor};
 use tokio_stream::Stream;
 use tree_hash::TreeHash;
-use types::beacon_block_body::KzgCommitments;
 use types::beacon_state::CloneConfig;
-use types::blob_sidecar::{BlobSidecarList, Blobs};
+use types::blob_sidecar::BlobSidecarList;
 use types::consts::deneb::MIN_EPOCHS_FOR_BLOB_SIDECARS_REQUESTS;
 use types::*;
 
@@ -467,7 +466,7 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub genesis_backfill_slot: Slot,
     pub proposal_blob_cache: BlobCache<T::EthSpec>,
     pub data_availability_checker: Arc<DataAvailabilityChecker<T>>,
-    pub kzg: Option<Arc<Kzg>>,
+    pub kzg: Option<Arc<Kzg<<T::EthSpec as EthSpec>::Kzg>>>,
 }
 
 type BeaconBlockAndState<T, Payload> = (BeaconBlock<T, Payload>, BeaconState<T>);
@@ -4929,7 +4928,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         //FIXME(sean)
         // - add a new timer for processing here
-        if let Some(blobs) = blobs_opt {
+        if let (Some(blobs), Some(proofs)) = (blobs_opt, proofs_opt) {
             let kzg = self
                 .kzg
                 .as_ref()
@@ -4950,14 +4949,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 )));
             }
 
-            let kzg_proofs = if let Some(proofs) = proofs_opt {
-                Vec::from(proofs)
-            } else {
-                Self::compute_blob_kzg_proofs(kzg, &blobs, expected_kzg_commitments, slot)?
-            };
+            let kzg_proofs = Vec::from(proofs);
 
             kzg_utils::validate_blobs::<T::EthSpec>(
-                kzg,
+                kzg.as_ref(),
                 expected_kzg_commitments,
                 &blobs,
                 &kzg_proofs,
@@ -5006,29 +5001,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         );
 
         Ok((block, state))
-    }
-
-    fn compute_blob_kzg_proofs(
-        kzg: &Arc<Kzg>,
-        blobs: &Blobs<T::EthSpec>,
-        expected_kzg_commitments: &KzgCommitments<T::EthSpec>,
-        slot: Slot,
-    ) -> Result<Vec<KzgProof>, BlockProductionError> {
-        blobs
-            .iter()
-            .enumerate()
-            .map(|(blob_index, blob)| {
-                let kzg_commitment = expected_kzg_commitments.get(blob_index).ok_or(
-                    BlockProductionError::MissingKzgCommitment(format!(
-                        "Missing KZG commitment for slot {} blob index {}",
-                        slot, blob_index
-                    )),
-                )?;
-
-                kzg_utils::compute_blob_kzg_proof::<T::EthSpec>(kzg, blob, *kzg_commitment)
-                    .map_err(BlockProductionError::KzgError)
-            })
-            .collect::<Result<Vec<KzgProof>, BlockProductionError>>()
     }
 
     /// This method must be called whenever an execution engine indicates that a payload is
