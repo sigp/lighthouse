@@ -1,6 +1,7 @@
 #![cfg(not(debug_assertions))]
 
 use beacon_chain::attestation_verification::Error as AttnError;
+use beacon_chain::blob_verification::BlockWrapper;
 use beacon_chain::builder::BeaconChainBuilder;
 use beacon_chain::schema_change::migrate_schema;
 use beacon_chain::test_utils::{
@@ -13,7 +14,7 @@ use beacon_chain::{
     migrate::MigratorConfig, BeaconChain, BeaconChainError, BeaconChainTypes, BeaconSnapshot,
     ChainConfig, NotifyExecutionLayer, ServerSentEventHandler, WhenSlotSkipped,
 };
-use eth2_network_config::TRUSTED_SETUP;
+use eth2_network_config::get_trusted_setup;
 use execution_layer::auth::JwtKey;
 use execution_layer::test_utils::{MockExecutionLayer, DEFAULT_JWT_SECRET, DEFAULT_TERMINAL_BLOCK};
 use fork_choice::CountUnrealized;
@@ -2117,9 +2118,10 @@ async fn weak_subjectivity_sync() {
     let store = get_store(&temp2);
     let spec = test_spec::<E>();
     let seconds_per_slot = spec.seconds_per_slot;
-    let trusted_setup: TrustedSetup = serde_json::from_reader(TRUSTED_SETUP)
-        .map_err(|e| println!("Unable to read trusted setup file: {}", e))
-        .unwrap();
+    let trusted_setup: TrustedSetup =
+        serde_json::from_reader(get_trusted_setup::<<E as EthSpec>::Kzg>())
+            .map_err(|e| println!("Unable to read trusted setup file: {}", e))
+            .unwrap();
 
     let spec = harness.spec.clone();
     let shanghai_time = spec.capella_fork_epoch.map(|epoch| {
@@ -2177,12 +2179,14 @@ async fn weak_subjectivity_sync() {
     assert_eq!(new_blocks[0].beacon_block.slot(), wss_slot + 1);
 
     for snapshot in new_blocks {
+        let block_root = snapshot.beacon_block_root;
         let full_block = harness
             .chain
             .get_block(&snapshot.beacon_block_root)
             .await
             .unwrap()
             .unwrap();
+        let blobs = harness.chain.get_blobs(&block_root).expect("blobs");
         let slot = full_block.slot();
         let state_root = full_block.state_root();
 
@@ -2190,7 +2194,7 @@ async fn weak_subjectivity_sync() {
         beacon_chain
             .process_block(
                 full_block.canonical_root(),
-                Arc::new(full_block),
+                BlockWrapper::new(Arc::new(full_block), blobs),
                 CountUnrealized::True,
                 NotifyExecutionLayer::Yes,
             )
@@ -2238,16 +2242,19 @@ async fn weak_subjectivity_sync() {
 
     let mut available_blocks = vec![];
     for blinded in historical_blocks {
+        let block_root = blinded.canonical_root();
         let full_block = harness
             .chain
-            .get_block(&blinded.canonical_root())
+            .get_block(&block_root)
             .await
             .expect("should get block")
             .expect("should get block");
+        let blobs = harness.chain.get_blobs(&block_root).expect("blobs");
+
         if let MaybeAvailableBlock::Available(block) = harness
             .chain
             .data_availability_checker
-            .check_availability(full_block.into())
+            .check_availability(BlockWrapper::new(Arc::new(full_block), blobs))
             .expect("should check availability")
         {
             available_blocks.push(block);

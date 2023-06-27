@@ -8,7 +8,8 @@ use crate::{
     },
     ethers_tx_to_bytes, BlobsBundleV1, ExecutionBlockWithTransactions,
 };
-use kzg::{Kzg, BYTES_PER_BLOB, BYTES_PER_FIELD_ELEMENT, FIELD_ELEMENTS_PER_BLOB};
+use ethers_core::types::Transaction;
+use kzg::{Kzg, KzgPreset};
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -126,7 +127,7 @@ pub struct ExecutionBlockGenerator<T: EthSpec> {
      * deneb stuff
      */
     pub blobs_bundles: HashMap<PayloadId, BlobsBundleV1<T>>,
-    pub kzg: Option<Arc<Kzg>>,
+    pub kzg: Option<Arc<Kzg<T::Kzg>>>,
 }
 
 impl<T: EthSpec> ExecutionBlockGenerator<T> {
@@ -136,7 +137,7 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
         terminal_block_hash: ExecutionBlockHash,
         shanghai_time: Option<u64>,
         deneb_time: Option<u64>,
-        kzg: Option<Kzg>,
+        kzg: Option<Kzg<T::Kzg>>,
     ) -> Self {
         let mut gen = Self {
             head_block: <_>::default(),
@@ -404,8 +405,7 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
     }
 
     pub fn get_blobs_bundle(&mut self, id: &PayloadId) -> Option<BlobsBundleV1<T>> {
-        // remove it to free memory
-        self.blobs_bundles.remove(id)
+        self.blobs_bundles.get(id).cloned()
     }
 
     pub fn new_payload(&mut self, payload: ExecutionPayload<T>) -> PayloadStatusV1 {
@@ -627,34 +627,53 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
 
 pub fn generate_random_blobs<T: EthSpec>(
     n_blobs: usize,
-    kzg: &Kzg,
+    kzg: &Kzg<T::Kzg>,
 ) -> Result<(BlobsBundleV1<T>, Transactions<T>), String> {
     let mut bundle = BlobsBundleV1::<T>::default();
     let mut transactions = vec![];
     for blob_index in 0..n_blobs {
         // fill a vector with random bytes
-        let mut blob_bytes = [0u8; BYTES_PER_BLOB];
+        let mut blob_bytes = vec![0u8; T::Kzg::BYTES_PER_BLOB];
         rand::thread_rng().fill_bytes(&mut blob_bytes);
         // Ensure that the blob is canonical by ensuring that
         // each field element contained in the blob is < BLS_MODULUS
-        for i in 0..FIELD_ELEMENTS_PER_BLOB {
-            blob_bytes[i * BYTES_PER_FIELD_ELEMENT] = 0;
+        for i in 0..T::Kzg::FIELD_ELEMENTS_PER_BLOB {
+            blob_bytes[i * T::Kzg::BYTES_PER_FIELD_ELEMENT] = 0;
         }
 
         let blob = Blob::<T>::new(Vec::from(blob_bytes))
             .map_err(|e| format!("error constructing random blob: {:?}", e))?;
+        let kzg_blob = T::blob_from_bytes(&blob).unwrap();
 
         let commitment = kzg
-            .blob_to_kzg_commitment(blob_bytes.into())
+            .blob_to_kzg_commitment(kzg_blob.clone())
             .map_err(|e| format!("error computing kzg commitment: {:?}", e))?;
 
         let proof = kzg
-            .compute_blob_kzg_proof(blob_bytes.into(), commitment)
+            .compute_blob_kzg_proof(kzg_blob, commitment)
             .map_err(|e| format!("error computing kzg proof: {:?}", e))?;
 
         // Calculate transaction bytes. We don't care about the contents of the transaction.
-        let tx_bytes = ethers_core::types::Transaction::default();
-        let tx = ethers_tx_to_bytes::<T>(tx_bytes)
+        let tx: Transaction = serde_json::from_str(
+            r#"{
+    "blockHash":"0x1d59ff54b1eb26b013ce3cb5fc9dab3705b415a67127a003c3e61eb445bb8df2",
+    "blockNumber":"0x5daf3b",
+    "from":"0xa7d9ddbe1f17865597fbd27ec712455208b6b76d",
+    "gas":"0xc350",
+    "gasPrice":"0x4a817c800",
+    "hash":"0x88df016429689c079f3b2f6ad39fa052532c56795b733da78a91ebe6a713944b",
+    "input":"0x68656c6c6f21",
+    "nonce":"0x15",
+    "to":"0xf02c1c8e6114b1dbe8937a39260b5b0a374432bb",
+    "transactionIndex":"0x41",
+    "value":"0xf3dbb76162000",
+    "v":"0x25",
+    "r":"0x1b5e176d927f8e9ab405058b2d2457392da3e20f328b16ddabcebc33eaac5fea",
+    "s":"0x4ba69724e8f69de52f0125ad8b3c5c2cef33019bac3249e2c0a2192766d1721c"
+  }"#,
+        )
+        .unwrap();
+        let tx = ethers_tx_to_bytes::<T>(tx)
             .map_err(|e| format!("error converting tx bytes to SSZ: {:?}", e))?;
 
         transactions.push(tx);
@@ -684,7 +703,7 @@ pub fn generate_pow_block(
     terminal_block_number: u64,
     block_number: u64,
     parent_hash: ExecutionBlockHash,
-) -> Result<PoWBlock, Stgring> {
+) -> Result<PoWBlock, String> {
     if block_number > terminal_block_number {
         return Err(format!(
             "{} is beyond terminal pow block {}",

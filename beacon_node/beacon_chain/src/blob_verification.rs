@@ -4,8 +4,8 @@ use state_processing::state_advance::partial_state_advance;
 use std::sync::Arc;
 
 use crate::beacon_chain::{
-    BeaconChain, BeaconChainTypes, MAXIMUM_GOSSIP_CLOCK_DISPARITY,
-    VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT,
+    BeaconChain, BeaconChainTypes, BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT,
+    MAXIMUM_GOSSIP_CLOCK_DISPARITY, VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT,
 };
 use crate::data_availability_checker::{
     AvailabilityCheckError, AvailabilityPendingBlock, AvailableBlock,
@@ -20,9 +20,9 @@ use ssz_types::FixedVector;
 use std::borrow::Cow;
 use types::blob_sidecar::{BlobIdentifier, FixedBlobSidecarList};
 use types::{
-    BeaconBlockRef, BeaconState, BeaconStateError, BlobSidecar, ChainSpec, CloneConfig, Epoch,
-    EthSpec, FullPayload, Hash256, KzgCommitment, RelativeEpoch, SignedBeaconBlock,
-    SignedBeaconBlockHeader, SignedBlobSidecar, Slot,
+    BeaconBlockRef, BeaconState, BeaconStateError, BlobSidecar, BlobSidecarList, ChainSpec,
+    CloneConfig, Epoch, EthSpec, FullPayload, Hash256, KzgCommitment, RelativeEpoch,
+    SignedBeaconBlock, SignedBeaconBlockHeader, SignedBlobSidecar, Slot,
 };
 
 #[derive(Debug)]
@@ -240,36 +240,72 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
             "block_root" => %block_root,
             "index" => %blob_index,
         );
-        // The cached head state is in the same epoch as the blob or the state has already been
-        // advanced to the blob's epoch
-        let snapshot = &chain.canonical_head.cached_head().snapshot;
-        if snapshot.beacon_state.current_epoch() == blob_slot.epoch(T::EthSpec::slots_per_epoch()) {
-            (
-                snapshot
-                    .beacon_state
-                    .get_beacon_proposer_index(blob_slot, &chain.spec)?,
-                snapshot.beacon_state.fork(),
-            )
+        if let Some(mut snapshot) = chain
+            .snapshot_cache
+            .try_read_for(BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT)
+            .and_then(|snapshot_cache| {
+                snapshot_cache.get_cloned(block_parent_root, CloneConfig::committee_caches_only())
+            })
+        {
+            if snapshot.beacon_state.slot() == blob_slot {
+                debug!(
+                    chain.log,
+                    "Cloning snapshot cache state for blob verification";
+                    "block_root" => %block_root,
+                    "index" => %blob_index,
+                );
+                (
+                    snapshot
+                        .beacon_state
+                        .get_beacon_proposer_index(blob_slot, &chain.spec)?,
+                    snapshot.beacon_state.fork(),
+                )
+            } else {
+                debug!(
+                    chain.log,
+                    "Cloning and advancing snapshot cache state for blob verification";
+                    "block_root" => %block_root,
+                    "index" => %blob_index,
+                );
+                let state = cheap_state_advance_to_obtain_committees(
+                    &mut snapshot.beacon_state,
+                    Some(snapshot.beacon_block_root),
+                    blob_slot,
+                    &chain.spec,
+                )?;
+                (
+                    state.get_beacon_proposer_index(blob_slot, &chain.spec)?,
+                    state.fork(),
+                )
+            }
         }
         // Need to advance the state to get the proposer index
         else {
-            // Reaching this condition too often might be an issue since we could theoretically have
-            // 5 threads (4 blob indices + 1 block) cloning the state.
-            // We shouldn't be seeing this condition a lot because we try to advance the state
-            // 3 seconds before the start of a slot. However, if this becomes an issue during testing, we should
-            // consider sending a blob for reprocessing to reduce the number of state clones.
             warn!(
                 chain.log,
-                "Cached head not advanced for blob verification";
+                "Snapshot cache miss for blob verification";
                 "block_root" => %block_root,
                 "index" => %blob_index,
-                "action" => "contact the devs if you see this msg too often"
             );
-            // The state produced is only valid for determining proposer/attester shuffling indices.
-            let mut cloned_state = snapshot.clone_with(CloneConfig::committee_caches_only());
+
+            let parent_block = chain
+                .get_blinded_block(&block_parent_root)
+                .map_err(BlobError::BeaconChainError)?
+                .ok_or_else(|| {
+                    BlobError::from(BeaconChainError::MissingBeaconBlock(block_parent_root))
+                })?;
+
+            let mut parent_state = chain
+                .get_state(&parent_block.state_root(), Some(parent_block.slot()))?
+                .ok_or_else(|| {
+                    BeaconChainError::DBInconsistent(format!(
+                        "Missing state {:?}",
+                        parent_block.state_root()
+                    ))
+                })?;
             let state = cheap_state_advance_to_obtain_committees(
-                &mut cloned_state.beacon_state,
-                None,
+                &mut parent_state,
+                Some(parent_block.state_root()),
                 blob_slot,
                 &chain.spec,
             )?;
@@ -449,7 +485,7 @@ impl<T: EthSpec> KzgVerifiedBlob<T> {
 /// Returns an error if the kzg verification check fails.
 pub fn verify_kzg_for_blob<T: EthSpec>(
     blob: Arc<BlobSidecar<T>>,
-    kzg: &Kzg,
+    kzg: &Kzg<T::Kzg>,
 ) -> Result<KzgVerifiedBlob<T>, AvailabilityCheckError> {
     let _timer = crate::metrics::start_timer(&crate::metrics::KZG_VERIFICATION_SINGLE_TIMES);
     //TODO(sean) remove clone
@@ -469,7 +505,7 @@ pub fn verify_kzg_for_blob<T: EthSpec>(
 /// in a loop since this function kzg verifies a list of blobs more efficiently.
 pub fn verify_kzg_for_blob_list<T: EthSpec>(
     blob_list: Vec<Arc<BlobSidecar<T>>>,
-    kzg: &Kzg,
+    kzg: &Kzg<T::Kzg>,
 ) -> Result<KzgVerifiedBlobList<T>, AvailabilityCheckError> {
     let _timer = crate::metrics::start_timer(&crate::metrics::KZG_VERIFICATION_BATCH_TIMES);
     let (blobs, (commitments, proofs)): (Vec<_>, (Vec<_>, Vec<_>)) = blob_list
@@ -614,6 +650,15 @@ pub enum BlockWrapper<E: EthSpec> {
 }
 
 impl<E: EthSpec> BlockWrapper<E> {
+    pub fn new(block: Arc<SignedBeaconBlock<E>>, blobs: Option<BlobSidecarList<E>>) -> Self {
+        match blobs {
+            Some(blobs) => {
+                let blobs = FixedVector::from(blobs.into_iter().map(Some).collect::<Vec<_>>());
+                BlockWrapper::BlockAndBlobs(block, blobs)
+            }
+            None => BlockWrapper::Block(block),
+        }
+    }
     pub fn deconstruct(self) -> (Arc<SignedBeaconBlock<E>>, Option<FixedBlobSidecarList<E>>) {
         match self {
             BlockWrapper::Block(block) => (block, None),

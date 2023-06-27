@@ -1,6 +1,7 @@
 #![cfg(not(debug_assertions))]
 
 use beacon_chain::blob_verification::BlockWrapper;
+use beacon_chain::test_utils::BlobSignatureKey;
 use beacon_chain::{
     blob_verification::AsBlock,
     test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType},
@@ -33,7 +34,7 @@ lazy_static! {
     static ref KEYPAIRS: Vec<Keypair> = types::test_utils::generate_deterministic_keypairs(VALIDATOR_COUNT);
 }
 
-async fn get_chain_segment() -> Vec<BeaconSnapshot<E>> {
+async fn get_chain_segment() -> (Vec<BeaconSnapshot<E>>, Vec<Option<BlobSidecarList<E>>>) {
     let harness = get_harness(VALIDATOR_COUNT);
 
     harness
@@ -45,6 +46,7 @@ async fn get_chain_segment() -> Vec<BeaconSnapshot<E>> {
         .await;
 
     let mut segment = Vec::with_capacity(CHAIN_SEGMENT_LENGTH);
+    let mut segment_blobs = Vec::with_capacity(CHAIN_SEGMENT_LENGTH);
     for snapshot in harness
         .chain
         .chain_dump()
@@ -63,8 +65,76 @@ async fn get_chain_segment() -> Vec<BeaconSnapshot<E>> {
             beacon_block: Arc::new(full_block),
             beacon_state: snapshot.beacon_state,
         });
+        segment_blobs.push(
+            harness
+                .chain
+                .get_blobs(&snapshot.beacon_block_root)
+                .unwrap(),
+        )
     }
-    segment
+    (segment, segment_blobs)
+}
+
+async fn get_chain_segment_with_signed_blobs() -> (
+    Vec<BeaconSnapshot<E>>,
+    Vec<Option<VariableList<SignedBlobSidecar<E>, <E as EthSpec>::MaxBlobsPerBlock>>>,
+) {
+    let harness = get_harness(VALIDATOR_COUNT);
+
+    harness
+        .extend_chain(
+            CHAIN_SEGMENT_LENGTH,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    let mut segment = Vec::with_capacity(CHAIN_SEGMENT_LENGTH);
+    let mut segment_blobs = Vec::with_capacity(CHAIN_SEGMENT_LENGTH);
+    for snapshot in harness
+        .chain
+        .chain_dump()
+        .expect("should dump chain")
+        .into_iter()
+        .skip(1)
+    {
+        let full_block = harness
+            .chain
+            .get_block(&snapshot.beacon_block_root)
+            .await
+            .unwrap()
+            .unwrap();
+        segment.push(BeaconSnapshot {
+            beacon_block_root: snapshot.beacon_block_root,
+            beacon_block: Arc::new(full_block),
+            beacon_state: snapshot.beacon_state,
+        });
+        let signed_blobs = harness
+            .chain
+            .get_blobs(&snapshot.beacon_block_root)
+            .unwrap()
+            .map(|blobs| {
+                let blobs = blobs
+                    .into_iter()
+                    .map(|blob| {
+                        let block_root = blob.block_root;
+                        let blob_index = blob.index;
+                        SignedBlobSidecar {
+                            message: blob,
+                            signature: harness
+                                .blob_signature_cache
+                                .read()
+                                .get(&BlobSignatureKey::new(block_root, blob_index))
+                                .unwrap()
+                                .clone(),
+                        }
+                    })
+                    .collect::<Vec<_>>();
+                VariableList::from(blobs)
+            });
+        segment_blobs.push(signed_blobs)
+    }
+    (segment, segment_blobs)
 }
 
 fn get_harness(validator_count: usize) -> BeaconChainHarness<EphemeralHarnessType<E>> {
@@ -80,10 +150,14 @@ fn get_harness(validator_count: usize) -> BeaconChainHarness<EphemeralHarnessTyp
     harness
 }
 
-fn chain_segment_blocks(chain_segment: &[BeaconSnapshot<E>]) -> Vec<Arc<SignedBeaconBlock<E>>> {
+fn chain_segment_blocks(
+    chain_segment: &[BeaconSnapshot<E>],
+    blobs: &[Option<BlobSidecarList<E>>],
+) -> Vec<BlockWrapper<E>> {
     chain_segment
         .iter()
-        .map(|snapshot| snapshot.beacon_block.clone().into())
+        .zip(blobs.into_iter())
+        .map(|(snapshot, blobs)| BlockWrapper::new(snapshot.beacon_block.clone(), blobs.clone()))
         .collect()
 }
 
@@ -139,8 +213,8 @@ fn update_parent_roots(snapshots: &mut [BeaconSnapshot<E>]) {
 #[tokio::test]
 async fn chain_segment_full_segment() {
     let harness = get_harness(VALIDATOR_COUNT);
-    let chain_segment = get_chain_segment().await;
-    let blocks: Vec<BlockWrapper<E>> = chain_segment_blocks(&chain_segment)
+    let (chain_segment, chain_segment_blobs) = get_chain_segment().await;
+    let blocks: Vec<BlockWrapper<E>> = chain_segment_blocks(&chain_segment, &chain_segment_blobs)
         .into_iter()
         .map(|block| block.into())
         .collect();
@@ -182,11 +256,12 @@ async fn chain_segment_full_segment() {
 async fn chain_segment_varying_chunk_size() {
     for chunk_size in &[1, 2, 3, 5, 31, 32, 33, 42] {
         let harness = get_harness(VALIDATOR_COUNT);
-        let chain_segment = get_chain_segment().await;
-        let blocks: Vec<BlockWrapper<E>> = chain_segment_blocks(&chain_segment)
-            .into_iter()
-            .map(|block| block.into())
-            .collect();
+        let (chain_segment, chain_segment_blobs) = get_chain_segment().await;
+        let blocks: Vec<BlockWrapper<E>> =
+            chain_segment_blocks(&chain_segment, &chain_segment_blobs)
+                .into_iter()
+                .map(|block| block.into())
+                .collect();
 
         harness
             .chain
@@ -219,7 +294,7 @@ async fn chain_segment_varying_chunk_size() {
 #[tokio::test]
 async fn chain_segment_non_linear_parent_roots() {
     let harness = get_harness(VALIDATOR_COUNT);
-    let chain_segment = get_chain_segment().await;
+    let (chain_segment, chain_segment_blobs) = get_chain_segment().await;
 
     harness
         .chain
@@ -229,10 +304,11 @@ async fn chain_segment_non_linear_parent_roots() {
     /*
      * Test with a block removed.
      */
-    let mut blocks: Vec<BlockWrapper<E>> = chain_segment_blocks(&chain_segment)
-        .into_iter()
-        .map(|block| block.into())
-        .collect();
+    let mut blocks: Vec<BlockWrapper<E>> =
+        chain_segment_blocks(&chain_segment, &chain_segment_blobs)
+            .into_iter()
+            .map(|block| block.into())
+            .collect();
     blocks.remove(2);
 
     assert!(
@@ -250,10 +326,11 @@ async fn chain_segment_non_linear_parent_roots() {
     /*
      * Test with a modified parent root.
      */
-    let mut blocks: Vec<BlockWrapper<E>> = chain_segment_blocks(&chain_segment)
-        .into_iter()
-        .map(|block| block.into())
-        .collect();
+    let mut blocks: Vec<BlockWrapper<E>> =
+        chain_segment_blocks(&chain_segment, &chain_segment_blobs)
+            .into_iter()
+            .map(|block| block.into())
+            .collect();
 
     let (mut block, signature) = blocks[3].as_block().clone().deconstruct();
     *block.parent_root_mut() = Hash256::zero();
@@ -275,7 +352,7 @@ async fn chain_segment_non_linear_parent_roots() {
 #[tokio::test]
 async fn chain_segment_non_linear_slots() {
     let harness = get_harness(VALIDATOR_COUNT);
-    let chain_segment = get_chain_segment().await;
+    let (chain_segment, chain_segment_blobs) = get_chain_segment().await;
     harness
         .chain
         .slot_clock
@@ -285,10 +362,11 @@ async fn chain_segment_non_linear_slots() {
      * Test where a child is lower than the parent.
      */
 
-    let mut blocks: Vec<BlockWrapper<E>> = chain_segment_blocks(&chain_segment)
-        .into_iter()
-        .map(|block| block.into())
-        .collect();
+    let mut blocks: Vec<BlockWrapper<E>> =
+        chain_segment_blocks(&chain_segment, &chain_segment_blobs)
+            .into_iter()
+            .map(|block| block.into())
+            .collect();
     let (mut block, signature) = blocks[3].as_block().clone().deconstruct();
     *block.slot_mut() = Slot::new(0);
     blocks[3] = Arc::new(SignedBeaconBlock::from_block(block, signature)).into();
@@ -309,10 +387,11 @@ async fn chain_segment_non_linear_slots() {
      * Test where a child is equal to the parent.
      */
 
-    let mut blocks: Vec<BlockWrapper<E>> = chain_segment_blocks(&chain_segment)
-        .into_iter()
-        .map(|block| block.into())
-        .collect();
+    let mut blocks: Vec<BlockWrapper<E>> =
+        chain_segment_blocks(&chain_segment, &chain_segment_blobs)
+            .into_iter()
+            .map(|block| block.into())
+            .collect();
     let (mut block, signature) = blocks[3].as_block().clone().deconstruct();
     *block.slot_mut() = blocks[2].slot();
     blocks[3] = Arc::new(SignedBeaconBlock::from_block(block, signature)).into();
@@ -332,6 +411,7 @@ async fn chain_segment_non_linear_slots() {
 
 async fn assert_invalid_signature(
     chain_segment: &[BeaconSnapshot<E>],
+    chain_segment_blobs: &[Option<BlobSidecarList<E>>],
     harness: &BeaconChainHarness<EphemeralHarnessType<E>>,
     block_index: usize,
     snapshots: &[BeaconSnapshot<E>],
@@ -339,7 +419,8 @@ async fn assert_invalid_signature(
 ) {
     let blocks: Vec<BlockWrapper<E>> = snapshots
         .iter()
-        .map(|snapshot| snapshot.beacon_block.clone().into())
+        .zip(chain_segment_blobs.iter())
+        .map(|(snapshot, blobs)| BlockWrapper::new(snapshot.beacon_block.clone(), blobs.clone()))
         .collect();
 
     // Ensure the block will be rejected if imported in a chain segment.
@@ -363,7 +444,8 @@ async fn assert_invalid_signature(
     let ancestor_blocks = chain_segment
         .iter()
         .take(block_index)
-        .map(|snapshot| snapshot.beacon_block.clone().into())
+        .zip(chain_segment_blobs.iter())
+        .map(|(snapshot, blobs)| BlockWrapper::new(snapshot.beacon_block.clone(), blobs.clone()))
         .collect();
     // We don't care if this fails, we just call this to ensure that all prior blocks have been
     // imported prior to this test.
@@ -381,7 +463,10 @@ async fn assert_invalid_signature(
         .chain
         .process_block(
             snapshots[block_index].beacon_block.canonical_root(),
-            snapshots[block_index].beacon_block.clone(),
+            BlockWrapper::new(
+                snapshots[block_index].beacon_block.clone(),
+                chain_segment_blobs[block_index].clone(),
+            ),
             CountUnrealized::True,
             NotifyExecutionLayer::Yes,
         )
@@ -413,7 +498,7 @@ async fn get_invalid_sigs_harness(
 }
 #[tokio::test]
 async fn invalid_signature_gossip_block() {
-    let chain_segment = get_chain_segment().await;
+    let (chain_segment, chain_segment_blobs) = get_chain_segment().await;
     for &block_index in BLOCK_INDICES {
         // Ensure the block will be rejected if imported on its own (without gossip checking).
         let harness = get_invalid_sigs_harness(&chain_segment).await;
@@ -431,7 +516,10 @@ async fn invalid_signature_gossip_block() {
         let ancestor_blocks = chain_segment
             .iter()
             .take(block_index)
-            .map(|snapshot| snapshot.beacon_block.clone().into())
+            .zip(chain_segment_blobs.iter())
+            .map(|(snapshot, blobs)| {
+                BlockWrapper::new(snapshot.beacon_block.clone(), blobs.clone())
+            })
             .collect();
         harness
             .chain
@@ -464,7 +552,7 @@ async fn invalid_signature_gossip_block() {
 
 #[tokio::test]
 async fn invalid_signature_block_proposal() {
-    let chain_segment = get_chain_segment().await;
+    let (chain_segment, chain_segment_blobs) = get_chain_segment().await;
     for &block_index in BLOCK_INDICES {
         let harness = get_invalid_sigs_harness(&chain_segment).await;
         let mut snapshots = chain_segment.clone();
@@ -479,7 +567,10 @@ async fn invalid_signature_block_proposal() {
         ));
         let blocks: Vec<BlockWrapper<E>> = snapshots
             .iter()
-            .map(|snapshot| snapshot.beacon_block.clone().into())
+            .zip(chain_segment_blobs.iter())
+            .map(|(snapshot, blobs)| {
+                BlockWrapper::new(snapshot.beacon_block.clone(), blobs.clone())
+            })
             .collect::<Vec<_>>();
         // Ensure the block will be rejected if imported in a chain segment.
         assert!(
@@ -498,7 +589,7 @@ async fn invalid_signature_block_proposal() {
 
 #[tokio::test]
 async fn invalid_signature_randao_reveal() {
-    let chain_segment = get_chain_segment().await;
+    let (chain_segment, chain_segment_blobs) = get_chain_segment().await;
     for &block_index in BLOCK_INDICES {
         let harness = get_invalid_sigs_harness(&chain_segment).await;
         let mut snapshots = chain_segment.clone();
@@ -512,13 +603,21 @@ async fn invalid_signature_randao_reveal() {
             Arc::new(SignedBeaconBlock::from_block(block, signature));
         update_parent_roots(&mut snapshots);
         update_proposal_signatures(&mut snapshots, &harness);
-        assert_invalid_signature(&chain_segment, &harness, block_index, &snapshots, "randao").await;
+        assert_invalid_signature(
+            &chain_segment,
+            &chain_segment_blobs,
+            &harness,
+            block_index,
+            &snapshots,
+            "randao",
+        )
+        .await;
     }
 }
 
 #[tokio::test]
 async fn invalid_signature_proposer_slashing() {
-    let chain_segment = get_chain_segment().await;
+    let (chain_segment, chain_segment_blobs) = get_chain_segment().await;
     for &block_index in BLOCK_INDICES {
         let harness = get_invalid_sigs_harness(&chain_segment).await;
         let mut snapshots = chain_segment.clone();
@@ -548,6 +647,7 @@ async fn invalid_signature_proposer_slashing() {
         update_proposal_signatures(&mut snapshots, &harness);
         assert_invalid_signature(
             &chain_segment,
+            &chain_segment_blobs,
             &harness,
             block_index,
             &snapshots,
@@ -559,7 +659,7 @@ async fn invalid_signature_proposer_slashing() {
 
 #[tokio::test]
 async fn invalid_signature_attester_slashing() {
-    let chain_segment = get_chain_segment().await;
+    let (chain_segment, chain_segment_blobs) = get_chain_segment().await;
     for &block_index in BLOCK_INDICES {
         let harness = get_invalid_sigs_harness(&chain_segment).await;
         let mut snapshots = chain_segment.clone();
@@ -600,6 +700,7 @@ async fn invalid_signature_attester_slashing() {
         update_proposal_signatures(&mut snapshots, &harness);
         assert_invalid_signature(
             &chain_segment,
+            &chain_segment_blobs,
             &harness,
             block_index,
             &snapshots,
@@ -611,7 +712,7 @@ async fn invalid_signature_attester_slashing() {
 
 #[tokio::test]
 async fn invalid_signature_attestation() {
-    let chain_segment = get_chain_segment().await;
+    let (chain_segment, chain_segment_blobs) = get_chain_segment().await;
     let mut checked_attestation = false;
 
     for &block_index in BLOCK_INDICES {
@@ -630,6 +731,7 @@ async fn invalid_signature_attestation() {
             update_proposal_signatures(&mut snapshots, &harness);
             assert_invalid_signature(
                 &chain_segment,
+                &chain_segment_blobs,
                 &harness,
                 block_index,
                 &snapshots,
@@ -648,7 +750,7 @@ async fn invalid_signature_attestation() {
 
 #[tokio::test]
 async fn invalid_signature_deposit() {
-    let chain_segment = get_chain_segment().await;
+    let (chain_segment, chain_segment_blobs) = get_chain_segment().await;
     for &block_index in BLOCK_INDICES {
         // Note: an invalid deposit signature is permitted!
         let harness = get_invalid_sigs_harness(&chain_segment).await;
@@ -678,7 +780,10 @@ async fn invalid_signature_deposit() {
         update_proposal_signatures(&mut snapshots, &harness);
         let blocks: Vec<BlockWrapper<E>> = snapshots
             .iter()
-            .map(|snapshot| snapshot.beacon_block.clone().into())
+            .zip(chain_segment_blobs.iter())
+            .map(|(snapshot, blobs)| {
+                BlockWrapper::new(snapshot.beacon_block.clone(), blobs.clone())
+            })
             .collect();
         assert!(
             !matches!(
@@ -696,7 +801,7 @@ async fn invalid_signature_deposit() {
 
 #[tokio::test]
 async fn invalid_signature_exit() {
-    let chain_segment = get_chain_segment().await;
+    let (chain_segment, chain_segment_blobs) = get_chain_segment().await;
     for &block_index in BLOCK_INDICES {
         let harness = get_invalid_sigs_harness(&chain_segment).await;
         let mut snapshots = chain_segment.clone();
@@ -723,6 +828,7 @@ async fn invalid_signature_exit() {
         update_proposal_signatures(&mut snapshots, &harness);
         assert_invalid_signature(
             &chain_segment,
+            &chain_segment_blobs,
             &harness,
             block_index,
             &snapshots,
@@ -742,7 +848,7 @@ fn unwrap_err<T, E>(result: Result<T, E>) -> E {
 #[tokio::test]
 async fn block_gossip_verification() {
     let harness = get_harness(VALIDATOR_COUNT);
-    let chain_segment = get_chain_segment().await;
+    let (chain_segment, chain_segment_blobs) = get_chain_segment_with_signed_blobs().await;
 
     let block_index = CHAIN_SEGMENT_LENGTH - 2;
 
@@ -752,7 +858,10 @@ async fn block_gossip_verification() {
         .set_slot(chain_segment[block_index].beacon_block.slot().as_u64());
 
     // Import the ancestors prior to the block we're testing.
-    for snapshot in &chain_segment[0..block_index] {
+    for (snapshot, blobs_opt) in chain_segment[0..block_index]
+        .iter()
+        .zip(chain_segment_blobs.iter())
+    {
         let gossip_verified = harness
             .chain
             .verify_block_for_gossip(snapshot.beacon_block.clone().into())
@@ -769,6 +878,21 @@ async fn block_gossip_verification() {
             )
             .await
             .expect("should import valid gossip verified block");
+        if let Some(blobs) = blobs_opt {
+            for blob in blobs {
+                let blob_index = blob.message.index;
+                let gossip_verified = harness
+                    .chain
+                    .verify_blob_sidecar_for_gossip(blob.clone(), blob_index)
+                    .expect("should obtain gossip verified blob");
+
+                harness
+                    .chain
+                    .process_blob(gossip_verified, CountUnrealized::True)
+                    .await
+                    .expect("should import valid gossip verified blob");
+            }
+        }
     }
 
     // Recompute the head to ensure we cache the latest view of fork choice.
@@ -1026,14 +1150,29 @@ async fn verify_block_for_gossip_slashing_detection() {
     harness.advance_slot();
 
     let state = harness.get_current_state();
-    let ((block1, _), _) = harness.make_block(state.clone(), Slot::new(1)).await;
-    let ((block2, _), _) = harness.make_block(state, Slot::new(1)).await;
+    let ((block1, blobs1), _) = harness.make_block(state.clone(), Slot::new(1)).await;
+    let ((block2, _blobs2), _) = harness.make_block(state, Slot::new(1)).await;
 
     let verified_block = harness
         .chain
         .verify_block_for_gossip(Arc::new(block1).into())
         .await
         .unwrap();
+
+    if let Some(blobs) = blobs1 {
+        for blob in blobs {
+            let blob_index = blob.message.index;
+            let verified_blob = harness
+                .chain
+                .verify_blob_sidecar_for_gossip(blob, blob_index)
+                .unwrap();
+            harness
+                .chain
+                .process_blob(verified_blob, CountUnrealized::True)
+                .await
+                .unwrap();
+        }
+    }
     harness
         .chain
         .process_block(

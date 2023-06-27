@@ -1,4 +1,4 @@
-use c_kzg::{Bytes48, BYTES_PER_COMMITMENT};
+use c_kzg::BYTES_PER_COMMITMENT;
 use derivative::Derivative;
 use ethereum_hashing::hash_fixed;
 use serde::de::{Deserialize, Deserializer};
@@ -14,7 +14,7 @@ pub const BLOB_COMMITMENT_VERSION_KZG: u8 = 0x01;
 #[derive(Derivative, Clone, Copy, Encode, Decode)]
 #[derivative(PartialEq, Eq, Hash)]
 #[ssz(struct_behaviour = "transparent")]
-pub struct KzgCommitment(pub [u8; BYTES_PER_COMMITMENT]);
+pub struct KzgCommitment(pub [u8; c_kzg::BYTES_PER_COMMITMENT]);
 
 impl KzgCommitment {
     pub fn calculate_versioned_hash(&self) -> Hash256 {
@@ -24,7 +24,13 @@ impl KzgCommitment {
     }
 }
 
-impl From<KzgCommitment> for Bytes48 {
+impl From<KzgCommitment> for c_kzg::Bytes48 {
+    fn from(value: KzgCommitment) -> Self {
+        value.0.into()
+    }
+}
+
+impl From<KzgCommitment> for c_kzg_min::Bytes48 {
     fn from(value: KzgCommitment) -> Self {
         value.0.into()
     }
