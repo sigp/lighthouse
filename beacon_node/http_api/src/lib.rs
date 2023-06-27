@@ -2337,20 +2337,19 @@ pub fn serve<T: BeaconChainTypes>(
         .and_then(
             |network_globals: Arc<NetworkGlobals<T::EthSpec>>, chain: Arc<BeaconChain<T>>| {
                 async move {
-
                     let el_offline = if let Some(el) = &chain.execution_layer {
                         el.is_offline_or_erroring().await
                     } else {
                         true
                     };
 
-                    blocking_response_task( move || {
+                    blocking_response_task(move || {
 
                         let is_optimistic = chain
                             .is_optimistic_or_invalid_head()
                             .map_err(warp_utils::reject::beacon_chain_error)?;
 
-                        let is_syncing = network_globals.sync_state.read().is_syncing();
+                        let is_syncing = !network_globals.sync_state.read().is_synced();
 
                         if el_offline {
                             Err(warp_utils::reject::not_synced("execution layer is offline".to_string()))
