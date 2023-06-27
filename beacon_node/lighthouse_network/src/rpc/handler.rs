@@ -29,7 +29,7 @@ use std::{
 };
 use tokio::time::{sleep_until, Instant as TInstant, Sleep};
 use tokio_util::time::{delay_queue, DelayQueue};
-use types::{EthSpec, ForkContext};
+use types::{ChainSpec, EthSpec, ForkContext};
 
 /// The number of times to retry an outbound upgrade in the case of IO errors.
 const IO_ERROR_RETRIES: u8 = 3;
@@ -128,6 +128,9 @@ where
 
     /// Logger for handling RPC streams
     log: slog::Logger,
+
+    /// ChainSpec for networking constants
+    chain_spec: ChainSpec,
 }
 
 enum HandlerState {
@@ -210,6 +213,7 @@ where
         listen_protocol: SubstreamProtocol<RPCProtocol<TSpec>, ()>,
         fork_context: Arc<ForkContext>,
         log: &slog::Logger,
+        spec: &ChainSpec,
     ) -> Self {
         RPCHandler {
             listen_protocol,
@@ -228,6 +232,7 @@ where
             fork_context,
             waker: None,
             log: log.clone(),
+            chain_spec: spec.clone(),
         }
     }
 
@@ -348,7 +353,7 @@ where
             // new outbound request. Store the stream and tag the output.
             let delay_key = self.outbound_substreams_delay.insert(
                 self.current_outbound_substream_id,
-                Duration::from_secs(TSpec::default_spec().resp_timeout),
+                Duration::from_secs(self.chain_spec.resp_timeout),
             );
             let awaiting_stream = OutboundSubstreamState::RequestPendingResponse {
                 substream: Box::new(out),
@@ -399,7 +404,7 @@ where
                 // Store the stream and tag the output.
                 let delay_key = self.inbound_substreams_delay.insert(
                     self.current_inbound_substream_id,
-                    Duration::from_secs(TSpec::default_spec().resp_timeout),
+                    Duration::from_secs(self.chain_spec.resp_timeout),
                 );
                 let awaiting_stream = InboundState::Idle(substream);
                 self.inbound_substreams.insert(
@@ -712,7 +717,7 @@ where
                                 if let Some(ref delay_key) = info.delay_key {
                                     self.inbound_substreams_delay.reset(
                                         delay_key,
-                                        Duration::from_secs(TSpec::default_spec().resp_timeout),
+                                        Duration::from_secs(self.chain_spec.resp_timeout),
                                     );
                                 }
 
@@ -848,7 +853,7 @@ where
                                 substream_entry.remaining_chunks = Some(remaining_chunks);
                                 self.outbound_substreams_delay.reset(
                                     delay_key,
-                                    Duration::from_secs(TSpec::default_spec().resp_timeout),
+                                    Duration::from_secs(self.chain_spec.resp_timeout),
                                 );
                             }
                         } else {

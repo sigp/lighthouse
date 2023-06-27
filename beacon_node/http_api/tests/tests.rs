@@ -2259,7 +2259,9 @@ impl ApiTester {
             .unwrap();
 
         self.chain.slot_clock.set_current_time(
-            current_epoch_start - Duration::from_millis(self.chain.spec.maximum_gossip_clock_disparity_millis) - Duration::from_millis(1),
+            current_epoch_start
+                - Duration::from_millis(self.chain.spec.maximum_gossip_clock_disparity_millis)
+                - Duration::from_millis(1),
         );
 
         let dependent_root = self
@@ -2296,9 +2298,10 @@ impl ApiTester {
             "should not get attester duties outside of tolerance"
         );
 
-        self.chain
-            .slot_clock
-            .set_current_time(current_epoch_start - Duration::from_millis(self.chain.spec.maximum_gossip_clock_disparity_millis));
+        self.chain.slot_clock.set_current_time(
+            current_epoch_start
+                - Duration::from_millis(self.chain.spec.maximum_gossip_clock_disparity_millis),
+        );
 
         self.client
             .get_validator_duties_proposer(current_epoch)

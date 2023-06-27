@@ -17,7 +17,7 @@ use slog::{crit, debug, o};
 use std::marker::PhantomData;
 use std::sync::Arc;
 use std::task::{Context, Poll};
-use types::{EthSpec, ForkContext};
+use types::{ChainSpec, EthSpec, ForkContext};
 
 pub(crate) use handler::HandlerErr;
 pub(crate) use methods::{MetaData, MetaDataV1, MetaDataV2, Ping, RPCCodedResponse, RPCResponse};
@@ -120,6 +120,8 @@ pub struct RPC<Id: ReqId, TSpec: EthSpec> {
     enable_light_client_server: bool,
     /// Slog logger for RPC behaviour.
     log: slog::Logger,
+    /// ChainSpec for networking constants
+    chain_spec: ChainSpec,
 }
 
 impl<Id: ReqId, TSpec: EthSpec> RPC<Id, TSpec> {
@@ -129,6 +131,7 @@ impl<Id: ReqId, TSpec: EthSpec> RPC<Id, TSpec> {
         inbound_rate_limiter_config: Option<InboundRateLimiterConfig>,
         outbound_rate_limiter_config: Option<OutboundRateLimiterConfig>,
         log: slog::Logger,
+        spec: ChainSpec,
     ) -> Self {
         let log = log.new(o!("service" => "libp2p_rpc"));
 
@@ -149,6 +152,7 @@ impl<Id: ReqId, TSpec: EthSpec> RPC<Id, TSpec> {
             fork_context,
             enable_light_client_server,
             log,
+            chain_spec: spec,
         }
     }
 
@@ -223,6 +227,7 @@ where
             ),
             self.fork_context.clone(),
             &self.log,
+            &self.chain_spec,
         )
     }
 

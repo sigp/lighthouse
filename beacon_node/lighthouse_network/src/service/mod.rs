@@ -41,10 +41,10 @@ use std::{
     sync::Arc,
     task::{Context, Poll},
 };
-use types::ForkName;
 use types::{
     consts::altair::SYNC_COMMITTEE_SUBNET_COUNT, EnrForkId, EthSpec, ForkContext, Slot, SubnetId,
 };
+use types::{ChainSpec, ForkName};
 use utils::{build_transport, strip_peer_id, Context as ServiceContext, MAX_CONNECTIONS_PER_PEER};
 
 pub mod api_types;
@@ -143,6 +143,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
         executor: task_executor::TaskExecutor,
         ctx: ServiceContext<'_>,
         log: &slog::Logger,
+        spec: &ChainSpec,
     ) -> error::Result<(Self, Arc<NetworkGlobals<TSpec>>)> {
         let log = log.new(o!("service"=> "libp2p"));
         let mut config = ctx.config.clone();
@@ -273,6 +274,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
             config.inbound_rate_limiter_config.clone(),
             config.outbound_rate_limiter_config.clone(),
             log.clone(),
+            spec.clone(),
         );
 
         let discovery = {

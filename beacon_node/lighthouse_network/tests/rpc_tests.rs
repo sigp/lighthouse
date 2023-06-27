@@ -57,10 +57,12 @@ fn test_status_rpc() {
 
     let log = common::build_log(log_level, enable_logging);
 
+    let spec = E::default_spec();
+
     rt.block_on(async {
         // get sender/receiver
         let (mut sender, mut receiver) =
-            common::build_node_pair(Arc::downgrade(&rt), &log, ForkName::Base).await;
+            common::build_node_pair(Arc::downgrade(&rt), &log, ForkName::Base, &spec).await;
 
         // Dummy STATUS RPC message
         let rpc_request = Request::Status(StatusMessage {
@@ -149,10 +151,12 @@ fn test_blocks_by_range_chunked_rpc() {
 
     let rt = Arc::new(Runtime::new().unwrap());
 
+    let spec = E::default_spec();
+
     rt.block_on(async {
         // get sender/receiver
         let (mut sender, mut receiver) =
-            common::build_node_pair(Arc::downgrade(&rt), &log, ForkName::Merge).await;
+            common::build_node_pair(Arc::downgrade(&rt), &log, ForkName::Merge, &spec).await;
 
         // BlocksByRange Request
         let rpc_request = Request::BlocksByRange(BlocksByRangeRequest::new(0, messages_to_send));
@@ -273,10 +277,12 @@ fn test_blocks_by_range_over_limit() {
 
     let rt = Arc::new(Runtime::new().unwrap());
 
+    let spec = E::default_spec();
+
     rt.block_on(async {
         // get sender/receiver
         let (mut sender, mut receiver) =
-            common::build_node_pair(Arc::downgrade(&rt), &log, ForkName::Merge).await;
+            common::build_node_pair(Arc::downgrade(&rt), &log, ForkName::Merge, &spec).await;
 
         // BlocksByRange Request
         let rpc_request = Request::BlocksByRange(BlocksByRangeRequest::new(0, messages_to_send));
@@ -355,10 +361,12 @@ fn test_blocks_by_range_chunked_rpc_terminates_correctly() {
 
     let rt = Arc::new(Runtime::new().unwrap());
 
+    let spec = E::default_spec();
+
     rt.block_on(async {
         // get sender/receiver
         let (mut sender, mut receiver) =
-            common::build_node_pair(Arc::downgrade(&rt), &log, ForkName::Base).await;
+            common::build_node_pair(Arc::downgrade(&rt), &log, ForkName::Base, &spec).await;
 
         // BlocksByRange Request
         let rpc_request = Request::BlocksByRange(BlocksByRangeRequest::new(0, messages_to_send));
@@ -475,10 +483,12 @@ fn test_blocks_by_range_single_empty_rpc() {
     let log = common::build_log(log_level, enable_logging);
     let rt = Arc::new(Runtime::new().unwrap());
 
+    let spec = E::default_spec();
+
     rt.block_on(async {
         // get sender/receiver
         let (mut sender, mut receiver) =
-            common::build_node_pair(Arc::downgrade(&rt), &log, ForkName::Base).await;
+            common::build_node_pair(Arc::downgrade(&rt), &log, ForkName::Base, &spec).await;
 
         // BlocksByRange Request
         let rpc_request = Request::BlocksByRange(BlocksByRangeRequest::new(0, 10));
@@ -579,7 +589,7 @@ fn test_blocks_by_root_chunked_rpc() {
     // get sender/receiver
     rt.block_on(async {
         let (mut sender, mut receiver) =
-            common::build_node_pair(Arc::downgrade(&rt), &log, ForkName::Merge).await;
+            common::build_node_pair(Arc::downgrade(&rt), &log, ForkName::Merge, &spec).await;
 
         // BlocksByRoot Request
         let rpc_request =
@@ -706,7 +716,7 @@ fn test_blocks_by_root_chunked_rpc_terminates_correctly() {
     // get sender/receiver
     rt.block_on(async {
         let (mut sender, mut receiver) =
-            common::build_node_pair(Arc::downgrade(&rt), &log, ForkName::Base).await;
+            common::build_node_pair(Arc::downgrade(&rt), &log, ForkName::Base, &spec).await;
 
         // BlocksByRoot Request
         let rpc_request =
@@ -833,10 +843,13 @@ fn test_goodbye_rpc() {
     let log = common::build_log(log_level, enable_logging);
 
     let rt = Arc::new(Runtime::new().unwrap());
+
+    let spec = E::default_spec();
+
     // get sender/receiver
     rt.block_on(async {
         let (mut sender, mut receiver) =
-            common::build_node_pair(Arc::downgrade(&rt), &log, ForkName::Base).await;
+            common::build_node_pair(Arc::downgrade(&rt), &log, ForkName::Base, &spec).await;
 
         // build the sender future
         let sender_future = async {

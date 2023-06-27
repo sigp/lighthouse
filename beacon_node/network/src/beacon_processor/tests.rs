@@ -476,9 +476,9 @@ async fn import_gossip_block_acceptably_early() {
         .start_of(rig.next_block.slot())
         .unwrap();
 
-    rig.chain
-        .slot_clock
-        .set_current_time(slot_start - Duration::from_millis(rig.chain.spec.maximum_gossip_clock_disparity_millis));
+    rig.chain.slot_clock.set_current_time(
+        slot_start - Duration::from_millis(rig.chain.spec.maximum_gossip_clock_disparity_millis),
+    );
 
     assert_eq!(
         rig.chain.slot().unwrap(),
@@ -525,9 +525,11 @@ async fn import_gossip_block_unacceptably_early() {
         .start_of(rig.next_block.slot())
         .unwrap();
 
-    rig.chain
-        .slot_clock
-        .set_current_time(slot_start - Duration::from_millis(rig.chain.spec.maximum_gossip_clock_disparity_millis) - Duration::from_millis(1));
+    rig.chain.slot_clock.set_current_time(
+        slot_start
+            - Duration::from_millis(rig.chain.spec.maximum_gossip_clock_disparity_millis)
+            - Duration::from_millis(1),
+    );
 
     assert_eq!(
         rig.chain.slot().unwrap(),

@@ -281,8 +281,13 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         };
 
         // launch libp2p service
-        let (mut libp2p, network_globals) =
-            Network::new(executor.clone(), service_context, &network_log).await?;
+        let (mut libp2p, network_globals) = Network::new(
+            executor.clone(),
+            service_context,
+            &network_log,
+            &beacon_chain.spec,
+        )
+        .await?;
 
         // Repopulate the DHT with stored ENR's if discovery is not disabled.
         if !config.disable_discovery {
