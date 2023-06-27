@@ -67,8 +67,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 /// Forwards root iterator that makes use of a flat field table in the freezer DB.
 pub struct FrozenForwardsIterator<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> {
     inner: ColumnIter<'a, Vec<u8>>,
-    limit: Slot,
-    finished: bool,
+    next_slot: Slot,
+    end_slot: Slot,
     _phantom: PhantomData<(E, Hot, Cold)>,
 }
 
@@ -88,8 +88,8 @@ impl<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>
         let start = start_slot.as_u64().to_be_bytes();
         Self {
             inner: store.cold_db.iter_column_from(column, &start),
-            limit: end_slot,
-            finished: false,
+            next_slot: start_slot,
+            end_slot,
             _phantom: PhantomData,
         }
     }
@@ -101,7 +101,7 @@ impl<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> Iterator
     type Item = Result<(Hash256, Slot)>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.finished {
+        if self.next_slot == self.end_slot {
             return None;
         }
 
@@ -114,9 +114,9 @@ impl<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> Iterator
                     let slot = Slot::new(u64::from_be_bytes(slot_bytes.try_into().unwrap()));
                     let root = Hash256::from_slice(&root_bytes);
 
-                    if slot + 1 == self.limit {
-                        self.finished = true;
-                    }
+                    assert_eq!(slot, self.next_slot);
+                    self.next_slot += 1;
+
                     Ok(Some((root, slot)))
                 }
             })
@@ -144,6 +144,7 @@ pub enum HybridForwardsIterator<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemSto
     PreFinalization {
         iter: Box<FrozenForwardsIterator<'a, E, Hot, Cold>>,
         store: &'a HotColdDB<E, Hot, Cold>,
+        end_slot: Option<Slot>,
         /// Data required by the `PostFinalization` iterator when we get to it.
         continuation_data: Option<Box<(BeaconState<E>, Hash256)>>,
         column: DBColumn,
@@ -157,6 +158,7 @@ pub enum HybridForwardsIterator<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemSto
     PostFinalization {
         iter: SimpleForwardsIterator,
     },
+    Finished,
 }
 
 impl<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>
@@ -183,7 +185,6 @@ impl<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>
     ) -> Result<Self> {
         use HybridForwardsIterator::*;
 
-        // FIXME(sproul): consider whether this is 100% correct
         let split_slot = store.get_split_slot();
 
         let result = if start_slot < split_slot {
@@ -202,6 +203,7 @@ impl<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>
             PreFinalization {
                 iter,
                 store,
+                end_slot,
                 continuation_data,
                 column,
             }
@@ -224,6 +226,7 @@ impl<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>
             PreFinalization {
                 iter,
                 store,
+                end_slot,
                 continuation_data,
                 column,
             } => {
@@ -233,8 +236,15 @@ impl<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>
                     // to a post-finalization iterator beginning from the last slot
                     // of the pre iterator.
                     None => {
+                        // If the iterator has an end slot (inclusive) which has already been
+                        // covered by the (exclusive) frozen forwards iterator, then we're done!
+                        if end_slot.map_or(false, |end_slot| iter.end_slot == end_slot + 1) {
+                            *self = Finished;
+                            return Ok(None);
+                        }
+
                         let continuation_data = continuation_data.take();
-                        let start_slot = iter.limit;
+                        let start_slot = iter.end_slot;
 
                         *self = PostFinalizationLazy {
                             continuation_data,
@@ -266,6 +276,7 @@ impl<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>
                 self.do_next()
             }
             PostFinalization { iter } => iter.next().transpose(),
+            Finished => Ok(None),
         }
     }
 }

@@ -3,7 +3,7 @@
 use super::*;
 use crate::cases::common::{SszStaticType, TestU128, TestU256};
 use crate::cases::ssz_static::{check_serialization, check_tree_hash};
-use crate::decode::{snappy_decode_file, yaml_decode_file};
+use crate::decode::{log_file_access, snappy_decode_file, yaml_decode_file};
 use serde::{de::Error as SerdeError, Deserializer};
 use serde_derive::Deserialize;
 use ssz_derive::{Decode, Encode};
@@ -126,6 +126,12 @@ impl Case for SszGeneric {
             "basic_vector" => {
                 let elem_ty = parts[1];
                 let length = parts[2];
+
+                // Skip length 0 tests. Milhouse doesn't have any checks against 0-capacity lists.
+                if length == "0" {
+                    log_file_access(self.path.join("serialized.ssz_snappy"));
+                    return Ok(());
+                }
 
                 type_dispatch!(
                     ssz_generic_test,
