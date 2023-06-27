@@ -340,7 +340,10 @@ impl OldBlocksByRangeRequest {
 }
 
 /// Request a number of beacon block bodies from a peer.
-#[superstruct(variants(V1, V2), variant_attributes(derive(Clone, Debug, PartialEq)))]
+#[superstruct(
+    variants(V1, V2),
+    variant_attributes(derive(Encode, Decode, Clone, Debug, PartialEq))
+)]
 #[derive(Clone, Debug, PartialEq)]
 pub struct BlocksByRootRequest {
     /// The list of beacon block bodies being requested.

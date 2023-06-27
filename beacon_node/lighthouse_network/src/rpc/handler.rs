@@ -7,7 +7,6 @@ use super::protocol::{max_rpc_size, InboundRequest, Protocol, RPCError, RPCProto
 use super::{RPCReceived, RPCSend, ReqId};
 use crate::rpc::outbound::{OutboundFramed, OutboundRequest};
 use crate::rpc::protocol::InboundFramed;
-use crate::rpc::ResponseTermination;
 use fnv::FnvHashMap;
 use futures::prelude::*;
 use futures::{Sink, SinkExt};
@@ -934,13 +933,8 @@ where
                             // continue sending responses beyond what we would expect. Here
                             // we simply terminate the stream and report a stream
                             // termination to the application
-                            let termination = match protocol {
-                                Protocol::BlocksByRange => Some(ResponseTermination::BlocksByRange),
-                                Protocol::BlocksByRoot => Some(ResponseTermination::BlocksByRoot),
-                                _ => None, // all other protocols are do not have multiple responses and we do not inform the user, we simply drop the stream.
-                            };
 
-                            if let Some(termination) = termination {
+                            if let Some(termination) = protocol.terminator() {
                                 return Poll::Ready(ConnectionHandlerEvent::Custom(Ok(
                                     RPCReceived::EndOfStream(request_id, termination),
                                 )));
