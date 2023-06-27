@@ -3,7 +3,7 @@ use crate::beacon_processor::{ChainSegmentProcessId, WorkEvent as BeaconWorkEven
 use crate::sync::{
     manager::Id, network_context::SyncNetworkContext, BatchOperationOutcome, BatchProcessResult,
 };
-use beacon_chain::{BeaconChainTypes, CountUnrealized};
+use beacon_chain::BeaconChainTypes;
 use fnv::FnvHashMap;
 use lighthouse_network::{PeerAction, PeerId};
 use rand::seq::SliceRandom;
@@ -101,8 +101,6 @@ pub struct SyncingChain<T: BeaconChainTypes> {
     /// Batches validated by this chain.
     validated_batches: u64,
 
-    is_finalized_segment: bool,
-
     /// The chain's log.
     log: slog::Logger,
 }
@@ -128,7 +126,6 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         target_head_slot: Slot,
         target_head_root: Hash256,
         peer_id: PeerId,
-        is_finalized_segment: bool,
         log: &slog::Logger,
     ) -> Self {
         let mut peers = FnvHashMap::default();
@@ -150,7 +147,6 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             state: ChainSyncingState::Stopped,
             current_processing_batch: None,
             validated_batches: 0,
-            is_finalized_segment,
             log: log.new(o!("chain" => id)),
         }
     }
@@ -318,12 +314,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         // for removing chains and checking completion is in the callback.
 
         let blocks = batch.start_processing()?;
-        let count_unrealized = if self.is_finalized_segment {
-            CountUnrealized::False
-        } else {
-            CountUnrealized::True
-        };
-        let process_id = ChainSegmentProcessId::RangeBatchId(self.id, batch_id, count_unrealized);
+        let process_id = ChainSegmentProcessId::RangeBatchId(self.id, batch_id);
         self.current_processing_batch = Some(batch_id);
 
         if let Err(e) =

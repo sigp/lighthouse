@@ -7,7 +7,7 @@ autotests = false
 rust-version = "1.68.2"
 
 [features]
-default = ["slasher-mdbx"]
+default = ["slasher-lmdb"]
 # Writes debugging .ssz files to /tmp during block processing.
 write_ssz_files = ["beacon_node/write_ssz_files"]
 # Compiles the BLS crypto code so that the binary is portable across machines.
@@ -55,7 +55,7 @@ malloc_utils = { path = "../common/malloc_utils" }
 directory = { path = "../common/directory" }
 unused_port = { path = "../common/unused_port" }
 database_manager = { path = "../database_manager" }
-slasher = { path = "../slasher", default-features = false }
+slasher = { path = "../slasher" }
 
 [dev-dependencies]
 tempfile = "3.1.0"

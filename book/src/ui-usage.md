@@ -33,6 +33,7 @@ By clicking on the chart component you can filter selected validators in the ren
 <img src="imgs/ui-validator-balance2.png" width="48%"/>
 
 
+
 ## Hardware Usage and Device Diagnostics
 
 The hardware usage component gathers information about the device the Beacon Node is currently running. It displays the Disk usage, CPU metrics and memory usage of the Beacon Node device. The device diagnostics component provides the sync status of the execution client and beacon node.
@@ -41,6 +42,12 @@ The hardware usage component gathers information about the device the Beacon Nod
 
 <img height="350" src="imgs/ui-device.png"/>
 
+
+## Log Statistics
+
+The log statistics present an hourly combined rate of critical, warning, and error logs from the validator client and beacon node. This analysis enables informed decision-making, troubleshooting, and proactive maintenance for optimal system performance.
+
+<img height="350" src="imgs/ui-dash-logs.png"/>
 
 # Validator Management
 
@@ -59,3 +66,12 @@ Clicking the validator icon activates a detailed validator modal component. This
 Siren's settings view provides access to the application theme, version, name, device name and important external links. From the settings page users can also access the configuration screen to adjust any beacon or validator node parameters.
 
 ![](imgs/ui-settings.png)
+
+
+# Validator and Beacon Logs
+
+The logs page provides users with the functionality to access and review recorded logs for both validators and beacons. Users can conveniently observe log severity, messages, timestamps, and any additional data associated with each log entry. The interface allows for seamless switching between validator and beacon log outputs, and incorporates useful features such as built-in text search and the ability to pause log feeds.
+
+Additionally, users can obtain log statistics, which are also available on the main dashboard, thereby facilitating a comprehensive overview of the system's log data. Please note that Siren is limited to storing and displaying only the previous 1000 log messages. This also means the text search is limited to the logs that are currently stored within Siren's limit.
+
+![](imgs/ui-logs.png)

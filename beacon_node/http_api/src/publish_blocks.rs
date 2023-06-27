@@ -1,8 +1,6 @@
 use crate::metrics;
 use beacon_chain::validator_monitor::{get_block_delay_ms, timestamp_now};
-use beacon_chain::{
-    BeaconChain, BeaconChainTypes, BlockError, CountUnrealized, NotifyExecutionLayer,
-};
+use beacon_chain::{BeaconChain, BeaconChainTypes, BlockError, NotifyExecutionLayer};
 use execution_layer::ProvenancedPayload;
 use lighthouse_network::PubsubMessage;
 use network::NetworkMessage;
@@ -56,12 +54,7 @@ pub async fn publish_block<T: BeaconChainTypes>(
     let block_root = block_root.unwrap_or_else(|| block.canonical_root());
 
     match chain
-        .process_block(
-            block_root,
-            block.clone(),
-            CountUnrealized::True,
-            NotifyExecutionLayer::Yes,
-        )
+        .process_block(block_root, block.clone(), NotifyExecutionLayer::Yes)
         .await
     {
         Ok(root) => {

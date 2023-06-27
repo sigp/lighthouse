@@ -52,8 +52,8 @@ pub mod validator_pubkey_cache;
 
 pub use self::beacon_chain::{
     AttestationProcessingOutcome, BeaconChain, BeaconChainTypes, BeaconStore, ChainSegmentResult,
-    CountUnrealized, ForkChoiceError, OverrideForkchoiceUpdate, ProduceBlockVerification,
-    StateSkipConfig, WhenSlotSkipped, INVALID_FINALIZED_MERGE_TRANSITION_BLOCK_SHUTDOWN_REASON,
+    ForkChoiceError, OverrideForkchoiceUpdate, ProduceBlockVerification, StateSkipConfig,
+    WhenSlotSkipped, INVALID_FINALIZED_MERGE_TRANSITION_BLOCK_SHUTDOWN_REASON,
     INVALID_JUSTIFIED_PAYLOAD_SHUTDOWN_REASON, MAXIMUM_GOSSIP_CLOCK_DISPARITY,
 };
 pub use self::beacon_snapshot::BeaconSnapshot;
@@ -64,6 +64,7 @@ pub use attestation_verification::Error as AttestationError;
 pub use beacon_fork_choice_store::{BeaconForkChoiceStore, Error as ForkChoiceStoreError};
 pub use block_verification::{
     get_block_root, BlockError, ExecutionPayloadError, GossipVerifiedBlock,
+    IntoExecutionPendingBlock,
 };
 pub use canonical_head::{CachedHead, CanonicalHead, CanonicalHeadRwLock};
 pub use eth1_chain::{Eth1Chain, Eth1ChainBackend};
