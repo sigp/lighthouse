@@ -70,7 +70,7 @@ pub use attestation_verification::Error as AttestationError;
 pub use beacon_fork_choice_store::{BeaconForkChoiceStore, Error as ForkChoiceStoreError};
 pub use block_verification::{
     get_block_root, AvailabilityPendingExecutedBlock, BlockError, ExecutedBlock,
-    ExecutionPayloadError, GossipVerifiedBlock, IntoExecutionPendingBlock,
+    ExecutionPayloadError, ExecutionPendingBlock, GossipVerifiedBlock, IntoExecutionPendingBlock,
     PayloadVerificationOutcome, PayloadVerificationStatus,
 };
 pub use canonical_head::{CachedHead, CanonicalHead, CanonicalHeadRwLock};

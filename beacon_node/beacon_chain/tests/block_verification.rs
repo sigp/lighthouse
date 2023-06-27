@@ -4,6 +4,8 @@ use beacon_chain::blob_verification::BlockWrapper;
 use beacon_chain::{
     blob_verification::AsBlock,
     test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType},
+    AvailabilityProcessingStatus, BeaconChain, BeaconChainTypes, ExecutedBlock,
+    ExecutionPendingBlock,
 };
 use beacon_chain::{
     BeaconSnapshot, BlockError, ChainSegmentResult, IntoExecutionPendingBlock, NotifyExecutionLayer,
@@ -1409,7 +1411,8 @@ async fn import_duplicate_block_unrealized_justification() {
     // Produce a block to justify epoch 2.
     let state = harness.get_current_state();
     let slot = harness.get_current_slot();
-    let (block, _) = harness.make_block(state.clone(), slot).await;
+    let (block_contents, _) = harness.make_block(state.clone(), slot).await;
+    let (block, _) = block_contents;
     let block = Arc::new(block);
     let block_root = block.canonical_root();
 
@@ -1425,9 +1428,7 @@ async fn import_duplicate_block_unrealized_justification() {
         .unwrap();
 
     // Import the first block, simulating a block processed via a finalized chain segment.
-    chain
-        .clone()
-        .import_execution_pending_block(verified_block1)
+    import_execution_pending_block(chain.clone(), verified_block1)
         .await
         .unwrap();
 
@@ -1446,9 +1447,7 @@ async fn import_duplicate_block_unrealized_justification() {
     drop(fc);
 
     // Import the second verified block, simulating a block processed via RPC.
-    chain
-        .clone()
-        .import_execution_pending_block(verified_block2)
+    import_execution_pending_block(chain.clone(), verified_block2)
         .await
         .unwrap();
 
@@ -1466,4 +1465,24 @@ async fn import_duplicate_block_unrealized_justification() {
         fc_block.unrealized_justified_checkpoint,
         Some(unrealized_justification)
     );
+}
+
+async fn import_execution_pending_block<T: BeaconChainTypes>(
+    chain: Arc<BeaconChain<T>>,
+    execution_pending_block: ExecutionPendingBlock<T>,
+) -> Result<AvailabilityProcessingStatus, String> {
+    match chain
+        .clone()
+        .into_executed_block(execution_pending_block)
+        .await
+        .unwrap()
+    {
+        ExecutedBlock::Available(block) => chain
+            .import_available_block(Box::from(block))
+            .await
+            .map_err(|e| format!("{e:?}")),
+        ExecutedBlock::AvailabilityPending(_) => {
+            Err("AvailabilityPending not expected in this test. Block not imported.".to_string())
+        }
+    }
 }

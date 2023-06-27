@@ -2921,7 +2921,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
     }
 
-    async fn import_available_block(
+    pub async fn import_available_block(
         self: &Arc<Self>,
         block: Box<AvailableExecutedBlock<T::EthSpec>>,
     ) -> Result<AvailabilityProcessingStatus, BlockError<T::EthSpec>> {
