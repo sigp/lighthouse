@@ -665,6 +665,7 @@ dependencies = [
  "tokio",
  "tokio-stream",
  "tree_hash",
+ "tree_hash_derive",
  "types",
  "unused_port",
 ]
@@ -2343,6 +2344,8 @@ dependencies = [
  "libsecp256k1",
  "lighthouse_network",
  "mediatype",
+ "mime",
+ "pretty_reqwest_error",
  "procinfo",
  "proto_array",
  "psutil",
@@ -2353,6 +2356,7 @@ dependencies = [
  "serde_json",
  "slashing_protection",
  "store",
+ "tokio",
  "types",
 ]
 
@@ -2795,6 +2799,7 @@ dependencies = [
  "lru 0.7.8",
  "mev-rs",
  "parking_lot 0.12.1",
+ "pretty_reqwest_error",
  "rand 0.8.5",
  "reqwest",
  "sensitive_url",
@@ -6276,6 +6281,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "pretty_reqwest_error"
+version = "0.1.0"
+dependencies = [
+ "reqwest",
+ "sensitive_url",
+]
+
+[[package]]
 name = "prettyplease"
 version = "0.1.25"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7925,7 +7938,8 @@ dependencies = [
 [[package]]
 name = "ssz_types"
 version = "0.5.3"
-source = "git+https://github.com/sigp/ssz_types?rev=63a80d04286c8561d5c211230a21bf1299d66059#63a80d04286c8561d5c211230a21bf1299d66059"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e43767964a80b2fdeda7a79a57a2b6cbca966688d5b81da8fe91140a94f552a1"
 dependencies = [
  "arbitrary",
  "derivative",
