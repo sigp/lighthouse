@@ -5,7 +5,7 @@ use crate::{
 use beacon_chain::{
     builder::Witness, eth1_chain::CachingEth1Backend, test_utils::BeaconChainHarness, BeaconChain,
 };
-use beacon_chain::{BeaconChainTypes, GossipVerifiedBlock, NotifyExecutionLayer};
+use beacon_chain::{BeaconChainTypes, NotifyExecutionLayer};
 use beacon_processor::{
     work_reprocessing_queue::ReprocessQueueMessage, AsyncFn, GossipAggregatePackage,
     GossipAttestationPackage, Work, WorkEvent as BeaconWorkEvent,
@@ -555,56 +555,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             drop_during_sync: true,
             work: Work::LightClientBootstrapRequest(Box::new(process_fn)),
         })
-    }
-
-    /// Returns an async closure which processes a chain of beacon blocks.
-    ///
-    /// TODO(paul): delete me.
-    pub fn process_fn_process_chain_segment(
-        self: Arc<Self>,
-        sync_type: ChainSegmentProcessId,
-        downloaded_blocks: Vec<Arc<SignedBeaconBlock<T::EthSpec>>>,
-    ) -> AsyncFn {
-        let process_fn = async move {
-            let notify_execution_layer = if self
-                .network_globals
-                .sync_state
-                .read()
-                .is_syncing_finalized()
-            {
-                NotifyExecutionLayer::No
-            } else {
-                NotifyExecutionLayer::Yes
-            };
-            self.process_chain_segment(sync_type, downloaded_blocks, notify_execution_layer)
-                .await;
-        };
-        Box::pin(process_fn)
-    }
-
-    /// Returns an async closure which processes a beacon block which has
-    /// already been verified via gossip.
-    ///
-    /// TODO(paul): delete me.
-    pub fn process_fn_gossip_verified_block(
-        self: Arc<Self>,
-        peer_id: PeerId,
-        verified_block: GossipVerifiedBlock<T>,
-        seen_timestamp: Duration,
-    ) -> AsyncFn {
-        let process_fn = async move {
-            let reprocess_tx = self.reprocess_tx.clone();
-            let invalid_block_storage = self.invalid_block_storage.clone();
-            self.process_gossip_verified_block(
-                peer_id,
-                verified_block,
-                reprocess_tx,
-                invalid_block_storage,
-                seen_timestamp,
-            )
-            .await;
-        };
-        Box::pin(process_fn)
     }
 
     /// Send a message to `sync_tx`.
