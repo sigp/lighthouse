@@ -161,11 +161,11 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
 
         builder
             .build_beacon_chain()?
-            .network(&client_config.network)
-            .await?
-            .notifier()?
+            .network(client_config.network)
+            .notifier()
             .http_metrics_config(client_config.http_metrics.clone())
             .build()
+            .await
             .map(Self)
     }
 
