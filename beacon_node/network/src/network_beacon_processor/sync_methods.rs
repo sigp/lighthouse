@@ -1,35 +1,25 @@
 use std::time::Duration;
 
-use super::{super::work_reprocessing_queue::ReprocessQueueMessage, Worker};
-use crate::beacon_processor::work_reprocessing_queue::QueuedRpcBlock;
-use crate::beacon_processor::worker::FUTURE_SLOT_TOLERANCE;
-use crate::beacon_processor::DuplicateCache;
+use crate::beacon_processor::{
+    worker::FUTURE_SLOT_TOLERANCE, AsyncFn, DuplicateCache, NetworkBeaconProcessor,
+};
 use crate::metrics;
 use crate::sync::manager::{BlockProcessType, SyncMessage};
-use crate::sync::{BatchProcessResult, ChainId};
+use crate::sync::BatchProcessResult;
 use beacon_chain::{
     observed_block_producers::Error as ObserveError, validator_monitor::get_block_delay_ms,
     BeaconChainError, BeaconChainTypes, BlockError, ChainSegmentResult, HistoricalBlockError,
     NotifyExecutionLayer,
 };
-use lighthouse_network::PeerAction;
+use beacon_processor::work_reprocessing_queue::QueuedRpcBlock;
+use beacon_processor::work_reprocessing_queue::ReprocessQueueMessage;
+use lighthouse_network::{types::ChainSegmentProcessId, PeerAction};
 use slog::{debug, error, info, warn};
 use slot_clock::SlotClock;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc;
-use types::{Epoch, Hash256, SignedBeaconBlock};
-
-/// Id associated to a batch processing request, either a sync batch or a parent lookup.
-#[derive(Clone, Debug, PartialEq)]
-pub enum ChainSegmentProcessId {
-    /// Processing Id of a range syncing batch.
-    RangeBatchId(ChainId, Epoch),
-    /// Processing ID for a backfill syncing batch.
-    BackSyncBatchId(Epoch),
-    /// Processing Id of the parent lookup of a block.
-    ParentLookup(Hash256),
-}
+use types::{Hash256, SignedBeaconBlock};
 
 /// Returned when a chain segment import fails.
 struct ChainSegmentFailed {
@@ -39,16 +29,45 @@ struct ChainSegmentFailed {
     peer_action: Option<PeerAction>,
 }
 
-impl<T: BeaconChainTypes> Worker<T> {
-    /// Attempt to process a block received from a direct RPC request.
-    #[allow(clippy::too_many_arguments)]
-    pub async fn process_rpc_block(
-        self,
+impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
+    /// Returns an async closure which processes a beacon block recieved via RPC.
+    ///
+    /// This separate function was required to prevent a cycle during compiler
+    /// type checking.
+    pub fn process_fn_rpc_beacon_block(
+        self: Arc<Self>,
         block_root: Hash256,
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
         seen_timestamp: Duration,
         process_type: BlockProcessType,
-        reprocess_tx: mpsc::Sender<ReprocessQueueMessage<T>>,
+    ) -> AsyncFn {
+        let process_fn = async move {
+            let reprocess_tx = self.reprocess_tx.clone();
+            let duplicate_cache = self.duplicate_cache.clone();
+            let should_process = true;
+            self.process_rpc_block(
+                block_root,
+                block,
+                seen_timestamp,
+                process_type,
+                reprocess_tx,
+                duplicate_cache,
+                should_process,
+            )
+            .await;
+        };
+        Box::pin(process_fn)
+    }
+
+    /// Attempt to process a block received from a direct RPC request.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn process_rpc_block(
+        self: Arc<NetworkBeaconProcessor<T>>,
+        block_root: Hash256,
+        block: Arc<SignedBeaconBlock<T::EthSpec>>,
+        seen_timestamp: Duration,
+        process_type: BlockProcessType,
+        reprocess_tx: mpsc::Sender<ReprocessQueueMessage>,
         duplicate_cache: DuplicateCache,
         should_process: bool,
     ) {
@@ -70,13 +89,17 @@ impl<T: BeaconChainTypes> Worker<T> {
                     "action" => "sending rpc block to reprocessing queue",
                     "block_root" => %block_root,
                 );
+
                 // Send message to work reprocess queue to retry the block
                 let reprocess_msg = ReprocessQueueMessage::RpcBlock(QueuedRpcBlock {
-                    block_root,
-                    block: block.clone(),
-                    process_type,
-                    seen_timestamp,
+                    beacon_block_root: block_root,
                     should_process: true,
+                    process_fn: self.clone().process_fn_rpc_beacon_block(
+                        block_root,
+                        block,
+                        seen_timestamp,
+                        process_type,
+                    ),
                 });
 
                 if reprocess_tx.try_send(reprocess_msg).is_err() {
@@ -143,11 +166,14 @@ impl<T: BeaconChainTypes> Worker<T> {
 
             // Send message to work reprocess queue to retry the block
             let reprocess_msg = ReprocessQueueMessage::RpcBlock(QueuedRpcBlock {
-                block_root,
-                block: block.clone(),
-                process_type,
-                seen_timestamp,
+                beacon_block_root: block_root,
                 should_process: true,
+                process_fn: self.clone().process_fn_rpc_beacon_block(
+                    block_root,
+                    block,
+                    seen_timestamp,
+                    process_type,
+                ),
             });
 
             if reprocess_tx.try_send(reprocess_msg).is_err() {
