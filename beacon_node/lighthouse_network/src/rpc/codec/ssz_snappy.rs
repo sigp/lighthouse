@@ -1400,7 +1400,7 @@ mod tests {
 
         // Insert length-prefix
         uvi_codec
-            .encode(Spec::default_spec().max_chunk_size + 1, &mut dst)
+            .encode(Spec::default_spec().max_chunk_size as usize + 1, &mut dst)
             .unwrap();
 
         // Insert snappy stream identifier

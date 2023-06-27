@@ -172,14 +172,15 @@ pub struct ChainSpec {
     pub epochs_per_subnet_subscription: u64,
     pub attestation_subnet_extra_bits: u8,
     // Shift networking configuration into configs
-    pub gossip_max_size: usize,
+    pub gossip_max_size: u64,
     pub max_request_blocks: u64,
-    pub min_epochs_for_block_requests: usize,
-    pub max_chunk_size: usize,
+    pub min_epochs_for_block_requests: u64,
+    pub max_chunk_size: u64,
     pub ttfb_timeout: u64,
     pub resp_timeout: u64,
     pub message_domain_invalid_snappy: [u8; 4],
     pub message_domain_valid_snappy: [u8; 4],
+    pub attestation_subnet_prefix_bits: u32,
 
     /*
      * Application params
@@ -460,12 +461,6 @@ impl ChainSpec {
         Hash256::from(domain)
     }
 
-    #[allow(clippy::integer_arithmetic)]
-    pub const fn attestation_subnet_prefix_bits(&self) -> u32 {
-        let attestation_subnet_count_bits = self.attestation_subnet_count.ilog2();
-        self.attestation_subnet_extra_bits as u32 + attestation_subnet_count_bits
-    }
-
     /// Returns a `ChainSpec` compatible with the Ethereum Foundation specification.
     pub fn mainnet() -> Self {
         Self {
@@ -635,6 +630,7 @@ impl ChainSpec {
             resp_timeout: 10,
             message_domain_invalid_snappy: [0, 0, 0, 0],
             message_domain_valid_snappy: [1, 0, 0, 0],
+            attestation_subnet_prefix_bits: 6,
 
             /*
              * Application specific
@@ -868,6 +864,7 @@ impl ChainSpec {
             resp_timeout: 10,
             message_domain_invalid_snappy: [0, 0, 0, 0],
             message_domain_valid_snappy: [1, 0, 0, 0],
+            attestation_subnet_prefix_bits: 6,
 
             /*
              * Application specific
@@ -978,6 +975,25 @@ pub struct Config {
     #[serde(with = "serde_utils::quoted_u64")]
     deposit_network_id: u64,
     deposit_contract_address: Address,
+
+    #[serde(with = "serde_utils::quoted_u64")]
+    gossip_max_size: u64,
+    #[serde(with = "serde_utils::quoted_u64")]
+    max_request_blocks: u64,
+    #[serde(with = "serde_utils::quoted_u64")]
+    min_epochs_for_block_requests: u64,
+    #[serde(with = "serde_utils::quoted_u64")]
+    max_chunk_size: u64,
+    #[serde(with = "serde_utils::quoted_u64")]
+    ttfb_timeout: u64,
+    #[serde(with = "serde_utils::quoted_u64")]
+    resp_timeout: u64,
+    #[serde(with = "serde_utils::bytes_4_hex")]
+    message_domain_invalid_snappy: [u8; 4],
+    #[serde(with = "serde_utils::bytes_4_hex")]
+    message_domain_valid_snappy: [u8; 4],
+    #[serde(with = "serde_utils::quoted_u32")]
+    attestation_subnet_prefix_bits: u32,
 }
 
 fn default_bellatrix_fork_version() -> [u8; 4] {
@@ -1113,6 +1129,16 @@ impl Config {
             deposit_chain_id: spec.deposit_chain_id,
             deposit_network_id: spec.deposit_network_id,
             deposit_contract_address: spec.deposit_contract_address,
+
+            gossip_max_size: spec.gossip_max_size,
+            max_request_blocks: spec.max_request_blocks,
+            min_epochs_for_block_requests: spec.min_epochs_for_block_requests,
+            max_chunk_size: spec.max_chunk_size,
+            ttfb_timeout: spec.ttfb_timeout,
+            resp_timeout: spec.resp_timeout,
+            message_domain_invalid_snappy: spec.message_domain_invalid_snappy,
+            message_domain_valid_snappy: spec.message_domain_valid_snappy,
+            attestation_subnet_prefix_bits: spec.attestation_subnet_prefix_bits,
         }
     }
 
@@ -1157,6 +1183,15 @@ impl Config {
             deposit_chain_id,
             deposit_network_id,
             deposit_contract_address,
+            gossip_max_size,
+            max_request_blocks,
+            min_epochs_for_block_requests,
+            max_chunk_size,
+            ttfb_timeout,
+            resp_timeout,
+            message_domain_invalid_snappy,
+            message_domain_valid_snappy,
+            attestation_subnet_prefix_bits,
         } = self;
 
         if preset_base != T::spec_name().to_string().as_str() {
@@ -1194,6 +1229,15 @@ impl Config {
             terminal_block_hash,
             terminal_block_hash_activation_epoch,
             safe_slots_to_import_optimistically,
+            gossip_max_size,
+            max_request_blocks,
+            min_epochs_for_block_requests,
+            max_chunk_size,
+            ttfb_timeout,
+            resp_timeout,
+            message_domain_invalid_snappy,
+            message_domain_valid_snappy,
+            attestation_subnet_prefix_bits,
             ..chain_spec.clone()
         })
     }
@@ -1432,6 +1476,8 @@ mod yaml_tests {
         DEPOSIT_CHAIN_ID: 1
         DEPOSIT_NETWORK_ID: 1
         DEPOSIT_CONTRACT_ADDRESS: 0x00000000219ab540356cBB839Cbe05303d7705Fa
+        GOSSIP_MAX_SIZE: 10485760
+        MAX_REQUEST_BLOCKS: 1024
         "#;
 
         let chain_spec: Config = serde_yaml::from_str(spec).unwrap();

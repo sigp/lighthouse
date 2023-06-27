@@ -37,9 +37,9 @@ pub const DUPLICATE_CACHE_TIME: Duration = Duration::from_secs(33 * 12 + 1);
 pub fn gossip_max_size<TSpec: EthSpec>(is_merge_enabled: bool, spec: &ChainSpec) -> usize {
     let gossip_max_size = spec.gossip_max_size;
     if is_merge_enabled {
-        gossip_max_size
+        gossip_max_size as usize
     } else {
-        gossip_max_size / 10
+        (gossip_max_size / 10) as usize
     }
 }
 
