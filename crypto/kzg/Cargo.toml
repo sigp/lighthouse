@@ -16,8 +16,8 @@ serde_derive = "1.0.116"
 ethereum_serde_utils = "0.5.0"
 hex = "0.4.2"
 ethereum_hashing = "1.0.0-beta.2"
-c-kzg = { git = "https://github.com/realbigsean/c-kzg-4844", rev = "38b6af3ab8ebc9390f262d5ce3e906b52a6de2b4" , features = ["mainnet-spec"]}
-c_kzg_min = { package = "c-kzg", git = "https://github.com/realbigsean//c-kzg-4844", rev = "38b6af3ab8ebc9390f262d5ce3e906b52a6de2b4", features = ["minimal-spec"] }
+c-kzg = { git = "https://github.com/realbigsean/c-kzg-4844", rev = "7a747a8b731139c9ea27622059fc1f94388bf33f" , features = ["mainnet-spec"]}
+c_kzg_min = { package = "c-kzg", git = "https://github.com/realbigsean//c-kzg-4844", rev = "7a747a8b731139c9ea27622059fc1f94388bf33f", features = ["minimal-spec"] }
 arbitrary = { version = "1.0", features = ["derive"], optional = true }
 
 [features]
