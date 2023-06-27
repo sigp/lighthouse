@@ -63,4 +63,5 @@ exec $lighthouse_binary \
 	--disable-packet-filter \
 	--target-peers $((BN_COUNT - 1)) \
   --execution-endpoint $execution_endpoint \
-  --execution-jwt $execution_jwt
+  --execution-jwt $execution_jwt \
+  --unsafe-and-dangerous-mode
