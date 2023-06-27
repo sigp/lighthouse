@@ -1,4 +1,4 @@
-use crate::beacon_processor::{worker::FUTURE_SLOT_TOLERANCE, NetworkBeaconProcessor};
+use crate::network_beacon_processor::{NetworkBeaconProcessor, FUTURE_SLOT_TOLERANCE};
 use crate::service::NetworkMessage;
 use crate::status::ToStatusMessage;
 use crate::sync::SyncMessage;

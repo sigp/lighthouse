@@ -371,7 +371,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::beacon_processor::NetworkBeaconProcessor;
+    use crate::network_beacon_processor::NetworkBeaconProcessor;
     use crate::service::RequestId;
     use crate::NetworkMessage;
 

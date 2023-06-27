@@ -1,6 +1,6 @@
 use crate::{
-    beacon_processor::{DuplicateCache, InvalidBlockStorage, NetworkBeaconProcessor},
     metrics,
+    network_beacon_processor::{DuplicateCache, InvalidBlockStorage, NetworkBeaconProcessor},
     service::NetworkMessage,
     sync::SyncMessage,
 };

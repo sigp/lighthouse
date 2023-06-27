@@ -17,7 +17,7 @@ use lighthouse_network::{
     Client, MessageId, NetworkGlobals, PeerId, PeerRequestId,
 };
 use parking_lot::Mutex;
-use slog::Logger;
+use slog::{debug, Logger};
 use slot_clock::ManualSlotClock;
 use std::collections::HashSet;
 use std::path::PathBuf;
@@ -606,6 +606,26 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         };
         Box::pin(process_fn)
     }
+
+    /// Send a message to `sync_tx`.
+    ///
+    /// Creates a log if there is an internal error.
+    fn send_sync_message(&self, message: SyncMessage<T::EthSpec>) {
+        self.sync_tx.send(message).unwrap_or_else(|e| {
+            debug!(self.log, "Could not send message to the sync service";
+                   "error" => %e)
+        });
+    }
+
+    /// Send a message to `network_tx`.
+    ///
+    /// Creates a log if there is an internal error.
+    fn send_network_message(&self, message: NetworkMessage<T::EthSpec>) {
+        self.network_tx.send(message).unwrap_or_else(|e| {
+            debug!(self.log, "Could not send message to the network service. Likely shutdown";
+                "error" => %e)
+        });
+    }
 }
 
 type TestBeaconChainType<E> =
@@ -648,26 +668,6 @@ impl<E: EthSpec> NetworkBeaconProcessor<TestBeaconChainType<E>> {
         };
 
         (network_beacon_processor, beacon_processor_receive)
-    }
-
-    /// Send a message to `sync_tx`.
-    ///
-    /// Creates a log if there is an internal error.
-    fn send_sync_message(&self, message: SyncMessage<T::EthSpec>) {
-        self.sync_tx.send(message).unwrap_or_else(|e| {
-            debug!(self.log, "Could not send message to the sync service";
-                   "error" => %e)
-        });
-    }
-
-    /// Send a message to `network_tx`.
-    ///
-    /// Creates a log if there is an internal error.
-    fn send_network_message(&self, message: NetworkMessage<T::EthSpec>) {
-        self.network_tx.send(message).unwrap_or_else(|e| {
-            debug!(self.log, "Could not send message to the network service. Likely shutdown";
-                "error" => %e)
-        });
     }
 }
 

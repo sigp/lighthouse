@@ -5,8 +5,10 @@
 //! syncing-related responses to the Sync manager.
 #![allow(clippy::unit_arg)]
 
-use crate::beacon_processor::{DuplicateCache, InvalidBlockStorage, NetworkBeaconProcessor};
 use crate::error;
+use crate::network_beacon_processor::{
+    DuplicateCache, InvalidBlockStorage, NetworkBeaconProcessor,
+};
 use crate::service::{NetworkMessage, RequestId};
 use crate::status::status_message;
 use crate::sync::manager::RequestId as SyncId;
@@ -502,7 +504,7 @@ impl<T: BeaconChainTypes> Router<T> {
 
     fn handle_beacon_processor_send_result(
         &mut self,
-        result: Result<(), crate::beacon_processor::Error<T::EthSpec>>,
+        result: Result<(), crate::network_beacon_processor::Error<T::EthSpec>>,
     ) {
         if let Err(e) = result {
             let work_type = match &e {

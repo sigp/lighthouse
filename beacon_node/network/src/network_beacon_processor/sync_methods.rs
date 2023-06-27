@@ -1,9 +1,9 @@
 use std::time::Duration;
 
-use crate::beacon_processor::{
-    worker::FUTURE_SLOT_TOLERANCE, AsyncFn, DuplicateCache, NetworkBeaconProcessor,
-};
 use crate::metrics;
+use crate::network_beacon_processor::{
+    AsyncFn, DuplicateCache, NetworkBeaconProcessor, FUTURE_SLOT_TOLERANCE,
+};
 use crate::sync::manager::{BlockProcessType, SyncMessage};
 use crate::sync::BatchProcessResult;
 use beacon_chain::{

@@ -1,5 +1,5 @@
 use super::sync::manager::RequestId as SyncId;
-use crate::beacon_processor::InvalidBlockStorage;
+use crate::network_beacon_processor::InvalidBlockStorage;
 use crate::persisted_dht::{clear_dht, load_dht, persist_dht};
 use crate::router::{Router, RouterMessage};
 use crate::subnet_service::SyncCommitteeService;
