@@ -6,7 +6,7 @@ edition = "2021"
 
 [dependencies]
 ethereum-types = "0.14.1"
-ssz_types = "0.5.0"
+ssz_types = "0.5.3"
 ethereum_hashing = "1.0.0-beta.2"
 ethereum_ssz_derive = "0.5.0"
 ethereum_ssz = "0.5.0"

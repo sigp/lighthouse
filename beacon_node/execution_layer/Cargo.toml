@@ -23,7 +23,7 @@ bytes = "1.1.0"
 task_executor = { path = "../../common/task_executor" }
 hex = "0.4.2"
 ethereum_ssz = "0.5.0"
-ssz_types = "0.5.0"
+ssz_types = "0.5.3"
 eth2 = { path = "../../common/eth2" }
 state_processing = { path = "../../consensus/state_processing" }
 superstruct = "0.6.0"
