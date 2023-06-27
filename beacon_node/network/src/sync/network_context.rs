@@ -3,7 +3,7 @@
 
 use super::manager::{Id, RequestId as SyncRequestId};
 use super::range_sync::{BatchId, ChainId};
-use crate::beacon_processor::WorkEvent;
+use crate::beacon_processor::NetworkBeaconProcessor;
 use crate::service::{NetworkMessage, RequestId};
 use crate::status::ToStatusMessage;
 use beacon_chain::{BeaconChainTypes, EngineState};
@@ -36,8 +36,8 @@ pub struct SyncNetworkContext<T: BeaconChainTypes> {
     /// `beacon_processor_send`.
     execution_engine_state: EngineState,
 
-    /// Channel to send work to the beacon processor.
-    beacon_processor_send: mpsc::Sender<WorkEvent<T>>,
+    /// Sends work to the beacon processor via a channel.
+    network_beacon_processor: Arc<NetworkBeaconProcessor<T>>,
 
     /// Logger for the `SyncNetworkContext`.
     log: slog::Logger,
@@ -47,7 +47,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
     pub fn new(
         network_send: mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
         network_globals: Arc<NetworkGlobals<T::EthSpec>>,
-        beacon_processor_send: mpsc::Sender<WorkEvent<T>>,
+        network_beacon_processor: Arc<NetworkBeaconProcessor<T>>,
         log: slog::Logger,
     ) -> Self {
         Self {
@@ -57,7 +57,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             request_id: 1,
             range_requests: FnvHashMap::default(),
             backfill_requests: FnvHashMap::default(),
-            beacon_processor_send,
+            network_beacon_processor,
             log,
         }
     }
@@ -278,13 +278,13 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         })
     }
 
-    pub fn processor_channel_if_enabled(&self) -> Option<&mpsc::Sender<WorkEvent<T>>> {
+    pub fn beacon_processor_if_enabled(&self) -> Option<&Arc<NetworkBeaconProcessor<T>>> {
         self.is_execution_engine_online()
-            .then_some(&self.beacon_processor_send)
+            .then_some(&self.network_beacon_processor)
     }
 
-    pub fn processor_channel(&self) -> &mpsc::Sender<WorkEvent<T>> {
-        &self.beacon_processor_send
+    pub fn beacon_processor(&self) -> &Arc<NetworkBeaconProcessor<T>> {
+        &self.network_beacon_processor
     }
 
     fn next_id(&mut self) -> Id {
