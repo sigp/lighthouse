@@ -411,6 +411,7 @@ async fn chain_segment_non_linear_slots() {
 
 async fn assert_invalid_signature(
     chain_segment: &[BeaconSnapshot<E>],
+    chain_segment_blobs: &[Option<BlobSidecarList<E>>],
     harness: &BeaconChainHarness<EphemeralHarnessType<E>>,
     block_index: usize,
     snapshots: &[BeaconSnapshot<E>],
@@ -418,7 +419,8 @@ async fn assert_invalid_signature(
 ) {
     let blocks: Vec<BlockWrapper<E>> = snapshots
         .iter()
-        .map(|snapshot| snapshot.beacon_block.clone().into())
+        .zip(chain_segment_blobs.iter())
+        .map(|(snapshot, blobs)| BlockWrapper::new(snapshot.beacon_block.clone(), blobs.clone()))
         .collect();
 
     // Ensure the block will be rejected if imported in a chain segment.
@@ -442,7 +444,8 @@ async fn assert_invalid_signature(
     let ancestor_blocks = chain_segment
         .iter()
         .take(block_index)
-        .map(|snapshot| snapshot.beacon_block.clone().into())
+        .zip(chain_segment_blobs.iter())
+        .map(|(snapshot, blobs)| BlockWrapper::new(snapshot.beacon_block.clone(), blobs.clone()))
         .collect();
     // We don't care if this fails, we just call this to ensure that all prior blocks have been
     // imported prior to this test.
@@ -460,7 +463,10 @@ async fn assert_invalid_signature(
         .chain
         .process_block(
             snapshots[block_index].beacon_block.canonical_root(),
-            snapshots[block_index].beacon_block.clone(),
+            BlockWrapper::new(
+                snapshots[block_index].beacon_block.clone(),
+                chain_segment_blobs[block_index].clone(),
+            ),
             CountUnrealized::True,
             NotifyExecutionLayer::Yes,
         )
@@ -510,7 +516,10 @@ async fn invalid_signature_gossip_block() {
         let ancestor_blocks = chain_segment
             .iter()
             .take(block_index)
-            .map(|snapshot| snapshot.beacon_block.clone().into())
+            .zip(chain_segment_blobs.iter())
+            .map(|(snapshot, blobs)| {
+                BlockWrapper::new(snapshot.beacon_block.clone(), blobs.clone())
+            })
             .collect();
         harness
             .chain
@@ -558,7 +567,10 @@ async fn invalid_signature_block_proposal() {
         ));
         let blocks: Vec<BlockWrapper<E>> = snapshots
             .iter()
-            .map(|snapshot| snapshot.beacon_block.clone().into())
+            .zip(chain_segment_blobs.iter())
+            .map(|(snapshot, blobs)| {
+                BlockWrapper::new(snapshot.beacon_block.clone(), blobs.clone())
+            })
             .collect::<Vec<_>>();
         // Ensure the block will be rejected if imported in a chain segment.
         assert!(
@@ -591,7 +603,15 @@ async fn invalid_signature_randao_reveal() {
             Arc::new(SignedBeaconBlock::from_block(block, signature));
         update_parent_roots(&mut snapshots);
         update_proposal_signatures(&mut snapshots, &harness);
-        assert_invalid_signature(&chain_segment, &harness, block_index, &snapshots, "randao").await;
+        assert_invalid_signature(
+            &chain_segment,
+            &chain_segment_blobs,
+            &harness,
+            block_index,
+            &snapshots,
+            "randao",
+        )
+        .await;
     }
 }
 
@@ -627,6 +647,7 @@ async fn invalid_signature_proposer_slashing() {
         update_proposal_signatures(&mut snapshots, &harness);
         assert_invalid_signature(
             &chain_segment,
+            &chain_segment_blobs,
             &harness,
             block_index,
             &snapshots,
@@ -679,6 +700,7 @@ async fn invalid_signature_attester_slashing() {
         update_proposal_signatures(&mut snapshots, &harness);
         assert_invalid_signature(
             &chain_segment,
+            &chain_segment_blobs,
             &harness,
             block_index,
             &snapshots,
@@ -709,6 +731,7 @@ async fn invalid_signature_attestation() {
             update_proposal_signatures(&mut snapshots, &harness);
             assert_invalid_signature(
                 &chain_segment,
+                &chain_segment_blobs,
                 &harness,
                 block_index,
                 &snapshots,
@@ -757,7 +780,10 @@ async fn invalid_signature_deposit() {
         update_proposal_signatures(&mut snapshots, &harness);
         let blocks: Vec<BlockWrapper<E>> = snapshots
             .iter()
-            .map(|snapshot| snapshot.beacon_block.clone().into())
+            .zip(chain_segment_blobs.iter())
+            .map(|(snapshot, blobs)| {
+                BlockWrapper::new(snapshot.beacon_block.clone(), blobs.clone())
+            })
             .collect();
         assert!(
             !matches!(
@@ -802,6 +828,7 @@ async fn invalid_signature_exit() {
         update_proposal_signatures(&mut snapshots, &harness);
         assert_invalid_signature(
             &chain_segment,
+            &chain_segment_blobs,
             &harness,
             block_index,
             &snapshots,

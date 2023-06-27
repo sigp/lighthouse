@@ -745,6 +745,20 @@ where
             .execution_block_generator()
     }
 
+    pub fn get_head_block(&self) -> BlockWrapper<E> {
+        let block = self.chain.head_beacon_block();
+        let block_root = block.canonical_root();
+        let blobs = self.chain.get_blobs(&block_root).unwrap();
+        BlockWrapper::new(block, blobs)
+    }
+
+    pub fn get_full_block(&self, block_root: &Hash256) -> BlockWrapper<E> {
+        let block = self.chain.get_blinded_block(&block_root).unwrap().unwrap();
+        let full_block = self.chain.store.make_full_block(block_root, block).unwrap();
+        let blobs = self.chain.get_blobs(&block_root).unwrap();
+        BlockWrapper::new(Arc::new(full_block), blobs)
+    }
+
     pub fn get_all_validators(&self) -> Vec<usize> {
         (0..self.validator_keypairs.len()).collect()
     }
@@ -909,20 +923,7 @@ where
                     let signed_blobs: SignedBlobSidecarList<E> = Vec::from(blobs)
                         .into_iter()
                         .map(|blob| {
-                            // Need to overwrite the proposer index before signing, not sure of a
-                            // better way to do this.
-                            let new_blob = BlobSidecar {
-                                block_root: blob.block_root,
-                                index: blob.index,
-                                slot: blob.slot,
-                                block_parent_root: blob.block_parent_root,
-                                proposer_index: proposer_index as u64,
-                                blob: blob.blob.clone(),
-                                kzg_commitment: blob.kzg_commitment,
-                                kzg_proof: blob.kzg_proof,
-                            };
-                            let new_blob = Arc::new(new_blob);
-                            new_blob.sign(
+                            blob.sign(
                                 &self.validator_keypairs[proposer_index].sk,
                                 &state.fork(),
                                 state.genesis_validators_root(),
