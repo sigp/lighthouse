@@ -28,7 +28,7 @@ const COMPACTION_FINALITY_DISTANCE: u64 = 1024;
 const BLOCKS_PER_RECONSTRUCTION: usize = 8192 * 4;
 
 /// Default number of epochs to wait between finalization migrations.
-pub const DEFAULT_EPOCHS_PER_RUN: u64 = 4;
+pub const DEFAULT_EPOCHS_PER_RUN: u64 = 1;
 
 /// The background migrator runs a thread to perform pruning and migrate state from the hot
 /// to the cold database.
