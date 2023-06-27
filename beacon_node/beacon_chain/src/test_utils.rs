@@ -753,9 +753,9 @@ where
     }
 
     pub fn get_full_block(&self, block_root: &Hash256) -> BlockWrapper<E> {
-        let block = self.chain.get_blinded_block(&block_root).unwrap().unwrap();
+        let block = self.chain.get_blinded_block(block_root).unwrap().unwrap();
         let full_block = self.chain.store.make_full_block(block_root, block).unwrap();
-        let blobs = self.chain.get_blobs(&block_root).unwrap();
+        let blobs = self.chain.get_blobs(block_root).unwrap();
         BlockWrapper::new(Arc::new(full_block), blobs)
     }
 

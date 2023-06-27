@@ -641,7 +641,7 @@ pub fn generate_random_blobs<T: EthSpec>(
             blob_bytes[i * T::Kzg::BYTES_PER_FIELD_ELEMENT] = 0;
         }
 
-        let blob = Blob::<T>::new(Vec::from(blob_bytes))
+        let blob = Blob::<T>::new(blob_bytes)
             .map_err(|e| format!("error constructing random blob: {:?}", e))?;
         let kzg_blob = T::blob_from_bytes(&blob).unwrap();
 
