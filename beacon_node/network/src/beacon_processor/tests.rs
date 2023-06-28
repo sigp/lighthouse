@@ -24,7 +24,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
 use types::{
-    Attestation, AttesterSlashing, Epoch, EthSpec, ForkName, MainnetEthSpec, ProposerSlashing,
+    Attestation, AttesterSlashing, Epoch, EthSpec, MainnetEthSpec, ProposerSlashing,
     SignedBeaconBlock, SignedBlobSidecarList, SignedVoluntaryExit, Slot, SubnetId,
 };
 
@@ -79,11 +79,6 @@ impl TestRig {
         let mut spec = E::default_spec();
         // This allows for testing voluntary exits without building out a massive chain.
         spec.shard_committee_period = 2;
-
-        spec.altair_fork_epoch = Some(Epoch::new(0));
-        spec.bellatrix_fork_epoch = Some(Epoch::new(0));
-        spec.capella_fork_epoch = Some(Epoch::new(0));
-        spec.deneb_fork_epoch = Some(Epoch::new(0));
 
         let harness = BeaconChainHarness::builder(MainnetEthSpec)
             .spec(spec)
@@ -546,6 +541,13 @@ async fn import_gossip_block_acceptably_early() {
     rig.assert_event_journal(&[GOSSIP_BLOCK, WORKER_FREED, NOTHING_TO_DO])
         .await;
 
+    let num_blobs = rig.next_blobs.as_ref().map(|b| b.len()).unwrap_or(0);
+    for i in 0..num_blobs {
+        rig.enqueue_gossip_blob(i);
+        rig.assert_event_journal(&[GOSSIP_BLOBS_SIDECAR, WORKER_FREED, NOTHING_TO_DO])
+            .await;
+    }
+
     // Note: this section of the code is a bit race-y. We're assuming that we can set the slot clock
     // and check the head in the time between the block arrived early and when its due for
     // processing.
@@ -554,7 +556,7 @@ async fn import_gossip_block_acceptably_early() {
     // processing, instead of just ADDITIONAL_QUEUED_BLOCK_DELAY. Speak to @paulhauner if this test
     // starts failing.
     rig.chain.slot_clock.set_slot(rig.next_block.slot().into());
-    dbg!(rig.head_root());
+
     assert!(
         rig.head_root() != rig.next_block.canonical_root(),
         "block not yet imported"
