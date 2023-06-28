@@ -2912,18 +2912,25 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         cache_fn: impl FnOnce(Arc<Self>) -> Result<Availability<T::EthSpec>, AvailabilityCheckError>,
     ) -> Result<AvailabilityProcessingStatus, BlockError<T::EthSpec>> {
         let availability = cache_fn(self.clone())?;
+        dbg!(availability.get_available_blob_ids());
         match availability {
             Availability::Available(block) => {
+                dbg!("available");
                 // This is the time since start of the slot where all the components of the block have become available
                 let delay =
                     get_slot_delay_ms(timestamp_now(), block.block.slot(), &self.slot_clock);
                 metrics::observe_duration(&metrics::BLOCK_AVAILABILITY_DELAY, delay);
                 // Block is fully available, import into fork choice
-                self.import_available_block(block).await
+                let res = self.import_available_block(block).await;
+                dbg!(&res);
+                res
             }
-            Availability::MissingComponents(block_root) => Ok(
-                AvailabilityProcessingStatus::MissingComponents(slot, block_root),
-            ),
+            Availability::MissingComponents(block_root) => {
+                dbg!("pending");
+                Ok(AvailabilityProcessingStatus::MissingComponents(
+                    slot, block_root,
+                ))
+            }
         }
     }
 

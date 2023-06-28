@@ -17,7 +17,6 @@ use beacon_chain::{
 use eth2_network_config::get_trusted_setup;
 use execution_layer::auth::JwtKey;
 use execution_layer::test_utils::{MockExecutionLayer, DEFAULT_JWT_SECRET, DEFAULT_TERMINAL_BLOCK};
-use fork_choice::CountUnrealized;
 use kzg::{Kzg, TrustedSetup};
 use lazy_static::lazy_static;
 use logging::test_logger;
