@@ -5,7 +5,7 @@ use crate::sync::SyncMessage;
 use beacon_chain::{BeaconChainError, BeaconChainTypes, HistoricalBlockError, WhenSlotSkipped};
 use itertools::process_results;
 use lighthouse_network::rpc::methods::{
-    BlobsByRangeRequest, BlobsByRootRequest, MAX_REQUEST_BLOB_SIDECARS,
+    BlobsByRangeRequest, BlobsByRootRequest, MAX_REQUEST_BLOB_SIDECARS, MAX_REQUEST_BLOCKS_DENEB,
 };
 use lighthouse_network::rpc::StatusMessage;
 use lighthouse_network::rpc::*;
@@ -384,8 +384,15 @@ impl<T: BeaconChainTypes> Worker<T> {
         );
 
         // Should not send more than max request blocks
-        if *req.count() > MAX_REQUEST_BLOCKS {
-            *req.count_mut() = MAX_REQUEST_BLOCKS;
+        // TODO: We should switch the limit to `MAX_REQUEST_BLOCKS` at the fork,
+        // or maybe consider switching the max value given the fork context.
+        if *req.count() > MAX_REQUEST_BLOCKS_DENEB {
+            return self.send_error_response(
+                peer_id,
+                RPCResponseErrorCode::InvalidRequest,
+                "Request exceeded `MAX_REQUEST_BLOCKS_DENEB`".into(),
+                request_id,
+            );
         }
 
         let forwards_block_root_iter = match self
