@@ -667,7 +667,7 @@ mod tests {
         block.body.execution_payload.execution_payload.transactions = txs;
 
         let block = BeaconBlock::Merge(block);
-        assert!(block.ssz_bytes_len() <= max_rpc_size(fork_context, &spec));
+        assert!(block.ssz_bytes_len() <= max_rpc_size(fork_context, spec));
         SignedBeaconBlock::from_block(block, Signature::empty())
     }
 
@@ -683,7 +683,7 @@ mod tests {
         block.body.execution_payload.execution_payload.transactions = txs;
 
         let block = BeaconBlock::Merge(block);
-        assert!(block.ssz_bytes_len() > max_rpc_size(fork_context, &spec));
+        assert!(block.ssz_bytes_len() > max_rpc_size(fork_context, spec));
         SignedBeaconBlock::from_block(block, Signature::empty())
     }
 
@@ -741,7 +741,7 @@ mod tests {
     ) -> Result<BytesMut, RPCError> {
         let snappy_protocol_id = ProtocolId::new(protocol, Encoding::SSZSnappy);
         let fork_context = Arc::new(fork_context(fork_name));
-        let max_packet_size = max_rpc_size(&fork_context, &spec);
+        let max_packet_size = max_rpc_size(&fork_context, spec);
 
         let mut buf = BytesMut::new();
         let mut snappy_inbound_codec =
