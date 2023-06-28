@@ -22,7 +22,7 @@ use tokio_util::{
 };
 use types::{
     BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockCapella, BeaconBlockMerge,
-    EmptyBlock, EthSpec, ForkContext, ForkName, Hash256, MainnetEthSpec, Signature,
+    ChainSpec, EmptyBlock, EthSpec, ForkContext, ForkName, Hash256, MainnetEthSpec, Signature,
     SignedBeaconBlock,
 };
 
@@ -119,9 +119,9 @@ const PROTOCOL_PREFIX: &str = "/eth2/beacon_chain/req";
 const REQUEST_TIMEOUT: u64 = 15;
 
 /// Returns the maximum bytes that can be sent across the RPC.
-pub fn max_rpc_size(fork_context: &ForkContext) -> usize {
+pub fn max_rpc_size(fork_context: &ForkContext, spec: &ChainSpec) -> usize {
     match fork_context.current_fork() {
-        ForkName::Altair | ForkName::Base => MainnetEthSpec::default_spec().max_chunk_size as usize,
+        ForkName::Altair | ForkName::Base => spec.max_chunk_size as usize,
         ForkName::Merge => MAX_RPC_SIZE_POST_MERGE,
         ForkName::Capella => MAX_RPC_SIZE_POST_CAPELLA,
     }

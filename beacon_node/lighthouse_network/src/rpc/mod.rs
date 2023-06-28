@@ -219,7 +219,7 @@ where
             SubstreamProtocol::new(
                 RPCProtocol {
                     fork_context: self.fork_context.clone(),
-                    max_rpc_size: max_rpc_size(&self.fork_context),
+                    max_rpc_size: max_rpc_size(&self.fork_context, &self.chain_spec),
                     enable_light_client_server: self.enable_light_client_server,
                     phantom: PhantomData,
                 },
