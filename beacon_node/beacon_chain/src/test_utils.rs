@@ -54,6 +54,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 use store::{config::StoreConfig, HotColdDB, ItemStore, LevelDB, MemoryStore};
+use task_executor::TaskExecutor;
 use task_executor::{test_utils::TestRuntime, ShutdownReason};
 use tree_hash::TreeHash;
 use types::sync_selection_proof::SyncSelectionProof;
@@ -450,30 +451,11 @@ where
     }
 
     pub fn mock_execution_layer(mut self) -> Self {
-        let spec = self.spec.clone().expect("cannot build without spec");
-        let shanghai_time = spec.capella_fork_epoch.map(|epoch| {
-            HARNESS_GENESIS_TIME + spec.seconds_per_slot * E::slots_per_epoch() * epoch.as_u64()
-        });
-        let deneb_time = spec.deneb_fork_epoch.map(|epoch| {
-            HARNESS_GENESIS_TIME + spec.seconds_per_slot * E::slots_per_epoch() * epoch.as_u64()
-        });
-
-        let trusted_setup: TrustedSetup =
-            serde_json::from_reader(eth2_network_config::get_trusted_setup::<E::Kzg>())
-                .map_err(|e| format!("Unable to read trusted setup file: {}", e))
-                .expect("should have trusted setup");
-        let kzg = Kzg::new_from_trusted_setup(trusted_setup).expect("should create kzg");
-
-        let mock = MockExecutionLayer::new(
+        let mock = mock_execution_layer_from_parts::<E>(
+            self.spec.as_ref().expect("cannot build without spec"),
             self.runtime.task_executor.clone(),
-            DEFAULT_TERMINAL_BLOCK,
-            shanghai_time,
-            deneb_time,
             None,
-            Some(JwtKey::from_slice(&DEFAULT_JWT_SECRET).unwrap()),
-            spec,
             None,
-            Some(kzg),
         );
         self.execution_layer = Some(mock.el.clone());
         self.mock_execution_layer = Some(mock);
@@ -488,29 +470,12 @@ where
         // Get a random unused port
         let port = unused_port::unused_tcp4_port().unwrap();
         let builder_url = SensitiveUrl::parse(format!("http://127.0.0.1:{port}").as_str()).unwrap();
-
-        let spec = self.spec.clone().expect("cannot build without spec");
-        let shanghai_time = spec.capella_fork_epoch.map(|epoch| {
-            HARNESS_GENESIS_TIME + spec.seconds_per_slot * E::slots_per_epoch() * epoch.as_u64()
-        });
-        let deneb_time = spec.deneb_fork_epoch.map(|epoch| {
-            HARNESS_GENESIS_TIME + spec.seconds_per_slot * E::slots_per_epoch() * epoch.as_u64()
-        });
-        let trusted_setup: TrustedSetup =
-            serde_json::from_reader(eth2_network_config::get_trusted_setup::<E::Kzg>())
-                .map_err(|e| format!("Unable to read trusted setup file: {}", e))
-                .expect("should have trusted setup");
-        let kzg = Kzg::new_from_trusted_setup(trusted_setup).expect("should create kzg");
-        let mock_el = MockExecutionLayer::new(
+        let spec = self.spec.as_ref().expect("cannot build without spec");
+        let mock_el = mock_execution_layer_from_parts::<E>(
+            spec,
             self.runtime.task_executor.clone(),
-            DEFAULT_TERMINAL_BLOCK,
-            shanghai_time,
-            deneb_time,
-            builder_threshold,
-            Some(JwtKey::from_slice(&DEFAULT_JWT_SECRET).unwrap()),
-            spec.clone(),
             Some(builder_url.clone()),
-            Some(kzg),
+            builder_threshold,
         )
         .move_to_terminal_block();
 
@@ -520,7 +485,7 @@ where
             mock_el_url,
             builder_url,
             beacon_url,
-            spec,
+            spec.clone(),
             self.runtime.task_executor.clone(),
         ));
         self.execution_layer = Some(mock_el.el.clone());
@@ -615,6 +580,38 @@ where
             rng: make_rng(),
         }
     }
+}
+
+pub fn mock_execution_layer_from_parts<T: EthSpec>(
+    spec: &ChainSpec,
+    task_executor: TaskExecutor,
+    builder_url: Option<SensitiveUrl>,
+    builder_threshold: Option<u128>,
+) -> MockExecutionLayer<T> {
+    let shanghai_time = spec.capella_fork_epoch.map(|epoch| {
+        HARNESS_GENESIS_TIME + spec.seconds_per_slot * T::slots_per_epoch() * epoch.as_u64()
+    });
+    let deneb_time = spec.deneb_fork_epoch.map(|epoch| {
+        HARNESS_GENESIS_TIME + spec.seconds_per_slot * T::slots_per_epoch() * epoch.as_u64()
+    });
+
+    let trusted_setup: TrustedSetup =
+        serde_json::from_reader(eth2_network_config::get_trusted_setup::<T::Kzg>())
+            .map_err(|e| format!("Unable to read trusted setup file: {}", e))
+            .expect("should have trusted setup");
+    let kzg = Kzg::new_from_trusted_setup(trusted_setup).expect("should create kzg");
+
+    MockExecutionLayer::new(
+        task_executor,
+        DEFAULT_TERMINAL_BLOCK,
+        shanghai_time,
+        deneb_time,
+        builder_threshold,
+        Some(JwtKey::from_slice(&DEFAULT_JWT_SECRET).unwrap()),
+        spec.clone(),
+        builder_url,
+        Some(kzg),
+    )
 }
 
 /// A testing harness which can instantiate a `BeaconChain` and populate it with blocks and
