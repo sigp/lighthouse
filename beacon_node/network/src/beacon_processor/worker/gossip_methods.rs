@@ -1216,7 +1216,6 @@ impl<T: BeaconChainTypes> Worker<T> {
                 return;
             }
             Err(e) => {
-                dbg!(&e);
                 debug!(
                     self.log,
                     "Dropping invalid exit";
@@ -1236,7 +1235,6 @@ impl<T: BeaconChainTypes> Worker<T> {
                 return;
             }
         };
-        dbg!("heren;");
 
         metrics::inc_counter(&metrics::BEACON_PROCESSOR_EXIT_VERIFIED_TOTAL);
 

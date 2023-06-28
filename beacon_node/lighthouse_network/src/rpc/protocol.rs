@@ -127,9 +127,6 @@ lazy_static! {
         ])
     .as_ssz_bytes()
     .len();
-
-    pub static ref BLOB_SIDECAR_MIN: usize = BlobSidecar::<MainnetEthSpec>::empty().as_ssz_bytes().len();
-    pub static ref BLOB_SIDECAR_MAX: usize = BlobSidecar::<MainnetEthSpec>::max_size();
 }
 
 /// The maximum bytes that can be sent across the RPC pre-merge.
@@ -429,8 +426,8 @@ impl ProtocolId {
             Protocol::Goodbye => RpcLimits::new(0, 0), // Goodbye request has no response
             Protocol::BlocksByRange => rpc_block_limits_by_fork(fork_context.current_fork()),
             Protocol::BlocksByRoot => rpc_block_limits_by_fork(fork_context.current_fork()),
-            Protocol::BlobsByRange => RpcLimits::new(*BLOB_SIDECAR_MIN, *BLOB_SIDECAR_MAX),
-            Protocol::BlobsByRoot => RpcLimits::new(*BLOB_SIDECAR_MIN, *BLOB_SIDECAR_MAX),
+            Protocol::BlobsByRange => rpc_blob_limits::<T>(),
+            Protocol::BlobsByRoot => rpc_blob_limits::<T>(),
             Protocol::Ping => RpcLimits::new(
                 <Ping as Encode>::ssz_fixed_len(),
                 <Ping as Encode>::ssz_fixed_len(),
@@ -483,6 +480,13 @@ impl ProtocolId {
             protocol_id,
         }
     }
+}
+
+pub fn rpc_blob_limits<T: EthSpec>() -> RpcLimits {
+    RpcLimits::new(
+        BlobSidecar::<T>::empty().as_ssz_bytes().len(),
+        BlobSidecar::<T>::max_size(),
+    )
 }
 
 impl ProtocolName for ProtocolId {

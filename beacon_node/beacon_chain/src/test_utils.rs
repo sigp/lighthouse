@@ -1954,7 +1954,6 @@ where
         let block_hash = self
             .process_block(slot, block.0.canonical_root(), block.clone())
             .await?;
-        dbg!(block_hash);
         Ok((block_hash, block, new_state))
     }
 

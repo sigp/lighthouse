@@ -797,7 +797,6 @@ async fn unaggregated_gossip_verification() {
                 a.data.target.epoch = early_slot.epoch(E::slots_per_epoch());
             },
             |tester, err| {
-                dbg!(&err);
                 assert!(matches!(
                     err,
                     AttnError::PastSlot {

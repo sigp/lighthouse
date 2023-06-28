@@ -724,14 +724,11 @@ fn test_parent_lookup_too_many_attempts() {
             }
         }
         if i < parent_lookup::PARENT_FAIL_TOLERANCE {
-            assert_eq!(
-                bl.parent_lookups[0]
-                    .current_parent_request
-                    .block_request_state
-                    .state
-                    .failed_attempts(),
-                dbg!(i)
-            );
+            assert_eq!(bl.parent_lookups[0]
+                .current_parent_request
+                .block_request_state
+                .state
+                .failed_attempts(),);
         }
     }
 
@@ -783,14 +780,11 @@ fn test_parent_lookup_too_many_download_attempts_no_blacklist() {
             rig.expect_penalty();
         }
         if i < parent_lookup::PARENT_FAIL_TOLERANCE {
-            assert_eq!(
-                bl.parent_lookups[0]
-                    .current_parent_request
-                    .block_request_state
-                    .state
-                    .failed_attempts(),
-                dbg!(i)
-            );
+            assert_eq!(bl.parent_lookups[0]
+                .current_parent_request
+                .block_request_state
+                .state
+                .failed_attempts(),);
         }
     }
 
@@ -841,7 +835,6 @@ fn test_parent_lookup_too_many_processing_attempts_must_blacklist() {
 
     // Now fail processing a block in the parent request
     for i in 0..PROCESSING_FAILURES {
-        let id = dbg!(rig.expect_parent_request(response_type));
         if matches!(fork_name, ForkName::Deneb) && i != 0 {
             let _ = rig.expect_parent_request(ResponseType::Blob);
         }
@@ -1324,7 +1317,6 @@ mod deneb_only {
 
         fn parent_blob_response(mut self) -> Self {
             for blob in &self.parent_blobs {
-                dbg!("sendingblob");
                 self.bl.parent_lookup_blob_response(
                     self.parent_blob_req_id.expect("parent blob request id"),
                     self.peer_id,
@@ -1334,7 +1326,6 @@ mod deneb_only {
                 );
                 assert_eq!(self.bl.parent_lookups.len(), 1);
             }
-            dbg!("sending stream terminator");
             self.bl.parent_lookup_blob_response(
                 self.parent_blob_req_id.expect("blob request id"),
                 self.peer_id,

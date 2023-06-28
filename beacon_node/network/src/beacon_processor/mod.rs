@@ -1552,11 +1552,9 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                                     "type" => "GossipAggregateBatch"
                             ),
                             Work::GossipBlock { .. } => {
-                                dbg!("gosisp block");
                                 gossip_block_queue.push(work, work_id, &self.log)
                             }
                             Work::GossipSignedBlobSidecar { .. } => {
-                                dbg!("gossip blob");
                                 gossip_blob_queue.push(work, work_id, &self.log)
                             }
                             Work::DelayedImportBlock { .. } => {
@@ -1829,7 +1827,6 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                 block,
                 seen_timestamp,
             } => {
-                dbg!("spawned block");
                 let invalid_block_storage = self.invalid_block_storage.clone();
                 task_spawner.spawn_async(async move {
                     worker
@@ -1857,7 +1854,6 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                 signed_blob,
                 seen_timestamp,
             } => task_spawner.spawn_async(async move {
-                dbg!("spawned blob");
                 worker
                     .process_gossip_blob(
                         message_id,
@@ -1894,7 +1890,6 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                 peer_id,
                 voluntary_exit,
             } => task_spawner.spawn_blocking(move || {
-                dbg!("spawned exit");
                 worker.process_gossip_voluntary_exit(message_id, peer_id, *voluntary_exit)
             }),
             /*
