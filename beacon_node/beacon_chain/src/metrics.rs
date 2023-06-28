@@ -1016,6 +1016,17 @@ lazy_static! {
         "light_client_optimistic_update_verification_success_total",
         "Number of light client optimistic updates verified for gossip"
     );
+    /*
+    * Aggregate subset metrics
+     */
+    pub static ref SYNC_CONTRIBUTION_SUBSETS: Result<IntCounter> = try_create_int_counter(
+        "beacon_sync_contribution_subsets_total",
+        "Count of new sync contributions that are subsets of already known aggregates"
+    );
+    pub static ref AGGREGATED_ATTESTATION_SUBSETS: Result<IntCounter> = try_create_int_counter(
+        "beacon_aggregated_attestation_subsets_total",
+        "Count of new aggregated attestations that are subsets of already known aggregates"
+    );
 
     /*
     * Kzg related metrics

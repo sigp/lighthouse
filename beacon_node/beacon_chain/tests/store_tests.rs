@@ -2195,7 +2195,6 @@ async fn weak_subjectivity_sync() {
             .process_block(
                 full_block.canonical_root(),
                 BlockWrapper::new(Arc::new(full_block), blobs),
-                CountUnrealized::True,
                 NotifyExecutionLayer::Yes,
             )
             .await

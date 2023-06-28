@@ -108,13 +108,14 @@ Command:
 ```bash
 DATADIR=/var/lib/lighthouse
 curl -X PATCH "http://localhost:5062/lighthouse/validators/0xb0148e6348264131bf47bcd1829590e870c836dc893050fd0dadc7a28949f9d0a72f2805d027521b45441101f0cc1cde" \
--H "Authorization: Bearer $(sudo cat ${DATADIR}/validators/api-token.txt)" \
+-H "Authorization: Bearer $(cat ${DATADIR}/validators/api-token.txt)" \
 -H "Content-Type: application/json" \
 -d '{
     "builder_proposals": true,
     "gas_limit": 30000001
 }' | jq
 ```
+If you are having permission issue with accessing the API token file, you can modify the header to become `-H "Authorization: Bearer $(sudo cat ${DATADIR}/validators/api-token.txt)"`
 
 #### Example Response Body
 

@@ -468,7 +468,7 @@ fn import_and_delete_conflicting_web3_signer_keystores() {
         for pubkey in &pubkeys {
             tester
                 .client
-                .patch_lighthouse_validators(pubkey, Some(false), None, None)
+                .patch_lighthouse_validators(pubkey, Some(false), None, None, None)
                 .await
                 .unwrap();
         }

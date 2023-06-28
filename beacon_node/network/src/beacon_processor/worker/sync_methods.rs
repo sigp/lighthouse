@@ -10,12 +10,12 @@ use crate::sync::{BatchProcessResult, ChainId};
 use beacon_chain::blob_verification::BlockWrapper;
 use beacon_chain::blob_verification::{AsBlock, MaybeAvailableBlock};
 use beacon_chain::data_availability_checker::AvailabilityCheckError;
+use beacon_chain::AvailabilityProcessingStatus;
 use beacon_chain::{
     observed_block_producers::Error as ObserveError, validator_monitor::get_block_delay_ms,
     BeaconChainError, BeaconChainTypes, BlockError, ChainSegmentResult, HistoricalBlockError,
     NotifyExecutionLayer,
 };
-use beacon_chain::{AvailabilityProcessingStatus, CountUnrealized};
 use lighthouse_network::PeerAction;
 use slog::{debug, error, info, warn};
 use slot_clock::SlotClock;
@@ -28,7 +28,7 @@ use types::{Epoch, Hash256};
 #[derive(Clone, Debug, PartialEq)]
 pub enum ChainSegmentProcessId {
     /// Processing Id of a range syncing batch.
-    RangeBatchId(ChainId, Epoch, CountUnrealized),
+    RangeBatchId(ChainId, Epoch),
     /// Processing ID for a backfill syncing batch.
     BackSyncBatchId(Epoch),
     /// Processing Id of the parent lookup of a block.
@@ -171,12 +171,7 @@ impl<T: BeaconChainTypes> Worker<T> {
 
         let result = self
             .chain
-            .process_block(
-                block_root,
-                block,
-                CountUnrealized::True,
-                NotifyExecutionLayer::Yes,
-            )
+            .process_block(block_root, block, NotifyExecutionLayer::Yes)
             .await;
 
         metrics::inc_counter(&metrics::BEACON_PROCESSOR_RPC_BLOCK_IMPORTED_TOTAL);
@@ -233,15 +228,11 @@ impl<T: BeaconChainTypes> Worker<T> {
 
         let result = self
             .chain
-            .check_availability_and_maybe_import(
-                slot,
-                |chain| {
-                    chain
-                        .data_availability_checker
-                        .put_rpc_blobs(block_root, blobs)
-                },
-                CountUnrealized::True,
-            )
+            .check_availability_and_maybe_import(slot, |chain| {
+                chain
+                    .data_availability_checker
+                    .put_rpc_blobs(block_root, blobs)
+            })
             .await;
 
         // Sync handles these results
@@ -262,17 +253,13 @@ impl<T: BeaconChainTypes> Worker<T> {
     ) {
         let result = match sync_type {
             // this a request from the range sync
-            ChainSegmentProcessId::RangeBatchId(chain_id, epoch, count_unrealized) => {
+            ChainSegmentProcessId::RangeBatchId(chain_id, epoch) => {
                 let start_slot = downloaded_blocks.first().map(|b| b.slot().as_u64());
                 let end_slot = downloaded_blocks.last().map(|b| b.slot().as_u64());
                 let sent_blocks = downloaded_blocks.len();
 
                 match self
-                    .process_blocks(
-                        downloaded_blocks.iter(),
-                        count_unrealized,
-                        notify_execution_layer,
-                    )
+                    .process_blocks(downloaded_blocks.iter(), notify_execution_layer)
                     .await
                 {
                     (_, Ok(_)) => {
@@ -357,11 +344,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                 // parent blocks are ordered from highest slot to lowest, so we need to process in
                 // reverse
                 match self
-                    .process_blocks(
-                        downloaded_blocks.iter().rev(),
-                        CountUnrealized::True,
-                        notify_execution_layer,
-                    )
+                    .process_blocks(downloaded_blocks.iter().rev(), notify_execution_layer)
                     .await
                 {
                     (imported_blocks, Err(e)) => {
@@ -391,13 +374,12 @@ impl<T: BeaconChainTypes> Worker<T> {
     async fn process_blocks<'a>(
         &self,
         downloaded_blocks: impl Iterator<Item = &'a BlockWrapper<T::EthSpec>>,
-        count_unrealized: CountUnrealized,
         notify_execution_layer: NotifyExecutionLayer,
     ) -> (usize, Result<(), ChainSegmentFailed>) {
         let blocks: Vec<_> = downloaded_blocks.cloned().collect();
         match self
             .chain
-            .process_chain_segment(blocks, count_unrealized, notify_execution_layer)
+            .process_chain_segment(blocks, notify_execution_layer)
             .await
         {
             ChainSegmentResult::Successful { imported_blocks } => {
