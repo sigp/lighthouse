@@ -5,7 +5,7 @@ use beacon_chain::blob_verification::BlockWrapper;
 use beacon_chain::builder::BeaconChainBuilder;
 use beacon_chain::schema_change::migrate_schema;
 use beacon_chain::test_utils::{
-    mock_execution_layer_from_spec, test_spec, AttestationStrategy, BeaconChainHarness,
+    mock_execution_layer_from_parts, test_spec, AttestationStrategy, BeaconChainHarness,
     BlockStrategy, DiskHarnessType,
 };
 use beacon_chain::validator_monitor::DEFAULT_INDIVIDUAL_TRACKING_THRESHOLD;
@@ -2120,7 +2120,7 @@ async fn weak_subjectivity_sync() {
             .map_err(|e| println!("Unable to read trusted setup file: {}", e))
             .unwrap();
 
-    let mock = mock_execution_layer_from_spec(
+    let mock = mock_execution_layer_from_parts(
         &harness.spec,
         harness.runtime.task_executor.clone(),
         None,

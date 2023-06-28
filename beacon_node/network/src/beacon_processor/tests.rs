@@ -24,7 +24,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
 use types::{
-    Attestation, AttesterSlashing, Epoch, EthSpec, MainnetEthSpec, ProposerSlashing,
+    Attestation, AttesterSlashing, Epoch, EthSpec, ForkName, MainnetEthSpec, ProposerSlashing,
     SignedBeaconBlock, SignedBlobSidecarList, SignedVoluntaryExit, Slot, SubnetId,
 };
 
@@ -554,6 +554,7 @@ async fn import_gossip_block_acceptably_early() {
     // processing, instead of just ADDITIONAL_QUEUED_BLOCK_DELAY. Speak to @paulhauner if this test
     // starts failing.
     rig.chain.slot_clock.set_slot(rig.next_block.slot().into());
+    dbg!(rig.head_root());
     assert!(
         rig.head_root() != rig.next_block.canonical_root(),
         "block not yet imported"
@@ -705,7 +706,9 @@ async fn attestation_to_unknown_block_processed(import_method: BlockImportMethod
             rig.enqueue_rpc_block();
             events.push(RPC_BLOCK);
             rig.enqueue_single_lookup_rpc_blobs();
-            events.push(RPC_BLOB);
+            if num_blobs > 0 {
+                events.push(RPC_BLOB);
+            }
         }
     };
 
@@ -786,7 +789,9 @@ async fn aggregate_attestation_to_unknown_block(import_method: BlockImportMethod
             rig.enqueue_rpc_block();
             events.push(RPC_BLOCK);
             rig.enqueue_single_lookup_rpc_blobs();
-            events.push(RPC_BLOB);
+            if num_blobs > 0 {
+                events.push(RPC_BLOB);
+            }
         }
     };
 
