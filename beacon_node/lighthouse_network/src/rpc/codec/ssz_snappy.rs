@@ -723,6 +723,10 @@ mod tests {
         SignedBeaconBlock::from_block(full_block, Signature::empty())
     }
 
+    fn default_blob_sidecar() -> Arc<BlobSidecar<Spec>> {
+        Arc::new(BlobSidecar::empty())
+    }
+
     /// Merge block with length < max_rpc_size.
     fn merge_block_small(fork_context: &ForkContext) -> SignedBeaconBlock<Spec> {
         let mut block: BeaconBlockMerge<_, FullPayload<Spec>> =
@@ -1022,6 +1026,24 @@ mod tests {
                 ForkName::Base,
             ),
             Ok(Some(RPCResponse::MetaData(metadata()))),
+        );
+
+        assert_eq!(
+            encode_then_decode_response(
+                SupportedProtocol::BlobsByRangeV1,
+                RPCCodedResponse::Success(RPCResponse::BlobsByRange(default_blob_sidecar())),
+                ForkName::Deneb,
+            ),
+            Ok(Some(RPCResponse::BlobsByRange(default_blob_sidecar()))),
+        );
+
+        assert_eq!(
+            encode_then_decode_response(
+                SupportedProtocol::BlobsByRootV1,
+                RPCCodedResponse::Success(RPCResponse::SidecarByRoot(default_blob_sidecar())),
+                ForkName::Deneb,
+            ),
+            Ok(Some(RPCResponse::SidecarByRoot(default_blob_sidecar()))),
         );
     }
 

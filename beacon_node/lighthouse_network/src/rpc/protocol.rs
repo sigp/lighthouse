@@ -421,10 +421,7 @@ impl ProtocolId {
             Protocol::BlocksByRange => rpc_block_limits_by_fork(fork_context.current_fork()),
             Protocol::BlocksByRoot => rpc_block_limits_by_fork(fork_context.current_fork()),
             Protocol::BlobsByRange => RpcLimits::new(*BLOB_SIDECAR_MIN, *BLOB_SIDECAR_MAX),
-            Protocol::BlobsByRoot => {
-                // TODO: wrong too
-                RpcLimits::new(*SIGNED_BLOCK_AND_BLOBS_MIN, *SIGNED_BLOCK_AND_BLOBS_MAX)
-            }
+            Protocol::BlobsByRoot => RpcLimits::new(*BLOB_SIDECAR_MIN, *BLOB_SIDECAR_MAX),
             Protocol::Ping => RpcLimits::new(
                 <Ping as Encode>::ssz_fixed_len(),
                 <Ping as Encode>::ssz_fixed_len(),
