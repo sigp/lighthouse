@@ -16,11 +16,11 @@ serde_derive = "1.0.116"
 ethereum_serde_utils = "0.5.0"
 hex = "0.4.2"
 ethereum_hashing = "1.0.0-beta.2"
-c-kzg = { git = "https://github.com/realbigsean/c-kzg-4844", rev = "1f25100d889c1dcc221f0c624225b38d511387a2" , features = ["mainnet-spec"]}
-c_kzg_min = { package = "c-kzg", git = "https://github.com/realbigsean//c-kzg-4844", rev = "1f25100d889c1dcc221f0c624225b38d511387a2", features = ["minimal-spec"] }
+c-kzg = { git = "https://github.com/michaelsproul/c-kzg-4844", rev = "9c47e976fe1133148742866c0ad10568ce182950" , features = ["mainnet-spec"]}
+c_kzg_min = { package = "c-kzg", git = "https://github.com/michaelsproul//c-kzg-4844", rev = "9c47e976fe1133148742866c0ad10568ce182950", features = ["minimal-spec"], optional = true }
 arbitrary = { version = "1.0", features = ["derive"], optional = true }
 
 [features]
-default = ["mainnet-spec"]
-mainnet-spec = ["c-kzg/mainnet-spec"]
-minimal-spec = ["c-kzg/minimal-spec"]
+# TODO(deneb): enabled by default for convenience, would need more cfg magic to disable
+default = ["c_kzg_min"]
+minimal-spec = ["c_kzg_min"]
