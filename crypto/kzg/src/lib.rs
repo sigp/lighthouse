@@ -17,6 +17,7 @@ pub enum Error {
     InvalidBytes(CryptoError),
     KzgProofComputationFailed(CryptoError),
     InvalidBlob(CryptoError),
+    InvalidBytesForBlob(CryptoError),
 }
 
 #[derive(Debug)]
