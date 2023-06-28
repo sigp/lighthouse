@@ -835,6 +835,7 @@ fn test_parent_lookup_too_many_processing_attempts_must_blacklist() {
 
     // Now fail processing a block in the parent request
     for i in 0..PROCESSING_FAILURES {
+        let id = dbg!(rig.expect_parent_request(response_type));
         if matches!(fork_name, ForkName::Deneb) && i != 0 {
             let _ = rig.expect_parent_request(ResponseType::Blob);
         }
