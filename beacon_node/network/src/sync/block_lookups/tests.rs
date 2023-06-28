@@ -724,11 +724,14 @@ fn test_parent_lookup_too_many_attempts() {
             }
         }
         if i < parent_lookup::PARENT_FAIL_TOLERANCE {
-            assert_eq!(bl.parent_lookups[0]
-                .current_parent_request
-                .block_request_state
-                .state
-                .failed_attempts(),);
+            assert_eq!(
+                bl.parent_lookups[0]
+                    .current_parent_request
+                    .block_request_state
+                    .state
+                    .failed_attempts(),
+                dbg!(i)
+            );
         }
     }
 
@@ -780,11 +783,14 @@ fn test_parent_lookup_too_many_download_attempts_no_blacklist() {
             rig.expect_penalty();
         }
         if i < parent_lookup::PARENT_FAIL_TOLERANCE {
-            assert_eq!(bl.parent_lookups[0]
-                .current_parent_request
-                .block_request_state
-                .state
-                .failed_attempts(),);
+            assert_eq!(
+                bl.parent_lookups[0]
+                    .current_parent_request
+                    .block_request_state
+                    .state
+                    .failed_attempts(),
+                dbg!(i)
+            );
         }
     }
 
