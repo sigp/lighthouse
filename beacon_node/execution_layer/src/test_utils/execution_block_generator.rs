@@ -16,9 +16,12 @@ use std::sync::Arc;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 use types::{
-    Blob, EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadCapella,
-    ExecutionPayloadDeneb, ExecutionPayloadMerge, ForkName, Hash256, Transactions, Uint256,
+    Blob, ChainSpec, EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadCapella,
+    ExecutionPayloadDeneb, ExecutionPayloadHeader, ExecutionPayloadMerge, ForkName, Hash256,
+    Transactions, Uint256,
 };
+
+use super::DEFAULT_TERMINAL_BLOCK;
 
 const GAS_LIMIT: u64 = 16384;
 const GAS_USED: u64 = GAS_LIMIT - 1;
@@ -266,23 +269,21 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
                 finalized_block_hash
             ));
         }
-        let parent_hash = if block_number == 0 {
-            ExecutionBlockHash::zero()
+        let block = if block_number == 0 {
+            generate_genesis_block(self.terminal_total_difficulty, self.terminal_block_number)?
         } else if let Some(block) = self.block_by_number(block_number - 1) {
-            block.block_hash()
+            generate_pow_block(
+                self.terminal_total_difficulty,
+                self.terminal_block_number,
+                block_number,
+                block.block_hash(),
+            )?
         } else {
             return Err(format!(
                 "parent with block number {} not found",
                 block_number - 1
             ));
         };
-
-        let block = generate_pow_block(
-            self.terminal_total_difficulty,
-            self.terminal_block_number,
-            block_number,
-            parent_hash,
-        )?;
 
         // Insert block into block tree
         self.insert_block(Block::PoW(block))?;
@@ -675,6 +676,40 @@ pub fn generate_random_blobs<T: EthSpec>(
 
 fn payload_id_from_u64(n: u64) -> PayloadId {
     n.to_le_bytes()
+}
+
+pub fn generate_genesis_header<T: EthSpec>(spec: &ChainSpec) -> Option<ExecutionPayloadHeader<T>> {
+    let genesis_fork = spec.fork_name_at_slot::<T>(spec.genesis_slot);
+    let genesis_block_hash =
+        generate_genesis_block(spec.terminal_total_difficulty, DEFAULT_TERMINAL_BLOCK)
+            .ok()
+            .map(|block| block.block_hash);
+    match genesis_fork {
+        ForkName::Base | ForkName::Altair => None,
+        ForkName::Merge => Some(ExecutionPayloadHeader::<T>::Merge(<_>::default())),
+        ForkName::Capella => {
+            let mut header = ExecutionPayloadHeader::Capella(<_>::default());
+            *header.block_hash_mut() = genesis_block_hash.unwrap_or_default();
+            Some(header)
+        }
+        ForkName::Deneb => {
+            let mut header = ExecutionPayloadHeader::Capella(<_>::default());
+            *header.block_hash_mut() = genesis_block_hash.unwrap_or_default();
+            Some(header)
+        }
+    }
+}
+
+pub fn generate_genesis_block(
+    terminal_total_difficulty: Uint256,
+    terminal_block_number: u64,
+) -> Result<PoWBlock, String> {
+    generate_pow_block(
+        terminal_total_difficulty,
+        terminal_block_number,
+        0,
+        ExecutionBlockHash::zero(),
+    )
 }
 
 pub fn generate_pow_block(
