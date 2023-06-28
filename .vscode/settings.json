@@ -1,0 +1,5 @@
+{
+    "rust-analyzer.linkedProjects": [
+        "./beacon_node/network/Cargo.toml"
+    ]
+}
