@@ -162,7 +162,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                     self.log,
                     "Sending BlocksByRange request";
                     "method" => "BlocksByRange",
-                    "count" => request.count,
+                    "count" => request.count(),
                     "peer" => %peer_id,
                 );
                 let request = Request::BlocksByRange(request);
@@ -181,7 +181,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                     self.log,
                     "Sending BlocksByRange and BlobsByRange requests";
                     "method" => "Mixed by range request",
-                    "count" => request.count,
+                    "count" => request.count(),
                     "peer" => %peer_id,
                 );
 
@@ -191,8 +191,8 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
 
                 // Create the blob request based on the blob request.
                 let blobs_request = Request::BlobsByRange(BlobsByRangeRequest {
-                    start_slot: request.start_slot,
-                    count: request.count,
+                    start_slot: *request.start_slot(),
+                    count: *request.count(),
                 });
                 let blocks_request = Request::BlocksByRange(request);
 
@@ -235,7 +235,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                     self.log,
                     "Sending backfill BlocksByRange request";
                     "method" => "BlocksByRange",
-                    "count" => request.count,
+                    "count" => request.count(),
                     "peer" => %peer_id,
                 );
                 let request = Request::BlocksByRange(request);
@@ -254,7 +254,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                     self.log,
                     "Sending backfill BlocksByRange and BlobsByRange requests";
                     "method" => "Mixed by range request",
-                    "count" => request.count,
+                    "count" => request.count(),
                     "peer" => %peer_id,
                 );
 
@@ -264,8 +264,8 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
 
                 // Create the blob request based on the blob request.
                 let blobs_request = Request::BlobsByRange(BlobsByRangeRequest {
-                    start_slot: request.start_slot,
-                    count: request.count,
+                    start_slot: *request.start_slot(),
+                    count: *request.count(),
                 });
                 let blocks_request = Request::BlocksByRange(request);
 
@@ -422,7 +422,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             self.log,
             "Sending BlocksByRoot Request";
             "method" => "BlocksByRoot",
-            "count" => request.block_roots.len(),
+            "count" => request.block_roots().len(),
             "peer" => %peer_id
         );
 
@@ -472,7 +472,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             self.log,
             "Sending parent BlocksByRoot Request";
             "method" => "BlocksByRoot",
-            "count" => request.block_roots.len(),
+            "count" => request.block_roots().len(),
             "peer" => %peer_id
         );
 

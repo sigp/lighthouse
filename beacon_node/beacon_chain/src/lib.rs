@@ -57,7 +57,7 @@ pub mod validator_pubkey_cache;
 
 pub use self::beacon_chain::{
     AttestationProcessingOutcome, AvailabilityProcessingStatus, BeaconChain, BeaconChainTypes,
-    BeaconStore, ChainSegmentResult, CountUnrealized, ForkChoiceError, OverrideForkchoiceUpdate,
+    BeaconStore, ChainSegmentResult, ForkChoiceError, OverrideForkchoiceUpdate,
     ProduceBlockVerification, StateSkipConfig, WhenSlotSkipped,
     INVALID_FINALIZED_MERGE_TRANSITION_BLOCK_SHUTDOWN_REASON,
     INVALID_JUSTIFIED_PAYLOAD_SHUTDOWN_REASON, MAXIMUM_GOSSIP_CLOCK_DISPARITY,
@@ -70,7 +70,7 @@ pub use attestation_verification::Error as AttestationError;
 pub use beacon_fork_choice_store::{BeaconForkChoiceStore, Error as ForkChoiceStoreError};
 pub use block_verification::{
     get_block_root, AvailabilityPendingExecutedBlock, BlockError, ExecutedBlock,
-    ExecutionPayloadError, GossipVerifiedBlock, IntoExecutionPendingBlock,
+    ExecutionPayloadError, ExecutionPendingBlock, GossipVerifiedBlock, IntoExecutionPendingBlock,
     PayloadVerificationOutcome, PayloadVerificationStatus,
 };
 pub use canonical_head::{CachedHead, CanonicalHead, CanonicalHeadRwLock};

@@ -72,7 +72,7 @@ impl BuilderHttpClient {
             .await?
             .json()
             .await
-            .map_err(Error::Reqwest)
+            .map_err(Into::into)
     }
 
     /// Perform a HTTP GET request, returning the `Response` for further processing.
@@ -85,7 +85,7 @@ impl BuilderHttpClient {
         if let Some(timeout) = timeout {
             builder = builder.timeout(timeout);
         }
-        let response = builder.send().await.map_err(Error::Reqwest)?;
+        let response = builder.send().await.map_err(Error::from)?;
         ok_or_error(response).await
     }
 
@@ -114,7 +114,7 @@ impl BuilderHttpClient {
         if let Some(timeout) = timeout {
             builder = builder.timeout(timeout);
         }
-        let response = builder.json(body).send().await.map_err(Error::Reqwest)?;
+        let response = builder.json(body).send().await.map_err(Error::from)?;
         ok_or_error(response).await
     }
 
