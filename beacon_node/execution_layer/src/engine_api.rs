@@ -7,7 +7,7 @@ use crate::http::{
 };
 use crate::BlobTxConversionError;
 use eth2::types::{SsePayloadAttributes, SsePayloadAttributesV1, SsePayloadAttributesV2};
-pub use ethers_core::types::Transaction;
+use ethers_core::types::Transaction;
 use ethers_core::utils::rlp::{self, Decodable, Rlp};
 use http::deposit_methods::RpcError;
 pub use json_structures::{JsonWithdrawal, TransitionConfigurationV1};

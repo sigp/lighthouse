@@ -8,7 +8,6 @@ use crate::{
     },
     random_valid_tx, BlobsBundleV1, ExecutionBlockWithTransactions,
 };
-use ethers_core::types::Transaction;
 use kzg::{Kzg, KzgPreset};
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
@@ -654,7 +653,7 @@ pub fn generate_random_blobs<T: EthSpec>(
             .map_err(|e| format!("error computing kzg proof: {:?}", e))?;
 
         let tx = random_valid_tx::<T>()
-            .map_err(|e| format!("error converting tx bytes to SSZ: {:?}", e))?;
+            .map_err(|e| format!("error creating valid tx SSZ bytes: {:?}", e))?;
 
         transactions.push(tx);
         bundle

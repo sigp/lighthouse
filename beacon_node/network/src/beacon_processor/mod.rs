@@ -1844,7 +1844,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                 })
             }
             /*
-             * Verification for blobs sidecars received on gossip.dbg!("gosisp block");
+             * Verification for blobs sidecars received on gossip.
              */
             Work::GossipSignedBlobSidecar {
                 message_id,
