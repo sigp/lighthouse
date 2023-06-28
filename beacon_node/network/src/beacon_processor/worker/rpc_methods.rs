@@ -375,7 +375,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         send_on_drop: SendOnDrop,
         peer_id: PeerId,
         request_id: PeerRequestId,
-        mut req: BlocksByRangeRequest,
+        req: BlocksByRangeRequest,
     ) {
         debug!(self.log, "Received BlocksByRange Request";
             "peer_id" => %peer_id,

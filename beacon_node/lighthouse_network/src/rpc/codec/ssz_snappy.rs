@@ -530,7 +530,7 @@ fn handle_rpc_request<T: EthSpec>(
 fn handle_rpc_response<T: EthSpec>(
     versioned_protocol: SupportedProtocol,
     decoded_buffer: &[u8],
-    mut fork_name: Option<ForkName>,
+    fork_name: Option<ForkName>,
 ) -> Result<Option<RPCResponse<T>>, RPCError> {
     match versioned_protocol {
         SupportedProtocol::StatusV1 => Ok(Some(RPCResponse::Status(
@@ -546,46 +546,38 @@ fn handle_rpc_response<T: EthSpec>(
         SupportedProtocol::BlocksByRootV1 => Ok(Some(RPCResponse::BlocksByRoot(Arc::new(
             SignedBeaconBlock::Base(SignedBeaconBlockBase::from_ssz_bytes(decoded_buffer)?),
         )))),
-        SupportedProtocol::BlobsByRangeV1 => {
-            let fork_name = fork_name.take().ok_or_else(|| {
-                RPCError::ErrorResponse(
-                    RPCResponseErrorCode::InvalidRequest,
-                    format!(
-                        "No context bytes provided for {:?} response",
-                        versioned_protocol
-                    ),
-                )
-            })?;
-            match fork_name {
-                ForkName::Deneb => Ok(Some(RPCResponse::BlobsByRange(Arc::new(
-                    BlobSidecar::from_ssz_bytes(decoded_buffer)?,
-                )))),
-                _ => Err(RPCError::ErrorResponse(
-                    RPCResponseErrorCode::InvalidRequest,
-                    "Invalid fork name for blobs by range".to_string(),
-                )),
-            }
-        }
-        SupportedProtocol::BlobsByRootV1 => {
-            let fork_name = fork_name.take().ok_or_else(|| {
-                RPCError::ErrorResponse(
-                    RPCResponseErrorCode::InvalidRequest,
-                    format!(
-                        "No context bytes provided for {:?} response",
-                        versioned_protocol
-                    ),
-                )
-            })?;
-            match fork_name {
-                ForkName::Deneb => Ok(Some(RPCResponse::SidecarByRoot(Arc::new(
-                    BlobSidecar::from_ssz_bytes(decoded_buffer)?,
-                )))),
-                _ => Err(RPCError::ErrorResponse(
-                    RPCResponseErrorCode::InvalidRequest,
-                    "Invalid fork name for block and blobs by root".to_string(),
-                )),
-            }
-        }
+        SupportedProtocol::BlobsByRangeV1 => match fork_name {
+            Some(ForkName::Deneb) => Ok(Some(RPCResponse::BlobsByRange(Arc::new(
+                BlobSidecar::from_ssz_bytes(decoded_buffer)?,
+            )))),
+            Some(_) => Err(RPCError::ErrorResponse(
+                RPCResponseErrorCode::InvalidRequest,
+                "Invalid fork name for blobs by range".to_string(),
+            )),
+            None => Err(RPCError::ErrorResponse(
+                RPCResponseErrorCode::InvalidRequest,
+                format!(
+                    "No context bytes provided for {:?} response",
+                    versioned_protocol
+                ),
+            )),
+        },
+        SupportedProtocol::BlobsByRootV1 => match fork_name {
+            Some(ForkName::Deneb) => Ok(Some(RPCResponse::SidecarByRoot(Arc::new(
+                BlobSidecar::from_ssz_bytes(decoded_buffer)?,
+            )))),
+            Some(_) => Err(RPCError::ErrorResponse(
+                RPCResponseErrorCode::InvalidRequest,
+                "Invalid fork name for blobs by root".to_string(),
+            )),
+            None => Err(RPCError::ErrorResponse(
+                RPCResponseErrorCode::InvalidRequest,
+                format!(
+                    "No context bytes provided for {:?} response",
+                    versioned_protocol
+                ),
+            )),
+        },
         SupportedProtocol::PingV1 => Ok(Some(RPCResponse::Pong(Ping {
             data: u64::from_ssz_bytes(decoded_buffer)?,
         }))),
