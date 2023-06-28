@@ -309,7 +309,7 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyOutboundCodec<TSpec> {
                 let _read_bytes = src.split_to(n as usize);
                 // Safe to `take` from `self.fork_name` as we have all the bytes we need to
                 // decode an ssz object at this point.
-                let fork_name = &mut self.fork_name.take();
+                let fork_name = self.fork_name.take();
                 handle_rpc_response(self.protocol.versioned_protocol, &decoded_buffer, fork_name)
             }
             Err(e) => handle_error(e, reader.get_ref().get_ref().position(), max_compressed_len),
@@ -530,7 +530,7 @@ fn handle_rpc_request<T: EthSpec>(
 fn handle_rpc_response<T: EthSpec>(
     versioned_protocol: SupportedProtocol,
     decoded_buffer: &[u8],
-    fork_name: &mut Option<ForkName>,
+    mut fork_name: Option<ForkName>,
 ) -> Result<Option<RPCResponse<T>>, RPCError> {
     match versioned_protocol {
         SupportedProtocol::StatusV1 => Ok(Some(RPCResponse::Status(
