@@ -288,8 +288,7 @@ fn test_blobs_by_range_chunked_rpc() {
         });
 
         // BlocksByRange Response
-        let mut blob = BlobSidecar::<E>::default();
-        blob.random(&mut thread_rng());
+        let blob = BlobSidecar::<E>::random(&mut thread_rng());
 
         let rpc_response = Response::BlobsByRange(Some(Arc::new(blob)));
 

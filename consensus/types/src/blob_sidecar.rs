@@ -2,7 +2,7 @@ use crate::test_utils::TestRandom;
 use crate::{Blob, ChainSpec, Domain, EthSpec, Fork, Hash256, SignedBlobSidecar, SignedRoot, Slot};
 use bls::SecretKey;
 use derivative::Derivative;
-use kzg::{KzgCommitment, KzgProof};
+use kzg::{KzgCommitment, KzgPreset, KzgProof};
 use rand::Rng;
 use serde_derive::{Deserialize, Serialize};
 use ssz::Encode;
@@ -94,11 +94,14 @@ impl<T: EthSpec> BlobSidecar<T> {
         Self::default()
     }
 
-    pub fn random<R: Rng>(&mut self, rng: &mut R) {
-        //TODO(sean) hardcoded bytes per blob due to ckzg limitations
-        let mut blob_bytes = [0u8; 131072];
+    pub fn random<R: Rng>(rng: &mut R) -> Self {
+        let mut blob_bytes = Vec::with_capacity(T::Kzg::BYTES_PER_BLOB);
         rng.fill_bytes(&mut blob_bytes);
-        self.blob = Blob::<T>::from(blob_bytes.to_vec());
+        let blob = Blob::<T>::from(blob_bytes);
+        Self {
+            blob,
+            ..Default::default()
+        }
     }
 
     #[allow(clippy::integer_arithmetic)]
