@@ -79,6 +79,7 @@ pub enum Error<T> {
     UnrealizedVoteProcessing(state_processing::EpochProcessingError),
     ParticipationCacheBuild(BeaconStateError),
     ParticipationCacheError(ParticipationCacheError),
+    ParticipationCacheMissing,
     ValidatorStatuses(BeaconStateError),
     ProgressiveBalancesCacheCheckFailed(String),
 }
@@ -759,53 +760,79 @@ where
                 parent_justified.epoch == block_epoch && parent_finalized.epoch + 1 >= block_epoch
             });
 
-        let (unrealized_justified_checkpoint, unrealized_finalized_checkpoint) =
-            if let Some((parent_justified, parent_finalized)) = parent_checkpoints {
-                (parent_justified, parent_finalized)
-            } else {
-                let justification_and_finalization_state = match block {
-                    BeaconBlockRef::Capella(_)
-                    | BeaconBlockRef::Merge(_)
-                    | BeaconBlockRef::Altair(_) => match progressive_balances_mode {
-                        ProgressiveBalancesMode::Disabled => {
-                            let participation_cache = ParticipationCache::new(state, spec)
-                                .map_err(Error::ParticipationCacheBuild)?;
-                            per_epoch_processing::altair::process_justification_and_finalization(
-                                state,
-                                &participation_cache,
-                            )?
-                        }
-                        ProgressiveBalancesMode::Fast
-                        | ProgressiveBalancesMode::Checked
-                        | ProgressiveBalancesMode::Strict => {
-                            process_justification_and_finalization_from_progressive_cache::<E, T>(
-                                state,
-                                spec,
-                                progressive_balances_mode,
-                                log,
-                            )?
-                        }
-                    },
-                    BeaconBlockRef::Base(_) => {
-                        let mut validator_statuses =
-                            per_epoch_processing::base::ValidatorStatuses::new(state, spec)
-                                .map_err(Error::ValidatorStatuses)?;
-                        validator_statuses
-                            .process_attestations(state)
-                            .map_err(Error::ValidatorStatuses)?;
-                        per_epoch_processing::base::process_justification_and_finalization(
+        let (unrealized_justified_checkpoint, unrealized_finalized_checkpoint) = if let Some((
+            parent_justified,
+            parent_finalized,
+        )) =
+            parent_checkpoints
+        {
+            (parent_justified, parent_finalized)
+        } else {
+            let justification_and_finalization_state = match block {
+                BeaconBlockRef::Capella(_)
+                | BeaconBlockRef::Merge(_)
+                | BeaconBlockRef::Altair(_) => match progressive_balances_mode {
+                    ProgressiveBalancesMode::Disabled => {
+                        let participation_cache = ParticipationCache::new(state, spec)
+                            .map_err(Error::ParticipationCacheBuild)?;
+                        per_epoch_processing::altair::process_justification_and_finalization(
                             state,
-                            &validator_statuses.total_balances,
-                            spec,
+                            &participation_cache,
                         )?
                     }
-                };
+                    ProgressiveBalancesMode::Fast
+                    | ProgressiveBalancesMode::Checked
+                    | ProgressiveBalancesMode::Strict => {
+                        let maybe_participation_cache = progressive_balances_mode
+                            .perform_comparative_checks()
+                            .then(|| {
+                                ParticipationCache::new(state, spec)
+                                    .map_err(Error::ParticipationCacheBuild)
+                            })
+                            .transpose()?;
 
-                (
-                    justification_and_finalization_state.current_justified_checkpoint(),
-                    justification_and_finalization_state.finalized_checkpoint(),
-                )
+                        process_justification_and_finalization_from_progressive_cache::<E, T>(
+                                state,
+                                maybe_participation_cache.as_ref(),
+                            )
+                            .or_else(|e| {
+                                if progressive_balances_mode == ProgressiveBalancesMode::Checked {
+                                    error!(
+                                        log,
+                                        "Processing with progressive balances cache failed in checked mode";
+                                        "info" => "falling back to the non-optimized processing method",
+                                        "error" => ?e,
+                                    );
+                                    per_epoch_processing::altair::process_justification_and_finalization(
+                                        state,
+                                        maybe_participation_cache.as_ref().ok_or(Error::ParticipationCacheMissing)?,
+                                    ).map_err(Error::from)
+                                } else {
+                                    Err(e)
+                                }
+                            })?
+                    }
+                },
+                BeaconBlockRef::Base(_) => {
+                    let mut validator_statuses =
+                        per_epoch_processing::base::ValidatorStatuses::new(state, spec)
+                            .map_err(Error::ValidatorStatuses)?;
+                    validator_statuses
+                        .process_attestations(state)
+                        .map_err(Error::ValidatorStatuses)?;
+                    per_epoch_processing::base::process_justification_and_finalization(
+                        state,
+                        &validator_statuses.total_balances,
+                        spec,
+                    )?
+                }
             };
+
+            (
+                justification_and_finalization_state.current_justified_checkpoint(),
+                justification_and_finalization_state.finalized_checkpoint(),
+            )
+        };
 
         // Update best known unrealized justified & finalized checkpoints
         if unrealized_justified_checkpoint.epoch
@@ -1532,11 +1559,13 @@ where
     }
 }
 
+/// Process justification and finalization using progressive cache. Also performs a comparative
+/// check against the `ParticipationCache` if it is supplied.
+///
+/// Returns an error if the cache is not initialized or if there is a mismatch on the comparative check.
 fn process_justification_and_finalization_from_progressive_cache<E, T>(
     state: &BeaconState<E>,
-    spec: &ChainSpec,
-    progressive_balances_mode: ProgressiveBalancesMode,
-    log: &Logger,
+    maybe_participation_cache: Option<&ParticipationCache>,
 ) -> Result<JustificationAndFinalizationState<E>, Error<T::Error>>
 where
     E: EthSpec,
@@ -1555,36 +1584,14 @@ where
         progressive_balances_cache.current_epoch_target_attesting_balance()?;
     let total_active_balance = state.get_total_active_balance()?;
 
-    if progressive_balances_mode.perform_comparative_checks() {
-        let participation_cache =
-            ParticipationCache::new(state, spec).map_err(Error::ParticipationCacheBuild)?;
-
-        if let Err(e) = check_progressive_balances::<E, T>(
+    if let Some(participation_cache) = maybe_participation_cache {
+        check_progressive_balances::<E, T>(
             state,
-            &participation_cache,
+            participation_cache,
             previous_target_balance,
             current_target_balance,
             total_active_balance,
-        ) {
-            return if progressive_balances_mode == ProgressiveBalancesMode::Strict {
-                // if comparative check fails in `Strict` mode, return error
-                Err(e)
-            } else {
-                error!(
-                    log,
-                    "Progressive balances mismatch";
-                    "info" => "falling back to epoch processing calculation",
-                    "error" => ?e,
-                );
-                // if comparative check fails in `Checked` mode, fall back to the epoch processing
-                // method.
-                per_epoch_processing::altair::process_justification_and_finalization(
-                    state,
-                    &participation_cache,
-                )
-                .map_err(Error::from)
-            };
-        }
+        )?;
     }
 
     weigh_justification_and_finalization(
