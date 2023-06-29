@@ -246,7 +246,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
         // Do not run too frequently.
         let epoch = notif.finalized_checkpoint.epoch;
         let mut prev_migration = notif.prev_migration.lock();
-        if epoch < prev_migration.epoch + prev_migration.epochs_per_migration {
+        if epoch <= prev_migration.epoch + prev_migration.epochs_per_migration {
             debug!(
                 log,
                 "Database consolidation deferred";
