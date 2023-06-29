@@ -47,7 +47,7 @@
     * [Running a Slasher](./slasher.md)
     * [Redundancy](./redundancy.md)
     * [Release Candidates](./advanced-release-candidates.md)
-    * [Maximal Extractable Value (MEV)](./builders.md)
+    * [MEV](./builders.md)
     * [Merge Migration](./merge-migration.md)
     * [Late Block Re-orgs](./late-block-re-orgs.md)
 * [Contributing](./contributing.md)

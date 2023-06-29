@@ -116,7 +116,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .value_name("PORT")
                 .help("The UDP port that discovery will listen on over IpV6 if listening over \
                       both Ipv4 and IpV6. Defaults to `port6`")
-                .hidden(true) // TODO: implement dual stack via two sockets in discv5.
                 .takes_value(true),
         )
         .arg(
@@ -198,7 +197,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                       discovery. Set this only if you are sure other nodes can connect to your \
                       local node on this address. This will update the `ip4` or `ip6` ENR fields \
                       accordingly. To update both, set this flag twice with the different values.")
-                .requires("enr-udp-port")
                 .multiple(true)
                 .max_values(2)
                 .takes_value(true),
@@ -687,7 +685,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("max-skip-slots")
                 .long("max-skip-slots")
                 .help(
-                    "Refuse to skip more than this many slots when processing a block or attestation. \
+                    "Refuse to skip more than this many slots when processing an attestation. \
                     This prevents nodes on minority forks from wasting our time and disk space, \
                     but could also cause unnecessary consensus failures, so is disabled by default."
                 )

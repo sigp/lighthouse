@@ -156,9 +156,7 @@ impl<const MAX_ATTEMPTS: u8> SingleBlockRequest<MAX_ATTEMPTS> {
                 cannot_process: self.failed_processing >= self.failed_downloading,
             })
         } else if let Some(&peer_id) = self.available_peers.iter().choose(&mut rand::thread_rng()) {
-            let request = BlocksByRootRequest {
-                block_roots: VariableList::from(vec![self.hash]),
-            };
+            let request = BlocksByRootRequest::new(VariableList::from(vec![self.hash]));
             self.state = State::Downloading { peer_id };
             self.used_peers.insert(peer_id);
             Ok((peer_id, request))

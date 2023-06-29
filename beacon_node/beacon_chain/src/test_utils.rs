@@ -22,7 +22,6 @@ use execution_layer::{
     },
     ExecutionLayer,
 };
-use fork_choice::CountUnrealized;
 use futures::channel::mpsc::Receiver;
 pub use genesis::{interop_genesis_state_with_eth1, DEFAULT_ETH1_BLOCK_HASH};
 use int_to_bytes::int_to_bytes32;
@@ -1693,12 +1692,7 @@ where
         self.set_current_slot(slot);
         let block_hash: SignedBeaconBlockHash = self
             .chain
-            .process_block(
-                block_root,
-                Arc::new(block),
-                CountUnrealized::True,
-                NotifyExecutionLayer::Yes,
-            )
+            .process_block(block_root, Arc::new(block), NotifyExecutionLayer::Yes)
             .await?
             .into();
         self.chain.recompute_head_at_current_slot().await;
@@ -1714,7 +1708,6 @@ where
             .process_block(
                 block.canonical_root(),
                 Arc::new(block),
-                CountUnrealized::True,
                 NotifyExecutionLayer::Yes,
             )
             .await?

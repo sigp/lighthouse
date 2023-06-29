@@ -8,8 +8,8 @@ use beacon_chain::{
     observed_operations::ObservationOutcome,
     sync_committee_verification::{self, Error as SyncCommitteeError},
     validator_monitor::get_block_delay_ms,
-    BeaconChainError, BeaconChainTypes, BlockError, CountUnrealized, ForkChoiceError,
-    GossipVerifiedBlock, NotifyExecutionLayer,
+    BeaconChainError, BeaconChainTypes, BlockError, ForkChoiceError, GossipVerifiedBlock,
+    NotifyExecutionLayer,
 };
 use lighthouse_network::{Client, MessageAcceptance, MessageId, PeerAction, PeerId, ReportSource};
 use operation_pool::ReceivedPreCapella;
@@ -835,7 +835,6 @@ impl<T: BeaconChainTypes> Worker<T> {
             | Err(e @ BlockError::NonLinearParentRoots)
             | Err(e @ BlockError::BlockIsNotLaterThanParent { .. })
             | Err(e @ BlockError::InvalidSignature)
-            | Err(e @ BlockError::TooManySkippedSlots { .. })
             | Err(e @ BlockError::WeakSubjectivityConflict)
             | Err(e @ BlockError::InconsistentFork(_))
             | Err(e @ BlockError::ExecutionPayloadError(_))
@@ -949,12 +948,7 @@ impl<T: BeaconChainTypes> Worker<T> {
 
         let result = self
             .chain
-            .process_block(
-                block_root,
-                verified_block,
-                CountUnrealized::True,
-                NotifyExecutionLayer::Yes,
-            )
+            .process_block(block_root, verified_block, NotifyExecutionLayer::Yes)
             .await;
 
         match &result {
@@ -1741,7 +1735,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     "attn_agg_not_in_committee",
                 );
             }
-            AttnError::AttestationAlreadyKnown { .. } => {
+            AttnError::AttestationSupersetKnown { .. } => {
                 /*
                  * The aggregate attestation has already been observed on the network or in
                  * a block.
@@ -2250,7 +2244,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     "sync_bad_aggregator",
                 );
             }
-            SyncCommitteeError::SyncContributionAlreadyKnown(_)
+            SyncCommitteeError::SyncContributionSupersetKnown(_)
             | SyncCommitteeError::AggregatorAlreadyKnown(_) => {
                 /*
                  * The sync committee message already been observed on the network or in

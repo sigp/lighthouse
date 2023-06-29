@@ -828,7 +828,7 @@ impl ChainSpec {
              * Capella hard fork params
              */
             capella_fork_version: [0x03, 0x00, 0x00, 0x64],
-            capella_fork_epoch: None,
+            capella_fork_epoch: Some(Epoch::new(648704)),
             max_validators_per_withdrawals_sweep: 8192,
 
             /*
