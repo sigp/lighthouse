@@ -6,7 +6,7 @@ use crate::beacon_processor::work_reprocessing_queue::{
 use crate::beacon_processor::*;
 use crate::{service::NetworkMessage, sync::SyncMessage};
 use beacon_chain::test_utils::{
-    AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
+    test_spec, AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
 };
 use beacon_chain::{BeaconChain, ChainConfig, WhenSlotSkipped, MAXIMUM_GOSSIP_CLOCK_DISPARITY};
 use lighthouse_network::discovery::ConnectionId;
@@ -1042,6 +1042,9 @@ async fn test_backfill_sync_processing_rate_limiting_disabled() {
 
 #[tokio::test]
 async fn test_blobs_by_range() {
+    if test_spec::<E>().deneb_fork_epoch.is_none() {
+        return;
+    };
     let mut rig = TestRig::new(64).await;
     let slot_count = 32;
     rig.enqueue_blobs_by_range_request(slot_count);
@@ -1074,6 +1077,8 @@ async fn test_blobs_by_range() {
             } else {
                 break;
             }
+        } else {
+            panic!("unexpected message {:?}", next);
         }
     }
     assert_eq!(blob_count, actual_count);

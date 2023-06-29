@@ -1,7 +1,6 @@
 #![cfg(test)]
 use lighthouse_network::rpc::methods::*;
 use lighthouse_network::{rpc::max_rpc_size, NetworkEvent, ReportSource, Request, Response};
-use rand::thread_rng;
 use slog::{debug, warn, Level};
 use ssz::Encode;
 use ssz_types::VariableList;
@@ -288,7 +287,7 @@ fn test_blobs_by_range_chunked_rpc() {
         });
 
         // BlocksByRange Response
-        let blob = BlobSidecar::<E>::random(&mut thread_rng());
+        let blob = BlobSidecar::<E>::default();
 
         let rpc_response = Response::BlobsByRange(Some(Arc::new(blob)));
 

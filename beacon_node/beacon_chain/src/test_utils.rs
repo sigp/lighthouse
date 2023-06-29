@@ -197,7 +197,7 @@ impl<E: EthSpec> Builder<EphemeralHarnessType<E>> {
             .unwrap(),
         );
         let mutator = move |builder: BeaconChainBuilder<_>| {
-            let header = generate_genesis_header::<E>(builder.get_spec());
+            let header = generate_genesis_header::<E>(builder.get_spec(), false);
             let genesis_state = interop_genesis_state_with_eth1::<E>(
                 &validator_keypairs,
                 HARNESS_GENESIS_TIME,
@@ -259,7 +259,7 @@ impl<E: EthSpec> Builder<DiskHarnessType<E>> {
             .expect("cannot build without validator keypairs");
 
         let mutator = move |builder: BeaconChainBuilder<_>| {
-            let header = generate_genesis_header::<E>(builder.get_spec());
+            let header = generate_genesis_header::<E>(builder.get_spec(), false);
             let genesis_state = interop_genesis_state_with_eth1::<E>(
                 &validator_keypairs,
                 HARNESS_GENESIS_TIME,
@@ -443,7 +443,7 @@ where
             spec.capella_fork_epoch.map(|epoch| {
                 genesis_time + spec.seconds_per_slot * E::slots_per_epoch() * epoch.as_u64()
             });
-        mock.server.execution_block_generator().deneb_time = spec.deneb_fork_epoch.map(|epoch| {
+        mock.server.execution_block_generator().cancun_time = spec.deneb_fork_epoch.map(|epoch| {
             genesis_time + spec.seconds_per_slot * E::slots_per_epoch() * epoch.as_u64()
         });
 
@@ -591,7 +591,7 @@ pub fn mock_execution_layer_from_parts<T: EthSpec>(
     let shanghai_time = spec.capella_fork_epoch.map(|epoch| {
         HARNESS_GENESIS_TIME + spec.seconds_per_slot * T::slots_per_epoch() * epoch.as_u64()
     });
-    let deneb_time = spec.deneb_fork_epoch.map(|epoch| {
+    let cancun_time = spec.deneb_fork_epoch.map(|epoch| {
         HARNESS_GENESIS_TIME + spec.seconds_per_slot * T::slots_per_epoch() * epoch.as_u64()
     });
 
@@ -605,7 +605,7 @@ pub fn mock_execution_layer_from_parts<T: EthSpec>(
         task_executor,
         DEFAULT_TERMINAL_BLOCK,
         shanghai_time,
-        deneb_time,
+        cancun_time,
         builder_threshold,
         Some(JwtKey::from_slice(&DEFAULT_JWT_SECRET).unwrap()),
         spec.clone(),

@@ -8,15 +8,15 @@ use crate::{
     },
     random_valid_tx, BlobsBundleV1, ExecutionBlockWithTransactions,
 };
-use kzg::{Kzg, KzgPreset};
-use rand::RngCore;
+use kzg::Kzg;
+use rand::thread_rng;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 use types::{
-    Blob, ChainSpec, EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadCapella,
+    BlobSidecar, ChainSpec, EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadCapella,
     ExecutionPayloadDeneb, ExecutionPayloadHeader, ExecutionPayloadMerge, ForkName, Hash256,
     Transactions, Uint256,
 };
@@ -124,7 +124,7 @@ pub struct ExecutionBlockGenerator<T: EthSpec> {
      * Post-merge fork triggers
      */
     pub shanghai_time: Option<u64>, // withdrawals
-    pub deneb_time: Option<u64>,    // 4844
+    pub cancun_time: Option<u64>,   // deneb
     /*
      * deneb stuff
      */
@@ -138,7 +138,7 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
         terminal_block_number: u64,
         terminal_block_hash: ExecutionBlockHash,
         shanghai_time: Option<u64>,
-        deneb_time: Option<u64>,
+        cancun_time: Option<u64>,
         kzg: Option<Kzg<T::Kzg>>,
     ) -> Self {
         let mut gen = Self {
@@ -153,7 +153,7 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
             next_payload_id: 0,
             payload_ids: <_>::default(),
             shanghai_time,
-            deneb_time,
+            cancun_time,
             blobs_bundles: <_>::default(),
             kzg: kzg.map(Arc::new),
         };
@@ -188,7 +188,7 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
     }
 
     pub fn get_fork_at_timestamp(&self, timestamp: u64) -> ForkName {
-        match self.deneb_time {
+        match self.cancun_time {
             Some(fork_time) if timestamp >= fork_time => ForkName::Deneb,
             _ => match self.shanghai_time {
                 Some(fork_time) if timestamp >= fork_time => ForkName::Capella,
@@ -345,6 +345,8 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
         Ok(hash)
     }
 
+    // This does not reject duplicate blocks inserted. This lets us re-use the same execution
+    // block generator for multiple beacon chains which is useful in testing.
     pub fn insert_block(&mut self, block: Block<T>) -> Result<ExecutionBlockHash, String> {
         if block.parent_hash() != ExecutionBlockHash::zero()
             && !self.blocks.contains_key(&block.parent_hash())
@@ -632,26 +634,14 @@ pub fn generate_random_blobs<T: EthSpec>(
     let mut bundle = BlobsBundleV1::<T>::default();
     let mut transactions = vec![];
     for blob_index in 0..n_blobs {
-        // fill a vector with random bytes
-        let mut blob_bytes = vec![0u8; T::Kzg::BYTES_PER_BLOB];
-        rand::thread_rng().fill_bytes(&mut blob_bytes);
-        // Ensure that the blob is canonical by ensuring that
-        // each field element contained in the blob is < BLS_MODULUS
-        for i in 0..T::Kzg::FIELD_ELEMENTS_PER_BLOB {
-            blob_bytes[i * T::Kzg::BYTES_PER_FIELD_ELEMENT] = 0;
-        }
+        let random_valid_sidecar = BlobSidecar::<T>::random_valid(&mut thread_rng(), kzg)?;
 
-        let blob = Blob::<T>::new(blob_bytes)
-            .map_err(|e| format!("error constructing random blob: {:?}", e))?;
-        let kzg_blob = T::blob_from_bytes(&blob).unwrap();
-
-        let commitment = kzg
-            .blob_to_kzg_commitment(kzg_blob.clone())
-            .map_err(|e| format!("error computing kzg commitment: {:?}", e))?;
-
-        let proof = kzg
-            .compute_blob_kzg_proof(kzg_blob, commitment)
-            .map_err(|e| format!("error computing kzg proof: {:?}", e))?;
+        let BlobSidecar {
+            blob,
+            kzg_commitment,
+            kzg_proof,
+            ..
+        } = random_valid_sidecar;
 
         let tx = random_valid_tx::<T>()
             .map_err(|e| format!("error creating valid tx SSZ bytes: {:?}", e))?;
@@ -663,11 +653,11 @@ pub fn generate_random_blobs<T: EthSpec>(
             .map_err(|_| format!("blobs are full, blob index: {:?}", blob_index))?;
         bundle
             .commitments
-            .push(commitment)
+            .push(kzg_commitment)
             .map_err(|_| format!("blobs are full, blob index: {:?}", blob_index))?;
         bundle
             .proofs
-            .push(proof)
+            .push(kzg_proof)
             .map_err(|_| format!("blobs are full, blob index: {:?}", blob_index))?;
     }
 
@@ -678,7 +668,10 @@ fn payload_id_from_u64(n: u64) -> PayloadId {
     n.to_le_bytes()
 }
 
-pub fn generate_genesis_header<T: EthSpec>(spec: &ChainSpec) -> Option<ExecutionPayloadHeader<T>> {
+pub fn generate_genesis_header<T: EthSpec>(
+    spec: &ChainSpec,
+    post_transition_merge: bool,
+) -> Option<ExecutionPayloadHeader<T>> {
     let genesis_fork = spec.fork_name_at_slot::<T>(spec.genesis_slot);
     let genesis_block_hash =
         generate_genesis_block(spec.terminal_total_difficulty, DEFAULT_TERMINAL_BLOCK)
@@ -686,7 +679,15 @@ pub fn generate_genesis_header<T: EthSpec>(spec: &ChainSpec) -> Option<Execution
             .map(|block| block.block_hash);
     match genesis_fork {
         ForkName::Base | ForkName::Altair => None,
-        ForkName::Merge => Some(ExecutionPayloadHeader::<T>::Merge(<_>::default())),
+        ForkName::Merge => {
+            if post_transition_merge {
+                let mut header = ExecutionPayloadHeader::Merge(<_>::default());
+                *header.block_hash_mut() = genesis_block_hash.unwrap_or_default();
+                Some(header)
+            } else {
+                Some(ExecutionPayloadHeader::<T>::Merge(<_>::default()))
+            }
+        }
         ForkName::Capella => {
             let mut header = ExecutionPayloadHeader::Capella(<_>::default());
             *header.block_hash_mut() = genesis_block_hash.unwrap_or_default();
