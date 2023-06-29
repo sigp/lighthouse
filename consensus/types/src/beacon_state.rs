@@ -1783,6 +1783,10 @@ impl<T: EthSpec> BeaconState<T> {
         Ok(sync_committee)
     }
 
+    pub fn get_base_reward(&self, validator_index: usize) -> Result<u64, EpochCacheError> {
+        self.epoch_cache().get_base_reward(validator_index)
+    }
+
     // FIXME(sproul): missing eth1 data votes, they would need a ResetListDiff
     #[allow(clippy::integer_arithmetic)]
     pub fn rebase_on(&mut self, base: &Self, spec: &ChainSpec) -> Result<(), Error> {

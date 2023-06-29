@@ -8,7 +8,6 @@ use state_processing::{
     per_block_processing::{
         altair::sync_committee::compute_sync_aggregate_rewards, get_slashable_indices,
     },
-    ConsensusContext,
 };
 use store::{
     consts::altair::{PARTICIPATION_FLAG_WEIGHTS, PROPOSER_WEIGHT, WEIGHT_DENOMINATOR},
@@ -177,8 +176,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         block: BeaconBlockRef<'_, T::EthSpec, Payload>,
         state: &mut BeaconState<T::EthSpec>,
     ) -> Result<BeaconBlockSubRewardValue, BeaconChainError> {
-        let mut ctxt = ConsensusContext::new(block.slot());
-
         let mut total_proposer_reward = 0;
 
         let proposer_reward_denominator = WEIGHT_DENOMINATOR
@@ -218,7 +215,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     {
                         validator_participation.add_flag(flag_index)?;
                         proposer_reward_numerator.safe_add_assign(
-                            ctxt.get_base_reward(state, index)
+                            state
+                                .get_base_reward(index)
                                 .map_err(|_| BeaconChainError::BlockRewardAttestationError)?
                                 .safe_mul(weight)?,
                         )?;

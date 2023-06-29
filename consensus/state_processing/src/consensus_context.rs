@@ -149,15 +149,6 @@ impl<T: EthSpec> ConsensusContext<T> {
         }
     }
 
-    pub fn get_base_reward(
-        &mut self,
-        state: &BeaconState<T>,
-        validator_index: usize,
-    ) -> Result<u64, ContextError> {
-        self.check_slot(state.slot())?;
-        Ok(state.epoch_cache().get_base_reward(validator_index)?)
-    }
-
     pub fn get_indexed_attestation(
         &mut self,
         state: &BeaconState<T>,
