@@ -484,7 +484,7 @@ impl<T: BeaconChainTypes> Router<T> {
         self.beacon_processor_send
             .try_send(work)
             .unwrap_or_else(|e| {
-                let work_type = match &e {
+                let work_type = match &*e {
                     mpsc::error::TrySendError::Closed(work)
                     | mpsc::error::TrySendError::Full(work) => work.work_type(),
                 };

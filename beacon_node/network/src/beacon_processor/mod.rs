@@ -753,7 +753,7 @@ impl<T: BeaconChainTypes> std::convert::From<ReadyWork<T>> for WorkEvent<T> {
 pub struct BeaconProcessorSend<T: BeaconChainTypes>(pub mpsc::Sender<WorkEvent<T>>);
 
 impl<T: BeaconChainTypes> BeaconProcessorSend<T> {
-    pub fn try_send(&self, message: WorkEvent<T>) -> Result<(), TrySendError<WorkEvent<T>>> {
+    pub fn try_send(&self, message: WorkEvent<T>) -> Result<(), Box<TrySendError<WorkEvent<T>>>> {
         let work_type = message.work_type();
         match self.0.try_send(message) {
             Ok(res) => Ok(res),
@@ -762,7 +762,7 @@ impl<T: BeaconChainTypes> BeaconProcessorSend<T> {
                     &metrics::BEACON_PROCESSOR_SEND_ERROR_PER_WORK_TYPE,
                     &[work_type],
                 );
-                Err(e)
+                Err(Box::new(e))
             }
         }
     }
