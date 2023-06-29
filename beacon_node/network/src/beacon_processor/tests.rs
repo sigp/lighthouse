@@ -24,8 +24,8 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
 use types::{
-    Attestation, AttesterSlashing, Epoch, EthSpec, MainnetEthSpec, ProposerSlashing,
-    SignedBeaconBlock, SignedBlobSidecarList, SignedVoluntaryExit, Slot, SubnetId,
+    Attestation, AttesterSlashing, Epoch, MainnetEthSpec, ProposerSlashing, SignedBeaconBlock,
+    SignedBlobSidecarList, SignedVoluntaryExit, Slot, SubnetId,
 };
 
 type E = MainnetEthSpec;
@@ -76,7 +76,7 @@ impl TestRig {
     }
 
     pub async fn new_with_chain_config(chain_length: u64, chain_config: ChainConfig) -> Self {
-        let mut spec = E::default_spec();
+        let mut spec = test_spec::<MainnetEthSpec>();
         // This allows for testing voluntary exits without building out a massive chain.
         spec.shard_committee_period = 2;
 
