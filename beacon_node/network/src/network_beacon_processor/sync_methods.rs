@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use crate::metrics;
 use crate::network_beacon_processor::{
-    AsyncFn, DuplicateCache, NetworkBeaconProcessor, FUTURE_SLOT_TOLERANCE,
+    DuplicateCache, NetworkBeaconProcessor, FUTURE_SLOT_TOLERANCE,
 };
 use crate::sync::manager::{BlockProcessType, SyncMessage};
 use crate::sync::BatchProcessResult;
@@ -11,8 +11,10 @@ use beacon_chain::{
     BeaconChainError, BeaconChainTypes, BlockError, ChainSegmentResult, HistoricalBlockError,
     NotifyExecutionLayer,
 };
-use beacon_processor::work_reprocessing_queue::QueuedRpcBlock;
-use beacon_processor::work_reprocessing_queue::ReprocessQueueMessage;
+use beacon_processor::{
+    work_reprocessing_queue::{QueuedRpcBlock, ReprocessQueueMessage},
+    AsyncFnWithBool,
+};
 use lighthouse_network::{types::ChainSegmentProcessId, PeerAction};
 use slog::{debug, error, info, warn};
 use slot_clock::SlotClock;
@@ -40,23 +42,25 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
         seen_timestamp: Duration,
         process_type: BlockProcessType,
-    ) -> AsyncFn {
-        let process_fn = async move {
-            let reprocess_tx = self.reprocess_tx.clone();
-            let duplicate_cache = self.duplicate_cache.clone();
-            let should_process = true;
-            self.process_rpc_block(
-                block_root,
-                block,
-                seen_timestamp,
-                process_type,
-                reprocess_tx,
-                duplicate_cache,
-                should_process,
-            )
-            .await;
+    ) -> AsyncFnWithBool {
+        let process_fn = move |should_process| {
+            let future = async move {
+                let reprocess_tx = self.reprocess_tx.clone();
+                let duplicate_cache = self.duplicate_cache.clone();
+                self.process_rpc_block(
+                    block_root,
+                    block,
+                    seen_timestamp,
+                    process_type,
+                    reprocess_tx,
+                    duplicate_cache,
+                    should_process,
+                )
+                .await
+            };
+            Box::pin(future)
         };
-        Box::pin(process_fn)
+        Box::new(process_fn)
     }
 
     /// Attempt to process a block received from a direct RPC request.

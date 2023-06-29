@@ -399,6 +399,7 @@ pub struct GossipAggregatePackage<E: EthSpec> {
 }
 
 pub type AsyncFn = Pin<Box<dyn Future<Output = ()> + Send + Sync>>;
+pub type AsyncFnWithBool = Box<dyn FnOnce(bool) -> AsyncFn + Send + Sync>;
 pub type BlockingFn = Box<dyn FnOnce() + Send + Sync>;
 pub type BlockingFnWithManualSendOnIdle = Box<dyn FnOnce(SendOnDrop) + Send + Sync>;
 
@@ -448,7 +449,7 @@ pub enum Work<E: EthSpec> {
     GossipLightClientOptimisticUpdate(BlockingFn),
     RpcBlock {
         should_process: bool,
-        process_fn: AsyncFn,
+        process_fn: AsyncFnWithBool,
     },
     ChainSegment {
         process_id: ChainSegmentProcessId,
@@ -1225,9 +1226,9 @@ impl<E: EthSpec> BeaconProcessor<E> {
             } => task_spawner.spawn_async(process_fn),
             Work::RpcBlock {
                 // TODO(paul): pass this value to `process_fn`.
-                should_process: _,
+                should_process,
                 process_fn,
-            } => task_spawner.spawn_async(process_fn),
+            } => task_spawner.spawn_async(process_fn(should_process)),
             Work::GossipBlock(work) => task_spawner.spawn_async(async move {
                 work.await;
             }),

@@ -10,8 +10,7 @@
 //!
 //! Aggregated and unaggregated attestations that failed verification due to referencing an unknown
 //! block will be re-queued until their block is imported, or until they expire.
-use crate::metrics;
-use crate::{AsyncFn, BlockingFn, Work, WorkEvent};
+use crate::{metrics, AsyncFn, AsyncFnWithBool, BlockingFn, Work, WorkEvent};
 use fnv::FnvHashMap;
 use futures::task::Poll;
 use futures::{Stream, StreamExt};
@@ -142,7 +141,7 @@ pub struct QueuedGossipBlock {
 pub struct QueuedRpcBlock {
     pub beacon_block_root: Hash256,
     pub should_process: bool,
-    pub process_fn: AsyncFn,
+    pub process_fn: AsyncFnWithBool,
 }
 
 /// A backfill batch work that has been queued for processing later.
