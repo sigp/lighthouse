@@ -224,7 +224,7 @@ async fn clone_config() {
         .update_tree_hash_cache()
         .expect("should update tree hash cache");
 
-    let num_caches = 4;
+    let num_caches = 5;
     let all_configs = (0..2u8.pow(num_caches)).map(|i| CloneConfig {
         committee_caches: (i & 1) != 0,
         pubkey_cache: ((i >> 1) & 1) != 0,
