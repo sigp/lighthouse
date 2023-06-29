@@ -159,7 +159,7 @@ impl ApiTester {
 
         // `make_block` adds random graffiti, so this will produce an alternate block
         let (reorg_block, _reorg_state) = harness
-            .make_block(head.beacon_state.clone(), harness.chain.slot().unwrap())
+            .make_block(head.beacon_state.clone(), harness.chain.slot().unwrap() + 1)
             .await;
 
         let head_state_root = head.beacon_state_root();
@@ -4135,7 +4135,7 @@ impl ApiTester {
             .unwrap();
 
         let expected_reorg = EventKind::ChainReorg(SseChainReorg {
-            slot: self.next_block.slot(),
+            slot: self.reorg_block.slot(),
             depth: 1,
             old_head_block: self.next_block.canonical_root(),
             old_head_state: self.next_block.state_root(),
@@ -4144,6 +4144,8 @@ impl ApiTester {
             epoch: self.next_block.slot().epoch(E::slots_per_epoch()),
             execution_optimistic: false,
         });
+
+        self.harness.advance_slot();
 
         self.client
             .post_beacon_blocks(&self.reorg_block)
