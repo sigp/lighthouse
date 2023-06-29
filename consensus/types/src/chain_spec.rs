@@ -462,15 +462,15 @@ impl ChainSpec {
         Hash256::from(domain)
     }
 
-    pub fn maximum_gossip_clock_disparity(self) -> Duration {
+    pub fn maximum_gossip_clock_disparity(&self) -> Duration {
         Duration::from_millis(self.maximum_gossip_clock_disparity_millis)
     }
 
-    pub fn ttfb_timeout(self) -> Duration {
+    pub fn ttfb_timeout(&self) -> Duration {
         Duration::from_secs(self.ttfb_timeout)
     }
 
-    pub fn resp_timeout(self) -> Duration {
+    pub fn resp_timeout(&self) -> Duration {
         Duration::from_secs(self.resp_timeout)
     }
 

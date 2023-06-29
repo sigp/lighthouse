@@ -225,7 +225,7 @@ where
                     ),
                     enable_light_client_server: self.enable_light_client_server,
                     phantom: PhantomData,
-                    ttfb_timeout: self.chain_spec.clone().ttfb_timeout(),
+                    ttfb_timeout: self.chain_spec.ttfb_timeout(),
                 },
                 (),
             ),

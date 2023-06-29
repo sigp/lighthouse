@@ -561,7 +561,7 @@ pub fn verify_propagation_slot_range<S: SlotClock, U: SlotData>(
 ) -> Result<(), Error> {
     let message_slot = sync_contribution.get_slot();
     let latest_permissible_slot = slot_clock
-        .now_with_future_tolerance(spec.clone().maximum_gossip_clock_disparity())
+        .now_with_future_tolerance(spec.maximum_gossip_clock_disparity())
         .ok_or(BeaconChainError::UnableToReadSlot)?;
     if message_slot > latest_permissible_slot {
         return Err(Error::FutureSlot {
@@ -571,7 +571,7 @@ pub fn verify_propagation_slot_range<S: SlotClock, U: SlotData>(
     }
 
     let earliest_permissible_slot = slot_clock
-        .now_with_past_tolerance(spec.clone().maximum_gossip_clock_disparity())
+        .now_with_past_tolerance(spec.maximum_gossip_clock_disparity())
         .ok_or(BeaconChainError::UnableToReadSlot)?;
 
     if message_slot < earliest_permissible_slot {

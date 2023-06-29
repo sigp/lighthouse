@@ -1035,7 +1035,7 @@ pub fn verify_propagation_slot_range<S: SlotClock, E: EthSpec>(
 ) -> Result<(), Error> {
     let attestation_slot = attestation.data.slot;
     let latest_permissible_slot = slot_clock
-        .now_with_future_tolerance(spec.clone().maximum_gossip_clock_disparity())
+        .now_with_future_tolerance(spec.maximum_gossip_clock_disparity())
         .ok_or(BeaconChainError::UnableToReadSlot)?;
     if attestation_slot > latest_permissible_slot {
         return Err(Error::FutureSlot {
@@ -1046,7 +1046,7 @@ pub fn verify_propagation_slot_range<S: SlotClock, E: EthSpec>(
 
     // Taking advantage of saturating subtraction on `Slot`.
     let earliest_permissible_slot = slot_clock
-        .now_with_past_tolerance(spec.clone().maximum_gossip_clock_disparity())
+        .now_with_past_tolerance(spec.maximum_gossip_clock_disparity())
         .ok_or(BeaconChainError::UnableToReadSlot)?
         - E::slots_per_epoch();
     if attestation_slot < earliest_permissible_slot {

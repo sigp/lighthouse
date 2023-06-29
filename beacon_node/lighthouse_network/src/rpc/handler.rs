@@ -232,7 +232,7 @@ where
             fork_context,
             waker: None,
             log: log.clone(),
-            resp_timeout: spec.clone().resp_timeout(),
+            resp_timeout: spec.resp_timeout(),
         }
     }
 
