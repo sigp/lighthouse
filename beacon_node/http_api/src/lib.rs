@@ -2056,7 +2056,7 @@ pub fn serve<T: BeaconChainTypes>(
                     let fork = chain.spec.fork_name_at_slot::<T::EthSpec>(proposal_slot);
                     if let ForkName::Base | ForkName::Altair | ForkName::Merge = fork {
                         return Err(warp_utils::reject::custom_bad_request(
-                            "The specified state is not a capella state.".to_string(),
+                            "the specified state is not a capella state.".to_string(),
                         ));
                     }
 
@@ -2067,12 +2067,9 @@ pub fn serve<T: BeaconChainTypes>(
                         .safe_mul(T::EthSpec::slots_per_epoch())
                         .unwrap();
                     if proposal_slot >= state.slot() + look_ahead_limit {
-                        format!(
+                        return Err(warp_utils::reject::custom_bad_request(format!(
                             "proposal slot cannot be >= the look ahead limit: {look_ahead_limit}"
-                        );
-                        return Err(warp_utils::reject::custom_bad_request(
-                            "proposal slot cannot be >= .".to_string(),
-                        ));
+                        )));
                     }
 
                     let proposal_epoch = proposal_slot.epoch(T::EthSpec::slots_per_epoch());
@@ -2085,7 +2082,7 @@ pub fn serve<T: BeaconChainTypes>(
                             &chain.spec,
                         ) {
                             return Err(warp_utils::reject::custom_server_error(format!(
-                                "failed to create response: {:?}",
+                                "failed to advance to the epoch of the proposal slot: {:?}",
                                 e
                             )));
                         }
@@ -2095,7 +2092,7 @@ pub fn serve<T: BeaconChainTypes>(
                         Ok(withdrawals) => withdrawals,
                         Err(e) => {
                             return Err(warp_utils::reject::custom_server_error(format!(
-                                "failed to create response: {:?}",
+                                "failed to get expected withdrawal: {:?}",
                                 e
                             )))
                         }

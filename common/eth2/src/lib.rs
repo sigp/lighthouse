@@ -1140,10 +1140,10 @@ impl BeaconNodeHttpClient {
     }
 
     // GET builder/states/{state_id}/expected_withdrawals
-    pub async fn get_expected_withdrawals<T: EthSpec>(
+    pub async fn get_expected_withdrawals(
         &self,
         state_id: &StateId,
-    ) -> Result<NextWithdrawalsResponse<VariableList<Withdrawal, T>>, Error> {
+    ) -> Result<NextWithdrawalsResponse<Vec<Withdrawal>>, Error> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()

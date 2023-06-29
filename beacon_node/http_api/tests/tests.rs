@@ -28,6 +28,7 @@ use sensitive_url::SensitiveUrl;
 use slot_clock::SlotClock;
 use state_processing::per_block_processing::get_expected_withdrawals;
 use state_processing::per_slot_processing;
+use state_processing::state_advance::partial_state_advance;
 use std::convert::TryInto;
 use std::sync::Arc;
 use tokio::sync::oneshot;
@@ -4166,7 +4167,7 @@ impl ApiTester {
     pub async fn test_get_expected_withdrawals_invalid_state(self) -> Self {
         let state_id = CoreStateId::Root(Hash256::zero());
 
-        let result = self.client.get_expected_withdrawals::<E>(&state_id).await;
+        let result = self.client.get_expected_withdrawals(&state_id).await;
 
         match result {
             Err(e) => {
@@ -4182,10 +4183,29 @@ impl ApiTester {
         let slot = self.chain.slot().unwrap();
         let state_id = CoreStateId::Slot(slot);
 
-        let result = self.client.get_expected_withdrawals::<E>(&state_id).await;
+        // calculate the expected withdrawals
+        let (mut state, _, _) = StateId(state_id).state(&self.chain).unwrap();
+        let proposal_slot = state.slot() + 1;
+        let proposal_epoch = proposal_slot.epoch(E::slots_per_epoch());
+        let (state_root, _, _) = StateId(state_id).root(&self.chain).unwrap();
+        if proposal_epoch != state.current_epoch() {
+            let _ = partial_state_advance(
+                &mut state,
+                Some(state_root),
+                proposal_slot,
+                &self.chain.spec,
+            );
+        }
+        let expected_withdrawals = get_expected_withdrawals(&state, &self.chain.spec).unwrap();
 
+        // fetch expected withdrawals from the client
+        let result = self.client.get_expected_withdrawals(&state_id).await;
         match result {
-            Ok(_) => {}
+            Ok(withdrawal_response) => {
+                assert_eq!(withdrawal_response.execution_optimistic, false);
+                assert_eq!(withdrawal_response.finalized, false);
+                assert_eq!(withdrawal_response.data, expected_withdrawals.to_vec());
+            }
             Err(e) => {
                 println!("{:?}", e);
                 panic!("query failed incorrectly");
@@ -4198,7 +4218,7 @@ impl ApiTester {
     pub async fn test_get_expected_withdrawals_pre_capella(self) -> Self {
         let state_id = CoreStateId::Head;
 
-        let result = self.client.get_expected_withdrawals::<E>(&state_id).await;
+        let result = self.client.get_expected_withdrawals(&state_id).await;
 
         match result {
             Err(e) => {
