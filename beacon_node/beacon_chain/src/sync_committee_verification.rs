@@ -41,8 +41,9 @@ use state_processing::signature_sets::{
     sync_committee_contribution_signature_set_from_pubkeys,
     sync_committee_message_set_from_pubkeys,
 };
+use types::ChainSpec;
 use std::collections::HashMap;
-use std::{borrow::Cow, time::Duration};
+use std::borrow::Cow;
 use strum::AsRefStr;
 use tree_hash::TreeHash;
 use types::consts::altair::SYNC_COMMITTEE_SUBNET_COUNT;
@@ -50,7 +51,7 @@ use types::slot_data::SlotData;
 use types::sync_committee::Error as SyncCommitteeError;
 use types::{
     sync_committee_contribution::Error as ContributionError, AggregateSignature, BeaconStateError,
-    EthSpec, Hash256, MainnetEthSpec, SignedContributionAndProof, Slot, SyncCommitteeContribution,
+    EthSpec, Hash256, SignedContributionAndProof, Slot, SyncCommitteeContribution,
     SyncCommitteeMessage, SyncSelectionProof, SyncSubnetId,
 };
 
@@ -285,7 +286,7 @@ impl<T: BeaconChainTypes> VerifiedSyncContribution<T> {
         let subcommittee_index = contribution.subcommittee_index as usize;
 
         // Ensure sync committee contribution is within the MAXIMUM_GOSSIP_CLOCK_DISPARITY allowance.
-        verify_propagation_slot_range(&chain.slot_clock, contribution)?;
+        verify_propagation_slot_range(&chain.slot_clock, contribution, &chain.spec)?;
 
         // Validate subcommittee index.
         if contribution.subcommittee_index >= SYNC_COMMITTEE_SUBNET_COUNT {
@@ -440,7 +441,7 @@ impl VerifiedSyncCommitteeMessage {
         // MAXIMUM_GOSSIP_CLOCK_DISPARITY allowance).
         //
         // We do not queue future sync committee messages for later processing.
-        verify_propagation_slot_range(&chain.slot_clock, &sync_message)?;
+        verify_propagation_slot_range(&chain.slot_clock, &sync_message, &chain.spec)?;
 
         // Ensure the `subnet_id` is valid for the given validator.
         let pubkey = chain
@@ -556,12 +557,11 @@ impl VerifiedSyncCommitteeMessage {
 pub fn verify_propagation_slot_range<S: SlotClock, U: SlotData>(
     slot_clock: &S,
     sync_contribution: &U,
+    spec: &ChainSpec,
 ) -> Result<(), Error> {
     let message_slot = sync_contribution.get_slot();
-    let maximum_gossip_clock_disparity =
-        Duration::from_millis(MainnetEthSpec::default_spec().maximum_gossip_clock_disparity_millis);
     let latest_permissible_slot = slot_clock
-        .now_with_future_tolerance(maximum_gossip_clock_disparity)
+        .now_with_future_tolerance(spec.clone().maximum_gossip_clock_disparity())
         .ok_or(BeaconChainError::UnableToReadSlot)?;
     if message_slot > latest_permissible_slot {
         return Err(Error::FutureSlot {
@@ -571,7 +571,7 @@ pub fn verify_propagation_slot_range<S: SlotClock, U: SlotData>(
     }
 
     let earliest_permissible_slot = slot_clock
-        .now_with_past_tolerance(maximum_gossip_clock_disparity)
+        .now_with_past_tolerance(spec.clone().maximum_gossip_clock_disparity())
         .ok_or(BeaconChainError::UnableToReadSlot)?;
 
     if message_slot < earliest_permissible_slot {

@@ -2187,6 +2187,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                         sync_committee_verification::verify_propagation_slot_range(
                             seen_clock,
                             &sync_committee_message_slot,
+                            &self.chain.spec,
                         );
                     hindsight_verification.is_err()
                 };

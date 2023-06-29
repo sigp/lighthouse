@@ -6,6 +6,7 @@ use serde_derive::Deserialize;
 use serde_utils::quoted_u64::MaybeQuoted;
 use std::fs::File;
 use std::path::Path;
+use std::time::Duration;
 use tree_hash::TreeHash;
 
 /// Each of the BLS signature domains.
@@ -459,6 +460,18 @@ impl ChainSpec {
         );
 
         Hash256::from(domain)
+    }
+
+    pub fn maximum_gossip_clock_disparity(self) -> Duration {
+        Duration::from_millis(self.maximum_gossip_clock_disparity_millis)
+    }
+
+    pub fn ttfb_timeout(self) -> Duration {
+        Duration::from_secs(self.ttfb_timeout)
+    }
+
+    pub fn resp_timeout(self) -> Duration {
+        Duration::from_secs(self.resp_timeout)
     }
 
     /// Returns a `ChainSpec` compatible with the Ethereum Foundation specification.

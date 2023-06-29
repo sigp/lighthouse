@@ -129,8 +129,8 @@ where
     /// Logger for handling RPC streams
     log: slog::Logger,
 
-    /// ChainSpec for networking constants
-    chain_spec: ChainSpec,
+    /// resp_timeout for networking constants
+    resp_timeout: Duration,
 }
 
 enum HandlerState {
@@ -232,7 +232,7 @@ where
             fork_context,
             waker: None,
             log: log.clone(),
-            chain_spec: spec.clone(),
+            resp_timeout: spec.clone().resp_timeout(),
         }
     }
 
@@ -353,7 +353,7 @@ where
             // new outbound request. Store the stream and tag the output.
             let delay_key = self.outbound_substreams_delay.insert(
                 self.current_outbound_substream_id,
-                Duration::from_secs(self.chain_spec.resp_timeout),
+                self.resp_timeout,
             );
             let awaiting_stream = OutboundSubstreamState::RequestPendingResponse {
                 substream: Box::new(out),
@@ -404,7 +404,7 @@ where
                 // Store the stream and tag the output.
                 let delay_key = self.inbound_substreams_delay.insert(
                     self.current_inbound_substream_id,
-                    Duration::from_secs(self.chain_spec.resp_timeout),
+                    self.resp_timeout,
                 );
                 let awaiting_stream = InboundState::Idle(substream);
                 self.inbound_substreams.insert(
@@ -717,7 +717,7 @@ where
                                 if let Some(ref delay_key) = info.delay_key {
                                     self.inbound_substreams_delay.reset(
                                         delay_key,
-                                        Duration::from_secs(self.chain_spec.resp_timeout),
+                                        self.resp_timeout,
                                     );
                                 }
 
@@ -853,7 +853,7 @@ where
                                 substream_entry.remaining_chunks = Some(remaining_chunks);
                                 self.outbound_substreams_delay.reset(
                                     delay_key,
-                                    Duration::from_secs(self.chain_spec.resp_timeout),
+                                    self.resp_timeout,
                                 );
                             }
                         } else {
@@ -973,7 +973,7 @@ where
                     OutboundRequestContainer {
                         req: req.clone(),
                         fork_context: self.fork_context.clone(),
-                        max_rpc_size: max_rpc_size(&self.fork_context, &self.chain_spec),
+                        max_rpc_size: max_rpc_size(&self.fork_context, self.listen_protocol.upgrade().max_rpc_size),
                     },
                     (),
                 )

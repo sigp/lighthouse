@@ -222,7 +222,7 @@ mod tests {
 
         let mut snappy_outbound_codec = SSZSnappyOutboundCodec::<Spec>::new(
             snappy_protocol_id,
-            max_rpc_size(&fork_context, &chain_spec),
+            max_rpc_size(&fork_context, chain_spec.max_chunk_size as usize),
             fork_context,
         );
 
@@ -259,7 +259,7 @@ mod tests {
 
         let mut snappy_outbound_codec = SSZSnappyOutboundCodec::<Spec>::new(
             snappy_protocol_id,
-            max_rpc_size(&fork_context, &chain_spec),
+            max_rpc_size(&fork_context, chain_spec.max_chunk_size as usize),
             fork_context,
         );
 
@@ -288,7 +288,7 @@ mod tests {
 
         let chain_spec = Spec::default_spec();
 
-        let max_rpc_size = max_rpc_size(&fork_context, &chain_spec);
+        let max_rpc_size = max_rpc_size(&fork_context, chain_spec.max_chunk_size as usize);
         let limit = protocol_id.rpc_response_limits::<Spec>(&fork_context);
         let mut max = encode_len(limit.max + 1);
         let mut codec = SSZSnappyOutboundCodec::<Spec>::new(

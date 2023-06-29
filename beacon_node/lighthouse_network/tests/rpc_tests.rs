@@ -27,7 +27,7 @@ fn merge_block_small(fork_context: &ForkContext, spec: &ChainSpec) -> BeaconBloc
     block.body.execution_payload.execution_payload.transactions = txs;
 
     let block = BeaconBlock::Merge(block);
-    assert!(block.ssz_bytes_len() <= max_rpc_size(fork_context, spec));
+    assert!(block.ssz_bytes_len() <= max_rpc_size(fork_context, spec.max_chunk_size as usize));
     block
 }
 
@@ -42,7 +42,7 @@ fn merge_block_large(fork_context: &ForkContext, spec: &ChainSpec) -> BeaconBloc
     block.body.execution_payload.execution_payload.transactions = txs;
 
     let block = BeaconBlock::Merge(block);
-    assert!(block.ssz_bytes_len() > max_rpc_size(fork_context, spec));
+    assert!(block.ssz_bytes_len() > max_rpc_size(fork_context, spec.max_chunk_size as usize));
     block
 }
 

@@ -667,7 +667,7 @@ mod tests {
         block.body.execution_payload.execution_payload.transactions = txs;
 
         let block = BeaconBlock::Merge(block);
-        assert!(block.ssz_bytes_len() <= max_rpc_size(fork_context, spec));
+        assert!(block.ssz_bytes_len() <= max_rpc_size(fork_context, spec.max_chunk_size as usize));
         SignedBeaconBlock::from_block(block, Signature::empty())
     }
 
@@ -683,7 +683,7 @@ mod tests {
         block.body.execution_payload.execution_payload.transactions = txs;
 
         let block = BeaconBlock::Merge(block);
-        assert!(block.ssz_bytes_len() > max_rpc_size(fork_context, spec));
+        assert!(block.ssz_bytes_len() > max_rpc_size(fork_context, spec.max_chunk_size as usize));
         SignedBeaconBlock::from_block(block, Signature::empty())
     }
 
@@ -741,7 +741,7 @@ mod tests {
     ) -> Result<BytesMut, RPCError> {
         let snappy_protocol_id = ProtocolId::new(protocol, Encoding::SSZSnappy);
         let fork_context = Arc::new(fork_context(fork_name));
-        let max_packet_size = max_rpc_size(&fork_context, spec);
+        let max_packet_size = max_rpc_size(&fork_context, spec.max_chunk_size as usize);
 
         let mut buf = BytesMut::new();
         let mut snappy_inbound_codec =
@@ -788,7 +788,7 @@ mod tests {
     ) -> Result<Option<RPCResponse<Spec>>, RPCError> {
         let snappy_protocol_id = ProtocolId::new(protocol, Encoding::SSZSnappy);
         let fork_context = Arc::new(fork_context(fork_name));
-        let max_packet_size = max_rpc_size(&fork_context, spec);
+        let max_packet_size = max_rpc_size(&fork_context, spec.max_chunk_size as usize);
         let mut snappy_outbound_codec =
             SSZSnappyOutboundCodec::<Spec>::new(snappy_protocol_id, max_packet_size, fork_context);
         // decode message just as snappy message
@@ -813,7 +813,7 @@ mod tests {
         spec: &ChainSpec,
     ) {
         let fork_context = Arc::new(fork_context(fork_name));
-        let max_packet_size = max_rpc_size(&fork_context, spec);
+        let max_packet_size = max_rpc_size(&fork_context, spec.max_chunk_size as usize);
         let protocol = ProtocolId::new(req.versioned_protocol(), Encoding::SSZSnappy);
         // Encode a request we send
         let mut buf = BytesMut::new();

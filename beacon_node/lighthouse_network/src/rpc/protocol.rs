@@ -22,7 +22,7 @@ use tokio_util::{
 };
 use types::{
     BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockCapella, BeaconBlockMerge,
-    ChainSpec, EmptyBlock, EthSpec, ForkContext, ForkName, Hash256, MainnetEthSpec, Signature,
+    EmptyBlock, EthSpec, ForkContext, ForkName, Hash256, MainnetEthSpec, Signature,
     SignedBeaconBlock,
 };
 
@@ -119,9 +119,9 @@ const PROTOCOL_PREFIX: &str = "/eth2/beacon_chain/req";
 const REQUEST_TIMEOUT: u64 = 15;
 
 /// Returns the maximum bytes that can be sent across the RPC.
-pub fn max_rpc_size(fork_context: &ForkContext, spec: &ChainSpec) -> usize {
+pub fn max_rpc_size(fork_context: &ForkContext, max_chunk_size: usize) -> usize {
     match fork_context.current_fork() {
-        ForkName::Altair | ForkName::Base => spec.max_chunk_size as usize,
+        ForkName::Altair | ForkName::Base => max_chunk_size,
         ForkName::Merge => MAX_RPC_SIZE_POST_MERGE,
         ForkName::Capella => MAX_RPC_SIZE_POST_CAPELLA,
     }
@@ -258,6 +258,7 @@ pub struct RPCProtocol<TSpec: EthSpec> {
     pub max_rpc_size: usize,
     pub enable_light_client_server: bool,
     pub phantom: PhantomData<TSpec>,
+    pub ttfb_timeout: Duration,
 }
 
 impl<TSpec: EthSpec> UpgradeInfo for RPCProtocol<TSpec> {
@@ -443,9 +444,7 @@ where
                 }
             };
             let mut timed_socket = TimeoutStream::new(socket);
-            timed_socket.set_read_timeout(Some(Duration::from_secs(
-                TSpec::default_spec().ttfb_timeout,
-            )));
+            timed_socket.set_read_timeout(Some(self.ttfb_timeout));
 
             let socket = Framed::new(Box::pin(timed_socket), codec);
 
