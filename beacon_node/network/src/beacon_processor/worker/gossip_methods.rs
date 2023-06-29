@@ -785,7 +785,7 @@ impl<T: BeaconChainTypes> Worker<T> {
 
                 verified_block
             }
-            Err(e @ BlockError::SlashableProposal) => {
+            Err(e @ BlockError::Slashable) => {
                 warn!(
                     self.log,
                     "Received equivocating block from peer";
@@ -796,14 +796,6 @@ impl<T: BeaconChainTypes> Worker<T> {
                     peer_id,
                     PeerAction::MidToleranceError,
                     "gossip_block_mid",
-                );
-                return None;
-            }
-            Err(e @ BlockError::PublishError) => {
-                error!(
-                    self.log,
-                    "Gossip block triggered publish error";
-                    "error" => ?e
                 );
                 return None;
             }

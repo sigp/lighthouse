@@ -496,7 +496,7 @@ pub async fn equivocation_consensus_early_equivocation() {
     assert_eq!(error_response.status(), Some(StatusCode::BAD_REQUEST));
 
     assert!(
-        matches!(error_response, eth2::Error::ServerMessage(err) if err.message ==  "BAD_REQUEST: SlashableProposal".to_string())
+        matches!(error_response, eth2::Error::ServerMessage(err) if err.message ==  "BAD_REQUEST: Slashable".to_string())
     );
 }
 
@@ -1076,7 +1076,7 @@ pub async fn blinded_equivocation_consensus_early_equivocation() {
     assert_eq!(error_response.status(), Some(StatusCode::BAD_REQUEST));
 
     assert!(
-        matches!(error_response, eth2::Error::ServerMessage(err) if err.message ==  "BAD_REQUEST: SlashableProposal".to_string())
+        matches!(error_response, eth2::Error::ServerMessage(err) if err.message ==  "BAD_REQUEST: Slashable".to_string())
     );
 }
 

@@ -1,7 +1,8 @@
 use crate::metrics;
 use beacon_chain::validator_monitor::{get_block_delay_ms, timestamp_now};
 use beacon_chain::{
-    BeaconChain, BeaconChainTypes, BlockError, IntoGossipVerifiedBlock, NotifyExecutionLayer,
+    BeaconChain, BeaconChainError, BeaconChainTypes, BlockError, IntoGossipVerifiedBlock,
+    NotifyExecutionLayer,
 };
 use eth2::types::BroadcastValidation;
 use execution_layer::ProvenancedPayload;
@@ -70,7 +71,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
 
         let message = PubsubMessage::BeaconBlock(block);
         crate::publish_pubsub_message(&sender, message)
-            .map_err(|_| BlockError::<T::EthSpec>::PublishError)
+            .map_err(|_| BeaconChainError::UnableToPublish.into())
     };
 
     /* if we can form a `GossipVerifiedBlock`, we've passed our basic gossip checks */
@@ -115,7 +116,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
                     "Not publishing equivocating block";
                     "slot" => block_clone.slot()
                 );
-                Err(BlockError::SlashableProposal)
+                Err(BlockError::Slashable)
             } else {
                 publish_block(block_clone, sender_clone, log_clone, seen_timestamp)
             }
@@ -169,10 +170,12 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
 
             Ok(())
         }
-        Err(BlockError::PublishError) => Err(warp_utils::reject::custom_server_error(
-            "unable to publish to network channel".to_string(),
-        )),
-        Err(BlockError::SlashableProposal) => Err(warp_utils::reject::custom_bad_request(
+        Err(BlockError::BeaconChainError(BeaconChainError::UnableToPublish)) => {
+            Err(warp_utils::reject::custom_server_error(
+                "unable to publish to network channel".to_string(),
+            ))
+        }
+        Err(BlockError::Slashable) => Err(warp_utils::reject::custom_bad_request(
             "proposal for this slot and proposer has already been seen".to_string(),
         )),
         Err(BlockError::BlockIsAlreadyKnown) => {

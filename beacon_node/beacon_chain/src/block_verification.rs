@@ -156,10 +156,7 @@ pub enum BlockError<T: EthSpec> {
     /// ## Peer scoring
     ///
     /// The peer has incompatible state transition logic and is faulty.
-    StateRootMismatch {
-        block: Hash256,
-        local: Hash256,
-    },
+    StateRootMismatch { block: Hash256, local: Hash256 },
     /// The block was a genesis block, these blocks cannot be re-imported.
     GenesisBlock,
     /// The slot is finalized, no need to import.
@@ -178,9 +175,7 @@ pub enum BlockError<T: EthSpec> {
     ///
     /// It's unclear if this block is valid, but it conflicts with finality and shouldn't be
     /// imported.
-    NotFinalizedDescendant {
-        block_parent_root: Hash256,
-    },
+    NotFinalizedDescendant { block_parent_root: Hash256 },
     /// Block is already known, no need to re-import.
     ///
     /// ## Peer scoring
@@ -201,10 +196,7 @@ pub enum BlockError<T: EthSpec> {
     /// ## Peer scoring
     ///
     /// The block is invalid and the peer is faulty.
-    IncorrectBlockProposer {
-        block: u64,
-        local_shuffling: u64,
-    },
+    IncorrectBlockProposer { block: u64, local_shuffling: u64 },
     /// The proposal signature in invalid.
     ///
     /// ## Peer scoring
@@ -228,10 +220,7 @@ pub enum BlockError<T: EthSpec> {
     /// ## Peer scoring
     ///
     /// The block is invalid and the peer is faulty.
-    BlockIsNotLaterThanParent {
-        block_slot: Slot,
-        parent_slot: Slot,
-    },
+    BlockIsNotLaterThanParent { block_slot: Slot, parent_slot: Slot },
     /// At least one block in the chain segment did not have it's parent root set to the root of
     /// the prior block.
     ///
@@ -287,11 +276,14 @@ pub enum BlockError<T: EthSpec> {
     /// If it's actually our fault (e.g. our execution node database is corrupt) we have bigger
     /// problems to worry about than losing peers, and we're doing the network a favour by
     /// disconnecting.
-    ParentExecutionPayloadInvalid {
-        parent_root: Hash256,
-    },
-    PublishError,
-    SlashableProposal,
+    ParentExecutionPayloadInvalid { parent_root: Hash256 },
+    /// The block is a slashable equivocation from the proposer.
+    ///
+    /// ## Peer scoring
+    ///
+    /// Honest peers shouldn't forward more than 1 equivocating block from the same proposer, so
+    /// we penalise them with a mid-tolerance error.
+    Slashable,
 }
 
 /// Returned when block validation failed due to some issue verifying
@@ -891,7 +883,7 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
             .observe_proposal(block_root, block.message())
             .map_err(|e| BlockError::BeaconChainError(e.into()))?
         {
-            SeenBlock::Slashable => return Err(BlockError::SlashableProposal),
+            SeenBlock::Slashable => return Err(BlockError::Slashable),
             SeenBlock::Duplicate => return Err(BlockError::BlockIsAlreadyKnown),
             SeenBlock::UniqueNonSlashable => {}
         };
