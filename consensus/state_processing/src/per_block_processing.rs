@@ -187,7 +187,9 @@ pub fn per_block_processing<T: EthSpec, Payload: AbstractExecPayload<T>>(
         )?;
     }
 
-    update_progressive_balances_metrics(state.progressive_balances_cache())?;
+    if is_progressive_balances_enabled(state) {
+        update_progressive_balances_metrics(state.progressive_balances_cache())?;
+    }
 
     Ok(())
 }
