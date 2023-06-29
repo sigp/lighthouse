@@ -66,8 +66,6 @@ pub fn update_progressive_balances_on_attestation<T: EthSpec>(
             state
                 .progressive_balances_cache_mut()
                 .on_new_target_attestation(epoch, validator_effective_balance)?;
-
-            update_progressive_balances_metrics(state.progressive_balances_cache())?;
         }
     }
     Ok(())
@@ -94,8 +92,6 @@ pub fn update_progressive_balances_on_slashing<T: EthSpec>(
             is_current_epoch_target_attester,
             validator_effective_balance,
         )?;
-
-        update_progressive_balances_metrics(state.progressive_balances_cache())?;
     }
 
     Ok(())
@@ -117,7 +113,7 @@ pub fn update_progressive_balances_on_epoch_transition<T: EthSpec>(
     Ok(())
 }
 
-fn update_progressive_balances_metrics(
+pub fn update_progressive_balances_metrics(
     cache: &ProgressiveBalancesCache,
 ) -> Result<(), BeaconStateError> {
     set_gauge(

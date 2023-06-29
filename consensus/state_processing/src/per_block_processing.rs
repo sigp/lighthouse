@@ -41,7 +41,9 @@ mod verify_proposer_slashing;
 use crate::common::decrease_balance;
 use crate::StateProcessingStrategy;
 
-use crate::common::update_progressive_balances_cache::initialize_progressive_balances_cache;
+use crate::common::update_progressive_balances_cache::{
+    initialize_progressive_balances_cache, update_progressive_balances_metrics,
+};
 #[cfg(feature = "arbitrary-fuzz")]
 use arbitrary::Arbitrary;
 
@@ -184,6 +186,8 @@ pub fn per_block_processing<T: EthSpec, Payload: AbstractExecPayload<T>>(
             spec,
         )?;
     }
+
+    update_progressive_balances_metrics(state.progressive_balances_cache())?;
 
     Ok(())
 }
