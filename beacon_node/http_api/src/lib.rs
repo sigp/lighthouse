@@ -57,6 +57,7 @@ use sysinfo::{System, SystemExt};
 use system_health::observe_system_health_bn;
 use tokio::sync::mpsc::{Sender, UnboundedSender};
 use tokio_stream::{wrappers::BroadcastStream, StreamExt};
+use safe_arith::SafeArith;
 use types::{
     Attestation, AttestationData, AttestationShufflingId, AttesterSlashing, BeaconStateError,
     BlindedPayload, CommitteeCache, ConfigAndPreset, Epoch, EthSpec, ForkName, FullPayload,
@@ -1969,6 +1970,14 @@ pub fn serve<T: BeaconChainTypes>(
                     if let ForkName::Base | ForkName::Altair | ForkName::Merge = fork {
                         return Err(warp_utils::reject::custom_bad_request(
                             "The specified state is not a capella state.".to_string(),
+                        ))
+                    }
+
+                    let look_ahead_limit = chain.spec.max_seed_lookahead.into_inner().safe_mul(T::EthSpec::slots_per_epoch()).unwrap();
+                    if proposal_slot >= state.slot() + look_ahead_limit {
+                        format!("proposal slot cannot be >= the look ahead limit: {look_ahead_limit}");
+                        return Err(warp_utils::reject::custom_bad_request(
+                            "proposal slot cannot be >= .".to_string(),
                         ))
                     }
 

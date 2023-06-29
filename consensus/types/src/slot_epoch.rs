@@ -126,6 +126,10 @@ impl Epoch {
             slots_per_epoch,
         }
     }
+
+    pub fn into_inner(self) -> u64 {
+        self.0
+    }
 }
 
 pub struct SlotIter<'a> {
