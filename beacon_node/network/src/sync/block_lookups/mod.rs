@@ -1440,9 +1440,9 @@ fn retry_request_after_failure<T: BeaconChainTypes>(
                 }
                 Ok(Some(Err(e))) => {
                     debug!(log, "Single block lookup failed";
-                    "peer_id" => %initial_peer_id, 
-                    "error" => ?e, 
-                    "block_root" => ?requested_block_root, 
+                    "peer_id" => %initial_peer_id,
+                    "error" => ?e,
+                    "block_root" => ?requested_block_root,
                     "response_type" => ?response_type);
                     return ShouldRemoveLookup::True;
                 }
@@ -1452,9 +1452,9 @@ fn retry_request_after_failure<T: BeaconChainTypes>(
                 }
                 Err(e) => {
                     debug!(log, "Single block lookup failed";
-                    "peer_id" => %initial_peer_id, 
-                    "error" => ?e, 
-                    "block_root" => ?requested_block_root, 
+                    "peer_id" => %initial_peer_id,
+                    "error" => ?e,
+                    "block_root" => ?requested_block_root,
                     "response_type" => ?response_type);
                     return ShouldRemoveLookup::True;
                 }
@@ -1472,9 +1472,9 @@ fn retry_request_after_failure<T: BeaconChainTypes>(
                 }
                 Ok(Some(Err(e))) => {
                     debug!(log, "Single block lookup failed";
-                    "peer_id" => %initial_peer_id, 
-                    "error" => ?e, 
-                    "block_root" => ?requested_block_root, 
+                    "peer_id" => %initial_peer_id,
+                    "error" => ?e,
+                    "block_root" => ?requested_block_root,
                     "response_type" => ?response_type);
                     return ShouldRemoveLookup::True;
                 }
@@ -1484,9 +1484,9 @@ fn retry_request_after_failure<T: BeaconChainTypes>(
                 }
                 Err(e) => {
                     debug!(log, "Single block lookup failed";
-                    "peer_id" => %initial_peer_id, 
-                    "error" => ?e, 
-                    "block_root" => ?requested_block_root, 
+                    "peer_id" => %initial_peer_id,
+                    "error" => ?e,
+                    "block_root" => ?requested_block_root,
                     "response_type" => ?response_type);
                     return ShouldRemoveLookup::True;
                 }

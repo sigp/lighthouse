@@ -47,6 +47,12 @@ const MAX_INBOUND_SUBSTREAMS: usize = 32;
 #[derive(Debug, Clone, Copy, Hash, Eq, PartialEq)]
 pub struct SubstreamId(usize);
 
+impl SubstreamId {
+    pub fn new(id: usize) -> Self {
+        Self(id)
+    }
+}
+
 type InboundSubstream<TSpec> = InboundFramed<NegotiatedSubstream, TSpec>;
 
 /// Events the handler emits to the behaviour.
@@ -753,6 +759,9 @@ where
                                 if matches!(info.protocol, Protocol::BlocksByRange) {
                                     debug!(self.log, "BlocksByRange Response sent"; "duration" => Instant::now().duration_since(info.request_start_time).as_secs());
                                 }
+                                if matches!(info.protocol, Protocol::BlobsByRange) {
+                                    debug!(self.log, "BlobsByRange Response sent"; "duration" => Instant::now().duration_since(info.request_start_time).as_secs());
+                                }
 
                                 // There is nothing more to process on this substream as it has
                                 // been closed. Move on to the next one.
@@ -775,6 +784,9 @@ where
 
                                 if matches!(info.protocol, Protocol::BlocksByRange) {
                                     debug!(self.log, "BlocksByRange Response failed"; "duration" => info.request_start_time.elapsed().as_secs());
+                                }
+                                if matches!(info.protocol, Protocol::BlobsByRange) {
+                                    debug!(self.log, "BlobsByRange Response failed"; "duration" => info.request_start_time.elapsed().as_secs());
                                 }
                                 break;
                             }

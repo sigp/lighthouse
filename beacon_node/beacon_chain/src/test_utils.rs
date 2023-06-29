@@ -16,6 +16,7 @@ use crate::{
 };
 use bls::get_withdrawal_credentials;
 use eth2::types::BlockContentsTuple;
+use execution_layer::test_utils::generate_genesis_header;
 use execution_layer::{
     auth::JwtKey,
     test_utils::{
@@ -30,8 +31,8 @@ use int_to_bytes::int_to_bytes32;
 use kzg::{Kzg, TrustedSetup};
 use merkle_proof::MerkleTree;
 use operation_pool::ReceivedPreCapella;
-use parking_lot::Mutex;
 use parking_lot::RwLockWriteGuard;
+use parking_lot::{Mutex, RwLock};
 use rand::rngs::StdRng;
 use rand::Rng;
 use rand::SeedableRng;
@@ -53,6 +54,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 use store::{config::StoreConfig, HotColdDB, ItemStore, LevelDB, MemoryStore};
+use task_executor::TaskExecutor;
 use task_executor::{test_utils::TestRuntime, ShutdownReason};
 use tree_hash::TreeHash;
 use types::sync_selection_proof::SyncSelectionProof;
@@ -195,11 +197,12 @@ impl<E: EthSpec> Builder<EphemeralHarnessType<E>> {
             .unwrap(),
         );
         let mutator = move |builder: BeaconChainBuilder<_>| {
+            let header = generate_genesis_header::<E>(builder.get_spec(), false);
             let genesis_state = interop_genesis_state_with_eth1::<E>(
                 &validator_keypairs,
                 HARNESS_GENESIS_TIME,
                 Hash256::from_slice(DEFAULT_ETH1_BLOCK_HASH),
-                None,
+                header,
                 builder.get_spec(),
             )
             .expect("should generate interop state");
@@ -256,11 +259,12 @@ impl<E: EthSpec> Builder<DiskHarnessType<E>> {
             .expect("cannot build without validator keypairs");
 
         let mutator = move |builder: BeaconChainBuilder<_>| {
+            let header = generate_genesis_header::<E>(builder.get_spec(), false);
             let genesis_state = interop_genesis_state_with_eth1::<E>(
                 &validator_keypairs,
                 HARNESS_GENESIS_TIME,
                 Hash256::from_slice(DEFAULT_ETH1_BLOCK_HASH),
-                None,
+                header,
                 builder.get_spec(),
             )
             .expect("should generate interop state");
@@ -392,7 +396,7 @@ where
         self
     }
 
-    pub fn execution_layer(mut self, urls: &[&str]) -> Self {
+    pub fn execution_layer_from_urls(mut self, urls: &[&str]) -> Self {
         assert!(
             self.execution_layer.is_none(),
             "execution layer already defined"
@@ -421,6 +425,11 @@ where
         self
     }
 
+    pub fn execution_layer(mut self, el: Option<ExecutionLayer<E>>) -> Self {
+        self.execution_layer = el;
+        self
+    }
+
     pub fn recalculate_fork_times_with_genesis(mut self, genesis_time: u64) -> Self {
         let mock = self
             .mock_execution_layer
@@ -434,7 +443,7 @@ where
             spec.capella_fork_epoch.map(|epoch| {
                 genesis_time + spec.seconds_per_slot * E::slots_per_epoch() * epoch.as_u64()
             });
-        mock.server.execution_block_generator().deneb_time = spec.deneb_fork_epoch.map(|epoch| {
+        mock.server.execution_block_generator().cancun_time = spec.deneb_fork_epoch.map(|epoch| {
             genesis_time + spec.seconds_per_slot * E::slots_per_epoch() * epoch.as_u64()
         });
 
@@ -442,30 +451,11 @@ where
     }
 
     pub fn mock_execution_layer(mut self) -> Self {
-        let spec = self.spec.clone().expect("cannot build without spec");
-        let shanghai_time = spec.capella_fork_epoch.map(|epoch| {
-            HARNESS_GENESIS_TIME + spec.seconds_per_slot * E::slots_per_epoch() * epoch.as_u64()
-        });
-        let deneb_time = spec.deneb_fork_epoch.map(|epoch| {
-            HARNESS_GENESIS_TIME + spec.seconds_per_slot * E::slots_per_epoch() * epoch.as_u64()
-        });
-
-        let trusted_setup: TrustedSetup =
-            serde_json::from_reader(eth2_network_config::TRUSTED_SETUP)
-                .map_err(|e| format!("Unable to read trusted setup file: {}", e))
-                .expect("should have trusted setup");
-        let kzg = Kzg::new_from_trusted_setup(trusted_setup).expect("should create kzg");
-
-        let mock = MockExecutionLayer::new(
+        let mock = mock_execution_layer_from_parts::<E>(
+            self.spec.as_ref().expect("cannot build without spec"),
             self.runtime.task_executor.clone(),
-            DEFAULT_TERMINAL_BLOCK,
-            shanghai_time,
-            deneb_time,
             None,
-            Some(JwtKey::from_slice(&DEFAULT_JWT_SECRET).unwrap()),
-            spec,
             None,
-            Some(kzg),
         );
         self.execution_layer = Some(mock.el.clone());
         self.mock_execution_layer = Some(mock);
@@ -480,29 +470,12 @@ where
         // Get a random unused port
         let port = unused_port::unused_tcp4_port().unwrap();
         let builder_url = SensitiveUrl::parse(format!("http://127.0.0.1:{port}").as_str()).unwrap();
-
-        let spec = self.spec.clone().expect("cannot build without spec");
-        let shanghai_time = spec.capella_fork_epoch.map(|epoch| {
-            HARNESS_GENESIS_TIME + spec.seconds_per_slot * E::slots_per_epoch() * epoch.as_u64()
-        });
-        let deneb_time = spec.deneb_fork_epoch.map(|epoch| {
-            HARNESS_GENESIS_TIME + spec.seconds_per_slot * E::slots_per_epoch() * epoch.as_u64()
-        });
-        let trusted_setup: TrustedSetup =
-            serde_json::from_reader(eth2_network_config::TRUSTED_SETUP)
-                .map_err(|e| format!("Unable to read trusted setup file: {}", e))
-                .expect("should have trusted setup");
-        let kzg = Kzg::new_from_trusted_setup(trusted_setup).expect("should create kzg");
-        let mock_el = MockExecutionLayer::new(
+        let spec = self.spec.as_ref().expect("cannot build without spec");
+        let mock_el = mock_execution_layer_from_parts::<E>(
+            spec,
             self.runtime.task_executor.clone(),
-            DEFAULT_TERMINAL_BLOCK,
-            shanghai_time,
-            deneb_time,
-            builder_threshold,
-            Some(JwtKey::from_slice(&DEFAULT_JWT_SECRET).unwrap()),
-            spec.clone(),
             Some(builder_url.clone()),
-            Some(kzg),
+            builder_threshold,
         )
         .move_to_terminal_block();
 
@@ -512,7 +485,7 @@ where
             mock_el_url,
             builder_url,
             beacon_url,
-            spec,
+            spec.clone(),
             self.runtime.task_executor.clone(),
         ));
         self.execution_layer = Some(mock_el.el.clone());
@@ -547,7 +520,7 @@ where
             .validator_keypairs
             .expect("cannot build without validator keypairs");
         let trusted_setup: TrustedSetup =
-            serde_json::from_reader(eth2_network_config::TRUSTED_SETUP)
+            serde_json::from_reader(eth2_network_config::get_trusted_setup::<E::Kzg>())
                 .map_err(|e| format!("Unable to read trusted setup file: {}", e))
                 .unwrap();
 
@@ -603,9 +576,42 @@ where
             runtime: self.runtime,
             mock_execution_layer: self.mock_execution_layer,
             mock_builder: self.mock_builder.map(Arc::new),
+            blob_signature_cache: <_>::default(),
             rng: make_rng(),
         }
     }
+}
+
+pub fn mock_execution_layer_from_parts<T: EthSpec>(
+    spec: &ChainSpec,
+    task_executor: TaskExecutor,
+    builder_url: Option<SensitiveUrl>,
+    builder_threshold: Option<u128>,
+) -> MockExecutionLayer<T> {
+    let shanghai_time = spec.capella_fork_epoch.map(|epoch| {
+        HARNESS_GENESIS_TIME + spec.seconds_per_slot * T::slots_per_epoch() * epoch.as_u64()
+    });
+    let cancun_time = spec.deneb_fork_epoch.map(|epoch| {
+        HARNESS_GENESIS_TIME + spec.seconds_per_slot * T::slots_per_epoch() * epoch.as_u64()
+    });
+
+    let trusted_setup: TrustedSetup =
+        serde_json::from_reader(eth2_network_config::get_trusted_setup::<T::Kzg>())
+            .map_err(|e| format!("Unable to read trusted setup file: {}", e))
+            .expect("should have trusted setup");
+    let kzg = Kzg::new_from_trusted_setup(trusted_setup).expect("should create kzg");
+
+    MockExecutionLayer::new(
+        task_executor,
+        DEFAULT_TERMINAL_BLOCK,
+        shanghai_time,
+        cancun_time,
+        builder_threshold,
+        Some(JwtKey::from_slice(&DEFAULT_JWT_SECRET).unwrap()),
+        spec.clone(),
+        builder_url,
+        Some(kzg),
+    )
 }
 
 /// A testing harness which can instantiate a `BeaconChain` and populate it with blocks and
@@ -629,7 +635,27 @@ pub struct BeaconChainHarness<T: BeaconChainTypes> {
     pub mock_execution_layer: Option<MockExecutionLayer<T::EthSpec>>,
     pub mock_builder: Option<Arc<TestingBuilder<T::EthSpec>>>,
 
+    /// Cache for blob signature because we don't need them for import, but we do need them
+    /// to test gossip validation. We always make them during block production but drop them
+    /// before storing them in the db.
+    pub blob_signature_cache: Arc<RwLock<HashMap<BlobSignatureKey, Signature>>>,
+
     pub rng: Mutex<StdRng>,
+}
+
+#[derive(Clone, Debug, Hash, Eq, PartialEq)]
+pub struct BlobSignatureKey {
+    block_root: Hash256,
+    blob_index: u64,
+}
+
+impl BlobSignatureKey {
+    pub fn new(block_root: Hash256, blob_index: u64) -> Self {
+        Self {
+            block_root,
+            blob_index,
+        }
+    }
 }
 
 pub type CommitteeAttestations<E> = Vec<(Attestation<E>, SubnetId)>;
@@ -661,6 +687,20 @@ where
             .expect("harness was not built with mock execution layer")
             .server
             .execution_block_generator()
+    }
+
+    pub fn get_head_block(&self) -> BlockWrapper<E> {
+        let block = self.chain.head_beacon_block();
+        let block_root = block.canonical_root();
+        let blobs = self.chain.get_blobs(&block_root).unwrap();
+        BlockWrapper::new(block, blobs)
+    }
+
+    pub fn get_full_block(&self, block_root: &Hash256) -> BlockWrapper<E> {
+        let block = self.chain.get_blinded_block(block_root).unwrap().unwrap();
+        let full_block = self.chain.store.make_full_block(block_root, block).unwrap();
+        let blobs = self.chain.get_blobs(block_root).unwrap();
+        BlockWrapper::new(Arc::new(full_block), blobs)
     }
 
     pub fn get_all_validators(&self) -> Vec<usize> {
@@ -824,7 +864,7 @@ where
                     .proposal_blob_cache
                     .pop(&signed_block.canonical_root())
                 {
-                    let signed_blobs = Vec::from(blobs)
+                    let signed_blobs: SignedBlobSidecarList<E> = Vec::from(blobs)
                         .into_iter()
                         .map(|blob| {
                             blob.sign(
@@ -836,6 +876,13 @@ where
                         })
                         .collect::<Vec<_>>()
                         .into();
+                    let mut guard = self.blob_signature_cache.write();
+                    for blob in &signed_blobs {
+                        guard.insert(
+                            BlobSignatureKey::new(blob.message.block_root, blob.message.index),
+                            blob.signature.clone(),
+                        );
+                    }
                     (signed_block, Some(signed_blobs))
                 } else {
                     (signed_block, None)

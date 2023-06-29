@@ -10,7 +10,7 @@ use lighthouse_network::rpc::methods::{
 use lighthouse_network::rpc::StatusMessage;
 use lighthouse_network::rpc::*;
 use lighthouse_network::{PeerId, PeerRequestId, ReportSource, Response, SyncInfo};
-use slog::{debug, error, warn};
+use slog::{debug, error, trace, warn};
 use slot_clock::SlotClock;
 use std::collections::{hash_map::Entry, HashMap};
 use task_executor::TaskExecutor;
@@ -778,7 +778,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     }
                 }
                 Ok(None) => {
-                    debug!(
+                    trace!(
                         self.log,
                         "No blobs in the store for block root";
                         "request" => ?req,

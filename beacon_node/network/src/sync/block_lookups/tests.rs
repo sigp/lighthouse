@@ -1324,7 +1324,6 @@ mod deneb_only {
 
         fn parent_blob_response(mut self) -> Self {
             for blob in &self.parent_blobs {
-                dbg!("sendingblob");
                 self.bl.parent_lookup_blob_response(
                     self.parent_blob_req_id.expect("parent blob request id"),
                     self.peer_id,
@@ -1334,7 +1333,6 @@ mod deneb_only {
                 );
                 assert_eq!(self.bl.parent_lookups.len(), 1);
             }
-            dbg!("sending stream terminator");
             self.bl.parent_lookup_blob_response(
                 self.parent_blob_req_id.expect("blob request id"),
                 self.peer_id,

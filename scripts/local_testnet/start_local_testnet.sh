@@ -108,9 +108,9 @@ echo $GENESIS_TIME
 CAPELLA_TIME=$((GENESIS_TIME + (CAPELLA_FORK_EPOCH * 32 * SECONDS_PER_SLOT)))
 echo $CAPELLA_TIME
 sed -i 's/"shanghaiTime".*$/"shanghaiTime": '"$CAPELLA_TIME"',/g' $genesis_file
-DENEB_TIME=$((GENESIS_TIME + (DENEB_FORK_EPOCH * 32 * SECONDS_PER_SLOT)))
-echo $DENEB_TIME
-sed -i 's/"shardingForkTime".*$/"shardingForkTime": '"$DENEB_TIME"',/g' $genesis_file
+CANCUN_TIME=$((GENESIS_TIME + (DENEB_FORK_EPOCH * 32 * SECONDS_PER_SLOT)))
+echo $CANCUN_TIME
+sed -i 's/"shardingForkTime".*$/"shardingForkTime": '"$CANCUN_TIME"',/g' $genesis_file
 cat $genesis_file
 
 # Delay to let boot_enr.yaml to be created
