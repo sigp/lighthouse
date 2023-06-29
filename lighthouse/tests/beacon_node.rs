@@ -1772,7 +1772,7 @@ fn epochs_per_migration_default() {
         .with_config(|config| {
             assert_eq!(
                 config.chain.epochs_per_migration,
-                beacon_node::beacon_chain::migrate::DEFAULT_EPOCHS_PER_RUN
+                beacon_node::beacon_chain::migrate::DEFAULT_EPOCHS_PER_MIGRATION
             )
         });
 }
