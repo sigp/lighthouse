@@ -46,6 +46,7 @@ use slog::{crit, debug, error, info, warn, Logger};
 use slot_clock::SlotClock;
 use ssz::Encode;
 pub use state_id::StateId;
+use state_processing::{per_block_processing::get_expected_withdrawals,state_advance::partial_state_advance};
 use std::borrow::Cow;
 use std::future::Future;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
@@ -1946,8 +1947,8 @@ pub fn serve<T: BeaconChainTypes>(
     let get_expected_withdrawals = builder_states_path
         .clone()
         .and(warp::path::param::<StateId>())
-        .and(warp::query::<api_types::ExpectedWithdrawalsQuery>())
         .and(warp::path("expected_withdrawals"))
+        .and(warp::query::<api_types::ExpectedWithdrawalsQuery>())
         .and(warp::path::end())
         .and(warp::header::optional::<api_types::Accept>("accept"))
         .and_then(
@@ -1956,29 +1957,45 @@ pub fn serve<T: BeaconChainTypes>(
              query: api_types::ExpectedWithdrawalsQuery,
              accept_header: Option<api_types::Accept>| {
                 blocking_response_task(move || {
-                    let proposal_slot = query.proposal_slot.unwrap_or(Slot::new(1));
-                    let (state, execution_optimistic, finalized) = match state_id.state(&chain) {
-                        Ok(state) => state,
-                        Err(_) => {
-                            return Err(warp_utils::reject::custom_not_found(
-                                "State not found".to_string(),
-                            ))
-                        }
-                    };
-                    let forkchoice_update_parameters = chain
-                        .canonical_head
-                        .cached_head()
-                        .forkchoice_update_parameters();
+                    let (mut state, execution_optimistic, finalized) = state_id.state(&chain)?;
+                    let proposal_slot = query.proposal_slot.unwrap_or(state.slot() + 1);
+                    if proposal_slot < state.slot() {
+                        return Err(warp_utils::reject::custom_bad_request(
+                            "proposal slot must be greater than state slot".to_string(),
+                        ));
+                    }
 
-                    let withdrawals = match chain.get_expected_withdrawals(
-                        &forkchoice_update_parameters,
-                        state.slot() + proposal_slot,
-                    ) {
+                    let fork = chain.spec.fork_name_at_slot::<T::EthSpec>(proposal_slot);
+                    if let ForkName::Base | ForkName::Altair | ForkName::Merge = fork {
+                        return Err(warp_utils::reject::custom_bad_request(
+                            "The specified state is not a capella state.".to_string(),
+                        ))
+                    }
+
+                    let proposal_epoch = proposal_slot.epoch(T::EthSpec::slots_per_epoch());
+                    let (state_root, _, _) = state_id.root(&chain).unwrap();
+                    if proposal_epoch != state.current_epoch() {
+                        if let Err(e) = partial_state_advance(
+                            &mut state,
+                            Some(state_root),
+                            proposal_slot,
+                            &chain.spec,
+                        ) {
+                            return Err(warp_utils::reject::custom_server_error(format!(
+                                "failed to create response: {:?}",
+                                e
+                            )))
+                        }
+                    }
+
+                    let withdrawals = match get_expected_withdrawals(&state, &chain.spec)
+                    {
                         Ok(withdrawals) => withdrawals,
-                        Err(_) => {
-                            return Err(warp_utils::reject::custom_bad_request(
-                                "The specified state is not a capella state.".to_string(),
-                            ))
+                        Err(e) => {
+                            return Err(warp_utils::reject::custom_server_error(format!(
+                                "failed to create response: {:?}",
+                                e
+                            )))
                         }
                     };
 
