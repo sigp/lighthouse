@@ -351,10 +351,9 @@ where
         let expected_responses = request.expected_responses();
         if expected_responses > 0 {
             // new outbound request. Store the stream and tag the output.
-            let delay_key = self.outbound_substreams_delay.insert(
-                self.current_outbound_substream_id,
-                self.resp_timeout,
-            );
+            let delay_key = self
+                .outbound_substreams_delay
+                .insert(self.current_outbound_substream_id, self.resp_timeout);
             let awaiting_stream = OutboundSubstreamState::RequestPendingResponse {
                 substream: Box::new(out),
                 request,
@@ -402,10 +401,9 @@ where
         if expected_responses > 0 {
             if self.inbound_substreams.len() < MAX_INBOUND_SUBSTREAMS {
                 // Store the stream and tag the output.
-                let delay_key = self.inbound_substreams_delay.insert(
-                    self.current_inbound_substream_id,
-                    self.resp_timeout,
-                );
+                let delay_key = self
+                    .inbound_substreams_delay
+                    .insert(self.current_inbound_substream_id, self.resp_timeout);
                 let awaiting_stream = InboundState::Idle(substream);
                 self.inbound_substreams.insert(
                     self.current_inbound_substream_id,
@@ -715,10 +713,8 @@ where
                                 // If this substream has not ended, we reset the timer.
                                 // Each chunk is allowed RESPONSE_TIMEOUT to be sent.
                                 if let Some(ref delay_key) = info.delay_key {
-                                    self.inbound_substreams_delay.reset(
-                                        delay_key,
-                                        self.resp_timeout,
-                                    );
+                                    self.inbound_substreams_delay
+                                        .reset(delay_key, self.resp_timeout);
                                 }
 
                                 // The stream may be currently idle. Attempt to process more
@@ -851,10 +847,8 @@ where
                                         request,
                                     };
                                 substream_entry.remaining_chunks = Some(remaining_chunks);
-                                self.outbound_substreams_delay.reset(
-                                    delay_key,
-                                    self.resp_timeout,
-                                );
+                                self.outbound_substreams_delay
+                                    .reset(delay_key, self.resp_timeout);
                             }
                         } else {
                             // either this is a single response request or this response closes the
@@ -973,7 +967,10 @@ where
                     OutboundRequestContainer {
                         req: req.clone(),
                         fork_context: self.fork_context.clone(),
-                        max_rpc_size: max_rpc_size(&self.fork_context, self.listen_protocol.upgrade().max_rpc_size),
+                        max_rpc_size: max_rpc_size(
+                            &self.fork_context,
+                            self.listen_protocol.upgrade().max_rpc_size,
+                        ),
                     },
                     (),
                 )

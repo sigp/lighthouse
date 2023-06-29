@@ -41,14 +41,14 @@ use state_processing::signature_sets::{
     sync_committee_contribution_signature_set_from_pubkeys,
     sync_committee_message_set_from_pubkeys,
 };
-use types::ChainSpec;
-use std::collections::HashMap;
 use std::borrow::Cow;
+use std::collections::HashMap;
 use strum::AsRefStr;
 use tree_hash::TreeHash;
 use types::consts::altair::SYNC_COMMITTEE_SUBNET_COUNT;
 use types::slot_data::SlotData;
 use types::sync_committee::Error as SyncCommitteeError;
+use types::ChainSpec;
 use types::{
     sync_committee_contribution::Error as ContributionError, AggregateSignature, BeaconStateError,
     EthSpec, Hash256, SignedContributionAndProof, Slot, SyncCommitteeContribution,
