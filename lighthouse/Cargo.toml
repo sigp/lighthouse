@@ -1,6 +1,6 @@
 [package]
 name = "lighthouse"
-version = "4.2.0"
+version = "4.2.990-exp"
 authors = ["Sigma Prime <contact@sigmaprime.io>"]
 edition = "2021"
 autotests = false
@@ -21,7 +21,7 @@ spec-minimal = []
 # Support Gnosis spec and Gnosis Beacon Chain.
 gnosis = []
 # Support slasher MDBX backend.
-# slasher-mdbx = ["slasher/mdbx"]
+slasher-mdbx = ["slasher/mdbx"]
 # Support slasher LMDB backend.
 slasher-lmdb = ["slasher/lmdb"]
 # Use jemalloc.

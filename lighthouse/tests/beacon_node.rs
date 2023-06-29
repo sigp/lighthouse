@@ -45,6 +45,7 @@ impl CommandLineTest {
 
     fn run_with_zero_port(&mut self) -> CompletedTest<Config> {
         self.cmd.arg("-z");
+        self.cmd.arg("--unsafe-and-dangerous-mode");
         self.run()
     }
 }
@@ -985,6 +986,7 @@ fn network_port_flag_over_ipv4() {
     let port = unused_tcp4_port().expect("Unable to find unused port.");
     CommandLineTest::new()
         .flag("port", Some(port.to_string().as_str()))
+        .flag("unsafe-and-dangerous-mode", None)
         .run()
         .with_config(|config| {
             assert_eq!(
@@ -1003,6 +1005,7 @@ fn network_port_flag_over_ipv6() {
     CommandLineTest::new()
         .flag("listen-address", Some("::1"))
         .flag("port", Some(port.to_string().as_str()))
+        .flag("unsafe-and-dangerous-mode", None)
         .run()
         .with_config(|config| {
             assert_eq!(
@@ -1022,6 +1025,7 @@ fn network_port_and_discovery_port_flags_over_ipv4() {
     CommandLineTest::new()
         .flag("port", Some(tcp4_port.to_string().as_str()))
         .flag("discovery-port", Some(udp4_port.to_string().as_str()))
+        .flag("unsafe-and-dangerous-mode", None)
         .run()
         .with_config(|config| {
             assert_eq!(
@@ -1042,6 +1046,7 @@ fn network_port_and_discovery_port_flags_over_ipv6() {
         .flag("listen-address", Some("::1"))
         .flag("port", Some(tcp6_port.to_string().as_str()))
         .flag("discovery-port", Some(udp6_port.to_string().as_str()))
+        .flag("unsafe-and-dangerous-mode", None)
         .run()
         .with_config(|config| {
             assert_eq!(
@@ -1067,6 +1072,7 @@ fn network_port_and_discovery_port_flags_over_ipv4_and_ipv6() {
         .flag("discovery-port", Some(udp4_port.to_string().as_str()))
         .flag("port6", Some(tcp6_port.to_string().as_str()))
         .flag("discovery-port6", Some(udp6_port.to_string().as_str()))
+        .flag("unsafe-and-dangerous-mode", None)
         .run()
         .with_config(|config| {
             assert_eq!(
@@ -1270,6 +1276,7 @@ fn enr_match_flag_over_ipv4() {
         .flag("listen-address", Some("127.0.0.2"))
         .flag("discovery-port", Some(udp4_port.to_string().as_str()))
         .flag("port", Some(tcp4_port.to_string().as_str()))
+        .flag("unsafe-and-dangerous-mode", None)
         .run()
         .with_config(|config| {
             assert_eq!(
@@ -1295,6 +1302,7 @@ fn enr_match_flag_over_ipv6() {
         .flag("listen-address", Some(ADDR))
         .flag("discovery-port", Some(udp6_port.to_string().as_str()))
         .flag("port", Some(tcp6_port.to_string().as_str()))
+        .flag("unsafe-and-dangerous-mode", None)
         .run()
         .with_config(|config| {
             assert_eq!(
@@ -1327,6 +1335,7 @@ fn enr_match_flag_over_ipv4_and_ipv6() {
         .flag("listen-address", Some(IPV6_ADDR))
         .flag("discovery-port6", Some(udp6_port.to_string().as_str()))
         .flag("port6", Some(tcp6_port.to_string().as_str()))
+        .flag("unsafe-and-dangerous-mode", None)
         .run()
         .with_config(|config| {
             assert_eq!(
@@ -1435,6 +1444,7 @@ fn http_port_flag() {
     CommandLineTest::new()
         .flag("http-port", Some(port1.to_string().as_str()))
         .flag("port", Some(port2.to_string().as_str()))
+        .flag("unsafe-and-dangerous-mode", None)
         .run()
         .with_config(|config| assert_eq!(config.http_api.listen_port, port1));
 }
@@ -1571,6 +1581,7 @@ fn metrics_port_flag() {
         .flag("metrics", None)
         .flag("metrics-port", Some(port1.to_string().as_str()))
         .flag("port", Some(port2.to_string().as_str()))
+        .flag("unsafe-and-dangerous-mode", None)
         .run()
         .with_config(|config| assert_eq!(config.http_metrics.listen_port, port1));
 }
@@ -1654,48 +1665,6 @@ fn validator_monitor_metrics_threshold_custom() {
         .with_config(|config| {
             assert_eq!(config.validator_monitor_individual_tracking_threshold, 42)
         });
-}
-
-// Tests for Store flags.
-#[test]
-fn slots_per_restore_point_flag() {
-    CommandLineTest::new()
-        .flag("slots-per-restore-point", Some("64"))
-        .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.store.slots_per_restore_point, 64));
-}
-#[test]
-fn slots_per_restore_point_update_prev_default() {
-    use beacon_node::beacon_chain::store::config::{
-        DEFAULT_SLOTS_PER_RESTORE_POINT, PREV_DEFAULT_SLOTS_PER_RESTORE_POINT,
-    };
-
-    CommandLineTest::new()
-        .flag("slots-per-restore-point", Some("2048"))
-        .run_with_zero_port()
-        .with_config_and_dir(|config, dir| {
-            // Check that 2048 is the previous default.
-            assert_eq!(
-                config.store.slots_per_restore_point,
-                PREV_DEFAULT_SLOTS_PER_RESTORE_POINT
-            );
-
-            // Restart the BN with the same datadir and the new default SPRP. It should
-            // allow this.
-            CommandLineTest::new()
-                .flag("datadir", Some(&dir.path().display().to_string()))
-                .flag("zero-ports", None)
-                .run_with_no_datadir()
-                .with_config(|config| {
-                    // The dumped config will have the new default 8192 value, but the fact that
-                    // the BN started and ran (with the same datadir) means that the override
-                    // was successful.
-                    assert_eq!(
-                        config.store.slots_per_restore_point,
-                        DEFAULT_SLOTS_PER_RESTORE_POINT
-                    );
-                });
-        })
 }
 
 #[test]

@@ -337,11 +337,14 @@ where
     pub slashings: FixedVector<u64, T::EpochsPerSlashingsVector>,
 
     // Attestations (genesis fork only)
+    // FIXME(sproul): excluded from tree lists due to ResetListDiff
     #[superstruct(only(Base))]
     #[test_random(default)]
+    #[metastruct(exclude_from(tree_lists))]
     pub previous_epoch_attestations: VList<PendingAttestation<T>, T::MaxPendingAttestations>,
     #[superstruct(only(Base))]
     #[test_random(default)]
+    #[metastruct(exclude_from(tree_lists))]
     pub current_epoch_attestations: VList<PendingAttestation<T>, T::MaxPendingAttestations>,
 
     // Participation (Altair and later)
@@ -1910,6 +1913,8 @@ impl<T: EthSpec, GenericValidator: ValidatorTrait> BeaconState<T, GenericValidat
     pub fn apply_pending_mutations(&mut self) -> Result<(), Error> {
         match self {
             Self::Base(inner) => {
+                inner.previous_epoch_attestations.apply_updates()?;
+                inner.current_epoch_attestations.apply_updates()?;
                 map_beacon_state_base_tree_list_fields!(inner, |_, x| { x.apply_updates() })
             }
             Self::Altair(inner) => {

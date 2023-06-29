@@ -154,6 +154,7 @@ pub const INVALID_FINALIZED_MERGE_TRANSITION_BLOCK_SHUTDOWN_REASON: &str =
     "Finalized merge transition block is invalid.";
 
 /// Defines the behaviour when a block/block-root for a skipped slot is requested.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WhenSlotSkipped {
     /// If the slot is a skip slot, return `None`.
     ///
@@ -749,10 +750,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ) -> Result<Option<SignedBlindedBeaconBlock<T::EthSpec>>, Error> {
         let root = self.block_root_at_slot(request_slot, skips)?;
 
+        // Only hint the slot if expect a block at this exact slot.
+        let slot_hint = match skips {
+            WhenSlotSkipped::Prev => None,
+            WhenSlotSkipped::None => Some(request_slot),
+        };
+
         if let Some(block_root) = root {
-            Ok(self
-                .store
-                .get_blinded_block(&block_root, Some(request_slot))?)
+            Ok(self.store.get_blinded_block(&block_root, slot_hint)?)
         } else {
             Ok(None)
         }
@@ -5530,29 +5535,27 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// This could be a very expensive operation and should only be done in testing/analysis
     /// activities.
+    ///
+    /// This dump function previously used a backwards iterator but has been swapped to a forwards
+    /// iterator as it allows for MUCH better caching and rebasing. Memory usage of some tests went
+    /// from 5GB per test to 90MB.
     #[allow(clippy::type_complexity)]
     pub fn chain_dump(
         &self,
     ) -> Result<Vec<BeaconSnapshot<T::EthSpec, BlindedPayload<T::EthSpec>>>, Error> {
         let mut dump = vec![];
 
-        let mut last_slot = {
-            let head = self.canonical_head.cached_head();
-            BeaconSnapshot {
-                beacon_block: Arc::new(head.snapshot.beacon_block.clone_as_blinded()),
-                beacon_block_root: head.snapshot.beacon_block_root,
-                beacon_state: head.snapshot.beacon_state.clone(),
+        let mut prev_block_root = None;
+        let mut prev_beacon_state = None;
+
+        for res in self.forwards_iter_block_roots(Slot::new(0))? {
+            let (beacon_block_root, _) = res?;
+
+            // Do not include snapshots at skipped slots.
+            if Some(beacon_block_root) == prev_block_root {
+                continue;
             }
-        };
-
-        dump.push(last_slot.clone());
-
-        loop {
-            let beacon_block_root = last_slot.beacon_block.parent_root();
-
-            if beacon_block_root == Hash256::zero() {
-                break; // Genesis has been reached.
-            }
+            prev_block_root = Some(beacon_block_root);
 
             let beacon_block = self
                 .store
@@ -5561,25 +5564,31 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     Error::DBInconsistent(format!("Missing block {}", beacon_block_root))
                 })?;
             let beacon_state_root = beacon_block.state_root();
-            let beacon_state = self
+
+            let mut beacon_state = self
                 .store
                 .get_state(&beacon_state_root, Some(beacon_block.slot()))?
                 .ok_or_else(|| {
                     Error::DBInconsistent(format!("Missing state {:?}", beacon_state_root))
                 })?;
 
-            let slot = BeaconSnapshot {
+            // This beacon state might come from the freezer DB, which means it could have pending
+            // updates or lots of untethered memory. We rebase it on the previous state in order to
+            // address this.
+            beacon_state.apply_pending_mutations()?;
+            if let Some(prev) = prev_beacon_state {
+                beacon_state.rebase_on(&prev, &self.spec)?;
+            }
+            beacon_state.build_all_caches(&self.spec)?;
+            prev_beacon_state = Some(beacon_state.clone());
+
+            let snapshot = BeaconSnapshot {
                 beacon_block: Arc::new(beacon_block),
                 beacon_block_root,
                 beacon_state,
             };
-
-            dump.push(slot.clone());
-            last_slot = slot;
+            dump.push(snapshot);
         }
-
-        dump.reverse();
-
         Ok(dump)
     }
 

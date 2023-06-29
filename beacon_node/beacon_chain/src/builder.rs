@@ -328,14 +328,13 @@ where
             .ok_or("set_genesis_state requires a store")?;
 
         let beacon_block = genesis_block(&mut beacon_state, &self.spec)?;
-        let blinded_block = beacon_block.clone_as_blinded();
+        let beacon_state_root = beacon_block.message().state_root();
+        let beacon_block_root = beacon_block.canonical_root();
+        let (blinded_block, payload) = beacon_block.into();
 
         beacon_state
             .build_all_caches(&self.spec)
             .map_err(|e| format!("Failed to build genesis state caches: {:?}", e))?;
-
-        let beacon_state_root = beacon_block.message().state_root();
-        let beacon_block_root = beacon_block.canonical_root();
 
         store
             .update_finalized_state(beacon_state_root, beacon_block_root, beacon_state.clone())
@@ -343,6 +342,16 @@ where
         store
             .put_state(&beacon_state_root, &beacon_state)
             .map_err(|e| format!("Failed to store genesis state: {:?}", e))?;
+
+        // Store the genesis block's execution payload (if any) in the hot database.
+        if let Some(execution_payload) = &payload {
+            store
+                .put_execution_payload(&beacon_block_root, execution_payload)
+                .map_err(|e| format!("Failed to store genesis execution payload: {e:?}"))?;
+            // FIXME(sproul): store it again under the 0x00 root?
+        }
+
+        // Store the genesis block in the cold database.
         store
             .put_cold_blinded_block(&beacon_block_root, &blinded_block)
             .map_err(|e| format!("Failed to store genesis block: {:?}", e))?;
@@ -356,6 +365,11 @@ where
                     e
                 )
             })?;
+
+        // Reconstruct full genesis block.
+        let beacon_block = blinded_block
+            .try_into_full_block(payload)
+            .ok_or("Unable to reconstruct genesis block with payload")?;
 
         self.genesis_state_root = Some(beacon_state_root);
         self.genesis_block_root = Some(beacon_block_root);

@@ -9,6 +9,17 @@ RUN apt-get install -y unzip && \
     unzip protoc.zip -d /usr && \
     chmod +x /usr/bin/protoc
 
-RUN apt-get install -y cmake clang-3.9
+RUN apt-get install -y \
+    apt-transport-https \
+    ca-certificates \
+    gnupg-agent \
+    software-properties-common
+
+RUN curl -L https://apt.llvm.org/llvm-snapshot.gpg.key | apt-key add - && \
+    apt-add-repository "deb http://apt.llvm.org/xenial/ llvm-toolchain-xenial-5.0 main" && \
+    apt-get update && \
+    apt-get install -y clang-5.0
+
+RUN apt-get install -y cmake
 
 ENV PROTOC=/usr/bin/protoc

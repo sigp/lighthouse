@@ -177,11 +177,6 @@ impl<E: EthSpec> KeyValueStore<E> for LevelDB<E> {
         Ok(())
     }
 
-    /// Iterate through all keys and values in a particular column.
-    fn iter_column<K: Key>(&self, column: DBColumn) -> ColumnIter<K> {
-        self.iter_column_from(column, &vec![0; column.key_size()])
-    }
-
     fn iter_column_from<K: Key>(&self, column: DBColumn, from: &[u8]) -> ColumnIter<K> {
         let start_key = BytesKey::from_vec(get_key_for_col(column.into(), from));
 
@@ -227,7 +222,7 @@ impl<E: EthSpec> KeyValueStore<E> for LevelDB<E> {
 impl<E: EthSpec> ItemStore<E> for LevelDB<E> {}
 
 /// Used for keying leveldb.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct BytesKey {
     key: Vec<u8>,
 }
