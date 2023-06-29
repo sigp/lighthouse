@@ -1445,17 +1445,20 @@ impl<T: EthSpec> BeaconState<T> {
     ///
     /// Returns minimum `EFFECTIVE_BALANCE_INCREMENT`, to avoid div by 0.
     pub fn get_total_active_balance(&self) -> Result<u64, Error> {
+        self.get_total_active_balance_at_epoch(self.current_epoch())
+    }
+
+    pub fn get_total_active_balance_at_epoch(&self, epoch: Epoch) -> Result<u64, Error> {
         let (initialized_epoch, balance) = self
             .total_active_balance()
             .ok_or(Error::TotalActiveBalanceCacheUninitialized)?;
 
-        let current_epoch = self.current_epoch();
-        if initialized_epoch == current_epoch {
+        if initialized_epoch == epoch {
             Ok(balance)
         } else {
             Err(Error::TotalActiveBalanceCacheInconsistent {
                 initialized_epoch,
-                current_epoch,
+                current_epoch: epoch,
             })
         }
     }

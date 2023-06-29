@@ -4,7 +4,7 @@ use crate::common::{altair, base};
 use types::epoch_cache::{EpochCache, EpochCacheError, EpochCacheKey};
 use types::{BeaconState, ChainSpec, Epoch, EthSpec, Hash256};
 
-pub fn initialize_epoch_cache_if_required<E: EthSpec>(
+pub fn initialize_epoch_cache<E: EthSpec>(
     state: &mut BeaconState<E>,
     epoch: Epoch,
     spec: &ChainSpec,
@@ -31,7 +31,7 @@ pub fn initialize_epoch_cache_if_required<E: EthSpec>(
     */
 
     // Compute base rewards.
-    let total_active_balance = state.get_total_active_balance()?;
+    let total_active_balance = state.get_total_active_balance_at_epoch(epoch)?;
     let sqrt_total_active_balance = SqrtTotalActiveBalance::new(total_active_balance);
     let base_reward_per_increment = BaseRewardPerIncrement::new(total_active_balance, spec)?;
 

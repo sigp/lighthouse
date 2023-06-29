@@ -41,7 +41,7 @@ mod verify_proposer_slashing;
 use crate::common::decrease_balance;
 use crate::StateProcessingStrategy;
 
-use crate::epoch_cache::initialize_epoch_cache_if_required;
+use crate::epoch_cache::initialize_epoch_cache;
 #[cfg(feature = "arbitrary-fuzz")]
 use arbitrary::Arbitrary;
 
@@ -116,7 +116,7 @@ pub fn per_block_processing<T: EthSpec, Payload: AbstractExecPayload<T>>(
         .map_err(BlockProcessingError::InconsistentStateFork)?;
 
     // Build epoch cache if it hasn't already been built, or if it is no longer valid
-    initialize_epoch_cache_if_required(state, state.current_epoch(), spec)?;
+    initialize_epoch_cache(state, state.current_epoch(), spec)?;
 
     let verify_signatures = match block_signature_strategy {
         BlockSignatureStrategy::VerifyBulk => {

@@ -72,7 +72,7 @@ use eth2::{
     BeaconNodeHttpClient, SensitiveUrl, Timeouts,
 };
 use ssz::Encode;
-use state_processing::epoch_cache::initialize_epoch_cache_if_required;
+use state_processing::epoch_cache::initialize_epoch_cache;
 use state_processing::{
     block_signature_verifier::BlockSignatureVerifier, per_block_processing, per_slot_processing,
     BlockSignatureStrategy, ConsensusContext, StateProcessingStrategy, VerifyBlockRoot,
@@ -358,8 +358,7 @@ fn do_transition<T: EthSpec>(
 
         if config.exclude_cache_builds {
             let epoch = pre_state.current_epoch();
-            initialize_epoch_cache_if_required(&mut pre_state, epoch, spec)
-                .map_err(|e| format!("{e:?}"))?;
+            initialize_epoch_cache(&mut pre_state, epoch, spec).map_err(|e| format!("{e:?}"))?;
         }
         ctxt
     };
