@@ -1248,14 +1248,23 @@ impl ApiTester {
     }
 
     pub async fn test_post_beacon_blocks_invalid(mut self) -> Self {
-        let mut next_block = self.next_block.clone();
-        *next_block.message_mut().proposer_index_mut() += 1;
+        let block = self
+            .harness
+            .make_block_with_modifier(
+                self.harness.get_current_state(),
+                self.harness.get_current_slot(),
+                |b| {
+                    *b.state_root_mut() = Hash256::zero();
+                },
+            )
+            .await
+            .0;
 
-        assert!(self.client.post_beacon_blocks(&next_block).await.is_err());
+        assert!(self.client.post_beacon_blocks(&block).await.is_err());
 
         assert!(
             self.network_rx.network_recv.recv().await.is_some(),
-            "invalid blocks should be sent to network"
+            "gossip valid blocks should be sent to network"
         );
 
         self
