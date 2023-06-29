@@ -5160,7 +5160,7 @@ dependencies = [
 [[package]]
 name = "milhouse"
 version = "0.1.0"
-source = "git+https://github.com/sigp/milhouse?branch=main#248bc353849c113bdf078c5a81e629285c1c0589"
+source = "git+https://github.com/sigp/milhouse?branch=main#e30719aaf1e4b46e3ff1962f7370965e68fa548b"
 dependencies = [
  "arbitrary",
  "derivative",
