@@ -794,8 +794,8 @@ impl<T: BeaconChainTypes> Worker<T> {
                 /* punish peer for submitting an equivocation, but not too harshly as honest peers may conceivably forward equivocating blocks to us from time to time */
                 self.gossip_penalize_peer(
                     peer_id,
-                    PeerAction::LowToleranceError,
-                    "gossip_block_low",
+                    PeerAction::MidToleranceError,
+                    "gossip_block_mid",
                 );
                 return None;
             }
