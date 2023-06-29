@@ -96,18 +96,7 @@ impl<E: EthSpec> Operation<E> for Attestation<E> {
                 spec,
             ),
             BeaconState::Altair(_) | BeaconState::Merge(_) | BeaconState::Capella(_) => {
-                let previous_epoch = state.previous_epoch();
-                let current_epoch = state.current_epoch();
-                altair::process_attestation(
-                    state,
-                    self,
-                    0,
-                    &mut ctxt,
-                    VerifySignatures::True,
-                    previous_epoch,
-                    current_epoch,
-                    spec,
-                )
+                altair::process_attestation(state, self, 0, &mut ctxt, VerifySignatures::True, spec)
             }
         }
     }

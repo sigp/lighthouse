@@ -105,22 +105,11 @@ pub mod altair {
         ctxt: &mut ConsensusContext<T>,
         spec: &ChainSpec,
     ) -> Result<(), BlockProcessingError> {
-        let previous_epoch = state.previous_epoch();
-        let current_epoch = state.current_epoch();
         attestations
             .iter()
             .enumerate()
             .try_for_each(|(i, attestation)| {
-                process_attestation(
-                    state,
-                    attestation,
-                    i,
-                    ctxt,
-                    verify_signatures,
-                    previous_epoch,
-                    current_epoch,
-                    spec,
-                )
+                process_attestation(state, attestation, i, ctxt, verify_signatures, spec)
             })
     }
 
@@ -131,8 +120,6 @@ pub mod altair {
         att_index: usize,
         ctxt: &mut ConsensusContext<T>,
         verify_signatures: VerifySignatures,
-        previous_epoch: Epoch,
-        current_epoch: Epoch,
         spec: &ChainSpec,
     ) -> Result<(), BlockProcessingError> {
         state.build_committee_cache(RelativeEpoch::Previous, spec)?;
@@ -165,8 +152,8 @@ pub mod altair {
             for (flag_index, &weight) in PARTICIPATION_FLAG_WEIGHTS.iter().enumerate() {
                 let epoch_participation = state.get_epoch_participation_mut(
                     data.target.epoch,
-                    previous_epoch,
-                    current_epoch,
+                    ctxt.previous_epoch,
+                    ctxt.current_epoch,
                 )?;
 
                 if participation_flag_indices.contains(&flag_index) {
