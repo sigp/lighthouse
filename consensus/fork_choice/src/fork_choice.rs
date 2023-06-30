@@ -79,7 +79,6 @@ pub enum Error<T> {
     UnrealizedVoteProcessing(state_processing::EpochProcessingError),
     ParticipationCacheBuild(BeaconStateError),
     ParticipationCacheError(ParticipationCacheError),
-    ParticipationCacheMissing,
     ValidatorStatuses(BeaconStateError),
     ProgressiveBalancesCacheCheckFailed(String),
 }
@@ -796,16 +795,20 @@ where
                                 maybe_participation_cache.as_ref(),
                             )
                             .or_else(|e| {
-                                if progressive_balances_mode == ProgressiveBalancesMode::Checked {
+                                if progressive_balances_mode != ProgressiveBalancesMode::Strict {
                                     error!(
                                         log,
-                                        "Processing with progressive balances cache failed in checked mode";
+                                        "Processing with progressive balances cache failed";
                                         "info" => "falling back to the non-optimized processing method",
                                         "error" => ?e,
                                     );
+                                    let participation_cache = maybe_participation_cache
+                                        .map(Ok)
+                                        .unwrap_or_else(|| ParticipationCache::new(state, spec))
+                                        .map_err(Error::ParticipationCacheBuild)?;
                                     per_epoch_processing::altair::process_justification_and_finalization(
                                         state,
-                                        maybe_participation_cache.as_ref().ok_or(Error::ParticipationCacheMissing)?,
+                                        &participation_cache,
                                     ).map_err(Error::from)
                                 } else {
                                     Err(e)
