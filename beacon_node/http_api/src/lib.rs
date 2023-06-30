@@ -30,7 +30,7 @@ use beacon_chain::{
     BeaconChainTypes, ProduceBlockVerification, WhenSlotSkipped,
 };
 pub use block_id::BlockId;
-use builder_states::g;
+use builder_states::get_next_withdrawals;
 use directory::DEFAULT_ROOT_DIR;
 use eth2::types::{
     self as api_types, BroadcastValidation, EndpointVersion, ForkChoice, ForkChoiceNode,
