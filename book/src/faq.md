@@ -10,7 +10,7 @@
 - [My beacon node logs `WARN BlockProcessingFailure outcome: MissingBeaconBlock`, what should I do?](#bn-missing-beacon)
 - [After checkpoint sync, the progress of `downloading historical blocks` is slow. Why?](#bn-download-slow)
 - [My beacon node logs `WARN Error processing HTTP API request`, what should I do?](#bn-http)
-- [My beacon node logs `WARN Error signalling fork choice waiter`, what should I do?](#bn-fork-choice")
+- [My beacon node logs `WARN Error signalling fork choice waiter`, what should I do?](#bn-fork-choice)
 
 ## [Validator](#validator-1)
 - [Why does it take so long for a validator to be activated?](#vc-activation)
@@ -179,7 +179,7 @@ An example of the full log is shown below:
 WARN Error signalling fork choice waiter slot: 6763073, error: ForkChoiceSignalOutOfOrder { current: Slot(6763074), latest: Slot(6763073) }, service: state_advance
 ```
 
-This suggests that the computer resources are being overwhelmed. It could be due to high CPU usage or high disk I/O usage. This can happen, e.g., when the beacon node is downloading historical blocks, or when the execution client is syncing.
+This suggests that the computer resources are being overwhelmed. It could be due to high CPU usage or high disk I/O usage. This can happen, e.g., when the beacon node is downloading historical blocks, or when the execution client is syncing. The error will disappear the resources used return to normal or when the node is synced.
 
 ## Validator
 
