@@ -2418,24 +2418,41 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path("health"))
         .and(warp::path::end())
         .and(network_globals.clone())
-        .and_then(|network_globals: Arc<NetworkGlobals<T::EthSpec>>| {
-            blocking_response_task(move || match *network_globals.sync_state.read() {
-                SyncState::SyncingFinalized { .. }
-                | SyncState::SyncingHead { .. }
-                | SyncState::SyncTransition
-                | SyncState::BackFillSyncing { .. } => Ok(warp::reply::with_status(
-                    warp::reply(),
-                    warp::http::StatusCode::PARTIAL_CONTENT,
-                )),
-                SyncState::Synced => Ok(warp::reply::with_status(
-                    warp::reply(),
-                    warp::http::StatusCode::OK,
-                )),
-                SyncState::Stalled => Err(warp_utils::reject::not_synced(
-                    "sync stalled, beacon chain may not yet be initialized.".to_string(),
-                )),
-            })
-        });
+        .and(chain_filter.clone())
+        .and_then(
+            |network_globals: Arc<NetworkGlobals<T::EthSpec>>, chain: Arc<BeaconChain<T>>| {
+                async move {
+                    let el_offline = if let Some(el) = &chain.execution_layer {
+                        el.is_offline_or_erroring().await
+                    } else {
+                        true
+                    };
+
+                    blocking_response_task(move || {
+                        let is_optimistic = chain
+                            .is_optimistic_or_invalid_head()
+                            .map_err(warp_utils::reject::beacon_chain_error)?;
+
+                        let is_syncing = !network_globals.sync_state.read().is_synced();
+
+                        if el_offline {
+                            Err(warp_utils::reject::not_synced("execution layer is offline".to_string()))
+                        } else if is_syncing || is_optimistic {
+                            Ok(warp::reply::with_status(
+                                warp::reply(),
+                                warp::http::StatusCode::PARTIAL_CONTENT,
+                            ))
+                        } else {
+                            Ok(warp::reply::with_status(
+                                warp::reply(),
+                                warp::http::StatusCode::OK,
+                            ))
+                        }
+                    })
+                    .await
+                }
+            },
+        );
 
     // GET node/peers/{peer_id}
     let get_node_peers_by_id = eth_v1
