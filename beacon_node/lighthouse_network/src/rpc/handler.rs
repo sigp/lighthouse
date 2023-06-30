@@ -212,7 +212,7 @@ where
     pub fn new(
         listen_protocol: SubstreamProtocol<RPCProtocol<TSpec>, ()>,
         fork_context: Arc<ForkContext>,
-        log: &slog::Logger,
+        log: slog::Logger,
     ) -> Self {
         RPCHandler {
             listen_protocol,
@@ -230,7 +230,7 @@ where
             outbound_io_error_retries: 0,
             fork_context,
             waker: None,
-            log: log.clone(),
+            log,
         }
     }
 
@@ -384,7 +384,9 @@ where
         }
         // return any events that need to be reported
         if !self.events_out.is_empty() {
-            return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(self.events_out.remove(0)));
+            return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(
+                self.events_out.remove(0),
+            ));
         } else {
             self.events_out.shrink_to_fit();
         }
@@ -448,7 +450,9 @@ where
                             error: RPCError::StreamTimeout,
                         };
                         // notify the user
-                        return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(Err(outbound_err)));
+                        return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(Err(
+                            outbound_err,
+                        )));
                     } else {
                         crit!(self.log, "timed out substream not in the books"; "stream_id" => outbound_id.get_ref());
                     }
@@ -734,7 +738,9 @@ where
                             proto: request.versioned_protocol().protocol(),
                             error: RPCError::IncompleteStream,
                         };
-                        return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(Err(outbound_err)));
+                        return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(Err(
+                            outbound_err,
+                        )));
                     }
                     Poll::Pending => {
                         entry.get_mut().state =
@@ -750,7 +756,9 @@ where
                             error: e,
                         };
                         entry.remove_entry();
-                        return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(Err(outbound_err)));
+                        return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(Err(
+                            outbound_err,
+                        )));
                     }
                 },
                 OutboundSubstreamState::Closing(mut substream) => {

@@ -10,10 +10,11 @@ use libp2p::swarm::{
     handler::ConnectionHandler, ConnectionId, NetworkBehaviour, NotifyHandler, PollParameters,
     ToSwarm,
 };
-use libp2p::swarm::{FromSwarm, THandlerInEvent};
+use libp2p::swarm::{FromSwarm, SubstreamProtocol, THandlerInEvent};
 use libp2p::PeerId;
 use rate_limiter::{RPCRateLimiter as RateLimiter, RateLimitedErr};
 use slog::{crit, debug, o};
+use std::marker::PhantomData;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 use types::{EthSpec, ForkContext};
@@ -31,6 +32,7 @@ pub(crate) use outbound::OutboundRequest;
 pub use protocol::{max_rpc_size, Protocol, RPCError};
 
 use self::config::{InboundRateLimiterConfig, OutboundRateLimiterConfig};
+use self::protocol::RPCProtocol;
 use self::self_limiter::SelfRateLimiter;
 
 pub(crate) mod codec;
@@ -107,7 +109,6 @@ type BehaviourAction<Id, TSpec> = ToSwarm<RPCMessage<Id, TSpec>, RPCSend<Id, TSp
 
 /// Implements the libp2p `NetworkBehaviour` trait and therefore manages network-level
 /// logic.
-#[allow(unused)]
 pub struct RPC<Id: ReqId, TSpec: EthSpec> {
     /// Rate limiter
     limiter: Option<RateLimiter>,
@@ -224,7 +225,7 @@ where
             | FromSwarm::NewExternalAddrCandidate(_)
             | FromSwarm::ExternalAddrExpired(_)
             | FromSwarm::ExternalAddrConfirmed(_) => {
-                // Rpc Bheaviour does not act on these swarm events. We use a comprehensive match
+                // Rpc Behaviour does not act on these swarm events. We use a comprehensive match
                 // statement tu ensure future events are dealt with appropiately.
             }
         }
@@ -322,47 +323,53 @@ where
         Poll::Pending
     }
 
-    #[allow(unused)]
-    fn handle_pending_inbound_connection(
-        &mut self,
-        _connection_id: ConnectionId,
-        _local_addr: &libp2p::Multiaddr,
-        _remote_addr: &libp2p::Multiaddr,
-    ) -> Result<(), libp2p::swarm::ConnectionDenied> {
-        todo!()
-    }
-
-    #[allow(unused)]
     fn handle_established_inbound_connection(
         &mut self,
         _connection_id: ConnectionId,
-        peer: PeerId,
-        local_addr: &libp2p::Multiaddr,
-        remote_addr: &libp2p::Multiaddr,
+        peer_id: PeerId,
+        _local_addr: &libp2p::Multiaddr,
+        _remote_addr: &libp2p::Multiaddr,
     ) -> Result<libp2p::swarm::THandler<Self>, libp2p::swarm::ConnectionDenied> {
-        todo!()
+        let protocol = SubstreamProtocol::new(
+            RPCProtocol {
+                fork_context: self.fork_context.clone(),
+                max_rpc_size: max_rpc_size(&self.fork_context),
+                enable_light_client_server: self.enable_light_client_server,
+                phantom: PhantomData,
+            },
+            (),
+        );
+        // NOTE: this is needed because PeerIds have interior mutability.
+        let peer_repr = peer_id.to_string();
+        let log = self.log.new(slog::o!("peer_id" => peer_repr));
+        let handler = RPCHandler::new(protocol, self.fork_context.clone(), log);
+
+        Ok(handler)
     }
 
-    #[allow(unused)]
-    fn handle_pending_outbound_connection(
-        &mut self,
-        _connection_id: ConnectionId,
-        maybe_peer: Option<PeerId>,
-        _addresses: &[libp2p::Multiaddr],
-        _effective_role: libp2p::core::Endpoint,
-    ) -> Result<Vec<libp2p::Multiaddr>, libp2p::swarm::ConnectionDenied> {
-        todo!()
-    }
-
-    #[allow(unused)]
     fn handle_established_outbound_connection(
         &mut self,
         _connection_id: ConnectionId,
-        peer: PeerId,
-        addr: &libp2p::Multiaddr,
-        role_override: libp2p::core::Endpoint,
+        peer_id: PeerId,
+        _addr: &libp2p::Multiaddr,
+        _role_override: libp2p::core::Endpoint,
     ) -> Result<libp2p::swarm::THandler<Self>, libp2p::swarm::ConnectionDenied> {
-        todo!()
+        let protocol = SubstreamProtocol::new(
+            RPCProtocol {
+                fork_context: self.fork_context.clone(),
+                max_rpc_size: max_rpc_size(&self.fork_context),
+                enable_light_client_server: self.enable_light_client_server,
+                phantom: PhantomData,
+            },
+            (),
+        );
+
+        // NOTE: this is needed because PeerIds have interior mutability.
+        let peer_repr = peer_id.to_string();
+        let log = self.log.new(slog::o!("peer_id" => peer_repr));
+        let handler = RPCHandler::new(protocol, self.fork_context.clone(), log);
+
+        Ok(handler)
     }
 }
 
