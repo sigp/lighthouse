@@ -7,7 +7,7 @@ use beacon_chain::{
 };
 use beacon_chain::{BeaconChainTypes, NotifyExecutionLayer};
 use beacon_processor::{
-    work_reprocessing_queue::ReprocessQueueMessage, GossipAggregatePackage,
+    work_reprocessing_queue::ReprocessQueueMessage, AsyncFn, GossipAggregatePackage,
     GossipAttestationPackage, Work, WorkEvent as BeaconWorkEvent,
 };
 use environment::null_logger;
