@@ -10,6 +10,7 @@ mod attester_duties;
 mod block_id;
 mod block_packing_efficiency;
 mod block_rewards;
+mod builder_states;
 mod database;
 mod metrics;
 mod proposer_duties;
@@ -29,6 +30,7 @@ use beacon_chain::{
     BeaconChainTypes, ProduceBlockVerification, WhenSlotSkipped,
 };
 pub use block_id::BlockId;
+use builder_states::get_next_withdrawals;
 use directory::DEFAULT_ROOT_DIR;
 use eth2::types::{
     self as api_types, BroadcastValidation, EndpointVersion, ForkChoice, ForkChoiceNode,
@@ -43,15 +45,11 @@ use parking_lot::RwLock;
 pub use publish_blocks::{
     publish_blinded_block, publish_block, reconstruct_block, ProvenancedBlock,
 };
-use safe_arith::SafeArith;
 use serde::{Deserialize, Serialize};
 use slog::{crit, debug, error, info, warn, Logger};
 use slot_clock::SlotClock;
 use ssz::Encode;
 pub use state_id::StateId;
-use state_processing::{
-    per_block_processing::get_expected_withdrawals, state_advance::partial_state_advance,
-};
 use std::borrow::Cow;
 use std::future::Future;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
@@ -2045,59 +2043,10 @@ pub fn serve<T: BeaconChainTypes>(
              query: api_types::ExpectedWithdrawalsQuery,
              accept_header: Option<api_types::Accept>| {
                 blocking_response_task(move || {
-                    let (mut state, execution_optimistic, finalized) = state_id.state(&chain)?;
+                    let (state, execution_optimistic, finalized) = state_id.state(&chain)?;
                     let proposal_slot = query.proposal_slot.unwrap_or(state.slot() + 1);
-                    if proposal_slot <= state.slot() {
-                        return Err(warp_utils::reject::custom_bad_request(
-                            "proposal slot must be greater than the pre-state slot".to_string(),
-                        ));
-                    }
-
-                    let fork = chain.spec.fork_name_at_slot::<T::EthSpec>(proposal_slot);
-                    if let ForkName::Base | ForkName::Altair | ForkName::Merge = fork {
-                        return Err(warp_utils::reject::custom_bad_request(
-                            "the specified state is not a capella state.".to_string(),
-                        ));
-                    }
-
-                    let look_ahead_limit = chain
-                        .spec
-                        .max_seed_lookahead
-                        .into_inner()
-                        .safe_mul(T::EthSpec::slots_per_epoch())
-                        .map_err(warp_utils::reject::arith_error)?;
-
-                    if proposal_slot >= state.slot() + look_ahead_limit {
-                        return Err(warp_utils::reject::custom_bad_request(format!(
-                            "proposal slot cannot be >= the look ahead limit: {look_ahead_limit}"
-                        )));
-                    }
-
-                    let proposal_epoch = proposal_slot.epoch(T::EthSpec::slots_per_epoch());
-                    let (state_root, _, _) = state_id.root(&chain)?;
-                    if proposal_epoch != state.current_epoch() {
-                        if let Err(e) = partial_state_advance(
-                            &mut state,
-                            Some(state_root),
-                            proposal_slot,
-                            &chain.spec,
-                        ) {
-                            return Err(warp_utils::reject::custom_server_error(format!(
-                                "failed to advance to the epoch of the proposal slot: {:?}",
-                                e
-                            )));
-                        }
-                    }
-
-                    let withdrawals = match get_expected_withdrawals(&state, &chain.spec) {
-                        Ok(withdrawals) => withdrawals,
-                        Err(e) => {
-                            return Err(warp_utils::reject::custom_server_error(format!(
-                                "failed to get expected withdrawal: {:?}",
-                                e
-                            )))
-                        }
-                    };
+                    let withdrawals =
+                        get_next_withdrawals::<T>(&chain, state, state_id, proposal_slot)?;
 
                     match accept_header {
                         Some(api_types::Accept::Ssz) => Response::builder()
@@ -2521,41 +2470,24 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path("health"))
         .and(warp::path::end())
         .and(network_globals.clone())
-        .and(chain_filter.clone())
-        .and_then(
-            |network_globals: Arc<NetworkGlobals<T::EthSpec>>, chain: Arc<BeaconChain<T>>| {
-                async move {
-                    let el_offline = if let Some(el) = &chain.execution_layer {
-                        el.is_offline_or_erroring().await
-                    } else {
-                        true
-                    };
-
-                    blocking_response_task(move || {
-                        let is_optimistic = chain
-                            .is_optimistic_or_invalid_head()
-                            .map_err(warp_utils::reject::beacon_chain_error)?;
-
-                        let is_syncing = !network_globals.sync_state.read().is_synced();
-
-                        if el_offline {
-                            Err(warp_utils::reject::not_synced("execution layer is offline".to_string()))
-                        } else if is_syncing || is_optimistic {
-                            Ok(warp::reply::with_status(
-                                warp::reply(),
-                                warp::http::StatusCode::PARTIAL_CONTENT,
-                            ))
-                        } else {
-                            Ok(warp::reply::with_status(
-                                warp::reply(),
-                                warp::http::StatusCode::OK,
-                            ))
-                        }
-                    })
-                    .await
-                }
-            },
-        );
+        .and_then(|network_globals: Arc<NetworkGlobals<T::EthSpec>>| {
+            blocking_response_task(move || match *network_globals.sync_state.read() {
+                SyncState::SyncingFinalized { .. }
+                | SyncState::SyncingHead { .. }
+                | SyncState::SyncTransition
+                | SyncState::BackFillSyncing { .. } => Ok(warp::reply::with_status(
+                    warp::reply(),
+                    warp::http::StatusCode::PARTIAL_CONTENT,
+                )),
+                SyncState::Synced => Ok(warp::reply::with_status(
+                    warp::reply(),
+                    warp::http::StatusCode::OK,
+                )),
+                SyncState::Stalled => Err(warp_utils::reject::not_synced(
+                    "sync stalled, beacon chain may not yet be initialized.".to_string(),
+                )),
+            })
+        });
 
     // GET node/peers/{peer_id}
     let get_node_peers_by_id = eth_v1
