@@ -697,7 +697,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .help("Specifies the number of epochs to wait between applying each finalization \
                        migration to the database. Applying migrations less frequently can lead to \
                        less total disk writes.")
-                .default_value("4")
+                .default_value("1")
                 .takes_value(true)
         )
         .arg(
