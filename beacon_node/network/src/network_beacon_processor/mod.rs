@@ -34,6 +34,8 @@ pub type Error<T> = TrySendError<BeaconWorkEvent<T>>;
 mod gossip_methods;
 mod rpc_methods;
 mod sync_methods;
+// TODO(paul): re-enable tests.
+// mod tests;
 
 pub(crate) const FUTURE_SLOT_TOLERANCE: u64 = 1;
 

@@ -63,8 +63,6 @@ use tokio::sync::mpsc::error::TrySendError;
 use types::{Attestation, EthSpec, Hash256, SignedAggregateAndProof, Slot, SubnetId};
 use work_reprocessing_queue::IgnoredRpcBlock;
 
-// TODO(paul): re-enable tests.
-// mod tests;
 mod metrics;
 pub mod work_reprocessing_queue;
 
