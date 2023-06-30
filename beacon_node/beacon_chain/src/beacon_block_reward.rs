@@ -8,7 +8,6 @@ use state_processing::{
     per_block_processing::{
         altair::sync_committee::compute_sync_aggregate_rewards, get_slashable_indices,
     },
-    ConsensusContext,
 };
 use store::{
     consts::altair::{PARTICIPATION_FLAG_WEIGHTS, PROPOSER_WEIGHT, WEIGHT_DENOMINATOR},
@@ -177,8 +176,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         block: BeaconBlockRef<'_, T::EthSpec, Payload>,
         state: &mut BeaconState<T::EthSpec>,
     ) -> Result<BeaconBlockSubRewardValue, BeaconChainError> {
-        let mut ctxt = ConsensusContext::new(block.slot());
-
         let mut total_proposer_reward = 0;
 
         let proposer_reward_denominator = WEIGHT_DENOMINATOR
@@ -202,8 +199,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             for index in attesting_indices {
                 let index = index as usize;
                 for (flag_index, &weight) in PARTICIPATION_FLAG_WEIGHTS.iter().enumerate() {
-                    let epoch_participation =
-                        state.get_epoch_participation_mut(data.target.epoch)?;
+                    let previous_epoch = state.previous_epoch();
+                    let current_epoch = state.current_epoch();
+                    let epoch_participation = state.get_epoch_participation_mut(
+                        data.target.epoch,
+                        previous_epoch,
+                        current_epoch,
+                    )?;
                     let validator_participation = epoch_participation
                         .get_mut(index)
                         .ok_or(BeaconStateError::ParticipationOutOfBounds(index))?;
@@ -213,7 +215,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     {
                         validator_participation.add_flag(flag_index)?;
                         proposer_reward_numerator.safe_add_assign(
-                            ctxt.get_base_reward(state, index, &self.spec)
+                            state
+                                .get_base_reward(index)
                                 .map_err(|_| BeaconChainError::BlockRewardAttestationError)?
                                 .safe_mul(weight)?,
                         )?;

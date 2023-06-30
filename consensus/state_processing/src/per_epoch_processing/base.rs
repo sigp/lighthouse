@@ -1,4 +1,5 @@
 use super::{process_registry_updates, process_slashings, EpochProcessingSummary, Error};
+use crate::epoch_cache::initialize_epoch_cache;
 use crate::per_epoch_processing::{
     effective_balance_updates::process_effective_balance_updates,
     historical_roots_update::process_historical_roots_update,
@@ -69,6 +70,7 @@ pub fn process_epoch<T: EthSpec>(
 
     // Rotate the epoch caches to suit the epoch transition.
     state.advance_caches(spec)?;
+    initialize_epoch_cache(state, state.next_epoch()?, spec)?;
 
     Ok(EpochProcessingSummary::Base {
         total_balances: validator_statuses.total_balances,

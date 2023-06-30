@@ -113,6 +113,7 @@ pub mod altair {
             })
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn process_attestation<T: EthSpec>(
         state: &mut BeaconState<T>,
         attestation: &Attestation<T>,
@@ -149,18 +150,22 @@ pub mod altair {
             let index = *index as usize;
 
             for (flag_index, &weight) in PARTICIPATION_FLAG_WEIGHTS.iter().enumerate() {
-                let epoch_participation = state.get_epoch_participation_mut(data.target.epoch)?;
-                let validator_participation = epoch_participation
-                    .get_mut(index)
-                    .ok_or(BeaconStateError::ParticipationOutOfBounds(index))?;
+                let epoch_participation = state.get_epoch_participation_mut(
+                    data.target.epoch,
+                    ctxt.previous_epoch,
+                    ctxt.current_epoch,
+                )?;
 
-                if participation_flag_indices.contains(&flag_index)
-                    && !validator_participation.has_flag(flag_index)?
-                {
-                    validator_participation.add_flag(flag_index)?;
-                    proposer_reward_numerator.safe_add_assign(
-                        ctxt.get_base_reward(state, index, spec)?.safe_mul(weight)?,
-                    )?;
+                if participation_flag_indices.contains(&flag_index) {
+                    let validator_participation = epoch_participation
+                        .get_mut(index)
+                        .ok_or(BeaconStateError::ParticipationOutOfBounds(index))?;
+
+                    if !validator_participation.has_flag(flag_index)? {
+                        validator_participation.add_flag(flag_index)?;
+                        proposer_reward_numerator
+                            .safe_add_assign(state.get_base_reward(index)?.safe_mul(weight)?)?;
+                    }
                 }
             }
         }

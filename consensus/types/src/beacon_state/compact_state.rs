@@ -51,6 +51,7 @@ macro_rules! full_to_compact {
             committee_caches: $s.committee_caches.clone(),
             pubkey_cache: $s.pubkey_cache.clone(),
             exit_cache: $s.exit_cache.clone(),
+            epoch_cache: $s.epoch_cache.clone(),
 
             // Variant-specific fields
             $(
@@ -111,6 +112,7 @@ macro_rules! compact_to_full {
             committee_caches: $inner.committee_caches,
             pubkey_cache: $inner.pubkey_cache,
             exit_cache: $inner.exit_cache,
+            epoch_cache: $inner.epoch_cache,
 
             // Variant-specific fields
             $(

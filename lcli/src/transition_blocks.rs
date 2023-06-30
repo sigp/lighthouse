@@ -72,9 +72,10 @@ use eth2::{
     BeaconNodeHttpClient, SensitiveUrl, Timeouts,
 };
 use ssz::Encode;
+use state_processing::epoch_cache::initialize_epoch_cache;
 use state_processing::{
     block_signature_verifier::BlockSignatureVerifier, per_block_processing, per_slot_processing,
-    BlockSignatureStrategy, ConsensusContext, EpochCache, StateProcessingStrategy, VerifyBlockRoot,
+    BlockSignatureStrategy, ConsensusContext, StateProcessingStrategy, VerifyBlockRoot,
 };
 use std::borrow::Cow;
 use std::fs::File;
@@ -351,16 +352,13 @@ fn do_transition<T: EthSpec>(
     let mut ctxt = if let Some(ctxt) = saved_ctxt {
         ctxt.clone()
     } else {
-        let mut ctxt = ConsensusContext::new(pre_state.slot())
+        let ctxt = ConsensusContext::new(pre_state.slot())
             .set_current_block_root(block_root)
             .set_proposer_index(block.message().proposer_index());
 
         if config.exclude_cache_builds {
-            ctxt = ctxt.set_epoch_cache(
-                EpochCache::new(&pre_state, spec)
-                    .map_err(|e| format!("unable to build epoch cache: {e:?}"))?,
-            );
-            *saved_ctxt = Some(ctxt.clone());
+            let epoch = pre_state.current_epoch();
+            initialize_epoch_cache(&mut pre_state, epoch, spec).map_err(|e| format!("{e:?}"))?;
         }
         ctxt
     };

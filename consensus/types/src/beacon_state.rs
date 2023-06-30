@@ -29,6 +29,7 @@ pub use self::committee_cache::{
     compute_committee_index_in_epoch, compute_committee_range_in_epoch, epoch_committee_count,
     CommitteeCache,
 };
+use crate::epoch_cache::EpochCache;
 pub use eth_spec::*;
 pub use iter::BlockRootsIter;
 pub use milhouse::{interface::Interface, List as VList, List, Vector as FixedVector};
@@ -435,6 +436,13 @@ where
     #[test_random(default)]
     #[metastruct(exclude)]
     pub exit_cache: ExitCache,
+    /// Epoch cache of values that are useful for block processing that are static over an epoch.
+    #[serde(skip_serializing, skip_deserializing)]
+    #[ssz(skip_serializing, skip_deserializing)]
+    #[tree_hash(skip_hashing)]
+    #[test_random(default)]
+    #[metastruct(exclude)]
+    pub epoch_cache: EpochCache,
 }
 
 impl<T: EthSpec> BeaconState<T> {
@@ -494,6 +502,7 @@ impl<T: EthSpec> BeaconState<T> {
             ],
             pubkey_cache: PubkeyCache::default(),
             exit_cache: ExitCache::default(),
+            epoch_cache: EpochCache::default(),
         })
     }
 
@@ -1436,17 +1445,20 @@ impl<T: EthSpec> BeaconState<T> {
     ///
     /// Returns minimum `EFFECTIVE_BALANCE_INCREMENT`, to avoid div by 0.
     pub fn get_total_active_balance(&self) -> Result<u64, Error> {
+        self.get_total_active_balance_at_epoch(self.current_epoch())
+    }
+
+    pub fn get_total_active_balance_at_epoch(&self, epoch: Epoch) -> Result<u64, Error> {
         let (initialized_epoch, balance) = self
             .total_active_balance()
             .ok_or(Error::TotalActiveBalanceCacheUninitialized)?;
 
-        let current_epoch = self.current_epoch();
-        if initialized_epoch == current_epoch {
+        if initialized_epoch == epoch {
             Ok(balance)
         } else {
             Err(Error::TotalActiveBalanceCacheInconsistent {
                 initialized_epoch,
-                current_epoch,
+                current_epoch: epoch,
             })
         }
     }
@@ -1472,15 +1484,17 @@ impl<T: EthSpec> BeaconState<T> {
     pub fn get_epoch_participation_mut(
         &mut self,
         epoch: Epoch,
+        previous_epoch: Epoch,
+        current_epoch: Epoch,
     ) -> Result<&mut VList<ParticipationFlags, T::ValidatorRegistryLimit>, Error> {
-        if epoch == self.current_epoch() {
+        if epoch == current_epoch {
             match self {
                 BeaconState::Base(_) => Err(BeaconStateError::IncorrectStateVariant),
                 BeaconState::Altair(state) => Ok(&mut state.current_epoch_participation),
                 BeaconState::Merge(state) => Ok(&mut state.current_epoch_participation),
                 BeaconState::Capella(state) => Ok(&mut state.current_epoch_participation),
             }
-        } else if epoch == self.previous_epoch() {
+        } else if epoch == previous_epoch {
             match self {
                 BeaconState::Base(_) => Err(BeaconStateError::IncorrectStateVariant),
                 BeaconState::Altair(state) => Ok(&mut state.previous_epoch_participation),
@@ -1767,6 +1781,10 @@ impl<T: EthSpec> BeaconState<T> {
             self.next_sync_committee()?.clone()
         };
         Ok(sync_committee)
+    }
+
+    pub fn get_base_reward(&self, validator_index: usize) -> Result<u64, EpochCacheError> {
+        self.epoch_cache().get_base_reward(validator_index)
     }
 
     // FIXME(sproul): missing eth1 data votes, they would need a ResetListDiff

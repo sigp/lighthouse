@@ -1,7 +1,6 @@
 use crate::common::get_indexed_attestation;
 use crate::per_block_processing::errors::{AttestationInvalid, BlockOperationError};
-use crate::{EpochCache, EpochCacheError};
-use std::borrow::Cow;
+use crate::EpochCacheError;
 use std::collections::{hash_map::Entry, HashMap};
 use std::marker::PhantomData;
 use tree_hash::TreeHash;
@@ -14,12 +13,14 @@ use types::{
 pub struct ConsensusContext<T: EthSpec> {
     /// Slot to act as an identifier/safeguard
     slot: Slot,
+    /// Previous epoch of the `slot` precomputed for optimization purpose.
+    pub(crate) previous_epoch: Epoch,
+    /// Current epoch of the `slot` precomputed for optimization purpose.
+    pub(crate) current_epoch: Epoch,
     /// Proposer index of the block at `slot`.
     proposer_index: Option<u64>,
     /// Block root of the block at `slot`.
     current_block_root: Option<Hash256>,
-    /// Epoch cache of values that are useful for block processing that are static over an epoch.
-    epoch_cache: Option<EpochCache>,
     /// Cache of indexed attestations constructed during block processing.
     indexed_attestations:
         HashMap<(AttestationData, BitList<T::MaxValidatorsPerCommittee>), IndexedAttestation<T>>,
@@ -48,11 +49,14 @@ impl From<EpochCacheError> for ContextError {
 
 impl<T: EthSpec> ConsensusContext<T> {
     pub fn new(slot: Slot) -> Self {
+        let current_epoch = slot.epoch(T::slots_per_epoch());
+        let previous_epoch = current_epoch.saturating_sub(1u64);
         Self {
             slot,
+            previous_epoch,
+            current_epoch,
             proposer_index: None,
             current_block_root: None,
-            epoch_cache: None,
             indexed_attestations: HashMap::new(),
             _phantom: PhantomData,
         }
@@ -143,31 +147,6 @@ impl<T: EthSpec> ConsensusContext<T> {
         } else {
             Err(ContextError::EpochMismatch { epoch, expected })
         }
-    }
-
-    pub fn set_epoch_cache(mut self, epoch_cache: EpochCache) -> Self {
-        self.epoch_cache = Some(epoch_cache);
-        self
-    }
-
-    pub fn get_base_reward(
-        &mut self,
-        state: &BeaconState<T>,
-        validator_index: usize,
-        spec: &ChainSpec,
-    ) -> Result<u64, ContextError> {
-        self.check_slot(state.slot())?;
-
-        // Build epoch cache if not already built.
-        let epoch_cache = if let Some(ref cache) = self.epoch_cache {
-            Cow::Borrowed(cache)
-        } else {
-            let cache = EpochCache::new(state, spec)?;
-            self.epoch_cache = Some(cache.clone());
-            Cow::Owned(cache)
-        };
-
-        Ok(epoch_cache.get_base_reward(validator_index)?)
     }
 
     pub fn get_indexed_attestation(

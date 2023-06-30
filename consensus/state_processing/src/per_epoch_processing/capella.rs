@@ -11,6 +11,7 @@ use crate::per_epoch_processing::{
 };
 use types::{BeaconState, ChainSpec, EthSpec, RelativeEpoch};
 
+use crate::epoch_cache::initialize_epoch_cache;
 pub use historical_summaries_update::process_historical_summaries_update;
 
 mod historical_summaries_update;
@@ -71,6 +72,7 @@ pub fn process_epoch<T: EthSpec>(
 
     // Rotate the epoch caches to suit the epoch transition.
     state.advance_caches(spec)?;
+    initialize_epoch_cache(state, state.next_epoch()?, spec)?;
 
     Ok(EpochProcessingSummary::Altair {
         participation_cache,
