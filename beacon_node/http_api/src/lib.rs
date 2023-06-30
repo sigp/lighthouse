@@ -2047,9 +2047,9 @@ pub fn serve<T: BeaconChainTypes>(
                 blocking_response_task(move || {
                     let (mut state, execution_optimistic, finalized) = state_id.state(&chain)?;
                     let proposal_slot = query.proposal_slot.unwrap_or(state.slot() + 1);
-                    if proposal_slot < state.slot() {
+                    if proposal_slot <= state.slot() {
                         return Err(warp_utils::reject::custom_bad_request(
-                            "proposal slot must be greater than state slot".to_string(),
+                            "proposal slot must be greater than the pre-state slot".to_string(),
                         ));
                     }
 
@@ -2065,7 +2065,8 @@ pub fn serve<T: BeaconChainTypes>(
                         .max_seed_lookahead
                         .into_inner()
                         .safe_mul(T::EthSpec::slots_per_epoch())
-                        .unwrap();
+                        .map_err(warp_utils::reject::arith_error)?;
+
                     if proposal_slot >= state.slot() + look_ahead_limit {
                         return Err(warp_utils::reject::custom_bad_request(format!(
                             "proposal slot cannot be >= the look ahead limit: {look_ahead_limit}"
@@ -2073,7 +2074,7 @@ pub fn serve<T: BeaconChainTypes>(
                     }
 
                     let proposal_epoch = proposal_slot.epoch(T::EthSpec::slots_per_epoch());
-                    let (state_root, _, _) = state_id.root(&chain).unwrap();
+                    let (state_root, _, _) = state_id.root(&chain)?;
                     if proposal_epoch != state.current_epoch() {
                         if let Err(e) = partial_state_advance(
                             &mut state,
