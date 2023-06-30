@@ -21,6 +21,7 @@ use lighthouse_network::rpc::*;
 use lighthouse_network::{
     MessageId, NetworkGlobals, PeerId, PeerRequestId, PubsubMessage, Request, Response,
 };
+use logging::TimeLatch;
 use slog::{debug, o, trace};
 use slog::{error, warn};
 use std::sync::Arc;
@@ -43,6 +44,8 @@ pub struct Router<T: BeaconChainTypes> {
     network_beacon_processor: Arc<NetworkBeaconProcessor<T>>,
     /// The `Router` logger.
     log: slog::Logger,
+    /// Provides de-bounce functionality for logging.
+    logger_debounce: TimeLatch,
 }
 
 /// Types of messages the router can receive.
@@ -130,6 +133,7 @@ impl<T: BeaconChainTypes> Router<T> {
             network: HandlerNetworkContext::new(network_send, log.clone()),
             network_beacon_processor,
             log: message_handler_log,
+            logger_debounce: TimeLatch::default(),
         };
 
         // spawn handler task and move the message handler instance into the spawned thread
@@ -512,8 +516,11 @@ impl<T: BeaconChainTypes> Router<T> {
                     work.work_type()
                 }
             };
-            error!(&self.log, "Unable to send message to the beacon processor";
+
+            if self.logger_debounce.elapsed() {
+                error!(&self.log, "Unable to send message to the beacon processor";
                     "error" => %e, "type" => work_type)
+            }
         }
     }
 }

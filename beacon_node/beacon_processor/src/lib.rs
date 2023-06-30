@@ -401,6 +401,24 @@ pub struct GossipAggregatePackage<E: EthSpec> {
     pub seen_timestamp: Duration,
 }
 
+pub struct BeaconProcessorSend<E: EthSpec>(pub mpsc::Sender<WorkEvent<E>>);
+
+impl<E: EthSpec> BeaconProcessorSend<E> {
+    pub fn try_send(&self, message: WorkEvent<E>) -> Result<(), Box<TrySendError<WorkEvent<E>>>> {
+        let work_type = message.work_type();
+        match self.0.try_send(message) {
+            Ok(res) => Ok(res),
+            Err(e) => {
+                metrics::inc_counter_vec(
+                    &metrics::BEACON_PROCESSOR_SEND_ERROR_PER_WORK_TYPE,
+                    &[work_type],
+                );
+                Err(Box::new(e))
+            }
+        }
+    }
+}
+
 pub type AsyncFn = Pin<Box<dyn Future<Output = ()> + Send + Sync>>;
 pub type BlockingFn = Box<dyn FnOnce() + Send + Sync>;
 pub type BlockingFnWithManualSendOnIdle = Box<dyn FnOnce(SendOnDrop) + Send + Sync>;

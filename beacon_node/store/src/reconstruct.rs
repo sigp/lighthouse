@@ -63,7 +63,7 @@ where
             .load_cold_state_by_slot(lower_limit_slot)?
             .ok_or(HotColdDBError::MissingLowerLimitState(lower_limit_slot))?;
 
-        state.build_all_caches(&self.spec)?;
+        state.build_caches(&self.spec)?;
 
         process_results(block_root_iter, |iter| -> Result<(), Error> {
             let mut io_batch = vec![];

@@ -52,6 +52,7 @@ use crate::execution_payload::{
     is_optimistic_candidate_block, validate_execution_payload_for_gossip, validate_merge_block,
     AllowOptimisticImport, NotifyExecutionLayer, PayloadNotifier,
 };
+use crate::observed_block_producers::SeenBlock;
 use crate::snapshot_cache::PreProcessingSnapshot;
 use crate::validator_monitor::HISTORIC_EPOCHS as VALIDATOR_MONITOR_HISTORIC_EPOCHS;
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
@@ -181,13 +182,6 @@ pub enum BlockError<T: EthSpec> {
     ///
     /// The block is valid and we have already imported a block with this hash.
     BlockIsAlreadyKnown,
-    /// A block for this proposer and slot has already been observed.
-    ///
-    /// ## Peer scoring
-    ///
-    /// The `proposer` has already proposed a block at this slot. The existing block may or may not
-    /// be equal to the given block.
-    RepeatProposal { proposer: u64, slot: Slot },
     /// The block slot exceeds the MAXIMUM_BLOCK_SLOT_NUMBER.
     ///
     /// ## Peer scoring
@@ -283,6 +277,13 @@ pub enum BlockError<T: EthSpec> {
     /// problems to worry about than losing peers, and we're doing the network a favour by
     /// disconnecting.
     ParentExecutionPayloadInvalid { parent_root: Hash256 },
+    /// The block is a slashable equivocation from the proposer.
+    ///
+    /// ## Peer scoring
+    ///
+    /// Honest peers shouldn't forward more than 1 equivocating block from the same proposer, so
+    /// we penalise them with a mid-tolerance error.
+    Slashable,
 }
 
 /// Returned when block validation failed due to some issue verifying
@@ -631,6 +632,40 @@ pub struct ExecutionPendingBlock<T: BeaconChainTypes> {
     pub payload_verification_handle: PayloadVerificationHandle<T::EthSpec>,
 }
 
+pub trait IntoGossipVerifiedBlock<T: BeaconChainTypes>: Sized {
+    fn into_gossip_verified_block(
+        self,
+        chain: &BeaconChain<T>,
+    ) -> Result<GossipVerifiedBlock<T>, BlockError<T::EthSpec>>;
+    fn inner(&self) -> Arc<SignedBeaconBlock<T::EthSpec>>;
+}
+
+impl<T: BeaconChainTypes> IntoGossipVerifiedBlock<T> for GossipVerifiedBlock<T> {
+    fn into_gossip_verified_block(
+        self,
+        _chain: &BeaconChain<T>,
+    ) -> Result<GossipVerifiedBlock<T>, BlockError<T::EthSpec>> {
+        Ok(self)
+    }
+
+    fn inner(&self) -> Arc<SignedBeaconBlock<T::EthSpec>> {
+        self.block.clone()
+    }
+}
+
+impl<T: BeaconChainTypes> IntoGossipVerifiedBlock<T> for Arc<SignedBeaconBlock<T::EthSpec>> {
+    fn into_gossip_verified_block(
+        self,
+        chain: &BeaconChain<T>,
+    ) -> Result<GossipVerifiedBlock<T>, BlockError<T::EthSpec>> {
+        GossipVerifiedBlock::new(self, chain)
+    }
+
+    fn inner(&self) -> Arc<SignedBeaconBlock<T::EthSpec>> {
+        self.clone()
+    }
+}
+
 /// Implemented on types that can be converted into a `ExecutionPendingBlock`.
 ///
 /// Used to allow functions to accept blocks at various stages of verification.
@@ -725,19 +760,6 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
             .contains_block(&block_root)
         {
             return Err(BlockError::BlockIsAlreadyKnown);
-        }
-
-        // Check that we have not already received a block with a valid signature for this slot.
-        if chain
-            .observed_block_producers
-            .read()
-            .proposer_has_been_observed(block.message())
-            .map_err(|e| BlockError::BeaconChainError(e.into()))?
-        {
-            return Err(BlockError::RepeatProposal {
-                proposer: block.message().proposer_index(),
-                slot: block.slot(),
-            });
         }
 
         // Do not process a block that doesn't descend from the finalized root.
@@ -855,17 +877,16 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         //
         // It's important to double-check that the proposer still hasn't been observed so we don't
         // have a race-condition when verifying two blocks simultaneously.
-        if chain
+        match chain
             .observed_block_producers
             .write()
-            .observe_proposer(block.message())
+            .observe_proposal(block_root, block.message())
             .map_err(|e| BlockError::BeaconChainError(e.into()))?
         {
-            return Err(BlockError::RepeatProposal {
-                proposer: block.message().proposer_index(),
-                slot: block.slot(),
-            });
-        }
+            SeenBlock::Slashable => return Err(BlockError::Slashable),
+            SeenBlock::Duplicate => return Err(BlockError::BlockIsAlreadyKnown),
+            SeenBlock::UniqueNonSlashable => {}
+        };
 
         if block.message().proposer_index() != expected_proposer as u64 {
             return Err(BlockError::IncorrectBlockProposer {
@@ -1101,6 +1122,12 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
         chain: &Arc<BeaconChain<T>>,
         notify_execution_layer: NotifyExecutionLayer,
     ) -> Result<Self, BlockError<T::EthSpec>> {
+        chain
+            .observed_block_producers
+            .write()
+            .observe_proposal(block_root, block.message())
+            .map_err(|e| BlockError::BeaconChainError(e.into()))?;
+
         if let Some(parent) = chain
             .canonical_head
             .fork_choice_read_lock()
