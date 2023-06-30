@@ -947,26 +947,27 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
         Ok(vec![])
     }
 
-    #[allow(unused)]
     fn handle_established_inbound_connection(
         &mut self,
         _connection_id: ConnectionId,
-        peer: PeerId,
-        local_addr: &Multiaddr,
-        remote_addr: &Multiaddr,
+        _peer: PeerId,
+        _local_addr: &Multiaddr,
+        _remote_addr: &Multiaddr,
     ) -> Result<libp2p::swarm::THandler<Self>, libp2p::swarm::ConnectionDenied> {
-        todo!()
+        // TODO(@divma): we might want to check discovery's banned ips here.
+        Ok(ConnectionHandler)
     }
 
     #[allow(unused)]
     fn handle_established_outbound_connection(
         &mut self,
         _connection_id: ConnectionId,
-        peer: PeerId,
-        addr: &Multiaddr,
-        role_override: libp2p::core::Endpoint,
+        _peer: PeerId,
+        _addr: &Multiaddr,
+        _role_override: libp2p::core::Endpoint,
     ) -> Result<libp2p::swarm::THandler<Self>, libp2p::swarm::ConnectionDenied> {
-        todo!()
+        // TODO(@divma): trust that the dialed address is not banned?
+        Ok(ConnectionHandler)
     }
 
     fn on_swarm_event(&mut self, event: FromSwarm<Self::ConnectionHandler>) {
