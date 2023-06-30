@@ -928,15 +928,6 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
     type ConnectionHandler = ConnectionHandler;
     type ToSwarm = DiscoveredPeers;
 
-    fn handle_pending_inbound_connection(
-        &mut self,
-        _connection_id: ConnectionId,
-        _local_addr: &Multiaddr,
-        _remote_addr: &Multiaddr,
-    ) -> Result<(), libp2p::swarm::ConnectionDenied> {
-        todo!()
-    }
-
     fn handle_pending_outbound_connection(
         &mut self,
         _connection_id: ConnectionId,
