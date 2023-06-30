@@ -8,7 +8,8 @@ use beacon_chain::{
 use beacon_chain::{BeaconChainTypes, NotifyExecutionLayer};
 use beacon_processor::{
     work_reprocessing_queue::ReprocessQueueMessage, GossipAggregatePackage,
-    GossipAttestationPackage, Work, WorkEvent as BeaconWorkEvent,
+    GossipAttestationPackage, Work, WorkEvent as BeaconWorkEvent, MAX_SCHEDULED_WORK_QUEUE_LEN,
+    MAX_WORK_EVENT_QUEUE_LEN,
 };
 use environment::null_logger;
 use lighthouse_network::{
@@ -587,10 +588,11 @@ impl<E: EthSpec> NetworkBeaconProcessor<TestBeaconChainType<E>> {
     pub fn null_for_testing(
         network_globals: Arc<NetworkGlobals<E>>,
     ) -> (Self, mpsc::Receiver<BeaconWorkEvent<E>>) {
-        let (beacon_processor_send, beacon_processor_receive) = mpsc::channel(usize::max_value());
+        let (beacon_processor_send, beacon_processor_receive) =
+            mpsc::channel(MAX_WORK_EVENT_QUEUE_LEN);
         let (network_tx, _network_rx) = mpsc::unbounded_channel();
         let (sync_tx, _sync_rx) = mpsc::unbounded_channel();
-        let (reprocess_tx, _reprocess_rx) = mpsc::channel(usize::max_value());
+        let (reprocess_tx, _reprocess_rx) = mpsc::channel(MAX_SCHEDULED_WORK_QUEUE_LEN);
         let log = null_logger().unwrap();
         let harness: BeaconChainHarness<TestBeaconChainType<E>> =
             BeaconChainHarness::builder(E::default())
