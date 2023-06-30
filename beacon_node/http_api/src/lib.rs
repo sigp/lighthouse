@@ -32,8 +32,8 @@ use beacon_chain::{
 pub use block_id::BlockId;
 use directory::DEFAULT_ROOT_DIR;
 use eth2::types::{
-    self as api_types, EndpointVersion, ForkChoice, ForkChoiceNode, SignedBlockContents,
-    SkipRandaoVerification, ValidatorId, ValidatorStatus,
+    self as api_types, BlindedBlockProposal, EndpointVersion, ForkChoice, ForkChoiceNode,
+    FullBlockProposal, SignedBlockContents, SkipRandaoVerification, ValidatorId, ValidatorStatus,
 };
 use lighthouse_network::{types::SyncState, EnrExt, NetworkGlobals, PeerId, PubsubMessage};
 use lighthouse_version::version_with_platform;
@@ -59,8 +59,8 @@ use tokio::sync::mpsc::{Sender, UnboundedSender};
 use tokio_stream::{wrappers::BroadcastStream, StreamExt};
 use types::{
     Attestation, AttestationData, AttestationShufflingId, AttesterSlashing, BeaconStateError,
-    BlindedBlobSidecar, BlindedPayload, CommitteeCache, ConfigAndPreset, Epoch, EthSpec, ForkName,
-    FullPayload, ProposerPreparationData, ProposerSlashing, RelativeEpoch, SignedAggregateAndProof,
+    BlindedPayload, CommitteeCache, ConfigAndPreset, Epoch, EthSpec, ForkName, FullPayload,
+    ProposerPreparationData, ProposerSlashing, RelativeEpoch, SignedAggregateAndProof,
     SignedBlsToExecutionChange, SignedContributionAndProof, SignedValidatorRegistrationData,
     SignedVoluntaryExit, Slot, SyncCommitteeMessage, SyncContributionData,
 };
@@ -1216,7 +1216,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(network_tx_filter.clone())
         .and(log_filter.clone())
         .and_then(
-            |block_contents: SignedBlockContents<T::EthSpec>,
+            |block_contents: SignedBlockContents<T::EthSpec, FullBlockProposal>,
              chain: Arc<BeaconChain<T>>,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
              log: Logger| async move {
@@ -1242,11 +1242,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(network_tx_filter.clone())
         .and(log_filter.clone())
         .and_then(
-            |block_contents: SignedBlockContents<
-                T::EthSpec,
-                BlindedPayload<_>,
-                BlindedBlobSidecar,
-            >,
+            |block_contents: SignedBlockContents<T::EthSpec, BlindedBlockProposal>,
              chain: Arc<BeaconChain<T>>,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
              log: Logger| async move {

@@ -4,7 +4,7 @@ use beacon_chain::blob_verification::{AsBlock, BlockWrapper};
 use beacon_chain::validator_monitor::{get_block_delay_ms, timestamp_now};
 use beacon_chain::{AvailabilityProcessingStatus, NotifyExecutionLayer};
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockError, CountUnrealized};
-use eth2::types::SignedBlockContents;
+use eth2::types::{BlindedBlockProposal, FullBlockProposal, SignedBlockContents};
 use execution_layer::ProvenancedPayload;
 use lighthouse_network::PubsubMessage;
 use network::NetworkMessage;
@@ -16,17 +16,17 @@ use store::FixedVector;
 use tokio::sync::mpsc::UnboundedSender;
 use tree_hash::TreeHash;
 use types::{
-    AbstractExecPayload, BeaconBlockRef, BlindedBlobSidecar, BlindedPayload, EthSpec, ExecPayload,
-    ExecutionBlockHash, FullPayload, Hash256, SignedBeaconBlock,
+    AbstractExecPayload, BeaconBlockRef, EthSpec, ExecPayload, ExecutionBlockHash, FullPayload,
+    Hash256, SignedBeaconBlock,
 };
 use warp::Rejection;
 
 pub enum ProvenancedBlock<T: EthSpec> {
     /// The payload was built using a local EE.
-    Local(SignedBlockContents<T, FullPayload<T>>),
+    Local(SignedBlockContents<T, FullBlockProposal>),
     /// The payload was build using a remote builder (e.g., via a mev-boost
     /// compatible relay).
-    Builder(SignedBlockContents<T, FullPayload<T>>),
+    Builder(SignedBlockContents<T, FullBlockProposal>),
 }
 
 /// Handles a request from the HTTP API for full blocks.
@@ -185,7 +185,7 @@ pub async fn publish_block<T: BeaconChainTypes>(
 /// Handles a request from the HTTP API for blinded blocks. This converts blinded blocks into full
 /// blocks before publishing.
 pub async fn publish_blinded_block<T: BeaconChainTypes>(
-    block_contents: SignedBlockContents<T::EthSpec, BlindedPayload<T::EthSpec>, BlindedBlobSidecar>,
+    block_contents: SignedBlockContents<T::EthSpec, BlindedBlockProposal>,
     chain: Arc<BeaconChain<T>>,
     network_tx: &UnboundedSender<NetworkMessage<T::EthSpec>>,
     log: Logger,
@@ -202,7 +202,7 @@ pub async fn publish_blinded_block<T: BeaconChainTypes>(
 async fn reconstruct_block<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
     block_root: Hash256,
-    block_contents: SignedBlockContents<T::EthSpec, BlindedPayload<T::EthSpec>, BlindedBlobSidecar>,
+    block_contents: SignedBlockContents<T::EthSpec, BlindedBlockProposal>,
     log: Logger,
 ) -> Result<ProvenancedBlock<T::EthSpec>, Rejection> {
     let block = block_contents.signed_block();

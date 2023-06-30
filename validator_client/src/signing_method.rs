@@ -4,6 +4,7 @@
 //! - Via a remote signer (Web3Signer)
 
 use crate::http_metrics::metrics;
+use eth2::types::{BlockProposal, FullBlockProposal};
 use eth2_keystore::Keystore;
 use lockfile::Lockfile;
 use parking_lot::Mutex;
@@ -34,10 +35,10 @@ pub enum Error {
 }
 
 /// Enumerates all messages that can be signed by a validator.
-pub enum SignableMessage<'a, T: EthSpec, Payload: AbstractExecPayload<T> = FullPayload<T>> {
+pub enum SignableMessage<'a, T: EthSpec, B: BlockProposal<T> = FullBlockProposal> {
     RandaoReveal(Epoch),
-    BeaconBlock(&'a BeaconBlock<T, Payload>),
-    BlobSidecar(&'a BlobSidecar<T>),
+    BeaconBlock(&'a BeaconBlock<T, B::Payload>),
+    BlobSidecar(&'a B::Sidecar),
     AttestationData(&'a AttestationData),
     SignedAggregateAndProof(&'a AggregateAndProof<T>),
     SelectionProof(Slot),
@@ -51,7 +52,7 @@ pub enum SignableMessage<'a, T: EthSpec, Payload: AbstractExecPayload<T> = FullP
     VoluntaryExit(&'a VoluntaryExit),
 }
 
-impl<'a, T: EthSpec, Payload: AbstractExecPayload<T>> SignableMessage<'a, T, Payload> {
+impl<'a, T: EthSpec, B: BlockProposal<T>> SignableMessage<'a, T, B> {
     /// Returns the `SignedRoot` for the contained message.
     ///
     /// The actual `SignedRoot` trait is not used since it also requires a `TreeHash` impl, which is
@@ -120,9 +121,9 @@ impl SigningContext {
 
 impl SigningMethod {
     /// Return the signature of `signable_message`, with respect to the `signing_context`.
-    pub async fn get_signature<T: EthSpec, Payload: AbstractExecPayload<T>>(
+    pub async fn get_signature<T: EthSpec, B: BlockProposal<T>>(
         &self,
-        signable_message: SignableMessage<'_, T, Payload>,
+        signable_message: SignableMessage<'_, T, B>,
         signing_context: SigningContext,
         spec: &ChainSpec,
         executor: &TaskExecutor,
@@ -145,9 +146,9 @@ impl SigningMethod {
             .await
     }
 
-    pub async fn get_signature_from_root<T: EthSpec, Payload: AbstractExecPayload<T>>(
+    pub async fn get_signature_from_root<T: EthSpec, B: BlockProposal<T>>(
         &self,
-        signable_message: SignableMessage<'_, T, Payload>,
+        signable_message: SignableMessage<'_, T, B>,
         signing_root: Hash256,
         executor: &TaskExecutor,
         fork_info: Option<ForkInfo>,

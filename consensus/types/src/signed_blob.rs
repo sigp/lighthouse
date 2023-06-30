@@ -39,6 +39,16 @@ pub struct SignedSidecar<T: EthSpec, Sidecar: AbstractSidecar<T>> {
     pub _phantom: PhantomData<T>,
 }
 
+impl<T: EthSpec, Sidecar: AbstractSidecar<T>> SignedSidecar<T, Sidecar> {
+    pub fn new(message: Arc<Sidecar>, signature: Signature) -> SignedSidecar<T, Sidecar> {
+        Self {
+            message,
+            signature,
+            _phantom: Default::default(),
+        }
+    }
+}
+
 /// List of Signed Sidecars that implements `AbstractSidecar`.
 pub type SignedSidecarList<T, Sidecar> =
     VariableList<SignedSidecar<T, Sidecar>, <T as EthSpec>::MaxBlobsPerBlock>;

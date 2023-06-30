@@ -1,3 +1,4 @@
+use std::fmt::Debug;
 use std::hash::Hash;
 use std::marker::PhantomData;
 use std::sync::Arc;
@@ -26,8 +27,11 @@ pub trait AbstractSidecar<E: EthSpec>:
     + Hash
     + TreeHash
     + TestRandom
+    + Debug
+    + SignedRoot
     + for<'a> arbitrary::Arbitrary<'a>
 {
+    fn slot(&self) -> Slot;
 }
 
 /// Container of the data that identifies an individual blob.
@@ -81,7 +85,11 @@ pub struct BlobSidecar<T: EthSpec> {
     pub kzg_proof: KzgProof,
 }
 
-impl<E: EthSpec> AbstractSidecar<E> for BlobSidecar<E> {}
+impl<E: EthSpec> AbstractSidecar<E> for BlobSidecar<E> {
+    fn slot(&self) -> Slot {
+        self.slot
+    }
+}
 
 impl<T: EthSpec> PartialOrd for BlobSidecar<T> {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
@@ -168,7 +176,13 @@ pub struct BlindedBlobSidecar {
     pub kzg_proof: KzgProof,
 }
 
-impl<E: EthSpec> AbstractSidecar<E> for BlindedBlobSidecar {}
+impl SignedRoot for BlindedBlobSidecar {}
+
+impl<E: EthSpec> AbstractSidecar<E> for BlindedBlobSidecar {
+    fn slot(&self) -> Slot {
+        self.slot
+    }
+}
 
 pub type SidecarList<T, Sidecar> = VariableList<Arc<Sidecar>, <T as EthSpec>::MaxBlobsPerBlock>;
 pub type BlobSidecarList<T> = SidecarList<T, BlobSidecar<T>>;

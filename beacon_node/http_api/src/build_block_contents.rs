@@ -1,11 +1,14 @@
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockProductionError};
-use eth2::types::{BeaconBlockAndBlobSidecars, BlindedBeaconBlockAndBlobSidecars, BlockContents};
+use eth2::types::{
+    BeaconBlockAndBlobSidecars, BlindedBeaconBlockAndBlobSidecars, BlindedBlockProposal,
+    BlockContents, FullBlockProposal,
+};
 use std::sync::Arc;
-use types::{BeaconBlock, BlindedBlobSidecar, BlindedPayload, BlobSidecar, ForkName, FullPayload};
+use types::{BeaconBlock, BlindedPayload, ForkName, FullPayload};
 
 type Error = warp::reject::Rejection;
-type FullBlockContents<E> = BlockContents<E, FullPayload<E>, BlobSidecar<E>>;
-type BlindedBlockContents<E> = BlockContents<E, BlindedPayload<E>, BlindedBlobSidecar>;
+type FullBlockContents<E> = BlockContents<E, FullBlockProposal>;
+type BlindedBlockContents<E> = BlockContents<E, BlindedBlockProposal>;
 
 pub fn build_block_contents<T: BeaconChainTypes>(
     fork_name: ForkName,

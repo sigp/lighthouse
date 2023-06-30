@@ -15,7 +15,7 @@ use crate::{
     StateSkipConfig,
 };
 use bls::get_withdrawal_credentials;
-use eth2::types::BlockContentsTuple;
+use eth2::types::{FullBlockProposal, SignedBlockContentsTuple};
 use execution_layer::{
     auth::JwtKey,
     test_utils::{
@@ -775,7 +775,7 @@ where
         mut state: BeaconState<E>,
         slot: Slot,
     ) -> (
-        BlockContentsTuple<E, FullPayload<E>, BlobSidecar<E>>,
+        SignedBlockContentsTuple<E, FullBlockProposal>,
         BeaconState<E>,
     ) {
         assert_ne!(slot, 0, "can't produce a block at slot 0");
@@ -817,36 +817,35 @@ where
             &self.spec,
         );
 
-        let block_contents: BlockContentsTuple<E, FullPayload<E>, BlobSidecar<E>> =
-            match &signed_block {
-                SignedBeaconBlock::Base(_)
-                | SignedBeaconBlock::Altair(_)
-                | SignedBeaconBlock::Merge(_)
-                | SignedBeaconBlock::Capella(_) => (signed_block, None),
-                SignedBeaconBlock::Deneb(_) => {
-                    if let Some(blobs) = self
-                        .chain
-                        .proposal_blob_cache
-                        .pop(&signed_block.canonical_root())
-                    {
-                        let signed_blobs = Vec::from(blobs)
-                            .into_iter()
-                            .map(|blob| {
-                                blob.sign(
-                                    &self.validator_keypairs[proposer_index].sk,
-                                    &state.fork(),
-                                    state.genesis_validators_root(),
-                                    &self.spec,
-                                )
-                            })
-                            .collect::<Vec<_>>()
-                            .into();
-                        (signed_block, Some(signed_blobs))
-                    } else {
-                        (signed_block, None)
-                    }
+        let block_contents: SignedBlockContentsTuple<E, FullBlockProposal> = match &signed_block {
+            SignedBeaconBlock::Base(_)
+            | SignedBeaconBlock::Altair(_)
+            | SignedBeaconBlock::Merge(_)
+            | SignedBeaconBlock::Capella(_) => (signed_block, None),
+            SignedBeaconBlock::Deneb(_) => {
+                if let Some(blobs) = self
+                    .chain
+                    .proposal_blob_cache
+                    .pop(&signed_block.canonical_root())
+                {
+                    let signed_blobs = Vec::from(blobs)
+                        .into_iter()
+                        .map(|blob| {
+                            blob.sign(
+                                &self.validator_keypairs[proposer_index].sk,
+                                &state.fork(),
+                                state.genesis_validators_root(),
+                                &self.spec,
+                            )
+                        })
+                        .collect::<Vec<_>>()
+                        .into();
+                    (signed_block, Some(signed_blobs))
+                } else {
+                    (signed_block, None)
                 }
-            };
+            }
+        };
 
         (block_contents, state)
     }
@@ -1853,7 +1852,7 @@ where
     ) -> Result<
         (
             SignedBeaconBlockHash,
-            BlockContentsTuple<E, FullPayload<E>, BlobSidecar<E>>,
+            SignedBlockContentsTuple<E, FullBlockProposal>,
             BeaconState<E>,
         ),
         BlockError<E>,

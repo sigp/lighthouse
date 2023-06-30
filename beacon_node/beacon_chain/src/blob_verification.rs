@@ -12,7 +12,7 @@ use crate::data_availability_checker::{
 };
 use crate::kzg_utils::{validate_blob, validate_blobs};
 use crate::BeaconChainError;
-use eth2::types::BlockContentsTuple;
+use eth2::types::{FullBlockProposal, SignedBlockContentsTuple};
 use kzg::Kzg;
 use slog::{debug, warn};
 use ssz_derive::{Decode, Encode};
@@ -21,8 +21,8 @@ use std::borrow::Cow;
 use types::blob_sidecar::{BlobIdentifier, FixedBlobSidecarList};
 use types::{
     BeaconBlockRef, BeaconState, BeaconStateError, BlobSidecar, ChainSpec, CloneConfig, Epoch,
-    EthSpec, FullPayload, Hash256, KzgCommitment, RelativeEpoch, SignedBeaconBlock,
-    SignedBeaconBlockHeader, SignedBlobSidecar, Slot,
+    EthSpec, Hash256, KzgCommitment, RelativeEpoch, SignedBeaconBlock, SignedBeaconBlockHeader,
+    SignedBlobSidecar, Slot,
 };
 
 #[derive(Debug)]
@@ -681,8 +681,8 @@ impl<E: EthSpec> From<SignedBeaconBlock<E>> for BlockWrapper<E> {
     }
 }
 
-impl<E: EthSpec> From<BlockContentsTuple<E, FullPayload<E>, BlobSidecar<E>>> for BlockWrapper<E> {
-    fn from(value: BlockContentsTuple<E, FullPayload<E>, BlobSidecar<E>>) -> Self {
+impl<E: EthSpec> From<SignedBlockContentsTuple<E, FullBlockProposal>> for BlockWrapper<E> {
+    fn from(value: SignedBlockContentsTuple<E, FullBlockProposal>) -> Self {
         match value.1 {
             Some(variable_list) => {
                 let mut blobs = Vec::with_capacity(E::max_blobs_per_block());
