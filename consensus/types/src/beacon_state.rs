@@ -1468,10 +1468,24 @@ impl<T: EthSpec> BeaconState<T> {
     }
 
     /// Build the total active balance cache.
-    fn build_total_active_balance_cache(&mut self, spec: &ChainSpec) -> Result<(), Error> {
-        let current_epoch = self.current_epoch();
-        let total_active_balance = self.compute_total_active_balance(current_epoch, spec)?;
-        *self.total_active_balance_mut() = Some((current_epoch, total_active_balance));
+    pub fn build_total_active_balance_cache_at(
+        &mut self,
+        epoch: Epoch,
+        spec: &ChainSpec,
+    ) -> Result<(), Error> {
+        if self.get_total_active_balance_at_epoch(epoch).is_err() {
+            self.force_build_total_active_balance_cache_at(epoch, spec)?;
+        }
+        Ok(())
+    }
+
+    pub fn force_build_total_active_balance_cache_at(
+        &mut self,
+        epoch: Epoch,
+        spec: &ChainSpec,
+    ) -> Result<(), Error> {
+        let total_active_balance = self.compute_total_active_balance(epoch, spec)?;
+        *self.total_active_balance_mut() = Some((epoch, total_active_balance));
         Ok(())
     }
 
@@ -1552,6 +1566,7 @@ impl<T: EthSpec> BeaconState<T> {
         self.drop_committee_cache(RelativeEpoch::Next)?;
         self.drop_pubkey_cache();
         *self.exit_cache_mut() = ExitCache::default();
+        *self.epoch_cache_mut() = EpochCache::default();
         Ok(())
     }
 
@@ -1580,7 +1595,7 @@ impl<T: EthSpec> BeaconState<T> {
         }
 
         if self.total_active_balance().is_none() && relative_epoch == RelativeEpoch::Current {
-            self.build_total_active_balance_cache(spec)?;
+            self.build_total_active_balance_cache_at(self.current_epoch(), spec)?;
         }
         Ok(())
     }
@@ -1874,7 +1889,7 @@ impl<T: EthSpec> BeaconState<T> {
                 // Ensure total active balance cache remains built whenever current committee
                 // cache is built.
                 if epoch == self.current_epoch() {
-                    self.build_total_active_balance_cache(spec)?;
+                    self.build_total_active_balance_cache_at(self.current_epoch(), spec)?;
                 }
             }
         }

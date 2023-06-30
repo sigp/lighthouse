@@ -4,6 +4,7 @@ use crate::case_result::{check_state_diff, compare_beacon_state_results_without_
 use crate::decode::{ssz_decode_file, ssz_decode_file_with, ssz_decode_state, yaml_decode_file};
 use crate::testing_spec;
 use serde_derive::Deserialize;
+use state_processing::epoch_cache::initialize_epoch_cache;
 use state_processing::{
     per_block_processing::{
         errors::BlockProcessingError,
@@ -86,6 +87,7 @@ impl<E: EthSpec> Operation<E> for Attestation<E> {
         spec: &ChainSpec,
         _: &Operations<E, Self>,
     ) -> Result<(), BlockProcessingError> {
+        initialize_epoch_cache(state, state.current_epoch(), spec)?;
         let mut ctxt = ConsensusContext::new(state.slot());
         match state {
             BeaconState::Base(_) => base::process_attestations(
