@@ -697,6 +697,7 @@ async fn invalidates_all_descendants() {
             fork_block.canonical_root(),
             Arc::new(fork_block),
             NotifyExecutionLayer::Yes,
+            || Ok(()),
         )
         .await
         .unwrap();
@@ -793,6 +794,7 @@ async fn switches_heads() {
             fork_block.canonical_root(),
             Arc::new(fork_block),
             NotifyExecutionLayer::Yes,
+            || Ok(()),
         )
         .await
         .unwrap();
@@ -1046,7 +1048,9 @@ async fn invalid_parent() {
 
     // Ensure the block built atop an invalid payload is invalid for import.
     assert!(matches!(
-        rig.harness.chain.process_block(block.canonical_root(), block.clone(),  NotifyExecutionLayer::Yes).await,
+        rig.harness.chain.process_block(block.canonical_root(), block.clone(), NotifyExecutionLayer::Yes,
+            || Ok(()),
+        ).await,
         Err(BlockError::ParentExecutionPayloadInvalid { parent_root: invalid_root })
         if invalid_root == parent_root
     ));
@@ -1332,7 +1336,12 @@ async fn build_optimistic_chain(
     for block in blocks {
         rig.harness
             .chain
-            .process_block(block.canonical_root(), block, NotifyExecutionLayer::Yes)
+            .process_block(
+                block.canonical_root(),
+                block,
+                NotifyExecutionLayer::Yes,
+                || Ok(()),
+            )
             .await
             .unwrap();
     }
@@ -1892,6 +1901,7 @@ async fn recover_from_invalid_head_by_importing_blocks() {
             fork_block.canonical_root(),
             fork_block.clone(),
             NotifyExecutionLayer::Yes,
+            || Ok(()),
         )
         .await
         .unwrap();

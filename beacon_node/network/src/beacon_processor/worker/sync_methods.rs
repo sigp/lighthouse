@@ -98,31 +98,19 @@ impl<T: BeaconChainTypes> Worker<T> {
             });
 
         // Checks if a block from this proposer is already known.
-        let proposal_already_known = || {
+        let block_equivocates = || {
             match self
                 .chain
                 .observed_block_producers
                 .read()
-                .proposer_has_been_observed(block.message())
+                .proposer_has_been_observed(block.message(), block.canonical_root())
             {
-                Ok(is_observed) => is_observed,
-                // Both of these blocks will be rejected, so reject them now rather
+                Ok(seen_status) => seen_status.is_slashable(),
+                //Both of these blocks will be rejected, so reject them now rather
                 // than re-queuing them.
                 Err(ObserveError::FinalizedBlock { .. })
                 | Err(ObserveError::ValidatorIndexTooHigh { .. }) => false,
             }
-        };
-
-        // Returns `true` if the block is already known to fork choice. Notably,
-        // this will return `false` for blocks that we've already imported but
-        // ancestors of the finalized checkpoint. That should not be an issue
-        // for our use here since finalized blocks will always be late and won't
-        // be requeued anyway.
-        let block_is_already_known = || {
-            self.chain
-                .canonical_head
-                .fork_choice_read_lock()
-                .contains_block(&block_root)
         };
 
         // If we've already seen a block from this proposer *and* the block
@@ -132,7 +120,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         // Don't requeue blocks if they're already known to fork choice, just
         // push them through to block processing so they can be handled through
         // the normal channels.
-        if !block_is_late && proposal_already_known() && !block_is_already_known() {
+        if !block_is_late && block_equivocates() {
             debug!(
                 self.log,
                 "Delaying processing of duplicate RPC block";
@@ -165,7 +153,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         let parent_root = block.message().parent_root();
         let result = self
             .chain
-            .process_block(block_root, block, NotifyExecutionLayer::Yes)
+            .process_block(block_root, block, NotifyExecutionLayer::Yes, || Ok(()))
             .await;
 
         metrics::inc_counter(&metrics::BEACON_PROCESSOR_RPC_BLOCK_IMPORTED_TOTAL);
