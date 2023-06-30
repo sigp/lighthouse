@@ -26,6 +26,8 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
 
     fn on_swarm_event(&mut self, event: FromSwarm<Self::ConnectionHandler>) {
         match event {
+            // TODO(@divma): what's the difference between this event and the
+            // handle_established_inbound/outbound_connection ?
             FromSwarm::ConnectionEstablished(ConnectionEstablished {
                 peer_id,
                 endpoint,
@@ -48,6 +50,8 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
             | FromSwarm::NewExternalAddrCandidate(_)
             | FromSwarm::ExternalAddrExpired(_)
             | FromSwarm::ExternalAddrConfirmed(_) => {
+                // TODO(@divma): need to think about all these
+                todo!()
                 // The rest of the events we ignore since they are handled in their associated
                 // `SwarmEvent`
             }
@@ -102,7 +106,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
         _connection_id: ConnectionId,
         _event: libp2p::swarm::THandlerOutEvent<Self>,
     ) {
-        todo!()
+        // no events from the dummy handler
     }
 
     fn poll(
