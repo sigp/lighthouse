@@ -103,6 +103,7 @@ pub enum ReprocessQueueMessage {
 pub enum ReadyWork {
     Block(QueuedGossipBlock),
     RpcBlock(QueuedRpcBlock),
+    IgnoredRpcBlock(IgnoredRpcBlock),
     Unaggregate(QueuedUnaggregate),
     Aggregate(QueuedAggregate),
     LightClientUpdate(QueuedLightClientUpdate),
@@ -141,8 +142,16 @@ pub struct QueuedGossipBlock {
 /// It is queued for later import.
 pub struct QueuedRpcBlock {
     pub beacon_block_root: Hash256,
-    pub should_process: bool,
+    /// Processes/imports the block.
     pub process_fn: AsyncFn,
+    /// Ignores the block.
+    pub ignore_fn: BlockingFn,
+}
+
+/// A block that arrived for processing when the same block was being imported over gossip.
+/// It is queued for later import.
+pub struct IgnoredRpcBlock {
+    pub process_fn: BlockingFn,
 }
 
 /// A backfill batch work that has been queued for processing later.
@@ -474,7 +483,7 @@ impl<S: SlotClock> ReprocessQueue<S> {
             // for the same block hash is being imported. We wait for `QUEUED_RPC_BLOCK_DELAY`
             // and then send the rpc block back for processing assuming the gossip import
             // has completed by then.
-            InboundEvent::Msg(RpcBlock(mut rpc_block)) => {
+            InboundEvent::Msg(RpcBlock(rpc_block)) => {
                 // Check to ensure this won't over-fill the queue.
                 if self.rpc_block_delay_queue.len() >= MAXIMUM_QUEUED_BLOCKS {
                     if self.rpc_block_debounce.elapsed() {
@@ -487,10 +496,11 @@ impl<S: SlotClock> ReprocessQueue<S> {
                     }
                     // Return the block to the beacon processor signalling to
                     // ignore processing for this block
-                    rpc_block.should_process = false;
                     if self
                         .ready_work_tx
-                        .try_send(ReadyWork::RpcBlock(rpc_block))
+                        .try_send(ReadyWork::IgnoredRpcBlock(IgnoredRpcBlock {
+                            process_fn: rpc_block.ignore_fn,
+                        }))
                         .is_err()
                     {
                         error!(

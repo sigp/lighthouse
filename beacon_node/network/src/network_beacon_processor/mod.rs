@@ -7,7 +7,7 @@ use beacon_chain::{
 };
 use beacon_chain::{BeaconChainTypes, NotifyExecutionLayer};
 use beacon_processor::{
-    work_reprocessing_queue::ReprocessQueueMessage, AsyncFn, GossipAggregatePackage,
+    work_reprocessing_queue::ReprocessQueueMessage, GossipAggregatePackage,
     GossipAttestationPackage, Work, WorkEvent as BeaconWorkEvent,
 };
 use environment::null_logger;
@@ -428,18 +428,15 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         seen_timestamp: Duration,
         process_type: BlockProcessType,
     ) -> Result<(), Error<T::EthSpec>> {
-        let processor = self.clone();
+        let process_fn = self.clone().generate_rpc_beacon_block_process_fn(
+            block_root,
+            block,
+            seen_timestamp,
+            process_type,
+        );
         self.try_send(BeaconWorkEvent {
             drop_during_sync: false,
-            work: Work::RpcBlock {
-                should_process: true,
-                process_fn: processor.process_fn_rpc_beacon_block(
-                    block_root,
-                    block,
-                    seen_timestamp,
-                    process_type,
-                ),
-            },
+            work: Work::RpcBlock { process_fn },
         })
     }
 

@@ -61,6 +61,7 @@ use task_executor::TaskExecutor;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TrySendError;
 use types::{Attestation, EthSpec, Hash256, SignedAggregateAndProof, Slot, SubnetId};
+use work_reprocessing_queue::IgnoredRpcBlock;
 
 // TODO(paul): re-enable tests.
 // mod tests;
@@ -204,6 +205,7 @@ pub const GOSSIP_SYNC_CONTRIBUTION: &str = "gossip_sync_contribution";
 pub const GOSSIP_LIGHT_CLIENT_FINALITY_UPDATE: &str = "light_client_finality_update";
 pub const GOSSIP_LIGHT_CLIENT_OPTIMISTIC_UPDATE: &str = "light_client_optimistic_update";
 pub const RPC_BLOCK: &str = "rpc_block";
+pub const IGNORED_RPC_BLOCK: &str = "ignored_rpc_block";
 pub const CHAIN_SEGMENT: &str = "chain_segment";
 pub const CHAIN_SEGMENT_BACKFILL: &str = "chain_segment_backfill";
 pub const STATUS_PROCESSING: &str = "status_processing";
@@ -330,14 +332,15 @@ impl<E: EthSpec> std::convert::From<ReadyWork> for WorkEvent<E> {
             },
             ReadyWork::RpcBlock(QueuedRpcBlock {
                 beacon_block_root: _,
-                should_process,
                 process_fn,
+                ignore_fn: _,
             }) => Self {
                 drop_during_sync: false,
-                work: Work::RpcBlock {
-                    should_process,
-                    process_fn,
-                },
+                work: Work::RpcBlock { process_fn },
+            },
+            ReadyWork::IgnoredRpcBlock(IgnoredRpcBlock { process_fn }) => Self {
+                drop_during_sync: false,
+                work: Work::IgnoredRpcBlock { process_fn },
             },
             ReadyWork::Unaggregate(QueuedUnaggregate {
                 beacon_block_root: _,
@@ -447,8 +450,10 @@ pub enum Work<E: EthSpec> {
     GossipLightClientFinalityUpdate(BlockingFn),
     GossipLightClientOptimisticUpdate(BlockingFn),
     RpcBlock {
-        should_process: bool,
         process_fn: AsyncFn,
+    },
+    IgnoredRpcBlock {
+        process_fn: BlockingFn,
     },
     ChainSegment {
         process_id: ChainSegmentProcessId,
@@ -486,6 +491,7 @@ impl<E: EthSpec> Work<E> {
             Work::GossipLightClientFinalityUpdate(_) => GOSSIP_LIGHT_CLIENT_FINALITY_UPDATE,
             Work::GossipLightClientOptimisticUpdate(_) => GOSSIP_LIGHT_CLIENT_OPTIMISTIC_UPDATE,
             Work::RpcBlock { .. } => RPC_BLOCK,
+            Work::IgnoredRpcBlock { .. } => IGNORED_RPC_BLOCK,
             Work::ChainSegment { .. } => CHAIN_SEGMENT,
             Work::ChainSegmentBackSync(_) => CHAIN_SEGMENT_BACKFILL,
             Work::Status(_) => STATUS_PROCESSING,
@@ -1029,7 +1035,9 @@ impl<E: EthSpec> BeaconProcessor<E> {
                             Work::GossipLightClientOptimisticUpdate { .. } => {
                                 optimistic_update_queue.push(work, work_id, &self.log)
                             }
-                            Work::RpcBlock { .. } => rpc_block_queue.push(work, work_id, &self.log),
+                            Work::RpcBlock { .. } | Work::IgnoredRpcBlock { .. } => {
+                                rpc_block_queue.push(work, work_id, &self.log)
+                            }
                             Work::ChainSegment { .. } => {
                                 chain_segment_queue.push(work, work_id, &self.log)
                             }
@@ -1223,11 +1231,8 @@ impl<E: EthSpec> BeaconProcessor<E> {
                 beacon_block_root: _,
                 process_fn,
             } => task_spawner.spawn_async(process_fn),
-            Work::RpcBlock {
-                // TODO(paul): pass this value to `process_fn`.
-                should_process: _,
-                process_fn,
-            } => task_spawner.spawn_async(process_fn),
+            Work::RpcBlock { process_fn } => task_spawner.spawn_async(process_fn),
+            Work::IgnoredRpcBlock { process_fn } => task_spawner.spawn_blocking(process_fn),
             Work::GossipBlock(work) => task_spawner.spawn_async(async move {
                 work.await;
             }),

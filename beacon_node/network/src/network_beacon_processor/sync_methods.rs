@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use crate::metrics;
 use crate::network_beacon_processor::{
-    AsyncFn, DuplicateCache, NetworkBeaconProcessor, FUTURE_SLOT_TOLERANCE,
+    DuplicateCache, NetworkBeaconProcessor, FUTURE_SLOT_TOLERANCE,
 };
 use crate::sync::manager::{BlockProcessType, SyncMessage};
 use crate::sync::BatchProcessResult;
@@ -13,6 +13,7 @@ use beacon_chain::{
 };
 use beacon_processor::work_reprocessing_queue::QueuedRpcBlock;
 use beacon_processor::work_reprocessing_queue::ReprocessQueueMessage;
+use beacon_processor::{AsyncFn, BlockingFn};
 use lighthouse_network::{types::ChainSegmentProcessId, PeerAction};
 use slog::{debug, error, info, warn};
 use slot_clock::SlotClock;
@@ -34,7 +35,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     ///
     /// This separate function was required to prevent a cycle during compiler
     /// type checking.
-    pub fn process_fn_rpc_beacon_block(
+    pub fn generate_rpc_beacon_block_process_fn(
         self: Arc<Self>,
         block_root: Hash256,
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
@@ -44,7 +45,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let process_fn = async move {
             let reprocess_tx = self.reprocess_tx.clone();
             let duplicate_cache = self.duplicate_cache.clone();
-            let should_process = true;
             self.process_rpc_block(
                 block_root,
                 block,
@@ -52,11 +52,36 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 process_type,
                 reprocess_tx,
                 duplicate_cache,
-                should_process,
             )
             .await;
         };
         Box::pin(process_fn)
+    }
+
+    /// Returns the `process_fn` and `ignore_fn` required when requeuing an RPC block.
+    pub fn generate_rpc_beacon_block_fns(
+        self: Arc<Self>,
+        block_root: Hash256,
+        block: Arc<SignedBeaconBlock<T::EthSpec>>,
+        seen_timestamp: Duration,
+        process_type: BlockProcessType,
+    ) -> (AsyncFn, BlockingFn) {
+        // An async closure which will import the block.
+        let process_fn = self.clone().generate_rpc_beacon_block_process_fn(
+            block_root,
+            block,
+            seen_timestamp,
+            process_type.clone(),
+        );
+        // A closure which will ignore the block.
+        let ignore_fn = move || {
+            // Sync handles these results
+            self.send_sync_message(SyncMessage::BlockProcessed {
+                process_type,
+                result: crate::sync::manager::BlockProcessResult::Ignored,
+            });
+        };
+        (process_fn, Box::new(ignore_fn))
     }
 
     /// Attempt to process a block received from a direct RPC request.
@@ -69,16 +94,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         process_type: BlockProcessType,
         reprocess_tx: mpsc::Sender<ReprocessQueueMessage>,
         duplicate_cache: DuplicateCache,
-        should_process: bool,
     ) {
-        if !should_process {
-            // Sync handles these results
-            self.send_sync_message(SyncMessage::BlockProcessed {
-                process_type,
-                result: crate::sync::manager::BlockProcessResult::Ignored,
-            });
-            return;
-        }
         // Check if the block is already being imported through another source
         let handle = match duplicate_cache.check_and_insert(block_root) {
             Some(handle) => handle,
@@ -91,15 +107,16 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 );
 
                 // Send message to work reprocess queue to retry the block
+                let (process_fn, ignore_fn) = self.clone().generate_rpc_beacon_block_fns(
+                    block_root,
+                    block,
+                    seen_timestamp,
+                    process_type,
+                );
                 let reprocess_msg = ReprocessQueueMessage::RpcBlock(QueuedRpcBlock {
                     beacon_block_root: block_root,
-                    should_process: true,
-                    process_fn: self.clone().process_fn_rpc_beacon_block(
-                        block_root,
-                        block,
-                        seen_timestamp,
-                        process_type,
-                    ),
+                    process_fn,
+                    ignore_fn,
                 });
 
                 if reprocess_tx.try_send(reprocess_msg).is_err() {
@@ -165,15 +182,16 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             );
 
             // Send message to work reprocess queue to retry the block
+            let (process_fn, ignore_fn) = self.clone().generate_rpc_beacon_block_fns(
+                block_root,
+                block,
+                seen_timestamp,
+                process_type,
+            );
             let reprocess_msg = ReprocessQueueMessage::RpcBlock(QueuedRpcBlock {
                 beacon_block_root: block_root,
-                should_process: true,
-                process_fn: self.clone().process_fn_rpc_beacon_block(
-                    block_root,
-                    block,
-                    seen_timestamp,
-                    process_type,
-                ),
+                process_fn,
+                ignore_fn,
             });
 
             if reprocess_tx.try_send(reprocess_msg).is_err() {
