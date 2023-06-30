@@ -5,6 +5,7 @@ use crate::decode::{ssz_decode_state, yaml_decode_file};
 use crate::type_name;
 use crate::type_name::TypeName;
 use serde_derive::Deserialize;
+use state_processing::epoch_cache::initialize_epoch_cache;
 use state_processing::per_epoch_processing::capella::process_historical_summaries_update;
 use state_processing::per_epoch_processing::{
     altair, base,
@@ -135,6 +136,7 @@ impl<E: EthSpec> EpochTransition<E> for RewardsAndPenalties {
 
 impl<E: EthSpec> EpochTransition<E> for RegistryUpdates {
     fn run(state: &mut BeaconState<E>, spec: &ChainSpec) -> Result<(), EpochProcessingError> {
+        initialize_epoch_cache(state, state.current_epoch(), spec)?;
         process_registry_updates(state, spec)
     }
 }

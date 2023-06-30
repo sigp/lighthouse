@@ -24,6 +24,8 @@ pub fn process_epoch<T: EthSpec>(
     state.build_committee_cache(RelativeEpoch::Previous, spec)?;
     state.build_committee_cache(RelativeEpoch::Current, spec)?;
     state.build_committee_cache(RelativeEpoch::Next, spec)?;
+    state.build_total_active_balance_cache_at(state.current_epoch(), spec)?;
+    initialize_epoch_cache(state, state.current_epoch(), spec)?;
 
     // Pre-compute participating indices and total balances.
     let mut participation_cache = ParticipationCache::new(state, spec)?;

@@ -23,6 +23,7 @@ pub fn initialize_epoch_cache<E: EthSpec>(
     }
 
     // Compute base rewards.
+    state.build_total_active_balance_cache_at(epoch, spec)?;
     let total_active_balance = state.get_total_active_balance_at_epoch(epoch)?;
     let sqrt_total_active_balance = SqrtTotalActiveBalance::new(total_active_balance);
     let base_reward_per_increment = BaseRewardPerIncrement::new(total_active_balance, spec)?;
