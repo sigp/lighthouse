@@ -375,7 +375,7 @@ mod tests {
     use crate::NetworkMessage;
 
     use super::*;
-    use crate::beacon_processor::WorkEvent as BeaconWorkEvent;
+    use crate::beacon_processor::{BeaconProcessorSend, WorkEvent as BeaconWorkEvent};
     use beacon_chain::builder::Witness;
     use beacon_chain::eth1_chain::CachingEth1Backend;
     use beacon_chain::parking_lot::RwLock;
@@ -603,7 +603,7 @@ mod tests {
         let cx = SyncNetworkContext::new(
             network_tx,
             globals.clone(),
-            beacon_processor_tx,
+            BeaconProcessorSend(beacon_processor_tx),
             log.new(o!("component" => "network_context")),
         );
         let test_rig = TestRig {

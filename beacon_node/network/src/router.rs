@@ -6,7 +6,8 @@
 #![allow(clippy::unit_arg)]
 
 use crate::beacon_processor::{
-    BeaconProcessor, InvalidBlockStorage, WorkEvent as BeaconWorkEvent, MAX_WORK_EVENT_QUEUE_LEN,
+    BeaconProcessor, BeaconProcessorSend, InvalidBlockStorage, WorkEvent as BeaconWorkEvent,
+    MAX_WORK_EVENT_QUEUE_LEN,
 };
 use crate::error;
 use crate::service::{NetworkMessage, RequestId};
@@ -19,6 +20,7 @@ use lighthouse_network::rpc::*;
 use lighthouse_network::{
     MessageId, NetworkGlobals, PeerId, PeerRequestId, PubsubMessage, Request, Response,
 };
+use logging::TimeLatch;
 use slog::{debug, o, trace};
 use slog::{error, warn};
 use std::cmp;
@@ -39,9 +41,11 @@ pub struct Router<T: BeaconChainTypes> {
     /// A network context to return and handle RPC requests.
     network: HandlerNetworkContext<T::EthSpec>,
     /// A multi-threaded, non-blocking processor for applying messages to the beacon chain.
-    beacon_processor_send: mpsc::Sender<BeaconWorkEvent<T>>,
+    beacon_processor_send: BeaconProcessorSend<T>,
     /// The `Router` logger.
     log: slog::Logger,
+    /// Provides de-bounce functionality for logging.
+    logger_debounce: TimeLatch,
 }
 
 /// Types of messages the router can receive.
@@ -100,7 +104,7 @@ impl<T: BeaconChainTypes> Router<T> {
             beacon_chain.clone(),
             network_globals.clone(),
             network_send.clone(),
-            beacon_processor_send.clone(),
+            BeaconProcessorSend(beacon_processor_send.clone()),
             sync_logger,
         );
 
@@ -124,8 +128,9 @@ impl<T: BeaconChainTypes> Router<T> {
             chain: beacon_chain,
             sync_send,
             network: HandlerNetworkContext::new(network_send, log.clone()),
-            beacon_processor_send,
+            beacon_processor_send: BeaconProcessorSend(beacon_processor_send),
             log: message_handler_log,
+            logger_debounce: TimeLatch::default(),
         };
 
         // spawn handler task and move the message handler instance into the spawned thread
@@ -479,12 +484,15 @@ impl<T: BeaconChainTypes> Router<T> {
         self.beacon_processor_send
             .try_send(work)
             .unwrap_or_else(|e| {
-                let work_type = match &e {
+                let work_type = match &*e {
                     mpsc::error::TrySendError::Closed(work)
                     | mpsc::error::TrySendError::Full(work) => work.work_type(),
                 };
-                error!(&self.log, "Unable to send message to the beacon processor";
-                    "error" => %e, "type" => work_type)
+
+                if self.logger_debounce.elapsed() {
+                    error!(&self.log, "Unable to send message to the beacon processor";
+                        "error" => %e, "type" => work_type)
+                }
             })
     }
 }
