@@ -855,8 +855,25 @@ where
             ConnectionEvent::DialUpgradeError(DialUpgradeError { info, error }) => {
                 self.on_dial_upgrade_error(info, error)
             }
-            // TODO(@divma): placeholders
-            _ => todo!(),
+            ConnectionEvent::ListenUpgradeError(libp2p::swarm::handler::ListenUpgradeError {
+                info: _,
+                error: _, /* RPCError */
+            }) => {
+                // TODO(@divma): why would this fail....
+                todo!()
+            }
+            ConnectionEvent::LocalProtocolsChange(_) => {
+                // TODO(@divma): fork boundary is the only thing that comes to mind
+                todo!()
+            }
+            ConnectionEvent::RemoteProtocolsChange(_) => {
+                // TODO(@divma): unclear how this is done/happens, but: most likely can happen across a fork
+                // boundary. need to read more
+                todo!();
+            }
+            ConnectionEvent::AddressChange(_) => {
+                // don't care about these
+            }
         }
     }
 }
