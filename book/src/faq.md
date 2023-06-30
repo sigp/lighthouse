@@ -10,6 +10,7 @@
 - [My beacon node logs `WARN BlockProcessingFailure outcome: MissingBeaconBlock`, what should I do?](#bn-missing-beacon)
 - [After checkpoint sync, the progress of `downloading historical blocks` is slow. Why?](#bn-download-slow)
 - [My beacon node logs `WARN Error processing HTTP API request`, what should I do?](#bn-http)
+- [My beacon node logs `WARN Error signalling fork choice waiter`, what should I do?](#bn-fork-choice")
 
 ## [Validator](#validator-1)
 - [Why does it take so long for a validator to be activated?](#vc-activation)
@@ -74,7 +75,7 @@ The `WARN Execution engine called failed` log is shown when the beacon node cann
 
 `error: Reqwest(reqwest::Error { kind: Request, url: Url { scheme: "http", cannot_be_a_base: false, username: "", password: None, host: Some(Ipv4(127.0.0.1)), port: Some(8551), path: "/", query: None, fragment: None }, source: TimedOut }), service: exec`
 
-which says `TimedOut` at the end of the message. This means that the execution engine has not responded in time to the beacon node. One option is to add the flag `--execution-timeout-multiplier 3` to the beacon node. However, if the error persists, it is worth digging further to find out the cause. There are a few reasons why this can occur:
+which says `TimedOut` at the end of the message. This means that the execution engine has not responded in time to the beacon node. One option is to add the flags `--execution-timeout-multiplier 3` and `--disable-lock-timeouts` to the beacon node. However, if the error persists, it is worth digging further to find out the cause. There are a few reasons why this can occur:
 1. The execution engine is not synced. Check the log of the execution engine to make sure that it is synced. If it is syncing, wait until it is synced and the error will disappear. You will see the beacon node logs `INFO Execution engine online` when it is synced. 
 1. The computer is overloaded. Check the CPU and RAM usage to see if it has overloaded. You can use `htop` to check for CPU and RAM usage.
 1. Your SSD is slow. Check if your SSD is in "The Bad" list [here](https://gist.github.com/yorickdowne/f3a3e79a573bf35767cd002cc977b038). If your SSD is in "The Bad" list, it means it cannot keep in sync to the network and you may want to consider upgrading to a better SSD.
@@ -169,6 +170,16 @@ ERRO Failed to download attester duties      err: FailedToDownloadAttesters("Som
 ```
 
 This means that the validator client is sending requests to the beacon node. However, as the beacon node is still syncing, it is therefore unable to fulfil the request. The error will disappear once the beacon node is synced. 
+
+### <a name="bn-fork-choice"></a> My beacon node logs `WARN Error signalling fork choice waiter`, what should I do?
+
+An example of the full log is shown below:
+
+```
+WARN Error signalling fork choice waiter slot: 6763073, error: ForkChoiceSignalOutOfOrder { current: Slot(6763074), latest: Slot(6763073) }, service: state_advance
+```
+
+This suggests that the computer resources are being overwhelmed. It could be due to high CPU usage or high disk I/O usage. This can happen, e.g., when the beacon node is downloading historical blocks, or when the execution client is syncing.
 
 ## Validator
 
@@ -279,7 +290,16 @@ The first thing is to ensure both consensus and execution clients are synced wit
 - the internet is working well
 - you have sufficient peers
 
-You can see more information on the [Ethstaker KB](https://ethstaker.gitbook.io/ethstaker-knowledge-base/help/missed-attestations). Once the above points are good, missing attestation should be a rare occurrence. 
+You can see more information on the [Ethstaker KB](https://ethstaker.gitbook.io/ethstaker-knowledge-base/help/missed-attestations). 
+
+Another cause for missing attestations is due to the slowness in processing the block. When this happens, the debug log will show (the debug log can be found under `$datadir/beacon/logs`):
+
+```
+DEBG Delayed head block, set_as_head_delay: Some(159.4ms), imported_delay: Some(1.89s), observed_delay: Some(2.40s), block_delay: 4.46s, slot: xxx, proposer_index: xxx, block_root: xxx, service: beacon
+```
+
+The things to note here are `imported_delay > 1s` and `observed_delay < 3s`. The `imported_delay` of larger than 1 second suggests that there is slowness in processing the block. It could be due to high CPU usage, high I/O disk usage or the clients are doing some background maintenance processes. The `observed_delay` of less than 3 seconds means that the block is not arriving late from the block proposer. Combining the above, this implies that the validator should have been able to attest to the block, but failed due to slowness in the node processing the block. 
+
 
 ### <a name="vc-head-vote"></a> Sometimes I miss the attestation head vote, resulting in penalty. Is this normal?
 
