@@ -67,6 +67,6 @@ fn get_next_withdrawals_sanity_checks<T: BeaconChainTypes>(
             "proposal slot is greater than or equal to the look ahead limit: {look_ahead_limit}"
         )));
     }
-    
+
     Ok(())
 }
