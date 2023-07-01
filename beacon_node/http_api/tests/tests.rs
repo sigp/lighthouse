@@ -8,7 +8,7 @@ use eth2::{
     mixin::{RequestAccept, ResponseForkName, ResponseOptional},
     reqwest::RequestBuilder,
     types::{BlockId as CoreBlockId, ForkChoiceNode, StateId as CoreStateId, *},
-    BeaconNodeHttpClient, Error, StatusCode, Timeouts,
+    BeaconNodeHttpClient, Error, Timeouts,
 };
 use execution_layer::test_utils::TestingBuilder;
 use execution_layer::test_utils::DEFAULT_BUILDER_THRESHOLD_WEI;
