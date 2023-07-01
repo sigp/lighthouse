@@ -6,7 +6,7 @@ use state_processing::state_advance::partial_state_advance;
 use std::sync::Arc;
 use types::{BeaconState, EthSpec, ForkName, Slot, Withdrawals};
 
-const MAX_EPOCH_LOOKAHEAD: u64 = 4;
+const MAX_EPOCH_LOOKAHEAD: u64 = 2;
 
 /// Get the withdrawals computed from the specified state, that will be included in the block
 /// that gets built on the specified state.
