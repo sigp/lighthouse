@@ -92,11 +92,11 @@ warp = { git = "https://github.com/macladson/warp", rev="7e75acc368229a46a236a8c
 arbitrary = { git = "https://github.com/michaelsproul/arbitrary", rev="f002b99989b561ddce62e4cf2887b0f8860ae991" }
 
 [patch."https://github.com/ralexstokes/mev-rs"]
-mev-rs = { git = "https://github.com/ralexstokes//mev-rs", rev = "7813d4a4a564e0754e9aaab2d95520ba437c3889" }
+mev-rs = { git = "https://www.github.com/ralexstokes/mev-rs.git", rev = "7813d4a4a564e0754e9aaab2d95520ba437c3889" }
 [patch."https://github.com/ralexstokes/ethereum-consensus"]
-ethereum-consensus = { git = "https://github.com/ralexstokes//ethereum-consensus", rev = "9b0ee0a8a45b968c8df5e7e64ea1c094e16f053d" }
+ethereum-consensus = { git = "https://www.github.com/ralexstokes/ethereum-consensus.git", rev = "9b0ee0a8a45b968c8df5e7e64ea1c094e16f053d" }
 [patch."https://github.com/ralexstokes/ssz-rs"]
-ssz-rs = { git = "https://github.com/ralexstokes//ssz-rs", rev = "adf1a0b14cef90b9536f28ef89da1fab316465e1" }
+ssz-rs = { git = "https://www.github.com/ralexstokes/ssz-rs.git", rev = "adf1a0b14cef90b9536f28ef89da1fab316465e1" }
 
 [profile.maxperf]
 inherits = "release"
