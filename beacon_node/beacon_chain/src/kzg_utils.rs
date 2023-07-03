@@ -6,8 +6,7 @@ use types::{Blob, EthSpec, Hash256, KzgCommitment, KzgProof};
 fn ssz_blob_to_crypto_blob<T: EthSpec>(
     blob: Blob<T>,
 ) -> Result<Box<<<T as EthSpec>::Kzg as KzgPreset>::Blob>, KzgError> {
-    let blob = T::blob_from_bytes(blob.to_vec().as_slice())?;
-    Ok(Box::new(blob))
+    T::blob_from_bytes(blob.to_vec().as_slice())
 }
 
 /// Validate a single blob-commitment-proof triplet from a `BlobSidecar`.

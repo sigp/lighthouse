@@ -260,7 +260,7 @@ pub trait EthSpec:
         Self::MaxBlobsPerBlock::to_usize()
     }
 
-    fn blob_from_bytes(bytes: &[u8]) -> Result<<Self::Kzg as KzgPreset>::Blob, kzg::Error> {
+    fn blob_from_bytes(bytes: &[u8]) -> Result<Box<<Self::Kzg as KzgPreset>::Blob>, kzg::Error> {
         <Self::Kzg as KzgPreset>::Blob::from_bytes(bytes)
     }
 

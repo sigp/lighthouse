@@ -994,7 +994,7 @@ dependencies = [
 [[package]]
 name = "c-kzg"
 version = "0.1.0"
-source = "git+https://github.com/jtraglia//c-kzg-4844?branch=boxed-blobs#12e9c7ffba8872ca35deeb4516d6fd2231d27499"
+source = "git+https://github.com/jtraglia//c-kzg-4844?branch=boxed-blobs#aa663fb647697ba2dd51d5e710914b102cc5be22"
 dependencies = [
  "bindgen 0.64.0",
  "cc",
@@ -1007,7 +1007,7 @@ dependencies = [
 [[package]]
 name = "c-kzg"
 version = "0.1.0"
-source = "git+https://github.com/jtraglia/c-kzg-4844?branch=boxed-blobs#12e9c7ffba8872ca35deeb4516d6fd2231d27499"
+source = "git+https://github.com/jtraglia/c-kzg-4844?branch=boxed-blobs#aa663fb647697ba2dd51d5e710914b102cc5be22"
 dependencies = [
  "bindgen 0.64.0",
  "cc",

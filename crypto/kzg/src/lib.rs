@@ -39,7 +39,7 @@ impl From<c_kzg_min::Error> for CryptoError {
 }
 
 pub trait BlobTrait: Sized + Clone {
-    fn from_bytes(bytes: &[u8]) -> Result<Self, Error>;
+    fn from_bytes(bytes: &[u8]) -> Result<Box<Self>, Error>;
 }
 
 pub enum KzgPresetId {
@@ -235,7 +235,7 @@ macro_rules! implement_kzg_preset {
         }
 
         impl BlobTrait for $module_name::Blob {
-            fn from_bytes(bytes: &[u8]) -> Result<Self, Error> {
+            fn from_bytes(bytes: &[u8]) -> Result<Box<Self>, Error> {
                 Self::from_bytes(bytes)
                     .map_err(CryptoError::from)
                     .map_err(Error::InvalidBlob)
