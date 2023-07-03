@@ -202,7 +202,7 @@ impl TestRig {
         let duplicate_cache = DuplicateCache::default();
         let network_beacon_processor = NetworkBeaconProcessor {
             beacon_processor_send: beacon_processor_tx.clone(),
-            duplicate_cache: DuplicateCache::default(),
+            duplicate_cache: duplicate_cache.clone(),
             chain: harness.chain.clone(),
             network_tx,
             sync_tx,
