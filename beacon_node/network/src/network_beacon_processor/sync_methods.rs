@@ -1,9 +1,7 @@
 use std::time::Duration;
 
 use crate::metrics;
-use crate::network_beacon_processor::{
-    DuplicateCache, NetworkBeaconProcessor, FUTURE_SLOT_TOLERANCE,
-};
+use crate::network_beacon_processor::{NetworkBeaconProcessor, FUTURE_SLOT_TOLERANCE};
 use crate::sync::BatchProcessResult;
 use crate::sync::{
     manager::{BlockProcessType, SyncMessage},
@@ -14,9 +12,10 @@ use beacon_chain::{
     BeaconChainError, BeaconChainTypes, BlockError, ChainSegmentResult, HistoricalBlockError,
     NotifyExecutionLayer,
 };
-use beacon_processor::work_reprocessing_queue::QueuedRpcBlock;
-use beacon_processor::work_reprocessing_queue::ReprocessQueueMessage;
-use beacon_processor::{AsyncFn, BlockingFn};
+use beacon_processor::{
+    work_reprocessing_queue::{QueuedRpcBlock, ReprocessQueueMessage},
+    AsyncFn, BlockingFn, DuplicateCache,
+};
 use lighthouse_network::PeerAction;
 use slog::{debug, error, info, warn};
 use slot_clock::SlotClock;

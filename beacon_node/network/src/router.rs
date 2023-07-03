@@ -6,16 +6,15 @@
 #![allow(clippy::unit_arg)]
 
 use crate::error;
-use crate::network_beacon_processor::{
-    DuplicateCache, InvalidBlockStorage, NetworkBeaconProcessor,
-};
+use crate::network_beacon_processor::{InvalidBlockStorage, NetworkBeaconProcessor};
 use crate::service::{NetworkMessage, RequestId};
 use crate::status::status_message;
 use crate::sync::manager::RequestId as SyncId;
 use crate::sync::SyncMessage;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
-use beacon_processor::work_reprocessing_queue::ReprocessQueueMessage;
-use beacon_processor::WorkEvent as BeaconWorkEvent;
+use beacon_processor::{
+    work_reprocessing_queue::ReprocessQueueMessage, DuplicateCache, WorkEvent as BeaconWorkEvent,
+};
 use futures::prelude::*;
 use lighthouse_network::rpc::*;
 use lighthouse_network::{

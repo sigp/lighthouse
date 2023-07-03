@@ -47,10 +47,11 @@ use futures::task::Poll;
 use lighthouse_network::NetworkGlobals;
 use lighthouse_network::{MessageId, PeerId};
 use logging::TimeLatch;
+use parking_lot::Mutex;
 use slog::{crit, debug, error, trace, warn, Logger};
 use slot_clock::SlotClock;
 use std::cmp;
-use std::collections::VecDeque;
+use std::collections::{HashSet, VecDeque};
 use std::fmt;
 use std::future::Future;
 use std::pin::Pin;
@@ -296,6 +297,55 @@ impl<T> LifoQueue<T> {
     /// Returns the current length of the queue.
     pub fn len(&self) -> usize {
         self.queue.len()
+    }
+}
+
+/// A handle that sends a message on the provided channel to a receiver when it gets dropped.
+///
+/// The receiver task is responsible for removing the provided `entry` from the `DuplicateCache`
+/// and perform any other necessary cleanup.
+pub struct DuplicateCacheHandle {
+    entry: Hash256,
+    cache: DuplicateCache,
+}
+
+impl Drop for DuplicateCacheHandle {
+    fn drop(&mut self) {
+        self.cache.remove(&self.entry);
+    }
+}
+
+/// A simple  cache for detecting duplicate block roots across multiple threads.
+#[derive(Clone, Default)]
+pub struct DuplicateCache {
+    inner: Arc<Mutex<HashSet<Hash256>>>,
+}
+
+impl DuplicateCache {
+    /// Checks if the given block_root exists and inserts it into the cache if
+    /// it doesn't exist.
+    ///
+    /// Returns a `Some(DuplicateCacheHandle)` if the block_root was successfully
+    /// inserted and `None` if the block root already existed in the cache.
+    ///
+    /// The handle removes the entry from the cache when it is dropped. This ensures that any unclean
+    /// shutdowns in the worker tasks does not leave inconsistent state in the cache.
+    pub fn check_and_insert(&self, block_root: Hash256) -> Option<DuplicateCacheHandle> {
+        let mut inner = self.inner.lock();
+        if inner.insert(block_root) {
+            Some(DuplicateCacheHandle {
+                entry: block_root,
+                cache: self.clone(),
+            })
+        } else {
+            None
+        }
+    }
+
+    /// Remove the given block_root from the cache.
+    pub fn remove(&self, block_root: &Hash256) {
+        let mut inner = self.inner.lock();
+        inner.remove(block_root);
     }
 }
 

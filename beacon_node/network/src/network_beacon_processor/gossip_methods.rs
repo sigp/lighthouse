@@ -1,6 +1,6 @@
 use crate::{
     metrics,
-    network_beacon_processor::{DuplicateCache, InvalidBlockStorage, NetworkBeaconProcessor},
+    network_beacon_processor::{InvalidBlockStorage, NetworkBeaconProcessor},
     service::NetworkMessage,
     sync::SyncMessage,
 };
@@ -40,7 +40,7 @@ use beacon_processor::{
         QueuedAggregate, QueuedGossipBlock, QueuedLightClientUpdate, QueuedUnaggregate,
         ReprocessQueueMessage,
     },
-    GossipAggregatePackage, GossipAttestationPackage,
+    DuplicateCache, GossipAggregatePackage, GossipAttestationPackage,
 };
 
 /// Set to `true` to introduce stricter penalties for peers who send some types of late consensus
