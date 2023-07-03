@@ -44,7 +44,7 @@ use crate::work_reprocessing_queue::{
 };
 use futures::stream::{Stream, StreamExt};
 use futures::task::Poll;
-use lighthouse_network::{types::ChainSegmentProcessId, NetworkGlobals};
+use lighthouse_network::NetworkGlobals;
 use lighthouse_network::{MessageId, PeerId};
 use logging::TimeLatch;
 use slog::{crit, debug, error, trace, warn, Logger};
@@ -364,15 +364,9 @@ impl<E: EthSpec> std::convert::From<ReadyWork> for WorkEvent<E> {
                     process_fn,
                 },
             },
-            ReadyWork::BackfillSync(QueuedBackfillBatch {
-                process_id,
-                process_fn,
-            }) => Self {
+            ReadyWork::BackfillSync(QueuedBackfillBatch(process_fn)) => Self {
                 drop_during_sync: false,
-                work: Work::ChainSegment {
-                    process_id,
-                    process_fn,
-                },
+                work: Work::ChainSegment(process_fn),
             },
         }
     }
@@ -471,10 +465,7 @@ pub enum Work<E: EthSpec> {
     IgnoredRpcBlock {
         process_fn: BlockingFn,
     },
-    ChainSegment {
-        process_id: ChainSegmentProcessId,
-        process_fn: AsyncFn,
-    },
+    ChainSegment(AsyncFn),
     ChainSegmentBackfill(AsyncFn),
     Status(BlockingFn),
     BlocksByRangeRequest(BlockingFnWithManualSendOnIdle),
@@ -1230,10 +1221,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
             } => task_spawner.spawn_blocking(move || {
                 process_batch(aggregates);
             }),
-            Work::ChainSegment {
-                process_id: _,
-                process_fn,
-            } => task_spawner.spawn_async(async move {
+            Work::ChainSegment(process_fn) => task_spawner.spawn_async(async move {
                 process_fn.await;
             }),
             Work::UnknownBlockAttestation { process_fn } => task_spawner.spawn_blocking(process_fn),

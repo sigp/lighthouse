@@ -470,10 +470,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let work = if matches!(process_id, ChainSegmentProcessId::BackSyncBatchId { .. }) {
             Work::ChainSegmentBackfill(process_fn)
         } else {
-            Work::ChainSegment {
-                process_id,
-                process_fn,
-            }
+            Work::ChainSegment(process_fn)
         };
 
         self.try_send(BeaconWorkEvent {

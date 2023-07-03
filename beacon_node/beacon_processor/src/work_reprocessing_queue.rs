@@ -16,7 +16,6 @@ use fnv::FnvHashMap;
 use futures::task::Poll;
 use futures::{Stream, StreamExt};
 use itertools::Itertools;
-use lighthouse_network::types::ChainSegmentProcessId;
 use logging::TimeLatch;
 use slog::{crit, debug, error, trace, warn, Logger};
 use slot_clock::SlotClock;
@@ -155,10 +154,7 @@ pub struct IgnoredRpcBlock {
 }
 
 /// A backfill batch work that has been queued for processing later.
-pub struct QueuedBackfillBatch {
-    pub process_id: ChainSegmentProcessId,
-    pub process_fn: AsyncFn,
-}
+pub struct QueuedBackfillBatch(pub AsyncFn);
 
 impl<T: EthSpec> TryFrom<WorkEvent<T>> for QueuedBackfillBatch {
     type Error = WorkEvent<T>;
@@ -166,16 +162,9 @@ impl<T: EthSpec> TryFrom<WorkEvent<T>> for QueuedBackfillBatch {
     fn try_from(event: WorkEvent<T>) -> Result<Self, WorkEvent<T>> {
         match event {
             WorkEvent {
-                work:
-                    Work::ChainSegment {
-                        process_id: process_id @ ChainSegmentProcessId::BackSyncBatchId(_),
-                        process_fn,
-                    },
+                work: Work::ChainSegmentBackfill(process_fn),
                 ..
-            } => Ok(QueuedBackfillBatch {
-                process_id,
-                process_fn,
-            }),
+            } => Ok(QueuedBackfillBatch(process_fn)),
             _ => Err(event),
         }
     }
@@ -185,10 +174,7 @@ impl<T: EthSpec> From<QueuedBackfillBatch> for WorkEvent<T> {
     fn from(queued_backfill_batch: QueuedBackfillBatch) -> WorkEvent<T> {
         WorkEvent {
             drop_during_sync: false,
-            work: Work::ChainSegment {
-                process_id: queued_backfill_batch.process_id,
-                process_fn: queued_backfill_batch.process_fn,
-            },
+            work: Work::ChainSegment(queued_backfill_batch.0),
         }
     }
 }
