@@ -14,7 +14,6 @@ use state_processing::upgrade::{upgrade_to_altair, upgrade_to_bellatrix};
 use std::fs::File;
 use std::io::Read;
 use std::path::PathBuf;
-use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
 use types::ExecutionBlockHash;
 use types::{
@@ -252,13 +251,11 @@ fn initialize_state_with_validators<T: EthSpec>(
         });
     let execution_payload_header = execution_payload_header.unwrap_or(default_header);
     // Empty eth1 data
+    // EIP-6110 disable Eth1Data voting by zeroing out the deposit root and block hash
     let eth1_data = Eth1Data {
-        block_hash: eth1_block_hash,
+        block_hash: Hash256::zero(),
         deposit_count: 0,
-        deposit_root: Hash256::from_str(
-            "0xd70a234731285c6804c2a4f56711ddb8c82c99740f207854891028af34e27e5e",
-        )
-        .unwrap(), // empty deposit tree root
+        deposit_root: Hash256::zero(),
     };
     let mut state = BeaconState::new(genesis_time, eth1_data, spec);
 

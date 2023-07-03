@@ -409,40 +409,26 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         }
     }
 
-    /// Sends a blocks by root request for a single block lookup.
+    /// Sends a blocks by root request for a parent request.
     pub fn single_block_lookup_request(
         &mut self,
         peer_id: PeerId,
         request: BlocksByRootRequest,
     ) -> Result<Id, &'static str> {
-        let request = if self
-            .chain
-            .is_data_availability_check_required()
-            .map_err(|_| "Unable to read slot clock")?
-        {
-            trace!(
-                self.log,
-                "Sending BlobsByRoot Request";
-                "method" => "BlobsByRoot",
-                "count" => request.block_roots.len(),
-                "peer" => %peer_id
-            );
-            unimplemented!("There is no longer such thing as a single block lookup, since we nede to ask for blobs and blocks separetely");
-        } else {
-            trace!(
-                self.log,
-                "Sending BlocksByRoot Request";
-                "method" => "BlocksByRoot",
-                "count" => request.block_roots.len(),
-                "peer" => %peer_id
-            );
-            Request::BlocksByRoot(request)
-        };
         let id = self.next_id();
         let request_id = RequestId::Sync(SyncRequestId::SingleBlock { id });
+
+        trace!(
+            self.log,
+            "Sending BlocksByRoot Request";
+            "method" => "BlocksByRoot",
+            "count" => request.block_roots.len(),
+            "peer" => %peer_id
+        );
+
         self.send_network_msg(NetworkMessage::SendRequest {
             peer_id,
-            request,
+            request: Request::BlocksByRoot(request),
             request_id,
         })?;
         Ok(id)
