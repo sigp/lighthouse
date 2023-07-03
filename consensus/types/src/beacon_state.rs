@@ -1301,6 +1301,53 @@ impl<T: EthSpec> BeaconState<T> {
         }
     }
 
+    #[allow(clippy::type_complexity)]
+    pub fn mutable_validator_fields(
+        &mut self,
+    ) -> Result<
+        (
+            &mut Validators<T>,
+            &mut Balances<T>,
+            &VList<ParticipationFlags, T::ValidatorRegistryLimit>,
+            &VList<ParticipationFlags, T::ValidatorRegistryLimit>,
+            &mut VList<u64, T::ValidatorRegistryLimit>,
+            &mut ProgressiveBalancesCache,
+            &mut EpochCache,
+        ),
+        Error,
+    > {
+        match self {
+            BeaconState::Base(_) => Err(Error::IncorrectStateVariant),
+            BeaconState::Altair(state) => Ok((
+                &mut state.validators,
+                &mut state.balances,
+                &state.previous_epoch_participation,
+                &state.current_epoch_participation,
+                &mut state.inactivity_scores,
+                &mut state.progressive_balances_cache,
+                &mut state.epoch_cache,
+            )),
+            BeaconState::Merge(state) => Ok((
+                &mut state.validators,
+                &mut state.balances,
+                &state.previous_epoch_participation,
+                &state.current_epoch_participation,
+                &mut state.inactivity_scores,
+                &mut state.progressive_balances_cache,
+                &mut state.epoch_cache,
+            )),
+            BeaconState::Capella(state) => Ok((
+                &mut state.validators,
+                &mut state.balances,
+                &state.previous_epoch_participation,
+                &state.current_epoch_participation,
+                &mut state.inactivity_scores,
+                &mut state.progressive_balances_cache,
+                &mut state.epoch_cache,
+            )),
+        }
+    }
+
     /// Get a mutable reference to the balance of a single validator.
     pub fn get_balance_mut(&mut self, validator_index: usize) -> Result<&mut u64, Error> {
         self.balances_mut()
