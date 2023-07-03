@@ -2,9 +2,10 @@ use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::time::Duration;
 
+use crate::network_beacon_processor::ChainSegmentProcessId;
 use beacon_chain::{BeaconChainTypes, BlockError};
 use fnv::FnvHashMap;
-use lighthouse_network::{types::ChainSegmentProcessId, PeerAction, PeerId};
+use lighthouse_network::{PeerAction, PeerId};
 use lru_cache::LRUTimeCache;
 use slog::{debug, error, trace, warn, Logger};
 use smallvec::SmallVec;

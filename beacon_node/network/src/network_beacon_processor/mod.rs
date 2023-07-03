@@ -14,7 +14,6 @@ use beacon_processor::{
 use environment::null_logger;
 use lighthouse_network::{
     rpc::{BlocksByRangeRequest, BlocksByRootRequest, LightClientBootstrapRequest, StatusMessage},
-    types::ChainSegmentProcessId,
     Client, MessageId, NetworkGlobals, PeerId, PeerRequestId,
 };
 use parking_lot::Mutex;
@@ -29,6 +28,8 @@ use task_executor::test_utils::TestRuntime;
 use task_executor::TaskExecutor;
 use tokio::sync::mpsc::{self, error::TrySendError};
 use types::*;
+
+pub use sync_methods::ChainSegmentProcessId;
 
 pub type Error<T> = TrySendError<BeaconWorkEvent<T>>;
 
@@ -448,6 +449,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         process_id: ChainSegmentProcessId,
         blocks: Vec<Arc<SignedBeaconBlock<T::EthSpec>>>,
     ) -> Result<(), Error<T::EthSpec>> {
+        let is_backfill = matches!(&process_id, ChainSegmentProcessId::BackSyncBatchId { .. });
         let processor = self.clone();
         let process_fn = async move {
             let notify_execution_layer = if processor
@@ -466,8 +468,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         };
         let process_fn = Box::pin(process_fn);
 
-        // Back-sync batches are dispatched with a different `Work` variant.
-        let work = if matches!(process_id, ChainSegmentProcessId::BackSyncBatchId { .. }) {
+        // Back-sync batches are dispatched with a different `Work` variant so
+        // they can be rate-limited.
+        let work = if is_backfill {
             Work::ChainSegmentBackfill(process_fn)
         } else {
             Work::ChainSegment(process_fn)

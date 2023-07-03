@@ -8,6 +8,7 @@
 //! If a batch fails, the backfill sync cannot progress. In this scenario, we mark the backfill
 //! sync as failed, log an error and attempt to retry once a new peer joins the node.
 
+use crate::network_beacon_processor::ChainSegmentProcessId;
 use crate::sync::manager::{BatchProcessResult, Id};
 use crate::sync::network_context::SyncNetworkContext;
 use crate::sync::range_sync::{
@@ -15,7 +16,7 @@ use crate::sync::range_sync::{
 };
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use lighthouse_network::types::{BackFillState, NetworkGlobals};
-use lighthouse_network::{types::ChainSegmentProcessId, PeerAction, PeerId};
+use lighthouse_network::{PeerAction, PeerId};
 use rand::seq::SliceRandom;
 use slog::{crit, debug, error, info, warn};
 use std::collections::{

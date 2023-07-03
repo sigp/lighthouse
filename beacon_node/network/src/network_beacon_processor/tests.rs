@@ -2,7 +2,9 @@
 #![cfg(test)]
 
 use crate::{
-    network_beacon_processor::{DuplicateCache, InvalidBlockStorage, NetworkBeaconProcessor},
+    network_beacon_processor::{
+        ChainSegmentProcessId, DuplicateCache, InvalidBlockStorage, NetworkBeaconProcessor,
+    },
     service::NetworkMessage,
     sync::{manager::BlockProcessType, SyncMessage},
 };
@@ -14,7 +16,7 @@ use beacon_processor::{work_reprocessing_queue::*, *};
 use lighthouse_network::{
     discv5::enr::{CombinedKey, EnrBuilder},
     rpc::methods::{MetaData, MetaDataV2},
-    types::{ChainSegmentProcessId, EnrAttestationBitfield, EnrSyncCommitteeBitfield},
+    types::{EnrAttestationBitfield, EnrSyncCommitteeBitfield},
     Client, MessageId, NetworkGlobals, PeerId,
 };
 use slot_clock::SlotClock;
