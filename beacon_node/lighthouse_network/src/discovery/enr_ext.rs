@@ -220,20 +220,24 @@ impl CombinedKeyPublicExt for CombinedPublicKey {
 
 impl CombinedKeyExt for CombinedKey {
     fn from_libp2p(key: Keypair) -> Result<CombinedKey, &'static str> {
-        // TODO: more clones that should not be happening.
-        if let Ok(key) = key.clone().try_into_secp256k1() {
-            let secret = discv5::enr::k256::ecdsa::SigningKey::from_slice(&key.secret().to_bytes())
-                .expect("libp2p key must be valid");
-            Ok(CombinedKey::Secp256k1(secret))
-        } else if let Ok(key) = key.try_into_ed25519() {
-            let ed_keypair = discv5::enr::ed25519_dalek::SigningKey::from_bytes(
-                &(key.to_bytes()[..32])
-                    .try_into()
-                    .expect("libp2p key must be valid"),
-            );
-            Ok(CombinedKey::from(ed_keypair))
-        } else {
-            Err("Unsupported keypair kind")
+        match key.key_type() {
+            libp2p::identity::KeyType::Secp256k1 => {
+                let key = key.try_into_secp256k1().expect("right key type");
+                let secret =
+                    discv5::enr::k256::ecdsa::SigningKey::from_slice(&key.secret().to_bytes())
+                        .expect("libp2p key must be valid");
+                Ok(CombinedKey::Secp256k1(secret))
+            }
+            libp2p::identity::KeyType::Ed25519 => {
+                let key = key.try_into_ed25519().expect("right key type");
+                let ed_keypair = discv5::enr::ed25519_dalek::SigningKey::from_bytes(
+                    &(key.to_bytes()[..32])
+                        .try_into()
+                        .expect("libp2p key must be valid"),
+                );
+                Ok(CombinedKey::from(ed_keypair))
+            }
+            _ => Err("Unsupported keypair kind"),
         }
     }
 }
