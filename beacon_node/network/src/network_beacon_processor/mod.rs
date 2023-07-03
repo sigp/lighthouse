@@ -464,13 +464,21 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 .process_chain_segment(process_id, blocks, notify_execution_layer)
                 .await;
         };
+        let process_fn = Box::pin(process_fn);
+
+        // Back-sync batches are dispatched with a different `Work` variant.
+        let work = if matches!(process_id, ChainSegmentProcessId::BackSyncBatchId { .. }) {
+            Work::ChainSegmentBackfill(process_fn)
+        } else {
+            Work::ChainSegment {
+                process_id,
+                process_fn,
+            }
+        };
 
         self.try_send(BeaconWorkEvent {
             drop_during_sync: false,
-            work: Work::ChainSegment {
-                process_id,
-                process_fn: Box::pin(process_fn),
-            },
+            work,
         })
     }
 

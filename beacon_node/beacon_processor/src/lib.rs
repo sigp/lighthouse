@@ -475,7 +475,7 @@ pub enum Work<E: EthSpec> {
         process_id: ChainSegmentProcessId,
         process_fn: AsyncFn,
     },
-    ChainSegmentBackSync(BlockingFn),
+    ChainSegmentBackfill(AsyncFn),
     Status(BlockingFn),
     BlocksByRangeRequest(BlockingFnWithManualSendOnIdle),
     BlocksByRootsRequest(BlockingFnWithManualSendOnIdle),
@@ -509,7 +509,7 @@ impl<E: EthSpec> Work<E> {
             Work::RpcBlock { .. } => RPC_BLOCK,
             Work::IgnoredRpcBlock { .. } => IGNORED_RPC_BLOCK,
             Work::ChainSegment { .. } => CHAIN_SEGMENT,
-            Work::ChainSegmentBackSync(_) => CHAIN_SEGMENT_BACKFILL,
+            Work::ChainSegmentBackfill(_) => CHAIN_SEGMENT_BACKFILL,
             Work::Status(_) => STATUS_PROCESSING,
             Work::BlocksByRangeRequest(_) => BLOCKS_BY_RANGE_REQUEST,
             Work::BlocksByRootsRequest(_) => BLOCKS_BY_ROOTS_REQUEST,
@@ -1057,7 +1057,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
                             Work::ChainSegment { .. } => {
                                 chain_segment_queue.push(work, work_id, &self.log)
                             }
-                            Work::ChainSegmentBackSync { .. } => {
+                            Work::ChainSegmentBackfill { .. } => {
                                 backfill_chain_segment.push(work, work_id, &self.log)
                             }
                             Work::Status { .. } => status_queue.push(work, work_id, &self.log),
@@ -1255,6 +1255,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
             Work::BlocksByRangeRequest(work) | Work::BlocksByRootsRequest(work) => {
                 task_spawner.spawn_blocking_with_manual_send_idle(work)
             }
+            Work::ChainSegmentBackfill(process_fn) => task_spawner.spawn_async(process_fn),
             Work::GossipVoluntaryExit(process_fn)
             | Work::GossipProposerSlashing(process_fn)
             | Work::GossipAttesterSlashing(process_fn)
@@ -1262,7 +1263,6 @@ impl<E: EthSpec> BeaconProcessor<E> {
             | Work::GossipSyncContribution(process_fn)
             | Work::GossipLightClientFinalityUpdate(process_fn)
             | Work::GossipLightClientOptimisticUpdate(process_fn)
-            | Work::ChainSegmentBackSync(process_fn)
             | Work::Status(process_fn)
             | Work::GossipBlsToExecutionChange(process_fn)
             | Work::LightClientBootstrapRequest(process_fn) => {
