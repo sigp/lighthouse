@@ -219,17 +219,18 @@ async fn clone_config() {
 
     let mut state = build_state::<MinimalEthSpec>(16).await;
 
-    state.build_all_caches(&spec).unwrap();
+    state.build_caches(&spec).unwrap();
     state
         .update_tree_hash_cache()
         .expect("should update tree hash cache");
 
-    let num_caches = 4;
+    let num_caches = 5;
     let all_configs = (0..2u8.pow(num_caches)).map(|i| CloneConfig {
         committee_caches: (i & 1) != 0,
         pubkey_cache: ((i >> 1) & 1) != 0,
         exit_cache: ((i >> 2) & 1) != 0,
         tree_hash_cache: ((i >> 3) & 1) != 0,
+        progressive_balances_cache: ((i >> 4) & 1) != 0,
     });
 
     for config in all_configs {

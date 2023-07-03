@@ -338,7 +338,7 @@ where
         let beacon_block = genesis_block(&mut beacon_state, &self.spec)?;
 
         beacon_state
-            .build_all_caches(&self.spec)
+            .build_caches(&self.spec)
             .map_err(|e| format!("Failed to build genesis state caches: {:?}", e))?;
 
         let beacon_state_root = beacon_block.message().state_root();
@@ -437,7 +437,7 @@ where
         // Prime all caches before storing the state in the database and computing the tree hash
         // root.
         weak_subj_state
-            .build_all_caches(&self.spec)
+            .build_caches(&self.spec)
             .map_err(|e| format!("Error building caches on checkpoint state: {e:?}"))?;
 
         let computed_state_root = weak_subj_state
@@ -687,6 +687,8 @@ where
                 store.clone(),
                 Some(current_slot),
                 &self.spec,
+                self.chain_config.progressive_balances_mode,
+                &log,
             )?;
         }
 
@@ -700,7 +702,7 @@ where
 
         head_snapshot
             .beacon_state
-            .build_all_caches(&self.spec)
+            .build_caches(&self.spec)
             .map_err(|e| format!("Failed to build state caches: {:?}", e))?;
 
         // Perform a check to ensure that the finalization points of the head and fork choice are

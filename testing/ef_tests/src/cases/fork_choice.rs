@@ -18,7 +18,8 @@ use std::sync::Arc;
 use std::time::Duration;
 use types::{
     Attestation, AttesterSlashing, BeaconBlock, BeaconState, Checkpoint, EthSpec,
-    ExecutionBlockHash, ForkName, Hash256, IndexedAttestation, SignedBeaconBlock, Slot, Uint256,
+    ExecutionBlockHash, ForkName, Hash256, IndexedAttestation, ProgressiveBalancesMode,
+    SignedBeaconBlock, Slot, Uint256,
 };
 
 #[derive(Default, Debug, PartialEq, Clone, Deserialize, Decode)]
@@ -440,7 +441,9 @@ impl<E: EthSpec> Tester<E> {
                         block_delay,
                         &state,
                         PayloadVerificationStatus::Irrelevant,
+                        ProgressiveBalancesMode::Strict,
                         &self.harness.chain.spec,
+                        self.harness.logger(),
                     );
 
                 if result.is_ok() {

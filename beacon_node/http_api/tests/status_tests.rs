@@ -3,6 +3,7 @@ use beacon_chain::{
     test_utils::{AttestationStrategy, BlockStrategy, SyncCommitteeStrategy},
     BlockError,
 };
+use eth2::StatusCode;
 use execution_layer::{PayloadStatusV1, PayloadStatusV1Status};
 use http_api::test_utils::InteractiveTester;
 use types::{EthSpec, ExecPayload, ForkName, MinimalEthSpec, Slot};
@@ -142,4 +143,83 @@ async fn el_error_on_new_payload() {
     assert_eq!(api_response.el_offline, Some(false));
     assert_eq!(api_response.is_optimistic, Some(false));
     assert_eq!(api_response.is_syncing, false);
+}
+
+/// Check `node health` endpoint when the EL is offline.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn node_health_el_offline() {
+    let num_blocks = E::slots_per_epoch() / 2;
+    let num_validators = E::slots_per_epoch();
+    let tester = post_merge_tester(num_blocks, num_validators).await;
+    let harness = &tester.harness;
+    let mock_el = harness.mock_execution_layer.as_ref().unwrap();
+
+    // EL offline
+    mock_el.server.set_syncing_response(Err("offline".into()));
+    mock_el.el.upcheck().await;
+
+    let status = tester.client.get_node_health().await;
+    match status {
+        Ok(_) => {
+            panic!("should return 503 error status code");
+        }
+        Err(e) => {
+            assert_eq!(e.status().unwrap(), 503);
+        }
+    }
+}
+
+/// Check `node health` endpoint when the EL is online and synced.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn node_health_el_online_and_synced() {
+    let num_blocks = E::slots_per_epoch() / 2;
+    let num_validators = E::slots_per_epoch();
+    let tester = post_merge_tester(num_blocks, num_validators).await;
+    let harness = &tester.harness;
+    let mock_el = harness.mock_execution_layer.as_ref().unwrap();
+
+    // EL synced
+    mock_el.server.set_syncing_response(Ok(false));
+    mock_el.el.upcheck().await;
+
+    let status = tester.client.get_node_health().await;
+    match status {
+        Ok(response) => {
+            assert_eq!(response, StatusCode::OK);
+        }
+        Err(_) => {
+            panic!("should return 200 status code");
+        }
+    }
+}
+
+/// Check `node health` endpoint when the EL is online but not synced.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn node_health_el_online_and_not_synced() {
+    let num_blocks = E::slots_per_epoch() / 2;
+    let num_validators = E::slots_per_epoch();
+    let tester = post_merge_tester(num_blocks, num_validators).await;
+    let harness = &tester.harness;
+    let mock_el = harness.mock_execution_layer.as_ref().unwrap();
+
+    // EL not synced
+    harness.advance_slot();
+    mock_el.server.all_payloads_syncing(true);
+    harness
+        .extend_chain(
+            1,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    let status = tester.client.get_node_health().await;
+    match status {
+        Ok(response) => {
+            assert_eq!(response, StatusCode::PARTIAL_CONTENT);
+        }
+        Err(_) => {
+            panic!("should return 206 status code");
+        }
+    }
 }
