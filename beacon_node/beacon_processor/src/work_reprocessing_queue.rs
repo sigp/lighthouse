@@ -174,7 +174,7 @@ impl<T: EthSpec> From<QueuedBackfillBatch> for WorkEvent<T> {
     fn from(queued_backfill_batch: QueuedBackfillBatch) -> WorkEvent<T> {
         WorkEvent {
             drop_during_sync: false,
-            work: Work::ChainSegment(queued_backfill_batch.0),
+            work: Work::ChainSegmentBackfill(queued_backfill_batch.0),
         }
     }
 }

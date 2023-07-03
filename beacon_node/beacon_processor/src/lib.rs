@@ -366,7 +366,7 @@ impl<E: EthSpec> std::convert::From<ReadyWork> for WorkEvent<E> {
             },
             ReadyWork::BackfillSync(QueuedBackfillBatch(process_fn)) => Self {
                 drop_during_sync: false,
-                work: Work::ChainSegment(process_fn),
+                work: Work::ChainSegmentBackfill(process_fn),
             },
         }
     }
