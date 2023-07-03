@@ -3,7 +3,7 @@
 use crate::{Enr, Multiaddr, PeerId};
 use discv5::enr::{CombinedKey, CombinedPublicKey};
 use libp2p::core::multiaddr::Protocol;
-use libp2p::identity::{Keypair, PublicKey};
+use libp2p::identity::{ed25519, secp256k1, KeyType, Keypair, PublicKey};
 use tiny_keccak::{Hasher, Keccak};
 
 /// Extend ENR for libp2p types.
@@ -198,7 +198,6 @@ impl CombinedKeyPublicExt for CombinedPublicKey {
     ///
     /// This is only available with the `libp2p` feature flag.
     fn as_peer_id(&self) -> PeerId {
-        use libp2p::identity::{ed25519, secp256k1};
         match self {
             Self::Secp256k1(pk) => {
                 let pk_bytes = pk.to_sec1_bytes();
@@ -221,14 +220,14 @@ impl CombinedKeyPublicExt for CombinedPublicKey {
 impl CombinedKeyExt for CombinedKey {
     fn from_libp2p(key: Keypair) -> Result<CombinedKey, &'static str> {
         match key.key_type() {
-            libp2p::identity::KeyType::Secp256k1 => {
+            KeyType::Secp256k1 => {
                 let key = key.try_into_secp256k1().expect("right key type");
                 let secret =
                     discv5::enr::k256::ecdsa::SigningKey::from_slice(&key.secret().to_bytes())
                         .expect("libp2p key must be valid");
                 Ok(CombinedKey::Secp256k1(secret))
             }
-            libp2p::identity::KeyType::Ed25519 => {
+            KeyType::Ed25519 => {
                 let key = key.try_into_ed25519().expect("right key type");
                 let ed_keypair = discv5::enr::ed25519_dalek::SigningKey::from_bytes(
                     &(key.to_bytes()[..32])
@@ -257,7 +256,7 @@ pub fn peer_id_to_node_id(peer_id: &PeerId) -> Result<discv5::enr::NodeId, Strin
     })?;
 
     match public_key.key_type() {
-        libp2p::identity::KeyType::Secp256k1 => {
+        KeyType::Secp256k1 => {
             let pk = public_key
                 .clone()
                 .try_into_secp256k1()
@@ -269,7 +268,7 @@ pub fn peer_id_to_node_id(peer_id: &PeerId) -> Result<discv5::enr::NodeId, Strin
             hasher.finalize(&mut output);
             Ok(discv5::enr::NodeId::parse(&output).expect("Must be correct length"))
         }
-        libp2p::identity::KeyType::Ed25519 => {
+        KeyType::Ed25519 => {
             let pk = public_key
                 .clone()
                 .try_into_secp256k1()
@@ -288,6 +287,7 @@ pub fn peer_id_to_node_id(peer_id: &PeerId) -> Result<discv5::enr::NodeId, Strin
 
 #[cfg(test)]
 mod tests {
+
     use super::*;
 
     #[test]
@@ -296,8 +296,8 @@ mod tests {
         let sk_bytes = hex::decode(sk_hex).unwrap();
         let secret_key = discv5::enr::k256::ecdsa::SigningKey::from_slice(&sk_bytes).unwrap();
 
-        let libp2p_sk = libp2p::identity::secp256k1::SecretKey::try_from_bytes(sk_bytes).unwrap();
-        let secp256k1_kp: libp2p::identity::secp256k1::Keypair = libp2p_sk.into();
+        let libp2p_sk = secp256k1::SecretKey::try_from_bytes(sk_bytes).unwrap();
+        let secp256k1_kp: secp256k1::Keypair = libp2p_sk.into();
         let libp2p_kp: Keypair = secp256k1_kp.into();
         let peer_id = libp2p_kp.public().to_peer_id();
 
@@ -317,8 +317,8 @@ mod tests {
             &sk_bytes.clone().try_into().unwrap(),
         );
 
-        let libp2p_sk = libp2p::identity::ed25519::SecretKey::try_from_bytes(sk_bytes).unwrap();
-        let secp256k1_kp: libp2p::identity::ed25519::Keypair = libp2p_sk.into();
+        let libp2p_sk = ed25519::SecretKey::try_from_bytes(sk_bytes).unwrap();
+        let secp256k1_kp: ed25519::Keypair = libp2p_sk.into();
         let libp2p_kp: Keypair = secp256k1_kp.into();
         let peer_id = libp2p_kp.public().to_peer_id();
 
