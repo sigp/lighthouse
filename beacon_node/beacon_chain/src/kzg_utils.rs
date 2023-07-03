@@ -5,8 +5,9 @@ use types::{Blob, EthSpec, Hash256, KzgCommitment, KzgProof};
 /// crypto library.
 fn ssz_blob_to_crypto_blob<T: EthSpec>(
     blob: Blob<T>,
-) -> Result<<<T as EthSpec>::Kzg as KzgPreset>::Blob, KzgError> {
-    T::blob_from_bytes(blob.to_vec().as_slice())
+) -> Result<Box<<<T as EthSpec>::Kzg as KzgPreset>::Blob>, KzgError> {
+    let blob = T::blob_from_bytes(blob.to_vec().as_slice())?;
+    Ok(Box::new(blob))
 }
 
 /// Validate a single blob-commitment-proof triplet from a `BlobSidecar`.
@@ -48,7 +49,9 @@ pub fn validate_blobs<T: EthSpec>(
         .map(|blob| ssz_blob_to_crypto_blob::<T>(blob.clone())) // Avoid this clone
         .collect::<Result<Vec<_>, KzgError>>()?;
 
-    kzg.verify_blob_kzg_proof_batch(&blobs, expected_kzg_commitments, kzg_proofs)
+    let boxed_blobs: Box<[Box<<<T as EthSpec>::Kzg as KzgPreset>::Blob>]> = blobs.into_iter().collect();
+    let blob_refs: Vec<_> = boxed_blobs.iter().map(|b| (**b).clone()).collect();
+    kzg.verify_blob_kzg_proof_batch(Box::new(blob_refs.as_slice()), expected_kzg_commitments, kzg_proofs)
 }
 
 /// Compute the kzg proof given an ssz blob and its kzg commitment.

@@ -108,7 +108,7 @@ impl<T: EthSpec> BlobSidecar<T> {
 
         let blob = Blob::<T>::new(blob_bytes)
             .map_err(|e| format!("error constructing random blob: {:?}", e))?;
-        let kzg_blob = T::blob_from_bytes(&blob).unwrap();
+        let kzg_blob = Box::new(T::blob_from_bytes(&blob).unwrap());
 
         let commitment = kzg
             .blob_to_kzg_commitment(kzg_blob.clone())

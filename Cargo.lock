@@ -994,7 +994,7 @@ dependencies = [
 [[package]]
 name = "c-kzg"
 version = "0.1.0"
-source = "git+https://github.com/ethereum//c-kzg-4844?rev=13cec820c08f45318f82ed4e0da0300042758b92#13cec820c08f45318f82ed4e0da0300042758b92"
+source = "git+https://github.com/jtraglia//c-kzg-4844?branch=boxed-blobs#12e9c7ffba8872ca35deeb4516d6fd2231d27499"
 dependencies = [
  "bindgen 0.64.0",
  "cc",
@@ -1007,7 +1007,7 @@ dependencies = [
 [[package]]
 name = "c-kzg"
 version = "0.1.0"
-source = "git+https://github.com/ethereum/c-kzg-4844?rev=13cec820c08f45318f82ed4e0da0300042758b92#13cec820c08f45318f82ed4e0da0300042758b92"
+source = "git+https://github.com/jtraglia/c-kzg-4844?branch=boxed-blobs#12e9c7ffba8872ca35deeb4516d6fd2231d27499"
 dependencies = [
  "bindgen 0.64.0",
  "cc",
@@ -4134,8 +4134,8 @@ name = "kzg"
 version = "0.1.0"
 dependencies = [
  "arbitrary",
- "c-kzg 0.1.0 (git+https://github.com/ethereum//c-kzg-4844?rev=13cec820c08f45318f82ed4e0da0300042758b92)",
- "c-kzg 0.1.0 (git+https://github.com/ethereum/c-kzg-4844?rev=13cec820c08f45318f82ed4e0da0300042758b92)",
+ "c-kzg 0.1.0 (git+https://github.com/jtraglia//c-kzg-4844?branch=boxed-blobs)",
+ "c-kzg 0.1.0 (git+https://github.com/jtraglia/c-kzg-4844?branch=boxed-blobs)",
  "derivative",
  "ethereum_hashing",
  "ethereum_serde_utils",
