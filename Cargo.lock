@@ -3514,6 +3514,7 @@ name = "http_api"
 version = "0.1.0"
 dependencies = [
  "beacon_chain",
+ "beacon_processor",
  "bs58",
  "directory",
  "environment",
