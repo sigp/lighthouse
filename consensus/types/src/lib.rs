@@ -73,6 +73,7 @@ pub mod validator_subscription;
 pub mod voluntary_exit;
 #[macro_use]
 pub mod slot_epoch_macros;
+pub mod activation_queue;
 pub mod config_and_preset;
 pub mod execution_block_header;
 pub mod fork_context;
@@ -99,6 +100,7 @@ pub mod sqlite;
 
 use ethereum_types::{H160, H256};
 
+pub use crate::activation_queue::ActivationQueue;
 pub use crate::aggregate_and_proof::AggregateAndProof;
 pub use crate::attestation::{Attestation, Error as AttestationError};
 pub use crate::attestation_data::AttestationData;

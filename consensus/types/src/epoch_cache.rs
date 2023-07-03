@@ -1,4 +1,4 @@
-use crate::{BeaconStateError, Epoch, EthSpec, Hash256, Slot};
+use crate::{ActivationQueue, BeaconStateError, Epoch, EthSpec, Hash256, Slot};
 use safe_arith::ArithError;
 use std::sync::Arc;
 
@@ -20,6 +20,8 @@ struct Inner {
     key: EpochCacheKey,
     /// Base reward for every validator in this epoch.
     base_rewards: Vec<u64>,
+    /// Validator activation queue.
+    activation_queue: ActivationQueue,
 }
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Copy, arbitrary::Arbitrary)]
@@ -52,9 +54,17 @@ impl From<ArithError> for EpochCacheError {
 }
 
 impl EpochCache {
-    pub fn new(key: EpochCacheKey, base_rewards: Vec<u64>) -> EpochCache {
+    pub fn new(
+        key: EpochCacheKey,
+        base_rewards: Vec<u64>,
+        activation_queue: ActivationQueue,
+    ) -> EpochCache {
         Self {
-            inner: Some(Arc::new(Inner { key, base_rewards })),
+            inner: Some(Arc::new(Inner {
+                key,
+                base_rewards,
+                activation_queue,
+            })),
         }
     }
 
@@ -91,5 +101,13 @@ impl EpochCache {
             .get(validator_index)
             .copied()
             .ok_or(EpochCacheError::ValidatorIndexOutOfBounds { validator_index })
+    }
+
+    pub fn activation_queue(&self) -> Result<&ActivationQueue, EpochCacheError> {
+        let inner = self
+            .inner
+            .as_ref()
+            .ok_or(EpochCacheError::CacheNotInitialized)?;
+        Ok(&inner.activation_queue)
     }
 }

@@ -2,7 +2,7 @@ use crate::common::altair::BaseRewardPerIncrement;
 use crate::common::base::SqrtTotalActiveBalance;
 use crate::common::{altair, base};
 use types::epoch_cache::{EpochCache, EpochCacheError, EpochCacheKey};
-use types::{BeaconState, ChainSpec, Epoch, EthSpec, Hash256};
+use types::{ActivationQueue, BeaconState, ChainSpec, Epoch, EthSpec, Hash256};
 
 pub fn initialize_epoch_cache<E: EthSpec>(
     state: &mut BeaconState<E>,
@@ -23,13 +23,17 @@ pub fn initialize_epoch_cache<E: EthSpec>(
     }
 
     // Compute base rewards.
+    state.build_total_active_balance_cache_at(epoch, spec)?;
     let total_active_balance = state.get_total_active_balance_at_epoch(epoch)?;
     let sqrt_total_active_balance = SqrtTotalActiveBalance::new(total_active_balance);
     let base_reward_per_increment = BaseRewardPerIncrement::new(total_active_balance, spec)?;
 
     let mut base_rewards = Vec::with_capacity(state.validators().len());
 
-    for validator in state.validators().iter() {
+    // Compute activation queue.
+    let mut activation_queue = ActivationQueue::default();
+
+    for (index, validator) in state.validators().iter().enumerate() {
         let effective_balance = validator.effective_balance();
 
         let base_reward = if spec
@@ -41,6 +45,9 @@ pub fn initialize_epoch_cache<E: EthSpec>(
             altair::get_base_reward(effective_balance, base_reward_per_increment, spec)?
         };
         base_rewards.push(base_reward);
+
+        // Add to speculative activation queue.
+        activation_queue.add_if_could_be_eligible_for_activation(index, validator, epoch, spec);
     }
 
     *state.epoch_cache_mut() = EpochCache::new(
@@ -49,6 +56,7 @@ pub fn initialize_epoch_cache<E: EthSpec>(
             decision_block_root,
         },
         base_rewards,
+        activation_queue,
     );
 
     Ok(())
