@@ -4,6 +4,7 @@ use crate::case_result::{check_state_diff, compare_beacon_state_results_without_
 use crate::decode::{ssz_decode_file, ssz_decode_file_with, ssz_decode_state, yaml_decode_file};
 use crate::testing_spec;
 use serde_derive::Deserialize;
+use state_processing::common::update_progressive_balances_cache::initialize_progressive_balances_cache;
 use state_processing::epoch_cache::initialize_epoch_cache;
 use state_processing::{
     per_block_processing::{
@@ -98,6 +99,7 @@ impl<E: EthSpec> Operation<E> for Attestation<E> {
                 spec,
             ),
             BeaconState::Altair(_) | BeaconState::Merge(_) | BeaconState::Capella(_) => {
+                initialize_progressive_balances_cache(state, None, spec)?;
                 altair::process_attestation(state, self, 0, &mut ctxt, VerifySignatures::True, spec)
             }
         }
@@ -120,6 +122,7 @@ impl<E: EthSpec> Operation<E> for AttesterSlashing<E> {
         _: &Operations<E, Self>,
     ) -> Result<(), BlockProcessingError> {
         let mut ctxt = ConsensusContext::new(state.slot());
+        initialize_progressive_balances_cache(state, None, spec)?;
         process_attester_slashings(
             state,
             &[self.clone()],
@@ -170,6 +173,7 @@ impl<E: EthSpec> Operation<E> for ProposerSlashing {
         _: &Operations<E, Self>,
     ) -> Result<(), BlockProcessingError> {
         let mut ctxt = ConsensusContext::new(state.slot());
+        initialize_progressive_balances_cache(state, None, spec)?;
         process_proposer_slashings(
             state,
             &[self.clone()],

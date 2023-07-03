@@ -8,7 +8,7 @@ edition = "2021"
 discv5 = { version = "0.3.0", features = ["libp2p"]}
 unsigned-varint = { version = "0.6.0", features = ["codec"] }
 types = { path =  "../../consensus/types" }
-ssz_types = "0.5.0"
+ssz_types = "0.5.3"
 serde = { version = "1.0.116", features = ["derive"] }
 serde_derive = "1.0.116"
 ethereum_ssz = "0.5.0"

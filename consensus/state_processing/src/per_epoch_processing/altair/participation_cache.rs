@@ -19,12 +19,12 @@ use types::{
         NUM_FLAG_INDICES, TIMELY_HEAD_FLAG_INDEX, TIMELY_SOURCE_FLAG_INDEX,
         TIMELY_TARGET_FLAG_INDEX,
     },
-    BeaconState, BeaconStateError, ChainSpec, Epoch, EthSpec, ParticipationFlags, RelativeEpoch,
-    Unsigned, Validator,
+    Balance, BeaconState, BeaconStateError, ChainSpec, Epoch, EthSpec, ParticipationFlags,
+    RelativeEpoch, Unsigned, Validator,
 };
 use vec_map::VecMap;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum Error {
     InvalidFlagIndex(usize),
     NoUnslashedParticipatingIndices,
@@ -47,34 +47,8 @@ impl From<ArithError> for Error {
     }
 }
 
-/// A balance which will never be below the specified `minimum`.
-///
-/// This is an effort to ensure the `EFFECTIVE_BALANCE_INCREMENT` minimum is always respected.
-#[derive(PartialEq, Debug, Clone, Copy)]
-struct Balance {
-    raw: u64,
-    minimum: u64,
-}
-
-impl Balance {
-    /// Initialize the balance to `0`, or the given `minimum`.
-    pub fn zero(minimum: u64) -> Self {
-        Self { raw: 0, minimum }
-    }
-
-    /// Returns the balance with respect to the initialization `minimum`.
-    pub fn get(&self) -> u64 {
-        std::cmp::max(self.raw, self.minimum)
-    }
-
-    /// Add-assign to the balance.
-    pub fn safe_add_assign(&mut self, other: u64) -> Result<(), ArithError> {
-        self.raw.safe_add_assign(other)
-    }
-}
-
 /// Caches the participation values for one epoch (either the previous or current).
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone)]
 struct SingleEpochParticipationCache {
     /// Stores the sum of the balances for all validators in `self.unslashed_participating_indices`
     /// for all flags in `NUM_FLAG_INDICES`.
@@ -101,6 +75,14 @@ impl SingleEpochParticipationCache {
         self.total_flag_balances
             .get(flag_index)
             .map(Balance::get)
+            .ok_or(Error::InvalidFlagIndex(flag_index))
+    }
+
+    /// Returns the raw total balance of attesters who have `flag_index` set.
+    fn total_flag_balance_raw(&self, flag_index: usize) -> Result<Balance, Error> {
+        self.total_flag_balances
+            .get(flag_index)
+            .copied()
             .ok_or(Error::InvalidFlagIndex(flag_index))
     }
 
@@ -170,7 +152,7 @@ impl ValidatorInfo {
 }
 
 /// Single `HashMap` for validator info relevant to `process_epoch`.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 struct ValidatorInfoCache {
     info: Vec<Option<ValidatorInfo>>,
 }
@@ -184,7 +166,7 @@ impl ValidatorInfoCache {
 }
 
 /// Maintains a cache to be used during `altair::process_epoch`.
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone)]
 pub struct ParticipationCache {
     current_epoch: Epoch,
     /// Caches information about active validators pertaining to `self.current_epoch`.
@@ -381,12 +363,22 @@ impl ParticipationCache {
             .total_flag_balance(TIMELY_TARGET_FLAG_INDEX)
     }
 
+    pub fn current_epoch_target_attesting_balance_raw(&self) -> Result<Balance, Error> {
+        self.current_epoch_participation
+            .total_flag_balance_raw(TIMELY_TARGET_FLAG_INDEX)
+    }
+
     pub fn previous_epoch_total_active_balance(&self) -> u64 {
         self.previous_epoch_participation.total_active_balance.get()
     }
 
     pub fn previous_epoch_target_attesting_balance(&self) -> Result<u64, Error> {
         self.previous_epoch_flag_attesting_balance(TIMELY_TARGET_FLAG_INDEX)
+    }
+
+    pub fn previous_epoch_target_attesting_balance_raw(&self) -> Result<Balance, Error> {
+        self.previous_epoch_participation
+            .total_flag_balance_raw(TIMELY_TARGET_FLAG_INDEX)
     }
 
     pub fn previous_epoch_source_attesting_balance(&self) -> Result<u64, Error> {

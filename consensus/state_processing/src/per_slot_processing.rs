@@ -63,7 +63,7 @@ pub fn per_slot_processing<T: EthSpec>(
         // Additionally build all caches so that all valid states that are advanced always have
         // committee caches built, and we don't have to worry about initialising them at higher
         // layers.
-        state.build_all_caches(spec)?;
+        state.build_caches(spec)?;
     }
 
     Ok(summary)

@@ -487,6 +487,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             .beacon_nodes(beacon_nodes.clone())
             .runtime_context(context.service_context("preparation".into()))
             .builder_registration_timestamp_override(config.builder_registration_timestamp_override)
+            .validator_registration_batch_size(config.validator_registration_batch_size)
             .build()?;
 
         let sync_committee_service = SyncCommitteeService::new(

@@ -61,7 +61,7 @@ impl<E: EthSpec> Case for SanitySlots<E> {
         let spec = &testing_spec::<E>(fork_name);
 
         // Processing requires the epoch cache.
-        state.build_all_caches(spec).unwrap();
+        state.build_caches(spec).unwrap();
 
         let mut result = (0..self.slots)
             .try_for_each(|_| per_slot_processing(&mut state, None, spec).map(|_| ()))

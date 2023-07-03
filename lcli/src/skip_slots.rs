@@ -109,7 +109,7 @@ pub fn run<T: EthSpec>(env: Environment<T>, matches: &ArgMatches) -> Result<(), 
     let target_slot = initial_slot + slots;
 
     state
-        .build_all_caches(spec)
+        .build_caches(spec)
         .map_err(|e| format!("Unable to build caches: {:?}", e))?;
 
     let state_root = if let Some(root) = cli_state_root.or(state_root) {

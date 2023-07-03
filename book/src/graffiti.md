@@ -29,6 +29,8 @@ Lighthouse will first search for the graffiti corresponding to the public key of
 ### 2. Setting the graffiti in the `validator_definitions.yml`
 Users can set validator specific graffitis in `validator_definitions.yml` with the `graffiti` key. This option is recommended for static setups where the graffitis won't change on every new block proposal.
 
+You can also update the graffitis in the `validator_definitions.yml` file using the [Lighthouse API](api-vc-endpoints.html#patch-lighthousevalidatorsvoting_pubkey). See example in [Set Graffiti via HTTP](#set-graffiti-via-http). 
+
 Below is an example of the validator_definitions.yml with validator specific graffitis:
 ```
 ---
@@ -62,3 +64,25 @@ Usage: `lighthouse bn --graffiti fortytwo`
 > 3. If graffiti is not specified in `validator_definitions.yml`, load the graffiti passed in the `--graffiti` flag on the validator client.
 > 4. If the `--graffiti` flag on the validator client is not passed, load the graffiti passed in the `--graffiti` flag on the beacon node.
 > 4. If the `--graffiti` flag is not passed, load the default Lighthouse graffiti.
+
+### Set Graffiti via HTTP
+
+Use the [Lighthouse API](api-vc-endpoints.md) to set graffiti on a per-validator basis. This method updates the graffiti
+both in memory and in the `validator_definitions.yml` file. The new graffiti will be used in the next block proposal 
+without requiring a validator client restart.
+
+Refer to [Lighthouse API](api-vc-endpoints.html#patch-lighthousevalidatorsvoting_pubkey) for API specification.
+
+#### Example Command
+
+```bash
+DATADIR=/var/lib/lighthouse
+curl -X PATCH "http://localhost:5062/lighthouse/validators/0xb0148e6348264131bf47bcd1829590e870c836dc893050fd0dadc7a28949f9d0a72f2805d027521b45441101f0cc1cde" \
+-H "Authorization: Bearer $(cat ${DATADIR}/validators/api-token.txt)" \
+-H "Content-Type: application/json" \
+-d '{
+    "graffiti": "Mr F was here"
+}' | jq
+```
+
+A `null` response indicates that the request is successful.

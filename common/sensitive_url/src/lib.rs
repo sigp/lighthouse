@@ -75,7 +75,7 @@ impl SensitiveUrl {
         SensitiveUrl::new(surl)
     }
 
-    fn new(full: Url) -> Result<Self, SensitiveError> {
+    pub fn new(full: Url) -> Result<Self, SensitiveError> {
         let mut redacted = full.clone();
         redacted
             .path_segments_mut()

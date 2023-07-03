@@ -175,10 +175,10 @@ impl Validator {
         self.activation_epoch() == spec.far_future_epoch
         // Placement in queue could be finalized.
         //
-        // NOTE: it's +1 rather than +2 because we consider the activations that occur at the *end*
-        // of `epoch`, after `process_justification_and_finalization` has already updated the
-        // state's checkpoint.
-        && self.activation_eligibility_epoch() + 1 <= epoch
+        // NOTE: the epoch distance is 1 rather than 2 because we consider the activations that
+        // occur at the *end* of `epoch`, after `process_justification_and_finalization` has already
+        // updated the state's checkpoint.
+        && self.activation_eligibility_epoch() < epoch
     }
 
     fn tree_hash_root_internal(&self) -> Result<Hash256, tree_hash::Error> {

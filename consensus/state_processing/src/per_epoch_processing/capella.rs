@@ -11,6 +11,9 @@ use crate::per_epoch_processing::{
 };
 use types::{BeaconState, ChainSpec, EthSpec, RelativeEpoch};
 
+use crate::common::update_progressive_balances_cache::{
+    initialize_progressive_balances_cache, update_progressive_balances_on_epoch_transition,
+};
 use crate::epoch_cache::initialize_epoch_cache;
 pub use historical_summaries_update::process_historical_summaries_update;
 
@@ -30,6 +33,7 @@ pub fn process_epoch<T: EthSpec>(
     // Pre-compute participating indices and total balances.
     let mut participation_cache = ParticipationCache::new(state, spec)?;
     let sync_committee = state.current_sync_committee()?.clone();
+    initialize_progressive_balances_cache(state, Some(&participation_cache), spec)?;
 
     // Justification and finalization.
     let justification_and_finalization_state =
@@ -56,7 +60,7 @@ pub fn process_epoch<T: EthSpec>(
     process_eth1_data_reset(state)?;
 
     // Update effective balances with hysteresis (lag).
-    process_effective_balance_updates(state, spec)?;
+    process_effective_balance_updates(state, Some(&participation_cache), spec)?;
 
     // Reset slashings
     process_slashings_reset(state)?;
@@ -75,6 +79,8 @@ pub fn process_epoch<T: EthSpec>(
     // Rotate the epoch caches to suit the epoch transition.
     state.advance_caches(spec)?;
     initialize_epoch_cache(state, state.next_epoch()?, spec)?;
+
+    update_progressive_balances_on_epoch_transition(state, spec)?;
 
     Ok(EpochProcessingSummary::Altair {
         participation_cache,

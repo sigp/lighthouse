@@ -102,7 +102,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("network-dir")
             .value_name("NETWORK_DIR")
                 .long("network-dir")
-                .help("The directory which contains the enr and it's assoicated private key")
+                .help("The directory which contains the enr and it's associated private key")
                 .takes_value(true)
         )
 }

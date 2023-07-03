@@ -49,6 +49,7 @@ macro_rules! full_to_compact {
             // Caches.
             total_active_balance: $s.total_active_balance.clone(),
             committee_caches: $s.committee_caches.clone(),
+            progressive_balances_cache: $s.progressive_balances_cache.clone(),
             pubkey_cache: $s.pubkey_cache.clone(),
             exit_cache: $s.exit_cache.clone(),
             epoch_cache: $s.epoch_cache.clone(),
@@ -110,6 +111,7 @@ macro_rules! compact_to_full {
             // Caching
             total_active_balance: $inner.total_active_balance,
             committee_caches: $inner.committee_caches,
+            progressive_balances_cache: $inner.progressive_balances_cache,
             pubkey_cache: $inner.pubkey_cache,
             exit_cache: $inner.exit_cache,
             epoch_cache: $inner.epoch_cache,
