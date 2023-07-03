@@ -14,8 +14,8 @@ use beacon_chain::{
     BeaconChain, BeaconChainTypes, Eth1ChainBackend, ServerSentEventHandler,
 };
 use beacon_processor::{
-    work_reprocessing_queue::ReprocessQueueMessage, BeaconProcessor, WorkEvent,
-    MAX_SCHEDULED_WORK_QUEUE_LEN, MAX_WORK_EVENT_QUEUE_LEN,
+    work_reprocessing_queue::ReprocessQueueMessage, BeaconProcessor, BeaconProcessorSend,
+    WorkEvent, MAX_SCHEDULED_WORK_QUEUE_LEN, MAX_WORK_EVENT_QUEUE_LEN,
 };
 use environment::RuntimeContext;
 use eth1::{Config as Eth1Config, Service as Eth1Service};
@@ -77,7 +77,7 @@ pub struct ClientBuilder<T: BeaconChainTypes> {
     http_metrics_config: http_metrics::Config,
     slasher: Option<Arc<Slasher<T::EthSpec>>>,
     eth_spec_instance: T::EthSpec,
-    beacon_processor_send: mpsc::Sender<WorkEvent<T::EthSpec>>,
+    beacon_processor_send: BeaconProcessorSend<T::EthSpec>,
     beacon_processor_receive: mpsc::Receiver<WorkEvent<T::EthSpec>>,
     work_reprocessing_tx: mpsc::Sender<ReprocessQueueMessage>,
     work_reprocessing_rx: mpsc::Receiver<ReprocessQueueMessage>,
@@ -117,7 +117,7 @@ where
             http_metrics_config: <_>::default(),
             slasher: None,
             eth_spec_instance,
-            beacon_processor_send,
+            beacon_processor_send: BeaconProcessorSend(beacon_processor_send),
             beacon_processor_receive,
             work_reprocessing_tx,
             work_reprocessing_rx,

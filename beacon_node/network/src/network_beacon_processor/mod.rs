@@ -7,9 +7,9 @@ use beacon_chain::{
 };
 use beacon_chain::{BeaconChainTypes, NotifyExecutionLayer};
 use beacon_processor::{
-    work_reprocessing_queue::ReprocessQueueMessage, DuplicateCache, GossipAggregatePackage,
-    GossipAttestationPackage, Work, WorkEvent as BeaconWorkEvent, MAX_SCHEDULED_WORK_QUEUE_LEN,
-    MAX_WORK_EVENT_QUEUE_LEN,
+    work_reprocessing_queue::ReprocessQueueMessage, BeaconProcessorSend, DuplicateCache,
+    GossipAggregatePackage, GossipAttestationPackage, Work, WorkEvent as BeaconWorkEvent,
+    MAX_SCHEDULED_WORK_QUEUE_LEN, MAX_WORK_EVENT_QUEUE_LEN,
 };
 use environment::null_logger;
 use lighthouse_network::{
@@ -49,7 +49,7 @@ pub enum InvalidBlockStorage {
 /// The wider `networking` crate should use this struct to interface with the
 /// beacon processor.
 pub struct NetworkBeaconProcessor<T: BeaconChainTypes> {
-    pub beacon_processor_send: mpsc::Sender<BeaconWorkEvent<T::EthSpec>>,
+    pub beacon_processor_send: BeaconProcessorSend<T::EthSpec>,
     pub duplicate_cache: DuplicateCache,
     pub chain: Arc<BeaconChain<T>>,
     pub network_tx: mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
@@ -562,8 +562,8 @@ impl<E: EthSpec> NetworkBeaconProcessor<TestBeaconChainType<E>> {
         let runtime = TestRuntime::default();
 
         let network_beacon_processor = Self {
-            beacon_processor_send,
-            duplicate_cache: <_>::default(),
+            beacon_processor_send: BeaconProcessorSend(beacon_processor_send),
+            duplicate_cache: DuplicateCache::default(),
             chain: harness.chain,
             network_tx,
             sync_tx,

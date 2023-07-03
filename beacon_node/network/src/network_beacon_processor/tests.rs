@@ -54,7 +54,7 @@ struct TestRig {
     attester_slashing: AttesterSlashing<E>,
     proposer_slashing: ProposerSlashing,
     voluntary_exit: SignedVoluntaryExit,
-    beacon_processor_tx: mpsc::Sender<WorkEvent<E>>,
+    beacon_processor_tx: BeaconProcessorSend<E>,
     work_journal_rx: mpsc::Receiver<&'static str>,
     _network_rx: mpsc::UnboundedReceiver<NetworkMessage<E>>,
     _sync_rx: mpsc::UnboundedReceiver<SyncMessage<E>>,
@@ -68,7 +68,7 @@ struct TestRig {
 impl Drop for TestRig {
     fn drop(&mut self) {
         // Causes the beacon processor to shutdown.
-        self.beacon_processor_tx = mpsc::channel(MAX_WORK_EVENT_QUEUE_LEN).0;
+        self.beacon_processor_tx = BeaconProcessorSend(mpsc::channel(MAX_WORK_EVENT_QUEUE_LEN).0);
     }
 }
 
@@ -173,6 +173,7 @@ impl TestRig {
         let log = harness.logger().clone();
 
         let (beacon_processor_tx, beacon_processor_rx) = mpsc::channel(MAX_WORK_EVENT_QUEUE_LEN);
+        let beacon_processor_tx = BeaconProcessorSend(beacon_processor_tx);
         let (sync_tx, _sync_rx) = mpsc::unbounded_channel();
 
         // Default metadata
