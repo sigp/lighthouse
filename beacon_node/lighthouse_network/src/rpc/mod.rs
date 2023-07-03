@@ -225,6 +225,7 @@ where
             | FromSwarm::NewExternalAddrCandidate(_)
             | FromSwarm::ExternalAddrExpired(_)
             | FromSwarm::ExternalAddrConfirmed(_) => {
+                // TODO(@divma) check this
                 // Rpc Behaviour does not act on these swarm events. We use a comprehensive match
                 // statement tu ensure future events are dealt with appropiately.
             }

@@ -117,7 +117,7 @@ pub fn load_private_key(config: &NetworkConfig, log: &slog::Logger) -> Keypair {
 
     // if a key could not be loaded from disk, generate a new one and save it
     let local_private_key = Keypair::generate_secp256k1();
-    // TODO: generate the spcific key type first and then convert it to the wrapper type. This
+    // TODO(@divma): generate the spcific key type first and then convert it to the wrapper type. This
     // avoids the clone and the awkward double conversion
     if let Ok(key) = local_private_key.clone().try_into_secp256k1() {
         let _ = std::fs::create_dir_all(&config.network_dir);

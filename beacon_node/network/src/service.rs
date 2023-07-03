@@ -483,7 +483,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                 self.send_to_router(RouterMessage::StatusPeer(peer_id));
             }
             NetworkEvent::PeerConnectedIncoming(_) => {
-                // No action required for these events.
+                // No action required for this event.
             }
             NetworkEvent::PeerDisconnected(peer_id) => {
                 self.send_to_router(RouterMessage::PeerDisconnected(peer_id));

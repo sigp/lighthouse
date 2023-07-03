@@ -360,6 +360,8 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                 )
                 .notify_handler_buffer_size(std::num::NonZeroUsize::new(7).expect("Not zero"))
                 .per_connection_event_buffer_size(4)
+                // TODO(@divma) lower than the default but still higher than the prev val.
+                // check this
                 .build(),
                 bandwidth,
             )

@@ -28,6 +28,8 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
         match event {
             // TODO(@divma): what's the difference between this event and the
             // handle_established_inbound/outbound_connection ?
+            // just checked the libp2p code. These happen at the same time. 
+            // We just need to pick which one is more benefitial to handle
             FromSwarm::ConnectionEstablished(ConnectionEstablished {
                 peer_id,
                 endpoint,
@@ -64,7 +66,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
         _local_addr: &libp2p::Multiaddr,
         _remote_addr: &libp2p::Multiaddr,
     ) -> Result<(), libp2p::swarm::ConnectionDenied> {
-        // TODO... is it guaranteed that the ip the peer is connecting from is in the _remote_addr?
+        // TODO(@divma) is it guaranteed that the ip the peer is connecting from is in the _remote_addr?
         todo!()
     }
 
@@ -76,7 +78,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
         _addresses: &[libp2p::Multiaddr],
         _effective_role: libp2p::core::Endpoint,
     ) -> Result<Vec<libp2p::Multiaddr>, libp2p::swarm::ConnectionDenied> {
-        // TODO:
+        // TODO(@divma) tired
         // - _effective_role: will probably be needed once we get quic
         // - _addresses: check if addresses to dial contain any banned ip
 
@@ -182,6 +184,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
         Poll::Pending
     }
 
+
     #[allow(unused)]
     fn handle_established_inbound_connection(
         &mut self,
@@ -190,7 +193,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
         local_addr: &libp2p::Multiaddr,
         remote_addr: &libp2p::Multiaddr,
     ) -> Result<libp2p::swarm::THandler<Self>, libp2p::swarm::ConnectionDenied> {
-        todo!()
+        // TODO(@divma) pick either this or the swarm event
     }
 
     #[allow(unused)]
@@ -201,7 +204,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
         addr: &libp2p::Multiaddr,
         role_override: libp2p::core::Endpoint,
     ) -> Result<libp2p::swarm::THandler<Self>, libp2p::swarm::ConnectionDenied> {
-        todo!()
+        // TODO(@divma) pick either this or the swarm event
     }
 }
 
