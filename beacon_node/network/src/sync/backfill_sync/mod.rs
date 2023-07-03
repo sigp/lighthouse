@@ -24,7 +24,8 @@ use std::collections::{
     HashMap, HashSet,
 };
 use std::sync::Arc;
-use types::{Epoch, EthSpec, SignedBeaconBlock};
+use store::AnchorInfo;
+use types::{Epoch, EthSpec, SignedBeaconBlock, Slot};
 
 /// Blocks are downloaded in batches from peers. This constant specifies how many epochs worth of
 /// blocks per batch are requested _at most_. A batch may request less blocks to account for
@@ -46,6 +47,11 @@ const MAX_BATCH_PROCESSING_ATTEMPTS: u8 = 10;
 
 /// Custom configuration for the batch object.
 struct BackFillBatchConfig {}
+
+pub trait WhatBackfillNeeds {
+    fn get_anchor_info(&self) -> Option<AnchorInfo>;
+    fn genesis_backfill_slot(&self) -> Slot;
+}
 
 impl BatchConfig for BackFillBatchConfig {
     fn max_batch_download_attempts() -> u8 {
@@ -99,7 +105,20 @@ pub enum BackFillError {
     Paused,
 }
 
-pub struct BackFillSync<T: BeaconChainTypes> {
+impl<T: BeaconChainTypes> WhatBackfillNeeds for Arc<BeaconChain<T>> {
+    fn get_anchor_info(&self) -> Option<AnchorInfo> {
+        self.store.get_anchor_info()
+    }
+
+    fn genesis_backfill_slot(&self) -> Slot {
+        self.genesis_backfill_slot
+    }
+}
+
+pub struct BackFillSync<T: BeaconChainTypes, BC = Arc<BeaconChain<T>>>
+where
+    BC: WhatBackfillNeeds,
+{
     /// Keeps track of the current progress of the backfill.
     /// This only gets refreshed from the beacon chain if we enter a failed state.
     current_start: BatchId,
@@ -137,7 +156,7 @@ pub struct BackFillSync<T: BeaconChainTypes> {
     restart_failed_sync: bool,
 
     /// Reference to the beacon chain to obtain initial starting points for the backfill sync.
-    beacon_chain: Arc<BeaconChain<T>>,
+    beacon_chain: BC,
 
     /// Reference to the network globals in order to obtain valid peers to backfill blocks from
     /// (i.e synced peers).
@@ -147,9 +166,9 @@ pub struct BackFillSync<T: BeaconChainTypes> {
     log: slog::Logger,
 }
 
-impl<T: BeaconChainTypes> BackFillSync<T> {
+impl<T: BeaconChainTypes, BC: WhatBackfillNeeds> BackFillSync<T, BC> {
     pub fn new(
-        beacon_chain: Arc<BeaconChain<T>>,
+        beacon_chain: BC,
         network_globals: Arc<NetworkGlobals<T::EthSpec>>,
         log: slog::Logger,
     ) -> Self {
@@ -159,9 +178,9 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
         // If, for some reason a backfill has already been completed (or we've used a trusted
         // genesis root) then backfill has been completed.
 
-        let (state, current_start) = match beacon_chain.store.get_anchor_info() {
+        let (state, current_start) = match beacon_chain.get_anchor_info() {
             Some(anchor_info) => {
-                if anchor_info.block_backfill_complete(beacon_chain.genesis_backfill_slot) {
+                if anchor_info.block_backfill_complete(beacon_chain.genesis_backfill_slot()) {
                     (BackFillState::Completed, Epoch::new(0))
                 } else {
                     (
@@ -287,7 +306,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
             remaining: self
                 .current_start
                 .start_slot(T::EthSpec::slots_per_epoch())
-                .saturating_sub(self.beacon_chain.genesis_backfill_slot)
+                .saturating_sub(self.beacon_chain.genesis_backfill_slot())
                 .as_usize(),
         })
     }
@@ -1101,7 +1120,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                 if batch_id
                     == self
                         .beacon_chain
-                        .genesis_backfill_slot
+                        .genesis_backfill_slot()
                         .epoch(T::EthSpec::slots_per_epoch())
                 {
                     self.last_batch_downloaded = true;
@@ -1117,7 +1136,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                 if batch_id
                     == self
                         .beacon_chain
-                        .genesis_backfill_slot
+                        .genesis_backfill_slot()
                         .epoch(T::EthSpec::slots_per_epoch())
                 {
                     self.last_batch_downloaded = true;
@@ -1135,8 +1154,8 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
     /// This errors if the beacon chain indicates that backfill sync has already completed or is
     /// not required.
     fn reset_start_epoch(&mut self) -> Result<(), ResetEpochError> {
-        if let Some(anchor_info) = self.beacon_chain.store.get_anchor_info() {
-            if anchor_info.block_backfill_complete(self.beacon_chain.genesis_backfill_slot) {
+        if let Some(anchor_info) = self.beacon_chain.get_anchor_info() {
+            if anchor_info.block_backfill_complete(self.beacon_chain.genesis_backfill_slot()) {
                 Err(ResetEpochError::SyncCompleted)
             } else {
                 self.current_start = anchor_info
@@ -1154,14 +1173,14 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
         if self.current_start
             == self
                 .beacon_chain
-                .genesis_backfill_slot
+                .genesis_backfill_slot()
                 .epoch(T::EthSpec::slots_per_epoch())
         {
             // Check that the beacon chain agrees
 
-            if let Some(anchor_info) = self.beacon_chain.store.get_anchor_info() {
+            if let Some(anchor_info) = self.beacon_chain.get_anchor_info() {
                 // Conditions that we have completed a backfill sync
-                if anchor_info.block_backfill_complete(self.beacon_chain.genesis_backfill_slot) {
+                if anchor_info.block_backfill_complete(self.beacon_chain.genesis_backfill_slot()) {
                     return true;
                 } else {
                     error!(self.log, "Backfill out of sync with beacon chain");
@@ -1187,4 +1206,12 @@ enum ResetEpochError {
     SyncCompleted,
     /// Backfill is not required.
     NotRequired,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn jacks_hack() {}
 }
