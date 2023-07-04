@@ -19,10 +19,10 @@ use std::path::Path;
 use std::sync::Arc;
 use task_executor::TaskExecutor;
 use types::{
-    attestation::Error as AttestationError, graffiti::GraffitiString, AbstractSidecar, Address,
-    AggregateAndProof, Attestation, BeaconBlock, ChainSpec, ContributionAndProof, Domain, Epoch,
-    EthSpec, Fork, Graffiti, Hash256, Keypair, PublicKeyBytes, SelectionProof, SidecarList,
-    Signature, SignedAggregateAndProof, SignedBeaconBlock, SignedContributionAndProof, SignedRoot,
+    attestation::Error as AttestationError, graffiti::GraffitiString, Address, AggregateAndProof,
+    Attestation, BeaconBlock, ChainSpec, ContributionAndProof, Domain, Epoch, EthSpec, Fork,
+    Graffiti, Hash256, Keypair, PublicKeyBytes, SelectionProof, Sidecar, SidecarList, Signature,
+    SignedAggregateAndProof, SignedBeaconBlock, SignedContributionAndProof, SignedRoot,
     SignedSidecar, SignedSidecarList, SignedValidatorRegistrationData, SignedVoluntaryExit, Slot,
     SyncAggregatorSelectionData, SyncCommitteeContribution, SyncCommitteeMessage,
     SyncSelectionProof, SyncSubnetId, ValidatorRegistrationData, VoluntaryExit,

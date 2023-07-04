@@ -1302,7 +1302,7 @@ mod tests {
 
 pub trait BlockProposal<T: EthSpec> {
     type Payload: AbstractExecPayload<T>;
-    type Sidecar: AbstractSidecar<T>;
+    type Sidecar: Sidecar<T>;
 }
 
 pub struct FullBlockProposal {}
@@ -1491,10 +1491,10 @@ impl<T: EthSpec, B: BlockProposal<T>> ForkVersionDeserialize for BeaconBlockAndB
         fork_name: ForkName,
     ) -> Result<Self, D::Error> {
         #[derive(Deserialize)]
-        #[serde(bound = "T: EthSpec, Sidecar: AbstractSidecar<T>")]
-        struct Helper<T: EthSpec, Sidecar: AbstractSidecar<T>> {
+        #[serde(bound = "T: EthSpec, S: Sidecar<T>")]
+        struct Helper<T: EthSpec, S: Sidecar<T>> {
             block: serde_json::Value,
-            blob_sidecars: SidecarList<T, Sidecar>,
+            blob_sidecars: SidecarList<T, S>,
         }
         let helper: Helper<T, B::Sidecar> =
             serde_json::from_value(value).map_err(serde::de::Error::custom)?;
@@ -1532,10 +1532,10 @@ impl<T: EthSpec, B: BlockProposal<T>> ForkVersionDeserialize
         fork_name: ForkName,
     ) -> Result<Self, D::Error> {
         #[derive(Deserialize)]
-        #[serde(bound = "T: EthSpec, Sidecar: AbstractSidecar<T>,")]
-        struct Helper<T: EthSpec, Sidecar: AbstractSidecar<T>> {
+        #[serde(bound = "T: EthSpec, S: Sidecar<T>")]
+        struct Helper<T: EthSpec, S: Sidecar<T>> {
             blinded_block: serde_json::Value,
-            blinded_blob_sidecars: SidecarList<T, Sidecar>,
+            blinded_blob_sidecars: SidecarList<T, S>,
         }
         let helper: Helper<T, B::Sidecar> =
             serde_json::from_value(value).map_err(serde::de::Error::custom)?;

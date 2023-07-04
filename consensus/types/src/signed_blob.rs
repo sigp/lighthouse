@@ -1,6 +1,6 @@
 use crate::{
-    test_utils::TestRandom, AbstractSidecar, BlobSidecar, ChainSpec, Domain, EthSpec, Fork,
-    Hash256, Signature, SignedRoot, SigningData,
+    test_utils::TestRandom, BlobSidecar, ChainSpec, Domain, EthSpec, Fork, Hash256, Sidecar,
+    Signature, SignedRoot, SigningData,
 };
 use bls::PublicKey;
 use derivative::Derivative;
@@ -26,11 +26,11 @@ use tree_hash_derive::TreeHash;
     Derivative,
     arbitrary::Arbitrary,
 )]
-#[serde(bound = "T: EthSpec, Sidecar: AbstractSidecar<T>")]
-#[arbitrary(bound = "T: EthSpec, Sidecar: AbstractSidecar<T>")]
-#[derivative(Hash(bound = "T: EthSpec, Sidecar: AbstractSidecar<T>"))]
-pub struct SignedSidecar<T: EthSpec, Sidecar: AbstractSidecar<T>> {
-    pub message: Arc<Sidecar>,
+#[serde(bound = "T: EthSpec, S: Sidecar<T>")]
+#[arbitrary(bound = "T: EthSpec, S: Sidecar<T>")]
+#[derivative(Hash(bound = "T: EthSpec, S: Sidecar<T>"))]
+pub struct SignedSidecar<T: EthSpec, S: Sidecar<T>> {
+    pub message: Arc<S>,
     pub signature: Signature,
     #[ssz(skip_serializing, skip_deserializing)]
     #[tree_hash(skip_hashing)]
@@ -39,8 +39,8 @@ pub struct SignedSidecar<T: EthSpec, Sidecar: AbstractSidecar<T>> {
     pub _phantom: PhantomData<T>,
 }
 
-impl<T: EthSpec, Sidecar: AbstractSidecar<T>> SignedSidecar<T, Sidecar> {
-    pub fn new(message: Arc<Sidecar>, signature: Signature) -> SignedSidecar<T, Sidecar> {
+impl<T: EthSpec, S: Sidecar<T>> SignedSidecar<T, S> {
+    pub fn new(message: Arc<S>, signature: Signature) -> SignedSidecar<T, S> {
         Self {
             message,
             signature,
@@ -49,7 +49,7 @@ impl<T: EthSpec, Sidecar: AbstractSidecar<T>> SignedSidecar<T, Sidecar> {
     }
 }
 
-/// List of Signed Sidecars that implements `AbstractSidecar`.
+/// List of Signed Sidecars that implements `Sidecar`.
 pub type SignedSidecarList<T, Sidecar> =
     VariableList<SignedSidecar<T, Sidecar>, <T as EthSpec>::MaxBlobsPerBlock>;
 

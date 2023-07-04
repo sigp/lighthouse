@@ -20,7 +20,7 @@ use test_random_derive::TestRandom;
 use crate::test_utils::TestRandom;
 use crate::{Blob, ChainSpec, Domain, EthSpec, Fork, Hash256, SignedBlobSidecar, SignedRoot, Slot};
 
-pub trait AbstractSidecar<E: EthSpec>:
+pub trait Sidecar<E: EthSpec>:
     serde::Serialize
     + DeserializeOwned
     + Encode
@@ -86,7 +86,7 @@ pub struct BlobSidecar<T: EthSpec> {
     pub kzg_proof: KzgProof,
 }
 
-impl<E: EthSpec> AbstractSidecar<E> for BlobSidecar<E> {
+impl<E: EthSpec> Sidecar<E> for BlobSidecar<E> {
     fn slot(&self) -> Slot {
         self.slot
     }
@@ -211,7 +211,7 @@ pub struct BlindedBlobSidecar {
 
 impl SignedRoot for BlindedBlobSidecar {}
 
-impl<E: EthSpec> AbstractSidecar<E> for BlindedBlobSidecar {
+impl<E: EthSpec> Sidecar<E> for BlindedBlobSidecar {
     fn slot(&self) -> Slot {
         self.slot
     }
