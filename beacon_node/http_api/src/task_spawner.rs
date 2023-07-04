@@ -15,7 +15,7 @@ impl Priority {
     fn work_event<E: EthSpec>(&self, process_fn: BlockingOrAsync) -> WorkEvent<E> {
         let work = match self {
             Priority::P0 => Work::ApiRequestP0(process_fn),
-            Priority::P1 => unimplemented!("P1"),
+            Priority::P1 => Work::ApiRequestP1(process_fn),
         };
         WorkEvent {
             drop_during_sync: false,
