@@ -99,7 +99,6 @@ pub mod sqlite;
 
 pub mod blob_sidecar;
 pub mod signed_blob;
-pub mod transaction;
 
 use ethereum_types::{H160, H256};
 

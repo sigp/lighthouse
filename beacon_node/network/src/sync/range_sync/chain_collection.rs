@@ -465,10 +465,10 @@ impl<T: BeaconChainTypes, C: BlockStorage> ChainCollection<T, C> {
         network: &mut SyncNetworkContext<T>,
     ) {
         let id = SyncingChain::<T>::id(&target_head_root, &target_head_slot);
-        let (collection, is_finalized) = if let RangeSyncType::Finalized = sync_type {
-            (&mut self.finalized_chains, true)
+        let collection = if let RangeSyncType::Finalized = sync_type {
+            &mut self.finalized_chains
         } else {
-            (&mut self.head_chains, false)
+            &mut self.head_chains
         };
         match collection.entry(id) {
             Entry::Occupied(mut entry) => {
@@ -493,7 +493,6 @@ impl<T: BeaconChainTypes, C: BlockStorage> ChainCollection<T, C> {
                     target_head_slot,
                     target_head_root,
                     peer,
-                    is_finalized,
                     &self.log,
                 );
                 debug_assert_eq!(new_chain.get_id(), id);

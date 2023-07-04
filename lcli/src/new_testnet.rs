@@ -1,7 +1,7 @@
 use account_utils::eth2_keystore::keypair_from_secret;
 use clap::ArgMatches;
 use clap_utils::{parse_optional, parse_required, parse_ssz_optional};
-use eth2_network_config::{Eth2NetworkConfig, TRUSTED_SETUP};
+use eth2_network_config::{get_trusted_setup, Eth2NetworkConfig};
 use eth2_wallet::bip39::Seed;
 use eth2_wallet::bip39::{Language, Mnemonic};
 use eth2_wallet::{recover_validator_secret_from_mnemonic, KeyType};
@@ -199,8 +199,9 @@ pub fn run<T: EthSpec>(testnet_dir_path: PathBuf, matches: &ArgMatches) -> Resul
     let kzg_trusted_setup = if let Some(epoch) = spec.deneb_fork_epoch {
         // Only load the trusted setup if the deneb fork epoch is set
         if epoch != Epoch::max_value() {
-            let trusted_setup: TrustedSetup = serde_json::from_reader(TRUSTED_SETUP)
-                .map_err(|e| format!("Unable to read trusted setup file: {}", e))?;
+            let trusted_setup: TrustedSetup =
+                serde_json::from_reader(get_trusted_setup::<T::Kzg>())
+                    .map_err(|e| format!("Unable to read trusted setup file: {}", e))?;
             Some(trusted_setup)
         } else {
             None

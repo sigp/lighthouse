@@ -3,7 +3,7 @@ use crate::metrics;
 use beacon_chain::blob_verification::{AsBlock, BlockWrapper};
 use beacon_chain::validator_monitor::{get_block_delay_ms, timestamp_now};
 use beacon_chain::{AvailabilityProcessingStatus, NotifyExecutionLayer};
-use beacon_chain::{BeaconChain, BeaconChainTypes, BlockError, CountUnrealized};
+use beacon_chain::{BeaconChain, BeaconChainTypes, BlockError};
 use eth2::types::{BlindedBlockProposal, FullBlockProposal, SignedBlockContents};
 use execution_layer::ProvenancedPayload;
 use lighthouse_network::PubsubMessage;
@@ -94,12 +94,7 @@ pub async fn publish_block<T: BeaconChainTypes>(
     let slot = block_clone.message().slot();
     let proposer_index = block_clone.message().proposer_index();
     match chain
-        .process_block(
-            block_root,
-            wrapped_block,
-            CountUnrealized::True,
-            NotifyExecutionLayer::Yes,
-        )
+        .process_block(block_root, wrapped_block, NotifyExecutionLayer::Yes)
         .await
     {
         Ok(AvailabilityProcessingStatus::Imported(root)) => {

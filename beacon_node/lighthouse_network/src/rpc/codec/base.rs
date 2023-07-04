@@ -217,8 +217,7 @@ mod tests {
         let mut buf = BytesMut::new();
         buf.extend_from_slice(&message);
 
-        let snappy_protocol_id =
-            ProtocolId::new(Protocol::Status, Version::V1, Encoding::SSZSnappy);
+        let snappy_protocol_id = ProtocolId::new(SupportedProtocol::StatusV1, Encoding::SSZSnappy);
 
         let fork_context = Arc::new(fork_context(ForkName::Base));
         let mut snappy_outbound_codec = SSZSnappyOutboundCodec::<Spec>::new(
@@ -252,8 +251,7 @@ mod tests {
         // Insert length-prefix
         uvi_codec.encode(len, &mut dst).unwrap();
 
-        let snappy_protocol_id =
-            ProtocolId::new(Protocol::Status, Version::V1, Encoding::SSZSnappy);
+        let snappy_protocol_id = ProtocolId::new(SupportedProtocol::StatusV1, Encoding::SSZSnappy);
 
         let fork_context = Arc::new(fork_context(ForkName::Base));
         let mut snappy_outbound_codec = SSZSnappyOutboundCodec::<Spec>::new(
@@ -280,8 +278,7 @@ mod tests {
             dst
         }
 
-        let protocol_id =
-            ProtocolId::new(Protocol::BlocksByRange, Version::V1, Encoding::SSZSnappy);
+        let protocol_id = ProtocolId::new(SupportedProtocol::BlocksByRangeV1, Encoding::SSZSnappy);
 
         // Response limits
         let fork_context = Arc::new(fork_context(ForkName::Base));

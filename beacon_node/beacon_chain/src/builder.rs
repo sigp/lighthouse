@@ -20,7 +20,7 @@ use crate::{
 };
 use eth1::Config as Eth1Config;
 use execution_layer::ExecutionLayer;
-use fork_choice::{CountUnrealized, ForkChoice, ResetPayloadStatuses};
+use fork_choice::{ForkChoice, ResetPayloadStatuses};
 use futures::channel::mpsc::Sender;
 use kzg::{Kzg, TrustedSetup};
 use operation_pool::{OperationPool, PersistedOperationPool};
@@ -701,7 +701,6 @@ where
                 store.clone(),
                 Some(current_slot),
                 &self.spec,
-                CountUnrealized::True,
             )?;
         }
 

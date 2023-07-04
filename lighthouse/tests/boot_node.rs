@@ -39,7 +39,7 @@ impl CommandLineTest {
     }
 
     fn run_with_ip(&mut self) -> CompletedTest<BootNodeConfigSerialization> {
-        self.cmd.arg(IP_ADDRESS);
+        self.cmd.arg("--enr-address").arg(IP_ADDRESS);
         self.run()
     }
 }
@@ -67,7 +67,13 @@ fn port_flag() {
         .flag("port", Some(port.to_string().as_str()))
         .run_with_ip()
         .with_config(|config| {
-            assert_eq!(config.listen_socket.port(), port);
+            assert_eq!(
+                config
+                    .ipv4_listen_socket
+                    .expect("Bootnode should be listening on IPv4")
+                    .port(),
+                port
+            );
         })
 }
 
@@ -78,7 +84,13 @@ fn listen_address_flag() {
         .flag("listen-address", Some("127.0.0.2"))
         .run_with_ip()
         .with_config(|config| {
-            assert_eq!(config.listen_socket.ip(), addr);
+            assert_eq!(
+                config
+                    .ipv4_listen_socket
+                    .expect("Bootnode should be listening on IPv4")
+                    .ip(),
+                &addr
+            );
         });
 }
 

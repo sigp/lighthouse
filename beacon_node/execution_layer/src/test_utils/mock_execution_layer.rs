@@ -43,12 +43,12 @@ impl<T: EthSpec> MockExecutionLayer<T> {
         executor: TaskExecutor,
         terminal_block: u64,
         shanghai_time: Option<u64>,
-        deneb_time: Option<u64>,
+        cancun_time: Option<u64>,
         builder_threshold: Option<u128>,
         jwt_key: Option<JwtKey>,
         spec: ChainSpec,
         builder_url: Option<SensitiveUrl>,
-        kzg: Option<Kzg>,
+        kzg: Option<Kzg<T::Kzg>>,
     ) -> Self {
         let handle = executor.handle().unwrap();
 
@@ -60,7 +60,7 @@ impl<T: EthSpec> MockExecutionLayer<T> {
             terminal_block,
             spec.terminal_block_hash,
             shanghai_time,
-            deneb_time,
+            cancun_time,
             kzg,
         );
 
@@ -204,7 +204,7 @@ impl<T: EthSpec> MockExecutionLayer<T> {
             Some(payload.clone())
         );
 
-        let status = self.el.notify_new_payload(&payload).await.unwrap();
+        let status = self.el.notify_new_payload(&payload, None).await.unwrap();
         assert_eq!(status, PayloadStatus::Valid);
 
         // Use junk values for slot/head-root to ensure there is no payload supplied.

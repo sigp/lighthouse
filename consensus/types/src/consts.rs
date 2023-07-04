@@ -34,7 +34,6 @@ pub mod deneb {
         .expect("should initialize BLS_MODULUS");
         pub static ref MIN_EPOCHS_FOR_BLOB_SIDECARS_REQUESTS: Epoch = Epoch::from(4096_u64);
     }
-    pub const BLOB_TX_TYPE: u8 = 3;
     pub const VERSIONED_HASH_VERSION_KZG: u8 = 1;
     pub const BLOB_SIDECAR_SUBNET_COUNT: u64 = 6;
 }
