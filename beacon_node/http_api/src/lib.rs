@@ -18,6 +18,7 @@ mod standard_block_rewards;
 mod state_id;
 mod sync_committee_rewards;
 mod sync_committees;
+mod task_spawner;
 pub mod test_utils;
 mod ui;
 mod validator_inclusion;
