@@ -1433,8 +1433,5 @@ mod tests {
                 }
             }
         }
-        let network_msg = network_rx.try_recv().unwrap();
-
-        slog::info!(log, "network got"; "msg" => ?network_msg);
     }
 }
