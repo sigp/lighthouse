@@ -370,7 +370,7 @@ impl DuplicateCache {
 #[derivative(Debug(bound = "T: BeaconChainTypes"))]
 pub struct WorkEvent<T: BeaconChainTypes> {
     drop_during_sync: bool,
-    work: Work<T>,
+    pub work: Work<T>, // this test will never be merged, this is fine
 }
 
 impl<T: BeaconChainTypes> WorkEvent<T> {

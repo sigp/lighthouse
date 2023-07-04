@@ -70,6 +70,7 @@ impl BatchConfig for BackFillBatchConfig {
 }
 
 /// Return type when attempting to start the backfill sync process.
+#[derive(Debug)]
 pub enum SyncStart {
     /// The chain started syncing or is already syncing.
     Syncing {
@@ -83,6 +84,7 @@ pub enum SyncStart {
 }
 
 /// A standard result from calling public functions on [`BackFillSync`].
+#[derive(Debug)]
 pub enum ProcessResult {
     /// The call was successful.
     Successful,
@@ -1210,8 +1212,229 @@ enum ResetEpochError {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use std::sync::Arc;
 
-    #[test]
-    fn jacks_hack() {}
+    use beacon_chain::parking_lot::RwLock;
+    use beacon_chain::{builder::Witness, eth1_chain::CachingEth1Backend};
+    use lighthouse_network::{
+        libp2p::{
+            core::connection::ConnectionId,
+            swarm::{
+                behaviour::{ConnectionEstablished, FromSwarm},
+                NetworkBehaviour,
+            },
+        },
+        ConnectedPoint, PeerManager,
+    };
+
+    use crate::{beacon_processor::Work, sync::manager::RequestId as SyncReqId};
+    use slog::Drain;
+    use slot_clock::TestingSlotClock;
+    use store::MemoryStore;
+    use types::test_utils::{SeedableRng, TestRandom, XorShiftRng};
+    use types::MinimalEthSpec as E; // NOTE: this has an epoch duration of 8 slots. This is
+                                    // important
+
+    use crate::{service::RequestId, NetworkMessage};
+
+    use super::*;
+    // copied from somwhere else
+    fn build_log(level: slog::Level, enabled: bool) -> slog::Logger {
+        let decorator = slog_term::TermDecorator::new().build();
+        let drain = slog_term::FullFormat::new(decorator).build().fuse();
+        let drain = slog_async::Async::new(drain).build().fuse();
+
+        if enabled {
+            slog::Logger::root(drain.filter_level(level).fuse(), slog::o!())
+        } else {
+            slog::Logger::root(drain.filter(|_| false).fuse(), slog::o!())
+        }
+    }
+
+    #[derive(Clone)]
+    struct BC(Arc<RwLock<(AnchorInfo, Slot)>>);
+
+    impl WhatBackfillNeeds for BC {
+        fn get_anchor_info(&self) -> Option<AnchorInfo> {
+            Some(self.0.read().0.clone())
+        }
+
+        fn genesis_backfill_slot(&self) -> Slot {
+            self.0.read().1
+        }
+    }
+
+    impl BC {
+        // pretend batches were processed.
+        fn set_oldest_block(&mut self, slot: Slot) {
+            let current_anchor = &mut self.0.write().0;
+            current_anchor.oldest_block_slot = current_anchor.oldest_block_slot.min(slot);
+        }
+    }
+
+    type TestBeaconChainType =
+        Witness<TestingSlotClock, CachingEth1Backend<E>, E, MemoryStore<E>, MemoryStore<E>>;
+
+    const EXTERNAL_ADDR: &str = "/ip4/181.53.8.159/tcp/9000";
+
+    // necessary evils
+    fn connect_synced_peer(
+        synced_peer: PeerId,
+        globals: Arc<NetworkGlobals<E>>,
+        log: &slog::Logger,
+    ) {
+        // we need the peer to be connected so we need a peer manager (only one who can make peers
+        // connected) jfc we guarded this well
+        let config = lighthouse_network::peer_manager::config::Config::default();
+        let mut pm = PeerManager::new(config, globals.clone(), &log).unwrap();
+
+        // make it connected
+        let endpoint = &ConnectedPoint::Listener {
+            local_addr: EXTERNAL_ADDR.parse().unwrap(),
+            send_back_addr: EXTERNAL_ADDR.parse().unwrap(),
+        };
+        let connection_id = ConnectionId::new(1);
+        pm.on_swarm_event(FromSwarm::ConnectionEstablished(ConnectionEstablished {
+            peer_id: synced_peer,
+            connection_id,
+            endpoint,
+            failed_addresses: &[],
+            other_established: 0,
+        }));
+        assert!(globals.peers.read().is_connected(&synced_peer));
+
+        // make it synced
+        assert!(globals
+            .peers
+            .write()
+            .update_sync_status(
+                &synced_peer,
+                lighthouse_network::SyncStatus::Advanced {
+                    info: lighthouse_network::SyncInfo {
+                        head_slot: Slot::new(10_000),
+                        head_root: types::Hash256::random(),
+                        finalized_epoch: types::Epoch::new(1_000),
+                        finalized_root: types::Hash256::random(),
+                    },
+                },
+            )
+            .unwrap());
+
+        assert!(globals.peers.read().synced_peers().next().is_some());
+    }
+
+    #[tokio::test]
+    async fn jacks_hack() {
+        // necessary stuff
+        let log = build_log(slog::Level::Trace, true);
+
+        // create the network globals and give backfill some peers to use
+        let synced_peer = PeerId::random();
+        let network_globals = Arc::new(NetworkGlobals::new_test_globals(vec![synced_peer], &log));
+
+        connect_synced_peer(synced_peer, network_globals.clone(), &log);
+
+        // initial state of backfilling
+        let initial_anchor_info = AnchorInfo {
+            anchor_slot: Slot::new(0),
+            oldest_block_slot: Slot::new(28),
+            oldest_block_parent: types::Hash256::zero(),
+            state_upper_limit: Slot::new(0),
+            state_lower_limit: Slot::new(0),
+        };
+        let initial_genesis_backfill_slot = Slot::new(17);
+        let mut beacon_chain = BC(Arc::new(RwLock::new((
+            initial_anchor_info,
+            initial_genesis_backfill_slot,
+        ))));
+
+        // craft a sync network context
+        // `network_rx` is where we will know what BFS is sending to the network. `processor_rx` is
+        // where we know what BFS sends to the beacon processor.
+        let (network_tx, mut network_rx) = tokio::sync::mpsc::unbounded_channel();
+        let (processor_tx, mut processor_rx) = tokio::sync::mpsc::channel(3);
+        let beacon_processor_send = crate::beacon_processor::BeaconProcessorSend(processor_tx);
+        let mut sync_context = SyncNetworkContext::new(
+            network_tx,
+            network_globals.clone(),
+            beacon_processor_send,
+            log.clone(),
+        );
+        let cx = &mut sync_context; // am lazy
+
+        // create and start backfill;
+        let mut backfill = BackFillSync::<TestBeaconChainType, BC>::new(
+            beacon_chain.clone(),
+            network_globals.clone(),
+            log.clone(),
+        );
+
+        /*
+         * Here the test starts
+         */
+
+        let initial_state = backfill.start(cx).unwrap();
+        slog::info!(log, "initial state"; "state" => ?initial_state);
+
+        let mut rng = XorShiftRng::from_seed([42; 16]);
+
+        loop {
+            tokio::select! {
+                Some(network_msg) = network_rx.recv() => {
+                    slog::info!(log, "got: request blocks");
+                    let NetworkMessage::SendRequest{ peer_id, request, request_id}= network_msg else { panic!("wrong message kind") };
+                    let RequestId::Sync(SyncReqId::BackFillSync { id }) = request_id else { panic!("wrong request kind") };
+                    // pretend to be a good peer and answer the request
+
+                    let lighthouse_network::Request::BlocksByRange(req) = request else { panic!("wrong request kind") };
+                    let batch_id = cx.backfill_sync_response(id, true).unwrap();
+                    let start_slot = *req.start_slot();
+                    let count = *req.count();
+
+                    // we are going to respond just with the first and last block, this is not relevant
+                    // here
+
+                    let first_block = SignedBeaconBlock::<E>::from_block(
+                        types::BeaconBlock::Base(types::BeaconBlockBase{slot: Slot::new(start_slot), ..<_>::random_for_test(&mut rng)}),
+                        types::Signature::random_for_test(&mut rng),
+                        );
+
+                    let last_block = SignedBeaconBlock::<E>::from_block(
+                        types::BeaconBlock::Base(types::BeaconBlockBase{slot: Slot::new(start_slot+count), ..<_>::random_for_test(&mut rng)}),
+                        types::Signature::random_for_test(&mut rng),
+                        );
+
+                    backfill.on_block_response(cx, batch_id, &peer_id, id, Some(Arc::new(first_block))).unwrap();
+                    backfill.on_block_response(cx, batch_id, &peer_id, id, Some(Arc::new(last_block))).unwrap();
+                    // signal the end of the peer's response
+                    backfill.on_block_response(cx, batch_id, &peer_id, id, None).unwrap();
+                }
+                Some(work_event) = processor_rx.recv() => {
+                    slog::info!(log, "got: process blocks");
+
+                    // receive the work the beacon processor would
+                    let Work::ChainSegment{ process_id, blocks } = work_event.work else { panic!( "wrong work kind" ) };
+                    let ChainSegmentProcessId::BackSyncBatchId(batch_id) = process_id else { panic!( "wrong process id" ) };
+
+                    // now we pretend that we processed the blocks and added them to the chain.
+                    for b in blocks {
+                        beacon_chain.set_oldest_block(b.slot());
+                    }
+                    let oldest_block = beacon_chain.get_anchor_info().unwrap().oldest_block_slot;
+                    slog::info!(log, "Backfill moved the chain to {oldest_block}");
+
+                    // and now we inform sync that the result was processed
+                    let result = backfill.on_batch_process_result(cx, batch_id, &BatchProcessResult::Success { was_non_empty: true }).unwrap();
+                    match result {
+                        ProcessResult::Successful => {},
+                        ProcessResult::SyncCompleted => break,
+                    }
+
+                }
+            }
+        }
+        let network_msg = network_rx.try_recv().unwrap();
+
+        slog::info!(log, "network got"; "msg" => ?network_msg);
+    }
 }
