@@ -151,6 +151,11 @@ pub mod altair {
         for index in &attesting_indices {
             let index = *index as usize;
 
+            // FIXME(sproul): could cache this in the EpochCache for faster lookup?
+            let validator = state.get_validator(index)?;
+            let validator_effective_balance = validator.effective_balance();
+            let validator_slashed = validator.slashed();
+
             for (flag_index, &weight) in PARTICIPATION_FLAG_WEIGHTS.iter().enumerate() {
                 let epoch_participation = state.get_epoch_participation_mut(
                     data.target.epoch,
@@ -168,13 +173,13 @@ pub mod altair {
                         proposer_reward_numerator
                             .safe_add_assign(state.get_base_reward(index)?.safe_mul(weight)?)?;
 
-                        if flag_index == TIMELY_TARGET_FLAG_INDEX {
-                            update_progressive_balances_on_attestation(
-                                state,
-                                data.target.epoch,
-                                index,
-                            )?;
-                        }
+                        update_progressive_balances_on_attestation(
+                            state,
+                            data.target.epoch,
+                            flag_index,
+                            validator_effective_balance,
+                            validator_slashed,
+                        )?;
                     }
                 }
             }

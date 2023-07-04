@@ -44,7 +44,7 @@ pub fn slash_validator<T: EthSpec>(
             .safe_div(spec.min_slashing_penalty_quotient_for_state(state))?,
     )?;
 
-    update_progressive_balances_on_slashing(state, slashed_index)?;
+    update_progressive_balances_on_slashing(state, slashed_index, validator_effective_balance)?;
 
     // Apply proposer and whistleblower rewards
     let proposer_index = ctxt.get_proposer_index(state, spec)? as usize;

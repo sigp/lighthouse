@@ -153,6 +153,7 @@ pub enum Error {
     TotalActiveBalanceDiffUninitialized,
     MissingImmutableValidator(usize),
     IndexNotSupported(usize),
+    InvalidFlagIndex(usize),
     MerkleTreeError(merkle_proof::MerkleTreeError),
 }
 

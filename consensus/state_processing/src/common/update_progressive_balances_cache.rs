@@ -62,15 +62,17 @@ pub fn initialize_progressive_balances_cache<E: EthSpec>(
 pub fn update_progressive_balances_on_attestation<T: EthSpec>(
     state: &mut BeaconState<T>,
     epoch: Epoch,
-    validator_index: usize,
+    flag_index: usize,
+    validator_effective_balance: u64,
+    validator_slashed: bool,
 ) -> Result<(), BlockProcessingError> {
     if is_progressive_balances_enabled(state) {
-        let validator = state.get_validator(validator_index)?;
-        if !validator.slashed() {
-            let validator_effective_balance = validator.effective_balance();
-            state
-                .progressive_balances_cache_mut()
-                .on_new_target_attestation(epoch, validator_effective_balance)?;
+        if !validator_slashed {
+            state.progressive_balances_cache_mut().on_new_attestation(
+                epoch,
+                flag_index,
+                validator_effective_balance,
+            )?;
         }
     }
     Ok(())
@@ -80,21 +82,22 @@ pub fn update_progressive_balances_on_attestation<T: EthSpec>(
 pub fn update_progressive_balances_on_slashing<T: EthSpec>(
     state: &mut BeaconState<T>,
     validator_index: usize,
+    validator_effective_balance: u64,
 ) -> Result<(), BlockProcessingError> {
     if is_progressive_balances_enabled(state) {
-        let previous_epoch_participation = state.previous_epoch_participation()?;
-        let is_previous_epoch_target_attester =
-            is_target_attester_in_epoch::<T>(previous_epoch_participation, validator_index)?;
+        let previous_epoch_participation = *state
+            .previous_epoch_participation()?
+            .get(validator_index)
+            .ok_or(BeaconStateError::UnknownValidator(validator_index))?;
 
-        let current_epoch_participation = state.current_epoch_participation()?;
-        let is_current_epoch_target_attester =
-            is_target_attester_in_epoch::<T>(current_epoch_participation, validator_index)?;
-
-        let validator_effective_balance = state.get_effective_balance(validator_index)?;
+        let current_epoch_participation = *state
+            .current_epoch_participation()?
+            .get(validator_index)
+            .ok_or(BeaconStateError::UnknownValidator(validator_index))?;
 
         state.progressive_balances_cache_mut().on_slashing(
-            is_previous_epoch_target_attester,
-            is_current_epoch_target_attester,
+            previous_epoch_participation,
+            current_epoch_participation,
             validator_effective_balance,
         )?;
     }
@@ -132,16 +135,4 @@ pub fn update_progressive_balances_metrics(
     );
 
     Ok(())
-}
-
-fn is_target_attester_in_epoch<T: EthSpec>(
-    epoch_participation: &VList<ParticipationFlags, T::ValidatorRegistryLimit>,
-    validator_index: usize,
-) -> Result<bool, BlockProcessingError> {
-    let participation_flags = epoch_participation
-        .get(validator_index)
-        .ok_or(BeaconStateError::UnknownValidator(validator_index))?;
-    participation_flags
-        .has_flag(TIMELY_TARGET_FLAG_INDEX)
-        .map_err(|e| e.into())
 }

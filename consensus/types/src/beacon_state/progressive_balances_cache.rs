@@ -1,5 +1,8 @@
 use crate::beacon_state::balance::Balance;
-use crate::{BeaconState, BeaconStateError, ChainSpec, Epoch, EthSpec};
+use crate::{
+    consts::altair::NUM_FLAG_INDICES, BeaconState, BeaconStateError, ChainSpec, Epoch, EthSpec,
+    ParticipationFlags,
+};
 use arbitrary::Arbitrary;
 use safe_arith::SafeArith;
 use serde_derive::{Deserialize, Serialize};
@@ -17,21 +20,114 @@ pub struct ProgressiveBalancesCache {
 #[derive(Debug, PartialEq, Arbitrary, Clone)]
 struct Inner {
     pub current_epoch: Epoch,
-    pub previous_epoch_target_attesting_balance: Balance,
-    pub current_epoch_target_attesting_balance: Balance,
+    pub previous_epoch_cache: EpochTotalBalances,
+    pub current_epoch_cache: EpochTotalBalances,
+}
+
+/// Caches the participation values for one epoch (either the previous or current).
+#[derive(PartialEq, Debug, Clone, Arbitrary)]
+pub struct EpochTotalBalances {
+    /// Stores the sum of the balances for all validators in `self.unslashed_participating_indices`
+    /// for all flags in `NUM_FLAG_INDICES`.
+    ///
+    /// A flag balance is only incremented if a validator is in that flag set.
+    total_flag_balances: [Balance; NUM_FLAG_INDICES],
+    /// Stores the sum of all balances of all validators in `self.unslashed_participating_indices`
+    /// (regardless of which flags are set).
+    total_active_balance: Balance,
+}
+
+impl EpochTotalBalances {
+    pub fn new(spec: &ChainSpec) -> Self {
+        let zero_balance = Balance::zero(spec.effective_balance_increment);
+
+        Self {
+            total_flag_balances: [zero_balance; NUM_FLAG_INDICES],
+            total_active_balance: zero_balance,
+        }
+    }
+
+    /// Returns the total balance of attesters who have `flag_index` set.
+    pub fn total_flag_balance(&self, flag_index: usize) -> Result<u64, BeaconStateError> {
+        self.total_flag_balances
+            .get(flag_index)
+            .map(Balance::get)
+            .ok_or(BeaconStateError::InvalidFlagIndex(flag_index))
+    }
+
+    /// Returns the raw total balance of attesters who have `flag_index` set.
+    pub fn total_flag_balance_raw(&self, flag_index: usize) -> Result<Balance, BeaconStateError> {
+        self.total_flag_balances
+            .get(flag_index)
+            .copied()
+            .ok_or(BeaconStateError::InvalidFlagIndex(flag_index))
+    }
+
+    pub fn on_new_attestation(
+        &mut self,
+        flag_index: usize,
+        validator_effective_balance: u64,
+    ) -> Result<(), BeaconStateError> {
+        let mut balance = self
+            .total_flag_balances
+            .get_mut(flag_index)
+            .ok_or(BeaconStateError::InvalidFlagIndex(flag_index))?;
+        balance.safe_add_assign(validator_effective_balance)?;
+        Ok(())
+    }
+
+    pub fn on_slashing(
+        &mut self,
+        participation_flags: ParticipationFlags,
+        validator_effective_balance: u64,
+    ) -> Result<(), BeaconStateError> {
+        for flag_index in 0..NUM_FLAG_INDICES {
+            if participation_flags.has_flag(flag_index)? {
+                self.total_flag_balances
+                    .get_mut(flag_index)
+                    .ok_or(BeaconStateError::InvalidFlagIndex(flag_index))?
+                    .safe_sub_assign(validator_effective_balance)?;
+            }
+        }
+        Ok(())
+    }
+
+    pub fn on_effective_balance_change(
+        &mut self,
+        participation_flags: ParticipationFlags,
+        old_effective_balance: u64,
+        new_effective_balance: u64,
+    ) -> Result<(), BeaconStateError> {
+        for flag_index in 0..NUM_FLAG_INDICES {
+            if participation_flags.has_flag(flag_index)? {
+                let total = self
+                    .total_flag_balances
+                    .get_mut(flag_index)
+                    .ok_or(BeaconStateError::InvalidFlagIndex(flag_index))?;
+                if new_effective_balance > old_effective_balance {
+                    total
+                        .safe_add_assign(new_effective_balance.safe_sub(old_effective_balance)?)?;
+                } else {
+                    total
+                        .safe_sub_assign(old_effective_balance.safe_sub(new_effective_balance)?)?;
+                }
+            }
+        }
+        Ok(())
+    }
 }
 
 impl ProgressiveBalancesCache {
     pub fn initialize(
         &mut self,
         current_epoch: Epoch,
-        previous_epoch_target_attesting_balance: Balance,
-        current_epoch_target_attesting_balance: Balance,
+        previous_epoch_cache: EpochTotalBalances,
+        current_epoch_cache: EpochTotalBalances,
     ) {
         self.inner = Some(Inner {
             current_epoch,
-            previous_epoch_target_attesting_balance,
-            current_epoch_target_attesting_balance,
+            previous_epoch_cache,
+            current_epoch_cache,
         });
     }
 
@@ -42,21 +138,22 @@ impl ProgressiveBalancesCache {
     /// When a new target attestation has been processed, we update the cached
     /// `current_epoch_target_attesting_balance` to include the validator effective balance.
     /// If the epoch is neither the current epoch nor the previous epoch, an error is returned.
-    pub fn on_new_target_attestation(
+    pub fn on_new_attestation(
         &mut self,
         epoch: Epoch,
+        flag_index: usize,
         validator_effective_balance: u64,
     ) -> Result<(), BeaconStateError> {
         let cache = self.get_inner_mut()?;
 
         if epoch == cache.current_epoch {
             cache
-                .current_epoch_target_attesting_balance
-                .safe_add_assign(validator_effective_balance)?;
+                .current_epoch_cache
+                .on_new_attestation(flag_index, validator_effective_balance)?;
         } else if epoch.safe_add(1)? == cache.current_epoch {
             cache
-                .previous_epoch_target_attesting_balance
-                .safe_add_assign(validator_effective_balance)?;
+                .previous_epoch_cache
+                .on_new_attestation(flag_index, validator_effective_balance)?;
         } else {
             return Err(BeaconStateError::ProgressiveBalancesCacheInconsistent);
         }
@@ -68,21 +165,17 @@ impl ProgressiveBalancesCache {
     /// validator's effective balance to exclude the validator weight.
     pub fn on_slashing(
         &mut self,
-        is_previous_epoch_target_attester: bool,
-        is_current_epoch_target_attester: bool,
+        previous_epoch_participation: ParticipationFlags,
+        current_epoch_participation: ParticipationFlags,
         effective_balance: u64,
     ) -> Result<(), BeaconStateError> {
         let cache = self.get_inner_mut()?;
-        if is_previous_epoch_target_attester {
-            cache
-                .previous_epoch_target_attesting_balance
-                .safe_sub_assign(effective_balance)?;
-        }
-        if is_current_epoch_target_attester {
-            cache
-                .current_epoch_target_attesting_balance
-                .safe_sub_assign(effective_balance)?;
-        }
+        cache
+            .previous_epoch_cache
+            .on_slashing(previous_epoch_participation, effective_balance)?;
+        cache
+            .current_epoch_cache
+            .on_slashing(current_epoch_participation, effective_balance)?;
         Ok(())
     }
 
@@ -90,22 +183,22 @@ impl ProgressiveBalancesCache {
     /// its share of the target attesting balance in the cache.
     pub fn on_effective_balance_change(
         &mut self,
-        is_current_epoch_target_attester: bool,
+        previous_epoch_participation: ParticipationFlags,
+        current_epoch_participation: ParticipationFlags,
         old_effective_balance: u64,
         new_effective_balance: u64,
     ) -> Result<(), BeaconStateError> {
         let cache = self.get_inner_mut()?;
-        if is_current_epoch_target_attester {
-            if new_effective_balance > old_effective_balance {
-                cache
-                    .current_epoch_target_attesting_balance
-                    .safe_add_assign(new_effective_balance.safe_sub(old_effective_balance)?)?;
-            } else {
-                cache
-                    .current_epoch_target_attesting_balance
-                    .safe_sub_assign(old_effective_balance.safe_sub(new_effective_balance)?)?;
-            }
-        }
+        cache.previous_epoch_cache.on_effective_balance_change(
+            previous_epoch_participation,
+            old_effective_balance,
+            new_effective_balance,
+        )?;
+        cache.current_epoch_cache.on_effective_balance_change(
+            current_epoch_participation,
+            old_effective_balance,
+            new_effective_balance,
+        )?;
         Ok(())
     }
 
@@ -158,7 +251,7 @@ pub enum ProgressiveBalancesMode {
     /// Enable the usage of progressive cache, with checks against the `ParticipationCache` and falls
     /// back to the existing calculation if there is a balance mismatch.
     Checked,
-    /// Enable the usage of progressive cache, with checks against the `ParticipationCache`. Errors
+    /// Enable the usage of progressive cache, with checks against the `ParticipationCache`. BeaconStateErrors
     /// if there is a balance mismatch. Used in testing only.
     Strict,
     /// Enable the usage of progressive cache, with no comparative checks against the

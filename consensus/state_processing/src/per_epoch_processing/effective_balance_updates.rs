@@ -67,6 +67,7 @@ pub fn process_effective_balance_updates<T: EthSpec>(
     Ok(())
 }
 
+// FIXME(sproul): move to single-pass epoch processing
 fn update_progressive_balances(
     participation_cache: &ParticipationCache,
     progressive_balances_cache: &mut ProgressiveBalancesCache,
