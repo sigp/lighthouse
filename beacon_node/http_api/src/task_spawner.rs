@@ -8,6 +8,20 @@ use warp::reply::{Reply, Response};
 #[derive(Clone, Copy)]
 pub enum Priority {
     P0,
+    P1,
+}
+
+impl Priority {
+    fn work_event<E: EthSpec>(&self, process_fn: BlockingOrAsync) -> WorkEvent<E> {
+        let work = match self {
+            Priority::P0 => Work::ApiRequestP0(process_fn),
+            Priority::P1 => unimplemented!("P1"),
+        };
+        WorkEvent {
+            drop_during_sync: false,
+            work,
+        }
+    }
 }
 
 pub struct TaskSpawner<E: EthSpec> {
@@ -22,7 +36,7 @@ impl<E: EthSpec> TaskSpawner<E> {
     }
 
     pub async fn blocking_json_task<F, T>(
-        &self,
+        self,
         priority: Priority,
         func: F,
     ) -> Result<Response, warp::Rejection>
@@ -112,15 +126,7 @@ async fn send_to_beacon_processor<E: EthSpec, T>(
 where
     T: Serialize + Send + 'static,
 {
-    let work = match priority {
-        Priority::P0 => Work::ApiRequestP0(process_fn),
-    };
-    let work_event = WorkEvent {
-        drop_during_sync: false,
-        work,
-    };
-
-    let error_message = match beacon_processor_send.try_send(work_event) {
+    let error_message = match beacon_processor_send.try_send(priority.work_event(process_fn)) {
         Ok(()) => {
             match rx.await {
                 // The beacon processor executed the task and sent a result.
