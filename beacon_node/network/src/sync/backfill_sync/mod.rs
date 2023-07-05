@@ -1155,7 +1155,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
         false
     }
 
-    /// Checks that if we were to backfill all the way to `start_epoch` that we'd be done
+    /// Checks if backfill would complete by syncing to `start_epoch`.
     fn would_complete(&self, start_epoch: Epoch) -> bool {
         start_epoch
             <= self
