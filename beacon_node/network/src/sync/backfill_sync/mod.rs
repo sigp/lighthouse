@@ -1099,7 +1099,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
             Entry::Occupied(_) => {
                 // this batch doesn't need downloading, let this same function decide the next batch
                 if batch_id
-                    == self
+                    <= self
                         .beacon_chain
                         .genesis_backfill_slot
                         .epoch(T::EthSpec::slots_per_epoch())
@@ -1115,7 +1115,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
             Entry::Vacant(entry) => {
                 entry.insert(BatchInfo::new(&batch_id, BACKFILL_EPOCHS_PER_BATCH));
                 if batch_id
-                    == self
+                    <= self
                         .beacon_chain
                         .genesis_backfill_slot
                         .epoch(T::EthSpec::slots_per_epoch())
@@ -1152,7 +1152,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
     /// Checks with the beacon chain if backfill sync has completed.
     fn check_completed(&mut self) -> bool {
         if self.current_start
-            == self
+            <= self
                 .beacon_chain
                 .genesis_backfill_slot
                 .epoch(T::EthSpec::slots_per_epoch())
