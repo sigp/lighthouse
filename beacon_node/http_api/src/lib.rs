@@ -2508,7 +2508,7 @@ pub fn serve<T: BeaconChainTypes>(
                     };
 
                     task_spawner
-                        .blocking_json_task(Priority::P1, move || {
+                        .blocking_json_task(Priority::P0, move || {
                             let head_slot = chain.canonical_head.cached_head().head_slot();
                             let current_slot =
                                 chain.slot_clock.now_or_genesis().ok_or_else(|| {
@@ -2559,7 +2559,7 @@ pub fn serve<T: BeaconChainTypes>(
                     };
 
                     task_spawner
-                        .blocking_response_task(Priority::P1, move || {
+                        .blocking_response_task(Priority::P0, move || {
                             let is_optimistic = chain
                                 .is_optimistic_or_invalid_head()
                                 .map_err(warp_utils::reject::beacon_chain_error)?;
