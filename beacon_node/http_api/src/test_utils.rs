@@ -33,7 +33,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use store::MemoryStore;
 use task_executor::test_utils::TestRuntime;
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::mpsc;
 use types::{ChainSpec, EthSpec};
 
 pub const TCP_PORT: u16 = 42;
@@ -46,7 +46,6 @@ pub struct InteractiveTester<E: EthSpec> {
     pub harness: BeaconChainHarness<EphemeralHarnessType<E>>,
     pub client: BeaconNodeHttpClient,
     pub network_rx: NetworkReceivers<E>,
-    _server_shutdown: oneshot::Sender<()>,
     _test_runtime: TestRuntime,
 }
 
@@ -56,7 +55,6 @@ pub struct InteractiveTester<E: EthSpec> {
 pub struct ApiServer<E: EthSpec, SFut: Future<Output = ()>> {
     pub server: SFut,
     pub listening_socket: SocketAddr,
-    pub shutdown_tx: oneshot::Sender<()>,
     pub network_rx: NetworkReceivers<E>,
     pub local_enr: Enr,
     pub external_peer_id: PeerId,
@@ -105,7 +103,6 @@ impl<E: EthSpec> InteractiveTester<E> {
         let ApiServer {
             server,
             listening_socket,
-            shutdown_tx: _server_shutdown,
             network_rx,
             test_runtime,
             ..
@@ -127,7 +124,6 @@ impl<E: EthSpec> InteractiveTester<E> {
             harness,
             client,
             network_rx,
-            _server_shutdown,
             _test_runtime: test_runtime,
         }
     }
@@ -231,17 +227,11 @@ pub async fn create_api_server_on_port<T: BeaconChainTypes>(
         log,
     });
 
-    let (shutdown_tx, shutdown_rx) = oneshot::channel();
-    let server_shutdown = async {
-        // It's not really interesting why this triggered, just that it happened.
-        let _ = shutdown_rx.await;
-    };
-    let (listening_socket, server) = crate::serve(ctx, server_shutdown).unwrap();
+    let (listening_socket, server) = crate::serve(ctx, test_runtime.task_executor.exit()).unwrap();
 
     ApiServer {
         server,
         listening_socket,
-        shutdown_tx,
         network_rx: network_receivers,
         local_enr: enr,
         external_peer_id: peer_id,

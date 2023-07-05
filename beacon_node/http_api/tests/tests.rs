@@ -31,7 +31,6 @@ use state_processing::per_slot_processing;
 use std::convert::TryInto;
 use std::sync::Arc;
 use task_executor::test_utils::TestRuntime;
-use tokio::sync::oneshot;
 use tokio::time::Duration;
 use tree_hash::TreeHash;
 use types::application_domain::ApplicationDomain;
@@ -71,7 +70,6 @@ struct ApiTester {
     attester_slashing: AttesterSlashing<E>,
     proposer_slashing: ProposerSlashing,
     voluntary_exit: SignedVoluntaryExit,
-    _server_shutdown: oneshot::Sender<()>,
     network_rx: NetworkReceivers<E>,
     local_enr: Enr,
     external_peer_id: PeerId,
@@ -236,7 +234,6 @@ impl ApiTester {
         let ApiServer {
             server,
             listening_socket: _,
-            shutdown_tx,
             network_rx,
             local_enr,
             external_peer_id,
@@ -269,7 +266,6 @@ impl ApiTester {
             attester_slashing,
             proposer_slashing,
             voluntary_exit,
-            _server_shutdown: shutdown_tx,
             network_rx,
             local_enr,
             external_peer_id,
@@ -324,7 +320,6 @@ impl ApiTester {
         let ApiServer {
             server,
             listening_socket,
-            shutdown_tx,
             network_rx,
             local_enr,
             external_peer_id,
@@ -354,7 +349,6 @@ impl ApiTester {
             attester_slashing,
             proposer_slashing,
             voluntary_exit,
-            _server_shutdown: shutdown_tx,
             network_rx,
             local_enr,
             external_peer_id,

@@ -9449,6 +9449,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml",
+ "task_executor",
  "testcontainers",
  "tokio",
  "tokio-postgres",

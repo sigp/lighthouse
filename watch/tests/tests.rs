@@ -10,6 +10,7 @@ use network::NetworkReceivers;
 
 use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
+use task_executor::test_utils::TestRuntime;
 use tokio::sync::oneshot;
 use types::{Hash256, MainnetEthSpec, Slot};
 use url::Url;
@@ -75,7 +76,7 @@ struct TesterBuilder {
     pub harness: BeaconChainHarness<EphemeralHarnessType<E>>,
     pub config: Config,
     _bn_network_rx: NetworkReceivers<E>,
-    _bn_api_shutdown_tx: oneshot::Sender<()>,
+    test_runtime: TestRuntime,
 }
 
 impl TesterBuilder {
@@ -92,8 +93,8 @@ impl TesterBuilder {
         let ApiServer {
             server,
             listening_socket: bn_api_listening_socket,
-            shutdown_tx: _bn_api_shutdown_tx,
             network_rx: _bn_network_rx,
+            test_runtime,
             ..
         } = create_api_server(harness.chain.clone(), harness.logger().clone()).await;
         tokio::spawn(server);
@@ -128,7 +129,7 @@ impl TesterBuilder {
             harness,
             config,
             _bn_network_rx,
-            _bn_api_shutdown_tx,
+            test_runtime,
         }
     }
     pub async fn build(self, pool: PgPool) -> Tester {
@@ -175,7 +176,7 @@ impl TesterBuilder {
             config: self.config,
             updater,
             _bn_network_rx: self._bn_network_rx,
-            _bn_api_shutdown_tx: self._bn_api_shutdown_tx,
+            _test_runtime: self.test_runtime,
             _watch_shutdown_tx,
         }
     }
@@ -193,7 +194,7 @@ struct Tester {
     pub config: Config,
     pub updater: UpdateHandler<E>,
     _bn_network_rx: NetworkReceivers<E>,
-    _bn_api_shutdown_tx: oneshot::Sender<()>,
+    _test_runtime: TestRuntime,
     _watch_shutdown_tx: oneshot::Sender<()>,
 }
 
