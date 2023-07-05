@@ -1098,12 +1098,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
         match self.batches.entry(batch_id) {
             Entry::Occupied(_) => {
                 // this batch doesn't need downloading, let this same function decide the next batch
-                if batch_id
-                    <= self
-                        .beacon_chain
-                        .genesis_backfill_slot
-                        .epoch(T::EthSpec::slots_per_epoch())
-                {
+                if self.would_complete(batch_id) {
                     self.last_batch_downloaded = true;
                 }
 
@@ -1114,12 +1109,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
             }
             Entry::Vacant(entry) => {
                 entry.insert(BatchInfo::new(&batch_id, BACKFILL_EPOCHS_PER_BATCH));
-                if batch_id
-                    <= self
-                        .beacon_chain
-                        .genesis_backfill_slot
-                        .epoch(T::EthSpec::slots_per_epoch())
-                {
+                if self.would_complete(batch_id) {
                     self.last_batch_downloaded = true;
                 }
                 self.to_be_downloaded = self
@@ -1151,14 +1141,8 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
 
     /// Checks with the beacon chain if backfill sync has completed.
     fn check_completed(&mut self) -> bool {
-        if self.current_start
-            <= self
-                .beacon_chain
-                .genesis_backfill_slot
-                .epoch(T::EthSpec::slots_per_epoch())
-        {
+        if self.would_complete(self.current_start) {
             // Check that the beacon chain agrees
-
             if let Some(anchor_info) = self.beacon_chain.store.get_anchor_info() {
                 // Conditions that we have completed a backfill sync
                 if anchor_info.block_backfill_complete(self.beacon_chain.genesis_backfill_slot) {
@@ -1169,6 +1153,14 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
             }
         }
         false
+    }
+
+    /// Checks that if we were to backfill all the way to `epoch` that we'd be done
+    fn would_complete(&self, start_epoch: Epoch) -> bool {
+        start_epoch <= self
+            .beacon_chain
+            .genesis_backfill_slot
+            .epoch(T::EthSpec::slots_per_epoch())
     }
 
     /// Updates the global network state indicating the current state of a backfill sync.
