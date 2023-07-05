@@ -23,14 +23,14 @@ bytes = "1.1.0"
 task_executor = { path = "../../common/task_executor" }
 hex = "0.4.2"
 ethereum_ssz = "0.5.0"
-ssz_types = "0.5.3"
+ssz_types = "0.5.4"
 eth2 = { path = "../../common/eth2" }
 kzg = { path = "../../crypto/kzg" }
 state_processing = { path = "../../consensus/state_processing" }
 superstruct = "0.6.0"
 lru = "0.7.1"
 exit-future = "0.2.0"
-tree_hash = "0.5.0"
+tree_hash = "0.5.2"
 tree_hash_derive = "0.5.0"
 parking_lot = "0.12.0"
 slot_clock = { path = "../../common/slot_clock" }
