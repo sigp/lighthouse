@@ -30,6 +30,7 @@ use state_processing::per_block_processing::get_expected_withdrawals;
 use state_processing::per_slot_processing;
 use std::convert::TryInto;
 use std::sync::Arc;
+use task_executor::test_utils::TestRuntime;
 use tokio::sync::oneshot;
 use tokio::time::Duration;
 use tree_hash::TreeHash;
@@ -75,6 +76,7 @@ struct ApiTester {
     local_enr: Enr,
     external_peer_id: PeerId,
     mock_builder: Option<Arc<TestingBuilder<E>>>,
+    _test_runtime: TestRuntime,
 }
 
 struct ApiTesterConfig {
@@ -238,6 +240,7 @@ impl ApiTester {
             network_rx,
             local_enr,
             external_peer_id,
+            test_runtime,
         } = create_api_server_on_port(chain.clone(), log, port).await;
 
         harness.runtime.task_executor.spawn(server, "api_server");
@@ -271,6 +274,7 @@ impl ApiTester {
             local_enr,
             external_peer_id,
             mock_builder,
+            _test_runtime: test_runtime,
         }
     }
 
@@ -324,6 +328,7 @@ impl ApiTester {
             network_rx,
             local_enr,
             external_peer_id,
+            test_runtime,
         } = create_api_server(chain.clone(), log).await;
 
         harness.runtime.task_executor.spawn(server, "api_server");
@@ -354,6 +359,7 @@ impl ApiTester {
             local_enr,
             external_peer_id,
             mock_builder: None,
+            _test_runtime: test_runtime,
         }
     }
 

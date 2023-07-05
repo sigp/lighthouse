@@ -47,6 +47,7 @@ pub struct InteractiveTester<E: EthSpec> {
     pub client: BeaconNodeHttpClient,
     pub network_rx: NetworkReceivers<E>,
     _server_shutdown: oneshot::Sender<()>,
+    _test_runtime: TestRuntime,
 }
 
 /// The result of calling `create_api_server`.
@@ -59,6 +60,7 @@ pub struct ApiServer<E: EthSpec, SFut: Future<Output = ()>> {
     pub network_rx: NetworkReceivers<E>,
     pub local_enr: Enr,
     pub external_peer_id: PeerId,
+    pub test_runtime: TestRuntime,
 }
 
 type Initializer<E> = Box<
@@ -105,6 +107,7 @@ impl<E: EthSpec> InteractiveTester<E> {
             listening_socket,
             shutdown_tx: _server_shutdown,
             network_rx,
+            test_runtime,
             ..
         } = create_api_server(harness.chain.clone(), harness.logger().clone()).await;
 
@@ -125,6 +128,7 @@ impl<E: EthSpec> InteractiveTester<E> {
             client,
             network_rx,
             _server_shutdown,
+            _test_runtime: test_runtime,
         }
     }
 }
@@ -190,9 +194,10 @@ pub async fn create_api_server_on_port<T: BeaconChainTypes>(
     let (beacon_processor_tx, beacon_processor_rx) = mpsc::channel(MAX_WORK_EVENT_QUEUE_LEN);
     let beacon_processor_send = BeaconProcessorSend(beacon_processor_tx);
     let (work_reprocessing_tx, work_reprocessing_rx) = mpsc::channel(MAX_SCHEDULED_WORK_QUEUE_LEN);
+    let test_runtime = TestRuntime::default();
     BeaconProcessor {
         network_globals: network_globals.clone(),
-        executor: TestRuntime::default().task_executor.clone(),
+        executor: test_runtime.task_executor.clone(),
         max_workers: 1, // Single-threaded beacon processor.
         current_workers: 0,
         enable_backfill_rate_limiting: chain.config.enable_backfill_rate_limiting,
@@ -240,5 +245,6 @@ pub async fn create_api_server_on_port<T: BeaconChainTypes>(
         network_rx: network_receivers,
         local_enr: enr,
         external_peer_id: peer_id,
+        test_runtime,
     }
 }
