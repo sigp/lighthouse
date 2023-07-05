@@ -33,8 +33,8 @@ pub struct TotalAttestationRewards {
     // attester's reward for source vote in gwei
     #[serde(with = "serde_utils::quoted_i64")]
     pub source: i64,
-    // TBD attester's inclusion_delay reward in gwei (phase0 only)
-    // pub inclusion_delay: u64,
+    // attester's inclusion_delay reward in gwei (phase0 only)
+    pub inclusion_delay: u64,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]

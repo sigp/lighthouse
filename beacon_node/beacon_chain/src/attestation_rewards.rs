@@ -15,9 +15,11 @@ use store::consts::altair::{
 };
 use types::consts::altair::WEIGHT_DENOMINATOR;
 
-use types::{Epoch, EthSpec};
+use types::{BeaconState, Epoch, EthSpec};
 
 use eth2::types::ValidatorId;
+use state_processing::per_epoch_processing::base::rewards_and_penalties::get_attestation_deltas_subset;
+use state_processing::per_epoch_processing::base::ValidatorStatuses;
 
 impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn compute_attestation_rewards(
@@ -29,17 +31,85 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         debug!(log, "computing attestation rewards"; "epoch" => epoch, "validator_count" => validators.len());
 
         // Get state
-        let spec = &self.spec;
-
         let state_slot = (epoch + 1).end_slot(T::EthSpec::slots_per_epoch());
 
         let state_root = self
             .state_root_at_slot(state_slot)?
             .ok_or(BeaconChainError::NoStateForSlot(state_slot))?;
 
-        let mut state = self
+        let state = self
             .get_state(&state_root, Some(state_slot))?
             .ok_or(BeaconChainError::MissingBeaconState(state_root))?;
+
+        match state {
+            BeaconState::Base(_) => self.compute_attestation_rewards_base(state, validators),
+            BeaconState::Altair(_) | BeaconState::Merge(_) | BeaconState::Capella(_) => {
+                self.compute_attestation_rewards_altair(state, validators)
+            }
+        }
+    }
+
+    fn compute_attestation_rewards_base(
+        &self,
+        mut state: BeaconState<T::EthSpec>,
+        validators: Vec<ValidatorId>,
+    ) -> Result<StandardAttestationRewards, BeaconChainError> {
+        let spec = &self.spec;
+        let mut validator_statuses = ValidatorStatuses::new(&state, spec)?;
+        validator_statuses.process_attestations(&state)?;
+
+        let validator_indices = Self::validators_ids_to_indices_sorted(&mut state, validators)?;
+        let attestation_delta = get_attestation_deltas_subset(
+            &state,
+            &validator_statuses,
+            Some(&validator_indices),
+            spec,
+        )?;
+
+        let mut total_rewards = vec![];
+
+        for (index, delta) in validator_indices
+            .into_iter()
+            .zip(attestation_delta.into_iter())
+        {
+            // TODO check head penalty
+            let head_delta = delta.head_delta;
+            let head = head_delta.rewards.saturating_sub(head_delta.penalties);
+
+            let target_delta = delta.target_delta;
+            let target = (target_delta.rewards as i64).safe_sub(target_delta.penalties as i64)?;
+
+            let source_delta = delta.source_delta;
+            let source = (source_delta.rewards as i64).safe_sub(source_delta.penalties as i64)?;
+
+            let inclusion_delay_delta = delta.inclusion_delay_delta;
+            let inclusion_delay = inclusion_delay_delta
+                .rewards
+                .saturating_sub(inclusion_delay_delta.penalties);
+
+            let rewards = TotalAttestationRewards {
+                validator_index: index as u64,
+                head,
+                target,
+                source,
+                inclusion_delay,
+            };
+
+            total_rewards.push(rewards);
+        }
+
+        Ok(StandardAttestationRewards {
+            ideal_rewards: vec![],
+            total_rewards,
+        })
+    }
+
+    fn compute_attestation_rewards_altair(
+        &self,
+        mut state: BeaconState<T::EthSpec>,
+        validators: Vec<ValidatorId>,
+    ) -> Result<StandardAttestationRewards, BeaconChainError> {
+        let spec = &self.spec;
 
         // Calculate ideal_rewards
         let participation_cache = ParticipationCache::new(&state, spec)?;
@@ -101,15 +171,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let validators = if validators.is_empty() {
             participation_cache.eligible_validator_indices().to_vec()
         } else {
-            validators
-                .into_iter()
-                .map(|validator| match validator {
-                    ValidatorId::Index(i) => Ok(i as usize),
-                    ValidatorId::PublicKey(pubkey) => state
-                        .get_validator_index(&pubkey)?
-                        .ok_or(BeaconChainError::ValidatorPubkeyUnknown(pubkey)),
-                })
-                .collect::<Result<Vec<_>, _>>()?
+            Self::validators_ids_to_indices_sorted(&mut state, validators)?
         };
 
         for validator_index in &validators {
@@ -152,6 +214,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 head: head_reward,
                 target: target_reward,
                 source: source_reward,
+                inclusion_delay: 0,
             });
         }
 
@@ -191,5 +254,22 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             ideal_rewards,
             total_rewards,
         })
+    }
+
+    fn validators_ids_to_indices_sorted(
+        state: &mut BeaconState<T::EthSpec>,
+        validators: Vec<ValidatorId>,
+    ) -> Result<Vec<usize>, BeaconChainError> {
+        let mut indices = validators
+            .into_iter()
+            .map(|validator| match validator {
+                ValidatorId::Index(i) => Ok(i as usize),
+                ValidatorId::PublicKey(pubkey) => state
+                    .get_validator_index(&pubkey)?
+                    .ok_or(BeaconChainError::ValidatorPubkeyUnknown(pubkey)),
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        indices.sort();
+        Ok(indices)
     }
 }

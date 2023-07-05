@@ -78,13 +78,26 @@ pub fn get_attestation_deltas<T: EthSpec>(
     validator_statuses: &ValidatorStatuses,
     spec: &ChainSpec,
 ) -> Result<Vec<AttestationDelta>, Error> {
+    get_attestation_deltas_subset(state, validator_statuses, None, spec)
+}
+
+pub fn get_attestation_deltas_subset<T: EthSpec>(
+    state: &BeaconState<T>,
+    validator_statuses: &ValidatorStatuses,
+    maybe_validators_subset: Option<&Vec<usize>>,
+    spec: &ChainSpec,
+) -> Result<Vec<AttestationDelta>, Error> {
     let previous_epoch = state.previous_epoch();
     let finality_delay = state
         .previous_epoch()
         .safe_sub(state.finalized_checkpoint().epoch)?
         .as_u64();
 
-    let mut deltas = vec![AttestationDelta::default(); state.validators().len()];
+    // Include only subset if specified, otherwise include all validators.
+    let validator_count = maybe_validators_subset
+        .as_ref()
+        .map_or_else(|| state.validators().len(), |v| v.len());
+    let mut deltas = vec![AttestationDelta::default(); validator_count];
 
     let total_balances = &validator_statuses.total_balances;
 
@@ -95,6 +108,12 @@ pub fn get_attestation_deltas<T: EthSpec>(
         // eligible.
         if !state.is_eligible_validator(previous_epoch, index)? {
             continue;
+        }
+
+        if let Some(validators_subset) = maybe_validators_subset.as_ref() {
+            if !validators_subset.contains(&index) {
+                continue;
+            }
         }
 
         let base_reward = get_base_reward(state, index, total_balances.current_epoch(), spec)?;
