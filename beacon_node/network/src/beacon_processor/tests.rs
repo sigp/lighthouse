@@ -707,8 +707,8 @@ async fn attestation_to_unknown_block_processed(import_method: BlockImportMethod
         BlockImportMethod::Rpc => {
             rig.enqueue_rpc_block();
             events.push(RPC_BLOCK);
-            rig.enqueue_single_lookup_rpc_blobs();
             if num_blobs > 0 {
+                rig.enqueue_single_lookup_rpc_blobs();
                 events.push(RPC_BLOB);
             }
         }
@@ -790,8 +790,8 @@ async fn aggregate_attestation_to_unknown_block(import_method: BlockImportMethod
         BlockImportMethod::Rpc => {
             rig.enqueue_rpc_block();
             events.push(RPC_BLOCK);
-            rig.enqueue_single_lookup_rpc_blobs();
             if num_blobs > 0 {
+                rig.enqueue_single_lookup_rpc_blobs();
                 events.push(RPC_BLOB);
             }
         }
