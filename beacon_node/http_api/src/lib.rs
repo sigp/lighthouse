@@ -1394,10 +1394,10 @@ pub fn serve<T: BeaconChainTypes>(
      * beacon/blobs
      */
 
-    // GET beacon/blobs/{block_id}
+    // GET beacon/blob_sidecars/{block_id}
     let get_blobs = eth_v1
         .and(warp::path("beacon"))
-        .and(warp::path("blobs"))
+        .and(warp::path("blob_sidecars"))
         .and(block_id_or_err)
         .and(warp::path::end())
         .and(chain_filter.clone())

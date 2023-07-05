@@ -665,13 +665,13 @@ impl BeaconNodeHttpClient {
         Ok(path)
     }
 
-    /// Path for `v1/beacon/blobs/{block_id}`
+    /// Path for `v1/beacon/blob_sidecars/{block_id}`
     pub fn get_blobs_path(&self, block_id: BlockId) -> Result<Url, Error> {
         let mut path = self.eth_path(V1)?;
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
             .push("beacon")
-            .push("blobs")
+            .push("blob_sidecars")
             .push(&block_id.to_string());
         Ok(path)
     }
