@@ -1157,10 +1157,11 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
 
     /// Checks that if we were to backfill all the way to `start_epoch` that we'd be done
     fn would_complete(&self, start_epoch: Epoch) -> bool {
-        start_epoch <= self
-            .beacon_chain
-            .genesis_backfill_slot
-            .epoch(T::EthSpec::slots_per_epoch())
+        start_epoch
+            <= self
+                .beacon_chain
+                .genesis_backfill_slot
+                .epoch(T::EthSpec::slots_per_epoch())
     }
 
     /// Updates the global network state indicating the current state of a backfill sync.
