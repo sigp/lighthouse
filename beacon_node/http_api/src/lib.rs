@@ -2479,13 +2479,12 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path("node"))
         .and(warp::path("version"))
         .and(warp::path::end())
-        .and(task_spawner_filter.clone())
-        .and_then(|task_spawner: TaskSpawner<T::EthSpec>| {
-            task_spawner.blocking_json_task(Priority::P1, move || {
-                Ok(api_types::GenericResponse::from(api_types::VersionData {
-                    version: version_with_platform(),
-                }))
-            })
+        // Bypass the `task_spawner` since this method returns a static string.
+        .then(|| async {
+            warp::reply::json(&api_types::GenericResponse::from(api_types::VersionData {
+                version: version_with_platform(),
+            }))
+            .into_response()
         });
 
     // GET node/syncing
