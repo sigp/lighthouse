@@ -858,6 +858,7 @@ mod test {
         eth1_finalization_cache::Eth1FinalizationData,
         test_utils::{BaseHarnessType, BeaconChainHarness, DiskHarnessType},
     };
+    use execution_layer::test_utils::DEFAULT_TERMINAL_BLOCK;
     use fork_choice::PayloadVerificationStatus;
     use logging::test_logger;
     use slog::{info, Logger};
@@ -996,6 +997,13 @@ mod test {
         spec.bellatrix_fork_epoch = Some(bellatrix_fork_epoch);
         spec.capella_fork_epoch = Some(capella_fork_epoch);
         spec.deneb_fork_epoch = Some(deneb_fork_epoch);
+        let genesis_block = execution_layer::test_utils::generate_genesis_block(
+            spec.terminal_total_difficulty,
+            DEFAULT_TERMINAL_BLOCK,
+        )
+        .unwrap();
+        spec.terminal_block_hash = genesis_block.block_hash;
+        spec.terminal_block_hash_activation_epoch = bellatrix_fork_epoch;
 
         let harness = BeaconChainHarness::builder(E::default())
             .spec(spec)

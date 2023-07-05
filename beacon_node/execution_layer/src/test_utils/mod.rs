@@ -25,8 +25,8 @@ use warp::{http::StatusCode, Filter, Rejection};
 
 use crate::EngineCapabilities;
 pub use execution_block_generator::{
-    generate_genesis_header, generate_pow_block, generate_random_blobs, Block,
-    ExecutionBlockGenerator,
+    generate_genesis_block, generate_genesis_header, generate_pow_block, generate_random_blobs,
+    Block, ExecutionBlockGenerator,
 };
 pub use hook::Hook;
 pub use mock_builder::{Context as MockBuilderContext, MockBuilder, Operation, TestingBuilder};
