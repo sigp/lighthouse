@@ -1,7 +1,7 @@
 use crate::beacon_state::balance::Balance;
 use crate::{
-    consts::altair::NUM_FLAG_INDICES, BeaconState, BeaconStateError, ChainSpec, Epoch, EthSpec,
-    ParticipationFlags,
+    consts::altair::{NUM_FLAG_INDICES, TIMELY_TARGET_FLAG_INDEX},
+    BeaconState, BeaconStateError, ChainSpec, Epoch, EthSpec, ParticipationFlags,
 };
 use arbitrary::Arbitrary;
 use safe_arith::SafeArith;
@@ -31,10 +31,7 @@ pub struct EpochTotalBalances {
     /// for all flags in `NUM_FLAG_INDICES`.
     ///
     /// A flag balance is only incremented if a validator is in that flag set.
-    total_flag_balances: [Balance; NUM_FLAG_INDICES],
-    /// Stores the sum of all balances of all validators in `self.unslashed_participating_indices`
-    /// (regardless of which flags are set).
-    total_active_balance: Balance,
+    pub total_flag_balances: [Balance; NUM_FLAG_INDICES],
 }
 
 impl EpochTotalBalances {
@@ -43,7 +40,6 @@ impl EpochTotalBalances {
 
         Self {
             total_flag_balances: [zero_balance; NUM_FLAG_INDICES],
-            total_active_balance: zero_balance,
         }
     }
 
@@ -68,7 +64,7 @@ impl EpochTotalBalances {
         flag_index: usize,
         validator_effective_balance: u64,
     ) -> Result<(), BeaconStateError> {
-        let mut balance = self
+        let balance = self
             .total_flag_balances
             .get_mut(flag_index)
             .ok_or(BeaconStateError::InvalidFlagIndex(flag_index))?;
@@ -207,25 +203,37 @@ impl ProgressiveBalancesCache {
     pub fn on_epoch_transition(&mut self, spec: &ChainSpec) -> Result<(), BeaconStateError> {
         let cache = self.get_inner_mut()?;
         cache.current_epoch.safe_add_assign(1)?;
-        cache.previous_epoch_target_attesting_balance =
-            cache.current_epoch_target_attesting_balance;
-        cache.current_epoch_target_attesting_balance =
-            Balance::zero(spec.effective_balance_increment);
+        cache.previous_epoch_cache = std::mem::replace(
+            &mut cache.current_epoch_cache,
+            EpochTotalBalances::new(spec),
+        );
         Ok(())
     }
 
+    pub fn previous_epoch_flag_attesting_balance(
+        &self,
+        flag_index: usize,
+    ) -> Result<u64, BeaconStateError> {
+        self.get_inner()?
+            .previous_epoch_cache
+            .total_flag_balance(flag_index)
+    }
+
     pub fn previous_epoch_target_attesting_balance(&self) -> Result<u64, BeaconStateError> {
-        Ok(self
-            .get_inner()?
-            .previous_epoch_target_attesting_balance
-            .get())
+        self.previous_epoch_flag_attesting_balance(TIMELY_TARGET_FLAG_INDEX)
+    }
+
+    pub fn current_epoch_flag_attesting_balance(
+        &self,
+        flag_index: usize,
+    ) -> Result<u64, BeaconStateError> {
+        self.get_inner()?
+            .current_epoch_cache
+            .total_flag_balance(flag_index)
     }
 
     pub fn current_epoch_target_attesting_balance(&self) -> Result<u64, BeaconStateError> {
-        Ok(self
-            .get_inner()?
-            .current_epoch_target_attesting_balance
-            .get())
+        self.current_epoch_flag_attesting_balance(TIMELY_TARGET_FLAG_INDEX)
     }
 
     fn get_inner_mut(&mut self) -> Result<&mut Inner, BeaconStateError> {

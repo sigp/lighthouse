@@ -49,12 +49,12 @@ impl From<ArithError> for Error {
 
 /// Caches the participation values for one epoch (either the previous or current).
 #[derive(PartialEq, Debug, Clone)]
-struct SingleEpochParticipationCache {
+pub(crate) struct SingleEpochParticipationCache {
     /// Stores the sum of the balances for all validators in `self.unslashed_participating_indices`
     /// for all flags in `NUM_FLAG_INDICES`.
     ///
     /// A flag balance is only incremented if a validator is in that flag set.
-    total_flag_balances: [Balance; NUM_FLAG_INDICES],
+    pub(crate) total_flag_balances: [Balance; NUM_FLAG_INDICES],
     /// Stores the sum of all balances of all validators in `self.unslashed_participating_indices`
     /// (regardless of which flags are set).
     total_active_balance: Balance,
@@ -170,10 +170,10 @@ impl ValidatorInfoCache {
 pub struct ParticipationCache {
     current_epoch: Epoch,
     /// Caches information about active validators pertaining to `self.current_epoch`.
-    current_epoch_participation: SingleEpochParticipationCache,
+    pub(crate) current_epoch_participation: SingleEpochParticipationCache,
     previous_epoch: Epoch,
     /// Caches information about active validators pertaining to `self.previous_epoch`.
-    previous_epoch_participation: SingleEpochParticipationCache,
+    pub(crate) previous_epoch_participation: SingleEpochParticipationCache,
     /// Caches validator information relevant to `process_epoch`.
     validators: ValidatorInfoCache,
     /// Caches the result of the `get_eligible_validator_indices` function.

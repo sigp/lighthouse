@@ -1,6 +1,7 @@
 use crate::application_domain::{ApplicationDomain, APPLICATION_DOMAIN_BUILDER};
 use crate::*;
 use int_to_bytes::int_to_bytes4;
+use safe_arith::{ArithError, SafeArith};
 use serde::{Deserializer, Serialize, Serializer};
 use serde_derive::Deserialize;
 use serde_utils::quoted_u64::MaybeQuoted;
@@ -285,12 +286,17 @@ impl ChainSpec {
     }
 
     /// For a given `BeaconState`, return the inactivity penalty quotient associated with its variant.
+    // FIXME(sproul): delete once unused
     pub fn inactivity_penalty_quotient_for_state<T: EthSpec>(&self, state: &BeaconState<T>) -> u64 {
-        match state {
-            BeaconState::Base(_) => self.inactivity_penalty_quotient,
-            BeaconState::Altair(_) => self.inactivity_penalty_quotient_altair,
-            BeaconState::Merge(_) => self.inactivity_penalty_quotient_bellatrix,
-            BeaconState::Capella(_) => self.inactivity_penalty_quotient_bellatrix,
+        self.inactivity_penalty_quotient_for_fork(state.fork_name_unchecked())
+    }
+
+    pub fn inactivity_penalty_quotient_for_fork(&self, fork_name: ForkName) -> u64 {
+        match fork_name {
+            ForkName::Base => self.inactivity_penalty_quotient,
+            ForkName::Altair => self.inactivity_penalty_quotient_altair,
+            ForkName::Merge => self.inactivity_penalty_quotient_bellatrix,
+            ForkName::Capella => self.inactivity_penalty_quotient_bellatrix,
         }
     }
 
@@ -456,6 +462,10 @@ impl ChainSpec {
         );
 
         Hash256::from(domain)
+    }
+
+    pub fn compute_activation_exit_epoch(&self, epoch: Epoch) -> Result<Epoch, ArithError> {
+        epoch.safe_add(1)?.safe_add(self.max_seed_lookahead)
     }
 
     #[allow(clippy::integer_arithmetic)]

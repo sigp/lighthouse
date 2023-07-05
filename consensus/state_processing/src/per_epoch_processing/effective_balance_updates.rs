@@ -69,12 +69,13 @@ pub fn process_effective_balance_updates<T: EthSpec>(
 
 // FIXME(sproul): move to single-pass epoch processing
 fn update_progressive_balances(
-    participation_cache: &ParticipationCache,
-    progressive_balances_cache: &mut ProgressiveBalancesCache,
-    index: usize,
-    old_effective_balance: u64,
-    new_effective_balance: u64,
+    _participation_cache: &ParticipationCache,
+    _progressive_balances_cache: &mut ProgressiveBalancesCache,
+    _index: usize,
+    _old_effective_balance: u64,
+    _new_effective_balance: u64,
 ) -> Result<(), EpochProcessingError> {
+    /* FIXME(sproul): broken
     if old_effective_balance != new_effective_balance {
         let is_current_epoch_target_attester =
             participation_cache.is_current_epoch_timely_target_attester(index)?;
@@ -84,5 +85,6 @@ fn update_progressive_balances(
             new_effective_balance,
         )?;
     }
+    */
     Ok(())
 }

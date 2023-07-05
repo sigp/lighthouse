@@ -1,5 +1,4 @@
 use self::committee_cache::get_active_validator_indices;
-use self::exit_cache::ExitCache;
 use crate::test_utils::TestRandom;
 use crate::validator::ValidatorTrait;
 use crate::*;
@@ -29,6 +28,7 @@ pub use self::committee_cache::{
     CommitteeCache,
 };
 pub use crate::beacon_state::balance::Balance;
+pub use crate::beacon_state::exit_cache::ExitCache;
 pub use crate::beacon_state::progressive_balances_cache::*;
 use crate::epoch_cache::EpochCache;
 use crate::historical_summary::HistoricalSummary;
@@ -1313,6 +1313,7 @@ impl<T: EthSpec> BeaconState<T> {
             &VList<ParticipationFlags, T::ValidatorRegistryLimit>,
             &mut VList<u64, T::ValidatorRegistryLimit>,
             &mut ProgressiveBalancesCache,
+            &mut ExitCache,
             &mut EpochCache,
         ),
         Error,
@@ -1326,6 +1327,7 @@ impl<T: EthSpec> BeaconState<T> {
                 &state.current_epoch_participation,
                 &mut state.inactivity_scores,
                 &mut state.progressive_balances_cache,
+                &mut state.exit_cache,
                 &mut state.epoch_cache,
             )),
             BeaconState::Merge(state) => Ok((
@@ -1335,6 +1337,7 @@ impl<T: EthSpec> BeaconState<T> {
                 &state.current_epoch_participation,
                 &mut state.inactivity_scores,
                 &mut state.progressive_balances_cache,
+                &mut state.exit_cache,
                 &mut state.epoch_cache,
             )),
             BeaconState::Capella(state) => Ok((
@@ -1344,6 +1347,7 @@ impl<T: EthSpec> BeaconState<T> {
                 &state.current_epoch_participation,
                 &mut state.inactivity_scores,
                 &mut state.progressive_balances_cache,
+                &mut state.exit_cache,
                 &mut state.epoch_cache,
             )),
         }
@@ -1448,7 +1452,7 @@ impl<T: EthSpec> BeaconState<T> {
         epoch: Epoch,
         spec: &ChainSpec,
     ) -> Result<Epoch, Error> {
-        Ok(epoch.safe_add(1)?.safe_add(spec.max_seed_lookahead)?)
+        Ok(spec.compute_activation_exit_epoch(epoch)?)
     }
 
     /// Return the churn limit for the current epoch (number of validators who can leave per epoch).

@@ -7,10 +7,9 @@ use crate::per_epoch_processing::altair::ParticipationCache;
 use crate::{BlockProcessingError, EpochProcessingError};
 use lighthouse_metrics::set_gauge;
 use std::borrow::Cow;
-use types::consts::altair::TIMELY_TARGET_FLAG_INDEX;
 use types::{
-    is_progressive_balances_enabled, BeaconState, BeaconStateError, ChainSpec, Epoch, EthSpec,
-    ParticipationFlags, ProgressiveBalancesCache, VList,
+    is_progressive_balances_enabled, BeaconState, BeaconStateError, ChainSpec, Epoch,
+    EpochTotalBalances, EthSpec, ProgressiveBalancesCache,
 };
 
 /// Initializes the `ProgressiveBalancesCache` cache using balance values from the
@@ -27,6 +26,7 @@ pub fn initialize_progressive_balances_cache<E: EthSpec>(
         return Ok(());
     }
 
+    // FIXME(sproul): delete the participation cache
     let participation_cache = match maybe_participation_cache {
         Some(cache) => Cow::Borrowed(cache),
         None => {
@@ -38,19 +38,22 @@ pub fn initialize_progressive_balances_cache<E: EthSpec>(
         }
     };
 
-    let previous_epoch_target_attesting_balance = participation_cache
-        .previous_epoch_target_attesting_balance_raw()
-        .map_err(|e| BeaconStateError::ParticipationCacheError(format!("{e:?}")))?;
-
-    let current_epoch_target_attesting_balance = participation_cache
-        .current_epoch_target_attesting_balance_raw()
-        .map_err(|e| BeaconStateError::ParticipationCacheError(format!("{e:?}")))?;
-
     let current_epoch = state.current_epoch();
+    let previous_epoch_cache = EpochTotalBalances {
+        total_flag_balances: participation_cache
+            .previous_epoch_participation
+            .total_flag_balances,
+    };
+    let current_epoch_cache = EpochTotalBalances {
+        total_flag_balances: participation_cache
+            .current_epoch_participation
+            .total_flag_balances,
+    };
+
     state.progressive_balances_cache_mut().initialize(
         current_epoch,
-        previous_epoch_target_attesting_balance,
-        current_epoch_target_attesting_balance,
+        previous_epoch_cache,
+        current_epoch_cache,
     );
 
     update_progressive_balances_metrics(state.progressive_balances_cache())?;
@@ -66,14 +69,12 @@ pub fn update_progressive_balances_on_attestation<T: EthSpec>(
     validator_effective_balance: u64,
     validator_slashed: bool,
 ) -> Result<(), BlockProcessingError> {
-    if is_progressive_balances_enabled(state) {
-        if !validator_slashed {
-            state.progressive_balances_cache_mut().on_new_attestation(
-                epoch,
-                flag_index,
-                validator_effective_balance,
-            )?;
-        }
+    if is_progressive_balances_enabled(state) && !validator_slashed {
+        state.progressive_balances_cache_mut().on_new_attestation(
+            epoch,
+            flag_index,
+            validator_effective_balance,
+        )?;
     }
     Ok(())
 }

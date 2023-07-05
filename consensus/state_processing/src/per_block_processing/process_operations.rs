@@ -98,7 +98,6 @@ pub mod base {
 pub mod altair {
     use super::*;
     use crate::common::update_progressive_balances_cache::update_progressive_balances_on_attestation;
-    use types::consts::altair::TIMELY_TARGET_FLAG_INDEX;
 
     pub fn process_attestations<T: EthSpec>(
         state: &mut BeaconState<T>,

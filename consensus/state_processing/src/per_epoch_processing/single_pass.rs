@@ -1,26 +1,41 @@
-use crate::per_epoch_processing::{
-    process_registry_updates, process_slashings, EpochProcessingSummary, Error,
+#![allow(unused)]
+use crate::{
+    per_epoch_processing::{Delta, Error},
+    EpochCache,
 };
 use itertools::izip;
 use safe_arith::SafeArith;
 use std::cmp::{max, min};
+use std::collections::BTreeSet;
 use types::{
     consts::altair::{
-        NUM_FLAG_INDICES, TIMELY_HEAD_FLAG_INDEX, TIMELY_SOURCE_FLAG_INDEX,
-        TIMELY_TARGET_FLAG_INDEX,
+        NUM_FLAG_INDICES, PARTICIPATION_FLAG_WEIGHTS, TIMELY_HEAD_FLAG_INDEX,
+        TIMELY_SOURCE_FLAG_INDEX, TIMELY_TARGET_FLAG_INDEX, WEIGHT_DENOMINATOR,
     },
-    BeaconState, BeaconStateError, ChainSpec, Epoch, EthSpec, ParticipationFlags,
+    BeaconState, BeaconStateError, ChainSpec, Checkpoint, Epoch, EthSpec, ExitCache, ForkName,
+    ParticipationFlags, ProgressiveBalancesCache, Validator,
 };
 
+/// Values from the state that are immutable throughout epoch processing.
 struct StateContext {
     previous_epoch: Epoch,
     current_epoch: Epoch,
     next_epoch: Epoch,
     is_in_inactivity_leak: bool,
+    total_active_balance: u64,
+    churn_limit: u64,
+    finalized_checkpoint: Checkpoint,
+    fork_name: ForkName,
+}
+
+struct RewardsAndPenaltiesContext {
+    unslashed_participating_increments_array: [u64; NUM_FLAG_INDICES],
+    active_increments: u64,
 }
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct ValidatorInfo {
+    pub index: usize,
     pub effective_balance: u64,
     pub base_reward: u64,
     pub is_eligible: bool,
@@ -50,12 +65,20 @@ pub fn process_epoch_single_pass<E: EthSpec>(
     let current_epoch = state.current_epoch();
     let next_epoch = state.next_epoch()?;
     let is_in_inactivity_leak = state.is_in_inactivity_leak(previous_epoch, spec);
+    let total_active_balance = state.get_total_active_balance()?;
+    let churn_limit = state.get_churn_limit(spec)?;
+    let finalized_checkpoint = state.finalized_checkpoint();
+    let fork_name = state.fork_name_unchecked();
 
     let state_ctxt = &StateContext {
         previous_epoch,
         current_epoch,
         next_epoch,
         is_in_inactivity_leak,
+        total_active_balance,
+        churn_limit,
+        finalized_checkpoint,
+        fork_name,
     };
 
     let (
@@ -65,11 +88,19 @@ pub fn process_epoch_single_pass<E: EthSpec>(
         current_epoch_participation,
         inactivity_scores,
         progressive_balances,
+        exit_cache,
         epoch_cache,
     ) = state.mutable_validator_fields()?;
 
     let num_validators = validators.len();
 
+    // Compute shared values required for different parts of epoch processing.
+    let rewards_ctxt = &RewardsAndPenaltiesContext::new(progressive_balances, state_ctxt, spec)?;
+    let activation_queue = &epoch_cache
+        .activation_queue()?
+        .get_validators_eligible_for_activation(finalized_checkpoint.epoch, churn_limit as usize);
+
+    // Iterate over the validators and related fields in one pass.
     let mut validators_iter = validators.iter_cow();
     let mut balances_iter = balances.iter_cow();
     let mut inactivity_scores_iter = inactivity_scores.iter_cow();
@@ -103,6 +134,7 @@ pub fn process_epoch_single_pass<E: EthSpec>(
                 && previous_epoch + Epoch::new(1) < validator.withdrawable_epoch());
 
         let validator_info = &ValidatorInfo {
+            index,
             effective_balance: validator.effective_balance(),
             base_reward,
             is_eligible,
@@ -117,8 +149,26 @@ pub fn process_epoch_single_pass<E: EthSpec>(
             process_single_inactivity_update(inactivity_score, validator_info, state_ctxt, spec)?;
 
             // `process_rewards_and_penalties`
-            process_single_reward_and_penalty()?;
+            process_single_reward_and_penalty(
+                balance,
+                inactivity_score,
+                validator_info,
+                rewards_ctxt,
+                epoch_cache,
+                state_ctxt,
+                spec,
+            )?;
         }
+
+        // `process_registry_udpates`
+        process_single_registry_update(
+            validator,
+            validator_info,
+            exit_cache,
+            activation_queue,
+            state_ctxt,
+            spec,
+        )?;
     }
 
     Ok(())
@@ -156,57 +206,190 @@ fn process_single_inactivity_update(
 }
 
 fn process_single_reward_and_penalty(
-    inactivity_score: &mut u64,
+    balance: &mut u64,
+    inactivity_score: &u64,
     validator_info: &ValidatorInfo,
+    rewards_ctxt: &RewardsAndPenaltiesContext,
+    epoch_cache: &EpochCache,
     state_ctxt: &StateContext,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
+    let mut delta = Delta::default();
+    for flag_index in 0..NUM_FLAG_INDICES {
+        get_flag_index_delta(
+            &mut delta,
+            validator_info,
+            flag_index,
+            rewards_ctxt,
+            epoch_cache,
+            state_ctxt,
+        )?;
+    }
+    get_inactivity_penalty_delta(
+        &mut delta,
+        validator_info,
+        inactivity_score,
+        state_ctxt,
+        spec,
+    )?;
+
+    // Update balance.
+    balance.safe_add_assign(delta.rewards)?;
+    *balance = balance.saturating_sub(delta.penalties);
+
+    Ok(())
 }
 
-fn get_flag_index_delta<T: EthSpec>(
-    deltas: &Delta,
+fn get_flag_index_delta(
+    delta: &mut Delta,
+    validator_info: &ValidatorInfo,
     flag_index: usize,
+    rewards_ctxt: &RewardsAndPenaltiesContext,
     epoch_cache: &EpochCache,
-    spec: &ChainSpec,
+    state_ctxt: &StateContext,
 ) -> Result<(), Error> {
+    let previous_epoch = state_ctxt.previous_epoch;
+    let base_reward = epoch_cache.get_base_reward(validator_info.index)?;
     let weight = get_flag_weight(flag_index)?;
-    let unslashed_participating_balance =
-        participation_cache.previous_epoch_flag_attesting_balance(flag_index)?;
     let unslashed_participating_increments =
-        unslashed_participating_balance.safe_div(spec.effective_balance_increment)?;
-    let active_increments = total_active_balance.safe_div(spec.effective_balance_increment)?;
-    let previous_epoch = state.previous_epoch();
+        rewards_ctxt.get_unslashed_participating_increments(flag_index)?;
 
-    for &index in participation_cache.eligible_validator_indices() {
-        let validator = participation_cache.get_validator(index)?;
-        let base_reward = validator.base_reward;
-
-        let mut delta = Delta::default();
-
-        if validator.is_unslashed_participating_index(flag_index)? {
-            if !state.is_in_inactivity_leak(previous_epoch, spec) {
-                let reward_numerator = base_reward
-                    .safe_mul(weight)?
-                    .safe_mul(unslashed_participating_increments)?;
-                delta.reward(
-                    reward_numerator.safe_div(active_increments.safe_mul(WEIGHT_DENOMINATOR)?)?,
-                )?;
-            }
-        } else if flag_index != TIMELY_HEAD_FLAG_INDEX {
-            delta.penalize(base_reward.safe_mul(weight)?.safe_div(WEIGHT_DENOMINATOR)?)?;
+    if validator_info.is_unslashed_participating_index(flag_index)? {
+        if !state_ctxt.is_in_inactivity_leak {
+            let reward_numerator = base_reward
+                .safe_mul(weight)?
+                .safe_mul(unslashed_participating_increments)?;
+            delta.reward(
+                reward_numerator.safe_div(
+                    rewards_ctxt
+                        .active_increments
+                        .safe_mul(WEIGHT_DENOMINATOR)?,
+                )?,
+            )?;
         }
-        deltas
-            .get_mut(index)
-            .ok_or(Error::DeltaOutOfBounds(index))?
-            .combine(delta)?;
+    } else if flag_index != TIMELY_HEAD_FLAG_INDEX {
+        delta.penalize(base_reward.safe_mul(weight)?.safe_div(WEIGHT_DENOMINATOR)?)?;
     }
     Ok(())
 }
 
 /// Get the weight for a `flag_index` from the constant list of all weights.
-pub fn get_flag_weight(flag_index: usize) -> Result<u64, Error> {
+fn get_flag_weight(flag_index: usize) -> Result<u64, Error> {
     PARTICIPATION_FLAG_WEIGHTS
         .get(flag_index)
         .copied()
         .ok_or(Error::InvalidFlagIndex(flag_index))
 }
+
+fn get_inactivity_penalty_delta(
+    delta: &mut Delta,
+    validator_info: &ValidatorInfo,
+    inactivity_score: &u64,
+    state_ctxt: &StateContext,
+    spec: &ChainSpec,
+) -> Result<(), Error> {
+    if !validator_info.is_unslashed_participating_index(TIMELY_TARGET_FLAG_INDEX)? {
+        let penalty_numerator = validator_info
+            .effective_balance
+            .safe_mul(*inactivity_score)?;
+        let penalty_denominator = spec
+            .inactivity_score_bias
+            .safe_mul(spec.inactivity_penalty_quotient_for_fork(state_ctxt.fork_name))?;
+        delta.penalize(penalty_numerator.safe_div(penalty_denominator)?)?;
+    }
+    Ok(())
+}
+
+impl RewardsAndPenaltiesContext {
+    fn new(
+        progressive_balances: &ProgressiveBalancesCache,
+        state_ctxt: &StateContext,
+        spec: &ChainSpec,
+    ) -> Result<Self, Error> {
+        let mut unslashed_participating_increments_array = [0; NUM_FLAG_INDICES];
+        for flag_index in 0..NUM_FLAG_INDICES {
+            let unslashed_participating_balance =
+                progressive_balances.previous_epoch_flag_attesting_balance(flag_index)?;
+            let unslashed_participating_increments =
+                unslashed_participating_balance.safe_div(spec.effective_balance_increment)?;
+
+            *unslashed_participating_increments_array
+                .get_mut(flag_index)
+                .ok_or(Error::InvalidFlagIndex(flag_index))? = unslashed_participating_increments;
+        }
+        let active_increments = state_ctxt
+            .total_active_balance
+            .safe_div(spec.effective_balance_increment)?;
+
+        Ok(Self {
+            unslashed_participating_increments_array,
+            active_increments,
+        })
+    }
+
+    fn get_unslashed_participating_increments(&self, flag_index: usize) -> Result<u64, Error> {
+        self.unslashed_participating_increments_array
+            .get(flag_index)
+            .copied()
+            .ok_or(Error::InvalidFlagIndex(flag_index))
+    }
+}
+
+fn process_single_registry_update(
+    validator: &mut Validator,
+    validator_info: &ValidatorInfo,
+    exit_cache: &mut ExitCache,
+    activation_queue: &BTreeSet<usize>,
+    state_ctxt: &StateContext,
+    spec: &ChainSpec,
+) -> Result<(), Error> {
+    let current_epoch = state_ctxt.current_epoch;
+
+    if validator.is_eligible_for_activation_queue(spec) {
+        validator.mutable.activation_eligibility_epoch = current_epoch.safe_add(1)?;
+    }
+
+    if validator.is_active_at(current_epoch)
+        && validator.effective_balance() <= spec.ejection_balance
+    {
+        initiate_validator_exit(validator, exit_cache, state_ctxt, spec)?;
+    }
+
+    if activation_queue.contains(&validator_info.index) {
+        validator.mutable.activation_epoch = spec.compute_activation_exit_epoch(current_epoch)?;
+    }
+
+    Ok(())
+}
+
+fn initiate_validator_exit(
+    validator: &mut Validator,
+    exit_cache: &mut ExitCache,
+    state_ctxt: &StateContext,
+    spec: &ChainSpec,
+) -> Result<(), Error> {
+    // Return if the validator already initiated exit
+    if validator.exit_epoch() != spec.far_future_epoch {
+        return Ok(());
+    }
+
+    // Compute exit queue epoch
+    let delayed_epoch = spec.compute_activation_exit_epoch(state_ctxt.current_epoch)?;
+    let mut exit_queue_epoch = exit_cache
+        .max_epoch()?
+        .map_or(delayed_epoch, |epoch| max(epoch, delayed_epoch));
+    let exit_queue_churn = exit_cache.get_churn_at(exit_queue_epoch)?;
+
+    if exit_queue_churn >= state_ctxt.churn_limit {
+        exit_queue_epoch.safe_add_assign(1)?;
+    }
+
+    validator.mutable.exit_epoch = exit_queue_epoch;
+    validator.mutable.withdrawable_epoch =
+        exit_queue_epoch.safe_add(spec.min_validator_withdrawability_delay)?;
+
+    exit_cache.record_validator_exit(exit_queue_epoch)?;
+    Ok(())
+}
+
+fn process_single_slashing() -> Result<(), Error> {}
