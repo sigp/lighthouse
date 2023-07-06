@@ -90,12 +90,12 @@ impl EpochTotalBalances {
 
     pub fn on_effective_balance_change(
         &mut self,
-        participation_flags: ParticipationFlags,
+        current_epoch_participation_flags: ParticipationFlags,
         old_effective_balance: u64,
         new_effective_balance: u64,
     ) -> Result<(), BeaconStateError> {
         for flag_index in 0..NUM_FLAG_INDICES {
-            if participation_flags.has_flag(flag_index)? {
+            if current_epoch_participation_flags.has_flag(flag_index)? {
                 let total = self
                     .total_flag_balances
                     .get_mut(flag_index)
@@ -179,17 +179,11 @@ impl ProgressiveBalancesCache {
     /// its share of the target attesting balance in the cache.
     pub fn on_effective_balance_change(
         &mut self,
-        previous_epoch_participation: ParticipationFlags,
         current_epoch_participation: ParticipationFlags,
         old_effective_balance: u64,
         new_effective_balance: u64,
     ) -> Result<(), BeaconStateError> {
         let cache = self.get_inner_mut()?;
-        cache.previous_epoch_cache.on_effective_balance_change(
-            previous_epoch_participation,
-            old_effective_balance,
-            new_effective_balance,
-        )?;
         cache.current_epoch_cache.on_effective_balance_change(
             current_epoch_participation,
             old_effective_balance,

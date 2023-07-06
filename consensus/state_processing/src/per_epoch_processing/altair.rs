@@ -3,7 +3,9 @@ use crate::common::update_progressive_balances_cache::{
     initialize_progressive_balances_cache, update_progressive_balances_on_epoch_transition,
 };
 use crate::epoch_cache::initialize_epoch_cache;
+use crate::per_epoch_processing::single_pass::process_epoch_single_pass;
 use crate::per_epoch_processing::{
+    capella::process_historical_summaries_update,
     effective_balance_updates::process_effective_balance_updates,
     historical_roots_update::process_historical_roots_update,
     resets::{process_eth1_data_reset, process_randao_mixes_reset, process_slashings_reset},
@@ -27,7 +29,7 @@ pub fn process_epoch<T: EthSpec>(
     state: &mut BeaconState<T>,
     spec: &ChainSpec,
 ) -> Result<EpochProcessingSummary<T>, Error> {
-    // Ensure the committee caches are built.
+    // Ensure the required caches are built.
     state.build_committee_cache(RelativeEpoch::Previous, spec)?;
     state.build_committee_cache(RelativeEpoch::Current, spec)?;
     state.build_committee_cache(RelativeEpoch::Next, spec)?;
@@ -35,36 +37,26 @@ pub fn process_epoch<T: EthSpec>(
     initialize_epoch_cache(state, state.current_epoch(), spec)?;
 
     // Pre-compute participating indices and total balances.
-    let mut participation_cache = ParticipationCache::new(state, spec)?;
     let sync_committee = state.current_sync_committee()?.clone();
-    initialize_progressive_balances_cache::<T>(state, Some(&participation_cache), spec)?;
+    initialize_progressive_balances_cache::<T>(state, spec)?;
 
     // Justification and finalization.
-    let justification_and_finalization_state =
-        process_justification_and_finalization(state, &participation_cache)?;
+    let justification_and_finalization_state = process_justification_and_finalization(state)?;
     justification_and_finalization_state.apply_changes_to_state(state);
 
-    process_inactivity_updates(state, &mut participation_cache, spec)?;
-
-    // Rewards and Penalties.
-    process_rewards_and_penalties(state, &participation_cache, spec)?;
-
-    // Registry Updates.
-    process_registry_updates(state, spec)?;
-
-    // Slashings.
-    process_slashings(
-        state,
-        Some(participation_cache.process_slashings_indices()),
-        participation_cache.current_epoch_total_active_balance(),
-        spec,
-    )?;
+    // In a single pass:
+    // - Inactivity updates
+    // - Rewards and penalties
+    // - Registry updates
+    // - Slashings
+    // - Effective balance updates
+    //
+    // The `process_eth1_data_reset` is not covered in the single pass, but happens afterwards
+    // without loss of correctness.
+    process_epoch_single_pass(state, spec)?;
 
     // Reset eth1 data votes.
     process_eth1_data_reset(state)?;
-
-    // Update effective balances with hysteresis (lag).
-    process_effective_balance_updates(state, Some(&participation_cache), spec)?;
 
     // Reset slashings
     process_slashings_reset(state)?;
@@ -72,8 +64,14 @@ pub fn process_epoch<T: EthSpec>(
     // Set randao mix
     process_randao_mixes_reset(state)?;
 
-    // Set historical root accumulator
-    process_historical_roots_update(state)?;
+    // Set historical summaries accumulator
+    if state.historical_summaries().is_ok() {
+        // Post-Capella.
+        process_historical_summaries_update(state)?;
+    } else {
+        // Pre-Capella
+        process_historical_roots_update(state)?;
+    }
 
     // Rotate current/previous epoch participation
     process_participation_flag_updates(state)?;
@@ -82,12 +80,7 @@ pub fn process_epoch<T: EthSpec>(
 
     // Rotate the epoch caches to suit the epoch transition.
     state.advance_caches(spec)?;
-    initialize_epoch_cache(state, state.next_epoch()?, spec)?;
-
     update_progressive_balances_on_epoch_transition(state, spec)?;
 
-    Ok(EpochProcessingSummary::Altair {
-        participation_cache,
-        sync_committee,
-    })
+    Ok(EpochProcessingSummary::Altair { sync_committee })
 }

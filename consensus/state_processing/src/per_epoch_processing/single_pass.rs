@@ -1,5 +1,5 @@
-#![allow(unused)]
 use crate::{
+    epoch_cache::PreEpochCache,
     per_epoch_processing::{Delta, Error},
     EpochCache,
 };
@@ -10,21 +10,19 @@ use std::collections::BTreeSet;
 use types::{
     consts::altair::{
         NUM_FLAG_INDICES, PARTICIPATION_FLAG_WEIGHTS, TIMELY_HEAD_FLAG_INDEX,
-        TIMELY_SOURCE_FLAG_INDEX, TIMELY_TARGET_FLAG_INDEX, WEIGHT_DENOMINATOR,
+        TIMELY_TARGET_FLAG_INDEX, WEIGHT_DENOMINATOR,
     },
-    BeaconState, BeaconStateError, ChainSpec, Checkpoint, Epoch, EthSpec, ExitCache, ForkName,
+    ActivationQueue, BeaconState, BeaconStateError, ChainSpec, Epoch, EthSpec, ExitCache, ForkName,
     ParticipationFlags, ProgressiveBalancesCache, Unsigned, Validator,
 };
 
 /// Values from the state that are immutable throughout epoch processing.
 struct StateContext {
-    previous_epoch: Epoch,
     current_epoch: Epoch,
     next_epoch: Epoch,
     is_in_inactivity_leak: bool,
     total_active_balance: u64,
     churn_limit: u64,
-    finalized_checkpoint: Checkpoint,
     fork_name: ForkName,
 }
 
@@ -38,6 +36,11 @@ struct SlashingsContext {
     target_withdrawable_epoch: Epoch,
 }
 
+struct EffectiveBalancesContext {
+    downward_threshold: u64,
+    upward_threshold: u64,
+}
+
 #[derive(Debug, PartialEq, Clone)]
 pub struct ValidatorInfo {
     pub index: usize,
@@ -47,7 +50,10 @@ pub struct ValidatorInfo {
     pub is_slashed: bool,
     pub is_active_current_epoch: bool,
     pub is_active_previous_epoch: bool,
+    // Used for determining rewards.
     pub previous_epoch_participation: ParticipationFlags,
+    // Used for updating the progressive balances cache for next epoch.
+    pub current_epoch_participation: ParticipationFlags,
 }
 
 impl ValidatorInfo {
@@ -76,18 +82,17 @@ pub fn process_epoch_single_pass<E: EthSpec>(
     let fork_name = state.fork_name_unchecked();
 
     let state_ctxt = &StateContext {
-        previous_epoch,
         current_epoch,
         next_epoch,
         is_in_inactivity_leak,
         total_active_balance,
         churn_limit,
-        finalized_checkpoint,
         fork_name,
     };
 
     // Contexts that require immutable access to `state`.
     let slashings_ctxt = &SlashingsContext::new(state, state_ctxt, spec)?;
+    let mut next_epoch_cache = PreEpochCache::new_for_next_epoch(state)?;
 
     // Split the state into several disjoint mutable borrows.
     let (
@@ -108,11 +113,16 @@ pub fn process_epoch_single_pass<E: EthSpec>(
     let activation_queue = &epoch_cache
         .activation_queue()?
         .get_validators_eligible_for_activation(finalized_checkpoint.epoch, churn_limit as usize);
+    let effective_balances_ctxt = &EffectiveBalancesContext::new(spec)?;
 
     // Iterate over the validators and related fields in one pass.
     let mut validators_iter = validators.iter_cow();
     let mut balances_iter = balances.iter_cow();
     let mut inactivity_scores_iter = inactivity_scores.iter_cow();
+
+    // Values computed for the next epoch transition.
+    let mut next_epoch_total_active_balance = 0;
+    let mut next_epoch_activation_queue = ActivationQueue::default();
 
     for (index, &previous_epoch_participation, &current_epoch_participation) in izip!(
         0..num_validators,
@@ -151,6 +161,7 @@ pub fn process_epoch_single_pass<E: EthSpec>(
             is_active_current_epoch,
             is_active_previous_epoch,
             previous_epoch_participation,
+            current_epoch_participation,
         };
 
         if current_epoch != E::genesis_epoch() {
@@ -175,13 +186,34 @@ pub fn process_epoch_single_pass<E: EthSpec>(
             validator_info,
             exit_cache,
             activation_queue,
+            &mut next_epoch_activation_queue,
             state_ctxt,
             spec,
         )?;
 
         // `process_slashings`
         process_single_slashing(balance, validator, slashings_ctxt, state_ctxt, spec)?;
+
+        // `process_effective_balance_updates`
+        process_single_effective_balance_update(
+            *balance,
+            validator,
+            validator_info,
+            &mut next_epoch_total_active_balance,
+            &mut next_epoch_cache,
+            progressive_balances,
+            effective_balances_ctxt,
+            state_ctxt,
+            spec,
+        )?;
     }
+
+    state.set_total_active_balance(next_epoch, next_epoch_total_active_balance);
+    *state.epoch_cache_mut() = next_epoch_cache.into_epoch_cache(
+        next_epoch_total_active_balance,
+        next_epoch_activation_queue,
+        spec,
+    )?;
 
     Ok(())
 }
@@ -260,7 +292,6 @@ fn get_flag_index_delta(
     epoch_cache: &EpochCache,
     state_ctxt: &StateContext,
 ) -> Result<(), Error> {
-    let previous_epoch = state_ctxt.previous_epoch;
     let base_reward = epoch_cache.get_base_reward(validator_info.index)?;
     let weight = get_flag_weight(flag_index)?;
     let unslashed_participating_increments =
@@ -352,6 +383,7 @@ fn process_single_registry_update(
     validator_info: &ValidatorInfo,
     exit_cache: &mut ExitCache,
     activation_queue: &BTreeSet<usize>,
+    next_epoch_activation_queue: &mut ActivationQueue,
     state_ctxt: &StateContext,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
@@ -370,6 +402,14 @@ fn process_single_registry_update(
     if activation_queue.contains(&validator_info.index) {
         validator.mutable.activation_epoch = spec.compute_activation_exit_epoch(current_epoch)?;
     }
+
+    // Caching: add to speculative activation queue for next epoch.
+    next_epoch_activation_queue.add_if_could_be_eligible_for_activation(
+        validator_info.index,
+        validator,
+        state_ctxt.next_epoch,
+        spec,
+    )?;
 
     Ok(())
 }
@@ -448,5 +488,71 @@ fn process_single_slashing(
 
         *balance = balance.saturating_sub(penalty);
     }
+    Ok(())
+}
+
+impl EffectiveBalancesContext {
+    fn new(spec: &ChainSpec) -> Result<Self, Error> {
+        let hysteresis_increment = spec
+            .effective_balance_increment
+            .safe_div(spec.hysteresis_quotient)?;
+        let downward_threshold =
+            hysteresis_increment.safe_mul(spec.hysteresis_downward_multiplier)?;
+        let upward_threshold = hysteresis_increment.safe_mul(spec.hysteresis_upward_multiplier)?;
+
+        Ok(Self {
+            downward_threshold,
+            upward_threshold,
+        })
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn process_single_effective_balance_update(
+    balance: u64,
+    validator: &mut Validator,
+    validator_info: &ValidatorInfo,
+    next_epoch_total_active_balance: &mut u64,
+    next_epoch_cache: &mut PreEpochCache,
+    progressive_balances: &mut ProgressiveBalancesCache,
+    eb_ctxt: &EffectiveBalancesContext,
+    state_ctxt: &StateContext,
+    spec: &ChainSpec,
+) -> Result<(), Error> {
+    let old_effective_balance = validator.effective_balance();
+    let new_effective_balance = if balance.safe_add(eb_ctxt.downward_threshold)?
+        < validator.effective_balance()
+        || validator
+            .effective_balance()
+            .safe_add(eb_ctxt.upward_threshold)?
+            < balance
+    {
+        min(
+            balance.safe_sub(balance.safe_rem(spec.effective_balance_increment)?)?,
+            spec.max_effective_balance,
+        )
+    } else {
+        validator.effective_balance()
+    };
+
+    if validator.is_active_at(state_ctxt.next_epoch) {
+        next_epoch_total_active_balance.safe_add_assign(new_effective_balance)?;
+    }
+
+    if new_effective_balance != old_effective_balance {
+        validator.mutable.effective_balance = new_effective_balance;
+
+        // Update progressive balances cache for the *current* epoch, which will soon become the
+        // previous epoch once the epoch transition completes.
+        progressive_balances.on_effective_balance_change(
+            validator_info.current_epoch_participation,
+            old_effective_balance,
+            new_effective_balance,
+        )?;
+    }
+
+    // Caching: update next epoch effective balances.
+    next_epoch_cache.push_effective_balance(new_effective_balance);
+
     Ok(())
 }
