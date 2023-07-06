@@ -1,7 +1,7 @@
 use crate::metrics;
 use beacon_chain::validator_monitor::{get_block_delay_ms, timestamp_now};
 use beacon_chain::{
-    BeaconChain, BeaconChainError, BeaconChainTypes, BlockError, IntoGossipVerifiedBlock,
+    BeaconChain, BeaconChainError, BeaconChainTypes, BlockError, GossipVerifiedBlock,
     NotifyExecutionLayer,
 };
 use eth2::types::BroadcastValidation;
@@ -10,7 +10,6 @@ use lighthouse_network::PubsubMessage;
 use network::NetworkMessage;
 use slog::{debug, error, info, warn, Logger};
 use slot_clock::SlotClock;
-use std::marker::PhantomData;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc::UnboundedSender;
@@ -21,28 +20,28 @@ use types::{
 };
 use warp::Rejection;
 
-pub enum ProvenancedBlock<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>> {
+pub enum ProvenancedBlock<T: BeaconChainTypes> {
     /// The payload was built using a local EE.
-    Local(B, PhantomData<T>),
+    Local(Arc<SignedBeaconBlock<T::EthSpec>>),
     /// The payload was build using a remote builder (e.g., via a mev-boost
     /// compatible relay).
-    Builder(B, PhantomData<T>),
+    Builder(Arc<SignedBeaconBlock<T::EthSpec>>),
 }
 
-impl<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>> ProvenancedBlock<T, B> {
-    pub fn local(block: B) -> Self {
-        Self::Local(block, PhantomData)
+impl<T: BeaconChainTypes> ProvenancedBlock<T> {
+    pub fn local(block: Arc<SignedBeaconBlock<T::EthSpec>>) -> Self {
+        Self::Local(block)
     }
 
-    pub fn builder(block: B) -> Self {
-        Self::Builder(block, PhantomData)
+    pub fn builder(block: Arc<SignedBeaconBlock<T::EthSpec>>) -> Self {
+        Self::Builder(block)
     }
 }
 
 /// Handles a request from the HTTP API for full blocks.
-pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
+pub async fn publish_block<T: BeaconChainTypes>(
     block_root: Option<Hash256>,
-    provenanced_block: ProvenancedBlock<T, B>,
+    provenanced_block: ProvenancedBlock<T>,
     chain: Arc<BeaconChain<T>>,
     network_tx: &UnboundedSender<NetworkMessage<T::EthSpec>>,
     log: Logger,
@@ -50,10 +49,10 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
 ) -> Result<(), Rejection> {
     let seen_timestamp = timestamp_now();
     let (block, is_locally_built_block) = match provenanced_block {
-        ProvenancedBlock::Local(block, _) => (block, true),
-        ProvenancedBlock::Builder(block, _) => (block, false),
+        ProvenancedBlock::Local(block) => (block, true),
+        ProvenancedBlock::Builder(block) => (block, false),
     };
-    let beacon_block = block.inner();
+    let beacon_block = block.clone();
     let delay = get_block_delay_ms(seen_timestamp, beacon_block.message(), &chain.slot_clock);
     debug!(log, "Signed block received in HTTP API"; "slot" => beacon_block.slot());
 
@@ -75,7 +74,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
     };
 
     /* if we can form a `GossipVerifiedBlock`, we've passed our basic gossip checks */
-    let gossip_verified_block = block.into_gossip_verified_block(&chain).map_err(|e| {
+    let gossip_verified_block = GossipVerifiedBlock::new(block, &chain).map_err(|e| {
         warn!(log, "Not publishing block, not gossip verified"; "slot" => beacon_block.slot(), "error" => ?e);
         warp_utils::reject::custom_bad_request(e.to_string())
     })?;
@@ -210,9 +209,9 @@ pub async fn publish_blinded_block<T: BeaconChainTypes>(
     validation_level: BroadcastValidation,
 ) -> Result<(), Rejection> {
     let block_root = block.canonical_root();
-    let full_block: ProvenancedBlock<T, Arc<SignedBeaconBlock<T::EthSpec>>> =
+    let full_block: ProvenancedBlock<T> =
         reconstruct_block(chain.clone(), block_root, block, log.clone()).await?;
-    publish_block::<T, _>(
+    publish_block::<T>(
         Some(block_root),
         full_block,
         chain,
@@ -231,7 +230,7 @@ pub async fn reconstruct_block<T: BeaconChainTypes>(
     block_root: Hash256,
     block: SignedBeaconBlock<T::EthSpec, BlindedPayload<T::EthSpec>>,
     log: Logger,
-) -> Result<ProvenancedBlock<T, Arc<SignedBeaconBlock<T::EthSpec>>>, Rejection> {
+) -> Result<ProvenancedBlock<T>, Rejection> {
     let full_payload_opt = if let Ok(payload_header) = block.message().body().execution_payload() {
         let el = chain.execution_layer.as_ref().ok_or_else(|| {
             warp_utils::reject::custom_server_error("Missing execution layer".to_string())
