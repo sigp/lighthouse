@@ -58,9 +58,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let mut validator_statuses = ValidatorStatuses::new(&state, spec)?;
         validator_statuses.process_attestations(&state)?;
 
-        // TODO: calculate `ideal_rewards`
-        let validator_indices = Self::validators_ids_to_indices_sorted(&mut state, validators)?;
-        let attestation_delta = get_attestation_deltas_subset(
+        let ideal_rewards = self.compute_ideal_rewards_base(&state);
+
+        let validator_indices = Self::validators_ids_to_indices(&mut state, validators)?;
+        let indices_to_attestation_delta = get_attestation_deltas_subset(
             &state,
             &validator_statuses,
             Some(&validator_indices),
@@ -69,13 +70,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let mut total_rewards = vec![];
 
-        // FIXME: this would not work if there's a duplicate in `validator_indices`,
-        // would be better if `get_attestation_deltas_subset` also returns validator indices,
-        // or remove duplicates beforehand.
-        for (index, delta) in validator_indices
-            .into_iter()
-            .zip(attestation_delta.into_iter())
-        {
+        for (index, delta) in indices_to_attestation_delta.into_iter() {
             // FIXME: this bit is just some guesses and most likely wrong. Check the spec.
             // also need to add `inactivity_leak` logic.
             let head_delta = delta.head_delta;
@@ -104,7 +99,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         Ok(StandardAttestationRewards {
-            ideal_rewards: vec![],
+            ideal_rewards,
             total_rewards,
         })
     }
@@ -146,7 +141,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let base_reward_per_increment =
                 BaseRewardPerIncrement::new(total_active_balance, spec)?;
 
-            for effective_balance_eth in 0..=32 {
+            for effective_balance_eth in 0..=self.max_effective_balance_increment_steps()? {
                 let effective_balance =
                     effective_balance_eth.safe_mul(spec.effective_balance_increment)?;
                 let base_reward =
@@ -176,7 +171,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let validators = if validators.is_empty() {
             participation_cache.eligible_validator_indices().to_vec()
         } else {
-            Self::validators_ids_to_indices_sorted(&mut state, validators)?
+            Self::validators_ids_to_indices(&mut state, validators)?
         };
 
         for validator_index in &validators {
@@ -261,11 +256,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         })
     }
 
-    fn validators_ids_to_indices_sorted(
+    fn max_effective_balance_increment_steps(&self) -> Result<u64, BeaconChainError> {
+        let spec = &self.spec;
+        let max_steps = spec
+            .max_effective_balance
+            .safe_div(spec.effective_balance_increment)?;
+        Ok(max_steps)
+    }
+
+    fn validators_ids_to_indices(
         state: &mut BeaconState<T::EthSpec>,
         validators: Vec<ValidatorId>,
     ) -> Result<Vec<usize>, BeaconChainError> {
-        let mut indices = validators
+        let indices = validators
             .into_iter()
             .map(|validator| match validator {
                 ValidatorId::Index(i) => Ok(i as usize),
@@ -274,7 +277,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     .ok_or(BeaconChainError::ValidatorPubkeyUnknown(pubkey)),
             })
             .collect::<Result<Vec<_>, _>>()?;
-        indices.sort();
         Ok(indices)
+    }
+
+    fn compute_ideal_rewards_base(
+        &self,
+        _state: &BeaconState<T::EthSpec>,
+    ) -> Vec<IdealAttestationRewards> {
+        todo!()
     }
 }

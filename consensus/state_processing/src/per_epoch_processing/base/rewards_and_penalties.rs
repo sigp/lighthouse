@@ -4,6 +4,7 @@ use crate::per_epoch_processing::{
     Delta, Error,
 };
 use safe_arith::SafeArith;
+use std::collections::HashMap;
 use types::{BeaconState, ChainSpec, EthSpec};
 
 /// Combination of several deltas for different components of an attestation reward.
@@ -79,6 +80,7 @@ pub fn get_attestation_deltas<T: EthSpec>(
     spec: &ChainSpec,
 ) -> Result<Vec<AttestationDelta>, Error> {
     get_attestation_deltas_subset(state, validator_statuses, None, spec)
+        .map(|hash_map| hash_map.into_values().collect())
 }
 
 pub fn get_attestation_deltas_subset<T: EthSpec>(
@@ -86,22 +88,22 @@ pub fn get_attestation_deltas_subset<T: EthSpec>(
     validator_statuses: &ValidatorStatuses,
     maybe_validators_subset: Option<&Vec<usize>>,
     spec: &ChainSpec,
-) -> Result<Vec<AttestationDelta>, Error> {
+) -> Result<HashMap<usize, AttestationDelta>, Error> {
     let previous_epoch = state.previous_epoch();
     let finality_delay = state
         .previous_epoch()
         .safe_sub(state.finalized_checkpoint().epoch)?
         .as_u64();
 
-    // Include only subset if specified, otherwise include all validators.
-    let validator_count = maybe_validators_subset
-        .as_ref()
-        .map_or_else(|| state.validators().len(), |v| v.len());
-    let mut deltas = vec![AttestationDelta::default(); validator_count];
+    let mut deltas = HashMap::new();
 
     let total_balances = &validator_statuses.total_balances;
 
     for (index, validator) in validator_statuses.statuses.iter().enumerate() {
+        let delta = deltas
+            .entry(index)
+            .or_insert_with(AttestationDelta::default);
+
         // Ignore ineligible validators. All sub-functions of the spec do this except for
         // `get_inclusion_delay_deltas`. It's safe to do so here because any validator that is in
         // the unslashed indices of the matching source attestations is active, and therefore
@@ -129,9 +131,6 @@ pub fn get_attestation_deltas_subset<T: EthSpec>(
         let inactivity_penalty_delta =
             get_inactivity_penalty_delta(validator, base_reward, finality_delay, spec)?;
 
-        let delta = deltas
-            .get_mut(index)
-            .ok_or(Error::DeltaOutOfBounds(index))?;
         delta.source_delta.combine(source_delta)?;
         delta.target_delta.combine(target_delta)?;
         delta.head_delta.combine(head_delta)?;
@@ -142,8 +141,8 @@ pub fn get_attestation_deltas_subset<T: EthSpec>(
 
         if let Some((proposer_index, proposer_delta)) = proposer_delta {
             deltas
-                .get_mut(proposer_index)
-                .ok_or(Error::ValidatorStatusesInconsistent)?
+                .entry(proposer_index)
+                .or_insert_with(AttestationDelta::default)
                 .inclusion_delay_delta
                 .combine(proposer_delta)?;
         }
