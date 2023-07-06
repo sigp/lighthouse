@@ -58,6 +58,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let mut validator_statuses = ValidatorStatuses::new(&state, spec)?;
         validator_statuses.process_attestations(&state)?;
 
+        // TODO: calculate `ideal_rewards`
         let validator_indices = Self::validators_ids_to_indices_sorted(&mut state, validators)?;
         let attestation_delta = get_attestation_deltas_subset(
             &state,
@@ -68,11 +69,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let mut total_rewards = vec![];
 
+        // FIXME: this would not work if there's a duplicate in `validator_indices`,
+        // would be better if `get_attestation_deltas_subset` also returns validator indices,
+        // or remove duplicates beforehand.
         for (index, delta) in validator_indices
             .into_iter()
             .zip(attestation_delta.into_iter())
         {
-            // TODO check head penalty
+            // FIXME: this bit is just some guesses and most likely wrong. Check the spec.
+            // also need to add `inactivity_leak` logic.
             let head_delta = delta.head_delta;
             let head = head_delta.rewards.saturating_sub(head_delta.penalties);
 
