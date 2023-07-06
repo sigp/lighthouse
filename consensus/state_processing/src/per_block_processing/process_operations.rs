@@ -97,6 +97,8 @@ pub mod base {
 
 pub mod altair {
     use super::*;
+    use crate::common::update_progressive_balances_cache::update_progressive_balances_on_attestation;
+    use types::consts::altair::TIMELY_TARGET_FLAG_INDEX;
 
     pub fn process_attestations<T: EthSpec>(
         state: &mut BeaconState<T>,
@@ -163,6 +165,14 @@ pub mod altair {
                         get_base_reward(state, index, base_reward_per_increment, spec)?
                             .safe_mul(weight)?,
                     )?;
+
+                    if flag_index == TIMELY_TARGET_FLAG_INDEX {
+                        update_progressive_balances_on_attestation(
+                            state,
+                            data.target.epoch,
+                            index,
+                        )?;
+                    }
                 }
             }
         }
@@ -235,6 +245,7 @@ pub fn process_attester_slashings<T: EthSpec>(
 
     Ok(())
 }
+
 /// Wrapper function to handle calling the correct version of `process_attestations` based on
 /// the fork.
 pub fn process_attestations<T: EthSpec, Payload: AbstractExecPayload<T>>(

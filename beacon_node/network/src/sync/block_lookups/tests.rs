@@ -1,6 +1,7 @@
 #![cfg(feature = "spec-minimal")]
 use std::sync::Arc;
 
+use crate::beacon_processor::BeaconProcessorSend;
 use crate::service::RequestId;
 use crate::sync::manager::RequestId as SyncId;
 use crate::NetworkMessage;
@@ -80,7 +81,7 @@ impl TestRig {
             SyncNetworkContext::new(
                 network_tx,
                 globals,
-                beacon_processor_tx,
+                BeaconProcessorSend(beacon_processor_tx),
                 chain,
                 log.new(slog::o!("component" => "network_context")),
             )

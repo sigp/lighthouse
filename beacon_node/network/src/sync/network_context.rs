@@ -4,7 +4,7 @@
 use super::block_sidecar_coupling::BlocksAndBlobsRequestInfo;
 use super::manager::{Id, RequestId as SyncRequestId};
 use super::range_sync::{BatchId, ByRangeRequestType, ChainId};
-use crate::beacon_processor::WorkEvent;
+use crate::beacon_processor::BeaconProcessorSend;
 use crate::service::{NetworkMessage, RequestId};
 use crate::status::ToStatusMessage;
 use crate::sync::block_lookups::{BlobRequestId, BlockRequestId};
@@ -60,7 +60,7 @@ pub struct SyncNetworkContext<T: BeaconChainTypes> {
     execution_engine_state: EngineState,
 
     /// Channel to send work to the beacon processor.
-    beacon_processor_send: mpsc::Sender<WorkEvent<T>>,
+    beacon_processor_send: BeaconProcessorSend<T>,
 
     pub chain: Arc<BeaconChain<T>>,
 
@@ -90,7 +90,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
     pub fn new(
         network_send: mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
         network_globals: Arc<NetworkGlobals<T::EthSpec>>,
-        beacon_processor_send: mpsc::Sender<WorkEvent<T>>,
+        beacon_processor_send: BeaconProcessorSend<T>,
         chain: Arc<BeaconChain<T>>,
         log: slog::Logger,
     ) -> Self {
@@ -564,12 +564,12 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         })
     }
 
-    pub fn processor_channel_if_enabled(&self) -> Option<&mpsc::Sender<WorkEvent<T>>> {
+    pub fn processor_channel_if_enabled(&self) -> Option<&BeaconProcessorSend<T>> {
         self.is_execution_engine_online()
             .then_some(&self.beacon_processor_send)
     }
 
-    pub fn processor_channel(&self) -> &mpsc::Sender<WorkEvent<T>> {
+    pub fn processor_channel(&self) -> &BeaconProcessorSend<T> {
         &self.beacon_processor_send
     }
 

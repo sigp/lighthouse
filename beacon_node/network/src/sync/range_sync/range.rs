@@ -381,7 +381,7 @@ where
 mod tests {
     use super::*;
 
-    use crate::beacon_processor::WorkEvent as BeaconWorkEvent;
+    use crate::beacon_processor::{BeaconProcessorSend, WorkEvent as BeaconWorkEvent};
     use crate::service::RequestId;
     use crate::NetworkMessage;
     use beacon_chain::{
@@ -610,7 +610,7 @@ mod tests {
         let cx = SyncNetworkContext::new(
             network_tx,
             globals.clone(),
-            beacon_processor_tx,
+            BeaconProcessorSend(beacon_processor_tx),
             chain,
             log.new(o!("component" => "network_context")),
         );
