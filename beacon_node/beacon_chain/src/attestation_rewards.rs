@@ -92,7 +92,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 head,
                 target,
                 source,
-                inclusion_delay,
+                inclusion_delay: Some(inclusion_delay),
             };
 
             total_rewards.push(rewards);
@@ -214,7 +214,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 head: head_reward,
                 target: target_reward,
                 source: source_reward,
-                inclusion_delay: 0,
+                inclusion_delay: None,
             });
         }
 
