@@ -4,7 +4,7 @@ use crate::{
     EpochCache,
 };
 use itertools::izip;
-use safe_arith::SafeArith;
+use safe_arith::{SafeArith, SafeArithIter};
 use std::cmp::{max, min};
 use std::collections::BTreeSet;
 use types::{
@@ -13,7 +13,7 @@ use types::{
         TIMELY_SOURCE_FLAG_INDEX, TIMELY_TARGET_FLAG_INDEX, WEIGHT_DENOMINATOR,
     },
     BeaconState, BeaconStateError, ChainSpec, Checkpoint, Epoch, EthSpec, ExitCache, ForkName,
-    ParticipationFlags, ProgressiveBalancesCache, Validator,
+    ParticipationFlags, ProgressiveBalancesCache, Unsigned, Validator,
 };
 
 /// Values from the state that are immutable throughout epoch processing.
@@ -31,6 +31,11 @@ struct StateContext {
 struct RewardsAndPenaltiesContext {
     unslashed_participating_increments_array: [u64; NUM_FLAG_INDICES],
     active_increments: u64,
+}
+
+struct SlashingsContext {
+    adjusted_total_slashing_balance: u64,
+    target_withdrawable_epoch: Epoch,
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -81,6 +86,10 @@ pub fn process_epoch_single_pass<E: EthSpec>(
         fork_name,
     };
 
+    // Contexts that require immutable access to `state`.
+    let slashings_ctxt = &SlashingsContext::new(state, state_ctxt, spec)?;
+
+    // Split the state into several disjoint mutable borrows.
     let (
         validators,
         balances,
@@ -169,6 +178,9 @@ pub fn process_epoch_single_pass<E: EthSpec>(
             state_ctxt,
             spec,
         )?;
+
+        // `process_slashings`
+        process_single_slashing(balance, validator, slashings_ctxt, state_ctxt, spec)?;
     }
 
     Ok(())
@@ -392,4 +404,49 @@ fn initiate_validator_exit(
     Ok(())
 }
 
-fn process_single_slashing() -> Result<(), Error> {}
+impl SlashingsContext {
+    fn new<E: EthSpec>(
+        state: &BeaconState<E>,
+        state_ctxt: &StateContext,
+        spec: &ChainSpec,
+    ) -> Result<Self, Error> {
+        let sum_slashings = state.get_all_slashings().iter().copied().safe_sum()?;
+        let adjusted_total_slashing_balance = min(
+            sum_slashings.safe_mul(spec.proportional_slashing_multiplier_for_state(state))?,
+            state_ctxt.total_active_balance,
+        );
+
+        let target_withdrawable_epoch = state_ctxt
+            .current_epoch
+            .safe_add(E::EpochsPerSlashingsVector::to_u64().safe_div(2)?)?;
+
+        Ok(Self {
+            adjusted_total_slashing_balance,
+            target_withdrawable_epoch,
+        })
+    }
+}
+
+fn process_single_slashing(
+    balance: &mut u64,
+    validator: &Validator,
+    slashings_ctxt: &SlashingsContext,
+    state_ctxt: &StateContext,
+    spec: &ChainSpec,
+) -> Result<(), Error> {
+    if validator.slashed()
+        && slashings_ctxt.target_withdrawable_epoch == validator.withdrawable_epoch()
+    {
+        let increment = spec.effective_balance_increment;
+        let penalty_numerator = validator
+            .effective_balance()
+            .safe_div(increment)?
+            .safe_mul(slashings_ctxt.adjusted_total_slashing_balance)?;
+        let penalty = penalty_numerator
+            .safe_div(state_ctxt.total_active_balance)?
+            .safe_mul(increment)?;
+
+        *balance = balance.saturating_sub(penalty);
+    }
+    Ok(())
+}
