@@ -2,7 +2,7 @@ use crate::common::altair::BaseRewardPerIncrement;
 use crate::common::base::SqrtTotalActiveBalance;
 use crate::common::{altair, base};
 use types::epoch_cache::{EpochCache, EpochCacheError, EpochCacheKey};
-use types::{ActivationQueue, BeaconState, ChainSpec, Epoch, EthSpec, Hash256};
+use types::{ActivationQueue, BeaconState, ChainSpec, EthSpec, Hash256};
 
 /// Precursor to an `EpochCache`.
 pub struct PreEpochCache {
@@ -17,7 +17,7 @@ impl PreEpochCache {
 
         // State root should already have been filled in by `process_slot`.
         // FIXME(sproul): proper error
-        assert!(!latest_block_header.state_root().is_zero());
+        assert!(!latest_block_header.state_root.is_zero());
 
         let decision_block_root = latest_block_header.canonical_root();
 

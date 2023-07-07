@@ -1,4 +1,4 @@
-use super::{process_registry_updates, process_slashings, EpochProcessingSummary, Error};
+use super::{EpochProcessingSummary, Error};
 use crate::common::update_progressive_balances_cache::{
     initialize_progressive_balances_cache, update_progressive_balances_on_epoch_transition,
 };
@@ -6,7 +6,6 @@ use crate::epoch_cache::initialize_epoch_cache;
 use crate::per_epoch_processing::single_pass::process_epoch_single_pass;
 use crate::per_epoch_processing::{
     capella::process_historical_summaries_update,
-    effective_balance_updates::process_effective_balance_updates,
     historical_roots_update::process_historical_roots_update,
     resets::{process_eth1_data_reset, process_randao_mixes_reset, process_slashings_reset},
 };
@@ -34,11 +33,10 @@ pub fn process_epoch<T: EthSpec>(
     state.build_committee_cache(RelativeEpoch::Current, spec)?;
     state.build_committee_cache(RelativeEpoch::Next, spec)?;
     state.build_total_active_balance_cache_at(state.current_epoch(), spec)?;
-    initialize_epoch_cache(state, state.current_epoch(), spec)?;
+    initialize_epoch_cache(state, spec)?;
+    initialize_progressive_balances_cache::<T>(state, None, spec)?;
 
-    // Pre-compute participating indices and total balances.
     let sync_committee = state.current_sync_committee()?.clone();
-    initialize_progressive_balances_cache::<T>(state, spec)?;
 
     // Justification and finalization.
     let justification_and_finalization_state = process_justification_and_finalization(state)?;
@@ -53,6 +51,7 @@ pub fn process_epoch<T: EthSpec>(
     //
     // The `process_eth1_data_reset` is not covered in the single pass, but happens afterwards
     // without loss of correctness.
+    let current_epoch_progressive_balances = state.progressive_balances_cache().clone();
     process_epoch_single_pass(state, spec)?;
 
     // Reset eth1 data votes.
@@ -82,5 +81,8 @@ pub fn process_epoch<T: EthSpec>(
     state.advance_caches(spec)?;
     update_progressive_balances_on_epoch_transition(state, spec)?;
 
-    Ok(EpochProcessingSummary::Altair { sync_committee })
+    Ok(EpochProcessingSummary::Altair {
+        progressive_balances: current_epoch_progressive_balances,
+        sync_committee,
+    })
 }

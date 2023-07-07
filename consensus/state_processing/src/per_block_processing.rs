@@ -119,7 +119,7 @@ pub fn per_block_processing<T: EthSpec, Payload: AbstractExecPayload<T>>(
         .map_err(BlockProcessingError::InconsistentStateFork)?;
 
     // Build epoch cache if it hasn't already been built, or if it is no longer valid
-    initialize_epoch_cache(state, state.current_epoch(), spec)?;
+    initialize_epoch_cache(state, spec)?;
     initialize_progressive_balances_cache(state, None, spec)?;
 
     let verify_signatures = match block_signature_strategy {

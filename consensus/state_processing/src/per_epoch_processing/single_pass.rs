@@ -1,7 +1,6 @@
 use crate::{
     epoch_cache::PreEpochCache,
     per_epoch_processing::{Delta, Error},
-    EpochCache,
 };
 use itertools::izip;
 use safe_arith::{SafeArith, SafeArithIter};
@@ -144,13 +143,17 @@ pub fn process_epoch_single_pass<E: EthSpec>(
         let balance = balance_cow.to_mut();
         let inactivity_score = inactivity_score_cow.to_mut();
 
-        let base_reward = epoch_cache.get_base_reward(index)?;
-
         let is_active_current_epoch = validator.is_active_at(current_epoch);
         let is_active_previous_epoch = validator.is_active_at(previous_epoch);
         let is_eligible = is_active_previous_epoch
             || (validator.slashed()
                 && previous_epoch + Epoch::new(1) < validator.withdrawable_epoch());
+
+        let base_reward = if is_active_current_epoch {
+            epoch_cache.get_base_reward(index).unwrap()
+        } else {
+            0
+        };
 
         let validator_info = &ValidatorInfo {
             index,
@@ -174,7 +177,6 @@ pub fn process_epoch_single_pass<E: EthSpec>(
                 inactivity_score,
                 validator_info,
                 rewards_ctxt,
-                epoch_cache,
                 state_ctxt,
                 spec,
             )?;
@@ -254,10 +256,13 @@ fn process_single_reward_and_penalty(
     inactivity_score: &u64,
     validator_info: &ValidatorInfo,
     rewards_ctxt: &RewardsAndPenaltiesContext,
-    epoch_cache: &EpochCache,
     state_ctxt: &StateContext,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
+    if !validator_info.is_eligible {
+        return Ok(());
+    }
+
     let mut delta = Delta::default();
     for flag_index in 0..NUM_FLAG_INDICES {
         get_flag_index_delta(
@@ -265,7 +270,6 @@ fn process_single_reward_and_penalty(
             validator_info,
             flag_index,
             rewards_ctxt,
-            epoch_cache,
             state_ctxt,
         )?;
     }
@@ -277,7 +281,6 @@ fn process_single_reward_and_penalty(
         spec,
     )?;
 
-    // Update balance.
     balance.safe_add_assign(delta.rewards)?;
     *balance = balance.saturating_sub(delta.penalties);
 
@@ -289,10 +292,9 @@ fn get_flag_index_delta(
     validator_info: &ValidatorInfo,
     flag_index: usize,
     rewards_ctxt: &RewardsAndPenaltiesContext,
-    epoch_cache: &EpochCache,
     state_ctxt: &StateContext,
 ) -> Result<(), Error> {
-    let base_reward = epoch_cache.get_base_reward(validator_info.index)?;
+    let base_reward = validator_info.base_reward;
     let weight = get_flag_weight(flag_index)?;
     let unslashed_participating_increments =
         rewards_ctxt.get_unslashed_participating_increments(flag_index)?;
@@ -409,7 +411,7 @@ fn process_single_registry_update(
         validator,
         state_ctxt.next_epoch,
         spec,
-    )?;
+    );
 
     Ok(())
 }

@@ -1,6 +1,9 @@
 use crate::beacon_state::balance::Balance;
 use crate::{
-    consts::altair::{NUM_FLAG_INDICES, TIMELY_TARGET_FLAG_INDEX},
+    consts::altair::{
+        NUM_FLAG_INDICES, TIMELY_HEAD_FLAG_INDEX, TIMELY_SOURCE_FLAG_INDEX,
+        TIMELY_TARGET_FLAG_INDEX,
+    },
     BeaconState, BeaconStateError, ChainSpec, Epoch, EthSpec, ParticipationFlags,
 };
 use arbitrary::Arbitrary;
@@ -213,10 +216,6 @@ impl ProgressiveBalancesCache {
             .total_flag_balance(flag_index)
     }
 
-    pub fn previous_epoch_target_attesting_balance(&self) -> Result<u64, BeaconStateError> {
-        self.previous_epoch_flag_attesting_balance(TIMELY_TARGET_FLAG_INDEX)
-    }
-
     pub fn current_epoch_flag_attesting_balance(
         &self,
         flag_index: usize,
@@ -226,8 +225,28 @@ impl ProgressiveBalancesCache {
             .total_flag_balance(flag_index)
     }
 
+    pub fn previous_epoch_source_attesting_balance(&self) -> Result<u64, BeaconStateError> {
+        self.previous_epoch_flag_attesting_balance(TIMELY_SOURCE_FLAG_INDEX)
+    }
+
+    pub fn previous_epoch_target_attesting_balance(&self) -> Result<u64, BeaconStateError> {
+        self.previous_epoch_flag_attesting_balance(TIMELY_TARGET_FLAG_INDEX)
+    }
+
+    pub fn previous_epoch_head_attesting_balance(&self) -> Result<u64, BeaconStateError> {
+        self.previous_epoch_flag_attesting_balance(TIMELY_HEAD_FLAG_INDEX)
+    }
+
+    pub fn current_epoch_source_attesting_balance(&self) -> Result<u64, BeaconStateError> {
+        self.current_epoch_flag_attesting_balance(TIMELY_SOURCE_FLAG_INDEX)
+    }
+
     pub fn current_epoch_target_attesting_balance(&self) -> Result<u64, BeaconStateError> {
         self.current_epoch_flag_attesting_balance(TIMELY_TARGET_FLAG_INDEX)
+    }
+
+    pub fn current_epoch_head_attesting_balance(&self) -> Result<u64, BeaconStateError> {
+        self.current_epoch_flag_attesting_balance(TIMELY_HEAD_FLAG_INDEX)
     }
 
     fn get_inner_mut(&mut self) -> Result<&mut Inner, BeaconStateError> {

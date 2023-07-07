@@ -2,11 +2,10 @@ use crate::per_epoch_processing::Error;
 use crate::per_epoch_processing::{
     weigh_justification_and_finalization, JustificationAndFinalizationState,
 };
-use safe_arith::SafeArith;
 use types::{BeaconState, EthSpec};
 
 /// Process justification and finalization using the progressive balances cache.
-fn process_justification_and_finalization<E: EthSpec>(
+pub fn process_justification_and_finalization<E: EthSpec>(
     state: &BeaconState<E>,
 ) -> Result<JustificationAndFinalizationState<E>, Error> {
     let justification_and_finalization_state = JustificationAndFinalizationState::new(state);

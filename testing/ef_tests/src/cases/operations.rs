@@ -88,7 +88,7 @@ impl<E: EthSpec> Operation<E> for Attestation<E> {
         spec: &ChainSpec,
         _: &Operations<E, Self>,
     ) -> Result<(), BlockProcessingError> {
-        initialize_epoch_cache(state, state.current_epoch(), spec)?;
+        initialize_epoch_cache(state, spec)?;
         let mut ctxt = ConsensusContext::new(state.slot());
         match state {
             BeaconState::Base(_) => base::process_attestations(

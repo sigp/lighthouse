@@ -357,8 +357,7 @@ fn do_transition<T: EthSpec>(
             .set_proposer_index(block.message().proposer_index());
 
         if config.exclude_cache_builds {
-            let epoch = pre_state.current_epoch();
-            initialize_epoch_cache(&mut pre_state, epoch, spec).map_err(|e| format!("{e:?}"))?;
+            initialize_epoch_cache(&mut pre_state, spec).map_err(|e| format!("{e:?}"))?;
         }
         ctxt
     };

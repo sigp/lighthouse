@@ -94,13 +94,15 @@ impl EpochCache {
 
     #[inline]
     pub fn get_base_reward(&self, validator_index: usize) -> Result<u64, EpochCacheError> {
-        self.inner
+        Ok(self
+            .inner
             .as_ref()
             .ok_or(EpochCacheError::CacheNotInitialized)?
             .base_rewards
             .get(validator_index)
             .copied()
             .ok_or(EpochCacheError::ValidatorIndexOutOfBounds { validator_index })
+            .unwrap())
     }
 
     pub fn activation_queue(&self) -> Result<&ActivationQueue, EpochCacheError> {

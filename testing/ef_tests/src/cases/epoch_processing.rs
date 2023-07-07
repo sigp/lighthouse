@@ -5,6 +5,7 @@ use crate::decode::{ssz_decode_state, yaml_decode_file};
 use crate::type_name;
 use crate::type_name::TypeName;
 use serde_derive::Deserialize;
+use state_processing::common::update_progressive_balances_cache::initialize_progressive_balances_cache;
 use state_processing::epoch_cache::initialize_epoch_cache;
 use state_processing::per_epoch_processing::capella::process_historical_summaries_update;
 use state_processing::per_epoch_processing::effective_balance_updates::process_effective_balance_updates;
@@ -103,11 +104,9 @@ impl<E: EthSpec> EpochTransition<E> for JustificationAndFinalization {
                 Ok(())
             }
             BeaconState::Altair(_) | BeaconState::Merge(_) | BeaconState::Capella(_) => {
+                initialize_progressive_balances_cache(state, None, spec)?;
                 let justification_and_finalization_state =
-                    altair::process_justification_and_finalization(
-                        state,
-                        &altair::ParticipationCache::new(state, spec).unwrap(),
-                    )?;
+                    altair::process_justification_and_finalization(state)?;
                 justification_and_finalization_state.apply_changes_to_state(state);
                 Ok(())
             }
@@ -136,7 +135,7 @@ impl<E: EthSpec> EpochTransition<E> for RewardsAndPenalties {
 
 impl<E: EthSpec> EpochTransition<E> for RegistryUpdates {
     fn run(state: &mut BeaconState<E>, spec: &ChainSpec) -> Result<(), EpochProcessingError> {
-        initialize_epoch_cache(state, state.current_epoch(), spec)?;
+        initialize_epoch_cache(state, spec)?;
         process_registry_updates(state, spec)
     }
 }
