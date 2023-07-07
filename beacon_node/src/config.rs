@@ -819,6 +819,14 @@ pub fn get_config<E: EthSpec>(
         clap_utils::parse_required(cli_args, "beacon-processor-work-queue")?;
     client_config.beacon_processor.max_scheduled_work_queue_len =
         clap_utils::parse_required(cli_args, "beacon-processor-reprocess-queue")?;
+    client_config
+        .beacon_processor
+        .max_gossip_attestation_batch_size =
+        clap_utils::parse_required(cli_args, "beacon-processor-attestation-batch-size")?;
+    client_config
+        .beacon_processor
+        .max_gossip_aggregate_batch_size =
+        clap_utils::parse_required(cli_args, "beacon-processor-aggregate-batch-size")?;
 
     Ok(client_config)
 }

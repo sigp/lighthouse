@@ -193,8 +193,8 @@ const WORKER_TASK_NAME: &str = "beacon_processor_worker";
 /// Poisoning occurs when an invalid signature is included in a batch of attestations. A single
 /// invalid signature causes the entire batch to fail. When a batch fails, we fall-back to
 /// individually verifying each attestation signature.
-const MAX_GOSSIP_ATTESTATION_BATCH_SIZE: usize = 64;
-const MAX_GOSSIP_AGGREGATE_BATCH_SIZE: usize = 64;
+const DEFAULT_MAX_GOSSIP_ATTESTATION_BATCH_SIZE: usize = 64;
+const DEFAULT_MAX_GOSSIP_AGGREGATE_BATCH_SIZE: usize = 64;
 
 /// Unique IDs used for metrics and testing.
 pub const WORKER_FREED: &str = "worker_freed";
@@ -232,6 +232,8 @@ pub struct BeaconProcessorConfig {
     pub max_workers: usize,
     pub max_work_event_queue_len: usize,
     pub max_scheduled_work_queue_len: usize,
+    pub max_gossip_attestation_batch_size: usize,
+    pub max_gossip_aggregate_batch_size: usize,
     pub enable_backfill_rate_limiting: bool,
 }
 
@@ -241,6 +243,8 @@ impl Default for BeaconProcessorConfig {
             max_workers: cmp::max(1, num_cpus::get()),
             max_work_event_queue_len: DEFAULT_MAX_WORK_EVENT_QUEUE_LEN,
             max_scheduled_work_queue_len: DEFAULT_MAX_SCHEDULED_WORK_QUEUE_LEN,
+            max_gossip_attestation_batch_size: DEFAULT_MAX_GOSSIP_ATTESTATION_BATCH_SIZE,
+            max_gossip_aggregate_batch_size: DEFAULT_MAX_GOSSIP_AGGREGATE_BATCH_SIZE,
             enable_backfill_rate_limiting: true,
         }
     }
@@ -925,8 +929,10 @@ impl<E: EthSpec> BeaconProcessor<E> {
                         // aggregates are more valuable to local validators and effectively give us
                         // more information with less signature verification time.
                         } else if aggregate_queue.len() > 0 {
-                            let batch_size =
-                                cmp::min(aggregate_queue.len(), MAX_GOSSIP_AGGREGATE_BATCH_SIZE);
+                            let batch_size = cmp::min(
+                                aggregate_queue.len(),
+                                self.config.max_gossip_aggregate_batch_size,
+                            );
 
                             if batch_size < 2 {
                                 // One single aggregate is in the queue, process it individually.
@@ -985,7 +991,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
                         } else if attestation_queue.len() > 0 {
                             let batch_size = cmp::min(
                                 attestation_queue.len(),
-                                MAX_GOSSIP_ATTESTATION_BATCH_SIZE,
+                                self.config.max_gossip_attestation_batch_size,
                             );
 
                             if batch_size < 2 {
