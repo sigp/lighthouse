@@ -2287,8 +2287,8 @@ fn beacon_processor() {
 
     CommandLineTest::new()
         .flag("beacon-processor-max-workers", Some("1"))
-        .flag("beacon-processor-work-queue", Some("2"))
-        .flag("beacon-processor-reprocess-queue", Some("3"))
+        .flag("beacon-processor-work-queue-len", Some("2"))
+        .flag("beacon-processor-reprocess-queue-len", Some("3"))
         .flag("beacon-processor-attestation-batch-size", Some("4"))
         .flag("beacon-processor-aggregate-batch-size", Some("5"))
         .flag("disable-backfill-rate-limiting", None)

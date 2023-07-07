@@ -1142,8 +1142,8 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true)
         )
         .arg(
-            Arg::with_name("beacon-processor-work-queue")
-                .long("beacon-processor-work-queue")
+            Arg::with_name("beacon-processor-work-queue-len")
+                .long("beacon-processor-work-queue-len")
                 .value_name("INTEGER")
                 .help("Specifies the length of the inbound event queue. Increasing this value \
                         may prevent messages from being dropped at risk of overwhelming the \
@@ -1153,8 +1153,8 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true)
         )
         .arg(
-            Arg::with_name("beacon-processor-reprocess-queue")
-                .long("beacon-processor-reprocess-queue")
+            Arg::with_name("beacon-processor-reprocess-queue-len")
+                .long("beacon-processor-reprocess-queue-len")
                 .value_name("INTEGER")
                 .help("Specifies the length of the queue for messages requiring delayed processing. \
                         Increasing this value may prevent messages from being dropped at risk of \
