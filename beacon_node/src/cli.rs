@@ -1145,10 +1145,9 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("beacon-processor-work-queue-len")
                 .long("beacon-processor-work-queue-len")
                 .value_name("INTEGER")
-                .help("Specifies the length of the inbound event queue. Increasing this value \
-                        may prevent messages from being dropped at risk of overwhelming the \
-                        host resources. Decreasing this value may cause messages to be dropped but \
-                        may help resource-constrained hosts.")
+                .help("Specifies the length of the inbound event queue. \
+                        Higher values may prevent messages from being dropped while lower values \
+                        may help protect the node from becoming overwhelmed.")
                 .default_value("16384")
                 .takes_value(true)
         )
@@ -1157,9 +1156,8 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .long("beacon-processor-reprocess-queue-len")
                 .value_name("INTEGER")
                 .help("Specifies the length of the queue for messages requiring delayed processing. \
-                        Increasing this value may prevent messages from being dropped at risk of \
-                        overwhelming the host resources. Decreasing this value may cause messages \
-                        to be dropped but may help resource-constrained hosts.")
+                        Higher values may prevent messages from being dropped while lower values \
+                        may help protect the node from becoming overwhelmed.")
                 .default_value("12288")
                 .takes_value(true)
         )
@@ -1169,7 +1167,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .value_name("INTEGER")
                 .help("Specifies the number of gossip attestations in a signature verification batch. \
                        Higher values may reduce CPU usage in a healthy network whilst lower values may \
-                       increase CPU usage in an unhealthy network.")
+                       increase CPU usage in an unhealthy or hostile network.")
                 .default_value("64")
                 .takes_value(true)
         )
@@ -1179,8 +1177,8 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .value_name("INTEGER")
                 .help("Specifies the number of gossip aggregate attestations in a signature \
                        verification batch. \
-                       Higher values may reduce CPU usage in a healthy network whilst lower values may \
-                       increase CPU usage in an unhealthy network.")
+                       Higher values may reduce CPU usage in a healthy network while lower values may \
+                       increase CPU usage in an unhealthy or hostile network.")
                 .default_value("64")
                 .takes_value(true)
         )
