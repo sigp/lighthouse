@@ -108,6 +108,11 @@ pub fn testing_client_config() -> ClientConfig {
         genesis_time: now,
     };
 
+    // Specify a constant count of beacon processor workers. Having this number
+    // too low can cause annoying HTTP timeouts, especially on Github runners
+    // with 2 logical CPUs.
+    client_config.beacon_processor.max_workers = 4;
+
     client_config
 }
 
