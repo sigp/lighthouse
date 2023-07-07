@@ -792,7 +792,7 @@ pub fn get_config<E: EthSpec>(
     }
 
     // Backfill sync rate-limiting
-    client_config.chain.enable_backfill_rate_limiting =
+    client_config.beacon_processor.enable_backfill_rate_limiting =
         !cli_args.is_present("disable-backfill-rate-limiting");
 
     if let Some(path) = clap_utils::parse_optional(cli_args, "invalid-gossip-verified-blocks-path")?
@@ -805,6 +805,20 @@ pub fn get_config<E: EthSpec>(
     {
         client_config.chain.progressive_balances_mode = progressive_balances_mode;
     }
+
+    if let Some(max_workers) = clap_utils::parse_optional(cli_args, "beacon-processor-max-workers")?
+    {
+        client_config.beacon_processor.max_workers = max_workers;
+    }
+
+    if client_config.beacon_processor.max_workers == 0 {
+        return Err("--beacon-processor-max-workers must be a non-zero value".to_string());
+    }
+
+    client_config.beacon_processor.max_work_event_queue_len =
+        clap_utils::parse_required(cli_args, "beacon-processor-work-queue")?;
+    client_config.beacon_processor.max_scheduled_work_queue_len =
+        clap_utils::parse_required(cli_args, "beacon-processor-reprocess-queue")?;
 
     Ok(client_config)
 }

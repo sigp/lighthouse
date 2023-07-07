@@ -4708,6 +4708,7 @@ dependencies = [
  "account_manager",
  "account_utils",
  "beacon_node",
+ "beacon_processor",
  "bls",
  "boot_node",
  "clap",

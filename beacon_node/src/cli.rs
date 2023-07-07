@@ -1131,4 +1131,36 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true)
                 .possible_values(ProgressiveBalancesMode::VARIANTS)
         )
+        .arg(
+            Arg::with_name("beacon-processor-max-workers")
+                .long("beacon-processor-max-workers")
+                .value_name("INTEGER")
+                .help("Specifies the maximum concurrent tasks for the task scheduler. Increasing \
+                        this value may increase resource consumption. Reducing the value \
+                        may result in decreased resource usage and diminished performance. The \
+                        default value is the number of logical CPU cores on the host.")
+                .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("beacon-processor-work-queue")
+                .long("beacon-processor-work-queue")
+                .value_name("INTEGER")
+                .help("Specifies the length of the inbound event queue. Increasing this value \
+                        may prevent messages from being dropped at risk of overwhelming the \
+                        host resources. Decreasing this value may cause messages to be dropped but \
+                        may help resource-constrained hosts.")
+                .default_value("16384")
+                .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("beacon-processor-reprocess-queue")
+                .long("beacon-processor-reprocess-queue")
+                .value_name("INTEGER")
+                .help("Specifies the length of the queue for messages requiring delayed processing. \
+                        Increasing this value may prevent messages from being dropped at risk of \
+                        overwhelming the host resources. Decreasing this value may cause messages \
+                        to be dropped but may help resource-constrained hosts.")
+                .default_value("12288")
+                .takes_value(true)
+        )
 }
