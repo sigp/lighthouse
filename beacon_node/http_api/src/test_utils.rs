@@ -5,9 +5,7 @@ use beacon_chain::{
     },
     BeaconChain, BeaconChainTypes,
 };
-use beacon_processor::{
-    BeaconProcessor, BeaconProcessorSend, MAX_SCHEDULED_WORK_QUEUE_LEN, MAX_WORK_EVENT_QUEUE_LEN,
-};
+use beacon_processor::{BeaconProcessor, BeaconProcessorChannels, BeaconProcessorConfig};
 use directory::DEFAULT_ROOT_DIR;
 use eth2::{BeaconNodeHttpClient, Timeouts};
 use lighthouse_network::{
@@ -33,7 +31,6 @@ use std::sync::Arc;
 use std::time::Duration;
 use store::MemoryStore;
 use task_executor::test_utils::TestRuntime;
-use tokio::sync::mpsc;
 use types::{ChainSpec, EthSpec};
 
 pub const TCP_PORT: u16 = 42;
@@ -187,16 +184,22 @@ pub async fn create_api_server_on_port<T: BeaconChainTypes>(
     let eth1_service =
         eth1::Service::new(eth1::Config::default(), log.clone(), chain.spec.clone()).unwrap();
 
-    let (beacon_processor_tx, beacon_processor_rx) = mpsc::channel(MAX_WORK_EVENT_QUEUE_LEN);
-    let beacon_processor_send = BeaconProcessorSend(beacon_processor_tx);
-    let (work_reprocessing_tx, work_reprocessing_rx) = mpsc::channel(MAX_SCHEDULED_WORK_QUEUE_LEN);
+    let beacon_processor_config = BeaconProcessorConfig::default();
+    let BeaconProcessorChannels {
+        beacon_processor_tx,
+        beacon_processor_rx,
+        work_reprocessing_tx,
+        work_reprocessing_rx,
+    } = BeaconProcessorChannels::new(&beacon_processor_config);
+
+    let beacon_processor_send = beacon_processor_tx;
     let test_runtime = TestRuntime::default();
     BeaconProcessor {
         network_globals: network_globals.clone(),
         executor: test_runtime.task_executor.clone(),
         max_workers: 1, // Single-threaded beacon processor.
         current_workers: 0,
-        enable_backfill_rate_limiting: chain.config.enable_backfill_rate_limiting,
+        config: beacon_processor_config,
         log: log.clone(),
     }
     .spawn_manager(
