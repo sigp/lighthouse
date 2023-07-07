@@ -1,13 +1,13 @@
 use crate::metrics;
 
-use beacon_chain::blob_verification::{AsBlock, BlockWrapper};
+use beacon_chain::blob_verification::BlockWrapper;
 use beacon_chain::validator_monitor::{get_block_delay_ms, timestamp_now};
 use beacon_chain::{
-    BeaconChain, BeaconChainError, BeaconChainTypes, BlockError, GossipVerifiedBlock,
-    NotifyExecutionLayer, AvailabilityProcessingStatus
+    AvailabilityProcessingStatus, BeaconChain, BeaconChainError, BeaconChainTypes, BlockError,
+    GossipVerifiedBlock, NotifyExecutionLayer,
 };
-use eth2::types::SignedBlockContents;
 use eth2::types::BroadcastValidation;
+use eth2::types::SignedBlockContents;
 use execution_layer::ProvenancedPayload;
 use lighthouse_network::PubsubMessage;
 use network::NetworkMessage;
@@ -15,12 +15,11 @@ use slog::{debug, error, info, warn, Logger};
 use slot_clock::SlotClock;
 use std::sync::Arc;
 use std::time::Duration;
-use store::FixedVector;
 use tokio::sync::mpsc::UnboundedSender;
 use tree_hash::TreeHash;
 use types::{
     AbstractExecPayload, BeaconBlockRef, BlindedPayload, EthSpec, ExecPayload, ExecutionBlockHash,
-    FullPayload, Hash256, SignedBeaconBlock,
+    FullPayload, Hash256, SignedBeaconBlock, SignedBlobSidecarList, VariableList,
 };
 use warp::Rejection;
 
@@ -33,11 +32,11 @@ pub enum ProvenancedBlock<T: EthSpec> {
 }
 
 impl<T: EthSpec> ProvenancedBlock<T> {
-    pub fn local(block: Arc<SignedBeaconBlock<T>>) -> Self {
+    pub fn local(block: SignedBlockContents<T>) -> Self {
         Self::Local(block)
     }
 
-    pub fn builder(block: Arc<SignedBeaconBlock<T>>) -> Self {
+    pub fn builder(block: SignedBlockContents<T>) -> Self {
         Self::Builder(block)
     }
 }
@@ -52,7 +51,8 @@ pub async fn publish_block<T: BeaconChainTypes>(
     validation_level: BroadcastValidation,
 ) -> Result<(), Rejection> {
     let seen_timestamp = timestamp_now();
-    let (block, maybe_blobs, is_locally_built_block) = match provenanced_block {
+
+    let (block, blobs_opt, is_locally_built_block) = match provenanced_block {
         ProvenancedBlock::Local(block_contents) => {
             let (block, maybe_blobs) = block_contents.deconstruct();
             (Arc::new(block), maybe_blobs, true)
@@ -62,15 +62,12 @@ pub async fn publish_block<T: BeaconChainTypes>(
             (Arc::new(block), maybe_blobs, false)
         }
     };
-    let beacon_block = block.clone();
-    let delay = get_block_delay_ms(seen_timestamp, beacon_block.message(), &chain.slot_clock);
-        //FIXME(sean) have to move this to prior to publishing because it's included in the blobs sidecar message.
-    //this may skew metrics
-    let block_root = block_root.unwrap_or_else(|| block.canonical_root());
-    debug!(log, "Signed block received in HTTP API"; "slot" => beacon_block.slot());
+    let delay = get_block_delay_ms(seen_timestamp, block.message(), &chain.slot_clock);
+    debug!(log, "Signed block received in HTTP API"; "slot" => block.slot());
 
     /* actually publish a block */
     let publish_block = move |block: Arc<SignedBeaconBlock<T::EthSpec>>,
+                              blobs_opt: Option<SignedBlobSidecarList<T::EthSpec>>,
                               sender,
                               log,
                               seen_timestamp| {
@@ -80,43 +77,59 @@ pub async fn publish_block<T: BeaconChainTypes>(
             .unwrap_or_else(|| Duration::from_secs(0));
 
         info!(log, "Signed block published to network via HTTP API"; "slot" => block.slot(), "publish_delay" => ?publish_delay);
-    // Send the block, regardless of whether or not it is valid. The API
-    // specification is very clear that this is the desired behaviour.
-    let wrapped_block: BlockWrapper<T::EthSpec> = match block.as_ref() {
-        SignedBeaconBlock::Base(_)
-        | SignedBeaconBlock::Altair(_)
-        | SignedBeaconBlock::Merge(_)
-        | SignedBeaconBlock::Capella(_) => {
-            crate::publish_pubsub_message(network_tx, PubsubMessage::BeaconBlock(block.clone()))?;
-            block.into()
-        }
-        SignedBeaconBlock::Deneb(_) => {
-            crate::publish_pubsub_message(network_tx, PubsubMessage::BeaconBlock(block.clone()))?;
-            if let Some(signed_blobs) = maybe_blobs {
-                for (blob_index, blob) in signed_blobs.clone().into_iter().enumerate() {
-                    crate::publish_pubsub_message(
-                        network_tx,
-                        PubsubMessage::BlobSidecar(Box::new((blob_index as u64, blob))),
-                    )?;
-                }
-                let blobs = signed_blobs
-                    .into_iter()
-                    .map(|blob| Some(blob.message))
-                    .collect::<Vec<_>>();
-                BlockWrapper::BlockAndBlobs(block, FixedVector::from(blobs))
-            } else {
-                block.into()
+        // Send the block, regardless of whether or not it is valid. The API
+        // specification is very clear that this is the desired behaviour.
+        match block.as_ref() {
+            SignedBeaconBlock::Base(_)
+            | SignedBeaconBlock::Altair(_)
+            | SignedBeaconBlock::Merge(_)
+            | SignedBeaconBlock::Capella(_) => {
+                crate::publish_pubsub_message(&sender, PubsubMessage::BeaconBlock(block.clone()))
+                    .map_err(|_| BlockError::BeaconChainError(BeaconChainError::UnableToPublish))?;
             }
-        }
-    };
-        let message = PubsubMessage::BeaconBlock(block);
-        crate::publish_pubsub_message(&sender, message)
-            .map_err(|_| BeaconChainError::UnableToPublish.into())
+            SignedBeaconBlock::Deneb(_) => {
+                crate::publish_pubsub_message(&sender, PubsubMessage::BeaconBlock(block.clone()))
+                    .map_err(|_| BlockError::BeaconChainError(BeaconChainError::UnableToPublish))?;
+                if let Some(signed_blobs) = blobs_opt {
+                    for (blob_index, blob) in signed_blobs.into_iter().enumerate() {
+                        crate::publish_pubsub_message(
+                            &sender,
+                            PubsubMessage::BlobSidecar(Box::new((blob_index as u64, blob))),
+                        )
+                        .map_err(|_| {
+                            BlockError::BeaconChainError(BeaconChainError::UnableToPublish)
+                        })?;
+                    }
+                }
+            }
+        };
+        Ok(())
     };
 
+    let mapped_blobs = blobs_opt.clone().map(|blobs| {
+        VariableList::from(
+            blobs
+                .into_iter()
+                .map(|blob| blob.message)
+                .collect::<Vec<_>>(),
+        )
+    });
+
+    /* only publish if gossip- and consensus-valid and equivocation-free */
+    let chain_clone = chain.clone();
+    let slot = block.message().slot();
+    let block_clone = block.clone();
+    let proposer_index = block.message().proposer_index();
+    let sender_clone = network_tx.clone();
+    let log_clone = log.clone();
+
     /* if we can form a `GossipVerifiedBlock`, we've passed our basic gossip checks */
-    let gossip_verified_block = GossipVerifiedBlock::new(block, &chain).map_err(|e| {
-        warn!(log, "Not publishing block, not gossip verified"; "slot" => beacon_block.slot(), "error" => ?e);
+    let gossip_verified_block = GossipVerifiedBlock::new(
+        BlockWrapper::new(block.clone(), mapped_blobs),
+        &chain,
+    )
+    .map_err(|e| {
+        warn!(log, "Not publishing block, not gossip verified"; "slot" => slot, "error" => ?e);
         warp_utils::reject::custom_bad_request(e.to_string())
     })?;
 
@@ -124,25 +137,24 @@ pub async fn publish_block<T: BeaconChainTypes>(
 
     if let BroadcastValidation::Gossip = validation_level {
         publish_block(
-            beacon_block.clone(),
-            network_tx.clone(),
+            block.clone(),
+            blobs_opt.clone(),
+            sender_clone.clone(),
             log.clone(),
             seen_timestamp,
         )
         .map_err(|_| warp_utils::reject::custom_server_error("unable to publish".into()))?;
     }
 
-    /* only publish if gossip- and consensus-valid and equivocation-free */
-    let chain_clone = chain.clone();
-    let block_clone = beacon_block.clone();
-    let log_clone = log.clone();
-    let sender_clone = network_tx.clone();
-
     let publish_fn = move || match validation_level {
         BroadcastValidation::Gossip => Ok(()),
-        BroadcastValidation::Consensus => {
-            publish_block(block_clone, sender_clone, log_clone, seen_timestamp)
-        }
+        BroadcastValidation::Consensus => publish_block(
+            block_clone,
+            blobs_opt,
+            sender_clone,
+            log_clone,
+            seen_timestamp,
+        ),
         BroadcastValidation::ConsensusAndEquivocation => {
             if chain_clone
                 .observed_block_producers
@@ -158,13 +170,16 @@ pub async fn publish_block<T: BeaconChainTypes>(
                 );
                 Err(BlockError::Slashable)
             } else {
-                publish_block(block_clone, sender_clone, log_clone, seen_timestamp)
+                publish_block(
+                    block_clone,
+                    blobs_opt,
+                    sender_clone,
+                    log_clone,
+                    seen_timestamp,
+                )
             }
         }
     };
-    let block_clone = wrapped_block.block_cloned();
-    let slot = block_clone.message().slot();
-    let proposer_index = block_clone.message().proposer_index();
 
     match chain
         .process_block(
@@ -188,7 +203,7 @@ pub async fn publish_block<T: BeaconChainTypes>(
             // Notify the validator monitor.
             chain.validator_monitor.read().register_api_block(
                 seen_timestamp,
-                block_clone.message(),
+                block.message(),
                 root,
                 &chain.slot_clock,
             );
@@ -201,14 +216,7 @@ pub async fn publish_block<T: BeaconChainTypes>(
             // blocks built with builders we consider the broadcast time to be
             // when the blinded block is published to the builder.
             if is_locally_built_block {
-                late_block_logging(
-                    &chain,
-                    seen_timestamp,
-                    block_clone.message(),
-                    root,
-                    "local",
-                    &log,
-                )
+                late_block_logging(&chain, seen_timestamp, block.message(), root, "local", &log)
             }
 
             Ok(())
@@ -255,15 +263,14 @@ pub async fn publish_block<T: BeaconChainTypes>(
 /// Handles a request from the HTTP API for blinded blocks. This converts blinded blocks into full
 /// blocks before publishing.
 pub async fn publish_blinded_block<T: BeaconChainTypes>(
-    block: SignedBeaconBlock<T::EthSpec, BlindedPayload<T::EthSpec>>,
+    block: SignedBlockContents<T::EthSpec, BlindedPayload<T::EthSpec>>,
     chain: Arc<BeaconChain<T>>,
     network_tx: &UnboundedSender<NetworkMessage<T::EthSpec>>,
     log: Logger,
     validation_level: BroadcastValidation,
 ) -> Result<(), Rejection> {
-    let block_root = block.canonical_root();
-    let full_block: ProvenancedBlock<T> =
-        reconstruct_block(chain.clone(), block_root, block, log.clone()).await?;
+    let block_root = block.signed_block().canonical_root();
+    let full_block = reconstruct_block(chain.clone(), block_root, block, log.clone()).await?;
     publish_block::<T>(
         Some(block_root),
         full_block,
@@ -281,10 +288,12 @@ pub async fn publish_blinded_block<T: BeaconChainTypes>(
 pub async fn reconstruct_block<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
     block_root: Hash256,
-    block: SignedBeaconBlock<T::EthSpec, BlindedPayload<T::EthSpec>>,
+    block: SignedBlockContents<T::EthSpec, BlindedPayload<T::EthSpec>>,
     log: Logger,
-) -> Result<ProvenancedBlock<T>, Rejection> {
-    let full_payload_opt = if let Ok(payload_header) = block.message().body().execution_payload() {
+) -> Result<ProvenancedBlock<T::EthSpec>, Rejection> {
+    let full_payload_opt = if let Ok(payload_header) =
+        block.signed_block().message().body().execution_payload()
+    {
         let el = chain.execution_layer.as_ref().ok_or_else(|| {
             warp_utils::reject::custom_server_error("Missing execution layer".to_string())
         })?;
@@ -292,9 +301,12 @@ pub async fn reconstruct_block<T: BeaconChainTypes>(
         // If the execution block hash is zero, use an empty payload.
         let full_payload = if payload_header.block_hash() == ExecutionBlockHash::zero() {
             let payload = FullPayload::default_at_fork(
-                chain
-                    .spec
-                    .fork_name_at_epoch(block.slot().epoch(T::EthSpec::slots_per_epoch())),
+                chain.spec.fork_name_at_epoch(
+                    block
+                        .signed_block()
+                        .slot()
+                        .epoch(T::EthSpec::slots_per_epoch()),
+                ),
             )
             .map_err(|e| {
                 warp_utils::reject::custom_server_error(format!(
@@ -319,7 +331,7 @@ pub async fn reconstruct_block<T: BeaconChainTypes>(
             late_block_logging(
                 &chain,
                 timestamp_now(),
-                block.message(),
+                block.signed_block().message(),
                 block_root,
                 "builder",
                 &log,
@@ -347,14 +359,20 @@ pub async fn reconstruct_block<T: BeaconChainTypes>(
         // A block without a payload is pre-merge and we consider it locally
         // built.
         None => block
+            .deconstruct()
+            .0
             .try_into_full_block(None)
             .map(SignedBlockContents::Block)
             .map(ProvenancedBlock::local),
         Some(ProvenancedPayload::Local(full_payload)) => block
+            .deconstruct()
+            .0
             .try_into_full_block(Some(full_payload))
             .map(SignedBlockContents::Block)
             .map(ProvenancedBlock::local),
         Some(ProvenancedPayload::Builder(full_payload)) => block
+            .deconstruct()
+            .0
             .try_into_full_block(Some(full_payload))
             .map(SignedBlockContents::Block)
             .map(ProvenancedBlock::builder),

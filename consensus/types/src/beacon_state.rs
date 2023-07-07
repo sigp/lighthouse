@@ -1207,7 +1207,7 @@ impl<T: EthSpec> BeaconState<T> {
                 &mut state.balances,
                 &mut state.progressive_balances_cache,
             ),
-                        BeaconState::Deneb(state) => (
+            BeaconState::Deneb(state) => (
                 &mut state.validators,
                 &mut state.balances,
                 &mut state.progressive_balances_cache,

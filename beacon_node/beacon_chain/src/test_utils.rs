@@ -812,9 +812,9 @@ where
         &self,
         state: BeaconState<E>,
         slot: Slot,
-    ) -> (SignedBlindedBeaconBlock<E>, BeaconState<E>) {
+    ) -> (BlockContentsTuple<E, BlindedPayload<E>>, BeaconState<E>) {
         let (unblinded, new_state) = self.make_block(state, slot).await;
-        (unblinded.into(), new_state)
+        ((unblinded.0.into(), unblinded.1), new_state)
     }
 
     /// Returns a newly created block, signed by the proposer for the given slot.
@@ -1839,7 +1839,9 @@ where
         self.set_current_slot(slot);
         let block_hash: SignedBeaconBlockHash = self
             .chain
-            .process_block(block_root, block.into(), NotifyExecutionLayer::Yes,|| Ok(()),)
+            .process_block(block_root, block.into(), NotifyExecutionLayer::Yes, || {
+                Ok(())
+            })
             .await?
             .try_into()
             .unwrap();

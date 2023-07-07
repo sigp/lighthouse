@@ -171,6 +171,10 @@ lazy_static! {
         "beacon_processor_bls_to_execution_change_imported_total",
         "Total number of address changes imported to the op pool."
     );
+}
+
+// Need to split up this `lazy_static!` due to recursion limits.
+lazy_static! {
     // Rpc blocks.
     pub static ref BEACON_PROCESSOR_RPC_BLOCK_QUEUE_TOTAL: Result<IntGauge> = try_create_int_gauge(
         "beacon_processor_rpc_block_queue_total",

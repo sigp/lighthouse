@@ -13,6 +13,7 @@ pub use engine_api::*;
 pub use engine_api::{http, http::deposit_methods, http::HttpJsonRpc};
 use engines::{Engine, EngineError};
 pub use engines::{EngineState, ForkchoiceState};
+use eth2::types::SignedBlockContents;
 use eth2::types::{builder_bid::SignedBuilderBid, ForkVersionedResponse};
 use ethers_core::abi::ethereum_types::FromStrRadixErr;
 use ethers_core::types::Transaction as EthersTransaction;
@@ -47,10 +48,7 @@ use types::{
     ExecutionPayloadCapella, ExecutionPayloadDeneb, ExecutionPayloadMerge, ForkName,
 };
 use types::{KzgProofs, Withdrawals};
-use types::{
-    ProposerPreparationData, PublicKeyBytes, Signature, SignedBeaconBlock, Slot, Transaction,
-    Uint256,
-};
+use types::{ProposerPreparationData, PublicKeyBytes, Signature, Slot, Transaction, Uint256};
 
 mod block_hash;
 mod engine_api;
@@ -1876,7 +1874,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
     pub async fn propose_blinded_beacon_block(
         &self,
         block_root: Hash256,
-        block: &SignedBeaconBlock<T, BlindedPayload<T>>,
+        block: &SignedBlockContents<T, BlindedPayload<T>>,
     ) -> Result<ExecutionPayload<T>, Error> {
         debug!(
             self.log(),
@@ -1924,6 +1922,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                         "relay_response_ms" => duration.as_millis(),
                         "block_root" => ?block_root,
                         "parent_hash" => ?block
+                            .signed_block()
                             .message()
                             .execution_payload()
                             .map(|payload| format!("{}", payload.parent_hash()))
