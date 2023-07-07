@@ -3,6 +3,7 @@ use crate::per_epoch_processing::{
     base::{TotalBalances, ValidatorStatus, ValidatorStatuses},
     Delta, Error,
 };
+use itertools::Itertools;
 use safe_arith::SafeArith;
 use std::collections::HashMap;
 use types::{BeaconState, ChainSpec, EthSpec};
@@ -79,8 +80,13 @@ pub fn get_attestation_deltas<T: EthSpec>(
     validator_statuses: &ValidatorStatuses,
     spec: &ChainSpec,
 ) -> Result<Vec<AttestationDelta>, Error> {
-    get_attestation_deltas_subset(state, validator_statuses, None, spec)
-        .map(|hash_map| hash_map.into_values().collect())
+    get_attestation_deltas_subset(state, validator_statuses, None, spec).map(|deltas_map| {
+        deltas_map
+            .into_iter()
+            .sorted_by_key(|(val_index, _deltas)| *val_index)
+            .map(|(_val_index, deltas)| deltas)
+            .collect()
+    })
 }
 
 pub fn get_attestation_deltas_subset<T: EthSpec>(
