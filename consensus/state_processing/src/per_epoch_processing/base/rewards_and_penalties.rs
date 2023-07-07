@@ -47,7 +47,7 @@ impl AttestationDelta {
 /// Apply attester and proposer rewards.
 pub fn process_rewards_and_penalties<T: EthSpec>(
     state: &mut BeaconState<T>,
-    validator_statuses: &mut ValidatorStatuses,
+    validator_statuses: &ValidatorStatuses,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
     if state.current_epoch() == T::genesis_epoch() {
@@ -157,7 +157,7 @@ pub fn get_attestation_deltas_subset<T: EthSpec>(
     Ok(deltas)
 }
 
-fn get_attestation_component_delta(
+pub fn get_attestation_component_delta(
     index_in_unslashed_attesting_indices: bool,
     attesting_balance: u64,
     total_balances: &TotalBalances,

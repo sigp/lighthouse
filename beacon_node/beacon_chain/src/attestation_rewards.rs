@@ -18,8 +18,12 @@ use types::consts::altair::WEIGHT_DENOMINATOR;
 use types::{BeaconState, Epoch, EthSpec};
 
 use eth2::types::ValidatorId;
-use state_processing::per_epoch_processing::base::rewards_and_penalties::get_attestation_deltas_subset;
-use state_processing::per_epoch_processing::base::ValidatorStatuses;
+use state_processing::common::base::get_base_reward_from_effective_balance;
+use state_processing::per_epoch_processing::base::rewards_and_penalties::{
+    get_attestation_component_delta, get_attestation_deltas_subset,
+};
+use state_processing::per_epoch_processing::base::{TotalBalances, ValidatorStatuses};
+use state_processing::per_epoch_processing::Delta;
 
 impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn compute_attestation_rewards(
@@ -58,7 +62,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let mut validator_statuses = ValidatorStatuses::new(&state, spec)?;
         validator_statuses.process_attestations(&state)?;
 
-        let ideal_rewards = self.compute_ideal_rewards_base(&state);
+        let ideal_rewards =
+            self.compute_ideal_rewards_base(&state, &validator_statuses.total_balances)?;
 
         let validator_indices = Self::validators_ids_to_indices(&mut state, validators)?;
         let indices_to_attestation_delta = get_attestation_deltas_subset(
@@ -70,11 +75,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let mut total_rewards = vec![];
 
+        // TODO: handle inactivity leak
         for (index, delta) in indices_to_attestation_delta.into_iter() {
-            // FIXME: this bit is just some guesses and most likely wrong. Check the spec.
-            // also need to add `inactivity_leak` logic.
-            let head_delta = delta.head_delta;
-            let head = head_delta.rewards.saturating_sub(head_delta.penalties);
+            // There's no penalty for a missed head vote.
+            let head = delta.head_delta.rewards;
 
             let target_delta = delta.target_delta;
             let target = (target_delta.rewards as i64).safe_sub(target_delta.penalties as i64)?;
@@ -82,10 +86,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let source_delta = delta.source_delta;
             let source = (source_delta.rewards as i64).safe_sub(source_delta.penalties as i64)?;
 
-            let inclusion_delay_delta = delta.inclusion_delay_delta;
-            let inclusion_delay = inclusion_delay_delta
-                .rewards
-                .saturating_sub(inclusion_delay_delta.penalties);
+            // No penalties associated with inclusion delay
+            let inclusion_delay = delta.inclusion_delay_delta.rewards;
 
             let rewards = TotalAttestationRewards {
                 validator_index: index as u64,
@@ -282,8 +284,66 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     fn compute_ideal_rewards_base(
         &self,
-        _state: &BeaconState<T::EthSpec>,
-    ) -> Vec<IdealAttestationRewards> {
-        todo!()
+        state: &BeaconState<T::EthSpec>,
+        total_balances: &TotalBalances,
+    ) -> Result<Vec<IdealAttestationRewards>, BeaconChainError> {
+        let spec = &self.spec;
+        let mut ideal_attestation_rewards_list = Vec::new();
+
+        for effective_balance_step in 0..=self.max_effective_balance_increment_steps()? {
+            let effective_balance =
+                effective_balance_step.safe_mul(spec.effective_balance_increment)?;
+            let base_reward = get_base_reward_from_effective_balance::<T::EthSpec>(
+                effective_balance,
+                total_balances.current_epoch(),
+                spec,
+            )?;
+            let finality_delay = state
+                .previous_epoch()
+                .safe_sub(state.finalized_checkpoint().epoch)?
+                .as_u64();
+
+            let Delta { rewards: head, .. } = get_attestation_component_delta(
+                true,
+                total_balances.previous_epoch_attesters(),
+                total_balances,
+                base_reward,
+                finality_delay,
+                spec,
+            )?;
+
+            let Delta {
+                rewards: target, ..
+            } = get_attestation_component_delta(
+                true,
+                total_balances.previous_epoch_target_attesters(),
+                total_balances,
+                base_reward,
+                finality_delay,
+                spec,
+            )?;
+
+            let Delta {
+                rewards: source, ..
+            } = get_attestation_component_delta(
+                true,
+                total_balances.previous_epoch_head_attesters(),
+                total_balances,
+                base_reward,
+                finality_delay,
+                spec,
+            )?;
+
+            let ideal_attestation_rewards = IdealAttestationRewards {
+                effective_balance,
+                head,
+                target,
+                source,
+            };
+
+            ideal_attestation_rewards_list.push(ideal_attestation_rewards);
+        }
+
+        Ok(ideal_attestation_rewards_list)
     }
 }
