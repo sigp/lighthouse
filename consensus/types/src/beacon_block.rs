@@ -46,14 +46,14 @@ use tree_hash_derive::TreeHash;
     map_ref_mut_into(BeaconBlockBodyRefMut)
 )]
 #[derive(
-    Debug, Clone, Serialize, Deserialize, Encode, TreeHash, Derivative, arbitrary::Arbitrary,
+    Debug, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, Derivative, arbitrary::Arbitrary,
 )]
 #[derivative(PartialEq, Hash(bound = "T: EthSpec"))]
 #[serde(untagged)]
 #[serde(bound = "T: EthSpec, Payload: AbstractExecPayload<T>")]
 #[arbitrary(bound = "T: EthSpec, Payload: AbstractExecPayload<T>")]
 #[tree_hash(enum_behaviour = "transparent")]
-#[ssz(enum_behaviour = "transparent")]
+#[ssz(enum_behaviour = "union")]
 pub struct BeaconBlock<T: EthSpec, Payload: AbstractExecPayload<T> = FullPayload<T>> {
     #[superstruct(getter(copy))]
     pub slot: Slot,

@@ -59,14 +59,14 @@ impl From<SignedBeaconBlockHash> for Hash256 {
     map_ref_mut_into(BeaconBlockRefMut)
 )]
 #[derive(
-    Debug, Clone, Serialize, Deserialize, Encode, TreeHash, Derivative, arbitrary::Arbitrary,
+    Debug, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, Derivative, arbitrary::Arbitrary,
 )]
 #[derivative(PartialEq, Hash(bound = "E: EthSpec"))]
 #[serde(untagged)]
 #[serde(bound = "E: EthSpec, Payload: AbstractExecPayload<E>")]
 #[arbitrary(bound = "E: EthSpec, Payload: AbstractExecPayload<E>")]
 #[tree_hash(enum_behaviour = "transparent")]
-#[ssz(enum_behaviour = "transparent")]
+#[ssz(enum_behaviour = "union")]
 pub struct SignedBeaconBlock<E: EthSpec, Payload: AbstractExecPayload<E> = FullPayload<E>> {
     #[superstruct(only(Base), partial_getter(rename = "message_base"))]
     pub message: BeaconBlockBase<E, Payload>,
