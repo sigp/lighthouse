@@ -29,6 +29,7 @@ use libp2p::gossipsub::metrics::Config as GossipsubMetricsConfig;
 use libp2p::gossipsub::subscription_filter::MaxCountSubscriptionFilter;
 use libp2p::gossipsub::{
     GossipsubEvent, IdentTopic as Topic, MessageAcceptance, MessageAuthenticity, MessageId,
+    TopicScoreParams,
 };
 use libp2p::identify::{Behaviour as Identify, Config as IdentifyConfig, Event as IdentifyEvent};
 use libp2p::multiaddr::{Multiaddr, Protocol as MProtocol};
@@ -577,6 +578,31 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
             .cloned()
         {
             self.unsubscribe(topic);
+        }
+    }
+
+    /// Remove topic weight from all topics that doesn't have the given fork_digest.
+    pub fn remove_topic_weight_except(&mut self, except: [u8; 4]) {
+        let new_param = TopicScoreParams {
+            topic_weight: 0.0,
+            ..Default::default()
+        };
+        let subscriptions = self.network_globals.gossipsub_subscriptions.read().clone();
+        for topic in subscriptions
+            .iter()
+            .filter(|topic| topic.fork_digest != except)
+            .cloned()
+        {
+            let libp2p_topic: Topic = topic.clone().into();
+            match self
+                .gossipsub_mut()
+                .set_topic_params(libp2p_topic, new_param.clone())
+            {
+                Ok(_) => debug!(self.log, "Removed topic weight"; "topic" => %topic),
+                Err(e) => {
+                    warn!(self.log, "Failed to remove topic weight"; "topic" => %topic, "error" => e)
+                }
+            }
         }
     }
 

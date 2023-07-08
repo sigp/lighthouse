@@ -892,9 +892,12 @@ impl<T: BeaconChainTypes> NetworkService<T> {
 
     fn update_next_fork(&mut self) {
         let new_enr_fork_id = self.beacon_chain.enr_fork_id();
+        let new_fork_digest = new_enr_fork_id.fork_digest;
 
         let fork_context = &self.fork_context;
-        if let Some(new_fork_name) = fork_context.from_context_bytes(new_enr_fork_id.fork_digest) {
+        if let Some(new_fork_name) =
+            fork_context.from_context_bytes(new_fork_digest.clone())
+        {
             info!(
                 self.log,
                 "Transitioned to new fork";
@@ -917,6 +920,11 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                 Box::pin(next_fork_subscriptions_delay(&self.beacon_chain).into());
             self.next_unsubscribe = Box::pin(Some(tokio::time::sleep(unsubscribe_delay)).into());
             info!(self.log, "Network will unsubscribe from old fork gossip topics in a few epochs"; "remaining_epochs" => UNSUBSCRIBE_DELAY_EPOCHS);
+
+            // Remove topic weight from old fork topics to prevent peers that left on the mesh on
+            // old topics from being penalized for not sending us messages.
+            self.libp2p
+                .remove_topic_weight_except(new_fork_digest);
         } else {
             crit!(self.log, "Unknown new enr fork id"; "new_fork_id" => ?new_enr_fork_id);
         }
