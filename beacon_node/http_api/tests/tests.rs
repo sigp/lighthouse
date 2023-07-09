@@ -4429,7 +4429,10 @@ async fn post_beacon_blocks_valid() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn post_beacon_blocks_ssz_valid() {
-    ApiTester::new().await.test_post_beacon_blocks_ssz_valid().await;
+    ApiTester::new()
+        .await
+        .test_post_beacon_blocks_ssz_valid()
+        .await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -4439,7 +4442,6 @@ async fn test_post_beacon_blocks_ssz_invalid() {
         .test_post_beacon_blocks_ssz_invalid()
         .await;
 }
-
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn post_beacon_blocks_invalid() {

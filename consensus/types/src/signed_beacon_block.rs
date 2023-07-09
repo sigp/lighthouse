@@ -100,8 +100,6 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> SignedBeaconBlock<E, Payload> 
         Self::from_ssz_bytes_with(bytes, BeaconBlock::any_from_ssz_bytes)
     }
 
-    pub fn to_ssz_bytes_with(self) {}
-
     /// SSZ decode with custom decode function.
     pub fn from_ssz_bytes_with(
         bytes: &[u8],
