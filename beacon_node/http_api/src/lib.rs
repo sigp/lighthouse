@@ -47,7 +47,7 @@ pub use publish_blocks::{
 use serde::{Deserialize, Serialize};
 use slog::{crit, debug, error, info, warn, Logger};
 use slot_clock::SlotClock;
-use ssz::{Decode, Encode};
+use ssz::Encode;
 pub use state_id::StateId;
 use std::borrow::Cow;
 use std::future::Future;
@@ -1325,18 +1325,19 @@ pub fn serve<T: BeaconChainTypes>(
              chain: Arc<BeaconChain<T>>,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
              log: Logger| async move {
-                let block: SignedBeaconBlock<T::EthSpec> =
-                    match Decode::from_ssz_bytes(&block_bytes) {
-                        Ok(block) => block,
-                        Err(e) => {
-                            println!("{:?}", e);
-                            return warp::reply::with_status(
-                                StatusCode::INTERNAL_SERVER_ERROR,
-                                eth2::StatusCode::INTERNAL_SERVER_ERROR,
-                            )
-                            .into_response();
-                        }
-                    };
+                let block = match SignedBeaconBlock::<T::EthSpec>::from_ssz_bytes(
+                    &block_bytes,
+                    &chain.spec,
+                ) {
+                    Ok(data) => data,
+                    Err(_) => {
+                        return warp::reply::with_status(
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            eth2::StatusCode::INTERNAL_SERVER_ERROR,
+                        )
+                        .into_response();
+                    }
+                };
                 match publish_blocks::publish_block(
                     None,
                     ProvenancedBlock::local(Arc::new(block)),
@@ -4033,10 +4034,8 @@ pub fn serve<T: BeaconChainTypes>(
         .boxed()
         .uor(
             warp::post().and(
-                warp::header::exact("Content-Type", "application/octet-stream").and(
-                    post_beacon_blocks_ssz
-                        .uor(post_beacon_blocks_v2_ssz)
-                    )
+                warp::header::exact("Content-Type", "application/octet-stream")
+                    .and(post_beacon_blocks_ssz.uor(post_beacon_blocks_v2_ssz))
                     .uor(post_beacon_blocks)
                     .uor(post_beacon_blinded_blocks)
                     .uor(post_beacon_blocks_v2)
