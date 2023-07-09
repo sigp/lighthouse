@@ -56,7 +56,6 @@ use tree_hash_derive::TreeHash;
 #[ssz(enum_behaviour = "transparent")]
 pub struct BeaconBlock<T: EthSpec, Payload: AbstractExecPayload<T> = FullPayload<T>> {
     #[superstruct(getter(copy))]
-    pub slot: Slot,
     #[superstruct(getter(copy))]
     #[serde(with = "serde_utils::quoted_u64")]
     pub proposer_index: u64,
