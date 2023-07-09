@@ -591,7 +591,6 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
         for topic in subscriptions
             .iter()
             .filter(|topic| topic.fork_digest != except)
-            .cloned()
         {
             let libp2p_topic: Topic = topic.clone().into();
             match self
