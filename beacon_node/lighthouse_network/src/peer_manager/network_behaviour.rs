@@ -1,3 +1,5 @@
+//! Implementation of [`NetworkBehaviour`] for the [`PeerManager`].
+
 use std::task::{Context, Poll};
 
 use futures::StreamExt;
@@ -108,22 +110,29 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
 
     fn on_swarm_event(&mut self, event: FromSwarm<Self::ConnectionHandler>) {
         match event {
-            // TODO(@divma): what's the difference between this event and the
-            // handle_established_inbound/outbound_connection ?
-            // just checked the libp2p code. These happen at the same time.
-            // We just need to pick which one is more benefitial to handle
             FromSwarm::ConnectionEstablished(ConnectionEstablished {
                 peer_id,
                 endpoint,
                 other_established,
                 ..
-            }) => self.on_connection_established(peer_id, endpoint, other_established),
+            }) => {
+                // NOTE: We still need to handle the [`ConnectionEstablished`] because the
+                // [`NetworkBehaviour::handle_established_inbound_connection`] and
+                // [`NetworkBehaviour::handle_established_outbound_connection`] are fallible. This
+                // means another behaviour can kill the connection early, and we can't assume a
+                // peer as connected until this event is received.
+                self.on_connection_established(peer_id, endpoint, other_established)
+            }
             FromSwarm::ConnectionClosed(ConnectionClosed {
                 peer_id,
                 remaining_established,
                 ..
             }) => self.on_connection_closed(peer_id, remaining_established),
             FromSwarm::DialFailure(DialFailure { peer_id, .. }) => self.on_dial_failure(peer_id),
+            FromSwarm::ExternalAddrConfirmed(_) => {
+                // TODO(@divma): we likely want to check this against our assumed external tcp
+                // address
+            }
             FromSwarm::AddressChange(_)
             | FromSwarm::ListenFailure(_)
             | FromSwarm::NewListener(_)
@@ -132,25 +141,22 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
             | FromSwarm::ListenerError(_)
             | FromSwarm::ListenerClosed(_)
             | FromSwarm::NewExternalAddrCandidate(_)
-            | FromSwarm::ExternalAddrExpired(_)
-            | FromSwarm::ExternalAddrConfirmed(_) => {
-                // TODO(@divma): need to think about all these
-                todo!()
+            | FromSwarm::ExternalAddrExpired(_) => {
                 // The rest of the events we ignore since they are handled in their associated
                 // `SwarmEvent`
             }
         }
     }
 
-    #[allow(unused)]
     fn handle_established_inbound_connection(
         &mut self,
         _connection_id: ConnectionId,
-        peer: PeerId,
-        local_addr: &libp2p::Multiaddr,
-        remote_addr: &libp2p::Multiaddr,
+        _peer: PeerId,
+        _local_addr: &libp2p::Multiaddr,
+        _remote_addr: &libp2p::Multiaddr,
     ) -> Result<libp2p::swarm::THandler<Self>, libp2p::swarm::ConnectionDenied> {
-        // TODO(@divma) pick either this or the swarm event
+        // TODO(@divma): we might want to check if we accept this peer or not in the future.
+        Ok(ConnectionHandler)
     }
 
     #[allow(unused)]
@@ -161,7 +167,8 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
         addr: &libp2p::Multiaddr,
         role_override: libp2p::core::Endpoint,
     ) -> Result<libp2p::swarm::THandler<Self>, libp2p::swarm::ConnectionDenied> {
-        // TODO(@divma) pick either this or the swarm event
+        // TODO(@divma): we might want to check if we accept this peer or not in the future.
+        Ok(ConnectionHandler)
     }
 }
 
