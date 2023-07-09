@@ -130,7 +130,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
             }) => self.on_connection_closed(peer_id, remaining_established),
             FromSwarm::DialFailure(DialFailure { peer_id, .. }) => self.on_dial_failure(peer_id),
             FromSwarm::ExternalAddrConfirmed(_) => {
-                // TODO(@divma): we likely want to check this against our assumed external tcp
+                // TODO: we likely want to check this against our assumed external tcp
                 // address
             }
             FromSwarm::AddressChange(_)
@@ -155,19 +155,18 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
         _local_addr: &libp2p::Multiaddr,
         _remote_addr: &libp2p::Multiaddr,
     ) -> Result<libp2p::swarm::THandler<Self>, libp2p::swarm::ConnectionDenied> {
-        // TODO(@divma): we might want to check if we accept this peer or not in the future.
+        // TODO: we might want to check if we accept this peer or not in the future.
         Ok(ConnectionHandler)
     }
 
-    #[allow(unused)]
     fn handle_established_outbound_connection(
         &mut self,
         _connection_id: ConnectionId,
-        peer: PeerId,
-        addr: &libp2p::Multiaddr,
-        role_override: libp2p::core::Endpoint,
+        _peer: PeerId,
+        _addr: &libp2p::Multiaddr,
+        _role_override: libp2p::core::Endpoint,
     ) -> Result<libp2p::swarm::THandler<Self>, libp2p::swarm::ConnectionDenied> {
-        // TODO(@divma): we might want to check if we accept this peer or not in the future.
+        // TODO: we might want to check if we accept this peer or not in the future.
         Ok(ConnectionHandler)
     }
 }
