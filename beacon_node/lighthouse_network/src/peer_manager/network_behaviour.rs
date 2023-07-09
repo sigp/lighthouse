@@ -24,84 +24,6 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
 
     /* Required trait members */
 
-    fn on_swarm_event(&mut self, event: FromSwarm<Self::ConnectionHandler>) {
-        match event {
-            // TODO(@divma): what's the difference between this event and the
-            // handle_established_inbound/outbound_connection ?
-            // just checked the libp2p code. These happen at the same time. 
-            // We just need to pick which one is more benefitial to handle
-            FromSwarm::ConnectionEstablished(ConnectionEstablished {
-                peer_id,
-                endpoint,
-                other_established,
-                ..
-            }) => self.on_connection_established(peer_id, endpoint, other_established),
-            FromSwarm::ConnectionClosed(ConnectionClosed {
-                peer_id,
-                remaining_established,
-                ..
-            }) => self.on_connection_closed(peer_id, remaining_established),
-            FromSwarm::DialFailure(DialFailure { peer_id, .. }) => self.on_dial_failure(peer_id),
-            FromSwarm::AddressChange(_)
-            | FromSwarm::ListenFailure(_)
-            | FromSwarm::NewListener(_)
-            | FromSwarm::NewListenAddr(_)
-            | FromSwarm::ExpiredListenAddr(_)
-            | FromSwarm::ListenerError(_)
-            | FromSwarm::ListenerClosed(_)
-            | FromSwarm::NewExternalAddrCandidate(_)
-            | FromSwarm::ExternalAddrExpired(_)
-            | FromSwarm::ExternalAddrConfirmed(_) => {
-                // TODO(@divma): need to think about all these
-                todo!()
-                // The rest of the events we ignore since they are handled in their associated
-                // `SwarmEvent`
-            }
-        }
-    }
-
-    fn handle_pending_inbound_connection(
-        &mut self,
-        _connection_id: ConnectionId,
-        _local_addr: &libp2p::Multiaddr,
-        _remote_addr: &libp2p::Multiaddr,
-    ) -> Result<(), libp2p::swarm::ConnectionDenied> {
-        // TODO(@divma) is it guaranteed that the ip the peer is connecting from is in the _remote_addr?
-        todo!()
-    }
-
-    #[allow(unused)]
-    fn handle_pending_outbound_connection(
-        &mut self,
-        _connection_id: ConnectionId,
-        maybe_peer: Option<PeerId>,
-        _addresses: &[libp2p::Multiaddr],
-        _effective_role: libp2p::core::Endpoint,
-    ) -> Result<Vec<libp2p::Multiaddr>, libp2p::swarm::ConnectionDenied> {
-        // TODO(@divma) tired
-        // - _effective_role: will probably be needed once we get quic
-        // - _addresses: check if addresses to dial contain any banned ip
-
-        // Check to make sure the peer is not supposed to be banned
-        todo!()
-        // if let Some(peer_id) = maybe_peer {
-        //     match self.ban_status(&peer_id) {
-        //         BanResult::BadScore | BanResult::BannedIp(_) => {
-        //             // TODO: need to create an error type for this
-        //             Err(libp2p::swarm::ConnectionDenied::new(()))
-        //         }
-        //         BanResult::NotBanned => {
-        //             // TODO: do stuff.
-        //             // check if the peer is being dialed (so this behaviour dialed)
-        //             // if not, check if we want the peer, prevent the dial attempt otherwise
-        //             //
-        //             // What happens if another behaviour prevents our dial attempt? do we get any
-        //             // notification to get the peer out of dialing state? dial failed?
-        //         }
-        //     }
-        // }
-    }
-
     fn on_connection_handler_event(
         &mut self,
         _peer_id: PeerId,
@@ -184,6 +106,41 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
         Poll::Pending
     }
 
+    fn on_swarm_event(&mut self, event: FromSwarm<Self::ConnectionHandler>) {
+        match event {
+            // TODO(@divma): what's the difference between this event and the
+            // handle_established_inbound/outbound_connection ?
+            // just checked the libp2p code. These happen at the same time.
+            // We just need to pick which one is more benefitial to handle
+            FromSwarm::ConnectionEstablished(ConnectionEstablished {
+                peer_id,
+                endpoint,
+                other_established,
+                ..
+            }) => self.on_connection_established(peer_id, endpoint, other_established),
+            FromSwarm::ConnectionClosed(ConnectionClosed {
+                peer_id,
+                remaining_established,
+                ..
+            }) => self.on_connection_closed(peer_id, remaining_established),
+            FromSwarm::DialFailure(DialFailure { peer_id, .. }) => self.on_dial_failure(peer_id),
+            FromSwarm::AddressChange(_)
+            | FromSwarm::ListenFailure(_)
+            | FromSwarm::NewListener(_)
+            | FromSwarm::NewListenAddr(_)
+            | FromSwarm::ExpiredListenAddr(_)
+            | FromSwarm::ListenerError(_)
+            | FromSwarm::ListenerClosed(_)
+            | FromSwarm::NewExternalAddrCandidate(_)
+            | FromSwarm::ExternalAddrExpired(_)
+            | FromSwarm::ExternalAddrConfirmed(_) => {
+                // TODO(@divma): need to think about all these
+                todo!()
+                // The rest of the events we ignore since they are handled in their associated
+                // `SwarmEvent`
+            }
+        }
+    }
 
     #[allow(unused)]
     fn handle_established_inbound_connection(
