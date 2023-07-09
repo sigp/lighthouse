@@ -928,25 +928,6 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
     type ConnectionHandler = ConnectionHandler;
     type ToSwarm = DiscoveredPeers;
 
-    fn handle_pending_outbound_connection(
-        &mut self,
-        _connection_id: ConnectionId,
-        maybe_peer: Option<PeerId>,
-        _addresses: &[Multiaddr],
-        _effective_role: libp2p::core::Endpoint,
-    ) -> Result<Vec<Multiaddr>, libp2p::swarm::ConnectionDenied> {
-        if let Some(peer_id) = maybe_peer {
-            if let Some(enr) = self.enr_of_peer(&peer_id) {
-                // ENR's may have multiple Multiaddrs. The multi-addr associated with the UDP
-                // port is removed, which is assumed to be associated with the discv5 protocol (and
-                // therefore irrelevant for other libp2p components).
-                return Ok(enr.multiaddr_tcp());
-            }
-        }
-
-        Ok(vec![])
-    }
-
     fn handle_established_inbound_connection(
         &mut self,
         _connection_id: ConnectionId,
@@ -954,11 +935,10 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
         _local_addr: &Multiaddr,
         _remote_addr: &Multiaddr,
     ) -> Result<libp2p::swarm::THandler<Self>, libp2p::swarm::ConnectionDenied> {
-        // TODO(@divma): we might want to check discovery's banned ips here.
+        // TODO: we might want to check discovery's banned ips here in the future.
         Ok(ConnectionHandler)
     }
 
-    #[allow(unused)]
     fn handle_established_outbound_connection(
         &mut self,
         _connection_id: ConnectionId,
@@ -966,31 +946,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
         _addr: &Multiaddr,
         _role_override: libp2p::core::Endpoint,
     ) -> Result<libp2p::swarm::THandler<Self>, libp2p::swarm::ConnectionDenied> {
-        // TODO(@divma): trust that the dialed address is not banned?
         Ok(ConnectionHandler)
-    }
-
-    fn on_swarm_event(&mut self, event: FromSwarm<Self::ConnectionHandler>) {
-        // TODO(@divma): check this
-        match event {
-            FromSwarm::DialFailure(DialFailure { peer_id, error, .. }) => {
-                self.on_dial_failure(peer_id, error)
-            }
-            FromSwarm::ConnectionEstablished(_)
-            | FromSwarm::ConnectionClosed(_)
-            | FromSwarm::AddressChange(_)
-            | FromSwarm::ListenFailure(_)
-            | FromSwarm::NewListener(_)
-            | FromSwarm::NewListenAddr(_)
-            | FromSwarm::ExpiredListenAddr(_)
-            | FromSwarm::ListenerError(_)
-            | FromSwarm::ListenerClosed(_)
-            | FromSwarm::NewExternalAddrCandidate(_)
-            | FromSwarm::ExternalAddrExpired(_)
-            | FromSwarm::ExternalAddrConfirmed(_) => {
-                // Ignore events not relevant to discovery
-            }
-        }
     }
 
     fn on_connection_handler_event(
@@ -999,6 +955,23 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
         _connection_id: ConnectionId,
         _event: void::Void,
     ) {
+    }
+
+    fn handle_pending_outbound_connection(
+        &mut self,
+        _connection_id: ConnectionId,
+        maybe_peer: Option<PeerId>,
+        _addresses: &[Multiaddr],
+        _effective_role: libp2p::core::Endpoint,
+    ) -> Result<Vec<Multiaddr>, libp2p::swarm::ConnectionDenied> {
+        if let Some(enr) = maybe_peer.and_then(|peer_id| self.enr_of_peer(&peer_id)) {
+            // ENR's may have multiple Multiaddrs. The multi-addr associated with the UDP
+            // port is removed, which is assumed to be associated with the discv5 protocol (and
+            // therefore irrelevant for other libp2p components).
+            Ok(enr.multiaddr_tcp())
+        } else {
+            Ok(vec![])
+        }
     }
 
     // Main execution loop to drive the behaviour
@@ -1103,6 +1076,28 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
             }
         }
         Poll::Pending
+    }
+
+    fn on_swarm_event(&mut self, event: FromSwarm<Self::ConnectionHandler>) {
+        match event {
+            FromSwarm::DialFailure(DialFailure { peer_id, error, .. }) => {
+                self.on_dial_failure(peer_id, error)
+            }
+            FromSwarm::ConnectionEstablished(_)
+            | FromSwarm::ConnectionClosed(_)
+            | FromSwarm::AddressChange(_)
+            | FromSwarm::ListenFailure(_)
+            | FromSwarm::NewListener(_)
+            | FromSwarm::NewListenAddr(_)
+            | FromSwarm::ExpiredListenAddr(_)
+            | FromSwarm::ListenerError(_)
+            | FromSwarm::ListenerClosed(_)
+            | FromSwarm::NewExternalAddrCandidate(_)
+            | FromSwarm::ExternalAddrExpired(_)
+            | FromSwarm::ExternalAddrConfirmed(_) => {
+                // Ignore events not relevant to discovery
+            }
+        }
     }
 }
 
