@@ -792,6 +792,7 @@ where
                     self.work_reprocessing_rx,
                     None,
                     beacon_chain.slot_clock.clone(),
+                    beacon_chain.spec,
                 );
             }
 

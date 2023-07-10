@@ -61,7 +61,7 @@ use std::time::Duration;
 use task_executor::TaskExecutor;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TrySendError;
-use types::{Attestation, EthSpec, Hash256, SignedAggregateAndProof, Slot, SubnetId};
+use types::{Attestation, ChainSpec, EthSpec, Hash256, SignedAggregateAndProof, Slot, SubnetId};
 use work_reprocessing_queue::IgnoredRpcBlock;
 
 mod metrics;
@@ -661,6 +661,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
         work_reprocessing_rx: mpsc::Receiver<ReprocessQueueMessage>,
         work_journal_tx: Option<mpsc::Sender<&'static str>>,
         slot_clock: S,
+        spec: &ChainSpec,
     ) {
         // Used by workers to communicate that they are finished a task.
         let (idle_tx, idle_rx) = mpsc::channel::<()>(MAX_IDLE_QUEUE_LEN);
@@ -717,12 +718,14 @@ impl<E: EthSpec> BeaconProcessor<E> {
         // receive them back once they are ready (`ready_work_rx`).
         let (ready_work_tx, ready_work_rx) =
             mpsc::channel::<ReadyWork>(MAX_SCHEDULED_WORK_QUEUE_LEN);
+
         spawn_reprocess_scheduler(
             ready_work_tx,
             work_reprocessing_rx,
             &self.executor,
             slot_clock,
             self.log.clone(),
+            spec,
         );
 
         let executor = self.executor.clone();
