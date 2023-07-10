@@ -577,14 +577,3 @@ impl<E: EthSpec> NetworkBeaconProcessor<TestBeaconChainType<E>> {
         (network_beacon_processor, beacon_processor_receive)
     }
 }
-
-#[cfg(test)]
-mod test {
-    #[test]
-    fn queued_block_delay_is_sane() {
-        assert!(
-            beacon_processor::work_reprocessing_queue::ADDITIONAL_QUEUED_BLOCK_DELAY
-                < beacon_chain::MAXIMUM_GOSSIP_CLOCK_DISPARITY
-        );
-    }
-}
