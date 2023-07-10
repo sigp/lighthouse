@@ -234,7 +234,7 @@ async fn test_verify_attestation_rewards_base_inactivity_leak() {
 }
 
 fn apply_attestation_rewards(
-    initial_balances: &Vec<u64>,
+    initial_balances: &[u64],
     attestation_rewards: Vec<TotalAttestationRewards>,
 ) -> Vec<u64> {
     initial_balances
