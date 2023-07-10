@@ -67,7 +67,7 @@ impl<E: EthSpec> Case for SanityBlocks<E> {
         let spec = &testing_spec::<E>(fork_name);
 
         // Processing requires the epoch cache.
-        bulk_state.build_all_caches(spec).unwrap();
+        bulk_state.build_caches(spec).unwrap();
 
         // Spawning a second state to call the VerifyIndiviual strategy to avoid bitrot.
         // See https://github.com/sigp/lighthouse/issues/742.

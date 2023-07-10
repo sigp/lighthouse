@@ -785,6 +785,20 @@ impl<T: BeaconChainTypes> Worker<T> {
 
                 verified_block
             }
+            Err(e @ BlockError::Slashable) => {
+                warn!(
+                    self.log,
+                    "Received equivocating block from peer";
+                    "error" => ?e
+                );
+                /* punish peer for submitting an equivocation, but not too harshly as honest peers may conceivably forward equivocating blocks to us from time to time */
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::MidToleranceError,
+                    "gossip_block_mid",
+                );
+                return None;
+            }
             Err(BlockError::ParentUnknown(block)) => {
                 debug!(
                     self.log,
@@ -806,7 +820,6 @@ impl<T: BeaconChainTypes> Worker<T> {
             Err(e @ BlockError::FutureSlot { .. })
             | Err(e @ BlockError::WouldRevertFinalizedSlot { .. })
             | Err(e @ BlockError::BlockIsAlreadyKnown)
-            | Err(e @ BlockError::RepeatProposal { .. })
             | Err(e @ BlockError::NotFinalizedDescendant { .. }) => {
                 debug!(self.log, "Could not verify block for gossip. Ignoring the block";
                             "error" => %e);
@@ -948,7 +961,12 @@ impl<T: BeaconChainTypes> Worker<T> {
 
         let result = self
             .chain
-            .process_block(block_root, verified_block, NotifyExecutionLayer::Yes)
+            .process_block(
+                block_root,
+                verified_block,
+                NotifyExecutionLayer::Yes,
+                || Ok(()),
+            )
             .await;
 
         match &result {
@@ -1736,7 +1754,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     "attn_agg_not_in_committee",
                 );
             }
-            AttnError::AttestationAlreadyKnown { .. } => {
+            AttnError::AttestationSupersetKnown { .. } => {
                 /*
                  * The aggregate attestation has already been observed on the network or in
                  * a block.
@@ -2246,7 +2264,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     "sync_bad_aggregator",
                 );
             }
-            SyncCommitteeError::SyncContributionAlreadyKnown(_)
+            SyncCommitteeError::SyncContributionSupersetKnown(_)
             | SyncCommitteeError::AggregatorAlreadyKnown(_) => {
                 /*
                  * The sync committee message already been observed on the network or in

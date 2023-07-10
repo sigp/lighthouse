@@ -351,6 +351,7 @@ async fn assert_invalid_signature(
             snapshots[block_index].beacon_block.canonical_root(),
             snapshots[block_index].beacon_block.clone(),
             NotifyExecutionLayer::Yes,
+            || Ok(()),
         )
         .await;
     assert!(
@@ -415,6 +416,7 @@ async fn invalid_signature_gossip_block() {
                         signed_block.canonical_root(),
                         Arc::new(signed_block),
                         NotifyExecutionLayer::Yes,
+                        || Ok(()),
                     )
                     .await,
                 Err(BlockError::InvalidSignature)
@@ -727,6 +729,7 @@ async fn block_gossip_verification() {
                 gossip_verified.block_root,
                 gossip_verified,
                 NotifyExecutionLayer::Yes,
+                || Ok(()),
             )
             .await
             .expect("should import valid gossip verified block");
@@ -923,11 +926,7 @@ async fn block_gossip_verification() {
     assert!(
         matches!(
             unwrap_err(harness.chain.verify_block_for_gossip(Arc::new(block.clone())).await),
-            BlockError::RepeatProposal {
-                proposer,
-                slot,
-            }
-            if proposer == other_proposer && slot == block.message().slot()
+            BlockError::BlockIsAlreadyKnown,
         ),
         "should register any valid signature against the proposer, even if the block failed later verification"
     );
@@ -956,11 +955,7 @@ async fn block_gossip_verification() {
                 .await
                 .err()
                 .expect("should error when processing known block"),
-            BlockError::RepeatProposal {
-                proposer,
-                slot,
-            }
-            if proposer == block.message().proposer_index() && slot == block.message().slot()
+            BlockError::BlockIsAlreadyKnown
         ),
         "the second proposal by this validator should be rejected"
     );
@@ -998,6 +993,7 @@ async fn verify_block_for_gossip_slashing_detection() {
             verified_block.block_root,
             verified_block,
             NotifyExecutionLayer::Yes,
+            || Ok(()),
         )
         .await
         .unwrap();
@@ -1037,6 +1033,7 @@ async fn verify_block_for_gossip_doppelganger_detection() {
             verified_block.block_root,
             verified_block,
             NotifyExecutionLayer::Yes,
+            || Ok(()),
         )
         .await
         .unwrap();
@@ -1184,6 +1181,7 @@ async fn add_base_block_to_altair_chain() {
                 base_block.canonical_root(),
                 Arc::new(base_block.clone()),
                 NotifyExecutionLayer::Yes,
+                || Ok(()),
             )
             .await
             .err()
@@ -1318,6 +1316,7 @@ async fn add_altair_block_to_base_chain() {
                 altair_block.canonical_root(),
                 Arc::new(altair_block.clone()),
                 NotifyExecutionLayer::Yes,
+                || Ok(()),
             )
             .await
             .err()

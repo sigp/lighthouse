@@ -41,6 +41,9 @@ mod verify_proposer_slashing;
 use crate::common::decrease_balance;
 use crate::StateProcessingStrategy;
 
+use crate::common::update_progressive_balances_cache::{
+    initialize_progressive_balances_cache, update_progressive_balances_metrics,
+};
 #[cfg(feature = "arbitrary-fuzz")]
 use arbitrary::Arbitrary;
 
@@ -114,6 +117,8 @@ pub fn per_block_processing<T: EthSpec, Payload: AbstractExecPayload<T>>(
         .fork_name(spec)
         .map_err(BlockProcessingError::InconsistentStateFork)?;
 
+    initialize_progressive_balances_cache(state, None, spec)?;
+
     let verify_signatures = match block_signature_strategy {
         BlockSignatureStrategy::VerifyBulk => {
             // Verify all signatures in the block at once.
@@ -180,6 +185,10 @@ pub fn per_block_processing<T: EthSpec, Payload: AbstractExecPayload<T>>(
             verify_signatures,
             spec,
         )?;
+    }
+
+    if is_progressive_balances_enabled(state) {
+        update_progressive_balances_metrics(state.progressive_balances_cache())?;
     }
 
     Ok(())
