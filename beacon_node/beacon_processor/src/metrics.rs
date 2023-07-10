@@ -80,10 +80,6 @@ lazy_static::lazy_static! {
         "beacon_processor_backfill_chain_segment_queue_total",
         "Count of backfill chain segments from the rpc waiting to be verified."
     );
-    pub static ref BEACON_PROCESSOR_CHAIN_SEGMENT_SUCCESS_TOTAL: Result<IntCounter> = try_create_int_counter(
-        "beacon_processor_chain_segment_success_total",
-        "Total number of chain segments successfully processed."
-    );
     // Unaggregated attestations.
     pub static ref BEACON_PROCESSOR_UNAGGREGATED_ATTESTATION_QUEUE_TOTAL: Result<IntGauge> = try_create_int_gauge(
         "beacon_processor_unaggregated_attestation_queue_total",
