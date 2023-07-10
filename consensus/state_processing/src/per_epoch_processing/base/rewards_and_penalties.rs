@@ -89,6 +89,11 @@ pub fn get_attestation_deltas<T: EthSpec>(
     })
 }
 
+/// Apply rewards for participation in attestations during the previous epoch.
+/// If `maybe_validators_subset` specified, only the deltas for the specified validator subset is
+/// returned, otherwise deltas for all validators are returned.
+///
+/// Returns a map of validator indices to `AttestationDelta`.
 pub fn get_attestation_deltas_subset<T: EthSpec>(
     state: &BeaconState<T>,
     validator_statuses: &ValidatorStatuses,

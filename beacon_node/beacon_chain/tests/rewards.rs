@@ -9,7 +9,10 @@ use beacon_chain::{
     test_utils::{AttestationStrategy, BlockStrategy, RelativeSyncCommittee},
     types::{Epoch, EthSpec, Keypair, MinimalEthSpec},
 };
+use eth2::types::ValidatorId;
 use lazy_static::lazy_static;
+use task_executor::test_utils::null_logger;
+use types::ChainSpec;
 
 pub const VALIDATOR_COUNT: usize = 64;
 
@@ -18,9 +21,17 @@ lazy_static! {
 }
 
 fn get_harness<E: EthSpec>() -> BeaconChainHarness<EphemeralHarnessType<E>> {
-    let mut spec = E::default_spec();
+    get_harness_custom_spec(None)
+}
 
-    spec.altair_fork_epoch = Some(Epoch::new(0)); // We use altair for all tests
+fn get_harness_custom_spec<E: EthSpec>(
+    maybe_spec: Option<ChainSpec>,
+) -> BeaconChainHarness<EphemeralHarnessType<E>> {
+    let spec = maybe_spec.unwrap_or_else(|| {
+        let mut spec = E::default_spec();
+        spec.altair_fork_epoch = Some(Epoch::new(0)); // We use altair for all tests
+        spec
+    });
 
     let harness = BeaconChainHarness::builder(E::default())
         .spec(spec)
@@ -118,4 +129,60 @@ async fn test_sync_committee_rewards() {
         "Expect 0 mismatches, but these validators have mismatches on balance: {} ",
         mismatches.join(",")
     );
+}
+
+#[tokio::test]
+async fn test_verify_attestation_rewards_base() {
+    type E = MinimalEthSpec;
+    let spec = E::default_spec();
+
+    let harness = get_harness_custom_spec::<E>(Some(spec));
+
+    // epoch 0 (N), only two thirds of validators vote.
+    let two_thirds = (VALIDATOR_COUNT / 3) * 2;
+    let two_thirds_validators: Vec<usize> = (0..two_thirds).collect();
+    harness
+        .extend_chain(
+            E::slots_per_epoch() as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::SomeValidators(two_thirds_validators),
+        )
+        .await;
+
+    let initial_balances = harness.get_current_state().balances().clone();
+
+    // extend slots to beginning of epoch N + 2
+    harness
+        .extend_slots(1 * E::slots_per_epoch() as usize)
+        .await;
+
+    // compute reward deltas for all validators in epoch N
+    let all_validators: Vec<ValidatorId> = (0..VALIDATOR_COUNT)
+        .map(|idx| ValidatorId::Index(idx as u64))
+        .collect();
+    let mut deltas = harness
+        .chain
+        .compute_attestation_rewards(Epoch::new(0), all_validators, null_logger().unwrap())
+        .unwrap();
+    deltas
+        .total_rewards
+        .sort_by_key(|rewards| rewards.validator_index);
+
+    // apply deltas to initial balances
+    let expected_balances = initial_balances
+        .iter()
+        .zip(deltas.total_rewards)
+        .map(|(&initial_balance, rewards)| {
+            let expected_balance = initial_balance as i64
+                + rewards.head as i64
+                + rewards.source
+                + rewards.target
+                + rewards.inclusion_delay.unwrap_or(0) as i64;
+            expected_balance as u64
+        })
+        .collect::<Vec<u64>>();
+
+    // verify expected balances against actual balances
+    let balances: Vec<u64> = harness.get_current_state().balances().clone().into();
+    assert_eq!(expected_balances, balances);
 }

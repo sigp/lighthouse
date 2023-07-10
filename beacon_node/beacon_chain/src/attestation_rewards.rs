@@ -77,8 +77,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // TODO: handle inactivity leak
         for (index, delta) in indices_to_attestation_delta.into_iter() {
-            // There's no penalty for a missed head vote.
-            let head = delta.head_delta.rewards;
+            let head_delta = delta.head_delta;
+            let head = (head_delta.rewards as i64).safe_sub(head_delta.penalties as i64)?;
 
             let target_delta = delta.target_delta;
             let target = (target_delta.rewards as i64).safe_sub(target_delta.penalties as i64)?;
@@ -178,7 +178,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         for validator_index in &validators {
             let eligible = state.is_eligible_validator(previous_epoch, *validator_index)?;
-            let mut head_reward = 0u64;
+            let mut head_reward = 0i64;
             let mut target_reward = 0i64;
             let mut source_reward = 0i64;
 
@@ -196,7 +196,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         .map_err(|_| BeaconChainError::AttestationRewardsError)?;
                     if voted_correctly {
                         if flag_index == TIMELY_HEAD_FLAG_INDEX {
-                            head_reward += ideal_reward;
+                            head_reward += *ideal_reward as i64;
                         } else if flag_index == TIMELY_TARGET_FLAG_INDEX {
                             target_reward += *ideal_reward as i64;
                         } else if flag_index == TIMELY_SOURCE_FLAG_INDEX {
