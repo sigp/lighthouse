@@ -11,7 +11,7 @@ use crate::{
 use beacon_chain::test_utils::{
     AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
 };
-use beacon_chain::{BeaconChain, ChainConfig, MAXIMUM_GOSSIP_CLOCK_DISPARITY};
+use beacon_chain::{BeaconChain, ChainConfig};
 use beacon_processor::{work_reprocessing_queue::*, *};
 use lighthouse_network::{
     discv5::enr::{CombinedKey, EnrBuilder},
@@ -229,6 +229,7 @@ impl TestRig {
             work_reprocessing_rx,
             Some(work_journal_tx),
             harness.chain.slot_clock.clone(),
+            &chain.spec,
         );
 
         Self {
@@ -503,9 +504,9 @@ async fn import_gossip_block_acceptably_early() {
         .start_of(rig.next_block.slot())
         .unwrap();
 
-    rig.chain.slot_clock.set_current_time(
-        slot_start - Duration::from_millis(rig.chain.spec.maximum_gossip_clock_disparity_millis),
-    );
+    rig.chain
+        .slot_clock
+        .set_current_time(slot_start - rig.chain.spec.maximum_gossip_clock_disparity());
 
     assert_eq!(
         rig.chain.slot().unwrap(),
@@ -553,9 +554,7 @@ async fn import_gossip_block_unacceptably_early() {
         .unwrap();
 
     rig.chain.slot_clock.set_current_time(
-        slot_start
-            - Duration::from_millis(rig.chain.spec.maximum_gossip_clock_disparity_millis)
-            - Duration::from_millis(1),
+        slot_start - rig.chain.spec.maximum_gossip_clock_disparity() - Duration::from_millis(1),
     );
 
     assert_eq!(

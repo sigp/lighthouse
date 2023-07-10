@@ -267,15 +267,18 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
             (gossipsub, update_gossipsub_scores)
         };
 
+        let network_params = NetworkParams {
+            max_chunk_size: ctx.chain_spec.max_chunk_size as usize,
+            ttfb_timeout: ctx.chain_spec.ttfb_timeout(),
+            resp_timeout: ctx.chain_spec.resp_timeout(),
+        };
         let eth2_rpc = RPC::new(
             ctx.fork_context.clone(),
             config.enable_light_client_server,
             config.inbound_rate_limiter_config.clone(),
             config.outbound_rate_limiter_config.clone(),
             log.clone(),
-            ctx.chain_spec.max_chunk_size as usize,
-            ctx.chain_spec.ttfb_timeout(),
-            ctx.chain_spec.resp_timeout(),
+            network_params,
         );
 
         let discovery = {

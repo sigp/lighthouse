@@ -108,6 +108,12 @@ pub struct RPCMessage<Id, TSpec: EthSpec> {
 type BehaviourAction<Id, TSpec> =
     NetworkBehaviourAction<RPCMessage<Id, TSpec>, RPCHandler<Id, TSpec>>;
 
+pub struct NetworkParams {
+    pub max_chunk_size: usize,
+    pub ttfb_timeout: Duration,
+    pub resp_timeout: Duration,
+}
+
 /// Implements the libp2p `NetworkBehaviour` trait and therefore manages network-level
 /// logic.
 pub struct RPC<Id: ReqId, TSpec: EthSpec> {
@@ -121,10 +127,8 @@ pub struct RPC<Id: ReqId, TSpec: EthSpec> {
     enable_light_client_server: bool,
     /// Slog logger for RPC behaviour.
     log: slog::Logger,
-
-    max_chunk_size: usize,
-    ttfb_timeout: Duration,
-    resp_timeout: Duration,
+    /// Networking constant values
+    network_params: NetworkParams,
 }
 
 impl<Id: ReqId, TSpec: EthSpec> RPC<Id, TSpec> {
@@ -134,9 +138,7 @@ impl<Id: ReqId, TSpec: EthSpec> RPC<Id, TSpec> {
         inbound_rate_limiter_config: Option<InboundRateLimiterConfig>,
         outbound_rate_limiter_config: Option<OutboundRateLimiterConfig>,
         log: slog::Logger,
-        max_chunk_size: usize,
-        ttfb_timeout: Duration,
-        resp_timeout: Duration,
+        network_params: NetworkParams,
     ) -> Self {
         let log = log.new(o!("service" => "libp2p_rpc"));
 
@@ -157,9 +159,7 @@ impl<Id: ReqId, TSpec: EthSpec> RPC<Id, TSpec> {
             fork_context,
             enable_light_client_server,
             log,
-            max_chunk_size: max_chunk_size,
-            ttfb_timeout: ttfb_timeout,
-            resp_timeout: resp_timeout,
+            network_params,
         }
     }
 
@@ -226,16 +226,19 @@ where
             SubstreamProtocol::new(
                 RPCProtocol {
                     fork_context: self.fork_context.clone(),
-                    max_rpc_size: max_rpc_size(&self.fork_context, self.max_chunk_size),
+                    max_rpc_size: max_rpc_size(
+                        &self.fork_context,
+                        self.network_params.max_chunk_size,
+                    ),
                     enable_light_client_server: self.enable_light_client_server,
                     phantom: PhantomData,
-                    ttfb_timeout: self.ttfb_timeout,
+                    ttfb_timeout: self.network_params.ttfb_timeout,
                 },
                 (),
             ),
             self.fork_context.clone(),
             &self.log,
-            self.resp_timeout,
+            self.network_params.resp_timeout,
         )
     }
 
