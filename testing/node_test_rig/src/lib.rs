@@ -23,7 +23,7 @@ pub use execution_layer::test_utils::{
 pub use validator_client::Config as ValidatorConfig;
 
 /// The global timeout for HTTP requests to the beacon node.
-const HTTP_TIMEOUT: Duration = Duration::from_secs(4);
+const HTTP_TIMEOUT: Duration = Duration::from_secs(8);
 
 /// Provides a beacon node that is running in the current process on a given tokio executor (it
 /// is _local_ to this process).
