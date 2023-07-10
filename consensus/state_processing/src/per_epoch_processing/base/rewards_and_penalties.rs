@@ -118,10 +118,14 @@ pub fn get_attestation_deltas_subset<T: EthSpec>(
             continue;
         }
 
-        if let Some(validators_subset) = maybe_validators_subset.as_ref() {
-            if !validators_subset.contains(&index) {
-                continue;
-            }
+        let include_validator_delta = |idx| match maybe_validators_subset.as_ref() {
+            None => true,
+            Some(validators_subset) if validators_subset.contains(&idx) => true,
+            Some(_) => false,
+        };
+
+        if !include_validator_delta(index) {
+            continue;
         }
 
         let base_reward = get_base_reward(state, index, total_balances.current_epoch(), spec)?;
@@ -146,11 +150,13 @@ pub fn get_attestation_deltas_subset<T: EthSpec>(
             .combine(inactivity_penalty_delta)?;
 
         if let Some((proposer_index, proposer_delta)) = proposer_delta {
-            deltas
-                .entry(proposer_index)
-                .or_insert_with(AttestationDelta::default)
-                .inclusion_delay_delta
-                .combine(proposer_delta)?;
+            if include_validator_delta(proposer_index) {
+                deltas
+                    .entry(proposer_index)
+                    .or_insert_with(AttestationDelta::default)
+                    .inclusion_delay_delta
+                    .combine(proposer_delta)?;
+            }
         }
     }
 
