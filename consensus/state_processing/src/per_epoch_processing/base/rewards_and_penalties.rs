@@ -245,7 +245,7 @@ fn get_head_delta(
     )
 }
 
-fn get_inclusion_delay_delta(
+pub fn get_inclusion_delay_delta(
     validator: &ValidatorStatus,
     base_reward: u64,
     spec: &ChainSpec,

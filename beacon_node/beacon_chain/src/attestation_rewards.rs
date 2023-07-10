@@ -20,9 +20,12 @@ use types::{BeaconState, Epoch, EthSpec};
 use eth2::types::ValidatorId;
 use state_processing::common::base::get_base_reward_from_effective_balance;
 use state_processing::per_epoch_processing::base::rewards_and_penalties::{
-    get_attestation_component_delta, get_attestation_deltas_subset,
+    get_attestation_component_delta, get_attestation_deltas_subset, get_inclusion_delay_delta,
 };
-use state_processing::per_epoch_processing::base::{TotalBalances, ValidatorStatuses};
+use state_processing::per_epoch_processing::base::validator_statuses::InclusionInfo;
+use state_processing::per_epoch_processing::base::{
+    TotalBalances, ValidatorStatus, ValidatorStatuses,
+};
 use state_processing::per_epoch_processing::Delta;
 
 impl<T: BeaconChainTypes> BeaconChain<T> {
@@ -238,6 +241,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             head: 0,
                             target: 0,
                             source: 0,
+                            inclusion_delay: None,
                         });
                     match *flag_index {
                         TIMELY_SOURCE_FLAG_INDEX => entry.source += ideal_reward,
@@ -303,6 +307,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .safe_sub(state.finalized_checkpoint().epoch)?
                 .as_u64();
 
+            // compute head delta
             let Delta { rewards: head, .. } = get_attestation_component_delta(
                 true,
                 total_balances.previous_epoch_attesters(),
@@ -312,6 +317,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 spec,
             )?;
 
+            // compute target delta
             let Delta {
                 rewards: target, ..
             } = get_attestation_component_delta(
@@ -323,6 +329,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 spec,
             )?;
 
+            // compute source delta
             let Delta {
                 rewards: source, ..
             } = get_attestation_component_delta(
@@ -334,11 +341,28 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 spec,
             )?;
 
+            // compute inclusion delay delta
+            let ideal_validator_status = ValidatorStatus {
+                is_previous_epoch_attester: true,
+                is_slashed: false,
+                inclusion_info: Some(InclusionInfo {
+                    delay: 1,
+                    ..Default::default()
+                }),
+                ..Default::default()
+            };
+
+            let Delta {
+                rewards: inclusion_delay,
+                ..
+            } = get_inclusion_delay_delta(&ideal_validator_status, base_reward, spec)?.0;
+
             let ideal_attestation_rewards = IdealAttestationRewards {
                 effective_balance,
                 head,
                 target,
                 source,
+                inclusion_delay: Some(inclusion_delay),
             };
 
             ideal_attestation_rewards_list.push(ideal_attestation_rewards);

@@ -158,18 +158,18 @@ async fn test_verify_attestation_rewards_base() {
     let all_validators: Vec<ValidatorId> = (0..VALIDATOR_COUNT)
         .map(|idx| ValidatorId::Index(idx as u64))
         .collect();
-    let mut deltas = harness
+    let mut attestation_rewards = harness
         .chain
         .compute_attestation_rewards(Epoch::new(0), all_validators, null_logger().unwrap())
         .unwrap();
-    deltas
+    attestation_rewards
         .total_rewards
         .sort_by_key(|rewards| rewards.validator_index);
 
-    // apply deltas to initial balances
+    // apply attestation rewards to initial balances
     let expected_balances = initial_balances
         .iter()
-        .zip(deltas.total_rewards)
+        .zip(attestation_rewards.total_rewards)
         .map(|(&initial_balance, rewards)| {
             let expected_balance = initial_balance as i64
                 + rewards.head

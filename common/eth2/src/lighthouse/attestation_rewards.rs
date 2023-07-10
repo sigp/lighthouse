@@ -17,6 +17,13 @@ pub struct IdealAttestationRewards {
     // Ideal attester's reward for source vote in gwei
     #[serde(with = "serde_utils::quoted_u64")]
     pub source: u64,
+    // Ideal attester's inclusion_delay reward in gwei (phase0 only)
+    #[serde(
+        with = "option_quoted_u64",
+        skip_serializing_if = "Option::is_none",
+        default
+    )]
+    pub inclusion_delay: Option<u64>,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
