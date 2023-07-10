@@ -152,9 +152,7 @@ async fn test_verify_attestation_rewards_base() {
     let initial_balances = harness.get_current_state().balances().clone();
 
     // extend slots to beginning of epoch N + 2
-    harness
-        .extend_slots(1 * E::slots_per_epoch() as usize)
-        .await;
+    harness.extend_slots(E::slots_per_epoch() as usize).await;
 
     // compute reward deltas for all validators in epoch N
     let all_validators: Vec<ValidatorId> = (0..VALIDATOR_COUNT)
@@ -174,7 +172,7 @@ async fn test_verify_attestation_rewards_base() {
         .zip(deltas.total_rewards)
         .map(|(&initial_balance, rewards)| {
             let expected_balance = initial_balance as i64
-                + rewards.head as i64
+                + rewards.head
                 + rewards.source
                 + rewards.target
                 + rewards.inclusion_delay.unwrap_or(0) as i64;
