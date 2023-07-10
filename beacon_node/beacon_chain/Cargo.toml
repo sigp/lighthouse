@@ -32,9 +32,10 @@ sloggers = { version = "2.1.1", features = ["json"] }
 slot_clock = { path = "../../common/slot_clock" }
 ethereum_hashing = "1.0.0-beta.2"
 ethereum_ssz = "0.5.0"
-ssz_types = "0.5.0"
+ssz_types = "0.5.3"
 ethereum_ssz_derive = "0.5.0"
 state_processing = { path = "../../consensus/state_processing" }
+tree_hash_derive = "0.5.0"
 tree_hash = "0.5.0"
 types = { path = "../../consensus/types" }
 tokio = "1.14.0"
@@ -54,7 +55,7 @@ fork_choice = { path = "../../consensus/fork_choice" }
 task_executor = { path = "../../common/task_executor" }
 derivative = "2.1.1"
 itertools = "0.10.0"
-slasher = { path = "../../slasher", default-features = false }
+slasher = { path = "../../slasher" }
 eth2 = { path = "../../common/eth2" }
 strum = { version = "0.24.0", features = ["derive"] }
 logging = { path = "../../common/logging" }

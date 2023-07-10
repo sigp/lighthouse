@@ -1,4 +1,5 @@
 use super::sync::manager::RequestId as SyncId;
+use crate::beacon_processor::InvalidBlockStorage;
 use crate::persisted_dht::{clear_dht, load_dht, persist_dht};
 use crate::router::{Router, RouterMessage};
 use crate::subnet_service::SyncCommitteeService;
@@ -295,6 +296,12 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             }
         }
 
+        let invalid_block_storage = config
+            .invalid_block_storage
+            .clone()
+            .map(InvalidBlockStorage::Enabled)
+            .unwrap_or(InvalidBlockStorage::Disabled);
+
         // launch derived network services
 
         // router task
@@ -303,14 +310,14 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             network_globals.clone(),
             network_senders.network_send(),
             executor.clone(),
+            invalid_block_storage,
             network_log.clone(),
         )?;
 
         // attestation subnet service
         let attestation_service = AttestationService::new(
             beacon_chain.clone(),
-            #[cfg(feature = "deterministic_long_lived_attnets")]
-            network_globals.local_enr().node_id().raw().into(),
+            network_globals.local_enr().node_id(),
             config,
             &network_log,
         );

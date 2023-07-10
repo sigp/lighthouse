@@ -36,7 +36,10 @@ pub async fn check_synced<T: SlotClock>(
         }
     };
 
-    let is_synced = !resp.data.is_syncing || (resp.data.sync_distance.as_u64() < SYNC_TOLERANCE);
+    // Default EL status to "online" for backwards-compatibility with BNs that don't include it.
+    let el_offline = resp.data.el_offline.unwrap_or(false);
+    let bn_is_synced = !resp.data.is_syncing || (resp.data.sync_distance.as_u64() < SYNC_TOLERANCE);
+    let is_synced = bn_is_synced && !el_offline;
 
     if let Some(log) = log_opt {
         if !is_synced {
@@ -52,6 +55,7 @@ pub async fn check_synced<T: SlotClock>(
                 "sync_distance" => resp.data.sync_distance.as_u64(),
                 "head_slot" => resp.data.head_slot.as_u64(),
                 "endpoint" => %beacon_node,
+                "el_offline" => el_offline,
             );
         }
 

@@ -109,10 +109,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .arg(
             Arg::with_name("allow-unsynced")
                 .long("allow-unsynced")
-                .help(
-                    "If present, the validator client will still poll for duties if the beacon
-                      node is not synced.",
-                ),
+                .help("DEPRECATED: this flag does nothing"),
         )
         .arg(
             Arg::with_name("use-long-timeouts")
@@ -356,6 +353,16 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .help("Set to 'true' to enable a service that periodically attempts to measure latency to BNs. \
                     Set to 'false' to disable.")
                 .default_value("true")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("validator-registration-batch-size")
+                .long("validator-registration-batch-size")
+                .value_name("INTEGER")
+                .help("Defines the number of validators per \
+                    validator/register_validator request sent to the BN. This value \
+                    can be reduced to avoid timeouts from builders.")
+                .default_value("500")
                 .takes_value(true),
         )
         /*

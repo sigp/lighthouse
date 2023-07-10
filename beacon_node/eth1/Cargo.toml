@@ -7,7 +7,6 @@ edition = "2021"
 [dev-dependencies]
 eth1_test_rig = { path = "../../testing/eth1_test_rig" }
 serde_yaml = "0.8.13"
-web3 = { version = "0.18.0", default-features = false, features = ["http-tls", "signing", "ws-tls-tokio"] }
 sloggers = { version = "2.1.1", features = ["json"] }
 environment = { path = "../../lighthouse/environment" }
 

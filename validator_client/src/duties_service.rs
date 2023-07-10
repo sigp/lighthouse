@@ -147,11 +147,6 @@ pub struct DutiesService<T, E: EthSpec> {
     pub slot_clock: T,
     /// Provides HTTP access to remote beacon nodes.
     pub beacon_nodes: Arc<BeaconNodeFallback<T, E>>,
-    /// Controls whether or not this function will refuse to interact with non-synced beacon nodes.
-    ///
-    /// This functionality is a little redundant since most BNs will likely reject duties when they
-    /// aren't synced, but we keep it around for an emergency.
-    pub require_synced: RequireSynced,
     pub enable_high_validator_count_metrics: bool,
     pub context: RuntimeContext<E>,
     pub spec: ChainSpec,
@@ -421,7 +416,7 @@ async fn poll_validator_indices<T: SlotClock + 'static, E: EthSpec>(
             let download_result = duties_service
                 .beacon_nodes
                 .first_success(
-                    duties_service.require_synced,
+                    RequireSynced::No,
                     OfflineOnFailure::Yes,
                     |beacon_node| async move {
                         let _timer = metrics::start_timer_vec(
@@ -618,7 +613,7 @@ async fn poll_beacon_attesters<T: SlotClock + 'static, E: EthSpec>(
         if let Err(e) = duties_service
             .beacon_nodes
             .run(
-                duties_service.require_synced,
+                RequireSynced::No,
                 OfflineOnFailure::Yes,
                 |beacon_node| async move {
                     let _timer = metrics::start_timer_vec(
@@ -856,7 +851,7 @@ async fn post_validator_duties_attester<T: SlotClock + 'static, E: EthSpec>(
     duties_service
         .beacon_nodes
         .first_success(
-            duties_service.require_synced,
+            RequireSynced::No,
             OfflineOnFailure::Yes,
             |beacon_node| async move {
                 let _timer = metrics::start_timer_vec(
@@ -1063,7 +1058,7 @@ async fn poll_beacon_proposers<T: SlotClock + 'static, E: EthSpec>(
         let download_result = duties_service
             .beacon_nodes
             .first_success(
-                duties_service.require_synced,
+                RequireSynced::No,
                 OfflineOnFailure::Yes,
                 |beacon_node| async move {
                     let _timer = metrics::start_timer_vec(

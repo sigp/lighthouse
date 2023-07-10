@@ -30,7 +30,12 @@ pub async fn handle_rpc<T: EthSpec>(
         .map_err(|s| (s, GENERIC_ERROR_CODE))?;
 
     match method {
-        ETH_SYNCING => Ok(JsonValue::Bool(false)),
+        ETH_SYNCING => ctx
+            .syncing_response
+            .lock()
+            .clone()
+            .map(JsonValue::Bool)
+            .map_err(|message| (message, GENERIC_ERROR_CODE)),
         ETH_GET_BLOCK_BY_NUMBER => {
             let tag = params
                 .get(0)
@@ -145,7 +150,9 @@ pub async fn handle_rpc<T: EthSpec>(
 
             // Canned responses set by block hash take priority.
             if let Some(status) = ctx.get_new_payload_status(request.block_hash()) {
-                return Ok(serde_json::to_value(JsonPayloadStatusV1::from(status)).unwrap());
+                return status
+                    .map(|status| serde_json::to_value(JsonPayloadStatusV1::from(status)).unwrap())
+                    .map_err(|message| (message, GENERIC_ERROR_CODE));
             }
 
             let (static_response, should_import) =
@@ -320,11 +327,15 @@ pub async fn handle_rpc<T: EthSpec>(
 
             // Canned responses set by block hash take priority.
             if let Some(status) = ctx.get_fcu_payload_status(&head_block_hash) {
-                let response = JsonForkchoiceUpdatedV1Response {
-                    payload_status: JsonPayloadStatusV1::from(status),
-                    payload_id: None,
-                };
-                return Ok(serde_json::to_value(response).unwrap());
+                return status
+                    .map(|status| {
+                        let response = JsonForkchoiceUpdatedV1Response {
+                            payload_status: JsonPayloadStatusV1::from(status),
+                            payload_id: None,
+                        };
+                        serde_json::to_value(response).unwrap()
+                    })
+                    .map_err(|message| (message, GENERIC_ERROR_CODE));
             }
 
             let mut response = ctx

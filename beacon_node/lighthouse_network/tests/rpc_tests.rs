@@ -155,10 +155,7 @@ fn test_blocks_by_range_chunked_rpc() {
             common::build_node_pair(Arc::downgrade(&rt), &log, ForkName::Merge).await;
 
         // BlocksByRange Request
-        let rpc_request = Request::BlocksByRange(BlocksByRangeRequest {
-            start_slot: 0,
-            count: messages_to_send,
-        });
+        let rpc_request = Request::BlocksByRange(BlocksByRangeRequest::new(0, messages_to_send));
 
         let spec = E::default_spec();
 
@@ -282,10 +279,7 @@ fn test_blocks_by_range_over_limit() {
             common::build_node_pair(Arc::downgrade(&rt), &log, ForkName::Merge).await;
 
         // BlocksByRange Request
-        let rpc_request = Request::BlocksByRange(BlocksByRangeRequest {
-            start_slot: 0,
-            count: messages_to_send,
-        });
+        let rpc_request = Request::BlocksByRange(BlocksByRangeRequest::new(0, messages_to_send));
 
         // BlocksByRange Response
         let full_block = merge_block_large(&common::fork_context(ForkName::Merge));
@@ -367,10 +361,7 @@ fn test_blocks_by_range_chunked_rpc_terminates_correctly() {
             common::build_node_pair(Arc::downgrade(&rt), &log, ForkName::Base).await;
 
         // BlocksByRange Request
-        let rpc_request = Request::BlocksByRange(BlocksByRangeRequest {
-            start_slot: 0,
-            count: messages_to_send,
-        });
+        let rpc_request = Request::BlocksByRange(BlocksByRangeRequest::new(0, messages_to_send));
 
         // BlocksByRange Response
         let spec = E::default_spec();
@@ -490,10 +481,7 @@ fn test_blocks_by_range_single_empty_rpc() {
             common::build_node_pair(Arc::downgrade(&rt), &log, ForkName::Base).await;
 
         // BlocksByRange Request
-        let rpc_request = Request::BlocksByRange(BlocksByRangeRequest {
-            start_slot: 0,
-            count: 10,
-        });
+        let rpc_request = Request::BlocksByRange(BlocksByRangeRequest::new(0, 10));
 
         // BlocksByRange Response
         let spec = E::default_spec();
@@ -594,16 +582,15 @@ fn test_blocks_by_root_chunked_rpc() {
             common::build_node_pair(Arc::downgrade(&rt), &log, ForkName::Merge).await;
 
         // BlocksByRoot Request
-        let rpc_request = Request::BlocksByRoot(BlocksByRootRequest {
-            block_roots: VariableList::from(vec![
+        let rpc_request =
+            Request::BlocksByRoot(BlocksByRootRequest::new(VariableList::from(vec![
                 Hash256::from_low_u64_be(0),
                 Hash256::from_low_u64_be(0),
                 Hash256::from_low_u64_be(0),
                 Hash256::from_low_u64_be(0),
                 Hash256::from_low_u64_be(0),
                 Hash256::from_low_u64_be(0),
-            ]),
-        });
+            ])));
 
         // BlocksByRoot Response
         let full_block = BeaconBlock::Base(BeaconBlockBase::<E>::full(&spec));
@@ -722,8 +709,8 @@ fn test_blocks_by_root_chunked_rpc_terminates_correctly() {
             common::build_node_pair(Arc::downgrade(&rt), &log, ForkName::Base).await;
 
         // BlocksByRoot Request
-        let rpc_request = Request::BlocksByRoot(BlocksByRootRequest {
-            block_roots: VariableList::from(vec![
+        let rpc_request =
+            Request::BlocksByRoot(BlocksByRootRequest::new(VariableList::from(vec![
                 Hash256::from_low_u64_be(0),
                 Hash256::from_low_u64_be(0),
                 Hash256::from_low_u64_be(0),
@@ -734,8 +721,7 @@ fn test_blocks_by_root_chunked_rpc_terminates_correctly() {
                 Hash256::from_low_u64_be(0),
                 Hash256::from_low_u64_be(0),
                 Hash256::from_low_u64_be(0),
-            ]),
-        });
+            ])));
 
         // BlocksByRoot Response
         let full_block = BeaconBlock::Base(BeaconBlockBase::<E>::full(&spec));

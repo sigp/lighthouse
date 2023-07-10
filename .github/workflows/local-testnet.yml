@@ -25,9 +25,23 @@ jobs:
         uses: arduino/setup-protoc@e52d9eb8f7b63115df1ac544a1376fdbf5a39612
         with:
             repo-token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Install ganache
-        run: npm install ganache@latest --global
-
+      - name: Install geth (ubuntu)
+        if: matrix.os == 'ubuntu-22.04'
+        run: |
+          sudo add-apt-repository -y ppa:ethereum/ethereum
+          sudo apt-get update
+          sudo apt-get install ethereum
+      - name: Install geth (mac)
+        if: matrix.os == 'macos-12'
+        run: |
+          brew tap ethereum/ethereum
+          brew install ethereum
+      - name: Install GNU sed & GNU grep
+        if: matrix.os == 'macos-12'
+        run: |
+          brew install gnu-sed grep
+          echo "$(brew --prefix)/opt/gnu-sed/libexec/gnubin" >> $GITHUB_PATH
+          echo "$(brew --prefix)/opt/grep/libexec/gnubin" >> $GITHUB_PATH
       # https://github.com/actions/cache/blob/main/examples.md#rust---cargo
       - uses: actions/cache@v3
         id: cache-cargo
@@ -44,7 +58,7 @@ jobs:
         run: make && make install-lcli
 
       - name: Start local testnet
-        run: ./start_local_testnet.sh && sleep 60
+        run: ./start_local_testnet.sh genesis.json && sleep 60
         working-directory: scripts/local_testnet
 
       - name: Print logs
@@ -60,7 +74,7 @@ jobs:
         working-directory: scripts/local_testnet
 
       - name: Start local testnet with blinded block production
-        run: ./start_local_testnet.sh -p && sleep 60
+        run: ./start_local_testnet.sh -p genesis.json && sleep 60
         working-directory: scripts/local_testnet
 
       - name: Print logs for blinded block testnet

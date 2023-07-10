@@ -15,7 +15,7 @@ integer-sqrt = "0.1.5"
 itertools = "0.10.0"
 ethereum_ssz = "0.5.0"
 ethereum_ssz_derive = "0.5.0"
-ssz_types = "0.5.0"
+ssz_types = "0.5.3"
 merkle_proof = { path = "../merkle_proof" }
 safe_arith = { path = "../safe_arith" }
 tree_hash = "0.5.0"

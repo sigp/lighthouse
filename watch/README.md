@@ -12,7 +12,7 @@ data which is:
 ### Requirements
 - `git`
 - `rust` : https://rustup.rs/
-- `libpg` : https://www.postgresql.org/download/
+- `libpq` : https://www.postgresql.org/download/
 - `diesel_cli` :
 ```
 cargo install diesel_cli --no-default-features --features postgres

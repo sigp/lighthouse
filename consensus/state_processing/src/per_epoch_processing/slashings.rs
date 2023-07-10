@@ -16,7 +16,7 @@ pub fn process_slashings<T: EthSpec>(
         total_balance,
     );
 
-    let (validators, balances) = state.validators_and_balances_mut();
+    let (validators, balances, _) = state.validators_and_balances_and_progressive_balances_mut();
     for (index, validator) in validators.iter().enumerate() {
         if validator.slashed
             && epoch.safe_add(T::EpochsPerSlashingsVector::to_u64().safe_div(2)?)?
