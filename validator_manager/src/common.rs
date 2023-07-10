@@ -135,6 +135,7 @@ impl ValidatorSpecification {
                     enabled,
                     gas_limit,
                     builder_proposals,
+                    None, // Grafitti field is not maintained between validator moves.
                 )
                 .await
                 .map_err(UploadError::PatchValidatorFailed)?;

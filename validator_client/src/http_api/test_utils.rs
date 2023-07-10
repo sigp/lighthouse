@@ -135,6 +135,7 @@ impl ApiTester {
                 store_passwords_in_secrets_dir: false,
             },
             log,
+            sse_logging_components: None,
             slot_clock,
             _phantom: PhantomData,
         });
@@ -146,7 +147,7 @@ impl ApiTester {
         };
         let (listening_socket, server) = super::serve(ctx, server_shutdown).unwrap();
 
-        tokio::spawn(async { server.await });
+        tokio::spawn(server);
 
         let url = SensitiveUrl::parse(&format!(
             "http://{}:{}",
@@ -504,7 +505,7 @@ impl ApiTester {
         let validator = &self.client.get_lighthouse_validators().await.unwrap().data[index];
 
         self.client
-            .patch_lighthouse_validators(&validator.voting_pubkey, Some(enabled), None, None)
+            .patch_lighthouse_validators(&validator.voting_pubkey, Some(enabled), None, None, None)
             .await
             .unwrap();
 
@@ -546,7 +547,13 @@ impl ApiTester {
         let validator = &self.client.get_lighthouse_validators().await.unwrap().data[index];
 
         self.client
-            .patch_lighthouse_validators(&validator.voting_pubkey, None, Some(gas_limit), None)
+            .patch_lighthouse_validators(
+                &validator.voting_pubkey,
+                None,
+                Some(gas_limit),
+                None,
+                None,
+            )
             .await
             .unwrap();
 
@@ -573,6 +580,7 @@ impl ApiTester {
                 None,
                 None,
                 Some(builder_proposals),
+                None,
             )
             .await
             .unwrap();
