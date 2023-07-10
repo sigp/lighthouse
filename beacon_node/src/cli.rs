@@ -1090,6 +1090,23 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true)
         )
         .arg(
+            Arg::with_name("ignore-builder-override-suggestion-threshold")
+                .long("ignore-builder-override-suggestion-threshold")
+                .value_name("PERCENTAGE")
+                .help("When the EE advises Lighthouse to ignore the builder payload, this flag \
+                    specifies a percentage threshold for the difference between the reward from \
+                    the builder payload and the local EE's payload. This threshold must be met \
+                    for Lighthouse to consider ignoring the EE's suggestion. If the reward from \
+                    the builder's payload doesn't exceed the local payload by at least this \
+                    percentage, the local payload will be used. The conditions under which the \
+                    EE may make this suggestion depend on the EE's implementation, with the \
+                    primary intent being to safeguard against potential censorship attacks \
+                    from builders. Setting this flag to 0 will cause Lighthouse to always \
+                    ignore the EE's suggestion. Default: 10.0 (equivalent to 10%).")
+                .default_value("10.0")
+                .takes_value(true)
+        )
+        .arg(
             Arg::with_name("builder-user-agent")
                 .long("builder-user-agent")
                 .value_name("STRING")
@@ -1160,6 +1177,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             // to local payloads, therefore it fundamentally conflicts with
             // always using the builder.
             .conflicts_with("builder-profit-threshold")
+            .conflicts_with("ignore-builder-override-suggestion-threshold")
         )
         .arg(
             Arg::with_name("invalid-gossip-verified-blocks-path")

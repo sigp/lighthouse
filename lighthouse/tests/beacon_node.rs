@@ -734,6 +734,38 @@ fn builder_fallback_flags() {
             );
         },
     );
+    run_payload_builder_flag_test_with_config(
+        "builder",
+        "http://meow.cats",
+        Some("ignore-builder-override-suggestion-threshold"),
+        Some("53.4"),
+        |config| {
+            assert_eq!(
+                config
+                    .execution_layer
+                    .as_ref()
+                    .unwrap()
+                    .ignore_builder_override_suggestion_threshold,
+                53.4f32
+            );
+        },
+    );
+    run_payload_builder_flag_test_with_config(
+        "builder",
+        "http://meow.cats",
+        None,
+        None,
+        |config| {
+            assert_eq!(
+                config
+                    .execution_layer
+                    .as_ref()
+                    .unwrap()
+                    .ignore_builder_override_suggestion_threshold,
+                10.0f32
+            );
+        },
+    );
 }
 
 #[test]

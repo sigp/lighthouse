@@ -386,6 +386,34 @@ pub struct GetPayloadResponse<T: EthSpec> {
     pub block_value: Uint256,
     #[superstruct(only(Deneb))]
     pub blobs_bundle: BlobsBundleV1<T>,
+    #[superstruct(only(Deneb), partial_getter(copy))]
+    pub should_override_builder: bool,
+}
+
+impl<E: EthSpec> GetPayloadResponse<E> {
+    pub fn fee_recipient(&self) -> Address {
+        match self {
+            GetPayloadResponse::Merge(inner) => inner.execution_payload.fee_recipient,
+            GetPayloadResponse::Capella(inner) => inner.execution_payload.fee_recipient,
+            GetPayloadResponse::Deneb(inner) => inner.execution_payload.fee_recipient,
+        }
+    }
+
+    pub fn block_hash(&self) -> ExecutionBlockHash {
+        match self {
+            GetPayloadResponse::Merge(inner) => inner.execution_payload.block_hash,
+            GetPayloadResponse::Capella(inner) => inner.execution_payload.block_hash,
+            GetPayloadResponse::Deneb(inner) => inner.execution_payload.block_hash,
+        }
+    }
+
+    pub fn block_number(&self) -> u64 {
+        match self {
+            GetPayloadResponse::Merge(inner) => inner.execution_payload.block_number,
+            GetPayloadResponse::Capella(inner) => inner.execution_payload.block_number,
+            GetPayloadResponse::Deneb(inner) => inner.execution_payload.block_number,
+        }
+    }
 }
 
 impl<'a, T: EthSpec> From<GetPayloadResponseRef<'a, T>> for ExecutionPayloadRef<'a, T> {

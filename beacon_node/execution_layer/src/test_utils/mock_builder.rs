@@ -36,8 +36,8 @@ use task_executor::TaskExecutor;
 use tempfile::NamedTempFile;
 use tree_hash::TreeHash;
 use types::{
-    Address, BeaconState, BlindedPayload, ChainSpec, EthSpec, ExecPayload, ForkName, Hash256, Slot,
-    Uint256,
+    Address, BeaconState, ChainSpec, EthSpec, ExecPayload, ExecutionPayload,
+    ExecutionPayloadHeader, ForkName, Hash256, Slot, Uint256,
 };
 
 #[derive(Clone)]
@@ -425,9 +425,9 @@ impl<E: EthSpec> mev_rs::BlindedBlockProvider for MockBuilder<E> {
             finalized_hash: Some(finalized_execution_hash),
         };
 
-        let payload = self
+        let payload: ExecutionPayload<E> = self
             .el
-            .get_full_payload_caching::<BlindedPayload<E>>(
+            .get_full_payload_caching(
                 head_execution_hash,
                 &payload_attributes,
                 forkchoice_update_params,
@@ -435,10 +435,17 @@ impl<E: EthSpec> mev_rs::BlindedBlockProvider for MockBuilder<E> {
             )
             .await
             .map_err(convert_err)?
-            .to_payload()
-            .to_execution_payload_header();
+            .into();
 
-        let json_payload = serde_json::to_string(&payload).map_err(convert_err)?;
+        let header: ExecutionPayloadHeader<E> = match payload {
+            ExecutionPayload::Merge(payload) => ExecutionPayloadHeader::Merge((&payload).into()),
+            ExecutionPayload::Capella(payload) => {
+                ExecutionPayloadHeader::Capella((&payload).into())
+            }
+            ExecutionPayload::Deneb(payload) => ExecutionPayloadHeader::Deneb((&payload).into()),
+        };
+
+        let json_payload = serde_json::to_string(&header).map_err(convert_err)?;
         let mut message = match fork {
             ForkName::Capella => BuilderBid::Capella(BuilderBidCapella {
                 header: serde_json::from_str(json_payload.as_str()).map_err(convert_err)?,
