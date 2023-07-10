@@ -1,6 +1,8 @@
 use serde::de::Error;
 use serde::{Deserialize, Deserializer, Serializer};
 
+// This custom mod won't be needed if serde supports using custom de/serializer within an Option:
+// https://github.com/serde-rs/serde/issues/723
 macro_rules! define_mod {
     ($int: ty, $serialize_func:path) => {
         pub fn serialize<S>(value: &Option<$int>, serializer: S) -> Result<S::Ok, S::Error>
