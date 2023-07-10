@@ -149,8 +149,8 @@ pub fn process_epoch_single_pass<E: EthSpec>(
             || (validator.slashed()
                 && previous_epoch + Epoch::new(1) < validator.withdrawable_epoch());
 
-        let base_reward = if is_active_current_epoch {
-            epoch_cache.get_base_reward(index).unwrap()
+        let base_reward = if is_eligible {
+            epoch_cache.get_base_reward(index)?
         } else {
             0
         };
