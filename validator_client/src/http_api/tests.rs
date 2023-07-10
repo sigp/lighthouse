@@ -34,7 +34,6 @@ use std::time::Duration;
 use task_executor::test_utils::TestRuntime;
 use tempfile::{tempdir, TempDir};
 use tokio::runtime::Runtime;
-use tokio::sync::oneshot;
 use types::graffiti::GraffitiString;
 
 const PASSWORD_BYTES: &[u8] = &[42, 50, 37];
@@ -50,16 +49,6 @@ struct ApiTester {
     slot_clock: TestingSlotClock,
     _validator_dir: TempDir,
     _test_runtime: TestRuntime,
-}
-
-// Builds a runtime to be used in the testing configuration.
-fn build_runtime() -> Arc<Runtime> {
-    Arc::new(
-        tokio::runtime::Builder::new_multi_thread()
-            .enable_all()
-            .build()
-            .expect("Should be able to build a testing runtime"),
-    )
 }
 
 impl ApiTester {
