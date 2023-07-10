@@ -15,7 +15,6 @@ use slog::{debug, error, warn, Logger};
 use slot_clock::SlotClock;
 use std::cmp::max;
 use std::collections::HashMap;
-use std::time::Duration;
 use tokio::sync::mpsc::UnboundedSender;
 use types::{
     slot_data::SlotData, BeaconStateError, Epoch, EthSpec, SignedContributionAndProof,
@@ -86,9 +85,7 @@ fn duties_from_state_load<T: BeaconChainTypes>(
     let current_epoch = chain.epoch()?;
     let tolerant_current_epoch = chain
         .slot_clock
-        .now_with_future_tolerance(Duration::from_millis(
-            chain.spec.maximum_gossip_clock_disparity_millis,
-        ))
+        .now_with_future_tolerance(chain.spec.maximum_gossip_clock_disparity())
         .ok_or(BeaconChainError::UnableToReadSlot)?
         .epoch(T::EthSpec::slots_per_epoch());
 

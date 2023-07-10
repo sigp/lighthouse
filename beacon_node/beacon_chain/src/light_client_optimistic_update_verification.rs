@@ -101,8 +101,7 @@ impl<T: BeaconChainTypes> VerifiedLightClientOptimisticUpdate<T> {
         // verify that enough time has passed for the block to have been propagated
         match start_time {
             Some(time) => {
-                if seen_timestamp
-                    + Duration::from_millis(chain.spec.maximum_gossip_clock_disparity_millis)
+                if seen_timestamp + chain.spec.maximum_gossip_clock_disparity()
                     < time + one_third_slot_duration
                 {
                     return Err(Error::TooEarly);

@@ -17,7 +17,8 @@ use slog::{crit, debug, o};
 use std::marker::PhantomData;
 use std::sync::Arc;
 use std::task::{Context, Poll};
-use types::{ChainSpec, EthSpec, ForkContext};
+use std::time::Duration;
+use types::{EthSpec, ForkContext};
 
 pub(crate) use handler::HandlerErr;
 pub(crate) use methods::{MetaData, MetaDataV1, MetaDataV2, Ping, RPCCodedResponse, RPCResponse};
@@ -120,8 +121,10 @@ pub struct RPC<Id: ReqId, TSpec: EthSpec> {
     enable_light_client_server: bool,
     /// Slog logger for RPC behaviour.
     log: slog::Logger,
-    /// ChainSpec for networking constants
-    chain_spec: ChainSpec,
+
+    max_chunk_size: usize,
+    ttfb_timeout: Duration,
+    resp_timeout: Duration,
 }
 
 impl<Id: ReqId, TSpec: EthSpec> RPC<Id, TSpec> {
@@ -131,7 +134,9 @@ impl<Id: ReqId, TSpec: EthSpec> RPC<Id, TSpec> {
         inbound_rate_limiter_config: Option<InboundRateLimiterConfig>,
         outbound_rate_limiter_config: Option<OutboundRateLimiterConfig>,
         log: slog::Logger,
-        spec: ChainSpec,
+        max_chunk_size: usize,
+        ttfb_timeout: Duration,
+        resp_timeout: Duration,
     ) -> Self {
         let log = log.new(o!("service" => "libp2p_rpc"));
 
@@ -152,7 +157,9 @@ impl<Id: ReqId, TSpec: EthSpec> RPC<Id, TSpec> {
             fork_context,
             enable_light_client_server,
             log,
-            chain_spec: spec,
+            max_chunk_size: max_chunk_size,
+            ttfb_timeout: ttfb_timeout,
+            resp_timeout: resp_timeout,
         }
     }
 
@@ -219,19 +226,16 @@ where
             SubstreamProtocol::new(
                 RPCProtocol {
                     fork_context: self.fork_context.clone(),
-                    max_rpc_size: max_rpc_size(
-                        &self.fork_context,
-                        self.chain_spec.max_chunk_size as usize,
-                    ),
+                    max_rpc_size: max_rpc_size(&self.fork_context, self.max_chunk_size),
                     enable_light_client_server: self.enable_light_client_server,
                     phantom: PhantomData,
-                    ttfb_timeout: self.chain_spec.ttfb_timeout(),
+                    ttfb_timeout: self.ttfb_timeout,
                 },
                 (),
             ),
             self.fork_context.clone(),
             &self.log,
-            &self.chain_spec,
+            self.resp_timeout,
         )
     }
 

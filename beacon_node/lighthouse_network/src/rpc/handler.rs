@@ -29,7 +29,7 @@ use std::{
 };
 use tokio::time::{sleep_until, Instant as TInstant, Sleep};
 use tokio_util::time::{delay_queue, DelayQueue};
-use types::{ChainSpec, EthSpec, ForkContext};
+use types::{EthSpec, ForkContext};
 
 /// The number of times to retry an outbound upgrade in the case of IO errors.
 const IO_ERROR_RETRIES: u8 = 3;
@@ -129,7 +129,7 @@ where
     /// Logger for handling RPC streams
     log: slog::Logger,
 
-    /// resp_timeout for networking constants
+    /// Timeout that will me used for inbound and outbound responses.
     resp_timeout: Duration,
 }
 
@@ -213,7 +213,7 @@ where
         listen_protocol: SubstreamProtocol<RPCProtocol<TSpec>, ()>,
         fork_context: Arc<ForkContext>,
         log: &slog::Logger,
-        spec: &ChainSpec,
+        resp_timeout: Duration,
     ) -> Self {
         RPCHandler {
             listen_protocol,
@@ -232,7 +232,7 @@ where
             fork_context,
             waker: None,
             log: log.clone(),
-            resp_timeout: spec.resp_timeout(),
+            resp_timeout: resp_timeout,
         }
     }
 

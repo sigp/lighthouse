@@ -695,9 +695,7 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         // Do not gossip or process blocks from future slots.
         let present_slot_with_tolerance = chain
             .slot_clock
-            .now_with_future_tolerance(Duration::from_millis(
-                chain.spec.maximum_gossip_clock_disparity_millis,
-            ))
+            .now_with_future_tolerance(chain.spec.maximum_gossip_clock_disparity())
             .ok_or(BeaconChainError::UnableToReadSlot)?;
         if block.slot() > present_slot_with_tolerance {
             return Err(BlockError::FutureSlot {

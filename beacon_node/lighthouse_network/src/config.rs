@@ -444,17 +444,12 @@ pub fn gossipsub_config<TSpec: EthSpec>(
             }
         }
     }
-    let cloned_spec = spec.clone();
+    let message_domain_valid_snappy = spec.message_domain_valid_snappy;
     let is_merge_enabled = fork_context.fork_exists(ForkName::Merge);
     let gossip_message_id = move |message: &GossipsubMessage| {
         MessageId::from(
             &Sha256::digest(
-                prefix(
-                    cloned_spec.message_domain_valid_snappy,
-                    message,
-                    fork_context.clone(),
-                )
-                .as_slice(),
+                prefix(message_domain_valid_snappy, message, fork_context.clone()).as_slice(),
             )[..20],
         )
     };

@@ -1090,6 +1090,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
             &self.executor,
             chain.slot_clock.clone(),
             self.log.clone(),
+            chain.spec.maximum_gossip_clock_disparity(),
         );
 
         let executor = self.executor.clone();

@@ -9,7 +9,7 @@ use eth2::types::{self as api_types};
 use safe_arith::SafeArith;
 use slog::{debug, Logger};
 use slot_clock::SlotClock;
-use std::{cmp::Ordering, time::Duration};
+use std::cmp::Ordering;
 use types::{CloneConfig, Epoch, EthSpec, Hash256, Slot};
 
 /// The struct that is returned to the requesting HTTP client.
@@ -33,9 +33,7 @@ pub fn proposer_duties<T: BeaconChainTypes>(
     // will equal `current_epoch + 1`
     let tolerant_current_epoch = chain
         .slot_clock
-        .now_with_future_tolerance(Duration::from_millis(
-            chain.spec.maximum_gossip_clock_disparity_millis,
-        ))
+        .now_with_future_tolerance(chain.spec.maximum_gossip_clock_disparity())
         .ok_or_else(|| warp_utils::reject::custom_server_error("unable to read slot clock".into()))?
         .epoch(T::EthSpec::slots_per_epoch());
 

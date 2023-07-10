@@ -2260,7 +2260,7 @@ impl ApiTester {
 
         self.chain.slot_clock.set_current_time(
             current_epoch_start
-                - Duration::from_millis(self.chain.spec.maximum_gossip_clock_disparity_millis)
+                - self.chain.spec.maximum_gossip_clock_disparity()
                 - Duration::from_millis(1),
         );
 
@@ -2299,8 +2299,7 @@ impl ApiTester {
         );
 
         self.chain.slot_clock.set_current_time(
-            current_epoch_start
-                - Duration::from_millis(self.chain.spec.maximum_gossip_clock_disparity_millis),
+            current_epoch_start - self.chain.spec.maximum_gossip_clock_disparity(),
         );
 
         self.client

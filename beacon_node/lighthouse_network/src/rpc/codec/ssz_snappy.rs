@@ -1458,9 +1458,11 @@ mod tests {
         let mut uvi_codec: Uvi<usize> = Uvi::default();
         let mut dst = BytesMut::with_capacity(1024);
 
+        let chain_spec = Spec::default_spec();
+
         // Insert length-prefix
         uvi_codec
-            .encode(Spec::default_spec().max_chunk_size as usize + 1, &mut dst)
+            .encode(chain_spec.max_chunk_size as usize + 1, &mut dst)
             .unwrap();
 
         // Insert snappy stream identifier
@@ -1471,8 +1473,6 @@ mod tests {
         writer.write_all(&status_message_bytes).unwrap();
         writer.flush().unwrap();
         dst.extend_from_slice(writer.get_ref());
-
-        let chain_spec = Spec::default_spec();
 
         assert!(matches!(
             decode_response(
