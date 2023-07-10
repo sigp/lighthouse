@@ -4,6 +4,7 @@ mod attestation_performance;
 pub mod attestation_rewards;
 mod block_packing_efficiency;
 mod block_rewards;
+mod option_quoted_int;
 mod standard_block_rewards;
 mod sync_committee_rewards;
 

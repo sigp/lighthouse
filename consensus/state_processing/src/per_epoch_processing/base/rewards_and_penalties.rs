@@ -80,26 +80,21 @@ pub fn get_attestation_deltas<T: EthSpec>(
     validator_statuses: &ValidatorStatuses,
     spec: &ChainSpec,
 ) -> Result<Vec<AttestationDelta>, Error> {
-    get_attestation_deltas_subset(state, validator_statuses, None, spec).map(|deltas_map| {
-        deltas_map
-            .into_iter()
-            .sorted_by_key(|(val_index, _deltas)| *val_index)
-            .map(|(_val_index, deltas)| deltas)
-            .collect()
-    })
+    get_attestation_deltas_subset(state, validator_statuses, None, spec)
+        .map(|deltas_map| deltas_map.into_iter().map(|(_, deltas)| deltas).collect())
 }
 
 /// Apply rewards for participation in attestations during the previous epoch.
 /// If `maybe_validators_subset` specified, only the deltas for the specified validator subset is
 /// returned, otherwise deltas for all validators are returned.
 ///
-/// Returns a map of validator indices to `AttestationDelta`.
+/// Returns a vec of validator indices to `AttestationDelta`.
 pub fn get_attestation_deltas_subset<T: EthSpec>(
     state: &BeaconState<T>,
     validator_statuses: &ValidatorStatuses,
     maybe_validators_subset: Option<&Vec<usize>>,
     spec: &ChainSpec,
-) -> Result<HashMap<usize, AttestationDelta>, Error> {
+) -> Result<Vec<(usize, AttestationDelta)>, Error> {
     let previous_epoch = state.previous_epoch();
     let finality_delay = state
         .previous_epoch()
@@ -159,7 +154,10 @@ pub fn get_attestation_deltas_subset<T: EthSpec>(
         }
     }
 
-    Ok(deltas)
+    Ok(deltas
+        .into_iter()
+        .sorted_by_key(|(val_index, _deltas)| *val_index)
+        .collect())
 }
 
 pub fn get_attestation_component_delta(
@@ -271,7 +269,7 @@ pub fn get_inclusion_delay_delta(
     }
 }
 
-fn get_inactivity_penalty_delta(
+pub fn get_inactivity_penalty_delta(
     validator: &ValidatorStatus,
     base_reward: u64,
     finality_delay: u64,

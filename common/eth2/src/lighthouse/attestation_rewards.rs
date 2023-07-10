@@ -1,3 +1,4 @@
+use super::option_quoted_int::option_quoted_u64;
 use serde::{Deserialize, Serialize};
 
 // Details about the rewards paid for attestations
@@ -24,6 +25,9 @@ pub struct IdealAttestationRewards {
         default
     )]
     pub inclusion_delay: Option<u64>,
+    // Ideal attester's inactivity penalty in gwei
+    #[serde(with = "serde_utils::quoted_i64")]
+    pub inactivity: i64,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
@@ -47,73 +51,13 @@ pub struct TotalAttestationRewards {
         default
     )]
     pub inclusion_delay: Option<u64>,
+    // attester's inactivity penalty in gwei
+    #[serde(with = "serde_utils::quoted_i64")]
+    pub inactivity: i64,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub struct StandardAttestationRewards {
     pub ideal_rewards: Vec<IdealAttestationRewards>,
     pub total_rewards: Vec<TotalAttestationRewards>,
-}
-
-mod option_quoted_u64 {
-    use serde::de::Error;
-    use serde::{Deserialize, Deserializer, Serializer};
-    use serde_utils::quoted_u64;
-
-    pub fn serialize<S>(value: &Option<u64>, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        match value {
-            Some(inner) => quoted_u64::serialize(inner, serializer),
-            None => serializer.serialize_none(),
-        }
-    }
-
-    pub fn deserialize<'de, D>(deserializer: D) -> Result<Option<u64>, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let opt: Option<String> = Option::deserialize(deserializer)?;
-        match opt {
-            Some(val) => {
-                let u64_val = serde_json::from_str::<u64>(&val).map_err(Error::custom)?;
-                Ok(Some(u64_val))
-            }
-            None => Ok(None),
-        }
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use super::*;
-
-    #[derive(Debug, PartialEq, Serialize, Deserialize)]
-    #[serde(transparent)]
-    struct WrappedOptionU64(#[serde(with = "option_quoted_u64")] Option<u64>);
-
-    #[test]
-    fn option_quote_u64_some() {
-        assert_eq!(
-            &serde_json::to_string(&WrappedOptionU64(Some(42))).unwrap(),
-            "\"42\""
-        );
-        assert_eq!(
-            serde_json::from_str::<WrappedOptionU64>("\"42\"").unwrap(),
-            WrappedOptionU64(Some(42))
-        );
-    }
-
-    #[test]
-    fn option_quote_u64_none() {
-        assert_eq!(
-            &serde_json::to_string(&WrappedOptionU64(None)).unwrap(),
-            "null"
-        );
-        assert_eq!(
-            serde_json::from_str::<WrappedOptionU64>("null").unwrap(),
-            WrappedOptionU64(None)
-        );
-    }
 }

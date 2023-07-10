@@ -9,6 +9,8 @@ use beacon_chain::{
     test_utils::{AttestationStrategy, BlockStrategy, RelativeSyncCommittee},
     types::{Epoch, EthSpec, Keypair, MinimalEthSpec},
 };
+use eth2::lighthouse::attestation_rewards::TotalAttestationRewards;
+use eth2::lighthouse::StandardAttestationRewards;
 use eth2::types::ValidatorId;
 use lazy_static::lazy_static;
 use task_executor::test_utils::null_logger;
@@ -20,19 +22,7 @@ lazy_static! {
     static ref KEYPAIRS: Vec<Keypair> = generate_deterministic_keypairs(VALIDATOR_COUNT);
 }
 
-fn get_harness<E: EthSpec>() -> BeaconChainHarness<EphemeralHarnessType<E>> {
-    get_harness_custom_spec(None)
-}
-
-fn get_harness_custom_spec<E: EthSpec>(
-    maybe_spec: Option<ChainSpec>,
-) -> BeaconChainHarness<EphemeralHarnessType<E>> {
-    let spec = maybe_spec.unwrap_or_else(|| {
-        let mut spec = E::default_spec();
-        spec.altair_fork_epoch = Some(Epoch::new(0)); // We use altair for all tests
-        spec
-    });
-
+fn get_harness<E: EthSpec>(spec: ChainSpec) -> BeaconChainHarness<EphemeralHarnessType<E>> {
     let harness = BeaconChainHarness::builder(E::default())
         .spec(spec)
         .keypairs(KEYPAIRS.to_vec())
@@ -46,8 +36,12 @@ fn get_harness_custom_spec<E: EthSpec>(
 
 #[tokio::test]
 async fn test_sync_committee_rewards() {
-    let num_block_produced = MinimalEthSpec::slots_per_epoch();
-    let harness = get_harness::<MinimalEthSpec>();
+    type E = MinimalEthSpec;
+    let mut spec = E::default_spec();
+    spec.altair_fork_epoch = Some(Epoch::new(0));
+
+    let harness = get_harness::<E>(spec);
+    let num_block_produced = E::slots_per_epoch();
 
     let latest_block_root = harness
         .extend_chain(
@@ -135,8 +129,7 @@ async fn test_sync_committee_rewards() {
 async fn test_verify_attestation_rewards_base() {
     type E = MinimalEthSpec;
     let spec = E::default_spec();
-
-    let harness = get_harness_custom_spec::<E>(Some(spec));
+    let harness = get_harness::<E>(spec);
 
     // epoch 0 (N), only two thirds of validators vote.
     let two_thirds = (VALIDATOR_COUNT / 3) * 2;
@@ -149,7 +142,7 @@ async fn test_verify_attestation_rewards_base() {
         )
         .await;
 
-    let initial_balances = harness.get_current_state().balances().clone();
+    let initial_balances: Vec<u64> = harness.get_current_state().balances().clone().into();
 
     // extend slots to beginning of epoch N + 2
     harness.extend_slots(E::slots_per_epoch() as usize).await;
@@ -158,29 +151,103 @@ async fn test_verify_attestation_rewards_base() {
     let all_validators: Vec<ValidatorId> = (0..VALIDATOR_COUNT)
         .map(|idx| ValidatorId::Index(idx as u64))
         .collect();
-    let mut attestation_rewards = harness
+
+    let StandardAttestationRewards {
+        ideal_rewards,
+        total_rewards,
+    } = harness
         .chain
         .compute_attestation_rewards(Epoch::new(0), all_validators, null_logger().unwrap())
         .unwrap();
-    attestation_rewards
-        .total_rewards
-        .sort_by_key(|rewards| rewards.validator_index);
+
+    // assert no inactivity penalty for both ideal rewards and individual validators
+    assert!(ideal_rewards.iter().all(|reward| reward.inactivity == 0));
+    assert!(total_rewards.iter().all(|reward| reward.inactivity == 0));
 
     // apply attestation rewards to initial balances
-    let expected_balances = initial_balances
+    let expected_balances = apply_attestation_rewards(&initial_balances, total_rewards);
+
+    // verify expected balances against actual balances
+    let balances: Vec<u64> = harness.get_current_state().balances().clone().into();
+    assert_eq!(expected_balances, balances);
+}
+
+#[tokio::test]
+async fn test_verify_attestation_rewards_base_inactivity_leak() {
+    type E = MinimalEthSpec;
+    let spec = E::default_spec();
+    let harness = get_harness::<E>(spec.clone());
+
+    let half = VALIDATOR_COUNT / 2;
+    let half_validators: Vec<usize> = (0..half).collect();
+    // target epoch is the epoch where the chain enters inactivity leak
+    let target_epoch = &spec.min_epochs_to_inactivity_penalty + 1;
+
+    // advance until beginning of epoch N + 1 and get balances
+    harness
+        .extend_chain(
+            (E::slots_per_epoch() * (target_epoch + 1)) as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::SomeValidators(half_validators.clone()),
+        )
+        .await;
+    let initial_balances: Vec<u64> = harness.get_current_state().balances().clone().into();
+
+    // extend slots to beginning of epoch N + 2
+    harness.advance_slot();
+    harness
+        .extend_chain(
+            E::slots_per_epoch() as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::SomeValidators(half_validators),
+        )
+        .await;
+    let _slot = harness.get_current_slot();
+
+    // compute reward deltas for all validators in epoch N
+    let all_validators: Vec<ValidatorId> = (0..VALIDATOR_COUNT)
+        .map(|idx| ValidatorId::Index(idx as u64))
+        .collect();
+
+    let StandardAttestationRewards {
+        ideal_rewards,
+        total_rewards,
+    } = harness
+        .chain
+        .compute_attestation_rewards(
+            Epoch::new(target_epoch),
+            all_validators,
+            null_logger().unwrap(),
+        )
+        .unwrap();
+
+    // assert inactivity penalty for both ideal rewards and individual validators
+    assert!(ideal_rewards.iter().all(|reward| reward.inactivity < 0));
+    assert!(total_rewards.iter().all(|reward| reward.inactivity < 0));
+
+    // apply attestation rewards to initial balances
+    let expected_balances = apply_attestation_rewards(&initial_balances, total_rewards);
+
+    // verify expected balances against actual balances
+    let balances: Vec<u64> = harness.get_current_state().balances().clone().into();
+    assert_eq!(expected_balances, balances);
+}
+
+fn apply_attestation_rewards(
+    initial_balances: &Vec<u64>,
+    attestation_rewards: Vec<TotalAttestationRewards>,
+) -> Vec<u64> {
+    initial_balances
         .iter()
-        .zip(attestation_rewards.total_rewards)
+        .zip(attestation_rewards)
         .map(|(&initial_balance, rewards)| {
             let expected_balance = initial_balance as i64
                 + rewards.head
                 + rewards.source
                 + rewards.target
-                + rewards.inclusion_delay.unwrap_or(0) as i64;
+                + rewards.inclusion_delay.unwrap_or(0) as i64
+                + rewards.inactivity;
             expected_balance as u64
         })
-        .collect::<Vec<u64>>();
-
-    // verify expected balances against actual balances
-    let balances: Vec<u64> = harness.get_current_state().balances().clone().into();
-    assert_eq!(expected_balances, balances);
+        .collect::<Vec<u64>>()
 }

@@ -20,13 +20,13 @@ use types::{BeaconState, Epoch, EthSpec};
 use eth2::types::ValidatorId;
 use state_processing::common::base::get_base_reward_from_effective_balance;
 use state_processing::per_epoch_processing::base::rewards_and_penalties::{
-    get_attestation_component_delta, get_attestation_deltas_subset, get_inclusion_delay_delta,
+    get_attestation_component_delta, get_attestation_deltas_subset, get_inactivity_penalty_delta,
+    get_inclusion_delay_delta,
 };
 use state_processing::per_epoch_processing::base::validator_statuses::InclusionInfo;
 use state_processing::per_epoch_processing::base::{
     TotalBalances, ValidatorStatus, ValidatorStatuses,
 };
-use state_processing::per_epoch_processing::Delta;
 
 impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn compute_attestation_rewards(
@@ -78,7 +78,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let mut total_rewards = vec![];
 
-        // TODO: handle inactivity leak
         for (index, delta) in indices_to_attestation_delta.into_iter() {
             let head_delta = delta.head_delta;
             let head = (head_delta.rewards as i64).safe_sub(head_delta.penalties as i64)?;
@@ -91,6 +90,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             // No penalties associated with inclusion delay
             let inclusion_delay = delta.inclusion_delay_delta.rewards;
+            let inactivity = delta.inactivity_penalty_delta.penalties.wrapping_neg() as i64;
 
             let rewards = TotalAttestationRewards {
                 validator_index: index as u64,
@@ -98,6 +98,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 target,
                 source,
                 inclusion_delay: Some(inclusion_delay),
+                inactivity,
             };
 
             total_rewards.push(rewards);
@@ -146,7 +147,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let base_reward_per_increment =
                 BaseRewardPerIncrement::new(total_active_balance, spec)?;
 
-            for effective_balance_eth in 0..=self.max_effective_balance_increment_steps()? {
+            for effective_balance_eth in 1..=self.max_effective_balance_increment_steps()? {
                 let effective_balance =
                     effective_balance_eth.safe_mul(spec.effective_balance_increment)?;
                 let base_reward =
@@ -220,6 +221,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 target: target_reward,
                 source: source_reward,
                 inclusion_delay: None,
+                // TODO: altair calculation logic needs to be updated to include inactivity penalty
+                inactivity: 0,
             });
         }
 
@@ -242,6 +245,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             target: 0,
                             source: 0,
                             inclusion_delay: None,
+                            // TODO: altair calculation logic needs to be updated to include inactivity penalty
+                            inactivity: 0,
                         });
                     match *flag_index {
                         TIMELY_SOURCE_FLAG_INDEX => entry.source += ideal_reward,
@@ -292,9 +297,24 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         total_balances: &TotalBalances,
     ) -> Result<Vec<IdealAttestationRewards>, BeaconChainError> {
         let spec = &self.spec;
+        let previous_epoch = state.previous_epoch();
+        let finality_delay = previous_epoch
+            .safe_sub(state.finalized_checkpoint().epoch)?
+            .as_u64();
+
+        let ideal_validator_status = ValidatorStatus {
+            is_previous_epoch_attester: true,
+            is_slashed: false,
+            inclusion_info: Some(InclusionInfo {
+                delay: 1,
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+
         let mut ideal_attestation_rewards_list = Vec::new();
 
-        for effective_balance_step in 0..=self.max_effective_balance_increment_steps()? {
+        for effective_balance_step in 1..=self.max_effective_balance_increment_steps()? {
             let effective_balance =
                 effective_balance_step.safe_mul(spec.effective_balance_increment)?;
             let base_reward = get_base_reward_from_effective_balance::<T::EthSpec>(
@@ -302,60 +322,55 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 total_balances.current_epoch(),
                 spec,
             )?;
-            let finality_delay = state
-                .previous_epoch()
-                .safe_sub(state.finalized_checkpoint().epoch)?
-                .as_u64();
 
-            // compute head delta
-            let Delta { rewards: head, .. } = get_attestation_component_delta(
+            // compute ideal head rewards
+            let head = get_attestation_component_delta(
                 true,
                 total_balances.previous_epoch_attesters(),
                 total_balances,
                 base_reward,
                 finality_delay,
                 spec,
-            )?;
+            )?
+            .rewards;
 
-            // compute target delta
-            let Delta {
-                rewards: target, ..
-            } = get_attestation_component_delta(
+            // compute ideal target rewards
+            let target = get_attestation_component_delta(
                 true,
                 total_balances.previous_epoch_target_attesters(),
                 total_balances,
                 base_reward,
                 finality_delay,
                 spec,
-            )?;
+            )?
+            .rewards;
 
-            // compute source delta
-            let Delta {
-                rewards: source, ..
-            } = get_attestation_component_delta(
+            // compute ideal source rewards
+            let source = get_attestation_component_delta(
                 true,
                 total_balances.previous_epoch_head_attesters(),
                 total_balances,
                 base_reward,
                 finality_delay,
                 spec,
-            )?;
+            )?
+            .rewards;
 
-            // compute inclusion delay delta
-            let ideal_validator_status = ValidatorStatus {
-                is_previous_epoch_attester: true,
-                is_slashed: false,
-                inclusion_info: Some(InclusionInfo {
-                    delay: 1,
-                    ..Default::default()
-                }),
-                ..Default::default()
-            };
+            // compute ideal inclusion delay rewards
+            let inclusion_delay =
+                get_inclusion_delay_delta(&ideal_validator_status, base_reward, spec)?
+                    .0
+                    .rewards;
 
-            let Delta {
-                rewards: inclusion_delay,
-                ..
-            } = get_inclusion_delay_delta(&ideal_validator_status, base_reward, spec)?.0;
+            // compute inactivity penalty
+            let inactivity = get_inactivity_penalty_delta(
+                &ideal_validator_status,
+                base_reward,
+                finality_delay,
+                spec,
+            )?
+            .penalties
+            .wrapping_neg() as i64;
 
             let ideal_attestation_rewards = IdealAttestationRewards {
                 effective_balance,
@@ -363,6 +378,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 target,
                 source,
                 inclusion_delay: Some(inclusion_delay),
+                inactivity,
             };
 
             ideal_attestation_rewards_list.push(ideal_attestation_rewards);
