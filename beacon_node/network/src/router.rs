@@ -117,7 +117,6 @@ impl<T: BeaconChainTypes> Router<T> {
         crate::sync::manager::spawn(
             executor.clone(),
             beacon_chain.clone(),
-            network_globals.clone(),
             network_send.clone(),
             network_beacon_processor.clone(),
             sync_recv,

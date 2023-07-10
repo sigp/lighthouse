@@ -45,7 +45,7 @@ impl TestRig {
         let (network_tx, network_rx) = mpsc::unbounded_channel();
         let globals = Arc::new(NetworkGlobals::new_test_globals(Vec::new(), &log));
         let (network_beacon_processor, beacon_processor_rx) =
-            NetworkBeaconProcessor::null_for_testing(globals.clone());
+            NetworkBeaconProcessor::null_for_testing(globals);
         let rng = XorShiftRng::from_seed([42; 16]);
         let rig = TestRig {
             beacon_processor_rx,
@@ -56,7 +56,6 @@ impl TestRig {
         let cx = {
             SyncNetworkContext::new(
                 network_tx,
-                globals,
                 Arc::new(network_beacon_processor),
                 log.new(slog::o!("component" => "network_context")),
             )

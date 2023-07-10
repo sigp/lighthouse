@@ -20,9 +20,6 @@ pub struct SyncNetworkContext<T: BeaconChainTypes> {
     /// The network channel to relay messages to the Network service.
     network_send: mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
 
-    /// Access to the network global vars.
-    network_globals: Arc<NetworkGlobals<T::EthSpec>>,
-
     /// A sequential ID for all RPC requests.
     request_id: Id,
 
@@ -46,14 +43,12 @@ pub struct SyncNetworkContext<T: BeaconChainTypes> {
 impl<T: BeaconChainTypes> SyncNetworkContext<T> {
     pub fn new(
         network_send: mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
-        network_globals: Arc<NetworkGlobals<T::EthSpec>>,
         network_beacon_processor: Arc<NetworkBeaconProcessor<T>>,
         log: slog::Logger,
     ) -> Self {
         Self {
             network_send,
             execution_engine_state: EngineState::Online, // always assume `Online` at the start
-            network_globals,
             request_id: 1,
             range_requests: FnvHashMap::default(),
             backfill_requests: FnvHashMap::default(),
@@ -62,9 +57,13 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         }
     }
 
+    pub fn network_globals(&self) -> &NetworkGlobals<T::EthSpec> {
+        &self.network_beacon_processor.network_globals
+    }
+
     /// Returns the Client type of the peer if known
     pub fn client_type(&self, peer_id: &PeerId) -> Client {
-        self.network_globals
+        self.network_globals()
             .peers
             .read()
             .peer_info(peer_id)

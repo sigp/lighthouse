@@ -604,7 +604,6 @@ mod tests {
             NetworkBeaconProcessor::null_for_testing(globals.clone());
         let cx = SyncNetworkContext::new(
             network_tx,
-            globals.clone(),
             Arc::new(network_beacon_processor),
             log.new(o!("component" => "network_context")),
         );
