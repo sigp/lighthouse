@@ -22,6 +22,8 @@ use PeerConnectionStatus::*;
 pub struct PeerInfo<T: EthSpec> {
     /// The peers reputation
     score: Score,
+    /// Time at which peer was banned
+    banned_since: Option<u64>,
     /// Client managing this peer
     client: Client,
     /// Connection status of this peer
@@ -57,6 +59,7 @@ impl<TSpec: EthSpec> Default for PeerInfo<TSpec> {
     fn default() -> PeerInfo<TSpec> {
         PeerInfo {
             score: Score::default(),
+            banned_since: None,
             client: Client::default(),
             connection_status: Default::default(),
             listening_addresses: Vec::new(),
@@ -283,10 +286,14 @@ impl<T: EthSpec> PeerInfo<T> {
         self.is_connected() || self.is_dialing()
     }
 
+    pub fn banned_since(&self) -> Option<u64> {
+        self.banned_since
+    }
+
     /// Checks if the connection status is banned. This can lag behind the score state
     /// temporarily.
     pub fn is_banned(&self) -> bool {
-        matches!(self.connection_status, PeerConnectionStatus::Banned { .. })
+        self.score_is_banned()
     }
 
     /// Checks if the peer's score is banned.
