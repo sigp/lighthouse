@@ -1,6 +1,7 @@
-#[cfg(not(debug_assertions))]
+// #[cfg(not(debug_assertions))]
 #[cfg(test)]
 mod tests {
+    use std::ops::Add;
     use crate::persisted_dht::load_dht;
     use crate::{NetworkConfig, NetworkService};
     use beacon_chain::test_utils::BeaconChainHarness;
@@ -9,8 +10,9 @@ mod tests {
     use sloggers::{null::NullLoggerBuilder, Build};
     use std::str::FromStr;
     use std::sync::Arc;
+    use std::time::Duration;
     use tokio::runtime::Runtime;
-    use types::MinimalEthSpec;
+    use types::{Epoch, EthSpec, ForkName, MinimalEthSpec};
 
     fn get_logger(actual_log: bool) -> Logger {
         if actual_log {
@@ -87,5 +89,63 @@ mod tests {
             persisted_enrs.contains(&enrs[1]),
             "should have persisted the second ENR to store"
         );
+    }
+
+    // Test removing topic weight on old topics when a fork happens.
+    #[test]
+    fn test_removing_topic_weight_on_old_topics() {
+        println!("slots_per_epoch: {}", MinimalEthSpec::slots_per_epoch());
+
+        // Capella spec
+        let mut spec = MinimalEthSpec::default_spec();
+        spec.altair_fork_epoch = Some(Epoch::new(0));
+        spec.bellatrix_fork_epoch = Some(Epoch::new(0));
+        spec.capella_fork_epoch = Some(Epoch::new(1));
+
+        let log = get_logger(true);
+
+        let beacon_chain = BeaconChainHarness::builder(MinimalEthSpec)
+            .spec(spec)
+            .deterministic_keypairs(8)
+            .fresh_ephemeral_store()
+            .mock_execution_layer()
+            .build()
+            .chain;
+
+        let (fork_name, duration_to_next_fork) = beacon_chain.duration_to_next_fork().expect("next fork");
+        println!("fork_name: {fork_name}, dur:{duration_to_next_fork:?}");
+        assert_eq!(fork_name, ForkName::Capella);
+
+        let runtime = Arc::new(Runtime::new().unwrap());
+
+        let (signal, exit) = exit_future::signal();
+        let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
+        let executor = task_executor::TaskExecutor::new(
+            Arc::downgrade(&runtime),
+            exit,
+            log.clone(),
+            shutdown_tx,
+        );
+
+
+        runtime.block_on(async move {
+            let mut config = NetworkConfig::default();
+            config.set_ipv4_listening_address(std::net::Ipv4Addr::UNSPECIFIED, 21212, 21212);
+            config.discv5_config.table_filter = |_| true; // Do not ignore local IPs
+            config.upnp_enabled = false;
+
+            let _network_service =
+                NetworkService::start(beacon_chain, &config, executor, None)
+                    .await
+                    .unwrap();
+        });
+
+        runtime.block_on(async move {
+            tokio::time::sleep(duration_to_next_fork.add(Duration::from_secs(2))).await;
+        });
+
+        drop(signal);
+
+        // TODO: assertions
     }
 }
