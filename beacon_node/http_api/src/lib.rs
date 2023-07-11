@@ -59,7 +59,10 @@ use std::sync::Arc;
 use sysinfo::{System, SystemExt};
 use system_health::observe_system_health_bn;
 use task_spawner::{Priority, TaskSpawner};
-use tokio::sync::mpsc::{Sender, UnboundedSender};
+use tokio::sync::{
+    mpsc::{Sender, UnboundedSender},
+    oneshot,
+};
 use tokio_stream::{wrappers::BroadcastStream, StreamExt};
 use types::{
     Attestation, AttestationData, AttestationShufflingId, AttesterSlashing, BeaconStateError,
@@ -3336,124 +3339,162 @@ pub fn serve<T: BeaconChainTypes>(
             |task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
              log: Logger,
-             register_val_data: Vec<SignedValidatorRegistrationData>| {
-                task_spawner.spawn_async_with_rejection(Priority::P0, async move {
-                    let execution_layer = chain
-                        .execution_layer
-                        .as_ref()
-                        .ok_or(BeaconChainError::ExecutionLayerMissing)
-                        .map_err(warp_utils::reject::beacon_chain_error)?;
-                    let current_slot = chain
-                        .slot_clock
-                        .now_or_genesis()
-                        .ok_or(BeaconChainError::UnableToReadSlot)
-                        .map_err(warp_utils::reject::beacon_chain_error)?;
-                    let current_epoch = current_slot.epoch(T::EthSpec::slots_per_epoch());
+             register_val_data: Vec<SignedValidatorRegistrationData>| async {
+                let (tx, rx) = oneshot::channel();
 
-                    debug!(
-                        log,
-                        "Received register validator request";
-                        "count" => register_val_data.len(),
-                    );
+                task_spawner
+                    .spawn_async_with_rejection(Priority::P0, async move {
+                        let execution_layer = chain
+                            .execution_layer
+                            .as_ref()
+                            .ok_or(BeaconChainError::ExecutionLayerMissing)
+                            .map_err(warp_utils::reject::beacon_chain_error)?;
+                        let current_slot = chain
+                            .slot_clock
+                            .now_or_genesis()
+                            .ok_or(BeaconChainError::UnableToReadSlot)
+                            .map_err(warp_utils::reject::beacon_chain_error)?;
+                        let current_epoch = current_slot.epoch(T::EthSpec::slots_per_epoch());
 
-                    let head_snapshot = chain.head_snapshot();
-                    let spec = &chain.spec;
+                        debug!(
+                            log,
+                            "Received register validator request";
+                            "count" => register_val_data.len(),
+                        );
 
-                    let (preparation_data, filtered_registration_data): (
-                        Vec<ProposerPreparationData>,
-                        Vec<SignedValidatorRegistrationData>,
-                    ) = register_val_data
-                        .into_iter()
-                        .filter_map(|register_data| {
-                            chain
-                                .validator_index(&register_data.message.pubkey)
-                                .ok()
-                                .flatten()
-                                .and_then(|validator_index| {
-                                    let validator = head_snapshot
-                                        .beacon_state
-                                        .get_validator(validator_index)
-                                        .ok()?;
-                                    let validator_status = ValidatorStatus::from_validator(
-                                        validator,
-                                        current_epoch,
-                                        spec.far_future_epoch,
-                                    )
-                                    .superstatus();
-                                    let is_active_or_pending =
-                                        matches!(validator_status, ValidatorStatus::Pending)
-                                            || matches!(validator_status, ValidatorStatus::Active);
+                        let head_snapshot = chain.head_snapshot();
+                        let spec = &chain.spec;
 
-                                    // Filter out validators who are not 'active' or 'pending'.
-                                    is_active_or_pending.then_some({
-                                        (
-                                            ProposerPreparationData {
-                                                validator_index: validator_index as u64,
-                                                fee_recipient: register_data.message.fee_recipient,
-                                            },
-                                            register_data,
+                        let (preparation_data, filtered_registration_data): (
+                            Vec<ProposerPreparationData>,
+                            Vec<SignedValidatorRegistrationData>,
+                        ) = register_val_data
+                            .into_iter()
+                            .filter_map(|register_data| {
+                                chain
+                                    .validator_index(&register_data.message.pubkey)
+                                    .ok()
+                                    .flatten()
+                                    .and_then(|validator_index| {
+                                        let validator = head_snapshot
+                                            .beacon_state
+                                            .get_validator(validator_index)
+                                            .ok()?;
+                                        let validator_status = ValidatorStatus::from_validator(
+                                            validator,
+                                            current_epoch,
+                                            spec.far_future_epoch,
                                         )
+                                        .superstatus();
+                                        let is_active_or_pending =
+                                            matches!(validator_status, ValidatorStatus::Pending)
+                                                || matches!(
+                                                    validator_status,
+                                                    ValidatorStatus::Active
+                                                );
+
+                                        // Filter out validators who are not 'active' or 'pending'.
+                                        is_active_or_pending.then_some({
+                                            (
+                                                ProposerPreparationData {
+                                                    validator_index: validator_index as u64,
+                                                    fee_recipient: register_data
+                                                        .message
+                                                        .fee_recipient,
+                                                },
+                                                register_data,
+                                            )
+                                        })
                                     })
-                                })
-                        })
-                        .unzip();
+                            })
+                            .unzip();
 
-                    // Update the prepare beacon proposer cache based on this request.
-                    execution_layer
-                        .update_proposer_preparation(current_epoch, &preparation_data)
-                        .await;
+                        // Update the prepare beacon proposer cache based on this request.
+                        execution_layer
+                            .update_proposer_preparation(current_epoch, &preparation_data)
+                            .await;
 
-                    // Call prepare beacon proposer blocking with the latest update in order to make
-                    // sure we have a local payload to fall back to in the event of the blinded block
-                    // flow failing.
-                    chain
-                        .prepare_beacon_proposer(current_slot)
-                        .await
-                        .map_err(|e| {
-                            warp_utils::reject::custom_bad_request(format!(
-                                "error updating proposer preparations: {:?}",
-                                e
-                            ))
-                        })?;
+                        // Call prepare beacon proposer blocking with the latest update in order to make
+                        // sure we have a local payload to fall back to in the event of the blinded block
+                        // flow failing.
+                        chain
+                            .prepare_beacon_proposer(current_slot)
+                            .await
+                            .map_err(|e| {
+                                warp_utils::reject::custom_bad_request(format!(
+                                    "error updating proposer preparations: {:?}",
+                                    e
+                                ))
+                            })?;
 
-                    let builder = execution_layer
-                        .builder()
-                        .as_ref()
-                        .ok_or(BeaconChainError::BuilderMissing)
-                        .map_err(warp_utils::reject::beacon_chain_error)?;
+                        info!(
+                            log,
+                            "Forwarding register validator request to connected builder";
+                            "count" => filtered_registration_data.len(),
+                        );
 
-                    info!(
-                        log,
-                        "Forwarding register validator request to connected builder";
-                        "count" => filtered_registration_data.len(),
-                    );
+                        // It's a waste of a `BeaconProcessor` worker to just
+                        // wait on a response from the builder (especially since
+                        // they have frequent timeouts). Spawn a new task and
+                        // send the response back to our original HTTP request
+                        // task via a channel.
+                        let builder_future = async move {
+                            let builder = chain
+                                .execution_layer
+                                .as_ref()
+                                .ok_or(BeaconChainError::ExecutionLayerMissing)
+                                .map_err(warp_utils::reject::beacon_chain_error)?
+                                .builder()
+                                .as_ref()
+                                .ok_or(BeaconChainError::BuilderMissing)
+                                .map_err(warp_utils::reject::beacon_chain_error)?;
 
-                    builder
-                        .post_builder_validators(&filtered_registration_data)
-                        .await
-                        .map(|resp| warp::reply::json(&resp).into_response())
-                        .map_err(|e| {
-                            warn!(
-                                log,
-                                "Relay error when registering validator(s)";
-                                "num_registrations" => filtered_registration_data.len(),
-                                "error" => ?e
-                            );
-                            // Forward the HTTP status code if we are able to, otherwise fall back
-                            // to a server error.
-                            if let eth2::Error::ServerMessage(message) = e {
-                                if message.code == StatusCode::BAD_REQUEST.as_u16() {
-                                    return warp_utils::reject::custom_bad_request(message.message);
-                                } else {
-                                    // According to the spec this response should only be a 400 or 500,
-                                    // so we fall back to a 500 here.
-                                    return warp_utils::reject::custom_server_error(
-                                        message.message,
+                            builder
+                                .post_builder_validators(&filtered_registration_data)
+                                .await
+                                .map(|resp| warp::reply::json(&resp).into_response())
+                                .map_err(|e| {
+                                    warn!(
+                                        log,
+                                        "Relay error when registering validator(s)";
+                                        "num_registrations" => filtered_registration_data.len(),
+                                        "error" => ?e
                                     );
-                                }
-                            }
-                            warp_utils::reject::custom_server_error(format!("{e:?}"))
-                        })
+                                    // Forward the HTTP status code if we are able to, otherwise fall back
+                                    // to a server error.
+                                    if let eth2::Error::ServerMessage(message) = e {
+                                        if message.code == StatusCode::BAD_REQUEST.as_u16() {
+                                            return warp_utils::reject::custom_bad_request(
+                                                message.message,
+                                            );
+                                        } else {
+                                            // According to the spec this response should only be a 400 or 500,
+                                            // so we fall back to a 500 here.
+                                            return warp_utils::reject::custom_server_error(
+                                                message.message,
+                                            );
+                                        }
+                                    }
+                                    warp_utils::reject::custom_server_error(format!("{e:?}"))
+                                })
+                        };
+                        tokio::task::spawn(async move { tx.send(builder_future.await) });
+
+                        // Just send a generic 200 OK from this closure. We'll
+                        // ignore the `Ok` variant and form a proper response
+                        // from what is sent back down the channel.
+                        Ok(warp::reply::reply().into_response())
+                    })
+                    .await?;
+
+                // Await a response from the builder without blocking a
+                // `BeaconProcessor` worker.
+                rx.await.unwrap_or_else(|_| {
+                    Ok(warp::reply::with_status(
+                        warp::reply::json(&"No response from channel"),
+                        eth2::StatusCode::INTERNAL_SERVER_ERROR,
+                    )
+                    .into_response())
                 })
             },
         );
