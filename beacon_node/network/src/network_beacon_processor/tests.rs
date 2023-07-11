@@ -215,7 +215,7 @@ impl TestRig {
         };
         let network_beacon_processor = Arc::new(network_beacon_processor);
 
-        BeaconProcessor {
+        let beacon_processor = BeaconProcessor {
             network_globals,
             executor,
             max_workers: cmp::max(1, num_cpus::get()),
@@ -229,9 +229,11 @@ impl TestRig {
             work_reprocessing_rx,
             Some(work_journal_tx),
             harness.chain.slot_clock.clone(),
-            &chain.spec,
+            chain.spec.maximum_gossip_clock_disparity(),
         );
 
+        assert!(!beacon_processor.is_err());
+        
         Self {
             chain,
             next_block: Arc::new(next_block),

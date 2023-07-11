@@ -29,7 +29,7 @@ use task_executor::TaskExecutor;
 use tokio::sync::mpsc::{self, Receiver, Sender};
 use tokio::time::error::Error as TimeError;
 use tokio_util::time::delay_queue::{DelayQueue, Key as DelayKey};
-use types::{ChainSpec, EthSpec, Hash256, Slot};
+use types::{EthSpec, Hash256, Slot};
 
 const TASK_NAME: &str = "beacon_processor_reprocess_queue";
 const GOSSIP_BLOCKS: &str = "gossip_blocks";
@@ -361,10 +361,12 @@ pub fn spawn_reprocess_scheduler<S: SlotClock + 'static>(
     executor: &TaskExecutor,
     slot_clock: S,
     log: Logger,
-    spec: &ChainSpec,
-) {
+    maximum_gossip_clock_disparity: Duration,
+) -> Result<(), String> {
     // Sanity check
-    assert!(ADDITIONAL_QUEUED_BLOCK_DELAY < spec.maximum_gossip_clock_disparity());
+    if ADDITIONAL_QUEUED_BLOCK_DELAY > maximum_gossip_clock_disparity {
+        return Err("The block delay and gossip disparity don't match.".to_string());
+    }
     let mut queue = ReprocessQueue {
         work_reprocessing_rx,
         ready_work_tx,
@@ -403,6 +405,7 @@ pub fn spawn_reprocess_scheduler<S: SlotClock + 'static>(
         },
         TASK_NAME,
     );
+    Ok(())
 }
 
 impl<S: SlotClock> ReprocessQueue<S> {
