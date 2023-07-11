@@ -412,6 +412,7 @@ fn main() {
                         .long("file")
                         .value_name("FILE")
                         .takes_value(true)
+                        .required(true)
                         .help("Output file"),
                 ).arg(
                 Arg::with_name("fork")
