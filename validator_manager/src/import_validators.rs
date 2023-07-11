@@ -307,6 +307,8 @@ pub mod tests {
             let result = run(self.import_config.clone()).await;
 
             if result.is_ok() {
+                self.vc.ensure_key_cache_consistency().await;
+
                 let local_validators: Vec<ValidatorSpecification> = {
                     let contents =
                         fs::read_to_string(&self.import_config.validators_file_path).unwrap();

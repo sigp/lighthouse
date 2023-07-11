@@ -754,6 +754,9 @@ mod test {
                 let src_vc_final_keystores = src_vc_client.get_keystores().await.unwrap().data;
                 let dest_vc_final_keystores = dest_vc_client.get_keystores().await.unwrap().data;
 
+                src_vc.ensure_key_cache_consistency().await;
+                dest_vc.ensure_key_cache_consistency().await;
+
                 match validators {
                     Validators::All => {
                         assert!(

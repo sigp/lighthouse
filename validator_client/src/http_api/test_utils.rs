@@ -1,7 +1,8 @@
 use crate::doppelganger_service::DoppelgangerService;
+use crate::key_cache::{KeyCache, CACHE_FILENAME};
 use crate::{
     http_api::{ApiSecret, Config as HttpConfig, Context},
-    initialized_validators::InitializedValidators,
+    initialized_validators::{InitializedValidators, OnDecryptFailure},
     Config, ValidatorDefinitions, ValidatorStore,
 };
 use account_utils::{
@@ -59,7 +60,7 @@ pub struct ApiTester {
     pub api_token: String,
     pub test_runtime: TestRuntime,
     pub _server_shutdown: oneshot::Sender<()>,
-    pub _validator_dir: TempDir,
+    pub validator_dir: TempDir,
 }
 
 impl ApiTester {
@@ -166,8 +167,24 @@ impl ApiTester {
             api_token: api_pubkey,
             test_runtime,
             _server_shutdown: shutdown_tx,
-            _validator_dir: validator_dir,
+            validator_dir,
         }
+    }
+
+    /// Checks that the key cache exists and can be decrypted with the current
+    /// set of known validators.
+    pub async fn ensure_key_cache_consistency(&self) {
+        assert!(
+            self.validator_dir.as_ref().join(CACHE_FILENAME).exists(),
+            "the key cache should exist"
+        );
+        let key_cache =
+            KeyCache::open_or_create(self.validator_dir.as_ref()).expect("should open a key cache");
+        self.initialized_validators
+            .read()
+            .decrypt_key_cache(key_cache, &mut <_>::default(), OnDecryptFailure::Error)
+            .await
+            .expect("key cache should decypt");
     }
 
     pub fn invalid_token_client(&self) -> ValidatorClientHttpClient {

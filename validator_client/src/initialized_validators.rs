@@ -44,6 +44,14 @@ const DEFAULT_REMOTE_SIGNER_REQUEST_TIMEOUT: Duration = Duration::from_secs(12);
 // Use TTY instead of stdin to capture passwords from users.
 const USE_STDIN: bool = false;
 
+pub enum OnDecryptFailure {
+    /// If the key cache fails to decrypt, create a new cache.
+    CreateNew,
+    /// Return an error if the key cache fails to decrypt. This should only be
+    /// used in testing.
+    Error,
+}
+
 pub struct KeystoreAndPassword {
     pub keystore: Keystore,
     pub password: Option<ZeroizeString>,
@@ -106,6 +114,7 @@ pub enum Error {
     UnableToReadValidatorPassword(String),
     UnableToReadKeystoreFile(eth2_keystore::Error),
     UnableToSaveKeyCache(key_cache::Error),
+    UnableToDecryptKeyCache(key_cache::Error),
 }
 
 impl From<LockfileError> for Error {
@@ -606,7 +615,7 @@ impl InitializedValidators {
             let key_cache = KeyCache::open_or_create(&self.validators_dir)
                 .map_err(Error::UnableToOpenKeyCache)?;
             let mut decrypted_key_cache = self
-                .decrypt_key_cache(key_cache, &mut <_>::default())
+                .decrypt_key_cache(key_cache, &mut <_>::default(), OnDecryptFailure::CreateNew)
                 .await?;
             decrypted_key_cache.remove(&uuid);
             decrypted_key_cache
@@ -949,10 +958,11 @@ impl InitializedValidators {
     /// filesystem accesses for keystores that are already known. In the case that a keystore
     /// from the validator definitions is not yet in this map, it will be loaded from disk and
     /// inserted into the map.
-    async fn decrypt_key_cache(
+    pub async fn decrypt_key_cache(
         &self,
         mut cache: KeyCache,
         key_stores: &mut HashMap<PathBuf, Keystore>,
+        on_failure: OnDecryptFailure,
     ) -> Result<KeyCache, Error> {
         // Read relevant key stores from the filesystem.
         let mut definitions_map = HashMap::new();
@@ -1020,11 +1030,13 @@ impl InitializedValidators {
 
         //decrypt
         tokio::task::spawn_blocking(move || match cache.decrypt(passwords, public_keys) {
-            Ok(_) | Err(key_cache::Error::AlreadyDecrypted) => cache,
-            _ => KeyCache::new(),
+            Ok(_) | Err(key_cache::Error::AlreadyDecrypted) => Ok(cache),
+            _ if matches!(on_failure, OnDecryptFailure::CreateNew) => Ok(KeyCache::new()),
+            Err(e) => Err(e),
         })
         .await
-        .map_err(Error::TokioJoin)
+        .map_err(Error::TokioJoin)?
+        .map_err(Error::UnableToDecryptKeyCache)
     }
 
     /// Scans `self.definitions` and attempts to initialize and validators which are not already
@@ -1062,7 +1074,8 @@ impl InitializedValidators {
         // Only decrypt cache when there is at least one local definition.
         // Decrypting cache is a very expensive operation which is never used for web3signer.
         let mut key_cache = if has_local_definitions {
-            self.decrypt_key_cache(cache, &mut key_stores).await?
+            self.decrypt_key_cache(cache, &mut key_stores, OnDecryptFailure::CreateNew)
+                .await?
         } else {
             // Assign an empty KeyCache if all definitions are of the Web3Signer type.
             KeyCache::new()
