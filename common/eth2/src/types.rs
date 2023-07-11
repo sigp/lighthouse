@@ -9,6 +9,7 @@ use ssz_derive::Encode;
 use std::convert::TryFrom;
 use std::fmt::{self, Display};
 use std::str::{from_utf8, FromStr};
+use std::sync::Arc;
 use std::time::Duration;
 pub use types::*;
 
@@ -1409,6 +1410,8 @@ pub type BlockContentsTuple<T, Payload> = (
     Option<SignedBlobSidecarList<T>>,
 );
 
+pub type ArcBlockContentsTuple<T> = (Arc<SignedBeaconBlock<T>>, Option<SignedBlobSidecarList<T>>);
+
 /// A wrapper over a [`SignedBeaconBlock`] or a [`SignedBeaconBlockAndBlobSidecars`].
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(untagged)]
@@ -1419,6 +1422,20 @@ pub enum SignedBlockContents<T: EthSpec, Payload: AbstractExecPayload<T> = FullP
 }
 
 impl<T: EthSpec, Payload: AbstractExecPayload<T>> SignedBlockContents<T, Payload> {
+    pub fn new(
+        block: SignedBeaconBlock<T, Payload>,
+        blobs: Option<SignedBlobSidecarList<T>>,
+    ) -> Self {
+        if let Some(blobs) = blobs {
+            Self::BlockAndBlobSidecars(SignedBeaconBlockAndBlobSidecars {
+                signed_block: block,
+                signed_blob_sidecars: blobs,
+            })
+        } else {
+            Self::Block(block)
+        }
+    }
+
     pub fn signed_block(&self) -> &SignedBeaconBlock<T, Payload> {
         match self {
             SignedBlockContents::BlockAndBlobSidecars(block_and_sidecars) => {

@@ -3,8 +3,8 @@ use crate::metrics;
 use beacon_chain::blob_verification::BlockWrapper;
 use beacon_chain::validator_monitor::{get_block_delay_ms, timestamp_now};
 use beacon_chain::{
-    AvailabilityProcessingStatus, BeaconChain, BeaconChainError, BeaconChainTypes, BlockError,IntoGossipVerifiedBlock,
-    GossipVerifiedBlock, NotifyExecutionLayer,
+    AvailabilityProcessingStatus, BeaconChain, BeaconChainError, BeaconChainTypes, BlockError,
+    GossipVerifiedBlock, IntoGossipVerifiedBlock, NotifyExecutionLayer,
 };
 use eth2::types::BroadcastValidation;
 use eth2::types::SignedBlockContents;
@@ -53,16 +53,11 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
 ) -> Result<(), Rejection> {
     let seen_timestamp = timestamp_now();
 
-    let (block, blobs_opt, is_locally_built_block) = match provenanced_block {
-        ProvenancedBlock::Local(block_contents, _) => {
-            let (block, maybe_blobs, ) = block_contents.deconstruct();
-            (Arc::new(block), maybe_blobs, true)
-        }
-        ProvenancedBlock::Builder(block_contents, _) => {
-            let (block, maybe_blobs) = block_contents.deconstruct();
-            (Arc::new(block), maybe_blobs, false)
-        }
+    let (block_contents, is_locally_built_block) = match provenanced_block {
+        ProvenancedBlock::Local(block_contents, _) => (block_contents, true),
+        ProvenancedBlock::Builder(block_contents, _) => (block_contents, false),
     };
+    let block = block_contents.inner();
     let delay = get_block_delay_ms(seen_timestamp, block.message(), &chain.slot_clock);
     debug!(log, "Signed block received in HTTP API"; "slot" => block.slot());
 
@@ -107,6 +102,15 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
         Ok(())
     };
 
+    /* only publish if gossip- and consensus-valid and equivocation-free */
+    let chain_clone = chain.clone();
+    let slot = block.message().slot();
+    let proposer_index = block.message().proposer_index();
+    let sender_clone = network_tx.clone();
+    let log_clone = log.clone();
+
+    let (block, blobs_opt) = block_contents.parts();
+
     let mapped_blobs = blobs_opt.clone().map(|blobs| {
         VariableList::from(
             blobs
@@ -116,17 +120,9 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
         )
     });
 
-    /* only publish if gossip- and consensus-valid and equivocation-free */
-    let chain_clone = chain.clone();
-    let slot = block.message().slot();
-    let block_clone = block.clone();
-    let proposer_index = block.message().proposer_index();
-    let sender_clone = network_tx.clone();
-    let log_clone = log.clone();
-
     /* if we can form a `GossipVerifiedBlock`, we've passed our basic gossip checks */
-    let gossip_verified_block =
-        BlockWrapper::new(block.clone(), mapped_blobs).into_gossip_verified_block(
+    let gossip_verified_block = GossipVerifiedBlock::new(
+        BlockWrapper::new(block.clone(), mapped_blobs),
         &chain,
     )
     .map_err(|e| {
@@ -146,6 +142,8 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
         )
         .map_err(|_| warp_utils::reject::custom_server_error("unable to publish".into()))?;
     }
+
+    let block_clone = block.clone();
 
     let publish_fn = move || match validation_level {
         BroadcastValidation::Gossip => Ok(()),
@@ -271,7 +269,8 @@ pub async fn publish_blinded_block<T: BeaconChainTypes>(
     validation_level: BroadcastValidation,
 ) -> Result<(), Rejection> {
     let block_root = block.signed_block().canonical_root();
-    let full_block: ProvenancedBlock<T, SignedBlockContents<T::EthSpec>> = reconstruct_block(chain.clone(), block_root, block, log.clone()).await?;
+    let full_block: ProvenancedBlock<T, SignedBlockContents<T::EthSpec>> =
+        reconstruct_block(chain.clone(), block_root, block, log.clone()).await?;
     publish_block::<T, _>(
         Some(block_root),
         full_block,
@@ -291,7 +290,7 @@ pub async fn reconstruct_block<T: BeaconChainTypes>(
     block_root: Hash256,
     block: SignedBlockContents<T::EthSpec, BlindedPayload<T::EthSpec>>,
     log: Logger,
-) -> Result<ProvenancedBlock<T::EthSpec, SignedBlockContents<T::EthSpec>>, Rejection> {
+) -> Result<ProvenancedBlock<T, SignedBlockContents<T::EthSpec>>, Rejection> {
     let full_payload_opt = if let Ok(payload_header) =
         block.signed_block().message().body().execution_payload()
     {

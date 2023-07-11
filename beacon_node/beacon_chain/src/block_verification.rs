@@ -69,7 +69,7 @@ use crate::{
     metrics, BeaconChain, BeaconChainError, BeaconChainTypes,
 };
 use derivative::Derivative;
-use eth2::types::EventKind;
+use eth2::types::{ArcBlockContentsTuple, EventKind, SignedBlockContents};
 use execution_layer::PayloadStatus;
 pub use fork_choice::{AttestationFromBlock, PayloadVerificationStatus};
 use parking_lot::RwLockReadGuard;
@@ -92,7 +92,7 @@ use std::fs;
 use std::io::Write;
 use std::sync::Arc;
 use std::time::Duration;
-use store::{Error as DBError, HotStateSummary, KeyValueStore, StoreOp};
+use store::{Error as DBError, HotStateSummary, KeyValueStore, SignedBlobSidecarList, StoreOp};
 use task_executor::JoinHandle;
 use tree_hash::TreeHash;
 use types::blob_sidecar::BlobIdentifier;
@@ -627,6 +627,13 @@ pub struct GossipVerifiedBlock<T: BeaconChainTypes> {
     consensus_context: ConsensusContext<T::EthSpec>,
 }
 
+impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
+    /// Useful for publishing after gossip verification.
+    pub fn into_block_wrapper(self) -> BlockWrapper<T::EthSpec> {
+        self.block.into_block_wrapper()
+    }
+}
+
 /// A wrapper around a `SignedBeaconBlock` that indicates that all signatures (except the deposit
 /// signatures) have been verified.
 pub struct SignatureVerifiedBlock<T: BeaconChainTypes> {
@@ -801,32 +808,45 @@ pub trait IntoGossipVerifiedBlock<T: BeaconChainTypes>: Sized {
         self,
         chain: &BeaconChain<T>,
     ) -> Result<GossipVerifiedBlock<T>, BlockError<T::EthSpec>>;
-    fn inner(&self) -> Arc<SignedBeaconBlock<T::EthSpec>>;
+    fn inner(&self) -> &SignedBeaconBlock<T::EthSpec>;
+    fn parts(self) -> ArcBlockContentsTuple<T::EthSpec>;
 }
 
-impl<T: BeaconChainTypes> IntoGossipVerifiedBlock<T> for GossipVerifiedBlock<T> {
+impl<T: BeaconChainTypes> IntoGossipVerifiedBlock<T>
+    for (
+        GossipVerifiedBlock<T>,
+        Option<SignedBlobSidecarList<T::EthSpec>>,
+    )
+{
     fn into_gossip_verified_block(
         self,
         _chain: &BeaconChain<T>,
     ) -> Result<GossipVerifiedBlock<T>, BlockError<T::EthSpec>> {
-        Ok(self)
+        Ok(self.0)
     }
-
-    fn inner(&self) -> Arc<SignedBeaconBlock<T::EthSpec>> {
-        self.block.clone()
+    fn inner(&self) -> &SignedBeaconBlock<T::EthSpec> {
+        self.0.block.as_block()
+    }
+    fn parts(self) -> ArcBlockContentsTuple<T::EthSpec> {
+        (self.0.block.block_cloned(), self.1)
     }
 }
 
-impl<T: BeaconChainTypes> IntoGossipVerifiedBlock<T> for Arc<SignedBeaconBlock<T::EthSpec>> {
+impl<T: BeaconChainTypes> IntoGossipVerifiedBlock<T> for SignedBlockContents<T::EthSpec> {
     fn into_gossip_verified_block(
         self,
         chain: &BeaconChain<T>,
     ) -> Result<GossipVerifiedBlock<T>, BlockError<T::EthSpec>> {
-        GossipVerifiedBlock::new(self, chain)
+        GossipVerifiedBlock::new(self.deconstruct().into(), chain)
     }
 
-    fn inner(&self) -> Arc<SignedBeaconBlock<T::EthSpec>> {
-        self.clone()
+    fn inner(&self) -> &SignedBeaconBlock<T::EthSpec> {
+        self.signed_block()
+    }
+
+    fn parts(self) -> ArcBlockContentsTuple<T::EthSpec> {
+        let (block, blobs) = self.deconstruct();
+        (Arc::new(block), blobs)
     }
 }
 

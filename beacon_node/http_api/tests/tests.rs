@@ -4157,7 +4157,7 @@ impl ApiTester {
             .unwrap();
 
         let expected_reorg = EventKind::ChainReorg(SseChainReorg {
-            slot: self.reorg_block.slot(),
+            slot: self.reorg_block.signed_block().slot(),
             depth: 1,
             old_head_block: self.next_block.signed_block().canonical_root(),
             old_head_state: self.next_block.signed_block().state_root(),

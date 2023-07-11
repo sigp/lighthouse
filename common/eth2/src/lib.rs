@@ -713,14 +713,14 @@ impl BeaconNodeHttpClient {
     /// `POST v2/beacon/blocks`
     pub async fn post_beacon_blocks_v2<T: EthSpec, Payload: AbstractExecPayload<T>>(
         &self,
-        block: &SignedBeaconBlock<T, Payload>,
+        block_contents: &SignedBlockContents<T, Payload>,
         validation_level: Option<BroadcastValidation>,
     ) -> Result<(), Error> {
         self.post_generic_with_consensus_version(
             self.post_beacon_blocks_v2_path(validation_level)?,
-            block,
+            block_contents,
             Some(self.timeouts.proposal),
-            block.message().body().fork_name(),
+            block_contents.signed_block().message().body().fork_name(),
         )
         .await?;
 
@@ -728,6 +728,7 @@ impl BeaconNodeHttpClient {
     }
 
     /// `POST v2/beacon/blinded_blocks`
+    //TODO(sean) update this along with builder updates
     pub async fn post_beacon_blinded_blocks_v2<T: EthSpec>(
         &self,
         block: &SignedBlindedBeaconBlock<T>,

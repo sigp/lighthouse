@@ -531,6 +531,17 @@ pub enum VerifiedBlobs<E: EthSpec> {
     PreDeneb,
 }
 
+impl<E: EthSpec> VerifiedBlobs<E> {
+    pub fn to_blobs(self) -> Option<BlobSidecarList<E>> {
+        match self {
+            Self::Available(blobs) => Some(blobs),
+            Self::NotRequired => None,
+            Self::EmptyBlobs => None,
+            Self::PreDeneb => None,
+        }
+    }
+}
+
 /// A fully available block that is ready to be imported into fork choice.
 #[derive(Clone, Debug, PartialEq)]
 pub struct AvailableBlock<E: EthSpec> {

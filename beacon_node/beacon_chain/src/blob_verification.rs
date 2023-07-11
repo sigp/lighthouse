@@ -511,7 +511,6 @@ pub fn verify_kzg_for_blob_list<T: EthSpec>(
     let (blobs, (commitments, proofs)): (Vec<_>, (Vec<_>, Vec<_>)) = blob_list
         .clone()
         .into_iter()
-        //TODO(sean) remove clone
         .map(|blob| (blob.blob.clone(), (blob.kzg_commitment, blob.kzg_proof)))
         .unzip();
     if validate_blobs::<T>(

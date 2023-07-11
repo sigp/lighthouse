@@ -906,7 +906,7 @@ where
         &self,
         mut state: BeaconState<E>,
         slot: Slot,
-    ) -> (SignedBeaconBlock<E>, BeaconState<E>) {
+    ) -> (BlockContentsTuple<E, FullPayload<E>>, BeaconState<E>) {
         assert_ne!(slot, 0, "can't produce a block at slot 0");
         assert!(slot >= state.slot());
 
@@ -946,7 +946,44 @@ where
             &self.spec,
         );
 
-        (signed_block, pre_state)
+        let block_contents: BlockContentsTuple<E, FullPayload<E>> = match &signed_block {
+            SignedBeaconBlock::Base(_)
+            | SignedBeaconBlock::Altair(_)
+            | SignedBeaconBlock::Merge(_)
+            | SignedBeaconBlock::Capella(_) => (signed_block, None),
+            SignedBeaconBlock::Deneb(_) => {
+                if let Some(blobs) = self
+                    .chain
+                    .proposal_blob_cache
+                    .pop(&signed_block.canonical_root())
+                {
+                    let signed_blobs: SignedBlobSidecarList<E> = Vec::from(blobs)
+                        .into_iter()
+                        .map(|blob| {
+                            blob.sign(
+                                &self.validator_keypairs[proposer_index].sk,
+                                &state.fork(),
+                                state.genesis_validators_root(),
+                                &self.spec,
+                            )
+                        })
+                        .collect::<Vec<_>>()
+                        .into();
+                    let mut guard = self.blob_signature_cache.write();
+                    for blob in &signed_blobs {
+                        guard.insert(
+                            BlobSignatureKey::new(blob.message.block_root, blob.message.index),
+                            blob.signature.clone(),
+                        );
+                    }
+                    (signed_block, Some(signed_blobs))
+                } else {
+                    (signed_block, None)
+                }
+            }
+        };
+
+        (block_contents, pre_state)
     }
 
     /// Create a randao reveal for a block at `slot`.
@@ -1737,11 +1774,12 @@ where
         state: BeaconState<E>,
         slot: Slot,
         block_modifier: impl FnOnce(&mut BeaconBlock<E>),
-    ) -> (SignedBeaconBlock<E>, BeaconState<E>) {
+    ) -> (BlockContentsTuple<E, FullPayload<E>>, BeaconState<E>) {
         assert_ne!(slot, 0, "can't produce a block at slot 0");
         assert!(slot >= state.slot());
 
-        let (block, state) = self.make_block_return_pre_state(state, slot).await;
+        let ((block, blobs), state) = self.make_block_return_pre_state(state, slot).await;
+
         let (mut block, _) = block.deconstruct();
 
         block_modifier(&mut block);
@@ -1754,7 +1792,7 @@ where
             state.genesis_validators_root(),
             &self.spec,
         );
-        (signed_block, state)
+        ((signed_block, blobs), state)
     }
 
     pub fn make_deposits<'a>(

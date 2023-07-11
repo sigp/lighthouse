@@ -71,7 +71,7 @@ pub use beacon_fork_choice_store::{BeaconForkChoiceStore, Error as ForkChoiceSto
 pub use block_verification::{
     get_block_root, AvailabilityPendingExecutedBlock, BlockError, ExecutedBlock,
     ExecutionPayloadError, ExecutionPendingBlock, GossipVerifiedBlock, IntoExecutionPendingBlock,
-    PayloadVerificationOutcome, PayloadVerificationStatus,IntoGossipVerifiedBlock,
+    IntoGossipVerifiedBlock, PayloadVerificationOutcome, PayloadVerificationStatus,
 };
 pub use canonical_head::{CachedHead, CanonicalHead, CanonicalHeadRwLock};
 pub use eth1_chain::{Eth1Chain, Eth1ChainBackend};

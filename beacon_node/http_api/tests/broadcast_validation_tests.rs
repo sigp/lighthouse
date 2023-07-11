@@ -2,7 +2,9 @@ use beacon_chain::{
     test_utils::{AttestationStrategy, BlockStrategy},
     GossipVerifiedBlock,
 };
-use eth2::types::{BroadcastValidation, SignedBeaconBlock, SignedBlindedBeaconBlock};
+use eth2::types::{
+    BroadcastValidation, SignedBeaconBlock, SignedBlindedBeaconBlock, SignedBlockContents,
+};
 use http_api::test_utils::InteractiveTester;
 use http_api::{publish_blinded_block, publish_block, reconstruct_block, ProvenancedBlock};
 use tree_hash::TreeHash;
@@ -63,7 +65,7 @@ pub async fn gossip_invalid() {
 
     tester.harness.advance_slot();
 
-    let (block, _): (SignedBeaconBlock<E>, _) = tester
+    let ((block, blobs), _): ((SignedBeaconBlock<E>, _), _) = tester
         .harness
         .make_block_with_modifier(chain_state_before, slot, |b| {
             *b.state_root_mut() = Hash256::zero();
@@ -73,7 +75,7 @@ pub async fn gossip_invalid() {
 
     let response: Result<(), eth2::Error> = tester
         .client
-        .post_beacon_blocks_v2(&block, validation_level)
+        .post_beacon_blocks_v2(&SignedBlockContents::new(block, blobs), validation_level)
         .await;
     assert!(response.is_err());
 
@@ -115,7 +117,7 @@ pub async fn gossip_partial_pass() {
 
     tester.harness.advance_slot();
 
-    let (block, _): (SignedBeaconBlock<E>, _) = tester
+    let ((block, blobs), _): ((SignedBeaconBlock<E>, _), _) = tester
         .harness
         .make_block_with_modifier(chain_state_before, slot, |b| {
             *b.state_root_mut() = Hash256::random()
@@ -124,7 +126,7 @@ pub async fn gossip_partial_pass() {
 
     let response: Result<(), eth2::Error> = tester
         .client
-        .post_beacon_blocks_v2(&block, validation_level)
+        .post_beacon_blocks_v2(&SignedBlockContents::new(block, blobs), validation_level)
         .await;
     assert!(response.is_err());
 
@@ -161,11 +163,15 @@ pub async fn gossip_full_pass() {
     let slot_b = slot_a + 1;
 
     let state_a = tester.harness.get_current_state();
-    let (block, _): (SignedBeaconBlock<E>, _) = tester.harness.make_block(state_a, slot_b).await;
+    let ((block, blobs), _): ((SignedBeaconBlock<E>, _), _) =
+        tester.harness.make_block(state_a, slot_b).await;
 
     let response: Result<(), eth2::Error> = tester
         .client
-        .post_beacon_blocks_v2(&block, validation_level)
+        .post_beacon_blocks_v2(
+            &SignedBlockContents::new(block.clone(), blobs),
+            validation_level,
+        )
         .await;
 
     assert!(response.is_ok());
@@ -202,7 +208,7 @@ pub async fn consensus_invalid() {
 
     tester.harness.advance_slot();
 
-    let (block, _): (SignedBeaconBlock<E>, _) = tester
+    let ((block, blobs), _): ((SignedBeaconBlock<E>, _), _) = tester
         .harness
         .make_block_with_modifier(chain_state_before, slot, |b| {
             *b.state_root_mut() = Hash256::zero();
@@ -212,7 +218,7 @@ pub async fn consensus_invalid() {
 
     let response: Result<(), eth2::Error> = tester
         .client
-        .post_beacon_blocks_v2(&block, validation_level)
+        .post_beacon_blocks_v2(&SignedBlockContents::new(block, blobs), validation_level)
         .await;
     assert!(response.is_err());
 
@@ -254,14 +260,14 @@ pub async fn consensus_gossip() {
     let slot_b = slot_a + 1;
 
     let state_a = tester.harness.get_current_state();
-    let (block, _): (SignedBeaconBlock<E>, _) = tester
+    let ((block, blobs), _): ((SignedBeaconBlock<E>, _), _) = tester
         .harness
         .make_block_with_modifier(state_a, slot_b, |b| *b.state_root_mut() = Hash256::zero())
         .await;
 
     let response: Result<(), eth2::Error> = tester
         .client
-        .post_beacon_blocks_v2(&block, validation_level)
+        .post_beacon_blocks_v2(&SignedBlockContents::new(block, blobs), validation_level)
         .await;
     assert!(response.is_err());
 
@@ -304,9 +310,9 @@ pub async fn consensus_partial_pass_only_consensus() {
     let slot_b = slot_a + 1;
 
     let state_a = tester.harness.get_current_state();
-    let (block_a, state_after_a): (SignedBeaconBlock<E>, _) =
+    let ((block_a, _), state_after_a): ((SignedBeaconBlock<E>, _), _) =
         tester.harness.make_block(state_a.clone(), slot_b).await;
-    let (block_b, state_after_b): (SignedBeaconBlock<E>, _) =
+    let ((block_b, blobs_b), state_after_b): ((SignedBeaconBlock<E>, _), _) =
         tester.harness.make_block(state_a, slot_b).await;
 
     /* check for `make_block` curios */
@@ -324,7 +330,7 @@ pub async fn consensus_partial_pass_only_consensus() {
 
     let publication_result: Result<(), Rejection> = publish_block(
         None,
-        ProvenancedBlock::local(gossip_block_b.unwrap()),
+        ProvenancedBlock::local((gossip_block_b.unwrap(), blobs_b)),
         tester.harness.chain.clone(),
         &channel.0,
         test_logger,
@@ -367,11 +373,15 @@ pub async fn consensus_full_pass() {
     let slot_b = slot_a + 1;
 
     let state_a = tester.harness.get_current_state();
-    let (block, _): (SignedBeaconBlock<E>, _) = tester.harness.make_block(state_a, slot_b).await;
+    let ((block, blobs), _): ((SignedBeaconBlock<E>, _), _) =
+        tester.harness.make_block(state_a, slot_b).await;
 
     let response: Result<(), eth2::Error> = tester
         .client
-        .post_beacon_blocks_v2(&block, validation_level)
+        .post_beacon_blocks_v2(
+            &SignedBlockContents::new(block.clone(), blobs),
+            validation_level,
+        )
         .await;
 
     assert!(response.is_ok());
@@ -410,7 +420,7 @@ pub async fn equivocation_invalid() {
 
     tester.harness.advance_slot();
 
-    let (block, _): (SignedBeaconBlock<E>, _) = tester
+    let ((block, blobs), _): ((SignedBeaconBlock<E>, _), _) = tester
         .harness
         .make_block_with_modifier(chain_state_before, slot, |b| {
             *b.state_root_mut() = Hash256::zero();
@@ -420,7 +430,7 @@ pub async fn equivocation_invalid() {
 
     let response: Result<(), eth2::Error> = tester
         .client
-        .post_beacon_blocks_v2(&block, validation_level)
+        .post_beacon_blocks_v2(&SignedBlockContents::new(block, blobs), validation_level)
         .await;
     assert!(response.is_err());
 
@@ -463,9 +473,9 @@ pub async fn equivocation_consensus_early_equivocation() {
     let slot_b = slot_a + 1;
 
     let state_a = tester.harness.get_current_state();
-    let (block_a, state_after_a): (SignedBeaconBlock<E>, _) =
+    let ((block_a, blobs_a), state_after_a): ((SignedBeaconBlock<E>, _), _) =
         tester.harness.make_block(state_a.clone(), slot_b).await;
-    let (block_b, state_after_b): (SignedBeaconBlock<E>, _) =
+    let ((block_b, blobs_b), state_after_b): ((SignedBeaconBlock<E>, _), _) =
         tester.harness.make_block(state_a, slot_b).await;
 
     /* check for `make_block` curios */
@@ -476,7 +486,10 @@ pub async fn equivocation_consensus_early_equivocation() {
     /* submit `block_a` as valid */
     assert!(tester
         .client
-        .post_beacon_blocks_v2(&block_a, validation_level)
+        .post_beacon_blocks_v2(
+            &SignedBlockContents::new(block_a.clone(), blobs_a),
+            validation_level
+        )
         .await
         .is_ok());
     assert!(tester
@@ -487,7 +500,10 @@ pub async fn equivocation_consensus_early_equivocation() {
     /* submit `block_b` which should induce equivocation */
     let response: Result<(), eth2::Error> = tester
         .client
-        .post_beacon_blocks_v2(&block_b, validation_level)
+        .post_beacon_blocks_v2(
+            &SignedBlockContents::new(block_b.clone(), blobs_b),
+            validation_level,
+        )
         .await;
     assert!(response.is_err());
 
@@ -529,14 +545,14 @@ pub async fn equivocation_gossip() {
     let slot_b = slot_a + 1;
 
     let state_a = tester.harness.get_current_state();
-    let (block, _): (SignedBeaconBlock<E>, _) = tester
+    let ((block, blobs), _): ((SignedBeaconBlock<E>, _), _) = tester
         .harness
         .make_block_with_modifier(state_a, slot_b, |b| *b.state_root_mut() = Hash256::zero())
         .await;
 
     let response: Result<(), eth2::Error> = tester
         .client
-        .post_beacon_blocks_v2(&block, validation_level)
+        .post_beacon_blocks_v2(&SignedBlockContents::new(block, blobs), validation_level)
         .await;
     assert!(response.is_err());
 
@@ -582,9 +598,9 @@ pub async fn equivocation_consensus_late_equivocation() {
     let slot_b = slot_a + 1;
 
     let state_a = tester.harness.get_current_state();
-    let (block_a, state_after_a): (SignedBeaconBlock<E>, _) =
+    let ((block_a, _), state_after_a): ((SignedBeaconBlock<E>, _), _) =
         tester.harness.make_block(state_a.clone(), slot_b).await;
-    let (block_b, state_after_b): (SignedBeaconBlock<E>, _) =
+    let ((block_b, blobs_b), state_after_b): ((SignedBeaconBlock<E>, _), _) =
         tester.harness.make_block(state_a, slot_b).await;
 
     /* check for `make_block` curios */
@@ -601,7 +617,7 @@ pub async fn equivocation_consensus_late_equivocation() {
 
     let publication_result: Result<(), Rejection> = publish_block(
         None,
-        ProvenancedBlock::local(gossip_block_b.unwrap()),
+        ProvenancedBlock::local((gossip_block_b.unwrap(), blobs_b)),
         tester.harness.chain,
         &channel.0,
         test_logger,
@@ -650,11 +666,15 @@ pub async fn equivocation_full_pass() {
     let slot_b = slot_a + 1;
 
     let state_a = tester.harness.get_current_state();
-    let (block, _): (SignedBeaconBlock<E>, _) = tester.harness.make_block(state_a, slot_b).await;
+    let ((block, blobs), _): ((SignedBeaconBlock<E>, _), _) =
+        tester.harness.make_block(state_a, slot_b).await;
 
     let response: Result<(), eth2::Error> = tester
         .client
-        .post_beacon_blocks_v2(&block, validation_level)
+        .post_beacon_blocks_v2(
+            &SignedBlockContents::new(block.clone(), blobs),
+            validation_level,
+        )
         .await;
 
     assert!(response.is_ok());
@@ -692,7 +712,7 @@ pub async fn blinded_gossip_invalid() {
 
     tester.harness.advance_slot();
 
-    let (block, _): (SignedBeaconBlock<E>, _) = tester
+    let ((block, _), _): ((SignedBeaconBlock<E>, _), _) = tester
         .harness
         .make_block_with_modifier(chain_state_before, slot, |b| {
             *b.state_root_mut() = Hash256::zero();
@@ -746,7 +766,7 @@ pub async fn blinded_gossip_partial_pass() {
 
     tester.harness.advance_slot();
 
-    let (block, _): (SignedBeaconBlock<E>, _) = tester
+    let ((block, _), _): ((SignedBeaconBlock<E>, _), _) = tester
         .harness
         .make_block_with_modifier(chain_state_before, slot, |b| {
             *b.state_root_mut() = Hash256::zero()
@@ -794,7 +814,7 @@ pub async fn blinded_gossip_full_pass() {
     let slot_b = slot_a + 1;
 
     let state_a = tester.harness.get_current_state();
-    let (block, _): (SignedBlindedBeaconBlock<E>, _) =
+    let ((block, _), _): ((SignedBlindedBeaconBlock<E>, _), _) =
         tester.harness.make_blinded_block(state_a, slot_b).await;
 
     let response: Result<(), eth2::Error> = tester
@@ -837,7 +857,7 @@ pub async fn blinded_consensus_invalid() {
 
     tester.harness.advance_slot();
 
-    let (block, _): (SignedBeaconBlock<E>, _) = tester
+    let ((block, _), _): ((SignedBeaconBlock<E>, _), _) = tester
         .harness
         .make_block_with_modifier(chain_state_before, slot, |b| {
             *b.state_root_mut() = Hash256::zero();
@@ -891,7 +911,7 @@ pub async fn blinded_consensus_gossip() {
     let slot_b = slot_a + 1;
 
     let state_a = tester.harness.get_current_state();
-    let (block, _): (SignedBeaconBlock<E>, _) = tester
+    let ((block, _), _): ((SignedBeaconBlock<E>, _), _) = tester
         .harness
         .make_block_with_modifier(state_a, slot_b, |b| *b.state_root_mut() = Hash256::zero())
         .await;
@@ -942,7 +962,7 @@ pub async fn blinded_consensus_full_pass() {
     let slot_b = slot_a + 1;
 
     let state_a = tester.harness.get_current_state();
-    let (block, _): (SignedBlindedBeaconBlock<E>, _) =
+    let ((block, _), _): ((SignedBlindedBeaconBlock<E>, _), _) =
         tester.harness.make_blinded_block(state_a, slot_b).await;
 
     let response: Result<(), eth2::Error> = tester
@@ -986,7 +1006,7 @@ pub async fn blinded_equivocation_invalid() {
 
     tester.harness.advance_slot();
 
-    let (block, _): (SignedBeaconBlock<E>, _) = tester
+    let ((block, _), _): ((SignedBeaconBlock<E>, _), _) = tester
         .harness
         .make_block_with_modifier(chain_state_before, slot, |b| {
             *b.state_root_mut() = Hash256::zero();
@@ -1041,11 +1061,11 @@ pub async fn blinded_equivocation_consensus_early_equivocation() {
     let slot_b = slot_a + 1;
 
     let state_a = tester.harness.get_current_state();
-    let (block_a, state_after_a): (SignedBlindedBeaconBlock<E>, _) = tester
+    let ((block_a, _), state_after_a): ((SignedBlindedBeaconBlock<E>, _), _) = tester
         .harness
         .make_blinded_block(state_a.clone(), slot_b)
         .await;
-    let (block_b, state_after_b): (SignedBlindedBeaconBlock<E>, _) =
+    let ((block_b, _), state_after_b): ((SignedBlindedBeaconBlock<E>, _), _) =
         tester.harness.make_blinded_block(state_a, slot_b).await;
 
     /* check for `make_blinded_block` curios */
@@ -1109,7 +1129,7 @@ pub async fn blinded_equivocation_gossip() {
     let slot_b = slot_a + 1;
 
     let state_a = tester.harness.get_current_state();
-    let (block, _): (SignedBeaconBlock<E>, _) = tester
+    let ((block, _), _): ((SignedBeaconBlock<E>, _), _) = tester
         .harness
         .make_block_with_modifier(state_a, slot_b, |b| *b.state_root_mut() = Hash256::zero())
         .await;
@@ -1164,11 +1184,11 @@ pub async fn blinded_equivocation_consensus_late_equivocation() {
     let slot_b = slot_a + 1;
 
     let state_a = tester.harness.get_current_state();
-    let (block_a, state_after_a): (SignedBlindedBeaconBlock<E>, _) = tester
+    let ((block_a, blobs_a), state_after_a): ((SignedBlindedBeaconBlock<E>, _), _) = tester
         .harness
         .make_blinded_block(state_a.clone(), slot_b)
         .await;
-    let (block_b, state_after_b): (SignedBlindedBeaconBlock<E>, _) =
+    let ((block_b, blobs_b), state_after_b): ((SignedBlindedBeaconBlock<E>, _), _) =
         tester.harness.make_blinded_block(state_a, slot_b).await;
 
     /* check for `make_blinded_block` curios */
@@ -1178,16 +1198,16 @@ pub async fn blinded_equivocation_consensus_late_equivocation() {
 
     let unblinded_block_a = reconstruct_block(
         tester.harness.chain.clone(),
-        block_a.state_root(),
-        block_a,
+        block_a.canonical_root(),
+        SignedBlockContents::new(block_a, blobs_a),
         test_logger.clone(),
     )
     .await
     .unwrap();
     let unblinded_block_b = reconstruct_block(
         tester.harness.chain.clone(),
-        block_b.clone().state_root(),
-        block_b.clone(),
+        block_b.canonical_root(),
+        SignedBlockContents::new(block_b.clone(), blobs_b.clone()),
         test_logger.clone(),
     )
     .await
@@ -1202,15 +1222,17 @@ pub async fn blinded_equivocation_consensus_late_equivocation() {
         ProvenancedBlock::Builder(b, _) => b,
     };
 
-    let gossip_block_b = GossipVerifiedBlock::new(inner_block_b, &tester.harness.chain);
+    let gossip_block_b =
+        GossipVerifiedBlock::new(inner_block_b.deconstruct().into(), &tester.harness.chain);
     assert!(gossip_block_b.is_ok());
-    let gossip_block_a = GossipVerifiedBlock::new(inner_block_a, &tester.harness.chain);
+    let gossip_block_a =
+        GossipVerifiedBlock::new(inner_block_a.deconstruct().into(), &tester.harness.chain);
     assert!(gossip_block_a.is_err());
 
     let channel = tokio::sync::mpsc::unbounded_channel();
 
     let publication_result: Result<(), Rejection> = publish_blinded_block(
-        block_b,
+        SignedBlockContents::new(block_b, blobs_b),
         tester.harness.chain,
         &channel.0,
         test_logger,
@@ -1254,12 +1276,15 @@ pub async fn blinded_equivocation_full_pass() {
     let slot_b = slot_a + 1;
 
     let state_a = tester.harness.get_current_state();
-    let (block, _): (SignedBlindedBeaconBlock<E>, _) =
+    let ((block, blobs), _): ((SignedBlindedBeaconBlock<E>, _), _) =
         tester.harness.make_blinded_block(state_a, slot_b).await;
 
     let response: Result<(), eth2::Error> = tester
         .client
-        .post_beacon_blocks_v2(&block, validation_level)
+        .post_beacon_blocks_v2(
+            &SignedBlockContents::new(block.clone(), blobs),
+            validation_level,
+        )
         .await;
 
     assert!(response.is_ok());

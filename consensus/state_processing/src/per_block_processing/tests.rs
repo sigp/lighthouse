@@ -63,7 +63,7 @@ async fn valid_block_ok() {
     let state = harness.get_current_state();
 
     let slot = state.slot();
-    let (block, mut state) = harness
+    let ((block, _), mut state) = harness
         .make_block_return_pre_state(state, slot + Slot::new(1))
         .await;
 
@@ -89,7 +89,7 @@ async fn invalid_block_header_state_slot() {
     let state = harness.get_current_state();
     let slot = state.slot() + Slot::new(1);
 
-    let (signed_block, mut state) = harness.make_block_return_pre_state(state, slot).await;
+    let ((signed_block, _), mut state) = harness.make_block_return_pre_state(state, slot).await;
     let (mut block, signature) = signed_block.deconstruct();
     *block.slot_mut() = slot + Slot::new(1);
 
@@ -120,7 +120,7 @@ async fn invalid_parent_block_root() {
     let state = harness.get_current_state();
     let slot = state.slot();
 
-    let (signed_block, mut state) = harness
+    let ((signed_block, _), mut state) = harness
         .make_block_return_pre_state(state, slot + Slot::new(1))
         .await;
     let (mut block, signature) = signed_block.deconstruct();
@@ -155,7 +155,7 @@ async fn invalid_block_signature() {
 
     let state = harness.get_current_state();
     let slot = state.slot();
-    let (signed_block, mut state) = harness
+    let ((signed_block, _), mut state) = harness
         .make_block_return_pre_state(state, slot + Slot::new(1))
         .await;
     let (block, _) = signed_block.deconstruct();
@@ -188,7 +188,7 @@ async fn invalid_randao_reveal_signature() {
     let state = harness.get_current_state();
     let slot = state.slot();
 
-    let (signed_block, mut state) = harness
+    let ((signed_block, _), mut state) = harness
         .make_block_with_modifier(state, slot + 1, |block| {
             *block.body_mut().randao_reveal_mut() = Signature::empty();
         })
