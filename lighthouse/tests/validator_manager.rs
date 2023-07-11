@@ -321,7 +321,7 @@ pub fn validator_move_count() {
         .flag("--src-vc-token", Some("./1.json"))
         .flag("--dest-vc-url", Some("http://localhost:2"))
         .flag("--dest-vc-token", Some("./2.json"))
-        .flag("--validators", Some("42"))
+        .flag("--count", Some("42"))
         .assert_success(|config| {
             let expected = MoveConfig {
                 src_vc_url: SensitiveUrl::parse("http://localhost:1").unwrap(),

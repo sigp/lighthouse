@@ -120,7 +120,14 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     validator pubkeys, an integer count of validators or the \
                     keyword \"all\".",
                 )
-                .required(true)
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name(COUNT_FLAG)
+                .long(COUNT_FLAG)
+                .value_name("VALIDATOR_COUNT")
+                .help("The number of validators to move.")
+                .conflicts_with(VALIDATORS_FLAG)
                 .takes_value(true),
         )
         .arg(
@@ -172,26 +179,6 @@ pub enum Validators {
     Specific(Vec<PublicKeyBytes>),
 }
 
-impl FromStr for Validators {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "all" => Ok(Validators::All),
-            pubkeys if pubkeys.starts_with("0x") => pubkeys
-                .split(',')
-                .map(PublicKeyBytes::from_str)
-                .collect::<Result<_, _>>()
-                .map(Validators::Specific),
-            other => usize::from_str(other)
-                .map_err(|_| {
-                    "Expected \"all\", a list of 0x-prefixed pubkeys or an integer".to_string()
-                })
-                .map(Validators::Count),
-        }
-    }
-}
-
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 pub struct MoveConfig {
     pub src_vc_url: SensitiveUrl,
@@ -207,12 +194,30 @@ pub struct MoveConfig {
 
 impl MoveConfig {
     fn from_cli(matches: &ArgMatches) -> Result<Self, String> {
+        let count_flag = clap_utils::parse_optional(matches, COUNT_FLAG)?;
+        let validators_flag = matches.value_of(VALIDATORS_FLAG);
+        let validators = match (count_flag, validators_flag) {
+            (Some(count), None) => Validators::Count(count),
+            (None, Some(string)) => match string {
+                "all" => Validators::All,
+                pubkeys => pubkeys
+                    .split(',')
+                    .map(PublicKeyBytes::from_str)
+                    .collect::<Result<Vec<_>, _>>()
+                    .map(Validators::Specific)?,
+            },
+            (None, None) => Err("Must supply either --{:VALIDATORS_FLAG} or --{:COUNT_FLAG}.")?,
+            (Some(_), Some(_)) => {
+                Err("Cannot supply both --{:VALIDATORS_FLAG} and --{:COUNT_FLAG}.")?
+            }
+        };
+
         Ok(Self {
             src_vc_url: clap_utils::parse_required(matches, SRC_VC_URL_FLAG)?,
             src_vc_token_path: clap_utils::parse_required(matches, SRC_VC_TOKEN_FLAG)?,
             dest_vc_url: clap_utils::parse_required(matches, DEST_VC_URL_FLAG)?,
             dest_vc_token_path: clap_utils::parse_required(matches, DEST_VC_TOKEN_FLAG)?,
-            validators: clap_utils::parse_required(matches, VALIDATORS_FLAG)?,
+            validators,
             builder_proposals: clap_utils::parse_optional(matches, BUILDER_PROPOSALS_FLAG)?,
             fee_recipient: clap_utils::parse_optional(matches, FEE_RECIPIENT_FLAG)?,
             gas_limit: clap_utils::parse_optional(matches, GAS_LIMIT_FLAG)?,
