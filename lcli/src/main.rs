@@ -38,7 +38,6 @@ fn main() {
                 .long("spec")
                 .value_name("STRING")
                 .takes_value(true)
-                .required(true)
                 .possible_values(&["minimal", "mainnet", "gnosis"])
                 .default_value("mainnet")
                 .global(true),
@@ -361,7 +360,6 @@ fn main() {
                         .index(2)
                         .value_name("BIP39_MNENMONIC")
                         .takes_value(true)
-                        .required(true)
                         .default_value(
                             "replace nephew blur decorate waste convince soup column \
                             orient excite play baby",
@@ -382,7 +380,6 @@ fn main() {
                         .help("The block hash used when generating an execution payload. This \
                             value is used for `execution_payload_header.block_hash` as well as \
                             `execution_payload_header.random`")
-                        .required(true)
                         .default_value(
                             "0x0000000000000000000000000000000000000000000000000000000000000000",
                         ),
@@ -400,7 +397,6 @@ fn main() {
                         .value_name("INTEGER")
                         .takes_value(true)
                         .help("The base fee per gas field in the execution payload generated.")
-                        .required(true)
                         .default_value("1000000000"),
                 )
                 .arg(
@@ -409,7 +405,6 @@ fn main() {
                         .value_name("INTEGER")
                         .takes_value(true)
                         .help("The gas limit field in the execution payload generated.")
-                        .required(true)
                         .default_value("30000000"),
                 )
                 .arg(
@@ -417,7 +412,6 @@ fn main() {
                         .long("file")
                         .value_name("FILE")
                         .takes_value(true)
-                        .required(true)
                         .help("Output file"),
                 ).arg(
                 Arg::with_name("fork")
