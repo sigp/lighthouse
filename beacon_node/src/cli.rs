@@ -385,6 +385,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .arg(
             Arg::with_name("http-enable-beacon-processor")
                 .long("http-enable-beacon-processor")
+                .value_name("BOOLEAN")
                 .help("The beacon processor is a scheduler which provides quality-of-service and \
                     DoS protection. When set to \"true\", HTTP API requests will queued and scheduled \
                     alongside other tasks. When set to \"false\", HTTP API responses will be executed \
