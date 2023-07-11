@@ -11,6 +11,7 @@
 - [After checkpoint sync, the progress of `downloading historical blocks` is slow. Why?](#bn-download-slow)
 - [My beacon node logs `WARN Error processing HTTP API request`, what should I do?](#bn-http)
 - [My beacon node logs `WARN Error signalling fork choice waiter`, what should I do?](#bn-fork-choice)
+- [My beacon node logs `ERRO Aggregate attestation queue full`, what should I do?](#bn-queue-full)
 
 ## [Validator](#validator-1)
 - [Why does it take so long for a validator to be activated?](#vc-activation)
@@ -179,7 +180,18 @@ An example of the full log is shown below:
 WARN Error signalling fork choice waiter slot: 6763073, error: ForkChoiceSignalOutOfOrder { current: Slot(6763074), latest: Slot(6763073) }, service: state_advance
 ```
 
-This suggests that the computer resources are being overwhelmed. It could be due to high CPU usage or high disk I/O usage. This can happen, e.g., when the beacon node is downloading historical blocks, or when the execution client is syncing. The error will disappear the resources used return to normal or when the node is synced.
+This suggests that the computer resources are being overwhelmed. It could be due to high CPU usage or high disk I/O usage. This can happen, e.g., when the beacon node is downloading historical blocks, or when the execution client is syncing. The error will disappear when the resources used return to normal or when the node is synced.
+
+
+### <a name="bn-queue-full"></a> My beacon node logs `ERRO Aggregate attestation queue full`, what should I do?
+
+An example of the full log is shown below:
+```
+ERRO Aggregate attestation queue full, queue_len: 4096, msg: the system has insufficient resources for load, module: network::beacon_processor:1542
+```
+
+This indicates that the system resources are overloaded. The above error will usually be seen when the node is doing some resource-intensive processes, e.g., the execution client is syncing, or the beacon node is downloading historical blocks. You can check the CPU, RAM or disk usage to see if they are being overloaded. Once the resource-intensive processes completed, the error should be gone.
+
 
 ## Validator
 
@@ -295,15 +307,20 @@ You can see more information on the [Ethstaker KB](https://ethstaker.gitbook.io/
 Another cause for missing attestations is due to the slowness in processing the block. When this happens, the debug log will show (the debug log can be found under `$datadir/beacon/logs`):
 
 ```
-DEBG Delayed head block, set_as_head_delay: Some(159.4ms), imported_delay: Some(1.89s), observed_delay: Some(2.40s), block_delay: 4.46s, slot: xxx, proposer_index: xxx, block_root: xxx, service: beacon
+DEBG Delayed head block                      set_as_head_delay: Some(93.579425ms), imported_delay: Some(1.460405278s), observed_delay: Some(2.540811921s), block_delay: 4.094796624s, slot: 6837344, proposer_index: 211108, block_root: 0x2c52231c0a5a117401f5231585de8aa5dd963bc7cbc00c544e681342eedd1700, service: beacon
 ```
 
-The things to note here are `imported_delay > 1s` and `observed_delay < 3s`. The `imported_delay` of larger than 1 second suggests that there is slowness in processing the block. It could be due to high CPU usage, high I/O disk usage or the clients are doing some background maintenance processes. The `observed_delay` of less than 3 seconds means that the block is not arriving late from the block proposer. Combining the above, this implies that the validator should have been able to attest to the block, but failed due to slowness in the node processing the block. 
+The fields to look for are `imported_delay > 1s` and `observed_delay < 3s`. The `imported_delay` is how long the node took to process the block. The `imported_delay` of larger than 1 second suggests that there is slowness in processing the block. It could be due to high CPU usage, high I/O disk usage or the clients are doing some background maintenance processes. The `observed_delay` is determined mostly by the proposer and partly by your networking setup (e.g., how long it took for the node to receive the block). The `observed_delay` of less than 3 seconds means that the block is not arriving late from the block proposer. Combining the above, this implies that the validator should have been able to attest to the block, but failed due to slowness in the node processing the block. 
 
 
 ### <a name="vc-head-vote"></a> Sometimes I miss the attestation head vote, resulting in penalty. Is this normal?
 
 In general, it is unavoidable to have some penalties occasionally. This is particularly the case when you are assigned to attest on the first slot of an epoch and if the proposer of that slot releases the block late, then you will get penalised for missing the target and head votes. Your attestation performance does not only depend on your own setup, but also on everyone elses performance.
+
+You could also check for the sync aggregate participation percentage on block explorers such as [beaconcha.in](https://beaconcha.in/). A low sync aggregate participation percentage (e.g., 60-70%) indicates that the block that you are assigned to attest to may be published late. As a result, your validator fails to correctly attest to the block. 
+
+Another possible reason for missing the head vote is due to reorg. The reorg happens due to the block is published late, and the proposer at block `n+1` reorged blocks `n` from the canonical chain. Due to the reorg, block `n` was never included in the chain.  If you are assigned to attest at slot `n`, the head reward will be missed.
+
 
 ### <a name="vc-exit"></a> Can I submit a voluntary exit message without running a beacon node?
 
