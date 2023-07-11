@@ -233,7 +233,7 @@ impl TestRig {
         );
 
         assert!(!beacon_processor.is_err());
-        
+
         Self {
             chain,
             next_block: Arc::new(next_block),
