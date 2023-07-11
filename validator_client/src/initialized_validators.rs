@@ -105,6 +105,7 @@ pub enum Error {
     InvalidActionOnValidator,
     UnableToReadValidatorPassword(String),
     UnableToReadKeystoreFile(eth2_keystore::Error),
+    UnableToSaveKeyCache(key_cache::Error),
 }
 
 impl From<LockfileError> for Error {
@@ -551,6 +552,7 @@ impl InitializedValidators {
         //
         // We disable before removing so that in case of a crash the auto-discovery mechanism
         // won't re-activate the keystore.
+        let mut uuid_opt = None;
         let keystore_and_password = if let Some(def) = self
             .definitions
             .as_mut_slice()
@@ -573,6 +575,7 @@ impl InitializedValidators {
                     };
                     let keystore = Keystore::from_json_file(voting_keystore_path)
                         .map_err(Error::UnableToReadKeystoreFile)?;
+                    uuid_opt = Some(*keystore.uuid());
 
                     def.enabled = false;
                     self.definitions
@@ -591,7 +594,27 @@ impl InitializedValidators {
             return Err(Error::ValidatorNotInitialized(pubkey.clone()));
         };
 
-        // 2. Delete from `self.validators`, which holds the signing method.
+        // 2. Remove the validator from the key cache. This ensures the key
+        // cache is consistent next time the VC starts.
+        //
+        // It's not a big deal if this succeeds and something fails later in
+        // this function because the VC will self-heal from a corrupt key cache.
+        //
+        // Do this before modifying `self.validators` or deleting anything from
+        // the filesystem.
+        if let Some(uuid) = uuid_opt {
+            let key_cache = KeyCache::open_or_create(&self.validators_dir)
+                .map_err(Error::UnableToOpenKeyCache)?;
+            let mut decrypted_key_cache = self
+                .decrypt_key_cache(key_cache, &mut <_>::default())
+                .await?;
+            decrypted_key_cache.remove(&uuid);
+            decrypted_key_cache
+                .save(&self.validators_dir)
+                .map_err(Error::UnableToSaveKeyCache)?;
+        }
+
+        // 3. Delete from `self.validators`, which holds the signing method.
         //    Delete the keystore files.
         if let Some(initialized_validator) = self.validators.remove(&pubkey.compress()) {
             if let SigningMethod::LocalKeystore {
@@ -609,7 +632,7 @@ impl InitializedValidators {
             }
         }
 
-        // 3. Delete from validator definitions entirely.
+        // 4. Delete from validator definitions entirely.
         self.definitions
             .retain(|def| &def.voting_public_key != pubkey);
         self.definitions
