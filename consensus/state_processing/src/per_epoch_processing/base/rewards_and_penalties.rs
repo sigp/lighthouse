@@ -105,11 +105,14 @@ pub fn get_attestation_deltas_subset<T: EthSpec>(
 
     let total_balances = &validator_statuses.total_balances;
 
-    for (index, validator) in validator_statuses.statuses.iter().enumerate() {
-        let delta = deltas
-            .entry(index)
-            .or_insert_with(AttestationDelta::default);
+    // Ignore validator if a subset is specified and validator is not in the subset
+    let include_validator_delta = |idx| match maybe_validators_subset.as_ref() {
+        None => true,
+        Some(validators_subset) if validators_subset.contains(&idx) => true,
+        Some(_) => false,
+    };
 
+    for (index, validator) in validator_statuses.statuses.iter().enumerate() {
         // Ignore ineligible validators. All sub-functions of the spec do this except for
         // `get_inclusion_delay_deltas`. It's safe to do so here because any validator that is in
         // the unslashed indices of the matching source attestations is active, and therefore
@@ -118,36 +121,32 @@ pub fn get_attestation_deltas_subset<T: EthSpec>(
             continue;
         }
 
-        let include_validator_delta = |idx| match maybe_validators_subset.as_ref() {
-            None => true,
-            Some(validators_subset) if validators_subset.contains(&idx) => true,
-            Some(_) => false,
-        };
-
-        if !include_validator_delta(index) {
-            continue;
-        }
-
         let base_reward = get_base_reward(state, index, total_balances.current_epoch(), spec)?;
 
-        let source_delta =
-            get_source_delta(validator, base_reward, total_balances, finality_delay, spec)?;
-        let target_delta =
-            get_target_delta(validator, base_reward, total_balances, finality_delay, spec)?;
-        let head_delta =
-            get_head_delta(validator, base_reward, total_balances, finality_delay, spec)?;
         let (inclusion_delay_delta, proposer_delta) =
             get_inclusion_delay_delta(validator, base_reward, spec)?;
-        let inactivity_penalty_delta =
-            get_inactivity_penalty_delta(validator, base_reward, finality_delay, spec)?;
 
-        delta.source_delta.combine(source_delta)?;
-        delta.target_delta.combine(target_delta)?;
-        delta.head_delta.combine(head_delta)?;
-        delta.inclusion_delay_delta.combine(inclusion_delay_delta)?;
-        delta
-            .inactivity_penalty_delta
-            .combine(inactivity_penalty_delta)?;
+        if include_validator_delta(index) {
+            let source_delta =
+                get_source_delta(validator, base_reward, total_balances, finality_delay, spec)?;
+            let target_delta =
+                get_target_delta(validator, base_reward, total_balances, finality_delay, spec)?;
+            let head_delta =
+                get_head_delta(validator, base_reward, total_balances, finality_delay, spec)?;
+            let inactivity_penalty_delta =
+                get_inactivity_penalty_delta(validator, base_reward, finality_delay, spec)?;
+
+            let delta = deltas
+                .entry(index)
+                .or_insert_with(AttestationDelta::default);
+            delta.source_delta.combine(source_delta)?;
+            delta.target_delta.combine(target_delta)?;
+            delta.head_delta.combine(head_delta)?;
+            delta.inclusion_delay_delta.combine(inclusion_delay_delta)?;
+            delta
+                .inactivity_penalty_delta
+                .combine(inactivity_penalty_delta)?;
+        }
 
         if let Some((proposer_index, proposer_delta)) = proposer_delta {
             if include_validator_delta(proposer_index) {
