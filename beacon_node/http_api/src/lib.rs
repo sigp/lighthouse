@@ -1348,7 +1348,7 @@ pub fn serve<T: BeaconChainTypes>(
              chain: Arc<BeaconChain<T>>,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
              log: Logger| {
-                task_spawner.spawn_async_with_rejection(Priority::P1, async move {
+                task_spawner.spawn_async_with_rejection(Priority::P0, async move {
                     publish_blocks::publish_blinded_block(
                         block,
                         chain,
@@ -1379,7 +1379,7 @@ pub fn serve<T: BeaconChainTypes>(
              chain: Arc<BeaconChain<T>>,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
              log: Logger| {
-                task_spawner.spawn_async(Priority::P1, async move {
+                task_spawner.spawn_async(Priority::P0, async move {
                     match publish_blocks::publish_blinded_block(
                         block,
                         chain,
@@ -2245,7 +2245,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(chain_filter.clone())
         .and_then(
             move |task_spawner: TaskSpawner<T::EthSpec>, chain: Arc<BeaconChain<T>>| {
-                task_spawner.blocking_json_task(Priority::P1, move || {
+                task_spawner.blocking_json_task(Priority::P0, move || {
                     let config_and_preset =
                         ConfigAndPreset::from_chain_spec::<T::EthSpec>(&chain.spec, spec_fork_name);
                     Ok(api_types::GenericResponse::from(config_and_preset))
@@ -2881,7 +2881,7 @@ pub fn serve<T: BeaconChainTypes>(
              query: api_types::ValidatorBlocksQuery,
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>| {
-                task_spawner.spawn_async_with_rejection(Priority::P1, async move {
+                task_spawner.spawn_async_with_rejection(Priority::P0, async move {
                     let randao_reveal = query.randao_reveal.decompress().map_err(|e| {
                         warp_utils::reject::custom_bad_request(format!(
                             "randao reveal is not a valid BLS signature: {:?}",
@@ -3554,7 +3554,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path::end())
         .and(task_spawner_filter.clone())
         .and_then(|task_spawner: TaskSpawner<T::EthSpec>| {
-            task_spawner.blocking_json_task(Priority::P1, move || {
+            task_spawner.blocking_json_task(Priority::P0, move || {
                 eth2::lighthouse::Health::observe()
                     .map(api_types::GenericResponse::from)
                     .map_err(warp_utils::reject::custom_bad_request)
@@ -3577,7 +3577,7 @@ pub fn serve<T: BeaconChainTypes>(
              app_start: std::time::Instant,
              data_dir,
              network_globals| {
-                task_spawner.blocking_json_task(Priority::P1, move || {
+                task_spawner.blocking_json_task(Priority::P0, move || {
                     let app_uptime = app_start.elapsed().as_secs();
                     Ok(api_types::GenericResponse::from(observe_system_health_bn(
                         sysinfo,
@@ -3651,7 +3651,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and_then(
             |task_spawner: TaskSpawner<T::EthSpec>,
              network_globals: Arc<NetworkGlobals<T::EthSpec>>| {
-                task_spawner.blocking_json_task(Priority::P1, move || {
+                task_spawner.blocking_json_task(Priority::P0, move || {
                     Ok(api_types::GenericResponse::from(
                         network_globals.sync_state(),
                     ))
