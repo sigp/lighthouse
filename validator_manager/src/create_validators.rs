@@ -863,7 +863,7 @@ pub mod tests {
                     }
                 })
                 .unwrap();
-            let contents = fs::read_to_string(&path).unwrap();
+            let contents = fs::read_to_string(path).unwrap();
             serde_json::from_str(&contents).unwrap()
         };
 

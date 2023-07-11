@@ -639,6 +639,8 @@ mod test {
     const SRC_VC_TOKEN_FILE_NAME: &str = "src_vc_token.json";
     const DEST_VC_TOKEN_FILE_NAME: &str = "dest_vc_token.json";
 
+    type MutatePasswordFn = Box<dyn Fn(&mut HashMap<PublicKeyBytes, Vec<String>>)>;
+
     struct TestBuilder {
         src_import_builder: Option<ImportTestBuilder>,
         dest_import_builder: Option<ImportTestBuilder>,
@@ -646,7 +648,7 @@ mod test {
         dir: TempDir,
         move_back_again: bool,
         remove_passwords_from_src_vc: bool,
-        mutate_passwords: Option<Box<dyn Fn(&mut HashMap<PublicKeyBytes, Vec<String>>)>>,
+        mutate_passwords: Option<MutatePasswordFn>,
         passwords: HashMap<PublicKeyBytes, Vec<String>>,
     }
 

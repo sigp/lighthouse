@@ -173,6 +173,7 @@ impl ApiTester {
 
     /// Checks that the key cache exists and can be decrypted with the current
     /// set of known validators.
+    #[allow(clippy::await_holding_lock)] // This is a test, so it should be fine.
     pub async fn ensure_key_cache_consistency(&self) {
         assert!(
             self.validator_dir.as_ref().join(CACHE_FILENAME).exists(),
@@ -180,6 +181,7 @@ impl ApiTester {
         );
         let key_cache =
             KeyCache::open_or_create(self.validator_dir.as_ref()).expect("should open a key cache");
+
         self.initialized_validators
             .read()
             .decrypt_key_cache(key_cache, &mut <_>::default(), OnDecryptFailure::Error)
