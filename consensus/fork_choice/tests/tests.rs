@@ -1353,6 +1353,14 @@ async fn progressive_balances_cache_attester_slashing() {
         .apply_blocks_while(|_, state| state.finalized_checkpoint().epoch == 0)
         .await
         .unwrap()
+        // Note: This test may fail if the shuffling used changes, right now it re-runs with
+        // deterministic shuffling. A shuffling change my cause the slashed proposer to propose
+        // again in the next epoch, which results in a block processing failure
+        // (`HeaderInvalid::ProposerSlashed`). The harness should be re-worked to successfully skip
+        // the slot in this scenario rather than panic-ing. The same applies to
+        // `progressive_balances_cache_proposer_slashing`.
+        .apply_blocks(1)
+        .await
         .add_previous_epoch_attester_slashing()
         .await
         // expect fork choice to import blocks successfully after a previous epoch attester is
@@ -1376,6 +1384,14 @@ async fn progressive_balances_cache_proposer_slashing() {
         .apply_blocks_while(|_, state| state.finalized_checkpoint().epoch == 0)
         .await
         .unwrap()
+        // Note: This test may fail if the shuffling used changes, right now it re-runs with
+        // deterministic shuffling. A shuffling change my cause the slashed proposer to propose
+        // again in the next epoch, which results in a block processing failure
+        // (`HeaderInvalid::ProposerSlashed`). The harness should be re-worked to successfully skip
+        // the slot in this scenario rather than panic-ing. The same applies to
+        // `progressive_balances_cache_attester_slashing`.
+        .apply_blocks(1)
+        .await
         .add_previous_epoch_proposer_slashing(MainnetEthSpec::slots_per_epoch())
         .await
         // expect fork choice to import blocks successfully after a previous epoch proposer is
