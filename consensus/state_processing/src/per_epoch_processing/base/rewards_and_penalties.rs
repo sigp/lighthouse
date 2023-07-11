@@ -113,6 +113,14 @@ pub fn get_attestation_deltas_subset<T: EthSpec>(
     };
 
     for (index, validator) in validator_statuses.statuses.iter().enumerate() {
+        // A delta must be present if validator is to be included, regardless of whether the validator
+        // is eligible or not. It is required for state processing.
+        let maybe_delta = include_validator_delta(index).then(|| {
+            deltas
+                .entry(index)
+                .or_insert_with(AttestationDelta::default)
+        });
+
         // Ignore ineligible validators. All sub-functions of the spec do this except for
         // `get_inclusion_delay_deltas`. It's safe to do so here because any validator that is in
         // the unslashed indices of the matching source attestations is active, and therefore
@@ -126,7 +134,7 @@ pub fn get_attestation_deltas_subset<T: EthSpec>(
         let (inclusion_delay_delta, proposer_delta) =
             get_inclusion_delay_delta(validator, base_reward, spec)?;
 
-        if include_validator_delta(index) {
+        if let Some(delta) = maybe_delta {
             let source_delta =
                 get_source_delta(validator, base_reward, total_balances, finality_delay, spec)?;
             let target_delta =
@@ -136,9 +144,6 @@ pub fn get_attestation_deltas_subset<T: EthSpec>(
             let inactivity_penalty_delta =
                 get_inactivity_penalty_delta(validator, base_reward, finality_delay, spec)?;
 
-            let delta = deltas
-                .entry(index)
-                .or_insert_with(AttestationDelta::default);
             delta.source_delta.combine(source_delta)?;
             delta.target_delta.combine(target_delta)?;
             delta.head_delta.combine(head_delta)?;
