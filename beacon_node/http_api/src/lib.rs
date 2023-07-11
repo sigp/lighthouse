@@ -126,6 +126,7 @@ pub struct Config {
     pub allow_sync_stalled: bool,
     pub spec_fork_name: Option<ForkName>,
     pub data_dir: PathBuf,
+    pub enable_beacon_processor: bool,
 }
 
 impl Default for Config {
@@ -139,6 +140,7 @@ impl Default for Config {
             allow_sync_stalled: false,
             spec_fork_name: None,
             data_dir: PathBuf::from(DEFAULT_ROOT_DIR),
+            enable_beacon_processor: true,
         }
     }
 }
@@ -488,7 +490,10 @@ pub fn serve<T: BeaconChainTypes>(
     let app_start_filter = warp::any().map(move || app_start);
 
     // Create a `warp` filter that provides access the `TaskSpawner`.
-    let beacon_processor_send = ctx.beacon_processor_send.clone();
+    let beacon_processor_send = ctx
+        .beacon_processor_send
+        .clone()
+        .filter(|_| config.enable_beacon_processor);
     let task_spawner_filter =
         warp::any().map(move || TaskSpawner::new(beacon_processor_send.clone()));
 

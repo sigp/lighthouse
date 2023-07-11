@@ -4,6 +4,7 @@ use beacon_chain::chain_config::{
 };
 use clap::ArgMatches;
 use clap_utils::flags::DISABLE_MALLOC_TUNING_FLAG;
+use clap_utils::parse_required;
 use client::{ClientConfig, ClientGenesis};
 use directory::{DEFAULT_BEACON_NODE_DIR, DEFAULT_NETWORK_DIR, DEFAULT_ROOT_DIR};
 use environment::RuntimeContext;
@@ -147,6 +148,9 @@ pub fn get_config<E: EthSpec>(
     if cli_args.is_present("http-allow-sync-stalled") {
         client_config.http_api.allow_sync_stalled = true;
     }
+
+    client_config.http_api.enable_beacon_processor =
+        parse_required(cli_args, "http-enable-beacon-processor")?;
 
     if let Some(cache_size) = clap_utils::parse_optional(cli_args, "shuffling-cache-size")? {
         client_config.chain.shuffling_cache_size = cache_size;

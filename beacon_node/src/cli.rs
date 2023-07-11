@@ -382,6 +382,16 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     stalled. This is useful for very small testnets. TESTING ONLY. DO NOT USE ON \
                     MAINNET.")
         )
+        .arg(
+            Arg::with_name("http-enable-beacon-processor")
+                .long("http-enable-beacon-processor")
+                .help("The beacon processor is a scheduler which provides quality-of-service and \
+                    DoS protection. When set to \"true\", HTTP API requests will queued and scheduled \
+                    alongside other tasks. When set to \"false\", HTTP API responses will be executed \
+                    immediately.")
+                .takes_value(true)
+                .default_value("true")
+        )
         /* Prometheus metrics HTTP server related arguments */
         .arg(
             Arg::with_name("metrics")

@@ -1464,6 +1464,22 @@ fn http_allow_sync_stalled_flag() {
         .with_config(|config| assert_eq!(config.http_api.allow_sync_stalled, true));
 }
 #[test]
+fn http_enable_beacon_processor() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| assert_eq!(config.http_api.enable_beacon_processor, true));
+
+    CommandLineTest::new()
+        .flag("http-enable-beacon-processor", Some("true"))
+        .run_with_zero_port()
+        .with_config(|config| assert_eq!(config.http_api.enable_beacon_processor, true));
+
+    CommandLineTest::new()
+        .flag("http-enable-beacon-processor", Some("false"))
+        .run_with_zero_port()
+        .with_config(|config| assert_eq!(config.http_api.enable_beacon_processor, false));
+}
+#[test]
 fn http_tls_flags() {
     let dir = TempDir::new().expect("Unable to create temporary directory");
     CommandLineTest::new()
