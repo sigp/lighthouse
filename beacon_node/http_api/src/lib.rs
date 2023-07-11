@@ -21,6 +21,7 @@ mod sync_committees;
 mod task_spawner;
 pub mod test_utils;
 mod ui;
+mod validator;
 mod validator_inclusion;
 mod version;
 
@@ -72,6 +73,7 @@ use types::{
     SignedContributionAndProof, SignedValidatorRegistrationData, SignedVoluntaryExit, Slot,
     SyncCommitteeMessage, SyncContributionData,
 };
+use validator::pubkey_to_validator_index;
 use version::{
     add_consensus_version_header, execution_optimistic_finalized_fork_versioned_response,
     fork_versioned_response, inconsistent_fork_rejection, unsupported_version_rejection, V1, V2,
@@ -777,9 +779,14 @@ pub fn serve<T: BeaconChainTypes>(
                             &chain,
                             |state, execution_optimistic, finalized| {
                                 let index_opt = match &validator_id {
-                                    ValidatorId::PublicKey(pubkey) => {
-                                        state.validators().iter().position(|v| v.pubkey == *pubkey)
-                                    }
+                                    ValidatorId::PublicKey(pubkey) => pubkey_to_validator_index(
+                                        &chain, state, pubkey,
+                                    )
+                                    .map_err(|e| {
+                                        warp_utils::reject::custom_not_found(format!(
+                                            "unable to access pubkey cache: {e:?}",
+                                        ))
+                                    })?,
                                     ValidatorId::Index(index) => Some(*index as usize),
                                 };
 
