@@ -1,10 +1,10 @@
 use crate::metrics;
 
-use beacon_chain::blob_verification::BlockWrapper;
+use beacon_chain::blob_verification::AsBlock;
 use beacon_chain::validator_monitor::{get_block_delay_ms, timestamp_now};
 use beacon_chain::{
     AvailabilityProcessingStatus, BeaconChain, BeaconChainError, BeaconChainTypes, BlockError,
-    GossipVerifiedBlock, IntoGossipVerifiedBlock, NotifyExecutionLayer,
+    IntoGossipVerifiedBlock, NotifyExecutionLayer,
 };
 use eth2::types::BroadcastValidation;
 use eth2::types::SignedBlockContents;
@@ -20,7 +20,7 @@ use tokio::sync::mpsc::UnboundedSender;
 use tree_hash::TreeHash;
 use types::{
     AbstractExecPayload, BeaconBlockRef, BlindedPayload, EthSpec, ExecPayload, ExecutionBlockHash,
-    FullPayload, Hash256, SignedBeaconBlock, SignedBlobSidecarList, VariableList,
+    FullPayload, Hash256, SignedBeaconBlock, SignedBlobSidecarList,
 };
 use warp::Rejection;
 
@@ -109,26 +109,21 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
     let sender_clone = network_tx.clone();
     let log_clone = log.clone();
 
-    let (block, blobs_opt) = block_contents.parts();
-
-    let mapped_blobs = blobs_opt.clone().map(|blobs| {
-        VariableList::from(
-            blobs
-                .into_iter()
-                .map(|blob| blob.message)
-                .collect::<Vec<_>>(),
-        )
-    });
+    // We can clone this because the blobs are `Arc`'d in `BlockContents`, but the block is not,
+    // so we avoid cloning the block at this point.
+    let blobs_opt = block_contents.blobs();
 
     /* if we can form a `GossipVerifiedBlock`, we've passed our basic gossip checks */
-    let gossip_verified_block = GossipVerifiedBlock::new(
-        BlockWrapper::new(block.clone(), mapped_blobs),
-        &chain,
-    )
-    .map_err(|e| {
-        warn!(log, "Not publishing block, not gossip verified"; "slot" => slot, "error" => ?e);
-        warp_utils::reject::custom_bad_request(e.to_string())
-    })?;
+    let gossip_verified_block = block_contents
+        .into_gossip_verified_block(&chain)
+        .map_err(|e| {
+            warn!(log, "Not publishing block, not gossip verified"; "slot" => slot, "error" => ?e);
+            warp_utils::reject::custom_bad_request(e.to_string())
+        })?;
+
+    // Clone here, so we can take advantage of the `Arc`. The block in `BlockContents` is not,
+    // `Arc`'d but blobs are.
+    let block = gossip_verified_block.block.block_cloned();
 
     let block_root = block_root.unwrap_or(gossip_verified_block.block_root);
 

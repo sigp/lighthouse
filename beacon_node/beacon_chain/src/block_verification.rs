@@ -69,7 +69,7 @@ use crate::{
     metrics, BeaconChain, BeaconChainError, BeaconChainTypes,
 };
 use derivative::Derivative;
-use eth2::types::{ArcBlockContentsTuple, EventKind, SignedBlockContents};
+use eth2::types::{EventKind, SignedBlockContents};
 use execution_layer::PayloadStatus;
 pub use fork_choice::{AttestationFromBlock, PayloadVerificationStatus};
 use parking_lot::RwLockReadGuard;
@@ -809,7 +809,7 @@ pub trait IntoGossipVerifiedBlock<T: BeaconChainTypes>: Sized {
         chain: &BeaconChain<T>,
     ) -> Result<GossipVerifiedBlock<T>, BlockError<T::EthSpec>>;
     fn inner(&self) -> &SignedBeaconBlock<T::EthSpec>;
-    fn parts(self) -> ArcBlockContentsTuple<T::EthSpec>;
+    fn blobs(&self) -> Option<SignedBlobSidecarList<T::EthSpec>>;
 }
 
 impl<T: BeaconChainTypes> IntoGossipVerifiedBlock<T>
@@ -827,8 +827,8 @@ impl<T: BeaconChainTypes> IntoGossipVerifiedBlock<T>
     fn inner(&self) -> &SignedBeaconBlock<T::EthSpec> {
         self.0.block.as_block()
     }
-    fn parts(self) -> ArcBlockContentsTuple<T::EthSpec> {
-        (self.0.block.block_cloned(), self.1)
+    fn blobs(&self) -> Option<SignedBlobSidecarList<T::EthSpec>> {
+        self.1.clone()
     }
 }
 
@@ -844,9 +844,8 @@ impl<T: BeaconChainTypes> IntoGossipVerifiedBlock<T> for SignedBlockContents<T::
         self.signed_block()
     }
 
-    fn parts(self) -> ArcBlockContentsTuple<T::EthSpec> {
-        let (block, blobs) = self.deconstruct();
-        (Arc::new(block), blobs)
+    fn blobs(&self) -> Option<SignedBlobSidecarList<T::EthSpec>> {
+        self.blobs_cloned()
     }
 }
 
@@ -1069,7 +1068,9 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
             .observe_proposal(block_root, block.message())
             .map_err(|e| BlockError::BeaconChainError(e.into()))?
         {
-            SeenBlock::Slashable => return Err(BlockError::Slashable),
+            SeenBlock::Slashable => {
+                return Err(BlockError::Slashable);
+            }
             SeenBlock::Duplicate => return Err(BlockError::BlockIsAlreadyKnown),
             SeenBlock::UniqueNonSlashable => {}
         };
