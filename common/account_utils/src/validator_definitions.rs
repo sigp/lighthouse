@@ -124,6 +124,16 @@ impl SigningDefinition {
             SigningDefinition::Web3Signer(_) => Ok(None),
         }
     }
+
+    pub fn voting_keystore_password_path(&self) -> Option<&PathBuf> {
+        match self {
+            SigningDefinition::LocalKeystore {
+                voting_keystore_password_path: Some(path),
+                ..
+            } => Some(path),
+            _ => None,
+        }
+    }
 }
 
 /// A validator that may be initialized by this validator client.
@@ -383,6 +393,13 @@ impl ValidatorDefinitions {
     /// Returns a mutable slice of all `ValidatorDefinition` in `self`.
     pub fn as_mut_slice(&mut self) -> &mut [ValidatorDefinition] {
         self.0.as_mut_slice()
+    }
+
+    // Returns an iterator over all the `voting_keystore_password_paths` in self.
+    pub fn iter_voting_keystore_password_paths(&self) -> impl Iterator<Item = &PathBuf> {
+        self.0
+            .iter()
+            .filter_map(|def| def.signing_definition.voting_keystore_password_path())
     }
 }
 

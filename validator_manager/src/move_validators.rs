@@ -633,9 +633,10 @@ async fn sleep_with_retry_message(pubkey: &PublicKeyBytes, path: Option<&str>) {
 mod test {
     use super::*;
     use crate::import_validators::tests::TestBuilder as ImportTestBuilder;
+    use account_utils::validator_definitions::SigningDefinition;
     use std::fs;
     use tempfile::{tempdir, TempDir};
-    use validator_client::http_api::test_utils::ApiTester;
+    use validator_client::http_api::{test_utils::ApiTester, Config as HttpConfig};
 
     const SRC_VC_TOKEN_FILE_NAME: &str = "src_vc_token.json";
     const DEST_VC_TOKEN_FILE_NAME: &str = "dest_vc_token.json";
@@ -645,12 +646,15 @@ mod test {
     struct TestBuilder {
         src_import_builder: Option<ImportTestBuilder>,
         dest_import_builder: Option<ImportTestBuilder>,
+        http_config: HttpConfig,
         duplicates: usize,
         dir: TempDir,
         move_back_again: bool,
         remove_passwords_from_src_vc: bool,
         mutate_passwords: Option<MutatePasswordFn>,
         passwords: HashMap<PublicKeyBytes, Vec<String>>,
+        use_password_files: bool,
+        reuse_password_files: Option<usize>,
     }
 
     impl TestBuilder {
@@ -659,12 +663,15 @@ mod test {
             Self {
                 src_import_builder: None,
                 dest_import_builder: None,
+                http_config: ApiTester::default_http_config(),
                 duplicates: 0,
                 dir,
                 move_back_again: false,
                 remove_passwords_from_src_vc: false,
                 mutate_passwords: None,
                 passwords: <_>::default(),
+                use_password_files: false,
+                reuse_password_files: None,
             }
         }
 
@@ -673,8 +680,19 @@ mod test {
             self
         }
 
+        fn use_password_files(mut self) -> Self {
+            self.use_password_files = true;
+            self.http_config.store_passwords_in_secrets_dir = true;
+            self
+        }
+
+        fn reuse_password_files(mut self, index: usize) -> Self {
+            self.reuse_password_files = Some(index);
+            self
+        }
+
         async fn with_src_validators(mut self, count: u32, first_index: u32) -> Self {
-            let builder = ImportTestBuilder::new()
+            let builder = ImportTestBuilder::new_with_http_config(self.http_config.clone())
                 .await
                 .create_validators(count, first_index)
                 .await;
@@ -683,7 +701,7 @@ mod test {
         }
 
         async fn with_dest_validators(mut self, count: u32, first_index: u32) -> Self {
-            let builder = ImportTestBuilder::new()
+            let builder = ImportTestBuilder::new_with_http_config(self.http_config.clone())
                 .await
                 .create_validators(count, first_index)
                 .await;
@@ -776,6 +794,14 @@ mod test {
                             assert!(
                                 dest_vc_final_keystores.contains(initial_keystore),
                                 "the source keystore should be present at the dest"
+                            );
+                            assert!(
+                                !src_vc
+                                    .secrets_dir
+                                    .path()
+                                    .join(format!("{:?}", initial_keystore.validating_pubkey))
+                                    .exists(),
+                                "the source password file should be deleted"
                             )
                         }
                     }
@@ -800,6 +826,14 @@ mod test {
                             assert!(
                                 dest_vc_final_keystores.contains(moved_keystore),
                                 "the moved keystore should be present at the dest"
+                            );
+                            assert!(
+                                !src_vc
+                                    .secrets_dir
+                                    .path()
+                                    .join(format!("{:?}", moved_keystore.validating_pubkey))
+                                    .exists(),
+                                "the source password file should be deleted"
                             )
                         }
                     }
@@ -830,8 +864,48 @@ mod test {
                                 dest_vc_final_keystores.contains(initial_keystore),
                                 "the keystore should be present at the dest"
                             );
+                            if self.reuse_password_files.is_some() {
+                                assert!(
+                                src_vc
+                                    .secrets_dir
+                                    .path()
+                                    .join(format!("{:?}", pubkey))
+                                    .exists(),
+                                "the source password file was used by another validator and should not be deleted"
+                            )
+                            } else {
+                                assert!(
+                                    !src_vc
+                                        .secrets_dir
+                                        .path()
+                                        .join(format!("{:?}", pubkey))
+                                        .exists(),
+                                    "the source password file should be deleted"
+                                )
+                            }
                         }
                     }
+                }
+
+                // If enabled, check that all VCs still have the password files for their validators.
+                if self.use_password_files {
+                    src_vc_final_keystores
+                        .iter()
+                        .map(|keystore| (&src_vc, keystore))
+                        .chain(
+                            dest_vc_final_keystores
+                                .iter()
+                                .map(|keystore| (&dest_vc, keystore)),
+                        )
+                        .for_each(|(vc, keystore)| {
+                            assert!(
+                                vc.secrets_dir
+                                    .path()
+                                    .join(format!("{:?}", keystore.validating_pubkey))
+                                    .exists(),
+                                "the password file should exist"
+                            )
+                        });
                 }
             }
 
@@ -847,15 +921,45 @@ mod test {
                 assert!(import_test_result.result.is_ok());
                 import_test_result.vc
             } else {
-                ApiTester::new().await
+                ApiTester::new_with_http_config(self.http_config.clone()).await
             };
+
+            // If enabled, set all the validator definitions on the src_vc to
+            // use the same password path as the given `master_index`. This
+            // helps test that we don't delete a password file if it's in use by
+            // another validator.
+            if let Some(primary_index) = self.reuse_password_files {
+                let mut initialized_validators = src_vc.initialized_validators.write();
+                let definitions = initialized_validators.as_mut_slice_testing_only();
+                // Find the path of the "primary" definition.
+                let primary_path = definitions
+                    .get(primary_index)
+                    .map(|def| match &def.signing_definition {
+                        SigningDefinition::LocalKeystore {
+                            voting_keystore_password_path: Some(path),
+                            ..
+                        } => path.clone(),
+                        _ => panic!("primary index does not have password path"),
+                    })
+                    .unwrap();
+                // Set all definitions to use the same password path as the primary.
+                definitions.iter_mut().enumerate().for_each(|(_, def)| {
+                    match &mut def.signing_definition {
+                        SigningDefinition::LocalKeystore {
+                            voting_keystore_password_path: Some(path),
+                            ..
+                        } => *path = primary_path.clone(),
+                        _ => (),
+                    }
+                })
+            }
 
             let dest_vc = if let Some(import_builder) = self.dest_import_builder.take() {
                 let import_test_result = import_builder.run_test().await;
                 assert!(import_test_result.result.is_ok());
                 import_test_result.vc
             } else {
-                ApiTester::new().await
+                ApiTester::new_with_http_config(self.http_config.clone()).await
             };
 
             if self.remove_passwords_from_src_vc {
@@ -1122,6 +1226,33 @@ mod test {
                     .for_each(|(_, passwords)| *passwords = vec!["wrong-password".to_string()])
             })
             .run_test(|_| Validators::All)
+            .await
+            .assert_ok();
+    }
+
+    #[tokio::test]
+    async fn one_validator_move_all_with_password_files() {
+        TestBuilder::new()
+            .await
+            .use_password_files()
+            .with_src_validators(1, 0)
+            .await
+            .run_test(|_| Validators::All)
+            .await
+            .assert_ok();
+    }
+
+    #[tokio::test]
+    async fn two_validators_move_one_with_identical_password_files() {
+        TestBuilder::new()
+            .await
+            .use_password_files()
+            // The password file for validator 0 will be shared with other
+            // validators on the src vc.
+            .reuse_password_files(0)
+            .with_src_validators(2, 0)
+            .await
+            .run_test(|validators| Validators::Specific(validators[0..1].to_vec()))
             .await
             .assert_ok();
     }

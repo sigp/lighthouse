@@ -61,10 +61,15 @@ pub struct ApiTester {
     pub test_runtime: TestRuntime,
     pub _server_shutdown: oneshot::Sender<()>,
     pub validator_dir: TempDir,
+    pub secrets_dir: TempDir,
 }
 
 impl ApiTester {
     pub async fn new() -> Self {
+        Self::new_with_http_config(Self::default_http_config()).await
+    }
+
+    pub async fn new_with_http_config(http_config: HttpConfig) -> Self {
         let log = test_logger();
 
         let validator_dir = tempdir().unwrap();
@@ -127,14 +132,7 @@ impl ApiTester {
             graffiti_file: None,
             graffiti_flag: Some(Graffiti::default()),
             spec: E::default_spec(),
-            config: HttpConfig {
-                enabled: true,
-                listen_addr: IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
-                listen_port: 0,
-                allow_origin: None,
-                allow_keystore_export: true,
-                store_passwords_in_secrets_dir: false,
-            },
+            config: http_config,
             log,
             sse_logging_components: None,
             slot_clock,
@@ -168,6 +166,18 @@ impl ApiTester {
             test_runtime,
             _server_shutdown: shutdown_tx,
             validator_dir,
+            secrets_dir,
+        }
+    }
+
+    pub fn default_http_config() -> HttpConfig {
+        HttpConfig {
+            enabled: true,
+            listen_addr: IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
+            listen_port: 0,
+            allow_origin: None,
+            allow_keystore_export: true,
+            store_passwords_in_secrets_dir: false,
         }
     }
 

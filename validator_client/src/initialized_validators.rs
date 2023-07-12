@@ -115,6 +115,7 @@ pub enum Error {
     UnableToReadKeystoreFile(eth2_keystore::Error),
     UnableToSaveKeyCache(key_cache::Error),
     UnableToDecryptKeyCache(key_cache::Error),
+    UnableToDeletePasswordFile(PathBuf, io::Error),
 }
 
 impl From<LockfileError> for Error {
@@ -562,6 +563,7 @@ impl InitializedValidators {
         // We disable before removing so that in case of a crash the auto-discovery mechanism
         // won't re-activate the keystore.
         let mut uuid_opt = None;
+        let mut password_path_opt = None;
         let keystore_and_password = if let Some(def) = self
             .definitions
             .as_mut_slice()
@@ -577,9 +579,12 @@ impl InitializedValidators {
                 } if is_local_keystore => {
                     let password = match (voting_keystore_password, voting_keystore_password_path) {
                         (Some(password), _) => Some(password.clone()),
-                        (_, Some(path)) => read_password_string(path)
-                            .map(Option::Some)
-                            .map_err(Error::UnableToReadValidatorPassword)?,
+                        (_, Some(path)) => {
+                            password_path_opt = Some(path.clone());
+                            read_password_string(path)
+                                .map(Option::Some)
+                                .map_err(Error::UnableToReadValidatorPassword)?
+                        }
                         (None, None) => None,
                     };
                     let keystore = Keystore::from_json_file(voting_keystore_path)
@@ -647,6 +652,20 @@ impl InitializedValidators {
         self.definitions
             .save(&self.validators_dir)
             .map_err(Error::UnableToSaveDefinitions)?;
+
+        // 4. Delete the keystore password if it's not being used by any definition.
+        if let Some(password_path) = password_path_opt.and_then(|p| p.canonicalize().ok()) {
+            if self
+                .definitions
+                .iter_voting_keystore_password_paths()
+                // Require canonicalized paths so we can do a true equality check.
+                .filter_map(|existing| existing.canonicalize().ok())
+                .all(|existing| existing != password_path)
+            {
+                fs::remove_file(&password_path)
+                    .map_err(|e| Error::UnableToDeletePasswordFile(password_path.into(), e))?;
+            }
+        }
 
         Ok(keystore_and_password)
     }
@@ -1281,5 +1300,11 @@ impl InitializedValidators {
             .map_err(Error::UnableToSaveDefinitions)?;
 
         Ok(passwords)
+    }
+
+    /// Prefer other methods in production. Arbitrarily modifying a validator
+    /// definition manually may result in inconsistencies.
+    pub fn as_mut_slice_testing_only(&mut self) -> &mut [ValidatorDefinition] {
+        self.definitions.as_mut_slice()
     }
 }
