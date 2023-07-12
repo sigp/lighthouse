@@ -38,7 +38,7 @@ use super::block_lookups::{BlockLookups, PeerShouldHave};
 use super::network_context::{BlockOrBlob, SyncNetworkContext};
 use super::peer_sync_info::{remote_sync_type, PeerSyncType};
 use super::range_sync::{RangeSync, RangeSyncType, EPOCHS_PER_BATCH};
-use crate::beacon_processor::{BeaconProcessorSend, ChainSegmentProcessId};
+use crate::network_beacon_processor::{ChainSegmentProcessId, NetworkBeaconProcessor};
 use crate::service::NetworkMessage;
 use crate::status::ToStatusMessage;
 use crate::sync::block_lookups::delayed_lookup;
@@ -207,9 +207,6 @@ pub struct SyncManager<T: BeaconChainTypes> {
     /// A reference to the underlying beacon chain.
     chain: Arc<BeaconChain<T>>,
 
-    /// A reference to the network globals and peer-db.
-    network_globals: Arc<NetworkGlobals<T::EthSpec>>,
-
     /// A receiving channel sent by the message processor thread.
     input_channel: mpsc::UnboundedReceiver<SyncMessage<T::EthSpec>>,
 
@@ -236,32 +233,22 @@ pub struct SyncManager<T: BeaconChainTypes> {
 pub fn spawn<T: BeaconChainTypes>(
     executor: task_executor::TaskExecutor,
     beacon_chain: Arc<BeaconChain<T>>,
-    network_globals: Arc<NetworkGlobals<T::EthSpec>>,
     network_send: mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
-    beacon_processor_send: BeaconProcessorSend<T>,
+    beacon_processor: Arc<NetworkBeaconProcessor<T>>,
+    sync_recv: mpsc::UnboundedReceiver<SyncMessage<T::EthSpec>>,
     log: slog::Logger,
-) -> mpsc::UnboundedSender<SyncMessage<T::EthSpec>> {
+) {
     assert!(
         MAX_REQUEST_BLOCKS >= T::EthSpec::slots_per_epoch() * EPOCHS_PER_BATCH,
         "Max blocks that can be requested in a single batch greater than max allowed blocks in a single request"
     );
-    // generate the message channel
-    let (sync_send, sync_recv) = mpsc::unbounded_channel::<SyncMessage<T::EthSpec>>();
-    let (delayed_lookups_send, delayed_lookups_recv) =
-        mpsc::channel::<DelayedLookupMessage>(DELAY_QUEUE_CHANNEL_SIZE);
 
     // create an instance of the SyncManager
+    let network_globals = beacon_processor.network_globals.clone();
     let mut sync_manager = SyncManager {
         chain: beacon_chain.clone(),
-        network_globals: network_globals.clone(),
         input_channel: sync_recv,
-        network: SyncNetworkContext::new(
-            network_send,
-            network_globals.clone(),
-            beacon_processor_send,
-            beacon_chain.clone(),
-            log.clone(),
-        ),
+        network: SyncNetworkContext::new(network_send, beacon_processor, log.clone()),
         range_sync: RangeSync::new(beacon_chain.clone(), log.clone()),
         backfill_sync: BackFillSync::new(beacon_chain.clone(), network_globals, log.clone()),
         block_lookups: BlockLookups::new(
@@ -285,10 +272,13 @@ pub fn spawn<T: BeaconChainTypes>(
     // spawn the sync manager thread
     debug!(log_clone, "Sync Manager started");
     executor.spawn(async move { Box::pin(sync_manager.main()).await }, "sync");
-    sync_send_clone
 }
 
 impl<T: BeaconChainTypes> SyncManager<T> {
+    fn network_globals(&self) -> &NetworkGlobals<T::EthSpec> {
+        self.network.network_globals()
+    }
+
     /* Input Handling Functions */
 
     /// A peer has connected which has blocks that are unknown to us.
@@ -429,12 +419,12 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         let rpr = new_state.as_str();
         // Drop the write lock
         let update_sync_status = self
-            .network_globals
+            .network_globals()
             .peers
             .write()
             .update_sync_status(peer_id, new_state.clone());
         if let Some(was_updated) = update_sync_status {
-            let is_connected = self.network_globals.peers.read().is_connected(peer_id);
+            let is_connected = self.network_globals().peers.read().is_connected(peer_id);
             if was_updated {
                 debug!(
                     self.log,
@@ -490,7 +480,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         let head = self.chain.best_slot();
                         let current_slot = self.chain.slot().unwrap_or_else(|_| Slot::new(0));
 
-                        let peers = self.network_globals.peers.read();
+                        let peers = self.network_globals().peers.read();
                         if current_slot >= head
                             && current_slot.sub(head) <= (SLOT_IMPORT_TOLERANCE as u64)
                             && head > 0
@@ -552,8 +542,8 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             },
         };
 
-        let old_state = self.network_globals.set_sync_state(new_state);
-        let new_state = self.network_globals.sync_state.read();
+        let old_state = self.network_globals().set_sync_state(new_state);
+        let new_state = self.network_globals().sync_state.read().clone();
         if !new_state.eq(&old_state) {
             info!(self.log, "Sync state updated"; "old_state" => %old_state, "new_state" => %new_state);
             // If we have become synced - Subscribe to all the core subnet topics

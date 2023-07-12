@@ -1,7 +1,10 @@
-use beacon_chain::blob_verification::{AsBlock, BlockWrapper};
-use beacon_chain::data_availability_checker::{AvailabilityCheckError, DataAvailabilityChecker};
-use beacon_chain::{AvailabilityProcessingStatus, BeaconChainTypes, BlockError};
-use lighthouse_network::rpc::RPCError;
+use std::collections::hash_map::Entry;
+use std::collections::HashMap;
+use std::time::Duration;
+
+use crate::network_beacon_processor::ChainSegmentProcessId;
+use beacon_chain::{BeaconChainTypes, BlockError};
+use fnv::FnvHashMap;
 use lighthouse_network::{PeerAction, PeerId};
 use lru_cache::LRUTimeCache;
 use slog::{debug, error, trace, warn, Logger};
@@ -9,11 +12,9 @@ use smallvec::SmallVec;
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::sync::Arc;
-use std::time::Duration;
-use store::Hash256;
-use strum::Display;
-use types::blob_sidecar::FixedBlobSidecarList;
-use types::{BlobSidecar, SignedBeaconBlock, Slot};
+use store::{Hash256, SignedBeaconBlock};
+
+use crate::metrics;
 
 use self::parent_lookup::PARENT_FAIL_TOLERANCE;
 use self::parent_lookup::{ParentLookup, ParentVerifyError};
@@ -1054,8 +1055,8 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             BlockProcessingResult::Ok(AvailabilityProcessingStatus::Imported(_))
             | BlockProcessingResult::Err(BlockError::BlockIsAlreadyKnown { .. }) => {
                 // Check if the beacon processor is available
-                let beacon_processor_send = match cx.processor_channel_if_enabled() {
-                    Some(channel) => channel,
+                let beacon_processor = match cx.beacon_processor_if_enabled() {
+                    Some(beacon_processor) => beacon_processor,
                     None => {
                         return trace!(
                             self.log,
@@ -1078,7 +1079,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 let process_id = ChainSegmentProcessId::ParentLookup(chain_hash);
                 let work = WorkEvent::chain_segment(process_id, blocks);
 
-                match beacon_processor_send.try_send(work) {
+                match beacon_processor.send_chain_segment(process_id, blocks) {
                     Ok(_) => {
                         self.processing_parent_lookups
                             .insert(chain_hash, (hashes, block_request));
@@ -1235,11 +1236,15 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         process_type: BlockProcessType,
         cx: &mut SyncNetworkContext<T>,
     ) -> Result<(), ()> {
-        match cx.processor_channel_if_enabled() {
-            Some(beacon_processor_send) => {
+        match cx.beacon_processor_if_enabled() {
+            Some(beacon_processor) => {
                 trace!(self.log, "Sending block for processing"; "block" => ?block_root, "process" => ?process_type);
-                let event = WorkEvent::rpc_beacon_block(block_root, block, duration, process_type);
-                if let Err(e) = beacon_processor_send.try_send(event) {
+                if let Err(e) = beacon_processor.send_rpc_beacon_block(
+                    block_root,
+                    block,
+                    duration,
+                    process_type,
+                ) {
                     error!(
                         self.log,
                         "Failed to send sync block to processor";

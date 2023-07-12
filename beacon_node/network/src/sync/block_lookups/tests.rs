@@ -1,24 +1,19 @@
 #![cfg(feature = "spec-minimal")]
 use std::sync::Arc;
 
-use crate::beacon_processor::BeaconProcessorSend;
+use crate::network_beacon_processor::NetworkBeaconProcessor;
 use crate::service::RequestId;
 use crate::sync::manager::RequestId as SyncId;
 use crate::NetworkMessage;
 
 use super::*;
 
-use beacon_chain::{
-    builder::Witness,
-    eth1_chain::CachingEth1Backend,
-    test_utils::{build_log, BeaconChainHarness, EphemeralHarnessType},
-};
-use execution_layer::BlobsBundleV1;
-pub use genesis::{interop_genesis_state, DEFAULT_ETH1_BLOCK_HASH};
-use lighthouse_network::rpc::RPCResponseErrorCode;
+use beacon_chain::builder::Witness;
+use beacon_chain::eth1_chain::CachingEth1Backend;
+use beacon_processor::WorkEvent;
 use lighthouse_network::{NetworkGlobals, Request};
-use slot_clock::{SlotClock, TestingSlotClock};
-use std::time::Duration;
+use slog::{Drain, Level};
+use slot_clock::ManualSlotClock;
 use store::MemoryStore;
 use tokio::sync::mpsc;
 use types::{
@@ -27,10 +22,10 @@ use types::{
     BeaconBlock, EthSpec, ForkName, FullPayloadDeneb, MinimalEthSpec as E, SignedBeaconBlock,
 };
 
-type T = Witness<TestingSlotClock, CachingEth1Backend<E>, E, MemoryStore<E>, MemoryStore<E>>;
+type T = Witness<ManualSlotClock, CachingEth1Backend<E>, E, MemoryStore<E>, MemoryStore<E>>;
 
 struct TestRig {
-    beacon_processor_rx: mpsc::Receiver<WorkEvent<T>>,
+    beacon_processor_rx: mpsc::Receiver<WorkEvent<E>>,
     network_rx: mpsc::UnboundedReceiver<NetworkMessage<E>>,
     rng: XorShiftRng,
     harness: BeaconChainHarness<T>,
@@ -62,8 +57,10 @@ impl TestRig {
 
         let chain = harness.chain.clone();
 
-        let (beacon_processor_tx, beacon_processor_rx) = mpsc::channel(100);
         let (network_tx, network_rx) = mpsc::unbounded_channel();
+        let globals = Arc::new(NetworkGlobals::new_test_globals(Vec::new(), &log));
+        let (network_beacon_processor, beacon_processor_rx) =
+            NetworkBeaconProcessor::null_for_testing(globals);
         let rng = XorShiftRng::from_seed([42; 16]);
         let rig = TestRig {
             beacon_processor_rx,
@@ -77,11 +74,9 @@ impl TestRig {
             log.new(slog::o!("component" => "block_lookups")),
         );
         let cx = {
-            let globals = Arc::new(NetworkGlobals::new_test_globals(Vec::new(), &log));
             SyncNetworkContext::new(
                 network_tx,
-                globals,
-                BeaconProcessorSend(beacon_processor_tx),
+                Arc::new(network_beacon_processor),
                 chain,
                 log.new(slog::o!("component" => "network_context")),
             )
@@ -211,13 +206,13 @@ impl TestRig {
         match response_type {
             ResponseType::Block => match self.beacon_processor_rx.try_recv() {
                 Ok(work) => {
-                    assert_eq!(work.work_type(), crate::beacon_processor::RPC_BLOCK);
+                    assert_eq!(work.work_type(), beacon_processor::RPC_BLOCK);
                 }
                 other => panic!("Expected block process, found {:?}", other),
             },
             ResponseType::Blob => match self.beacon_processor_rx.try_recv() {
                 Ok(work) => {
-                    assert_eq!(work.work_type(), crate::beacon_processor::RPC_BLOB);
+                    assert_eq!(work.work_type(), beacon_processor::RPC_BLOB);
                 }
                 other => panic!("Expected blob process, found {:?}", other),
             },
@@ -228,7 +223,7 @@ impl TestRig {
     fn expect_parent_chain_process(&mut self) {
         match self.beacon_processor_rx.try_recv() {
             Ok(work) => {
-                assert_eq!(work.work_type(), crate::beacon_processor::CHAIN_SEGMENT);
+                assert_eq!(work.work_type(), beacon_processor::CHAIN_SEGMENT);
             }
             other => panic!("Expected chain segment process, found {:?}", other),
         }

@@ -177,7 +177,7 @@ fn checkpoint_sync_url_timeout_default() {
     CommandLineTest::new()
         .run_with_zero_port()
         .with_config(|config| {
-            assert_eq!(config.chain.checkpoint_sync_url_timeout, 60);
+            assert_eq!(config.chain.checkpoint_sync_url_timeout, 180);
         });
 }
 
