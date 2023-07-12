@@ -3,17 +3,17 @@ use crate::common::update_progressive_balances_cache::{
     initialize_progressive_balances_cache, update_progressive_balances_on_epoch_transition,
 };
 use crate::epoch_cache::initialize_epoch_cache;
-use crate::per_epoch_processing::single_pass::process_epoch_single_pass;
+use crate::per_epoch_processing::single_pass::{process_epoch_single_pass, SinglePassConfig};
 use crate::per_epoch_processing::{
     capella::process_historical_summaries_update,
     historical_roots_update::process_historical_roots_update,
     resets::{process_eth1_data_reset, process_randao_mixes_reset, process_slashings_reset},
 };
-pub use inactivity_updates::process_inactivity_updates;
+pub use inactivity_updates::process_inactivity_updates_slow;
 pub use justification_and_finalization::process_justification_and_finalization;
 pub use participation_cache::ParticipationCache;
 pub use participation_flag_updates::process_participation_flag_updates;
-pub use rewards_and_penalties::process_rewards_and_penalties;
+pub use rewards_and_penalties::process_rewards_and_penalties_slow;
 pub use sync_committee_updates::process_sync_committee_updates;
 use types::{BeaconState, ChainSpec, EthSpec, RelativeEpoch};
 
@@ -52,7 +52,7 @@ pub fn process_epoch<T: EthSpec>(
     // The `process_eth1_data_reset` is not covered in the single pass, but happens afterwards
     // without loss of correctness.
     let current_epoch_progressive_balances = state.progressive_balances_cache().clone();
-    process_epoch_single_pass(state, spec)?;
+    process_epoch_single_pass(state, spec, SinglePassConfig::default())?;
 
     // Reset eth1 data votes.
     process_eth1_data_reset(state)?;

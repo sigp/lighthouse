@@ -47,7 +47,6 @@ pub fn process_epoch<T: EthSpec>(
     // Slashings.
     process_slashings(
         state,
-        None,
         validator_statuses.total_balances.current_epoch(),
         spec,
     )?;
@@ -56,7 +55,7 @@ pub fn process_epoch<T: EthSpec>(
     process_eth1_data_reset(state)?;
 
     // Update effective balances with hysteresis (lag).
-    process_effective_balance_updates(state, None, spec)?;
+    process_effective_balance_updates(state, spec)?;
 
     // Reset slashings
     process_slashings_reset(state)?;

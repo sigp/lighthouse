@@ -26,7 +26,7 @@ pub fn initialize_progressive_balances_cache<E: EthSpec>(
         return Ok(());
     }
 
-    // FIXME(sproul): delete the participation cache
+    // FIXME(sproul): simplify the participation cache
     let participation_cache = match maybe_participation_cache {
         Some(cache) => Cow::Borrowed(cache),
         None => {

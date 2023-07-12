@@ -1,62 +1,30 @@
 use super::ParticipationCache;
+use crate::per_epoch_processing::{
+    single_pass::{process_epoch_single_pass, SinglePassConfig},
+    Delta, Error,
+};
 use safe_arith::SafeArith;
 use types::consts::altair::{
     PARTICIPATION_FLAG_WEIGHTS, TIMELY_HEAD_FLAG_INDEX, TIMELY_TARGET_FLAG_INDEX,
     WEIGHT_DENOMINATOR,
 };
-use types::{BeaconState, BeaconStateError, ChainSpec, EthSpec};
-
-use crate::common::{decrease_balance_directly, increase_balance_directly};
-use crate::per_epoch_processing::{Delta, Error};
+use types::{BeaconState, ChainSpec, EthSpec};
 
 /// Apply attester and proposer rewards.
 ///
-/// Spec v1.1.0
-pub fn process_rewards_and_penalties<T: EthSpec>(
+/// This function should only be used for testing.
+pub fn process_rewards_and_penalties_slow<T: EthSpec>(
     state: &mut BeaconState<T>,
-    participation_cache: &ParticipationCache,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
-    if state.current_epoch() == T::genesis_epoch() {
-        return Ok(());
-    }
-
-    let mut deltas = vec![Delta::default(); state.validators().len()];
-
-    let total_active_balance = participation_cache.current_epoch_total_active_balance();
-
-    for flag_index in 0..PARTICIPATION_FLAG_WEIGHTS.len() {
-        get_flag_index_deltas(
-            &mut deltas,
-            state,
-            flag_index,
-            total_active_balance,
-            participation_cache,
-            spec,
-        )?;
-    }
-
-    get_inactivity_penalty_deltas(&mut deltas, state, participation_cache, spec)?;
-
-    // Apply the deltas, erroring on overflow above but not on overflow below (saturating at 0
-    // instead).
-    let mut balances = state.balances_mut().iter_cow();
-
-    while let Some((i, balance)) = balances.next_cow() {
-        let delta = deltas
-            .get(i)
-            .ok_or(BeaconStateError::BalancesOutOfBounds(i))?;
-
-        if delta.rewards == 0 && delta.penalties == 0 {
-            continue;
-        }
-
-        let balance = balance.to_mut();
-        increase_balance_directly(balance, delta.rewards)?;
-        decrease_balance_directly(balance, delta.penalties)?;
-    }
-
-    Ok(())
+    process_epoch_single_pass(
+        state,
+        spec,
+        SinglePassConfig {
+            rewards_and_penalties: true,
+            ..SinglePassConfig::disable_all()
+        },
+    )
 }
 
 /// Return the deltas for a given flag index by scanning through the participation flags.

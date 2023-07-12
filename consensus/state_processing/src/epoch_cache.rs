@@ -15,10 +15,8 @@ impl PreEpochCache {
         // The decision block root for the next epoch is the latest block root from this epoch.
         let latest_block_header = state.latest_block_header();
 
-        // State root should already have been filled in by `process_slot`.
-        // FIXME(sproul): proper error
-        assert!(!latest_block_header.state_root.is_zero());
-
+        // State root should already have been filled in by `process_slot`, except in the case
+        // of a `partial_state_advance`.
         let decision_block_root = latest_block_header.canonical_root();
 
         let epoch_key = EpochCacheKey {

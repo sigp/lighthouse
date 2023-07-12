@@ -7,8 +7,8 @@ pub use justification_and_finalization_state::JustificationAndFinalizationState;
 use safe_arith::SafeArith;
 use types::{BeaconState, ChainSpec, EthSpec};
 
-pub use registry_updates::process_registry_updates;
-pub use slashings::process_slashings;
+pub use registry_updates::{process_registry_updates, process_registry_updates_slow};
+pub use slashings::{process_slashings, process_slashings_slow};
 pub use weigh_justification_and_finalization::weigh_justification_and_finalization;
 
 pub mod altair;

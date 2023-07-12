@@ -1,12 +1,14 @@
 use crate::common::decrease_balance;
-use crate::per_epoch_processing::Error;
+use crate::per_epoch_processing::{
+    single_pass::{process_epoch_single_pass, SinglePassConfig},
+    Error,
+};
 use safe_arith::{SafeArith, SafeArithIter};
 use types::{BeaconState, ChainSpec, EthSpec, Unsigned};
 
 /// Process slashings.
 pub fn process_slashings<T: EthSpec>(
     state: &mut BeaconState<T>,
-    indices: Option<Vec<(usize, u64)>>,
     total_balance: u64,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
@@ -20,17 +22,15 @@ pub fn process_slashings<T: EthSpec>(
 
     let target_withdrawable_epoch =
         epoch.safe_add(T::EpochsPerSlashingsVector::to_u64().safe_div(2)?)?;
-    let indices = indices.unwrap_or_else(|| {
-        state
-            .validators()
-            .iter()
-            .enumerate()
-            .filter(|(_, validator)| {
-                validator.slashed() && target_withdrawable_epoch == validator.withdrawable_epoch()
-            })
-            .map(|(index, validator)| (index, validator.effective_balance()))
-            .collect()
-    });
+    let indices = state
+        .validators()
+        .iter()
+        .enumerate()
+        .filter(|(_, validator)| {
+            validator.slashed() && target_withdrawable_epoch == validator.withdrawable_epoch()
+        })
+        .map(|(index, validator)| (index, validator.effective_balance()))
+        .collect::<Vec<(usize, u64)>>();
 
     for (index, validator_effective_balance) in indices {
         let increment = spec.effective_balance_increment;
@@ -45,4 +45,18 @@ pub fn process_slashings<T: EthSpec>(
     }
 
     Ok(())
+}
+
+pub fn process_slashings_slow<T: EthSpec>(
+    state: &mut BeaconState<T>,
+    spec: &ChainSpec,
+) -> Result<(), Error> {
+    process_epoch_single_pass(
+        state,
+        spec,
+        SinglePassConfig {
+            slashings: true,
+            ..SinglePassConfig::disable_all()
+        },
+    )
 }

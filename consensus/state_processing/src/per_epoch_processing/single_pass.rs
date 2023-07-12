@@ -1,5 +1,6 @@
 use crate::{
-    epoch_cache::PreEpochCache,
+    common::update_progressive_balances_cache::initialize_progressive_balances_cache,
+    epoch_cache::{initialize_epoch_cache, PreEpochCache},
     per_epoch_processing::{Delta, Error},
 };
 use itertools::izip;
@@ -14,6 +15,42 @@ use types::{
     ActivationQueue, BeaconState, BeaconStateError, ChainSpec, Epoch, EthSpec, ExitCache, ForkName,
     ParticipationFlags, ProgressiveBalancesCache, Unsigned, Validator,
 };
+
+pub struct SinglePassConfig {
+    pub inactivity_updates: bool,
+    pub rewards_and_penalties: bool,
+    pub registry_updates: bool,
+    pub slashings: bool,
+    pub effective_balance_updates: bool,
+}
+
+impl Default for SinglePassConfig {
+    fn default() -> SinglePassConfig {
+        Self::enable_all()
+    }
+}
+
+impl SinglePassConfig {
+    pub fn enable_all() -> SinglePassConfig {
+        Self {
+            inactivity_updates: true,
+            rewards_and_penalties: true,
+            registry_updates: true,
+            slashings: true,
+            effective_balance_updates: true,
+        }
+    }
+
+    pub fn disable_all() -> SinglePassConfig {
+        SinglePassConfig {
+            inactivity_updates: false,
+            rewards_and_penalties: false,
+            registry_updates: false,
+            slashings: false,
+            effective_balance_updates: false,
+        }
+    }
+}
 
 /// Values from the state that are immutable throughout epoch processing.
 struct StateContext {
@@ -70,7 +107,12 @@ impl ValidatorInfo {
 pub fn process_epoch_single_pass<E: EthSpec>(
     state: &mut BeaconState<E>,
     spec: &ChainSpec,
+    conf: SinglePassConfig,
 ) -> Result<(), Error> {
+    initialize_epoch_cache(state, spec)?;
+    initialize_progressive_balances_cache(state, None, spec)?;
+    state.build_exit_cache(spec)?;
+
     let previous_epoch = state.previous_epoch();
     let current_epoch = state.current_epoch();
     let next_epoch = state.next_epoch()?;
@@ -169,53 +211,70 @@ pub fn process_epoch_single_pass<E: EthSpec>(
 
         if current_epoch != E::genesis_epoch() {
             // `process_inactivity_updates`
-            process_single_inactivity_update(inactivity_score, validator_info, state_ctxt, spec)?;
+            if conf.inactivity_updates {
+                process_single_inactivity_update(
+                    inactivity_score,
+                    validator_info,
+                    state_ctxt,
+                    spec,
+                )?;
+            }
 
             // `process_rewards_and_penalties`
-            process_single_reward_and_penalty(
-                balance,
-                inactivity_score,
+            if conf.rewards_and_penalties {
+                process_single_reward_and_penalty(
+                    balance,
+                    inactivity_score,
+                    validator_info,
+                    rewards_ctxt,
+                    state_ctxt,
+                    spec,
+                )?;
+            }
+        }
+
+        // `process_registry_updates`
+        if conf.registry_updates {
+            process_single_registry_update(
+                validator,
                 validator_info,
-                rewards_ctxt,
+                exit_cache,
+                activation_queue,
+                &mut next_epoch_activation_queue,
                 state_ctxt,
                 spec,
             )?;
         }
 
-        // `process_registry_udpates`
-        process_single_registry_update(
-            validator,
-            validator_info,
-            exit_cache,
-            activation_queue,
-            &mut next_epoch_activation_queue,
-            state_ctxt,
-            spec,
-        )?;
-
         // `process_slashings`
-        process_single_slashing(balance, validator, slashings_ctxt, state_ctxt, spec)?;
+        if conf.slashings {
+            process_single_slashing(balance, validator, slashings_ctxt, state_ctxt, spec)?;
+        }
 
         // `process_effective_balance_updates`
-        process_single_effective_balance_update(
-            *balance,
-            validator,
-            validator_info,
-            &mut next_epoch_total_active_balance,
-            &mut next_epoch_cache,
-            progressive_balances,
-            effective_balances_ctxt,
-            state_ctxt,
+        if conf.effective_balance_updates {
+            process_single_effective_balance_update(
+                *balance,
+                validator,
+                validator_info,
+                &mut next_epoch_total_active_balance,
+                &mut next_epoch_cache,
+                progressive_balances,
+                effective_balances_ctxt,
+                state_ctxt,
+                spec,
+            )?;
+        }
+    }
+
+    if conf.effective_balance_updates {
+        state.set_total_active_balance(next_epoch, next_epoch_total_active_balance);
+        *state.epoch_cache_mut() = next_epoch_cache.into_epoch_cache(
+            next_epoch_total_active_balance,
+            next_epoch_activation_queue,
             spec,
         )?;
     }
-
-    state.set_total_active_balance(next_epoch, next_epoch_total_active_balance);
-    *state.epoch_cache_mut() = next_epoch_cache.into_epoch_cache(
-        next_epoch_total_active_balance,
-        next_epoch_activation_queue,
-        spec,
-    )?;
 
     Ok(())
 }
