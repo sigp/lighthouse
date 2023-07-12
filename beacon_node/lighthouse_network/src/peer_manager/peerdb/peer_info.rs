@@ -23,7 +23,8 @@ pub struct PeerInfo<T: EthSpec> {
     /// The peers reputation
     score: Score,
     /// Time at which peer was banned
-    banned_since: Option<u64>,
+    #[serde(skip)]
+    banned_since: Option<Instant>,
     /// Client managing this peer
     client: Client,
     /// Connection status of this peer
