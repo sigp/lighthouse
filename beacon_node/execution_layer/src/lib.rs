@@ -44,10 +44,8 @@ use types::beacon_block_body::KzgCommitments;
 use types::blob_sidecar::Blobs;
 use types::KzgProofs;
 use types::{
-    AbstractExecPayload, BeaconStateError, ExecPayload, ExecutionPayloadDeneb, VersionedHash,
-};
-use types::{
-    BlindedPayload, BlockType, ChainSpec, Epoch, ExecutionPayloadCapella, ExecutionPayloadMerge,
+    AbstractExecPayload, BeaconStateError, BlindedPayload, BlockType, ChainSpec, Epoch,
+    ExecPayload, ExecutionPayloadCapella, ExecutionPayloadDeneb, ExecutionPayloadMerge,
 };
 use types::{ProposerPreparationData, PublicKeyBytes, Signature, Slot, Transaction};
 
@@ -1247,29 +1245,25 @@ impl<T: EthSpec> ExecutionLayer<T> {
     /// Maps to the `engine_newPayload` JSON-RPC call.
     pub async fn notify_new_payload(
         &self,
-        execution_payload: &ExecutionPayload<T>,
-        versioned_hashes: Option<Vec<VersionedHash>>,
+        new_payload_request: NewPayloadRequest<T>,
     ) -> Result<PayloadStatus, Error> {
         let _timer = metrics::start_timer_vec(
             &metrics::EXECUTION_LAYER_REQUEST_TIMES,
             &[metrics::NEW_PAYLOAD],
         );
 
+        let block_hash = new_payload_request.block_hash();
         trace!(
             self.log(),
             "Issuing engine_newPayload";
-            "parent_hash" => ?execution_payload.parent_hash(),
-            "block_hash" => ?execution_payload.block_hash(),
-            "block_number" => execution_payload.block_number(),
+            "parent_hash" => ?new_payload_request.parent_hash(),
+            "block_hash" => ?block_hash,
+            "block_number" => ?new_payload_request.block_number(),
         );
 
         let result = self
             .engine()
-            .request(|engine| {
-                engine
-                    .api
-                    .new_payload(execution_payload.clone(), versioned_hashes)
-            })
+            .request(|engine| engine.api.new_payload(new_payload_request))
             .await;
 
         if let Ok(status) = &result {
@@ -1280,7 +1274,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
         }
         *self.inner.last_new_payload_errored.write().await = result.is_err();
 
-        process_payload_status(execution_payload.block_hash(), result, self.log())
+        process_payload_status(block_hash, result, self.log())
             .map_err(Box::new)
             .map_err(Error::EngineError)
     }

@@ -12,13 +12,15 @@ use crate::{
     BeaconChain, BeaconChainError, BeaconChainTypes, BlockError, BlockProductionError,
     ExecutionPayloadError,
 };
-use execution_layer::{BlockProposalContents, BuilderParams, PayloadAttributes, PayloadStatus};
+use execution_layer::{
+    BlockProposalContents, BuilderParams, NewPayloadRequest, PayloadAttributes, PayloadStatus,
+};
 use fork_choice::{InvalidationOperation, PayloadVerificationStatus};
 use proto_array::{Block as ProtoBlock, ExecutionStatus};
 use slog::{debug, warn};
 use slot_clock::SlotClock;
 use state_processing::per_block_processing::{
-    self, compute_timestamp_at_slot, get_expected_withdrawals, is_execution_enabled,
+    compute_timestamp_at_slot, get_expected_withdrawals, is_execution_enabled,
     is_merge_transition_complete, partially_verify_execution_payload,
 };
 use std::sync::Arc;
@@ -139,23 +141,15 @@ async fn notify_new_payload<'a, T: BeaconChainTypes>(
     chain: &Arc<BeaconChain<T>>,
     block: BeaconBlockRef<'a, T::EthSpec>,
 ) -> Result<PayloadVerificationStatus, BlockError<T::EthSpec>> {
-    let execution_payload = block.execution_payload()?;
-    let versioned_hashes = block.body().blob_kzg_commitments().ok().map(|commitments| {
-        commitments
-            .into_iter()
-            .map(|commitment| {
-                per_block_processing::deneb::deneb::kzg_commitment_to_versioned_hash(commitment)
-            })
-            .collect::<Vec<_>>()
-    });
-
     let execution_layer = chain
         .execution_layer
         .as_ref()
         .ok_or(ExecutionPayloadError::NoExecutionConnection)?;
 
+    let new_payload_request: NewPayloadRequest<T::EthSpec> = block.try_into()?;
+    let execution_block_hash = new_payload_request.block_hash();
     let new_payload_response = execution_layer
-        .notify_new_payload(&execution_payload.into(), versioned_hashes)
+        .notify_new_payload(new_payload_request)
         .await;
 
     match new_payload_response {
@@ -173,7 +167,7 @@ async fn notify_new_payload<'a, T: BeaconChainTypes>(
                     "Invalid execution payload";
                     "validation_error" => ?validation_error,
                     "latest_valid_hash" => ?latest_valid_hash,
-                    "execution_block_hash" => ?execution_payload.block_hash(),
+                    "execution_block_hash" => ?execution_block_hash,
                     "root" => ?block.tree_hash_root(),
                     "graffiti" => block.body().graffiti().as_utf8_lossy(),
                     "proposer_index" => block.proposer_index(),
@@ -219,7 +213,7 @@ async fn notify_new_payload<'a, T: BeaconChainTypes>(
                     chain.log,
                     "Invalid execution payload block hash";
                     "validation_error" => ?validation_error,
-                    "execution_block_hash" => ?execution_payload.block_hash(),
+                    "execution_block_hash" => ?execution_block_hash,
                     "root" => ?block.tree_hash_root(),
                     "graffiti" => block.body().graffiti().as_utf8_lossy(),
                     "proposer_index" => block.proposer_index(),
@@ -435,6 +429,12 @@ pub fn get_execution_payload<
         // These shouldn't happen but they're here to make the pattern irrefutable
         &BeaconState::Base(_) | &BeaconState::Altair(_) => None,
     };
+    let parent_beacon_block_root = match state {
+        &BeaconState::Deneb(_) => Some(state.latest_block_header().canonical_root()),
+        &BeaconState::Merge(_) | &BeaconState::Capella(_) => None,
+        // These shouldn't happen but they're here to make the pattern irrefutable
+        &BeaconState::Base(_) | &BeaconState::Altair(_) => None,
+    };
 
     // Spawn a task to obtain the execution payload from the EL via a series of async calls. The
     // `join_handle` can be used to await the result of the function.
@@ -452,6 +452,7 @@ pub fn get_execution_payload<
                     latest_execution_payload_header_block_hash,
                     builder_params,
                     withdrawals,
+                    parent_beacon_block_root,
                 )
                 .await
             },
@@ -486,6 +487,7 @@ pub async fn prepare_execution_payload<T, Payload>(
     latest_execution_payload_header_block_hash: ExecutionBlockHash,
     builder_params: BuilderParams,
     withdrawals: Option<Vec<Withdrawal>>,
+    parent_beacon_block_root: Option<Hash256>,
 ) -> Result<BlockProposalContents<T::EthSpec, Payload>, BlockProductionError>
 where
     T: BeaconChainTypes,
@@ -547,8 +549,13 @@ where
     let suggested_fee_recipient = execution_layer
         .get_suggested_fee_recipient(proposer_index)
         .await;
-    let payload_attributes =
-        PayloadAttributes::new(timestamp, random, suggested_fee_recipient, withdrawals);
+    let payload_attributes = PayloadAttributes::new(
+        timestamp,
+        random,
+        suggested_fee_recipient,
+        withdrawals,
+        parent_beacon_block_root,
+    );
 
     // Note: the suggested_fee_recipient is stored in the `execution_layer`, it will add this parameter.
     //

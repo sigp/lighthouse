@@ -364,7 +364,7 @@ impl From<JsonWithdrawal> for Withdrawal {
 }
 
 #[superstruct(
-    variants(V1, V2),
+    variants(V1, V2, V3),
     variant_attributes(
         derive(Debug, Clone, PartialEq, Serialize, Deserialize),
         serde(rename_all = "camelCase")
@@ -379,8 +379,10 @@ pub struct JsonPayloadAttributes {
     pub timestamp: u64,
     pub prev_randao: Hash256,
     pub suggested_fee_recipient: Address,
-    #[superstruct(only(V2))]
+    #[superstruct(only(V2, V3))]
     pub withdrawals: Vec<JsonWithdrawal>,
+    #[superstruct(only(V3))]
+    pub parent_beacon_block_root: Hash256,
 }
 
 impl From<PayloadAttributes> for JsonPayloadAttributes {
@@ -396,6 +398,13 @@ impl From<PayloadAttributes> for JsonPayloadAttributes {
                 prev_randao: pa.prev_randao,
                 suggested_fee_recipient: pa.suggested_fee_recipient,
                 withdrawals: pa.withdrawals.into_iter().map(Into::into).collect(),
+            }),
+            PayloadAttributes::V3(pa) => Self::V3(JsonPayloadAttributesV3 {
+                timestamp: pa.timestamp,
+                prev_randao: pa.prev_randao,
+                suggested_fee_recipient: pa.suggested_fee_recipient,
+                withdrawals: pa.withdrawals.into_iter().map(Into::into).collect(),
+                parent_beacon_block_root: pa.parent_beacon_block_root,
             }),
         }
     }
@@ -414,6 +423,13 @@ impl From<JsonPayloadAttributes> for PayloadAttributes {
                 prev_randao: jpa.prev_randao,
                 suggested_fee_recipient: jpa.suggested_fee_recipient,
                 withdrawals: jpa.withdrawals.into_iter().map(Into::into).collect(),
+            }),
+            JsonPayloadAttributes::V3(jpa) => Self::V3(PayloadAttributesV3 {
+                timestamp: jpa.timestamp,
+                prev_randao: jpa.prev_randao,
+                suggested_fee_recipient: jpa.suggested_fee_recipient,
+                withdrawals: jpa.withdrawals.into_iter().map(Into::into).collect(),
+                parent_beacon_block_root: jpa.parent_beacon_block_root,
             }),
         }
     }

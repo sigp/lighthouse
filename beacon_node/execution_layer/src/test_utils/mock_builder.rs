@@ -402,13 +402,23 @@ impl<E: EthSpec> mev_rs::BlindedBlockProvider for MockBuilder<E> {
         let prev_randao = head_state
             .get_randao_mix(head_state.current_epoch())
             .map_err(convert_err)?;
+        let parent_root = head_state.latest_block_header().parent_root;
 
         let payload_attributes = match fork {
-            ForkName::Merge => PayloadAttributes::new(timestamp, *prev_randao, fee_recipient, None),
-            // the withdrawals root is filled in by operations
-            ForkName::Capella | ForkName::Deneb => {
-                PayloadAttributes::new(timestamp, *prev_randao, fee_recipient, Some(vec![]))
+            ForkName::Merge => {
+                PayloadAttributes::new(timestamp, *prev_randao, fee_recipient, None, None)
             }
+            // the withdrawals root is filled in by operations
+            ForkName::Capella => {
+                PayloadAttributes::new(timestamp, *prev_randao, fee_recipient, Some(vec![]), None)
+            }
+            ForkName::Deneb => PayloadAttributes::new(
+                timestamp,
+                *prev_randao,
+                fee_recipient,
+                Some(vec![]),
+                Some(parent_root),
+            ),
             ForkName::Base | ForkName::Altair => {
                 return Err(MevError::InvalidFork);
             }
