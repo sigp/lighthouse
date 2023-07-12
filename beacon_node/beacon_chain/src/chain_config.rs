@@ -1,7 +1,7 @@
 pub use proto_array::{DisallowedReOrgOffsets, ReOrgThreshold};
 use serde_derive::{Deserialize, Serialize};
 use std::time::Duration;
-use types::{Checkpoint, Epoch};
+use types::{Checkpoint, Epoch, ProgressiveBalancesMode};
 
 pub const DEFAULT_RE_ORG_THRESHOLD: ReOrgThreshold = ReOrgThreshold(20);
 pub const DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION: Epoch = Epoch::new(2);
@@ -81,6 +81,8 @@ pub struct ChainConfig {
     pub always_prepare_payload: bool,
     /// Whether backfill sync processing should be rate-limited.
     pub enable_backfill_rate_limiting: bool,
+    /// Whether to use `ProgressiveBalancesCache` in unrealized FFG progression calculation.
+    pub progressive_balances_mode: ProgressiveBalancesMode,
     /// Number of epochs between each migration of data from the hot database to the freezer.
     pub epochs_per_migration: u64,
 }
@@ -113,6 +115,7 @@ impl Default for ChainConfig {
             genesis_backfill: false,
             always_prepare_payload: false,
             enable_backfill_rate_limiting: true,
+            progressive_balances_mode: ProgressiveBalancesMode::Checked,
             epochs_per_migration: crate::migrate::DEFAULT_EPOCHS_PER_MIGRATION,
         }
     }

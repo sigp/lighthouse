@@ -1,6 +1,6 @@
 #![cfg(not(debug_assertions))]
 
-use beacon_chain::sync_committee_verification::Error as SyncCommitteeError;
+use beacon_chain::sync_committee_verification::{Error as SyncCommitteeError, SyncCommitteeData};
 use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType, RelativeSyncCommittee};
 use int_to_bytes::int_to_bytes32;
 use lazy_static::lazy_static;
@@ -444,11 +444,17 @@ async fn aggregated_gossip_verification() {
      * subcommittee index contribution.subcommittee_index.
      */
 
+    let contribution = &valid_aggregate.message.contribution;
+    let sync_committee_data = SyncCommitteeData {
+        slot: contribution.slot,
+        root: contribution.beacon_block_root,
+        subcommittee_index: contribution.subcommittee_index,
+    };
     assert_invalid!(
         "aggregate that has already been seen",
         valid_aggregate.clone(),
-        SyncCommitteeError::SyncContributionAlreadyKnown(hash)
-        if hash == valid_aggregate.message.contribution.tree_hash_root()
+        SyncCommitteeError::SyncContributionSupersetKnown(hash)
+        if hash == sync_committee_data.tree_hash_root()
     );
 
     /*

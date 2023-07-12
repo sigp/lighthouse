@@ -661,13 +661,14 @@ dependencies = [
  "tokio",
  "tokio-stream",
  "tree_hash",
+ "tree_hash_derive",
  "types",
  "unused_port",
 ]
 
 [[package]]
 name = "beacon_node"
-version = "4.2.0"
+version = "4.3.0"
 dependencies = [
  "beacon_chain",
  "clap",
@@ -697,6 +698,30 @@ dependencies = [
  "task_executor",
  "types",
  "unused_port",
+]
+
+[[package]]
+name = "beacon_processor"
+version = "0.1.0"
+dependencies = [
+ "derivative",
+ "ethereum_ssz",
+ "fnv",
+ "futures",
+ "hex",
+ "itertools",
+ "lazy_static",
+ "lighthouse_metrics",
+ "lighthouse_network",
+ "logging",
+ "parking_lot 0.12.1",
+ "slog",
+ "slot_clock",
+ "strum",
+ "task_executor",
+ "tokio",
+ "tokio-util 0.6.10",
+ "types",
 ]
 
 [[package]]
@@ -846,7 +871,7 @@ dependencies = [
 
 [[package]]
 name = "boot_node"
-version = "4.2.0"
+version = "4.3.0"
 dependencies = [
  "beacon_node",
  "clap",
@@ -1147,6 +1172,7 @@ name = "client"
 version = "0.2.0"
 dependencies = [
  "beacon_chain",
+ "beacon_processor",
  "directory",
  "dirs",
  "environment",
@@ -1164,6 +1190,7 @@ dependencies = [
  "logging",
  "monitoring_api",
  "network",
+ "num_cpus",
  "operation_pool",
  "parking_lot 0.12.1",
  "sensitive_url",
@@ -2291,6 +2318,8 @@ dependencies = [
  "libsecp256k1",
  "lighthouse_network",
  "mediatype",
+ "mime",
+ "pretty_reqwest_error",
  "procinfo",
  "proto_array",
  "psutil",
@@ -2301,6 +2330,7 @@ dependencies = [
  "serde_json",
  "slashing_protection",
  "store",
+ "tokio",
  "types",
 ]
 
@@ -2741,6 +2771,7 @@ dependencies = [
  "lru 0.7.8",
  "mev-rs",
  "parking_lot 0.12.1",
+ "pretty_reqwest_error",
  "rand 0.8.5",
  "reqwest",
  "sensitive_url",
@@ -4017,7 +4048,7 @@ checksum = "830d08ce1d1d941e6b30645f1a0eb5643013d835ce3779a5fc208261dbe10f55"
 
 [[package]]
 name = "lcli"
-version = "4.2.0"
+version = "4.3.0"
 dependencies = [
  "account_utils",
  "beacon_chain",
@@ -4669,7 +4700,7 @@ dependencies = [
 
 [[package]]
 name = "lighthouse"
-version = "4.2.0"
+version = "4.3.0"
 dependencies = [
  "account_manager",
  "account_utils",
@@ -5400,6 +5431,7 @@ name = "network"
 version = "0.2.0"
 dependencies = [
  "beacon_chain",
+ "beacon_processor",
  "delay_map",
  "derivative",
  "environment",
@@ -5423,6 +5455,7 @@ dependencies = [
  "matches",
  "num_cpus",
  "operation_pool",
+ "parking_lot 0.12.1",
  "rand 0.8.5",
  "rlp",
  "slog",
@@ -6201,6 +6234,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "31c0052426df997c0cbd30789eb44ca097e3541717a7b8fa36b1c464ee7edebd"
 dependencies = [
  "vcpkg",
+]
+
+[[package]]
+name = "pretty_reqwest_error"
+version = "0.1.0"
+dependencies = [
+ "reqwest",
+ "sensitive_url",
 ]
 
 [[package]]
@@ -7849,9 +7890,9 @@ dependencies = [
 
 [[package]]
 name = "ssz_types"
-version = "0.5.2"
+version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8052a1004e979c0be24b9e55940195553103cc57d0b34f7e2c4e32793325e402"
+checksum = "e43767964a80b2fdeda7a79a57a2b6cbca966688d5b81da8fe91140a94f552a1"
 dependencies = [
  "arbitrary",
  "derivative",
@@ -8922,6 +8963,7 @@ dependencies = [
  "smallvec",
  "ssz_types",
  "state_processing",
+ "strum",
  "superstruct 0.6.0",
  "swap_or_not_shuffle",
  "tempfile",

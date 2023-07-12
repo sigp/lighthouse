@@ -8,7 +8,7 @@ use eth2::{
     mixin::{RequestAccept, ResponseForkName, ResponseOptional},
     reqwest::RequestBuilder,
     types::{BlockId as CoreBlockId, ForkChoiceNode, StateId as CoreStateId, *},
-    BeaconNodeHttpClient, Error, StatusCode, Timeouts,
+    BeaconNodeHttpClient, Error, Timeouts,
 };
 use execution_layer::test_utils::TestingBuilder;
 use execution_layer::test_utils::DEFAULT_BUILDER_THRESHOLD_WEI;
@@ -159,7 +159,7 @@ impl ApiTester {
 
         // `make_block` adds random graffiti, so this will produce an alternate block
         let (reorg_block, _reorg_state) = harness
-            .make_block(head.beacon_state.clone(), harness.chain.slot().unwrap())
+            .make_block(head.beacon_state.clone(), harness.chain.slot().unwrap() + 1)
             .await;
 
         let head_state_root = head.beacon_state_root();
@@ -1248,14 +1248,23 @@ impl ApiTester {
     }
 
     pub async fn test_post_beacon_blocks_invalid(mut self) -> Self {
-        let mut next_block = self.next_block.clone();
-        *next_block.message_mut().proposer_index_mut() += 1;
+        let block = self
+            .harness
+            .make_block_with_modifier(
+                self.harness.get_current_state(),
+                self.harness.get_current_slot(),
+                |b| {
+                    *b.state_root_mut() = Hash256::zero();
+                },
+            )
+            .await
+            .0;
 
-        assert!(self.client.post_beacon_blocks(&next_block).await.is_err());
+        assert!(self.client.post_beacon_blocks(&block).await.is_err());
 
         assert!(
             self.network_rx.network_recv.recv().await.is_some(),
-            "invalid blocks should be sent to network"
+            "gossip valid blocks should be sent to network"
         );
 
         self
@@ -1753,9 +1762,15 @@ impl ApiTester {
     }
 
     pub async fn test_get_node_health(self) -> Self {
-        let status = self.client.get_node_health().await.unwrap();
-        assert_eq!(status, StatusCode::OK);
-
+        let status = self.client.get_node_health().await;
+        match status {
+            Ok(_) => {
+                panic!("should return 503 error status code");
+            }
+            Err(e) => {
+                assert_eq!(e.status().unwrap(), 503);
+            }
+        }
         self
     }
 
@@ -4126,7 +4141,7 @@ impl ApiTester {
             .unwrap();
 
         let expected_reorg = EventKind::ChainReorg(SseChainReorg {
-            slot: self.next_block.slot(),
+            slot: self.reorg_block.slot(),
             depth: 1,
             old_head_block: self.next_block.canonical_root(),
             old_head_state: self.next_block.state_root(),
@@ -4135,6 +4150,8 @@ impl ApiTester {
             epoch: self.next_block.slot().epoch(E::slots_per_epoch()),
             execution_optimistic: false,
         });
+
+        self.harness.advance_slot();
 
         self.client
             .post_beacon_blocks(&self.reorg_block)
