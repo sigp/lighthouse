@@ -503,11 +503,6 @@ pub enum PeerConnectionStatus {
         /// last time the peer was connected or discovered.
         since: Instant,
     },
-    /// The peer has been banned and is disconnected.
-    Banned {
-        /// moment when the peer was banned.
-        since: Instant,
-    },
     /// We are currently dialing this peer.
     Dialing {
         /// time since we last communicated with the peer.
