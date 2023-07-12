@@ -290,6 +290,10 @@ impl<T: EthSpec> PeerInfo<T> {
         self.banned_since
     }
 
+    pub fn banned_since_mut(&mut self) -> &mut Option<u64> {
+        &mut self.banned_since
+    }
+
     /// Checks if the connection status is banned. This can lag behind the score state
     /// temporarily.
     pub fn is_banned(&self) -> bool {
