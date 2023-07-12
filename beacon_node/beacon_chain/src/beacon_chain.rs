@@ -1981,7 +1981,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self: &Arc<Self>,
         blob_sidecar: SignedBlobSidecar<T::EthSpec>,
         subnet_id: u64,
-    ) -> Result<GossipVerifiedBlob<T::EthSpec>, BlobError<T::EthSpec>> {
+    ) -> Result<GossipVerifiedBlob<T>, BlobError<T::EthSpec>> {
         blob_verification::validate_blob_sidecar_for_gossip(blob_sidecar, subnet_id, self)
     }
 
@@ -2711,7 +2711,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Returns an `Err` if the given block was invalid, or an error was encountered during
     pub async fn verify_block_for_gossip(
         self: &Arc<Self>,
-        block: BlockWrapper<T::EthSpec>,
+        block: Arc<SignedBeaconBlock<T::EthSpec>>,
     ) -> Result<GossipVerifiedBlock<T>, BlockError<T::EthSpec>> {
         let chain = self.clone();
         self.task_executor
@@ -2755,7 +2755,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     pub async fn process_blob(
         self: &Arc<Self>,
-        blob: GossipVerifiedBlob<T::EthSpec>,
+        blob: GossipVerifiedBlob<T>,
     ) -> Result<AvailabilityProcessingStatus, BlockError<T::EthSpec>> {
         self.check_availability_and_maybe_import(blob.slot(), |chain| {
             chain.data_availability_checker.put_gossip_blob(blob)

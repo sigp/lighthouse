@@ -851,7 +851,7 @@ async fn block_gossip_verification() {
     {
         let gossip_verified = harness
             .chain
-            .verify_block_for_gossip(snapshot.beacon_block.clone().into())
+            .verify_block_for_gossip(snapshot.beacon_block.clone())
             .await
             .expect("should obtain gossip verified block");
 
@@ -1079,11 +1079,7 @@ async fn block_gossip_verification() {
 
     let block = chain_segment[block_index].beacon_block.clone();
     assert!(
-        harness
-            .chain
-            .verify_block_for_gossip(block.into())
-            .await
-            .is_ok(),
+        harness.chain.verify_block_for_gossip(block).await.is_ok(),
         "the valid block should be processed"
     );
 
@@ -1134,7 +1130,7 @@ async fn verify_block_for_gossip_slashing_detection() {
 
     let verified_block = harness
         .chain
-        .verify_block_for_gossip(Arc::new(block1).into())
+        .verify_block_for_gossip(Arc::new(block1))
         .await
         .unwrap();
 
@@ -1161,7 +1157,7 @@ async fn verify_block_for_gossip_slashing_detection() {
     unwrap_err(
         harness
             .chain
-            .verify_block_for_gossip(Arc::new(block2).into())
+            .verify_block_for_gossip(Arc::new(block2))
             .await,
     );
 
@@ -1184,7 +1180,7 @@ async fn verify_block_for_gossip_doppelganger_detection() {
 
     let verified_block = harness
         .chain
-        .verify_block_for_gossip(Arc::new(block).into())
+        .verify_block_for_gossip(Arc::new(block))
         .await
         .unwrap();
     let attestations = verified_block.block.message().body().attestations().clone();

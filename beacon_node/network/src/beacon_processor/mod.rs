@@ -1852,7 +1852,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                             message_id,
                             peer_id,
                             peer_client,
-                            block.into(),
+                            block,
                             work_reprocessing_tx,
                             duplicate_cache,
                             invalid_block_storage,

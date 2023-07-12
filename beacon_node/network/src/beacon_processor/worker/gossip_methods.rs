@@ -1,6 +1,6 @@
 use crate::{metrics, service::NetworkMessage, sync::SyncMessage};
 
-use beacon_chain::blob_verification::{AsBlock, BlobError, BlockWrapper, GossipVerifiedBlob};
+use beacon_chain::blob_verification::{AsBlock, BlobError, GossipVerifiedBlob};
 use beacon_chain::store::Error;
 use beacon_chain::{
     attestation_verification::{self, Error as AttnError, VerifiedAttestation},
@@ -20,6 +20,7 @@ use ssz::Encode;
 use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use store::hot_cold_store::HotColdDBError;
 use tokio::sync::mpsc;
@@ -754,13 +755,13 @@ impl<T: BeaconChainTypes> Worker<T> {
     pub async fn process_gossip_verified_blob(
         self,
         peer_id: PeerId,
-        verified_blob: GossipVerifiedBlob<T::EthSpec>,
+        verified_blob: GossipVerifiedBlob<T>,
         // This value is not used presently, but it might come in handy for debugging.
         _seen_duration: Duration,
     ) {
         let blob_root = verified_blob.block_root();
         let blob_slot = verified_blob.slot();
-        let blob_clone = verified_blob.clone().to_blob();
+        let blob_index = verified_blob.id().index;
         match self.chain.process_blob(verified_blob).await {
             Ok(AvailabilityProcessingStatus::Imported(_hash)) => {
                 //TODO(sean) add metrics and logging
@@ -778,7 +779,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     "outcome" => ?err,
                     "block root" => ?blob_root,
                     "block slot" =>  blob_slot,
-                    "blob index" =>  blob_clone.index,
+                    "blob index" =>  blob_index,
                 );
                 self.gossip_penalize_peer(
                     peer_id,
@@ -788,7 +789,6 @@ impl<T: BeaconChainTypes> Worker<T> {
                 trace!(
                     self.log,
                     "Invalid gossip blob ssz";
-                    "ssz" => format_args!("0x{}", hex::encode(blob_clone.as_ssz_bytes())),
                 );
             }
         }
@@ -807,7 +807,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         message_id: MessageId,
         peer_id: PeerId,
         peer_client: Client,
-        block: BlockWrapper<T::EthSpec>,
+        block: Arc<SignedBeaconBlock<T::EthSpec>>,
         reprocess_tx: mpsc::Sender<ReprocessQueueMessage<T>>,
         duplicate_cache: DuplicateCache,
         invalid_block_storage: InvalidBlockStorage,
@@ -856,7 +856,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         message_id: MessageId,
         peer_id: PeerId,
         peer_client: Client,
-        block: BlockWrapper<T::EthSpec>,
+        block: Arc<SignedBeaconBlock<T::EthSpec>>,
         reprocess_tx: mpsc::Sender<ReprocessQueueMessage<T>>,
         seen_duration: Duration,
     ) -> Option<GossipVerifiedBlock<T>> {
@@ -881,7 +881,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         let block_root = if let Ok(verified_block) = &verification_result {
             verified_block.block_root
         } else {
-            block.as_block().canonical_root()
+            block.canonical_root()
         };
 
         // Write the time the block was observed into delay cache.

@@ -1075,7 +1075,7 @@ mod test {
         log: Logger,
     ) -> (
         AvailabilityPendingExecutedBlock<E>,
-        Vec<GossipVerifiedBlob<E>>,
+        Vec<GossipVerifiedBlob<BaseHarnessType<E, Hot, Cold>>>,
     )
     where
         E: EthSpec,

@@ -1,12 +1,13 @@
 use beacon_chain::{
     test_utils::{AttestationStrategy, BlockStrategy},
-    GossipVerifiedBlock,
+    GossipVerifiedBlock, IntoGossipVerifiedBlockContents,
 };
 use eth2::types::{
     BroadcastValidation, SignedBeaconBlock, SignedBlindedBeaconBlock, SignedBlockContents,
 };
 use http_api::test_utils::InteractiveTester;
 use http_api::{publish_blinded_block, publish_block, reconstruct_block, ProvenancedBlock};
+use std::sync::Arc;
 use tree_hash::TreeHash;
 use types::{Hash256, MainnetEthSpec, Slot};
 use warp::Rejection;
@@ -314,14 +315,16 @@ pub async fn consensus_partial_pass_only_consensus() {
         tester.harness.make_block(state_a.clone(), slot_b).await;
     let ((block_b, blobs_b), state_after_b): ((SignedBeaconBlock<E>, _), _) =
         tester.harness.make_block(state_a, slot_b).await;
+    let block_b_root = block_b.canonical_root();
 
     /* check for `make_block` curios */
     assert_eq!(block_a.state_root(), state_after_a.tree_hash_root());
     assert_eq!(block_b.state_root(), state_after_b.tree_hash_root());
     assert_ne!(block_a.state_root(), block_b.state_root());
 
-    let gossip_block_b = GossipVerifiedBlock::new(block_b.clone().into(), &tester.harness.chain);
-    assert!(gossip_block_b.is_ok());
+    let gossip_block_contents_b = SignedBlockContents::new(block_b, blobs_b)
+        .into_gossip_verified_block(&tester.harness.chain);
+    assert!(gossip_block_contents_b.is_ok());
     let gossip_block_a = GossipVerifiedBlock::new(block_a.clone().into(), &tester.harness.chain);
     assert!(gossip_block_a.is_err());
 
@@ -330,7 +333,7 @@ pub async fn consensus_partial_pass_only_consensus() {
 
     let publication_result: Result<(), Rejection> = publish_block(
         None,
-        ProvenancedBlock::local((gossip_block_b.unwrap(), blobs_b)),
+        ProvenancedBlock::local(gossip_block_contents_b.unwrap()),
         tester.harness.chain.clone(),
         &channel.0,
         test_logger,
@@ -342,7 +345,7 @@ pub async fn consensus_partial_pass_only_consensus() {
     assert!(tester
         .harness
         .chain
-        .block_is_known_to_fork_choice(&block_b.canonical_root()));
+        .block_is_known_to_fork_choice(&block_b_root));
 }
 
 /// This test checks that a block that is valid from both a gossip and consensus perspective is accepted when using `broadcast_validation=consensus`.
@@ -600,7 +603,7 @@ pub async fn equivocation_consensus_late_equivocation() {
     let slot_b = slot_a + 1;
 
     let state_a = tester.harness.get_current_state();
-    let ((block_a, _), state_after_a): ((SignedBeaconBlock<E>, _), _) =
+    let ((block_a, blobs_a), state_after_a): ((SignedBeaconBlock<E>, _), _) =
         tester.harness.make_block(state_a.clone(), slot_b).await;
     let ((block_b, blobs_b), state_after_b): ((SignedBeaconBlock<E>, _), _) =
         tester.harness.make_block(state_a, slot_b).await;
@@ -610,16 +613,18 @@ pub async fn equivocation_consensus_late_equivocation() {
     assert_eq!(block_b.state_root(), state_after_b.tree_hash_root());
     assert_ne!(block_a.state_root(), block_b.state_root());
 
-    let gossip_block_b = GossipVerifiedBlock::new(block_b.clone().into(), &tester.harness.chain);
-    assert!(gossip_block_b.is_ok());
-    let gossip_block_a = GossipVerifiedBlock::new(block_a.clone().into(), &tester.harness.chain);
-    assert!(gossip_block_a.is_err());
+    let gossip_block_contents_b = SignedBlockContents::new(block_b, blobs_b)
+        .into_gossip_verified_block(&tester.harness.chain);
+    assert!(gossip_block_contents_b.is_ok());
+    let gossip_block_contents_a = SignedBlockContents::new(block_a, blobs_a)
+        .into_gossip_verified_block(&tester.harness.chain);
+    assert!(gossip_block_contents_a.is_err());
 
     let channel = tokio::sync::mpsc::unbounded_channel();
 
     let publication_result: Result<(), Rejection> = publish_block(
         None,
-        ProvenancedBlock::local((gossip_block_b.unwrap(), blobs_b)),
+        ProvenancedBlock::local(gossip_block_contents_b.unwrap()),
         tester.harness.chain,
         &channel.0,
         test_logger,
@@ -1224,11 +1229,15 @@ pub async fn blinded_equivocation_consensus_late_equivocation() {
         ProvenancedBlock::Builder(b, _) => b,
     };
 
-    let gossip_block_b =
-        GossipVerifiedBlock::new(inner_block_b.deconstruct().into(), &tester.harness.chain);
+    let gossip_block_b = GossipVerifiedBlock::new(
+        Arc::new(inner_block_b.clone().deconstruct().0),
+        &tester.harness.chain,
+    );
     assert!(gossip_block_b.is_ok());
-    let gossip_block_a =
-        GossipVerifiedBlock::new(inner_block_a.deconstruct().into(), &tester.harness.chain);
+    let gossip_block_a = GossipVerifiedBlock::new(
+        Arc::new(inner_block_a.clone().deconstruct().0),
+        &tester.harness.chain,
+    );
     assert!(gossip_block_a.is_err());
 
     let channel = tokio::sync::mpsc::unbounded_channel();

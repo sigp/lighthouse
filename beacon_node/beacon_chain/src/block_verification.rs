@@ -48,7 +48,10 @@
 // returned alongside.
 #![allow(clippy::result_large_err)]
 
-use crate::blob_verification::{AsBlock, BlobError, BlockWrapper, MaybeAvailableBlock};
+use crate::blob_verification::{
+    AsBlock, BlobError, BlockWrapper, GossipVerifiedBlob, GossipVerifiedBlobList,
+    MaybeAvailableBlock,
+};
 use crate::data_availability_checker::{
     AvailabilityCheckError, AvailabilityPendingBlock, AvailableBlock,
 };
@@ -79,6 +82,7 @@ use slog::{debug, error, warn, Logger};
 use slot_clock::SlotClock;
 use ssz::Encode;
 use ssz_derive::{Decode, Encode};
+use ssz_types::VariableList;
 use state_processing::per_block_processing::{errors::IntoWithIndex, is_merge_transition_block};
 use state_processing::{
     block_signature_verifier::{BlockSignatureVerifier, Error as BlockSignatureVerifierError},
@@ -803,48 +807,65 @@ pub struct BlockImportData<E: EthSpec> {
     pub consensus_context: ConsensusContext<E>,
 }
 
-pub trait IntoGossipVerifiedBlock<T: BeaconChainTypes>: Sized {
+pub type GossipVerifiedBlockContents<T> =
+    (GossipVerifiedBlock<T>, Option<GossipVerifiedBlobList<T>>);
+
+pub trait IntoGossipVerifiedBlockContents<T: BeaconChainTypes>: Sized {
     fn into_gossip_verified_block(
         self,
         chain: &BeaconChain<T>,
-    ) -> Result<GossipVerifiedBlock<T>, BlockError<T::EthSpec>>;
-    fn inner(&self) -> &SignedBeaconBlock<T::EthSpec>;
-    fn blobs(&self) -> Option<SignedBlobSidecarList<T::EthSpec>>;
+    ) -> Result<GossipVerifiedBlockContents<T>, BlockError<T::EthSpec>>;
+    fn inner_block(&self) -> &SignedBeaconBlock<T::EthSpec>;
+    fn inner_blobs(&self) -> Option<SignedBlobSidecarList<T::EthSpec>>;
 }
 
-impl<T: BeaconChainTypes> IntoGossipVerifiedBlock<T>
-    for (
-        GossipVerifiedBlock<T>,
-        Option<SignedBlobSidecarList<T::EthSpec>>,
-    )
-{
+impl<T: BeaconChainTypes> IntoGossipVerifiedBlockContents<T> for GossipVerifiedBlockContents<T> {
     fn into_gossip_verified_block(
         self,
         _chain: &BeaconChain<T>,
-    ) -> Result<GossipVerifiedBlock<T>, BlockError<T::EthSpec>> {
-        Ok(self.0)
+    ) -> Result<GossipVerifiedBlockContents<T>, BlockError<T::EthSpec>> {
+        Ok(self)
     }
-    fn inner(&self) -> &SignedBeaconBlock<T::EthSpec> {
+    fn inner_block(&self) -> &SignedBeaconBlock<T::EthSpec> {
         self.0.block.as_block()
     }
-    fn blobs(&self) -> Option<SignedBlobSidecarList<T::EthSpec>> {
-        self.1.clone()
+    fn inner_blobs(&self) -> Option<SignedBlobSidecarList<T::EthSpec>> {
+        self.1.as_ref().map(|blobs| {
+            VariableList::from(
+                blobs
+                    .into_iter()
+                    .map(GossipVerifiedBlob::signed_blob)
+                    .collect::<Vec<_>>(),
+            )
+        })
     }
 }
 
-impl<T: BeaconChainTypes> IntoGossipVerifiedBlock<T> for SignedBlockContents<T::EthSpec> {
+impl<T: BeaconChainTypes> IntoGossipVerifiedBlockContents<T> for SignedBlockContents<T::EthSpec> {
     fn into_gossip_verified_block(
         self,
         chain: &BeaconChain<T>,
-    ) -> Result<GossipVerifiedBlock<T>, BlockError<T::EthSpec>> {
-        GossipVerifiedBlock::new(self.deconstruct().into(), chain)
+    ) -> Result<GossipVerifiedBlockContents<T>, BlockError<T::EthSpec>> {
+        let (block, blobs) = self.deconstruct();
+        let gossip_verified_block = GossipVerifiedBlock::new(Arc::new(block), chain)?;
+        let gossip_verified_blobs = blobs
+            .map(|blobs| {
+                Ok::<_, BlobError<T::EthSpec>>(VariableList::from(
+                    blobs
+                        .into_iter()
+                        .map(|blob| GossipVerifiedBlob::new(blob, chain))
+                        .collect::<Result<Vec<_>, BlobError<T::EthSpec>>>()?,
+                ))
+            })
+            .transpose()?;
+        Ok((gossip_verified_block, gossip_verified_blobs))
     }
 
-    fn inner(&self) -> &SignedBeaconBlock<T::EthSpec> {
+    fn inner_block(&self) -> &SignedBeaconBlock<T::EthSpec> {
         self.signed_block()
     }
 
-    fn blobs(&self) -> Option<SignedBlobSidecarList<T::EthSpec>> {
+    fn inner_blobs(&self) -> Option<SignedBlobSidecarList<T::EthSpec>> {
         self.blobs_cloned()
     }
 }
@@ -887,10 +908,12 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
     ///
     /// Returns an error if the block is invalid, or i8f the block was unable to be verified.
     pub fn new(
-        block: BlockWrapper<T::EthSpec>,
+        block: Arc<SignedBeaconBlock<T::EthSpec>>,
         chain: &BeaconChain<T>,
     ) -> Result<Self, BlockError<T::EthSpec>> {
-        let maybe_available = chain.data_availability_checker.check_availability(block)?;
+        let maybe_available = chain
+            .data_availability_checker
+            .check_availability(block.into())?;
         // If the block is valid for gossip we don't supply it to the slasher here because
         // we assume it will be transformed into a fully verified block. We *do* need to supply
         // it to the slasher if an error occurs, because that's the end of this block's journey,

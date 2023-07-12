@@ -4,7 +4,7 @@ use beacon_chain::blob_verification::AsBlock;
 use beacon_chain::validator_monitor::{get_block_delay_ms, timestamp_now};
 use beacon_chain::{
     AvailabilityProcessingStatus, BeaconChain, BeaconChainError, BeaconChainTypes, BlockError,
-    IntoGossipVerifiedBlock, NotifyExecutionLayer,
+    IntoGossipVerifiedBlockContents, NotifyExecutionLayer,
 };
 use eth2::types::BroadcastValidation;
 use eth2::types::SignedBlockContents;
@@ -24,7 +24,7 @@ use types::{
 };
 use warp::Rejection;
 
-pub enum ProvenancedBlock<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>> {
+pub enum ProvenancedBlock<T: BeaconChainTypes, B: IntoGossipVerifiedBlockContents<T>> {
     /// The payload was built using a local EE.
     Local(B, PhantomData<T>),
     /// The payload was build using a remote builder (e.g., via a mev-boost
@@ -32,7 +32,7 @@ pub enum ProvenancedBlock<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>> {
     Builder(B, PhantomData<T>),
 }
 
-impl<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>> ProvenancedBlock<T, B> {
+impl<T: BeaconChainTypes, B: IntoGossipVerifiedBlockContents<T>> ProvenancedBlock<T, B> {
     pub fn local(block: B) -> Self {
         Self::Local(block, PhantomData)
     }
@@ -43,7 +43,7 @@ impl<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>> ProvenancedBlock<T, B> 
 }
 
 /// Handles a request from the HTTP API for full blocks.
-pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
+pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlockContents<T>>(
     block_root: Option<Hash256>,
     provenanced_block: ProvenancedBlock<T, B>,
     chain: Arc<BeaconChain<T>>,
@@ -57,7 +57,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
         ProvenancedBlock::Local(block_contents, _) => (block_contents, true),
         ProvenancedBlock::Builder(block_contents, _) => (block_contents, false),
     };
-    let block = block_contents.inner();
+    let block = block_contents.inner_block();
     let delay = get_block_delay_ms(seen_timestamp, block.message(), &chain.slot_clock);
     debug!(log, "Signed block received in HTTP API"; "slot" => block.slot());
 
@@ -111,10 +111,10 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
 
     // We can clone this because the blobs are `Arc`'d in `BlockContents`, but the block is not,
     // so we avoid cloning the block at this point.
-    let blobs_opt = block_contents.blobs();
+    let blobs_opt = block_contents.inner_blobs();
 
     /* if we can form a `GossipVerifiedBlock`, we've passed our basic gossip checks */
-    let gossip_verified_block = block_contents
+    let (gossip_verified_block, gossip_verified_blobs) = block_contents
         .into_gossip_verified_block(&chain)
         .map_err(|e| {
             warn!(log, "Not publishing block, not gossip verified"; "slot" => slot, "error" => ?e);
@@ -174,6 +174,16 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
             }
         }
     };
+
+    if let Some(gossip_verified_blobs) = gossip_verified_blobs {
+        for blob in gossip_verified_blobs {
+            if let Err(e) = chain.process_blob(blob).await {
+                return Err(warp_utils::reject::custom_bad_request(format!(
+                    "Invalid blob: {e}"
+                )));
+            }
+        }
+    }
 
     match chain
         .process_block(
