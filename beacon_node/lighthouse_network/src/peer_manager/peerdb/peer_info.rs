@@ -287,11 +287,11 @@ impl<T: EthSpec> PeerInfo<T> {
         self.is_connected() || self.is_dialing()
     }
 
-    pub fn banned_since(&self) -> Option<u64> {
+    pub fn banned_since(&self) -> Option<Instant> {
         self.banned_since
     }
 
-    pub fn banned_since_mut(&mut self) -> &mut Option<u64> {
+    pub fn banned_since_mut(&mut self) -> &mut Option<Instant> {
         &mut self.banned_since
     }
 
