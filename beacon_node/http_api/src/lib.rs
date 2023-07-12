@@ -23,6 +23,7 @@ mod ui;
 mod validator_inclusion;
 mod version;
 
+use bytes::Bytes;
 use beacon_chain::{
     attestation_verification::VerifiedAttestation, observed_operations::ObservationOutcome,
     validator_monitor::timestamp_now, AttestationError as AttnError, BeaconChain, BeaconChainError,
@@ -1292,6 +1293,38 @@ pub fn serve<T: BeaconChainTypes>(
              chain: Arc<BeaconChain<T>>,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
              log: Logger| async move {
+                publish_blocks::publish_blinded_block(
+                    block,
+                    chain,
+                    &network_tx,
+                    log,
+                    BroadcastValidation::default(),
+                )
+                .await
+                .map(|()| warp::reply().into_response())
+            },
+        );
+    
+     // POST beacon/blocks
+    let post_beacon_blinded_blocks_ssz = eth_v1
+        .and(warp::path("beacon"))
+        .and(warp::path("blinded_blocks"))
+        .and(warp::path::end())
+        .and(warp::body::bytes())
+        .and(chain_filter.clone())
+        .and(network_tx_filter.clone())
+        .and(log_filter.clone())
+        .and_then(
+            |block_bytes: Bytes,
+            chain: Arc<BeaconChain<T>>,
+            network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
+            log: Logger| async move {
+                let block = match SignedBeaconBlock::<T::EthSpec, BlindedPayload<_>>::from_ssz_bytes(&block_bytes, &chain.spec) {
+                    Ok(data) => data,
+                    Err(e) => {
+                        return Err(warp_utils::reject::custom_server_error(format!("{:?}", e)))
+                    }
+                };
                 publish_blocks::publish_blinded_block(
                     block,
                     chain,
@@ -3947,7 +3980,9 @@ pub fn serve<T: BeaconChainTypes>(
         .boxed()
         .uor(
             warp::post().and(
-                post_beacon_blocks
+                    warp::header::exact("Content-Type", "application/octet-stream")
+                        .and(post_beacon_blinded_blocks_ssz).uor(post_beacon_blinded_blocks_v2))
+                    .uor(post_beacon_blocks)
                     .uor(post_beacon_blinded_blocks)
                     .uor(post_beacon_blocks_v2)
                     .uor(post_beacon_blinded_blocks_v2)
