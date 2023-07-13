@@ -12,6 +12,7 @@
 * [Run a Node](./run_a_node.md)
 * [Become a Validator](./mainnet-validator.md)
 * [Validator Management](./validator-management.md)
+    * [The `validator-manager` Command](./validator-manager.md)
     * [Slashing Protection](./slashing-protection.md)
     * [Voluntary Exits](./voluntary-exit.md)
     * [Partial Withdrawals](./partial-withdrawal.md)
