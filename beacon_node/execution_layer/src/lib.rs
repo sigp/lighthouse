@@ -38,11 +38,11 @@ use tokio::{
 };
 use tokio_stream::wrappers::WatchStream;
 use tree_hash::TreeHash;
-use types::{AbstractExecPayload, BeaconStateError, ExecPayload, Withdrawals};
+use types::{AbstractExecPayload, BeaconStateError, ExecPayload};
 use types::{
-    BlindedPayload, BlockType, ChainSpec, Epoch, ExecutionBlockHash, ExecutionPayload,
-    ExecutionPayloadCapella, ExecutionPayloadMerge, ForkName, ForkVersionedResponse,
-    ProposerPreparationData, PublicKeyBytes, Signature, SignedBeaconBlock, Slot, Uint256,
+    BlindedPayload, BlockType, ChainSpec, Epoch, ExecutionPayloadCapella, ExecutionPayloadMerge,
+    ForkVersionedResponse, ProposerPreparationData, PublicKeyBytes, Signature, SignedBeaconBlock,
+    Slot,
 };
 
 mod block_hash;
