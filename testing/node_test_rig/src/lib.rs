@@ -10,6 +10,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tempfile::{Builder as TempBuilder, TempDir};
+use tokio::time::timeout;
 use types::EthSpec;
 use validator_client::ProductionValidatorClient;
 use validator_dir::insecure_keys::build_deterministic_validator_dirs;
@@ -24,6 +25,8 @@ pub use validator_client::Config as ValidatorConfig;
 
 /// The global timeout for HTTP requests to the beacon node.
 const HTTP_TIMEOUT: Duration = Duration::from_secs(4);
+/// The timeout for a beacon node to start up.
+const STARTUP_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// Provides a beacon node that is running in the current process on a given tokio executor (it
 /// is _local_ to this process).
@@ -34,6 +37,18 @@ pub struct LocalBeaconNode<E: EthSpec> {
     pub datadir: TempDir,
 }
 
+#[derive(Debug)]
+pub enum LocalBeaconNodeError {
+    TimeoutError,
+    StartupError(String),
+}
+
+impl ToString for LocalBeaconNodeError {
+    fn to_string(&self) -> String {
+        format!("{:?}", self)
+    }
+}
+
 impl<E: EthSpec> LocalBeaconNode<E> {
     /// Starts a new, production beacon node on the tokio runtime in the given `context`.
     ///
@@ -41,7 +56,7 @@ impl<E: EthSpec> LocalBeaconNode<E> {
     pub async fn production(
         context: RuntimeContext<E>,
         mut client_config: ClientConfig,
-    ) -> Result<Self, String> {
+    ) -> Result<Self, LocalBeaconNodeError> {
         // Creates a temporary directory that will be deleted once this `TempDir` is dropped.
         let datadir = TempBuilder::new()
             .prefix("lighthouse_node_test_rig")
@@ -51,12 +66,17 @@ impl<E: EthSpec> LocalBeaconNode<E> {
         client_config.set_data_dir(datadir.path().into());
         client_config.network.network_dir = PathBuf::from(datadir.path()).join("network");
 
-        ProductionBeaconNode::new(context, client_config)
-            .await
-            .map(move |client| Self {
-                client: client.into_inner(),
-                datadir,
-            })
+        timeout(
+            STARTUP_TIMEOUT,
+            ProductionBeaconNode::new(context, client_config),
+        )
+        .await
+        .map_err(|_| LocalBeaconNodeError::TimeoutError)?
+        .map(move |client| Self {
+            client: client.into_inner(),
+            datadir,
+        })
+        .map_err(LocalBeaconNodeError::StartupError)
     }
 }
 

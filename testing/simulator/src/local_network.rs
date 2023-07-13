@@ -1,8 +1,8 @@
 use node_test_rig::{
     environment::RuntimeContext,
     eth2::{types::StateId, BeaconNodeHttpClient},
-    ClientConfig, LocalBeaconNode, LocalExecutionNode, LocalValidatorClient, MockExecutionConfig,
-    MockServerConfig, ValidatorConfig, ValidatorFiles,
+    ClientConfig, LocalBeaconNode, LocalBeaconNodeError, LocalExecutionNode, LocalValidatorClient,
+    MockExecutionConfig, MockServerConfig, ValidatorConfig, ValidatorFiles,
 };
 use parking_lot::RwLock;
 use sensitive_url::SensitiveUrl;
@@ -53,12 +53,23 @@ impl<E: EthSpec> Deref for LocalNetwork<E> {
     }
 }
 
+#[derive(Debug)]
+pub enum LocalNetworkError {
+    LocalBeaconNodeError(LocalBeaconNodeError),
+}
+
+impl ToString for LocalNetworkError {
+    fn to_string(&self) -> String {
+        format!("{:?}", self)
+    }
+}
+
 impl<E: EthSpec> LocalNetwork<E> {
     /// Creates a new network with a single `BeaconNode` and a connected `ExecutionNode`.
     pub async fn new(
         context: RuntimeContext<E>,
         mut beacon_config: ClientConfig,
-    ) -> Result<Self, String> {
+    ) -> Result<Self, LocalNetworkError> {
         beacon_config.network.set_ipv4_listening_address(
             std::net::Ipv4Addr::UNSPECIFIED,
             BOOTNODE_PORT,
@@ -93,7 +104,8 @@ impl<E: EthSpec> LocalNetwork<E> {
 
         let beacon_node =
             LocalBeaconNode::production(context.service_context("boot_node".into()), beacon_config)
-                .await?;
+                .await
+                .map_err(LocalNetworkError::LocalBeaconNodeError)?;
         Ok(Self {
             inner: Arc::new(Inner {
                 context,
@@ -188,7 +200,9 @@ impl<E: EthSpec> LocalNetwork<E> {
             self.context.service_context(format!("node_{}", count)),
             beacon_config,
         )
-        .await?;
+        .await
+        .map_err(|e| e.to_string())?;
+
         if is_proposer {
             self_1.proposer_nodes.write().push(beacon_node);
         } else {
