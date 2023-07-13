@@ -27,6 +27,9 @@ having a backup of all validator keystores (e.g., the mnemonic).**
 
 ## Simple Example
 
+The following command will move all validators from the VC running at
+`http://localhost:6062` to the VC running at `http://localhost:5062`.
+
 ```
 lighthouse \
 	validator-manager \
@@ -38,7 +41,7 @@ lighthouse \
 	--validators all \
 ```
 
-## Guide
+## Detailed Guide
 
 This guide describes the steps to move validators between two validator clients (VCs) which are
 able to SSH between each other. This guide assumes experience with the Linux command line and SSH
@@ -57,7 +60,7 @@ and that the reader can SSH from `dest-host` to `src-host`.
 
 ### 1. Configure the Source VC
 
-The source VC needs to have the following flags:
+The source VC needs to have the following flags at a mininum:
 
 - `--http`
 - `--unencrypted-http-transport`
@@ -79,7 +82,7 @@ lighthouse \
 
 ### 2. Configure the Destination VC
 
-The destination VC needs to have the following flags:
+The destination VC needs to have the following flags at a mininum:
 
 - `--http`
 - `--unencrypted-http-transport`
