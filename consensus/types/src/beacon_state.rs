@@ -1741,8 +1741,15 @@ impl<T: EthSpec> BeaconState<T> {
 
     /// Passing `previous_epoch` to this function rather than computing it internally provides
     /// a tangible speed improvement in state processing.
-    pub fn is_in_inactivity_leak(&self, previous_epoch: Epoch, spec: &ChainSpec) -> Result<bool, safe_arith::ArithError> {
-        Ok((previous_epoch.safe_sub(self.finalized_checkpoint().epoch)?) > spec.min_epochs_to_inactivity_penalty)
+    pub fn is_in_inactivity_leak(
+        &self,
+        previous_epoch: Epoch,
+        spec: &ChainSpec,
+    ) -> Result<bool, safe_arith::ArithError> {
+        Ok(
+            (previous_epoch.safe_sub(self.finalized_checkpoint().epoch)?)
+                > spec.min_epochs_to_inactivity_penalty,
+        )
     }
 
     /// Get the `SyncCommittee` associated with the next slot. Useful because sync committees

@@ -2034,7 +2034,6 @@ fn timestamp_now() -> u64 {
         .as_secs()
 }
 
-
 #[cfg(test)]
 mod test {
     use super::*;
@@ -2181,4 +2180,3 @@ mod test {
             .await;
     }
 }
-
