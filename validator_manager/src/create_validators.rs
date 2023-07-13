@@ -26,6 +26,7 @@ pub const GAS_LIMIT_FLAG: &str = "gas-limit";
 pub const FEE_RECIPIENT_FLAG: &str = "suggested-fee-recipient";
 pub const BUILDER_PROPOSALS_FLAG: &str = "builder-proposals";
 pub const BEACON_NODE_FLAG: &str = "beacon-node";
+pub const FORCE_BLS_WITHDRAWAL_CREDENTIALS: &str = "force-bls-withdrawal-credentials";
 
 pub const VALIDATORS_FILENAME: &str = "validators.json";
 pub const DEPOSITS_FILENAME: &str = "deposits.json";
@@ -173,6 +174,15 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 )
                 .takes_value(true),
         )
+        .arg(
+            Arg::with_name(FORCE_BLS_WITHDRAWAL_CREDENTIALS)
+                .takes_value(false)
+                .long(FORCE_BLS_WITHDRAWAL_CREDENTIALS)
+                .help(
+                    "If present, allows BLS withdrawal credentials rather than an execution \
+                    address. This is not recommended.",
+                ),
+        )
 }
 
 /// The CLI arguments are parsed into this struct before running the application. This step of
@@ -192,6 +202,7 @@ pub struct CreateConfig {
     pub fee_recipient: Option<Address>,
     pub gas_limit: Option<u64>,
     pub bn_url: Option<SensitiveUrl>,
+    pub force_bls_withdrawal_credentials: bool,
 }
 
 impl CreateConfig {
@@ -215,6 +226,7 @@ impl CreateConfig {
             fee_recipient: clap_utils::parse_optional(matches, FEE_RECIPIENT_FLAG)?,
             gas_limit: clap_utils::parse_optional(matches, GAS_LIMIT_FLAG)?,
             bn_url: clap_utils::parse_optional(matches, BEACON_NODE_FLAG)?,
+            force_bls_withdrawal_credentials: matches.is_present(FORCE_BLS_WITHDRAWAL_CREDENTIALS),
         })
     }
 }
@@ -241,7 +253,16 @@ impl ValidatorsAndDeposits {
             fee_recipient,
             gas_limit,
             bn_url,
+            force_bls_withdrawal_credentials,
         } = config;
+
+        // Since Capella, it really doesn't make much sense to use BLS
+        // withdrawal credentials. Try to guide users away from doing so.
+        if eth1_withdrawal_address.is_none() && !force_bls_withdrawal_credentials {
+            return Err(format!(
+                "--{ETH1_WITHDRAWAL_ADDRESS_FLAG} is required. See --help for more information."
+            ));
+        }
 
         if count == 0 {
             return Err(format!("--{} cannot be 0", COUNT_FLAG));
@@ -524,6 +545,10 @@ pub mod tests {
 
     const TEST_VECTOR_DEPOSIT_CLI_VERSION: &str = "2.3.0";
 
+    fn junk_execution_address() -> Option<Address> {
+        Some(Address::from_str("0x0f51bb10119727a7e5ea3538074fb341f56b09ad").unwrap())
+    }
+
     pub struct TestBuilder {
         spec: ChainSpec,
         output_dir: TempDir,
@@ -557,11 +582,12 @@ pub mod tests {
                 stdin_inputs: false,
                 disable_deposits: false,
                 specify_voting_keystore_password: false,
-                eth1_withdrawal_address: None,
+                eth1_withdrawal_address: junk_execution_address(),
                 builder_proposals: None,
                 fee_recipient: None,
                 gas_limit: None,
                 bn_url: None,
+                force_bls_withdrawal_credentials: false,
             };
 
             Self {
@@ -710,6 +736,30 @@ pub mod tests {
     }
 
     #[tokio::test]
+    async fn no_eth1_address_without_force() {
+        TestBuilder::default()
+            .mutate_config(|config| {
+                config.eth1_withdrawal_address = None;
+                config.force_bls_withdrawal_credentials = false
+            })
+            .run_test()
+            .await
+            .assert_err();
+    }
+
+    #[tokio::test]
+    async fn bls_withdrawal_credentials() {
+        TestBuilder::default()
+            .mutate_config(|config| {
+                config.eth1_withdrawal_address = None;
+                config.force_bls_withdrawal_credentials = true
+            })
+            .run_test()
+            .await
+            .assert_ok();
+    }
+
+    #[tokio::test]
     async fn default_test_values_deposits_disabled() {
         TestBuilder::default()
             .mutate_config(|config| config.disable_deposits = true)
@@ -732,8 +782,7 @@ pub mod tests {
         TestBuilder::default()
             .mutate_config(|config| {
                 config.count = 2;
-                config.eth1_withdrawal_address =
-                    Some(Address::from_str("0x0f51bb10119727a7e5ea3538074fb341f56b09ad").unwrap());
+                config.eth1_withdrawal_address = junk_execution_address();
             })
             .run_test()
             .await
@@ -822,6 +871,9 @@ pub mod tests {
                     config.eth1_withdrawal_address = Some(
                         Address::from_str("0x0f51bb10119727a7e5ea3538074fb341f56b09ad").unwrap(),
                     );
+                } else {
+                    config.eth1_withdrawal_address = None;
+                    config.force_bls_withdrawal_credentials = true;
                 }
             })
             .run_test()
