@@ -10,27 +10,26 @@ operation is *comprehensive*; it will:
 - Enable the validators on the dest VC.
 - Generally result in very little or no validator downtime.
 
-It is capable of moving all validators on the src VC, a number of validators or
-specific validators from one VC to another.
+It is capable of moving all validators on the src VC, a count of validators or
+a list of pubkeys.
 
 The `move` command is only guaranteed to work between two Lighthouse VCs (i.e.,
-there is no guarantee that the commands will work between Lighthouse and Teku or
-another client).
+there is no guarantee that the commands will work between Lighthouse and Teku, for instance).
 
 The `move` command only supports moving validators using a keystore on the local
 file system, it does not support `Web3Signer` validators.
 
 Although all efforts are taken to avoid it, it's possible for the `move` command
-to fail in a way removes the validator from the src VC without adding it to the
+to fail in a way that removes the validator from the src VC without adding it to the
 dest VC. Therefore, it is recommended to **never use the `move` command without
-having a backup of all validator keystores (e.g., the mnemonic).**
+having a backup of all validator keystores (e.g. the mnemonic).**
 
 ## Simple Example
 
 The following command will move all validators from the VC running at
 `http://localhost:6062` to the VC running at `http://localhost:5062`.
 
-```
+```bash
 lighthouse \
 	validator-manager \
 	move \
@@ -38,7 +37,7 @@ lighthouse \
 	--src-vc-token ~/src-token.txt \
 	--dest-vc-url http://localhost:5062 \
 	--dest-vc-token ~/.lighthouse/mainnet/validators/api-token.txt \
-	--validators all \
+	--validators all
 ```
 
 ## Detailed Guide
@@ -52,11 +51,18 @@ There will be two VCs in this example:
 - The *source* VC which contains the validators/keystores to be moved.
 - The *destination* VC which is to take the validators/keystores from the source.
 
-The example will assume the source VC is accessible at `src-host` and the destination VC is
-accessible at `dest-host`. Replace these values with your own hostnames or IP addresses.
+There will be two hosts in this example:
 
-The example assumes that the reader is currently logged into `dest-host` via SSH
-and that the reader can SSH from `dest-host` to `src-host`.
+- Host 1 (*"source host"*): Is running the `src-vc`.
+- Host 2 (*"destination host"*): Is running the `dest-vc`.
+
+The example will assume that all commands are run on Host 1. It also assumes
+that Host 1 is able to SSH to Host 2.
+
+In reality, many host configurations are possible. For example:
+
+- Both VCs on the same host.
+- Both VCs on different hosts and the `validator-manager` being used on a third host.
 
 ### 1. Configure the Source VC
 
@@ -102,25 +108,16 @@ lighthouse \
     --enable-doppelganger-protection
 ```
 
-The `--enable-doppelganger-protection` flag is not *strictly* required, however
-it is recommended for an additional layer of safety. It will result in 3-4
-epochs of downtime for the validator after it is moved, which is generally an
-inconsequential cost in lost rewards or penalties.
+> The `--enable-doppelganger-protection` flag is not *strictly* required, however
+> it is recommended for an additional layer of safety. It will result in 3-4
+> epochs of downtime for the validator after it is moved, which is generally an
+> inconsequential cost in lost rewards or penalties.
+> 
+> Optionally, users can add the `--http-store-passwords-in-secrets-dir` flag if they'd like to have
+> the import validator keystore passwords stored in separate files rather than in the
+> `valdiator-definitions.yml` file. If you don't know what this means, you can safely omit the flag.
 
-Optionally, users can add the `--http-store-passwords-in-secrets-dir` flag if they'd like to have
-the import validator keystore passwords stored in separate files rather than in the
-`valdiator-definitions.yml` file. If you don't know what this means, you can safely omit the flag.
-
-### 3. Configure SSH
-
-For this example to work, the `dest-host` host must be able to SSH to the `src-host` host. This
-configuration is out-of-scope of this article, however it probably involves adding a public key to
-the `.ssh/authorized_keys` file on the `dest-host` host.
-
-You will know this is complete when you can SSH to the `dest-host` from your PC and then run `ssh
-src-host` successfully.
-
-### 4. Obtain the Source API Token
+### 3. Obtain the Source API Token
 
 The VC API is protected by an *API token*. This is stored in a file on each of the hosts. Since
 we'll be running our command on the destination host, it will need to have the API token for the
@@ -151,7 +148,7 @@ this terminal window then the connection between the destination and source host
 With the SSH tunnel established between the `dest-host` and `src-host`, from the **destination
 host** run the command to move the validators:
 
-```
+```bash
 lighthouse \
 	validator-manager \
 	move \
@@ -159,11 +156,20 @@ lighthouse \
 	--src-vc-token ~/src-token.txt \
 	--dest-vc-url http://localhost:5062 \
 	--dest-vc-token ~/.lighthouse/mainnet/validators/api-token.txt \
-	--validators all \
+	--validators all
 ```
 
 The command will provide information about the progress of the operation and
-emit `Done.` when the operation has completed successfully.
+emit `Done.` when the operation has completed successfully. For example:
+
+```bash
+Running validator manager for mainnet network
+Validator client is reachable at http://localhost:5062/ and reports 2 validators
+Validator client is reachable at http://localhost:6062/ and reports 0 validators
+Moved keystore 1 of 2
+Moved keystore 2 of 2
+Done.
+```
 
 Once the operation completes successfully, there is nothing else to be done. The
 validators have been removed from the `src-host` and enabled at the `dest-host`.

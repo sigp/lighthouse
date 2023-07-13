@@ -6,7 +6,7 @@ The `lighthouse validator-manager create` command derives validators from a
 mnemonic and produces two files:
 
 - `validators.json`: the keystores and passwords for the newly generated
-    validators in JSON format.
+    validators, in JSON format.
 - `deposits.json`: a JSON file of the same format as
     [staking-deposit-cli](https://github.com/ethereum/staking-deposit-cli) which can
     be used for deposit submission via the [Ethereum Staking
@@ -29,9 +29,9 @@ an internet-connected host.
 
 The `create` and `import` commands are recommended for advanced users who are
 familiar with command line tools and the practicalities of managing sensitive
-key information. **We recommend that novice users follow the workflow on
-[Ethereum Staking Launchpad][] rather than using the `move` and `create`
-tools.**
+cryptographic material. **We recommend that novice users follow the workflow on
+[Ethereum Staking Launchpad][] rather than using the `create` and `import`
+commands.**
 
 ## Simple Example
 
@@ -48,11 +48,11 @@ lighthouse \
     --output-path ./
 ```
 
-The `--suggested-fee-recipient` flag may be omitted to use whatever default
-value the VC uses. It does not necessarily need to be idential to
-`--eth1-withdrawal-address`.
+> The `--suggested-fee-recipient` flag may be omitted to use whatever default
+> value the VC uses. It does not necessarily need to be idential to
+> `--eth1-withdrawal-address`.
 
-Import the validators to a running VC with:
+Then, import the validators to a running VC with:
 
 ```bash
 lighthouse \
@@ -62,8 +62,8 @@ lighthouse \
     --vc-token <API-TOKEN-PATH>
 ```
 
-Be sure to remove `./validators.json` after the import is successful since it
-contains unencrypted validator keystores.
+> Be sure to remove `./validators.json` after the import is successful since it
+> contains unencrypted validator keystores.
 
 ## Detailed Guide
 
@@ -78,7 +78,7 @@ host. This would help protect the mnemonic from being exposed to the Internet.
 Run the `create` command, subsituting `<ADDRESS>` for an execution address that
 you control. This is where all the staked ETH and rewards will ultimately
 reside, so it's very important that this address is secure, acessible and
-backed-up.
+backed-up. The `create` command:
 
 ```bash
 lighthouse \
@@ -114,7 +114,7 @@ slashing!
 
 The command will create two files:
 
-- `./deposits.json`: this file does not contain sensitive information and may be uploaded to the [Ethereum Staking Launchpad].
+- `./deposits.json`: this file does *not* contain sensitive information and may be uploaded to the [Ethereum Staking Launchpad].
 - `./validators.json`: this file contains **sensitive unencrypted validator keys, do not share it with anyone or upload it to any website**.
 
 ### 2. Import the validators
@@ -172,4 +172,4 @@ shared with anyone.
 
 The validators will now go through 3-4 epochs of [doppelganger
 protection](./validator-doppelganger.md) and will automatically start performing
-their duties when they are deposited and activated.
+their duties when they are deposited and activated. The guide is complete.
