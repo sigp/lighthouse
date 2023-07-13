@@ -172,9 +172,12 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             let new_validators = validator_defs
                 .discover_local_keystores(&config.validator_dir, &config.secrets_dir, &log)
                 .map_err(|e| format!("Unable to discover local validator keystores: {:?}", e))?;
-            validator_defs
-                .save(&config.validator_dir)
-                .map_err(|e| format!("Unable to update validator definitions: {:?}", e))?;
+            validator_defs.save(&config.validator_dir).map_err(|e| {
+                format!(
+                    "Provide --suggested-fee-recipient or update validator definitions: {:?}",
+                    e
+                )
+            })?;
             info!(
                 log,
                 "Completed validator discovery";
