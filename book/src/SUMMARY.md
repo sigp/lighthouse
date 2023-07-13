@@ -13,6 +13,8 @@
 * [Become a Validator](./mainnet-validator.md)
 * [Validator Management](./validator-management.md)
     * [The `validator-manager` Command](./validator-manager.md)
+        * [Creating validators](./validator-manager-create.md)
+        * [Moving validators](./validator-manager-move.md)
     * [Slashing Protection](./slashing-protection.md)
     * [Voluntary Exits](./voluntary-exit.md)
     * [Partial Withdrawals](./partial-withdrawal.md)
