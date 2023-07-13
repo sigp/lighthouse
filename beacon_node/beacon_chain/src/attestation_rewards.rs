@@ -86,7 +86,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 let ideal_reward = reward_numerator
                     .safe_div(active_increments)?
                     .safe_div(WEIGHT_DENOMINATOR)?;
-                if !state.is_in_inactivity_leak(previous_epoch, spec) {
+                if !state.is_in_inactivity_leak(previous_epoch, spec)? {
                     ideal_rewards_hashmap
                         .insert((flag_index, effective_balance), (ideal_reward, penalty));
                 } else {
