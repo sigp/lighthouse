@@ -44,8 +44,13 @@ lighthouse \
     --first-index 0 \
     --count 2 \
     --eth1-withdrawal-address <ADDRESS> \
+    --suggested-fee-recipient <ADDRESS> \
     --output-path ./
 ```
+
+The `--suggested-fee-recipient` flag may be omitted to use whatever default
+value the VC uses. It does not necessarily need to be idential to
+`--eth1-withdrawal-address`.
 
 Import the validators to a running VC with:
 
