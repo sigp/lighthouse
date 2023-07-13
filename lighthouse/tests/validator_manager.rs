@@ -125,6 +125,7 @@ pub fn validator_create_defaults() {
                 fee_recipient: None,
                 gas_limit: None,
                 bn_url: None,
+                force_bls_withdrawal_credentials: false,
             };
             assert_eq!(expected, config);
         });
@@ -145,6 +146,7 @@ pub fn validator_create_misc_flags() {
         .flag("--suggested-fee-recipient", Some(EXAMPLE_ETH1_ADDRESS))
         .flag("--gas-limit", Some("1337"))
         .flag("--beacon-node", Some("http://localhost:1001"))
+        .flag("--force-bls-withdrawal-credentials", None)
         .assert_success(|config| {
             let expected = CreateConfig {
                 output_path: PathBuf::from("./meow"),
@@ -160,6 +162,7 @@ pub fn validator_create_misc_flags() {
                 fee_recipient: Some(Address::from_str(EXAMPLE_ETH1_ADDRESS).unwrap()),
                 gas_limit: Some(1337),
                 bn_url: Some(SensitiveUrl::parse("http://localhost:1001").unwrap()),
+                force_bls_withdrawal_credentials: true,
             };
             assert_eq!(expected, config);
         });
