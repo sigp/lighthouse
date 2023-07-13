@@ -13,11 +13,19 @@ supported by this command.
 
 The validator manager tool is similar to the `lighthouse account-manager` tool, except the latter
 creates files that will be read by the VC next time it starts rather than making instant changes to
-a live VC. The validator manager is generally superior to the account manager for the following
-(non-exhaustive) reasons:
+a live VC.
 
-- The validator manager generates deposit files compatible with the [Ethereum Staking Launchpad]().
-- Changes made with the validator manager do not require downtime for the VC.
+The `account-manager` is ideal for importing keys created with the
+[staking-deposit-cli](https://github.com/ethereum/staking-deposit-cli). On the
+other hand, the `validator-manager` is ideal for moving existing validators
+between two VCs or for advanced users to create validators at scale with less
+downtime.
+
+The `validator-manager` boasts the following features:
+
+- One-line command to arbitrarily move validators between two VCs, maintaining the slashing protection database.
+- Generates deposit files compatible with the [Ethereum Staking Launchpad]().
+- Generally involves zero or very little downtime.
 - The "key cache" is preserved whenever a validator is added with the validator manager, this
     prevents long waits at start up when a new validator is added.
 
