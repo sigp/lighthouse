@@ -378,8 +378,6 @@ async fn create_local_network<E: EthSpec>(
         beacon_config.execution_layer = Some(el_config);
     }
 
-    let network = LocalNetwork::new(context, beacon_config.clone())
-        .await
-        .map_err(|e| e.to_string())?;
+    let network = LocalNetwork::new(context, beacon_config.clone()).await?;
     Ok((network, beacon_config))
 }

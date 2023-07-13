@@ -37,18 +37,6 @@ pub struct LocalBeaconNode<E: EthSpec> {
     pub datadir: TempDir,
 }
 
-#[derive(Debug)]
-pub enum LocalBeaconNodeError {
-    TimeoutError,
-    StartupError(String),
-}
-
-impl ToString for LocalBeaconNodeError {
-    fn to_string(&self) -> String {
-        format!("{:?}", self)
-    }
-}
-
 impl<E: EthSpec> LocalBeaconNode<E> {
     /// Starts a new, production beacon node on the tokio runtime in the given `context`.
     ///
@@ -56,7 +44,7 @@ impl<E: EthSpec> LocalBeaconNode<E> {
     pub async fn production(
         context: RuntimeContext<E>,
         mut client_config: ClientConfig,
-    ) -> Result<Self, LocalBeaconNodeError> {
+    ) -> Result<Self, String> {
         // Creates a temporary directory that will be deleted once this `TempDir` is dropped.
         let datadir = TempBuilder::new()
             .prefix("lighthouse_node_test_rig")
@@ -71,12 +59,11 @@ impl<E: EthSpec> LocalBeaconNode<E> {
             ProductionBeaconNode::new(context, client_config),
         )
         .await
-        .map_err(|_| LocalBeaconNodeError::TimeoutError)?
+        .map_err(|_| format!("Beacon node startup timed out after {:?}", STARTUP_TIMEOUT))?
         .map(move |client| Self {
             client: client.into_inner(),
             datadir,
         })
-        .map_err(LocalBeaconNodeError::StartupError)
     }
 }
 

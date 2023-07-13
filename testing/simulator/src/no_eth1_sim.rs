@@ -95,9 +95,7 @@ pub fn run_no_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
     beacon_config.network.enr_address = (Some(Ipv4Addr::LOCALHOST), None);
 
     let main_future = async {
-        let network = LocalNetwork::new(context.clone(), beacon_config.clone())
-            .await
-            .map_err(|e| e.to_string())?;
+        let network = LocalNetwork::new(context.clone(), beacon_config.clone()).await?;
         /*
          * One by one, add beacon nodes to the network.
          */
