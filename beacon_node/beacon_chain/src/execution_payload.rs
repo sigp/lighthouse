@@ -78,8 +78,6 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
             )
             .map_err(BlockError::PerBlockProcessingError)?;
 
-            let payload = block_message.execution_payload()?;
-
             match notify_execution_layer {
                 NotifyExecutionLayer::No if chain.config.optimistic_finalized_sync => {
                     // Verify the block hash here in Lighthouse and immediately mark the block as
@@ -89,13 +87,11 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
                         .as_ref()
                         .ok_or(ExecutionPayloadError::NoExecutionConnection)?;
 
-                    if let Err(e) =
-                        execution_layer.verify_payload_block_hash(payload.execution_payload_ref())
-                    {
+                    if let Err(e) = execution_layer.verify_payload_block_hash(block_message) {
                         warn!(
                             chain.log,
                             "Falling back to slow block hash verification";
-                            "block_number" => payload.block_number(),
+                            "block_number" => ?block_message.execution_payload().map(|payload| payload.block_number()),
                             "info" => "you can silence this warning with --disable-optimistic-finalized-sync",
                             "error" => ?e,
                         );

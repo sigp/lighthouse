@@ -27,7 +27,8 @@ use metastruct::metastruct;
 #[metastruct(mappings(map_execution_block_header_fields_except_withdrawals(exclude(
     withdrawals_root,
     data_gas_used,
-    excess_data_gas
+    excess_data_gas,
+    parent_beacon_block_root
 )),))]
 pub struct ExecutionBlockHeader {
     pub parent_hash: Hash256,
@@ -49,6 +50,7 @@ pub struct ExecutionBlockHeader {
     pub withdrawals_root: Option<Hash256>,
     pub data_gas_used: Option<u64>,
     pub excess_data_gas: Option<u64>,
+    pub parent_beacon_block_root: Option<Hash256>,
 }
 
 impl ExecutionBlockHeader {
@@ -59,6 +61,7 @@ impl ExecutionBlockHeader {
         rlp_withdrawals_root: Option<Hash256>,
         rlp_data_gas_used: Option<u64>,
         rlp_excess_data_gas: Option<u64>,
+        rlp_parent_beacon_block_root: Option<Hash256>,
     ) -> Self {
         // Most of these field mappings are defined in EIP-3675 except for `mixHash`, which is
         // defined in EIP-4399.
@@ -82,6 +85,7 @@ impl ExecutionBlockHeader {
             withdrawals_root: rlp_withdrawals_root,
             data_gas_used: rlp_data_gas_used,
             excess_data_gas: rlp_excess_data_gas,
+            parent_beacon_block_root: rlp_parent_beacon_block_root,
         }
     }
 }
