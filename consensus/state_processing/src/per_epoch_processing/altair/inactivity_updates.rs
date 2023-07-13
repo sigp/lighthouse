@@ -34,7 +34,7 @@ pub fn process_inactivity_updates<T: EthSpec>(
                 .safe_add_assign(spec.inactivity_score_bias)?;
         }
         // Decrease the score of all validators for forgiveness when not during a leak
-        if !state.is_in_inactivity_leak(previous_epoch, spec) {
+        if !state.is_in_inactivity_leak(previous_epoch, spec)? {
             let inactivity_score = state.get_inactivity_score_mut(index)?;
             inactivity_score
                 .safe_sub_assign(min(spec.inactivity_score_recovery_rate, *inactivity_score))?;
