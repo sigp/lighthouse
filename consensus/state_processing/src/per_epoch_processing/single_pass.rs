@@ -1,7 +1,7 @@
 use crate::{
     common::update_progressive_balances_cache::initialize_progressive_balances_cache,
     epoch_cache::{initialize_epoch_cache, PreEpochCache},
-    per_epoch_processing::{Delta, Error},
+    per_epoch_processing::{Delta, Error, ParticipationEpochSummary},
 };
 use itertools::izip;
 use safe_arith::{SafeArith, SafeArithIter};
@@ -108,7 +108,7 @@ pub fn process_epoch_single_pass<E: EthSpec>(
     state: &mut BeaconState<E>,
     spec: &ChainSpec,
     conf: SinglePassConfig,
-) -> Result<(), Error> {
+) -> Result<ParticipationEpochSummary<E>, Error> {
     initialize_epoch_cache(state, spec)?;
     initialize_progressive_balances_cache(state, None, spec)?;
     state.build_exit_cache(spec)?;
@@ -149,6 +149,16 @@ pub fn process_epoch_single_pass<E: EthSpec>(
 
     let num_validators = validators.len();
 
+    // Take a snapshot of the validators and participation before mutating. This is used for
+    // informational purposes (e.g. by the validator monitor).
+    let summary = ParticipationEpochSummary::new(
+        validators.clone(),
+        previous_epoch_participation.clone(),
+        current_epoch_participation.clone(),
+        previous_epoch,
+        current_epoch,
+    );
+
     // Compute shared values required for different parts of epoch processing.
     let rewards_ctxt = &RewardsAndPenaltiesContext::new(progressive_balances, state_ctxt, spec)?;
     let activation_queue = &epoch_cache
@@ -170,7 +180,6 @@ pub fn process_epoch_single_pass<E: EthSpec>(
         previous_epoch_participation.iter(),
         current_epoch_participation.iter(),
     ) {
-        // FIXME(sproul): unwrap
         let (_, validator_cow) = validators_iter
             .next_cow()
             .ok_or(BeaconStateError::UnknownValidator(index))?;
@@ -276,7 +285,7 @@ pub fn process_epoch_single_pass<E: EthSpec>(
         )?;
     }
 
-    Ok(())
+    Ok(summary)
 }
 
 fn process_single_inactivity_update(

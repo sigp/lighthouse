@@ -65,5 +65,6 @@ pub fn process_effective_balance_updates_slow<T: EthSpec>(
             effective_balance_updates: true,
             ..SinglePassConfig::disable_all()
         },
-    )
+    )?;
+    Ok(())
 }

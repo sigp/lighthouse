@@ -1,7 +1,7 @@
 #![deny(clippy::wildcard_imports)]
 
 use crate::metrics;
-pub use epoch_processing_summary::EpochProcessingSummary;
+pub use epoch_processing_summary::{EpochProcessingSummary, ParticipationEpochSummary};
 use errors::EpochProcessingError as Error;
 pub use justification_and_finalization_state::JustificationAndFinalizationState;
 use safe_arith::SafeArith;

@@ -52,7 +52,9 @@ pub fn process_epoch<T: EthSpec>(
     // The `process_eth1_data_reset` is not covered in the single pass, but happens afterwards
     // without loss of correctness.
     let current_epoch_progressive_balances = state.progressive_balances_cache().clone();
-    process_epoch_single_pass(state, spec, SinglePassConfig::default())?;
+    let current_epoch_total_active_balance = state.get_total_active_balance()?;
+    let participation_summary =
+        process_epoch_single_pass(state, spec, SinglePassConfig::default())?;
 
     // Reset eth1 data votes.
     process_eth1_data_reset(state)?;
@@ -83,6 +85,8 @@ pub fn process_epoch<T: EthSpec>(
 
     Ok(EpochProcessingSummary::Altair {
         progressive_balances: current_epoch_progressive_balances,
+        current_epoch_total_active_balance,
+        participation: participation_summary,
         sync_committee,
     })
 }

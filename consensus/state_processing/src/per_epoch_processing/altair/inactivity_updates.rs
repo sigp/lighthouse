@@ -18,5 +18,6 @@ pub fn process_inactivity_updates_slow<T: EthSpec>(
             inactivity_updates: true,
             ..SinglePassConfig::disable_all()
         },
-    )
+    )?;
+    Ok(())
 }

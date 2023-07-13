@@ -58,5 +58,6 @@ pub fn process_slashings_slow<T: EthSpec>(
             slashings: true,
             ..SinglePassConfig::disable_all()
         },
-    )
+    )?;
+    Ok(())
 }

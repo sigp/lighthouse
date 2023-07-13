@@ -67,5 +67,6 @@ pub fn process_registry_updates_slow<T: EthSpec>(
             registry_updates: true,
             ..SinglePassConfig::disable_all()
         },
-    )
+    )?;
+    Ok(())
 }

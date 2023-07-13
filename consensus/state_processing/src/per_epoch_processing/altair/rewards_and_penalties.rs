@@ -24,7 +24,8 @@ pub fn process_rewards_and_penalties_slow<T: EthSpec>(
             rewards_and_penalties: true,
             ..SinglePassConfig::disable_all()
         },
-    )
+    )?;
+    Ok(())
 }
 
 /// Return the deltas for a given flag index by scanning through the participation flags.
