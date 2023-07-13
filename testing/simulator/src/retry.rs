@@ -15,13 +15,14 @@ where
         if result.is_ok() || retry_count >= max_retries {
             break result;
         }
+        retry_count += 1;
+
         if let Err(e) = result {
             eprintln!(
                 "Operation failed with error {:?}, retrying {} of {}",
                 e, retry_count, max_retries
             );
         }
-        retry_count += 1;
     }
 }
 
