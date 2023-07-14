@@ -30,7 +30,8 @@ use slog::{debug, error, info, warn, Logger};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use state_processing::{
-    block_replayer::PreSlotHook, BlockProcessingError, BlockReplayer, SlotProcessingError,
+    block_replayer::PreSlotHook, AllCaches, BlockProcessingError, BlockReplayer,
+    SlotProcessingError,
 };
 use std::cmp::min;
 use std::collections::VecDeque;
@@ -1152,7 +1153,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         let state_cacher_hook = |opt_state_root: Option<Hash256>, state: &mut BeaconState<_>| {
             // Ensure all caches are built before attempting to cache.
             state.update_tree_hash_cache()?;
-            state.build_caches(&self.spec)?;
+            state.build_all_caches(&self.spec)?;
 
             if let Some(state_root) = opt_state_root {
                 // Cache
@@ -1246,7 +1247,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 )?;
 
                 state.update_tree_hash_cache()?;
-                state.build_caches(&self.spec)?;
+                state.build_all_caches(&self.spec)?;
             }
 
             // Apply state diff. Block replay should have ensured that the diff is now applicable.
@@ -1280,7 +1281,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 let tree_hash_ms = t.elapsed().as_millis();
 
                 let t = std::time::Instant::now();
-                state.build_caches(&self.spec)?;
+                state.build_all_caches(&self.spec)?;
                 let cache_ms = t.elapsed().as_millis();
 
                 debug!(
@@ -1358,7 +1359,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
         // Do a tree hash here so that the cache is fully built.
         state.update_tree_hash_cache()?;
-        state.build_caches(&self.spec)?;
+        state.build_all_caches(&self.spec)?;
 
         let latest_block_root = state.get_latest_block_root(*state_root);
         Ok((state, latest_block_root))

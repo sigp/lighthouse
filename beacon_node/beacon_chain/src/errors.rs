@@ -53,6 +53,7 @@ pub enum BeaconChainError {
     SlotClockDidNotStart,
     NoStateForSlot(Slot),
     BeaconStateError(BeaconStateError),
+    HeadCacheError(EpochCacheError),
     DBInconsistent(String),
     DBError(store::Error),
     ForkChoiceError(ForkChoiceError),
