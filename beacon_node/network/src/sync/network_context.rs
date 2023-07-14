@@ -8,7 +8,7 @@ use crate::network_beacon_processor::NetworkBeaconProcessor;
 use crate::service::{NetworkMessage, RequestId};
 use crate::status::ToStatusMessage;
 use crate::sync::block_lookups::{BlobRequestId, BlockRequestId};
-use beacon_chain::blob_verification::BlockWrapper;
+use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::{BeaconChain, BeaconChainTypes, EngineState};
 use fnv::FnvHashMap;
 use lighthouse_network::rpc::methods::{BlobsByRangeRequest, BlobsByRootRequest};
@@ -22,7 +22,7 @@ use types::{BlobSidecar, EthSpec, SignedBeaconBlock};
 
 pub struct BlocksAndBlobsByRangeResponse<T: EthSpec> {
     pub batch_id: BatchId,
-    pub responses: Result<Vec<BlockWrapper<T>>, &'static str>,
+    pub responses: Result<Vec<RpcBlock<T>>, &'static str>,
 }
 
 pub struct BlocksAndBlobsByRangeRequest<T: EthSpec> {

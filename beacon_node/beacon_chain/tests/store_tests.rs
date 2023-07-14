@@ -1,7 +1,7 @@
 #![cfg(not(debug_assertions))]
 
 use beacon_chain::attestation_verification::Error as AttnError;
-use beacon_chain::blob_verification::BlockWrapper;
+use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::builder::BeaconChainBuilder;
 use beacon_chain::schema_change::migrate_schema;
 use beacon_chain::test_utils::{
@@ -10,7 +10,7 @@ use beacon_chain::test_utils::{
 };
 use beacon_chain::validator_monitor::DEFAULT_INDIVIDUAL_TRACKING_THRESHOLD;
 use beacon_chain::{
-    blob_verification::MaybeAvailableBlock, historical_blocks::HistoricalBlockError,
+    data_availability_checker::MaybeAvailableBlock, historical_blocks::HistoricalBlockError,
     migrate::MigratorConfig, BeaconChain, BeaconChainError, BeaconChainTypes, BeaconSnapshot,
     ChainConfig, NotifyExecutionLayer, ServerSentEventHandler, WhenSlotSkipped,
 };
@@ -2176,7 +2176,7 @@ async fn weak_subjectivity_sync() {
         beacon_chain
             .process_block(
                 full_block.canonical_root(),
-                BlockWrapper::new(Arc::new(full_block), blobs),
+                RpcBlock::new(Arc::new(full_block), blobs).unwrap(),
                 NotifyExecutionLayer::Yes,
                 || Ok(()),
             )
@@ -2236,7 +2236,7 @@ async fn weak_subjectivity_sync() {
         if let MaybeAvailableBlock::Available(block) = harness
             .chain
             .data_availability_checker
-            .check_availability(BlockWrapper::new(Arc::new(full_block), blobs))
+            .check_rpc_block_availability(RpcBlock::new(Arc::new(full_block), blobs).unwrap())
             .expect("should check availability")
         {
             available_blocks.push(block);

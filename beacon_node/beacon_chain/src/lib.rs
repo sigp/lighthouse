@@ -12,6 +12,7 @@ pub mod blob_verification;
 pub mod block_reward;
 mod block_times_cache;
 mod block_verification;
+pub mod block_verification_types;
 pub mod builder;
 pub mod canonical_head;
 pub mod capella_readiness;
@@ -69,10 +70,12 @@ pub use self::historical_blocks::HistoricalBlockError;
 pub use attestation_verification::Error as AttestationError;
 pub use beacon_fork_choice_store::{BeaconForkChoiceStore, Error as ForkChoiceStoreError};
 pub use block_verification::{
-    get_block_root, AvailabilityPendingExecutedBlock, BlockError, ExecutedBlock,
-    ExecutionPayloadError, ExecutionPendingBlock, GossipVerifiedBlock, IntoExecutionPendingBlock,
-    IntoGossipVerifiedBlockContents, PayloadVerificationOutcome, PayloadVerificationStatus,
+    get_block_root, BlockError, ExecutionPayloadError, ExecutionPendingBlock, GossipVerifiedBlock,
+    IntoExecutionPendingBlock, IntoGossipVerifiedBlockContents, PayloadVerificationOutcome,
+    PayloadVerificationStatus,
 };
+pub use block_verification_types::AvailabilityPendingExecutedBlock;
+pub use block_verification_types::ExecutedBlock;
 pub use canonical_head::{CachedHead, CanonicalHead, CanonicalHeadRwLock};
 pub use eth1_chain::{Eth1Chain, Eth1ChainBackend};
 pub use events::ServerSentEventHandler;

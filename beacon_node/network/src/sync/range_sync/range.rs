@@ -47,7 +47,7 @@ use crate::status::ToStatusMessage;
 use crate::sync::manager::Id;
 use crate::sync::network_context::SyncNetworkContext;
 use crate::sync::BatchProcessResult;
-use beacon_chain::blob_verification::BlockWrapper;
+use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use lighthouse_network::rpc::GoodbyeReason;
 use lighthouse_network::PeerId;
@@ -210,7 +210,7 @@ where
         chain_id: ChainId,
         batch_id: BatchId,
         request_id: Id,
-        beacon_block: Option<BlockWrapper<T::EthSpec>>,
+        beacon_block: Option<RpcBlock<T::EthSpec>>,
     ) {
         // check if this chunk removes the chain
         match self.chains.call_by_id(chain_id, |chain| {
@@ -394,7 +394,6 @@ mod tests {
     use lighthouse_network::{rpc::StatusMessage, NetworkGlobals};
     use slog::{o, Drain};
     use tokio::sync::mpsc;
-
     use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
     use slot_clock::{TestingSlotClock, };
     use std::collections::HashSet;

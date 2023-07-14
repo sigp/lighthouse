@@ -11,6 +11,7 @@ use beacon_chain::{
     BeaconChain, BeaconChainError, BeaconForkChoiceStore, ChainConfig, ForkChoiceError,
     StateSkipConfig, WhenSlotSkipped,
 };
+use beacon_chain::block_verification_types::RpcBlock;
 use fork_choice::{
     ForkChoiceStore, InvalidAttestation, InvalidBlock, PayloadVerificationStatus, QueuedAttestation,
 };
@@ -200,7 +201,7 @@ impl ForkChoiceTest {
             if !predicate(block.0.message(), &state) {
                 break;
             }
-            if let Ok(block_hash) = self.harness.process_block_result(block.clone()).await {
+            if let Ok(block_hash) = self.harness.process_block_result(RpcBlock::new(block.0, block.1).unwrap()).await {
                 self.harness.attest_block(
                     &state,
                     block.0.state_root(),

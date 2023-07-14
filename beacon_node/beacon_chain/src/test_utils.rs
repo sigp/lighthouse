@@ -1,4 +1,4 @@
-use crate::blob_verification::{AsBlock, BlockWrapper};
+use crate::block_verification_types::{AsBlock, RpcBlock};
 use crate::observed_operations::ObservationOutcome;
 pub use crate::persisted_beacon_chain::PersistedBeaconChain;
 pub use crate::{
@@ -689,18 +689,18 @@ where
             .execution_block_generator()
     }
 
-    pub fn get_head_block(&self) -> BlockWrapper<E> {
+    pub fn get_head_block(&self) -> RpcBlock<E> {
         let block = self.chain.head_beacon_block();
         let block_root = block.canonical_root();
         let blobs = self.chain.get_blobs(&block_root).unwrap();
-        BlockWrapper::new(block, blobs)
+        RpcBlock::new(block, blobs).unwrap()
     }
 
-    pub fn get_full_block(&self, block_root: &Hash256) -> BlockWrapper<E> {
+    pub fn get_full_block(&self, block_root: &Hash256) -> RpcBlock<E> {
         let block = self.chain.get_blinded_block(block_root).unwrap().unwrap();
         let full_block = self.chain.store.make_full_block(block_root, block).unwrap();
         let blobs = self.chain.get_blobs(block_root).unwrap();
-        BlockWrapper::new(Arc::new(full_block), blobs)
+        RpcBlock::new( Arc::new(full_block), blobs).unwrap()
     }
 
     pub fn get_all_validators(&self) -> Vec<usize> {
@@ -1868,7 +1868,7 @@ where
         (deposits, state)
     }
 
-    pub async fn process_block<B: Into<BlockWrapper<E>>>(
+    pub async fn process_block<B: Into<RpcBlock<E>>>(
         &self,
         slot: Slot,
         block_root: Hash256,
@@ -1887,7 +1887,7 @@ where
         Ok(block_hash)
     }
 
-    pub async fn process_block_result<B: Into<BlockWrapper<E>>>(
+    pub async fn process_block_result<B: Into<RpcBlock<E>>>(
         &self,
         block: B,
     ) -> Result<SignedBeaconBlockHash, BlockError<E>> {
@@ -1971,11 +1971,28 @@ where
         BlockError<E>,
     > {
         self.set_current_slot(slot);
-        let (block, new_state) = self.make_block(state, slot).await;
+        let ((block, blobs), new_state) = self.make_block(state, slot).await;
+        // Note: we are just dropping signatures here and skipping signature verification.
+        let blobs_without_signatures = blobs.as_ref().map(|blobs| {
+            VariableList::from(
+                blobs
+                    .into_iter()
+                    .map(|blob| blob.message.clone())
+                    .collect::<Vec<_>>(),
+            )
+        });
         let block_hash = self
-            .process_block(slot, block.0.canonical_root(), block.clone())
+            .process_block(
+                slot,
+                block.canonical_root(),
+                RpcBlock::new(
+                    Arc::new(block.clone()),
+                    blobs_without_signatures.clone(),
+                )
+                .unwrap(),
+            )
             .await?;
-        Ok((block_hash, block, new_state))
+        Ok((block_hash, (block, blobs), new_state))
     }
 
     pub fn attest_block(
