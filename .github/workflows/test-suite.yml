@@ -60,8 +60,6 @@ jobs:
         repo-token: ${{ secrets.GITHUB_TOKEN }}
     - name: Install Foundry (anvil)
       uses: foundry-rs/foundry-toolchain@v1
-      with:
-        version: nightly
     - name: Run tests in release
       run: make test-release
   release-tests-windows:
@@ -82,8 +80,6 @@ jobs:
         npm config set msvs_version 2019
     - name: Install Foundry (anvil)
       uses: foundry-rs/foundry-toolchain@v1
-      with:
-        version: nightly
     - name: Install make
       run: choco install -y make
     - uses: KyleMayes/install-llvm-action@v1
@@ -146,8 +142,6 @@ jobs:
         repo-token: ${{ secrets.GITHUB_TOKEN }}
     - name: Install Foundry (anvil)
       uses: foundry-rs/foundry-toolchain@v1
-      with:
-        version: nightly
     - name: Run tests in debug
       run: make test-debug
   state-transition-vectors-ubuntu:
@@ -204,8 +198,6 @@ jobs:
         repo-token: ${{ secrets.GITHUB_TOKEN }}
     - name: Install Foundry (anvil)
       uses: foundry-rs/foundry-toolchain@v1
-      with:
-        version: nightly
     - name: Run the beacon chain sim that starts from an eth1 contract
       run: cargo run --release --bin simulator eth1-sim
   merge-transition-ubuntu:
@@ -222,8 +214,6 @@ jobs:
         repo-token: ${{ secrets.GITHUB_TOKEN }}
     - name: Install Foundry (anvil)
       uses: foundry-rs/foundry-toolchain@v1
-      with:
-        version: nightly
     - name: Run the beacon chain sim and go through the merge transition
       run: cargo run --release --bin simulator eth1-sim --post-merge
   no-eth1-simulator-ubuntu:
@@ -254,8 +244,6 @@ jobs:
         repo-token: ${{ secrets.GITHUB_TOKEN }}
     - name: Install Foundry (anvil)
       uses: foundry-rs/foundry-toolchain@v1
-      with:
-        version: nightly
     - name: Run the syncing simulator
       run: cargo run --release --bin simulator syncing-sim
   doppelganger-protection-test:
