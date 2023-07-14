@@ -47,9 +47,6 @@ pub trait ForkChoiceStore<T: EthSpec>: Sized {
     /// Returns balances from the `state` identified by `justified_checkpoint.root`.
     fn justified_balances(&self) -> &JustifiedBalances;
 
-    /// Returns the `best_justified_checkpoint`.
-    fn best_justified_checkpoint(&self) -> &Checkpoint;
-
     /// Returns the `finalized_checkpoint`.
     fn finalized_checkpoint(&self) -> &Checkpoint;
 
@@ -67,9 +64,6 @@ pub trait ForkChoiceStore<T: EthSpec>: Sized {
 
     /// Sets the `justified_checkpoint`.
     fn set_justified_checkpoint(&mut self, checkpoint: Checkpoint) -> Result<(), Self::Error>;
-
-    /// Sets the `best_justified_checkpoint`.
-    fn set_best_justified_checkpoint(&mut self, checkpoint: Checkpoint);
 
     /// Sets the `unrealized_justified_checkpoint`.
     fn set_unrealized_justified_checkpoint(&mut self, checkpoint: Checkpoint);

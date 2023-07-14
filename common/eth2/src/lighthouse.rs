@@ -13,7 +13,7 @@ use crate::{
         BeaconState, ChainSpec, DepositTreeSnapshot, Epoch, EthSpec, FinalizedExecutionBlock,
         GenericResponse, ValidatorId,
     },
-    BeaconNodeHttpClient, DepositData, Error, Eth1Data, Hash256, StateId, StatusCode,
+    BeaconNodeHttpClient, DepositData, Error, Eth1Data, Hash256, Slot, StateId, StatusCode,
 };
 use proto_array::core::ProtoArray;
 use reqwest::IntoUrl;
@@ -364,12 +364,12 @@ pub struct DatabaseInfo {
 impl BeaconNodeHttpClient {
     /// Perform a HTTP GET request, returning `None` on a 404 error.
     async fn get_bytes_opt<U: IntoUrl>(&self, url: U) -> Result<Option<Vec<u8>>, Error> {
-        let response = self.client.get(url).send().await.map_err(Error::Reqwest)?;
+        let response = self.client.get(url).send().await.map_err(Error::from)?;
         match ok_or_error(response).await {
             Ok(resp) => Ok(Some(
                 resp.bytes()
                     .await
-                    .map_err(Error::Reqwest)?
+                    .map_err(Error::from)?
                     .into_iter()
                     .collect::<Vec<_>>(),
             )),
@@ -565,5 +565,74 @@ impl BeaconNodeHttpClient {
             .push("reconstruct");
 
         self.post_with_response(path, &()).await
+    }
+
+    ///
+    /// Analysis endpoints.
+    ///
+
+    /// `GET` lighthouse/analysis/block_rewards?start_slot,end_slot
+    pub async fn get_lighthouse_analysis_block_rewards(
+        &self,
+        start_slot: Slot,
+        end_slot: Slot,
+    ) -> Result<Vec<BlockReward>, Error> {
+        let mut path = self.server.full.clone();
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("lighthouse")
+            .push("analysis")
+            .push("block_rewards");
+
+        path.query_pairs_mut()
+            .append_pair("start_slot", &start_slot.to_string())
+            .append_pair("end_slot", &end_slot.to_string());
+
+        self.get(path).await
+    }
+
+    /// `GET` lighthouse/analysis/block_packing?start_epoch,end_epoch
+    pub async fn get_lighthouse_analysis_block_packing(
+        &self,
+        start_epoch: Epoch,
+        end_epoch: Epoch,
+    ) -> Result<Vec<BlockPackingEfficiency>, Error> {
+        let mut path = self.server.full.clone();
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("lighthouse")
+            .push("analysis")
+            .push("block_packing_efficiency");
+
+        path.query_pairs_mut()
+            .append_pair("start_epoch", &start_epoch.to_string())
+            .append_pair("end_epoch", &end_epoch.to_string());
+
+        self.get(path).await
+    }
+
+    /// `GET` lighthouse/analysis/attestation_performance/{index}?start_epoch,end_epoch
+    pub async fn get_lighthouse_analysis_attestation_performance(
+        &self,
+        start_epoch: Epoch,
+        end_epoch: Epoch,
+        target: String,
+    ) -> Result<Vec<AttestationPerformance>, Error> {
+        let mut path = self.server.full.clone();
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("lighthouse")
+            .push("analysis")
+            .push("attestation_performance")
+            .push(&target);
+
+        path.query_pairs_mut()
+            .append_pair("start_epoch", &start_epoch.to_string())
+            .append_pair("end_epoch", &end_epoch.to_string());
+
+        self.get(path).await
     }
 }

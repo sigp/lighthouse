@@ -32,7 +32,7 @@ pub mod migrate;
 mod naive_aggregation_pool;
 mod observed_aggregates;
 mod observed_attesters;
-mod observed_block_producers;
+pub mod observed_block_producers;
 pub mod observed_operations;
 pub mod otb_verification_service;
 mod persisted_beacon_chain;
@@ -40,7 +40,7 @@ mod persisted_fork_choice;
 mod pre_finalization_cache;
 pub mod proposer_prep_service;
 pub mod schema_change;
-mod shuffling_cache;
+pub mod shuffling_cache;
 mod snapshot_cache;
 pub mod state_advance_timer;
 pub mod sync_committee_rewards;
@@ -52,18 +52,19 @@ pub mod validator_pubkey_cache;
 
 pub use self::beacon_chain::{
     AttestationProcessingOutcome, BeaconChain, BeaconChainTypes, BeaconStore, ChainSegmentResult,
-    CountUnrealized, ForkChoiceError, OverrideForkchoiceUpdate, ProduceBlockVerification,
-    StateSkipConfig, WhenSlotSkipped, INVALID_FINALIZED_MERGE_TRANSITION_BLOCK_SHUTDOWN_REASON,
+    ForkChoiceError, OverrideForkchoiceUpdate, ProduceBlockVerification, StateSkipConfig,
+    WhenSlotSkipped, INVALID_FINALIZED_MERGE_TRANSITION_BLOCK_SHUTDOWN_REASON,
     INVALID_JUSTIFIED_PAYLOAD_SHUTDOWN_REASON, MAXIMUM_GOSSIP_CLOCK_DISPARITY,
 };
 pub use self::beacon_snapshot::BeaconSnapshot;
-pub use self::chain_config::{ChainConfig, CountUnrealizedFull};
+pub use self::chain_config::ChainConfig;
 pub use self::errors::{BeaconChainError, BlockProductionError};
 pub use self::historical_blocks::HistoricalBlockError;
 pub use attestation_verification::Error as AttestationError;
 pub use beacon_fork_choice_store::{BeaconForkChoiceStore, Error as ForkChoiceStoreError};
 pub use block_verification::{
     get_block_root, BlockError, ExecutionPayloadError, GossipVerifiedBlock,
+    IntoExecutionPendingBlock, IntoGossipVerifiedBlock,
 };
 pub use canonical_head::{CachedHead, CanonicalHead, CanonicalHeadRwLock};
 pub use eth1_chain::{Eth1Chain, Eth1ChainBackend};

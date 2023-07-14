@@ -24,7 +24,7 @@ impl JustifiedBalances {
             .validators()
             .iter()
             .map(|validator| {
-                if validator.is_active_at(current_epoch) {
+                if !validator.slashed && validator.is_active_at(current_epoch) {
                     total_effective_balance.safe_add_assign(validator.effective_balance)?;
                     num_active_validators.safe_add_assign(1)?;
 

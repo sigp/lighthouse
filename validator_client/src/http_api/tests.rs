@@ -28,12 +28,14 @@ use slot_clock::{SlotClock, TestingSlotClock};
 use std::future::Future;
 use std::marker::PhantomData;
 use std::net::{IpAddr, Ipv4Addr};
+use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 use task_executor::TaskExecutor;
 use tempfile::{tempdir, TempDir};
 use tokio::runtime::Runtime;
 use tokio::sync::oneshot;
+use types::graffiti::GraffitiString;
 
 const PASSWORD_BYTES: &[u8] = &[42, 50, 37];
 pub const TEST_DEFAULT_FEE_RECIPIENT: Address = Address::repeat_byte(42);
@@ -45,6 +47,7 @@ struct ApiTester {
     initialized_validators: Arc<RwLock<InitializedValidators>>,
     validator_store: Arc<ValidatorStore<TestingSlotClock, E>>,
     url: SensitiveUrl,
+    slot_clock: TestingSlotClock,
     _server_shutdown: oneshot::Sender<()>,
     _validator_dir: TempDir,
     _runtime_shutdown: exit_future::Signal,
@@ -90,8 +93,12 @@ impl ApiTester {
         let slashing_db_path = config.validator_dir.join(SLASHING_PROTECTION_FILENAME);
         let slashing_protection = SlashingDatabase::open_or_create(&slashing_db_path).unwrap();
 
-        let slot_clock =
-            TestingSlotClock::new(Slot::new(0), Duration::from_secs(0), Duration::from_secs(1));
+        let genesis_time: u64 = 0;
+        let slot_clock = TestingSlotClock::new(
+            Slot::new(0),
+            Duration::from_secs(genesis_time),
+            Duration::from_secs(1),
+        );
 
         let (runtime_shutdown, exit) = exit_future::signal();
         let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
@@ -101,9 +108,9 @@ impl ApiTester {
             initialized_validators,
             slashing_protection,
             Hash256::repeat_byte(42),
-            spec,
+            spec.clone(),
             Some(Arc::new(DoppelgangerService::new(log.clone()))),
-            slot_clock,
+            slot_clock.clone(),
             &config,
             executor.clone(),
             log.clone(),
@@ -129,7 +136,9 @@ impl ApiTester {
                 listen_port: 0,
                 allow_origin: None,
             },
+            sse_logging_components: None,
             log,
+            slot_clock: slot_clock.clone(),
             _phantom: PhantomData,
         });
         let ctx = context.clone();
@@ -156,6 +165,7 @@ impl ApiTester {
             initialized_validators,
             validator_store,
             url,
+            slot_clock,
             _server_shutdown: shutdown_tx,
             _validator_dir: validator_dir,
             _runtime_shutdown: runtime_shutdown,
@@ -358,7 +368,7 @@ impl ApiTester {
             let withdrawal_keypair = keypairs.withdrawal.decrypt_keypair(PASSWORD_BYTES).unwrap();
 
             let deposit_bytes =
-                eth2_serde_utils::hex::decode(&response[i].eth1_deposit_tx_data).unwrap();
+                serde_utils::hex::decode(&response[i].eth1_deposit_tx_data).unwrap();
 
             let (deposit_data, _) =
                 decode_eth1_tx_data(&deposit_bytes, E::default_spec().max_effective_balance)
@@ -494,11 +504,38 @@ impl ApiTester {
         self
     }
 
+    pub async fn test_sign_voluntary_exits(self, index: usize, maybe_epoch: Option<Epoch>) -> Self {
+        let validator = &self.client.get_lighthouse_validators().await.unwrap().data[index];
+        // manually setting validator index in `ValidatorStore`
+        self.initialized_validators
+            .write()
+            .set_index(&validator.voting_pubkey, 0);
+
+        let expected_exit_epoch = maybe_epoch.unwrap_or_else(|| self.get_current_epoch());
+
+        let resp = self
+            .client
+            .post_validator_voluntary_exit(&validator.voting_pubkey, maybe_epoch)
+            .await;
+
+        assert!(resp.is_ok());
+        assert_eq!(resp.unwrap().message.epoch, expected_exit_epoch);
+
+        self
+    }
+
+    fn get_current_epoch(&self) -> Epoch {
+        self.slot_clock
+            .now()
+            .map(|s| s.epoch(E::slots_per_epoch()))
+            .unwrap()
+    }
+
     pub async fn set_validator_enabled(self, index: usize, enabled: bool) -> Self {
         let validator = &self.client.get_lighthouse_validators().await.unwrap().data[index];
 
         self.client
-            .patch_lighthouse_validators(&validator.voting_pubkey, Some(enabled), None, None)
+            .patch_lighthouse_validators(&validator.voting_pubkey, Some(enabled), None, None, None)
             .await
             .unwrap();
 
@@ -540,7 +577,13 @@ impl ApiTester {
         let validator = &self.client.get_lighthouse_validators().await.unwrap().data[index];
 
         self.client
-            .patch_lighthouse_validators(&validator.voting_pubkey, None, Some(gas_limit), None)
+            .patch_lighthouse_validators(
+                &validator.voting_pubkey,
+                None,
+                Some(gas_limit),
+                None,
+                None,
+            )
             .await
             .unwrap();
 
@@ -567,6 +610,7 @@ impl ApiTester {
                 None,
                 None,
                 Some(builder_proposals),
+                None,
             )
             .await
             .unwrap();
@@ -581,6 +625,34 @@ impl ApiTester {
             self.validator_store
                 .get_builder_proposals(&validator.voting_pubkey),
             builder_proposals
+        );
+
+        self
+    }
+
+    pub async fn set_graffiti(self, index: usize, graffiti: &str) -> Self {
+        let validator = &self.client.get_lighthouse_validators().await.unwrap().data[index];
+        let graffiti_str = GraffitiString::from_str(graffiti).unwrap();
+        self.client
+            .patch_lighthouse_validators(
+                &validator.voting_pubkey,
+                None,
+                None,
+                None,
+                Some(graffiti_str),
+            )
+            .await
+            .unwrap();
+
+        self
+    }
+
+    pub async fn assert_graffiti(self, index: usize, graffiti: &str) -> Self {
+        let validator = &self.client.get_lighthouse_validators().await.unwrap().data[index];
+        let graffiti_str = GraffitiString::from_str(graffiti).unwrap();
+        assert_eq!(
+            self.validator_store.graffiti(&validator.voting_pubkey),
+            Some(graffiti_str.into())
         );
 
         self
@@ -688,7 +760,13 @@ fn routes_with_invalid_auth() {
             .await
             .test_with_invalid_auth(|client| async move {
                 client
-                    .patch_lighthouse_validators(&PublicKeyBytes::empty(), Some(false), None, None)
+                    .patch_lighthouse_validators(
+                        &PublicKeyBytes::empty(),
+                        Some(false),
+                        None,
+                        None,
+                        None,
+                    )
                     .await
             })
             .await
@@ -775,6 +853,29 @@ fn hd_validator_creation() {
             .await
             .assert_enabled_validators_count(2)
             .assert_validators_count(3);
+    });
+}
+
+#[test]
+fn validator_exit() {
+    let runtime = build_runtime();
+    let weak_runtime = Arc::downgrade(&runtime);
+    runtime.block_on(async {
+        ApiTester::new(weak_runtime)
+            .await
+            .create_hd_validators(HdValidatorScenario {
+                count: 2,
+                specify_mnemonic: false,
+                key_derivation_path_offset: 0,
+                disabled: vec![],
+            })
+            .await
+            .assert_enabled_validators_count(2)
+            .assert_validators_count(2)
+            .test_sign_voluntary_exits(0, None)
+            .await
+            .test_sign_voluntary_exits(0, Some(Epoch::new(256)))
+            .await;
     });
 }
 
@@ -869,6 +970,41 @@ fn validator_builder_proposals() {
             .await
             .assert_enabled_validators_count(2)
             .assert_builder_proposals(0, false)
+            .await
+    });
+}
+
+#[test]
+fn validator_graffiti() {
+    let runtime = build_runtime();
+    let weak_runtime = Arc::downgrade(&runtime);
+    runtime.block_on(async {
+        ApiTester::new(weak_runtime)
+            .await
+            .create_hd_validators(HdValidatorScenario {
+                count: 2,
+                specify_mnemonic: false,
+                key_derivation_path_offset: 0,
+                disabled: vec![],
+            })
+            .await
+            .assert_enabled_validators_count(2)
+            .assert_validators_count(2)
+            .set_graffiti(0, "Mr F was here")
+            .await
+            .assert_graffiti(0, "Mr F was here")
+            .await
+            // Test setting graffiti while the validator is disabled
+            .set_validator_enabled(0, false)
+            .await
+            .assert_enabled_validators_count(1)
+            .assert_validators_count(2)
+            .set_graffiti(0, "Mr F was here again")
+            .await
+            .set_validator_enabled(0, true)
+            .await
+            .assert_enabled_validators_count(2)
+            .assert_graffiti(0, "Mr F was here again")
             .await
     });
 }

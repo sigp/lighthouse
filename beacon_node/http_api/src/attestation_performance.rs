@@ -77,8 +77,8 @@ pub fn get_attestation_performance<T: BeaconChainTypes>(
     // query is within permitted bounds to prevent potential OOM errors.
     if (end_epoch - start_epoch).as_usize() > MAX_REQUEST_RANGE_EPOCHS {
         return Err(custom_bad_request(format!(
-            "end_epoch must not exceed start_epoch by more than 100 epochs. start: {}, end: {}",
-            query.start_epoch, query.end_epoch
+            "end_epoch must not exceed start_epoch by more than {} epochs. start: {}, end: {}",
+            MAX_REQUEST_RANGE_EPOCHS, query.start_epoch, query.end_epoch
         )));
     }
 

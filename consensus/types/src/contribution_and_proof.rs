@@ -25,7 +25,7 @@ use tree_hash_derive::TreeHash;
 #[arbitrary(bound = "T: EthSpec")]
 pub struct ContributionAndProof<T: EthSpec> {
     /// The index of the validator that created the sync contribution.
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub aggregator_index: u64,
     /// The aggregate contribution.
     pub contribution: SyncCommitteeContribution<T>,

@@ -7,6 +7,7 @@ on:
   pull_request:
     paths:
       - 'book/**'
+  merge_group:
 
 jobs:
   linkcheck:

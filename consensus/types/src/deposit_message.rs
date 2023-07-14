@@ -25,7 +25,7 @@ use tree_hash_derive::TreeHash;
 pub struct DepositMessage {
     pub pubkey: PublicKeyBytes,
     pub withdrawal_credentials: Hash256,
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub amount: u64,
 }
 

@@ -1,10 +1,10 @@
 # Validator Management
 
 The `lighthouse vc` command starts a *validator client* instance which connects
-to a beacon node performs the duties of a staked validator.
+to a beacon node to perform the duties of a staked validator.
 
 This document provides information on how the validator client discovers the
-validators it will act for and how it should obtain their cryptographic
+validators it will act for and how it obtains their cryptographic
 signatures.
 
 Users that create validators using the `lighthouse account` tool in the
@@ -49,7 +49,7 @@ Each permitted field of the file is listed below for reference:
 - `enabled`: A `true`/`false` indicating if the validator client should consider this
 	validator "enabled".
 - `voting_public_key`: A validator public key.
-- `type`: How the validator signs messages (currently restricted to `local_keystore`).
+- `type`: How the validator signs messages (this can be `local_keystore` or `web3signer` (see [Web3Signer](./validator-web3signer.md))).
 - `voting_keystore_path`: The path to a EIP-2335 keystore.
 - `voting_keystore_password_path`: The path to the password for the EIP-2335 keystore.
 - `voting_keystore_password`: The password to the EIP-2335 keystore.
@@ -59,7 +59,7 @@ Each permitted field of the file is listed below for reference:
 
 ## Populating the `validator_definitions.yml` file
 
-When validator client starts and the `validator_definitions.yml` file doesn't
+When a validator client starts and the `validator_definitions.yml` file doesn't
 exist, a new file will be created. If the `--disable-auto-discover` flag is
 provided, the new file will be empty and the validator client will not start
 any validators. If the `--disable-auto-discover` flag is **not** provided, an
@@ -71,7 +71,7 @@ recap:
 
 ### Automatic validator discovery
 
-When the `--disable-auto-discover` flag is **not** provided, the validator will search the
+When the `--disable-auto-discover` flag is **not** provided, the validator client will search the
 `validator-dir` for validators and add any *new* validators to the
 `validator_definitions.yml` with `enabled: true`.
 
@@ -89,7 +89,7 @@ name identical to the `voting_public_key` value.
 
 #### Discovery Example
 
-Lets assume the following directory structure:
+Let's assume the following directory structure:
 
 ```
 ~/.lighthouse/{network}/validators
@@ -158,7 +158,7 @@ start.
 
 If a validator client were to start using the [first example
 `validator_definitions.yml` file](#example) it would print the following log,
-acknowledging there there are two validators and one is disabled:
+acknowledging there are two validators and one is disabled:
 
 ```
 INFO Initialized validators                  enabled: 1, disabled: 1
@@ -180,8 +180,8 @@ should not be opened by another process.
 1. Proceed to act for that validator, creating blocks and attestations if/when required.
 
 If there is an error during any of these steps (e.g., a file is missing or
-corrupt) the validator client will log an error and continue to attempt to
+corrupt), the validator client will log an error and continue to attempt to
 process other validators.
 
-When the validator client exits (or the validator is deactivated) it will
+When the validator client exits (or the validator is deactivated), it will
 remove the `voting-keystore.json.lock` to indicate that the keystore is free for use again.

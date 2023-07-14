@@ -1,11 +1,11 @@
 #![cfg(all(test, not(feature = "fake_crypto")))]
 
-use crate::per_block_processing;
 use crate::per_block_processing::errors::{
     AttestationInvalid, AttesterSlashingInvalid, BlockOperationError, BlockProcessingError,
     DepositInvalid, HeaderInvalid, IndexedAttestationInvalid, IntoWithIndex,
     ProposerSlashingInvalid,
 };
+use crate::{per_block_processing, StateProcessingStrategy};
 use crate::{
     per_block_processing::{process_operations, verify_exit::verify_exit},
     BlockSignatureStrategy, ConsensusContext, VerifyBlockRoot, VerifySignatures,
@@ -72,6 +72,7 @@ async fn valid_block_ok() {
         &mut state,
         &block,
         BlockSignatureStrategy::VerifyIndividual,
+        StateProcessingStrategy::Accurate,
         VerifyBlockRoot::True,
         &mut ctxt,
         &spec,
@@ -97,6 +98,7 @@ async fn invalid_block_header_state_slot() {
         &mut state,
         &SignedBeaconBlock::from_block(block, signature),
         BlockSignatureStrategy::VerifyIndividual,
+        StateProcessingStrategy::Accurate,
         VerifyBlockRoot::True,
         &mut ctxt,
         &spec,
@@ -129,6 +131,7 @@ async fn invalid_parent_block_root() {
         &mut state,
         &SignedBeaconBlock::from_block(block, signature),
         BlockSignatureStrategy::VerifyIndividual,
+        StateProcessingStrategy::Accurate,
         VerifyBlockRoot::True,
         &mut ctxt,
         &spec,
@@ -162,6 +165,7 @@ async fn invalid_block_signature() {
         &mut state,
         &SignedBeaconBlock::from_block(block, Signature::empty()),
         BlockSignatureStrategy::VerifyIndividual,
+        StateProcessingStrategy::Accurate,
         VerifyBlockRoot::True,
         &mut ctxt,
         &spec,
@@ -195,6 +199,7 @@ async fn invalid_randao_reveal_signature() {
         &mut state,
         &signed_block,
         BlockSignatureStrategy::VerifyIndividual,
+        StateProcessingStrategy::Accurate,
         VerifyBlockRoot::True,
         &mut ctxt,
         &spec,
@@ -978,8 +983,14 @@ async fn fork_spanning_exit() {
     let head = harness.chain.canonical_head.cached_head();
     let head_state = &head.snapshot.beacon_state;
     assert!(head_state.current_epoch() < spec.altair_fork_epoch.unwrap());
-    verify_exit(head_state, &signed_exit, VerifySignatures::True, &spec)
-        .expect("phase0 exit verifies against phase0 state");
+    verify_exit(
+        head_state,
+        None,
+        &signed_exit,
+        VerifySignatures::True,
+        &spec,
+    )
+    .expect("phase0 exit verifies against phase0 state");
 
     /*
      * Ensure the exit verifies after Altair.
@@ -992,8 +1003,14 @@ async fn fork_spanning_exit() {
     let head_state = &head.snapshot.beacon_state;
     assert!(head_state.current_epoch() >= spec.altair_fork_epoch.unwrap());
     assert!(head_state.current_epoch() < spec.bellatrix_fork_epoch.unwrap());
-    verify_exit(head_state, &signed_exit, VerifySignatures::True, &spec)
-        .expect("phase0 exit verifies against altair state");
+    verify_exit(
+        head_state,
+        None,
+        &signed_exit,
+        VerifySignatures::True,
+        &spec,
+    )
+    .expect("phase0 exit verifies against altair state");
 
     /*
      * Ensure the exit no longer verifies after Bellatrix.
@@ -1009,6 +1026,12 @@ async fn fork_spanning_exit() {
     let head = harness.chain.canonical_head.cached_head();
     let head_state = &head.snapshot.beacon_state;
     assert!(head_state.current_epoch() >= spec.bellatrix_fork_epoch.unwrap());
-    verify_exit(head_state, &signed_exit, VerifySignatures::True, &spec)
-        .expect_err("phase0 exit does not verify against bellatrix state");
+    verify_exit(
+        head_state,
+        None,
+        &signed_exit,
+        VerifySignatures::True,
+        &spec,
+    )
+    .expect_err("phase0 exit does not verify against bellatrix state");
 }

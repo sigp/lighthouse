@@ -12,18 +12,18 @@ desktop) may be convenient.*
 
 ### 1. Install Ubuntu
 
-Follow the [Ubuntu Raspberry Pi installation instructions](https://ubuntu.com/download/raspberry-pi).
-
-**A 64-bit version is required** and latest version is recommended (Ubuntu
-20.04 LTS was the latest at the time of writing).
+Follow the [Ubuntu Raspberry Pi installation instructions](https://ubuntu.com/download/raspberry-pi). **A 64-bit version is required**
 
 A graphical environment is not required in order to use Lighthouse.  Only the
 terminal and an Internet connection are necessary.
 
 ### 2. Install Packages
 
-Install the [Ubuntu Dependencies](installation-source.md#ubuntu).
-(I.e., run the `sudo apt install ...` command at that link).
+Install the Ubuntu dependencies:
+
+```bash
+sudo apt install -y git gcc g++ make cmake pkg-config llvm-dev libclang-dev clang protobuf-compiler
+```
 
 > Tips:
 >
@@ -32,15 +32,18 @@ Install the [Ubuntu Dependencies](installation-source.md#ubuntu).
 
 ### 3. Install Rust
 
-Install Rust as per [rustup](https://rustup.rs/). (I.e., run the `curl ... `
-command).
+Install Rust as per [rustup](https://rustup.rs/):
+
+```bash
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+```
 
 > Tips:
 >
-> - When prompted, enter `1` for the default installation.
-> - Try running `cargo version` after Rust installation completes. If it cannot
->   be found, run `source $HOME/.cargo/env`.
-> - It's generally advised to append `source $HOME/.cargo/env` to `~/.bashrc`.
+> - During installation, when prompted, enter `1` for the default installation.
+> - After Rust installation completes, try running `cargo version` . If it cannot
+>   be found, run `source $HOME/.cargo/env`. After that, running `cargo version` should return the version, for example `cargo 1.68.2`.
+> - It's generally advisable to append `source $HOME/.cargo/env` to `~/.bashrc`.
 
 ### 4. Install Lighthouse
 

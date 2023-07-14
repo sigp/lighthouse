@@ -373,7 +373,7 @@ impl EthSpec for GnosisEthSpec {
     type MaxPendingAttestations = U2048; // 128 max attestations * 16 slots per epoch
     type SlotsPerEth1VotingPeriod = U1024; // 64 epochs * 16 slots per epoch
     type MaxBlsToExecutionChanges = U16;
-    type MaxWithdrawalsPerPayload = U16;
+    type MaxWithdrawalsPerPayload = U8;
 
     fn default_spec() -> ChainSpec {
         ChainSpec::gnosis()

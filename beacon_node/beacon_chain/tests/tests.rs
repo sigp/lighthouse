@@ -8,7 +8,6 @@ use beacon_chain::{
     },
     BeaconChain, NotifyExecutionLayer, StateSkipConfig, WhenSlotSkipped,
 };
-use fork_choice::CountUnrealized;
 use lazy_static::lazy_static;
 use operation_pool::PersistedOperationPool;
 use state_processing::{
@@ -500,7 +499,7 @@ async fn unaggregated_attestations_added_to_fork_choice_some_none() {
     // Move forward a slot so all queued attestations can be processed.
     harness.advance_slot();
     fork_choice
-        .update_time(harness.chain.slot().unwrap(), &harness.chain.spec)
+        .update_time(harness.chain.slot().unwrap())
         .unwrap();
 
     let validator_slots: Vec<(usize, Slot)> = (0..VALIDATOR_COUNT)
@@ -614,7 +613,7 @@ async fn unaggregated_attestations_added_to_fork_choice_all_updated() {
     // Move forward a slot so all queued attestations can be processed.
     harness.advance_slot();
     fork_choice
-        .update_time(harness.chain.slot().unwrap(), &harness.chain.spec)
+        .update_time(harness.chain.slot().unwrap())
         .unwrap();
 
     let validators: Vec<usize> = (0..VALIDATOR_COUNT).collect();
@@ -687,8 +686,8 @@ async fn run_skip_slot_test(skip_slots: u64) {
             .process_block(
                 harness_a.chain.head_snapshot().beacon_block_root,
                 harness_a.chain.head_snapshot().beacon_block.clone(),
-                CountUnrealized::True,
                 NotifyExecutionLayer::Yes,
+                || Ok(())
             )
             .await
             .unwrap(),

@@ -5,7 +5,7 @@ use crate::{
     ChainSpec, Domain, EthSpec, Fork, Hash256, PublicKey, SecretKey, Signature, SignedRoot, Slot,
     SyncAggregatorSelectionData,
 };
-use eth2_hashing::hash;
+use ethereum_hashing::hash;
 use safe_arith::{ArithError, SafeArith};
 use ssz::Encode;
 use ssz_types::typenum::Unsigned;

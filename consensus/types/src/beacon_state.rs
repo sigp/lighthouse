@@ -5,7 +5,7 @@ use crate::*;
 use compare_fields::CompareFields;
 use compare_fields_derive::CompareFields;
 use derivative::Derivative;
-use eth2_hashing::hash;
+use ethereum_hashing::hash;
 use int_to_bytes::{int_to_bytes4, int_to_bytes8};
 use pubkey_cache::PubkeyCache;
 use safe_arith::{ArithError, SafeArith};
@@ -26,6 +26,8 @@ pub use self::committee_cache::{
     compute_committee_index_in_epoch, compute_committee_range_in_epoch, epoch_committee_count,
     CommitteeCache,
 };
+pub use crate::beacon_state::balance::Balance;
+pub use crate::beacon_state::progressive_balances_cache::*;
 use crate::historical_summary::HistoricalSummary;
 pub use clone_config::CloneConfig;
 pub use eth_spec::*;
@@ -34,9 +36,11 @@ pub use tree_hash_cache::BeaconTreeHashCache;
 
 #[macro_use]
 mod committee_cache;
+mod balance;
 mod clone_config;
 mod exit_cache;
 mod iter;
+mod progressive_balances_cache;
 mod pubkey_cache;
 mod tests;
 mod tree_hash_cache;
@@ -101,6 +105,9 @@ pub enum Error {
     SszTypesError(ssz_types::Error),
     TreeHashCacheNotInitialized,
     NonLinearTreeHashCacheHistory,
+    ParticipationCacheError(String),
+    ProgressiveBalancesCacheNotInitialized,
+    ProgressiveBalancesCacheInconsistent,
     TreeHashCacheSkippedSlot {
         cache: Slot,
         state: Slot,
@@ -210,7 +217,7 @@ where
 {
     // Versioning
     #[superstruct(getter(copy))]
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub genesis_time: u64,
     #[superstruct(getter(copy))]
     pub genesis_validators_root: Hash256,
@@ -232,7 +239,7 @@ where
     pub eth1_data: Eth1Data,
     pub eth1_data_votes: VariableList<Eth1Data, T::SlotsPerEth1VotingPeriod>,
     #[superstruct(getter(copy))]
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub eth1_deposit_index: u64,
 
     // Registry
@@ -296,10 +303,10 @@ where
 
     // Capella
     #[superstruct(only(Capella), partial_getter(copy))]
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub next_withdrawal_index: u64,
     #[superstruct(only(Capella), partial_getter(copy))]
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub next_withdrawal_validator_index: u64,
     // Deep history valid from Capella onwards.
     #[superstruct(only(Capella))]
@@ -312,6 +319,12 @@ where
     #[test_random(default)]
     #[derivative(Clone(clone_with = "clone_default"))]
     pub total_active_balance: Option<(Epoch, u64)>,
+    #[serde(skip_serializing, skip_deserializing)]
+    #[ssz(skip_serializing, skip_deserializing)]
+    #[tree_hash(skip_hashing)]
+    #[test_random(default)]
+    #[derivative(Clone(clone_with = "clone_default"))]
+    pub progressive_balances_cache: ProgressiveBalancesCache,
     #[serde(skip_serializing, skip_deserializing)]
     #[ssz(skip_serializing, skip_deserializing)]
     #[tree_hash(skip_hashing)]
@@ -393,6 +406,7 @@ impl<T: EthSpec> BeaconState<T> {
 
             // Caching (not in spec)
             total_active_balance: None,
+            progressive_balances_cache: <_>::default(),
             committee_caches: [
                 CommitteeCache::default(),
                 CommitteeCache::default(),
@@ -757,7 +771,7 @@ impl<T: EthSpec> BeaconState<T> {
         Ok(signature_hash_int.safe_rem(modulo)? == 0)
     }
 
-    /// Returns the beacon proposer index for the `slot` in the given `relative_epoch`.
+    /// Returns the beacon proposer index for the `slot` in `self.current_epoch()`.
     ///
     /// Spec v0.12.1
     pub fn get_beacon_proposer_index(&self, slot: Slot, spec: &ChainSpec) -> Result<usize, Error> {
@@ -1150,12 +1164,30 @@ impl<T: EthSpec> BeaconState<T> {
     }
 
     /// Convenience accessor for validators and balances simultaneously.
-    pub fn validators_and_balances_mut(&mut self) -> (&mut [Validator], &mut [u64]) {
+    pub fn validators_and_balances_and_progressive_balances_mut(
+        &mut self,
+    ) -> (&mut [Validator], &mut [u64], &mut ProgressiveBalancesCache) {
         match self {
-            BeaconState::Base(state) => (&mut state.validators, &mut state.balances),
-            BeaconState::Altair(state) => (&mut state.validators, &mut state.balances),
-            BeaconState::Merge(state) => (&mut state.validators, &mut state.balances),
-            BeaconState::Capella(state) => (&mut state.validators, &mut state.balances),
+            BeaconState::Base(state) => (
+                &mut state.validators,
+                &mut state.balances,
+                &mut state.progressive_balances_cache,
+            ),
+            BeaconState::Altair(state) => (
+                &mut state.validators,
+                &mut state.balances,
+                &mut state.progressive_balances_cache,
+            ),
+            BeaconState::Merge(state) => (
+                &mut state.validators,
+                &mut state.balances,
+                &mut state.progressive_balances_cache,
+            ),
+            BeaconState::Capella(state) => (
+                &mut state.validators,
+                &mut state.balances,
+                &mut state.progressive_balances_cache,
+            ),
         }
     }
 
@@ -1380,7 +1412,7 @@ impl<T: EthSpec> BeaconState<T> {
     }
 
     /// Build all caches (except the tree hash cache), if they need to be built.
-    pub fn build_all_caches(&mut self, spec: &ChainSpec) -> Result<(), Error> {
+    pub fn build_caches(&mut self, spec: &ChainSpec) -> Result<(), Error> {
         self.build_all_committee_caches(spec)?;
         self.update_pubkey_cache()?;
         self.build_exit_cache(spec)?;
@@ -1412,6 +1444,7 @@ impl<T: EthSpec> BeaconState<T> {
         self.drop_committee_cache(RelativeEpoch::Next)?;
         self.drop_pubkey_cache();
         self.drop_tree_hash_cache();
+        self.drop_progressive_balances_cache();
         *self.exit_cache_mut() = ExitCache::default();
         Ok(())
     }
@@ -1608,6 +1641,11 @@ impl<T: EthSpec> BeaconState<T> {
         *self.pubkey_cache_mut() = PubkeyCache::default()
     }
 
+    /// Completely drops the `progressive_balances_cache` cache, replacing it with a new, empty cache.
+    fn drop_progressive_balances_cache(&mut self) {
+        *self.progressive_balances_cache_mut() = ProgressiveBalancesCache::default();
+    }
+
     /// Initialize but don't fill the tree hash cache, if it isn't already initialized.
     pub fn initialize_tree_hash_cache(&mut self) {
         if !self.tree_hash_cache().is_initialized() {
@@ -1678,6 +1716,9 @@ impl<T: EthSpec> BeaconState<T> {
         }
         if config.tree_hash_cache {
             *res.tree_hash_cache_mut() = self.tree_hash_cache().clone();
+        }
+        if config.progressive_balances_cache {
+            *res.progressive_balances_cache_mut() = self.progressive_balances_cache().clone();
         }
         res
     }

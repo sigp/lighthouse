@@ -10,15 +10,18 @@ mod generate_bootnode_enr;
 mod indexed_attestations;
 mod insecure_validators;
 mod interop_genesis;
+mod mnemonic_validators;
 mod new_testnet;
 mod parse_ssz;
 mod replace_state_pubkeys;
 mod skip_slots;
+mod state_root;
 mod transition_blocks;
 
 use clap::{App, Arg, ArgMatches, SubCommand};
-use clap_utils::parse_path_with_default_in_home_dir;
+use clap_utils::parse_optional;
 use environment::{EnvironmentBuilder, LoggerConfig};
+use eth2_network_config::Eth2NetworkConfig;
 use parse_ssz::run_parse_ssz;
 use std::path::PathBuf;
 use std::process;
@@ -49,7 +52,16 @@ fn main() {
                 .value_name("PATH")
                 .takes_value(true)
                 .global(true)
-                .help("The testnet dir. Defaults to ~/.lighthouse/testnet"),
+                .help("The testnet dir."),
+        )
+        .arg(
+            Arg::with_name("network")
+                .long("network")
+                .value_name("NAME")
+                .takes_value(true)
+                .global(true)
+                .help("The network to use. Defaults to mainnet.")
+                .conflicts_with("testnet-dir")
         )
         .subcommand(
             SubCommand::with_name("skip-slots")
@@ -125,7 +137,7 @@ fn main() {
                         .takes_value(true)
                         .conflicts_with("beacon-url")
                         .requires("block-path")
-                        .help("Path to load a BeaconState from file as SSZ."),
+                        .help("Path to load a BeaconState from as SSZ."),
                 )
                 .arg(
                     Arg::with_name("block-path")
@@ -134,7 +146,7 @@ fn main() {
                         .takes_value(true)
                         .conflicts_with("beacon-url")
                         .requires("pre-state-path")
-                        .help("Path to load a SignedBeaconBlock from file as SSZ."),
+                        .help("Path to load a SignedBeaconBlock from as SSZ."),
                 )
                 .arg(
                     Arg::with_name("post-state-output-path")
@@ -450,6 +462,22 @@ fn main() {
                         ),
                 )
                 .arg(
+                    Arg::with_name("derived-genesis-state")
+                        .long("derived-genesis-state")
+                        .takes_value(false)
+                        .help(
+                            "If present, a genesis.ssz file will be generated with keys generated from a given mnemonic.",
+                        ),
+                )
+                .arg(
+                    Arg::with_name("mnemonic-phrase")
+                        .long("mnemonic-phrase")
+                        .value_name("MNEMONIC_PHRASE")
+                        .takes_value(true)
+                        .requires("derived-genesis-state")
+                        .help("The mnemonic with which we generate the validator keys for a derived genesis state"),
+                )
+                .arg(
                     Arg::with_name("min-genesis-time")
                         .long("min-genesis-time")
                         .value_name("UNIX_SECONDS")
@@ -568,12 +596,30 @@ fn main() {
                         ),
                 )
                 .arg(
-                    Arg::with_name("merge-fork-epoch")
-                        .long("merge-fork-epoch")
+                    Arg::with_name("bellatrix-fork-epoch")
+                        .long("bellatrix-fork-epoch")
                         .value_name("EPOCH")
                         .takes_value(true)
                         .help(
                             "The epoch at which to enable the Merge hard fork",
+                        ),
+                )
+                .arg(
+                    Arg::with_name("capella-fork-epoch")
+                        .long("capella-fork-epoch")
+                        .value_name("EPOCH")
+                        .takes_value(true)
+                        .help(
+                            "The epoch at which to enable the Capella hard fork",
+                        ),
+                )
+                .arg(
+                    Arg::with_name("ttd")
+                        .long("ttd")
+                        .value_name("TTD")
+                        .takes_value(true)
+                        .help(
+                            "The terminal total difficulty",
                         ),
                 )
                 .arg(
@@ -695,6 +741,7 @@ fn main() {
                         .long("count")
                         .value_name("COUNT")
                         .takes_value(true)
+                        .required(true)
                         .help("Produces validators in the range of 0..count."),
                 )
                 .arg(
@@ -702,6 +749,7 @@ fn main() {
                         .long("base-dir")
                         .value_name("BASE_DIR")
                         .takes_value(true)
+                        .required(true)
                         .help("The base directory where validator keypairs and secrets are stored"),
                 )
                 .arg(
@@ -710,6 +758,43 @@ fn main() {
                         .value_name("NODE_COUNT")
                         .takes_value(true)
                         .help("The number of nodes to divide the validator keys to"),
+                )
+        )
+        .subcommand(
+            SubCommand::with_name("mnemonic-validators")
+                .about("Produces validator directories by deriving the keys from \
+                        a mnemonic. For testing purposes only, DO NOT USE IN \
+                        PRODUCTION!")
+                .arg(
+                    Arg::with_name("count")
+                        .long("count")
+                        .value_name("COUNT")
+                        .takes_value(true)
+                        .required(true)
+                        .help("Produces validators in the range of 0..count."),
+                )
+                .arg(
+                    Arg::with_name("base-dir")
+                        .long("base-dir")
+                        .value_name("BASE_DIR")
+                        .takes_value(true)
+                        .required(true)
+                        .help("The base directory where validator keypairs and secrets are stored"),
+                )
+                .arg(
+                    Arg::with_name("node-count")
+                        .long("node-count")
+                        .value_name("NODE_COUNT")
+                        .takes_value(true)
+                        .help("The number of nodes to divide the validator keys to"),
+                )
+                .arg(
+                    Arg::with_name("mnemonic-phrase")
+                        .long("mnemonic-phrase")
+                        .value_name("MNEMONIC_PHRASE")
+                        .takes_value(true)
+                        .required(true)
+                        .help("The mnemonic with which we generate the validator keys"),
                 )
         )
         .subcommand(
@@ -734,14 +819,14 @@ fn main() {
         )
         .subcommand(
             SubCommand::with_name("block-root")
-                .about("Computes the block root of some block")
+                .about("Computes the block root of some block.")
                 .arg(
                     Arg::with_name("block-path")
                         .long("block-path")
                         .value_name("PATH")
                         .takes_value(true)
                         .conflicts_with("beacon-url")
-                        .help("Path to load a SignedBeaconBlock from file as SSZ."),
+                        .help("Path to load a SignedBeaconBlock from as SSZ."),
                 )
                 .arg(
                     Arg::with_name("beacon-url")
@@ -757,6 +842,41 @@ fn main() {
                         .takes_value(true)
                         .requires("beacon-url")
                         .help("Identifier for a block as per beacon-API standards (slot, root, etc.)"),
+                )
+                .arg(
+                    Arg::with_name("runs")
+                        .long("runs")
+                        .value_name("INTEGER")
+                        .takes_value(true)
+                        .default_value("1")
+                        .help("Number of repeat runs, useful for benchmarking."),
+                )
+        )
+        .subcommand(
+            SubCommand::with_name("state-root")
+                .about("Computes the state root of some state.")
+                .arg(
+                    Arg::with_name("state-path")
+                        .long("state-path")
+                        .value_name("PATH")
+                        .takes_value(true)
+                        .conflicts_with("beacon-url")
+                        .help("Path to load a BeaconState from as SSZ."),
+                )
+                .arg(
+                    Arg::with_name("beacon-url")
+                        .long("beacon-url")
+                        .value_name("URL")
+                        .takes_value(true)
+                        .help("URL to a beacon-API provider."),
+                )
+                .arg(
+                    Arg::with_name("state-id")
+                        .long("state-id")
+                        .value_name("BLOCK_ID")
+                        .takes_value(true)
+                        .requires("beacon-url")
+                        .help("Identifier for a state as per beacon-API standards (slot, root, etc.)"),
                 )
                 .arg(
                     Arg::with_name("runs")
@@ -807,22 +927,50 @@ fn run<T: EthSpec>(
             max_log_number: 0,
             compression: false,
             is_restricted: true,
+            sse_logging: false, // No SSE Logging in LCLI
         })
         .map_err(|e| format!("should start logger: {:?}", e))?
         .build()
         .map_err(|e| format!("should build env: {:?}", e))?;
 
-    let testnet_dir = parse_path_with_default_in_home_dir(
-        matches,
-        "testnet-dir",
-        PathBuf::from(directory::DEFAULT_ROOT_DIR).join("testnet"),
-    )?;
+    // Determine testnet-dir path or network name depending on CLI flags.
+    let (testnet_dir, network_name) =
+        if let Some(testnet_dir) = parse_optional::<PathBuf>(matches, "testnet-dir")? {
+            (Some(testnet_dir), None)
+        } else {
+            let network_name =
+                parse_optional(matches, "network")?.unwrap_or_else(|| "mainnet".to_string());
+            (None, Some(network_name))
+        };
+
+    // Lazily load either the testnet dir or the network config, as required.
+    // Some subcommands like new-testnet need the testnet dir but not the network config.
+    let get_testnet_dir = || testnet_dir.clone().ok_or("testnet-dir is required");
+    let get_network_config = || {
+        if let Some(testnet_dir) = &testnet_dir {
+            Eth2NetworkConfig::load(testnet_dir.clone()).map_err(|e| {
+                format!(
+                    "Unable to open testnet dir at {}: {}",
+                    testnet_dir.display(),
+                    e
+                )
+            })
+        } else {
+            let network_name = network_name.ok_or("no network name or testnet-dir provided")?;
+            Eth2NetworkConfig::constant(&network_name)?.ok_or("invalid network name".into())
+        }
+    };
 
     match matches.subcommand() {
-        ("transition-blocks", Some(matches)) => transition_blocks::run::<T>(env, matches)
-            .map_err(|e| format!("Failed to transition blocks: {}", e)),
+        ("transition-blocks", Some(matches)) => {
+            let network_config = get_network_config()?;
+            transition_blocks::run::<T>(env, network_config, matches)
+                .map_err(|e| format!("Failed to transition blocks: {}", e))
+        }
         ("skip-slots", Some(matches)) => {
-            skip_slots::run::<T>(env, matches).map_err(|e| format!("Failed to skip slots: {}", e))
+            let network_config = get_network_config()?;
+            skip_slots::run::<T>(env, network_config, matches)
+                .map_err(|e| format!("Failed to skip slots: {}", e))
         }
         ("pretty-ssz", Some(matches)) => {
             run_parse_ssz::<T>(matches).map_err(|e| format!("Failed to pretty print hex: {}", e))
@@ -831,32 +979,53 @@ fn run<T: EthSpec>(
             deploy_deposit_contract::run::<T>(env, matches)
                 .map_err(|e| format!("Failed to run deploy-deposit-contract command: {}", e))
         }
-        ("eth1-genesis", Some(matches)) => eth1_genesis::run::<T>(env, testnet_dir, matches)
-            .map_err(|e| format!("Failed to run eth1-genesis command: {}", e)),
-        ("interop-genesis", Some(matches)) => interop_genesis::run::<T>(testnet_dir, matches)
-            .map_err(|e| format!("Failed to run interop-genesis command: {}", e)),
+        ("eth1-genesis", Some(matches)) => {
+            let testnet_dir = get_testnet_dir()?;
+            eth1_genesis::run::<T>(env, testnet_dir, matches)
+                .map_err(|e| format!("Failed to run eth1-genesis command: {}", e))
+        }
+        ("interop-genesis", Some(matches)) => {
+            let testnet_dir = get_testnet_dir()?;
+            interop_genesis::run::<T>(testnet_dir, matches)
+                .map_err(|e| format!("Failed to run interop-genesis command: {}", e))
+        }
         ("change-genesis-time", Some(matches)) => {
+            let testnet_dir = get_testnet_dir()?;
             change_genesis_time::run::<T>(testnet_dir, matches)
                 .map_err(|e| format!("Failed to run change-genesis-time command: {}", e))
         }
         ("create-payload-header", Some(matches)) => create_payload_header::run::<T>(matches)
             .map_err(|e| format!("Failed to run create-payload-header command: {}", e)),
         ("replace-state-pubkeys", Some(matches)) => {
+            let testnet_dir = get_testnet_dir()?;
             replace_state_pubkeys::run::<T>(testnet_dir, matches)
                 .map_err(|e| format!("Failed to run replace-state-pubkeys command: {}", e))
         }
-        ("new-testnet", Some(matches)) => new_testnet::run::<T>(testnet_dir, matches)
-            .map_err(|e| format!("Failed to run new_testnet command: {}", e)),
-        ("check-deposit-data", Some(matches)) => check_deposit_data::run::<T>(matches)
+        ("new-testnet", Some(matches)) => {
+            let testnet_dir = get_testnet_dir()?;
+            new_testnet::run::<T>(testnet_dir, matches)
+                .map_err(|e| format!("Failed to run new_testnet command: {}", e))
+        }
+        ("check-deposit-data", Some(matches)) => check_deposit_data::run(matches)
             .map_err(|e| format!("Failed to run check-deposit-data command: {}", e)),
         ("generate-bootnode-enr", Some(matches)) => generate_bootnode_enr::run::<T>(matches)
             .map_err(|e| format!("Failed to run generate-bootnode-enr command: {}", e)),
         ("insecure-validators", Some(matches)) => insecure_validators::run(matches)
             .map_err(|e| format!("Failed to run insecure-validators command: {}", e)),
+        ("mnemonic-validators", Some(matches)) => mnemonic_validators::run(matches)
+            .map_err(|e| format!("Failed to run mnemonic-validators command: {}", e)),
         ("indexed-attestations", Some(matches)) => indexed_attestations::run::<T>(matches)
             .map_err(|e| format!("Failed to run indexed-attestations command: {}", e)),
-        ("block-root", Some(matches)) => block_root::run::<T>(env, matches)
-            .map_err(|e| format!("Failed to run block-root command: {}", e)),
+        ("block-root", Some(matches)) => {
+            let network_config = get_network_config()?;
+            block_root::run::<T>(env, network_config, matches)
+                .map_err(|e| format!("Failed to run block-root command: {}", e))
+        }
+        ("state-root", Some(matches)) => {
+            let network_config = get_network_config()?;
+            state_root::run::<T>(env, network_config, matches)
+                .map_err(|e| format!("Failed to run state-root command: {}", e))
+        }
         (other, _) => Err(format!("Unknown subcommand {}. See --help.", other)),
     }
 }

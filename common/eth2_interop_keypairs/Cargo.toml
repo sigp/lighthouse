@@ -9,7 +9,7 @@ edition = "2021"
 [dependencies]
 lazy_static = "1.4.0"
 num-bigint = "0.4.2"
-eth2_hashing = "0.3.0"
+ethereum_hashing = "1.0.0-beta.2"
 hex = "0.4.2"
 serde_yaml = "0.8.13"
 serde = "1.0.116"

@@ -504,6 +504,18 @@ fn fork_choice_ex_ante() {
 }
 
 #[test]
+fn fork_choice_reorg() {
+    ForkChoiceHandler::<MinimalEthSpec>::new("reorg").run();
+    // There is no mainnet variant for this test.
+}
+
+#[test]
+fn fork_choice_withholding() {
+    ForkChoiceHandler::<MinimalEthSpec>::new("withholding").run();
+    // There is no mainnet variant for this test.
+}
+
+#[test]
 fn optimistic_sync() {
     OptimisticSyncHandler::<MinimalEthSpec>::default().run();
     OptimisticSyncHandler::<MainnetEthSpec>::default().run();

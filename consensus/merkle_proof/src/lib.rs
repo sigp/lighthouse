@@ -1,4 +1,4 @@
-use eth2_hashing::{hash, hash32_concat, ZERO_HASHES};
+use ethereum_hashing::{hash, hash32_concat, ZERO_HASHES};
 use ethereum_types::H256;
 use lazy_static::lazy_static;
 use safe_arith::ArithError;

@@ -1,7 +1,8 @@
-use beacon_node::{beacon_chain::CountUnrealizedFull, ClientConfig as Config};
+use beacon_node::ClientConfig as Config;
 
 use crate::exec::{CommandLineTestExec, CompletedTest};
 use beacon_node::beacon_chain::chain_config::{
+    DisallowedReOrgOffsets, DEFAULT_RE_ORG_CUTOFF_DENOMINATOR,
     DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION, DEFAULT_RE_ORG_THRESHOLD,
 };
 use eth1::Eth1Endpoint;
@@ -15,7 +16,10 @@ use std::str::FromStr;
 use std::string::ToString;
 use std::time::Duration;
 use tempfile::TempDir;
-use types::{Address, Checkpoint, Epoch, ExecutionBlockHash, ForkName, Hash256, MainnetEthSpec};
+use types::{
+    Address, Checkpoint, Epoch, ExecutionBlockHash, ForkName, Hash256, MainnetEthSpec,
+    ProgressiveBalancesMode,
+};
 use unused_port::{unused_tcp4_port, unused_tcp6_port, unused_udp4_port, unused_udp6_port};
 
 const DEFAULT_ETH1_ENDPOINT: &str = "http://localhost:8545/";
@@ -119,6 +123,26 @@ fn disable_lock_timeouts_flag() {
 }
 
 #[test]
+fn shuffling_cache_default() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config.chain.shuffling_cache_size,
+                beacon_node::beacon_chain::shuffling_cache::DEFAULT_CACHE_SIZE
+            )
+        });
+}
+
+#[test]
+fn shuffling_cache_set() {
+    CommandLineTest::new()
+        .flag("shuffling-cache-size", Some("500"))
+        .run_with_zero_port()
+        .with_config(|config| assert_eq!(config.chain.shuffling_cache_size, 500));
+}
+
+#[test]
 fn fork_choice_before_proposal_timeout_default() {
     CommandLineTest::new()
         .run_with_zero_port()
@@ -153,7 +177,7 @@ fn checkpoint_sync_url_timeout_default() {
     CommandLineTest::new()
         .run_with_zero_port()
         .with_config(|config| {
-            assert_eq!(config.chain.checkpoint_sync_url_timeout, 60);
+            assert_eq!(config.chain.checkpoint_sync_url_timeout, 180);
         });
 }
 
@@ -213,73 +237,57 @@ fn paranoid_block_proposal_on() {
 }
 
 #[test]
-fn count_unrealized_default() {
-    CommandLineTest::new()
-        .run_with_zero_port()
-        .with_config(|config| assert!(config.chain.count_unrealized));
-}
-
-#[test]
 fn count_unrealized_no_arg() {
     CommandLineTest::new()
         .flag("count-unrealized", None)
-        .run_with_zero_port()
-        .with_config(|config| assert!(config.chain.count_unrealized));
+        // This flag should be ignored, so there's nothing to test but that the
+        // client starts with the flag present.
+        .run_with_zero_port();
 }
 
 #[test]
 fn count_unrealized_false() {
     CommandLineTest::new()
         .flag("count-unrealized", Some("false"))
-        .run_with_zero_port()
-        .with_config(|config| assert!(!config.chain.count_unrealized));
+        // This flag should be ignored, so there's nothing to test but that the
+        // client starts with the flag present.
+        .run_with_zero_port();
 }
 
 #[test]
 fn count_unrealized_true() {
     CommandLineTest::new()
         .flag("count-unrealized", Some("true"))
-        .run_with_zero_port()
-        .with_config(|config| assert!(config.chain.count_unrealized));
+        // This flag should be ignored, so there's nothing to test but that the
+        // client starts with the flag present.
+        .run_with_zero_port();
 }
 
 #[test]
 fn count_unrealized_full_no_arg() {
     CommandLineTest::new()
         .flag("count-unrealized-full", None)
-        .run_with_zero_port()
-        .with_config(|config| {
-            assert_eq!(
-                config.chain.count_unrealized_full,
-                CountUnrealizedFull::False
-            )
-        });
+        // This flag should be ignored, so there's nothing to test but that the
+        // client starts with the flag present.
+        .run_with_zero_port();
 }
 
 #[test]
 fn count_unrealized_full_false() {
     CommandLineTest::new()
         .flag("count-unrealized-full", Some("false"))
-        .run_with_zero_port()
-        .with_config(|config| {
-            assert_eq!(
-                config.chain.count_unrealized_full,
-                CountUnrealizedFull::False
-            )
-        });
+        // This flag should be ignored, so there's nothing to test but that the
+        // client starts with the flag present.
+        .run_with_zero_port();
 }
 
 #[test]
 fn count_unrealized_full_true() {
     CommandLineTest::new()
         .flag("count-unrealized-full", Some("true"))
-        .run_with_zero_port()
-        .with_config(|config| {
-            assert_eq!(
-                config.chain.count_unrealized_full,
-                CountUnrealizedFull::True
-            )
-        });
+        // This flag should be ignored, so there's nothing to test but that the
+        // client starts with the flag present.
+        .run_with_zero_port();
 }
 
 #[test]
@@ -338,6 +346,23 @@ fn trusted_peers_flag() {
                 peers[1].to_bytes()
             );
         });
+}
+
+#[test]
+fn genesis_backfill_flag() {
+    CommandLineTest::new()
+        .flag("genesis-backfill", None)
+        .run_with_zero_port()
+        .with_config(|config| assert_eq!(config.chain.genesis_backfill, true));
+}
+
+/// The genesis backfill flag should be enabled if historic states flag is set.
+#[test]
+fn genesis_backfill_with_historic_flag() {
+    CommandLineTest::new()
+        .flag("reconstruct-historic-states", None)
+        .run_with_zero_port()
+        .with_config(|config| assert_eq!(config.chain.genesis_backfill, true));
 }
 
 #[test]
@@ -711,6 +736,40 @@ fn builder_fallback_flags() {
     );
 }
 
+#[test]
+fn builder_user_agent() {
+    run_payload_builder_flag_test_with_config(
+        "builder",
+        "http://meow.cats",
+        None,
+        None,
+        |config| {
+            assert_eq!(
+                config.execution_layer.as_ref().unwrap().builder_user_agent,
+                None
+            );
+        },
+    );
+    run_payload_builder_flag_test_with_config(
+        "builder",
+        "http://meow.cats",
+        Some("builder-user-agent"),
+        Some("anon"),
+        |config| {
+            assert_eq!(
+                config
+                    .execution_layer
+                    .as_ref()
+                    .unwrap()
+                    .builder_user_agent
+                    .as_ref()
+                    .unwrap(),
+                "anon"
+            );
+        },
+    );
+}
+
 fn run_jwt_optional_flags_test(jwt_flag: &str, jwt_id_flag: &str, jwt_version_flag: &str) {
     use sensitive_url::SensitiveUrl;
 
@@ -1041,6 +1100,13 @@ fn disable_discovery_flag() {
         .with_config(|config| assert!(config.network.disable_discovery));
 }
 #[test]
+fn disable_peer_scoring_flag() {
+    CommandLineTest::new()
+        .flag("disable-peer-scoring", None)
+        .run_with_zero_port()
+        .with_config(|config| assert!(config.network.disable_peer_scoring));
+}
+#[test]
 fn disable_upnp_flag() {
     CommandLineTest::new()
         .flag("disable-upnp", None)
@@ -1048,49 +1114,27 @@ fn disable_upnp_flag() {
         .with_config(|config| assert!(!config.network.upnp_enabled));
 }
 #[test]
+fn disable_backfill_rate_limiting_flag() {
+    CommandLineTest::new()
+        .flag("disable-backfill-rate-limiting", None)
+        .run_with_zero_port()
+        .with_config(|config| assert!(!config.chain.enable_backfill_rate_limiting));
+}
+#[test]
+fn default_backfill_rate_limiting_flag() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| assert!(config.chain.enable_backfill_rate_limiting));
+}
+#[test]
 fn default_boot_nodes() {
-    let mainnet = vec![
-    // Lighthouse Team (Sigma Prime)
-    "enr:-Jq4QItoFUuug_n_qbYbU0OY04-np2wT8rUCauOOXNi0H3BWbDj-zbfZb7otA7jZ6flbBpx1LNZK2TDebZ9dEKx84LYBhGV0aDKQtTA_KgEAAAD__________4JpZIJ2NIJpcISsaa0ZiXNlY3AyNTZrMaEDHAD2JKYevx89W0CcFJFiskdcEzkH_Wdv9iW42qLK79ODdWRwgiMo",
-    "enr:-Jq4QN_YBsUOqQsty1OGvYv48PMaiEt1AzGD1NkYQHaxZoTyVGqMYXg0K9c0LPNWC9pkXmggApp8nygYLsQwScwAgfgBhGV0aDKQtTA_KgEAAAD__________4JpZIJ2NIJpcISLosQxiXNlY3AyNTZrMaEDBJj7_dLFACaxBfaI8KZTh_SSJUjhyAyfshimvSqo22WDdWRwgiMo",
-    // EF Team
-    "enr:-Ku4QHqVeJ8PPICcWk1vSn_XcSkjOkNiTg6Fmii5j6vUQgvzMc9L1goFnLKgXqBJspJjIsB91LTOleFmyWWrFVATGngBh2F0dG5ldHOIAAAAAAAAAACEZXRoMpC1MD8qAAAAAP__________gmlkgnY0gmlwhAMRHkWJc2VjcDI1NmsxoQKLVXFOhp2uX6jeT0DvvDpPcU8FWMjQdR4wMuORMhpX24N1ZHCCIyg",
-    "enr:-Ku4QG-2_Md3sZIAUebGYT6g0SMskIml77l6yR-M_JXc-UdNHCmHQeOiMLbylPejyJsdAPsTHJyjJB2sYGDLe0dn8uYBh2F0dG5ldHOIAAAAAAAAAACEZXRoMpC1MD8qAAAAAP__________gmlkgnY0gmlwhBLY-NyJc2VjcDI1NmsxoQORcM6e19T1T9gi7jxEZjk_sjVLGFscUNqAY9obgZaxbIN1ZHCCIyg",
-    "enr:-Ku4QPn5eVhcoF1opaFEvg1b6JNFD2rqVkHQ8HApOKK61OIcIXD127bKWgAtbwI7pnxx6cDyk_nI88TrZKQaGMZj0q0Bh2F0dG5ldHOIAAAAAAAAAACEZXRoMpC1MD8qAAAAAP__________gmlkgnY0gmlwhDayLMaJc2VjcDI1NmsxoQK2sBOLGcUb4AwuYzFuAVCaNHA-dy24UuEKkeFNgCVCsIN1ZHCCIyg",
-    "enr:-Ku4QEWzdnVtXc2Q0ZVigfCGggOVB2Vc1ZCPEc6j21NIFLODSJbvNaef1g4PxhPwl_3kax86YPheFUSLXPRs98vvYsoBh2F0dG5ldHOIAAAAAAAAAACEZXRoMpC1MD8qAAAAAP__________gmlkgnY0gmlwhDZBrP2Jc2VjcDI1NmsxoQM6jr8Rb1ktLEsVcKAPa08wCsKUmvoQ8khiOl_SLozf9IN1ZHCCIyg",
-    // Teku team (Consensys)
-    "enr:-KG4QOtcP9X1FbIMOe17QNMKqDxCpm14jcX5tiOE4_TyMrFqbmhPZHK_ZPG2Gxb1GE2xdtodOfx9-cgvNtxnRyHEmC0ghGV0aDKQ9aX9QgAAAAD__________4JpZIJ2NIJpcIQDE8KdiXNlY3AyNTZrMaEDhpehBDbZjM_L9ek699Y7vhUJ-eAdMyQW_Fil522Y0fODdGNwgiMog3VkcIIjKA",
-    "enr:-KG4QDyytgmE4f7AnvW-ZaUOIi9i79qX4JwjRAiXBZCU65wOfBu-3Nb5I7b_Rmg3KCOcZM_C3y5pg7EBU5XGrcLTduQEhGV0aDKQ9aX9QgAAAAD__________4JpZIJ2NIJpcIQ2_DUbiXNlY3AyNTZrMaEDKnz_-ps3UUOfHWVYaskI5kWYO_vtYMGYCQRAR3gHDouDdGNwgiMog3VkcIIjKA",
-    // Prysm team (Prysmatic Labs)
-    "enr:-Ku4QImhMc1z8yCiNJ1TyUxdcfNucje3BGwEHzodEZUan8PherEo4sF7pPHPSIB1NNuSg5fZy7qFsjmUKs2ea1Whi0EBh2F0dG5ldHOIAAAAAAAAAACEZXRoMpD1pf1CAAAAAP__________gmlkgnY0gmlwhBLf22SJc2VjcDI1NmsxoQOVphkDqal4QzPMksc5wnpuC3gvSC8AfbFOnZY_On34wIN1ZHCCIyg",
-    "enr:-Ku4QP2xDnEtUXIjzJ_DhlCRN9SN99RYQPJL92TMlSv7U5C1YnYLjwOQHgZIUXw6c-BvRg2Yc2QsZxxoS_pPRVe0yK8Bh2F0dG5ldHOIAAAAAAAAAACEZXRoMpD1pf1CAAAAAP__________gmlkgnY0gmlwhBLf22SJc2VjcDI1NmsxoQMeFF5GrS7UZpAH2Ly84aLK-TyvH-dRo0JM1i8yygH50YN1ZHCCJxA",
-    "enr:-Ku4QPp9z1W4tAO8Ber_NQierYaOStqhDqQdOPY3bB3jDgkjcbk6YrEnVYIiCBbTxuar3CzS528d2iE7TdJsrL-dEKoBh2F0dG5ldHOIAAAAAAAAAACEZXRoMpD1pf1CAAAAAP__________gmlkgnY0gmlwhBLf22SJc2VjcDI1NmsxoQMw5fqqkw2hHC4F5HZZDPsNmPdB1Gi8JPQK7pRc9XHh-oN1ZHCCKvg",
-    // Nimbus team
-    "enr:-LK4QA8FfhaAjlb_BXsXxSfiysR7R52Nhi9JBt4F8SPssu8hdE1BXQQEtVDC3qStCW60LSO7hEsVHv5zm8_6Vnjhcn0Bh2F0dG5ldHOIAAAAAAAAAACEZXRoMpC1MD8qAAAAAP__________gmlkgnY0gmlwhAN4aBKJc2VjcDI1NmsxoQJerDhsJ-KxZ8sHySMOCmTO6sHM3iCFQ6VMvLTe948MyYN0Y3CCI4yDdWRwgiOM",
-    "enr:-LK4QKWrXTpV9T78hNG6s8AM6IO4XH9kFT91uZtFg1GcsJ6dKovDOr1jtAAFPnS2lvNltkOGA9k29BUN7lFh_sjuc9QBh2F0dG5ldHOIAAAAAAAAAACEZXRoMpC1MD8qAAAAAP__________gmlkgnY0gmlwhANAdd-Jc2VjcDI1NmsxoQLQa6ai7y9PMN5hpLe5HmiJSlYzMuzP7ZhwRiwHvqNXdoN0Y3CCI4yDdWRwgiOM"
-    ];
+    let number_of_boot_nodes = 15;
 
     CommandLineTest::new()
         .run_with_zero_port()
         .with_config(|config| {
             // Lighthouse Team (Sigma Prime)
-            assert_eq!(config.network.boot_nodes_enr[0].to_base64(), mainnet[0]);
-            assert_eq!(config.network.boot_nodes_enr[1].to_base64(), mainnet[1]);
-            // EF Team
-            assert_eq!(config.network.boot_nodes_enr[2].to_base64(), mainnet[2]);
-            assert_eq!(config.network.boot_nodes_enr[3].to_base64(), mainnet[3]);
-            assert_eq!(config.network.boot_nodes_enr[4].to_base64(), mainnet[4]);
-            assert_eq!(config.network.boot_nodes_enr[5].to_base64(), mainnet[5]);
-            // Teku team (Consensys)
-            assert_eq!(config.network.boot_nodes_enr[6].to_base64(), mainnet[6]);
-            assert_eq!(config.network.boot_nodes_enr[7].to_base64(), mainnet[7]);
-            // Prysm team (Prysmatic Labs)
-            assert_eq!(config.network.boot_nodes_enr[8].to_base64(), mainnet[8]);
-            assert_eq!(config.network.boot_nodes_enr[9].to_base64(), mainnet[9]);
-            assert_eq!(config.network.boot_nodes_enr[10].to_base64(), mainnet[10]);
-            // Nimbus team
-            assert_eq!(config.network.boot_nodes_enr[11].to_base64(), mainnet[11]);
-            assert_eq!(config.network.boot_nodes_enr[12].to_base64(), mainnet[12]);
+            assert_eq!(config.network.boot_nodes_enr.len(), number_of_boot_nodes);
         });
 }
 #[test]
@@ -1375,6 +1419,26 @@ fn empty_self_limiter_flag() {
             )
         });
 }
+
+#[test]
+fn empty_inbound_rate_limiter_flag() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config.network.inbound_rate_limiter_config,
+                Some(lighthouse_network::rpc::config::InboundRateLimiterConfig::default())
+            )
+        });
+}
+#[test]
+fn disable_inbound_rate_limiter_flag() {
+    CommandLineTest::new()
+        .flag("inbound-rate-limiter", Some("disabled"))
+        .run_with_zero_port()
+        .with_config(|config| assert_eq!(config.network.inbound_rate_limiter_config, None));
+}
+
 #[test]
 fn http_allow_origin_flag() {
     CommandLineTest::new()
@@ -1610,6 +1674,25 @@ fn block_cache_size_flag() {
         .with_config(|config| assert_eq!(config.store.block_cache_size, 4_usize));
 }
 #[test]
+fn historic_state_cache_size_flag() {
+    CommandLineTest::new()
+        .flag("historic-state-cache-size", Some("4"))
+        .run_with_zero_port()
+        .with_config(|config| assert_eq!(config.store.historic_state_cache_size, 4_usize));
+}
+#[test]
+fn historic_state_cache_size_default() {
+    use beacon_node::beacon_chain::store::config::DEFAULT_HISTORIC_STATE_CACHE_SIZE;
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config.store.historic_state_cache_size,
+                DEFAULT_HISTORIC_STATE_CACHE_SIZE
+            );
+        });
+}
+#[test]
 fn auto_compact_db_flag() {
     CommandLineTest::new()
         .flag("auto-compact-db", Some("false"))
@@ -1652,10 +1735,12 @@ fn no_reconstruct_historic_states_flag() {
 }
 
 // Tests for Slasher flags.
+// Using `--slasher-max-db-size` to work around https://github.com/sigp/lighthouse/issues/2342
 #[test]
 fn slasher_flag() {
     CommandLineTest::new()
         .flag("slasher", None)
+        .flag("slasher-max-db-size", Some("1"))
         .run_with_zero_port()
         .with_config_and_dir(|config, dir| {
             if let Some(slasher_config) = &config.slasher {
@@ -1673,6 +1758,7 @@ fn slasher_dir_flag() {
     let dir = TempDir::new().expect("Unable to create temporary directory");
     CommandLineTest::new()
         .flag("slasher", None)
+        .flag("slasher-max-db-size", Some("1"))
         .flag("slasher-dir", dir.path().as_os_str().to_str())
         .run_with_zero_port()
         .with_config(|config| {
@@ -1687,6 +1773,7 @@ fn slasher_dir_flag() {
 fn slasher_update_period_flag() {
     CommandLineTest::new()
         .flag("slasher", None)
+        .flag("slasher-max-db-size", Some("1"))
         .flag("slasher-update-period", Some("100"))
         .run_with_zero_port()
         .with_config(|config| {
@@ -1701,6 +1788,7 @@ fn slasher_update_period_flag() {
 fn slasher_slot_offset_flag() {
     CommandLineTest::new()
         .flag("slasher", None)
+        .flag("slasher-max-db-size", Some("1"))
         .flag("slasher-slot-offset", Some("11.25"))
         .run_with_zero_port()
         .with_config(|config| {
@@ -1713,6 +1801,7 @@ fn slasher_slot_offset_flag() {
 fn slasher_slot_offset_nan_flag() {
     CommandLineTest::new()
         .flag("slasher", None)
+        .flag("slasher-max-db-size", Some("1"))
         .flag("slasher-slot-offset", Some("NaN"))
         .run_with_zero_port();
 }
@@ -1720,6 +1809,7 @@ fn slasher_slot_offset_nan_flag() {
 fn slasher_history_length_flag() {
     CommandLineTest::new()
         .flag("slasher", None)
+        .flag("slasher-max-db-size", Some("1"))
         .flag("slasher-history-length", Some("2048"))
         .run_with_zero_port()
         .with_config(|config| {
@@ -1734,20 +1824,21 @@ fn slasher_history_length_flag() {
 fn slasher_max_db_size_flag() {
     CommandLineTest::new()
         .flag("slasher", None)
-        .flag("slasher-max-db-size", Some("10"))
+        .flag("slasher-max-db-size", Some("2"))
         .run_with_zero_port()
         .with_config(|config| {
             let slasher_config = config
                 .slasher
                 .as_ref()
                 .expect("Unable to parse Slasher config");
-            assert_eq!(slasher_config.max_db_size_mbs, 10240);
+            assert_eq!(slasher_config.max_db_size_mbs, 2048);
         });
 }
 #[test]
 fn slasher_attestation_cache_size_flag() {
     CommandLineTest::new()
         .flag("slasher", None)
+        .flag("slasher-max-db-size", Some("1"))
         .flag("slasher-att-cache-size", Some("10000"))
         .run_with_zero_port()
         .with_config(|config| {
@@ -1762,6 +1853,7 @@ fn slasher_attestation_cache_size_flag() {
 fn slasher_chunk_size_flag() {
     CommandLineTest::new()
         .flag("slasher", None)
+        .flag("slasher-max-db-size", Some("1"))
         .flag("slasher-chunk-size", Some("32"))
         .run_with_zero_port()
         .with_config(|config| {
@@ -1776,6 +1868,7 @@ fn slasher_chunk_size_flag() {
 fn slasher_validator_chunk_size_flag() {
     CommandLineTest::new()
         .flag("slasher", None)
+        .flag("slasher-max-db-size", Some("1"))
         .flag("slasher-validator-chunk-size", Some("512"))
         .run_with_zero_port()
         .with_config(|config| {
@@ -1787,9 +1880,10 @@ fn slasher_validator_chunk_size_flag() {
         });
 }
 #[test]
-fn slasher_broadcast_flag() {
+fn slasher_broadcast_flag_no_args() {
     CommandLineTest::new()
         .flag("slasher", None)
+        .flag("slasher-max-db-size", Some("1"))
         .flag("slasher-broadcast", None)
         .run_with_zero_port()
         .with_config(|config| {
@@ -1800,29 +1894,62 @@ fn slasher_broadcast_flag() {
             assert!(slasher_config.broadcast);
         });
 }
-
 #[test]
-fn slasher_backend_default() {
+fn slasher_broadcast_flag_no_default() {
     CommandLineTest::new()
         .flag("slasher", None)
+        .flag("slasher-max-db-size", Some("1"))
         .run_with_zero_port()
         .with_config(|config| {
-            let slasher_config = config.slasher.as_ref().unwrap();
-            assert_eq!(slasher_config.backend, slasher::DatabaseBackend::Mdbx);
+            let slasher_config = config
+                .slasher
+                .as_ref()
+                .expect("Unable to parse Slasher config");
+            assert!(slasher_config.broadcast);
         });
 }
-
+#[test]
+fn slasher_broadcast_flag_true() {
+    CommandLineTest::new()
+        .flag("slasher", None)
+        .flag("slasher-max-db-size", Some("1"))
+        .flag("slasher-broadcast", Some("true"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            let slasher_config = config
+                .slasher
+                .as_ref()
+                .expect("Unable to parse Slasher config");
+            assert!(slasher_config.broadcast);
+        });
+}
+#[test]
+fn slasher_broadcast_flag_false() {
+    CommandLineTest::new()
+        .flag("slasher", None)
+        .flag("slasher-max-db-size", Some("1"))
+        .flag("slasher-broadcast", Some("false"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            let slasher_config = config
+                .slasher
+                .as_ref()
+                .expect("Unable to parse Slasher config");
+            assert!(!slasher_config.broadcast);
+        });
+}
 #[test]
 fn slasher_backend_override_to_default() {
     // Hard to test this flag because all but one backend is disabled by default and the backend
     // called "disabled" results in a panic.
     CommandLineTest::new()
         .flag("slasher", None)
-        .flag("slasher-backend", Some("mdbx"))
+        .flag("slasher-max-db-size", Some("1"))
+        .flag("slasher-backend", Some("lmdb"))
         .run_with_zero_port()
         .with_config(|config| {
             let slasher_config = config.slasher.as_ref().unwrap();
-            assert_eq!(slasher_config.backend, slasher::DatabaseBackend::Mdbx);
+            assert_eq!(slasher_config.backend, slasher::DatabaseBackend::Lmdb);
         });
 }
 
@@ -1864,6 +1991,10 @@ fn enable_proposer_re_orgs_default() {
                 config.chain.re_org_max_epochs_since_finalization,
                 DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION,
             );
+            assert_eq!(
+                config.chain.re_org_cutoff(12),
+                Duration::from_secs(12) / DEFAULT_RE_ORG_CUTOFF_DENOMINATOR
+            );
         });
 }
 
@@ -1894,6 +2025,49 @@ fn proposer_re_org_max_epochs_since_finalization() {
                 8
             )
         });
+}
+
+#[test]
+fn proposer_re_org_cutoff() {
+    CommandLineTest::new()
+        .flag("proposer-reorg-cutoff", Some("500"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(config.chain.re_org_cutoff(12), Duration::from_millis(500))
+        });
+}
+
+#[test]
+fn proposer_re_org_disallowed_offsets_default() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config.chain.re_org_disallowed_offsets,
+                DisallowedReOrgOffsets::new::<MainnetEthSpec>(vec![0]).unwrap()
+            )
+        });
+}
+
+#[test]
+fn proposer_re_org_disallowed_offsets_override() {
+    CommandLineTest::new()
+        .flag("--proposer-reorg-disallowed-offsets", Some("1,2,3"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config.chain.re_org_disallowed_offsets,
+                DisallowedReOrgOffsets::new::<MainnetEthSpec>(vec![1, 2, 3]).unwrap()
+            )
+        });
+}
+
+#[test]
+#[should_panic]
+fn proposer_re_org_disallowed_offsets_invalid() {
+    CommandLineTest::new()
+        .flag("--proposer-reorg-disallowed-offsets", Some("32,33,34"))
+        .run_with_zero_port();
 }
 
 #[test]
@@ -2055,5 +2229,51 @@ fn disable_optimistic_finalized_sync() {
         .run_with_zero_port()
         .with_config(|config| {
             assert!(!config.chain.optimistic_finalized_sync);
+        });
+}
+
+#[test]
+fn invalid_gossip_verified_blocks_path_default() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| assert_eq!(config.network.invalid_block_storage, None));
+}
+
+#[test]
+fn invalid_gossip_verified_blocks_path() {
+    let path = "/home/karlm/naughty-blocks";
+    CommandLineTest::new()
+        .flag("invalid-gossip-verified-blocks-path", Some(path))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config.network.invalid_block_storage,
+                Some(PathBuf::from(path))
+            )
+        });
+}
+
+#[test]
+fn progressive_balances_default() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config.chain.progressive_balances_mode,
+                ProgressiveBalancesMode::Checked
+            )
+        });
+}
+
+#[test]
+fn progressive_balances_fast() {
+    CommandLineTest::new()
+        .flag("progressive-balances", Some("fast"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config.chain.progressive_balances_mode,
+                ProgressiveBalancesMode::Fast
+            )
         });
 }

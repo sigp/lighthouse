@@ -24,9 +24,9 @@ use tree_hash_derive::TreeHash;
     TestRandom,
 )]
 pub struct Fork {
-    #[serde(with = "eth2_serde_utils::bytes_4_hex")]
+    #[serde(with = "serde_utils::bytes_4_hex")]
     pub previous_version: [u8; 4],
-    #[serde(with = "eth2_serde_utils::bytes_4_hex")]
+    #[serde(with = "serde_utils::bytes_4_hex")]
     pub current_version: [u8; 4],
     pub epoch: Epoch,
 }

@@ -39,6 +39,7 @@ impl<TSpec: EthSpec> NetworkGlobals<TSpec> {
         listen_port_tcp6: Option<u16>,
         local_metadata: MetaData<TSpec>,
         trusted_peers: Vec<PeerId>,
+        disable_peer_scoring: bool,
         log: &slog::Logger,
     ) -> Self {
         NetworkGlobals {
@@ -48,7 +49,7 @@ impl<TSpec: EthSpec> NetworkGlobals<TSpec> {
             listen_port_tcp4,
             listen_port_tcp6,
             local_metadata: RwLock::new(local_metadata),
-            peers: RwLock::new(PeerDB::new(trusted_peers, log)),
+            peers: RwLock::new(PeerDB::new(trusted_peers, disable_peer_scoring, log)),
             gossipsub_subscriptions: RwLock::new(HashSet::new()),
             sync_state: RwLock::new(SyncState::Stalled),
             backfill_state: RwLock::new(BackFillState::NotRequired),
@@ -128,7 +129,10 @@ impl<TSpec: EthSpec> NetworkGlobals<TSpec> {
     }
 
     /// TESTING ONLY. Build a dummy NetworkGlobals instance.
-    pub fn new_test_globals(log: &slog::Logger) -> NetworkGlobals<TSpec> {
+    pub fn new_test_globals(
+        trusted_peers: Vec<PeerId>,
+        log: &slog::Logger,
+    ) -> NetworkGlobals<TSpec> {
         use crate::CombinedKeyExt;
         let keypair = libp2p::identity::Keypair::generate_secp256k1();
         let enr_key: discv5::enr::CombinedKey =
@@ -143,7 +147,8 @@ impl<TSpec: EthSpec> NetworkGlobals<TSpec> {
                 attnets: Default::default(),
                 syncnets: Default::default(),
             }),
-            vec![],
+            trusted_peers,
+            false,
             log,
         )
     }

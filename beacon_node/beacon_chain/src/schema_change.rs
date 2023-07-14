@@ -3,6 +3,8 @@ mod migration_schema_v12;
 mod migration_schema_v13;
 mod migration_schema_v14;
 mod migration_schema_v15;
+mod migration_schema_v16;
+mod migration_schema_v17;
 
 use crate::beacon_chain::{BeaconChainTypes, ETH1_CACHE_DB_KEY};
 use crate::eth1_chain::SszEth1;
@@ -130,6 +132,22 @@ pub fn migrate_schema<T: BeaconChainTypes>(
         }
         (SchemaVersion(15), SchemaVersion(14)) => {
             let ops = migration_schema_v15::downgrade_from_v15::<T>(db.clone(), log)?;
+            db.store_schema_version_atomically(to, ops)
+        }
+        (SchemaVersion(15), SchemaVersion(16)) => {
+            let ops = migration_schema_v16::upgrade_to_v16::<T>(db.clone(), log)?;
+            db.store_schema_version_atomically(to, ops)
+        }
+        (SchemaVersion(16), SchemaVersion(15)) => {
+            let ops = migration_schema_v16::downgrade_from_v16::<T>(db.clone(), log)?;
+            db.store_schema_version_atomically(to, ops)
+        }
+        (SchemaVersion(16), SchemaVersion(17)) => {
+            let ops = migration_schema_v17::upgrade_to_v17::<T>(db.clone(), log)?;
+            db.store_schema_version_atomically(to, ops)
+        }
+        (SchemaVersion(17), SchemaVersion(16)) => {
+            let ops = migration_schema_v17::downgrade_from_v17::<T>(db.clone(), log)?;
             db.store_schema_version_atomically(to, ops)
         }
         // Anything else is an error.

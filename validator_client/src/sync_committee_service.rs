@@ -178,7 +178,7 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
         let response = self
             .beacon_nodes
             .first_success(
-                RequireSynced::Yes,
+                RequireSynced::No,
                 OfflineOnFailure::Yes,
                 |beacon_node| async move {
                     match beacon_node.get_beacon_blocks_root(BlockId::Head).await {

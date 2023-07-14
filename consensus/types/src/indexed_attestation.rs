@@ -72,9 +72,9 @@ impl<T: EthSpec> Hash for IndexedAttestation<T> {
 mod quoted_variable_list_u64 {
     use super::*;
     use crate::Unsigned;
-    use eth2_serde_utils::quoted_u64_vec::{QuotedIntVecVisitor, QuotedIntWrapper};
     use serde::ser::SerializeSeq;
     use serde::{Deserializer, Serializer};
+    use serde_utils::quoted_u64_vec::{QuotedIntVecVisitor, QuotedIntWrapper};
 
     pub fn serialize<S, T>(value: &VariableList<u64, T>, serializer: S) -> Result<S::Ok, S::Error>
     where

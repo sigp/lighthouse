@@ -874,6 +874,14 @@ lazy_static! {
         "beacon_sync_committee_message_gossip_verification_seconds",
         "Full runtime of sync contribution gossip verification"
     );
+    pub static ref SYNC_MESSAGE_EQUIVOCATIONS: Result<IntCounter> = try_create_int_counter(
+        "sync_message_equivocations_total",
+        "Number of sync messages with the same validator index for different blocks"
+    );
+    pub static ref SYNC_MESSAGE_EQUIVOCATIONS_TO_HEAD: Result<IntCounter> = try_create_int_counter(
+        "sync_message_equivocations_to_head_total",
+        "Number of sync message which conflict with a previous message but elect the head"
+    );
 
     /*
      * Sync Committee Contribution Verification
@@ -989,6 +997,17 @@ lazy_static! {
     pub static ref OPTIMISTIC_UPDATE_PROCESSING_SUCCESSES: Result<IntCounter> = try_create_int_counter(
         "light_client_optimistic_update_verification_success_total",
         "Number of light client optimistic updates verified for gossip"
+    );
+    /*
+    * Aggregate subset metrics
+     */
+    pub static ref SYNC_CONTRIBUTION_SUBSETS: Result<IntCounter> = try_create_int_counter(
+        "beacon_sync_contribution_subsets_total",
+        "Count of new sync contributions that are subsets of already known aggregates"
+    );
+    pub static ref AGGREGATED_ATTESTATION_SUBSETS: Result<IntCounter> = try_create_int_counter(
+        "beacon_aggregated_attestation_subsets_total",
+        "Count of new aggregated attestations that are subsets of already known aggregates"
     );
 }
 

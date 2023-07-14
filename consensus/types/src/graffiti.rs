@@ -27,7 +27,7 @@ impl Graffiti {
 
 impl fmt::Display for Graffiti {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", eth2_serde_utils::hex::encode(self.0))
+        write!(f, "{}", serde_utils::hex::encode(self.0))
     }
 }
 
@@ -96,7 +96,7 @@ pub mod serde_graffiti {
     where
         S: Serializer,
     {
-        serializer.serialize_str(&eth2_serde_utils::hex::encode(bytes))
+        serializer.serialize_str(&serde_utils::hex::encode(bytes))
     }
 
     pub fn deserialize<'de, D>(deserializer: D) -> Result<[u8; GRAFFITI_BYTES_LEN], D::Error>
@@ -105,7 +105,7 @@ pub mod serde_graffiti {
     {
         let s: String = Deserialize::deserialize(deserializer)?;
 
-        let bytes = eth2_serde_utils::hex::decode(&s).map_err(D::Error::custom)?;
+        let bytes = serde_utils::hex::decode(&s).map_err(D::Error::custom)?;
 
         if bytes.len() != GRAFFITI_BYTES_LEN {
             return Err(D::Error::custom(format!(

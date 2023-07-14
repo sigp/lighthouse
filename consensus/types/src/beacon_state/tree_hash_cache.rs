@@ -403,7 +403,7 @@ impl ValidatorsListTreeHashCache {
                 validators.len(),
             ),
             list_arena,
-            values: ParallelValidatorTreeHash::new::<E>(validators),
+            values: ParallelValidatorTreeHash::new(validators),
         }
     }
 
@@ -468,7 +468,7 @@ impl ParallelValidatorTreeHash {
     ///
     /// Allocates the necessary memory to store all of the cached Merkle trees but does perform any
     /// hashing.
-    fn new<E: EthSpec>(validators: &[Validator]) -> Self {
+    fn new(validators: &[Validator]) -> Self {
         let num_arenas = std::cmp::max(
             1,
             (validators.len() + VALIDATORS_PER_ARENA - 1) / VALIDATORS_PER_ARENA,

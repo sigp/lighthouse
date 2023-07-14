@@ -10,7 +10,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             .about(
                 "Lighthouse Beacon Chain Simulator creates `n` beacon node and validator clients, \
                     each with `v` validators. A deposit contract is deployed at the start of the \
-                    simulation using a local `ganache` instance (you must have `ganache` \
+                    simulation using a local `anvil` instance (you must have `anvil` \
                     installed and avaliable on your path). All beacon nodes independently listen \
                     for genesis from the deposit contract, then start operating. \
                     \
@@ -24,6 +24,12 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                         .takes_value(true)
                         .default_value("4")
                         .help("Number of beacon nodes"))
+                    .arg(Arg::with_name("proposer-nodes")
+                        .short("n")
+                        .long("nodes")
+                        .takes_value(true)
+                        .default_value("2")
+                        .help("Number of proposer-only beacon nodes"))
                     .arg(Arg::with_name("validators_per_node")
                         .short("v")
                         .long("validators_per_node")
@@ -57,6 +63,12 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                         .takes_value(true)
                         .default_value("4")
                         .help("Number of beacon nodes"))
+                    .arg(Arg::with_name("proposer-nodes")
+                        .short("n")
+                        .long("nodes")
+                        .takes_value(true)
+                        .default_value("2")
+                        .help("Number of proposer-only beacon nodes"))
                     .arg(Arg::with_name("validators_per_node")
                         .short("v")
                         .long("validators_per_node")

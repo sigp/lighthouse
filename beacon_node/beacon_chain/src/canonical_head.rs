@@ -31,7 +31,9 @@
 //! the head block root. This is unacceptable for fast-responding functions like the networking
 //! stack.
 
+use crate::beacon_chain::ATTESTATION_CACHE_LOCK_TIMEOUT;
 use crate::persisted_fork_choice::PersistedForkChoice;
+use crate::shuffling_cache::BlockShufflingIds;
 use crate::{
     beacon_chain::{
         BeaconForkChoice, BeaconStore, OverrideForkchoiceUpdate,
@@ -45,8 +47,7 @@ use crate::{
 };
 use eth2::types::{EventKind, SseChainReorg, SseFinalizedCheckpoint, SseHead, SseLateHead};
 use fork_choice::{
-    CountUnrealizedFull, ExecutionStatus, ForkChoiceView, ForkchoiceUpdateParameters, ProtoBlock,
-    ResetPayloadStatuses,
+    ExecutionStatus, ForkChoiceView, ForkchoiceUpdateParameters, ProtoBlock, ResetPayloadStatuses,
 };
 use itertools::process_results;
 use parking_lot::{Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard};
@@ -285,19 +286,13 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
         // defensive programming.
         mut fork_choice_write_lock: RwLockWriteGuard<BeaconForkChoice<T>>,
         reset_payload_statuses: ResetPayloadStatuses,
-        count_unrealized_full: CountUnrealizedFull,
         store: &BeaconStore<T>,
         spec: &ChainSpec,
         log: &Logger,
     ) -> Result<(), Error> {
-        let fork_choice = <BeaconChain<T>>::load_fork_choice(
-            store.clone(),
-            reset_payload_statuses,
-            count_unrealized_full,
-            spec,
-            log,
-        )?
-        .ok_or(Error::MissingPersistedForkChoice)?;
+        let fork_choice =
+            <BeaconChain<T>>::load_fork_choice(store.clone(), reset_payload_statuses, spec, log)?
+                .ok_or(Error::MissingPersistedForkChoice)?;
         let fork_choice_view = fork_choice.cached_fork_choice_view();
         let beacon_block_root = fork_choice_view.head_block_root;
         let beacon_block = store
@@ -852,6 +847,35 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     "task" => "update head"
                 );
             });
+
+        match BlockShufflingIds::try_from_head(
+            new_snapshot.beacon_block_root,
+            &new_snapshot.beacon_state,
+        ) {
+            Ok(head_shuffling_ids) => {
+                self.shuffling_cache
+                    .try_write_for(ATTESTATION_CACHE_LOCK_TIMEOUT)
+                    .map(|mut shuffling_cache| {
+                        shuffling_cache.update_head_shuffling_ids(head_shuffling_ids)
+                    })
+                    .unwrap_or_else(|| {
+                        error!(
+                            self.log,
+                            "Failed to obtain cache write lock";
+                            "lock" => "shuffling_cache",
+                            "task" => "update head shuffling decision root"
+                        );
+                    });
+            }
+            Err(e) => {
+                error!(
+                    self.log,
+                    "Failed to get head shuffling ids";
+                    "error" => ?e,
+                    "head_block_root" => ?new_snapshot.beacon_block_root
+                );
+            }
+        }
 
         observe_head_block_delays(
             &mut self.block_times_cache.write(),
