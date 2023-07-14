@@ -20,6 +20,7 @@ pub fn slash_validator<T: EthSpec>(
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
     let epoch = state.current_epoch();
+    let latest_block_slot = state.latest_block_header().slot;
 
     initiate_validator_exit(state, slashed_index, spec)?;
 
@@ -45,6 +46,9 @@ pub fn slash_validator<T: EthSpec>(
     )?;
 
     update_progressive_balances_on_slashing(state, slashed_index, validator_effective_balance)?;
+    state
+        .slashings_cache_mut()
+        .record_validator_slashing(latest_block_slot, slashed_index)?;
 
     // Apply proposer and whistleblower rewards
     let proposer_index = ctxt.get_proposer_index(state, spec)? as usize;

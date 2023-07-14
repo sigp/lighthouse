@@ -30,6 +30,7 @@ pub use self::committee_cache::{
 pub use crate::beacon_state::balance::Balance;
 pub use crate::beacon_state::exit_cache::ExitCache;
 pub use crate::beacon_state::progressive_balances_cache::*;
+pub use crate::beacon_state::slashings_cache::SlashingsCache;
 use crate::epoch_cache::EpochCache;
 use crate::historical_summary::HistoricalSummary;
 pub use eth_spec::*;
@@ -44,6 +45,7 @@ mod exit_cache;
 mod iter;
 mod progressive_balances_cache;
 mod pubkey_cache;
+mod slashings_cache;
 mod tests;
 
 pub const CACHED_EPOCHS: usize = 3;
@@ -103,6 +105,10 @@ pub enum Error {
     },
     RelativeEpochError(RelativeEpochError),
     ExitCacheUninitialized,
+    SlashingsCacheUninitialized {
+        initialized_slot: Option<Slot>,
+        latest_block_slot: Slot,
+    },
     CommitteeCacheUninitialized(Option<RelativeEpoch>),
     SyncCommitteeCacheUninitialized,
     BlsError(bls::Error),
@@ -450,6 +456,12 @@ where
     #[test_random(default)]
     #[metastruct(exclude)]
     pub exit_cache: ExitCache,
+    #[serde(skip_serializing, skip_deserializing)]
+    #[ssz(skip_serializing, skip_deserializing)]
+    #[tree_hash(skip_hashing)]
+    #[test_random(default)]
+    #[metastruct(exclude)]
+    pub slashings_cache: SlashingsCache,
     /// Epoch cache of values that are useful for block processing that are static over an epoch.
     #[serde(skip_serializing, skip_deserializing)]
     #[ssz(skip_serializing, skip_deserializing)]
@@ -517,6 +529,7 @@ impl<T: EthSpec> BeaconState<T> {
             ],
             pubkey_cache: PubkeyCache::default(),
             exit_cache: ExitCache::default(),
+            slashings_cache: SlashingsCache::default(),
             epoch_cache: EpochCache::default(),
         })
     }
@@ -1626,6 +1639,7 @@ impl<T: EthSpec> BeaconState<T> {
         self.build_all_committee_caches(spec)?;
         self.update_pubkey_cache()?;
         self.build_exit_cache(spec)?;
+        self.build_slashings_cache()?;
 
         Ok(())
     }
@@ -1646,6 +1660,20 @@ impl<T: EthSpec> BeaconState<T> {
         Ok(())
     }
 
+    /// Build the slashings cache if it needs to be built.
+    pub fn build_slashings_cache(&mut self) -> Result<(), Error> {
+        let latest_block_slot = self.latest_block_header().slot;
+        if !self.slashings_cache().is_initialized(latest_block_slot) {
+            *self.slashings_cache_mut() = SlashingsCache::new(latest_block_slot, self.validators());
+        }
+        Ok(())
+    }
+
+    pub fn slashings_cache_is_initialized(&self) -> bool {
+        let latest_block_slot = self.latest_block_header().slot;
+        self.slashings_cache().is_initialized(latest_block_slot)
+    }
+
     /// Drop all caches on the state.
     pub fn drop_all_caches(&mut self) -> Result<(), Error> {
         self.drop_total_active_balance_cache();
@@ -1655,6 +1683,7 @@ impl<T: EthSpec> BeaconState<T> {
         self.drop_pubkey_cache();
         self.drop_progressive_balances_cache();
         *self.exit_cache_mut() = ExitCache::default();
+        *self.slashings_cache_mut() = SlashingsCache::default();
         *self.epoch_cache_mut() = EpochCache::default();
         Ok(())
     }

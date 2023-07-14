@@ -1,5 +1,5 @@
-use crate::{ActivationQueue, BeaconStateError, Epoch, EthSpec, Hash256, Slot};
-use safe_arith::ArithError;
+use crate::{ActivationQueue, BeaconStateError, ChainSpec, Epoch, EthSpec, Hash256, Slot};
+use safe_arith::{ArithError, SafeArith};
 use std::sync::Arc;
 
 /// Cache of values which are uniquely determined at the start of an epoch.
@@ -18,10 +18,16 @@ struct Inner {
     /// Unique identifier for this cache, which can be used to check its validity before use
     /// with any `BeaconState`.
     key: EpochCacheKey,
-    /// Base reward for every validator in this epoch.
+    /// Effective balance for every validator in this epoch.
+    effective_balances: Vec<u64>,
+    /// Base rewards for every effective balance increment (currently 0..32 ETH).
+    ///
+    /// Keyed by `effective_balance / effective_balance_increment`.
     base_rewards: Vec<u64>,
     /// Validator activation queue.
     activation_queue: ActivationQueue,
+    /// Effective balance increment.
+    effective_balance_increment: u64,
 }
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Copy, arbitrary::Arbitrary)]
@@ -35,6 +41,7 @@ pub enum EpochCacheError {
     IncorrectEpoch { cache: Epoch, state: Epoch },
     IncorrectDecisionBlock { cache: Hash256, state: Hash256 },
     ValidatorIndexOutOfBounds { validator_index: usize },
+    EffectiveBalanceOutOfBounds { effective_balance_eth: usize },
     InvalidSlot { slot: Slot },
     Arith(ArithError),
     BeaconState(BeaconStateError),
@@ -56,14 +63,18 @@ impl From<ArithError> for EpochCacheError {
 impl EpochCache {
     pub fn new(
         key: EpochCacheKey,
+        effective_balances: Vec<u64>,
         base_rewards: Vec<u64>,
         activation_queue: ActivationQueue,
+        spec: &ChainSpec,
     ) -> EpochCache {
         Self {
             inner: Some(Arc::new(Inner {
                 key,
+                effective_balances,
                 base_rewards,
                 activation_queue,
+                effective_balance_increment: spec.effective_balance_increment,
             })),
         }
     }
@@ -93,16 +104,32 @@ impl EpochCache {
     }
 
     #[inline]
-    pub fn get_base_reward(&self, validator_index: usize) -> Result<u64, EpochCacheError> {
-        Ok(self
-            .inner
+    pub fn get_effective_balance(&self, validator_index: usize) -> Result<u64, EpochCacheError> {
+        self.inner
             .as_ref()
             .ok_or(EpochCacheError::CacheNotInitialized)?
-            .base_rewards
+            .effective_balances
             .get(validator_index)
             .copied()
             .ok_or(EpochCacheError::ValidatorIndexOutOfBounds { validator_index })
-            .unwrap())
+    }
+
+    #[inline]
+    pub fn get_base_reward(&self, validator_index: usize) -> Result<u64, EpochCacheError> {
+        let inner = self
+            .inner
+            .as_ref()
+            .ok_or(EpochCacheError::CacheNotInitialized)?;
+        let effective_balance = self.get_effective_balance(validator_index)?;
+        let effective_balance_eth =
+            effective_balance.safe_div(inner.effective_balance_increment)? as usize;
+        inner
+            .base_rewards
+            .get(effective_balance_eth)
+            .copied()
+            .ok_or(EpochCacheError::EffectiveBalanceOutOfBounds {
+                effective_balance_eth,
+            })
     }
 
     pub fn activation_queue(&self) -> Result<&ActivationQueue, EpochCacheError> {

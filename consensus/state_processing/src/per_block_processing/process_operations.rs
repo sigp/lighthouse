@@ -150,10 +150,8 @@ pub mod altair {
         for index in &attesting_indices {
             let index = *index as usize;
 
-            // FIXME(sproul): could cache this in the EpochCache for faster lookup?
-            let validator = state.get_validator(index)?;
-            let validator_effective_balance = validator.effective_balance();
-            let validator_slashed = validator.slashed();
+            let validator_effective_balance = state.epoch_cache().get_effective_balance(index)?;
+            let validator_slashed = state.slashings_cache().is_slashed(index);
 
             for (flag_index, &weight) in PARTICIPATION_FLAG_WEIGHTS.iter().enumerate() {
                 let epoch_participation = state.get_epoch_participation_mut(
@@ -205,6 +203,8 @@ pub fn process_proposer_slashings<T: EthSpec>(
     ctxt: &mut ConsensusContext<T>,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
+    state.build_slashings_cache()?;
+
     // Verify and apply proposer slashings in series.
     // We have to verify in series because an invalid block may contain multiple slashings
     // for the same validator, and we need to correctly detect and reject that.
@@ -238,6 +238,8 @@ pub fn process_attester_slashings<T: EthSpec>(
     ctxt: &mut ConsensusContext<T>,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
+    state.build_slashings_cache()?;
+
     for (i, attester_slashing) in attester_slashings.iter().enumerate() {
         verify_attester_slashing(state, attester_slashing, verify_signatures, spec)
             .map_err(|e| e.into_with_index(i))?;
