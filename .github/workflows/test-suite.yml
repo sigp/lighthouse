@@ -52,6 +52,12 @@ jobs:
     needs: cargo-fmt
     steps:
     - uses: actions/checkout@v3
+    - name: Get latest version of stable Rust
+      run: rustup update stable
+    - name: Install Protoc
+      uses: arduino/setup-protoc@e52d9eb8f7b63115df1ac544a1376fdbf5a39612
+      with:
+        repo-token: ${{ secrets.GITHUB_TOKEN }}
     - name: Install anvil
       run: cargo install --git https://github.com/foundry-rs/foundry --locked anvil
     - name: Run tests in release
@@ -62,9 +68,27 @@ jobs:
     needs: cargo-fmt
     steps:
     - uses: actions/checkout@v3
+    - name: Get latest version of stable Rust
+      run: rustup update stable
+    - name: Use Node.js
+      uses: actions/setup-node@v2
+      with:
+        node-version: '14'
+    - name: Install windows build tools
+      run: |
+        choco install python protoc visualstudio2019-workload-vctools -y
+        npm config set msvs_version 2019
     - name: Install anvil
       # Extra feature to work around https://github.com/foundry-rs/foundry/issues/5115
       run: cargo install --git https://github.com/foundry-rs/foundry --locked anvil --features ethers/ipc
+    - name: Install make
+      run: choco install -y make
+    - uses: KyleMayes/install-llvm-action@v1
+      with:
+        version: "15.0"
+        directory: ${{ runner.temp }}/llvm
+    - name: Set LIBCLANG_PATH
+      run: echo "LIBCLANG_PATH=$((gcm clang).source -replace "clang.exe")" >> $env:GITHUB_ENV
     - name: Run tests in release
       run: make test-release
   beacon-chain-tests:
@@ -73,6 +97,12 @@ jobs:
     needs: cargo-fmt
     steps:
     - uses: actions/checkout@v3
+    - name: Get latest version of stable Rust
+      run: rustup update stable
+    - name: Install Protoc
+      uses: arduino/setup-protoc@e52d9eb8f7b63115df1ac544a1376fdbf5a39612
+      with:
+        repo-token: ${{ secrets.GITHUB_TOKEN }}
     - name: Run beacon_chain tests for all known forks
       run: make test-beacon-chain
   op-pool-tests:
@@ -135,6 +165,12 @@ jobs:
     needs: cargo-fmt
     steps:
     - uses: actions/checkout@v3
+    - name: Get latest version of stable Rust
+      run: rustup update stable
+    - name: Install Protoc
+      uses: arduino/setup-protoc@e52d9eb8f7b63115df1ac544a1376fdbf5a39612
+      with:
+        repo-token: ${{ secrets.GITHUB_TOKEN }}
     - name: Run consensus-spec-tests with blst, milagro and fake_crypto
       run: make test-ef
   dockerfile-ubuntu:
