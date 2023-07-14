@@ -1161,12 +1161,8 @@ impl<T: BeaconChainTypes> IntoExecutionPendingBlock<T> for Arc<SignedBeaconBlock
                     BlockError::AvailabilityCheck(e),
                 )
             })?;
-        SignatureVerifiedBlock::check_slashable(
-            maybe_available,
-            block_root,
-            chain,
-        )?
-        .into_execution_pending_block_slashable(block_root, chain, notify_execution_layer)
+        SignatureVerifiedBlock::check_slashable(maybe_available, block_root, chain)?
+            .into_execution_pending_block_slashable(block_root, chain, notify_execution_layer)
     }
 
     fn block(&self) -> &SignedBeaconBlock<T::EthSpec> {

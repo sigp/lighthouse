@@ -700,7 +700,7 @@ where
         let block = self.chain.get_blinded_block(block_root).unwrap().unwrap();
         let full_block = self.chain.store.make_full_block(block_root, block).unwrap();
         let blobs = self.chain.get_blobs(block_root).unwrap();
-        RpcBlock::new( Arc::new(full_block), blobs).unwrap()
+        RpcBlock::new(Arc::new(full_block), blobs).unwrap()
     }
 
     pub fn get_all_validators(&self) -> Vec<usize> {
@@ -1985,11 +1985,7 @@ where
             .process_block(
                 slot,
                 block.canonical_root(),
-                RpcBlock::new(
-                    Arc::new(block.clone()),
-                    blobs_without_signatures.clone(),
-                )
-                .unwrap(),
+                RpcBlock::new(Arc::new(block.clone()), blobs_without_signatures.clone()).unwrap(),
             )
             .await?;
         Ok((block_hash, (block, blobs), new_state))

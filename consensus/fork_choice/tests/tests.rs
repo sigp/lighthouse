@@ -4,6 +4,7 @@ use std::fmt;
 use std::sync::Mutex;
 use std::time::Duration;
 
+use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::test_utils::{
     AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
 };
@@ -11,7 +12,6 @@ use beacon_chain::{
     BeaconChain, BeaconChainError, BeaconForkChoiceStore, ChainConfig, ForkChoiceError,
     StateSkipConfig, WhenSlotSkipped,
 };
-use beacon_chain::block_verification_types::RpcBlock;
 use fork_choice::{
     ForkChoiceStore, InvalidAttestation, InvalidBlock, PayloadVerificationStatus, QueuedAttestation,
 };
@@ -201,7 +201,11 @@ impl ForkChoiceTest {
             if !predicate(block.0.message(), &state) {
                 break;
             }
-            if let Ok(block_hash) = self.harness.process_block_result(RpcBlock::new(block.0, block.1).unwrap()).await {
+            if let Ok(block_hash) = self
+                .harness
+                .process_block_result(RpcBlock::new(block.0, block.1).unwrap())
+                .await
+            {
                 self.harness.attest_block(
                     &state,
                     block.0.state_root(),

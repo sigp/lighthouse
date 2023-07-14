@@ -317,7 +317,7 @@ pub fn make_available<T: EthSpec>(
 ) -> Result<AvailableBlock<T>, AvailabilityCheckError> {
     let blobs = VariableList::new(blobs.into_iter().map(|blob| blob.to_blob()).collect())?;
 
-    consistency_checks( &block, &blobs)?;
+    consistency_checks(&block, &blobs)?;
 
     Ok(AvailableBlock {
         block,
@@ -347,7 +347,10 @@ pub fn consistency_checks<T: EthSpec>(
         return Ok(());
     }
 
-    let block_root = blobs.first().map(|blob|blob.block_root).unwrap_or(block.canonical_root());
+    let block_root = blobs
+        .first()
+        .map(|blob| blob.block_root)
+        .unwrap_or(block.canonical_root());
     for (index, (block_commitment, blob)) in
         block_kzg_commitments.iter().zip(blobs.iter()).enumerate()
     {

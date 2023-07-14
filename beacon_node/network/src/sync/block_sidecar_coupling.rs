@@ -1,5 +1,5 @@
 use beacon_chain::block_verification_types::RpcBlock;
-use ssz_types::{VariableList};
+use ssz_types::VariableList;
 use std::{collections::VecDeque, sync::Arc};
 use types::{BlobSidecar, EthSpec, SignedBeaconBlock};
 

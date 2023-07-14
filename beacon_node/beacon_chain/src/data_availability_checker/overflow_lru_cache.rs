@@ -540,8 +540,7 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
                             import_data,
                             payload_verification_outcome,
                         } = executed_block;
-                        let available_block =
-                            make_available(block, vec![])?;
+                        let available_block = make_available(block, vec![])?;
                         return Ok(Availability::Available(Box::new(
                             AvailableExecutedBlock::new(
                                 available_block,
@@ -591,8 +590,7 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
                  return Ok(Availability::MissingComponents(import_data.block_root))
             };
 
-            let available_block =
-                make_available(block, verified_blobs)?;
+            let available_block = make_available(block, verified_blobs)?;
             Ok(Availability::Available(Box::new(
                 AvailableExecutedBlock::new(
                     available_block,
