@@ -63,9 +63,10 @@ jobs:
     - name: Install anvil
       run: cargo install --git https://github.com/foundry-rs/foundry --locked anvil
     - name: Install apt dependencies
+      if: env.SELF_HOSTED_RUNNERS
       run: |
-          sudo apt-get update
-          sudo apt-get install libpq-dev  # Required for Postgres in ./watch.
+          apt-get update
+          apt-get install libpq-dev  # Required for Postgres in ./watch.
     - name: Run tests in release
       run: make test-release
   release-tests-windows:
@@ -144,9 +145,10 @@ jobs:
     - name: Install anvil
       run: cargo install --git https://github.com/foundry-rs/foundry --locked anvil
     - name: Install apt dependencies
+      if: env.SELF_HOSTED_RUNNERS
       run: |
-          sudo apt-get update
-          sudo apt-get install libpq-dev  # Required for Postgres in ./watch.
+          apt-get update
+          apt-get install libpq-dev  # Required for Postgres in ./watch.
     - name: Run tests in debug
       run: make test-debug
   state-transition-vectors-ubuntu:
