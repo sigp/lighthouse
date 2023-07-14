@@ -60,6 +60,10 @@ jobs:
         repo-token: ${{ secrets.GITHUB_TOKEN }}
     - name: Install anvil
       run: cargo install --git https://github.com/foundry-rs/foundry --locked anvil
+    - name: Install apt dependencies
+      run: |
+          sudo apt-get update
+          sudo apt-get install libpq-dev  # Required for Postgres in ./watch.
     - name: Run tests in release
       run: make test-release
   release-tests-windows:
@@ -143,6 +147,10 @@ jobs:
         repo-token: ${{ secrets.GITHUB_TOKEN }}
     - name: Install anvil
       run: cargo install --git https://github.com/foundry-rs/foundry --locked anvil
+    - name: Install apt dependencies
+      run: |
+          sudo apt-get update
+          sudo apt-get install libpq-dev  # Required for Postgres in ./watch.
     - name: Run tests in debug
       run: make test-debug
   state-transition-vectors-ubuntu:
