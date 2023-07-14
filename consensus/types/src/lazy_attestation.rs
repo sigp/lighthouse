@@ -2,12 +2,23 @@ use bls::Error;
 use derivative::Derivative;
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
+use test_random_derive::TestRandom;
+use tree_hash_derive::TreeHash;
 
 use super::{AggregateSignature, Attestation, AttestationData, BitList, EthSpec, SignatureBytes};
 
 /// An attestation type with SSZ bytes for the signature
 #[derive(
-    arbitrary::Arbitrary, Debug, Clone, Serialize, Deserialize, Encode, Decode, Derivative,
+    arbitrary::Arbitrary,
+    Debug,
+    Clone,
+    Serialize,
+    Deserialize,
+    Encode,
+    Decode,
+    TreeHash,
+    TestRandom,
+    Derivative,
 )]
 #[derivative(PartialEq, Hash(bound = "T: EthSpec"))]
 #[serde(bound = "T: EthSpec")]
