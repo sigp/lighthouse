@@ -32,7 +32,7 @@ use beacon_chain::{
 pub use block_id::BlockId;
 use directory::DEFAULT_ROOT_DIR;
 use eth2::types::{
-    self as api_types, EndpointVersion, ForkChoice, ForkChoiceNode, SignedBlockContents,
+    self as api_types, BlobIndicesQuery, EndpointVersion, ForkChoice, ForkChoiceNode, SignedBlockContents,
     SkipRandaoVerification, ValidatorId, ValidatorStatus,
 };
 use lighthouse_network::{types::SyncState, EnrExt, NetworkGlobals, PeerId, PubsubMessage};
@@ -1399,9 +1399,11 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path("beacon"))
         .and(warp::path("blob_sidecars"))
         .and(block_id_or_err)
+        .and(warp::query<api_types::BlobIndicesQuery>)
         .and(warp::path::end())
         .and(chain_filter.clone())
         .and(warp::header::optional::<api_types::Accept>("accept"))
+
         .and_then(
             |block_id: BlockId,
              chain: Arc<BeaconChain<T>>,
