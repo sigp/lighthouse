@@ -17,10 +17,6 @@ env:
   PINNED_NIGHTLY: nightly-2023-04-16
   # Prevent Github API rate limiting.
   LIGHTHOUSE_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-  # Use self-hosted runners for the canonical sigp repo.
-  SELF_HOSTED_RUNNERS: ${{ github.repository == 'sigp/lighthouse' }}
-  RUNNER_LINUX_SMALL: ${{ vars.SELF_HOSTED_RUNNERS && '[self-hosted, linux, small]' || 'ubuntu-latest'  }}
-  RUNNER_LINUX_LARGE: ${{ vars.SELF_HOSTED_RUNNERS && '[self-hosted, linux, large]' || 'ubuntu-latest'  }}
 jobs:
   target-branch-check:
     name: target-branch-check
@@ -52,12 +48,12 @@ jobs:
       run: make cargo-fmt
   release-tests-ubuntu:
     name: release-tests-ubuntu
-    runs-on: env.RUNNER_LINUX_LARGE
+    runs-on: ${{ vars.SELF_HOSTED_RUNNERS && '[self-hosted, linux, large]' || 'ubuntu-latest'  }}
     needs: cargo-fmt
     steps:
     - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
-      if: !env.SELF_HOSTED_RUNNERS
+      if: !vars.SELF_HOSTED_RUNNERS
       run: rustup update stable
     - name: Install Protoc
       uses: arduino/setup-protoc@e52d9eb8f7b63115df1ac544a1376fdbf5a39612
@@ -66,7 +62,7 @@ jobs:
     - name: Install anvil
       run: cargo install --git https://github.com/foundry-rs/foundry --locked anvil
     - name: Install apt dependencies
-      if: env.SELF_HOSTED_RUNNERS
+      if: vars.SELF_HOSTED_RUNNERS
       run: |
           apt-get update
           apt-get install libpq-dev  # Required for Postgres in ./watch.
@@ -79,7 +75,7 @@ jobs:
     steps:
     - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
-      if: !env.SELF_HOSTED_RUNNERS
+      if: !vars.SELF_HOSTED_RUNNERS
       run: rustup update stable
     - name: Use Node.js
       uses: actions/setup-node@v2
@@ -104,12 +100,12 @@ jobs:
       run: make test-release
   beacon-chain-tests:
     name: beacon-chain-tests
-    runs-on: env.RUNNER_LINUX_LARGE
+    runs-on: ${{ vars.SELF_HOSTED_RUNNERS && '[self-hosted, linux, large]' || 'ubuntu-latest'  }}
     needs: cargo-fmt
     steps:
     - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
-      if: !env.SELF_HOSTED_RUNNERS
+      if: !vars.SELF_HOSTED_RUNNERS
       run: rustup update stable
     - name: Install Protoc
       uses: arduino/setup-protoc@e52d9eb8f7b63115df1ac544a1376fdbf5a39612
@@ -143,12 +139,12 @@ jobs:
       run: make test-slasher
   debug-tests-ubuntu:
     name: debug-tests-ubuntu
-    runs-on: env.RUNNER_LINUX_LARGE
+    runs-on: ${{ vars.SELF_HOSTED_RUNNERS && '[self-hosted, linux, large]' || 'ubuntu-latest'  }}
     needs: cargo-fmt
     steps:
     - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
-      if: !env.SELF_HOSTED_RUNNERS
+      if: !vars.SELF_HOSTED_RUNNERS
       run: rustup update stable
     - name: Install Protoc
       uses: arduino/setup-protoc@e52d9eb8f7b63115df1ac544a1376fdbf5a39612
@@ -157,7 +153,7 @@ jobs:
     - name: Install anvil
       run: cargo install --git https://github.com/foundry-rs/foundry --locked anvil
     - name: Install apt dependencies
-      if: env.SELF_HOSTED_RUNNERS
+      if: vars.SELF_HOSTED_RUNNERS
       run: |
           apt-get update
           apt-get install libpq-dev  # Required for Postgres in ./watch.
@@ -179,12 +175,12 @@ jobs:
       run: make run-state-transition-tests
   ef-tests-ubuntu:
     name: ef-tests-ubuntu
-    runs-on: env.RUNNER_LINUX_SMALL
+    runs-on: ${{ vars.SELF_HOSTED_RUNNERS && '[self-hosted, linux, small]' || 'ubuntu-latest'  }}
     needs: cargo-fmt
     steps:
     - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
-      if: !env.SELF_HOSTED_RUNNERS
+      if: !vars.SELF_HOSTED_RUNNERS
       run: rustup update stable
     - name: Install Protoc
       uses: arduino/setup-protoc@e52d9eb8f7b63115df1ac544a1376fdbf5a39612
