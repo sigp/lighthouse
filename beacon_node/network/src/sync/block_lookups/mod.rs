@@ -10,7 +10,7 @@ use super::{
 use crate::metrics;
 use crate::network_beacon_processor::ChainSegmentProcessId;
 use crate::sync::block_lookups::single_block_lookup::LookupId;
-use beacon_chain::block_verification_types::{AsBlock, RpcBlock};
+use beacon_chain::blob_verification::{AsBlock, BlockWrapper};
 use beacon_chain::data_availability_checker::{AvailabilityCheckError, DataAvailabilityChecker};
 use beacon_chain::{AvailabilityProcessingStatus, BeaconChainTypes, BlockError};
 use lighthouse_network::rpc::RPCError;
@@ -34,7 +34,7 @@ mod single_block_lookup;
 #[cfg(test)]
 mod tests;
 
-pub type DownloadedBlocks<T> = (Hash256, RpcBlock<T>);
+pub type DownloadedBlocks<T> = (Hash256, BlockWrapper<T>);
 pub type RootBlockTuple<T> = (Hash256, Arc<SignedBeaconBlock<T>>);
 pub type RootBlobsTuple<T> = (Hash256, FixedBlobSidecarList<T>);
 
@@ -381,7 +381,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 if !has_pending_parent_request {
                     let rpc_block = request_ref
                         .get_downloaded_block()
-                        .unwrap_or(RpcBlock::new_without_blobs(block));
+                        .unwrap_or(BlockWrapper::Block(block));
                     // This is the correct block, send it for processing
                     match self.send_block_for_processing(
                         block_root,
@@ -910,7 +910,11 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                     BlockError::ParentUnknown(block) => {
                         let slot = block.slot();
                         let parent_root = block.parent_root();
-                        request_ref.add_unknown_parent_components(block.into());
+                        let (block, blobs) = block.deconstruct();
+                        request_ref.add_unknown_parent_components(UnknownParentComponents::new(
+                            Some(block),
+                            blobs,
+                        ));
                         self.search_parent(slot, root, parent_root, peer_id.to_peer_id(), cx);
                         ShouldRemoveLookup::False
                     }
@@ -1222,7 +1226,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     fn send_block_for_processing(
         &mut self,
         block_root: Hash256,
-        block: RpcBlock<T::EthSpec>,
+        block: BlockWrapper<T::EthSpec>,
         duration: Duration,
         process_type: BlockProcessType,
         cx: &mut SyncNetworkContext<T>,

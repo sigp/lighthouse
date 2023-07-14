@@ -1,12 +1,12 @@
+use crate::network_beacon_processor::NetworkBeaconProcessor;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
-use slog::{crit, };
+use slog::crit;
 use slot_clock::SlotClock;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use tokio::time::interval_at;
 use tokio::time::Instant;
-use types::{ Hash256};
-use crate::network_beacon_processor::NetworkBeaconProcessor;
+use types::Hash256;
 
 #[derive(Debug)]
 pub enum DelayedLookupMessage {

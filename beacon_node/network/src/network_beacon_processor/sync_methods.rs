@@ -6,8 +6,7 @@ use crate::sync::{
     manager::{BlockProcessType, SyncMessage},
     ChainId,
 };
-use beacon_chain::data_availability_checker::MaybeAvailableBlock;
-use beacon_chain::block_verification_types::{AsBlock, RpcBlock};
+use beacon_chain::blob_verification::{AsBlock, BlockWrapper, MaybeAvailableBlock};
 use beacon_chain::data_availability_checker::AvailabilityCheckError;
 use beacon_chain::{
     observed_block_producers::Error as ObserveError, validator_monitor::get_block_delay_ms,
@@ -55,7 +54,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub fn generate_rpc_beacon_block_process_fn(
         self: Arc<Self>,
         block_root: Hash256,
-        block: RpcBlock<T::EthSpec>,
+        block: BlockWrapper<T::EthSpec>,
         seen_timestamp: Duration,
         process_type: BlockProcessType,
     ) -> AsyncFn {
@@ -79,7 +78,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub fn generate_rpc_beacon_block_fns(
         self: Arc<Self>,
         block_root: Hash256,
-        block: RpcBlock<T::EthSpec>,
+        block: BlockWrapper<T::EthSpec>,
         seen_timestamp: Duration,
         process_type: BlockProcessType,
     ) -> (AsyncFn, BlockingFn) {
@@ -107,7 +106,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub async fn process_rpc_block(
         self: Arc<NetworkBeaconProcessor<T>>,
         block_root: Hash256,
-        block: RpcBlock<T::EthSpec>,
+        block: BlockWrapper<T::EthSpec>,
         seen_timestamp: Duration,
         process_type: BlockProcessType,
         reprocess_tx: mpsc::Sender<ReprocessQueueMessage>,
@@ -270,7 +269,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         process_type: BlockProcessType,
     ) -> AsyncFn {
         let process_fn = async move {
-            self.clone().process_rpc_blobs(block_root, block, seen_timestamp, process_type)
+            self.clone()
+                .process_rpc_blobs(block_root, block, seen_timestamp, process_type)
                 .await;
         };
         Box::pin(process_fn)
@@ -306,7 +306,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         });
     }
 
-    pub fn send_delayed_lookup(&self, block_root: Hash256){
+    pub fn send_delayed_lookup(&self, block_root: Hash256) {
         self.send_sync_message(SyncMessage::MissingGossipBlockComponentsDelayed(block_root))
     }
 
@@ -315,7 +315,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub async fn process_chain_segment(
         &self,
         sync_type: ChainSegmentProcessId,
-        downloaded_blocks: Vec<RpcBlock<T::EthSpec>>,
+        downloaded_blocks: Vec<BlockWrapper<T::EthSpec>>,
         notify_execution_layer: NotifyExecutionLayer,
     ) {
         let result = match sync_type {
@@ -440,7 +440,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     /// Helper function to process blocks batches which only consumes the chain and blocks to process.
     async fn process_blocks<'a>(
         &self,
-        downloaded_blocks: impl Iterator<Item = &'a RpcBlock<T::EthSpec>>,
+        downloaded_blocks: impl Iterator<Item = &'a BlockWrapper<T::EthSpec>>,
         notify_execution_layer: NotifyExecutionLayer,
     ) -> (usize, Result<(), ChainSegmentFailed>) {
         let blocks: Vec<_> = downloaded_blocks.cloned().collect();
@@ -473,7 +473,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     /// Helper function to process backfill block batches which only consumes the chain and blocks to process.
     fn process_backfill_blocks(
         &self,
-        downloaded_blocks: Vec<RpcBlock<T::EthSpec>>,
+        downloaded_blocks: Vec<BlockWrapper<T::EthSpec>>,
     ) -> (usize, Result<(), ChainSegmentFailed>) {
         let total_blocks = downloaded_blocks.len();
         let available_blocks = match downloaded_blocks
@@ -481,7 +481,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             .map(|block| {
                 self.chain
                     .data_availability_checker
-                    .check_rpc_block_availability(block)
+                    .check_availability(block)
             })
             .collect::<Result<Vec<_>, _>>()
         {

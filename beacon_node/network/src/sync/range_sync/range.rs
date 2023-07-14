@@ -396,7 +396,7 @@ mod tests {
     use tokio::sync::mpsc;
 
     use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
-    use slot_clock::{TestingSlotClock, };
+    use slot_clock::TestingSlotClock;
     use std::collections::HashSet;
     use std::sync::Arc;
     use store::MemoryStore;

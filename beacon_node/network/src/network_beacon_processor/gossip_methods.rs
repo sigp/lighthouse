@@ -5,8 +5,8 @@ use crate::{
     sync::SyncMessage,
 };
 
+use beacon_chain::blob_verification::AsBlock;
 use beacon_chain::blob_verification::{BlobError, GossipVerifiedBlob};
-use beacon_chain::block_verification_types::AsBlock;
 use beacon_chain::store::Error;
 use beacon_chain::{
     attestation_verification::{self, Error as AttnError, VerifiedAttestation},

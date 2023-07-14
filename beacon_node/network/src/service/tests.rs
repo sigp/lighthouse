@@ -3,6 +3,7 @@
 mod tests {
     use crate::persisted_dht::load_dht;
     use crate::{NetworkConfig, NetworkService};
+    use beacon_chain::test_utils::EphemeralHarnessType;
     use beacon_processor::{
         BeaconProcessorSend, MAX_SCHEDULED_WORK_QUEUE_LEN, MAX_WORK_EVENT_QUEUE_LEN,
     };
@@ -12,7 +13,6 @@ mod tests {
     use std::str::FromStr;
     use std::sync::Arc;
     use tokio::{runtime::Runtime, sync::mpsc};
-    use beacon_chain::test_utils::EphemeralHarnessType;
     use types::MinimalEthSpec as E;
 
     type BeaconChainHarness = beacon_chain::test_utils::BeaconChainHarness<EphemeralHarnessType<E>>;
