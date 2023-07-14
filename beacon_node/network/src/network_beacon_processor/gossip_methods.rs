@@ -5,7 +5,8 @@ use crate::{
     sync::SyncMessage,
 };
 
-use beacon_chain::blob_verification::{AsBlock, BlobError, GossipVerifiedBlob};
+use beacon_chain::blob_verification::{BlobError, GossipVerifiedBlob};
+use beacon_chain::block_verification_types::AsBlock;
 use beacon_chain::store::Error;
 use beacon_chain::{
     attestation_verification::{self, Error as AttnError, VerifiedAttestation},
@@ -600,7 +601,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     // TODO: docs
     #[allow(clippy::too_many_arguments)]
     pub async fn process_gossip_blob(
-        self,
+        self: &Arc<Self>,
         message_id: MessageId,
         peer_id: PeerId,
         _peer_client: Client,
@@ -699,7 +700,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     }
 
     pub async fn process_gossip_verified_blob(
-        self,
+        self: &Arc<Self>,
         peer_id: PeerId,
         verified_blob: GossipVerifiedBlob<T>,
         // This value is not used presently, but it might come in handy for debugging.

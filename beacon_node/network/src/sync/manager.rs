@@ -127,7 +127,7 @@ pub enum SyncMessage<T: EthSpec> {
     },
 
     /// A block with an unknown parent has been received.
-    UnknownParentBlock(PeerId, BlockWrapper<T>, Hash256),
+    UnknownParentBlock(PeerId, RpcBlock<T>, Hash256),
 
     /// A blob with an unknown parent has been received.
     UnknownParentBlob(PeerId, Arc<BlobSidecar<T>>),
@@ -242,13 +242,20 @@ pub fn spawn<T: BeaconChainTypes>(
         MAX_REQUEST_BLOCKS >= T::EthSpec::slots_per_epoch() * EPOCHS_PER_BATCH,
         "Max blocks that can be requested in a single batch greater than max allowed blocks in a single request"
     );
+    let (delayed_lookups_send, delayed_lookups_recv) =
+        mpsc::channel::<DelayedLookupMessage>(DELAY_QUEUE_CHANNEL_SIZE);
 
     // create an instance of the SyncManager
     let network_globals = beacon_processor.network_globals.clone();
     let mut sync_manager = SyncManager {
         chain: beacon_chain.clone(),
         input_channel: sync_recv,
-        network: SyncNetworkContext::new(network_send, beacon_processor, log.clone()),
+        network: SyncNetworkContext::new(
+            network_send,
+            beacon_processor.clone(),
+            beacon_chain.clone(),
+            log.clone(),
+        ),
         range_sync: RangeSync::new(beacon_chain.clone(), log.clone()),
         backfill_sync: BackFillSync::new(beacon_chain.clone(), network_globals, log.clone()),
         block_lookups: BlockLookups::new(
@@ -260,12 +267,11 @@ pub fn spawn<T: BeaconChainTypes>(
     };
 
     let log_clone = log.clone();
-    let sync_send_clone = sync_send.clone();
     delayed_lookup::spawn_delayed_lookup_service(
         &executor,
         beacon_chain,
         delayed_lookups_recv,
-        sync_send,
+        beacon_processor,
         log,
     );
 
@@ -792,7 +798,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     }
 
     fn should_search_for_block(&mut self, block_slot: Slot, peer_id: &PeerId) -> bool {
-        if !self.network_globals.sync_state.read().is_synced() {
+        if !self.network_globals().sync_state.read().is_synced() {
             let head_slot = self.chain.canonical_head.cached_head().head_slot();
 
             // if the block is far in the future, ignore it. If its within the slot tolerance of
@@ -806,13 +812,13 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             }
         }
 
-        self.network_globals.peers.read().is_connected(peer_id)
+        self.network_globals().peers.read().is_connected(peer_id)
             && self.network.is_execution_engine_online()
     }
 
     fn synced_and_connected(&mut self, peer_id: &PeerId) -> bool {
-        self.network_globals.sync_state.read().is_synced()
-            && self.network_globals.peers.read().is_connected(peer_id)
+        self.network_globals().sync_state.read().is_synced()
+            && self.network_globals().peers.read().is_connected(peer_id)
             && self.network.is_execution_engine_online()
     }
 

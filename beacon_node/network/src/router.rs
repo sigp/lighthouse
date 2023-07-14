@@ -208,11 +208,19 @@ impl<T: BeaconChainTypes> Router<T> {
                 self.network_beacon_processor
                     .send_blocks_by_roots_request(peer_id, request_id, request),
             ),
-            Request::BlobsByRange(request) => self.send_beacon_processor_work(
-                BeaconWorkEvent::blobs_by_range_request(peer_id, request_id, request),
+            Request::BlobsByRange(request) => self.handle_beacon_processor_send_result(
+                self.network_beacon_processor.send_blobs_by_range_request(
+                    peer_id,
+                    request_id,
+                    request,
+                ),
             ),
-            Request::BlobsByRoot(request) => self.send_beacon_processor_work(
-                BeaconWorkEvent::blobs_by_root_request(peer_id, request_id, request),
+            Request::BlobsByRoot(request) => self.handle_beacon_processor_send_result(
+                self.network_beacon_processor.send_blobs_by_roots_request(
+                    peer_id,
+                    request_id,
+                    request,
+                ),
             ),
             Request::LightClientBootstrap(request) => self.handle_beacon_processor_send_result(
                 self.network_beacon_processor
@@ -291,19 +299,20 @@ impl<T: BeaconChainTypes> Router<T> {
                     self.network_globals.client(&peer_id),
                     block,
                     timestamp_now(),
-                ))
-            }
+                ),
+            ),
             PubsubMessage::BlobSidecar(data) => {
                 let (blob_index, signed_blob) = *data;
-                let peer_client = self.network_globals.client(&peer_id);
-                self.send_beacon_processor_work(BeaconWorkEvent::gossip_signed_blob_sidecar(
-                    message_id,
-                    peer_id,
-                    peer_client,
-                    blob_index,
-                    signed_blob,
-                    timestamp_now(),
-                ))
+                self.handle_beacon_processor_send_result(
+                    self.network_beacon_processor.send_gossip_blob_sidecar(
+                        message_id,
+                        peer_id,
+                        self.network_globals.client(&peer_id),
+                        blob_index,
+                        signed_blob,
+                        timestamp_now(),
+                    )
+                )
             }
             PubsubMessage::VoluntaryExit(exit) => {
                 debug!(self.log, "Received a voluntary exit"; "peer_id" => %peer_id);

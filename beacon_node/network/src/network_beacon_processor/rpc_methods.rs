@@ -13,8 +13,8 @@ use lighthouse_network::rpc::*;
 use lighthouse_network::{PeerId, PeerRequestId, ReportSource, Response, SyncInfo};
 use slog::{debug, error, trace, warn};
 use slot_clock::SlotClock;
-use std::sync::Arc;
 use std::collections::{hash_map::Entry, HashMap};
+use std::sync::Arc;
 use task_executor::TaskExecutor;
 use tokio_stream::StreamExt;
 use types::blob_sidecar::BlobIdentifier;
@@ -217,7 +217,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     }
     /// Handle a `BlobsByRoot` request from the peer.
     pub fn handle_blobs_by_root_request(
-        self,
+        self: Arc<Self>,
         send_on_drop: SendOnDrop,
         peer_id: PeerId,
         request_id: PeerRequestId,
@@ -616,7 +616,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
     /// Handle a `BlobsByRange` request from the peer.
     pub fn handle_blobs_by_range_request(
-        self,
+        self: Arc<Self>,
         send_on_drop: SendOnDrop,
         peer_id: PeerId,
         request_id: PeerRequestId,

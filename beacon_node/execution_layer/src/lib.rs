@@ -40,11 +40,13 @@ use tokio::{
 };
 use tokio_stream::wrappers::WatchStream;
 use tree_hash::TreeHash;
-use types::{AbstractExecPayload, BeaconStateError, ExecPayload};
+use types::beacon_block_body::KzgCommitments;
+use types::blob_sidecar::Blobs;
+use types::{
+    AbstractExecPayload, BeaconStateError, ExecPayload, ExecutionPayloadDeneb, VersionedHash,
+};
 use types::{
     BlindedPayload, BlockType, ChainSpec, Epoch, ExecutionPayloadCapella, ExecutionPayloadMerge,
-    ForkVersionedResponse, ProposerPreparationData, PublicKeyBytes, Signature, SignedBeaconBlock,
-    Slot,
 };
 use types::{KzgProofs, Withdrawals};
 use types::{ProposerPreparationData, PublicKeyBytes, Signature, Slot, Transaction, Uint256};

@@ -1,19 +1,20 @@
 #![cfg(feature = "spec-minimal")]
-use std::sync::Arc;
-
 use crate::network_beacon_processor::NetworkBeaconProcessor;
 use crate::service::RequestId;
 use crate::sync::manager::RequestId as SyncId;
 use crate::NetworkMessage;
+use std::sync::Arc;
 
 use super::*;
 
 use beacon_chain::builder::Witness;
 use beacon_chain::eth1_chain::CachingEth1Backend;
+use beacon_chain::test_utils::{build_log, BeaconChainHarness, EphemeralHarnessType};
 use beacon_processor::WorkEvent;
+use execution_layer::BlobsBundleV1;
+use lighthouse_network::rpc::RPCResponseErrorCode;
 use lighthouse_network::{NetworkGlobals, Request};
-use slog::{Drain, Level};
-use slot_clock::ManualSlotClock;
+use slot_clock::{ManualSlotClock, SlotClock, TestingSlotClock};
 use store::MemoryStore;
 use tokio::sync::mpsc;
 use types::{
@@ -212,7 +213,7 @@ impl TestRig {
             },
             ResponseType::Blob => match self.beacon_processor_rx.try_recv() {
                 Ok(work) => {
-                    assert_eq!(work.work_type(), beacon_processor::RPC_BLOB);
+                    assert_eq!(work.work_type(), beacon_processor::RPC_BLOBS);
                 }
                 other => panic!("Expected blob process, found {:?}", other),
             },

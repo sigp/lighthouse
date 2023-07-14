@@ -10,13 +10,16 @@ use crate::{
 use beacon_chain::test_utils::{
     test_spec, AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
 };
-use beacon_chain::{BeaconChain, ChainConfig, MAXIMUM_GOSSIP_CLOCK_DISPARITY};
+use beacon_chain::{BeaconChain, ChainConfig, WhenSlotSkipped, MAXIMUM_GOSSIP_CLOCK_DISPARITY};
 use beacon_processor::{work_reprocessing_queue::*, *};
+use lighthouse_network::discovery::ConnectionId;
+use lighthouse_network::rpc::methods::BlobsByRangeRequest;
+use lighthouse_network::rpc::SubstreamId;
 use lighthouse_network::{
     discv5::enr::{CombinedKey, EnrBuilder},
     rpc::methods::{MetaData, MetaDataV2},
     types::{EnrAttestationBitfield, EnrSyncCommitteeBitfield},
-    Client, MessageId, NetworkGlobals, PeerId,
+    Client, MessageId, NetworkGlobals, PeerId, Response,
 };
 use slot_clock::SlotClock;
 use std::cmp;
@@ -24,9 +27,11 @@ use std::iter::Iterator;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
+use types::blob_sidecar::FixedBlobSidecarList;
 use types::{
-    Attestation, AttesterSlashing, Epoch, EthSpec, Hash256, MainnetEthSpec, ProposerSlashing,
-    SignedAggregateAndProof, SignedBeaconBlock, SignedVoluntaryExit, SubnetId,
+    Attestation, AttesterSlashing, Epoch, Hash256, MainnetEthSpec, ProposerSlashing,
+    SignedAggregateAndProof, SignedBeaconBlock, SignedBlobSidecarList, SignedVoluntaryExit, Slot,
+    SubnetId,
 };
 
 type E = MainnetEthSpec;
@@ -275,15 +280,15 @@ impl TestRig {
     pub fn enqueue_gossip_blob(&self, blob_index: usize) {
         if let Some(blobs) = self.next_blobs.as_ref() {
             let blob = blobs.get(blob_index).unwrap();
-            self.beacon_processor_tx
-                .try_send(WorkEvent::gossip_signed_blob_sidecar(
+            self.network_beacon_processor
+                .send_gossip_blob_sidecar(
                     junk_message_id(),
                     junk_peer_id(),
                     Client::default(),
-                    blob_index as u64,
+                    blob.message.index,
                     blob.clone(),
                     Duration::from_secs(0),
-                ))
+                )
                 .unwrap();
         }
     }
@@ -319,26 +324,26 @@ impl TestRig {
                     .map(|b| Some(b.message))
                     .collect::<Vec<_>>(),
             );
-            let event = WorkEvent::rpc_blobs(
-                self.next_block.canonical_root(),
-                blobs,
-                std::time::Duration::default(),
-                BlockProcessType::SingleBlock { id: 1 },
-            );
-            self.beacon_processor_tx.try_send(event).unwrap();
+            self.network_beacon_processor
+                .send_rpc_blobs(
+                    self.next_block.canonical_root(),
+                    blobs,
+                    std::time::Duration::default(),
+                    BlockProcessType::SingleBlock { id: 1 },
+                )
+                .unwrap();
         }
     }
 
     pub fn enqueue_blobs_by_range_request(&self, count: u64) {
-        let event = WorkEvent::blobs_by_range_request(
+        self.network_beacon_processor.send_blobs_by_range_request(
             PeerId::random(),
             (ConnectionId::new(42), SubstreamId::new(24)),
             BlobsByRangeRequest {
                 start_slot: 0,
                 count,
             },
-        );
-        self.beacon_processor_tx.try_send(event).unwrap();
+        ).unwrap();
     }
 
     pub fn enqueue_backfill_batch(&self) {
@@ -733,7 +738,7 @@ async fn attestation_to_unknown_block_processed(import_method: BlockImportMethod
             events.push(RPC_BLOCK);
             if num_blobs > 0 {
                 rig.enqueue_single_lookup_rpc_blobs();
-                events.push(RPC_BLOB);
+                events.push(RPC_BLOBS);
             }
         }
     };
@@ -816,7 +821,7 @@ async fn aggregate_attestation_to_unknown_block(import_method: BlockImportMethod
             events.push(RPC_BLOCK);
             if num_blobs > 0 {
                 rig.enqueue_single_lookup_rpc_blobs();
-                events.push(RPC_BLOB);
+                events.push(RPC_BLOBS);
             }
         }
     };
@@ -996,7 +1001,7 @@ async fn test_rpc_block_reprocessing() {
 
     rig.enqueue_single_lookup_rpc_blobs();
     if rig.next_blobs.as_ref().map(|b| b.len()).unwrap_or(0) > 0 {
-        rig.assert_event_journal(&[RPC_BLOB, WORKER_FREED, NOTHING_TO_DO])
+        rig.assert_event_journal(&[RPC_BLOBS, WORKER_FREED, NOTHING_TO_DO])
             .await;
     }
 

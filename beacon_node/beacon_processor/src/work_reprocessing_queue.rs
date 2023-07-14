@@ -454,7 +454,7 @@ impl<S: SlotClock> ReprocessQueue<S> {
                         if block_slot <= now
                             && self
                                 .ready_work_tx
-                                .try_send(ReadyWork::GossipBlock(early_block))
+                                .try_send(ReadyWork::Block(early_block))
                                 .is_err()
                         {
                             error!(
@@ -757,7 +757,7 @@ impl<S: SlotClock> ReprocessQueue<S> {
 
                 if self
                     .ready_work_tx
-                    .try_send(ReadyWork::GossipBlock(ready_block))
+                    .try_send(ReadyWork::Block(ready_block))
                     .is_err()
                 {
                     error!(

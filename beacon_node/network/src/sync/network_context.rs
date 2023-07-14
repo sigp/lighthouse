@@ -4,8 +4,7 @@
 use super::block_sidecar_coupling::BlocksAndBlobsRequestInfo;
 use super::manager::{Id, RequestId as SyncRequestId};
 use super::range_sync::{BatchId, ByRangeRequestType, ChainId};
-use crate::beacon_processor::BeaconProcessorSend;
-duse crate::network_beacon_processor::NetworkBeaconProcessor;
+use crate::network_beacon_processor::NetworkBeaconProcessor;
 use crate::service::{NetworkMessage, RequestId};
 use crate::status::ToStatusMessage;
 use crate::sync::block_lookups::{BlobRequestId, BlockRequestId};
@@ -97,6 +96,8 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             request_id: 1,
             range_requests: FnvHashMap::default(),
             backfill_requests: FnvHashMap::default(),
+            range_blocks_and_blobs_requests: FnvHashMap::default(),
+            backfill_blocks_and_blobs_requests: FnvHashMap::default(),
             network_beacon_processor,
             chain,
             log,

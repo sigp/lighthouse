@@ -395,11 +395,11 @@ mod tests {
     use slog::{o, Drain};
     use tokio::sync::mpsc;
 
-    use slot_clock::ManualSlotClock;
+    use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
+    use slot_clock::{TestingSlotClock, };
     use std::collections::HashSet;
     use std::sync::Arc;
     use store::MemoryStore;
-    use tokio::sync::mpsc;
     use types::{Hash256, MinimalEthSpec as E};
 
     #[derive(Debug)]
@@ -612,7 +612,6 @@ mod tests {
         let chain = harness.chain;
 
         let fake_store = Arc::new(FakeStorage::default());
-        let (beacon_processor_tx, beacon_processor_rx) = mpsc::channel(10);
         let range_sync = RangeSync::<TestBeaconChainType, FakeStorage>::new(
             fake_store.clone(),
             log.new(o!("component" => "range")),

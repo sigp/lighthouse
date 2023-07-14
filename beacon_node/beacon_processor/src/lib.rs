@@ -38,26 +38,12 @@
 //! checks the queues to see if there are more parcels of work that can be spawned in a new worker
 //! task.
 
-use crate::sync::manager::BlockProcessType;
-use crate::{metrics, service::NetworkMessage, sync::SyncMessage};
-use beacon_chain::blob_verification::BlockWrapper;
-use beacon_chain::parking_lot::Mutex;
-use beacon_chain::{BeaconChain, BeaconChainTypes, GossipVerifiedBlock, NotifyExecutionLayer};
-use derivative::Derivative;
 use crate::work_reprocessing_queue::{
-    spawn_reprocess_scheduler, QueuedAggregate, QueuedBackfillBatch, QueuedGossipBlock,
-    QueuedLightClientUpdate, QueuedRpcBlock, QueuedUnaggregate, ReadyWork, ReprocessQueueMessage,
+    QueuedBackfillBatch, QueuedGossipBlock, ReprocessQueueMessage,
 };
 use futures::stream::{Stream, StreamExt};
 use futures::task::Poll;
-use lighthouse_network::NetworkGlobals;
-use lighthouse_network::{MessageId, PeerId};
-use lighthouse_network::rpc::methods::{BlobsByRangeRequest, BlobsByRootRequest};
-use lighthouse_network::rpc::LightClientBootstrapRequest;
-use lighthouse_network::{
-    rpc::{BlocksByRangeRequest, BlocksByRootRequest, StatusMessage},
-    Client, MessageId, NetworkGlobals, PeerId, PeerRequestId,
-};
+use lighthouse_network::{MessageId, NetworkGlobals, PeerId};
 use logging::TimeLatch;
 use parking_lot::Mutex;
 use slog::{crit, debug, error, trace, warn, Logger};
@@ -73,21 +59,13 @@ use std::time::Duration;
 use task_executor::TaskExecutor;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TrySendError;
-use types::{Attestation, EthSpec, Hash256, SignedAggregateAndProof, Slot, SubnetId};
+use types::{Attestation, Hash256, SignedAggregateAndProof, SubnetId};
+use types::{EthSpec, Slot};
 use work_reprocessing_queue::IgnoredRpcBlock;
-use types::blob_sidecar::FixedBlobSidecarList;
-use types::{
-    Attestation, AttesterSlashing, Hash256, LightClientFinalityUpdate, LightClientOptimisticUpdate,
-    ProposerSlashing, SignedAggregateAndProof, SignedBeaconBlock, SignedBlobSidecar,
-    SignedBlsToExecutionChange, SignedContributionAndProof, SignedVoluntaryExit, SubnetId,
-    SyncCommitteeMessage, SyncSubnetId,
-};
 use work_reprocessing_queue::{
     spawn_reprocess_scheduler, QueuedAggregate, QueuedLightClientUpdate, QueuedRpcBlock,
     QueuedUnaggregate, ReadyWork,
 };
-
-use worker::{Toolbox, Worker};
 
 mod metrics;
 pub mod work_reprocessing_queue;
@@ -240,7 +218,7 @@ pub const GOSSIP_LIGHT_CLIENT_FINALITY_UPDATE: &str = "light_client_finality_upd
 pub const GOSSIP_LIGHT_CLIENT_OPTIMISTIC_UPDATE: &str = "light_client_optimistic_update";
 pub const RPC_BLOCK: &str = "rpc_block";
 pub const IGNORED_RPC_BLOCK: &str = "ignored_rpc_block";
-pub const RPC_BLOB: &str = "rpc_blob";
+pub const RPC_BLOBS: &str = "rpc_blob";
 pub const CHAIN_SEGMENT: &str = "chain_segment";
 pub const CHAIN_SEGMENT_BACKFILL: &str = "chain_segment_backfill";
 pub const STATUS_PROCESSING: &str = "status_processing";
@@ -594,6 +572,7 @@ impl<E: EthSpec> Work<E> {
             Work::GossipLightClientFinalityUpdate(_) => GOSSIP_LIGHT_CLIENT_FINALITY_UPDATE,
             Work::GossipLightClientOptimisticUpdate(_) => GOSSIP_LIGHT_CLIENT_OPTIMISTIC_UPDATE,
             Work::RpcBlock { .. } => RPC_BLOCK,
+            Work::RpcBlobs { .. } => RPC_BLOBS,
             Work::IgnoredRpcBlock { .. } => IGNORED_RPC_BLOCK,
             Work::ChainSegment { .. } => CHAIN_SEGMENT,
             Work::ChainSegmentBackfill(_) => CHAIN_SEGMENT_BACKFILL,
@@ -1359,12 +1338,18 @@ impl<E: EthSpec> BeaconProcessor<E> {
                 beacon_block_root: _,
                 process_fn,
             } => task_spawner.spawn_async(process_fn),
-            Work::RpcBlock { process_fn } | Work::RpcBlob { process_fn } => task_spawner.spawn_async(process_fn),
+            Work::RpcBlock { process_fn } | Work::RpcBlobs { process_fn } => {
+                task_spawner.spawn_async(process_fn)
+            }
             Work::IgnoredRpcBlock { process_fn } => task_spawner.spawn_blocking(process_fn),
-            Work::GossipBlock(work)| Work::GossipBlob(work) => task_spawner.spawn_async(async move {
-                work.await;
-            }),
-            Work::BlobsByRangeRequest(work) | Work::BlobsByRootsRequest(work)| Work::BlocksByRangeRequest(work) | Work::BlocksByRootsRequest(work) => {
+            Work::GossipBlock(work) | Work::GossipSignedBlobSidecar(work) => task_spawner
+                .spawn_async(async move {
+                    work.await;
+                }),
+            Work::BlobsByRangeRequest(work)
+            | Work::BlobsByRootsRequest(work)
+            | Work::BlocksByRangeRequest(work)
+            | Work::BlocksByRootsRequest(work) => {
                 task_spawner.spawn_blocking_with_manual_send_idle(work)
             }
             Work::ChainSegmentBackfill(process_fn) => task_spawner.spawn_async(process_fn),
