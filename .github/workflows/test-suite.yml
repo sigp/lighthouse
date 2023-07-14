@@ -17,6 +17,8 @@ env:
   PINNED_NIGHTLY: nightly-2023-04-16
   # Prevent Github API rate limiting.
   LIGHTHOUSE_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  # Enable self-hosted runners for the sigp repo only.
+  SELF_HOSTED_RUNNERS: ${{ github.repository == 'sigp/lighthouse' }}
 jobs:
   target-branch-check:
     name: target-branch-check
@@ -48,11 +50,10 @@ jobs:
       run: make cargo-fmt
   release-tests-ubuntu:
     name: release-tests-ubuntu
-    runs-on: ${{ vars.SELF_HOSTED_RUNNERS == 'true' && '[self-hosted, linux, large]' || 'ubuntu-latest'  }}
+    # Use self-hosted runners only on the sigp repo.
+    runs-on: ${{ github.repository == 'sigp/lighthouse' && '[self-hosted, linux, large]' || 'ubuntu-latest'  }}
     needs: cargo-fmt
     steps:
-    - name: DELETE ME
-      run: echo ${{ github.repository }}
     - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
       if: vars.SELF_HOSTED_RUNNERS == false
@@ -102,7 +103,8 @@ jobs:
       run: make test-release
   beacon-chain-tests:
     name: beacon-chain-tests
-    runs-on: ${{ vars.SELF_HOSTED_RUNNERS == 'true' && '[self-hosted, linux, large]' || 'ubuntu-latest'  }}
+    # Use self-hosted runners only on the sigp repo.
+    runs-on: ${{ github.repository == 'sigp/lighthouse' && '[self-hosted, linux, large]' || 'ubuntu-latest'  }}
     needs: cargo-fmt
     steps:
     - uses: actions/checkout@v3
@@ -141,7 +143,8 @@ jobs:
       run: make test-slasher
   debug-tests-ubuntu:
     name: debug-tests-ubuntu
-    runs-on: ${{ vars.SELF_HOSTED_RUNNERS == 'true' && '[self-hosted, linux, large]' || 'ubuntu-latest'  }}
+    # Use self-hosted runners only on the sigp repo.
+    runs-on: ${{ github.repository == 'sigp/lighthouse' && '[self-hosted, linux, large]' || 'ubuntu-latest'  }}
     needs: cargo-fmt
     steps:
     - uses: actions/checkout@v3
