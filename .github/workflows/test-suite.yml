@@ -52,9 +52,9 @@ jobs:
     needs: cargo-fmt
     steps:
     - name: DELETE ME
-      run: echo ${{ vars.SELF_HOSTED_RUNNERS }}
+      run: echo $SELF_HOSTED_RUNNERS
     - name: DELETE ME 2
-      run: echo ${{ vars.TEST_DELETE_ME }}
+      run: echo $TEST_DELETE_ME
     - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
       if: vars.SELF_HOSTED_RUNNERS == false
