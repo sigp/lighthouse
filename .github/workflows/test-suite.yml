@@ -52,8 +52,6 @@ jobs:
     needs: cargo-fmt
     steps:
     - uses: actions/checkout@v3
-    - name: Get latest version of stable Rust
-      run: rustup update stable
     - name: Install Protoc
       uses: arduino/setup-protoc@e52d9eb8f7b63115df1ac544a1376fdbf5a39612
       with:
@@ -72,8 +70,6 @@ jobs:
     needs: cargo-fmt
     steps:
     - uses: actions/checkout@v3
-    - name: Get latest version of stable Rust
-      run: rustup update stable
     - name: Use Node.js
       uses: actions/setup-node@v2
       with:
@@ -101,8 +97,6 @@ jobs:
     needs: cargo-fmt
     steps:
     - uses: actions/checkout@v3
-    - name: Get latest version of stable Rust
-      run: rustup update stable
     - name: Install Protoc
       uses: arduino/setup-protoc@e52d9eb8f7b63115df1ac544a1376fdbf5a39612
       with:
@@ -139,8 +133,6 @@ jobs:
     needs: cargo-fmt
     steps:
     - uses: actions/checkout@v3
-    - name: Get latest version of stable Rust
-      run: rustup update stable
     - name: Install Protoc
       uses: arduino/setup-protoc@e52d9eb8f7b63115df1ac544a1376fdbf5a39612
       with:
@@ -173,8 +165,6 @@ jobs:
     needs: cargo-fmt
     steps:
     - uses: actions/checkout@v3
-    - name: Get latest version of stable Rust
-      run: rustup update stable
     - name: Install Protoc
       uses: arduino/setup-protoc@e52d9eb8f7b63115df1ac544a1376fdbf5a39612
       with:
