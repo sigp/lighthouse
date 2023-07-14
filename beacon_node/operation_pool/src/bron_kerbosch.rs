@@ -132,7 +132,9 @@ fn find_pivot(p: &[usize], x: &[usize], neighbourhoods: &[Vec<usize>]) -> usize 
     *px.iter()
         .min_by_key(|&e| {
             let pp = p.to_vec();
-            pp.iter().filter(|ee| neighbourhoods[*e].contains(ee)).count()
+            pp.iter()
+                .filter(|ee| neighbourhoods[*e].contains(ee))
+                .count()
         })
         .unwrap()
 }
