@@ -3,6 +3,7 @@ mod attestation_id;
 mod attestation_storage;
 mod attester_slashing;
 mod bls_to_execution_changes;
+mod bron_kerbosch;
 mod max_cover;
 mod metrics;
 mod persistence;
