@@ -209,12 +209,18 @@ impl<T: BeaconChainTypes> Router<T> {
                     .send_blocks_by_roots_request(peer_id, request_id, request),
             ),
             Request::BlobsByRange(request) => self.handle_beacon_processor_send_result(
-                self.network_beacon_processor
-                    .send_blobs_by_range_request(peer_id, request_id, request),
+                self.network_beacon_processor.send_blobs_by_range_request(
+                    peer_id,
+                    request_id,
+                    request,
+                ),
             ),
             Request::BlobsByRoot(request) => self.handle_beacon_processor_send_result(
-                self.network_beacon_processor
-                    .send_blobs_by_roots_request(peer_id, request_id, request),
+                self.network_beacon_processor.send_blobs_by_roots_request(
+                    peer_id,
+                    request_id,
+                    request,
+                ),
             ),
             Request::LightClientBootstrap(request) => self.handle_beacon_processor_send_result(
                 self.network_beacon_processor
@@ -305,7 +311,7 @@ impl<T: BeaconChainTypes> Router<T> {
                         blob_index,
                         signed_blob,
                         timestamp_now(),
-                    ),
+                    )
                 )
             }
             PubsubMessage::VoluntaryExit(exit) => {

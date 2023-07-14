@@ -127,7 +127,7 @@ pub enum SyncMessage<T: EthSpec> {
     },
 
     /// A block with an unknown parent has been received.
-    UnknownParentBlock(PeerId, BlockWrapper<T>, Hash256),
+    UnknownParentBlock(PeerId, RpcBlock<T>, Hash256),
 
     /// A blob with an unknown parent has been received.
     UnknownParentBlob(PeerId, Arc<BlobSidecar<T>>),

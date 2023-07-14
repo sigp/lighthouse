@@ -336,16 +336,14 @@ impl TestRig {
     }
 
     pub fn enqueue_blobs_by_range_request(&self, count: u64) {
-        self.network_beacon_processor
-            .send_blobs_by_range_request(
-                PeerId::random(),
-                (ConnectionId::new(42), SubstreamId::new(24)),
-                BlobsByRangeRequest {
-                    start_slot: 0,
-                    count,
-                },
-            )
-            .unwrap();
+        self.network_beacon_processor.send_blobs_by_range_request(
+            PeerId::random(),
+            (ConnectionId::new(42), SubstreamId::new(24)),
+            BlobsByRangeRequest {
+                start_slot: 0,
+                count,
+            },
+        ).unwrap();
     }
 
     pub fn enqueue_backfill_batch(&self) {
