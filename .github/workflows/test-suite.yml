@@ -144,7 +144,8 @@ jobs:
   debug-tests-ubuntu:
     name: debug-tests-ubuntu
     # Use self-hosted runners only on the sigp repo.
-    runs-on: ${{ github.repository == 'sigp/lighthouse' && '[self-hosted, linux, large]' || 'ubuntu-latest'  }}
+    # runs-on: ${{ github.repository == 'sigp/lighthouse' && '[self-hosted, linux, large]' || 'ubuntu-latest'  }}
+    runs-on: [self-hosted, linux, large]
     needs: cargo-fmt
     steps:
     - uses: actions/checkout@v3
