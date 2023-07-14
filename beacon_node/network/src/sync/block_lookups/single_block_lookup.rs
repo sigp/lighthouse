@@ -313,13 +313,16 @@ impl<const MAX_ATTEMPTS: u8, T: BeaconChainTypes> SingleBlockLookup<MAX_ATTEMPTS
                         downloaded_blobs,
                     } = components;
                     downloaded_block.as_ref().and_then(|block| {
-                                            //TODO(sean) figure out how to properly deal with a consistency error here,
-                                                // should we downscore the peer sending blobs?
-                                                let blobs = std::mem::take(downloaded_blobs);
-                                            let filtered=blobs.into_iter().filter_map(|b|b.clone()).collect::<Vec<_>>();
-                                            let blobs = VariableList::from(filtered);
-                                            RpcBlock::new(block.clone(), Some(blobs)).ok()
-                                        })
+                        //TODO(sean) figure out how to properly deal with a consistency error here,
+                        // should we downscore the peer sending blobs?
+                        let blobs = std::mem::take(downloaded_blobs);
+                        let filtered = blobs
+                            .into_iter()
+                            .filter_map(|b| b.clone())
+                            .collect::<Vec<_>>();
+                        let blobs = VariableList::from(filtered);
+                        RpcBlock::new(block.clone(), Some(blobs)).ok()
+                    })
                 } else {
                     None
                 }

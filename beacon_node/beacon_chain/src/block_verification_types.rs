@@ -1,6 +1,7 @@
 use crate::blob_verification::GossipVerifiedBlobList;
 use crate::data_availability_checker::AvailabilityCheckError;
 pub use crate::data_availability_checker::{AvailableBlock, MaybeAvailableBlock};
+use crate::eth1_finalization_cache::Eth1FinalizationData;
 use crate::{data_availability_checker, GossipVerifiedBlock, PayloadVerificationOutcome};
 use derivative::Derivative;
 use ssz_derive::{Decode, Encode};
@@ -14,7 +15,6 @@ use types::{
     BeaconBlockRef, BeaconState, BlindedPayload, BlobSidecarList, Epoch, EthSpec, Hash256,
     SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
 };
-use crate::eth1_finalization_cache::Eth1FinalizationData;
 
 #[derive(Debug, Clone, Derivative)]
 #[derivative(Hash(bound = "E: EthSpec"))]
@@ -44,7 +44,7 @@ impl<E: EthSpec> RpcBlock<E> {
         blobs: Option<BlobSidecarList<E>>,
     ) -> Result<Self, AvailabilityCheckError> {
         if let Some(blobs) = blobs.as_ref() {
-            data_availability_checker::consistency_checks( &block, blobs)?;
+            data_availability_checker::consistency_checks(&block, blobs)?;
         }
         let inner = match blobs {
             Some(blobs) => RpcBlockInner::BlockAndBlobs(block, blobs),

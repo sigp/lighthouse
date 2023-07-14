@@ -6,9 +6,9 @@ use crate::sync::{
     manager::{BlockProcessType, SyncMessage},
     ChainId,
 };
-use beacon_chain::data_availability_checker::MaybeAvailableBlock;
 use beacon_chain::block_verification_types::{AsBlock, RpcBlock};
 use beacon_chain::data_availability_checker::AvailabilityCheckError;
+use beacon_chain::data_availability_checker::MaybeAvailableBlock;
 use beacon_chain::{
     observed_block_producers::Error as ObserveError, validator_monitor::get_block_delay_ms,
     AvailabilityProcessingStatus, BeaconChainError, BeaconChainTypes, BlockError,
@@ -270,7 +270,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         process_type: BlockProcessType,
     ) -> AsyncFn {
         let process_fn = async move {
-            self.clone().process_rpc_blobs(block_root, block, seen_timestamp, process_type)
+            self.clone()
+                .process_rpc_blobs(block_root, block, seen_timestamp, process_type)
                 .await;
         };
         Box::pin(process_fn)
@@ -306,7 +307,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         });
     }
 
-    pub fn send_delayed_lookup(&self, block_root: Hash256){
+    pub fn send_delayed_lookup(&self, block_root: Hash256) {
         self.send_sync_message(SyncMessage::MissingGossipBlockComponentsDelayed(block_root))
     }
 
