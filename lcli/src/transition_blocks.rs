@@ -72,10 +72,9 @@ use eth2::{
     BeaconNodeHttpClient, SensitiveUrl, Timeouts,
 };
 use ssz::Encode;
-use state_processing::epoch_cache::initialize_epoch_cache;
 use state_processing::{
     block_signature_verifier::BlockSignatureVerifier, per_block_processing, per_slot_processing,
-    BlockSignatureStrategy, ConsensusContext, StateProcessingStrategy, VerifyBlockRoot,
+    AllCaches, BlockSignatureStrategy, ConsensusContext, StateProcessingStrategy, VerifyBlockRoot,
 };
 use std::borrow::Cow;
 use std::fs::File;
@@ -209,7 +208,7 @@ pub fn run<T: EthSpec>(env: Environment<T>, matches: &ArgMatches) -> Result<(), 
 
     if config.exclude_cache_builds {
         pre_state
-            .build_caches(spec)
+            .build_all_caches(spec)
             .map_err(|e| format!("Unable to build caches: {:?}", e))?;
         let state_root = pre_state
             .update_tree_hash_cache()
@@ -343,9 +342,12 @@ fn do_transition<T: EthSpec>(
     }
     debug!("Slot processing: {:?}", t.elapsed());
 
+    // Slot and epoch processing should keep the caches fully primed.
+    assert!(pre_state.all_caches_built());
+
     let t = Instant::now();
     pre_state
-        .build_caches(spec)
+        .build_all_caches(spec)
         .map_err(|e| format!("Unable to build caches: {:?}", e))?;
     debug!("Build all caches (again): {:?}", t.elapsed());
 
@@ -355,10 +357,6 @@ fn do_transition<T: EthSpec>(
         let ctxt = ConsensusContext::new(pre_state.slot())
             .set_current_block_root(block_root)
             .set_proposer_index(block.message().proposer_index());
-
-        if config.exclude_cache_builds {
-            initialize_epoch_cache(&mut pre_state, spec).map_err(|e| format!("{e:?}"))?;
-        }
         ctxt
     };
 

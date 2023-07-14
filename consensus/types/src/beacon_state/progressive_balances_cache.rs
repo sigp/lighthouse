@@ -134,6 +134,12 @@ impl ProgressiveBalancesCache {
         self.inner.is_some()
     }
 
+    pub fn is_initialized_at(&self, epoch: Epoch) -> bool {
+        self.inner
+            .as_ref()
+            .map_or(false, |inner| inner.current_epoch == epoch)
+    }
+
     /// When a new target attestation has been processed, we update the cached
     /// `current_epoch_target_attesting_balance` to include the validator effective balance.
     /// If the epoch is neither the current epoch nor the previous epoch, an error is returned.
