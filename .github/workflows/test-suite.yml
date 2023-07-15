@@ -180,7 +180,8 @@ jobs:
       run: make run-state-transition-tests
   ef-tests-ubuntu:
     name: ef-tests-ubuntu
-    runs-on: ${{ vars.SELF_HOSTED_RUNNERS == 'true' && '[self-hosted, linux, small]' || 'ubuntu-latest'  }}
+    # Use self-hosted runners only on the sigp repo.
+    runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "small"]') || 'ubuntu-latest'  }}
     needs: cargo-fmt
     steps:
     - uses: actions/checkout@v3
