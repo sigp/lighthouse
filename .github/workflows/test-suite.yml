@@ -56,7 +56,7 @@ jobs:
     steps:
     - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
-      if: vars.SELF_HOSTED_RUNNERS == false
+      if: env.SELF_HOSTED_RUNNERS == false
       run: rustup update stable
     - name: Install Protoc
       uses: arduino/setup-protoc@e52d9eb8f7b63115df1ac544a1376fdbf5a39612
@@ -65,7 +65,7 @@ jobs:
     - name: Install anvil
       run: cargo install --git https://github.com/foundry-rs/foundry --locked anvil
     - name: Install apt dependencies
-      if: vars.SELF_HOSTED_RUNNERS
+      if: env.SELF_HOSTED_RUNNERS
       run: |
           apt-get update
           apt-get install libpq-dev  # Required for Postgres in ./watch.
@@ -78,7 +78,7 @@ jobs:
     steps:
     - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
-      if: vars.SELF_HOSTED_RUNNERS == false
+      if: env.SELF_HOSTED_RUNNERS == false
       run: rustup update stable
     - name: Use Node.js
       uses: actions/setup-node@v2
@@ -109,7 +109,7 @@ jobs:
     steps:
     - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
-      if: vars.SELF_HOSTED_RUNNERS == false
+      if: env.SELF_HOSTED_RUNNERS == false
       run: rustup update stable
     - name: Install Protoc
       uses: arduino/setup-protoc@e52d9eb8f7b63115df1ac544a1376fdbf5a39612
@@ -149,7 +149,7 @@ jobs:
     steps:
     - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
-      if: vars.SELF_HOSTED_RUNNERS == false
+      if: env.SELF_HOSTED_RUNNERS == false
       run: rustup update stable
     - name: Install Protoc
       uses: arduino/setup-protoc@e52d9eb8f7b63115df1ac544a1376fdbf5a39612
@@ -158,7 +158,7 @@ jobs:
     - name: Install anvil
       run: cargo install --git https://github.com/foundry-rs/foundry --locked anvil
     - name: Install apt dependencies
-      if: vars.SELF_HOSTED_RUNNERS
+      if: env.SELF_HOSTED_RUNNERS
       run: |
           apt-get update
           apt-get install libpq-dev  # Required for Postgres in ./watch.
@@ -185,7 +185,7 @@ jobs:
     steps:
     - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
-      if: vars.SELF_HOSTED_RUNNERS == false
+      if: env.SELF_HOSTED_RUNNERS == false
       run: rustup update stable
     - name: Install Protoc
       uses: arduino/setup-protoc@e52d9eb8f7b63115df1ac544a1376fdbf5a39612
