@@ -67,8 +67,8 @@ jobs:
     - name: Install apt dependencies
       if: env.SELF_HOSTED_RUNNERS
       run: |
-          apt-get update
-          apt-get install libpq-dev  # Required for Postgres in ./watch.
+          sudo apt-get update
+          sudo apt-get install libpq-dev  # Required for Postgres in ./watch.
     - name: Run tests in release
       run: make test-release
   release-tests-windows:
@@ -160,8 +160,8 @@ jobs:
     - name: Install apt dependencies
       if: env.SELF_HOSTED_RUNNERS
       run: |
-          apt-get update
-          apt-get install libpq-dev  # Required for Postgres in ./watch.
+          sudo apt-get update
+          sudo apt-get install libpq-dev  # Required for Postgres in ./watch.
     - name: Run tests in debug
       run: make test-debug
   state-transition-vectors-ubuntu:
