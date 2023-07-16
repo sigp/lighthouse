@@ -11,12 +11,12 @@ use crate::http_api::create_signed_voluntary_exit::create_signed_voluntary_exit;
 use crate::{determine_graffiti, GraffitiFile, ValidatorStore};
 use account_utils::{
     mnemonic_from_phrase,
-    validator_definitions::{
-        PasswordStorage, SigningDefinition, ValidatorDefinition, Web3SignerDefinition,
-    },
+    validator_definitions::{SigningDefinition, ValidatorDefinition, Web3SignerDefinition},
 };
 pub use api_secret::ApiSecret;
-use create_validator::{create_validators_mnemonic, create_validators_web3signer};
+use create_validator::{
+    create_validators_mnemonic, create_validators_web3signer, get_voting_password_storage,
+};
 use eth2::lighthouse_vc::{
     std_types::{AuthResponse, GetFeeRecipientResponse, GetGasLimitResponse},
     types::{self as api_types, GenericResponse, Graffiti, PublicKey, PublicKeyBytes},
@@ -38,7 +38,7 @@ use system_health::observe_system_health_vc;
 use task_executor::TaskExecutor;
 use tokio_stream::{wrappers::BroadcastStream, StreamExt};
 use types::{ChainSpec, ConfigAndPreset, EthSpec};
-use validator_dir::{keystore_password_path, Builder as ValidatorDirBuilder};
+use validator_dir::Builder as ValidatorDirBuilder;
 use warp::{
     http::{
         header::{HeaderValue, CONTENT_TYPE},
@@ -537,17 +537,8 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                         })?;
 
                     let secrets_dir = store_passwords_in_secrets_dir.then_some(secrets_dir);
-                    let password_storage = if let Some(secrets_dir) = &secrets_dir {
-                        let password_path = keystore_password_path(secrets_dir, &body.keystore);
-                        if password_path.exists() {
-                            return Err(warp_utils::reject::custom_server_error(
-                                "Duplicate keystore password path".to_string(),
-                            ));
-                        }
-                        PasswordStorage::File(password_path)
-                    } else {
-                        PasswordStorage::ValidatorDefinitions(body.password.clone())
-                    };
+                    let password_storage =
+                        get_voting_password_storage(&secrets_dir, &body.keystore, &body.password)?;
 
                     let validator_dir = ValidatorDirBuilder::new(validator_dir.clone())
                         .password_dir_opt(secrets_dir)

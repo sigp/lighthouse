@@ -663,7 +663,7 @@ impl InitializedValidators {
                 .all(|existing| existing != password_path)
             {
                 fs::remove_file(&password_path)
-                    .map_err(|e| Error::UnableToDeletePasswordFile(password_path.into(), e))?;
+                    .map_err(|e| Error::UnableToDeletePasswordFile(password_path, e))?;
             }
         }
 

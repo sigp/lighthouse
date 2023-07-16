@@ -1,6 +1,7 @@
 use crate::ValidatorStore;
 use account_utils::validator_definitions::{PasswordStorage, ValidatorDefinition};
 use account_utils::{
+    eth2_keystore::Keystore,
     eth2_wallet::{bip39::Mnemonic, WalletBuilder},
     random_mnemonic, random_password, ZeroizeString,
 };
@@ -96,17 +97,8 @@ pub async fn create_validators_mnemonic<P: AsRef<Path>, T: 'static + SlotClock, 
                 ))
             })?;
 
-        let voting_password_storage = if let Some(secrets_dir) = &secrets_dir {
-            let password_path = keystore_password_path(secrets_dir, &keystores.voting);
-            if password_path.exists() {
-                return Err(warp_utils::reject::custom_server_error(
-                    "Duplicate keystore password path".to_string(),
-                ));
-            }
-            PasswordStorage::File(password_path)
-        } else {
-            PasswordStorage::ValidatorDefinitions(voting_password_string.clone())
-        };
+        let voting_password_storage =
+            get_voting_password_storage(&secrets_dir, &keystores.voting, &voting_password_string)?;
 
         let validator_dir = ValidatorDirBuilder::new(validator_dir.as_ref().into())
             .password_dir_opt(secrets_dir.clone())
@@ -198,4 +190,27 @@ pub async fn create_validators_web3signer<T: 'static + SlotClock, E: EthSpec>(
     }
 
     Ok(())
+}
+
+/// Attempts to return a `PasswordStorage::File` if `secrets_dir` is defined.
+/// Otherwise, returns a `PasswordStorage::ValidatorDefinitions`.
+pub fn get_voting_password_storage(
+    secrets_dir: &Option<PathBuf>,
+    voting_keystore: &Keystore,
+    voting_password_string: &ZeroizeString,
+) -> Result<PasswordStorage, warp::Rejection> {
+    if let Some(secrets_dir) = &secrets_dir {
+        let password_path = keystore_password_path(secrets_dir, voting_keystore);
+        if password_path.exists() {
+            Err(warp_utils::reject::custom_server_error(
+                "Duplicate keystore password path".to_string(),
+            ))
+        } else {
+            Ok(PasswordStorage::File(password_path))
+        }
+    } else {
+        Ok(PasswordStorage::ValidatorDefinitions(
+            voting_password_string.clone(),
+        ))
+    }
 }
