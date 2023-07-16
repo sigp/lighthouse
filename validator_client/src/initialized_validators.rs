@@ -653,7 +653,7 @@ impl InitializedValidators {
             .save(&self.validators_dir)
             .map_err(Error::UnableToSaveDefinitions)?;
 
-        // 4. Delete the keystore password if it's not being used by any definition.
+        // 5. Delete the keystore password if it's not being used by any definition.
         if let Some(password_path) = password_path_opt.and_then(|p| p.canonicalize().ok()) {
             if self
                 .definitions
@@ -1273,8 +1273,10 @@ impl InitializedValidators {
         }
     }
 
-    /// Deletes any passwords store in the validator definitions file and
+    /// Deletes any passwords stored in the validator definitions file and
     /// returns a map of pubkey to deleted password.
+    ///
+    /// This should only be used for testing, it's rather destructive.
     pub fn delete_passwords_from_validator_definitions(
         &mut self,
     ) -> Result<HashMap<PublicKey, ZeroizeString>, Error> {
