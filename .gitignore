@@ -13,6 +13,7 @@ genesis.ssz
 
 # IntelliJ
 /*.iml
+.idea
+
 # VSCode
 /.vscode
-.idea
