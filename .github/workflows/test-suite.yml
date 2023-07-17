@@ -62,8 +62,8 @@ jobs:
       uses: arduino/setup-protoc@e52d9eb8f7b63115df1ac544a1376fdbf5a39612
       with:
         repo-token: ${{ secrets.GITHUB_TOKEN }}
-    - name: Install anvil
-      run: cargo install --git https://github.com/foundry-rs/foundry --locked anvil
+    - name: Install Foundry (anvil)
+      uses: foundry-rs/foundry-toolchain@v1
     - name: Install apt dependencies
       if: env.SELF_HOSTED_RUNNERS
       run: |
@@ -88,9 +88,8 @@ jobs:
       run: |
         choco install python protoc visualstudio2019-workload-vctools -y
         npm config set msvs_version 2019
-    - name: Install anvil
-      # Extra feature to work around https://github.com/foundry-rs/foundry/issues/5115
-      run: cargo install --git https://github.com/foundry-rs/foundry --locked anvil --features ethers/ipc
+    - name: Install Foundry (anvil)
+      uses: foundry-rs/foundry-toolchain@v1
     - name: Install make
       run: choco install -y make
     - uses: KyleMayes/install-llvm-action@v1
@@ -156,8 +155,8 @@ jobs:
       uses: arduino/setup-protoc@e52d9eb8f7b63115df1ac544a1376fdbf5a39612
       with:
         repo-token: ${{ secrets.GITHUB_TOKEN }}
-    - name: Install anvil
-      run: cargo install --git https://github.com/foundry-rs/foundry --locked anvil
+    - name: Install Foundry (anvil)
+      uses: foundry-rs/foundry-toolchain@v1
     - name: Install apt dependencies
       if: env.SELF_HOSTED_RUNNERS
       run: |
@@ -219,8 +218,8 @@ jobs:
       uses: arduino/setup-protoc@e52d9eb8f7b63115df1ac544a1376fdbf5a39612
       with:
         repo-token: ${{ secrets.GITHUB_TOKEN }}
-    - name: Install anvil
-      run: cargo install --git https://github.com/foundry-rs/foundry --locked anvil
+    - name: Install Foundry (anvil)
+      uses: foundry-rs/foundry-toolchain@v1
     - name: Run the beacon chain sim that starts from an eth1 contract
       run: cargo run --release --bin simulator eth1-sim
   merge-transition-ubuntu:
@@ -235,8 +234,8 @@ jobs:
       uses: arduino/setup-protoc@e52d9eb8f7b63115df1ac544a1376fdbf5a39612
       with:
         repo-token: ${{ secrets.GITHUB_TOKEN }}
-    - name: Install anvil
-      run: cargo install --git https://github.com/foundry-rs/foundry --locked anvil
+    - name: Install Foundry (anvil)
+      uses: foundry-rs/foundry-toolchain@v1
     - name: Run the beacon chain sim and go through the merge transition
       run: cargo run --release --bin simulator eth1-sim --post-merge
   no-eth1-simulator-ubuntu:
@@ -265,8 +264,8 @@ jobs:
       uses: arduino/setup-protoc@e52d9eb8f7b63115df1ac544a1376fdbf5a39612
       with:
         repo-token: ${{ secrets.GITHUB_TOKEN }}
-    - name: Install anvil
-      run: cargo install --git https://github.com/foundry-rs/foundry --locked anvil
+    - name: Install Foundry (anvil)
+      uses: foundry-rs/foundry-toolchain@v1
     - name: Run the syncing simulator
       run: cargo run --release --bin simulator syncing-sim
   doppelganger-protection-test:
