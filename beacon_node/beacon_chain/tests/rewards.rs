@@ -148,16 +148,12 @@ async fn test_verify_attestation_rewards_base() {
     harness.extend_slots(E::slots_per_epoch() as usize).await;
 
     // compute reward deltas for all validators in epoch N
-    let all_validators: Vec<ValidatorId> = (0..VALIDATOR_COUNT)
-        .map(|idx| ValidatorId::Index(idx as u64))
-        .collect();
-
     let StandardAttestationRewards {
         ideal_rewards,
         total_rewards,
     } = harness
         .chain
-        .compute_attestation_rewards(Epoch::new(0), all_validators, null_logger().unwrap())
+        .compute_attestation_rewards(Epoch::new(0), vec![], null_logger().unwrap())
         .unwrap();
 
     // assert no inactivity penalty for both ideal rewards and individual validators
@@ -204,20 +200,12 @@ async fn test_verify_attestation_rewards_base_inactivity_leak() {
     let _slot = harness.get_current_slot();
 
     // compute reward deltas for all validators in epoch N
-    let all_validators: Vec<ValidatorId> = (0..VALIDATOR_COUNT)
-        .map(|idx| ValidatorId::Index(idx as u64))
-        .collect();
-
     let StandardAttestationRewards {
         ideal_rewards,
         total_rewards,
     } = harness
         .chain
-        .compute_attestation_rewards(
-            Epoch::new(target_epoch),
-            all_validators,
-            null_logger().unwrap(),
-        )
+        .compute_attestation_rewards(Epoch::new(target_epoch), vec![], null_logger().unwrap())
         .unwrap();
 
     // assert inactivity penalty for both ideal rewards and individual validators
