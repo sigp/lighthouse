@@ -237,6 +237,7 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> BlockProposalContents<T, Paylo
                 BlockProposalContents::Payload {
                     payload: Payload::default_at_fork(fork_name)?,
                     block_value: Uint256::zero(),
+                    _phantom: PhantomData,
                 }
             }
             ForkName::Deneb => BlockProposalContents::PayloadAndBlobs {
@@ -938,6 +939,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                                     BlockProposalContents::Payload {
                                         payload: relay.data.message.header,
                                         block_value: relay.data.message.value,
+                                        _phantom: PhantomData,
                                     },
                                 )),
                                 Err(reason) if !reason.payload_invalid() => {
@@ -992,6 +994,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                                     BlockProposalContents::Payload {
                                         payload: relay.data.message.header,
                                         block_value: relay.data.message.value,
+                                        _phantom: PhantomData,
                                     },
                                 )),
                                 // If the payload is valid then use it. The local EE failed
@@ -1000,6 +1003,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                                     BlockProposalContents::Payload {
                                         payload: relay.data.message.header,
                                         block_value: relay.data.message.value,
+                                        _phantom: PhantomData,
                                     },
                                 )),
                                 Err(reason) => {
@@ -1178,30 +1182,36 @@ impl<T: EthSpec> ExecutionLayer<T> {
                         "parent_hash" => ?parent_hash,
                     );
                     engine.api.get_payload::<T>(current_fork, payload_id).await
-                }.await?;
-
-                if payload_response.execution_payload_ref().fee_recipient() != payload_attributes.suggested_fee_recipient() {
-                    error!(
-                        self.log(),
-                        "Inconsistent fee recipient";
-                        "msg" => "The fee recipient returned from the Execution Engine differs \
-                        from the suggested_fee_recipient set on the beacon node. This could \
-                        indicate that fees are being diverted to another address. Please \
-                        ensure that the value of suggested_fee_recipient is set correctly and \
-                        that the Execution Engine is trusted.",
-                        "fee_recipient" => ?payload_response.execution_payload_ref().fee_recipient(),
-                        "suggested_fee_recipient" => ?payload_attributes.suggested_fee_recipient(),
-                    );
-                }
-                if f(self, payload_response.execution_payload_ref()).is_some() {
-                    warn!(
-                        self.log(),
-                        "Duplicate payload cached, this might indicate redundant proposal \
-                             attempts."
-                    );
-                }
-
-                Ok(payload_response.into())
+                };
+                let payload_response = payload_fut.await;
+                let (execution_payload, block_value) = payload_response.map(|payload_response| {
+                    if payload_response.execution_payload_ref().fee_recipient() != payload_attributes.suggested_fee_recipient() {
+                        error!(
+                            self.log(),
+                            "Inconsistent fee recipient";
+                            "msg" => "The fee recipient returned from the Execution Engine differs \
+                            from the suggested_fee_recipient set on the beacon node. This could \
+                            indicate that fees are being diverted to another address. Please \
+                            ensure that the value of suggested_fee_recipient is set correctly and \
+                            that the Execution Engine is trusted.",
+                            "fee_recipient" => ?payload_response.execution_payload_ref().fee_recipient(),
+                            "suggested_fee_recipient" => ?payload_attributes.suggested_fee_recipient(),
+                        );
+                    }
+                    if f(self, payload_response.execution_payload_ref()).is_some() {
+                        warn!(
+                            self.log(),
+                            "Duplicate payload cached, this might indicate redundant proposal \
+                                 attempts."
+                        );
+                    }
+                    payload_response.into()
+                })?;
+                Ok(BlockProposalContents::Payload {
+                    payload: execution_payload.into(),
+                    block_value,
+                    _phantom: PhantomData,
+                })
             })
             .await
             .map_err(Box::new)
@@ -2126,6 +2136,22 @@ async fn timed_future<F: Future<Output = T>, T>(metric: &str, future: F) -> (T, 
     (result, duration)
 }
 
+fn noop<T: EthSpec>(
+    _: &ExecutionLayer<T>,
+    _: ExecutionPayloadRef<T>,
+) -> Option<ExecutionPayload<T>> {
+    None
+}
+
+#[cfg(test)]
+/// Returns the duration since the unix epoch.
+fn timestamp_now() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_else(|_| Duration::from_secs(0))
+        .as_secs()
+}
+
 #[derive(Debug)]
 pub enum BlobTxConversionError {
     /// The transaction type was not set.
@@ -2355,13 +2381,4 @@ mod test {
             })
             .await;
     }
-}
-
-#[cfg(test)]
-/// Returns the duration since the unix epoch.
-fn timestamp_now() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_else(|_| Duration::from_secs(0))
-        .as_secs()
 }

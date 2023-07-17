@@ -541,6 +541,16 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true)
         )
         .arg(
+            Arg::with_name("epochs-per-migration")
+                .long("epochs-per-migration")
+                .value_name("N")
+                .help("The number of epochs to wait between running the migration of data from the \
+                       hot DB to the cold DB. Less frequent runs can be useful for minimizing disk \
+                       writes")
+                .default_value("1")
+                .takes_value(true)
+        )
+        .arg(
             Arg::with_name("block-cache-size")
                 .long("block-cache-size")
                 .value_name("SIZE")
