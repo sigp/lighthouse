@@ -5531,6 +5531,7 @@ dependencies = [
  "execution_layer",
  "sensitive_url",
  "tempfile",
+ "tokio",
  "types",
  "validator_client",
  "validator_dir",
