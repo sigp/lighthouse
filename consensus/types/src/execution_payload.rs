@@ -139,7 +139,7 @@ impl<T: EthSpec> ExecutionPayload<T> {
             + (T::max_withdrawals_per_payload() * <Withdrawal as Encode>::ssz_fixed_len())
     }
 
-    #[allow(clippy::integer_arithmetic)]
+    #[allow(clippy::arithmetic_side_effects)]
     /// Returns the maximum size of an execution payload.
     pub fn max_execution_payload_deneb_size() -> usize {
         // Fixed part

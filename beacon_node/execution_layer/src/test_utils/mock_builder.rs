@@ -450,7 +450,9 @@ impl<E: EthSpec> mev_rs::BlindedBlockProvider for MockBuilder<E> {
                 value: to_ssz_rs(&Uint256::from(DEFAULT_BUILDER_PAYLOAD_VALUE_WEI))?,
                 public_key: self.builder_sk.public_key(),
             }),
-            ForkName::Base | ForkName::Altair | ForkName::Deneb => return Err(MevError::InvalidFork),
+            ForkName::Base | ForkName::Altair | ForkName::Deneb => {
+                return Err(MevError::InvalidFork)
+            }
         };
         *message.gas_limit_mut() = cached_data.gas_limit;
 
