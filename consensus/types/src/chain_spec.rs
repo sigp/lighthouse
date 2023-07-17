@@ -172,7 +172,6 @@ pub struct ChainSpec {
     pub subnets_per_node: u8,
     pub epochs_per_subnet_subscription: u64,
     pub attestation_subnet_extra_bits: u8,
-    // Shift networking configuration into configs
     pub gossip_max_size: u64,
     pub max_request_blocks: u64,
     pub min_epochs_for_block_requests: u64,
