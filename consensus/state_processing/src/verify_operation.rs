@@ -138,7 +138,7 @@ impl<E: EthSpec> VerifyOperation<E> for SignedVoluntaryExit {
         Ok(SigVerifiedOp::new(self, state))
     }
 
-    #[allow(clippy::integer_arithmetic)]
+    #[allow(clippy::arithmetic_side_effects)]
     fn verification_epochs(&self) -> SmallVec<[Epoch; MAX_FORKS_VERIFIED_AGAINST]> {
         smallvec![self.message.epoch]
     }
@@ -156,7 +156,7 @@ impl<E: EthSpec> VerifyOperation<E> for AttesterSlashing<E> {
         Ok(SigVerifiedOp::new(self, state))
     }
 
-    #[allow(clippy::integer_arithmetic)]
+    #[allow(clippy::arithmetic_side_effects)]
     fn verification_epochs(&self) -> SmallVec<[Epoch; MAX_FORKS_VERIFIED_AGAINST]> {
         smallvec![
             self.attestation_1.data.target.epoch,
@@ -177,7 +177,7 @@ impl<E: EthSpec> VerifyOperation<E> for ProposerSlashing {
         Ok(SigVerifiedOp::new(self, state))
     }
 
-    #[allow(clippy::integer_arithmetic)]
+    #[allow(clippy::arithmetic_side_effects)]
     fn verification_epochs(&self) -> SmallVec<[Epoch; MAX_FORKS_VERIFIED_AGAINST]> {
         // Only need a single epoch because the slots of the two headers must be equal.
         smallvec![self
@@ -200,7 +200,7 @@ impl<E: EthSpec> VerifyOperation<E> for SignedBlsToExecutionChange {
         Ok(SigVerifiedOp::new(self, state))
     }
 
-    #[allow(clippy::integer_arithmetic)]
+    #[allow(clippy::arithmetic_side_effects)]
     fn verification_epochs(&self) -> SmallVec<[Epoch; MAX_FORKS_VERIFIED_AGAINST]> {
         smallvec![]
     }

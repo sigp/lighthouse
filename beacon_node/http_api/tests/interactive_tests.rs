@@ -2,8 +2,9 @@
 use beacon_chain::{
     chain_config::{DisallowedReOrgOffsets, ReOrgThreshold},
     test_utils::{AttestationStrategy, BlockStrategy, SyncCommitteeStrategy},
+    ChainConfig,
 };
-use eth2::types::DepositContractData;
+use eth2::types::{DepositContractData, StateId};
 use execution_layer::{ForkchoiceState, PayloadAttributes};
 use http_api::test_utils::InteractiveTester;
 use parking_lot::Mutex;
@@ -17,7 +18,7 @@ use std::time::Duration;
 use tree_hash::TreeHash;
 use types::{
     Address, Epoch, EthSpec, ExecPayload, ExecutionBlockHash, ForkName, FullPayload,
-    MainnetEthSpec, ProposerPreparationData, Slot,
+    MainnetEthSpec, MinimalEthSpec, ProposerPreparationData, Slot,
 };
 
 type E = MainnetEthSpec;
@@ -46,6 +47,76 @@ async fn deposit_contract_custom_network() {
     };
 
     assert_eq!(result, expected);
+}
+
+// Test that state lookups by root function correctly for states that are finalized but still
+// present in the hot database, and have had their block pruned from fork choice.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn state_by_root_pruned_from_fork_choice() {
+    type E = MinimalEthSpec;
+
+    let validator_count = 24;
+    let spec = ForkName::latest().make_genesis_spec(E::default_spec());
+
+    let tester = InteractiveTester::<E>::new_with_initializer_and_mutator(
+        Some(spec.clone()),
+        validator_count,
+        Some(Box::new(move |builder| {
+            builder
+                .deterministic_keypairs(validator_count)
+                .fresh_ephemeral_store()
+                .chain_config(ChainConfig {
+                    epochs_per_migration: 1024,
+                    ..ChainConfig::default()
+                })
+        })),
+        None,
+    )
+    .await;
+
+    let client = &tester.client;
+    let harness = &tester.harness;
+
+    // Create some chain depth and finalize beyond fork choice's pruning depth.
+    let num_epochs = 8_u64;
+    let num_initial = num_epochs * E::slots_per_epoch();
+    harness.advance_slot();
+    harness
+        .extend_chain_with_sync(
+            num_initial as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+            SyncCommitteeStrategy::NoValidators,
+        )
+        .await;
+
+    // Should now be finalized.
+    let finalized_epoch = harness.finalized_checkpoint().epoch;
+    assert_eq!(finalized_epoch, num_epochs - 2);
+
+    // The split slot should still be at 0.
+    assert_eq!(harness.chain.store.get_split_slot(), 0);
+
+    // States that are between the split and the finalized slot should be able to be looked up by
+    // state root.
+    for slot in 0..finalized_epoch.start_slot(E::slots_per_epoch()).as_u64() {
+        let state_root = harness
+            .chain
+            .state_root_at_slot(Slot::new(slot))
+            .unwrap()
+            .unwrap();
+        let response = client
+            .get_debug_beacon_states::<E>(StateId::Root(state_root))
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert!(response.finalized.unwrap());
+        assert!(!response.execution_optimistic.unwrap());
+
+        let mut state = response.data;
+        assert_eq!(state.update_tree_hash_cache().unwrap(), state_root);
+    }
 }
 
 /// Data structure for tracking fork choice updates received by the mock execution layer.
