@@ -7,7 +7,7 @@ use mediatype::{names, MediaType, MediaTypeList};
 use serde::{Deserialize, Serialize};
 use ssz_derive::Encode;
 use std::convert::TryFrom;
-use std::fmt;
+use std::fmt::{self, Display};
 use std::str::{from_utf8, FromStr};
 use std::time::Duration;
 pub use types::*;
@@ -1261,6 +1261,50 @@ pub struct ForkChoiceNode {
     pub execution_block_hash: Option<Hash256>,
 }
 
+#[derive(Copy, Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum BroadcastValidation {
+    Gossip,
+    Consensus,
+    ConsensusAndEquivocation,
+}
+
+impl Default for BroadcastValidation {
+    fn default() -> Self {
+        Self::Gossip
+    }
+}
+
+impl Display for BroadcastValidation {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Gossip => write!(f, "gossip"),
+            Self::Consensus => write!(f, "consensus"),
+            Self::ConsensusAndEquivocation => write!(f, "consensus_and_equivocation"),
+        }
+    }
+}
+
+impl FromStr for BroadcastValidation {
+    type Err = &'static str;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "gossip" => Ok(Self::Gossip),
+            "consensus" => Ok(Self::Consensus),
+            "consensus_and_equivocation" => Ok(Self::ConsensusAndEquivocation),
+            _ => Err("Invalid broadcast validation level"),
+        }
+    }
+}
+
+#[derive(Default, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub struct BroadcastValidationQuery {
+    #[serde(default)]
+    pub broadcast_validation: BroadcastValidation,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1375,12 +1419,35 @@ pub enum SignedBlockContents<T: EthSpec, Payload: AbstractExecPayload<T> = FullP
 }
 
 impl<T: EthSpec, Payload: AbstractExecPayload<T>> SignedBlockContents<T, Payload> {
+    pub fn new(
+        block: SignedBeaconBlock<T, Payload>,
+        blobs: Option<SignedBlobSidecarList<T>>,
+    ) -> Self {
+        if let Some(blobs) = blobs {
+            Self::BlockAndBlobSidecars(SignedBeaconBlockAndBlobSidecars {
+                signed_block: block,
+                signed_blob_sidecars: blobs,
+            })
+        } else {
+            Self::Block(block)
+        }
+    }
+
     pub fn signed_block(&self) -> &SignedBeaconBlock<T, Payload> {
         match self {
             SignedBlockContents::BlockAndBlobSidecars(block_and_sidecars) => {
                 &block_and_sidecars.signed_block
             }
             SignedBlockContents::Block(block) => block,
+        }
+    }
+
+    pub fn blobs_cloned(&self) -> Option<SignedBlobSidecarList<T>> {
+        match self {
+            SignedBlockContents::BlockAndBlobSidecars(block_and_sidecars) => {
+                Some(block_and_sidecars.signed_blob_sidecars.clone())
+            }
+            SignedBlockContents::Block(_block) => None,
         }
     }
 

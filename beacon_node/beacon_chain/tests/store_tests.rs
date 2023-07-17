@@ -2178,6 +2178,7 @@ async fn weak_subjectivity_sync() {
                 full_block.canonical_root(),
                 BlockWrapper::new(Arc::new(full_block), blobs),
                 NotifyExecutionLayer::Yes,
+                || Ok(()),
             )
             .await
             .unwrap();

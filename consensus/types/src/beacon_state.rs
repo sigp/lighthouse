@@ -26,6 +26,8 @@ pub use self::committee_cache::{
     compute_committee_index_in_epoch, compute_committee_range_in_epoch, epoch_committee_count,
     CommitteeCache,
 };
+pub use crate::beacon_state::balance::Balance;
+pub use crate::beacon_state::progressive_balances_cache::*;
 use crate::historical_summary::HistoricalSummary;
 pub use clone_config::CloneConfig;
 pub use eth_spec::*;
@@ -34,9 +36,11 @@ pub use tree_hash_cache::BeaconTreeHashCache;
 
 #[macro_use]
 mod committee_cache;
+mod balance;
 mod clone_config;
 mod exit_cache;
 mod iter;
+mod progressive_balances_cache;
 mod pubkey_cache;
 mod tests;
 mod tree_hash_cache;
@@ -101,6 +105,9 @@ pub enum Error {
     SszTypesError(ssz_types::Error),
     TreeHashCacheNotInitialized,
     NonLinearTreeHashCacheHistory,
+    ParticipationCacheError(String),
+    ProgressiveBalancesCacheNotInitialized,
+    ProgressiveBalancesCacheInconsistent,
     TreeHashCacheSkippedSlot {
         cache: Slot,
         state: Slot,
@@ -322,6 +329,12 @@ where
     #[tree_hash(skip_hashing)]
     #[test_random(default)]
     #[derivative(Clone(clone_with = "clone_default"))]
+    pub progressive_balances_cache: ProgressiveBalancesCache,
+    #[serde(skip_serializing, skip_deserializing)]
+    #[ssz(skip_serializing, skip_deserializing)]
+    #[tree_hash(skip_hashing)]
+    #[test_random(default)]
+    #[derivative(Clone(clone_with = "clone_default"))]
     pub committee_caches: [CommitteeCache; CACHED_EPOCHS],
     #[serde(skip_serializing, skip_deserializing)]
     #[ssz(skip_serializing, skip_deserializing)]
@@ -398,6 +411,7 @@ impl<T: EthSpec> BeaconState<T> {
 
             // Caching (not in spec)
             total_active_balance: None,
+            progressive_balances_cache: <_>::default(),
             committee_caches: [
                 CommitteeCache::default(),
                 CommitteeCache::default(),
@@ -441,7 +455,7 @@ impl<T: EthSpec> BeaconState<T> {
     }
 
     /// Specialised deserialisation method that uses the `ChainSpec` as context.
-    #[allow(clippy::integer_arithmetic)]
+    #[allow(clippy::arithmetic_side_effects)]
     pub fn from_ssz_bytes(bytes: &[u8], spec: &ChainSpec) -> Result<Self, ssz::DecodeError> {
         // Slot is after genesis_time (u64) and genesis_validators_root (Hash256).
         let slot_start = <u64 as Decode>::ssz_fixed_len() + <Hash256 as Decode>::ssz_fixed_len();
@@ -776,7 +790,7 @@ impl<T: EthSpec> BeaconState<T> {
         Ok(signature_hash_int.safe_rem(modulo)? == 0)
     }
 
-    /// Returns the beacon proposer index for the `slot` in the given `relative_epoch`.
+    /// Returns the beacon proposer index for the `slot` in `self.current_epoch()`.
     ///
     /// Spec v0.12.1
     pub fn get_beacon_proposer_index(&self, slot: Slot, spec: &ChainSpec) -> Result<usize, Error> {
@@ -1169,13 +1183,35 @@ impl<T: EthSpec> BeaconState<T> {
     }
 
     /// Convenience accessor for validators and balances simultaneously.
-    pub fn validators_and_balances_mut(&mut self) -> (&mut [Validator], &mut [u64]) {
+    pub fn validators_and_balances_and_progressive_balances_mut(
+        &mut self,
+    ) -> (&mut [Validator], &mut [u64], &mut ProgressiveBalancesCache) {
         match self {
-            BeaconState::Base(state) => (&mut state.validators, &mut state.balances),
-            BeaconState::Altair(state) => (&mut state.validators, &mut state.balances),
-            BeaconState::Merge(state) => (&mut state.validators, &mut state.balances),
-            BeaconState::Capella(state) => (&mut state.validators, &mut state.balances),
-            BeaconState::Deneb(state) => (&mut state.validators, &mut state.balances),
+            BeaconState::Base(state) => (
+                &mut state.validators,
+                &mut state.balances,
+                &mut state.progressive_balances_cache,
+            ),
+            BeaconState::Altair(state) => (
+                &mut state.validators,
+                &mut state.balances,
+                &mut state.progressive_balances_cache,
+            ),
+            BeaconState::Merge(state) => (
+                &mut state.validators,
+                &mut state.balances,
+                &mut state.progressive_balances_cache,
+            ),
+            BeaconState::Capella(state) => (
+                &mut state.validators,
+                &mut state.balances,
+                &mut state.progressive_balances_cache,
+            ),
+            BeaconState::Deneb(state) => (
+                &mut state.validators,
+                &mut state.balances,
+                &mut state.progressive_balances_cache,
+            ),
         }
     }
 
@@ -1402,7 +1438,7 @@ impl<T: EthSpec> BeaconState<T> {
     }
 
     /// Build all caches (except the tree hash cache), if they need to be built.
-    pub fn build_all_caches(&mut self, spec: &ChainSpec) -> Result<(), Error> {
+    pub fn build_caches(&mut self, spec: &ChainSpec) -> Result<(), Error> {
         self.build_all_committee_caches(spec)?;
         self.update_pubkey_cache()?;
         self.build_exit_cache(spec)?;
@@ -1434,6 +1470,7 @@ impl<T: EthSpec> BeaconState<T> {
         self.drop_committee_cache(RelativeEpoch::Next)?;
         self.drop_pubkey_cache();
         self.drop_tree_hash_cache();
+        self.drop_progressive_balances_cache();
         *self.exit_cache_mut() = ExitCache::default();
         Ok(())
     }
@@ -1630,6 +1667,11 @@ impl<T: EthSpec> BeaconState<T> {
         *self.pubkey_cache_mut() = PubkeyCache::default()
     }
 
+    /// Completely drops the `progressive_balances_cache` cache, replacing it with a new, empty cache.
+    fn drop_progressive_balances_cache(&mut self) {
+        *self.progressive_balances_cache_mut() = ProgressiveBalancesCache::default();
+    }
+
     /// Initialize but don't fill the tree hash cache, if it isn't already initialized.
     pub fn initialize_tree_hash_cache(&mut self) {
         if !self.tree_hash_cache().is_initialized() {
@@ -1702,6 +1744,9 @@ impl<T: EthSpec> BeaconState<T> {
         if config.tree_hash_cache {
             *res.tree_hash_cache_mut() = self.tree_hash_cache().clone();
         }
+        if config.progressive_balances_cache {
+            *res.progressive_balances_cache_mut() = self.progressive_balances_cache().clone();
+        }
         res
     }
 
@@ -1716,16 +1761,22 @@ impl<T: EthSpec> BeaconState<T> {
         previous_epoch: Epoch,
         val_index: usize,
     ) -> Result<bool, Error> {
-        self.get_validator(val_index).map(|val| {
-            val.is_active_at(previous_epoch)
-                || (val.slashed && previous_epoch + Epoch::new(1) < val.withdrawable_epoch)
-        })
+        let val = self.get_validator(val_index)?;
+        Ok(val.is_active_at(previous_epoch)
+            || (val.slashed && previous_epoch.safe_add(Epoch::new(1))? < val.withdrawable_epoch))
     }
 
     /// Passing `previous_epoch` to this function rather than computing it internally provides
     /// a tangible speed improvement in state processing.
-    pub fn is_in_inactivity_leak(&self, previous_epoch: Epoch, spec: &ChainSpec) -> bool {
-        (previous_epoch - self.finalized_checkpoint().epoch) > spec.min_epochs_to_inactivity_penalty
+    pub fn is_in_inactivity_leak(
+        &self,
+        previous_epoch: Epoch,
+        spec: &ChainSpec,
+    ) -> Result<bool, safe_arith::ArithError> {
+        Ok(
+            (previous_epoch.safe_sub(self.finalized_checkpoint().epoch)?)
+                > spec.min_epochs_to_inactivity_penalty,
+        )
     }
 
     /// Get the `SyncCommittee` associated with the next slot. Useful because sync committees

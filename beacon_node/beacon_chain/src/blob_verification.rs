@@ -16,7 +16,7 @@ use eth2::types::BlockContentsTuple;
 use kzg::Kzg;
 use slog::{debug, warn};
 use ssz_derive::{Decode, Encode};
-use ssz_types::FixedVector;
+use ssz_types::{FixedVector, VariableList};
 use std::borrow::Cow;
 use types::blob_sidecar::{BlobIdentifier, FixedBlobSidecarList};
 use types::{
@@ -125,25 +125,40 @@ impl<T: EthSpec> From<BeaconStateError> for BlobError<T> {
     }
 }
 
+pub type GossipVerifiedBlobList<T> = VariableList<
+    GossipVerifiedBlob<T>,
+    <<T as BeaconChainTypes>::EthSpec as EthSpec>::MaxBlobsPerBlock,
+>;
+
 /// A wrapper around a `BlobSidecar` that indicates it has been approved for re-gossiping on
 /// the p2p network.
-#[derive(Debug, Clone)]
-pub struct GossipVerifiedBlob<T: EthSpec> {
-    blob: Arc<BlobSidecar<T>>,
+#[derive(Debug)]
+pub struct GossipVerifiedBlob<T: BeaconChainTypes> {
+    blob: SignedBlobSidecar<T::EthSpec>,
 }
 
-impl<T: EthSpec> GossipVerifiedBlob<T> {
+impl<T: BeaconChainTypes> GossipVerifiedBlob<T> {
+    pub fn new(
+        blob: SignedBlobSidecar<T::EthSpec>,
+        chain: &BeaconChain<T>,
+    ) -> Result<Self, BlobError<T::EthSpec>> {
+        let blob_index = blob.message.index;
+        validate_blob_sidecar_for_gossip(blob, blob_index, chain)
+    }
     pub fn id(&self) -> BlobIdentifier {
-        self.blob.id()
+        self.blob.message.id()
     }
     pub fn block_root(&self) -> Hash256 {
-        self.blob.block_root
+        self.blob.message.block_root
     }
-    pub fn to_blob(self) -> Arc<BlobSidecar<T>> {
-        self.blob
+    pub fn to_blob(self) -> Arc<BlobSidecar<T::EthSpec>> {
+        self.blob.message
+    }
+    pub fn signed_blob(&self) -> SignedBlobSidecar<T::EthSpec> {
+        self.blob.clone()
     }
     pub fn slot(&self) -> Slot {
-        self.blob.slot
+        self.blob.message.slot
     }
 }
 
@@ -151,7 +166,7 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
     signed_blob_sidecar: SignedBlobSidecar<T::EthSpec>,
     subnet: u64,
     chain: &BeaconChain<T>,
-) -> Result<GossipVerifiedBlob<T::EthSpec>, BlobError<T::EthSpec>> {
+) -> Result<GossipVerifiedBlob<T>, BlobError<T::EthSpec>> {
     let blob_slot = signed_blob_sidecar.message.slot;
     let blob_index = signed_blob_sidecar.message.index;
     let block_parent_root = signed_blob_sidecar.message.block_parent_root;
@@ -366,7 +381,7 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
     // Note: If this BlobSidecar goes on to fail full verification, we do not evict it from the seen_cache
     // as alternate blob_sidecars for the same identifier can still be retrieved
     // over rpc. Evicting them from this cache would allow faster propagation over gossip. So we allow
-    // retreieval of potentially valid blocks over rpc, but try to punish the proposer for signing
+    // retrieval of potentially valid blocks over rpc, but try to punish the proposer for signing
     // invalid messages. Issue for more background
     // https://github.com/ethereum/consensus-specs/issues/3261
     if chain
@@ -383,7 +398,7 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
     }
 
     Ok(GossipVerifiedBlob {
-        blob: signed_blob_sidecar.message,
+        blob: signed_blob_sidecar,
     })
 }
 
@@ -511,7 +526,6 @@ pub fn verify_kzg_for_blob_list<T: EthSpec>(
     let (blobs, (commitments, proofs)): (Vec<_>, (Vec<_>, Vec<_>)) = blob_list
         .clone()
         .into_iter()
-        //TODO(sean) remove clone
         .map(|blob| (blob.blob.clone(), (blob.kzg_commitment, blob.kzg_proof)))
         .unzip();
     if validate_blobs::<T>(

@@ -71,7 +71,7 @@ pub use beacon_fork_choice_store::{BeaconForkChoiceStore, Error as ForkChoiceSto
 pub use block_verification::{
     get_block_root, AvailabilityPendingExecutedBlock, BlockError, ExecutedBlock,
     ExecutionPayloadError, ExecutionPendingBlock, GossipVerifiedBlock, IntoExecutionPendingBlock,
-    PayloadVerificationOutcome, PayloadVerificationStatus,
+    IntoGossipVerifiedBlockContents, PayloadVerificationOutcome, PayloadVerificationStatus,
 };
 pub use canonical_head::{CachedHead, CanonicalHead, CanonicalHeadRwLock};
 pub use eth1_chain::{Eth1Chain, Eth1ChainBackend};
@@ -81,6 +81,7 @@ pub use execution_payload::NotifyExecutionLayer;
 pub use fork_choice::{ExecutionStatus, ForkchoiceUpdateParameters};
 pub use kzg::TrustedSetup;
 pub use metrics::scrape_for_metrics;
+pub use migrate::MigratorConfig;
 pub use parking_lot;
 pub use slot_clock;
 pub use state_processing::per_block_processing::errors::{

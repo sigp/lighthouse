@@ -115,7 +115,7 @@ impl<T: EthSpec> ExecutionPayload<T> {
         }
     }
 
-    #[allow(clippy::integer_arithmetic)]
+    #[allow(clippy::arithmetic_side_effects)]
     /// Returns the maximum size of an execution payload.
     pub fn max_execution_payload_merge_size() -> usize {
         // Fixed part
@@ -126,7 +126,7 @@ impl<T: EthSpec> ExecutionPayload<T> {
             + (T::max_transactions_per_payload() * (ssz::BYTES_PER_LENGTH_OFFSET + T::max_bytes_per_transaction()))
     }
 
-    #[allow(clippy::integer_arithmetic)]
+    #[allow(clippy::arithmetic_side_effects)]
     /// Returns the maximum size of an execution payload.
     pub fn max_execution_payload_capella_size() -> usize {
         // Fixed part
@@ -139,7 +139,7 @@ impl<T: EthSpec> ExecutionPayload<T> {
             + (T::max_withdrawals_per_payload() * <Withdrawal as Encode>::ssz_fixed_len())
     }
 
-    #[allow(clippy::integer_arithmetic)]
+    #[allow(clippy::arithmetic_side_effects)]
     /// Returns the maximum size of an execution payload.
     pub fn max_execution_payload_deneb_size() -> usize {
         // Fixed part

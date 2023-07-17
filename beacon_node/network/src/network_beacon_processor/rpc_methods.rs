@@ -1,8 +1,9 @@
-use crate::beacon_processor::{worker::FUTURE_SLOT_TOLERANCE, SendOnDrop};
+use crate::network_beacon_processor::{NetworkBeaconProcessor, FUTURE_SLOT_TOLERANCE};
 use crate::service::NetworkMessage;
 use crate::status::ToStatusMessage;
 use crate::sync::SyncMessage;
 use beacon_chain::{BeaconChainError, BeaconChainTypes, HistoricalBlockError, WhenSlotSkipped};
+use beacon_processor::SendOnDrop;
 use itertools::process_results;
 use lighthouse_network::rpc::methods::{
     BlobsByRangeRequest, BlobsByRootRequest, MAX_REQUEST_BLOB_SIDECARS, MAX_REQUEST_BLOCKS_DENEB,
@@ -13,14 +14,13 @@ use lighthouse_network::{PeerId, PeerRequestId, ReportSource, Response, SyncInfo
 use slog::{debug, error, trace, warn};
 use slot_clock::SlotClock;
 use std::collections::{hash_map::Entry, HashMap};
+use std::sync::Arc;
 use task_executor::TaskExecutor;
 use tokio_stream::StreamExt;
 use types::blob_sidecar::BlobIdentifier;
 use types::{light_client_bootstrap::LightClientBootstrap, Epoch, EthSpec, Hash256, Slot};
 
-use super::Worker;
-
-impl<T: BeaconChainTypes> Worker<T> {
+impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     /* Auxiliary functions */
 
     /// Disconnects and ban's a peer, sending a Goodbye request with the associated reason.
@@ -132,7 +132,7 @@ impl<T: BeaconChainTypes> Worker<T> {
 
     /// Handle a `BlocksByRoot` request from the peer.
     pub fn handle_blocks_by_root_request(
-        self,
+        self: Arc<Self>,
         executor: TaskExecutor,
         send_on_drop: SendOnDrop,
         peer_id: PeerId,
@@ -217,7 +217,7 @@ impl<T: BeaconChainTypes> Worker<T> {
     }
     /// Handle a `BlobsByRoot` request from the peer.
     pub fn handle_blobs_by_root_request(
-        self,
+        self: Arc<Self>,
         send_on_drop: SendOnDrop,
         peer_id: PeerId,
         request_id: PeerRequestId,
@@ -297,7 +297,7 @@ impl<T: BeaconChainTypes> Worker<T> {
 
     /// Handle a `BlocksByRoot` request from the peer.
     pub fn handle_light_client_bootstrap(
-        self,
+        self: &Arc<Self>,
         peer_id: PeerId,
         request_id: PeerRequestId,
         request: LightClientBootstrapRequest,
@@ -370,7 +370,7 @@ impl<T: BeaconChainTypes> Worker<T> {
 
     /// Handle a `BlocksByRange` request from the peer.
     pub fn handle_blocks_by_range_request(
-        self,
+        self: Arc<Self>,
         executor: TaskExecutor,
         send_on_drop: SendOnDrop,
         peer_id: PeerId,
@@ -616,7 +616,7 @@ impl<T: BeaconChainTypes> Worker<T> {
 
     /// Handle a `BlobsByRange` request from the peer.
     pub fn handle_blobs_by_range_request(
-        self,
+        self: Arc<Self>,
         send_on_drop: SendOnDrop,
         peer_id: PeerId,
         request_id: PeerRequestId,

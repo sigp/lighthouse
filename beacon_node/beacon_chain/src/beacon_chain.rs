@@ -236,6 +236,17 @@ pub struct PrePayloadAttributes {
     pub parent_block_number: u64,
 }
 
+/// Information about a state/block at a specific slot.
+#[derive(Debug, Clone, Copy)]
+pub struct FinalizationAndCanonicity {
+    /// True if the slot of the state or block is finalized.
+    ///
+    /// This alone DOES NOT imply that the state/block is finalized, use `self.is_finalized()`.
+    pub slot_is_finalized: bool,
+    /// True if the state or block is canonical at its slot.
+    pub canonical: bool,
+}
+
 /// Define whether a forkchoiceUpdate needs to be checked for an override (`Yes`) or has already
 /// been checked (`AlreadyApplied`). It is safe to specify `Yes` even if re-orgs are disabled.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -470,6 +481,12 @@ pub struct BeaconChain<T: BeaconChainTypes> {
 
 type BeaconBlockAndState<T, Payload> = (BeaconBlock<T, Payload>, BeaconState<T>);
 
+impl FinalizationAndCanonicity {
+    pub fn is_finalized(self) -> bool {
+        self.slot_is_finalized && self.canonical
+    }
+}
+
 impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Checks if a block is finalized.
     /// The finalization check is done with the block slot. The block root is used to verify that
@@ -499,16 +516,30 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         state_root: &Hash256,
         state_slot: Slot,
     ) -> Result<bool, Error> {
+        self.state_finalization_and_canonicity(state_root, state_slot)
+            .map(FinalizationAndCanonicity::is_finalized)
+    }
+
+    /// Fetch the finalization and canonicity status of the state with `state_root`.
+    pub fn state_finalization_and_canonicity(
+        &self,
+        state_root: &Hash256,
+        state_slot: Slot,
+    ) -> Result<FinalizationAndCanonicity, Error> {
         let finalized_slot = self
             .canonical_head
             .cached_head()
             .finalized_checkpoint()
             .epoch
             .start_slot(T::EthSpec::slots_per_epoch());
-        let is_canonical = self
+        let slot_is_finalized = state_slot <= finalized_slot;
+        let canonical = self
             .state_root_at_slot(state_slot)?
             .map_or(false, |canonical_root| state_root == &canonical_root);
-        Ok(state_slot <= finalized_slot && is_canonical)
+        Ok(FinalizationAndCanonicity {
+            slot_is_finalized,
+            canonical,
+        })
     }
 
     /// Persists the head tracker and fork choice.
@@ -1981,7 +2012,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self: &Arc<Self>,
         blob_sidecar: SignedBlobSidecar<T::EthSpec>,
         subnet_id: u64,
-    ) -> Result<GossipVerifiedBlob<T::EthSpec>, BlobError<T::EthSpec>> {
+    ) -> Result<GossipVerifiedBlob<T>, BlobError<T::EthSpec>> {
         blob_verification::validate_blob_sidecar_for_gossip(blob_sidecar, subnet_id, self)
     }
 
@@ -2664,6 +2695,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         signature_verified_block.block_root(),
                         signature_verified_block,
                         notify_execution_layer,
+                        || Ok(()),
                     )
                     .await
                 {
@@ -2710,7 +2742,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Returns an `Err` if the given block was invalid, or an error was encountered during
     pub async fn verify_block_for_gossip(
         self: &Arc<Self>,
-        block: BlockWrapper<T::EthSpec>,
+        block: Arc<SignedBeaconBlock<T::EthSpec>>,
     ) -> Result<GossipVerifiedBlock<T>, BlockError<T::EthSpec>> {
         let chain = self.clone();
         self.task_executor
@@ -2754,7 +2786,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     pub async fn process_blob(
         self: &Arc<Self>,
-        blob: GossipVerifiedBlob<T::EthSpec>,
+        blob: GossipVerifiedBlob<T>,
     ) -> Result<AvailabilityProcessingStatus, BlockError<T::EthSpec>> {
         self.check_availability_and_maybe_import(blob.slot(), |chain| {
             chain.data_availability_checker.put_gossip_blob(blob)
@@ -2783,6 +2815,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         block_root: Hash256,
         unverified_block: B,
         notify_execution_layer: NotifyExecutionLayer,
+        publish_fn: impl FnOnce() -> Result<(), BlockError<T::EthSpec>> + Send + 'static,
     ) -> Result<AvailabilityProcessingStatus, BlockError<T::EthSpec>> {
         // Start the Prometheus timer.
         let _full_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_TIMES);
@@ -2797,6 +2830,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             &chain,
             notify_execution_layer,
         )?;
+
+        //TODO(sean) error handling?
+        publish_fn()?;
 
         let executed_block = self
             .clone()
@@ -3073,7 +3109,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     block_delay,
                     &state,
                     payload_verification_status,
+                    self.config.progressive_balances_mode,
                     &self.spec,
+                    &self.log,
                 )
                 .map_err(|e| BlockError::BeaconChainError(e.into()))?;
         }
@@ -6012,13 +6050,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Since we are likely calling this during the slot we are going to propose in, don't take into
     /// account the current slot when accounting for skips.
     pub fn is_healthy(&self, parent_root: &Hash256) -> Result<ChainHealth, Error> {
+        let cached_head = self.canonical_head.cached_head();
         // Check if the merge has been finalized.
-        if let Some(finalized_hash) = self
-            .canonical_head
-            .cached_head()
-            .forkchoice_update_parameters()
-            .finalized_hash
-        {
+        if let Some(finalized_hash) = cached_head.forkchoice_update_parameters().finalized_hash {
             if ExecutionBlockHash::zero() == finalized_hash {
                 return Ok(ChainHealth::PreMerge);
             }
@@ -6045,17 +6079,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Check slots at the head of the chain.
         let prev_slot = current_slot.saturating_sub(Slot::new(1));
-        let head_skips = prev_slot.saturating_sub(self.canonical_head.cached_head().head_slot());
+        let head_skips = prev_slot.saturating_sub(cached_head.head_slot());
         let head_skips_check = head_skips.as_usize() <= self.config.builder_fallback_skips;
 
         // Check if finalization is advancing.
         let current_epoch = current_slot.epoch(T::EthSpec::slots_per_epoch());
-        let epochs_since_finalization = current_epoch.saturating_sub(
-            self.canonical_head
-                .cached_head()
-                .finalized_checkpoint()
-                .epoch,
-        );
+        let epochs_since_finalization =
+            current_epoch.saturating_sub(cached_head.finalized_checkpoint().epoch);
         let finalization_check = epochs_since_finalization.as_usize()
             <= self.config.builder_fallback_epochs_since_finalization;
 

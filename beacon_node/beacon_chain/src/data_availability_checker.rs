@@ -205,7 +205,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     /// This should only accept gossip verified blobs, so we should not have to worry about dupes.
     pub fn put_gossip_blob(
         &self,
-        gossip_blob: GossipVerifiedBlob<T::EthSpec>,
+        gossip_blob: GossipVerifiedBlob<T>,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
         // Verify the KZG commitments.
         let kzg_verified_blob = if let Some(kzg) = self.kzg.as_ref() {
@@ -529,6 +529,17 @@ pub enum VerifiedBlobs<E: EthSpec> {
     EmptyBlobs,
     /// This is a block prior to the 4844 fork, so doesn't require any blobs
     PreDeneb,
+}
+
+impl<E: EthSpec> VerifiedBlobs<E> {
+    pub fn to_blobs(self) -> Option<BlobSidecarList<E>> {
+        match self {
+            Self::Available(blobs) => Some(blobs),
+            Self::NotRequired => None,
+            Self::EmptyBlobs => None,
+            Self::PreDeneb => None,
+        }
+    }
 }
 
 /// A fully available block that is ready to be imported into fork choice.

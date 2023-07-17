@@ -13,6 +13,7 @@ pub use engine_api::*;
 pub use engine_api::{http, http::deposit_methods, http::HttpJsonRpc};
 use engines::{Engine, EngineError};
 pub use engines::{EngineState, ForkchoiceState};
+use eth2::types::SignedBlockContents;
 use eth2::types::{builder_bid::SignedBuilderBid, ForkVersionedResponse};
 use ethers_core::abi::ethereum_types::FromStrRadixErr;
 use ethers_core::types::Transaction as EthersTransaction;
@@ -41,16 +42,14 @@ use tokio_stream::wrappers::WatchStream;
 use tree_hash::TreeHash;
 use types::beacon_block_body::KzgCommitments;
 use types::blob_sidecar::Blobs;
-use types::{AbstractExecPayload, BeaconStateError, ExecPayload, VersionedHash};
+use types::KzgProofs;
 use types::{
-    BlindedPayload, BlockType, ChainSpec, Epoch, ExecutionBlockHash, ExecutionPayload,
-    ExecutionPayloadCapella, ExecutionPayloadDeneb, ExecutionPayloadMerge, ForkName,
+    AbstractExecPayload, BeaconStateError, ExecPayload, ExecutionPayloadDeneb, VersionedHash,
 };
-use types::{KzgProofs, Withdrawals};
 use types::{
-    ProposerPreparationData, PublicKeyBytes, Signature, SignedBeaconBlock, Slot, Transaction,
-    Uint256,
+    BlindedPayload, BlockType, ChainSpec, Epoch, ExecutionPayloadCapella, ExecutionPayloadMerge,
 };
+use types::{ProposerPreparationData, PublicKeyBytes, Signature, Slot, Transaction};
 
 mod block_hash;
 mod engine_api;
@@ -1876,7 +1875,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
     pub async fn propose_blinded_beacon_block(
         &self,
         block_root: Hash256,
-        block: &SignedBeaconBlock<T, BlindedPayload<T>>,
+        block: &SignedBlockContents<T, BlindedPayload<T>>,
     ) -> Result<ExecutionPayload<T>, Error> {
         debug!(
             self.log(),
@@ -1924,6 +1923,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                         "relay_response_ms" => duration.as_millis(),
                         "block_root" => ?block_root,
                         "parent_hash" => ?block
+                            .signed_block()
                             .message()
                             .execution_payload()
                             .map(|payload| format!("{}", payload.parent_hash()))
@@ -2124,6 +2124,15 @@ async fn timed_future<F: Future<Output = T>, T>(metric: &str, future: F) -> (T, 
     let duration = start.elapsed();
     metrics::observe_timer_vec(&metrics::EXECUTION_LAYER_REQUEST_TIMES, &[metric], duration);
     (result, duration)
+}
+
+#[cfg(test)]
+/// Returns the duration since the unix epoch.
+fn timestamp_now() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_else(|_| Duration::from_secs(0))
+        .as_secs()
 }
 
 #[derive(Debug)]
@@ -2355,13 +2364,4 @@ mod test {
             })
             .await;
     }
-}
-
-#[cfg(test)]
-/// Returns the duration since the unix epoch.
-fn timestamp_now() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_else(|_| Duration::from_secs(0))
-        .as_secs()
 }

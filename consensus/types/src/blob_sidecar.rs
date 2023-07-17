@@ -126,7 +126,7 @@ impl<T: EthSpec> BlobSidecar<T> {
         })
     }
 
-    #[allow(clippy::integer_arithmetic)]
+    #[allow(clippy::arithmetic_side_effects)]
     pub fn max_size() -> usize {
         // Fixed part
         Self::empty().as_ssz_bytes().len()
