@@ -960,7 +960,7 @@ async fn fork_spanning_exit() {
     spec.bellatrix_fork_epoch = Some(Epoch::new(4));
     spec.shard_committee_period = 0;
 
-    let harness = BeaconChainHarness::builder(MainnetEthSpec::default())
+    let harness = BeaconChainHarness::builder(MainnetEthSpec)
         .spec(spec.clone())
         .deterministic_keypairs(VALIDATOR_COUNT)
         .mock_execution_layer()

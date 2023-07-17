@@ -239,6 +239,17 @@ pub struct PrePayloadAttributes {
     pub parent_block_number: u64,
 }
 
+/// Information about a state/block at a specific slot.
+#[derive(Debug, Clone, Copy)]
+pub struct FinalizationAndCanonicity {
+    /// True if the slot of the state or block is finalized.
+    ///
+    /// This alone DOES NOT imply that the state/block is finalized, use `self.is_finalized()`.
+    pub slot_is_finalized: bool,
+    /// True if the state or block is canonical at its slot.
+    pub canonical: bool,
+}
+
 /// Define whether a forkchoiceUpdate needs to be checked for an override (`Yes`) or has already
 /// been checked (`AlreadyApplied`). It is safe to specify `Yes` even if re-orgs are disabled.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -473,6 +484,12 @@ pub struct BeaconChain<T: BeaconChainTypes> {
 
 type BeaconBlockAndState<T, Payload> = (BeaconBlock<T, Payload>, BeaconState<T>);
 
+impl FinalizationAndCanonicity {
+    pub fn is_finalized(self) -> bool {
+        self.slot_is_finalized && self.canonical
+    }
+}
+
 impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Checks if a block is finalized.
     /// The finalization check is done with the block slot. The block root is used to verify that
@@ -502,16 +519,30 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         state_root: &Hash256,
         state_slot: Slot,
     ) -> Result<bool, Error> {
+        self.state_finalization_and_canonicity(state_root, state_slot)
+            .map(FinalizationAndCanonicity::is_finalized)
+    }
+
+    /// Fetch the finalization and canonicity status of the state with `state_root`.
+    pub fn state_finalization_and_canonicity(
+        &self,
+        state_root: &Hash256,
+        state_slot: Slot,
+    ) -> Result<FinalizationAndCanonicity, Error> {
         let finalized_slot = self
             .canonical_head
             .cached_head()
             .finalized_checkpoint()
             .epoch
             .start_slot(T::EthSpec::slots_per_epoch());
-        let is_canonical = self
+        let slot_is_finalized = state_slot <= finalized_slot;
+        let canonical = self
             .state_root_at_slot(state_slot)?
             .map_or(false, |canonical_root| state_root == &canonical_root);
-        Ok(state_slot <= finalized_slot && is_canonical)
+        Ok(FinalizationAndCanonicity {
+            slot_is_finalized,
+            canonical,
+        })
     }
 
     /// Persists the head tracker and fork choice.

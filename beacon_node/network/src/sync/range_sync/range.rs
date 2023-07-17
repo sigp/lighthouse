@@ -602,7 +602,7 @@ mod tests {
     fn range(log_enabled: bool) -> (TestRig, RangeSync<TestBeaconChainType, FakeStorage>) {
         let log = build_log(slog::Level::Trace, log_enabled);
         // Initialise a new beacon chain
-        let harness = BeaconChainHarness::<EphemeralHarnessType<E>>::builder(E::default())
+        let harness = BeaconChainHarness::<EphemeralHarnessType<E>>::builder(E)
             .default_spec()
             .logger(log.clone())
             .deterministic_keypairs(1)
