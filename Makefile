@@ -164,8 +164,12 @@ test-exec-engine:
 # test vectors.
 test: test-release
 
+# Run bash script to output cli.txt
+cli:
+	/home/hi/cli/lighthouse/scripts/cli.sh
 # Runs the entire test suite, downloading test vectors if required.
-test-full: cargo-fmt test-release test-debug test-ef test-exec-engine
+test-full: cargo-fmt test-release test-debug test-ef test-exec-engine cli
+
 
 # Lints the code for bad style and potentially unsafe arithmetic using Clippy.
 # Clippy lints are opt-in per-crate for now. By default, everything is allowed except for performance and correctness lints.
