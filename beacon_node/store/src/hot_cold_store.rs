@@ -576,7 +576,11 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         }
     }
 
-    /// Get a state with `latest_block_root == block_root` advanced through to exactly `slot`.
+    /// Get a state with `latest_block_root == block_root` advanced through to at most `max_slot`.
+    ///
+    /// If no `slot` is provided, then the lowest-slot state for `block_root` is returned. This is
+    /// usually the post-state of the block root, unless that state is the, in which case it
+    /// will
     ///
     /// The `state_root` argument is used to look up the block's un-advanced state in case the
     /// advanced state is not found. If no advanced state is found and no state root is provided
@@ -584,14 +588,16 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     pub fn get_advanced_state(
         &self,
         block_root: Hash256,
-        slot: Slot,
+        max_slot: Option<Slot>,
         opt_state_root: Option<Hash256>,
     ) -> Result<Option<(Hash256, BeaconState<E>)>, Error> {
         // Hold a read lock on the split point so it can't move while we're trying to load the
         // state.
         let split = self.split.read_recursive();
 
-        let state_root = if block_root == split.block_root && slot == split.slot {
+        let state_root = if block_root == split.block_root
+            && max_slot.map_or(true, |max_slot| split.slot <= max_slot)
+        {
             split.state_root
         } else if let Some(state_root) = opt_state_root {
             state_root

@@ -24,8 +24,9 @@ use operation_pool::{OperationPool, PersistedOperationPool};
 use parking_lot::RwLock;
 use proto_array::{DisallowedReOrgOffsets, ReOrgThreshold};
 use slasher::Slasher;
-use slog::{crit, error, info, Logger};
+use slog::{crit, debug, error, info, Logger};
 use slot_clock::{SlotClock, TestingSlotClock};
+use state_processing::per_slot_processing;
 use std::marker::PhantomData;
 use std::sync::Arc;
 use std::time::Duration;
@@ -409,21 +410,28 @@ where
         genesis_state: BeaconState<TEthSpec>,
         retain_historic_states: bool,
     ) -> Result<Self, String> {
-        let store = self.store.clone().ok_or("genesis_state requires a store")?;
+        let store = self
+            .store
+            .clone()
+            .ok_or("weak_subjectivity_state requires a store")?;
+        let log = self
+            .log
+            .as_ref()
+            .ok_or("weak_subjectivity_state requires a log")?;
 
-        let weak_subj_slot = weak_subj_state.slot();
-        let weak_subj_block_root = weak_subj_block.canonical_root();
-        let weak_subj_state_root = weak_subj_block.state_root();
-
-        // Check that the given state lies on an epoch boundary. Due to the database only storing
-        // full states on epoch boundaries and at restore points it would be difficult to support
-        // starting from a mid-epoch state.
-        if weak_subj_slot % TEthSpec::slots_per_epoch() != 0 {
-            return Err(format!(
-                "Checkpoint state at slot {} is not aligned to epoch start. \
-                 Please supply an aligned checkpoint with state.slot % 32 == 0",
-                weak_subj_slot,
-            ));
+        // Ensure the state is advanced to an epoch boundary.
+        let slots_per_epoch = TEthSpec::slots_per_epoch();
+        if weak_subj_state.slot() % slots_per_epoch != 0 {
+            debug!(
+                log,
+                "Advancing checkpoint state to boundary";
+                "state_slot" => weak_subj_state.slot(),
+                "block_slot" => weak_subj_block.slot(),
+            );
+            while weak_subj_state.slot() % slots_per_epoch != 0 {
+                per_slot_processing(&mut weak_subj_state, None, &self.spec)
+                    .map_err(|e| format!("Error advancing state: {e:?}"))?;
+            }
         }
 
         // Prime all caches before storing the state in the database and computing the tree hash
@@ -431,21 +439,20 @@ where
         weak_subj_state
             .build_caches(&self.spec)
             .map_err(|e| format!("Error building caches on checkpoint state: {e:?}"))?;
-        weak_subj_state
+        let weak_subj_state_root = weak_subj_state
             .update_tree_hash_cache()
             .map_err(|e| format!("Error computing checkpoint state root: {:?}", e))?;
 
-        let latest_block_slot = weak_subj_state.latest_block_header().slot;
+        let weak_subj_slot = weak_subj_state.slot();
+        let weak_subj_block_root = weak_subj_block.canonical_root();
 
-        // We can only validate the block root if it exists in the state. We can't calculated it
-        // from the `latest_block_header` because the state root might be set to the zero hash.
-        if let Ok(state_slot_block_root) = weak_subj_state.get_block_root(latest_block_slot) {
-            if weak_subj_block_root != *state_slot_block_root {
-                return Err(format!(
-                    "Snapshot state's most recent block root does not match block, expected: {:?}, got: {:?}",
-                    weak_subj_block_root, state_slot_block_root
-                ));
-            }
+        // Validate the state's `latest_block_header` against the checkpoint block.
+        let state_latest_block_root = weak_subj_state.get_latest_block_root(weak_subj_state_root);
+        if weak_subj_block_root != state_latest_block_root {
+            return Err(format!(
+                "Snapshot state's most recent block root does not match block, expected: {:?}, got: {:?}",
+                weak_subj_block_root, state_latest_block_root
+            ));
         }
 
         // Check that the checkpoint state is for the same network as the genesis state.
@@ -668,9 +675,8 @@ where
                 Err(e) => return Err(descriptive_db_error("head block", &e)),
             };
 
-        let head_state_root = head_block.state_root();
-        let head_state = store
-            .get_state(&head_state_root, Some(head_block.slot()))
+        let (_head_state_root, head_state) = store
+            .get_advanced_state(head_block_root, None, Some(head_block.state_root()))
             .map_err(|e| descriptive_db_error("head state", &e))?
             .ok_or("Head state not found in store")?;
 
