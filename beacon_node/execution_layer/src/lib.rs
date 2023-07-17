@@ -48,8 +48,8 @@ use types::{
 use types::{
     BlindedPayload, BlockType, ChainSpec, Epoch, ExecutionPayloadCapella, ExecutionPayloadMerge,
 };
-use types::{KzgProofs, Withdrawals};
-use types::{ProposerPreparationData, PublicKeyBytes, Signature, Slot, Transaction, Uint256};
+use types::{KzgProofs};
+use types::{ProposerPreparationData, PublicKeyBytes, Signature, Slot, Transaction};
 
 mod block_hash;
 mod engine_api;
