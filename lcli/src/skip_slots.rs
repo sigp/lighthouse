@@ -49,6 +49,7 @@ use clap::ArgMatches;
 use clap_utils::{parse_optional, parse_required};
 use environment::Environment;
 use eth2::{types::StateId, BeaconNodeHttpClient, SensitiveUrl, Timeouts};
+use eth2_network_config::Eth2NetworkConfig;
 use ssz::Encode;
 use state_processing::state_advance::{complete_state_advance, partial_state_advance};
 use std::fs::File;
@@ -59,8 +60,12 @@ use types::{BeaconState, CloneConfig, EthSpec, Hash256};
 
 const HTTP_TIMEOUT: Duration = Duration::from_secs(10);
 
-pub fn run<T: EthSpec>(env: Environment<T>, matches: &ArgMatches) -> Result<(), String> {
-    let spec = &T::default_spec();
+pub fn run<T: EthSpec>(
+    env: Environment<T>,
+    network_config: Eth2NetworkConfig,
+    matches: &ArgMatches,
+) -> Result<(), String> {
+    let spec = &network_config.chain_spec::<T>()?;
     let executor = env.core_context().executor;
 
     let output_path: Option<PathBuf> = parse_optional(matches, "output-path")?;

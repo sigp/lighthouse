@@ -4,12 +4,15 @@ mod tests {
     use crate::persisted_dht::load_dht;
     use crate::{NetworkConfig, NetworkService};
     use beacon_chain::test_utils::BeaconChainHarness;
+    use beacon_processor::{
+        BeaconProcessorSend, MAX_SCHEDULED_WORK_QUEUE_LEN, MAX_WORK_EVENT_QUEUE_LEN,
+    };
     use lighthouse_network::Enr;
     use slog::{o, Drain, Level, Logger};
     use sloggers::{null::NullLoggerBuilder, Build};
     use std::str::FromStr;
     use std::sync::Arc;
-    use tokio::runtime::Runtime;
+    use tokio::{runtime::Runtime, sync::mpsc};
     use types::MinimalEthSpec;
 
     fn get_logger(actual_log: bool) -> Logger {
@@ -67,10 +70,20 @@ mod tests {
             // Create a new network service which implicitly gets dropped at the
             // end of the block.
 
-            let _network_service =
-                NetworkService::start(beacon_chain.clone(), &config, executor, None)
-                    .await
-                    .unwrap();
+            let (beacon_processor_send, _beacon_processor_receive) =
+                mpsc::channel(MAX_WORK_EVENT_QUEUE_LEN);
+            let (beacon_processor_reprocess_tx, _beacon_processor_reprocess_rx) =
+                mpsc::channel(MAX_SCHEDULED_WORK_QUEUE_LEN);
+            let _network_service = NetworkService::start(
+                beacon_chain.clone(),
+                &config,
+                executor,
+                None,
+                BeaconProcessorSend(beacon_processor_send),
+                beacon_processor_reprocess_tx,
+            )
+            .await
+            .unwrap();
             drop(signal);
         });
 
