@@ -163,7 +163,7 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> BlockProposalContents<T, Paylo
                 BlockProposalContents::Payload {
                     payload: Payload::default_at_fork(fork_name)?,
                     block_value: Uint256::zero(),
-                    _phantom: PhantomData::default(),
+                    _phantom: PhantomData,
                 }
             }
         })
@@ -858,7 +858,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                                     BlockProposalContents::Payload {
                                         payload: relay.data.message.header,
                                         block_value: relay.data.message.value,
-                                        _phantom: PhantomData::default(),
+                                        _phantom: PhantomData,
                                     },
                                 )),
                                 Err(reason) if !reason.payload_invalid() => {
@@ -913,7 +913,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                                     BlockProposalContents::Payload {
                                         payload: relay.data.message.header,
                                         block_value: relay.data.message.value,
-                                        _phantom: PhantomData::default(),
+                                        _phantom: PhantomData,
                                     },
                                 )),
                                 // If the payload is valid then use it. The local EE failed
@@ -922,7 +922,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                                     BlockProposalContents::Payload {
                                         payload: relay.data.message.header,
                                         block_value: relay.data.message.value,
-                                        _phantom: PhantomData::default(),
+                                        _phantom: PhantomData,
                                     },
                                 )),
                                 Err(reason) => {
@@ -1129,7 +1129,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                 Ok(BlockProposalContents::Payload {
                     payload: execution_payload.into(),
                     block_value,
-                    _phantom: PhantomData::default(),
+                    _phantom: PhantomData,
                 })
             })
             .await
@@ -2018,6 +2018,22 @@ async fn timed_future<F: Future<Output = T>, T>(metric: &str, future: F) -> (T, 
     (result, duration)
 }
 
+fn noop<T: EthSpec>(
+    _: &ExecutionLayer<T>,
+    _: ExecutionPayloadRef<T>,
+) -> Option<ExecutionPayload<T>> {
+    None
+}
+
+#[cfg(test)]
+/// Returns the duration since the unix epoch.
+fn timestamp_now() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_else(|_| Duration::from_secs(0))
+        .as_secs()
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -2163,20 +2179,4 @@ mod test {
             })
             .await;
     }
-}
-
-fn noop<T: EthSpec>(
-    _: &ExecutionLayer<T>,
-    _: ExecutionPayloadRef<T>,
-) -> Option<ExecutionPayload<T>> {
-    None
-}
-
-#[cfg(test)]
-/// Returns the duration since the unix epoch.
-fn timestamp_now() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_else(|_| Duration::from_secs(0))
-        .as_secs()
 }
