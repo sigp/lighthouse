@@ -1,5 +1,5 @@
-use super::option_quoted_int::option_quoted_u64;
 use serde::{Deserialize, Serialize};
+use serde_utils::quoted_u64::Quoted;
 
 // Details about the rewards paid for attestations
 // All rewards in GWei
@@ -19,12 +19,8 @@ pub struct IdealAttestationRewards {
     #[serde(with = "serde_utils::quoted_u64")]
     pub source: u64,
     // Ideal attester's inclusion_delay reward in gwei (phase0 only)
-    #[serde(
-        with = "option_quoted_u64",
-        skip_serializing_if = "Option::is_none",
-        default
-    )]
-    pub inclusion_delay: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub inclusion_delay: Option<Quoted<u64>>,
     // Ideal attester's inactivity penalty in gwei
     #[serde(with = "serde_utils::quoted_i64")]
     pub inactivity: i64,
@@ -45,12 +41,8 @@ pub struct TotalAttestationRewards {
     #[serde(with = "serde_utils::quoted_i64")]
     pub source: i64,
     // attester's inclusion_delay reward in gwei (phase0 only)
-    #[serde(
-        with = "option_quoted_u64",
-        skip_serializing_if = "Option::is_none",
-        default
-    )]
-    pub inclusion_delay: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub inclusion_delay: Option<Quoted<u64>>,
     // attester's inactivity penalty in gwei
     #[serde(with = "serde_utils::quoted_i64")]
     pub inactivity: i64,

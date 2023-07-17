@@ -3,7 +3,8 @@ use eth2::lighthouse::attestation_rewards::{IdealAttestationRewards, TotalAttest
 use eth2::lighthouse::StandardAttestationRewards;
 use participation_cache::ParticipationCache;
 use safe_arith::SafeArith;
-use slog::{debug};
+use serde_utils::quoted_u64::Quoted;
+use slog::debug;
 use state_processing::{
     common::altair::BaseRewardPerIncrement,
     per_epoch_processing::altair::{participation_cache, rewards_and_penalties::get_flag_weight},
@@ -98,7 +99,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 head,
                 target,
                 source,
-                inclusion_delay: Some(inclusion_delay),
+                inclusion_delay: Some(Quoted {
+                    value: inclusion_delay,
+                }),
                 inactivity,
             };
 
@@ -378,7 +381,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 head,
                 target,
                 source,
-                inclusion_delay: Some(inclusion_delay),
+                inclusion_delay: Some(Quoted {
+                    value: inclusion_delay,
+                }),
                 inactivity,
             };
 

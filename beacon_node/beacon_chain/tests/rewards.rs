@@ -278,7 +278,7 @@ fn apply_attestation_rewards(
                 + rewards.head
                 + rewards.source
                 + rewards.target
-                + rewards.inclusion_delay.unwrap_or(0) as i64
+                + rewards.inclusion_delay.map(|q| q.value).unwrap_or(0) as i64
                 + rewards.inactivity;
             expected_balance as u64
         })

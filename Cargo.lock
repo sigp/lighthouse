@@ -630,6 +630,7 @@ dependencies = [
  "eth1",
  "eth2",
  "ethereum_hashing",
+ "ethereum_serde_utils",
  "ethereum_ssz",
  "ethereum_ssz_derive",
  "execution_layer",
