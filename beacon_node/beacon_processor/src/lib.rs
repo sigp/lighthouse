@@ -1086,7 +1086,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
                         // processed all the interesting things from the network
                         // and things required for us to stay in good repute
                         // with our P2P peers.
-                        } else if let Some(item) = api_request_p0_queue.pop() {
+                        } else if let Some(item) = api_request_p1_queue.pop() {
                             self.spawn_worker(item, idle_tx);
                         // Handle backfill sync chain segments.
                         } else if let Some(item) = backfill_chain_segment.pop() {
