@@ -51,5 +51,4 @@ parking_lot = "0.12.0"
 environment = { path = "../../lighthouse/environment" }
 
 [features]
-spec-minimal = ["beacon_chain/spec-minimal"]
 fork_from_env = ["beacon_chain/fork_from_env"]

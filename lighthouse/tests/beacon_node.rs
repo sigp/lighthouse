@@ -1772,6 +1772,24 @@ fn no_reconstruct_historic_states_flag() {
         .run_with_zero_port()
         .with_config(|config| assert!(!config.chain.reconstruct_historic_states));
 }
+#[test]
+fn epochs_per_migration_default() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config.chain.epochs_per_migration,
+                beacon_node::beacon_chain::migrate::DEFAULT_EPOCHS_PER_MIGRATION
+            )
+        });
+}
+#[test]
+fn epochs_per_migration_override() {
+    CommandLineTest::new()
+        .flag("epochs-per-migration", Some("128"))
+        .run_with_zero_port()
+        .with_config(|config| assert_eq!(config.chain.epochs_per_migration, 128));
+}
 
 // Tests for Slasher flags.
 // Using `--slasher-max-db-size` to work around https://github.com/sigp/lighthouse/issues/2342

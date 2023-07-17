@@ -11,11 +11,17 @@ use ethereum_consensus::{
 };
 use fork_choice::ForkchoiceUpdateParameters;
 use mev_rs::{
-    bellatrix::{BuilderBid as BuilderBidBellatrix, SignedBuilderBid as SignedBuilderBidBellatrix},
-    capella::{BuilderBid as BuilderBidCapella, SignedBuilderBid as SignedBuilderBidCapella},
-    sign_builder_message, verify_signed_builder_message, BidRequest, BlindedBlockProviderError,
-    BlindedBlockProviderServer, BuilderBid, ExecutionPayload as ServerPayload,
-    SignedBlindedBeaconBlock, SignedBuilderBid, SignedValidatorRegistration,
+    blinded_block_provider::Server as BlindedBlockProviderServer,
+    signing::{sign_builder_message, verify_signed_builder_message},
+    types::{
+        bellatrix::{
+            BuilderBid as BuilderBidBellatrix, SignedBuilderBid as SignedBuilderBidBellatrix,
+        },
+        capella::{BuilderBid as BuilderBidCapella, SignedBuilderBid as SignedBuilderBidCapella},
+        BidRequest, BuilderBid, ExecutionPayload as ServerPayload, SignedBlindedBeaconBlock,
+        SignedBuilderBid, SignedValidatorRegistration,
+    },
+    Error as MevError,
 };
 use parking_lot::RwLock;
 use sensitive_url::SensitiveUrl;
@@ -47,7 +53,7 @@ pub enum Operation {
 }
 
 impl Operation {
-    fn apply<B: BidStuff>(self, bid: &mut B) -> Result<(), BlindedBlockProviderError> {
+    fn apply<B: BidStuff>(self, bid: &mut B) -> Result<(), MevError> {
         match self {
             Operation::FeeRecipient(fee_recipient) => {
                 *bid.fee_recipient_mut() = to_ssz_rs(&fee_recipient)?
@@ -73,7 +79,7 @@ pub trait BidStuff {
     fn prev_randao_mut(&mut self) -> &mut Hash32;
     fn block_number_mut(&mut self) -> &mut u64;
     fn timestamp_mut(&mut self) -> &mut u64;
-    fn withdrawals_root_mut(&mut self) -> Result<&mut Root, BlindedBlockProviderError>;
+    fn withdrawals_root_mut(&mut self) -> Result<&mut Root, MevError>;
 
     fn sign_builder_message(
         &mut self,
@@ -134,11 +140,9 @@ impl BidStuff for BuilderBid {
         }
     }
 
-    fn withdrawals_root_mut(&mut self) -> Result<&mut Root, BlindedBlockProviderError> {
+    fn withdrawals_root_mut(&mut self) -> Result<&mut Root, MevError> {
         match self {
-            Self::Bellatrix(_) => Err(BlindedBlockProviderError::Custom(
-                "withdrawals_root called on bellatrix bid".to_string(),
-            )),
+            Self::Bellatrix(_) => Err(MevError::InvalidFork),
             Self::Capella(bid) => Ok(&mut bid.header.withdrawals_root),
         }
     }
@@ -274,7 +278,7 @@ impl<E: EthSpec> MockBuilder<E> {
         *self.invalidate_signatures.write() = false;
     }
 
-    fn apply_operations<B: BidStuff>(&self, bid: &mut B) -> Result<(), BlindedBlockProviderError> {
+    fn apply_operations<B: BidStuff>(&self, bid: &mut B) -> Result<(), MevError> {
         let mut guard = self.operations.write();
         while let Some(op) = guard.pop() {
             op.apply(bid)?;
@@ -288,7 +292,7 @@ impl<E: EthSpec> mev_rs::BlindedBlockProvider for MockBuilder<E> {
     async fn register_validators(
         &self,
         registrations: &mut [SignedValidatorRegistration],
-    ) -> Result<(), BlindedBlockProviderError> {
+    ) -> Result<(), MevError> {
         for registration in registrations {
             let pubkey = registration.message.public_key.clone();
             let message = &mut registration.message;
@@ -307,10 +311,7 @@ impl<E: EthSpec> mev_rs::BlindedBlockProvider for MockBuilder<E> {
         Ok(())
     }
 
-    async fn fetch_best_bid(
-        &self,
-        bid_request: &BidRequest,
-    ) -> Result<SignedBuilderBid, BlindedBlockProviderError> {
+    async fn fetch_best_bid(&self, bid_request: &BidRequest) -> Result<SignedBuilderBid, MevError> {
         let slot = Slot::new(bid_request.slot);
         let fork = self.spec.fork_name_at_slot::<E>(slot);
         let signed_cached_data = self
@@ -336,7 +337,7 @@ impl<E: EthSpec> mev_rs::BlindedBlockProvider for MockBuilder<E> {
             .map_err(convert_err)?
             .block_hash();
         if head_execution_hash != from_ssz_rs(&bid_request.parent_hash)? {
-            return Err(BlindedBlockProviderError::Custom(format!(
+            return Err(custom_err(format!(
                 "head mismatch: {} {}",
                 head_execution_hash, bid_request.parent_hash
             )));
@@ -396,7 +397,7 @@ impl<E: EthSpec> mev_rs::BlindedBlockProvider for MockBuilder<E> {
             .get_debug_beacon_states(StateId::Head)
             .await
             .map_err(convert_err)?
-            .ok_or_else(|| BlindedBlockProviderError::Custom("missing head state".to_string()))?
+            .ok_or_else(|| custom_err("missing head state".to_string()))?
             .data;
         let prev_randao = head_state
             .get_randao_mix(head_state.current_epoch())
@@ -409,10 +410,7 @@ impl<E: EthSpec> mev_rs::BlindedBlockProvider for MockBuilder<E> {
                 PayloadAttributes::new(timestamp, *prev_randao, fee_recipient, Some(vec![]))
             }
             ForkName::Base | ForkName::Altair => {
-                return Err(BlindedBlockProviderError::Custom(format!(
-                    "Unsupported fork: {}",
-                    fork
-                )));
+                return Err(MevError::InvalidFork);
             }
         };
 
@@ -453,10 +451,7 @@ impl<E: EthSpec> mev_rs::BlindedBlockProvider for MockBuilder<E> {
                 public_key: self.builder_sk.public_key(),
             }),
             ForkName::Base | ForkName::Altair | ForkName::Deneb => {
-                return Err(BlindedBlockProviderError::Custom(format!(
-                    "Unsupported fork: {}",
-                    fork
-                )))
+                return Err(MevError::InvalidFork)
             }
         };
         *message.gas_limit_mut() = cached_data.gas_limit;
@@ -475,7 +470,7 @@ impl<E: EthSpec> mev_rs::BlindedBlockProvider for MockBuilder<E> {
     async fn open_bid(
         &self,
         signed_block: &mut SignedBlindedBeaconBlock,
-    ) -> Result<ServerPayload, BlindedBlockProviderError> {
+    ) -> Result<ServerPayload, MevError> {
         let node = match signed_block {
             SignedBlindedBeaconBlock::Bellatrix(block) => {
                 block.message.body.execution_payload_header.hash_tree_root()
@@ -496,9 +491,7 @@ impl<E: EthSpec> mev_rs::BlindedBlockProvider for MockBuilder<E> {
     }
 }
 
-pub fn from_ssz_rs<T: SimpleSerialize, U: Decode>(
-    ssz_rs_data: &T,
-) -> Result<U, BlindedBlockProviderError> {
+pub fn from_ssz_rs<T: SimpleSerialize, U: Decode>(ssz_rs_data: &T) -> Result<U, MevError> {
     U::from_ssz_bytes(
         ssz_rs::serialize(ssz_rs_data)
             .map_err(convert_err)?
@@ -507,12 +500,17 @@ pub fn from_ssz_rs<T: SimpleSerialize, U: Decode>(
     .map_err(convert_err)
 }
 
-pub fn to_ssz_rs<T: Encode, U: SimpleSerialize>(
-    ssz_data: &T,
-) -> Result<U, BlindedBlockProviderError> {
+pub fn to_ssz_rs<T: Encode, U: SimpleSerialize>(ssz_data: &T) -> Result<U, MevError> {
     ssz_rs::deserialize::<U>(&ssz_data.as_ssz_bytes()).map_err(convert_err)
 }
 
-fn convert_err<E: Debug>(e: E) -> BlindedBlockProviderError {
-    BlindedBlockProviderError::Custom(format!("{e:?}"))
+fn convert_err<E: Debug>(e: E) -> MevError {
+    custom_err(format!("{e:?}"))
+}
+
+// This is a bit of a hack since the `Custom` variant was removed from `mev_rs::Error`.
+fn custom_err(s: String) -> MevError {
+    MevError::Consensus(ethereum_consensus::state_transition::Error::Io(
+        std::io::Error::new(std::io::ErrorKind::Other, s),
+    ))
 }
