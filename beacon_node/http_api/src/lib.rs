@@ -59,7 +59,7 @@ use tokio::sync::mpsc::{Sender, UnboundedSender};
 use tokio_stream::{wrappers::BroadcastStream, StreamExt};
 use types::{
     Attestation, AttestationData, AttestationShufflingId, AttesterSlashing, BeaconStateError,
-    BlindedPayload, CommitteeCache, ConfigAndPreset, Epoch, EthSpec, ForkName, FullPayload,
+    BlindedPayload, BlobSidecar, BlobSidecarList, CommitteeCache, ConfigAndPreset, Epoch, EthSpec, ForkName, FullPayload,
     ProposerPreparationData, ProposerSlashing, RelativeEpoch, SignedAggregateAndProof,
     SignedBeaconBlock, SignedBlsToExecutionChange, SignedContributionAndProof,
     SignedValidatorRegistrationData, SignedVoluntaryExit, Slot, SyncCommitteeMessage,
@@ -1413,13 +1413,12 @@ pub fn serve<T: BeaconChainTypes>(
                     let blob_sidecar_list = block_id.blob_sidecar_list(&chain).await?;
                     let blob_sidecar_list_indexed = match indices.indices {
                         Some(vec) => {
-                            let mut indexed_list  = Vec::new();
+                            let mut list = Vec::new();
                             for i in vec.iter() {
-                                indexed_list.push(blob_sidecar_list.get(*i as usize).clone());
+                                list.push(blob_sidecar_list.get(*i as usize).unwrap().clone());
                             }
-                            let list: VariableList<_, typenum::U6> = VariableList::from(indexed_list.clone()); 
-                            list
-                            blob_sidecar_list_indexed = blob_sidecar_list.get_indexed_list(vec)
+                            let indexed_list = BlobSidecarList::new(list);
+                            indexed_list.unwrap()
                         },
                         None => {
                             blob_sidecar_list
