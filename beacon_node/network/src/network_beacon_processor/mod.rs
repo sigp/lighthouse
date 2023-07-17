@@ -229,8 +229,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         })
     }
 
-    pub fn send_banana() {}
-
     /// Create a new `Work` event for some sync committee signature.
     pub fn send_gossip_sync_signature(
         self: &Arc<Self>,
@@ -427,7 +425,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         })
     }
 
-    /// Create a new `Work` event for some block, where the result from computation (if any) is
+    /// Create a new `Work` event for some blobs, where the result from computation (if any) is
     /// sent to the other side of `result_tx`.
     pub fn send_rpc_blobs(
         self: &Arc<Self>,
