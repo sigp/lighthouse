@@ -5,6 +5,8 @@ use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
+use crate::test_utils::TestRandom;
+
 use super::{AggregateSignature, Attestation, AttestationData, BitList, EthSpec, SignatureBytes};
 
 /// An attestation type with SSZ bytes for the signature

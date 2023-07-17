@@ -9,7 +9,7 @@ use std::boxed::Box;
 use std::io::{Error, ErrorKind};
 use std::sync::Arc;
 use types::{
-    Attestation, AttesterSlashing, EthSpec, ForkContext, ForkName, LightClientFinalityUpdate,
+    Attestation, AttesterSlashing, EthSpec, ForkContext, ForkName, LightClientFinalityUpdate, LazySignedAggregateAndProof,
     LightClientOptimisticUpdate, ProposerSlashing, SignedAggregateAndProof, SignedBeaconBlock,
     SignedBeaconBlockAltair, SignedBeaconBlockBase, SignedBeaconBlockCapella,
     SignedBeaconBlockDeneb, SignedBeaconBlockMerge, SignedBlobSidecar, SignedBlsToExecutionChange,
@@ -23,7 +23,7 @@ pub enum PubsubMessage<T: EthSpec> {
     /// Gossipsub message providing notification of a [`SignedBlobSidecar`] along with the subnet id where it was received.
     BlobSidecar(Box<(u64, SignedBlobSidecar<T>)>),
     /// Gossipsub message providing notification of a Aggregate attestation and associated proof.
-    AggregateAndProofAttestation(Box<SignedAggregateAndProof<T>>),
+    AggregateAndProofAttestation(Box<LazySignedAggregateAndProof<T>>),
     /// Gossipsub message providing notification of a raw un-aggregated attestation with its shard id.
     Attestation(Box<(SubnetId, Attestation<T>)>),
     /// Gossipsub message providing notification of a voluntary exit.
@@ -155,7 +155,7 @@ impl<T: EthSpec> PubsubMessage<T> {
                 // the ssz decoders
                 match gossip_topic.kind() {
                     GossipKind::BeaconAggregateAndProof => {
-                        let agg_and_proof = SignedAggregateAndProof::from_ssz_bytes(data)
+                        let agg_and_proof = LazySignedAggregateAndProof::from_ssz_bytes(data)
                             .map_err(|e| format!("{:?}", e))?;
                         Ok(PubsubMessage::AggregateAndProofAttestation(Box::new(
                             agg_and_proof,
