@@ -5,13 +5,17 @@ use tokio::sync::{mpsc::error::TrySendError, oneshot};
 use types::EthSpec;
 use warp::reply::{Reply, Response};
 
+/// Maps a request to a queue in the `BeaconProcessor`.
 #[derive(Clone, Copy)]
 pub enum Priority {
+    /// The highest priority.
     P0,
+    /// The lowest priority.
     P1,
 }
 
 impl Priority {
+    /// Wrap `self` in a `WorkEvent` with an appropriate priority.
     fn work_event<E: EthSpec>(&self, process_fn: BlockingOrAsync) -> WorkEvent<E> {
         let work = match self {
             Priority::P0 => Work::ApiRequestP0(process_fn),
@@ -24,7 +28,10 @@ impl Priority {
     }
 }
 
+/// Spawns tasks on the `BeaconProcessor` or directly on the tokio executor.
 pub struct TaskSpawner<E: EthSpec> {
+    /// Used to send tasks to the `BeaconProcessor`. The tokio executor will be
+    /// used if this is `None`.
     beacon_processor_send: Option<BeaconProcessorSend<E>>,
 }
 
@@ -35,6 +42,7 @@ impl<E: EthSpec> TaskSpawner<E> {
         }
     }
 
+    /// Executes a "blocking" (non-async) task which returns a `Response`.
     pub async fn blocking_response_task<F, T>(
         self,
         priority: Priority,
@@ -75,6 +83,8 @@ impl<E: EthSpec> TaskSpawner<E> {
         }
     }
 
+    /// Executes a "blocking" (non-async) task which returns a JSON-serializable
+    /// object.
     pub async fn blocking_json_task<F, T>(
         self,
         priority: Priority,
@@ -88,6 +98,7 @@ impl<E: EthSpec> TaskSpawner<E> {
         self.blocking_response_task(priority, func).await
     }
 
+    /// Executes an async task which may return a `warp::Rejection`.
     pub async fn spawn_async_with_rejection(
         self,
         priority: Priority,
@@ -128,6 +139,7 @@ impl<E: EthSpec> TaskSpawner<E> {
         }
     }
 
+    /// Executes an async task which always returns a `Response`.
     pub async fn spawn_async(
         self,
         priority: Priority,
@@ -168,6 +180,10 @@ impl<E: EthSpec> TaskSpawner<E> {
     }
 }
 
+/// Send a task to the beacon processor and await execution.
+///
+/// If the task is not executed, return an `Err(response)` with an error message
+/// for the API consumer.
 async fn send_to_beacon_processor<E: EthSpec, T>(
     beacon_processor_send: &BeaconProcessorSend<E>,
     priority: Priority,
