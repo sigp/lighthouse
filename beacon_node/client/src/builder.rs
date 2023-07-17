@@ -11,7 +11,7 @@ use beacon_chain::{
     slot_clock::{SlotClock, SystemTimeSlotClock},
     state_advance_timer::spawn_state_advance_timer,
     store::{HotColdDB, ItemStore, LevelDB, StoreConfig},
-    BeaconChain, BeaconChainTypes, Eth1ChainBackend, ServerSentEventHandler,
+    BeaconChain, BeaconChainTypes, Eth1ChainBackend, MigratorConfig, ServerSentEventHandler,
 };
 use beacon_processor::{
     work_reprocessing_queue::ReprocessQueueMessage, BeaconProcessor, BeaconProcessorSend,
@@ -184,6 +184,9 @@ where
             .store(store)
             .task_executor(context.executor.clone())
             .custom_spec(spec.clone())
+            .store_migrator_config(
+                MigratorConfig::default().epochs_per_migration(chain_config.epochs_per_migration),
+            )
             .chain_config(chain_config)
             .graffiti(graffiti)
             .event_handler(event_handler)
