@@ -12,6 +12,7 @@ exit-future = "0.2.0"
 slog-term = "2.6.0"
 slog-async = "2.5.0"
 environment = { path = "../../lighthouse/environment" }
+tempfile = "3.1.0"
 
 [dependencies]
 beacon_chain =  { path = "../beacon_chain" }
