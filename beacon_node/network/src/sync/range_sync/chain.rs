@@ -1,5 +1,5 @@
 use super::batch::{BatchInfo, BatchProcessingResult, BatchState};
-use crate::beacon_processor::{ChainSegmentProcessId, WorkEvent as BeaconWorkEvent};
+use crate::network_beacon_processor::ChainSegmentProcessId;
 use crate::sync::{
     manager::Id, network_context::SyncNetworkContext, BatchOperationOutcome, BatchProcessResult,
 };
@@ -294,8 +294,8 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             return Ok(KeepChain);
         }
 
-        let beacon_processor_send = match network.processor_channel_if_enabled() {
-            Some(channel) => channel,
+        let beacon_processor = match network.beacon_processor_if_enabled() {
+            Some(beacon_processor) => beacon_processor,
             None => return Ok(KeepChain),
         };
 
@@ -317,9 +317,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         let process_id = ChainSegmentProcessId::RangeBatchId(self.id, batch_id);
         self.current_processing_batch = Some(batch_id);
 
-        if let Err(e) =
-            beacon_processor_send.try_send(BeaconWorkEvent::chain_segment(process_id, blocks))
-        {
+        if let Err(e) = beacon_processor.send_chain_segment(process_id, blocks) {
             crit!(self.log, "Failed to send chain segment to processor."; "msg" => "process_batch",
                 "error" => %e, "batch" => self.processing_target);
             // This is unlikely to happen but it would stall syncing since the batch now has no
