@@ -1272,6 +1272,14 @@ impl<E: EthSpec> BeaconProcessor<E> {
                     &metrics::BEACON_PROCESSOR_BLS_TO_EXECUTION_CHANGE_QUEUE_TOTAL,
                     gossip_bls_to_execution_change_queue.len() as i64,
                 );
+                metrics::set_gauge(
+                    &metrics::BEACON_PROCESSOR_API_REQUEST_P0_QUEUE_TOTAL,
+                    api_request_p0_queue.len() as i64,
+                );
+                metrics::set_gauge(
+                    &metrics::BEACON_PROCESSOR_API_REQUEST_P1_QUEUE_TOTAL,
+                    api_request_p1_queue.len() as i64,
+                );
 
                 if aggregate_queue.is_full() && aggregate_debounce.elapsed() {
                     error!(
