@@ -101,7 +101,7 @@ impl TestRig {
         let mut blob_sidecars = vec![];
         if let Ok(message) = block.message_deneb_mut() {
             // get random number between 0 and Max Blobs
-            let mut payload: &mut FullPayloadDeneb<E> = &mut message.body.execution_payload;
+            let payload: &mut FullPayloadDeneb<E> = &mut message.body.execution_payload;
             let num_blobs = match num_blobs {
                 NumBlobs::Random => {
                     let mut num_blobs = rand::random::<usize>() % E::max_blobs_per_block();
