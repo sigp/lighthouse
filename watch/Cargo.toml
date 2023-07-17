@@ -21,7 +21,7 @@ types = { path = "../consensus/types" }
 eth2 = { path = "../common/eth2" }
 beacon_node = { path = "../beacon_node"}
 tokio = { version = "1.14.0", features = ["time"] }
-axum = "0.5.15"
+axum = "0.6.18"
 hyper = "0.14.20"
 serde = "1.0.116"
 serde_json = "1.0.58"
