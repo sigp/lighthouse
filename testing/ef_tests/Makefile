@@ -13,7 +13,7 @@ BLS_TARBALL = $(patsubst %,%-$(BLS_TEST_TAG).tar.gz,$(BLS_TEST))
 BLS_OUTPUT_DIR := $(OUTPUT_DIR)/$(BLS_TEST_REPO_NAME)
 BLS_BASE_URL := https://github.com/ethereum/$(BLS_TEST_REPO_NAME)/releases/download/$(BLS_TEST_TAG)
 
-WGET := $(if $(LIGHTHOUSE_GITHUB_TOKEN),wget --header="Authorization: $(LIGHTHOUSE_GITHUB_TOKEN)",wget)
+CURL := $(if $(LIGHTHOUSE_GITHUB_TOKEN),curl -L --header "Authorization: $(LIGHTHOUSE_GITHUB_TOKEN)",curl -L)
 
 all:
 	make $(OUTPUT_DIR)
@@ -27,11 +27,11 @@ $(OUTPUT_DIR): $(TARBALLS)
 
 $(BLS_OUTPUT_DIR):
 	mkdir $(BLS_OUTPUT_DIR)
-	$(WGET) $(BLS_BASE_URL)/$(BLS_TEST).tar.gz -O $(BLS_TARBALL)
+	$(CURL) $(BLS_BASE_URL)/$(BLS_TEST).tar.gz -o $(BLS_TARBALL)
 	tar -xzf $(BLS_TARBALL) -C $(BLS_OUTPUT_DIR)
 
 %-$(TESTS_TAG).tar.gz:
-	$(WGET) $(BASE_URL)/$*.tar.gz -O $@
+	$(CURL) $(BASE_URL)/$*.tar.gz -o $@
 
 clean-test-files:
 	rm -rf $(OUTPUT_DIR) $(BLS_OUTPUT_DIR)
