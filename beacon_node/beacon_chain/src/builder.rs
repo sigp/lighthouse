@@ -464,7 +464,7 @@ where
 
         // Set the store's split point *before* storing genesis so that genesis is stored
         // immediately in the freezer DB.
-        store.set_split(weak_subj_slot, weak_subj_state_root);
+        store.set_split(weak_subj_slot, weak_subj_state_root, weak_subj_block_root);
         let (_, updated_builder) = self.set_genesis_state(genesis_state)?;
         self = updated_builder;
 
