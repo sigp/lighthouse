@@ -285,7 +285,7 @@ where
                     .map_err(|e| format!("Unable to parse genesis state SSZ: {:?}", e))?;
 
                 builder
-                    .weak_subjectivity_state(anchor_state, anchor_block, genesis_state)
+                    .weak_subjectivity_state(anchor_state, anchor_block, genesis_state, false)
                     .map(|v| (v, None))?
             }
             ClientGenesis::CheckpointSyncUrl {
@@ -460,7 +460,7 @@ where
                     });
 
                 builder
-                    .weak_subjectivity_state(state, block, genesis_state)
+                    .weak_subjectivity_state(state, block, genesis_state, false)
                     .map(|v| (v, service))?
             }
             ClientGenesis::DepositContract => {

@@ -407,6 +407,7 @@ where
         mut weak_subj_state: BeaconState<TEthSpec>,
         weak_subj_block: SignedBeaconBlock<TEthSpec>,
         genesis_state: BeaconState<TEthSpec>,
+        retain_historic_states: bool,
     ) -> Result<Self, String> {
         let store = self.store.clone().ok_or("genesis_state requires a store")?;
 
@@ -483,7 +484,7 @@ where
         self.pending_io_batch.push(store.store_split_in_batch());
         self.pending_io_batch.push(
             store
-                .init_anchor_info(weak_subj_block.message())
+                .init_anchor_info(weak_subj_block.message(), retain_historic_states)
                 .map_err(|e| format!("Failed to initialize anchor info: {:?}", e))?,
         );
 

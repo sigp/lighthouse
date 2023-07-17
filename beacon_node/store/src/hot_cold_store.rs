@@ -14,7 +14,7 @@ use crate::memory_store::MemoryStore;
 use crate::metadata::{
     AnchorInfo, CompactionTimestamp, PruningCheckpoint, SchemaVersion, ANCHOR_INFO_KEY,
     COMPACTION_TIMESTAMP_KEY, CONFIG_KEY, CURRENT_SCHEMA_VERSION, PRUNING_CHECKPOINT_KEY,
-    SCHEMA_VERSION_KEY, SPLIT_KEY,
+    SCHEMA_VERSION_KEY, SPLIT_KEY, STATE_UPPER_LIMIT_NO_RETAIN,
 };
 use crate::metrics;
 use crate::{
@@ -1249,22 +1249,28 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     }
 
     /// Initialise the anchor info for checkpoint sync starting from `block`.
-    pub fn init_anchor_info(&self, block: BeaconBlockRef<'_, E>) -> Result<KeyValueStoreOp, Error> {
+    pub fn init_anchor_info(
+        &self,
+        block: BeaconBlockRef<'_, E>,
+        retain_historic_states: bool,
+    ) -> Result<KeyValueStoreOp, Error> {
         let anchor_slot = block.slot();
         let slots_per_restore_point = self.config.slots_per_restore_point;
 
-        // Set the `state_upper_limit` to the slot of the *next* restore point.
-        // See `get_state_upper_limit` for rationale.
-        let next_restore_point_slot = if anchor_slot % slots_per_restore_point == 0 {
+        let state_upper_limit = if !retain_historic_states {
+            STATE_UPPER_LIMIT_NO_RETAIN
+        } else if anchor_slot % slots_per_restore_point == 0 {
             anchor_slot
         } else {
+            // Set the `state_upper_limit` to the slot of the *next* restore point.
+            // See `get_state_upper_limit` for rationale.
             (anchor_slot / slots_per_restore_point + 1) * slots_per_restore_point
         };
         let anchor_info = AnchorInfo {
             anchor_slot,
             oldest_block_slot: anchor_slot,
             oldest_block_parent: block.parent_root(),
-            state_upper_limit: next_restore_point_slot,
+            state_upper_limit,
             state_lower_limit: self.spec.genesis_slot,
         };
         self.compare_and_set_anchor_info(None, Some(anchor_info))
@@ -1673,11 +1679,8 @@ pub fn migrate_database<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
     // The new finalized state must increase the current split slot, and lie on an epoch
     // boundary (in order for the hot state summary scheme to work).
     let current_split_slot = store.split.read_recursive().slot;
-    let anchor_slot = store
-        .anchor_info
-        .read_recursive()
-        .as_ref()
-        .map(|a| a.anchor_slot);
+    let anchor_info = store.anchor_info.read_recursive().clone();
+    let anchor_slot = anchor_info.as_ref().map(|a| a.anchor_slot);
 
     if finalized_state.slot() < current_split_slot {
         return Err(HotColdDBError::FreezeSlotError {
@@ -1705,6 +1708,27 @@ pub fn migrate_database<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
     }) {
         let (block_root, state_root, slot) = maybe_tuple?;
 
+        // Delete the execution payload if payload pruning is enabled. At a skipped slot we may
+        // delete the payload for the finalized block itself, but that's OK as we only guarantee
+        // that payloads are present for slots >= the split slot. The payload fetching code is also
+        // forgiving of missing payloads.
+        if store.config.prune_payloads {
+            hot_db_ops.push(StoreOp::DeleteExecutionPayload(block_root));
+        }
+
+        // Delete the old summary, and the full state if we lie on an epoch boundary.
+        hot_db_ops.push(StoreOp::DeleteState(state_root, Some(slot)));
+
+        // Do not try to store states if a restore point is yet to be stored, or will never be
+        // stored (see `STATE_UPPER_LIMIT_NO_RETAIN`).
+        if anchor_info
+            .as_ref()
+            .map_or(false, |anchor| slot < anchor.state_upper_limit)
+        {
+            debug!(store.log, "Pruning finalized state"; "slot" => slot);
+            continue;
+        }
+
         let mut cold_db_ops: Vec<KeyValueStoreOp> = Vec::new();
 
         if slot % store.config.slots_per_restore_point == 0 {
@@ -1723,17 +1747,6 @@ pub fn migrate_database<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
         // There are data dependencies between calls to `store_cold_state()` that prevent us from
         // doing one big call to `store.cold_db.do_atomically()` at end of the loop.
         store.cold_db.do_atomically(cold_db_ops)?;
-
-        // Delete the old summary, and the full state if we lie on an epoch boundary.
-        hot_db_ops.push(StoreOp::DeleteState(state_root, Some(slot)));
-
-        // Delete the execution payload if payload pruning is enabled. At a skipped slot we may
-        // delete the payload for the finalized block itself, but that's OK as we only guarantee
-        // that payloads are present for slots >= the split slot. The payload fetching code is also
-        // forgiving of missing payloads.
-        if store.config.prune_payloads {
-            hot_db_ops.push(StoreOp::DeleteExecutionPayload(block_root));
-        }
     }
 
     // Warning: Critical section.  We have to take care not to put any of the two databases in an
