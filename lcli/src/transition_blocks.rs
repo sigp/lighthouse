@@ -71,6 +71,7 @@ use eth2::{
     types::{BlockId, StateId},
     BeaconNodeHttpClient, SensitiveUrl, Timeouts,
 };
+use eth2_network_config::Eth2NetworkConfig;
 use ssz::Encode;
 use state_processing::{
     block_signature_verifier::BlockSignatureVerifier, per_block_processing, per_slot_processing,
@@ -94,8 +95,12 @@ struct Config {
     exclude_post_block_thc: bool,
 }
 
-pub fn run<T: EthSpec>(env: Environment<T>, matches: &ArgMatches) -> Result<(), String> {
-    let spec = &T::default_spec();
+pub fn run<T: EthSpec>(
+    env: Environment<T>,
+    network_config: Eth2NetworkConfig,
+    matches: &ArgMatches,
+) -> Result<(), String> {
+    let spec = &network_config.chain_spec::<T>()?;
     let executor = env.core_context().executor;
 
     /*

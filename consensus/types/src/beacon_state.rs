@@ -455,7 +455,7 @@ impl<T: EthSpec> BeaconState<T> {
     }
 
     /// Specialised deserialisation method that uses the `ChainSpec` as context.
-    #[allow(clippy::integer_arithmetic)]
+    #[allow(clippy::arithmetic_side_effects)]
     pub fn from_ssz_bytes(bytes: &[u8], spec: &ChainSpec) -> Result<Self, ssz::DecodeError> {
         // Slot is after genesis_time (u64) and genesis_validators_root (Hash256).
         let slot_start = <u64 as Decode>::ssz_fixed_len() + <Hash256 as Decode>::ssz_fixed_len();
@@ -1761,16 +1761,22 @@ impl<T: EthSpec> BeaconState<T> {
         previous_epoch: Epoch,
         val_index: usize,
     ) -> Result<bool, Error> {
-        self.get_validator(val_index).map(|val| {
-            val.is_active_at(previous_epoch)
-                || (val.slashed && previous_epoch + Epoch::new(1) < val.withdrawable_epoch)
-        })
+        let val = self.get_validator(val_index)?;
+        Ok(val.is_active_at(previous_epoch)
+            || (val.slashed && previous_epoch.safe_add(Epoch::new(1))? < val.withdrawable_epoch))
     }
 
     /// Passing `previous_epoch` to this function rather than computing it internally provides
     /// a tangible speed improvement in state processing.
-    pub fn is_in_inactivity_leak(&self, previous_epoch: Epoch, spec: &ChainSpec) -> bool {
-        (previous_epoch - self.finalized_checkpoint().epoch) > spec.min_epochs_to_inactivity_penalty
+    pub fn is_in_inactivity_leak(
+        &self,
+        previous_epoch: Epoch,
+        spec: &ChainSpec,
+    ) -> Result<bool, safe_arith::ArithError> {
+        Ok(
+            (previous_epoch.safe_sub(self.finalized_checkpoint().epoch)?)
+                > spec.min_epochs_to_inactivity_penalty,
+        )
     }
 
     /// Get the `SyncCommittee` associated with the next slot. Useful because sync committees

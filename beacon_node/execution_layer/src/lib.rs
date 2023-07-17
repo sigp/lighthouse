@@ -42,13 +42,14 @@ use tokio_stream::wrappers::WatchStream;
 use tree_hash::TreeHash;
 use types::beacon_block_body::KzgCommitments;
 use types::blob_sidecar::Blobs;
-use types::KzgProofs;
-use types::{AbstractExecPayload, BeaconStateError, ExecPayload, VersionedHash};
 use types::{
-    BlindedPayload, BlockType, ChainSpec, Epoch, ExecutionPayloadCapella, ExecutionPayloadDeneb,
-    ExecutionPayloadMerge,
+    AbstractExecPayload, BeaconStateError, ExecPayload, ExecutionPayloadDeneb, VersionedHash,
 };
-use types::{ProposerPreparationData, PublicKeyBytes, Signature, Slot, Transaction};
+use types::{
+    BlindedPayload, BlockType, ChainSpec, Epoch, ExecutionPayloadCapella, ExecutionPayloadMerge,
+};
+use types::{KzgProofs, Withdrawals};
+use types::{ProposerPreparationData, PublicKeyBytes, Signature, Slot, Transaction, Uint256};
 
 mod block_hash;
 mod engine_api;
@@ -2125,6 +2126,15 @@ async fn timed_future<F: Future<Output = T>, T>(metric: &str, future: F) -> (T, 
     (result, duration)
 }
 
+#[cfg(test)]
+/// Returns the duration since the unix epoch.
+fn timestamp_now() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_else(|_| Duration::from_secs(0))
+        .as_secs()
+}
+
 #[derive(Debug)]
 pub enum BlobTxConversionError {
     /// The transaction type was not set.
@@ -2354,13 +2364,4 @@ mod test {
             })
             .await;
     }
-}
-
-#[cfg(test)]
-/// Returns the duration since the unix epoch.
-fn timestamp_now() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_else(|_| Duration::from_secs(0))
-        .as_secs()
 }
