@@ -13,7 +13,6 @@ use eth2::lighthouse::attestation_rewards::TotalAttestationRewards;
 use eth2::lighthouse::StandardAttestationRewards;
 use eth2::types::ValidatorId;
 use lazy_static::lazy_static;
-use task_executor::test_utils::null_logger;
 use types::beacon_state::Error as BeaconStateError;
 use types::{BeaconState, ChainSpec};
 
@@ -153,7 +152,7 @@ async fn test_verify_attestation_rewards_base() {
         total_rewards,
     } = harness
         .chain
-        .compute_attestation_rewards(Epoch::new(0), vec![], null_logger().unwrap())
+        .compute_attestation_rewards(Epoch::new(0), vec![])
         .unwrap();
 
     // assert no inactivity penalty for both ideal rewards and individual validators
@@ -205,7 +204,7 @@ async fn test_verify_attestation_rewards_base_inactivity_leak() {
         total_rewards,
     } = harness
         .chain
-        .compute_attestation_rewards(Epoch::new(target_epoch), vec![], null_logger().unwrap())
+        .compute_attestation_rewards(Epoch::new(target_epoch), vec![])
         .unwrap();
 
     // assert inactivity penalty for both ideal rewards and individual validators
@@ -255,7 +254,7 @@ async fn test_verify_attestation_rewards_base_subset_only() {
         total_rewards,
     } = harness
         .chain
-        .compute_attestation_rewards(Epoch::new(0), validators_subset_ids, null_logger().unwrap())
+        .compute_attestation_rewards(Epoch::new(0), validators_subset_ids)
         .unwrap();
 
     // apply attestation rewards to initial balances

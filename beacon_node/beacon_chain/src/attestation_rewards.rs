@@ -3,7 +3,7 @@ use eth2::lighthouse::attestation_rewards::{IdealAttestationRewards, TotalAttest
 use eth2::lighthouse::StandardAttestationRewards;
 use participation_cache::ParticipationCache;
 use safe_arith::SafeArith;
-use slog::{debug, Logger};
+use slog::{debug};
 use state_processing::{
     common::altair::BaseRewardPerIncrement,
     per_epoch_processing::altair::{participation_cache, rewards_and_penalties::get_flag_weight},
@@ -33,9 +33,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         epoch: Epoch,
         validators: Vec<ValidatorId>,
-        log: Logger,
     ) -> Result<StandardAttestationRewards, BeaconChainError> {
-        debug!(log, "computing attestation rewards"; "epoch" => epoch, "validator_count" => validators.len());
+        debug!(self.log, "computing attestation rewards"; "epoch" => epoch, "validator_count" => validators.len());
 
         // Get state
         let state_slot = (epoch + 1).end_slot(T::EthSpec::slots_per_epoch());

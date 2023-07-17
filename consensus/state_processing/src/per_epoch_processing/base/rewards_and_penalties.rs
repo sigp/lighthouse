@@ -93,7 +93,7 @@ pub fn get_attestation_deltas_subset<T: EthSpec>(
         deltas
             .into_iter()
             .enumerate()
-            .filter(|(index, _)| validators_subset.contains(&index))
+            .filter(|(index, _)| validators_subset.contains(index))
             .collect()
     })
 }
