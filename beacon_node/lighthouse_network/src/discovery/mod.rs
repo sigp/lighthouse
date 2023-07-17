@@ -1139,7 +1139,7 @@ mod tests {
             false,
             &log,
         );
-        let keypair: Keypair = keypair.into();
+        let keypair = Keypair::Secp256k1(keypair);
         Discovery::new(&keypair, &config, Arc::new(globals), &log)
             .await
             .unwrap()
