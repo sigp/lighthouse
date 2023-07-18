@@ -371,22 +371,23 @@ where
 
 #[cfg(test)]
 mod tests {
+    use crate::network_beacon_processor::NetworkBeaconProcessor;
     use crate::service::RequestId;
     use crate::NetworkMessage;
 
     use super::*;
-    use crate::beacon_processor::{BeaconProcessorSend, WorkEvent as BeaconWorkEvent};
     use beacon_chain::builder::Witness;
     use beacon_chain::eth1_chain::CachingEth1Backend;
     use beacon_chain::parking_lot::RwLock;
     use beacon_chain::EngineState;
+    use beacon_processor::WorkEvent as BeaconWorkEvent;
     use lighthouse_network::rpc::BlocksByRangeRequest;
     use lighthouse_network::Request;
     use lighthouse_network::{rpc::StatusMessage, NetworkGlobals};
     use slog::{o, Drain};
     use tokio::sync::mpsc;
 
-    use slot_clock::SystemTimeSlotClock;
+    use slot_clock::ManualSlotClock;
     use std::collections::HashSet;
     use std::sync::Arc;
     use store::MemoryStore;
@@ -437,7 +438,7 @@ mod tests {
     }
 
     type TestBeaconChainType =
-        Witness<SystemTimeSlotClock, CachingEth1Backend<E>, E, MemoryStore<E>, MemoryStore<E>>;
+        Witness<ManualSlotClock, CachingEth1Backend<E>, E, MemoryStore<E>, MemoryStore<E>>;
 
     fn build_log(level: slog::Level, enabled: bool) -> slog::Logger {
         let decorator = slog_term::TermDecorator::new().build();
@@ -455,7 +456,7 @@ mod tests {
     struct TestRig {
         log: slog::Logger,
         /// To check what does sync send to the beacon processor.
-        beacon_processor_rx: mpsc::Receiver<BeaconWorkEvent<TestBeaconChainType>>,
+        beacon_processor_rx: mpsc::Receiver<BeaconWorkEvent<E>>,
         /// To set up different scenarios where sync is told about known/unkown blocks.
         chain: Arc<FakeStorage>,
         /// Needed by range to handle communication with the network.
@@ -583,7 +584,7 @@ mod tests {
         fn expect_chain_segment(&mut self) {
             match self.beacon_processor_rx.try_recv() {
                 Ok(work) => {
-                    assert_eq!(work.work_type(), crate::beacon_processor::CHAIN_SEGMENT);
+                    assert_eq!(work.work_type(), beacon_processor::CHAIN_SEGMENT);
                 }
                 other => panic!("Expected chain segment process, found {:?}", other),
             }
@@ -593,17 +594,17 @@ mod tests {
     fn range(log_enabled: bool) -> (TestRig, RangeSync<TestBeaconChainType, FakeStorage>) {
         let chain = Arc::new(FakeStorage::default());
         let log = build_log(slog::Level::Trace, log_enabled);
-        let (beacon_processor_tx, beacon_processor_rx) = mpsc::channel(10);
         let range_sync = RangeSync::<TestBeaconChainType, FakeStorage>::new(
             chain.clone(),
             log.new(o!("component" => "range")),
         );
         let (network_tx, network_rx) = mpsc::unbounded_channel();
         let globals = Arc::new(NetworkGlobals::new_test_globals(Vec::new(), &log));
+        let (network_beacon_processor, beacon_processor_rx) =
+            NetworkBeaconProcessor::null_for_testing(globals.clone());
         let cx = SyncNetworkContext::new(
             network_tx,
-            globals.clone(),
-            BeaconProcessorSend(beacon_processor_tx),
+            Arc::new(network_beacon_processor),
             log.new(o!("component" => "network_context")),
         );
         let test_rig = TestRig {

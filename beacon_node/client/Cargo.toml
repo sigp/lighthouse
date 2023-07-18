@@ -43,3 +43,5 @@ slasher = { path = "../../slasher" }
 slasher_service = { path = "../../slasher/service" }
 monitoring_api = {path = "../../common/monitoring_api"}
 execution_layer = { path = "../execution_layer" }
+beacon_processor =  { path = "../beacon_processor" }
+num_cpus = "1.13.0"

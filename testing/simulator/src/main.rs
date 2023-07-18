@@ -21,6 +21,7 @@ mod cli;
 mod eth1_sim;
 mod local_network;
 mod no_eth1_sim;
+mod retry;
 mod sync_sim;
 
 use cli::cli_app;

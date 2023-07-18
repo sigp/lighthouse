@@ -451,7 +451,7 @@ impl ChainSpec {
         Hash256::from(domain)
     }
 
-    #[allow(clippy::integer_arithmetic)]
+    #[allow(clippy::arithmetic_side_effects)]
     pub const fn attestation_subnet_prefix_bits(&self) -> u32 {
         let attestation_subnet_count_bits = self.attestation_subnet_count.ilog2();
         self.attestation_subnet_extra_bits as u32 + attestation_subnet_count_bits

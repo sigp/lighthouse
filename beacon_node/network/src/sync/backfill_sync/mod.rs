@@ -8,7 +8,7 @@
 //! If a batch fails, the backfill sync cannot progress. In this scenario, we mark the backfill
 //! sync as failed, log an error and attempt to retry once a new peer joins the node.
 
-use crate::beacon_processor::{ChainSegmentProcessId, WorkEvent as BeaconWorkEvent};
+use crate::network_beacon_processor::ChainSegmentProcessId;
 use crate::sync::manager::{BatchProcessResult, Id};
 use crate::sync::network_context::SyncNetworkContext;
 use crate::sync::range_sync::{
@@ -537,8 +537,8 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
         self.current_processing_batch = Some(batch_id);
 
         if let Err(e) = network
-            .processor_channel()
-            .try_send(BeaconWorkEvent::chain_segment(process_id, blocks))
+            .beacon_processor()
+            .send_chain_segment(process_id, blocks)
         {
             crit!(self.log, "Failed to send backfill segment to processor."; "msg" => "process_batch",
                 "error" => %e, "batch" => self.processing_target);
@@ -1098,12 +1098,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
         match self.batches.entry(batch_id) {
             Entry::Occupied(_) => {
                 // this batch doesn't need downloading, let this same function decide the next batch
-                if batch_id
-                    == self
-                        .beacon_chain
-                        .genesis_backfill_slot
-                        .epoch(T::EthSpec::slots_per_epoch())
-                {
+                if self.would_complete(batch_id) {
                     self.last_batch_downloaded = true;
                 }
 
@@ -1114,12 +1109,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
             }
             Entry::Vacant(entry) => {
                 entry.insert(BatchInfo::new(&batch_id, BACKFILL_EPOCHS_PER_BATCH));
-                if batch_id
-                    == self
-                        .beacon_chain
-                        .genesis_backfill_slot
-                        .epoch(T::EthSpec::slots_per_epoch())
-                {
+                if self.would_complete(batch_id) {
                     self.last_batch_downloaded = true;
                 }
                 self.to_be_downloaded = self
@@ -1151,14 +1141,8 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
 
     /// Checks with the beacon chain if backfill sync has completed.
     fn check_completed(&mut self) -> bool {
-        if self.current_start
-            == self
-                .beacon_chain
-                .genesis_backfill_slot
-                .epoch(T::EthSpec::slots_per_epoch())
-        {
+        if self.would_complete(self.current_start) {
             // Check that the beacon chain agrees
-
             if let Some(anchor_info) = self.beacon_chain.store.get_anchor_info() {
                 // Conditions that we have completed a backfill sync
                 if anchor_info.block_backfill_complete(self.beacon_chain.genesis_backfill_slot) {
@@ -1169,6 +1153,15 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
             }
         }
         false
+    }
+
+    /// Checks if backfill would complete by syncing to `start_epoch`.
+    fn would_complete(&self, start_epoch: Epoch) -> bool {
+        start_epoch
+            <= self
+                .beacon_chain
+                .genesis_backfill_slot
+                .epoch(T::EthSpec::slots_per_epoch())
     }
 
     /// Updates the global network state indicating the current state of a backfill sync.

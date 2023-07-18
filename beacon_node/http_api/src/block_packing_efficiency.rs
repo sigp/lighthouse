@@ -75,7 +75,7 @@ impl<T: EthSpec> PackingEfficiencyHandler<T> {
             available_attestations: HashSet::new(),
             included_attestations: HashMap::new(),
             committee_store: CommitteeStore::new(),
-            _phantom: PhantomData::default(),
+            _phantom: PhantomData,
         };
 
         handler.compute_epoch(start_epoch, &starting_state, spec)?;

@@ -1,4 +1,4 @@
-#![allow(clippy::integer_arithmetic)]
+#![allow(clippy::arithmetic_side_effects)]
 
 use crate::{Hash256, ParticipationFlags, Unsigned, VariableList};
 use cached_tree_hash::{int_log, CacheArena, CachedTreeHash, Error, TreeHashCache};

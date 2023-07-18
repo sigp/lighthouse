@@ -9,5 +9,5 @@ set -Eeuo pipefail
 source ./vars.env
 
 if [ -d $DATADIR ]; then
-  rm -r $DATADIR
+  rm -rf $DATADIR
 fi

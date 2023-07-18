@@ -48,6 +48,17 @@ The Ethereum community provides various [public endpoints](https://eth-clients.g
 lighthouse bn --checkpoint-sync-url https://example.com/ ...
 ```
 
+### Adjusting the timeout
+
+If the beacon node fails to start due to a timeout from the checkpoint sync server, you can try
+running it again with a longer timeout by adding the flag `--checkpoint-sync-url-timeout`.
+
+```
+lighthouse bn --checkpoint-sync-url-timeout 300 --checkpoint-sync-url https://example.com/ ...
+```
+
+The flag takes a value in seconds. For more information see `lighthouse bn --help`.
+
 ## Backfilling Blocks
 
 Once forwards sync completes, Lighthouse will commence a "backfill sync" to download the blocks

@@ -382,6 +382,17 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     stalled. This is useful for very small testnets. TESTING ONLY. DO NOT USE ON \
                     MAINNET.")
         )
+        .arg(
+            Arg::with_name("http-enable-beacon-processor")
+                .long("http-enable-beacon-processor")
+                .value_name("BOOLEAN")
+                .help("The beacon processor is a scheduler which provides quality-of-service and \
+                    DoS protection. When set to \"true\", HTTP API requests will queued and scheduled \
+                    alongside other tasks. When set to \"false\", HTTP API responses will be executed \
+                    immediately.")
+                .takes_value(true)
+                .default_value("true")
+        )
         /* Prometheus metrics HTTP server related arguments */
         .arg(
             Arg::with_name("metrics")
@@ -531,6 +542,16 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .help("Specifies how often a freezer DB restore point should be stored. \
                        Cannot be changed after initialization. \
                        [default: 8192 (mainnet) or 64 (minimal)]")
+                .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("epochs-per-migration")
+                .long("epochs-per-migration")
+                .value_name("N")
+                .help("The number of epochs to wait between running the migration of data from the \
+                       hot DB to the cold DB. Less frequent runs can be useful for minimizing disk \
+                       writes")
+                .default_value("1")
                 .takes_value(true)
         )
         .arg(
@@ -848,7 +869,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .help("Set the timeout for checkpoint sync calls to remote beacon node HTTP endpoint.")
                 .value_name("SECONDS")
                 .takes_value(true)
-                .default_value("60")
+                .default_value("180")
         )
         .arg(
             Arg::with_name("reconstruct-historic-states")
@@ -1130,5 +1151,56 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                         not recommended for mainnet usage at this time.")
                 .takes_value(true)
                 .possible_values(ProgressiveBalancesMode::VARIANTS)
+        )
+        .arg(
+            Arg::with_name("beacon-processor-max-workers")
+                .long("beacon-processor-max-workers")
+                .value_name("INTEGER")
+                .help("Specifies the maximum concurrent tasks for the task scheduler. Increasing \
+                        this value may increase resource consumption. Reducing the value \
+                        may result in decreased resource usage and diminished performance. The \
+                        default value is the number of logical CPU cores on the host.")
+                .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("beacon-processor-work-queue-len")
+                .long("beacon-processor-work-queue-len")
+                .value_name("INTEGER")
+                .help("Specifies the length of the inbound event queue. \
+                        Higher values may prevent messages from being dropped while lower values \
+                        may help protect the node from becoming overwhelmed.")
+                .default_value("16384")
+                .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("beacon-processor-reprocess-queue-len")
+                .long("beacon-processor-reprocess-queue-len")
+                .value_name("INTEGER")
+                .help("Specifies the length of the queue for messages requiring delayed processing. \
+                        Higher values may prevent messages from being dropped while lower values \
+                        may help protect the node from becoming overwhelmed.")
+                .default_value("12288")
+                .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("beacon-processor-attestation-batch-size")
+                .long("beacon-processor-gossip-attestation-batch")
+                .value_name("INTEGER")
+                .help("Specifies the number of gossip attestations in a signature verification batch. \
+                       Higher values may reduce CPU usage in a healthy network whilst lower values may \
+                       increase CPU usage in an unhealthy or hostile network.")
+                .default_value("64")
+                .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("beacon-processor-aggregate-batch-size")
+                .long("beacon-processor-gossip-aggregate-batch")
+                .value_name("INTEGER")
+                .help("Specifies the number of gossip aggregate attestations in a signature \
+                       verification batch. \
+                       Higher values may reduce CPU usage in a healthy network while lower values may \
+                       increase CPU usage in an unhealthy or hostile network.")
+                .default_value("64")
+                .takes_value(true)
         )
 }

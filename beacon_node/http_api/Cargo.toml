@@ -42,6 +42,7 @@ operation_pool = { path = "../operation_pool" }
 sensitive_url = { path = "../../common/sensitive_url" }
 unused_port = {path = "../../common/unused_port"}
 store = { path = "../store" }
+beacon_processor = { path = "../beacon_processor" }
 
 [dev-dependencies]
 environment = { path = "../../lighthouse/environment" }

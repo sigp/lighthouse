@@ -3,7 +3,7 @@
 #![cfg_attr(
     not(test),
     deny(
-        clippy::integer_arithmetic,
+        clippy::arithmetic_side_effects,
         clippy::disallowed_methods,
         clippy::indexing_slicing
     )

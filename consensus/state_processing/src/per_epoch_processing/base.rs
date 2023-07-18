@@ -36,7 +36,7 @@ pub fn process_epoch<T: EthSpec>(
     justification_and_finalization_state.apply_changes_to_state(state);
 
     // Rewards and Penalties.
-    process_rewards_and_penalties(state, &mut validator_statuses, spec)?;
+    process_rewards_and_penalties(state, &validator_statuses, spec)?;
 
     // Registry Updates.
     process_registry_updates(state, spec)?;
