@@ -171,7 +171,6 @@ pub struct ChainSpec {
     pub attestation_subnet_count: u64,
     pub subnets_per_node: u8,
     pub epochs_per_subnet_subscription: u64,
-    pub attestation_subnet_extra_bits: u8,
     pub gossip_max_size: u64,
     pub max_request_blocks: u64,
     pub min_epochs_for_block_requests: u64,
@@ -180,7 +179,8 @@ pub struct ChainSpec {
     pub resp_timeout: u64,
     pub message_domain_invalid_snappy: [u8; 4],
     pub message_domain_valid_snappy: [u8; 4],
-    pub attestation_subnet_prefix_bits: u32,
+    pub attestation_subnet_extra_bits: u8,
+    pub attestation_subnet_prefix_bits: u8,
 
     /*
      * Application params
@@ -461,12 +461,6 @@ impl ChainSpec {
         Hash256::from(domain)
     }
 
-    #[allow(clippy::arithmetic_side_effects)]
-    pub const fn attestation_subnet_prefix_bits(&self) -> u32 {
-        let attestation_subnet_count_bits = self.attestation_subnet_count.ilog2();
-        self.attestation_subnet_extra_bits as u32 + attestation_subnet_count_bits
-    }
-
     pub fn maximum_gossip_clock_disparity(&self) -> Duration {
         Duration::from_millis(self.maximum_gossip_clock_disparity_millis)
     }
@@ -639,17 +633,16 @@ impl ChainSpec {
             maximum_gossip_clock_disparity_millis: 500,
             target_aggregators_per_committee: 16,
             epochs_per_subnet_subscription: 256,
-            attestation_subnet_extra_bits: 6,
             gossip_max_size: 10_485_760,
             max_request_blocks: 1024,
             min_epochs_for_block_requests: 33024,
-            max_chunk_size: 1_048_576,
+            max_chunk_size: 10_485_760,
             ttfb_timeout: 5,
             resp_timeout: 10,
             message_domain_invalid_snappy: [0, 0, 0, 0],
             message_domain_valid_snappy: [1, 0, 0, 0],
+            attestation_subnet_extra_bits: 0,
             attestation_subnet_prefix_bits: 6,
-
             /*
              * Application specific
              */
@@ -873,15 +866,15 @@ impl ChainSpec {
             maximum_gossip_clock_disparity_millis: 500,
             target_aggregators_per_committee: 16,
             epochs_per_subnet_subscription: 256,
-            attestation_subnet_extra_bits: 6,
             gossip_max_size: 10_485_760,
             max_request_blocks: 1024,
             min_epochs_for_block_requests: 33024,
-            max_chunk_size: 1_048_576,
+            max_chunk_size: 10_485_760,
             ttfb_timeout: 5,
             resp_timeout: 10,
             message_domain_invalid_snappy: [0, 0, 0, 0],
             message_domain_valid_snappy: [1, 0, 0, 0],
+            attestation_subnet_extra_bits: 0,
             attestation_subnet_prefix_bits: 6,
 
             /*
@@ -1010,8 +1003,10 @@ pub struct Config {
     message_domain_invalid_snappy: [u8; 4],
     #[serde(with = "serde_utils::bytes_4_hex")]
     message_domain_valid_snappy: [u8; 4],
-    #[serde(with = "serde_utils::quoted_u32")]
-    attestation_subnet_prefix_bits: u32,
+    #[serde(with = "serde_utils::quoted_u8")]
+    attestation_subnet_extra_bits: u8,
+    #[serde(with = "serde_utils::quoted_u8")]
+    attestation_subnet_prefix_bits: u8,
 }
 
 fn default_bellatrix_fork_version() -> [u8; 4] {
@@ -1156,6 +1151,7 @@ impl Config {
             resp_timeout: spec.resp_timeout,
             message_domain_invalid_snappy: spec.message_domain_invalid_snappy,
             message_domain_valid_snappy: spec.message_domain_valid_snappy,
+            attestation_subnet_extra_bits: spec.attestation_subnet_extra_bits,
             attestation_subnet_prefix_bits: spec.attestation_subnet_prefix_bits,
         }
     }
@@ -1209,6 +1205,7 @@ impl Config {
             resp_timeout,
             message_domain_invalid_snappy,
             message_domain_valid_snappy,
+            attestation_subnet_extra_bits,
             attestation_subnet_prefix_bits,
         } = self;
 
@@ -1255,6 +1252,7 @@ impl Config {
             resp_timeout,
             message_domain_invalid_snappy,
             message_domain_valid_snappy,
+            attestation_subnet_extra_bits,
             attestation_subnet_prefix_bits,
             ..chain_spec.clone()
         })
@@ -1497,11 +1495,12 @@ mod yaml_tests {
         GOSSIP_MAX_SIZE: 10485760
         MAX_REQUEST_BLOCKS: 1024
         MIN_EPOCHS_FOR_BLOCK_REQUESTS: 33024
-        MAX_CHUNK_SIZE: 1048576
+        MAX_CHUNK_SIZE: 10485760
         TTFB_TIMEOUT: 5
         RESP_TIMEOUT: 10
         MESSAGE_DOMAIN_INVALID_SNAPPY: 0x00000000
         MESSAGE_DOMAIN_VALID_SNAPPY: 0x01000000
+        ATTESTATION_SUBNET_EXTRA_BITS: 6
         ATTESTATION_SUBNET_PREFIX_BITS: 6
         "#;
 

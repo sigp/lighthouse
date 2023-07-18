@@ -34,7 +34,7 @@ use types::{ChainSpec, EthSpec, ForkContext, ForkName};
 pub const DUPLICATE_CACHE_TIME: Duration = Duration::from_secs(33 * 12 + 1);
 
 /// The maximum size of gossip messages.
-pub fn gossip_max_size<TSpec: EthSpec>(is_merge_enabled: bool, spec: &ChainSpec) -> usize {
+pub fn gossip_max_size(is_merge_enabled: bool, spec: &ChainSpec) -> usize {
     let gossip_max_size = spec.gossip_max_size;
     if is_merge_enabled {
         gossip_max_size as usize
@@ -457,7 +457,7 @@ pub fn gossipsub_config<TSpec: EthSpec>(
     let load = NetworkLoad::from(network_load);
 
     GossipsubConfigBuilder::default()
-        .max_transmit_size(gossip_max_size::<TSpec>(is_merge_enabled, spec))
+        .max_transmit_size(gossip_max_size(is_merge_enabled, spec))
         .heartbeat_interval(load.heartbeat_interval)
         .mesh_n(load.mesh_n)
         .mesh_n_low(load.mesh_n_low)
