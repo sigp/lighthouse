@@ -525,14 +525,10 @@ async fn run<'a>(config: MoveConfig) -> Result<(), String> {
                         }
                         ImportKeystoreStatus::Error => {
                             eprintln!(
-                                "Upload of keystore {} of {} failed with message: {:?}. \
-                                    A potential solution is run this command again \
-                                    using the --{} flag, however care should be taken to ensure \
-                                    that there are no duplicate deposits submitted.",
+                                "Upload of keystore {} of {} failed with message: {:?}."
                                 i + 1,
                                 count,
                                 status.message,
-                                IGNORE_DUPLICATES_FLAG
                             );
                             // Retry uploading this validator.
                             sleep_with_retry_message(
@@ -574,10 +570,7 @@ async fn run<'a>(config: MoveConfig) -> Result<(), String> {
                 }
                 Err(UploadError::IncorrectStatusCount(count)) => {
                     eprintln!(
-                        "Keystore was uploaded, however the validator client returned an invalid response. \
-                        A potential solution is run this command again using the --{} flag, however care \
-                        should be taken to ensure that there are no duplicate deposits submitted.",
-                        IGNORE_DUPLICATES_FLAG
+                        "Keystore was uploaded, however the validator client returned an invalid response."
                     );
                     return Err(format!(
                         "Invalid status count in import response: {}",
