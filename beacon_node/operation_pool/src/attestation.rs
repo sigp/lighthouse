@@ -2,7 +2,8 @@ use crate::attestation_storage::AttestationRef;
 use crate::max_cover::MaxCover;
 use crate::reward_cache::RewardCache;
 use state_processing::common::{
-    altair, base, get_attestation_participation_flag_indices, get_attesting_indices,
+    altair, base, get_attestation_participation_flag_indices_altair,
+    get_attestation_participation_flag_indices_deneb, get_attesting_indices,
 };
 use std::collections::HashMap;
 use types::{
@@ -27,10 +28,16 @@ impl<'a, T: EthSpec> AttMaxCover<'a, T> {
         total_active_balance: u64,
         spec: &ChainSpec,
     ) -> Option<Self> {
-        if let BeaconState::Base(ref base_state) = state {
-            Self::new_for_base(att, state, base_state, total_active_balance, spec)
-        } else {
-            Self::new_for_altair(att, state, reward_cache, total_active_balance, spec)
+        match state {
+            BeaconState::Base(ref base_state) => {
+                Self::new_for_base(att, state, base_state, total_active_balance, spec)
+            }
+            BeaconState::Altair(_) | BeaconState::Merge(_) | BeaconState::Capella(_) => {
+                Self::new_for_altair(att, state, reward_cache, total_active_balance, spec)
+            }
+            BeaconState::Deneb(_) => {
+                Self::new_for_deneb(att, state, reward_cache, total_active_balance, spec)
+            }
         }
     }
 
@@ -68,7 +75,7 @@ impl<'a, T: EthSpec> AttMaxCover<'a, T> {
         })
     }
 
-    /// Initialise an attestation cover object for Altair or later.
+    /// Initialise an attestation cover object for Altair, Merge, Capella.
     pub fn new_for_altair(
         att: AttestationRef<'a, T>,
         state: &BeaconState<T>,
@@ -79,9 +86,71 @@ impl<'a, T: EthSpec> AttMaxCover<'a, T> {
         let att_data = att.attestation_data();
 
         let inclusion_delay = state.slot().as_u64().checked_sub(att_data.slot.as_u64())?;
-        let att_participation_flags =
-            get_attestation_participation_flag_indices(state, &att_data, inclusion_delay, spec)
-                .ok()?;
+        let att_participation_flags = get_attestation_participation_flag_indices_altair(
+            state,
+            &att_data,
+            inclusion_delay,
+            spec,
+        )
+        .ok()?;
+        let base_reward_per_increment =
+            altair::BaseRewardPerIncrement::new(total_active_balance, spec).ok()?;
+
+        let fresh_validators_rewards = att
+            .indexed
+            .attesting_indices
+            .iter()
+            .filter_map(|&index| {
+                if reward_cache
+                    .has_attested_in_epoch(index, att_data.target.epoch)
+                    .ok()?
+                {
+                    return None;
+                }
+
+                let mut proposer_reward_numerator = 0;
+
+                let base_reward =
+                    altair::get_base_reward(state, index as usize, base_reward_per_increment, spec)
+                        .ok()?;
+
+                for (flag_index, weight) in PARTICIPATION_FLAG_WEIGHTS.iter().enumerate() {
+                    if att_participation_flags.contains(&flag_index) {
+                        proposer_reward_numerator += base_reward.checked_mul(*weight)?;
+                    }
+                }
+
+                let proposer_reward = proposer_reward_numerator
+                    .checked_div(WEIGHT_DENOMINATOR.checked_mul(spec.proposer_reward_quotient)?)?;
+
+                Some((index, proposer_reward)).filter(|_| proposer_reward != 0)
+            })
+            .collect();
+
+        Some(Self {
+            att,
+            fresh_validators_rewards,
+        })
+    }
+
+    /// Initialise an attestation cover object for Deneb or later
+    pub fn new_for_deneb(
+        att: AttestationRef<'a, T>,
+        state: &BeaconState<T>,
+        reward_cache: &'a RewardCache,
+        total_active_balance: u64,
+        spec: &ChainSpec,
+    ) -> Option<Self> {
+        let att_data = att.attestation_data();
+
+        let inclusion_delay = state.slot().as_u64().checked_sub(att_data.slot.as_u64())?;
+        let att_participation_flags = get_attestation_participation_flag_indices_deneb(
+            state,
+            &att_data,
+            inclusion_delay,
+            spec,
+        )
+        .ok()?;
         let base_reward_per_increment =
             altair::BaseRewardPerIncrement::new(total_active_balance, spec).ok()?;
 

@@ -1,7 +1,8 @@
 use super::*;
 use crate::common::{
     altair::{get_base_reward, BaseRewardPerIncrement},
-    get_attestation_participation_flag_indices, increase_balance, initiate_validator_exit,
+    get_attestation_participation_flag_indices_altair,
+    get_attestation_participation_flag_indices_deneb, increase_balance, initiate_validator_exit,
     slash_validator,
 };
 use crate::per_block_processing::errors::{BlockProcessingError, IntoWithIndex};
@@ -142,7 +143,99 @@ pub mod altair {
         let data = &attestation.data;
         let inclusion_delay = state.slot().safe_sub(data.slot)?.as_u64();
         let participation_flag_indices =
-            get_attestation_participation_flag_indices(state, data, inclusion_delay, spec)?;
+            get_attestation_participation_flag_indices_altair(state, data, inclusion_delay, spec)?;
+
+        // Update epoch participation flags.
+        let total_active_balance = state.get_total_active_balance()?;
+        let base_reward_per_increment = BaseRewardPerIncrement::new(total_active_balance, spec)?;
+        let mut proposer_reward_numerator = 0;
+        for index in attesting_indices {
+            let index = *index as usize;
+
+            for (flag_index, &weight) in PARTICIPATION_FLAG_WEIGHTS.iter().enumerate() {
+                let epoch_participation = state.get_epoch_participation_mut(data.target.epoch)?;
+                let validator_participation = epoch_participation
+                    .get_mut(index)
+                    .ok_or(BeaconStateError::ParticipationOutOfBounds(index))?;
+
+                if participation_flag_indices.contains(&flag_index)
+                    && !validator_participation.has_flag(flag_index)?
+                {
+                    validator_participation.add_flag(flag_index)?;
+                    proposer_reward_numerator.safe_add_assign(
+                        get_base_reward(state, index, base_reward_per_increment, spec)?
+                            .safe_mul(weight)?,
+                    )?;
+
+                    if flag_index == TIMELY_TARGET_FLAG_INDEX {
+                        update_progressive_balances_on_attestation(
+                            state,
+                            data.target.epoch,
+                            index,
+                        )?;
+                    }
+                }
+            }
+        }
+
+        let proposer_reward_denominator = WEIGHT_DENOMINATOR
+            .safe_sub(PROPOSER_WEIGHT)?
+            .safe_mul(WEIGHT_DENOMINATOR)?
+            .safe_div(PROPOSER_WEIGHT)?;
+        let proposer_reward = proposer_reward_numerator.safe_div(proposer_reward_denominator)?;
+        increase_balance(state, proposer_index as usize, proposer_reward)?;
+        Ok(())
+    }
+}
+
+pub mod deneb {
+    use super::*;
+    use crate::common::update_progressive_balances_cache::update_progressive_balances_on_attestation;
+    use types::consts::altair::TIMELY_TARGET_FLAG_INDEX;
+
+    pub fn process_attestations<T: EthSpec>(
+        state: &mut BeaconState<T>,
+        attestations: &[Attestation<T>],
+        verify_signatures: VerifySignatures,
+        ctxt: &mut ConsensusContext<T>,
+        spec: &ChainSpec,
+    ) -> Result<(), BlockProcessingError> {
+        attestations
+            .iter()
+            .enumerate()
+            .try_for_each(|(i, attestation)| {
+                process_attestation(state, attestation, i, ctxt, verify_signatures, spec)
+            })
+    }
+
+    pub fn process_attestation<T: EthSpec>(
+        state: &mut BeaconState<T>,
+        attestation: &Attestation<T>,
+        att_index: usize,
+        ctxt: &mut ConsensusContext<T>,
+        verify_signatures: VerifySignatures,
+        spec: &ChainSpec,
+    ) -> Result<(), BlockProcessingError> {
+        state.build_committee_cache(RelativeEpoch::Previous, spec)?;
+        state.build_committee_cache(RelativeEpoch::Current, spec)?;
+
+        let proposer_index = ctxt.get_proposer_index(state, spec)?;
+
+        let attesting_indices = &verify_attestation_for_block_inclusion(
+            state,
+            attestation,
+            ctxt,
+            verify_signatures,
+            spec,
+        )
+        .map_err(|e| e.into_with_index(att_index))?
+        .attesting_indices;
+
+        // Matching roots, participation flag indices
+        let data = &attestation.data;
+        let inclusion_delay = state.slot().safe_sub(data.slot)?.as_u64();
+        let participation_flag_indices =
+            get_attestation_participation_flag_indices_deneb(state, data, inclusion_delay, spec)?;
 
         // Update epoch participation flags.
         let total_active_balance = state.get_total_active_balance()?;
@@ -267,9 +360,17 @@ pub fn process_attestations<T: EthSpec, Payload: AbstractExecPayload<T>>(
         }
         BeaconBlockBodyRef::Altair(_)
         | BeaconBlockBodyRef::Merge(_)
-        | BeaconBlockBodyRef::Capella(_)
-        | BeaconBlockBodyRef::Deneb(_) => {
+        | BeaconBlockBodyRef::Capella(_) => {
             altair::process_attestations(
+                state,
+                block_body.attestations(),
+                verify_signatures,
+                ctxt,
+                spec,
+            )?;
+        }
+        BeaconBlockBodyRef::Deneb(_) => {
+            deneb::process_attestations(
                 state,
                 block_body.attestations(),
                 verify_signatures,

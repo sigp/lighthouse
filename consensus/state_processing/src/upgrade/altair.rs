@@ -1,5 +1,5 @@
 use crate::common::update_progressive_balances_cache::initialize_progressive_balances_cache;
-use crate::common::{get_attestation_participation_flag_indices, get_attesting_indices};
+use crate::common::{get_attestation_participation_flag_indices_altair, get_attesting_indices};
 use std::mem;
 use std::sync::Arc;
 use types::{
@@ -22,7 +22,7 @@ pub fn translate_participation<E: EthSpec>(
 
         // Translate attestation inclusion info to flag indices.
         let participation_flag_indices =
-            get_attestation_participation_flag_indices(state, data, inclusion_delay, spec)?;
+            get_attestation_participation_flag_indices_altair(state, data, inclusion_delay, spec)?;
 
         // Apply flags to all attesting validators.
         let committee = state.get_beacon_committee(data.slot, data.index)?;

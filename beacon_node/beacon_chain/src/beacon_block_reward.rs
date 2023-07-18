@@ -5,7 +5,8 @@ use safe_arith::SafeArith;
 use slog::error;
 use state_processing::{
     common::{
-        altair, get_attestation_participation_flag_indices, get_attesting_indices_from_state,
+        altair, get_attestation_participation_flag_indices_altair,
+        get_attestation_participation_flag_indices_deneb, get_attesting_indices_from_state,
     },
     per_block_processing::{
         altair::sync_committee::compute_sync_aggregate_rewards, get_slashable_indices,
@@ -60,26 +61,37 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 BeaconChainError::BlockRewardError
             })?;
 
-        let block_attestation_reward = if let BeaconState::Base(_) = state {
-            self.compute_beacon_block_attestation_reward_base(block, block_root, state)
+        let block_attestation_reward = match state {
+            BeaconState::Base(_) => self
+                .compute_beacon_block_attestation_reward_base(block, block_root, state)
                 .map_err(|e| {
                     error!(
-                    self.log,
-                    "Error calculating base block attestation reward";
-                    "error" => ?e
+                        self.log,
+                        "Error calculating base block attestation reward";
+                        "error" => ?e
                     );
                     BeaconChainError::BlockRewardAttestationError
-                })?
-        } else {
-            self.compute_beacon_block_attestation_reward_altair(block, state)
+                })?,
+            BeaconState::Altair(_) | BeaconState::Merge(_) | BeaconState::Capella(_) => self
+                .compute_beacon_block_attestation_reward_altair(block, state)
                 .map_err(|e| {
                     error!(
-                    self.log,
-                    "Error calculating altair block attestation reward";
-                    "error" => ?e
+                        self.log,
+                        "Error calculating altair block attestation reward";
+                        "error" => ?e
                     );
                     BeaconChainError::BlockRewardAttestationError
-                })?
+                })?,
+            BeaconState::Deneb(_) => self
+                .compute_beacon_block_attestation_reward_deneb(block, state)
+                .map_err(|e| {
+                    error!(
+                        self.log,
+                        "Error calculating deneb block attestation reward";
+                        "error" => ?e
+                    );
+                    BeaconChainError::BlockRewardAttestationError
+                })?,
         };
 
         let total_reward = sync_aggregate_reward
@@ -192,7 +204,69 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         for attestation in block.body().attestations() {
             let data = &attestation.data;
             let inclusion_delay = state.slot().safe_sub(data.slot)?.as_u64();
-            let participation_flag_indices = get_attestation_participation_flag_indices(
+            let participation_flag_indices = get_attestation_participation_flag_indices_altair(
+                state,
+                data,
+                inclusion_delay,
+                &self.spec,
+            )?;
+
+            let attesting_indices = get_attesting_indices_from_state(state, attestation)?;
+
+            let mut proposer_reward_numerator = 0;
+            for index in attesting_indices {
+                let index = index as usize;
+                for (flag_index, &weight) in PARTICIPATION_FLAG_WEIGHTS.iter().enumerate() {
+                    let epoch_participation =
+                        state.get_epoch_participation_mut(data.target.epoch)?;
+                    let validator_participation = epoch_participation
+                        .get_mut(index)
+                        .ok_or(BeaconStateError::ParticipationOutOfBounds(index))?;
+
+                    if participation_flag_indices.contains(&flag_index)
+                        && !validator_participation.has_flag(flag_index)?
+                    {
+                        validator_participation.add_flag(flag_index)?;
+                        proposer_reward_numerator.safe_add_assign(
+                            altair::get_base_reward(
+                                state,
+                                index,
+                                base_reward_per_increment,
+                                &self.spec,
+                            )?
+                            .safe_mul(weight)?,
+                        )?;
+                    }
+                }
+            }
+            total_proposer_reward.safe_add_assign(
+                proposer_reward_numerator.safe_div(proposer_reward_denominator)?,
+            )?;
+        }
+
+        Ok(total_proposer_reward)
+    }
+
+    fn compute_beacon_block_attestation_reward_deneb<Payload: AbstractExecPayload<T::EthSpec>>(
+        &self,
+        block: BeaconBlockRef<'_, T::EthSpec, Payload>,
+        state: &mut BeaconState<T::EthSpec>,
+    ) -> Result<BeaconBlockSubRewardValue, BeaconChainError> {
+        let total_active_balance = state.get_total_active_balance()?;
+        let base_reward_per_increment =
+            altair::BaseRewardPerIncrement::new(total_active_balance, &self.spec)?;
+
+        let mut total_proposer_reward = 0;
+
+        let proposer_reward_denominator = WEIGHT_DENOMINATOR
+            .safe_sub(PROPOSER_WEIGHT)?
+            .safe_mul(WEIGHT_DENOMINATOR)?
+            .safe_div(PROPOSER_WEIGHT)?;
+
+        for attestation in block.body().attestations() {
+            let data = &attestation.data;
+            let inclusion_delay = state.slot().safe_sub(data.slot)?.as_u64();
+            let participation_flag_indices = get_attestation_participation_flag_indices_deneb(
                 state,
                 data,
                 inclusion_delay,
