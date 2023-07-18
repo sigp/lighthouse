@@ -1225,72 +1225,72 @@ impl<E: EthSpec> BeaconProcessor<E> {
                     self.current_workers as i64,
                 );
                 metrics::observe_histogram_vec(
-                    &metrics::BEACON_PROCESSOR_QUEUE_LENGTHS,
+                    &metrics::BEACON_PROCESSOR_QUEUE_LENGTH,
                     &[GOSSIP_ATTESTATION],
                     attestation_queue.len() as f64,
                 );
                 metrics::observe_histogram_vec(
-                    &metrics::BEACON_PROCESSOR_QUEUE_LENGTHS,
+                    &metrics::BEACON_PROCESSOR_QUEUE_LENGTH,
                     &[GOSSIP_AGGREGATE],
                     aggregate_queue.len() as f64,
                 );
                 metrics::observe_histogram_vec(
-                    &metrics::BEACON_PROCESSOR_QUEUE_LENGTHS,
+                    &metrics::BEACON_PROCESSOR_QUEUE_LENGTH,
                     &[GOSSIP_SYNC_SIGNATURE],
                     sync_message_queue.len() as f64,
                 );
                 metrics::observe_histogram_vec(
-                    &metrics::BEACON_PROCESSOR_QUEUE_LENGTHS,
+                    &metrics::BEACON_PROCESSOR_QUEUE_LENGTH,
                     &[GOSSIP_SYNC_CONTRIBUTION],
                     sync_contribution_queue.len() as f64,
                 );
                 metrics::observe_histogram_vec(
-                    &metrics::BEACON_PROCESSOR_QUEUE_LENGTHS,
+                    &metrics::BEACON_PROCESSOR_QUEUE_LENGTH,
                     &[GOSSIP_BLOCK],
                     gossip_block_queue.len() as f64,
                 );
                 metrics::observe_histogram_vec(
-                    &metrics::BEACON_PROCESSOR_QUEUE_LENGTHS,
+                    &metrics::BEACON_PROCESSOR_QUEUE_LENGTH,
                     &[RPC_BLOCK],
                     rpc_block_queue.len() as f64,
                 );
                 metrics::observe_histogram_vec(
-                    &metrics::BEACON_PROCESSOR_QUEUE_LENGTHS,
+                    &metrics::BEACON_PROCESSOR_QUEUE_LENGTH,
                     &[CHAIN_SEGMENT],
                     chain_segment_queue.len() as f64,
                 );
                 metrics::observe_histogram_vec(
-                    &metrics::BEACON_PROCESSOR_QUEUE_LENGTHS,
+                    &metrics::BEACON_PROCESSOR_QUEUE_LENGTH,
                     &[CHAIN_SEGMENT_BACKFILL],
                     backfill_chain_segment.len() as f64,
                 );
                 metrics::observe_histogram_vec(
-                    &metrics::BEACON_PROCESSOR_QUEUE_LENGTHS,
+                    &metrics::BEACON_PROCESSOR_QUEUE_LENGTH,
                     &[GOSSIP_VOLUNTARY_EXIT],
                     gossip_voluntary_exit_queue.len() as f64,
                 );
                 metrics::observe_histogram_vec(
-                    &metrics::BEACON_PROCESSOR_QUEUE_LENGTHS,
+                    &metrics::BEACON_PROCESSOR_QUEUE_LENGTH,
                     &[GOSSIP_PROPOSER_SLASHING],
                     gossip_proposer_slashing_queue.len() as f64,
                 );
                 metrics::observe_histogram_vec(
-                    &metrics::BEACON_PROCESSOR_QUEUE_LENGTHS,
+                    &metrics::BEACON_PROCESSOR_QUEUE_LENGTH,
                     &[GOSSIP_ATTESTER_SLASHING],
                     gossip_attester_slashing_queue.len() as f64,
                 );
                 metrics::observe_histogram_vec(
-                    &metrics::BEACON_PROCESSOR_QUEUE_LENGTHS,
+                    &metrics::BEACON_PROCESSOR_QUEUE_LENGTH,
                     &[GOSSIP_BLS_TO_EXECUTION_CHANGE],
                     gossip_bls_to_execution_change_queue.len() as f64,
                 );
                 metrics::observe_histogram_vec(
-                    &metrics::BEACON_PROCESSOR_QUEUE_LENGTHS,
+                    &metrics::BEACON_PROCESSOR_QUEUE_LENGTH,
                     &[API_REQUEST_P0],
                     api_request_p0_queue.len() as f64,
                 );
                 metrics::observe_histogram_vec(
-                    &metrics::BEACON_PROCESSOR_QUEUE_LENGTHS,
+                    &metrics::BEACON_PROCESSOR_QUEUE_LENGTH,
                     &[API_REQUEST_P1],
                     api_request_p1_queue.len() as f64,
                 );

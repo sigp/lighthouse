@@ -47,8 +47,8 @@ lazy_static::lazy_static! {
         "beacon_processor_event_handling_seconds",
         "Time spent handling a new message and allocating it to a queue or worker."
     );
-    pub static ref BEACON_PROCESSOR_QUEUE_LENGTHS: Result<HistogramVec> = try_create_histogram_vec_with_buckets(
-        "beacon_processor_queue_lengths",
+    pub static ref BEACON_PROCESSOR_QUEUE_LENGTH: Result<HistogramVec> = try_create_histogram_vec_with_buckets(
+        "beacon_processor_queue_length",
         "The lengths of each beacon processor event queue.",
         Ok(queue_length_buckets()),
         &["type"]
@@ -57,8 +57,8 @@ lazy_static::lazy_static! {
     /*
      * Attestation reprocessing queue metrics.
      */
-    pub static ref BEACON_PROCESSOR_REPROCESSING_QUEUE_LENGTHS: Result<HistogramVec> = try_create_histogram_vec_with_buckets(
-        "beacon_processor_reprocessing_queue_lengths",
+    pub static ref BEACON_PROCESSOR_REPROCESSING_QUEUE_LENGTH: Result<HistogramVec> = try_create_histogram_vec_with_buckets(
+        "beacon_processor_reprocessing_queue_length",
         "The lengths of each beacon processor reprocessing queue.",
         Ok(queue_length_buckets()),
         &["type"]
