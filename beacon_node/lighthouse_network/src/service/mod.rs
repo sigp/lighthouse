@@ -239,7 +239,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                 max_subscriptions_per_request: 150, // 148 in theory = (64 attestation + 4 sync committee + 6 core topics) * 2
             };
 
-            config.gs_config = gossipsub_config::<TSpec>(
+            config.gs_config = gossipsub_config(
                 config.network_load,
                 ctx.fork_context.clone(),
                 ctx.chain_spec,
