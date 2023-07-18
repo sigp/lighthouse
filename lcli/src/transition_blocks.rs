@@ -312,7 +312,7 @@ fn do_transition<T: EthSpec>(
     if !config.exclude_cache_builds {
         let t = Instant::now();
         pre_state
-            .build_caches(spec)
+            .build_all_caches(spec)
             .map_err(|e| format!("Unable to build caches: {:?}", e))?;
         debug!("Build caches: {:?}", t.elapsed());
 
