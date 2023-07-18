@@ -32,7 +32,7 @@
 - [My beacon node and validator client are on different servers. How can I point the validator client to the beacon node?](#net-bn-vc)
 - [Should I do anything to the beacon node or validator client settings if I have a relocation of the node / change of IP address?](#net-ip)
 - [How to change the TCP/UDP port 9000 that Lighthouse listens on?](#net-port)
-
+- [Lighthouse `v4.3.0` introduces a change where a node will subscribe to only 2 subnets in total. I am worried that this will impact my validators return.](#net-subnet)
 
 ## [Miscellaneous](#miscellaneous-1)
 - [What should I do if I lose my slashing protection database?](#misc-slashing)
@@ -461,6 +461,14 @@ No. Lighthouse will auto-detect the change and update your Ethereum Node Record 
 
 ### <a name="net-port"></a> How to change the TCP/UDP port 9000 that Lighthouse listens on?
 Use the flag ```--port <PORT>``` in the beacon node. This flag can be useful when you are running two beacon nodes at the same time. You can leave one beacon node as the default port 9000, and configure the second beacon node to listen on, e.g., ```--port 9001```.
+
+### <a name="net-subnet"></a> Lighthouse `v4.3.0` introduces a change where a node will subscribe to only 2 subnets in total. I am worried that this will impact my validators return.
+
+Previously, having more validators means subscribing to more subnets. Since the change, a node will only subscribe to 2 subnets in total. Hence, this will bring about significant reductions in bandwidth for nodes with multiple validators. 
+
+While having subscribed to more subnets, or all 64 subnets could ensure having peers on more or all subnets, these subscriptions are consuming resources and bandwidth. This does not significantly increase the performance of the node, it does help out other nodes on the network. 
+ 
+Therefore, there is no significant gain for a node to subscribe to more subnets. However, if you would still like to subscribe to all subnets, you can use the flag `subscribe-all-subnets`. This could improve the block rewards by 1-5%, though it comes at the cost of a much higher bandwidth requirement.
 
 ## Miscellaneous
 
