@@ -69,7 +69,7 @@ lighthouse \
 
 This guide will create two validators and import them to a VC. For simplicity,
 the same host will be used to generate the keys and run the VC. In reality,
-users may want to perform the `import` command on an air-gapped machine and then
+users may want to perform the `create` command on an air-gapped machine and then
 move the `validators.json` and `deposits.json` files to an Internet-connected
 host. This would help protect the mnemonic from being exposed to the Internet.
 

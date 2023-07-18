@@ -4,7 +4,7 @@ The `lighthouse validator-manager move` command uses the VC HTTP API to move
 validators from one VC (the "src" VC) to another VC (the "dest" VC). The move
 operation is *comprehensive*; it will:
 
-- Disable the validators the src VC.
+- Disable the validators on the src VC.
 - Remove the validator keystores from the src VC file system.
 - Export the slashing database records for the appropriate validators from the src VC to the dest VC.
 - Enable the validators on the dest VC.
