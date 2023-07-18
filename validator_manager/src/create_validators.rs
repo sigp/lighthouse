@@ -386,8 +386,9 @@ impl ValidatorsAndDeposits {
                         return Err(format!(
                             "Validator {:?} at derivation index {} already exists in the beacon chain. \
                             This indicates a slashing risk, be sure to never run the same validator on two \
-                            different validator clients",
-                            voting_public_key, derivation_index
+                            different validator clients. If you understand the risks and are certain you \
+                            wish to generate this validator again, omit the --{} flag.",
+                            voting_public_key, derivation_index, BEACON_NODE_FLAG
                         ))?
                     }
                     Ok(None) => eprintln!(
