@@ -1,5 +1,11 @@
 pub use lighthouse_metrics::*;
 
+fn queue_length_buckets() -> Vec<f64> {
+    vec![
+        0.0, 1.0, 4.0, 16.0, 64.0, 256.0, 1024.0, 4096.0, 16384.0, 65536.0,
+    ]
+}
+
 lazy_static::lazy_static! {
 
     /*
@@ -43,18 +49,18 @@ lazy_static::lazy_static! {
     );
     pub static ref BEACON_PROCESSOR_QUEUE_LENGTHS: Result<HistogramVec> = try_create_histogram_vec_with_buckets(
         "beacon_processor_queue_lengths",
-        "The lengths of beacon processor event queues.",
-        Ok(vec![0.0, 1.0, 4.0, 16.0, 64.0, 256.0, 1024.0, 4096.0, 16384.0, 32768.0]),
+        "The lengths of each beacon processor event queue.",
+        Ok(queue_length_buckets()),
         &["type"]
     );
 
     /*
      * Attestation reprocessing queue metrics.
      */
-    pub static ref BEACON_PROCESSOR_REPROCESSING_QUEUE_TOTAL: Result<IntGaugeVec> =
-        try_create_int_gauge_vec(
-        "beacon_processor_reprocessing_queue_total",
-        "Count of items in a reprocessing queue.",
+    pub static ref BEACON_PROCESSOR_REPROCESSING_QUEUE_LENGTHS: Result<HistogramVec> = try_create_histogram_vec_with_buckets(
+        "beacon_processor_reprocessing_queue_lengths",
+        "The lengths of each beacon processor reprocessing queue.",
+        Ok(queue_length_buckets()),
         &["type"]
     );
     pub static ref BEACON_PROCESSOR_REPROCESSING_QUEUE_EXPIRED_ATTESTATIONS: Result<IntCounter> = try_create_int_counter(

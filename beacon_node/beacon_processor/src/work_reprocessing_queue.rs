@@ -887,25 +887,25 @@ impl<S: SlotClock> ReprocessQueue<S> {
             }
         }
 
-        metrics::set_gauge_vec(
-            &metrics::BEACON_PROCESSOR_REPROCESSING_QUEUE_TOTAL,
+        metrics::observe_histogram_vec(
+            &metrics::BEACON_PROCESSOR_REPROCESSING_QUEUE_LENGTHS,
             &[GOSSIP_BLOCKS],
-            self.gossip_block_delay_queue.len() as i64,
+            self.gossip_block_delay_queue.len() as f64,
         );
-        metrics::set_gauge_vec(
-            &metrics::BEACON_PROCESSOR_REPROCESSING_QUEUE_TOTAL,
+        metrics::observe_histogram_vec(
+            &metrics::BEACON_PROCESSOR_REPROCESSING_QUEUE_LENGTHS,
             &[RPC_BLOCKS],
-            self.rpc_block_delay_queue.len() as i64,
+            self.rpc_block_delay_queue.len() as f64,
         );
-        metrics::set_gauge_vec(
-            &metrics::BEACON_PROCESSOR_REPROCESSING_QUEUE_TOTAL,
+        metrics::observe_histogram_vec(
+            &metrics::BEACON_PROCESSOR_REPROCESSING_QUEUE_LENGTHS,
             &[ATTESTATIONS],
-            self.attestations_delay_queue.len() as i64,
+            self.attestations_delay_queue.len() as f64,
         );
-        metrics::set_gauge_vec(
-            &metrics::BEACON_PROCESSOR_REPROCESSING_QUEUE_TOTAL,
+        metrics::observe_histogram_vec(
+            &metrics::BEACON_PROCESSOR_REPROCESSING_QUEUE_LENGTHS,
             &[LIGHT_CLIENT_UPDATES],
-            self.lc_updates_delay_queue.len() as i64,
+            self.lc_updates_delay_queue.len() as f64,
         );
     }
 
