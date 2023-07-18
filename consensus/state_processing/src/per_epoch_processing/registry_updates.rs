@@ -1,3 +1,4 @@
+use crate::per_epoch_processing::single_pass::{process_epoch_single_pass, SinglePassConfig};
 use crate::{common::initiate_validator_exit, per_epoch_processing::Error};
 use safe_arith::SafeArith;
 use types::{BeaconState, ChainSpec, EthSpec, Validator};
@@ -52,5 +53,20 @@ pub fn process_registry_updates<T: EthSpec>(
         state.get_validator_mut(index)?.mutable.activation_epoch = delayed_activation_epoch;
     }
 
+    Ok(())
+}
+
+pub fn process_registry_updates_slow<T: EthSpec>(
+    state: &mut BeaconState<T>,
+    spec: &ChainSpec,
+) -> Result<(), Error> {
+    process_epoch_single_pass(
+        state,
+        spec,
+        SinglePassConfig {
+            registry_updates: true,
+            ..SinglePassConfig::disable_all()
+        },
+    )?;
     Ok(())
 }

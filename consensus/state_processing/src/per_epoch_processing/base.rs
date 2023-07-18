@@ -25,7 +25,7 @@ pub fn process_epoch<T: EthSpec>(
     state.build_committee_cache(RelativeEpoch::Current, spec)?;
     state.build_committee_cache(RelativeEpoch::Next, spec)?;
     state.build_total_active_balance_cache_at(state.current_epoch(), spec)?;
-    initialize_epoch_cache(state, state.current_epoch(), spec)?;
+    initialize_epoch_cache(state, spec)?;
 
     // Load the struct we use to assign validators into sets based on their participation.
     //
@@ -47,7 +47,6 @@ pub fn process_epoch<T: EthSpec>(
     // Slashings.
     process_slashings(
         state,
-        None,
         validator_statuses.total_balances.current_epoch(),
         spec,
     )?;
@@ -56,7 +55,7 @@ pub fn process_epoch<T: EthSpec>(
     process_eth1_data_reset(state)?;
 
     // Update effective balances with hysteresis (lag).
-    process_effective_balance_updates(state, None, spec)?;
+    process_effective_balance_updates(state, spec)?;
 
     // Reset slashings
     process_slashings_reset(state)?;
@@ -72,7 +71,6 @@ pub fn process_epoch<T: EthSpec>(
 
     // Rotate the epoch caches to suit the epoch transition.
     state.advance_caches(spec)?;
-    initialize_epoch_cache(state, state.next_epoch()?, spec)?;
 
     Ok(EpochProcessingSummary::Base {
         total_balances: validator_statuses.total_balances,

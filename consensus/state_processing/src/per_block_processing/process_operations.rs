@@ -98,7 +98,6 @@ pub mod base {
 pub mod altair {
     use super::*;
     use crate::common::update_progressive_balances_cache::update_progressive_balances_on_attestation;
-    use types::consts::altair::TIMELY_TARGET_FLAG_INDEX;
 
     pub fn process_attestations<T: EthSpec>(
         state: &mut BeaconState<T>,
@@ -151,6 +150,9 @@ pub mod altair {
         for index in &attesting_indices {
             let index = *index as usize;
 
+            let validator_effective_balance = state.epoch_cache().get_effective_balance(index)?;
+            let validator_slashed = state.slashings_cache().is_slashed(index);
+
             for (flag_index, &weight) in PARTICIPATION_FLAG_WEIGHTS.iter().enumerate() {
                 let epoch_participation = state.get_epoch_participation_mut(
                     data.target.epoch,
@@ -168,13 +170,13 @@ pub mod altair {
                         proposer_reward_numerator
                             .safe_add_assign(state.get_base_reward(index)?.safe_mul(weight)?)?;
 
-                        if flag_index == TIMELY_TARGET_FLAG_INDEX {
-                            update_progressive_balances_on_attestation(
-                                state,
-                                data.target.epoch,
-                                index,
-                            )?;
-                        }
+                        update_progressive_balances_on_attestation(
+                            state,
+                            data.target.epoch,
+                            flag_index,
+                            validator_effective_balance,
+                            validator_slashed,
+                        )?;
                     }
                 }
             }
@@ -201,6 +203,8 @@ pub fn process_proposer_slashings<T: EthSpec>(
     ctxt: &mut ConsensusContext<T>,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
+    state.build_slashings_cache()?;
+
     // Verify and apply proposer slashings in series.
     // We have to verify in series because an invalid block may contain multiple slashings
     // for the same validator, and we need to correctly detect and reject that.
@@ -234,6 +238,8 @@ pub fn process_attester_slashings<T: EthSpec>(
     ctxt: &mut ConsensusContext<T>,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
+    state.build_slashings_cache()?;
+
     for (i, attester_slashing) in attester_slashings.iter().enumerate() {
         verify_attester_slashing(state, attester_slashing, verify_signatures, spec)
             .map_err(|e| e.into_with_index(i))?;

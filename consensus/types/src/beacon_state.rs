@@ -1,5 +1,4 @@
 use self::committee_cache::get_active_validator_indices;
-use self::exit_cache::ExitCache;
 use crate::test_utils::TestRandom;
 use crate::validator::ValidatorTrait;
 use crate::*;
@@ -29,7 +28,9 @@ pub use self::committee_cache::{
     CommitteeCache,
 };
 pub use crate::beacon_state::balance::Balance;
+pub use crate::beacon_state::exit_cache::ExitCache;
 pub use crate::beacon_state::progressive_balances_cache::*;
+pub use crate::beacon_state::slashings_cache::SlashingsCache;
 use crate::epoch_cache::EpochCache;
 use crate::historical_summary::HistoricalSummary;
 pub use eth_spec::*;
@@ -44,6 +45,7 @@ mod exit_cache;
 mod iter;
 mod progressive_balances_cache;
 mod pubkey_cache;
+mod slashings_cache;
 mod tests;
 
 pub const CACHED_EPOCHS: usize = 3;
@@ -103,6 +105,10 @@ pub enum Error {
     },
     RelativeEpochError(RelativeEpochError),
     ExitCacheUninitialized,
+    SlashingsCacheUninitialized {
+        initialized_slot: Option<Slot>,
+        latest_block_slot: Slot,
+    },
     CommitteeCacheUninitialized(Option<RelativeEpoch>),
     SyncCommitteeCacheUninitialized,
     BlsError(bls::Error),
@@ -153,6 +159,7 @@ pub enum Error {
     TotalActiveBalanceDiffUninitialized,
     MissingImmutableValidator(usize),
     IndexNotSupported(usize),
+    InvalidFlagIndex(usize),
     MerkleTreeError(merkle_proof::MerkleTreeError),
 }
 
@@ -449,6 +456,12 @@ where
     #[test_random(default)]
     #[metastruct(exclude)]
     pub exit_cache: ExitCache,
+    #[serde(skip_serializing, skip_deserializing)]
+    #[ssz(skip_serializing, skip_deserializing)]
+    #[tree_hash(skip_hashing)]
+    #[test_random(default)]
+    #[metastruct(exclude)]
+    pub slashings_cache: SlashingsCache,
     /// Epoch cache of values that are useful for block processing that are static over an epoch.
     #[serde(skip_serializing, skip_deserializing)]
     #[ssz(skip_serializing, skip_deserializing)]
@@ -516,6 +529,7 @@ impl<T: EthSpec> BeaconState<T> {
             ],
             pubkey_cache: PubkeyCache::default(),
             exit_cache: ExitCache::default(),
+            slashings_cache: SlashingsCache::default(),
             epoch_cache: EpochCache::default(),
         })
     }
@@ -1301,6 +1315,57 @@ impl<T: EthSpec> BeaconState<T> {
         }
     }
 
+    #[allow(clippy::type_complexity)]
+    pub fn mutable_validator_fields(
+        &mut self,
+    ) -> Result<
+        (
+            &mut Validators<T>,
+            &mut Balances<T>,
+            &VList<ParticipationFlags, T::ValidatorRegistryLimit>,
+            &VList<ParticipationFlags, T::ValidatorRegistryLimit>,
+            &mut VList<u64, T::ValidatorRegistryLimit>,
+            &mut ProgressiveBalancesCache,
+            &mut ExitCache,
+            &mut EpochCache,
+        ),
+        Error,
+    > {
+        match self {
+            BeaconState::Base(_) => Err(Error::IncorrectStateVariant),
+            BeaconState::Altair(state) => Ok((
+                &mut state.validators,
+                &mut state.balances,
+                &state.previous_epoch_participation,
+                &state.current_epoch_participation,
+                &mut state.inactivity_scores,
+                &mut state.progressive_balances_cache,
+                &mut state.exit_cache,
+                &mut state.epoch_cache,
+            )),
+            BeaconState::Merge(state) => Ok((
+                &mut state.validators,
+                &mut state.balances,
+                &state.previous_epoch_participation,
+                &state.current_epoch_participation,
+                &mut state.inactivity_scores,
+                &mut state.progressive_balances_cache,
+                &mut state.exit_cache,
+                &mut state.epoch_cache,
+            )),
+            BeaconState::Capella(state) => Ok((
+                &mut state.validators,
+                &mut state.balances,
+                &state.previous_epoch_participation,
+                &state.current_epoch_participation,
+                &mut state.inactivity_scores,
+                &mut state.progressive_balances_cache,
+                &mut state.exit_cache,
+                &mut state.epoch_cache,
+            )),
+        }
+    }
+
     /// Get a mutable reference to the balance of a single validator.
     pub fn get_balance_mut(&mut self, validator_index: usize) -> Result<&mut u64, Error> {
         self.balances_mut()
@@ -1400,7 +1465,7 @@ impl<T: EthSpec> BeaconState<T> {
         epoch: Epoch,
         spec: &ChainSpec,
     ) -> Result<Epoch, Error> {
-        Ok(epoch.safe_add(1)?.safe_add(spec.max_seed_lookahead)?)
+        Ok(spec.compute_activation_exit_epoch(epoch)?)
     }
 
     /// Return the churn limit for the current epoch (number of validators who can leave per epoch).
@@ -1574,6 +1639,7 @@ impl<T: EthSpec> BeaconState<T> {
         self.build_all_committee_caches(spec)?;
         self.update_pubkey_cache()?;
         self.build_exit_cache(spec)?;
+        self.build_slashings_cache()?;
 
         Ok(())
     }
@@ -1594,6 +1660,20 @@ impl<T: EthSpec> BeaconState<T> {
         Ok(())
     }
 
+    /// Build the slashings cache if it needs to be built.
+    pub fn build_slashings_cache(&mut self) -> Result<(), Error> {
+        let latest_block_slot = self.latest_block_header().slot;
+        if !self.slashings_cache().is_initialized(latest_block_slot) {
+            *self.slashings_cache_mut() = SlashingsCache::new(latest_block_slot, self.validators());
+        }
+        Ok(())
+    }
+
+    pub fn slashings_cache_is_initialized(&self) -> bool {
+        let latest_block_slot = self.latest_block_header().slot;
+        self.slashings_cache().is_initialized(latest_block_slot)
+    }
+
     /// Drop all caches on the state.
     pub fn drop_all_caches(&mut self) -> Result<(), Error> {
         self.drop_total_active_balance_cache();
@@ -1603,6 +1683,7 @@ impl<T: EthSpec> BeaconState<T> {
         self.drop_pubkey_cache();
         self.drop_progressive_balances_cache();
         *self.exit_cache_mut() = ExitCache::default();
+        *self.slashings_cache_mut() = SlashingsCache::default();
         *self.epoch_cache_mut() = EpochCache::default();
         Ok(())
     }

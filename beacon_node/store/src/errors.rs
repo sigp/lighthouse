@@ -3,7 +3,7 @@ use crate::hdiff;
 use crate::hot_cold_store::HotColdDBError;
 use ssz::DecodeError;
 use state_processing::BlockReplayError;
-use types::{milhouse, BeaconStateError, Epoch, Hash256, InconsistentFork, Slot};
+use types::{milhouse, BeaconStateError, Epoch, EpochCacheError, Hash256, InconsistentFork, Slot};
 
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -71,6 +71,7 @@ pub enum Error {
     Hdiff(hdiff::Error),
     InconsistentFork(InconsistentFork),
     ZeroCacheSize,
+    CacheBuildError(EpochCacheError),
 }
 
 pub trait HandleUnavailable<T> {
@@ -138,6 +139,12 @@ impl From<BlockReplayError> for Error {
 impl From<InconsistentFork> for Error {
     fn from(e: InconsistentFork) -> Error {
         Error::InconsistentFork(e)
+    }
+}
+
+impl From<EpochCacheError> for Error {
+    fn from(e: EpochCacheError) -> Error {
+        Error::CacheBuildError(e)
     }
 }
 

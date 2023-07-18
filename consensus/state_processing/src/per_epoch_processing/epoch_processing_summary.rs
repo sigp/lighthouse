@@ -1,10 +1,11 @@
-use super::{
-    altair::{participation_cache::Error as ParticipationCacheError, ParticipationCache},
-    base::{validator_statuses::InclusionInfo, TotalBalances, ValidatorStatus},
-};
+use super::base::{validator_statuses::InclusionInfo, TotalBalances, ValidatorStatus};
 use crate::metrics;
 use std::sync::Arc;
-use types::{EthSpec, SyncCommittee};
+use types::{
+    consts::altair::{TIMELY_HEAD_FLAG_INDEX, TIMELY_SOURCE_FLAG_INDEX, TIMELY_TARGET_FLAG_INDEX},
+    BeaconStateError, Epoch, EthSpec, ParticipationFlags, ProgressiveBalancesCache, SyncCommittee,
+    VList, Validator,
+};
 
 /// Provides a summary of validator participation during the epoch.
 #[derive(PartialEq, Debug)]
@@ -14,15 +15,80 @@ pub enum EpochProcessingSummary<T: EthSpec> {
         statuses: Vec<ValidatorStatus>,
     },
     Altair {
-        participation_cache: ParticipationCache,
+        progressive_balances: ProgressiveBalancesCache,
+        current_epoch_total_active_balance: u64,
+        participation: ParticipationEpochSummary<T>,
         sync_committee: Arc<SyncCommittee<T>>,
     },
+}
+
+#[derive(PartialEq, Debug)]
+pub struct ParticipationEpochSummary<T: EthSpec> {
+    /// Copy of the validator registry prior to mutation.
+    validators: VList<Validator, T::ValidatorRegistryLimit>,
+    /// Copy of the participation flags for the previous epoch.
+    previous_epoch_participation: VList<ParticipationFlags, T::ValidatorRegistryLimit>,
+    /// Copy of the participation flags for the current epoch.
+    current_epoch_participation: VList<ParticipationFlags, T::ValidatorRegistryLimit>,
+    previous_epoch: Epoch,
+    current_epoch: Epoch,
+}
+
+impl<T: EthSpec> ParticipationEpochSummary<T> {
+    pub fn new(
+        validators: VList<Validator, T::ValidatorRegistryLimit>,
+        previous_epoch_participation: VList<ParticipationFlags, T::ValidatorRegistryLimit>,
+        current_epoch_participation: VList<ParticipationFlags, T::ValidatorRegistryLimit>,
+        previous_epoch: Epoch,
+        current_epoch: Epoch,
+    ) -> Self {
+        Self {
+            validators,
+            previous_epoch_participation,
+            current_epoch_participation,
+            previous_epoch,
+            current_epoch,
+        }
+    }
+
+    pub fn is_active_and_unslashed(&self, val_index: usize, epoch: Epoch) -> bool {
+        self.validators
+            .get(val_index)
+            .map(|validator| !validator.slashed() && validator.is_active_at(epoch))
+            .unwrap_or(false)
+    }
+
+    pub fn is_previous_epoch_unslashed_participating_index(
+        &self,
+        val_index: usize,
+        flag_index: usize,
+    ) -> Result<bool, BeaconStateError> {
+        Ok(self.is_active_and_unslashed(val_index, self.previous_epoch)
+            && self
+                .previous_epoch_participation
+                .get(val_index)
+                .ok_or(BeaconStateError::UnknownValidator(val_index))?
+                .has_flag(flag_index)?)
+    }
+
+    pub fn is_current_epoch_unslashed_participating_index(
+        &self,
+        val_index: usize,
+        flag_index: usize,
+    ) -> Result<bool, BeaconStateError> {
+        Ok(self.is_active_and_unslashed(val_index, self.current_epoch)
+            && self
+                .current_epoch_participation
+                .get(val_index)
+                .ok_or(BeaconStateError::UnknownValidator(val_index))?
+                .has_flag(flag_index)?)
+    }
 }
 
 impl<T: EthSpec> EpochProcessingSummary<T> {
     /// Updates some Prometheus metrics with some values in `self`.
     #[cfg(feature = "metrics")]
-    pub fn observe_metrics(&self) -> Result<(), ParticipationCacheError> {
+    pub fn observe_metrics(&self) -> Result<(), BeaconStateError> {
         metrics::set_gauge(
             &metrics::PARTICIPATION_PREV_EPOCH_HEAD_ATTESTING_GWEI_TOTAL,
             self.previous_epoch_head_attesting_balance()? as i64,
@@ -56,35 +122,30 @@ impl<T: EthSpec> EpochProcessingSummary<T> {
         match self {
             EpochProcessingSummary::Base { total_balances, .. } => total_balances.current_epoch(),
             EpochProcessingSummary::Altair {
-                participation_cache,
+                current_epoch_total_active_balance,
                 ..
-            } => participation_cache.current_epoch_total_active_balance(),
+            } => *current_epoch_total_active_balance,
         }
     }
 
     /// Returns the sum of the effective balance of all validators in the current epoch who
     /// included an attestation that matched the target.
-    pub fn current_epoch_target_attesting_balance(&self) -> Result<u64, ParticipationCacheError> {
+    pub fn current_epoch_target_attesting_balance(&self) -> Result<u64, BeaconStateError> {
         match self {
             EpochProcessingSummary::Base { total_balances, .. } => {
                 Ok(total_balances.current_epoch_target_attesters())
             }
             EpochProcessingSummary::Altair {
-                participation_cache,
+                progressive_balances,
                 ..
-            } => participation_cache.current_epoch_target_attesting_balance(),
+            } => progressive_balances.current_epoch_target_attesting_balance(),
         }
     }
 
     /// Returns the sum of the effective balance of all validators in the previous epoch.
     pub fn previous_epoch_total_active_balance(&self) -> u64 {
-        match self {
-            EpochProcessingSummary::Base { total_balances, .. } => total_balances.previous_epoch(),
-            EpochProcessingSummary::Altair {
-                participation_cache,
-                ..
-            } => participation_cache.previous_epoch_total_active_balance(),
-        }
+        // FIXME(sproul): this is not a useful concept and should be deleted
+        self.current_epoch_total_active_balance()
     }
 
     /// Returns `true` if `val_index` was included in the active validator indices in the current
@@ -98,10 +159,9 @@ impl<T: EthSpec> EpochProcessingSummary<T> {
             EpochProcessingSummary::Base { statuses, .. } => statuses
                 .get(val_index)
                 .map_or(false, |s| s.is_active_in_current_epoch && !s.is_slashed),
-            EpochProcessingSummary::Altair {
-                participation_cache,
-                ..
-            } => participation_cache.is_active_unslashed_in_current_epoch(val_index),
+            EpochProcessingSummary::Altair { participation, .. } => {
+                participation.is_active_and_unslashed(val_index, participation.current_epoch)
+            }
         }
     }
 
@@ -119,34 +179,30 @@ impl<T: EthSpec> EpochProcessingSummary<T> {
     pub fn is_current_epoch_target_attester(
         &self,
         val_index: usize,
-    ) -> Result<bool, ParticipationCacheError> {
+    ) -> Result<bool, BeaconStateError> {
         match self {
             EpochProcessingSummary::Base { statuses, .. } => Ok(statuses
                 .get(val_index)
                 .map_or(false, |s| s.is_current_epoch_target_attester)),
-            EpochProcessingSummary::Altair {
-                participation_cache,
-                ..
-            } => participation_cache
-                .is_current_epoch_timely_target_attester(val_index)
-                .or_else(|e| match e {
-                    ParticipationCacheError::InvalidValidatorIndex(_) => Ok(false),
-                    e => Err(e),
-                }),
+            EpochProcessingSummary::Altair { participation, .. } => participation
+                .is_current_epoch_unslashed_participating_index(
+                    val_index,
+                    TIMELY_TARGET_FLAG_INDEX,
+                ),
         }
     }
 
     /// Returns the sum of the effective balance of all validators in the previous epoch who
     /// included an attestation that matched the target.
-    pub fn previous_epoch_target_attesting_balance(&self) -> Result<u64, ParticipationCacheError> {
+    pub fn previous_epoch_target_attesting_balance(&self) -> Result<u64, BeaconStateError> {
         match self {
             EpochProcessingSummary::Base { total_balances, .. } => {
                 Ok(total_balances.previous_epoch_target_attesters())
             }
             EpochProcessingSummary::Altair {
-                participation_cache,
+                progressive_balances,
                 ..
-            } => participation_cache.previous_epoch_target_attesting_balance(),
+            } => progressive_balances.previous_epoch_target_attesting_balance(),
         }
     }
 
@@ -157,15 +213,15 @@ impl<T: EthSpec> EpochProcessingSummary<T> {
     ///
     /// - Base: any attestation can match the head.
     /// - Altair: only "timely" attestations can match the head.
-    pub fn previous_epoch_head_attesting_balance(&self) -> Result<u64, ParticipationCacheError> {
+    pub fn previous_epoch_head_attesting_balance(&self) -> Result<u64, BeaconStateError> {
         match self {
             EpochProcessingSummary::Base { total_balances, .. } => {
                 Ok(total_balances.previous_epoch_head_attesters())
             }
             EpochProcessingSummary::Altair {
-                participation_cache,
+                progressive_balances,
                 ..
-            } => participation_cache.previous_epoch_head_attesting_balance(),
+            } => progressive_balances.previous_epoch_head_attesting_balance(),
         }
     }
 
@@ -176,15 +232,15 @@ impl<T: EthSpec> EpochProcessingSummary<T> {
     ///
     /// - Base: any attestation can match the source.
     /// - Altair: only "timely" attestations can match the source.
-    pub fn previous_epoch_source_attesting_balance(&self) -> Result<u64, ParticipationCacheError> {
+    pub fn previous_epoch_source_attesting_balance(&self) -> Result<u64, BeaconStateError> {
         match self {
             EpochProcessingSummary::Base { total_balances, .. } => {
                 Ok(total_balances.previous_epoch_attesters())
             }
             EpochProcessingSummary::Altair {
-                participation_cache,
+                progressive_balances,
                 ..
-            } => participation_cache.previous_epoch_source_attesting_balance(),
+            } => progressive_balances.previous_epoch_source_attesting_balance(),
         }
     }
 
@@ -199,10 +255,9 @@ impl<T: EthSpec> EpochProcessingSummary<T> {
             EpochProcessingSummary::Base { statuses, .. } => statuses
                 .get(val_index)
                 .map_or(false, |s| s.is_active_in_previous_epoch && !s.is_slashed),
-            EpochProcessingSummary::Altair {
-                participation_cache,
-                ..
-            } => participation_cache.is_active_unslashed_in_previous_epoch(val_index),
+            EpochProcessingSummary::Altair { participation, .. } => {
+                participation.is_active_and_unslashed(val_index, participation.previous_epoch)
+            }
         }
     }
 
@@ -215,20 +270,16 @@ impl<T: EthSpec> EpochProcessingSummary<T> {
     pub fn is_previous_epoch_target_attester(
         &self,
         val_index: usize,
-    ) -> Result<bool, ParticipationCacheError> {
+    ) -> Result<bool, BeaconStateError> {
         match self {
             EpochProcessingSummary::Base { statuses, .. } => Ok(statuses
                 .get(val_index)
                 .map_or(false, |s| s.is_previous_epoch_target_attester)),
-            EpochProcessingSummary::Altair {
-                participation_cache,
-                ..
-            } => participation_cache
-                .is_previous_epoch_timely_target_attester(val_index)
-                .or_else(|e| match e {
-                    ParticipationCacheError::InvalidValidatorIndex(_) => Ok(false),
-                    e => Err(e),
-                }),
+            EpochProcessingSummary::Altair { participation, .. } => participation
+                .is_previous_epoch_unslashed_participating_index(
+                    val_index,
+                    TIMELY_TARGET_FLAG_INDEX,
+                ),
         }
     }
 
@@ -246,20 +297,13 @@ impl<T: EthSpec> EpochProcessingSummary<T> {
     pub fn is_previous_epoch_head_attester(
         &self,
         val_index: usize,
-    ) -> Result<bool, ParticipationCacheError> {
+    ) -> Result<bool, BeaconStateError> {
         match self {
             EpochProcessingSummary::Base { statuses, .. } => Ok(statuses
                 .get(val_index)
                 .map_or(false, |s| s.is_previous_epoch_head_attester)),
-            EpochProcessingSummary::Altair {
-                participation_cache,
-                ..
-            } => participation_cache
-                .is_previous_epoch_timely_head_attester(val_index)
-                .or_else(|e| match e {
-                    ParticipationCacheError::InvalidValidatorIndex(_) => Ok(false),
-                    e => Err(e),
-                }),
+            EpochProcessingSummary::Altair { participation, .. } => participation
+                .is_previous_epoch_unslashed_participating_index(val_index, TIMELY_HEAD_FLAG_INDEX),
         }
     }
 
@@ -277,20 +321,16 @@ impl<T: EthSpec> EpochProcessingSummary<T> {
     pub fn is_previous_epoch_source_attester(
         &self,
         val_index: usize,
-    ) -> Result<bool, ParticipationCacheError> {
+    ) -> Result<bool, BeaconStateError> {
         match self {
             EpochProcessingSummary::Base { statuses, .. } => Ok(statuses
                 .get(val_index)
                 .map_or(false, |s| s.is_previous_epoch_attester)),
-            EpochProcessingSummary::Altair {
-                participation_cache,
-                ..
-            } => participation_cache
-                .is_previous_epoch_timely_source_attester(val_index)
-                .or_else(|e| match e {
-                    ParticipationCacheError::InvalidValidatorIndex(_) => Ok(false),
-                    e => Err(e),
-                }),
+            EpochProcessingSummary::Altair { participation, .. } => participation
+                .is_previous_epoch_unslashed_participating_index(
+                    val_index,
+                    TIMELY_SOURCE_FLAG_INDEX,
+                ),
         }
     }
 

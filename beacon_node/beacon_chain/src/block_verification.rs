@@ -78,7 +78,7 @@ use state_processing::{
     block_signature_verifier::{BlockSignatureVerifier, Error as BlockSignatureVerifierError},
     per_block_processing, per_slot_processing,
     state_advance::partial_state_advance,
-    BlockProcessingError, BlockSignatureStrategy, ConsensusContext, SlotProcessingError,
+    AllCaches, BlockProcessingError, BlockSignatureStrategy, ConsensusContext, SlotProcessingError,
     StateProcessingStrategy, VerifyBlockRoot,
 };
 use std::borrow::Cow;
@@ -1711,6 +1711,15 @@ fn load_parent<T: BeaconChainTypes>(
             .ok_or_else(|| {
                 BeaconChainError::DBInconsistent(format!("Missing state {:?}", parent_state_root))
             })?;
+
+        if !state.all_caches_built() {
+            slog::warn!(
+                chain.log,
+                "Parent state lacks built caches";
+                "block_slot" => block.slot(),
+                "state_slot" => state.slot(),
+            );
+        }
 
         if block.slot() != state.slot() {
             slog::warn!(

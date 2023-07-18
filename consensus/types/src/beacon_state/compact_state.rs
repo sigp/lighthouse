@@ -52,6 +52,7 @@ macro_rules! full_to_compact {
             progressive_balances_cache: $s.progressive_balances_cache.clone(),
             pubkey_cache: $s.pubkey_cache.clone(),
             exit_cache: $s.exit_cache.clone(),
+            slashings_cache: $s.slashings_cache.clone(),
             epoch_cache: $s.epoch_cache.clone(),
 
             // Variant-specific fields
@@ -114,6 +115,7 @@ macro_rules! compact_to_full {
             progressive_balances_cache: $inner.progressive_balances_cache,
             pubkey_cache: $inner.pubkey_cache,
             exit_cache: $inner.exit_cache,
+            slashings_cache: $inner.slashings_cache,
             epoch_cache: $inner.epoch_cache,
 
             // Variant-specific fields

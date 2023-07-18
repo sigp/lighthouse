@@ -4299,6 +4299,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let attestation_packing_timer =
             metrics::start_timer(&metrics::BLOCK_PRODUCTION_ATTESTATION_TIMES);
 
+        state.build_total_active_balance_cache_at(state.current_epoch(), &self.spec)?;
         let mut prev_filter_cache = HashMap::new();
         let prev_attestation_filter = |att: &AttestationRef<T::EthSpec>| {
             self.filter_op_pool_attestation(&mut prev_filter_cache, att, &state)

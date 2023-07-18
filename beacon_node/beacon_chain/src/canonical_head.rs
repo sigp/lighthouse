@@ -50,6 +50,7 @@ use itertools::process_results;
 use parking_lot::{Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use slog::{crit, debug, error, warn, Logger};
 use slot_clock::SlotClock;
+use state_processing::AllCaches;
 use std::sync::Arc;
 use std::time::Duration;
 use store::{iter::StateRootsIterator, KeyValueStoreOp, StoreItem};
@@ -666,7 +667,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             // Regardless of where we got the state from, attempt to build all the
             // caches except the tree hash cache.
-            new_snapshot.beacon_state.build_caches(&self.spec)?;
+            new_snapshot
+                .beacon_state
+                .build_all_caches(&self.spec)
+                .map_err(Error::HeadCacheError)?;
 
             let new_cached_head = CachedHead {
                 snapshot: Arc::new(new_snapshot),

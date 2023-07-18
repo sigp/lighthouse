@@ -16,6 +16,7 @@
 mod macros;
 mod metrics;
 
+pub mod all_caches;
 pub mod block_replayer;
 pub mod common;
 pub mod consensus_context;
@@ -28,6 +29,7 @@ pub mod state_advance;
 pub mod upgrade;
 pub mod verify_operation;
 
+pub use all_caches::AllCaches;
 pub use block_replayer::{BlockReplayError, BlockReplayer, StateProcessingStrategy};
 pub use consensus_context::{ConsensusContext, ContextError};
 pub use genesis::{
