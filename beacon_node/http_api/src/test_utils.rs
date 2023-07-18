@@ -43,7 +43,6 @@ pub struct InteractiveTester<E: EthSpec> {
     pub harness: BeaconChainHarness<EphemeralHarnessType<E>>,
     pub client: BeaconNodeHttpClient,
     pub network_rx: NetworkReceivers<E>,
-    _test_runtime: TestRuntime,
 }
 
 /// The result of calling `create_api_server`.
@@ -55,7 +54,6 @@ pub struct ApiServer<E: EthSpec, SFut: Future<Output = ()>> {
     pub network_rx: NetworkReceivers<E>,
     pub local_enr: Enr,
     pub external_peer_id: PeerId,
-    pub test_runtime: TestRuntime,
 }
 
 type Initializer<E> = Box<
@@ -101,9 +99,13 @@ impl<E: EthSpec> InteractiveTester<E> {
             server,
             listening_socket,
             network_rx,
-            test_runtime,
             ..
-        } = create_api_server(harness.chain.clone(), harness.logger().clone()).await;
+        } = create_api_server(
+            harness.chain.clone(),
+            &harness.runtime,
+            harness.logger().clone(),
+        )
+        .await;
 
         tokio::spawn(server);
 
@@ -121,22 +123,23 @@ impl<E: EthSpec> InteractiveTester<E> {
             harness,
             client,
             network_rx,
-            _test_runtime: test_runtime,
         }
     }
 }
 
 pub async fn create_api_server<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
+    test_runtime: &TestRuntime,
     log: Logger,
 ) -> ApiServer<T::EthSpec, impl Future<Output = ()>> {
     // Get a random unused port.
     let port = unused_port::unused_tcp4_port().unwrap();
-    create_api_server_on_port(chain, log, port).await
+    create_api_server_on_port(chain, test_runtime, log, port).await
 }
 
 pub async fn create_api_server_on_port<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
+    test_runtime: &TestRuntime,
     log: Logger,
     port: u16,
 ) -> ApiServer<T::EthSpec, impl Future<Output = ()>> {
@@ -193,7 +196,6 @@ pub async fn create_api_server_on_port<T: BeaconChainTypes>(
     } = BeaconProcessorChannels::new(&beacon_processor_config);
 
     let beacon_processor_send = beacon_processor_tx;
-    let test_runtime = TestRuntime::default();
     BeaconProcessor {
         network_globals: network_globals.clone(),
         executor: test_runtime.task_executor.clone(),
@@ -239,6 +241,5 @@ pub async fn create_api_server_on_port<T: BeaconChainTypes>(
         network_rx: network_receivers,
         local_enr: enr,
         external_peer_id: peer_id,
-        test_runtime,
     }
 }
