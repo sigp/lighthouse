@@ -207,7 +207,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .arg(
             Arg::with_name("http-allow-keystore-export")
                 .long("http-allow-keystore-export")
-                .value_name("ORIGIN")
                 .help("If present, allow access to the DELETE /lighthouse/keystores HTTP \
                     API method, which allows exporting keystores and passwords to HTTP API \
                     consumers who have access to the API token. This method is useful for \
@@ -219,7 +218,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .arg(
             Arg::with_name("http-store-passwords-in-secrets-dir")
                 .long("http-store-passwords-in-secrets-dir")
-                .value_name("ORIGIN")
                 .help("If present, any validators created via the HTTP will have keystore \
                     passwords stored in the secrets-dir rather than the validator \
                     definitions file.")

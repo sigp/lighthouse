@@ -68,7 +68,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name(FIRST_INDEX_FLAG)
                 .long(FIRST_INDEX_FLAG)
                 .value_name("FIRST_INDEX")
-                .help("The first of consecutive key indexes you wish to recover.")
+                .help("The first of consecutive key indexes you wish to create.")
                 .takes_value(true)
                 .required(false)
                 .default_value("0"),

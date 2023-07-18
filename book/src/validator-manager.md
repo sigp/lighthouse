@@ -24,7 +24,7 @@ downtime.
 The `validator-manager` boasts the following features:
 
 - One-line command to arbitrarily move validators between two VCs, maintaining the slashing protection database.
-- Generates deposit files compatible with the [Ethereum Staking Launchpad]().
+- Generates deposit files compatible with the [Ethereum Staking Launchpad][].
 - Generally involves zero or very little downtime.
 - The "key cache" is preserved whenever a validator is added with the validator
     manager, preventing long waits at start up when a new validator is added.
