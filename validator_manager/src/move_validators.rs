@@ -595,7 +595,7 @@ async fn run<'a>(config: MoveConfig) -> Result<(), String> {
                 }
                 Err(UploadError::PatchValidatorFailed(e)) => {
                     eprintln!(
-                        "Failed to set some values on validator {} (e.g., builder, enabled or gas limit. \
+                        "Failed to set some values on validator {} (e.g., builder, enabled or gas limit). \
                         These values value may need to be set manually. Continuing with other validators. \
                         Error was {:?}",
                         i, e
