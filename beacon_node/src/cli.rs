@@ -1184,7 +1184,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         )
         .arg(
             Arg::with_name("beacon-processor-attestation-batch-size")
-                .long("beacon-processor-gossip-attestation-batch")
+                .long("beacon-processor-attestation-batch-size")
                 .value_name("INTEGER")
                 .help("Specifies the number of gossip attestations in a signature verification batch. \
                        Higher values may reduce CPU usage in a healthy network whilst lower values may \
@@ -1194,7 +1194,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         )
         .arg(
             Arg::with_name("beacon-processor-aggregate-batch-size")
-                .long("beacon-processor-gossip-aggregate-batch")
+                .long("beacon-processor-aggregate-batch-size")
                 .value_name("INTEGER")
                 .help("Specifies the number of gossip aggregate attestations in a signature \
                        verification batch. \
