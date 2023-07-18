@@ -199,7 +199,11 @@ pub async fn create_api_server_on_port<T: BeaconChainTypes>(
     BeaconProcessor {
         network_globals: network_globals.clone(),
         executor: test_runtime.task_executor.clone(),
-        max_workers: 1, // Single-threaded beacon processor.
+        // The number of workers must be greater than one. Tests which use the
+        // builder workflow sometimes require an internal HTTP request in order
+        // to fulfill an already in-flight HTTP request, therefore having only
+        // one worker will result in a deadlock.
+        max_workers: 2,
         current_workers: 0,
         config: beacon_processor_config,
         log: log.clone(),
