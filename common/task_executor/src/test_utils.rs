@@ -26,7 +26,7 @@ impl Default for TestRuntime {
     fn default() -> Self {
         let (runtime_shutdown, exit) = exit_future::signal();
         let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
-        let log = null_logger().unwrap();
+        let log = test_logger().unwrap();
 
         let (runtime, handle) = if let Ok(handle) = runtime::Handle::try_current() {
             (None, handle)
@@ -67,7 +67,7 @@ impl TestRuntime {
     }
 }
 
-pub fn null_logger() -> Result<Logger, String> {
+pub fn test_logger() -> Result<Logger, String> {
     let log_builder = NullLoggerBuilder;
     log_builder
         .build()

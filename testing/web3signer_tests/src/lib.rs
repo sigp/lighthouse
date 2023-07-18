@@ -298,7 +298,7 @@ mod tests {
 
     impl ValidatorStoreRig {
         pub async fn new(validator_definitions: Vec<ValidatorDefinition>, spec: ChainSpec) -> Self {
-            let log = environment::null_logger().unwrap();
+            let log = environment::test_logger().unwrap();
             let validator_dir = TempDir::new().unwrap();
 
             let validator_definitions = ValidatorDefinitions::from(validator_definitions);

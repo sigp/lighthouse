@@ -15,7 +15,7 @@ use types::{DepositData, EthSpec, Hash256, Keypair, MainnetEthSpec, MinimalEthSp
 
 const DEPOSIT_CONTRACT_TREE_DEPTH: usize = 32;
 
-pub fn null_logger() -> Logger {
+pub fn test_logger() -> Logger {
     let log_builder = NullLoggerBuilder;
     log_builder.build().expect("should build logger")
 }
@@ -24,7 +24,7 @@ pub fn new_env() -> Environment<MinimalEthSpec> {
     EnvironmentBuilder::minimal()
         .multi_threaded_tokio_runtime()
         .expect("should start tokio runtime")
-        .null_logger()
+        .test_logger()
         .expect("should start null logger")
         .build()
         .expect("should build env")
@@ -104,7 +104,7 @@ mod eth1_cache {
     #[tokio::test]
     async fn simple_scenario() {
         async {
-            let log = null_logger();
+            let log = test_logger();
 
             for follow_distance in 0..3 {
                 let eth1 = new_anvil_instance()
@@ -186,7 +186,7 @@ mod eth1_cache {
     #[tokio::test]
     async fn big_skip() {
         async {
-            let log = null_logger();
+            let log = test_logger();
 
             let eth1 = new_anvil_instance()
                 .await
@@ -241,7 +241,7 @@ mod eth1_cache {
     #[tokio::test]
     async fn pruning() {
         async {
-            let log = null_logger();
+            let log = test_logger();
 
             let eth1 = new_anvil_instance()
                 .await
@@ -293,7 +293,7 @@ mod eth1_cache {
     #[tokio::test]
     async fn double_update() {
         async {
-            let log = null_logger();
+            let log = test_logger();
 
             let n = 16;
 
@@ -346,7 +346,7 @@ mod deposit_tree {
     #[tokio::test]
     async fn updating() {
         async {
-            let log = null_logger();
+            let log = test_logger();
 
             let n = 4;
 
@@ -427,7 +427,7 @@ mod deposit_tree {
     #[tokio::test]
     async fn double_update() {
         async {
-            let log = null_logger();
+            let log = test_logger();
 
             let n = 8;
 
@@ -689,7 +689,7 @@ mod fast {
     #[tokio::test]
     async fn deposit_cache_query() {
         async {
-            let log = null_logger();
+            let log = test_logger();
 
             let eth1 = new_anvil_instance()
                 .await
@@ -772,7 +772,7 @@ mod persist {
     #[tokio::test]
     async fn test_persist_caches() {
         async {
-            let log = null_logger();
+            let log = test_logger();
 
             let eth1 = new_anvil_instance()
                 .await

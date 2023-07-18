@@ -233,6 +233,6 @@ pub fn test_logger() -> Logger {
     } else {
         sloggers::null::NullLoggerBuilder
             .build()
-            .expect("Should build null_logger")
+            .expect("Should build test_logger")
     }
 }

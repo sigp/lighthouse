@@ -34,7 +34,7 @@ use {
 #[cfg(not(target_family = "unix"))]
 use {futures::channel::oneshot, std::cell::RefCell};
 
-pub use task_executor::test_utils::null_logger;
+pub use task_executor::test_utils::test_logger;
 
 const LOG_CHANNEL_SIZE: usize = 2048;
 const SSE_LOG_CHANNEL_SIZE: usize = 2048;
@@ -185,8 +185,8 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
     }
 
     /// Specifies that all logs should be sent to `null` (i.e., ignored).
-    pub fn null_logger(mut self) -> Result<Self, String> {
-        self.log = Some(null_logger()?);
+    pub fn test_logger(mut self) -> Result<Self, String> {
+        self.log = Some(test_logger()?);
         Ok(self)
     }
 
