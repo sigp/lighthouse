@@ -1224,61 +1224,75 @@ impl<E: EthSpec> BeaconProcessor<E> {
                     &metrics::BEACON_PROCESSOR_WORKERS_ACTIVE_TOTAL,
                     self.current_workers as i64,
                 );
-                metrics::set_gauge(
-                    &metrics::BEACON_PROCESSOR_UNAGGREGATED_ATTESTATION_QUEUE_TOTAL,
-                    attestation_queue.len() as i64,
+                metrics::observe_histogram_vec(
+                    &metrics::BEACON_PROCESSOR_QUEUE_LENGTHS,
+                    &[GOSSIP_ATTESTATION],
+                    attestation_queue.len() as f64,
                 );
-                metrics::set_gauge(
-                    &metrics::BEACON_PROCESSOR_AGGREGATED_ATTESTATION_QUEUE_TOTAL,
-                    aggregate_queue.len() as i64,
+                metrics::observe_histogram_vec(
+                    &metrics::BEACON_PROCESSOR_QUEUE_LENGTHS,
+                    &[GOSSIP_AGGREGATE],
+                    aggregate_queue.len() as f64,
                 );
-                metrics::set_gauge(
-                    &metrics::BEACON_PROCESSOR_SYNC_MESSAGE_QUEUE_TOTAL,
-                    sync_message_queue.len() as i64,
+                metrics::observe_histogram_vec(
+                    &metrics::BEACON_PROCESSOR_QUEUE_LENGTHS,
+                    &[GOSSIP_SYNC_SIGNATURE],
+                    sync_message_queue.len() as f64,
                 );
-                metrics::set_gauge(
-                    &metrics::BEACON_PROCESSOR_SYNC_CONTRIBUTION_QUEUE_TOTAL,
-                    sync_contribution_queue.len() as i64,
+                metrics::observe_histogram_vec(
+                    &metrics::BEACON_PROCESSOR_QUEUE_LENGTHS,
+                    &[GOSSIP_SYNC_CONTRIBUTION],
+                    sync_contribution_queue.len() as f64,
                 );
-                metrics::set_gauge(
-                    &metrics::BEACON_PROCESSOR_GOSSIP_BLOCK_QUEUE_TOTAL,
-                    gossip_block_queue.len() as i64,
+                metrics::observe_histogram_vec(
+                    &metrics::BEACON_PROCESSOR_QUEUE_LENGTHS,
+                    &[GOSSIP_BLOCK],
+                    gossip_block_queue.len() as f64,
                 );
-                metrics::set_gauge(
-                    &metrics::BEACON_PROCESSOR_RPC_BLOCK_QUEUE_TOTAL,
-                    rpc_block_queue.len() as i64,
+                metrics::observe_histogram_vec(
+                    &metrics::BEACON_PROCESSOR_QUEUE_LENGTHS,
+                    &[RPC_BLOCK],
+                    rpc_block_queue.len() as f64,
                 );
-                metrics::set_gauge(
-                    &metrics::BEACON_PROCESSOR_CHAIN_SEGMENT_QUEUE_TOTAL,
-                    chain_segment_queue.len() as i64,
+                metrics::observe_histogram_vec(
+                    &metrics::BEACON_PROCESSOR_QUEUE_LENGTHS,
+                    &[CHAIN_SEGMENT],
+                    chain_segment_queue.len() as f64,
                 );
-                metrics::set_gauge(
-                    &metrics::BEACON_PROCESSOR_BACKFILL_CHAIN_SEGMENT_QUEUE_TOTAL,
-                    backfill_chain_segment.len() as i64,
+                metrics::observe_histogram_vec(
+                    &metrics::BEACON_PROCESSOR_QUEUE_LENGTHS,
+                    &[CHAIN_SEGMENT_BACKFILL],
+                    backfill_chain_segment.len() as f64,
                 );
-                metrics::set_gauge(
-                    &metrics::BEACON_PROCESSOR_EXIT_QUEUE_TOTAL,
-                    gossip_voluntary_exit_queue.len() as i64,
+                metrics::observe_histogram_vec(
+                    &metrics::BEACON_PROCESSOR_QUEUE_LENGTHS,
+                    &[GOSSIP_VOLUNTARY_EXIT],
+                    gossip_voluntary_exit_queue.len() as f64,
                 );
-                metrics::set_gauge(
-                    &metrics::BEACON_PROCESSOR_PROPOSER_SLASHING_QUEUE_TOTAL,
-                    gossip_proposer_slashing_queue.len() as i64,
+                metrics::observe_histogram_vec(
+                    &metrics::BEACON_PROCESSOR_QUEUE_LENGTHS,
+                    &[GOSSIP_PROPOSER_SLASHING],
+                    gossip_proposer_slashing_queue.len() as f64,
                 );
-                metrics::set_gauge(
-                    &metrics::BEACON_PROCESSOR_ATTESTER_SLASHING_QUEUE_TOTAL,
-                    gossip_attester_slashing_queue.len() as i64,
+                metrics::observe_histogram_vec(
+                    &metrics::BEACON_PROCESSOR_QUEUE_LENGTHS,
+                    &[GOSSIP_ATTESTER_SLASHING],
+                    gossip_attester_slashing_queue.len() as f64,
                 );
-                metrics::set_gauge(
-                    &metrics::BEACON_PROCESSOR_BLS_TO_EXECUTION_CHANGE_QUEUE_TOTAL,
-                    gossip_bls_to_execution_change_queue.len() as i64,
+                metrics::observe_histogram_vec(
+                    &metrics::BEACON_PROCESSOR_QUEUE_LENGTHS,
+                    &[GOSSIP_BLS_TO_EXECUTION_CHANGE],
+                    gossip_bls_to_execution_change_queue.len() as f64,
                 );
-                metrics::set_gauge(
-                    &metrics::BEACON_PROCESSOR_API_REQUEST_P0_QUEUE_TOTAL,
-                    api_request_p0_queue.len() as i64,
+                metrics::observe_histogram_vec(
+                    &metrics::BEACON_PROCESSOR_QUEUE_LENGTHS,
+                    &[API_REQUEST_P0],
+                    api_request_p0_queue.len() as f64,
                 );
-                metrics::set_gauge(
-                    &metrics::BEACON_PROCESSOR_API_REQUEST_P1_QUEUE_TOTAL,
-                    api_request_p1_queue.len() as i64,
+                metrics::observe_histogram_vec(
+                    &metrics::BEACON_PROCESSOR_QUEUE_LENGTHS,
+                    &[API_REQUEST_P1],
+                    api_request_p1_queue.len() as f64,
                 );
 
                 if aggregate_queue.is_full() && aggregate_debounce.elapsed() {

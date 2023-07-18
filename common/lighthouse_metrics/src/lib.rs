@@ -280,6 +280,13 @@ pub fn observe_timer_vec(vec: &Result<HistogramVec>, name: &[&str], duration: Du
     }
 }
 
+/// Starts a timer on `vec` with the given `name`.
+pub fn observe_histogram_vec(vec: &Result<HistogramVec>, name: &[&str], value: f64) {
+    if let Some(h) = get_histogram(vec, name) {
+        h.observe(value)
+    }
+}
+
 /// Stops a timer created with `start_timer(..)`.
 pub fn stop_timer(timer: Option<HistogramTimer>) {
     if let Some(t) = timer {
