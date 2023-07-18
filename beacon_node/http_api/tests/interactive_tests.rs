@@ -636,7 +636,7 @@ pub async fn proposer_boost_re_org_test(
 
     // Applying block C should cause it to become head regardless (re-org or continuation).
     let block_root_c = harness
-        .process_block_result(block_c.clone())
+        .process_block_result((block_c.clone(), None))
         .await
         .unwrap()
         .into();

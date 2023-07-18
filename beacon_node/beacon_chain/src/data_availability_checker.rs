@@ -12,6 +12,8 @@ use slog::{debug, error};
 use slot_clock::SlotClock;
 use ssz_types::{Error, VariableList};
 use std::collections::HashSet;
+use std::fmt;
+use std::fmt::Debug;
 use std::sync::Arc;
 use strum::IntoStaticStr;
 use task_executor::TaskExecutor;
@@ -99,6 +101,17 @@ pub struct DataAvailabilityChecker<T: BeaconChainTypes> {
 pub enum Availability<T: EthSpec> {
     MissingComponents(Hash256),
     Available(Box<AvailableExecutedBlock<T>>),
+}
+
+impl<T: EthSpec> Debug for Availability<T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Self::MissingComponents(block_root) => {
+                write!(f, "MissingComponents({})", block_root)
+            }
+            Self::Available(block) => write!(f, "Available({:?})", block.import_data.block_root),
+        }
+    }
 }
 
 impl<T: EthSpec> Availability<T> {

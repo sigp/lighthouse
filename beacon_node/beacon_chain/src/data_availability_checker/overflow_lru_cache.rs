@@ -855,6 +855,7 @@ mod test {
             validate_blob_sidecar_for_gossip, verify_kzg_for_blob, GossipVerifiedBlob,
         },
         block_verification::PayloadVerificationOutcome,
+        block_verification_types::BlockImportData,
         eth1_finalization_cache::Eth1FinalizationData,
         test_utils::{BaseHarnessType, BeaconChainHarness, DiskHarnessType},
     };
@@ -1297,7 +1298,7 @@ mod test {
                 // we need blocks with blobs
                 continue;
             }
-            let root = pending_block.block.block.canonical_root();
+            let root = pending_block.block.canonical_root();
             pending_blocks.push_back(pending_block);
             pending_blobs.push_back(blobs);
             roots.push_back(root);

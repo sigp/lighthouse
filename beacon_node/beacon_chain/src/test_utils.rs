@@ -1873,18 +1873,31 @@ where
         (deposits, state)
     }
 
-    pub async fn process_block<B: Into<RpcBlock<E>>>(
+    pub async fn process_block(
         &self,
         slot: Slot,
         block_root: Hash256,
-        block: B,
+        block_contents: BlockContentsTuple<E, FullPayload<E>>,
     ) -> Result<SignedBeaconBlockHash, BlockError<E>> {
         self.set_current_slot(slot);
+        let (block, blobs) = block_contents;
+        // Note: we are just dropping signatures here and skipping signature verification.
+        let blobs_without_signatures = blobs.as_ref().map(|blobs| {
+            VariableList::from(
+                blobs
+                    .into_iter()
+                    .map(|blob| blob.message.clone())
+                    .collect::<Vec<_>>(),
+            )
+        });
         let block_hash: SignedBeaconBlockHash = self
             .chain
-            .process_block(block_root, block.into(), NotifyExecutionLayer::Yes, || {
-                Ok(())
-            })
+            .process_block(
+                block_root,
+                RpcBlock::new(Arc::new(block), blobs_without_signatures).unwrap(),
+                NotifyExecutionLayer::Yes,
+                || Ok(()),
+            )
             .await?
             .try_into()
             .unwrap();
@@ -1892,16 +1905,25 @@ where
         Ok(block_hash)
     }
 
-    pub async fn process_block_result<B: Into<RpcBlock<E>>>(
+    pub async fn process_block_result(
         &self,
-        block: B,
+        block_contents: BlockContentsTuple<E, FullPayload<E>>,
     ) -> Result<SignedBeaconBlockHash, BlockError<E>> {
-        let wrapped_block = block.into();
+        let (block, blobs) = block_contents;
+        // Note: we are just dropping signatures here and skipping signature verification.
+        let blobs_without_signatures = blobs.as_ref().map(|blobs| {
+            VariableList::from(
+                blobs
+                    .into_iter()
+                    .map(|blob| blob.message.clone())
+                    .collect::<Vec<_>>(),
+            )
+        });
         let block_hash: SignedBeaconBlockHash = self
             .chain
             .process_block(
-                wrapped_block.canonical_root(),
-                wrapped_block,
+                block.canonical_root(),
+                RpcBlock::new(Arc::new(block), blobs_without_signatures).unwrap(),
                 NotifyExecutionLayer::Yes,
                 || Ok(()),
             )
@@ -1976,24 +1998,16 @@ where
         BlockError<E>,
     > {
         self.set_current_slot(slot);
-        let ((block, blobs), new_state) = self.make_block(state, slot).await;
-        // Note: we are just dropping signatures here and skipping signature verification.
-        let blobs_without_signatures = blobs.as_ref().map(|blobs| {
-            VariableList::from(
-                blobs
-                    .into_iter()
-                    .map(|blob| blob.message.clone())
-                    .collect::<Vec<_>>(),
-            )
-        });
+        let (block_contents, new_state) = self.make_block(state, slot).await;
+
         let block_hash = self
             .process_block(
                 slot,
-                block.canonical_root(),
-                RpcBlock::new(Arc::new(block.clone()), blobs_without_signatures.clone()).unwrap(),
+                block_contents.0.canonical_root(),
+                block_contents.clone(),
             )
             .await?;
-        Ok((block_hash, (block, blobs), new_state))
+        Ok((block_hash, block_contents, new_state))
     }
 
     pub fn attest_block(

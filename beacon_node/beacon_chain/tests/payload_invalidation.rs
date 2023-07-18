@@ -221,7 +221,7 @@ impl InvalidPayloadRig {
         let head = self.harness.chain.head_snapshot();
         let state = head.beacon_state.clone_with_only_committee_caches();
         let slot = slot_override.unwrap_or(state.slot() + 1);
-        let ((block, _), post_state) = self.harness.make_block(state, slot).await;
+        let ((block, blobs), post_state) = self.harness.make_block(state, slot).await;
         let block_root = block.canonical_root();
 
         let set_new_payload = |payload: Payload| match payload {
@@ -285,7 +285,7 @@ impl InvalidPayloadRig {
                 }
                 let root = self
                     .harness
-                    .process_block(slot, block.canonical_root(), block.clone())
+                    .process_block(slot, block.canonical_root(), (block.clone(), blobs.clone()))
                     .await
                     .unwrap();
 
@@ -326,7 +326,7 @@ impl InvalidPayloadRig {
 
                 match self
                     .harness
-                    .process_block(slot, block.canonical_root(), block)
+                    .process_block(slot, block.canonical_root(), (block, blobs))
                     .await
                 {
                     Err(error) if evaluate_error(&error) => (),
