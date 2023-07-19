@@ -106,12 +106,6 @@ impl fmt::Display for MergeReadiness {
                     params, current_difficulty
                 )
             }
-            MergeReadiness::ExchangeTransitionConfigurationFailed { error } => write!(
-                f,
-                "Could not confirm the transition configuration with the \
-                    execution endpoint: {:?}",
-                error
-            ),
             MergeReadiness::NotSynced => write!(
                 f,
                 "The execution endpoint is connected and configured, \
