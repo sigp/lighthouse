@@ -525,7 +525,7 @@ async fn run<'a>(config: MoveConfig) -> Result<(), String> {
                         }
                         ImportKeystoreStatus::Error => {
                             eprintln!(
-                                "Upload of keystore {} of {} failed with message: {:?}."
+                                "Upload of keystore {} of {} failed with message: {:?}.",
                                 i + 1,
                                 count,
                                 status.message,
