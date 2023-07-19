@@ -1,5 +1,6 @@
 use clap::{App, Arg};
 use strum::VariantNames;
+use types::ProgressiveBalancesMode;
 
 pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
     App::new("beacon_node")
@@ -116,7 +117,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .value_name("PORT")
                 .help("The UDP port that discovery will listen on over IpV6 if listening over \
                       both Ipv4 and IpV6. Defaults to `port6`")
-                .hidden(true) // TODO: implement dual stack via two sockets in discv5.
                 .takes_value(true),
         )
         .arg(
@@ -198,7 +198,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                       discovery. Set this only if you are sure other nodes can connect to your \
                       local node on this address. This will update the `ip4` or `ip6` ENR fields \
                       accordingly. To update both, set this flag twice with the different values.")
-                .requires("enr-udp-port")
                 .multiple(true)
                 .max_values(2)
                 .takes_value(true),
@@ -282,7 +281,23 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                        for a beacon node being referenced by validator client using the --proposer-node flag. This configuration is for enabling more secure setups.")
                 .takes_value(false),
         )
-
+        .arg(
+            Arg::with_name("inbound-rate-limiter")
+            .long("inbound-rate-limiter")
+            .help(
+                "Configures the inbound rate limiter (requests received by this node).\
+                \
+                Rate limit quotas per protocol can be set in the form of \
+                <protocol_name>:<tokens>/<time_in_seconds>. To set quotas for multiple protocols, \
+                separate them by ';'. If the inbound rate limiter is enabled and a protocol is not \
+                present in the configuration, the default quotas will be used. \
+                \
+                This is enabled by default, using default quotas. To disable rate limiting pass \
+                `disabled` to this option instead."
+            )
+            .takes_value(true)
+            .hidden(true)
+        )
         .arg(
             Arg::with_name("disable-backfill-rate-limiting")
                 .long("disable-backfill-rate-limiting")
@@ -519,6 +534,16 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true)
         )
         .arg(
+            Arg::with_name("epochs-per-migration")
+                .long("epochs-per-migration")
+                .value_name("N")
+                .help("The number of epochs to wait between running the migration of data from the \
+                       hot DB to the cold DB. Less frequent runs can be useful for minimizing disk \
+                       writes")
+                .default_value("1")
+                .takes_value(true)
+        )
+        .arg(
             Arg::with_name("block-cache-size")
                 .long("block-cache-size")
                 .value_name("SIZE")
@@ -671,7 +696,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("max-skip-slots")
                 .long("max-skip-slots")
                 .help(
-                    "Refuse to skip more than this many slots when processing a block or attestation. \
+                    "Refuse to skip more than this many slots when processing an attestation. \
                     This prevents nodes on minority forks from wasting our time and disk space, \
                     but could also cause unnecessary consensus failures, so is disabled by default."
                 )
@@ -776,8 +801,9 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("slasher-broadcast")
                 .long("slasher-broadcast")
                 .help("Broadcast slashings found by the slasher to the rest of the network \
-                       [disabled by default].")
-                .requires("slasher")
+                       [Enabled by default].")
+                .takes_value(true)
+                .default_value("true")
         )
         .arg(
             Arg::with_name("slasher-backend")
@@ -832,7 +858,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .help("Set the timeout for checkpoint sync calls to remote beacon node HTTP endpoint.")
                 .value_name("SECONDS")
                 .takes_value(true)
-                .default_value("60")
+                .default_value("180")
         )
         .arg(
             Arg::with_name("reconstruct-historic-states")
@@ -1101,5 +1127,18 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     the block SSZ as a file at this path. This feature is only recommended for \
                     developers. This directory is not pruned, users should be careful to avoid \
                     filling up their disks.")
+        )
+        .arg(
+            Arg::with_name("progressive-balances")
+                .long("progressive-balances")
+                .value_name("MODE")
+                .help("Options to enable or disable the progressive balances cache for \
+                        unrealized FFG progression calculation. The default `checked` mode compares \
+                        the progressive balances from the cache against results from the existing \
+                        method. If there is a mismatch, it falls back to the existing method. The \
+                        optimized mode (`fast`) is faster but is still experimental, and is \
+                        not recommended for mainnet usage at this time.")
+                .takes_value(true)
+                .possible_values(ProgressiveBalancesMode::VARIANTS)
         )
 }

@@ -1,21 +1,21 @@
-use crate::beacon_processor::{worker::FUTURE_SLOT_TOLERANCE, SendOnDrop};
+use crate::network_beacon_processor::{NetworkBeaconProcessor, FUTURE_SLOT_TOLERANCE};
 use crate::service::NetworkMessage;
 use crate::status::ToStatusMessage;
 use crate::sync::SyncMessage;
 use beacon_chain::{BeaconChainError, BeaconChainTypes, HistoricalBlockError, WhenSlotSkipped};
+use beacon_processor::SendOnDrop;
 use itertools::process_results;
 use lighthouse_network::rpc::StatusMessage;
 use lighthouse_network::rpc::*;
 use lighthouse_network::{PeerId, PeerRequestId, ReportSource, Response, SyncInfo};
 use slog::{debug, error, warn};
 use slot_clock::SlotClock;
+use std::sync::Arc;
 use task_executor::TaskExecutor;
 use tokio_stream::StreamExt;
 use types::{light_client_bootstrap::LightClientBootstrap, Epoch, EthSpec, Hash256, Slot};
 
-use super::Worker;
-
-impl<T: BeaconChainTypes> Worker<T> {
+impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     /* Auxiliary functions */
 
     /// Disconnects and ban's a peer, sending a Goodbye request with the associated reason.
@@ -124,17 +124,17 @@ impl<T: BeaconChainTypes> Worker<T> {
 
     /// Handle a `BlocksByRoot` request from the peer.
     pub fn handle_blocks_by_root_request(
-        self,
+        self: Arc<Self>,
         executor: TaskExecutor,
         send_on_drop: SendOnDrop,
         peer_id: PeerId,
         request_id: PeerRequestId,
         request: BlocksByRootRequest,
     ) {
-        let requested_blocks = request.block_roots.len();
+        let requested_blocks = request.block_roots().len();
         let mut block_stream = match self
             .chain
-            .get_blocks_checking_early_attester_cache(request.block_roots.into(), &executor)
+            .get_blocks_checking_early_attester_cache(request.block_roots().to_vec(), &executor)
         {
             Ok(block_stream) => block_stream,
             Err(e) => return error!(self.log, "Error getting block stream"; "error" => ?e),
@@ -210,7 +210,7 @@ impl<T: BeaconChainTypes> Worker<T> {
 
     /// Handle a `BlocksByRoot` request from the peer.
     pub fn handle_light_client_bootstrap(
-        self,
+        self: &Arc<Self>,
         peer_id: PeerId,
         request_id: PeerRequestId,
         request: LightClientBootstrapRequest,
@@ -283,7 +283,7 @@ impl<T: BeaconChainTypes> Worker<T> {
 
     /// Handle a `BlocksByRange` request from the peer.
     pub fn handle_blocks_by_range_request(
-        self,
+        self: Arc<Self>,
         executor: TaskExecutor,
         send_on_drop: SendOnDrop,
         peer_id: PeerId,
@@ -292,18 +292,18 @@ impl<T: BeaconChainTypes> Worker<T> {
     ) {
         debug!(self.log, "Received BlocksByRange Request";
             "peer_id" => %peer_id,
-            "count" => req.count,
-            "start_slot" => req.start_slot,
+            "count" => req.count(),
+            "start_slot" => req.start_slot(),
         );
 
         // Should not send more than max request blocks
-        if req.count > MAX_REQUEST_BLOCKS {
-            req.count = MAX_REQUEST_BLOCKS;
+        if *req.count() > MAX_REQUEST_BLOCKS {
+            *req.count_mut() = MAX_REQUEST_BLOCKS;
         }
 
         let forwards_block_root_iter = match self
             .chain
-            .forwards_iter_block_roots(Slot::from(req.start_slot))
+            .forwards_iter_block_roots(Slot::from(*req.start_slot()))
         {
             Ok(iter) => iter,
             Err(BeaconChainError::HistoricalBlockError(
@@ -326,18 +326,20 @@ impl<T: BeaconChainTypes> Worker<T> {
         // Pick out the required blocks, ignoring skip-slots.
         let mut last_block_root = None;
         let maybe_block_roots = process_results(forwards_block_root_iter, |iter| {
-            iter.take_while(|(_, slot)| slot.as_u64() < req.start_slot.saturating_add(req.count))
-                // map skip slots to None
-                .map(|(root, _)| {
-                    let result = if Some(root) == last_block_root {
-                        None
-                    } else {
-                        Some(root)
-                    };
-                    last_block_root = Some(root);
-                    result
-                })
-                .collect::<Vec<Option<Hash256>>>()
+            iter.take_while(|(_, slot)| {
+                slot.as_u64() < req.start_slot().saturating_add(*req.count())
+            })
+            // map skip slots to None
+            .map(|(root, _)| {
+                let result = if Some(root) == last_block_root {
+                    None
+                } else {
+                    Some(root)
+                };
+                last_block_root = Some(root);
+                result
+            })
+            .collect::<Vec<Option<Hash256>>>()
         });
 
         let block_roots = match maybe_block_roots {
@@ -364,8 +366,8 @@ impl<T: BeaconChainTypes> Worker<T> {
                         Ok(Some(block)) => {
                             // Due to skip slots, blocks could be out of the range, we ensure they
                             // are in the range before sending
-                            if block.slot() >= req.start_slot
-                                && block.slot() < req.start_slot + req.count
+                            if block.slot() >= *req.start_slot()
+                                && block.slot() < req.start_slot() + req.count()
                             {
                                 blocks_sent += 1;
                                 self.send_network_message(NetworkMessage::SendResponse {
@@ -440,15 +442,15 @@ impl<T: BeaconChainTypes> Worker<T> {
                     .slot()
                     .unwrap_or_else(|_| self.chain.slot_clock.genesis_slot());
 
-                if blocks_sent < (req.count as usize) {
+                if blocks_sent < (*req.count() as usize) {
                     debug!(
                         self.log,
                         "BlocksByRange outgoing response processed";
                         "peer" => %peer_id,
                         "msg" => "Failed to return all requested blocks",
-                        "start_slot" => req.start_slot,
+                        "start_slot" => req.start_slot(),
                         "current_slot" => current_slot,
-                        "requested" => req.count,
+                        "requested" => req.count(),
                         "returned" => blocks_sent
                     );
                 } else {
@@ -456,9 +458,9 @@ impl<T: BeaconChainTypes> Worker<T> {
                         self.log,
                         "BlocksByRange outgoing response processed";
                         "peer" => %peer_id,
-                        "start_slot" => req.start_slot,
+                        "start_slot" => req.start_slot(),
                         "current_slot" => current_slot,
-                        "requested" => req.count,
+                        "requested" => req.count(),
                         "returned" => blocks_sent
                     );
                 }

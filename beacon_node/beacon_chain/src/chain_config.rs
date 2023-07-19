@@ -1,7 +1,7 @@
 pub use proto_array::{DisallowedReOrgOffsets, ReOrgThreshold};
 use serde_derive::{Deserialize, Serialize};
 use std::time::Duration;
-use types::{Checkpoint, Epoch};
+use types::{Checkpoint, Epoch, ProgressiveBalancesMode};
 
 pub const DEFAULT_RE_ORG_THRESHOLD: ReOrgThreshold = ReOrgThreshold(20);
 pub const DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION: Epoch = Epoch::new(2);
@@ -17,8 +17,7 @@ pub const FORK_CHOICE_LOOKAHEAD_FACTOR: u32 = 24;
 
 #[derive(Debug, PartialEq, Eq, Clone, Deserialize, Serialize)]
 pub struct ChainConfig {
-    /// Maximum number of slots to skip when importing a consensus message (e.g., block,
-    /// attestation, etc).
+    /// Maximum number of slots to skip when importing an attestation.
     ///
     /// If `None`, there is no limit.
     pub import_max_skip_slots: Option<u64>,
@@ -82,6 +81,10 @@ pub struct ChainConfig {
     pub always_prepare_payload: bool,
     /// Whether backfill sync processing should be rate-limited.
     pub enable_backfill_rate_limiting: bool,
+    /// Whether to use `ProgressiveBalancesCache` in unrealized FFG progression calculation.
+    pub progressive_balances_mode: ProgressiveBalancesMode,
+    /// Number of epochs between each migration of data from the hot database to the freezer.
+    pub epochs_per_migration: u64,
 }
 
 impl Default for ChainConfig {
@@ -112,6 +115,8 @@ impl Default for ChainConfig {
             genesis_backfill: false,
             always_prepare_payload: false,
             enable_backfill_rate_limiting: true,
+            progressive_balances_mode: ProgressiveBalancesMode::Checked,
+            epochs_per_migration: crate::migrate::DEFAULT_EPOCHS_PER_MIGRATION,
         }
     }
 }

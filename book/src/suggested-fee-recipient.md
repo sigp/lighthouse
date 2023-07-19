@@ -103,6 +103,8 @@ client.
 }
 ```
 
+Command:
+
 ```bash
 DATADIR=$HOME/.lighthouse/mainnet
 PUBKEY=0xa9735061c84fc0003657e5bd38160762b7ef2d67d280e00347b1781570088c32c06f15418c144949f5d736b1d3a6c591
@@ -115,10 +117,14 @@ curl -X POST \
     http://localhost:5062/eth/v1/validator/${PUBKEY}/feerecipient | jq
 ```
 
+Note that an authorization header is required to interact with the API. This is specified with the header `-H "Authorization: Bearer $(cat ${DATADIR}/validators/api-token.txt)"` which read the API token to supply the authentication. Refer to [Authorization Header](./api-vc-auth-header.md) for more information. If you are having permission issue with accessing the API token file, you can modify the header to become `-H "Authorization: Bearer $(sudo cat ${DATADIR}/validators/api-token.txt)"`.
+
 #### Successful Response (202)
 ```json
 null
 ```
+
+A `null` response indicates that the request is successful.
 
 ### Querying the fee recipient
 
@@ -130,6 +136,8 @@ The same path with a `GET` request can be used to query the fee recipient for a 
 | Method            | GET                                        |
 | Required Headers  | [`Authorization`](./api-vc-auth-header.md) |
 | Typical Responses | 200, 404                                   |
+
+Command: 
 
 ```bash
 DATADIR=$HOME/.lighthouse/mainnet
@@ -162,6 +170,8 @@ This is useful if you want the fee recipient to fall back to the validator clien
 | Method            | DELETE                                     |
 | Required Headers  | [`Authorization`](./api-vc-auth-header.md) |
 | Typical Responses | 204, 404                                   |
+
+Command: 
 
 ```bash
 DATADIR=$HOME/.lighthouse/mainnet

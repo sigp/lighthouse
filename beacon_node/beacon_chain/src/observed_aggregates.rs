@@ -1,7 +1,9 @@
 //! Provides an `ObservedAggregates` struct which allows us to reject aggregated attestations or
 //! sync committee contributions if we've already seen them.
 
-use std::collections::HashSet;
+use crate::sync_committee_verification::SyncCommitteeData;
+use ssz_types::{BitList, BitVector};
+use std::collections::HashMap;
 use std::marker::PhantomData;
 use tree_hash::TreeHash;
 use types::consts::altair::{
@@ -10,8 +12,16 @@ use types::consts::altair::{
 use types::slot_data::SlotData;
 use types::{Attestation, EthSpec, Hash256, Slot, SyncCommitteeContribution};
 
-pub type ObservedSyncContributions<E> = ObservedAggregates<SyncCommitteeContribution<E>, E>;
-pub type ObservedAggregateAttestations<E> = ObservedAggregates<Attestation<E>, E>;
+pub type ObservedSyncContributions<E> = ObservedAggregates<
+    SyncCommitteeContribution<E>,
+    E,
+    BitVector<<E as types::EthSpec>::SyncSubcommitteeSize>,
+>;
+pub type ObservedAggregateAttestations<E> = ObservedAggregates<
+    Attestation<E>,
+    E,
+    BitList<<E as types::EthSpec>::MaxValidatorsPerCommittee>,
+>;
 
 /// A trait use to associate capacity constants with the type being stored in `ObservedAggregates`.
 pub trait Consts {
@@ -69,10 +79,81 @@ impl<T: EthSpec> Consts for SyncCommitteeContribution<T> {
     }
 }
 
+/// A trait for types that implement a behaviour where one object of that type
+/// can be a subset/superset of another.
+/// This trait allows us to be generic over the aggregate item that we store in the cache that
+/// we want to prevent duplicates/subsets for.
+pub trait SubsetItem {
+    /// The item that is stored for later comparison with new incoming aggregate items.
+    type Item;
+
+    /// Returns `true` if `self` is a non-strict subset of `other` and `false` otherwise.
+    fn is_subset(&self, other: &Self::Item) -> bool;
+
+    /// Returns `true` if `self` is a non-strict superset of `other` and `false` otherwise.
+    fn is_superset(&self, other: &Self::Item) -> bool;
+
+    /// Returns the item that gets stored in `ObservedAggregates` for later subset
+    /// comparison with incoming aggregates.
+    fn get_item(&self) -> Self::Item;
+
+    /// Returns a unique value that keys the object to the item that is being stored
+    /// in `ObservedAggregates`.
+    fn root(&self) -> Hash256;
+}
+
+impl<T: EthSpec> SubsetItem for Attestation<T> {
+    type Item = BitList<T::MaxValidatorsPerCommittee>;
+    fn is_subset(&self, other: &Self::Item) -> bool {
+        self.aggregation_bits.is_subset(other)
+    }
+
+    fn is_superset(&self, other: &Self::Item) -> bool {
+        other.is_subset(&self.aggregation_bits)
+    }
+
+    /// Returns the sync contribution aggregation bits.
+    fn get_item(&self) -> Self::Item {
+        self.aggregation_bits.clone()
+    }
+
+    /// Returns the hash tree root of the attestation data.
+    fn root(&self) -> Hash256 {
+        self.data.tree_hash_root()
+    }
+}
+
+impl<T: EthSpec> SubsetItem for SyncCommitteeContribution<T> {
+    type Item = BitVector<T::SyncSubcommitteeSize>;
+    fn is_subset(&self, other: &Self::Item) -> bool {
+        self.aggregation_bits.is_subset(other)
+    }
+
+    fn is_superset(&self, other: &Self::Item) -> bool {
+        other.is_subset(&self.aggregation_bits)
+    }
+
+    /// Returns the sync contribution aggregation bits.
+    fn get_item(&self) -> Self::Item {
+        self.aggregation_bits.clone()
+    }
+
+    /// Returns the hash tree root of the root, slot and subcommittee index
+    /// of the sync contribution.
+    fn root(&self) -> Hash256 {
+        SyncCommitteeData {
+            root: self.beacon_block_root,
+            slot: self.slot,
+            subcommittee_index: self.subcommittee_index,
+        }
+        .tree_hash_root()
+    }
+}
+
 #[derive(Debug, PartialEq)]
 pub enum ObserveOutcome {
-    /// This item was already known.
-    AlreadyKnown,
+    /// This item is a non-strict subset of an already known item.
+    Subset,
     /// This was the first time this item was observed.
     New,
 }
@@ -94,26 +175,28 @@ pub enum Error {
     },
 }
 
-/// A `HashSet` that contains entries related to some `Slot`.
-struct SlotHashSet {
-    set: HashSet<Hash256>,
+/// A `HashMap` that contains entries related to some `Slot`.
+struct SlotHashSet<I> {
+    /// Contains a vector of maximally-sized aggregation bitfields/bitvectors
+    /// such that no bitfield/bitvector is a subset of any other in the list.
+    map: HashMap<Hash256, Vec<I>>,
     slot: Slot,
     max_capacity: usize,
 }
 
-impl SlotHashSet {
+impl<I> SlotHashSet<I> {
     pub fn new(slot: Slot, initial_capacity: usize, max_capacity: usize) -> Self {
         Self {
             slot,
-            set: HashSet::with_capacity(initial_capacity),
+            map: HashMap::with_capacity(initial_capacity),
             max_capacity,
         }
     }
 
     /// Store the items in self so future observations recognise its existence.
-    pub fn observe_item<T: SlotData>(
+    pub fn observe_item<S: SlotData + SubsetItem<Item = I>>(
         &mut self,
-        item: &T,
+        item: &S,
         root: Hash256,
     ) -> Result<ObserveOutcome, Error> {
         if item.get_slot() != self.slot {
@@ -123,29 +206,45 @@ impl SlotHashSet {
             });
         }
 
-        if self.set.contains(&root) {
-            Ok(ObserveOutcome::AlreadyKnown)
-        } else {
-            // Here we check to see if this slot has reached the maximum observation count.
-            //
-            // The resulting behaviour is that we are no longer able to successfully observe new
-            // items, however we will continue to return `is_known` values. We could also
-            // disable `is_known`, however then we would stop forwarding items across the
-            // gossip network and I think that this is a worse case than sending some invalid ones.
-            // The underlying libp2p network is responsible for removing duplicate messages, so
-            // this doesn't risk a broadcast loop.
-            if self.set.len() >= self.max_capacity {
-                return Err(Error::ReachedMaxObservationsPerSlot(self.max_capacity));
+        if let Some(aggregates) = self.map.get_mut(&root) {
+            for existing in aggregates {
+                // Check if `item` is a subset of any of the observed aggregates
+                if item.is_subset(existing) {
+                    return Ok(ObserveOutcome::Subset);
+                // Check if `item` is a superset of any of the observed aggregates
+                // If true, we replace the new item with its existing subset. This allows us
+                // to hold fewer items in the list.
+                } else if item.is_superset(existing) {
+                    *existing = item.get_item();
+                    return Ok(ObserveOutcome::New);
+                }
             }
-
-            self.set.insert(root);
-
-            Ok(ObserveOutcome::New)
         }
+
+        // Here we check to see if this slot has reached the maximum observation count.
+        //
+        // The resulting behaviour is that we are no longer able to successfully observe new
+        // items, however we will continue to return `is_known_subset` values. We could also
+        // disable `is_known_subset`, however then we would stop forwarding items across the
+        // gossip network and I think that this is a worse case than sending some invalid ones.
+        // The underlying libp2p network is responsible for removing duplicate messages, so
+        // this doesn't risk a broadcast loop.
+        if self.map.len() >= self.max_capacity {
+            return Err(Error::ReachedMaxObservationsPerSlot(self.max_capacity));
+        }
+
+        let item = item.get_item();
+        self.map.entry(root).or_default().push(item);
+        Ok(ObserveOutcome::New)
     }
 
-    /// Indicates if `item` has been observed before.
-    pub fn is_known<T: SlotData>(&self, item: &T, root: Hash256) -> Result<bool, Error> {
+    /// Check if `item` is a non-strict subset of any of the already observed aggregates for
+    /// the given root and slot.
+    pub fn is_known_subset<S: SlotData + SubsetItem<Item = I>>(
+        &self,
+        item: &S,
+        root: Hash256,
+    ) -> Result<bool, Error> {
         if item.get_slot() != self.slot {
             return Err(Error::IncorrectSlot {
                 expected: self.slot,
@@ -153,25 +252,28 @@ impl SlotHashSet {
             });
         }
 
-        Ok(self.set.contains(&root))
+        Ok(self
+            .map
+            .get(&root)
+            .map_or(false, |agg| agg.iter().any(|val| item.is_subset(val))))
     }
 
     /// The number of observed items in `self`.
     pub fn len(&self) -> usize {
-        self.set.len()
+        self.map.len()
     }
 }
 
 /// Stores the roots of objects for some number of `Slots`, so we can determine if
 /// these have previously been seen on the network.
-pub struct ObservedAggregates<T: TreeHash + SlotData + Consts, E: EthSpec> {
+pub struct ObservedAggregates<T: SlotData + Consts, E: EthSpec, I> {
     lowest_permissible_slot: Slot,
-    sets: Vec<SlotHashSet>,
+    sets: Vec<SlotHashSet<I>>,
     _phantom_spec: PhantomData<E>,
     _phantom_tree_hash: PhantomData<T>,
 }
 
-impl<T: TreeHash + SlotData + Consts, E: EthSpec> Default for ObservedAggregates<T, E> {
+impl<T: SlotData + Consts, E: EthSpec, I> Default for ObservedAggregates<T, E, I> {
     fn default() -> Self {
         Self {
             lowest_permissible_slot: Slot::new(0),
@@ -182,17 +284,17 @@ impl<T: TreeHash + SlotData + Consts, E: EthSpec> Default for ObservedAggregates
     }
 }
 
-impl<T: TreeHash + SlotData + Consts, E: EthSpec> ObservedAggregates<T, E> {
-    /// Store the root of `item` in `self`.
+impl<T: SlotData + Consts + SubsetItem<Item = I>, E: EthSpec, I> ObservedAggregates<T, E, I> {
+    /// Store `item` in `self` keyed at `root`.
     ///
-    /// `root` must equal `item.tree_hash_root()`.
+    /// `root` must equal `item.root::<SubsetItem>()`.
     pub fn observe_item(
         &mut self,
         item: &T,
         root_opt: Option<Hash256>,
     ) -> Result<ObserveOutcome, Error> {
         let index = self.get_set_index(item.get_slot())?;
-        let root = root_opt.unwrap_or_else(|| item.tree_hash_root());
+        let root = root_opt.unwrap_or_else(|| item.root());
 
         self.sets
             .get_mut(index)
@@ -200,17 +302,18 @@ impl<T: TreeHash + SlotData + Consts, E: EthSpec> ObservedAggregates<T, E> {
             .and_then(|set| set.observe_item(item, root))
     }
 
-    /// Check to see if the `root` of `item` is in self.
+    /// Check if `item` is a non-strict subset of any of the already observed aggregates for
+    /// the given root and slot.
     ///
-    /// `root` must equal `a.tree_hash_root()`.
+    /// `root` must equal `item.root::<SubsetItem>()`.
     #[allow(clippy::wrong_self_convention)]
-    pub fn is_known(&mut self, item: &T, root: Hash256) -> Result<bool, Error> {
+    pub fn is_known_subset(&mut self, item: &T, root: Hash256) -> Result<bool, Error> {
         let index = self.get_set_index(item.get_slot())?;
 
         self.sets
             .get(index)
             .ok_or(Error::InvalidSetIndex(index))
-            .and_then(|set| set.is_known(item, root))
+            .and_then(|set| set.is_known_subset(item, root))
     }
 
     /// The maximum number of slots that items are stored for.
@@ -296,7 +399,6 @@ impl<T: TreeHash + SlotData + Consts, E: EthSpec> ObservedAggregates<T, E> {
 #[cfg(not(debug_assertions))]
 mod tests {
     use super::*;
-    use tree_hash::TreeHash;
     use types::{test_utils::test_random_instance, Hash256};
 
     type E = types::MainnetEthSpec;
@@ -330,7 +432,7 @@ mod tests {
 
                     for a in &items {
                         assert_eq!(
-                            store.is_known(a, a.tree_hash_root()),
+                            store.is_known_subset(a, a.root()),
                             Ok(false),
                             "should indicate an unknown attestation is unknown"
                         );
@@ -343,13 +445,13 @@ mod tests {
 
                     for a in &items {
                         assert_eq!(
-                            store.is_known(a, a.tree_hash_root()),
+                            store.is_known_subset(a, a.root()),
                             Ok(true),
                             "should indicate a known attestation is known"
                         );
                         assert_eq!(
-                            store.observe_item(a, Some(a.tree_hash_root())),
-                            Ok(ObserveOutcome::AlreadyKnown),
+                            store.observe_item(a, Some(a.root())),
+                            Ok(ObserveOutcome::Subset),
                             "should acknowledge an existing attestation"
                         );
                     }

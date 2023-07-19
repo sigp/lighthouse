@@ -1,17 +1,20 @@
 use std::time::Duration;
 
-use super::{super::work_reprocessing_queue::ReprocessQueueMessage, Worker};
-use crate::beacon_processor::work_reprocessing_queue::QueuedRpcBlock;
-use crate::beacon_processor::worker::FUTURE_SLOT_TOLERANCE;
-use crate::beacon_processor::DuplicateCache;
 use crate::metrics;
-use crate::sync::manager::{BlockProcessType, SyncMessage};
-use crate::sync::{BatchProcessResult, ChainId};
-use beacon_chain::CountUnrealized;
+use crate::network_beacon_processor::{NetworkBeaconProcessor, FUTURE_SLOT_TOLERANCE};
+use crate::sync::BatchProcessResult;
+use crate::sync::{
+    manager::{BlockProcessType, SyncMessage},
+    ChainId,
+};
 use beacon_chain::{
     observed_block_producers::Error as ObserveError, validator_monitor::get_block_delay_ms,
     BeaconChainError, BeaconChainTypes, BlockError, ChainSegmentResult, HistoricalBlockError,
     NotifyExecutionLayer,
+};
+use beacon_processor::{
+    work_reprocessing_queue::{QueuedRpcBlock, ReprocessQueueMessage},
+    AsyncFn, BlockingFn, DuplicateCache,
 };
 use lighthouse_network::PeerAction;
 use slog::{debug, error, info, warn};
@@ -25,7 +28,7 @@ use types::{Epoch, Hash256, SignedBeaconBlock};
 #[derive(Clone, Debug, PartialEq)]
 pub enum ChainSegmentProcessId {
     /// Processing Id of a range syncing batch.
-    RangeBatchId(ChainId, Epoch, CountUnrealized),
+    RangeBatchId(ChainId, Epoch),
     /// Processing ID for a backfill syncing batch.
     BackSyncBatchId(Epoch),
     /// Processing Id of the parent lookup of a block.
@@ -40,27 +43,71 @@ struct ChainSegmentFailed {
     peer_action: Option<PeerAction>,
 }
 
-impl<T: BeaconChainTypes> Worker<T> {
-    /// Attempt to process a block received from a direct RPC request.
-    #[allow(clippy::too_many_arguments)]
-    pub async fn process_rpc_block(
-        self,
+impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
+    /// Returns an async closure which processes a beacon block recieved via RPC.
+    ///
+    /// This separate function was required to prevent a cycle during compiler
+    /// type checking.
+    pub fn generate_rpc_beacon_block_process_fn(
+        self: Arc<Self>,
         block_root: Hash256,
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
         seen_timestamp: Duration,
         process_type: BlockProcessType,
-        reprocess_tx: mpsc::Sender<ReprocessQueueMessage<T>>,
-        duplicate_cache: DuplicateCache,
-        should_process: bool,
-    ) {
-        if !should_process {
+    ) -> AsyncFn {
+        let process_fn = async move {
+            let reprocess_tx = self.reprocess_tx.clone();
+            let duplicate_cache = self.duplicate_cache.clone();
+            self.process_rpc_block(
+                block_root,
+                block,
+                seen_timestamp,
+                process_type,
+                reprocess_tx,
+                duplicate_cache,
+            )
+            .await;
+        };
+        Box::pin(process_fn)
+    }
+
+    /// Returns the `process_fn` and `ignore_fn` required when requeuing an RPC block.
+    pub fn generate_rpc_beacon_block_fns(
+        self: Arc<Self>,
+        block_root: Hash256,
+        block: Arc<SignedBeaconBlock<T::EthSpec>>,
+        seen_timestamp: Duration,
+        process_type: BlockProcessType,
+    ) -> (AsyncFn, BlockingFn) {
+        // An async closure which will import the block.
+        let process_fn = self.clone().generate_rpc_beacon_block_process_fn(
+            block_root,
+            block,
+            seen_timestamp,
+            process_type.clone(),
+        );
+        // A closure which will ignore the block.
+        let ignore_fn = move || {
             // Sync handles these results
             self.send_sync_message(SyncMessage::BlockProcessed {
                 process_type,
                 result: crate::sync::manager::BlockProcessResult::Ignored,
             });
-            return;
-        }
+        };
+        (process_fn, Box::new(ignore_fn))
+    }
+
+    /// Attempt to process a block received from a direct RPC request.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn process_rpc_block(
+        self: Arc<NetworkBeaconProcessor<T>>,
+        block_root: Hash256,
+        block: Arc<SignedBeaconBlock<T::EthSpec>>,
+        seen_timestamp: Duration,
+        process_type: BlockProcessType,
+        reprocess_tx: mpsc::Sender<ReprocessQueueMessage>,
+        duplicate_cache: DuplicateCache,
+    ) {
         // Check if the block is already being imported through another source
         let handle = match duplicate_cache.check_and_insert(block_root) {
             Some(handle) => handle,
@@ -71,13 +118,18 @@ impl<T: BeaconChainTypes> Worker<T> {
                     "action" => "sending rpc block to reprocessing queue",
                     "block_root" => %block_root,
                 );
+
                 // Send message to work reprocess queue to retry the block
-                let reprocess_msg = ReprocessQueueMessage::RpcBlock(QueuedRpcBlock {
+                let (process_fn, ignore_fn) = self.clone().generate_rpc_beacon_block_fns(
                     block_root,
-                    block: block.clone(),
-                    process_type,
+                    block,
                     seen_timestamp,
-                    should_process: true,
+                    process_type,
+                );
+                let reprocess_msg = ReprocessQueueMessage::RpcBlock(QueuedRpcBlock {
+                    beacon_block_root: block_root,
+                    process_fn,
+                    ignore_fn,
                 });
 
                 if reprocess_tx.try_send(reprocess_msg).is_err() {
@@ -99,31 +151,19 @@ impl<T: BeaconChainTypes> Worker<T> {
             });
 
         // Checks if a block from this proposer is already known.
-        let proposal_already_known = || {
+        let block_equivocates = || {
             match self
                 .chain
                 .observed_block_producers
                 .read()
-                .proposer_has_been_observed(block.message())
+                .proposer_has_been_observed(block.message(), block.canonical_root())
             {
-                Ok(is_observed) => is_observed,
-                // Both of these blocks will be rejected, so reject them now rather
+                Ok(seen_status) => seen_status.is_slashable(),
+                //Both of these blocks will be rejected, so reject them now rather
                 // than re-queuing them.
                 Err(ObserveError::FinalizedBlock { .. })
                 | Err(ObserveError::ValidatorIndexTooHigh { .. }) => false,
             }
-        };
-
-        // Returns `true` if the block is already known to fork choice. Notably,
-        // this will return `false` for blocks that we've already imported but
-        // ancestors of the finalized checkpoint. That should not be an issue
-        // for our use here since finalized blocks will always be late and won't
-        // be requeued anyway.
-        let block_is_already_known = || {
-            self.chain
-                .canonical_head
-                .fork_choice_read_lock()
-                .contains_block(&block_root)
         };
 
         // If we've already seen a block from this proposer *and* the block
@@ -133,7 +173,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         // Don't requeue blocks if they're already known to fork choice, just
         // push them through to block processing so they can be handled through
         // the normal channels.
-        if !block_is_late && proposal_already_known() && !block_is_already_known() {
+        if !block_is_late && block_equivocates() {
             debug!(
                 self.log,
                 "Delaying processing of duplicate RPC block";
@@ -143,12 +183,16 @@ impl<T: BeaconChainTypes> Worker<T> {
             );
 
             // Send message to work reprocess queue to retry the block
-            let reprocess_msg = ReprocessQueueMessage::RpcBlock(QueuedRpcBlock {
+            let (process_fn, ignore_fn) = self.clone().generate_rpc_beacon_block_fns(
                 block_root,
-                block: block.clone(),
-                process_type,
+                block,
                 seen_timestamp,
-                should_process: true,
+                process_type,
+            );
+            let reprocess_msg = ReprocessQueueMessage::RpcBlock(QueuedRpcBlock {
+                beacon_block_root: block_root,
+                process_fn,
+                ignore_fn,
             });
 
             if reprocess_tx.try_send(reprocess_msg).is_err() {
@@ -166,12 +210,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         let parent_root = block.message().parent_root();
         let result = self
             .chain
-            .process_block(
-                block_root,
-                block,
-                CountUnrealized::True,
-                NotifyExecutionLayer::Yes,
-            )
+            .process_block(block_root, block, NotifyExecutionLayer::Yes, || Ok(()))
             .await;
 
         metrics::inc_counter(&metrics::BEACON_PROCESSOR_RPC_BLOCK_IMPORTED_TOTAL);
@@ -220,17 +259,13 @@ impl<T: BeaconChainTypes> Worker<T> {
     ) {
         let result = match sync_type {
             // this a request from the range sync
-            ChainSegmentProcessId::RangeBatchId(chain_id, epoch, count_unrealized) => {
+            ChainSegmentProcessId::RangeBatchId(chain_id, epoch) => {
                 let start_slot = downloaded_blocks.first().map(|b| b.slot().as_u64());
                 let end_slot = downloaded_blocks.last().map(|b| b.slot().as_u64());
                 let sent_blocks = downloaded_blocks.len();
 
                 match self
-                    .process_blocks(
-                        downloaded_blocks.iter(),
-                        count_unrealized,
-                        notify_execution_layer,
-                    )
+                    .process_blocks(downloaded_blocks.iter(), notify_execution_layer)
                     .await
                 {
                     (_, Ok(_)) => {
@@ -309,11 +344,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                 // parent blocks are ordered from highest slot to lowest, so we need to process in
                 // reverse
                 match self
-                    .process_blocks(
-                        downloaded_blocks.iter().rev(),
-                        CountUnrealized::True,
-                        notify_execution_layer,
-                    )
+                    .process_blocks(downloaded_blocks.iter().rev(), notify_execution_layer)
                     .await
                 {
                     (imported_blocks, Err(e)) => {
@@ -343,13 +374,12 @@ impl<T: BeaconChainTypes> Worker<T> {
     async fn process_blocks<'a>(
         &self,
         downloaded_blocks: impl Iterator<Item = &'a Arc<SignedBeaconBlock<T::EthSpec>>>,
-        count_unrealized: CountUnrealized,
         notify_execution_layer: NotifyExecutionLayer,
     ) -> (usize, Result<(), ChainSegmentFailed>) {
         let blocks: Vec<Arc<_>> = downloaded_blocks.cloned().collect();
         match self
             .chain
-            .process_chain_segment(blocks, count_unrealized, notify_execution_layer)
+            .process_chain_segment(blocks, notify_execution_layer)
             .await
         {
             ChainSegmentResult::Successful { imported_blocks } => {

@@ -30,4 +30,8 @@ impl<T: EthSpec> PayloadCache<T> {
     pub fn pop(&self, root: &Hash256) -> Option<ExecutionPayload<T>> {
         self.payloads.lock().pop(&PayloadCacheId(*root))
     }
+
+    pub fn get(&self, hash: &Hash256) -> Option<ExecutionPayload<T>> {
+        self.payloads.lock().get(&PayloadCacheId(*hash)).cloned()
+    }
 }

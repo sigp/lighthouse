@@ -400,6 +400,12 @@ pub fn get_config<E: EthSpec>(
         client_config.store.prune_payloads = prune_payloads;
     }
 
+    if let Some(epochs_per_migration) =
+        clap_utils::parse_optional(cli_args, "epochs-per-migration")?
+    {
+        client_config.chain.epochs_per_migration = epochs_per_migration;
+    }
+
     /*
      * Zero-ports
      *
@@ -633,7 +639,9 @@ pub fn get_config<E: EthSpec>(
             slasher_config.validator_chunk_size = validator_chunk_size;
         }
 
-        slasher_config.broadcast = cli_args.is_present("slasher-broadcast");
+        if let Some(broadcast) = clap_utils::parse_optional(cli_args, "slasher-broadcast")? {
+            slasher_config.broadcast = broadcast;
+        }
 
         if let Some(backend) = clap_utils::parse_optional(cli_args, "slasher-backend")? {
             slasher_config.backend = backend;
@@ -796,6 +804,12 @@ pub fn get_config<E: EthSpec>(
     if let Some(path) = clap_utils::parse_optional(cli_args, "invalid-gossip-verified-blocks-path")?
     {
         client_config.network.invalid_block_storage = Some(path);
+    }
+
+    if let Some(progressive_balances_mode) =
+        clap_utils::parse_optional(cli_args, "progressive-balances")?
+    {
+        client_config.chain.progressive_balances_mode = progressive_balances_mode;
     }
 
     Ok(client_config)
@@ -1232,6 +1246,7 @@ pub fn set_network_config(
     // Light client server config.
     config.enable_light_client_server = cli_args.is_present("light-client-server");
 
+    // The self limiter is disabled by default.
     // This flag can be used both with or without a value. Try to parse it first with a value, if
     // no value is defined but the flag is present, use the default params.
     config.outbound_rate_limiter_config = clap_utils::parse_optional(cli_args, "self-limiter")?;
@@ -1252,7 +1267,22 @@ pub fn set_network_config(
         config.proposer_only = true;
         warn!(log, "Proposer-only mode enabled"; "info"=> "Do not connect a validator client to this node unless via the --proposer-nodes flag");
     }
-
+    // The inbound rate limiter is enabled by default unless `disabled` is passed to the
+    // `inbound-rate-limiter` flag. Any other value should be parsed as a configuration string.
+    config.inbound_rate_limiter_config = match cli_args.value_of("inbound-rate-limiter") {
+        None => {
+            // Enabled by default, with default values
+            Some(Default::default())
+        }
+        Some("disabled") => {
+            // Explicitly disabled
+            None
+        }
+        Some(config_str) => {
+            // Enabled with a custom configuration
+            Some(config_str.parse()?)
+        }
+    };
     Ok(())
 }
 

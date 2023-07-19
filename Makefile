@@ -145,8 +145,9 @@ test-op-pool-%:
 
 # Run the tests in the `slasher` crate for all supported database backends.
 test-slasher:
-	cargo test --release -p slasher --features mdbx
-	cargo test --release -p slasher --no-default-features --features lmdb
+	cargo test --release -p slasher --features lmdb
+	cargo test --release -p slasher --no-default-features --features mdbx
+	cargo test --release -p slasher --features lmdb,mdbx # both backends enabled
 
 # Runs only the tests/state_transition_vectors tests.
 run-state-transition-tests:
@@ -169,7 +170,7 @@ test-full: cargo-fmt test-release test-debug test-ef test-exec-engine
 # Lints the code for bad style and potentially unsafe arithmetic using Clippy.
 # Clippy lints are opt-in per-crate for now. By default, everything is allowed except for performance and correctness lints.
 lint:
-	cargo clippy --workspace --tests -- \
+	cargo clippy --workspace --tests $(EXTRA_CLIPPY_OPTS) -- \
 		-D clippy::fn_to_numeric_cast_any \
 		-D warnings \
 		-A clippy::derive_partial_eq_without_eq \
@@ -178,6 +179,10 @@ lint:
 		-A clippy::vec-init-then-push \
 		-A clippy::question-mark \
 		-A clippy::uninlined-format-args
+
+# Lints the code using Clippy and automatically fix some simple compiler warnings.
+lint-fix:
+	EXTRA_CLIPPY_OPTS="--fix --allow-staged --allow-dirty" $(MAKE) lint
 
 nightly-lint:
 	cp .github/custom/clippy.toml .

@@ -51,7 +51,7 @@ fn all_benches(c: &mut Criterion) {
     let spec = Arc::new(MainnetEthSpec::default_spec());
 
     let mut state = get_state::<MainnetEthSpec>(validator_count);
-    state.build_all_caches(&spec).expect("should build caches");
+    state.build_caches(&spec).expect("should build caches");
     let state_bytes = state.as_ssz_bytes();
 
     let inner_state = state.clone();

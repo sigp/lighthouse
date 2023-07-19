@@ -1,5 +1,5 @@
 use crate::listen_addr::{ListenAddr, ListenAddress};
-use crate::rpc::config::OutboundRateLimiterConfig;
+use crate::rpc::config::{InboundRateLimiterConfig, OutboundRateLimiterConfig};
 use crate::types::GossipKind;
 use crate::{Enr, PeerIdSerialized};
 use directory::{
@@ -148,6 +148,9 @@ pub struct Config {
 
     /// Configures if/where invalid blocks should be stored.
     pub invalid_block_storage: Option<PathBuf>,
+
+    /// Configuration for the inbound rate limiter (requests received by this node).
+    pub inbound_rate_limiter_config: Option<InboundRateLimiterConfig>,
 }
 
 impl Config {
@@ -160,7 +163,7 @@ impl Config {
             udp_port,
             tcp_port,
         });
-        self.discv5_config.ip_mode = discv5::IpMode::Ip4;
+        self.discv5_config.listen_config = discv5::ListenConfig::from_ip(addr.into(), udp_port);
         self.discv5_config.table_filter = |enr| enr.ip4().as_ref().map_or(false, is_global_ipv4)
     }
 
@@ -173,9 +176,8 @@ impl Config {
             udp_port,
             tcp_port,
         });
-        self.discv5_config.ip_mode = discv5::IpMode::Ip6 {
-            enable_mapped_addresses: false,
-        };
+
+        self.discv5_config.listen_config = discv5::ListenConfig::from_ip(addr.into(), udp_port);
         self.discv5_config.table_filter = |enr| enr.ip6().as_ref().map_or(false, is_global_ipv6)
     }
 
@@ -203,10 +205,10 @@ impl Config {
                 tcp_port: tcp6_port,
             },
         );
+        self.discv5_config.listen_config = discv5::ListenConfig::default()
+            .with_ipv4(v4_addr, udp4_port)
+            .with_ipv6(v6_addr, udp6_port);
 
-        self.discv5_config.ip_mode = discv5::IpMode::Ip6 {
-            enable_mapped_addresses: true,
-        };
         self.discv5_config.table_filter = |enr| match (&enr.ip4(), &enr.ip6()) {
             (None, None) => false,
             (None, Some(ip6)) => is_global_ipv6(ip6),
@@ -276,9 +278,17 @@ impl Default for Config {
                 .build()
                 .expect("The total rate limit has been specified"),
         );
+        let listen_addresses = ListenAddress::V4(ListenAddr {
+            addr: Ipv4Addr::UNSPECIFIED,
+            udp_port: 9000,
+            tcp_port: 9000,
+        });
+
+        let discv5_listen_config =
+            discv5::ListenConfig::from_ip(Ipv4Addr::UNSPECIFIED.into(), 9000);
 
         // discv5 configuration
-        let discv5_config = Discv5ConfigBuilder::new()
+        let discv5_config = Discv5ConfigBuilder::new(discv5_listen_config)
             .enable_packet_filter()
             .session_cache_capacity(5000)
             .request_timeout(Duration::from_secs(1))
@@ -301,12 +311,9 @@ impl Default for Config {
         // NOTE: Some of these get overridden by the corresponding CLI default values.
         Config {
             network_dir,
-            listen_addresses: ListenAddress::V4(ListenAddr {
-                addr: Ipv4Addr::UNSPECIFIED,
-                udp_port: 9000,
-                tcp_port: 9000,
-            }),
+            listen_addresses,
             enr_address: (None, None),
+
             enr_udp4_port: None,
             enr_tcp4_port: None,
             enr_udp6_port: None,
@@ -333,6 +340,7 @@ impl Default for Config {
             enable_light_client_server: false,
             outbound_rate_limiter_config: None,
             invalid_block_storage: None,
+            inbound_rate_limiter_config: None,
         }
     }
 }
