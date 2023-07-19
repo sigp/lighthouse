@@ -1164,7 +1164,7 @@ mod tests {
             &log,
         );
         let keypair = keypair.into();
-        Discovery::new(&keypair, &config, Arc::new(globals), &log)
+        Discovery::new(keypair, &config, Arc::new(globals), &log)
             .await
             .unwrap()
     }
