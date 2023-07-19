@@ -7,7 +7,7 @@ use crate::{GossipTopic, NetworkConfig};
 use libp2p::bandwidth::BandwidthSinks;
 use libp2p::core::{multiaddr::Multiaddr, muxing::StreamMuxerBox, transport::Boxed};
 use libp2p::gossipsub;
-use libp2p::identity::{self, Keypair};
+use libp2p::identity::{secp256k1, Keypair};
 use libp2p::{core, noise, yamux, PeerId, Transport, TransportExt};
 use prometheus_client::registry::Registry;
 use slog::{debug, warn};
@@ -81,9 +81,9 @@ fn keypair_from_hex(hex_bytes: &str) -> error::Result<Keypair> {
 
 #[allow(dead_code)]
 fn keypair_from_bytes(mut bytes: Vec<u8>) -> error::Result<Keypair> {
-    identity::secp256k1::SecretKey::try_from_bytes(&mut bytes)
+    secp256k1::SecretKey::try_from_bytes(&mut bytes)
         .map(|secret| {
-            let keypair: identity::secp256k1::Keypair = secret.into();
+            let keypair: secp256k1::Keypair = secret.into();
             keypair.into()
         })
         .map_err(|e| format!("Unable to parse p2p secret key: {:?}", e).into())
@@ -102,10 +102,8 @@ pub fn load_private_key(config: &NetworkConfig, log: &slog::Logger) -> Keypair {
             Err(_) => debug!(log, "Could not read network key file"),
             Ok(_) => {
                 // only accept secp256k1 keys for now
-                if let Ok(secret_key) =
-                    identity::secp256k1::SecretKey::try_from_bytes(&mut key_bytes)
-                {
-                    let kp: identity::secp256k1::Keypair = secret_key.into();
+                if let Ok(secret_key) = secp256k1::SecretKey::try_from_bytes(&mut key_bytes) {
+                    let kp: secp256k1::Keypair = secret_key.into();
                     debug!(log, "Loaded network key from disk.");
                     return kp.into();
                 } else {
@@ -116,26 +114,24 @@ pub fn load_private_key(config: &NetworkConfig, log: &slog::Logger) -> Keypair {
     }
 
     // if a key could not be loaded from disk, generate a new one and save it
-    let local_private_key = Keypair::generate_secp256k1();
+    let local_private_key = secp256k1::Keypair::generate();
     // TODO(@divma): generate the spcific key type first and then convert it to the wrapper type. This
     // avoids the clone and the awkward double conversion
-    if let Ok(key) = local_private_key.clone().try_into_secp256k1() {
-        let _ = std::fs::create_dir_all(&config.network_dir);
-        match File::create(network_key_f.clone())
-            .and_then(|mut f| f.write_all(&key.secret().to_bytes()))
-        {
-            Ok(_) => {
-                debug!(log, "New network key generated and written to disk");
-            }
-            Err(e) => {
-                warn!(
-                    log,
-                    "Could not write node key to file: {:?}. error: {}", network_key_f, e
-                );
-            }
+    let _ = std::fs::create_dir_all(&config.network_dir);
+    match File::create(network_key_f.clone())
+        .and_then(|mut f| f.write_all(&local_private_key.secret().to_bytes()))
+    {
+        Ok(_) => {
+            debug!(log, "New network key generated and written to disk");
+        }
+        Err(e) => {
+            warn!(
+                log,
+                "Could not write node key to file: {:?}. error: {}", network_key_f, e
+            );
         }
     }
-    local_private_key
+    local_private_key.into()
 }
 
 /// Generate authenticated XX Noise config from identity keys
