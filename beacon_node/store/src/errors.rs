@@ -67,6 +67,7 @@ pub enum Error {
     InvalidValidatorPubkeyBytes(bls::Error),
     ValidatorPubkeyCacheUninitialized,
     InvalidKey,
+    InvalidBytes,
     UnableToDowngrade,
     Hdiff(hdiff::Error),
     InconsistentFork(InconsistentFork),

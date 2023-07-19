@@ -71,6 +71,7 @@ pub use execution_layer::EngineState;
 pub use execution_payload::NotifyExecutionLayer;
 pub use fork_choice::{ExecutionStatus, ForkchoiceUpdateParameters};
 pub use metrics::scrape_for_metrics;
+pub use migrate::MigratorConfig;
 pub use parking_lot;
 pub use slot_clock;
 pub use state_processing::per_block_processing::errors::{

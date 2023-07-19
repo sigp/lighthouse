@@ -1888,15 +1888,27 @@ impl<T: EthSpec> BeaconState<T> {
 
     /// Passing `previous_epoch` to this function rather than computing it internally provides
     /// a tangible speed improvement in state processing.
-    pub fn is_eligible_validator(&self, previous_epoch: Epoch, val: &Validator) -> bool {
-        val.is_active_at(previous_epoch)
-            || (val.slashed() && previous_epoch + Epoch::new(1) < val.withdrawable_epoch())
+    pub fn is_eligible_validator(
+        &self,
+        previous_epoch: Epoch,
+        val: &Validator,
+    ) -> Result<bool, Error> {
+        Ok(val.is_active_at(previous_epoch)
+            || (val.slashed()
+                && previous_epoch.safe_add(Epoch::new(1))? < val.withdrawable_epoch()))
     }
 
     /// Passing `previous_epoch` to this function rather than computing it internally provides
     /// a tangible speed improvement in state processing.
-    pub fn is_in_inactivity_leak(&self, previous_epoch: Epoch, spec: &ChainSpec) -> bool {
-        (previous_epoch - self.finalized_checkpoint().epoch) > spec.min_epochs_to_inactivity_penalty
+    pub fn is_in_inactivity_leak(
+        &self,
+        previous_epoch: Epoch,
+        spec: &ChainSpec,
+    ) -> Result<bool, safe_arith::ArithError> {
+        Ok(
+            (previous_epoch.safe_sub(self.finalized_checkpoint().epoch)?)
+                > spec.min_epochs_to_inactivity_penalty,
+        )
     }
 
     /// Get the `SyncCommittee` associated with the next slot. Useful because sync committees
@@ -1926,7 +1938,7 @@ impl<T: EthSpec> BeaconState<T> {
     }
 
     // FIXME(sproul): missing eth1 data votes, they would need a ResetListDiff
-    #[allow(clippy::integer_arithmetic)]
+    #[allow(clippy::arithmetic_side_effects)]
     pub fn rebase_on(&mut self, base: &Self, spec: &ChainSpec) -> Result<(), Error> {
         // Required for macros (which use type-hints internally).
         type GenericValidator = Validator;
@@ -2031,7 +2043,7 @@ impl<T: EthSpec, GenericValidator: ValidatorTrait> BeaconState<T, GenericValidat
     pub const NUM_FIELDS_POW2: usize = BeaconStateMerge::<T>::NUM_FIELDS.next_power_of_two();
 
     /// Specialised deserialisation method that uses the `ChainSpec` as context.
-    #[allow(clippy::integer_arithmetic)]
+    #[allow(clippy::arithmetic_side_effects)]
     pub fn from_ssz_bytes(bytes: &[u8], spec: &ChainSpec) -> Result<Self, ssz::DecodeError> {
         // Slot is after genesis_time (u64) and genesis_validators_root (Hash256).
         let slot_start = <u64 as Decode>::ssz_fixed_len() + <Hash256 as Decode>::ssz_fixed_len();
@@ -2054,7 +2066,7 @@ impl<T: EthSpec, GenericValidator: ValidatorTrait> BeaconState<T, GenericValidat
         ))
     }
 
-    #[allow(clippy::integer_arithmetic)]
+    #[allow(clippy::arithmetic_side_effects)]
     pub fn apply_pending_mutations(&mut self) -> Result<(), Error> {
         match self {
             Self::Base(inner) => {
@@ -2104,7 +2116,7 @@ impl<T: EthSpec, GenericValidator: ValidatorTrait> BeaconState<T, GenericValidat
 
         // 2. Get all `BeaconState` leaves.
         let mut leaves = vec![];
-        #[allow(clippy::integer_arithmetic)]
+        #[allow(clippy::arithmetic_side_effects)]
         match self {
             BeaconState::Base(state) => {
                 map_beacon_state_base_fields!(state, |_, field| {

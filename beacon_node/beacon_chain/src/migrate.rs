@@ -3,7 +3,6 @@ use crate::errors::BeaconChainError;
 use crate::head_tracker::{HeadTracker, SszHeadTracker};
 use crate::persisted_beacon_chain::{PersistedBeaconChain, DUMMY_CANONICAL_HEAD_BLOCK_ROOT};
 use parking_lot::Mutex;
-use serde::{Deserialize, Serialize};
 use slog::{debug, error, info, trace, warn, Logger};
 use std::collections::{HashMap, HashSet};
 use std::mem;
@@ -28,13 +27,13 @@ const COMPACTION_FINALITY_DISTANCE: u64 = 1024;
 const BLOCKS_PER_RECONSTRUCTION: usize = 8192 * 4;
 
 /// Default number of epochs to wait between finalization migrations.
-pub const DEFAULT_EPOCHS_PER_RUN: u64 = 1;
+pub const DEFAULT_EPOCHS_PER_MIGRATION: u64 = 1;
 
 /// The background migrator runs a thread to perform pruning and migrate state from the hot
 /// to the cold database.
 pub struct BackgroundMigrator<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> {
     db: Arc<HotColdDB<E, Hot, Cold>>,
-    /// Record of when the last migration ran, for enforcing `epochs_per_run`.
+    /// Record of when the last migration ran, for enforcing `epochs_per_migration`.
     prev_migration: Arc<Mutex<PrevMigration>>,
     tx_thread: Option<
         Mutex<(
@@ -47,27 +46,22 @@ pub struct BackgroundMigrator<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>
     log: Logger,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MigratorConfig {
     pub blocking: bool,
-    /// Run migrations at most once per `epochs_per_run`.
+    /// Run migrations at most once per `epochs_per_migration`.
     ///
-    /// If set to 0, then run every finalization.
-    pub epochs_per_run: u64,
+    /// If set to 0 or 1, then run every finalization.
+    pub epochs_per_migration: u64,
 }
 
 impl Default for MigratorConfig {
     fn default() -> Self {
         Self {
             blocking: false,
-            epochs_per_run: DEFAULT_EPOCHS_PER_RUN,
+            epochs_per_migration: DEFAULT_EPOCHS_PER_MIGRATION,
         }
     }
-}
-
-pub struct PrevMigration {
-    epoch: Option<Epoch>,
-    epochs_per_run: u64,
 }
 
 impl MigratorConfig {
@@ -76,10 +70,19 @@ impl MigratorConfig {
         self
     }
 
-    pub fn epochs_per_run(mut self, epochs_per_run: u64) -> Self {
-        self.epochs_per_run = epochs_per_run;
+    pub fn epochs_per_migration(mut self, epochs_per_migration: u64) -> Self {
+        self.epochs_per_migration = epochs_per_migration;
         self
     }
+}
+
+/// Record of when the last migration ran.
+#[derive(Debug)]
+pub struct PrevMigration {
+    /// The epoch at which the last finalization migration ran.
+    epoch: Epoch,
+    /// The number of epochs to wait between runs.
+    epochs_per_migration: u64,
 }
 
 /// Pruning can be successful, or in rare cases deferred to a later point.
@@ -128,6 +131,7 @@ pub struct FinalizationNotification {
     finalized_state_root: BeaconStateHash,
     finalized_checkpoint: Checkpoint,
     head_tracker: Arc<HeadTracker>,
+    prev_migration: Arc<Mutex<PrevMigration>>,
     genesis_block_root: Hash256,
 }
 
@@ -151,9 +155,10 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
         genesis_block_root: Hash256,
         log: Logger,
     ) -> Self {
+        // Estimate last migration run from DB split slot.
         let prev_migration = Arc::new(Mutex::new(PrevMigration {
-            epoch: None,
-            epochs_per_run: config.epochs_per_run,
+            epoch: db.get_split_slot().epoch(E::slots_per_epoch()),
+            epochs_per_migration: config.epochs_per_migration,
         }));
         let tx_thread = if config.blocking {
             None
@@ -188,6 +193,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
             finalized_state_root,
             finalized_checkpoint,
             head_tracker,
+            prev_migration: self.prev_migration.clone(),
             genesis_block_root: self.genesis_block_root,
         };
 
@@ -265,6 +271,26 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
         notif: FinalizationNotification,
         log: &Logger,
     ) {
+        // Do not run too frequently.
+        let epoch = notif.finalized_checkpoint.epoch;
+        let mut prev_migration = notif.prev_migration.lock();
+        if epoch < prev_migration.epoch + prev_migration.epochs_per_migration {
+            debug!(
+                log,
+                "Database consolidation deferred";
+                "last_finalized_epoch" => prev_migration.epoch,
+                "new_finalized_epoch" => epoch,
+                "epochs_per_migration" => prev_migration.epochs_per_migration,
+            );
+            return;
+        }
+
+        // Update the previous migration epoch immediately to avoid holding the lock. If the
+        // migration doesn't succeed then the next migration will be retried at the next scheduled
+        // run.
+        prev_migration.epoch = epoch;
+        drop(prev_migration);
+
         debug!(log, "Database consolidation started");
 
         let finalized_state_root = notif.finalized_state_root;
@@ -438,23 +464,21 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
 
                     // Do not run too frequently.
                     let epoch = notif.finalized_checkpoint.epoch;
-                    if let Some(prev_epoch) = prev_migration.epoch {
-                        if epoch < prev_epoch + prev_migration.epochs_per_run {
-                            debug!(
-                                log,
-                                "Finalization migration deferred";
-                                "last_finalized_epoch" => prev_epoch,
-                                "new_finalized_epoch" => epoch,
-                                "epochs_per_run" => prev_migration.epochs_per_run,
-                            );
-                            continue;
-                        }
+                    if epoch < prev_migration.epoch + prev_migration.epochs_per_migration {
+                        debug!(
+                            log,
+                            "Finalization migration deferred";
+                            "last_finalized_epoch" => prev_migration.epoch,
+                            "new_finalized_epoch" => epoch,
+                            "epochs_per_migration" => prev_migration.epochs_per_migration,
+                        );
+                        continue;
                     }
 
                     // We intend to run at this epoch, update the in-memory record of the last epoch
                     // at which we ran. This value isn't tracked on disk so we will always migrate
                     // on the first finalization after startup.
-                    prev_migration.epoch = Some(epoch);
+                    prev_migration.epoch = epoch;
 
                     Self::run_migration(db.clone(), notif.to_owned(), &log);
 

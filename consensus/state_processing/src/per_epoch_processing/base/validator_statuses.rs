@@ -205,7 +205,7 @@ impl ValidatorStatuses {
             let effective_balance = validator.effective_balance();
             let mut status = ValidatorStatus {
                 is_slashed: validator.slashed(),
-                is_eligible: state.is_eligible_validator(previous_epoch, validator),
+                is_eligible: state.is_eligible_validator(previous_epoch, validator)?,
                 is_withdrawable_in_current_epoch: validator.is_withdrawable_at(current_epoch),
                 current_epoch_effective_balance: effective_balance,
                 ..ValidatorStatus::default()

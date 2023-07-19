@@ -116,7 +116,7 @@ pub fn process_epoch_single_pass<E: EthSpec>(
     let previous_epoch = state.previous_epoch();
     let current_epoch = state.current_epoch();
     let next_epoch = state.next_epoch()?;
-    let is_in_inactivity_leak = state.is_in_inactivity_leak(previous_epoch, spec);
+    let is_in_inactivity_leak = state.is_in_inactivity_leak(previous_epoch, spec)?;
     let total_active_balance = state.get_total_active_balance()?;
     let churn_limit = state.get_churn_limit(spec)?;
     let finalized_checkpoint = state.finalized_checkpoint();
@@ -198,7 +198,7 @@ pub fn process_epoch_single_pass<E: EthSpec>(
         let is_active_previous_epoch = validator.is_active_at(previous_epoch);
         let is_eligible = is_active_previous_epoch
             || (validator.slashed()
-                && previous_epoch + Epoch::new(1) < validator.withdrawable_epoch());
+                && previous_epoch.safe_add(1)? < validator.withdrawable_epoch());
 
         let base_reward = if is_eligible {
             epoch_cache.get_base_reward(index)?

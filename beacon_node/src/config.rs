@@ -416,15 +416,16 @@ pub fn get_config<E: EthSpec>(
         client_config.store.prune_payloads = prune_payloads;
     }
 
-    if let Some(epochs_per_migration) = clap_utils::parse_optional(cli_args, "db-migration-period")?
-    {
-        client_config.store_migrator.epochs_per_run = epochs_per_migration;
-    }
-
     if let Some(epochs_per_state_diff) =
         clap_utils::parse_optional(cli_args, "epochs-per-state-diff")?
     {
         client_config.store.epochs_per_state_diff = epochs_per_state_diff;
+    }
+
+    if let Some(epochs_per_migration) =
+        clap_utils::parse_optional(cli_args, "epochs-per-migration")?
+    {
+        client_config.chain.epochs_per_migration = epochs_per_migration;
     }
 
     /*

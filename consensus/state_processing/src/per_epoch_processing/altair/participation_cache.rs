@@ -220,9 +220,12 @@ impl ParticipationCache {
         // Fast path for inactivity scores update when we are definitely not in an inactivity leak.
         // This breaks the dependence of `process_inactivity_updates` on the finalization
         // re-calculation.
-        let definitely_not_in_inactivity_leak =
-            state.finalized_checkpoint().epoch + spec.min_epochs_to_inactivity_penalty + 1
-                >= state.current_epoch();
+        let definitely_not_in_inactivity_leak = state
+            .finalized_checkpoint()
+            .epoch
+            .safe_add(spec.min_epochs_to_inactivity_penalty)?
+            .safe_add(1)?
+            >= state.current_epoch();
         let mut inactivity_score_updates = MaxMap::default();
 
         // Iterate through all validators, updating:
@@ -242,7 +245,7 @@ impl ParticipationCache {
         for (val_index, (((val, curr_epoch_flags), prev_epoch_flags), inactivity_score)) in iter {
             let is_active_current_epoch = val.is_active_at(current_epoch);
             let is_active_previous_epoch = val.is_active_at(previous_epoch);
-            let is_eligible = state.is_eligible_validator(previous_epoch, val);
+            let is_eligible = state.is_eligible_validator(previous_epoch, val)?;
 
             if is_active_current_epoch {
                 current_epoch_participation.process_active_validator(

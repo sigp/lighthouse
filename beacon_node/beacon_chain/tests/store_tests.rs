@@ -62,9 +62,6 @@ fn get_harness(
     store: Arc<HotColdDB<E, LevelDB<E>, LevelDB<E>>>,
     validator_count: usize,
 ) -> TestHarness {
-    // Most tests were written expecting instant migration on finalization.
-    let migrator_config = MigratorConfig::default().blocking().epochs_per_run(0);
-
     let log = store.log.clone();
 
     let harness = BeaconChainHarness::builder(MinimalEthSpec)
@@ -74,9 +71,6 @@ fn get_harness(
         .logger(store.logger().clone())
         .fresh_disk_store(store)
         .mock_execution_layer()
-        .initial_mutator(Box::new(|builder: BeaconChainBuilder<_>| {
-            builder.store_migrator_config(migrator_config)
-        }))
         .build();
     harness.advance_slot();
     harness

@@ -54,7 +54,7 @@ pub fn get_flag_index_deltas<T: EthSpec>(
         let mut delta = Delta::default();
 
         if validator.is_unslashed_participating_index(flag_index)? {
-            if !state.is_in_inactivity_leak(previous_epoch, spec) {
+            if !state.is_in_inactivity_leak(previous_epoch, spec)? {
                 let reward_numerator = base_reward
                     .safe_mul(weight)?
                     .safe_mul(unslashed_participating_increments)?;

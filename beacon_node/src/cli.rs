@@ -534,6 +534,16 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true)
         )
         .arg(
+            Arg::with_name("epochs-per-migration")
+                .long("epochs-per-migration")
+                .value_name("N")
+                .help("The number of epochs to wait between running the migration of data from the \
+                       hot DB to the cold DB. Less frequent runs can be useful for minimizing disk \
+                       writes")
+                .default_value("1")
+                .takes_value(true)
+        )
+        .arg(
             Arg::with_name("block-cache-size")
                 .long("block-cache-size")
                 .value_name("SIZE")
@@ -690,16 +700,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                        reconstructed and sent to syncing peers.")
                 .takes_value(true)
                 .default_value("true")
-        )
-        .arg(
-            Arg::with_name("db-migration-period")
-                .long("db-migration-period")
-                .value_name("EPOCHS")
-                .help("Specifies the number of epochs to wait between applying each finalization \
-                       migration to the database. Applying migrations less frequently can lead to \
-                       less total disk writes.")
-                .default_value("1")
-                .takes_value(true)
         )
         .arg(
             Arg::with_name("epochs-per-state-diff")
@@ -890,7 +890,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .help("Set the timeout for checkpoint sync calls to remote beacon node HTTP endpoint.")
                 .value_name("SECONDS")
                 .takes_value(true)
-                .default_value("60")
+                .default_value("180")
         )
         .arg(
             Arg::with_name("reconstruct-historic-states")

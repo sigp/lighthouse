@@ -109,7 +109,7 @@ impl<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> Iterator
             .next()?
             .and_then(|(slot_bytes, root_bytes)| {
                 if slot_bytes.len() != 8 || root_bytes.len() != 32 {
-                    panic!("FIXME(sproul): put an error here")
+                    Err(Error::InvalidBytes)
                 } else {
                     let slot = Slot::new(u64::from_be_bytes(slot_bytes.try_into().unwrap()));
                     let root = Hash256::from_slice(&root_bytes);

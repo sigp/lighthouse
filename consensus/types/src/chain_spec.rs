@@ -260,7 +260,7 @@ impl ChainSpec {
 
     /// Return the name of the fork activated at `slot`, if any.
     pub fn fork_activated_at_slot<E: EthSpec>(&self, slot: Slot) -> Option<ForkName> {
-        let prev_slot_fork = self.fork_name_at_slot::<E>(slot - 1);
+        let prev_slot_fork = self.fork_name_at_slot::<E>(slot.saturating_sub(Slot::new(1)));
         let slot_fork = self.fork_name_at_slot::<E>(slot);
         (slot_fork != prev_slot_fork).then_some(slot_fork)
     }
@@ -468,7 +468,7 @@ impl ChainSpec {
         epoch.safe_add(1)?.safe_add(self.max_seed_lookahead)
     }
 
-    #[allow(clippy::integer_arithmetic)]
+    #[allow(clippy::arithmetic_side_effects)]
     pub const fn attestation_subnet_prefix_bits(&self) -> u32 {
         let attestation_subnet_count_bits = self.attestation_subnet_count.ilog2();
         self.attestation_subnet_extra_bits as u32 + attestation_subnet_count_bits
