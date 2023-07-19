@@ -1125,6 +1125,7 @@ mod tests {
     use super::*;
     use crate::rpc::methods::{MetaData, MetaDataV2};
     use enr::EnrBuilder;
+    use libp2p::identity::secp256k1;
     use slog::{o, Drain};
     use types::{BitVector, MinimalEthSpec, SubnetId};
 
@@ -1143,10 +1144,10 @@ mod tests {
     }
 
     async fn build_discovery() -> Discovery<E> {
-        let keypair = libp2p::identity::Keypair::generate_secp256k1();
+        let keypair = secp256k1::Keypair::generate();
         let mut config = NetworkConfig::default();
         config.set_listening_addr(crate::ListenAddress::unused_v4_ports());
-        let enr_key: CombinedKey = CombinedKey::from_libp2p(keypair.clone()).unwrap();
+        let enr_key: CombinedKey = CombinedKey::from_secp256k1(&keypair);
         let enr: Enr = build_enr::<E>(&enr_key, &config, &EnrForkId::default()).unwrap();
         let log = build_log(slog::Level::Debug, false);
         let globals = NetworkGlobals::new(
@@ -1162,7 +1163,8 @@ mod tests {
             false,
             &log,
         );
-        Discovery::new(keypair, &config, Arc::new(globals), &log)
+        let keypair = keypair.into();
+        Discovery::new(&keypair, &config, Arc::new(globals), &log)
             .await
             .unwrap()
     }
@@ -1208,8 +1210,8 @@ mod tests {
 
     fn make_enr(subnet_ids: Vec<usize>) -> Enr {
         let mut builder = EnrBuilder::new("v4");
-        let keypair = libp2p::identity::Keypair::generate_secp256k1();
-        let enr_key: CombinedKey = CombinedKey::from_libp2p(keypair).unwrap();
+        let keypair = secp256k1::Keypair::generate();
+        let enr_key: CombinedKey = CombinedKey::from_secp256k1(&keypair);
 
         // set the "attnets" field on our ENR
         let mut bitfield = BitVector::<ssz_types::typenum::U64>::new();

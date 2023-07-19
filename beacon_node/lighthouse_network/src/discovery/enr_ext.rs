@@ -38,6 +38,9 @@ pub trait CombinedKeyPublicExt {
 pub trait CombinedKeyExt {
     /// Converts a libp2p key into an ENR combined key.
     fn from_libp2p(key: Keypair) -> Result<CombinedKey, &'static str>;
+
+    /// Converts a [`secp256k1::Keypair`] into and Enr [`CombinedKey`].
+    fn from_secp256k1(key: &secp256k1::Keypair) -> CombinedKey;
 }
 
 impl EnrExt for Enr {
@@ -238,6 +241,11 @@ impl CombinedKeyExt for CombinedKey {
             }
             _ => Err("Unsupported keypair kind"),
         }
+    }
+    fn from_secp256k1(key: &secp256k1::Keypair) -> Self {
+        let secret = discv5::enr::k256::ecdsa::SigningKey::from_slice(&key.secret().to_bytes())
+            .expect("libp2p key must be valid");
+        CombinedKey::Secp256k1(secret)
     }
 }
 
