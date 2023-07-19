@@ -421,6 +421,12 @@ pub fn get_config<E: EthSpec>(
         client_config.store.prune_payloads = prune_payloads;
     }
 
+    if let Some(epochs_per_migration) =
+        clap_utils::parse_optional(cli_args, "epochs-per-migration")?
+    {
+        client_config.chain.epochs_per_migration = epochs_per_migration;
+    }
+
     if let Some(prune_blobs) = clap_utils::parse_optional(cli_args, "prune-blobs")? {
         client_config.store.prune_blobs = prune_blobs;
     }
@@ -670,7 +676,9 @@ pub fn get_config<E: EthSpec>(
             slasher_config.validator_chunk_size = validator_chunk_size;
         }
 
-        slasher_config.broadcast = cli_args.is_present("slasher-broadcast");
+        if let Some(broadcast) = clap_utils::parse_optional(cli_args, "slasher-broadcast")? {
+            slasher_config.broadcast = broadcast;
+        }
 
         if let Some(backend) = clap_utils::parse_optional(cli_args, "slasher-backend")? {
             slasher_config.backend = backend;
@@ -833,6 +841,12 @@ pub fn get_config<E: EthSpec>(
     if let Some(path) = clap_utils::parse_optional(cli_args, "invalid-gossip-verified-blocks-path")?
     {
         client_config.network.invalid_block_storage = Some(path);
+    }
+
+    if let Some(progressive_balances_mode) =
+        clap_utils::parse_optional(cli_args, "progressive-balances")?
+    {
+        client_config.chain.progressive_balances_mode = progressive_balances_mode;
     }
 
     Ok(client_config)

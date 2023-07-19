@@ -3,7 +3,7 @@
 #![cfg_attr(
     not(test),
     deny(
-        clippy::integer_arithmetic,
+        clippy::arithmetic_side_effects,
         clippy::disallowed_methods,
         clippy::indexing_slicing
     )
@@ -99,7 +99,6 @@ pub mod sqlite;
 
 pub mod blob_sidecar;
 pub mod signed_blob;
-pub mod transaction;
 
 use ethereum_types::{H160, H256};
 

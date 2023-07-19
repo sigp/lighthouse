@@ -699,8 +699,8 @@ async fn aggregated_gossip_verification() {
             |tester, err| {
                 assert!(matches!(
                     err,
-                    AttnError::AttestationAlreadyKnown(hash)
-                    if hash == tester.valid_aggregate.message.aggregate.tree_hash_root()
+                    AttnError::AttestationSupersetKnown(hash)
+                    if hash == tester.valid_aggregate.message.aggregate.data.tree_hash_root()
                 ))
             },
         )
@@ -797,7 +797,6 @@ async fn unaggregated_gossip_verification() {
                 a.data.target.epoch = early_slot.epoch(E::slots_per_epoch());
             },
             |tester, err| {
-                dbg!(&err);
                 assert!(matches!(
                     err,
                     AttnError::PastSlot {

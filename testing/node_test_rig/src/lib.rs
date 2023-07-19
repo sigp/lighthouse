@@ -10,6 +10,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tempfile::{Builder as TempBuilder, TempDir};
+use tokio::time::timeout;
 use types::EthSpec;
 use validator_client::ProductionValidatorClient;
 use validator_dir::insecure_keys::build_deterministic_validator_dirs;
@@ -24,6 +25,8 @@ pub use validator_client::Config as ValidatorConfig;
 
 /// The global timeout for HTTP requests to the beacon node.
 const HTTP_TIMEOUT: Duration = Duration::from_secs(4);
+/// The timeout for a beacon node to start up.
+const STARTUP_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// Provides a beacon node that is running in the current process on a given tokio executor (it
 /// is _local_ to this process).
@@ -51,12 +54,16 @@ impl<E: EthSpec> LocalBeaconNode<E> {
         client_config.set_data_dir(datadir.path().into());
         client_config.network.network_dir = PathBuf::from(datadir.path()).join("network");
 
-        ProductionBeaconNode::new(context, client_config)
-            .await
-            .map(move |client| Self {
-                client: client.into_inner(),
-                datadir,
-            })
+        timeout(
+            STARTUP_TIMEOUT,
+            ProductionBeaconNode::new(context, client_config),
+        )
+        .await
+        .map_err(|_| format!("Beacon node startup timed out after {:?}", STARTUP_TIMEOUT))?
+        .map(move |client| Self {
+            client: client.into_inner(),
+            datadir,
+        })
     }
 }
 

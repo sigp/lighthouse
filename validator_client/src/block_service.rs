@@ -340,35 +340,61 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
             let log = log.clone();
             self.inner.context.executor.spawn(
                 async move {
-                    let publish_result = if builder_proposals {
-                        let mut result = service.clone()
+                    if builder_proposals {
+                        let result = service
+                            .clone()
                             .publish_block::<BlindedPayload<E>>(slot, validator_pubkey)
                             .await;
-                        match result.as_ref() {
+                        match result {
                             Err(BlockError::Recoverable(e)) => {
-                                error!(log, "Error whilst producing a blinded block, attempting to \
-                                    publish full block"; "error" => ?e);
-                                result = service
+                                error!(
+                                    log,
+                                    "Error whilst producing block";
+                                    "error" => ?e,
+                                    "block_slot" => ?slot,
+                                    "info" => "blinded proposal failed, attempting full block"
+                                );
+                                if let Err(e) = service
                                     .publish_block::<FullPayload<E>>(slot, validator_pubkey)
-                                    .await;
-                            },
-                            Err(BlockError::Irrecoverable(e))  => {
-                                error!(log, "Error whilst producing a blinded block, cannot fallback \
-                                    because the block was signed"; "error" => ?e);
-                            },
-                            _ => {},
+                                    .await
+                                {
+                                    // Log a `crit` since a full block
+                                    // (non-builder) proposal failed.
+                                    crit!(
+                                        log,
+                                        "Error whilst producing block";
+                                        "error" => ?e,
+                                        "block_slot" => ?slot,
+                                        "info" => "full block attempted after a blinded failure",
+                                    );
+                                }
+                            }
+                            Err(BlockError::Irrecoverable(e)) => {
+                                // Only log an `error` since it's common for
+                                // builders to timeout on their response, only
+                                // to publish the block successfully themselves.
+                                error!(
+                                    log,
+                                    "Error whilst producing block";
+                                    "error" => ?e,
+                                    "block_slot" => ?slot,
+                                    "info" => "this error may or may not result in a missed block",
+                                )
+                            }
+                            Ok(_) => {}
                         };
-                        result
-                    } else {
-                        service
-                            .publish_block::<FullPayload<E>>(slot, validator_pubkey)
-                            .await
-                    };
-                    if let Err(e) = publish_result {
+                    } else if let Err(e) = service
+                        .publish_block::<FullPayload<E>>(slot, validator_pubkey)
+                        .await
+                    {
+                        // Log a `crit` since a full block (non-builder)
+                        // proposal failed.
                         crit!(
                             log,
                             "Error whilst producing block";
-                            "message" => ?e
+                            "message" => ?e,
+                            "block_slot" => ?slot,
+                            "info" => "proposal did not use a builder",
                         );
                     }
                 },

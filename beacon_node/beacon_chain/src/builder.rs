@@ -20,7 +20,7 @@ use crate::{
 };
 use eth1::Config as Eth1Config;
 use execution_layer::ExecutionLayer;
-use fork_choice::{CountUnrealized, ForkChoice, ResetPayloadStatuses};
+use fork_choice::{ForkChoice, ResetPayloadStatuses};
 use futures::channel::mpsc::Sender;
 use kzg::{Kzg, TrustedSetup};
 use operation_pool::{OperationPool, PersistedOperationPool};
@@ -343,7 +343,7 @@ where
         let beacon_block = genesis_block(&mut beacon_state, &self.spec)?;
 
         beacon_state
-            .build_all_caches(&self.spec)
+            .build_caches(&self.spec)
             .map_err(|e| format!("Failed to build genesis state caches: {:?}", e))?;
 
         let beacon_state_root = beacon_block.message().state_root();
@@ -419,41 +419,37 @@ where
         let weak_subj_block_root = weak_subj_block.canonical_root();
         let weak_subj_state_root = weak_subj_block.state_root();
 
-        // Check that the given block lies on an epoch boundary. Due to the database only storing
+        // Check that the given state lies on an epoch boundary. Due to the database only storing
         // full states on epoch boundaries and at restore points it would be difficult to support
         // starting from a mid-epoch state.
         if weak_subj_slot % TEthSpec::slots_per_epoch() != 0 {
             return Err(format!(
-                "Checkpoint block at slot {} is not aligned to epoch start. \
-                 Please supply an aligned checkpoint with block.slot % 32 == 0",
-                weak_subj_block.slot(),
-            ));
-        }
-
-        // Check that the block and state have consistent slots and state roots.
-        if weak_subj_state.slot() != weak_subj_block.slot() {
-            return Err(format!(
-                "Slot of snapshot block ({}) does not match snapshot state ({})",
-                weak_subj_block.slot(),
-                weak_subj_state.slot(),
+                "Checkpoint state at slot {} is not aligned to epoch start. \
+                 Please supply an aligned checkpoint with state.slot % 32 == 0",
+                weak_subj_slot,
             ));
         }
 
         // Prime all caches before storing the state in the database and computing the tree hash
         // root.
         weak_subj_state
-            .build_all_caches(&self.spec)
+            .build_caches(&self.spec)
             .map_err(|e| format!("Error building caches on checkpoint state: {e:?}"))?;
-
-        let computed_state_root = weak_subj_state
+        weak_subj_state
             .update_tree_hash_cache()
             .map_err(|e| format!("Error computing checkpoint state root: {:?}", e))?;
 
-        if weak_subj_state_root != computed_state_root {
-            return Err(format!(
-                "Snapshot state root does not match block, expected: {:?}, got: {:?}",
-                weak_subj_state_root, computed_state_root
-            ));
+        let latest_block_slot = weak_subj_state.latest_block_header().slot;
+
+        // We can only validate the block root if it exists in the state. We can't calculated it
+        // from the `latest_block_header` because the state root might be set to the zero hash.
+        if let Ok(state_slot_block_root) = weak_subj_state.get_block_root(latest_block_slot) {
+            if weak_subj_block_root != *state_slot_block_root {
+                return Err(format!(
+                    "Snapshot state's most recent block root does not match block, expected: {:?}, got: {:?}",
+                    weak_subj_block_root, state_slot_block_root
+                ));
+            }
         }
 
         // Check that the checkpoint state is for the same network as the genesis state.
@@ -508,13 +504,12 @@ where
         let fc_store = BeaconForkChoiceStore::get_forkchoice_store(store, &snapshot)
             .map_err(|e| format!("Unable to initialize fork choice store: {e:?}"))?;
 
-        let current_slot = Some(snapshot.beacon_block.slot());
         let fork_choice = ForkChoice::from_anchor(
             fc_store,
             snapshot.beacon_block_root,
             &snapshot.beacon_block,
             &snapshot.beacon_state,
-            current_slot,
+            Some(weak_subj_slot),
             &self.spec,
         )
         .map_err(|e| format!("Unable to initialize ForkChoice: {:?}", e))?;
@@ -706,7 +701,8 @@ where
                 store.clone(),
                 Some(current_slot),
                 &self.spec,
-                CountUnrealized::True,
+                self.chain_config.progressive_balances_mode,
+                &log,
             )?;
         }
 
@@ -720,7 +716,7 @@ where
 
         head_snapshot
             .beacon_state
-            .build_all_caches(&self.spec)
+            .build_caches(&self.spec)
             .map_err(|e| format!("Failed to build state caches: {:?}", e))?;
 
         // Perform a check to ensure that the finalization points of the head and fork choice are
@@ -846,9 +842,7 @@ where
             observed_sync_aggregators: <_>::default(),
             // TODO: allow for persisting and loading the pool from disk.
             observed_block_producers: <_>::default(),
-            // TODO: allow for persisting and loading the pool from disk.
             observed_blob_sidecars: <_>::default(),
-            // TODO: allow for persisting and loading the pool from disk.
             observed_voluntary_exits: <_>::default(),
             observed_proposer_slashings: <_>::default(),
             observed_attester_slashings: <_>::default(),
@@ -891,13 +885,10 @@ where
             validator_monitor: RwLock::new(validator_monitor),
             genesis_backfill_slot,
             //TODO(sean) should we move kzg solely to the da checker?
-            data_availability_checker: DataAvailabilityChecker::new(
-                slot_clock,
-                kzg.clone(),
-                store,
-                self.spec,
-            )
-            .map_err(|e| format!("Error initializing DataAvailabiltyChecker: {:?}", e))?,
+            data_availability_checker: Arc::new(
+                DataAvailabilityChecker::new(slot_clock, kzg.clone(), store, self.spec)
+                    .map_err(|e| format!("Error initializing DataAvailabiltyChecker: {:?}", e))?,
+            ),
             proposal_blob_cache: BlobCache::default(),
             kzg,
         };

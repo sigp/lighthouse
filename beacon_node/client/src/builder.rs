@@ -12,7 +12,11 @@ use beacon_chain::{
     slot_clock::{SlotClock, SystemTimeSlotClock},
     state_advance_timer::spawn_state_advance_timer,
     store::{HotColdDB, ItemStore, LevelDB, StoreConfig},
-    BeaconChain, BeaconChainTypes, Eth1ChainBackend, ServerSentEventHandler,
+    BeaconChain, BeaconChainTypes, Eth1ChainBackend, MigratorConfig, ServerSentEventHandler,
+};
+use beacon_processor::{
+    work_reprocessing_queue::ReprocessQueueMessage, BeaconProcessor, BeaconProcessorSend,
+    WorkEvent, MAX_SCHEDULED_WORK_QUEUE_LEN, MAX_WORK_EVENT_QUEUE_LEN,
 };
 use environment::RuntimeContext;
 use eth1::{Config as Eth1Config, Service as Eth1Service};
@@ -28,12 +32,14 @@ use network::{NetworkConfig, NetworkSenders, NetworkService};
 use slasher::Slasher;
 use slasher_service::SlasherService;
 use slog::{debug, info, warn, Logger};
+use state_processing::per_slot_processing;
+use std::cmp;
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 use timer::spawn_timer;
-use tokio::sync::oneshot;
+use tokio::sync::{mpsc, oneshot};
 use types::{
     test_utils::generate_deterministic_keypairs, BeaconState, ChainSpec, EthSpec,
     ExecutionBlockHash, Hash256, SignedBeaconBlock,
@@ -74,6 +80,10 @@ pub struct ClientBuilder<T: BeaconChainTypes> {
     http_metrics_config: http_metrics::Config,
     slasher: Option<Arc<Slasher<T::EthSpec>>>,
     eth_spec_instance: T::EthSpec,
+    beacon_processor_send: BeaconProcessorSend<T::EthSpec>,
+    beacon_processor_receive: mpsc::Receiver<WorkEvent<T::EthSpec>>,
+    work_reprocessing_tx: mpsc::Sender<ReprocessQueueMessage>,
+    work_reprocessing_rx: mpsc::Receiver<ReprocessQueueMessage>,
 }
 
 impl<TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>
@@ -89,6 +99,10 @@ where
     ///
     /// The `eth_spec_instance` parameter is used to concretize `TEthSpec`.
     pub fn new(eth_spec_instance: TEthSpec) -> Self {
+        let (beacon_processor_send, beacon_processor_receive) =
+            mpsc::channel(MAX_WORK_EVENT_QUEUE_LEN);
+        let (work_reprocessing_tx, work_reprocessing_rx) =
+            mpsc::channel(MAX_SCHEDULED_WORK_QUEUE_LEN);
         Self {
             slot_clock: None,
             store: None,
@@ -107,6 +121,10 @@ where
             http_metrics_config: <_>::default(),
             slasher: None,
             eth_spec_instance,
+            beacon_processor_send: BeaconProcessorSend(beacon_processor_send),
+            beacon_processor_receive,
+            work_reprocessing_tx,
+            work_reprocessing_rx,
         }
     }
 
@@ -170,6 +188,9 @@ where
             .store(store)
             .task_executor(context.executor.clone())
             .custom_spec(spec.clone())
+            .store_migrator_config(
+                MigratorConfig::default().epochs_per_migration(chain_config.epochs_per_migration),
+            )
             .chain_config(chain_config)
             .graffiti(graffiti)
             .event_handler(event_handler)
@@ -346,10 +367,23 @@ where
                     None
                 };
 
-                debug!(context.log(), "Downloading finalized block");
-                // Find a suitable finalized block on an epoch boundary.
-                let mut block = remote
-                    .get_beacon_blocks_ssz::<TEthSpec>(BlockId::Finalized, &spec)
+                debug!(
+                    context.log(),
+                    "Downloading finalized state";
+                );
+                let mut state = remote
+                    .get_debug_beacon_states_ssz::<TEthSpec>(StateId::Finalized, &spec)
+                    .await
+                    .map_err(|e| format!("Error loading checkpoint state from remote: {:?}", e))?
+                    .ok_or_else(|| "Checkpoint state missing from remote".to_string())?;
+
+                debug!(context.log(), "Downloaded finalized state"; "slot" => ?state.slot());
+
+                let finalized_block_slot = state.latest_block_header().slot;
+
+                debug!(context.log(), "Downloading finalized block"; "block_slot" => ?finalized_block_slot);
+                let block = remote
+                    .get_beacon_blocks_ssz::<TEthSpec>(BlockId::Slot(finalized_block_slot), &spec)
                     .await
                     .map_err(|e| match e {
                         ApiError::InvalidSsz(e) => format!(
@@ -363,55 +397,15 @@ where
 
                 debug!(context.log(), "Downloaded finalized block");
 
-                let mut block_slot = block.slot();
-
-                while block.slot() % slots_per_epoch != 0 {
-                    block_slot = (block_slot / slots_per_epoch - 1) * slots_per_epoch;
-
-                    debug!(
-                        context.log(),
-                        "Searching for aligned checkpoint block";
-                        "block_slot" => block_slot
-                    );
-
-                    if let Some(found_block) = remote
-                        .get_beacon_blocks_ssz::<TEthSpec>(BlockId::Slot(block_slot), &spec)
-                        .await
-                        .map_err(|e| {
-                            format!("Error fetching block at slot {}: {:?}", block_slot, e)
-                        })?
-                    {
-                        block = found_block;
-                    }
+                let epoch_boundary_slot = state.slot() % slots_per_epoch;
+                if epoch_boundary_slot != 0 {
+                    debug!(context.log(), "Advancing state to epoch boundary"; "state_slot" => state.slot(), "epoch_boundary_slot" => epoch_boundary_slot);
                 }
 
-                debug!(
-                    context.log(),
-                    "Downloaded aligned finalized block";
-                    "block_root" => ?block.canonical_root(),
-                    "block_slot" => block.slot(),
-                );
-
-                let state_root = block.state_root();
-                debug!(
-                    context.log(),
-                    "Downloading finalized state";
-                    "state_root" => ?state_root
-                );
-                let state = remote
-                    .get_debug_beacon_states_ssz::<TEthSpec>(StateId::Root(state_root), &spec)
-                    .await
-                    .map_err(|e| {
-                        format!(
-                            "Error loading checkpoint state from remote {:?}: {:?}",
-                            state_root, e
-                        )
-                    })?
-                    .ok_or_else(|| {
-                        format!("Checkpoint state missing from remote: {:?}", state_root)
-                    })?;
-
-                debug!(context.log(), "Downloaded finalized state");
+                while state.slot() % slots_per_epoch != 0 {
+                    per_slot_processing(&mut state, None, &spec)
+                        .map_err(|e| format!("Error advancing state: {:?}", e))?;
+                }
 
                 let genesis_state = BeaconState::from_ssz_bytes(&genesis_state_bytes, &spec)
                     .map_err(|e| format!("Unable to parse genesis state SSZ: {:?}", e))?;
@@ -419,9 +413,9 @@ where
                 info!(
                     context.log(),
                     "Loaded checkpoint block and state";
-                    "slot" => block.slot(),
+                    "block_slot" => block.slot(),
+                    "state_slot" => state.slot(),
                     "block_root" => ?block.canonical_root(),
-                    "state_root" => ?state_root,
                 );
 
                 let service =
@@ -577,6 +571,8 @@ where
             gossipsub_registry
                 .as_mut()
                 .map(|registry| registry.sub_registry_with_prefix("gossipsub")),
+            self.beacon_processor_send.clone(),
+            self.work_reprocessing_tx.clone(),
         )
         .await
         .map_err(|e| format!("Failed to start network: {:?}", e))?;
@@ -764,6 +760,27 @@ where
         }
 
         if let Some(beacon_chain) = self.beacon_chain.as_ref() {
+            if let Some(network_globals) = &self.network_globals {
+                let beacon_processor_context = runtime_context.service_context("bproc".into());
+                BeaconProcessor {
+                    network_globals: network_globals.clone(),
+                    executor: beacon_processor_context.executor.clone(),
+                    max_workers: cmp::max(1, num_cpus::get()),
+                    current_workers: 0,
+                    enable_backfill_rate_limiting: beacon_chain
+                        .config
+                        .enable_backfill_rate_limiting,
+                    log: beacon_processor_context.log().clone(),
+                }
+                .spawn_manager(
+                    self.beacon_processor_receive,
+                    self.work_reprocessing_tx,
+                    self.work_reprocessing_rx,
+                    None,
+                    beacon_chain.slot_clock.clone(),
+                );
+            }
+
             let state_advance_context = runtime_context.service_context("state_advance".into());
             let state_advance_log = state_advance_context.log().clone();
             spawn_state_advance_timer(

@@ -13,15 +13,16 @@ pub const DEFAULT_MAX_DB_SIZE: usize = 256 * 1024; // 256 GiB
 pub const DEFAULT_ATTESTATION_ROOT_CACHE_SIZE: usize = 100_000;
 pub const DEFAULT_BROADCAST: bool = false;
 
-#[cfg(feature = "mdbx")]
+#[cfg(all(feature = "mdbx", not(feature = "lmdb")))]
 pub const DEFAULT_BACKEND: DatabaseBackend = DatabaseBackend::Mdbx;
-#[cfg(all(feature = "lmdb", not(feature = "mdbx")))]
+#[cfg(feature = "lmdb")]
 pub const DEFAULT_BACKEND: DatabaseBackend = DatabaseBackend::Lmdb;
 #[cfg(not(any(feature = "mdbx", feature = "lmdb")))]
 pub const DEFAULT_BACKEND: DatabaseBackend = DatabaseBackend::Disabled;
 
 pub const MAX_HISTORY_LENGTH: usize = 1 << 16;
 pub const MEGABYTE: usize = 1 << 20;
+pub const MDBX_DATA_FILENAME: &str = "mdbx.dat";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
@@ -62,6 +63,13 @@ pub enum DatabaseBackend {
     #[cfg(feature = "lmdb")]
     Lmdb,
     Disabled,
+}
+
+#[derive(Debug, PartialEq)]
+pub enum DatabaseBackendOverride {
+    Success(DatabaseBackend),
+    Failure(PathBuf),
+    Noop,
 }
 
 impl Config {
@@ -160,5 +168,29 @@ impl Config {
             .iter()
             .filter(move |v| self.validator_chunk_index(**v) == validator_chunk_index)
             .copied()
+    }
+
+    pub fn override_backend(&mut self) -> DatabaseBackendOverride {
+        let mdbx_path = self.database_path.join(MDBX_DATA_FILENAME);
+
+        #[cfg(feature = "mdbx")]
+        let already_mdbx = self.backend == DatabaseBackend::Mdbx;
+        #[cfg(not(feature = "mdbx"))]
+        let already_mdbx = false;
+
+        if !already_mdbx && mdbx_path.exists() {
+            #[cfg(feature = "mdbx")]
+            {
+                let old_backend = self.backend;
+                self.backend = DatabaseBackend::Mdbx;
+                DatabaseBackendOverride::Success(old_backend)
+            }
+            #[cfg(not(feature = "mdbx"))]
+            {
+                DatabaseBackendOverride::Failure(mdbx_path)
+            }
+        } else {
+            DatabaseBackendOverride::Noop
+        }
     }
 }

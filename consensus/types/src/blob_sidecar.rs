@@ -2,17 +2,20 @@ use crate::test_utils::TestRandom;
 use crate::{Blob, ChainSpec, Domain, EthSpec, Fork, Hash256, SignedBlobSidecar, SignedRoot, Slot};
 use bls::SecretKey;
 use derivative::Derivative;
-use kzg::{KzgCommitment, KzgProof};
+use kzg::{Kzg, KzgCommitment, KzgPreset, KzgProof};
+use rand::Rng;
 use serde_derive::{Deserialize, Serialize};
 use ssz::Encode;
 use ssz_derive::{Decode, Encode};
-use ssz_types::VariableList;
+use ssz_types::{FixedVector, VariableList};
 use std::sync::Arc;
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
 /// Container of the data that identifies an individual blob.
-#[derive(Serialize, Deserialize, Encode, Decode, TreeHash, Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(
+    Serialize, Deserialize, Encode, Decode, TreeHash, Copy, Clone, Debug, PartialEq, Eq, Hash,
+)]
 pub struct BlobIdentifier {
     pub block_root: Hash256,
     pub index: u64,
@@ -73,6 +76,8 @@ impl<T: EthSpec> Ord for BlobSidecar<T> {
 }
 
 pub type BlobSidecarList<T> = VariableList<Arc<BlobSidecar<T>>, <T as EthSpec>::MaxBlobsPerBlock>;
+pub type FixedBlobSidecarList<T> =
+    FixedVector<Option<Arc<BlobSidecar<T>>>, <T as EthSpec>::MaxBlobsPerBlock>;
 pub type Blobs<T> = VariableList<Blob<T>, <T as EthSpec>::MaxBlobsPerBlock>;
 
 impl<T: EthSpec> SignedRoot for BlobSidecar<T> {}
@@ -89,7 +94,39 @@ impl<T: EthSpec> BlobSidecar<T> {
         Self::default()
     }
 
-    #[allow(clippy::integer_arithmetic)]
+    pub fn random_valid<R: Rng>(rng: &mut R, kzg: &Kzg<T::Kzg>) -> Result<Self, String> {
+        let mut blob_bytes = vec![0u8; T::Kzg::BYTES_PER_BLOB];
+        rng.fill_bytes(&mut blob_bytes);
+        // Ensure that the blob is canonical by ensuring that
+        // each field element contained in the blob is < BLS_MODULUS
+        for i in 0..T::Kzg::FIELD_ELEMENTS_PER_BLOB {
+            let Some(byte) = blob_bytes.get_mut(i.checked_mul(T::Kzg::BYTES_PER_FIELD_ELEMENT).ok_or("overflow".to_string())?)  else {
+                return Err(format!("blob byte index out of bounds: {:?}", i));
+            };
+            *byte = 0;
+        }
+
+        let blob = Blob::<T>::new(blob_bytes)
+            .map_err(|e| format!("error constructing random blob: {:?}", e))?;
+        let kzg_blob = T::blob_from_bytes(&blob).unwrap();
+
+        let commitment = kzg
+            .blob_to_kzg_commitment(kzg_blob.clone())
+            .map_err(|e| format!("error computing kzg commitment: {:?}", e))?;
+
+        let proof = kzg
+            .compute_blob_kzg_proof(kzg_blob, commitment)
+            .map_err(|e| format!("error computing kzg proof: {:?}", e))?;
+
+        Ok(Self {
+            blob,
+            kzg_commitment: commitment,
+            kzg_proof: proof,
+            ..Default::default()
+        })
+    }
+
+    #[allow(clippy::arithmetic_side_effects)]
     pub fn max_size() -> usize {
         // Fixed part
         Self::empty().as_ssz_bytes().len()

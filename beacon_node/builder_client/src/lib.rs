@@ -1,7 +1,7 @@
 use eth2::types::builder_bid::SignedBuilderBid;
 use eth2::types::{
     AbstractExecPayload, BlindedPayload, EthSpec, ExecutionBlockHash, ExecutionPayload,
-    ForkVersionedResponse, PublicKeyBytes, SignedBeaconBlock, SignedValidatorRegistrationData,
+    ForkVersionedResponse, PublicKeyBytes, SignedBlockContents, SignedValidatorRegistrationData,
     Slot,
 };
 pub use eth2::Error;
@@ -72,7 +72,7 @@ impl BuilderHttpClient {
             .await?
             .json()
             .await
-            .map_err(Error::Reqwest)
+            .map_err(Into::into)
     }
 
     /// Perform a HTTP GET request, returning the `Response` for further processing.
@@ -85,7 +85,7 @@ impl BuilderHttpClient {
         if let Some(timeout) = timeout {
             builder = builder.timeout(timeout);
         }
-        let response = builder.send().await.map_err(Error::Reqwest)?;
+        let response = builder.send().await.map_err(Error::from)?;
         ok_or_error(response).await
     }
 
@@ -114,7 +114,7 @@ impl BuilderHttpClient {
         if let Some(timeout) = timeout {
             builder = builder.timeout(timeout);
         }
-        let response = builder.json(body).send().await.map_err(Error::Reqwest)?;
+        let response = builder.json(body).send().await.map_err(Error::from)?;
         ok_or_error(response).await
     }
 
@@ -140,7 +140,7 @@ impl BuilderHttpClient {
     /// `POST /eth/v1/builder/blinded_blocks`
     pub async fn post_builder_blinded_blocks<E: EthSpec>(
         &self,
-        blinded_block: &SignedBeaconBlock<E, BlindedPayload<E>>,
+        blinded_block: &SignedBlockContents<E, BlindedPayload<E>>,
     ) -> Result<ForkVersionedResponse<ExecutionPayload<E>>, Error> {
         let mut path = self.server.full.clone();
 

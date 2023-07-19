@@ -84,9 +84,13 @@ pub struct ExecutionPayload<T: EthSpec> {
     #[superstruct(only(Capella, Deneb))]
     pub withdrawals: Withdrawals<T>,
     #[superstruct(only(Deneb))]
-    #[serde(with = "serde_utils::quoted_u256")]
+    #[serde(with = "serde_utils::quoted_u64")]
     #[superstruct(getter(copy))]
-    pub excess_data_gas: Uint256,
+    pub data_gas_used: u64,
+    #[superstruct(only(Deneb))]
+    #[serde(with = "serde_utils::quoted_u64")]
+    #[superstruct(getter(copy))]
+    pub excess_data_gas: u64,
 }
 
 impl<'a, T: EthSpec> ExecutionPayloadRef<'a, T> {
@@ -111,7 +115,7 @@ impl<T: EthSpec> ExecutionPayload<T> {
         }
     }
 
-    #[allow(clippy::integer_arithmetic)]
+    #[allow(clippy::arithmetic_side_effects)]
     /// Returns the maximum size of an execution payload.
     pub fn max_execution_payload_merge_size() -> usize {
         // Fixed part
@@ -122,7 +126,7 @@ impl<T: EthSpec> ExecutionPayload<T> {
             + (T::max_transactions_per_payload() * (ssz::BYTES_PER_LENGTH_OFFSET + T::max_bytes_per_transaction()))
     }
 
-    #[allow(clippy::integer_arithmetic)]
+    #[allow(clippy::arithmetic_side_effects)]
     /// Returns the maximum size of an execution payload.
     pub fn max_execution_payload_capella_size() -> usize {
         // Fixed part
@@ -135,7 +139,7 @@ impl<T: EthSpec> ExecutionPayload<T> {
             + (T::max_withdrawals_per_payload() * <Withdrawal as Encode>::ssz_fixed_len())
     }
 
-    #[allow(clippy::integer_arithmetic)]
+    #[allow(clippy::arithmetic_side_effects)]
     /// Returns the maximum size of an execution payload.
     pub fn max_execution_payload_deneb_size() -> usize {
         // Fixed part

@@ -21,7 +21,7 @@ struct G2Point([u8; BYTES_PER_G2_POINT]);
 /// See https://github.com/ethereum/consensus-specs/blob/dev/presets/mainnet/trusted_setups/testing_trusted_setups.json
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TrustedSetup {
-    #[serde(rename = "setup_G1")]
+    #[serde(rename = "setup_G1_lagrange")]
     #[serde(deserialize_with = "deserialize_g1_points")]
     g1_points: Vec<G1Point>,
     #[serde(rename = "setup_G2")]

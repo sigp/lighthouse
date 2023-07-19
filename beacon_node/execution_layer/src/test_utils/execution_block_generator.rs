@@ -6,23 +6,22 @@ use crate::{
         },
         ExecutionBlock, PayloadAttributes, PayloadId, PayloadStatusV1, PayloadStatusV1Status,
     },
-    BlobsBundleV1, ExecutionBlockWithTransactions,
+    random_valid_tx, BlobsBundleV1, ExecutionBlockWithTransactions,
 };
-use kzg::{Kzg, BYTES_PER_BLOB, BYTES_PER_FIELD_ELEMENT, FIELD_ELEMENTS_PER_BLOB};
-use rand::RngCore;
+use kzg::Kzg;
+use rand::thread_rng;
 use serde::{Deserialize, Serialize};
-use ssz::Encode;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
-use types::consts::deneb::BLOB_TX_TYPE;
-use types::transaction::{BlobTransaction, EcdsaSignature, SignedBlobTransaction};
 use types::{
-    Blob, EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadCapella,
-    ExecutionPayloadDeneb, ExecutionPayloadMerge, ForkName, Hash256, Transaction, Transactions,
-    Uint256,
+    BlobSidecar, ChainSpec, EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadCapella,
+    ExecutionPayloadDeneb, ExecutionPayloadHeader, ExecutionPayloadMerge, ForkName, Hash256,
+    Transactions, Uint256,
 };
+
+use super::DEFAULT_TERMINAL_BLOCK;
 
 const GAS_LIMIT: u64 = 16384;
 const GAS_USED: u64 = GAS_LIMIT - 1;
@@ -125,12 +124,12 @@ pub struct ExecutionBlockGenerator<T: EthSpec> {
      * Post-merge fork triggers
      */
     pub shanghai_time: Option<u64>, // withdrawals
-    pub deneb_time: Option<u64>,    // 4844
+    pub cancun_time: Option<u64>,   // deneb
     /*
      * deneb stuff
      */
     pub blobs_bundles: HashMap<PayloadId, BlobsBundleV1<T>>,
-    pub kzg: Option<Arc<Kzg>>,
+    pub kzg: Option<Arc<Kzg<T::Kzg>>>,
 }
 
 impl<T: EthSpec> ExecutionBlockGenerator<T> {
@@ -139,8 +138,8 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
         terminal_block_number: u64,
         terminal_block_hash: ExecutionBlockHash,
         shanghai_time: Option<u64>,
-        deneb_time: Option<u64>,
-        kzg: Option<Kzg>,
+        cancun_time: Option<u64>,
+        kzg: Option<Kzg<T::Kzg>>,
     ) -> Self {
         let mut gen = Self {
             head_block: <_>::default(),
@@ -154,7 +153,7 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
             next_payload_id: 0,
             payload_ids: <_>::default(),
             shanghai_time,
-            deneb_time,
+            cancun_time,
             blobs_bundles: <_>::default(),
             kzg: kzg.map(Arc::new),
         };
@@ -189,7 +188,7 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
     }
 
     pub fn get_fork_at_timestamp(&self, timestamp: u64) -> ForkName {
-        match self.deneb_time {
+        match self.cancun_time {
             Some(fork_time) if timestamp >= fork_time => ForkName::Deneb,
             _ => match self.shanghai_time {
                 Some(fork_time) if timestamp >= fork_time => ForkName::Capella,
@@ -270,23 +269,21 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
                 finalized_block_hash
             ));
         }
-        let parent_hash = if block_number == 0 {
-            ExecutionBlockHash::zero()
+        let block = if block_number == 0 {
+            generate_genesis_block(self.terminal_total_difficulty, self.terminal_block_number)?
         } else if let Some(block) = self.block_by_number(block_number - 1) {
-            block.block_hash()
+            generate_pow_block(
+                self.terminal_total_difficulty,
+                self.terminal_block_number,
+                block_number,
+                block.block_hash(),
+            )?
         } else {
             return Err(format!(
                 "parent with block number {} not found",
                 block_number - 1
             ));
         };
-
-        let block = generate_pow_block(
-            self.terminal_total_difficulty,
-            self.terminal_block_number,
-            block_number,
-            parent_hash,
-        )?;
 
         // Insert block into block tree
         self.insert_block(Block::PoW(block))?;
@@ -348,10 +345,10 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
         Ok(hash)
     }
 
+    // This does not reject duplicate blocks inserted. This lets us re-use the same execution
+    // block generator for multiple beacon chains which is useful in testing.
     pub fn insert_block(&mut self, block: Block<T>) -> Result<ExecutionBlockHash, String> {
-        if self.blocks.contains_key(&block.block_hash()) {
-            return Err(format!("{:?} is already known", block.block_hash()));
-        } else if block.parent_hash() != ExecutionBlockHash::zero()
+        if block.parent_hash() != ExecutionBlockHash::zero()
             && !self.blocks.contains_key(&block.parent_hash())
         {
             return Err(format!("parent block {:?} is unknown", block.parent_hash()));
@@ -410,8 +407,7 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
     }
 
     pub fn get_blobs_bundle(&mut self, id: &PayloadId) -> Option<BlobsBundleV1<T>> {
-        // remove it to free memory
-        self.blobs_bundles.remove(id)
+        self.blobs_bundles.get(id).cloned()
     }
 
     pub fn new_payload(&mut self, payload: ExecutionPayload<T>) -> PayloadStatusV1 {
@@ -450,6 +446,14 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
         forkchoice_state: ForkchoiceState,
         payload_attributes: Option<PayloadAttributes>,
     ) -> Result<JsonForkchoiceUpdatedV1Response, String> {
+        // This is meant to cover starting post-merge transition at genesis. Useful for
+        // testing Capella forks and later.
+        if let Some(genesis_pow_block) = self.block_by_number(0) {
+            if genesis_pow_block.block_hash() == forkchoice_state.head_block_hash {
+                self.terminal_block_hash = forkchoice_state.head_block_hash;
+            }
+        }
+
         if let Some(payload) = self
             .pending_payloads
             .remove(&forkchoice_state.head_block_hash)
@@ -518,67 +522,61 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
                         block_hash: ExecutionBlockHash::zero(),
                         transactions: vec![].into(),
                     }),
-                    PayloadAttributes::V2(pa) => {
-                        match self.get_fork_at_timestamp(pa.timestamp) {
-                            ForkName::Merge => ExecutionPayload::Merge(ExecutionPayloadMerge {
-                                parent_hash: forkchoice_state.head_block_hash,
-                                fee_recipient: pa.suggested_fee_recipient,
-                                receipts_root: Hash256::repeat_byte(42),
-                                state_root: Hash256::repeat_byte(43),
-                                logs_bloom: vec![0; 256].into(),
-                                prev_randao: pa.prev_randao,
-                                block_number: parent.block_number() + 1,
-                                gas_limit: GAS_LIMIT,
-                                gas_used: GAS_USED,
-                                timestamp: pa.timestamp,
-                                extra_data: "block gen was here".as_bytes().to_vec().into(),
-                                base_fee_per_gas: Uint256::one(),
-                                block_hash: ExecutionBlockHash::zero(),
-                                transactions: vec![].into(),
-                            }),
-                            ForkName::Capella => {
-                                ExecutionPayload::Capella(ExecutionPayloadCapella {
-                                    parent_hash: forkchoice_state.head_block_hash,
-                                    fee_recipient: pa.suggested_fee_recipient,
-                                    receipts_root: Hash256::repeat_byte(42),
-                                    state_root: Hash256::repeat_byte(43),
-                                    logs_bloom: vec![0; 256].into(),
-                                    prev_randao: pa.prev_randao,
-                                    block_number: parent.block_number() + 1,
-                                    gas_limit: GAS_LIMIT,
-                                    gas_used: GAS_USED,
-                                    timestamp: pa.timestamp,
-                                    extra_data: "block gen was here".as_bytes().to_vec().into(),
-                                    base_fee_per_gas: Uint256::one(),
-                                    block_hash: ExecutionBlockHash::zero(),
-                                    transactions: vec![].into(),
-                                    withdrawals: pa.withdrawals.clone().into(),
-                                })
-                            }
-                            ForkName::Deneb => {
-                                ExecutionPayload::Deneb(ExecutionPayloadDeneb {
-                                    parent_hash: forkchoice_state.head_block_hash,
-                                    fee_recipient: pa.suggested_fee_recipient,
-                                    receipts_root: Hash256::repeat_byte(42),
-                                    state_root: Hash256::repeat_byte(43),
-                                    logs_bloom: vec![0; 256].into(),
-                                    prev_randao: pa.prev_randao,
-                                    block_number: parent.block_number() + 1,
-                                    gas_limit: GAS_LIMIT,
-                                    gas_used: GAS_USED,
-                                    timestamp: pa.timestamp,
-                                    extra_data: "block gen was here".as_bytes().to_vec().into(),
-                                    base_fee_per_gas: Uint256::one(),
-                                    block_hash: ExecutionBlockHash::zero(),
-                                    transactions: vec![].into(),
-                                    withdrawals: pa.withdrawals.clone().into(),
-                                    // FIXME(deneb) maybe this should be set to something?
-                                    excess_data_gas: Uint256::one(),
-                                })
-                            }
-                            _ => unreachable!(),
-                        }
-                    }
+                    PayloadAttributes::V2(pa) => match self.get_fork_at_timestamp(pa.timestamp) {
+                        ForkName::Merge => ExecutionPayload::Merge(ExecutionPayloadMerge {
+                            parent_hash: forkchoice_state.head_block_hash,
+                            fee_recipient: pa.suggested_fee_recipient,
+                            receipts_root: Hash256::repeat_byte(42),
+                            state_root: Hash256::repeat_byte(43),
+                            logs_bloom: vec![0; 256].into(),
+                            prev_randao: pa.prev_randao,
+                            block_number: parent.block_number() + 1,
+                            gas_limit: GAS_LIMIT,
+                            gas_used: GAS_USED,
+                            timestamp: pa.timestamp,
+                            extra_data: "block gen was here".as_bytes().to_vec().into(),
+                            base_fee_per_gas: Uint256::one(),
+                            block_hash: ExecutionBlockHash::zero(),
+                            transactions: vec![].into(),
+                        }),
+                        ForkName::Capella => ExecutionPayload::Capella(ExecutionPayloadCapella {
+                            parent_hash: forkchoice_state.head_block_hash,
+                            fee_recipient: pa.suggested_fee_recipient,
+                            receipts_root: Hash256::repeat_byte(42),
+                            state_root: Hash256::repeat_byte(43),
+                            logs_bloom: vec![0; 256].into(),
+                            prev_randao: pa.prev_randao,
+                            block_number: parent.block_number() + 1,
+                            gas_limit: GAS_LIMIT,
+                            gas_used: GAS_USED,
+                            timestamp: pa.timestamp,
+                            extra_data: "block gen was here".as_bytes().to_vec().into(),
+                            base_fee_per_gas: Uint256::one(),
+                            block_hash: ExecutionBlockHash::zero(),
+                            transactions: vec![].into(),
+                            withdrawals: pa.withdrawals.clone().into(),
+                        }),
+                        ForkName::Deneb => ExecutionPayload::Deneb(ExecutionPayloadDeneb {
+                            parent_hash: forkchoice_state.head_block_hash,
+                            fee_recipient: pa.suggested_fee_recipient,
+                            receipts_root: Hash256::repeat_byte(42),
+                            state_root: Hash256::repeat_byte(43),
+                            logs_bloom: vec![0; 256].into(),
+                            prev_randao: pa.prev_randao,
+                            block_number: parent.block_number() + 1,
+                            gas_limit: GAS_LIMIT,
+                            gas_used: GAS_USED,
+                            timestamp: pa.timestamp,
+                            extra_data: "block gen was here".as_bytes().to_vec().into(),
+                            base_fee_per_gas: Uint256::one(),
+                            block_hash: ExecutionBlockHash::zero(),
+                            transactions: vec![].into(),
+                            withdrawals: pa.withdrawals.clone().into(),
+                            data_gas_used: 0,
+                            excess_data_gas: 0,
+                        }),
+                        _ => unreachable!(),
+                    },
                 };
 
                 match execution_payload.fork_name() {
@@ -586,7 +584,8 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
                     ForkName::Deneb => {
                         // get random number between 0 and Max Blobs
                         let num_blobs = rand::random::<usize>() % T::max_blobs_per_block();
-                        let (bundle, transactions) = self.generate_random_blobs(num_blobs)?;
+                        let kzg = self.kzg.as_ref().ok_or("kzg not initialized")?;
+                        let (bundle, transactions) = generate_random_blobs(num_blobs, kzg)?;
                         for tx in Vec::from(transactions) {
                             execution_payload
                                 .transactions_mut()
@@ -626,92 +625,92 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
             payload_id: id.map(Into::into),
         })
     }
+}
 
-    fn generate_random_blobs(
-        &self,
-        n_blobs: usize,
-    ) -> Result<(BlobsBundleV1<T>, Transactions<T>), String> {
-        let mut bundle = BlobsBundleV1::<T>::default();
-        let mut transactions = vec![];
-        for blob_index in 0..n_blobs {
-            // fill a vector with random bytes
-            let mut blob_bytes = [0u8; BYTES_PER_BLOB];
-            rand::thread_rng().fill_bytes(&mut blob_bytes);
-            // Ensure that the blob is canonical by ensuring that
-            // each field element contained in the blob is < BLS_MODULUS
-            for i in 0..FIELD_ELEMENTS_PER_BLOB {
-                blob_bytes[i * BYTES_PER_FIELD_ELEMENT + BYTES_PER_FIELD_ELEMENT - 1] = 0;
-            }
+pub fn generate_random_blobs<T: EthSpec>(
+    n_blobs: usize,
+    kzg: &Kzg<T::Kzg>,
+) -> Result<(BlobsBundleV1<T>, Transactions<T>), String> {
+    let mut bundle = BlobsBundleV1::<T>::default();
+    let mut transactions = vec![];
+    for blob_index in 0..n_blobs {
+        let random_valid_sidecar = BlobSidecar::<T>::random_valid(&mut thread_rng(), kzg)?;
 
-            let blob = Blob::<T>::new(Vec::from(blob_bytes))
-                .map_err(|e| format!("error constructing random blob: {:?}", e))?;
+        let BlobSidecar {
+            blob,
+            kzg_commitment,
+            kzg_proof,
+            ..
+        } = random_valid_sidecar;
 
-            let commitment = self
-                .kzg
-                .as_ref()
-                .ok_or("kzg not initialized")?
-                .blob_to_kzg_commitment(blob_bytes.into())
-                .map_err(|e| format!("error computing kzg commitment: {:?}", e))?;
+        let tx = random_valid_tx::<T>()
+            .map_err(|e| format!("error creating valid tx SSZ bytes: {:?}", e))?;
 
-            let proof = self
-                .kzg
-                .as_ref()
-                .ok_or("kzg not initialized")?
-                .compute_blob_kzg_proof(blob_bytes.into(), commitment)
-                .map_err(|e| format!("error computing kzg proof: {:?}", e))?;
-
-            let versioned_hash = commitment.calculate_versioned_hash();
-
-            let blob_transaction = BlobTransaction {
-                chain_id: Default::default(),
-                nonce: 0,
-                max_priority_fee_per_gas: Default::default(),
-                max_fee_per_gas: Default::default(),
-                gas: 100000,
-                to: None,
-                value: Default::default(),
-                data: Default::default(),
-                access_list: Default::default(),
-                max_fee_per_data_gas: Default::default(),
-                versioned_hashes: vec![versioned_hash].into(),
-            };
-            let bad_signature = EcdsaSignature {
-                y_parity: false,
-                r: Uint256::from(0),
-                s: Uint256::from(0),
-            };
-            let signed_blob_transaction = SignedBlobTransaction {
-                message: blob_transaction,
-                signature: bad_signature,
-            };
-            // calculate transaction bytes
-            let tx_bytes = [BLOB_TX_TYPE]
-                .into_iter()
-                .chain(signed_blob_transaction.as_ssz_bytes().into_iter())
-                .collect::<Vec<_>>();
-            let tx = Transaction::<T::MaxBytesPerTransaction>::from(tx_bytes);
-
-            transactions.push(tx);
-            bundle
-                .blobs
-                .push(blob)
-                .map_err(|_| format!("blobs are full, blob index: {:?}", blob_index))?;
-            bundle
-                .commitments
-                .push(commitment)
-                .map_err(|_| format!("blobs are full, blob index: {:?}", blob_index))?;
-            bundle
-                .proofs
-                .push(proof)
-                .map_err(|_| format!("blobs are full, blob index: {:?}", blob_index))?;
-        }
-
-        Ok((bundle, transactions.into()))
+        transactions.push(tx);
+        bundle
+            .blobs
+            .push(blob)
+            .map_err(|_| format!("blobs are full, blob index: {:?}", blob_index))?;
+        bundle
+            .commitments
+            .push(kzg_commitment)
+            .map_err(|_| format!("blobs are full, blob index: {:?}", blob_index))?;
+        bundle
+            .proofs
+            .push(kzg_proof)
+            .map_err(|_| format!("blobs are full, blob index: {:?}", blob_index))?;
     }
+
+    Ok((bundle, transactions.into()))
 }
 
 fn payload_id_from_u64(n: u64) -> PayloadId {
     n.to_le_bytes()
+}
+
+pub fn generate_genesis_header<T: EthSpec>(
+    spec: &ChainSpec,
+    post_transition_merge: bool,
+) -> Option<ExecutionPayloadHeader<T>> {
+    let genesis_fork = spec.fork_name_at_slot::<T>(spec.genesis_slot);
+    let genesis_block_hash =
+        generate_genesis_block(spec.terminal_total_difficulty, DEFAULT_TERMINAL_BLOCK)
+            .ok()
+            .map(|block| block.block_hash);
+    match genesis_fork {
+        ForkName::Base | ForkName::Altair => None,
+        ForkName::Merge => {
+            if post_transition_merge {
+                let mut header = ExecutionPayloadHeader::Merge(<_>::default());
+                *header.block_hash_mut() = genesis_block_hash.unwrap_or_default();
+                Some(header)
+            } else {
+                Some(ExecutionPayloadHeader::<T>::Merge(<_>::default()))
+            }
+        }
+        ForkName::Capella => {
+            let mut header = ExecutionPayloadHeader::Capella(<_>::default());
+            *header.block_hash_mut() = genesis_block_hash.unwrap_or_default();
+            Some(header)
+        }
+        ForkName::Deneb => {
+            let mut header = ExecutionPayloadHeader::Capella(<_>::default());
+            *header.block_hash_mut() = genesis_block_hash.unwrap_or_default();
+            Some(header)
+        }
+    }
+}
+
+pub fn generate_genesis_block(
+    terminal_total_difficulty: Uint256,
+    terminal_block_number: u64,
+) -> Result<PoWBlock, String> {
+    generate_pow_block(
+        terminal_total_difficulty,
+        terminal_block_number,
+        0,
+        ExecutionBlockHash::zero(),
+    )
 }
 
 pub fn generate_pow_block(

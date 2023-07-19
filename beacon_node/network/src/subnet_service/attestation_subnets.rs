@@ -151,7 +151,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
     }
 
     /// Return count of all currently subscribed subnets (long-lived **and** short-lived).
-    #[cfg(test)]
+    #[cfg(all(test, feature = "spec-mainnet"))]
     pub fn subscription_count(&self) -> usize {
         if self.subscribe_all_subnets {
             self.beacon_chain.spec.attestation_subnet_count as usize
@@ -167,7 +167,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
     }
 
     /// Returns whether we are subscribed to a subnet for testing purposes.
-    #[cfg(test)]
+    #[cfg(all(test, feature = "spec-mainnet"))]
     pub(crate) fn is_subscribed(
         &self,
         subnet_id: &SubnetId,
@@ -179,7 +179,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
         }
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, feature = "spec-mainnet"))]
     pub(crate) fn long_lived_subscriptions(&self) -> &HashSet<SubnetId> {
         &self.long_lived_subscriptions
     }

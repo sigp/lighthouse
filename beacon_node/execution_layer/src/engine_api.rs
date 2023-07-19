@@ -7,10 +7,11 @@ use crate::http::{
 };
 use crate::BlobTxConversionError;
 use eth2::types::{SsePayloadAttributes, SsePayloadAttributesV1, SsePayloadAttributesV2};
-pub use ethers_core::types::Transaction;
+use ethers_core::types::Transaction;
 use ethers_core::utils::rlp::{self, Decodable, Rlp};
 use http::deposit_methods::RpcError;
 pub use json_structures::{JsonWithdrawal, TransitionConfigurationV1};
+use pretty_reqwest_error::PrettyReqwestError;
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 use std::convert::TryFrom;
@@ -35,7 +36,7 @@ pub type PayloadId = [u8; 8];
 
 #[derive(Debug)]
 pub enum Error {
-    Reqwest(reqwest::Error),
+    HttpClient(PrettyReqwestError),
     Auth(auth::Error),
     BadResponse(String),
     RequestFailed(String),
@@ -70,7 +71,7 @@ impl From<reqwest::Error> for Error {
         ) {
             Error::Auth(auth::Error::InvalidToken)
         } else {
-            Error::Reqwest(e)
+            Error::HttpClient(e.into())
         }
     }
 }
@@ -189,8 +190,11 @@ pub struct ExecutionBlockWithTransactions<T: EthSpec> {
     #[superstruct(only(Capella, Deneb))]
     pub withdrawals: Vec<JsonWithdrawal>,
     #[superstruct(only(Deneb))]
-    #[serde(with = "serde_utils::u256_hex_be")]
-    pub excess_data_gas: Uint256,
+    #[serde(with = "serde_utils::u64_hex_be")]
+    pub data_gas_used: u64,
+    #[superstruct(only(Deneb))]
+    #[serde(with = "serde_utils::u64_hex_be")]
+    pub excess_data_gas: u64,
 }
 
 impl<T: EthSpec> TryFrom<ExecutionPayload<T>> for ExecutionBlockWithTransactions<T> {
@@ -267,6 +271,7 @@ impl<T: EthSpec> TryFrom<ExecutionPayload<T>> for ExecutionBlockWithTransactions
                     .into_iter()
                     .map(|withdrawal| withdrawal.into())
                     .collect(),
+                data_gas_used: block.data_gas_used,
                 excess_data_gas: block.excess_data_gas,
             }),
         };
@@ -509,6 +514,7 @@ impl<E: EthSpec> ExecutionPayloadBodyV1<E> {
                         block_hash: header.block_hash,
                         transactions: self.transactions,
                         withdrawals,
+                        data_gas_used: header.data_gas_used,
                         excess_data_gas: header.excess_data_gas,
                     }))
                 } else {
