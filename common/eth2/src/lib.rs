@@ -337,12 +337,11 @@ impl BeaconNodeHttpClient {
         if let Some(timeout) = timeout {
             builder = builder.timeout(timeout);
         }
-        let mut headers = HeaderMap::new();
-        headers.insert(
-            "Content-Type",
-            HeaderValue::from_static("application/octet-stream"),
-        );
-        let response = builder.headers(headers).body(body).send().await?;
+        let response = builder
+            .header("Content-Type", "application/octet-stream")
+            .body(body)
+            .send()
+            .await?;
         ok_or_error(response).await
     }
 

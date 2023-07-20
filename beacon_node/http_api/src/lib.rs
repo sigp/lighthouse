@@ -1256,7 +1256,7 @@ pub fn serve<T: BeaconChainTypes>(
                 ) {
                     Ok(data) => data,
                     Err(e) => {
-                        return Err(warp_utils::reject::custom_server_error(format!("{:?}", e)))
+                        return Err(warp_utils::reject::custom_bad_request(format!("{:?}", e)))
                     }
                 };
                 publish_blocks::publish_block(
@@ -1332,8 +1332,8 @@ pub fn serve<T: BeaconChainTypes>(
                     Ok(data) => data,
                     Err(_) => {
                         return warp::reply::with_status(
-                            StatusCode::INTERNAL_SERVER_ERROR,
-                            eth2::StatusCode::INTERNAL_SERVER_ERROR,
+                            StatusCode::BAD_REQUEST,
+                            eth2::StatusCode::BAD_REQUEST,
                         )
                         .into_response();
                     }
@@ -4031,6 +4031,7 @@ pub fn serve<T: BeaconChainTypes>(
         .uor(
             warp::post().and(
                 warp::header::exact("Content-Type", "application/octet-stream")
+                    // Routes which expect `application/octet-stream` go within this `and`.
                     .and(post_beacon_blocks_ssz.uor(post_beacon_blocks_v2_ssz))
                     .uor(post_beacon_blocks)
                     .uor(post_beacon_blinded_blocks)
