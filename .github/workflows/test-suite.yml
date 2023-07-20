@@ -163,7 +163,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install libpq-dev  # Required for Postgres in ./watch.
     - name: Run tests in debug
-      run: make test-debug
+      run: WATCH_HOST=host.docker.internal make test-debug
   state-transition-vectors-ubuntu:
     name: state-transition-vectors-ubuntu
     runs-on: ubuntu-latest
