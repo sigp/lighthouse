@@ -859,20 +859,20 @@ where
                 info: _,
                 error: _, /* RPCError */
             }) => {
-                // TODO(@divma): why would this fail....
-                todo!()
+                // This is going to be removed in the next libp2p release. I think its fine to do
+                // nothing.
             }
             ConnectionEvent::LocalProtocolsChange(_) => {
-                // TODO(@divma): fork boundary is the only thing that comes to mind
-                todo!()
+                // This shouldn't effect this handler, we will still negotiate streams if we support
+                // the protocol as usual.
             }
             ConnectionEvent::RemoteProtocolsChange(_) => {
-                // TODO(@divma): unclear how this is done/happens, but: most likely can happen across a fork
-                // boundary. need to read more
-                todo!();
+                // This shouldn't effect this handler, we will still negotiate streams if we support
+                // the protocol as usual.
             }
             ConnectionEvent::AddressChange(_) => {
-                // don't care about these
+                // We dont care about these changes as they have no bearing on our RPC internal
+                // logic.
             }
         }
     }
@@ -943,6 +943,9 @@ where
         (id, request): (Id, OutboundRequest<TSpec>),
     ) {
         self.dial_negotiated -= 1;
+        // Reset any io-retries counter.
+        self.outbound_io_error_retries = 0;
+
         let proto = request.versioned_protocol().protocol();
 
         // accept outbound connections only if the handler is not deactivated
@@ -1002,7 +1005,6 @@ where
         let error = match error {
             StreamUpgradeError::Timeout => RPCError::NegotiationTimeout,
             StreamUpgradeError::Apply(RPCError::IoError(e)) => {
-                // TODO(@divma): we should revisit this logic
                 self.outbound_io_error_retries += 1;
                 if self.outbound_io_error_retries < IO_ERROR_RETRIES {
                     self.send_request(id, req);
@@ -1010,7 +1012,6 @@ where
                 }
                 RPCError::IoError(e)
             }
-            // TODO(@divma): this might be wrong. A shame this info was lost.
             StreamUpgradeError::NegotiationFailed => RPCError::UnsupportedProtocol,
             StreamUpgradeError::Io(io_err) => {
                 self.outbound_io_error_retries += 1;
