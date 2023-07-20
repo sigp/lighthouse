@@ -403,7 +403,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
             match self.swarm.listen_on(listen_multiaddr.clone()) {
                 Ok(_) => {
                     let mut log_address = listen_multiaddr;
-                    log_address.push(MProtocol::P2p(enr.peer_id().into()));
+                    log_address.push(MProtocol::P2p(enr.peer_id()));
                     info!(self.log, "Listening established"; "address" => %log_address);
                 }
                 Err(err) => {
