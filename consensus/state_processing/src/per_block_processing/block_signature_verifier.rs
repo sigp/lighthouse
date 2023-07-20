@@ -1,4 +1,4 @@
-#![allow(clippy::integer_arithmetic)]
+#![allow(clippy::arithmetic_side_effects)]
 
 use super::signature_sets::{Error as SignatureSetError, *};
 use crate::per_block_processing::errors::{AttestationInvalid, BlockOperationError};

@@ -31,14 +31,19 @@ use clap::ArgMatches;
 use clap_utils::{parse_optional, parse_required};
 use environment::Environment;
 use eth2::{types::BlockId, BeaconNodeHttpClient, SensitiveUrl, Timeouts};
+use eth2_network_config::Eth2NetworkConfig;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 use types::{EthSpec, FullPayload, SignedBeaconBlock};
 
 const HTTP_TIMEOUT: Duration = Duration::from_secs(5);
 
-pub fn run<T: EthSpec>(env: Environment<T>, matches: &ArgMatches) -> Result<(), String> {
-    let spec = &T::default_spec();
+pub fn run<T: EthSpec>(
+    env: Environment<T>,
+    network_config: Eth2NetworkConfig,
+    matches: &ArgMatches,
+) -> Result<(), String> {
+    let spec = &network_config.chain_spec::<T>()?;
     let executor = env.core_context().executor;
 
     /*

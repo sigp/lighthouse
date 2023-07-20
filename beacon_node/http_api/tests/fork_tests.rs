@@ -326,11 +326,8 @@ async fn sync_committee_indices_across_fork() {
 
 /// Assert that an HTTP API error has the given status code and indexed errors for the given indices.
 fn assert_server_indexed_error(error: eth2::Error, status_code: u16, indices: Vec<usize>) {
-    let eth2::Error::ServerIndexedMessage(IndexedErrorMessage {
-        code,
-        failures,
-        ..
-    }) = error else {
+    let eth2::Error::ServerIndexedMessage(IndexedErrorMessage { code, failures, .. }) = error
+    else {
         panic!("wrong error, expected ServerIndexedMessage, got: {error:?}")
     };
     assert_eq!(code, status_code);
