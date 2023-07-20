@@ -37,6 +37,7 @@ use bls::{verify_signature_sets, PublicKeyBytes};
 use derivative::Derivative;
 use safe_arith::ArithError;
 use slot_clock::SlotClock;
+use ssz_derive::{Decode, Encode};
 use state_processing::per_block_processing::errors::SyncCommitteeMessageValidationError;
 use state_processing::signature_sets::{
     signed_sync_aggregate_selection_proof_signature_set, signed_sync_aggregate_signature_set,
@@ -47,6 +48,7 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use strum::AsRefStr;
 use tree_hash::TreeHash;
+use tree_hash_derive::TreeHash;
 use types::consts::altair::SYNC_COMMITTEE_SUBNET_COUNT;
 use types::slot_data::SlotData;
 use types::sync_committee::Error as SyncCommitteeError;
@@ -110,14 +112,14 @@ pub enum Error {
     ///
     /// The peer has sent an invalid message.
     AggregatorPubkeyUnknown(u64),
-    /// The sync contribution has been seen before; either in a block, on the gossip network or from a
-    /// local validator.
+    /// The sync contribution or a superset of this sync contribution's aggregation bits for the same data
+    /// has been seen before; either in a block on the gossip network or from a local validator.
     ///
     /// ## Peer scoring
     ///
     /// It's unclear if this sync contribution is valid, however we have already observed it and do not
     /// need to observe it again.
-    SyncContributionAlreadyKnown(Hash256),
+    SyncContributionSupersetKnown(Hash256),
     /// There has already been an aggregation observed for this validator, we refuse to process a
     /// second.
     ///
@@ -268,6 +270,14 @@ pub struct VerifiedSyncContribution<T: BeaconChainTypes> {
     participant_pubkeys: Vec<PublicKeyBytes>,
 }
 
+/// The sync contribution data.
+#[derive(Encode, Decode, TreeHash)]
+pub struct SyncCommitteeData {
+    pub slot: Slot,
+    pub root: Hash256,
+    pub subcommittee_index: u64,
+}
+
 /// Wraps a `SyncCommitteeMessage` that has been verified for propagation on the gossip network.
 #[derive(Clone)]
 pub struct VerifiedSyncCommitteeMessage {
@@ -314,15 +324,22 @@ impl<T: BeaconChainTypes> VerifiedSyncContribution<T> {
             return Err(Error::AggregatorNotInCommittee { aggregator_index });
         };
 
-        // Ensure the valid sync contribution has not already been seen locally.
-        let contribution_root = contribution.tree_hash_root();
+        // Ensure the valid sync contribution or its superset has not already been seen locally.
+        let contribution_data_root = SyncCommitteeData {
+            slot: contribution.slot,
+            root: contribution.beacon_block_root,
+            subcommittee_index: contribution.subcommittee_index,
+        }
+        .tree_hash_root();
+
         if chain
             .observed_sync_contributions
             .write()
-            .is_known(contribution, contribution_root)
+            .is_known_subset(contribution, contribution_data_root)
             .map_err(|e| Error::BeaconChainError(e.into()))?
         {
-            return Err(Error::SyncContributionAlreadyKnown(contribution_root));
+            metrics::inc_counter(&metrics::SYNC_CONTRIBUTION_SUBSETS);
+            return Err(Error::SyncContributionSupersetKnown(contribution_data_root));
         }
 
         // Ensure there has been no other observed aggregate for the given `aggregator_index`.
@@ -376,13 +393,14 @@ impl<T: BeaconChainTypes> VerifiedSyncContribution<T> {
         //
         // It's important to double check that the contribution is not already known, otherwise two
         // contribution processed at the same time could be published.
-        if let ObserveOutcome::AlreadyKnown = chain
+        if let ObserveOutcome::Subset = chain
             .observed_sync_contributions
             .write()
-            .observe_item(contribution, Some(contribution_root))
+            .observe_item(contribution, Some(contribution_data_root))
             .map_err(|e| Error::BeaconChainError(e.into()))?
         {
-            return Err(Error::SyncContributionAlreadyKnown(contribution_root));
+            metrics::inc_counter(&metrics::SYNC_CONTRIBUTION_SUBSETS);
+            return Err(Error::SyncContributionSupersetKnown(contribution_data_root));
         }
 
         // Observe the aggregator so we don't process another aggregate from them.

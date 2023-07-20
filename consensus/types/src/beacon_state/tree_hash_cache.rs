@@ -1,4 +1,4 @@
-#![allow(clippy::integer_arithmetic)]
+#![allow(clippy::arithmetic_side_effects)]
 #![allow(clippy::disallowed_methods)]
 #![allow(clippy::indexing_slicing)]
 

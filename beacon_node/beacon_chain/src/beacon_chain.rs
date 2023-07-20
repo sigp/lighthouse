@@ -71,7 +71,6 @@ use execution_layer::{
     BlockProposalContents, BuilderParams, ChainHealth, ExecutionLayer, FailedCondition,
     PayloadAttributes, PayloadStatus,
 };
-pub use fork_choice::CountUnrealized;
 use fork_choice::{
     AttestationFromBlock, ExecutionStatus, ForkChoice, ForkchoiceUpdateParameters,
     InvalidationOperation, PayloadVerificationStatus, ResetPayloadStatuses,
@@ -115,9 +114,8 @@ use store::{
 use task_executor::{ShutdownReason, TaskExecutor};
 use tokio_stream::Stream;
 use tree_hash::TreeHash;
-use types::beacon_block_body::KzgCommitments;
 use types::beacon_state::CloneConfig;
-use types::blob_sidecar::{BlobIdentifier, BlobSidecarList, Blobs};
+use types::blob_sidecar::BlobSidecarList;
 use types::consts::deneb::MIN_EPOCHS_FOR_BLOB_SIDECARS_REQUESTS;
 use types::*;
 
@@ -185,12 +183,10 @@ pub enum WhenSlotSkipped {
 
 #[derive(Debug, PartialEq)]
 pub enum AvailabilityProcessingStatus {
-    PendingBlobs(Vec<BlobIdentifier>),
-    PendingBlock(Hash256),
+    MissingComponents(Slot, Hash256),
     Imported(Hash256),
 }
 
-//TODO(sean) using this in tests for now
 impl TryInto<SignedBeaconBlockHash> for AvailabilityProcessingStatus {
     type Error = ();
 
@@ -238,6 +234,17 @@ pub struct PrePayloadAttributes {
     /// The parent block number is not part of the payload attributes sent to the EL, but *is*
     /// sent to builders via SSE.
     pub parent_block_number: u64,
+}
+
+/// Information about a state/block at a specific slot.
+#[derive(Debug, Clone, Copy)]
+pub struct FinalizationAndCanonicity {
+    /// True if the slot of the state or block is finalized.
+    ///
+    /// This alone DOES NOT imply that the state/block is finalized, use `self.is_finalized()`.
+    pub slot_is_finalized: bool,
+    /// True if the state or block is canonical at its slot.
+    pub canonical: bool,
 }
 
 /// Define whether a forkchoiceUpdate needs to be checked for an override (`Yes`) or has already
@@ -468,11 +475,17 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     /// The slot at which blocks are downloaded back to.
     pub genesis_backfill_slot: Slot,
     pub proposal_blob_cache: BlobCache<T::EthSpec>,
-    pub data_availability_checker: DataAvailabilityChecker<T>,
-    pub kzg: Option<Arc<Kzg>>,
+    pub data_availability_checker: Arc<DataAvailabilityChecker<T>>,
+    pub kzg: Option<Arc<Kzg<<T::EthSpec as EthSpec>::Kzg>>>,
 }
 
 type BeaconBlockAndState<T, Payload> = (BeaconBlock<T, Payload>, BeaconState<T>);
+
+impl FinalizationAndCanonicity {
+    pub fn is_finalized(self) -> bool {
+        self.slot_is_finalized && self.canonical
+    }
+}
 
 impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Checks if a block is finalized.
@@ -503,16 +516,30 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         state_root: &Hash256,
         state_slot: Slot,
     ) -> Result<bool, Error> {
+        self.state_finalization_and_canonicity(state_root, state_slot)
+            .map(FinalizationAndCanonicity::is_finalized)
+    }
+
+    /// Fetch the finalization and canonicity status of the state with `state_root`.
+    pub fn state_finalization_and_canonicity(
+        &self,
+        state_root: &Hash256,
+        state_slot: Slot,
+    ) -> Result<FinalizationAndCanonicity, Error> {
         let finalized_slot = self
             .canonical_head
             .cached_head()
             .finalized_checkpoint()
             .epoch
             .start_slot(T::EthSpec::slots_per_epoch());
-        let is_canonical = self
+        let slot_is_finalized = state_slot <= finalized_slot;
+        let canonical = self
             .state_root_at_slot(state_slot)?
             .map_or(false, |canonical_root| state_root == &canonical_root);
-        Ok(state_slot <= finalized_slot && is_canonical)
+        Ok(FinalizationAndCanonicity {
+            slot_is_finalized,
+            canonical,
+        })
     }
 
     /// Persists the head tracker and fork choice.
@@ -1985,8 +2012,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self: &Arc<Self>,
         blob_sidecar: SignedBlobSidecar<T::EthSpec>,
         subnet_id: u64,
-    ) -> Result<GossipVerifiedBlob<T::EthSpec>, BlobError> // TODO(pawan): make a GossipVerifedBlob type
-    {
+    ) -> Result<GossipVerifiedBlob<T>, BlobError<T::EthSpec>> {
         blob_verification::validate_blob_sidecar_for_gossip(blob_sidecar, subnet_id, self)
     }
 
@@ -2602,7 +2628,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub async fn process_chain_segment(
         self: &Arc<Self>,
         chain_segment: Vec<BlockWrapper<T::EthSpec>>,
-        count_unrealized: CountUnrealized,
         notify_execution_layer: NotifyExecutionLayer,
     ) -> ChainSegmentResult<T::EthSpec> {
         let mut imported_blocks = 0;
@@ -2669,12 +2694,29 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     .process_block(
                         signature_verified_block.block_root(),
                         signature_verified_block,
-                        count_unrealized,
                         notify_execution_layer,
+                        || Ok(()),
                     )
                     .await
                 {
-                    Ok(_) => imported_blocks += 1,
+                    Ok(status) => {
+                        match status {
+                            AvailabilityProcessingStatus::Imported(_) => {
+                                // The block was imported successfully.
+                                imported_blocks += 1;
+                            }
+                            AvailabilityProcessingStatus::MissingComponents(slot, block_root) => {
+                                warn!(self.log, "Blobs missing in response to range request";
+                                    "block_root" => ?block_root, "slot" => slot);
+                                return ChainSegmentResult::Failed {
+                                    imported_blocks,
+                                    error: BlockError::AvailabilityCheck(
+                                        AvailabilityCheckError::MissingBlobs,
+                                    ),
+                                };
+                            }
+                        }
+                    }
                     Err(error) => {
                         return ChainSegmentResult::Failed {
                             imported_blocks,
@@ -2700,7 +2742,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Returns an `Err` if the given block was invalid, or an error was encountered during
     pub async fn verify_block_for_gossip(
         self: &Arc<Self>,
-        block: BlockWrapper<T::EthSpec>,
+        block: Arc<SignedBeaconBlock<T::EthSpec>>,
     ) -> Result<GossipVerifiedBlock<T>, BlockError<T::EthSpec>> {
         let chain = self.clone();
         self.task_executor
@@ -2744,13 +2786,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     pub async fn process_blob(
         self: &Arc<Self>,
-        blob: GossipVerifiedBlob<T::EthSpec>,
-        count_unrealized: CountUnrealized,
+        blob: GossipVerifiedBlob<T>,
     ) -> Result<AvailabilityProcessingStatus, BlockError<T::EthSpec>> {
-        self.check_availability_and_maybe_import(
-            |chain| chain.data_availability_checker.put_gossip_blob(blob),
-            count_unrealized,
-        )
+        self.check_availability_and_maybe_import(blob.slot(), |chain| {
+            chain.data_availability_checker.put_gossip_blob(blob)
+        })
         .await
     }
 
@@ -2774,8 +2814,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self: &Arc<Self>,
         block_root: Hash256,
         unverified_block: B,
-        count_unrealized: CountUnrealized,
         notify_execution_layer: NotifyExecutionLayer,
+        publish_fn: impl FnOnce() -> Result<(), BlockError<T::EthSpec>> + Send + 'static,
     ) -> Result<AvailabilityProcessingStatus, BlockError<T::EthSpec>> {
         // Start the Prometheus timer.
         let _full_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_TIMES);
@@ -2791,6 +2831,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             notify_execution_layer,
         )?;
 
+        //TODO(sean) error handling?
+        publish_fn()?;
+
         let executed_block = self
             .clone()
             .into_executed_block(execution_pending)
@@ -2798,19 +2841,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .map_err(|e| self.handle_block_error(e))?;
 
         match executed_block {
-            ExecutedBlock::Available(block) => {
-                self.import_available_block(Box::new(block), count_unrealized)
-                    .await
-            }
+            ExecutedBlock::Available(block) => self.import_available_block(Box::new(block)).await,
             ExecutedBlock::AvailabilityPending(block) => {
-                self.check_availability_and_maybe_import(
-                    |chain| {
-                        chain
-                            .data_availability_checker
-                            .put_pending_executed_block(block)
-                    },
-                    count_unrealized,
-                )
+                self.check_availability_and_maybe_import(block.block.slot(), |chain| {
+                    chain
+                        .data_availability_checker
+                        .put_pending_executed_block(block)
+                })
                 .await
             }
         }
@@ -2820,7 +2857,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// get a fully `ExecutedBlock`
     ///
     /// An error is returned if the verification handle couldn't be awaited.
-    async fn into_executed_block(
+    pub async fn into_executed_block(
         self: Arc<Self>,
         execution_pending_block: ExecutionPendingBlock<T>,
     ) -> Result<ExecutedBlock<T::EthSpec>, BlockError<T::EthSpec>> {
@@ -2907,27 +2944,28 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// (i.e., this function is not atomic).
     pub async fn check_availability_and_maybe_import(
         self: &Arc<Self>,
+        slot: Slot,
         cache_fn: impl FnOnce(Arc<Self>) -> Result<Availability<T::EthSpec>, AvailabilityCheckError>,
-        count_unrealized: CountUnrealized,
     ) -> Result<AvailabilityProcessingStatus, BlockError<T::EthSpec>> {
         let availability = cache_fn(self.clone())?;
         match availability {
             Availability::Available(block) => {
-                self.import_available_block(block, count_unrealized).await
+                // This is the time since start of the slot where all the components of the block have become available
+                let delay =
+                    get_slot_delay_ms(timestamp_now(), block.block.slot(), &self.slot_clock);
+                metrics::observe_duration(&metrics::BLOCK_AVAILABILITY_DELAY, delay);
+                // Block is fully available, import into fork choice
+                self.import_available_block(block).await
             }
-            Availability::PendingBlock(block_root) => {
-                Ok(AvailabilityProcessingStatus::PendingBlock(block_root))
-            }
-            Availability::PendingBlobs(blob_ids) => {
-                Ok(AvailabilityProcessingStatus::PendingBlobs(blob_ids))
-            }
+            Availability::MissingComponents(block_root) => Ok(
+                AvailabilityProcessingStatus::MissingComponents(slot, block_root),
+            ),
         }
     }
 
-    async fn import_available_block(
+    pub async fn import_available_block(
         self: &Arc<Self>,
         block: Box<AvailableExecutedBlock<T::EthSpec>>,
-        count_unrealized: CountUnrealized,
     ) -> Result<AvailabilityProcessingStatus, BlockError<T::EthSpec>> {
         let AvailableExecutedBlock {
             block,
@@ -2957,7 +2995,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         state,
                         confirmed_state_roots,
                         payload_verification_outcome.payload_verification_status,
-                        count_unrealized,
                         parent_block,
                         parent_eth1_finalization_data,
                         consensus_context,
@@ -3003,7 +3040,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         mut state: BeaconState<T::EthSpec>,
         confirmed_state_roots: Vec<Hash256>,
         payload_verification_status: PayloadVerificationStatus,
-        count_unrealized: CountUnrealized,
         parent_block: SignedBlindedBeaconBlock<T::EthSpec>,
         parent_eth1_finalization_data: Eth1FinalizationData,
         mut consensus_context: ConsensusContext<T::EthSpec>,
@@ -3073,8 +3109,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     block_delay,
                     &state,
                     payload_verification_status,
+                    self.config.progressive_balances_mode,
                     &self.spec,
-                    count_unrealized,
+                    &self.log,
                 )
                 .map_err(|e| BlockError::BeaconChainError(e.into()))?;
         }
@@ -4910,7 +4947,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         //FIXME(sean)
         // - add a new timer for processing here
-        if let Some(blobs) = blobs_opt {
+        if let (Some(blobs), Some(proofs)) = (blobs_opt, proofs_opt) {
             let kzg = self
                 .kzg
                 .as_ref()
@@ -4931,14 +4968,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 )));
             }
 
-            let kzg_proofs = if let Some(proofs) = proofs_opt {
-                Vec::from(proofs)
-            } else {
-                Self::compute_blob_kzg_proofs(kzg, &blobs, expected_kzg_commitments, slot)?
-            };
+            let kzg_proofs = Vec::from(proofs);
 
             kzg_utils::validate_blobs::<T::EthSpec>(
-                kzg,
+                kzg.as_ref(),
                 expected_kzg_commitments,
                 &blobs,
                 &kzg_proofs,
@@ -4987,29 +5020,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         );
 
         Ok((block, state))
-    }
-
-    fn compute_blob_kzg_proofs(
-        kzg: &Arc<Kzg>,
-        blobs: &Blobs<T::EthSpec>,
-        expected_kzg_commitments: &KzgCommitments<T::EthSpec>,
-        slot: Slot,
-    ) -> Result<Vec<KzgProof>, BlockProductionError> {
-        blobs
-            .iter()
-            .enumerate()
-            .map(|(blob_index, blob)| {
-                let kzg_commitment = expected_kzg_commitments.get(blob_index).ok_or(
-                    BlockProductionError::MissingKzgCommitment(format!(
-                        "Missing KZG commitment for slot {} blob index {}",
-                        slot, blob_index
-                    )),
-                )?;
-
-                kzg_utils::compute_blob_kzg_proof::<T::EthSpec>(kzg, blob, *kzg_commitment)
-                    .map_err(BlockProductionError::KzgError)
-            })
-            .collect::<Result<Vec<KzgProof>, BlockProductionError>>()
     }
 
     /// This method must be called whenever an execution engine indicates that a payload is
@@ -6040,13 +6050,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Since we are likely calling this during the slot we are going to propose in, don't take into
     /// account the current slot when accounting for skips.
     pub fn is_healthy(&self, parent_root: &Hash256) -> Result<ChainHealth, Error> {
+        let cached_head = self.canonical_head.cached_head();
         // Check if the merge has been finalized.
-        if let Some(finalized_hash) = self
-            .canonical_head
-            .cached_head()
-            .forkchoice_update_parameters()
-            .finalized_hash
-        {
+        if let Some(finalized_hash) = cached_head.forkchoice_update_parameters().finalized_hash {
             if ExecutionBlockHash::zero() == finalized_hash {
                 return Ok(ChainHealth::PreMerge);
             }
@@ -6073,17 +6079,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Check slots at the head of the chain.
         let prev_slot = current_slot.saturating_sub(Slot::new(1));
-        let head_skips = prev_slot.saturating_sub(self.canonical_head.cached_head().head_slot());
+        let head_skips = prev_slot.saturating_sub(cached_head.head_slot());
         let head_skips_check = head_skips.as_usize() <= self.config.builder_fallback_skips;
 
         // Check if finalization is advancing.
         let current_epoch = current_slot.epoch(T::EthSpec::slots_per_epoch());
-        let epochs_since_finalization = current_epoch.saturating_sub(
-            self.canonical_head
-                .cached_head()
-                .finalized_checkpoint()
-                .epoch,
-        );
+        let epochs_since_finalization =
+            current_epoch.saturating_sub(cached_head.finalized_checkpoint().epoch);
         let finalization_check = epochs_since_finalization.as_usize()
             <= self.config.builder_fallback_epochs_since_finalization;
 

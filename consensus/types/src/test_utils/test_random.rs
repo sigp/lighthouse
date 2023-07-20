@@ -30,7 +30,7 @@ pub trait TestRandom {
 
 impl<T> TestRandom for PhantomData<T> {
     fn random_for_test(_rng: &mut impl RngCore) -> Self {
-        PhantomData::default()
+        PhantomData
     }
 }
 

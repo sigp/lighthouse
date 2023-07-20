@@ -11,7 +11,7 @@ path = "src/bin.rs"
 [dependencies]
 types = { path = "../types" }
 ethereum_ssz = "0.5.0"
-ethereum_ssz_derive = "0.5.0"
+ethereum_ssz_derive = "0.5.3"
 serde = "1.0.116"
 serde_derive = "1.0.116"
 serde_yaml = "0.8.13"

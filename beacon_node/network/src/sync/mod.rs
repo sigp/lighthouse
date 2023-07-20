@@ -9,5 +9,6 @@ mod network_context;
 mod peer_sync_info;
 mod range_sync;
 
+pub use block_lookups::UnknownParentComponents;
 pub use manager::{BatchProcessResult, SyncMessage};
 pub use range_sync::{BatchOperationOutcome, ChainId};

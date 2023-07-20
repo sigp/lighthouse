@@ -9,7 +9,8 @@ use superstruct::superstruct;
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
-pub type KzgCommitments<T> = VariableList<KzgCommitment, <T as EthSpec>::MaxBlobsPerBlock>;
+pub type KzgCommitments<T> =
+    VariableList<KzgCommitment, <T as EthSpec>::MaxBlobCommitmentsPerBlock>;
 
 /// The body of a `BeaconChain` block, containing operations.
 ///
@@ -97,7 +98,7 @@ impl<'a, T: EthSpec, Payload: AbstractExecPayload<T>> BeaconBlockBodyRef<'a, T, 
     }
 }
 
-impl<'a, T: EthSpec> BeaconBlockBodyRef<'a, T> {
+impl<'a, T: EthSpec, Payload: AbstractExecPayload<T>> BeaconBlockBodyRef<'a, T, Payload> {
     /// Get the fork_name of this object
     pub fn fork_name(self) -> ForkName {
         match self {

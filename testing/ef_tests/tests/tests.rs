@@ -72,14 +72,14 @@ fn operations_sync_aggregate() {
 
 #[test]
 fn operations_execution_payload_full() {
-    OperationsHandler::<MinimalEthSpec, FullPayload<_>>::default().run();
-    OperationsHandler::<MainnetEthSpec, FullPayload<_>>::default().run();
+    OperationsHandler::<MinimalEthSpec, BeaconBlockBody<_, FullPayload<_>>>::default().run();
+    OperationsHandler::<MainnetEthSpec, BeaconBlockBody<_, FullPayload<_>>>::default().run();
 }
 
 #[test]
 fn operations_execution_payload_blinded() {
-    OperationsHandler::<MinimalEthSpec, BlindedPayload<_>>::default().run();
-    OperationsHandler::<MainnetEthSpec, BlindedPayload<_>>::default().run();
+    OperationsHandler::<MinimalEthSpec, BeaconBlockBody<_, BlindedPayload<_>>>::default().run();
+    OperationsHandler::<MainnetEthSpec, BeaconBlockBody<_, BlindedPayload<_>>>::default().run();
 }
 
 #[test]

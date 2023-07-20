@@ -4,8 +4,8 @@ use state_processing::state_advance::partial_state_advance;
 use std::sync::Arc;
 
 use crate::beacon_chain::{
-    BeaconChain, BeaconChainTypes, MAXIMUM_GOSSIP_CLOCK_DISPARITY,
-    VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT,
+    BeaconChain, BeaconChainTypes, BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT,
+    MAXIMUM_GOSSIP_CLOCK_DISPARITY, VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT,
 };
 use crate::data_availability_checker::{
     AvailabilityCheckError, AvailabilityPendingBlock, AvailableBlock,
@@ -16,7 +16,9 @@ use eth2::types::BlockContentsTuple;
 use kzg::Kzg;
 use slog::{debug, warn};
 use ssz_derive::{Decode, Encode};
+use ssz_types::{FixedVector, VariableList};
 use std::borrow::Cow;
+use types::blob_sidecar::{BlobIdentifier, FixedBlobSidecarList};
 use types::{
     BeaconBlockRef, BeaconState, BeaconStateError, BlobSidecar, BlobSidecarList, ChainSpec,
     CloneConfig, Epoch, EthSpec, FullPayload, Hash256, KzgCommitment, RelativeEpoch,
@@ -24,7 +26,7 @@ use types::{
 };
 
 #[derive(Debug)]
-pub enum BlobError {
+pub enum BlobError<T: EthSpec> {
     /// The blob sidecar is from a slot that is later than the current slot (with respect to the
     /// gossip clock disparity).
     ///
@@ -96,10 +98,7 @@ pub enum BlobError {
     /// ## Peer scoring
     ///
     /// We cannot process the blob without validating its parent, the peer isn't necessarily faulty.
-    BlobParentUnknown {
-        blob_root: Hash256,
-        blob_parent_root: Hash256,
-    },
+    BlobParentUnknown(Arc<BlobSidecar<T>>),
 
     /// A blob has already been seen for the given `(sidecar.block_root, sidecar.index)` tuple
     /// over gossip or no gossip sources.
@@ -114,28 +113,52 @@ pub enum BlobError {
     },
 }
 
-impl From<BeaconChainError> for BlobError {
+impl<T: EthSpec> From<BeaconChainError> for BlobError<T> {
     fn from(e: BeaconChainError) -> Self {
         BlobError::BeaconChainError(e)
     }
 }
 
-impl From<BeaconStateError> for BlobError {
+impl<T: EthSpec> From<BeaconStateError> for BlobError<T> {
     fn from(e: BeaconStateError) -> Self {
         BlobError::BeaconChainError(BeaconChainError::BeaconStateError(e))
     }
 }
 
+pub type GossipVerifiedBlobList<T> = VariableList<
+    GossipVerifiedBlob<T>,
+    <<T as BeaconChainTypes>::EthSpec as EthSpec>::MaxBlobsPerBlock,
+>;
+
 /// A wrapper around a `BlobSidecar` that indicates it has been approved for re-gossiping on
 /// the p2p network.
 #[derive(Debug)]
-pub struct GossipVerifiedBlob<T: EthSpec> {
-    blob: Arc<BlobSidecar<T>>,
+pub struct GossipVerifiedBlob<T: BeaconChainTypes> {
+    blob: SignedBlobSidecar<T::EthSpec>,
 }
 
-impl<T: EthSpec> GossipVerifiedBlob<T> {
+impl<T: BeaconChainTypes> GossipVerifiedBlob<T> {
+    pub fn new(
+        blob: SignedBlobSidecar<T::EthSpec>,
+        chain: &BeaconChain<T>,
+    ) -> Result<Self, BlobError<T::EthSpec>> {
+        let blob_index = blob.message.index;
+        validate_blob_sidecar_for_gossip(blob, blob_index, chain)
+    }
+    pub fn id(&self) -> BlobIdentifier {
+        self.blob.message.id()
+    }
     pub fn block_root(&self) -> Hash256 {
-        self.blob.block_root
+        self.blob.message.block_root
+    }
+    pub fn to_blob(self) -> Arc<BlobSidecar<T::EthSpec>> {
+        self.blob.message
+    }
+    pub fn signed_blob(&self) -> SignedBlobSidecar<T::EthSpec> {
+        self.blob.clone()
+    }
+    pub fn slot(&self) -> Slot {
+        self.blob.message.slot
     }
 }
 
@@ -143,12 +166,12 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
     signed_blob_sidecar: SignedBlobSidecar<T::EthSpec>,
     subnet: u64,
     chain: &BeaconChain<T>,
-) -> Result<GossipVerifiedBlob<T::EthSpec>, BlobError> {
+) -> Result<GossipVerifiedBlob<T>, BlobError<T::EthSpec>> {
     let blob_slot = signed_blob_sidecar.message.slot;
     let blob_index = signed_blob_sidecar.message.index;
-    let block_root = signed_blob_sidecar.message.block_root;
     let block_parent_root = signed_blob_sidecar.message.block_parent_root;
     let blob_proposer_index = signed_blob_sidecar.message.proposer_index;
+    let block_root = signed_blob_sidecar.message.block_root;
 
     // Verify that the blob_sidecar was received on the correct subnet.
     if blob_index != subnet {
@@ -211,10 +234,7 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
             });
         }
     } else {
-        return Err(BlobError::BlobParentUnknown {
-            blob_root: block_root,
-            blob_parent_root: block_parent_root,
-        });
+        return Err(BlobError::BlobParentUnknown(signed_blob_sidecar.message));
     }
 
     // Note: We check that the proposer_index matches against the shuffling first to avoid
@@ -235,36 +255,72 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
             "block_root" => %block_root,
             "index" => %blob_index,
         );
-        // The cached head state is in the same epoch as the blob or the state has already been
-        // advanced to the blob's epoch
-        let snapshot = &chain.canonical_head.cached_head().snapshot;
-        if snapshot.beacon_state.current_epoch() == blob_slot.epoch(T::EthSpec::slots_per_epoch()) {
-            (
-                snapshot
-                    .beacon_state
-                    .get_beacon_proposer_index(blob_slot, &chain.spec)?,
-                snapshot.beacon_state.fork(),
-            )
+        if let Some(mut snapshot) = chain
+            .snapshot_cache
+            .try_read_for(BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT)
+            .and_then(|snapshot_cache| {
+                snapshot_cache.get_cloned(block_parent_root, CloneConfig::committee_caches_only())
+            })
+        {
+            if snapshot.beacon_state.slot() == blob_slot {
+                debug!(
+                    chain.log,
+                    "Cloning snapshot cache state for blob verification";
+                    "block_root" => %block_root,
+                    "index" => %blob_index,
+                );
+                (
+                    snapshot
+                        .beacon_state
+                        .get_beacon_proposer_index(blob_slot, &chain.spec)?,
+                    snapshot.beacon_state.fork(),
+                )
+            } else {
+                debug!(
+                    chain.log,
+                    "Cloning and advancing snapshot cache state for blob verification";
+                    "block_root" => %block_root,
+                    "index" => %blob_index,
+                );
+                let state = cheap_state_advance_to_obtain_committees(
+                    &mut snapshot.beacon_state,
+                    Some(snapshot.beacon_block_root),
+                    blob_slot,
+                    &chain.spec,
+                )?;
+                (
+                    state.get_beacon_proposer_index(blob_slot, &chain.spec)?,
+                    state.fork(),
+                )
+            }
         }
         // Need to advance the state to get the proposer index
         else {
-            // Reaching this condition too often might be an issue since we could theoretically have
-            // 5 threads (4 blob indices + 1 block) cloning the state.
-            // We shouldn't be seeing this condition a lot because we try to advance the state
-            // 3 seconds before the start of a slot. However, if this becomes an issue during testing, we should
-            // consider sending a blob for reprocessing to reduce the number of state clones.
             warn!(
                 chain.log,
-                "Cached head not advanced for blob verification";
+                "Snapshot cache miss for blob verification";
                 "block_root" => %block_root,
                 "index" => %blob_index,
-                "action" => "contact the devs if you see this msg too often"
             );
-            // The state produced is only valid for determining proposer/attester shuffling indices.
-            let mut cloned_state = snapshot.clone_with(CloneConfig::committee_caches_only());
+
+            let parent_block = chain
+                .get_blinded_block(&block_parent_root)
+                .map_err(BlobError::BeaconChainError)?
+                .ok_or_else(|| {
+                    BlobError::from(BeaconChainError::MissingBeaconBlock(block_parent_root))
+                })?;
+
+            let mut parent_state = chain
+                .get_state(&parent_block.state_root(), Some(parent_block.slot()))?
+                .ok_or_else(|| {
+                    BeaconChainError::DBInconsistent(format!(
+                        "Missing state {:?}",
+                        parent_block.state_root()
+                    ))
+                })?;
             let state = cheap_state_advance_to_obtain_committees(
-                &mut cloned_state.beacon_state,
-                None,
+                &mut parent_state,
+                Some(parent_block.state_root()),
                 blob_slot,
                 &chain.spec,
             )?;
@@ -325,7 +381,7 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
     // Note: If this BlobSidecar goes on to fail full verification, we do not evict it from the seen_cache
     // as alternate blob_sidecars for the same identifier can still be retrieved
     // over rpc. Evicting them from this cache would allow faster propagation over gossip. So we allow
-    // retreieval of potentially valid blocks over rpc, but try to punish the proposer for signing
+    // retrieval of potentially valid blocks over rpc, but try to punish the proposer for signing
     // invalid messages. Issue for more background
     // https://github.com/ethereum/consensus-specs/issues/3261
     if chain
@@ -342,7 +398,7 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
     }
 
     Ok(GossipVerifiedBlob {
-        blob: signed_blob_sidecar.message,
+        blob: signed_blob_sidecar,
     })
 }
 
@@ -366,7 +422,7 @@ fn cheap_state_advance_to_obtain_committees<'a, E: EthSpec>(
     state_root_opt: Option<Hash256>,
     blob_slot: Slot,
     spec: &ChainSpec,
-) -> Result<Cow<'a, BeaconState<E>>, BlobError> {
+) -> Result<Cow<'a, BeaconState<E>>, BlobError<E>> {
     let block_epoch = blob_slot.epoch(E::slots_per_epoch());
 
     if state.current_epoch() == block_epoch {
@@ -443,19 +499,15 @@ impl<T: EthSpec> KzgVerifiedBlob<T> {
 ///
 /// Returns an error if the kzg verification check fails.
 pub fn verify_kzg_for_blob<T: EthSpec>(
-    blob: GossipVerifiedBlob<T>,
-    kzg: &Kzg,
+    blob: Arc<BlobSidecar<T>>,
+    kzg: &Kzg<T::Kzg>,
 ) -> Result<KzgVerifiedBlob<T>, AvailabilityCheckError> {
+    let _timer = crate::metrics::start_timer(&crate::metrics::KZG_VERIFICATION_SINGLE_TIMES);
     //TODO(sean) remove clone
-    if validate_blob::<T>(
-        kzg,
-        blob.blob.blob.clone(),
-        blob.blob.kzg_commitment,
-        blob.blob.kzg_proof,
-    )
-    .map_err(AvailabilityCheckError::Kzg)?
+    if validate_blob::<T>(kzg, blob.blob.clone(), blob.kzg_commitment, blob.kzg_proof)
+        .map_err(AvailabilityCheckError::Kzg)?
     {
-        Ok(KzgVerifiedBlob { blob: blob.blob })
+        Ok(KzgVerifiedBlob { blob })
     } else {
         Err(AvailabilityCheckError::KzgVerificationFailed)
     }
@@ -467,13 +519,13 @@ pub fn verify_kzg_for_blob<T: EthSpec>(
 /// Note: This function should be preferred over calling `verify_kzg_for_blob`
 /// in a loop since this function kzg verifies a list of blobs more efficiently.
 pub fn verify_kzg_for_blob_list<T: EthSpec>(
-    blob_list: BlobSidecarList<T>,
-    kzg: &Kzg,
+    blob_list: Vec<Arc<BlobSidecar<T>>>,
+    kzg: &Kzg<T::Kzg>,
 ) -> Result<KzgVerifiedBlobList<T>, AvailabilityCheckError> {
+    let _timer = crate::metrics::start_timer(&crate::metrics::KZG_VERIFICATION_BATCH_TIMES);
     let (blobs, (commitments, proofs)): (Vec<_>, (Vec<_>, Vec<_>)) = blob_list
         .clone()
         .into_iter()
-        //TODO(sean) remove clone
         .map(|blob| (blob.blob.clone(), (blob.kzg_commitment, blob.kzg_proof)))
         .unzip();
     if validate_blobs::<T>(
@@ -608,7 +660,25 @@ impl<E: EthSpec> AsBlock<E> for &MaybeAvailableBlock<E> {
 #[derivative(Hash(bound = "E: EthSpec"))]
 pub enum BlockWrapper<E: EthSpec> {
     Block(Arc<SignedBeaconBlock<E>>),
-    BlockAndBlobs(Arc<SignedBeaconBlock<E>>, Vec<Arc<BlobSidecar<E>>>),
+    BlockAndBlobs(Arc<SignedBeaconBlock<E>>, FixedBlobSidecarList<E>),
+}
+
+impl<E: EthSpec> BlockWrapper<E> {
+    pub fn new(block: Arc<SignedBeaconBlock<E>>, blobs: Option<BlobSidecarList<E>>) -> Self {
+        match blobs {
+            Some(blobs) => {
+                let blobs = FixedVector::from(blobs.into_iter().map(Some).collect::<Vec<_>>());
+                BlockWrapper::BlockAndBlobs(block, blobs)
+            }
+            None => BlockWrapper::Block(block),
+        }
+    }
+    pub fn deconstruct(self) -> (Arc<SignedBeaconBlock<E>>, Option<FixedBlobSidecarList<E>>) {
+        match self {
+            BlockWrapper::Block(block) => (block, None),
+            BlockWrapper::BlockAndBlobs(block, blobs) => (block, Some(blobs)),
+        }
+    }
 }
 
 impl<E: EthSpec> AsBlock<E> for BlockWrapper<E> {
@@ -675,13 +745,15 @@ impl<E: EthSpec> From<SignedBeaconBlock<E>> for BlockWrapper<E> {
 impl<E: EthSpec> From<BlockContentsTuple<E, FullPayload<E>>> for BlockWrapper<E> {
     fn from(value: BlockContentsTuple<E, FullPayload<E>>) -> Self {
         match value.1 {
-            Some(variable_list) => Self::BlockAndBlobs(
-                Arc::new(value.0),
-                Vec::from(variable_list)
-                    .into_iter()
-                    .map(|signed_blob| signed_blob.message)
-                    .collect::<Vec<_>>(),
-            ),
+            Some(variable_list) => {
+                let mut blobs = Vec::with_capacity(E::max_blobs_per_block());
+                for blob in variable_list {
+                    if blob.message.index < E::max_blobs_per_block() as u64 {
+                        blobs.insert(blob.message.index as usize, Some(blob.message));
+                    }
+                }
+                Self::BlockAndBlobs(Arc::new(value.0), FixedVector::from(blobs))
+            }
             None => Self::Block(Arc::new(value.0)),
         }
     }

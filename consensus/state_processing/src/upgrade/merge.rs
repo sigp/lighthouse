@@ -60,6 +60,7 @@ pub fn upgrade_to_bellatrix<E: EthSpec>(
         latest_execution_payload_header: <ExecutionPayloadHeaderMerge<E>>::default(),
         // Caches
         total_active_balance: pre.total_active_balance,
+        progressive_balances_cache: mem::take(&mut pre.progressive_balances_cache),
         committee_caches: mem::take(&mut pre.committee_caches),
         pubkey_cache: mem::take(&mut pre.pubkey_cache),
         exit_cache: mem::take(&mut pre.exit_cache),

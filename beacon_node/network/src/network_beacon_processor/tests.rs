@@ -1,20 +1,25 @@
-#![cfg(not(debug_assertions))] // Tests are too slow in debug.
 #![cfg(test)]
 
-use crate::beacon_processor::work_reprocessing_queue::{
-    QUEUED_ATTESTATION_DELAY, QUEUED_RPC_BLOCK_DELAY,
+use crate::{
+    network_beacon_processor::{
+        ChainSegmentProcessId, DuplicateCache, InvalidBlockStorage, NetworkBeaconProcessor,
+    },
+    service::NetworkMessage,
+    sync::{manager::BlockProcessType, SyncMessage},
 };
-use crate::beacon_processor::*;
-use crate::{service::NetworkMessage, sync::SyncMessage};
 use beacon_chain::test_utils::{
-    AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
+    test_spec, AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
 };
-use beacon_chain::{BeaconChain, ChainConfig, MAXIMUM_GOSSIP_CLOCK_DISPARITY};
+use beacon_chain::{BeaconChain, ChainConfig, WhenSlotSkipped, MAXIMUM_GOSSIP_CLOCK_DISPARITY};
+use beacon_processor::{work_reprocessing_queue::*, *};
+use lighthouse_network::discovery::ConnectionId;
+use lighthouse_network::rpc::methods::BlobsByRangeRequest;
+use lighthouse_network::rpc::SubstreamId;
 use lighthouse_network::{
     discv5::enr::{CombinedKey, EnrBuilder},
     rpc::methods::{MetaData, MetaDataV2},
     types::{EnrAttestationBitfield, EnrSyncCommitteeBitfield},
-    MessageId, NetworkGlobals, PeerId,
+    Client, MessageId, NetworkGlobals, PeerId, Response,
 };
 use slot_clock::SlotClock;
 use std::cmp;
@@ -22,9 +27,11 @@ use std::iter::Iterator;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
+use types::blob_sidecar::FixedBlobSidecarList;
 use types::{
-    Attestation, AttesterSlashing, Epoch, EthSpec, MainnetEthSpec, ProposerSlashing,
-    SignedBeaconBlock, SignedVoluntaryExit, SubnetId,
+    Attestation, AttesterSlashing, Epoch, Hash256, MainnetEthSpec, ProposerSlashing,
+    SignedAggregateAndProof, SignedBeaconBlock, SignedBlobSidecarList, SignedVoluntaryExit, Slot,
+    SubnetId,
 };
 
 type E = MainnetEthSpec;
@@ -45,17 +52,19 @@ const STANDARD_TIMEOUT: Duration = Duration::from_secs(10);
 struct TestRig {
     chain: Arc<BeaconChain<T>>,
     next_block: Arc<SignedBeaconBlock<E>>,
+    next_blobs: Option<SignedBlobSidecarList<E>>,
     attestations: Vec<(Attestation<E>, SubnetId)>,
     next_block_attestations: Vec<(Attestation<E>, SubnetId)>,
     next_block_aggregate_attestations: Vec<SignedAggregateAndProof<E>>,
     attester_slashing: AttesterSlashing<E>,
     proposer_slashing: ProposerSlashing,
     voluntary_exit: SignedVoluntaryExit,
-    beacon_processor_tx: mpsc::Sender<WorkEvent<T>>,
+    beacon_processor_tx: BeaconProcessorSend<E>,
     work_journal_rx: mpsc::Receiver<&'static str>,
     _network_rx: mpsc::UnboundedReceiver<NetworkMessage<E>>,
     _sync_rx: mpsc::UnboundedReceiver<SyncMessage<E>>,
     duplicate_cache: DuplicateCache,
+    network_beacon_processor: Arc<NetworkBeaconProcessor<T>>,
     _harness: BeaconChainHarness<T>,
 }
 
@@ -64,7 +73,7 @@ struct TestRig {
 impl Drop for TestRig {
     fn drop(&mut self) {
         // Causes the beacon processor to shutdown.
-        self.beacon_processor_tx = mpsc::channel(MAX_WORK_EVENT_QUEUE_LEN).0;
+        self.beacon_processor_tx = BeaconProcessorSend(mpsc::channel(MAX_WORK_EVENT_QUEUE_LEN).0);
     }
 }
 
@@ -74,14 +83,15 @@ impl TestRig {
     }
 
     pub async fn new_with_chain_config(chain_length: u64, chain_config: ChainConfig) -> Self {
+        let mut spec = test_spec::<MainnetEthSpec>();
         // This allows for testing voluntary exits without building out a massive chain.
-        let mut spec = E::default_spec();
         spec.shard_committee_period = 2;
 
         let harness = BeaconChainHarness::builder(MainnetEthSpec)
             .spec(spec)
             .deterministic_keypairs(VALIDATOR_COUNT)
             .fresh_ephemeral_store()
+            .mock_execution_layer()
             .chain_config(chain_config)
             .build();
 
@@ -169,6 +179,7 @@ impl TestRig {
         let log = harness.logger().clone();
 
         let (beacon_processor_tx, beacon_processor_rx) = mpsc::channel(MAX_WORK_EVENT_QUEUE_LEN);
+        let beacon_processor_tx = BeaconProcessorSend(beacon_processor_tx);
         let (sync_tx, _sync_rx) = mpsc::unbounded_channel();
 
         // Default metadata
@@ -191,26 +202,45 @@ impl TestRig {
 
         let executor = harness.runtime.task_executor.clone();
 
+        let (work_reprocessing_tx, work_reprocessing_rx) =
+            mpsc::channel(MAX_SCHEDULED_WORK_QUEUE_LEN);
         let (work_journal_tx, work_journal_rx) = mpsc::channel(16_364);
 
         let duplicate_cache = DuplicateCache::default();
-        BeaconProcessor {
-            beacon_chain: Arc::downgrade(&chain),
+        let network_beacon_processor = NetworkBeaconProcessor {
+            beacon_processor_send: beacon_processor_tx.clone(),
+            duplicate_cache: duplicate_cache.clone(),
+            chain: harness.chain.clone(),
             network_tx,
             sync_tx,
+            reprocess_tx: work_reprocessing_tx.clone(),
+            network_globals: network_globals.clone(),
+            invalid_block_storage: InvalidBlockStorage::Disabled,
+            executor: executor.clone(),
+            log: log.clone(),
+        };
+        let network_beacon_processor = Arc::new(network_beacon_processor);
+
+        BeaconProcessor {
             network_globals,
             executor,
             max_workers: cmp::max(1, num_cpus::get()),
             current_workers: 0,
-            importing_blocks: duplicate_cache.clone(),
-            invalid_block_storage: InvalidBlockStorage::Disabled,
+            enable_backfill_rate_limiting: harness.chain.config.enable_backfill_rate_limiting,
             log: log.clone(),
         }
-        .spawn_manager(beacon_processor_rx, Some(work_journal_tx));
+        .spawn_manager(
+            beacon_processor_rx,
+            work_reprocessing_tx,
+            work_reprocessing_rx,
+            Some(work_journal_tx),
+            harness.chain.slot_clock.clone(),
+        );
 
         Self {
             chain,
             next_block: Arc::new(next_block_tuple.0),
+            next_blobs: next_block_tuple.1,
             attestations,
             next_block_attestations,
             next_block_aggregate_attestations,
@@ -222,6 +252,7 @@ impl TestRig {
             _network_rx,
             _sync_rx,
             duplicate_cache,
+            network_beacon_processor,
             _harness: harness,
         }
     }
@@ -235,102 +266,152 @@ impl TestRig {
     }
 
     pub fn enqueue_gossip_block(&self) {
-        self.beacon_processor_tx
-            .try_send(WorkEvent::gossip_beacon_block(
+        self.network_beacon_processor
+            .send_gossip_beacon_block(
                 junk_message_id(),
                 junk_peer_id(),
                 Client::default(),
                 self.next_block.clone(),
                 Duration::from_secs(0),
-            ))
+            )
             .unwrap();
     }
 
+    pub fn enqueue_gossip_blob(&self, blob_index: usize) {
+        if let Some(blobs) = self.next_blobs.as_ref() {
+            let blob = blobs.get(blob_index).unwrap();
+            self.network_beacon_processor
+                .send_gossip_blob_sidecar(
+                    junk_message_id(),
+                    junk_peer_id(),
+                    Client::default(),
+                    blob.message.index,
+                    blob.clone(),
+                    Duration::from_secs(0),
+                )
+                .unwrap();
+        }
+    }
+
     pub fn enqueue_rpc_block(&self) {
-        let event = WorkEvent::rpc_beacon_block(
-            self.next_block.canonical_root(),
-            self.next_block.clone().into(),
-            std::time::Duration::default(),
-            BlockProcessType::ParentLookup {
-                chain_hash: Hash256::random(),
-            },
-        );
-        self.beacon_processor_tx.try_send(event).unwrap();
+        self.network_beacon_processor
+            .send_rpc_beacon_block(
+                self.next_block.canonical_root(),
+                self.next_block.clone().into(),
+                std::time::Duration::default(),
+                BlockProcessType::ParentLookup {
+                    chain_hash: Hash256::random(),
+                },
+            )
+            .unwrap();
     }
 
     pub fn enqueue_single_lookup_rpc_block(&self) {
-        let event = WorkEvent::rpc_beacon_block(
-            self.next_block.canonical_root(),
-            self.next_block.clone().into(),
-            std::time::Duration::default(),
-            BlockProcessType::SingleBlock { id: 1 },
-        );
-        self.beacon_processor_tx.try_send(event).unwrap();
+        self.network_beacon_processor
+            .send_rpc_beacon_block(
+                self.next_block.canonical_root(),
+                self.next_block.clone().into(),
+                std::time::Duration::default(),
+                BlockProcessType::SingleBlock { id: 1 },
+            )
+            .unwrap();
+    }
+    pub fn enqueue_single_lookup_rpc_blobs(&self) {
+        if let Some(blobs) = self.next_blobs.clone() {
+            let blobs = FixedBlobSidecarList::from(
+                blobs
+                    .into_iter()
+                    .map(|b| Some(b.message))
+                    .collect::<Vec<_>>(),
+            );
+            self.network_beacon_processor
+                .send_rpc_blobs(
+                    self.next_block.canonical_root(),
+                    blobs,
+                    std::time::Duration::default(),
+                    BlockProcessType::SingleBlock { id: 1 },
+                )
+                .unwrap();
+        }
+    }
+
+    pub fn enqueue_blobs_by_range_request(&self, count: u64) {
+        self.network_beacon_processor
+            .send_blobs_by_range_request(
+                PeerId::random(),
+                (ConnectionId::new(42), SubstreamId::new(24)),
+                BlobsByRangeRequest {
+                    start_slot: 0,
+                    count,
+                },
+            )
+            .unwrap();
     }
 
     pub fn enqueue_backfill_batch(&self) {
-        let event = WorkEvent::chain_segment(
-            ChainSegmentProcessId::BackSyncBatchId(Epoch::default()),
-            Vec::default(),
-        );
-        self.beacon_processor_tx.try_send(event).unwrap();
+        self.network_beacon_processor
+            .send_chain_segment(
+                ChainSegmentProcessId::BackSyncBatchId(Epoch::default()),
+                Vec::default(),
+            )
+            .unwrap();
     }
 
     pub fn enqueue_unaggregated_attestation(&self) {
         let (attestation, subnet_id) = self.attestations.first().unwrap().clone();
-        self.beacon_processor_tx
-            .try_send(WorkEvent::unaggregated_attestation(
+        self.network_beacon_processor
+            .send_unaggregated_attestation(
                 junk_message_id(),
                 junk_peer_id(),
                 attestation,
                 subnet_id,
                 true,
                 Duration::from_secs(0),
-            ))
+            )
             .unwrap();
     }
 
     pub fn enqueue_gossip_attester_slashing(&self) {
-        self.beacon_processor_tx
-            .try_send(WorkEvent::gossip_attester_slashing(
+        self.network_beacon_processor
+            .send_gossip_attester_slashing(
                 junk_message_id(),
                 junk_peer_id(),
                 Box::new(self.attester_slashing.clone()),
-            ))
+            )
             .unwrap();
     }
 
     pub fn enqueue_gossip_proposer_slashing(&self) {
-        self.beacon_processor_tx
-            .try_send(WorkEvent::gossip_proposer_slashing(
+        self.network_beacon_processor
+            .send_gossip_proposer_slashing(
                 junk_message_id(),
                 junk_peer_id(),
                 Box::new(self.proposer_slashing.clone()),
-            ))
+            )
             .unwrap();
     }
 
     pub fn enqueue_gossip_voluntary_exit(&self) {
-        self.beacon_processor_tx
-            .try_send(WorkEvent::gossip_voluntary_exit(
+        self.network_beacon_processor
+            .send_gossip_voluntary_exit(
                 junk_message_id(),
                 junk_peer_id(),
                 Box::new(self.voluntary_exit.clone()),
-            ))
+            )
             .unwrap();
     }
 
     pub fn enqueue_next_block_unaggregated_attestation(&self) {
         let (attestation, subnet_id) = self.next_block_attestations.first().unwrap().clone();
-        self.beacon_processor_tx
-            .try_send(WorkEvent::unaggregated_attestation(
+        self.network_beacon_processor
+            .send_unaggregated_attestation(
                 junk_message_id(),
                 junk_peer_id(),
                 attestation,
                 subnet_id,
                 true,
                 Duration::from_secs(0),
-            ))
+            )
             .unwrap();
     }
 
@@ -340,13 +421,13 @@ impl TestRig {
             .first()
             .unwrap()
             .clone();
-        self.beacon_processor_tx
-            .try_send(WorkEvent::aggregated_attestation(
+        self.network_beacon_processor
+            .send_aggregated_attestation(
                 junk_message_id(),
                 junk_peer_id(),
                 aggregate,
                 Duration::from_secs(0),
-            ))
+            )
             .unwrap();
     }
 
@@ -491,6 +572,13 @@ async fn import_gossip_block_acceptably_early() {
     rig.assert_event_journal(&[GOSSIP_BLOCK, WORKER_FREED, NOTHING_TO_DO])
         .await;
 
+    let num_blobs = rig.next_blobs.as_ref().map(|b| b.len()).unwrap_or(0);
+    for i in 0..num_blobs {
+        rig.enqueue_gossip_blob(i);
+        rig.assert_event_journal(&[GOSSIP_BLOBS_SIDECAR, WORKER_FREED, NOTHING_TO_DO])
+            .await;
+    }
+
     // Note: this section of the code is a bit race-y. We're assuming that we can set the slot clock
     // and check the head in the time between the block arrived early and when its due for
     // processing.
@@ -499,6 +587,7 @@ async fn import_gossip_block_acceptably_early() {
     // processing, instead of just ADDITIONAL_QUEUED_BLOCK_DELAY. Speak to @paulhauner if this test
     // starts failing.
     rig.chain.slot_clock.set_slot(rig.next_block.slot().into());
+
     assert!(
         rig.head_root() != rig.next_block.canonical_root(),
         "block not yet imported"
@@ -566,6 +655,19 @@ async fn import_gossip_block_at_current_slot() {
     rig.assert_event_journal(&[GOSSIP_BLOCK, WORKER_FREED, NOTHING_TO_DO])
         .await;
 
+    let num_blobs = rig
+        .next_blobs
+        .as_ref()
+        .map(|blobs| blobs.len())
+        .unwrap_or(0);
+
+    for i in 0..num_blobs {
+        rig.enqueue_gossip_blob(i);
+
+        rig.assert_event_journal(&[GOSSIP_BLOBS_SIDECAR, WORKER_FREED, NOTHING_TO_DO])
+            .await;
+    }
+
     assert_eq!(
         rig.head_root(),
         rig.next_block.canonical_root(),
@@ -618,20 +720,34 @@ async fn attestation_to_unknown_block_processed(import_method: BlockImportMethod
     );
 
     // Send the block and ensure that the attestation is received back and imported.
-
-    let block_event = match import_method {
+    let num_blobs = rig
+        .next_blobs
+        .as_ref()
+        .map(|blobs| blobs.len())
+        .unwrap_or(0);
+    let mut events = vec![];
+    match import_method {
         BlockImportMethod::Gossip => {
             rig.enqueue_gossip_block();
-            GOSSIP_BLOCK
+            events.push(GOSSIP_BLOCK);
+            for i in 0..num_blobs {
+                rig.enqueue_gossip_blob(i);
+                events.push(GOSSIP_BLOBS_SIDECAR);
+            }
         }
         BlockImportMethod::Rpc => {
             rig.enqueue_rpc_block();
-            RPC_BLOCK
+            events.push(RPC_BLOCK);
+            if num_blobs > 0 {
+                rig.enqueue_single_lookup_rpc_blobs();
+                events.push(RPC_BLOBS);
+            }
         }
     };
 
-    rig.assert_event_journal_contains_ordered(&[block_event, UNKNOWN_BLOCK_ATTESTATION])
-        .await;
+    events.push(UNKNOWN_BLOCK_ATTESTATION);
+
+    rig.assert_event_journal_contains_ordered(&events).await;
 
     // Run fork choice, since it isn't run when processing an RPC block. At runtime it is the
     // responsibility of the sync manager to do this.
@@ -687,20 +803,34 @@ async fn aggregate_attestation_to_unknown_block(import_method: BlockImportMethod
     );
 
     // Send the block and ensure that the attestation is received back and imported.
-
-    let block_event = match import_method {
+    let num_blobs = rig
+        .next_blobs
+        .as_ref()
+        .map(|blobs| blobs.len())
+        .unwrap_or(0);
+    let mut events = vec![];
+    match import_method {
         BlockImportMethod::Gossip => {
             rig.enqueue_gossip_block();
-            GOSSIP_BLOCK
+            events.push(GOSSIP_BLOCK);
+            for i in 0..num_blobs {
+                rig.enqueue_gossip_blob(i);
+                events.push(GOSSIP_BLOBS_SIDECAR);
+            }
         }
         BlockImportMethod::Rpc => {
             rig.enqueue_rpc_block();
-            RPC_BLOCK
+            events.push(RPC_BLOCK);
+            if num_blobs > 0 {
+                rig.enqueue_single_lookup_rpc_blobs();
+                events.push(RPC_BLOBS);
+            }
         }
     };
 
-    rig.assert_event_journal_contains_ordered(&[block_event, UNKNOWN_BLOCK_AGGREGATE])
-        .await;
+    events.push(UNKNOWN_BLOCK_AGGREGATE);
+
+    rig.assert_event_journal_contains_ordered(&events).await;
 
     // Run fork choice, since it isn't run when processing an RPC block. At runtime it is the
     // responsibility of the sync manager to do this.
@@ -868,9 +998,15 @@ async fn test_rpc_block_reprocessing() {
     // Insert the next block into the duplicate cache manually
     let handle = rig.duplicate_cache.check_and_insert(next_block_root);
     rig.enqueue_single_lookup_rpc_block();
-
     rig.assert_event_journal(&[RPC_BLOCK, WORKER_FREED, NOTHING_TO_DO])
         .await;
+
+    rig.enqueue_single_lookup_rpc_blobs();
+    if rig.next_blobs.as_ref().map(|b| b.len()).unwrap_or(0) > 0 {
+        rig.assert_event_journal(&[RPC_BLOBS, WORKER_FREED, NOTHING_TO_DO])
+            .await;
+    }
+
     // next_block shouldn't be processed since it couldn't get the
     // duplicate cache handle
     assert_ne!(next_block_root, rig.head_root());
@@ -933,4 +1069,48 @@ async fn test_backfill_sync_processing_rate_limiting_disabled() {
         Duration::from_millis(100),
     )
     .await;
+}
+
+#[tokio::test]
+async fn test_blobs_by_range() {
+    if test_spec::<E>().deneb_fork_epoch.is_none() {
+        return;
+    };
+    let mut rig = TestRig::new(64).await;
+    let slot_count = 32;
+    rig.enqueue_blobs_by_range_request(slot_count);
+
+    let mut blob_count = 0;
+    for slot in 0..slot_count {
+        let root = rig
+            .chain
+            .block_root_at_slot(Slot::new(slot), WhenSlotSkipped::None)
+            .unwrap();
+        blob_count += root
+            .and_then(|root| {
+                rig.chain
+                    .get_blobs(&root)
+                    .unwrap_or_default()
+                    .map(|blobs| blobs.len())
+            })
+            .unwrap_or(0);
+    }
+    let mut actual_count = 0;
+    while let Some(next) = rig._network_rx.recv().await {
+        if let NetworkMessage::SendResponse {
+            peer_id: _,
+            response: Response::BlobsByRange(blob),
+            id: _,
+        } = next
+        {
+            if blob.is_some() {
+                actual_count += 1;
+            } else {
+                break;
+            }
+        } else {
+            panic!("unexpected message {:?}", next);
+        }
+    }
+    assert_eq!(blob_count, actual_count);
 }

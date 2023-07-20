@@ -468,7 +468,7 @@ impl ChainSpec {
         Hash256::from(domain)
     }
 
-    #[allow(clippy::integer_arithmetic)]
+    #[allow(clippy::arithmetic_side_effects)]
     pub const fn attestation_subnet_prefix_bits(&self) -> u32 {
         let attestation_subnet_count_bits = self.attestation_subnet_count.ilog2();
         self.attestation_subnet_extra_bits as u32 + attestation_subnet_count_bits
@@ -856,7 +856,7 @@ impl ChainSpec {
              * Capella hard fork params
              */
             capella_fork_version: [0x03, 0x00, 0x00, 0x64],
-            capella_fork_epoch: None,
+            capella_fork_epoch: Some(Epoch::new(648704)),
             max_validators_per_withdrawals_sweep: 8192,
 
             /*
