@@ -650,8 +650,8 @@ pub struct ValidatorBalancesQuery {
 
 #[derive(Clone, Deserialize)]
 pub struct BlobIndicesQuery {
-    #[serde(default, deserialization_with = "option_query_vec")]
-    pub indices: Option<Vec<u64>>,
+    #[serde(default, deserialize_with = "option_query_vec")]
+    pub indices: Option<Vec<usize>>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
