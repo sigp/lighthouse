@@ -261,10 +261,8 @@ where
 
     fn on_swarm_event(&mut self, event: FromSwarm<Self::ConnectionHandler>) {
         match event {
-            FromSwarm::ConnectionClosed(_) => {
-                // TODO(@divma): do we want to initiate a shutdown here?
-            }
-            FromSwarm::ConnectionEstablished(_)
+            FromSwarm::ConnectionClosed(_)
+            | FromSwarm::ConnectionEstablished(_)
             | FromSwarm::AddressChange(_)
             | FromSwarm::DialFailure(_)
             | FromSwarm::ListenFailure(_)
@@ -277,7 +275,7 @@ where
             | FromSwarm::ExternalAddrExpired(_)
             | FromSwarm::ExternalAddrConfirmed(_) => {
                 // Rpc Behaviour does not act on these swarm events. We use a comprehensive match
-                // statement tu ensure future events are dealt with appropiately.
+                // statement to ensure future events are dealt with appropriately.
             }
         }
     }

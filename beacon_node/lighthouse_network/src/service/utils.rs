@@ -102,36 +102,33 @@ pub fn load_private_key(config: &NetworkConfig, log: &slog::Logger) -> Keypair {
             Err(_) => debug!(log, "Could not read network key file"),
             Ok(_) => {
                 // only accept secp256k1 keys for now
-                if let Ok(secret_key) = secp256k1::SecretKey::try_from_bytes(&mut key_bytes) {
-                    let kp: secp256k1::Keypair = secret_key.into();
+                if let Ok(kp) = Keypair::from_protobuf_encoding(&key_bytes) {
                     debug!(log, "Loaded network key from disk.");
-                    return kp.into();
+                    return kp;
                 } else {
-                    debug!(log, "Network key file is not a valid secp256k1 key");
+                    debug!(
+                        log,
+                        "Network key file is not a valid protobuf encoded secp256k1 key"
+                    );
                 }
             }
         }
     }
 
     // if a key could not be loaded from disk, generate a new one and save it
-    let local_private_key = secp256k1::Keypair::generate();
-    // TODO(@divma): generate the spcific key type first and then convert it to the wrapper type. This
-    // avoids the clone and the awkward double conversion
+    let local_private_key = Keypair::generate_secp256k1();
     let _ = std::fs::create_dir_all(&config.network_dir);
-    match File::create(network_key_f.clone())
-        .and_then(|mut f| f.write_all(&local_private_key.secret().to_bytes()))
-    {
-        Ok(_) => {
-            debug!(log, "New network key generated and written to disk");
-        }
-        Err(e) => {
-            warn!(
-                log,
-                "Could not write node key to file: {:?}. error: {}", network_key_f, e
-            );
-        }
+    match File::create(network_key_f.clone()) {
+        Ok(mut file) => match local_private_key.to_protobuf_encoding() {
+            Ok(mut private_key_bytes) => match file.write_all(&mut private_key_bytes) {
+                Ok(_) => debug!(log, "New network key generated and written to disk"),
+                Err(e) => warn!(log, "Failed to write network key to disk"; "error" =>e),
+            },
+            Err(e) => warn!(log, "Failed to encode network key"; "error" => ?e),
+        },
+        Err(e) => warn!(log, "Failed to open network key file"; "error" => e),
     }
-    local_private_key.into()
+    local_private_key
 }
 
 /// Generate authenticated XX Noise config from identity keys
