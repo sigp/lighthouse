@@ -218,13 +218,16 @@ pub struct NetworkService<T: BeaconChainTypes> {
 }
 
 impl<T: BeaconChainTypes> NetworkService<T> {
-    #[allow(clippy::type_complexity)]
-    pub async fn start(
+    async fn build(
         beacon_chain: Arc<BeaconChain<T>>,
         config: &NetworkConfig,
         executor: task_executor::TaskExecutor,
         gossipsub_registry: Option<&'_ mut Registry>,
-    ) -> error::Result<(Arc<NetworkGlobals<T::EthSpec>>, NetworkSenders<T::EthSpec>)> {
+    ) -> error::Result<(
+        NetworkService<T>,
+        Arc<NetworkGlobals<T::EthSpec>>,
+        NetworkSenders<T::EthSpec>,
+    )> {
         let network_log = executor.log().clone();
         // build the channels for external comms
         let (network_senders, network_recievers) = NetworkSenders::new();
@@ -363,8 +366,20 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             enable_light_client_server: config.enable_light_client_server,
         };
 
-        network_service.spawn_service(executor);
+        Ok((network_service, network_globals, network_senders))
+    }
 
+    #[allow(clippy::type_complexity)]
+    pub async fn start(
+        beacon_chain: Arc<BeaconChain<T>>,
+        config: &NetworkConfig,
+        executor: task_executor::TaskExecutor,
+        gossipsub_registry: Option<&'_ mut Registry>,
+    ) -> error::Result<(Arc<NetworkGlobals<T::EthSpec>>, NetworkSenders<T::EthSpec>)> {
+        let (network_service, network_globals, network_senders) =
+            Self::build(beacon_chain, config, executor.clone(), gossipsub_registry).await?;
+
+        network_service.spawn_service(executor);
         Ok((network_globals, network_senders))
     }
 

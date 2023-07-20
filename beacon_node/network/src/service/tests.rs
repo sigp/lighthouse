@@ -1,23 +1,22 @@
-// #[cfg(not(debug_assertions))]
+#[cfg(not(debug_assertions))]
 #[cfg(test)]
 mod tests {
     use crate::persisted_dht::load_dht;
     use crate::{NetworkConfig, NetworkService};
     use beacon_chain::test_utils::BeaconChainHarness;
-    use lighthouse_network::Enr;
+    use futures::StreamExt;
+    use lighthouse_network::types::{GossipEncoding, GossipKind};
+    use lighthouse_network::{Enr, GossipTopic};
     use slog::{o, Drain, Level, Logger};
     use sloggers::file::FileLoggerBuilder;
     use sloggers::types::Severity;
     use sloggers::{null::NullLoggerBuilder, Build};
-    use slot_clock::SlotClock;
     use std::io::Read;
-    use std::ops::Add;
     use std::str::FromStr;
     use std::sync::Arc;
-    use std::time::Duration;
     use tempfile::NamedTempFile;
     use tokio::runtime::Runtime;
-    use types::{Epoch, EthSpec, ForkName, MinimalEthSpec};
+    use types::{Epoch, EthSpec, ForkName, MinimalEthSpec, SubnetId};
 
     fn get_logger(actual_log: bool) -> Logger {
         if actual_log {
@@ -99,18 +98,16 @@ mod tests {
     // Test removing topic weight on old topics when a fork happens.
     #[test]
     fn test_removing_topic_weight_on_old_topics() {
+        let runtime = Arc::new(Runtime::new().unwrap());
+        let mut logfile = NamedTempFile::new().unwrap();
+
         // Capella spec
         let mut spec = MinimalEthSpec::default_spec();
         spec.altair_fork_epoch = Some(Epoch::new(0));
         spec.bellatrix_fork_epoch = Some(Epoch::new(0));
         spec.capella_fork_epoch = Some(Epoch::new(1));
 
-        let mut logfile = NamedTempFile::new().unwrap();
-        let logger = FileLoggerBuilder::new(logfile.path().clone())
-            .level(Severity::Debug)
-            .build()
-            .expect("should build logger");
-
+        // Build beacon chain.
         let beacon_chain = BeaconChainHarness::builder(MinimalEthSpec)
             .spec(spec)
             .deterministic_keypairs(8)
@@ -119,59 +116,73 @@ mod tests {
             .build()
             .chain;
 
-        let (next_fork_name, duration_to_next_fork) =
-            beacon_chain.duration_to_next_fork().expect("next fork");
-        assert_eq!(next_fork_name, ForkName::Capella);
         let old_fork_digest = beacon_chain.enr_fork_id().fork_digest;
+        let (next_fork_name, _) = beacon_chain.duration_to_next_fork().expect("next fork");
+        assert_eq!(next_fork_name, ForkName::Capella);
 
-        let runtime = Arc::new(Runtime::new().unwrap());
+        // Build network service.
+        let (mut network_service, network_globals, _network_senders) = runtime.block_on(async {
+            let logger = FileLoggerBuilder::new(logfile.path().clone())
+                .level(Severity::Debug)
+                .build()
+                .expect("should build logger");
+            let (_, exit) = exit_future::signal();
+            let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
+            let executor = task_executor::TaskExecutor::new(
+                Arc::downgrade(&runtime),
+                exit,
+                logger.clone(),
+                shutdown_tx,
+            );
 
-        let (signal, exit) = exit_future::signal();
-        let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
-        let executor = task_executor::TaskExecutor::new(
-            Arc::downgrade(&runtime),
-            exit,
-            logger.clone(),
-            shutdown_tx,
-        );
-
-        // Start a task that just advance the slot clock.
-        let bc = beacon_chain.clone();
-        runtime.spawn(async move {
-            loop {
-                let mut duration = bc.slot_clock.duration_to_next_slot().unwrap();
-                if bc.slot().unwrap().as_u64() == 7 {
-                    // Shortening the duration a little bit to make sure `SlotClock::advance_slot()`
-                    // happens before `NetworkService::update_next_fork()`.
-                    duration = duration.saturating_sub(Duration::from_millis(300));
-                }
-                tokio::time::sleep(duration).await;
-                bc.slot_clock.advance_slot();
-            }
-        });
-
-        // Start network service.
-        let bc = beacon_chain.clone();
-        let (network_globals, _) = runtime.block_on(async move {
             let mut config = NetworkConfig::default();
             config.set_ipv4_listening_address(std::net::Ipv4Addr::UNSPECIFIED, 21212, 21212);
             config.discv5_config.table_filter = |_| true; // Do not ignore local IPs
             config.upnp_enabled = false;
 
-            NetworkService::start(bc, &config, executor, None)
+            NetworkService::build(beacon_chain.clone(), &config, executor.clone(), None)
                 .await
                 .unwrap()
         });
 
-        // Wait until the fork happens.
-        runtime.block_on(async move {
-            let extra_duration = Duration::from_secs(3);
-            tokio::time::sleep(duration_to_next_fork.add(extra_duration)).await;
+        // Subscribe to the topics.
+        // Topics the service should be subscribed to during the current epoch (before the fork) are:
+        // - /eth2/(old_fork_digest)/beacon_attestation_1/ssz_snappy
+        // - /eth2/(old_fork_digest)/beacon_attestation_2/ssz_snappy
+        runtime.block_on(async {
+            while network_globals.gossipsub_subscriptions.read().len() < 2 {
+                if let Some(msg) = network_service.attestation_service.next().await {
+                    network_service.on_attestation_service_msg(msg);
+                }
+            }
+        });
+        let subscriptions = network_globals.gossipsub_subscriptions.read().clone();
+        assert_eq!(2, subscriptions.len());
+        assert!(subscriptions.contains(&GossipTopic::new(
+            GossipKind::Attestation(SubnetId::new(1)),
+            GossipEncoding::SSZSnappy,
+            old_fork_digest
+        )));
+        assert!(subscriptions.contains(&GossipTopic::new(
+            GossipKind::Attestation(SubnetId::new(2)),
+            GossipEncoding::SSZSnappy,
+            old_fork_digest
+        )));
+
+        // Advance slot to the next fork
+        for _ in 0..MinimalEthSpec::slots_per_epoch() {
+            beacon_chain.slot_clock.advance_slot();
+        }
+
+        // Run `NetworkService::update_next_fork()`.
+        runtime.block_on(async {
+            network_service.update_next_fork();
         });
 
-        // Shutdown the network service
-        drop(signal);
-
+        // Ideally we should check TopicScoreParams::topic_weight on the old topics to be zero,
+        // however there's no way to get TopicScoreParams since libp2p doesn't provide a getter to
+        // do so.
+        // As a workaround, checking logs.
         let mut buf = vec![];
         logfile.read_to_end(&mut buf).unwrap();
         let logs = String::from_utf8(buf).unwrap();
@@ -180,18 +191,19 @@ mod tests {
         assert!(logs.contains("Transitioned to new fork, new_fork: Capella"));
 
         // Test that the topic weight has been removed.
-        let old_topics = network_globals
-            .gossipsub_subscriptions
-            .read()
-            .clone()
-            .into_iter()
-            .filter(|topic| topic.fork_digest == old_fork_digest)
-            .collect::<Vec<_>>();
-
-        assert!(!old_topics.is_empty());
-
-        for topic in old_topics {
-            assert!(logs.contains(format!("Removed topic weight, topic: {}", topic).as_str()));
-        }
+        assert!(logs.contains(
+            format!(
+                "Removed topic weight, topic: /eth2/{}/beacon_attestation_1/ssz_snappy",
+                hex::encode(old_fork_digest)
+            )
+            .as_str()
+        ));
+        assert!(logs.contains(
+            format!(
+                "Removed topic weight, topic: /eth2/{}/beacon_attestation_2/ssz_snappy",
+                hex::encode(old_fork_digest)
+            )
+            .as_str()
+        ));
     }
 }
