@@ -61,7 +61,7 @@ use tokio::sync::mpsc::{Sender, UnboundedSender};
 use tokio_stream::{wrappers::BroadcastStream, StreamExt};
 use types::{
     Attestation, AttestationData, AttestationShufflingId, AttesterSlashing, BeaconStateError,
-    BlindedPayload, BlobSidecar, BlobSidecarList, CommitteeCache, ConfigAndPreset, Epoch, EthSpec, ForkName, FullPayload,
+    BlindedPayload, BlobSidecarList, CommitteeCache, ConfigAndPreset, Epoch, EthSpec, ForkName, FullPayload,
     ProposerPreparationData, ProposerSlashing, RelativeEpoch, SignedAggregateAndProof,
     SignedBlsToExecutionChange, SignedContributionAndProof, SignedValidatorRegistrationData,
     SignedVoluntaryExit, Slot, SyncCommitteeMessage, SyncContributionData,
@@ -1498,21 +1498,21 @@ pub fn serve<T: BeaconChainTypes>(
              chain: Arc<BeaconChain<T>>,
              accept_header: Option<api_types::Accept>| {
                 async move {
-                    let blob_sidecar_list = block_id.blob_sidecar_list(&chain).await?;
-                    let blob_sidecar_list_indexed = match indices.indices {
-                        Some(vec) => {
-                            let list = blob_sidecar_list.into_iter()
-                            .enumerate()
-                            .filter(|(index, _)| vec.contains(index))
-                            .map(|(_, blob)| blob)
-                            .collect();
-                            let indexed_list = BlobSidecarList::new(list);
-                            indexed_list.unwrap()
-                        },
-                        None => {
-                            blob_sidecar_list
-                        },
-                    };    
+                    let blob_sidecar_list_indexed = block_id.blob_sidecar_list_indexed(indices, &chain).await?;
+                    // let blob_sidecar_list_indexed = match indices.indices {
+                    //     Some(vec) => {
+                    //         let list = blob_sidecar_list.into_iter()
+                    //         .enumerate()
+                    //         .filter(|(index, _)| vec.contains(index))
+                    //         .map(|(_, blob)| blob)
+                    //         .collect();
+                    //         let indexed_list = BlobSidecarList::new(list);
+                    //         indexed_list.unwrap()
+                    //     },
+                    //     None => {
+                    //         blob_sidecar_list
+                    //     },
+                    // };    
                     match accept_header {
                         Some(api_types::Accept::Ssz) => Response::builder()
                             .status(200)

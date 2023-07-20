@@ -5,6 +5,7 @@ use std::fmt;
 use std::str::FromStr;
 use std::sync::Arc;
 use types::{BlobSidecarList, EthSpec, Hash256, SignedBeaconBlock, SignedBlindedBeaconBlock, Slot};
+use eth2::types::BlobIndicesQuery;
 
 /// Wraps `eth2::types::BlockId` and provides a simple way to obtain a block or root for a given
 /// `BlockId`.
@@ -265,6 +266,29 @@ impl BlockId {
             ))),
             Err(e) => Err(warp_utils::reject::beacon_chain_error(e)),
         }
+    }
+
+    pub async fn blob_sidecar_list_indexed<T: BeaconChainTypes>(
+        &self,
+        indices: BlobIndicesQuery,
+        chain: &BeaconChain<T> 
+    ) -> Result<BlobSidecarList<T::EthSpec>, warp::Rejection> {
+        let blob_sidecar_list = self.blob_sidecar_list(&chain).await?;
+        let blob_sidecar_list_indexed = match indices.indices {
+            Some(vec) => {
+                let list = blob_sidecar_list.into_iter()
+                .enumerate()
+                .filter(|(index, _)| vec.contains(index))
+                .map(|(_, blob)| blob)
+                .collect();
+                let indexed_list = BlobSidecarList::new(list);
+                indexed_list.unwrap()
+            },
+            None => {
+                blob_sidecar_list
+            },
+        };
+        Ok(blob_sidecar_list_indexed)
     }
 }
 
