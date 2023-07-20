@@ -325,8 +325,11 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
             libp2p::connection_limits::Behaviour::new(limits)
         };
 
+        let banned_peers = libp2p::allow_block_list::Behaviour::default();
+
         let behaviour = {
             Behaviour {
+                banned_peers,
                 gossipsub,
                 eth2_rpc,
                 discovery,
@@ -1384,10 +1387,15 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                 Some(NetworkEvent::PeerDisconnected(peer_id))
             }
             PeerManagerEvent::Banned(peer_id, associated_ips) => {
+                self.swarm.behaviour_mut().banned_peers.block_peer(peer_id);
                 self.discovery_mut().ban_peer(&peer_id, associated_ips);
                 None
             }
             PeerManagerEvent::UnBanned(peer_id, associated_ips) => {
+                self.swarm
+                    .behaviour_mut()
+                    .banned_peers
+                    .unblock_peer(peer_id);
                 self.discovery_mut().unban_peer(&peer_id, associated_ips);
                 None
             }
@@ -1436,6 +1444,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
             let maybe_event = match swarm_event {
                 SwarmEvent::Behaviour(behaviour_event) => match behaviour_event {
                     // Handle sub-behaviour events.
+                    BehaviourEvent::BannedPeers(void) => void::unreachable(void),
                     BehaviourEvent::Gossipsub(ge) => self.inject_gs_event(ge),
                     BehaviourEvent::Eth2Rpc(re) => self.inject_rpc_event(re),
                     BehaviourEvent::Discovery(de) => self.inject_discovery_event(de),
