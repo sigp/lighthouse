@@ -279,7 +279,7 @@ pub fn peer_id_to_node_id(peer_id: &PeerId) -> Result<discv5::enr::NodeId, Strin
         KeyType::Ed25519 => {
             let pk = public_key
                 .clone()
-                .try_into_secp256k1()
+                .try_into_ed25519()
                 .expect("right key type");
             let uncompressed_key_bytes = pk.to_bytes();
             let mut output = [0_u8; 32];
