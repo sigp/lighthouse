@@ -1413,10 +1413,11 @@ pub fn serve<T: BeaconChainTypes>(
                     let blob_sidecar_list = block_id.blob_sidecar_list(&chain).await?;
                     let blob_sidecar_list_indexed = match indices.indices {
                         Some(vec) => {
-                            let mut list = Vec::new();
-                            for i in vec.iter() {
-                                list.push(blob_sidecar_list.get(*i as usize).unwrap().clone());
-                            }
+                            let list = blob_sidecar_list.into_iter()
+                            .enumerate()
+                            .filter(|(index, _)| vec.contains(index))
+                            .map(|(_, blob)| blob)
+                            .collect();
                             let indexed_list = BlobSidecarList::new(list);
                             indexed_list.unwrap()
                         },
