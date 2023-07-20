@@ -74,8 +74,6 @@ const EXECUTION_BLOCKS_LRU_CACHE_SIZE: usize = 128;
 const DEFAULT_SUGGESTED_FEE_RECIPIENT: [u8; 20] =
     [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1];
 
-const CONFIG_POLL_INTERVAL: Duration = Duration::from_secs(60);
-
 /// A payload alongside some information about where it came from.
 pub enum ProvenancedPayload<P> {
     /// A good ol' fashioned farm-to-table payload from your local EE.
