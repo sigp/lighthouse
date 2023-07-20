@@ -78,7 +78,7 @@ pub async fn create_test_database(config: &DatabaseConfig) {
 }
 
 pub fn get_host_from_env() -> String {
-    env::var(WATCH_HOST_ENV_VARIABLE).unwrap_or_else(|| "localhost".to_string())
+    env::var(WATCH_HOST_ENV_VARIABLE).unwrap_or_else(|_| "localhost".to_string())
 }
 
 struct TesterBuilder {
