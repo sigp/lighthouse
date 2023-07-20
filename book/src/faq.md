@@ -190,7 +190,7 @@ An example of the full log is shown below:
 ERRO Aggregate attestation queue full, queue_len: 4096, msg: the system has insufficient resources for load, module: network::beacon_processor:1542
 ```
 
-This indicates that the system resources are overloaded. The above error will usually be seen when the node is doing some resource-intensive processes, e.g., the execution client is syncing, or the beacon node is downloading historical blocks. You can check the CPU, RAM or disk usage to see if they are being overloaded. Once the resource-intensive processes completed, the error should be gone.
+This indicates that the system resources are overloaded. The above error will usually be seen when the node is doing some resource-intensive processes, e.g., the execution client is syncing, or the beacon node is downloading historical blocks. You can check the CPU, RAM or disk usage to confirm they are being overloaded. The error should resolve once the resource-intensive processes have completed.
 
 
 ## Validator
@@ -304,7 +304,7 @@ The first thing is to ensure both consensus and execution clients are synced wit
 
 You can see more information on the [Ethstaker KB](https://ethstaker.gitbook.io/ethstaker-knowledge-base/help/missed-attestations). 
 
-Another cause for missing attestations is due to the slowness in processing the block. When this happens, the debug log will show (the debug log can be found under `$datadir/beacon/logs`):
+Another cause for missing attestations is delays during block processing. When this happens, the debug logs will show (debug logs can be found under `$datadir/beacon/logs`):
 
 ```
 DEBG Delayed head block                      set_as_head_delay: Some(93.579425ms), imported_delay: Some(1.460405278s), observed_delay: Some(2.540811921s), block_delay: 4.094796624s, slot: 6837344, proposer_index: 211108, block_root: 0x2c52231c0a5a117401f5231585de8aa5dd963bc7cbc00c544e681342eedd1700, service: beacon
@@ -319,7 +319,7 @@ In general, it is unavoidable to have some penalties occasionally. This is parti
 
 You could also check for the sync aggregate participation percentage on block explorers such as [beaconcha.in](https://beaconcha.in/). A low sync aggregate participation percentage (e.g., 60-70%) indicates that the block that you are assigned to attest to may be published late. As a result, your validator fails to correctly attest to the block. 
 
-Another possible reason for missing the head vote is due to reorg. The reorg happens due to the block is published late, and the proposer at block `n+1` reorged blocks `n` from the canonical chain. Due to the reorg, block `n` was never included in the chain.  If you are assigned to attest at slot `n`, the head reward will be missed.
+Another possible reason for missing the head vote is due to a chain "reorg". A reorg can happen if the proposer publishes block `n` late, and the proposer of block `n+1` builds upon block `n-1` instead of `n`. This is called a "reorg". Due to the reorg, block `n` was never included in the chain.  If you are assigned to attest at slot `n`, it is possible you may still attest to block `n` despite most of the network recognizing the block as being late. In this case you will miss the head reward.
 
 
 ### <a name="vc-exit"></a> Can I submit a voluntary exit message without running a beacon node?
@@ -464,11 +464,11 @@ Use the flag ```--port <PORT>``` in the beacon node. This flag can be useful whe
 
 ### <a name="net-subnet"></a> Lighthouse `v4.3.0` introduces a change where a node will subscribe to only 2 subnets in total. I am worried that this will impact my validators return.
 
-Previously, having more validators means subscribing to more subnets. Since the change, a node will only subscribe to 2 subnets in total. Hence, this will bring about significant reductions in bandwidth for nodes with multiple validators. 
+Previously, having more validators means subscribing to more subnets. Since the change, a node will now only subscribe to 2 subnets in total. This will bring about significant reductions in bandwidth for nodes with multiple validators. 
 
-While having subscribed to more subnets, or all 64 subnets could ensure having peers on more or all subnets, these subscriptions are consuming resources and bandwidth. This does not significantly increase the performance of the node, it does help out other nodes on the network. 
+While subscribing to more subnets can ensure you have peers on a wider range of subnets, these subscriptions consume resources and bandwidth. This does not significantly increase the performance of the node, however it does benefit other nodes on the network. 
  
-Therefore, there is no significant gain for a node to subscribe to more subnets. However, if you would still like to subscribe to all subnets, you can use the flag `subscribe-all-subnets`. This could improve the block rewards by 1-5%, though it comes at the cost of a much higher bandwidth requirement.
+If you would still like to subscribe to all subnets, you can use the flag `subscribe-all-subnets`. This may improve the block rewards by 1-5%, though it comes at the cost of a much higher bandwidth requirement.
 
 ## Miscellaneous
 
