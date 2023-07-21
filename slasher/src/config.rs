@@ -62,6 +62,8 @@ pub enum DatabaseBackend {
     Mdbx,
     #[cfg(feature = "lmdb")]
     Lmdb,
+    #[cfg(feature = "redb")]
+    Redb,
     Disabled,
 }
 

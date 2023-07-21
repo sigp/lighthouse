@@ -1,6 +1,7 @@
 pub mod interface;
 mod lmdb_impl;
 mod mdbx_impl;
+mod redb_impl;
 
 use crate::{
     metrics, AttesterRecord, AttesterSlashingStatus, CompactAttesterRecord, Config, Error,

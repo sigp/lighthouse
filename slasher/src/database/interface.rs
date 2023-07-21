@@ -7,6 +7,8 @@ use std::path::PathBuf;
 use crate::database::lmdb_impl;
 #[cfg(feature = "mdbx")]
 use crate::database::mdbx_impl;
+#[cfg(feature = "redb")]
+use crate::database::redb_impl;
 
 #[derive(Debug)]
 pub enum Environment {
@@ -14,6 +16,8 @@ pub enum Environment {
     Mdbx(mdbx_impl::Environment),
     #[cfg(feature = "lmdb")]
     Lmdb(lmdb_impl::Environment),
+    #[cfg(feature = "redb")]
+    Redb(redb_impl::Environment),
     Disabled,
 }
 
@@ -32,6 +36,8 @@ pub enum Database<'env> {
     Mdbx(mdbx_impl::Database<'env>),
     #[cfg(feature = "lmdb")]
     Lmdb(lmdb_impl::Database<'env>),
+    #[cfg(feature= "redb")]
+    Redb(redb_impl::Database<'env>),
     Disabled(PhantomData<&'env ()>),
 }
 
@@ -67,6 +73,8 @@ impl Environment {
             DatabaseBackend::Mdbx => mdbx_impl::Environment::new(config).map(Environment::Mdbx),
             #[cfg(feature = "lmdb")]
             DatabaseBackend::Lmdb => lmdb_impl::Environment::new(config).map(Environment::Lmdb),
+            #[cfg(feature = "redb")]
+            DatabaseBackend::Redb => redb_impl::Environment::new(config).map(Environment::Redb),
             DatabaseBackend::Disabled => Err(Error::SlasherDatabaseBackendDisabled),
         }
     }
