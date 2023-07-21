@@ -2701,6 +2701,7 @@ pub fn serve<T: BeaconChainTypes>(
 
                 fork_versioned_response(endpoint_version, fork_name, block)
                     .map(|response| warp::reply::json(&response).into_response())
+                    .map(|res| add_consensus_version_header(res, fork_name))
             },
         );
 
@@ -2758,6 +2759,7 @@ pub fn serve<T: BeaconChainTypes>(
                 // Pose as a V2 endpoint so we return the fork `version`.
                 fork_versioned_response(V2, fork_name, block)
                     .map(|response| warp::reply::json(&response).into_response())
+                    .map(|res| add_consensus_version_header(res, fork_name))
             },
         );
 
