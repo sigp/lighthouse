@@ -382,13 +382,16 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         gossipsub_registry: Option<&'_ mut Registry>,
         beacon_processor_send: BeaconProcessorSend<T::EthSpec>,
         beacon_processor_reprocess_tx: mpsc::Sender<ReprocessQueueMessage>,
-    ) -> error::Result<(
-        NetworkService<T>,
-        Arc<NetworkGlobals<T::EthSpec>>,
-        NetworkSenders<T::EthSpec>,
-    )> {
-        let (network_service, network_globals, network_senders) =
-            Self::build(beacon_chain, config, executor.clone(), gossipsub_registry, beacon_processor_send, beacon_processor_reprocess_tx).await?;
+    ) -> error::Result<(Arc<NetworkGlobals<T::EthSpec>>, NetworkSenders<T::EthSpec>)> {
+        let (network_service, network_globals, network_senders) = Self::build(
+            beacon_chain,
+            config,
+            executor.clone(),
+            gossipsub_registry,
+            beacon_processor_send,
+            beacon_processor_reprocess_tx,
+        )
+        .await?;
 
         network_service.spawn_service(executor);
 
