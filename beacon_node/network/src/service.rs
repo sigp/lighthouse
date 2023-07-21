@@ -925,7 +925,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         let new_fork_digest = new_enr_fork_id.fork_digest;
 
         let fork_context = &self.fork_context;
-        if let Some(new_fork_name) = fork_context.from_context_bytes(new_fork_digest.clone()) {
+        if let Some(new_fork_name) = fork_context.from_context_bytes(new_fork_digest) {
             info!(
                 self.log,
                 "Transitioned to new fork";
