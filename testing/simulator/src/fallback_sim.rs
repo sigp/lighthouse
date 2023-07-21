@@ -21,7 +21,7 @@ use sensitive_url::SensitiveUrl;
 use tokio::time::sleep;
 use types::{Epoch, EthSpec, MinimalEthSpec};
 
-const END_EPOCH: u64 = 20;
+const END_EPOCH: u64 = 16;
 const ALTAIR_FORK_EPOCH: u64 = 1;
 const BELLATRIX_FORK_EPOCH: u64 = 2;
 
@@ -36,7 +36,6 @@ pub fn run_fallback_sim(matches: &ArgMatches) -> Result<(), String> {
         value_t!(matches, "validators_per_vc", usize).expect("missing validators_per_vc default");
     let bns_per_vc = value_t!(matches, "bns_per_vc", usize).expect("missing bns_per_vc default");
     let continue_after_checks = matches.is_present("continue_after_checks");
-    //let post_merge_sim = matches.is_present("post-merge");
     let post_merge_sim = true;
 
     println!("Fallback Simulator:");
@@ -106,8 +105,6 @@ fn fallback_sim(
 
     let total_validator_count = validators_per_vc * vc_count;
     let node_count = vc_count * bns_per_vc;
-    //let altair_fork_version = spec.altair_fork_version;
-    //let bellatrix_fork_version = spec.bellatrix_fork_version;
 
     spec.seconds_per_slot /= speed_up_factor;
     spec.seconds_per_slot = max(1, spec.seconds_per_slot);
@@ -266,41 +263,32 @@ fn fallback_sim(
          * breakage by changes to the VC.
          */
 
-        let (
-            //finalization,
-            //block_prod,
-            //validator_count,
-            //onboarding,
-            fallback,
-            check_attestations,
-            //fork,
-            //sync_aggregate,
-            //transition,
-        ) = futures::join!(
-            //checks::verify_first_finalization(network.clone(), slot_duration),
+        let (disconnect, reconnect, check_attestations) = futures::join!(
             checks::disconnect_from_execution_layer(
                 network.clone(),
                 Epoch::new(BELLATRIX_FORK_EPOCH),
-                slot_duration
+                slot_duration,
+                0
+            ),
+            checks::reconnect_to_execution_layer(
+                network.clone(),
+                Epoch::new(BELLATRIX_FORK_EPOCH),
+                slot_duration,
+                0,
+                2,
             ),
             checks::check_attestation_correctness(
                 network.clone(),
-                Epoch::new(END_EPOCH),
+                Epoch::new(0),
+                Epoch::new(END_EPOCH - 2),
                 MinimalEthSpec::slots_per_epoch(),
-                slot_duration
+                slot_duration,
+                1,
             ),
-            //checks::stall_node(network.clone(), 0, 30, seconds_per_slot),
         );
-
-        //block_prod?;
-        //finalization?;
-        //validator_count?;
-        //onboarding?;
-        fallback?;
+        disconnect?;
+        reconnect?;
         check_attestations?;
-        //fork?;
-        //sync_aggregate?;
-        //transition?;
 
         // The `final_future` either completes immediately or never completes, depending on the value
         // of `continue_after_checks`.

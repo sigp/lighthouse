@@ -30,6 +30,14 @@ use env_logger::{Builder, Env};
 use local_network::LocalNetwork;
 use types::MinimalEthSpec;
 
+// Since simulator tests are non-deterministic and there is a non-zero chance of missed
+// attestations, define an acceptable network-wide attestation performance.
+//
+// This has potential to block CI so it should be set conservatively enough that spurious failures
+// don't become very common, but not so conservatively that regressions to the fallback mechanism
+// cannot be detected.
+pub(crate) const ACCEPTABLE_FALLBACK_ATTESTATION_HIT_PERCENTAGE: f64 = 99.0;
+
 pub type E = MinimalEthSpec;
 
 fn main() {

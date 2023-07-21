@@ -1,4 +1,5 @@
 use crate::local_network::LocalNetwork;
+use crate::ACCEPTABLE_FALLBACK_ATTESTATION_HIT_PERCENTAGE;
 use node_test_rig::eth2::types::{BlockId, StateId};
 use std::time::Duration;
 use types::{Epoch, EthSpec, ExecPayload, ExecutionBlockHash, Hash256, Slot, Unsigned};
@@ -244,30 +245,42 @@ pub async fn verify_transition_block_finalized<E: EthSpec>(
     }
 }
 
+// Causes the execution node at `node_index` to disconnect from the execution layer 1 epoch after
+// the merge transition.
 pub async fn disconnect_from_execution_layer<E: EthSpec>(
     network: LocalNetwork<E>,
     transition_epoch: Epoch,
     slot_duration: Duration,
+    node_index: usize,
 ) -> Result<(), String> {
     epoch_delay(transition_epoch + 1, slot_duration, E::slots_per_epoch()).await;
 
     eprintln!("Disabling Execution Layer");
 
-    // Take the execution node at position 0 and force it to return the `syncing` status.
-    network.execution_nodes.read()[0]
+    // Force the execution node to return the `syncing` status.
+    network.execution_nodes.read()[node_index]
         .server
         .all_payloads_syncing(false);
+    Ok(())
+}
 
-    // Run for 2 epochs with the 0th execution node stalled.
+pub async fn reconnect_to_execution_layer<E: EthSpec>(
+    network: LocalNetwork<E>,
+    transition_epoch: Epoch,
+    slot_duration: Duration,
+    node_index: usize,
+    epochs_offline: u64,
+) -> Result<(), String> {
+    // Ensure this is configurable by only reconnecting after `epoch_offline`.
     epoch_delay(
-        transition_epoch + 1 + 2,
+        transition_epoch + epochs_offline,
         slot_duration,
         E::slots_per_epoch(),
     )
     .await;
 
-    // Restore the functionality of the 0th execution node.
-    network.execution_nodes.read()[0]
+    // Restore the functionality of the execution node.
+    network.execution_nodes.read()[node_index]
         .server
         .all_payloads_valid();
 
@@ -278,31 +291,75 @@ pub async fn disconnect_from_execution_layer<E: EthSpec>(
 /// Ensure all validators have attested correctly.
 pub async fn check_attestation_correctness<E: EthSpec>(
     network: LocalNetwork<E>,
+    start_epoch: Epoch,
+    // Must be 2 epochs less than the end of the simulation.
     upto_epoch: Epoch,
     slots_per_epoch: u64,
     slot_duration: Duration,
+    // Select which node to query. Will use this node to determine the global network performance.
+    node_index: usize,
 ) -> Result<(), String> {
     let upto_slot = upto_epoch.start_slot(slots_per_epoch);
     slot_delay(upto_slot, slot_duration).await;
 
-    let remote_node = &network.remote_nodes()?[1];
+    let remote_node = &network.remote_nodes()?[node_index];
 
     let results = remote_node
         .get_lighthouse_analysis_attestation_performance(
-            Epoch::new(2),
+            start_epoch,
             upto_epoch - 2,
             "global".to_string(),
         )
         .await
         .map_err(|e| format!("Unable to get attestation performance: {e}"))?;
 
+    let mut active_successes: f64 = 0.0;
+    let mut head_successes: f64 = 0.0;
+    let mut target_successes: f64 = 0.0;
+    let mut source_successes: f64 = 0.0;
+
+    let mut total: f64 = 0.0;
+
     for result in results {
         for epochs in result.epochs.values() {
-            assert!(epochs.active);
-            assert!(epochs.head);
-            assert!(epochs.target);
-            assert!(epochs.source);
+            total += 1.0;
+
+            if epochs.active {
+                active_successes += 1.0;
+            }
+            if epochs.head {
+                head_successes += 1.0;
+            }
+            if epochs.target {
+                target_successes += 1.0;
+            }
+            if epochs.source {
+                source_successes += 1.0;
+            }
         }
+    }
+    let active_percent = active_successes / total * 100.0;
+    let head_percent = head_successes / total * 100.0;
+    let target_percent = target_successes / total * 100.0;
+    let source_percent = source_successes / total * 100.0;
+
+    eprintln!("Total Attestations: {}", total);
+    eprintln!("Active: {}: {}%", active_successes, active_percent);
+    eprintln!("Head: {}: {}%", head_successes, head_percent);
+    eprintln!("Target: {}: {}%", target_successes, target_percent);
+    eprintln!("Source: {}: {}%", source_successes, source_percent);
+
+    if active_percent < ACCEPTABLE_FALLBACK_ATTESTATION_HIT_PERCENTAGE {
+        return Err("Active percent was below required level".to_string());
+    }
+    if head_percent < ACCEPTABLE_FALLBACK_ATTESTATION_HIT_PERCENTAGE {
+        return Err("Head percent was below required level".to_string());
+    }
+    if target_percent < ACCEPTABLE_FALLBACK_ATTESTATION_HIT_PERCENTAGE {
+        return Err("Target percent was below required level".to_string());
+    }
+    if source_percent < ACCEPTABLE_FALLBACK_ATTESTATION_HIT_PERCENTAGE {
+        return Err("Source percent was below required level".to_string());
     }
 
     Ok(())
