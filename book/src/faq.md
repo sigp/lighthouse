@@ -190,7 +190,7 @@ An example of the full log is shown below:
 ERRO Aggregate attestation queue full, queue_len: 4096, msg: the system has insufficient resources for load, module: network::beacon_processor:1542
 ```
 
-This indicates that the system resources are overloaded. The above error will usually be seen when the node is doing some resource-intensive processes, e.g., the execution client is syncing, or the beacon node is downloading historical blocks. You can check the CPU, RAM or disk usage to see if they are being overloaded. Once the resource-intensive processes completed, the error should be gone.
+This suggests that the computer resources are being overwhelmed. It could be due to high CPU usage or high disk I/O usage. This can happen, e.g., when the beacon node is downloading historical blocks, or when the execution client is syncing. The error will disappear when the resources used return to normal or when the node is synced.
 
 
 ## Validator
