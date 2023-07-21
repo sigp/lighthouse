@@ -1487,21 +1487,23 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path("beacon"))
         .and(warp::path("blob_sidecars"))
         .and(block_id_or_err)
+        .and(warp::query::<api_types::BlobIndicesQuery>())
         .and(warp::path::end())
         .and(chain_filter.clone())
         .and(warp::header::optional::<api_types::Accept>("accept"))
         .and_then(
             |block_id: BlockId,
+             indices: api_types::BlobIndicesQuery,
              chain: Arc<BeaconChain<T>>,
              accept_header: Option<api_types::Accept>| {
                 async move {
-                    let blob_sidecar_list = block_id.blob_sidecar_list(&chain).await?;
-
+                    let blob_sidecar_list_filtered =
+                        block_id.blob_sidecar_list_filtered(indices, &chain).await?;
                     match accept_header {
                         Some(api_types::Accept::Ssz) => Response::builder()
                             .status(200)
                             .header("Content-Type", "application/octet-stream")
-                            .body(blob_sidecar_list.as_ssz_bytes().into())
+                            .body(blob_sidecar_list_filtered.as_ssz_bytes().into())
                             .map_err(|e| {
                                 warp_utils::reject::custom_server_error(format!(
                                     "failed to create response: {}",
@@ -1509,7 +1511,7 @@ pub fn serve<T: BeaconChainTypes>(
                                 ))
                             }),
                         _ => Ok(warp::reply::json(&api_types::GenericResponse::from(
-                            blob_sidecar_list,
+                            blob_sidecar_list_filtered,
                         ))
                         .into_response()),
                     }
