@@ -64,11 +64,6 @@ jobs:
         repo-token: ${{ secrets.GITHUB_TOKEN }}
     - name: Install Foundry (anvil)
       uses: foundry-rs/foundry-toolchain@v1
-    - name: Install apt dependencies
-      if: env.SELF_HOSTED_RUNNERS
-      run: |
-          sudo apt-get update
-          sudo apt-get install libpq-dev  # Required for Postgres in ./watch.
     - name: Run tests in release
       run: WATCH_HOST=host.docker.internal make test-release
   release-tests-windows:
@@ -157,11 +152,6 @@ jobs:
         repo-token: ${{ secrets.GITHUB_TOKEN }}
     - name: Install Foundry (anvil)
       uses: foundry-rs/foundry-toolchain@v1
-    - name: Install apt dependencies
-      if: env.SELF_HOSTED_RUNNERS
-      run: |
-          sudo apt-get update
-          sudo apt-get install libpq-dev  # Required for Postgres in ./watch.
     - name: Run tests in debug
       run: WATCH_HOST=host.docker.internal make test-debug
   state-transition-vectors-ubuntu:
