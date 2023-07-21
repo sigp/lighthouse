@@ -27,6 +27,8 @@ pub enum RwTransaction<'env> {
     Mdbx(mdbx_impl::RwTransaction<'env>),
     #[cfg(feature = "lmdb")]
     Lmdb(lmdb_impl::RwTransaction<'env>),
+    #[cfg(feature = "redb")]
+    Redb(redb_impl::RwTransaction<'env>),
     Disabled(PhantomData<&'env ()>),
 }
 
@@ -36,7 +38,7 @@ pub enum Database<'env> {
     Mdbx(mdbx_impl::Database<'env>),
     #[cfg(feature = "lmdb")]
     Lmdb(lmdb_impl::Database<'env>),
-    #[cfg(feature= "redb")]
+    #[cfg(feature = "redb")]
     Redb(redb_impl::Database<'env>),
     Disabled(PhantomData<&'env ()>),
 }
@@ -60,6 +62,8 @@ pub enum Cursor<'env> {
     Mdbx(mdbx_impl::Cursor<'env>),
     #[cfg(feature = "lmdb")]
     Lmdb(lmdb_impl::Cursor<'env>),
+    #[cfg(feature = "redb")]
+    Redb(redb_impl::Cursor<'env>),
     Disabled(PhantomData<&'env ()>),
 }
 
@@ -85,6 +89,8 @@ impl Environment {
             Self::Mdbx(env) => env.create_databases(),
             #[cfg(feature = "lmdb")]
             Self::Lmdb(env) => env.create_databases(),
+            #[cfg(feature = "redb")]
+            Self::Redb(env) => env.create_databases(),
             _ => Err(Error::MismatchedDatabaseVariant),
         }
     }
@@ -95,6 +101,8 @@ impl Environment {
             Self::Mdbx(env) => env.begin_rw_txn().map(RwTransaction::Mdbx),
             #[cfg(feature = "lmdb")]
             Self::Lmdb(env) => env.begin_rw_txn().map(RwTransaction::Lmdb),
+            #[cfg(feature = "redb")]
+            Self::Redb(env) => env.begin_rw_txn().map(RwTransaction::Redb),
             _ => Err(Error::MismatchedDatabaseVariant),
         }
     }
@@ -106,6 +114,8 @@ impl Environment {
             Self::Mdbx(env) => env.filenames(config),
             #[cfg(feature = "lmdb")]
             Self::Lmdb(env) => env.filenames(config),
+            #[cfg(feature = "redb")]
+            Self::Redb(env) => env.filenames(config),
             _ => vec![],
         }
     }
@@ -122,6 +132,8 @@ impl<'env> RwTransaction<'env> {
             (Self::Mdbx(txn), Database::Mdbx(db)) => txn.get(db, key),
             #[cfg(feature = "lmdb")]
             (Self::Lmdb(txn), Database::Lmdb(db)) => txn.get(db, key),
+            #[cfg(feature = "redb")]
+            (Self::Redb(txn), Database::Redb(db)) => txn.get(db, key),
             _ => Err(Error::MismatchedDatabaseVariant),
         }
     }
@@ -137,6 +149,8 @@ impl<'env> RwTransaction<'env> {
             (Self::Mdbx(txn), Database::Mdbx(db)) => txn.put(db, key, value),
             #[cfg(feature = "lmdb")]
             (Self::Lmdb(txn), Database::Lmdb(db)) => txn.put(db, key, value),
+            #[cfg(feature = "redb")]
+            (Self::Redb(txn), Database::Redb(db)) => txn.put(db, key, value),
             _ => Err(Error::MismatchedDatabaseVariant),
         }
     }
@@ -147,6 +161,8 @@ impl<'env> RwTransaction<'env> {
             (Self::Mdbx(txn), Database::Mdbx(db)) => txn.del(db, key),
             #[cfg(feature = "lmdb")]
             (Self::Lmdb(txn), Database::Lmdb(db)) => txn.del(db, key),
+            #[cfg(feature = "redb")]
+            (Self::Redb(txn), Database::Redb(db)) => txn.del(db, key),
             _ => Err(Error::MismatchedDatabaseVariant),
         }
     }
@@ -157,6 +173,8 @@ impl<'env> RwTransaction<'env> {
             (Self::Mdbx(txn), Database::Mdbx(db)) => txn.cursor(db).map(Cursor::Mdbx),
             #[cfg(feature = "lmdb")]
             (Self::Lmdb(txn), Database::Lmdb(db)) => txn.cursor(db).map(Cursor::Lmdb),
+            #[cfg(feature = "redb")]
+            (Self::Redb(txn), Database::Redb(db)) => txn.cursor(db).map(Cursor::Redb),
             _ => Err(Error::MismatchedDatabaseVariant),
         }
     }
@@ -167,6 +185,8 @@ impl<'env> RwTransaction<'env> {
             Self::Mdbx(txn) => txn.commit(),
             #[cfg(feature = "lmdb")]
             Self::Lmdb(txn) => txn.commit(),
+            #[cfg(feature = "redb")]
+            Self::Redb(txn) => txn.commit(),
             _ => Err(Error::MismatchedDatabaseVariant),
         }
     }
@@ -180,6 +200,8 @@ impl<'env> Cursor<'env> {
             Cursor::Mdbx(cursor) => cursor.first_key(),
             #[cfg(feature = "lmdb")]
             Cursor::Lmdb(cursor) => cursor.first_key(),
+            #[cfg(feature = "redb")]
+            Cursor::Redb(cursor) => cursor.first_key(),
             _ => Err(Error::MismatchedDatabaseVariant),
         }
     }
@@ -191,6 +213,8 @@ impl<'env> Cursor<'env> {
             Cursor::Mdbx(cursor) => cursor.last_key(),
             #[cfg(feature = "lmdb")]
             Cursor::Lmdb(cursor) => cursor.last_key(),
+            #[cfg(feature = "redb")]
+            Cursor::Redb(cursor) => cursor.last_key(),
             _ => Err(Error::MismatchedDatabaseVariant),
         }
     }
@@ -201,6 +225,8 @@ impl<'env> Cursor<'env> {
             Cursor::Mdbx(cursor) => cursor.next_key(),
             #[cfg(feature = "lmdb")]
             Cursor::Lmdb(cursor) => cursor.next_key(),
+            #[cfg(feature = "redb")]
+            Cursor::Redb(cursor) => cursor.next_key(),
             _ => Err(Error::MismatchedDatabaseVariant),
         }
     }
@@ -212,6 +238,8 @@ impl<'env> Cursor<'env> {
             Cursor::Mdbx(cursor) => cursor.get_current(),
             #[cfg(feature = "lmdb")]
             Cursor::Lmdb(cursor) => cursor.get_current(),
+            #[cfg(feature = "redb")]
+            Cursor::Redb(cursor) => cursor.get_current(),
             _ => Err(Error::MismatchedDatabaseVariant),
         }
     }
@@ -222,6 +250,8 @@ impl<'env> Cursor<'env> {
             Cursor::Mdbx(cursor) => cursor.delete_current(),
             #[cfg(feature = "lmdb")]
             Cursor::Lmdb(cursor) => cursor.delete_current(),
+            #[cfg(feature = "redb")]
+            Cursor::Redb(cursor) => cursor.delete_current(),
             _ => Err(Error::MismatchedDatabaseVariant),
         }
     }
@@ -232,6 +262,8 @@ impl<'env> Cursor<'env> {
             Self::Mdbx(cursor) => cursor.put(key, value),
             #[cfg(feature = "lmdb")]
             Self::Lmdb(cursor) => cursor.put(key, value),
+            #[cfg(feature = "redb")]
+            Self::Redb(cursor) => cursor.put(key, value),
             _ => Err(Error::MismatchedDatabaseVariant),
         }
     }

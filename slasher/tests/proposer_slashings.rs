@@ -1,4 +1,4 @@
-#![cfg(any(feature = "mdbx", feature = "lmdb"))]
+#![cfg(any(feature = "mdbx", feature = "lmdb", feature = "redb"))]
 
 use logging::test_logger;
 use slasher::{
