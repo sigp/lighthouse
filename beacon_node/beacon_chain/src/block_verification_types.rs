@@ -16,12 +16,28 @@ use types::{
     SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
 };
 
+/// A block that has been received over RPC. It has 2 internal variants:
+/// 
+/// 1. `BlockAndBlobs`: A fully available post deneb block with all the blobs available. This variant
+///    is only constructed after making consistency checks between blocks and blobs.
+///    Hence, it is fully self contained w.r.t verification. i.e. this block has all the required
+///    data to get verfied and imported into fork choice.
+/// 
+/// 2. `Block`: This can be a fully available pre-deneb block **or** a post-deneb block that may or may
+///    not require blobs to be considered fully available.
+/// 
+/// Note: We make a distinction over blocks received over gossip because
+/// in a post-deneb world, the blobs corresponding to a given block that are received
+/// over rpc do not contain the proposer signature for dos resistance.
 #[derive(Debug, Clone, Derivative)]
 #[derivative(Hash(bound = "E: EthSpec"))]
 pub struct RpcBlock<E: EthSpec> {
     block: RpcBlockInner<E>,
 }
 
+/// Note: This variant is intentionally private because we want to safely construct the
+/// internal variants after applying consistency checks to ensure that the block and blobs
+/// are consistent with respect to each other.
 #[derive(Debug, Clone, Derivative)]
 #[derivative(Hash(bound = "E: EthSpec"))]
 enum RpcBlockInner<E: EthSpec> {
@@ -33,12 +49,15 @@ enum RpcBlockInner<E: EthSpec> {
 }
 
 impl<E: EthSpec> RpcBlock<E> {
+    /// Constructs a `Block` variant.
     pub fn new_without_blobs(block: Arc<SignedBeaconBlock<E>>) -> Self {
         Self {
             block: RpcBlockInner::Block(block),
         }
     }
 
+    /// Constructs a new `BlockAndBlobs` variant after making consistency
+    /// checks between the provided blocks and blobs.
     pub fn new(
         block: Arc<SignedBeaconBlock<E>>,
         blobs: Option<BlobSidecarList<E>>,
@@ -79,6 +98,16 @@ impl<E: EthSpec> From<SignedBeaconBlock<E>> for RpcBlock<E> {
     }
 }
 
+/// A block that has gone through all pre-deneb block processing checks including block processing 
+/// and execution by an EL client. This block hasn't completed data availability checks.
+/// 
+/// 
+/// It contains 2 variants:
+/// 1. `Available`: This block has been executed and also contains all data to consider it a
+///    fully available block. i.e. for post-deneb, this implies that this contains all the
+///    required blobs.
+/// 2. `AvailabilityPending`: This block hasn't received all required blobs to consider it a 
+///    fully available block.
 pub enum ExecutedBlock<E: EthSpec> {
     Available(AvailableExecutedBlock<E>),
     AvailabilityPending(AvailabilityPendingExecutedBlock<E>),
@@ -116,6 +145,8 @@ impl<E: EthSpec> ExecutedBlock<E> {
     }
 }
 
+/// A block that has completed all pre-deneb block processing checks including verification
+/// by an EL client **and** has all requisite blob data to be imported into fork choice.
 #[derive(PartialEq)]
 pub struct AvailableExecutedBlock<E: EthSpec> {
     pub block: AvailableBlock<E>,
@@ -154,6 +185,9 @@ impl<E: EthSpec> AvailableExecutedBlock<E> {
     }
 }
 
+/// A block that has completed all pre-deneb block processing checks, verification
+/// by an EL client but does not have all requisite blob data to get imported into 
+/// fork choice.
 #[derive(Encode, Decode, Clone)]
 pub struct AvailabilityPendingExecutedBlock<E: EthSpec> {
     #[ssz(with = "ssz_tagged_signed_beacon_block_arc")]
