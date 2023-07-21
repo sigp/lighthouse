@@ -1,11 +1,11 @@
 use crate::{state_id::checkpoint_slot_and_execution_optimistic, ExecutionOptimistic};
 use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes, WhenSlotSkipped};
+use eth2::types::BlobIndicesQuery;
 use eth2::types::BlockId as CoreBlockId;
 use std::fmt;
 use std::str::FromStr;
 use std::sync::Arc;
 use types::{BlobSidecarList, EthSpec, Hash256, SignedBeaconBlock, SignedBlindedBeaconBlock, Slot};
-use eth2::types::BlobIndicesQuery;
 
 /// Wraps `eth2::types::BlockId` and provides a simple way to obtain a block or root for a given
 /// `BlockId`.
@@ -271,22 +271,20 @@ impl BlockId {
     pub async fn blob_sidecar_list_indexed<T: BeaconChainTypes>(
         &self,
         indices: BlobIndicesQuery,
-        chain: &BeaconChain<T> 
+        chain: &BeaconChain<T>,
     ) -> Result<BlobSidecarList<T::EthSpec>, warp::Rejection> {
         let blob_sidecar_list = self.blob_sidecar_list(&chain).await?;
         let blob_sidecar_list_indexed = match indices.indices {
             Some(vec) => {
-                let list = blob_sidecar_list.into_iter()
-                .enumerate()
-                .filter(|(index, _)| vec.contains(index))
-                .map(|(_, blob)| blob)
-                .collect();
-                let indexed_list = BlobSidecarList::new(list);
+                let list = blob_sidecar_list
+                    .into_iter()
+                    .filter(|blob_sidecar| vec.contains(&blob_sidecar.index))
+                    .collect();
+                let indexed_list = BlobSidecarList::new(list)
+                    .map_err(|e| warp_utils::reject::custom_server_error(format!("{:?}", e)));
                 indexed_list.unwrap()
-            },
-            None => {
-                blob_sidecar_list
-            },
+            }
+            None => blob_sidecar_list,
         };
         Ok(blob_sidecar_list_indexed)
     }
