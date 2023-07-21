@@ -268,25 +268,25 @@ impl BlockId {
         }
     }
 
-    pub async fn blob_sidecar_list_indexed<T: BeaconChainTypes>(
+    pub async fn blob_sidecar_list_filtered<T: BeaconChainTypes>(
         &self,
         indices: BlobIndicesQuery,
         chain: &BeaconChain<T>,
     ) -> Result<BlobSidecarList<T::EthSpec>, warp::Rejection> {
         let blob_sidecar_list = self.blob_sidecar_list(&chain).await?;
-        let blob_sidecar_list_indexed = match indices.indices {
+        let blob_sidecar_list_filtered = match indices.indices {
             Some(vec) => {
                 let list = blob_sidecar_list
                     .into_iter()
                     .filter(|blob_sidecar| vec.contains(&blob_sidecar.index))
                     .collect();
-                let indexed_list = BlobSidecarList::new(list)
+                let filtered_list = BlobSidecarList::new(list)
                     .map_err(|e| warp_utils::reject::custom_server_error(format!("{:?}", e)));
-                indexed_list.unwrap()
+                filtered_list.unwrap()
             }
             None => blob_sidecar_list,
         };
-        Ok(blob_sidecar_list_indexed)
+        Ok(blob_sidecar_list_filtered)
     }
 }
 
