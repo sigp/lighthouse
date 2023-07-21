@@ -280,9 +280,8 @@ impl BlockId {
                     .into_iter()
                     .filter(|blob_sidecar| vec.contains(&blob_sidecar.index))
                     .collect();
-                let filtered_list = BlobSidecarList::new(list)
-                    .map_err(|e| warp_utils::reject::custom_server_error(format!("{:?}", e)));
-                filtered_list.unwrap()
+                BlobSidecarList::new(list)
+                    .map_err(|e| warp_utils::reject::custom_server_error(format!("{:?}", e)))?
             }
             None => blob_sidecar_list,
         };

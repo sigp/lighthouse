@@ -649,6 +649,7 @@ pub struct ValidatorBalancesQuery {
 }
 
 #[derive(Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct BlobIndicesQuery {
     #[serde(default, deserialize_with = "option_query_vec")]
     pub indices: Option<Vec<u64>>,
