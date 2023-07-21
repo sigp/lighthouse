@@ -19,6 +19,8 @@ env:
   LIGHTHOUSE_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
   # Enable self-hosted runners for the sigp repo only.
   SELF_HOSTED_RUNNERS: ${{ github.repository == 'sigp/lighthouse' }}
+  # Self-hosted runners need to reference a different host for `./watch` tests.
+  WATCH_HOST: ${{ github.repository == 'sigp/lighthouse' && 'host.docker.internal' || 'localhost' }}
 jobs:
   target-branch-check:
     name: target-branch-check
@@ -65,7 +67,7 @@ jobs:
     - name: Install Foundry (anvil)
       uses: foundry-rs/foundry-toolchain@v1
     - name: Run tests in release
-      run: WATCH_HOST=host.docker.internal make test-release
+      run: make test-release
   release-tests-windows:
     name: release-tests-windows
     runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "windows"]') || 'windows-2019'  }}
@@ -153,7 +155,7 @@ jobs:
     - name: Install Foundry (anvil)
       uses: foundry-rs/foundry-toolchain@v1
     - name: Run tests in debug
-      run: WATCH_HOST=host.docker.internal make test-debug
+      run: make test-debug
   state-transition-vectors-ubuntu:
     name: state-transition-vectors-ubuntu
     runs-on: ubuntu-latest
