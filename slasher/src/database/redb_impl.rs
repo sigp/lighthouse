@@ -2,7 +2,6 @@
 use std::fmt;
 use std::{
     borrow::{Borrow, Cow},
-    marker::PhantomData,
     path::PathBuf,
 };
 
@@ -21,9 +20,7 @@ const BASE_DB: &str = "base_db";
 #[derive(Debug)]
 pub struct Database<'env> {
     table: &'env str,
-    _phantom: PhantomData<&'env ()>,
 }
-
 
 pub struct WriteTransaction<'env>(redb::WriteTransaction<'env>);
 
@@ -42,7 +39,6 @@ impl WriteTransaction<'_> {
 #[derive(Debug)]
 pub struct RwTransaction<'env> {
     txn: Option<WriteTransaction<'env>>,
-    _phantom: PhantomData<&'env ()>,
 }
 
 #[derive(Debug)]
@@ -54,7 +50,6 @@ pub struct Environment {
 pub struct Cursor<'env> {
     db: &'env Database<'env>,
     current_key: Option<Cow<'env, [u8]>>,
-    _phantom: PhantomData<&'env ()>,
 }
 
 impl Environment {
@@ -88,10 +83,7 @@ impl Environment {
     }
 
     pub fn create_table<'env>(&self, table_name: &'env str) -> crate::Database<'env> {
-        crate::Database::Redb(Database {
-            table: table_name,
-            _phantom: PhantomData,
-        })
+        crate::Database::Redb(Database { table: table_name })
     }
 
     pub fn filenames(&self, config: &Config) -> Vec<PathBuf> {
@@ -102,10 +94,7 @@ impl Environment {
     }
 
     pub fn begin_rw_txn(&self) -> Result<RwTransaction, Error> {
-        Ok(RwTransaction {
-            txn: None,
-            _phantom: PhantomData,
-        })
+        Ok(RwTransaction { txn: None })
     }
 }
 
@@ -165,7 +154,6 @@ impl<'env> RwTransaction<'env> {
         Ok(Cursor {
             db: db.clone(),
             current_key: None,
-            _phantom: PhantomData,
         })
     }
 
@@ -174,7 +162,7 @@ impl<'env> RwTransaction<'env> {
             Ok(_) => {
                 self.txn = None;
                 Ok(())
-            },
+            }
             Err(_) => panic!(),
         }
     }
@@ -271,7 +259,9 @@ impl<'env> Cursor<'env> {
         let tx = database.begin_write().unwrap();
         {
             let mut table = tx.open_table(table_definition).unwrap();
-            table.remove(self.current_key.unwrap().as_ref().borrow()).unwrap();
+            table
+                .remove(self.current_key.unwrap().as_ref().borrow())
+                .unwrap();
         }
         Ok(())
     }
