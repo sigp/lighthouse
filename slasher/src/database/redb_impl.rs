@@ -18,8 +18,24 @@ use crate::{
 const BASE_DB: &str = "base_db";
 
 #[derive(Debug)]
+pub struct Environment {
+    env: PathBuf,
+}
+
+#[derive(Debug)]
 pub struct Database<'env> {
     table: &'env str,
+}
+
+#[derive(Debug)]
+pub struct RwTransaction<'env> {
+    txn: Option<WriteTransaction<'env>>,
+}
+
+#[derive(Debug)]
+pub struct Cursor<'env> {
+    db: &'env Database<'env>,
+    current_key: Option<Cow<'env, [u8]>>,
 }
 
 pub struct WriteTransaction<'env>(redb::WriteTransaction<'env>);
@@ -34,22 +50,6 @@ impl<'env> WriteTransaction<'env> {
     pub fn commit(self) -> std::result::Result<(), redb::CommitError> {
         self.0.commit()
     }
-}
-
-#[derive(Debug)]
-pub struct RwTransaction<'env> {
-    txn: Option<WriteTransaction<'env>>,
-}
-
-#[derive(Debug)]
-pub struct Environment {
-    env: PathBuf,
-}
-
-#[derive(Debug)]
-pub struct Cursor<'env> {
-    db: &'env Database<'env>,
-    current_key: Option<Cow<'env, [u8]>>,
 }
 
 impl Environment {
@@ -133,7 +133,7 @@ impl<'env> RwTransaction<'env> {
                 .insert(key.as_ref().borrow(), value.as_ref().borrow())
                 .unwrap();
         }
-        self.txn = Some(WriteTransaction(tx));
+        // self.txn = Some(&WriteTransaction(tx));
         Ok(())
     }
 
@@ -146,13 +146,13 @@ impl<'env> RwTransaction<'env> {
 
             table.remove(key.as_ref().borrow()).unwrap();
         }
-        self.txn = Some(WriteTransaction(tx));
+        // self.txn = Some(&WriteTransaction(tx));
         Ok(())
     }
 
-    pub fn cursor<'a>(&'a mut self, db: &Database<'a>) -> Result<Cursor<'a>, Error> {
+    pub fn cursor<'a>(&'a mut self, db: &'a Database<'a>) -> Result<Cursor<'a>, Error> {
         Ok(Cursor {
-            db: db,
+            db,
             current_key: None,
         })
     }

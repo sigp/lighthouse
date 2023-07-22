@@ -167,7 +167,7 @@ impl<'env> RwTransaction<'env> {
         }
     }
 
-    pub fn cursor<'a>(&'a mut self, db: &Database) -> Result<Cursor<'a>, Error> {
+    pub fn cursor<'a>(&'a mut self, db: &'a Database) -> Result<Cursor<'a>, Error> {
         match (self, db) {
             #[cfg(feature = "mdbx")]
             (Self::Mdbx(txn), Database::Mdbx(db)) => txn.cursor(db).map(Cursor::Mdbx),
