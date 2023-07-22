@@ -20,6 +20,7 @@ const BASE_DB: &str = "base_db";
 #[derive(Debug)]
 pub struct Environment {
     env: PathBuf,
+    db_count: usize,
 }
 
 #[derive(Debug)]
@@ -29,7 +30,8 @@ pub struct Database<'env> {
 
 #[derive(Debug)]
 pub struct RwTransaction<'env> {
-    txn: Option<WriteTransaction<'env>>,
+    // txn: Option<redb::WriteTransaction<'env>>,
+    _phantom:  PhantomData<&'env ()>,
 }
 
 #[derive(Debug)]
@@ -40,6 +42,13 @@ pub struct Cursor<'env> {
 
 pub struct WriteTransaction<'env>(redb::WriteTransaction<'env>);
 
+impl<'env> Drop for RwTransaction<'env> {
+    fn drop(&mut self) {
+        // Perform any necessary cleanup or resource deallocation here
+        // This code will be automatically executed when an instance of MyStruct goes out of scope.
+    }
+}
+
 impl<'env> fmt::Debug for WriteTransaction<'env> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "InternalStruct {{ /* fields and their values */ }}")
@@ -47,18 +56,20 @@ impl<'env> fmt::Debug for WriteTransaction<'env> {
 }
 
 impl<'env> WriteTransaction<'env> {
+    /*
     pub fn commit(self) -> std::result::Result<(), redb::CommitError> {
         self.0.commit()
     }
+    */
 }
 
 impl Environment {
     pub fn new(config: &Config) -> Result<Environment, Error> {
         let env = config.database_path.clone();
-        Ok(Environment { env })
+        Ok(Environment { env, db_count: MAX_NUM_DBS })
     }
 
-    pub fn create_databases(&self) -> Result<OpenDatabases, Error> {
+    pub fn create_databases(&self) -> Result<OpenDatabases, Error> {        
         let indexed_attestation_db = self.create_table(INDEXED_ATTESTATION_DB);
         let indexed_attestation_id_db = self.create_table(INDEXED_ATTESTATION_ID_DB);
         let attesters_db = self.create_table(ATTESTERS_DB);
@@ -68,6 +79,10 @@ impl Environment {
         let current_epochs_db = self.create_table(CURRENT_EPOCHS_DB);
         let proposers_db = self.create_table(PROPOSERS_DB);
         let metadata_db = self.create_table(METADATA_DB);
+
+        if self.db_count != 9 {
+            panic!();
+        }
 
         Ok(OpenDatabases {
             indexed_attestation_db,
@@ -90,11 +105,12 @@ impl Environment {
         vec![
             config.database_path.join("data.mdb"),
             config.database_path.join("lock.mdb"),
+            config.database_path.join(self.env.to_str().unwrap()),
         ]
     }
 
     pub fn begin_rw_txn(&self) -> Result<RwTransaction, Error> {
-        Ok(RwTransaction { txn: None })
+        Ok(RwTransaction { _phantom: PhantomData })
     }
 }
 
@@ -157,14 +173,16 @@ impl<'env> RwTransaction<'env> {
         })
     }
 
-    pub fn commit(mut self) -> Result<(), Error> {
+    pub fn commit(self) -> Result<(), Error> {
+        Ok(())
+        /* 
         match self.txn.unwrap().commit() {
             Ok(_) => {
                 self.txn = None;
                 Ok(())
             }
             Err(_) => panic!(),
-        }
+        }*/
     }
 }
 
@@ -202,7 +220,7 @@ impl<'env> Cursor<'env> {
             .iter()
             .unwrap()
             .rev()
-            .next()
+            .next_back()
             .map(|x| x.map(|(key, _)| (key.value()).to_vec()));
 
         if let Some(owned_key) = last {
