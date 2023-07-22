@@ -280,6 +280,16 @@ define_hardcoded_nets!(
     ),
     (
         // Network name (must be unique among all networks).
+        chiado,
+        // The name of the directory in the `eth2_network_config/built_in_network_configs`
+        // directory where the configuration files are located for this network.
+        "chiado",
+        // Set to `true` if the genesis state can be found in the `built_in_network_configs`
+        // directory.
+        GENESIS_STATE_IS_KNOWN
+    ),
+    (
+        // Network name (must be unique among all networks).
         sepolia,
         // The name of the directory in the `eth2_network_config/built_in_network_configs`
         // directory where the configuration files are located for this network.
