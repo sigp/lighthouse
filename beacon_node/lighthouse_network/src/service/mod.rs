@@ -605,6 +605,16 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
         }
     }
 
+    /// Returns a scoring parameters for a topic if existent.
+    pub fn get_topic_params(&self, _topic: GossipTopic) -> Option<TopicScoreParams> {
+        // See https://github.com/libp2p/rust-libp2p/pull/4231
+        // self.swarm
+        //     .behaviour()
+        //     .gossipsub
+        //     .get_topic_params(&topic.into())
+        todo!()
+    }
+
     /// Subscribes to a gossipsub topic.
     ///
     /// Returns `true` if the subscription was successful and `false` otherwise.

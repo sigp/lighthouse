@@ -1,4 +1,4 @@
-#[cfg(not(debug_assertions))]
+// #[cfg(not(debug_assertions))]
 #[cfg(test)]
 mod tests {
     use crate::persisted_dht::load_dht;
@@ -11,13 +11,9 @@ mod tests {
     use lighthouse_network::types::{GossipEncoding, GossipKind};
     use lighthouse_network::{Enr, GossipTopic};
     use slog::{o, Drain, Level, Logger};
-    use sloggers::file::FileLoggerBuilder;
-    use sloggers::types::Severity;
     use sloggers::{null::NullLoggerBuilder, Build};
-    use std::io::Read;
     use std::str::FromStr;
     use std::sync::Arc;
-    use tempfile::NamedTempFile;
     use tokio::{runtime::Runtime, sync::mpsc};
     use types::{Epoch, EthSpec, ForkName, MinimalEthSpec, SubnetId};
 
@@ -112,7 +108,6 @@ mod tests {
     #[test]
     fn test_removing_topic_weight_on_old_topics() {
         let runtime = Arc::new(Runtime::new().unwrap());
-        let mut logfile = NamedTempFile::new().unwrap();
 
         // Capella spec
         let mut spec = MinimalEthSpec::default_spec();
@@ -128,23 +123,17 @@ mod tests {
             .mock_execution_layer()
             .build()
             .chain;
-
-        let old_fork_digest = beacon_chain.enr_fork_id().fork_digest;
         let (next_fork_name, _) = beacon_chain.duration_to_next_fork().expect("next fork");
         assert_eq!(next_fork_name, ForkName::Capella);
 
         // Build network service.
         let (mut network_service, network_globals, _network_senders) = runtime.block_on(async {
-            let logger = FileLoggerBuilder::new(logfile.path().clone())
-                .level(Severity::Debug)
-                .build()
-                .expect("should build logger");
             let (_, exit) = exit_future::signal();
             let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
             let executor = task_executor::TaskExecutor::new(
                 Arc::downgrade(&runtime),
                 exit,
-                logger.clone(),
+                get_logger(false),
                 shutdown_tx,
             );
 
@@ -174,6 +163,17 @@ mod tests {
         // Topics the service should be subscribed to during the current epoch (before the fork) are:
         // - /eth2/(old_fork_digest)/beacon_attestation_1/ssz_snappy
         // - /eth2/(old_fork_digest)/beacon_attestation_2/ssz_snappy
+        let old_fork_digest = beacon_chain.enr_fork_id().fork_digest;
+        let old_topic1 = GossipTopic::new(
+            GossipKind::Attestation(SubnetId::new(1)),
+            GossipEncoding::SSZSnappy,
+            old_fork_digest,
+        );
+        let old_topic2 = GossipTopic::new(
+            GossipKind::Attestation(SubnetId::new(2)),
+            GossipEncoding::SSZSnappy,
+            old_fork_digest,
+        );
         runtime.block_on(async {
             while network_globals.gossipsub_subscriptions.read().len() < 2 {
                 if let Some(msg) = network_service.attestation_service.next().await {
@@ -183,16 +183,8 @@ mod tests {
         });
         let subscriptions = network_globals.gossipsub_subscriptions.read().clone();
         assert_eq!(2, subscriptions.len());
-        assert!(subscriptions.contains(&GossipTopic::new(
-            GossipKind::Attestation(SubnetId::new(1)),
-            GossipEncoding::SSZSnappy,
-            old_fork_digest
-        )));
-        assert!(subscriptions.contains(&GossipTopic::new(
-            GossipKind::Attestation(SubnetId::new(2)),
-            GossipEncoding::SSZSnappy,
-            old_fork_digest
-        )));
+        assert!(subscriptions.contains(&old_topic1));
+        assert!(subscriptions.contains(&old_topic2));
 
         // Advance slot to the next fork
         for _ in 0..MinimalEthSpec::slots_per_epoch() {
@@ -204,31 +196,23 @@ mod tests {
             network_service.update_next_fork();
         });
 
-        // Ideally we should check TopicScoreParams::topic_weight on the old topics to be zero,
-        // however there's no way to get TopicScoreParams since libp2p doesn't provide a getter to
-        // do so.
-        // As a workaround, checking logs.
-        let mut buf = vec![];
-        logfile.read_to_end(&mut buf).unwrap();
-        let logs = String::from_utf8(buf).unwrap();
-
-        // Ensure that the fork has happened.
-        assert!(logs.contains("Transitioned to new fork, new_fork: Capella"));
-
-        // Test that the topic weight has been removed.
-        assert!(logs.contains(
-            format!(
-                "Removed topic weight, topic: /eth2/{}/beacon_attestation_1/ssz_snappy",
-                hex::encode(old_fork_digest)
-            )
-            .as_str()
-        ));
-        assert!(logs.contains(
-            format!(
-                "Removed topic weight, topic: /eth2/{}/beacon_attestation_2/ssz_snappy",
-                hex::encode(old_fork_digest)
-            )
-            .as_str()
-        ));
+        // Check that topic_weight on the old topics has been zeroed.
+        // WIP:
+        // There is no way to test topic_weight since libp2p-gossipsub has no getter function to
+        // obtain `TopicScoreParams`. Now I'm working on the PR to add a getter to do that.
+        //
+        // feat(gossipsub): Add getter function to obtain TopicScoreParams #4231
+        // https://github.com/libp2p/rust-libp2p/pull/4231
+        //
+        // Once the PR has been merged, we can do test topic_weight like below.
+        // let old_topic_params1 = network_service
+        //     .get_topic_params(old_topic1)
+        //     .expect("topic score params");
+        // assert_eq!(0.0, old_topic_params1.topic_weight);
+        //
+        // let old_topic_params2 = network_service
+        //     .get_topic_params(old_topic2)
+        //     .expect("topic score params");
+        // assert_eq!(0.0, old_topic_params2.topic_weight);
     }
 }

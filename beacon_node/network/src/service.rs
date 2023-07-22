@@ -966,6 +966,14 @@ impl<T: BeaconChainTypes> NetworkService<T> {
 
         core_topics.is_subset(&subscribed_topics)
     }
+
+    #[cfg(test)]
+    fn get_topic_params(
+        &self,
+        topic: GossipTopic,
+    ) -> Option<lighthouse_network::libp2p::gossipsub::TopicScoreParams> {
+        self.libp2p.get_topic_params(topic)
+    }
 }
 
 /// Returns a `Sleep` that triggers after the next change in the beacon chain fork version.
