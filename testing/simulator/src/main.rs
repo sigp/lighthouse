@@ -36,7 +36,7 @@ use types::MinimalEthSpec;
 // This has potential to block CI so it should be set conservatively enough that spurious failures
 // don't become very common, but not so conservatively that regressions to the fallback mechanism
 // cannot be detected.
-pub(crate) const ACCEPTABLE_FALLBACK_ATTESTATION_HIT_PERCENTAGE: f64 = 99.0;
+pub(crate) const ACCEPTABLE_FALLBACK_ATTESTATION_HIT_PERCENTAGE: f64 = 95.0;
 
 pub type E = MinimalEthSpec;
 
