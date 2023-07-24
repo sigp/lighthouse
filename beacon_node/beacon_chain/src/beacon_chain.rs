@@ -1102,10 +1102,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn get_blobs_checking_early_attester_cache(
         &self,
         block_root: &Hash256,
-    ) -> Result<Option<BlobSidecarList<T::EthSpec>>, Error> {
+    ) -> Result<BlobSidecarList<T::EthSpec>, Error> {
         self.early_attester_cache
             .get_blobs(*block_root)
-            .map_or_else(|| self.get_blobs(block_root), |blobs| Ok(Some(blobs)))
+            .map_or_else(|| self.get_blobs(block_root), |blobs| Ok(blobs))
     }
 
     /// Returns the block at the given root, if any.
@@ -1188,18 +1188,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn get_blobs(
         &self,
         block_root: &Hash256,
-    ) -> Result<Option<BlobSidecarList<T::EthSpec>>, Error> {
-
-        let blobs = self.store.get_blobs(block_root)?;
-        match Some(blobs) {
+    ) -> Result<BlobSidecarList<T::EthSpec>, Error> {
+        match self.store.get_blobs(block_root)? {
             Some(blobs) => Ok(blobs),
             None => {
-                // if there are no blobs, but a block exists return an empty list
-                if let Some(_) = self.store.try_get_full_block(block_root)? {
-                    return Ok(Some(BlobSidecarList::default()))
-                }
-                // if there is no blob and no block return none.
-                Ok(None)
+                Ok(BlobSidecarList::default())
             }
         }
     }

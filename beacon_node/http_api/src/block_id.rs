@@ -258,14 +258,9 @@ impl BlockId {
         chain: &BeaconChain<T>,
     ) -> Result<BlobSidecarList<T::EthSpec>, warp::Rejection> {
         let root = self.root(chain)?.0;
-        match chain.get_blobs(&root) {
-            Ok(Some(blob_sidecar_list)) => Ok(blob_sidecar_list),
-            Ok(None) => Err(warp_utils::reject::custom_not_found(format!(
-                "Block not found {} in the store",
-                root
-            ))),
-            Err(e) => Err(warp_utils::reject::beacon_chain_error(e)),
-        }
+        chain.get_blobs(&root).map_err(
+            |e| warp_utils::reject::beacon_chain_error(e)
+        )
     }
 
     pub async fn blob_sidecar_list_filtered<T: BeaconChainTypes>(
