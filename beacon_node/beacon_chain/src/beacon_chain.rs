@@ -1189,7 +1189,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         block_root: &Hash256,
     ) -> Result<Option<BlobSidecarList<T::EthSpec>>, Error> {
-        Ok(self.store.get_blobs(block_root)?)
+
+        let blobs = self.store.get_blobs(block_root)?;
+        match Some(blobs) {
+            Some(blobs) => Ok(blobs),
+            None => {
+                // if there are no blobs, but a block exists return an empty list
+                if let Some(_) = self.store.try_get_full_block(block_root)? {
+                    return Ok(Some(BlobSidecarList::default()))
+                }
+                // if there is no blob and no block return none.
+                Ok(None)
+            }
+        }
     }
 
     pub fn get_blinded_block(

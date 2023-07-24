@@ -261,7 +261,7 @@ impl BlockId {
         match chain.get_blobs(&root) {
             Ok(Some(blob_sidecar_list)) => Ok(blob_sidecar_list),
             Ok(None) => Err(warp_utils::reject::custom_not_found(format!(
-                "No blobs with block root {} found in the store",
+                "Block not found {} in the store",
                 root
             ))),
             Err(e) => Err(warp_utils::reject::beacon_chain_error(e)),
