@@ -1491,6 +1491,55 @@ impl BeaconNodeHttpClient {
         self.get(path).await
     }
 
+    /// `GET v2/validator/blocks/{slot}` in ssz format
+    pub async fn get_validator_blocks_ssz<T: EthSpec, Payload: AbstractExecPayload<T>>(
+        &self,
+        slot: Slot,
+        randao_reveal: &SignatureBytes,
+        graffiti: Option<&Graffiti>,
+    ) -> Result<Option<Vec<u8>>, Error> {
+        self.get_validator_blocks_modular_ssz::<T, Payload>(
+            slot,
+            randao_reveal,
+            graffiti,
+            SkipRandaoVerification::No,
+        )
+        .await
+    }
+
+    /// `GET v2/validator/blocks/{slot}` in ssz format
+    pub async fn get_validator_blocks_modular_ssz<T: EthSpec, Payload: AbstractExecPayload<T>>(
+        &self,
+        slot: Slot,
+        randao_reveal: &SignatureBytes,
+        graffiti: Option<&Graffiti>,
+        skip_randao_verification: SkipRandaoVerification,
+    ) -> Result<Option<Vec<u8>>, Error> {
+        let mut path = self.eth_path(V2)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("validator")
+            .push("blocks")
+            .push(&slot.to_string());
+
+        path.query_pairs_mut()
+            .append_pair("randao_reveal", &randao_reveal.to_string());
+
+        if let Some(graffiti) = graffiti {
+            path.query_pairs_mut()
+                .append_pair("graffiti", &graffiti.to_string());
+        }
+
+        if skip_randao_verification == SkipRandaoVerification::Yes {
+            path.query_pairs_mut()
+                .append_pair("skip_randao_verification", "");
+        }
+
+        self.get_bytes_opt_accept_header(path, Accept::Ssz, self.timeouts.get_beacon_blocks_ssz)
+            .await
+    }
+
     /// `GET v2/validator/blinded_blocks/{slot}`
     pub async fn get_validator_blinded_blocks<T: EthSpec, Payload: AbstractExecPayload<T>>(
         &self,
@@ -1540,6 +1589,57 @@ impl BeaconNodeHttpClient {
         }
 
         self.get(path).await
+    }
+
+    /// `GET v2/validator/blinded_blocks/{slot}` in ssz format
+    pub async fn get_validator_blinded_blocks_ssz<T: EthSpec, Payload: AbstractExecPayload<T>>(
+        &self,
+        slot: Slot,
+        randao_reveal: &SignatureBytes,
+        graffiti: Option<&Graffiti>,
+    ) -> Result<Option<Vec<u8>>, Error> {
+        self.get_validator_blinded_blocks_modular_ssz::<T, Payload>(
+            slot,
+            randao_reveal,
+            graffiti,
+            SkipRandaoVerification::No,
+        )
+        .await
+    }
+
+    pub async fn get_validator_blinded_blocks_modular_ssz<
+        T: EthSpec,
+        Payload: AbstractExecPayload<T>,
+    >(
+        &self,
+        slot: Slot,
+        randao_reveal: &SignatureBytes,
+        graffiti: Option<&Graffiti>,
+        skip_randao_verification: SkipRandaoVerification,
+    ) -> Result<Option<Vec<u8>>, Error> {
+        let mut path = self.eth_path(V1)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("validator")
+            .push("blinded_blocks")
+            .push(&slot.to_string());
+
+        path.query_pairs_mut()
+            .append_pair("randao_reveal", &randao_reveal.to_string());
+
+        if let Some(graffiti) = graffiti {
+            path.query_pairs_mut()
+                .append_pair("graffiti", &graffiti.to_string());
+        }
+
+        if skip_randao_verification == SkipRandaoVerification::Yes {
+            path.query_pairs_mut()
+                .append_key_only("skip_randao_verification");
+        }
+
+        self.get_bytes_opt_accept_header(path, Accept::Ssz, self.timeouts.get_beacon_blocks_ssz)
+            .await
     }
 
     /// `GET validator/attestation_data?slot,committee_index`

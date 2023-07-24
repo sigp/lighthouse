@@ -2375,12 +2375,16 @@ impl ApiTester {
                 sk.sign(message).into()
             };
 
-            let block = self
+            let block_bytes = self
                 .client
-                .get_validator_blocks::<E, FullPayload<E>>(slot, &randao_reveal, None)
+                .get_validator_blocks_ssz::<E, FullPayload<E>>(slot, &randao_reveal, None)
                 .await
                 .unwrap()
-                .data;
+                .expect("block bytes");
+
+            let block =
+                BeaconBlock::<E, FullPayload<E>>::from_ssz_bytes(&block_bytes, &self.chain.spec)
+                    .expect("block bytes can be decoded");
 
             let signed_block = block.sign(&sk, &fork, genesis_validators_root, &self.chain.spec);
 
@@ -2515,12 +2519,15 @@ impl ApiTester {
                 sk.sign(message).into()
             };
 
-            let block = self
+            let block_bytes = self
                 .client
-                .get_validator_blinded_blocks::<E, Payload>(slot, &randao_reveal, None)
+                .get_validator_blinded_blocks_ssz::<E, Payload>(slot, &randao_reveal, None)
                 .await
                 .unwrap()
-                .data;
+                .expect("block bytes");
+
+            let block = BeaconBlock::<E, Payload>::from_ssz_bytes(&block_bytes, &self.chain.spec)
+                .expect("block bytes can be decoded");
 
             let signed_block = block.sign(&sk, &fork, genesis_validators_root, &self.chain.spec);
 
