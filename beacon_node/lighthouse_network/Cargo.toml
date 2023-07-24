@@ -48,7 +48,6 @@ void = "1"
 [dependencies.libp2p]
 git = "https://github.com/divagant-martian/rust-libp2p"
 rev = "973e4d1b9ae85f9c3edaaf523906747a95c2e929"
-version = "0.52.0"
 default-features = false
 features = ["websocket", "identify", "yamux", "noise", "gossipsub", "dns", "tcp", "tokio", "plaintext", "secp256k1", "macros", "ecdsa"]
 
