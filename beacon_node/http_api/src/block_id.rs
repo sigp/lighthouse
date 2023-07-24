@@ -273,7 +273,7 @@ impl BlockId {
         indices: BlobIndicesQuery,
         chain: &BeaconChain<T>,
     ) -> Result<BlobSidecarList<T::EthSpec>, warp::Rejection> {
-        let blob_sidecar_list = self.blob_sidecar_list(&chain).await?;
+        let blob_sidecar_list = self.blob_sidecar_list(chain).await?;
         let blob_sidecar_list_filtered = match indices.indices {
             Some(vec) => {
                 let list = blob_sidecar_list
