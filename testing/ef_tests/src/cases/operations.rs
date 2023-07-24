@@ -11,7 +11,7 @@ use state_processing::{
         errors::BlockProcessingError,
         process_block_header, process_execution_payload,
         process_operations::{
-            altair, base, process_attester_slashings, process_bls_to_execution_changes,
+            altair, base, deneb, process_attester_slashings, process_bls_to_execution_changes,
             process_deposits, process_exits, process_proposer_slashings,
         },
         process_sync_aggregate, process_withdrawals, VerifyBlockRoot, VerifySignatures,
@@ -98,12 +98,13 @@ impl<E: EthSpec> Operation<E> for Attestation<E> {
                 &mut ctxt,
                 spec,
             ),
-            BeaconState::Altair(_)
-            | BeaconState::Merge(_)
-            | BeaconState::Capella(_)
-            | BeaconState::Deneb(_) => {
+            BeaconState::Altair(_) | BeaconState::Merge(_) | BeaconState::Capella(_) => {
                 initialize_progressive_balances_cache(state, None, spec)?;
                 altair::process_attestation(state, self, 0, &mut ctxt, VerifySignatures::True, spec)
+            }
+            BeaconState::Deneb(_) => {
+                initialize_progressive_balances_cache(state, None, spec)?;
+                deneb::process_attestation(state, self, 0, &mut ctxt, VerifySignatures::True, spec)
             }
         }
     }
