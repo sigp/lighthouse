@@ -2075,15 +2075,11 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path::param::<Epoch>())
         .and(warp::path::end())
         .and(warp::body::json())
-        .and(log_filter.clone())
         .and_then(
-            |chain: Arc<BeaconChain<T>>,
-             epoch: Epoch,
-             validators: Vec<ValidatorId>,
-             log: Logger| {
+            |chain: Arc<BeaconChain<T>>, epoch: Epoch, validators: Vec<ValidatorId>| {
                 blocking_json_task(move || {
                     let attestation_rewards = chain
-                        .compute_attestation_rewards(epoch, validators, log)
+                        .compute_attestation_rewards(epoch, validators)
                         .map_err(|e| match e {
                             BeaconChainError::MissingBeaconState(root) => {
                                 warp_utils::reject::custom_not_found(format!(
