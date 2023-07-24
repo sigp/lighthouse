@@ -49,3 +49,7 @@ execution_layer =  { path = "../execution_layer" }
 beacon_processor =  { path = "../beacon_processor" }
 parking_lot = "0.12.0"
 environment = { path = "../../lighthouse/environment" }
+
+[features]
+# default = ["no-backfill"]
+no-backfill = []
