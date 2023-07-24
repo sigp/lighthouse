@@ -34,6 +34,7 @@ use eth2::types::{
     self as api_types, BroadcastValidation, EndpointVersion, ForkChoice, ForkChoiceNode,
     SkipRandaoVerification, ValidatorId, ValidatorStatus,
 };
+use lighthouse_network::libp2p::bytes::Bytes;
 use lighthouse_network::{types::SyncState, EnrExt, NetworkGlobals, PeerId, PubsubMessage};
 use lighthouse_version::version_with_platform;
 use logging::SSELoggingComponents;
@@ -2647,12 +2648,14 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path::end())
         .and(not_while_syncing_filter.clone())
         .and(warp::query::<api_types::ValidatorBlocksQuery>())
+        .and(warp::header::optional::<api_types::Accept>("accept"))
         .and(chain_filter.clone())
         .and(log_filter.clone())
         .and_then(
             |endpoint_version: EndpointVersion,
              slot: Slot,
              query: api_types::ValidatorBlocksQuery,
+             accept_header: Option<api_types::Accept>,
              chain: Arc<BeaconChain<T>>,
              log: Logger| async move {
                 debug!(
@@ -2695,8 +2698,21 @@ pub fn serve<T: BeaconChainTypes>(
                     .fork_name(&chain.spec)
                     .map_err(inconsistent_fork_rejection)?;
 
-                fork_versioned_response(endpoint_version, fork_name, block)
-                    .map(|response| warp::reply::json(&response).into_response())
+                match accept_header {
+                    Some(api_types::Accept::Ssz) => Response::builder()
+                        .status(200)
+                        .header("Content-Type", "application/octet-stream")
+                        .body(block.as_ssz_bytes().into())
+                        .map(|res: Response<Bytes>| add_consensus_version_header(res, fork_name))
+                        .map_err(|e| {
+                            warp_utils::reject::custom_server_error(format!(
+                                "failed to create response: {}",
+                                e
+                            ))
+                        }),
+                    _ => fork_versioned_response(endpoint_version, fork_name, block)
+                        .map(|response| warp::reply::json(&response).into_response()),
+                }
             },
         );
 
@@ -2712,10 +2728,12 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path::end())
         .and(not_while_syncing_filter.clone())
         .and(warp::query::<api_types::ValidatorBlocksQuery>())
+        .and(warp::header::optional::<api_types::Accept>("accept"))
         .and(chain_filter.clone())
         .and_then(
             |slot: Slot,
              query: api_types::ValidatorBlocksQuery,
+             accept_header: Option<api_types::Accept>,
              chain: Arc<BeaconChain<T>>| async move {
                 let randao_reveal = query.randao_reveal.decompress().map_err(|e| {
                     warp_utils::reject::custom_bad_request(format!(
@@ -2751,9 +2769,22 @@ pub fn serve<T: BeaconChainTypes>(
                     .fork_name(&chain.spec)
                     .map_err(inconsistent_fork_rejection)?;
 
-                // Pose as a V2 endpoint so we return the fork `version`.
-                fork_versioned_response(V2, fork_name, block)
-                    .map(|response| warp::reply::json(&response).into_response())
+                match accept_header {
+                    Some(api_types::Accept::Ssz) => Response::builder()
+                        .status(200)
+                        .header("Content-Type", "application/octet-stream")
+                        .body(block.as_ssz_bytes().into())
+                        .map(|res: Response<Bytes>| add_consensus_version_header(res, fork_name))
+                        .map_err(|e| {
+                            warp_utils::reject::custom_server_error(format!(
+                                "failed to create response: {}",
+                                e
+                            ))
+                        }),
+                    // Pose as a V2 endpoint so we return the fork `version`.
+                    _ => fork_versioned_response(V2, fork_name, block)
+                        .map(|response| warp::reply::json(&response).into_response()),
+                }
             },
         );
 
