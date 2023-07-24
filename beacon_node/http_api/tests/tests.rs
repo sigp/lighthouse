@@ -1277,7 +1277,7 @@ impl ApiTester {
         assert!(self
             .client
             .clone()
-            .post_beacon_blocks(&next_block)
+            .post_beacon_blocks(&block)
             .await
             .is_err());
 
