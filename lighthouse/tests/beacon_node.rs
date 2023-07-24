@@ -177,7 +177,7 @@ fn checkpoint_sync_url_timeout_default() {
     CommandLineTest::new()
         .run_with_zero_port()
         .with_config(|config| {
-            assert_eq!(config.chain.checkpoint_sync_url_timeout, 60);
+            assert_eq!(config.chain.checkpoint_sync_url_timeout, 180);
         });
 }
 
@@ -1732,6 +1732,24 @@ fn no_reconstruct_historic_states_flag() {
     CommandLineTest::new()
         .run_with_zero_port()
         .with_config(|config| assert!(!config.chain.reconstruct_historic_states));
+}
+#[test]
+fn epochs_per_migration_default() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config.chain.epochs_per_migration,
+                beacon_node::beacon_chain::migrate::DEFAULT_EPOCHS_PER_MIGRATION
+            )
+        });
+}
+#[test]
+fn epochs_per_migration_override() {
+    CommandLineTest::new()
+        .flag("epochs-per-migration", Some("128"))
+        .run_with_zero_port()
+        .with_config(|config| assert_eq!(config.chain.epochs_per_migration, 128));
 }
 
 // Tests for Slasher flags.
