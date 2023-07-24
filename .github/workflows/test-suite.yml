@@ -136,8 +136,6 @@ jobs:
     - name: Get latest version of stable Rust
       if: env.SELF_HOSTED_RUNNERS == false
       run: rustup update stable
-    - name: Install anvil
-      run: cargo install --git https://github.com/foundry-rs/foundry --locked anvil
     - name: Install Foundry (anvil)
       uses: foundry-rs/foundry-toolchain@v1
     - name: Run tests in debug
