@@ -182,7 +182,7 @@ async fn beacon_node_liveness<'a, T: 'static + SlotClock, E: EthSpec>(
                 OfflineOnFailure::Yes,
                 |beacon_node| async move {
                     beacon_node
-                        .post_lighthouse_liveness(validator_indices, previous_epoch)
+                        .post_validator_liveness(validator_indices, previous_epoch)
                         .await
                         .map_err(|e| format!("Failed query for validator liveness: {:?}", e))
                         .map(|result| result.data)
@@ -209,7 +209,7 @@ async fn beacon_node_liveness<'a, T: 'static + SlotClock, E: EthSpec>(
             OfflineOnFailure::Yes,
             |beacon_node| async move {
                 beacon_node
-                    .post_lighthouse_liveness(validator_indices, current_epoch)
+                    .post_validator_liveness(validator_indices, current_epoch)
                     .await
                     .map_err(|e| format!("Failed query for validator liveness: {:?}", e))
                     .map(|result| result.data)
