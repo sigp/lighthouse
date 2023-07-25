@@ -339,12 +339,12 @@ pub fn make_available<T: EthSpec>(
 }
 
 /// Makes the following checks to ensure that the list of blobs correspond block:
-/// 
+///
 /// * Check that a block is post-deneb
 /// * Checks that the number of blobs is equal to the length of kzg commitments in the list
 /// * Checks that the index, slot, root and kzg_commitment in the block match the blobs in the correct order
-/// 
-/// Returns `Ok(())` if all consistency checks pass and an error otherwise. 
+///
+/// Returns `Ok(())` if all consistency checks pass and an error otherwise.
 pub fn consistency_checks<T: EthSpec>(
     block: &SignedBeaconBlock<T>,
     blobs: &[Arc<BlobSidecar<T>>],
