@@ -1474,7 +1474,7 @@ mod deneb_only {
         fn parent_block_unknown_parent(mut self) -> Self {
             self.bl.parent_block_processed(
                 self.block_root,
-                BlockProcessingResult::Err(BlockError::ParentUnknown(BlockWrapper::Block(
+                BlockProcessingResult::Err(BlockError::ParentUnknown(RpcBlock::new_without_blobs(
                     self.parent_block.clone().expect("parent block"),
                 ))),
                 ResponseType::Block,

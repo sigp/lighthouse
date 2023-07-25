@@ -2,7 +2,7 @@ use crate::{
     service::NetworkMessage,
     sync::{manager::BlockProcessType, SyncMessage},
 };
-use beacon_chain::blob_verification::BlockWrapper;
+use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::{
     builder::Witness, eth1_chain::CachingEth1Backend, test_utils::BeaconChainHarness, BeaconChain,
 };
@@ -409,7 +409,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub fn send_rpc_beacon_block(
         self: &Arc<Self>,
         block_root: Hash256,
-        block: BlockWrapper<T::EthSpec>,
+        block: RpcBlock<T::EthSpec>,
         seen_timestamp: Duration,
         process_type: BlockProcessType,
     ) -> Result<(), Error<T::EthSpec>> {
@@ -450,7 +450,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub fn send_chain_segment(
         self: &Arc<Self>,
         process_id: ChainSegmentProcessId,
-        blocks: Vec<BlockWrapper<T::EthSpec>>,
+        blocks: Vec<RpcBlock<T::EthSpec>>,
     ) -> Result<(), Error<T::EthSpec>> {
         let is_backfill = matches!(&process_id, ChainSegmentProcessId::BackSyncBatchId { .. });
         let processor = self.clone();

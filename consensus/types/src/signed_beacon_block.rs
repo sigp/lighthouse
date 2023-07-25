@@ -642,6 +642,27 @@ pub mod ssz_tagged_signed_beacon_block {
     }
 }
 
+pub mod ssz_tagged_signed_beacon_block_arc {
+    use super::*;
+    pub mod encode {
+        pub use super::ssz_tagged_signed_beacon_block::encode::*;
+    }
+
+    pub mod decode {
+        pub use super::ssz_tagged_signed_beacon_block::decode::{is_ssz_fixed_len, ssz_fixed_len};
+        use super::*;
+        #[allow(unused_imports)]
+        use ssz::*;
+        use std::sync::Arc;
+
+        pub fn from_ssz_bytes<E: EthSpec, Payload: AbstractExecPayload<E>>(
+            bytes: &[u8],
+        ) -> Result<Arc<SignedBeaconBlock<E, Payload>>, DecodeError> {
+            ssz_tagged_signed_beacon_block::decode::from_ssz_bytes(bytes).map(Arc::new)
+        }
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;

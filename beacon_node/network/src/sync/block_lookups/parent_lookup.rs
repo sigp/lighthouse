@@ -3,8 +3,8 @@ use super::{BlobRequestId, BlockRequestId, DownloadedBlocks, PeerShouldHave, Res
 use crate::sync::block_lookups::single_block_lookup::{State, UnknownParentComponents};
 use crate::sync::block_lookups::{RootBlobsTuple, RootBlockTuple};
 use crate::sync::{manager::SLOT_IMPORT_TOLERANCE, network_context::SyncNetworkContext};
-use beacon_chain::blob_verification::AsBlock;
-use beacon_chain::blob_verification::BlockWrapper;
+use beacon_chain::block_verification_types::AsBlock;
+use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::data_availability_checker::DataAvailabilityChecker;
 use beacon_chain::BeaconChainTypes;
 use lighthouse_network::PeerId;
@@ -147,7 +147,7 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
             .check_peer_disconnected(peer_id)
     }
 
-    pub fn add_unknown_parent_block(&mut self, block: BlockWrapper<T::EthSpec>) {
+    pub fn add_unknown_parent_block(&mut self, block: RpcBlock<T::EthSpec>) {
         let next_parent = block.parent_root();
 
         // Cache the block.
@@ -203,7 +203,7 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
         self,
     ) -> (
         Hash256,
-        Vec<BlockWrapper<T::EthSpec>>,
+        Vec<RpcBlock<T::EthSpec>>,
         Vec<Hash256>,
         SingleBlockLookup<PARENT_FAIL_TOLERANCE, T>,
     ) {

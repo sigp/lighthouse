@@ -8,13 +8,16 @@ use crate::beacon_block_streamer::{BeaconBlockStreamer, CheckEarlyAttesterCache}
 use crate::beacon_proposer_cache::compute_proposer_duties_from_head;
 use crate::beacon_proposer_cache::BeaconProposerCache;
 use crate::blob_cache::BlobCache;
-use crate::blob_verification::{self, AsBlock, BlobError, BlockWrapper, GossipVerifiedBlob};
+use crate::blob_verification::{self, BlobError, GossipVerifiedBlob};
 use crate::block_times_cache::BlockTimesCache;
 use crate::block_verification::POS_PANDA_BANNER;
 use crate::block_verification::{
     check_block_is_finalized_checkpoint_or_descendant, check_block_relevancy, get_block_root,
-    signature_verify_chain_segment, AvailableExecutedBlock, BlockError, BlockImportData,
-    ExecutedBlock, ExecutionPendingBlock, GossipVerifiedBlock, IntoExecutionPendingBlock,
+    signature_verify_chain_segment, BlockError, ExecutionPendingBlock, GossipVerifiedBlock,
+    IntoExecutionPendingBlock,
+};
+use crate::block_verification_types::{
+    AsBlock, AvailableExecutedBlock, BlockImportData, ExecutedBlock, RpcBlock,
 };
 pub use crate::canonical_head::{CanonicalHead, CanonicalHeadRwLock};
 use crate::chain_config::ChainConfig;
@@ -122,7 +125,7 @@ use types::*;
 pub type ForkChoiceError = fork_choice::Error<crate::ForkChoiceStoreError>;
 
 /// Alias to appease clippy.
-type HashBlockTuple<E> = (Hash256, BlockWrapper<E>);
+type HashBlockTuple<E> = (Hash256, RpcBlock<E>);
 
 /// The time-out before failure during an operation to take a read/write RwLock on the block
 /// processing cache.
@@ -2521,7 +2524,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// This method is potentially long-running and should not run on the core executor.
     pub fn filter_chain_segment(
         self: &Arc<Self>,
-        chain_segment: Vec<BlockWrapper<T::EthSpec>>,
+        chain_segment: Vec<RpcBlock<T::EthSpec>>,
     ) -> Result<Vec<HashBlockTuple<T::EthSpec>>, ChainSegmentResult<T::EthSpec>> {
         // This function will never import any blocks.
         let imported_blocks = 0;
@@ -2627,7 +2630,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// `Self::process_block`.
     pub async fn process_chain_segment(
         self: &Arc<Self>,
-        chain_segment: Vec<BlockWrapper<T::EthSpec>>,
+        chain_segment: Vec<RpcBlock<T::EthSpec>>,
         notify_execution_layer: NotifyExecutionLayer,
     ) -> ChainSegmentResult<T::EthSpec> {
         let mut imported_blocks = 0;
@@ -2804,7 +2807,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// - `SignedBeaconBlock`
     /// - `GossipVerifiedBlock`
-    /// - `BlockWrapper`
+    /// - `RpcBlock`
     ///
     /// ## Errors
     ///

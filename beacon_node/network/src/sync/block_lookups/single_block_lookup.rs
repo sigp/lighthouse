@@ -1,6 +1,6 @@
 use crate::sync::block_lookups::{BlobRequestId, BlockRequestId, RootBlobsTuple, RootBlockTuple};
 use crate::sync::network_context::SyncNetworkContext;
-use beacon_chain::blob_verification::BlockWrapper;
+use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::data_availability_checker::DataAvailabilityChecker;
 use beacon_chain::{get_block_root, BeaconChainTypes};
 use lighthouse_network::rpc::methods::BlobsByRootRequest;
@@ -136,6 +136,16 @@ impl<const MAX_ATTEMPTS: u8, T: BeaconChainTypes> SingleBlockLookup<MAX_ATTEMPTS
 pub struct UnknownParentComponents<E: EthSpec> {
     pub downloaded_block: Option<Arc<SignedBeaconBlock<E>>>,
     pub downloaded_blobs: FixedBlobSidecarList<E>,
+}
+
+impl<E: EthSpec> From<RpcBlock<E>> for UnknownParentComponents<E> {
+    fn from(value: RpcBlock<E>) -> Self {
+        let (block, blobs) = value.deconstruct();
+        let fixed_blobs = blobs.map(|blobs| {
+            FixedBlobSidecarList::from(blobs.into_iter().map(Some).collect::<Vec<_>>())
+        });
+        Self::new(Some(block), fixed_blobs)
+    }
 }
 
 impl<E: EthSpec> UnknownParentComponents<E> {
@@ -284,7 +294,7 @@ impl<const MAX_ATTEMPTS: u8, T: BeaconChainTypes> SingleBlockLookup<MAX_ATTEMPTS
         };
     }
 
-    pub fn get_downloaded_block(&mut self) -> Option<BlockWrapper<T::EthSpec>> {
+    pub fn get_downloaded_block(&mut self) -> Option<RpcBlock<T::EthSpec>> {
         self.unknown_parent_components
             .as_mut()
             .and_then(|components| {
@@ -302,8 +312,16 @@ impl<const MAX_ATTEMPTS: u8, T: BeaconChainTypes> SingleBlockLookup<MAX_ATTEMPTS
                         downloaded_block,
                         downloaded_blobs,
                     } = components;
-                    downloaded_block.as_ref().map(|block| {
-                        BlockWrapper::BlockAndBlobs(block.clone(), std::mem::take(downloaded_blobs))
+                    downloaded_block.as_ref().and_then(|block| {
+                        //TODO(sean) figure out how to properly deal with a consistency error here,
+                        // should we downscore the peer sending blobs?
+                        let blobs = std::mem::take(downloaded_blobs);
+                        let filtered = blobs
+                            .into_iter()
+                            .filter_map(|b| b.clone())
+                            .collect::<Vec<_>>();
+                        let blobs = VariableList::from(filtered);
+                        RpcBlock::new(block.clone(), Some(blobs)).ok()
                     })
                 } else {
                     None

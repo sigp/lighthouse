@@ -1,5 +1,5 @@
 use crate::sync::manager::Id;
-use beacon_chain::blob_verification::{AsBlock, BlockWrapper};
+use beacon_chain::block_verification_types::{AsBlock, RpcBlock};
 use lighthouse_network::rpc::methods::BlocksByRangeRequest;
 use lighthouse_network::PeerId;
 use std::collections::HashSet;
@@ -56,7 +56,7 @@ pub trait BatchConfig {
     /// Note that simpler hashing functions considered in the past (hash of first block, hash of last
     /// block, number of received blocks) are not good enough to differentiate attempts. For this
     /// reason, we hash the complete set of blocks both in RangeSync and BackFillSync.
-    fn batch_attempt_hash<T: EthSpec>(blocks: &[BlockWrapper<T>]) -> u64;
+    fn batch_attempt_hash<T: EthSpec>(blocks: &[RpcBlock<T>]) -> u64;
 }
 
 pub struct RangeSyncBatchConfig {}
@@ -68,7 +68,7 @@ impl BatchConfig for RangeSyncBatchConfig {
     fn max_batch_processing_attempts() -> u8 {
         MAX_BATCH_PROCESSING_ATTEMPTS
     }
-    fn batch_attempt_hash<T: EthSpec>(blocks: &[BlockWrapper<T>]) -> u64 {
+    fn batch_attempt_hash<T: EthSpec>(blocks: &[RpcBlock<T>]) -> u64 {
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         blocks.hash(&mut hasher);
         hasher.finish()
@@ -116,9 +116,9 @@ pub enum BatchState<T: EthSpec> {
     /// The batch has failed either downloading or processing, but can be requested again.
     AwaitingDownload,
     /// The batch is being downloaded.
-    Downloading(PeerId, Vec<BlockWrapper<T>>, Id),
+    Downloading(PeerId, Vec<RpcBlock<T>>, Id),
     /// The batch has been completely downloaded and is ready for processing.
-    AwaitingProcessing(PeerId, Vec<BlockWrapper<T>>),
+    AwaitingProcessing(PeerId, Vec<RpcBlock<T>>),
     /// The batch is being processed.
     Processing(Attempt),
     /// The batch was successfully processed and is waiting to be validated.
@@ -251,7 +251,7 @@ impl<T: EthSpec, B: BatchConfig> BatchInfo<T, B> {
     }
 
     /// Adds a block to a downloading batch.
-    pub fn add_block(&mut self, block: BlockWrapper<T>) -> Result<(), WrongState> {
+    pub fn add_block(&mut self, block: RpcBlock<T>) -> Result<(), WrongState> {
         match self.state.poison() {
             BatchState::Downloading(peer, mut blocks, req_id) => {
                 blocks.push(block);
@@ -383,7 +383,7 @@ impl<T: EthSpec, B: BatchConfig> BatchInfo<T, B> {
         }
     }
 
-    pub fn start_processing(&mut self) -> Result<Vec<BlockWrapper<T>>, WrongState> {
+    pub fn start_processing(&mut self) -> Result<Vec<RpcBlock<T>>, WrongState> {
         match self.state.poison() {
             BatchState::AwaitingProcessing(peer, blocks) => {
                 self.state = BatchState::Processing(Attempt::new::<B, T>(peer, &blocks));
@@ -481,7 +481,7 @@ pub struct Attempt {
 }
 
 impl Attempt {
-    fn new<B: BatchConfig, T: EthSpec>(peer_id: PeerId, blocks: &[BlockWrapper<T>]) -> Self {
+    fn new<B: BatchConfig, T: EthSpec>(peer_id: PeerId, blocks: &[RpcBlock<T>]) -> Self {
         let hash = B::batch_attempt_hash(blocks);
         Attempt { peer_id, hash }
     }

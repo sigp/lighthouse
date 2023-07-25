@@ -1,5 +1,5 @@
-use beacon_chain::blob_verification::BlockWrapper;
-use ssz_types::FixedVector;
+use beacon_chain::block_verification_types::RpcBlock;
+use ssz_types::VariableList;
 use std::{collections::VecDeque, sync::Arc};
 use types::{BlobSidecar, EthSpec, SignedBeaconBlock};
 
@@ -16,28 +16,28 @@ pub struct BlocksAndBlobsRequestInfo<T: EthSpec> {
 }
 
 impl<T: EthSpec> BlocksAndBlobsRequestInfo<T> {
-    pub fn add_block_response(&mut self, maybe_block: Option<Arc<SignedBeaconBlock<T>>>) {
-        match maybe_block {
+    pub fn add_block_response(&mut self, block_opt: Option<Arc<SignedBeaconBlock<T>>>) {
+        match block_opt {
             Some(block) => self.accumulated_blocks.push_back(block),
             None => self.is_blocks_stream_terminated = true,
         }
     }
 
-    pub fn add_sidecar_response(&mut self, maybe_sidecar: Option<Arc<BlobSidecar<T>>>) {
-        match maybe_sidecar {
+    pub fn add_sidecar_response(&mut self, sidecar_opt: Option<Arc<BlobSidecar<T>>>) {
+        match sidecar_opt {
             Some(sidecar) => self.accumulated_sidecars.push_back(sidecar),
             None => self.is_sidecars_stream_terminated = true,
         }
     }
 
-    pub fn into_responses(self) -> Result<Vec<BlockWrapper<T>>, &'static str> {
+    pub fn into_responses(self) -> Result<Vec<RpcBlock<T>>, &'static str> {
         let BlocksAndBlobsRequestInfo {
             accumulated_blocks,
             accumulated_sidecars,
             ..
         } = self;
 
-        // ASSUMPTION: There can't be more more blobs than blocks. i.e. sending any blob (empty
+        // There can't be more more blobs than blocks. i.e. sending any blob (empty
         // included) for a skipped slot is not permitted.
         let mut responses = Vec::with_capacity(accumulated_blocks.len());
         let mut blob_iter = accumulated_sidecars.into_iter().peekable();
@@ -50,29 +50,23 @@ impl<T: EthSpec> BlocksAndBlobsRequestInfo<T> {
                     .unwrap_or(false);
                 pair_next_blob
             } {
-                blob_list.push(blob_iter.next().expect("iterator is not empty"));
+                blob_list.push(blob_iter.next().ok_or("Missing next blob")?);
             }
 
-            if blob_list.is_empty() {
-                responses.push(BlockWrapper::Block(block))
-            } else {
-                let mut blobs_fixed = vec![None; T::max_blobs_per_block()];
-                for blob in blob_list {
-                    let blob_index = blob.index as usize;
-                    let Some(blob_opt) = blobs_fixed.get_mut(blob_index) else {
+            let mut blobs_buffer = vec![None; T::max_blobs_per_block()];
+            for blob in blob_list {
+                let blob_index = blob.index as usize;
+                let Some(blob_opt) = blobs_buffer.get_mut(blob_index) else {
                         return Err("Invalid blob index");
                     };
-                    if blob_opt.is_some() {
-                        return Err("Repeat blob index");
-                    } else {
-                        *blob_opt = Some(blob);
-                    }
+                if blob_opt.is_some() {
+                    return Err("Repeat blob index");
+                } else {
+                    *blob_opt = Some(blob);
                 }
-                responses.push(BlockWrapper::BlockAndBlobs(
-                    block,
-                    FixedVector::from(blobs_fixed),
-                ))
             }
+            let blobs = VariableList::from(blobs_buffer.into_iter().flatten().collect::<Vec<_>>());
+            responses.push(RpcBlock::new(block, Some(blobs))?)
         }
 
         // if accumulated sidecars is not empty, throw an error.

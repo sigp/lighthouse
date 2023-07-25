@@ -1,9 +1,5 @@
 #![cfg(not(debug_assertions))]
 
-use std::fmt;
-use std::sync::Mutex;
-use std::time::Duration;
-
 use beacon_chain::test_utils::{
     AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
 };
@@ -14,6 +10,9 @@ use beacon_chain::{
 use fork_choice::{
     ForkChoiceStore, InvalidAttestation, InvalidBlock, PayloadVerificationStatus, QueuedAttestation,
 };
+use std::fmt;
+use std::sync::Mutex;
+use std::time::Duration;
 use store::MemoryStore;
 use types::{
     test_utils::generate_deterministic_keypair, BeaconBlockRef, BeaconState, ChainSpec, Checkpoint,
@@ -195,17 +194,18 @@ impl ForkChoiceTest {
         let validators = self.harness.get_all_validators();
         loop {
             let slot = self.harness.get_current_slot();
-            let (block, state_) = self.harness.make_block(state, slot).await;
+            let (block_contents, state_) = self.harness.make_block(state, slot).await;
             state = state_;
-            if !predicate(block.0.message(), &state) {
+            if !predicate(block_contents.0.message(), &state) {
                 break;
             }
-            if let Ok(block_hash) = self.harness.process_block_result(block.clone()).await {
+            let block = block_contents.0.clone();
+            if let Ok(block_hash) = self.harness.process_block_result(block_contents).await {
                 self.harness.attest_block(
                     &state,
-                    block.0.state_root(),
+                    block.state_root(),
                     block_hash,
-                    &block.0,
+                    &block,
                     &validators,
                 );
                 self.harness.advance_slot();

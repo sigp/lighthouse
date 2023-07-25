@@ -1,7 +1,7 @@
 #![cfg(not(debug_assertions))]
 
 use beacon_chain::attestation_verification::Error as AttnError;
-use beacon_chain::blob_verification::BlockWrapper;
+use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::builder::BeaconChainBuilder;
 use beacon_chain::schema_change::migrate_schema;
 use beacon_chain::test_utils::{
@@ -10,7 +10,7 @@ use beacon_chain::test_utils::{
 };
 use beacon_chain::validator_monitor::DEFAULT_INDIVIDUAL_TRACKING_THRESHOLD;
 use beacon_chain::{
-    blob_verification::MaybeAvailableBlock, historical_blocks::HistoricalBlockError,
+    data_availability_checker::MaybeAvailableBlock, historical_blocks::HistoricalBlockError,
     migrate::MigratorConfig, BeaconChain, BeaconChainError, BeaconChainTypes, BeaconSnapshot,
     ChainConfig, NotifyExecutionLayer, ServerSentEventHandler, WhenSlotSkipped,
 };
@@ -2039,7 +2039,10 @@ async fn garbage_collect_temp_states_from_failed_block() {
 
         // The block should be rejected, but should store a bunch of temporary states.
         harness.set_current_slot(block_slot);
-        harness.process_block_result(block).await.unwrap_err();
+        harness
+            .process_block_result((block, None))
+            .await
+            .unwrap_err();
 
         assert_eq!(
             store.iter_temporary_state_roots().count(),
@@ -2176,7 +2179,7 @@ async fn weak_subjectivity_sync() {
         beacon_chain
             .process_block(
                 full_block.canonical_root(),
-                BlockWrapper::new(Arc::new(full_block), blobs),
+                RpcBlock::new(Arc::new(full_block), blobs).unwrap(),
                 NotifyExecutionLayer::Yes,
                 || Ok(()),
             )
@@ -2236,7 +2239,7 @@ async fn weak_subjectivity_sync() {
         if let MaybeAvailableBlock::Available(block) = harness
             .chain
             .data_availability_checker
-            .check_availability(BlockWrapper::new(Arc::new(full_block), blobs))
+            .check_rpc_block_availability(RpcBlock::new(Arc::new(full_block), blobs).unwrap())
             .expect("should check availability")
         {
             available_blocks.push(block);
@@ -2456,14 +2459,14 @@ async fn revert_minority_fork_on_resume() {
         harness1.process_attestations(attestations.clone());
         harness2.process_attestations(attestations);
 
-        let ((block, _), new_state) = harness1.make_block(state, slot).await;
+        let ((block, blobs), new_state) = harness1.make_block(state, slot).await;
 
         harness1
-            .process_block(slot, block.canonical_root(), block.clone())
+            .process_block(slot, block.canonical_root(), (block.clone(), blobs.clone()))
             .await
             .unwrap();
         harness2
-            .process_block(slot, block.canonical_root(), block.clone())
+            .process_block(slot, block.canonical_root(), (block.clone(), blobs.clone()))
             .await
             .unwrap();
 
@@ -2497,17 +2500,17 @@ async fn revert_minority_fork_on_resume() {
         harness2.process_attestations(attestations);
 
         // Minority chain block (no attesters).
-        let ((block1, _), new_state1) = harness1.make_block(state1, slot).await;
+        let ((block1, blobs1), new_state1) = harness1.make_block(state1, slot).await;
         harness1
-            .process_block(slot, block1.canonical_root(), block1)
+            .process_block(slot, block1.canonical_root(), (block1, blobs1))
             .await
             .unwrap();
         state1 = new_state1;
 
         // Majority chain block (all attesters).
-        let ((block2, _), new_state2) = harness2.make_block(state2, slot).await;
+        let ((block2, blobs2), new_state2) = harness2.make_block(state2, slot).await;
         harness2
-            .process_block(slot, block2.canonical_root(), block2.clone())
+            .process_block(slot, block2.canonical_root(), (block2.clone(), blobs2))
             .await
             .unwrap();
 
@@ -2560,7 +2563,7 @@ async fn revert_minority_fork_on_resume() {
     let initial_split_slot = resumed_harness.chain.store.get_split_slot();
     for block in &majority_blocks {
         resumed_harness
-            .process_block_result(block.clone())
+            .process_block_result((block.clone(), None))
             .await
             .unwrap();
 

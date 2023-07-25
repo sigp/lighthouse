@@ -46,8 +46,8 @@ use crate::sync::block_lookups::delayed_lookup::DelayedLookupMessage;
 pub use crate::sync::block_lookups::ResponseType;
 use crate::sync::block_lookups::UnknownParentComponents;
 use crate::sync::range_sync::ByRangeRequestType;
-use beacon_chain::blob_verification::AsBlock;
-use beacon_chain::blob_verification::BlockWrapper;
+use beacon_chain::block_verification_types::AsBlock;
+use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::{
     AvailabilityProcessingStatus, BeaconChain, BeaconChainTypes, BlockError, EngineState,
     MAXIMUM_GOSSIP_CLOCK_DISPARITY,
@@ -127,7 +127,7 @@ pub enum SyncMessage<T: EthSpec> {
     },
 
     /// A block with an unknown parent has been received.
-    UnknownParentBlock(PeerId, BlockWrapper<T>, Hash256),
+    UnknownParentBlock(PeerId, RpcBlock<T>, Hash256),
 
     /// A blob with an unknown parent has been received.
     UnknownParentBlob(PeerId, Arc<BlobSidecar<T>>),
@@ -614,15 +614,13 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             } => self.rpc_blob_received(request_id, peer_id, blob_sidecar, seen_timestamp),
             SyncMessage::UnknownParentBlock(peer_id, block, block_root) => {
                 let block_slot = block.slot();
-                let (block, blobs) = block.deconstruct();
                 let parent_root = block.parent_root();
-                let parent_components = UnknownParentComponents::new(Some(block), blobs);
                 self.handle_unknown_parent(
                     peer_id,
                     block_root,
                     parent_root,
                     block_slot,
-                    Some(parent_components),
+                    Some(block.into()),
                 );
             }
             SyncMessage::UnknownParentBlob(peer_id, blob) => {
@@ -910,7 +908,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         batch_id,
                         &peer_id,
                         id,
-                        block.map(BlockWrapper::Block),
+                        block.map(Into::into),
                     ) {
                         Ok(ProcessResult::SyncCompleted) => self.update_sync_state(),
                         Ok(ProcessResult::Successful) => {}
@@ -934,7 +932,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         chain_id,
                         batch_id,
                         id,
-                        block.map(BlockWrapper::Block),
+                        block.map(Into::into),
                     );
                     self.update_sync_state();
                 }

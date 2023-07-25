@@ -29,8 +29,10 @@
 
 use crate::beacon_chain::BeaconStore;
 use crate::blob_verification::KzgVerifiedBlob;
-use crate::block_verification::{AvailabilityPendingExecutedBlock, AvailableExecutedBlock};
-use crate::data_availability_checker::{Availability, AvailabilityCheckError};
+use crate::block_verification_types::{
+    AsBlock, AvailabilityPendingExecutedBlock, AvailableExecutedBlock,
+};
+use crate::data_availability_checker::{make_available, Availability, AvailabilityCheckError};
 use crate::store::{DBColumn, KeyValueStore};
 use crate::BeaconChainTypes;
 use lru::LruCache;
@@ -102,7 +104,7 @@ impl<T: EthSpec> PendingComponents<T> {
     pub fn epoch(&self) -> Option<Epoch> {
         self.executed_block
             .as_ref()
-            .map(|pending_block| pending_block.block.as_block().epoch())
+            .map(|pending_block| pending_block.block.epoch())
             .or_else(|| {
                 for maybe_blob in self.verified_blobs.iter() {
                     if maybe_blob.is_some() {
@@ -119,7 +121,7 @@ impl<T: EthSpec> PendingComponents<T> {
         let block_opt = self
             .executed_block
             .as_ref()
-            .map(|block| block.block.block.clone());
+            .map(|block| block.block.clone());
         let blobs = self
             .verified_blobs
             .iter()
@@ -538,7 +540,7 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
                             import_data,
                             payload_verification_outcome,
                         } = executed_block;
-                        let available_block = block.make_available(vec![])?;
+                        let available_block = make_available(block, vec![])?;
                         return Ok(Availability::Available(Box::new(
                             AvailableExecutedBlock::new(
                                 available_block,
@@ -588,7 +590,7 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
                  return Ok(Availability::MissingComponents(import_data.block_root))
             };
 
-            let available_block = block.make_available(verified_blobs)?;
+            let available_block = make_available(block, verified_blobs)?;
             Ok(Availability::Available(Box::new(
                 AvailableExecutedBlock::new(
                     available_block,
@@ -758,7 +760,6 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
                                 value_bytes.as_slice(),
                             )?
                             .block
-                            .as_block()
                             .epoch()
                         }
                         OverflowKey::Blob(_, _) => {
@@ -853,8 +854,8 @@ mod test {
         blob_verification::{
             validate_blob_sidecar_for_gossip, verify_kzg_for_blob, GossipVerifiedBlob,
         },
-        block_verification::{BlockImportData, PayloadVerificationOutcome},
-        data_availability_checker::AvailabilityPendingBlock,
+        block_verification::PayloadVerificationOutcome,
+        block_verification_types::BlockImportData,
         eth1_finalization_cache::Eth1FinalizationData,
         test_utils::{BaseHarnessType, BeaconChainHarness, DiskHarnessType},
     };
@@ -1129,10 +1130,6 @@ mod test {
         };
 
         let slot = block.slot();
-        let apb: AvailabilityPendingBlock<E> = AvailabilityPendingBlock {
-            block: Arc::new(block),
-        };
-
         let consensus_context = ConsensusContext::<E>::new(slot);
         let import_data: BlockImportData<E> = BlockImportData {
             block_root,
@@ -1149,7 +1146,7 @@ mod test {
         };
 
         let availability_pending_block = AvailabilityPendingExecutedBlock {
-            block: apb,
+            block: Arc::new(block),
             import_data,
             payload_verification_outcome,
         };
@@ -1301,7 +1298,7 @@ mod test {
                 // we need blocks with blobs
                 continue;
             }
-            let root = pending_block.block.block.canonical_root();
+            let root = pending_block.block.canonical_root();
             pending_blocks.push_back(pending_block);
             pending_blobs.push_back(blobs);
             roots.push_back(root);
@@ -1462,7 +1459,7 @@ mod test {
                 // we need blocks with blobs
                 continue;
             }
-            let root = pending_block.block.as_block().canonical_root();
+            let root = pending_block.block.canonical_root();
             let epoch = pending_block
                 .block
                 .as_block()
