@@ -643,6 +643,7 @@ dependencies = [
  "eth2",
  "eth2_network_config",
  "ethereum_hashing",
+ "ethereum_serde_utils",
  "ethereum_ssz",
  "ethereum_ssz_derive",
  "execution_layer",

@@ -850,7 +850,6 @@ impl ssz::Decode for OverflowKey {
 #[cfg(test)]
 mod test {
     use super::*;
-    #[cfg(feature = "spec-minimal")]
     use crate::{
         blob_verification::{
             validate_blob_sidecar_for_gossip, verify_kzg_for_blob, GossipVerifiedBlob,
@@ -859,31 +858,20 @@ mod test {
         eth1_finalization_cache::Eth1FinalizationData,
         test_utils::{BaseHarnessType, BeaconChainHarness, DiskHarnessType},
     };
-    #[cfg(feature = "spec-minimal")]
+    use execution_layer::test_utils::DEFAULT_TERMINAL_BLOCK;
     use fork_choice::PayloadVerificationStatus;
-    #[cfg(feature = "spec-minimal")]
     use logging::test_logger;
-    #[cfg(feature = "spec-minimal")]
     use slog::{info, Logger};
-    #[cfg(feature = "spec-minimal")]
     use state_processing::ConsensusContext;
-    #[cfg(feature = "spec-minimal")]
     use std::collections::{BTreeMap, HashMap, VecDeque};
-    #[cfg(feature = "spec-minimal")]
     use std::ops::AddAssign;
-    #[cfg(feature = "spec-minimal")]
     use store::{HotColdDB, ItemStore, LevelDB, StoreConfig};
-    #[cfg(feature = "spec-minimal")]
     use tempfile::{tempdir, TempDir};
-    #[cfg(feature = "spec-minimal")]
     use types::beacon_state::ssz_tagged_beacon_state;
-    #[cfg(feature = "spec-minimal")]
     use types::{ChainSpec, ExecPayload, MinimalEthSpec};
 
-    #[cfg(feature = "spec-minimal")]
     const LOW_VALIDATOR_COUNT: usize = 32;
 
-    #[cfg(feature = "spec-minimal")]
     fn get_store_with_spec<E: EthSpec>(
         db_path: &TempDir,
         spec: ChainSpec,
@@ -906,7 +894,6 @@ mod test {
     }
 
     // get a beacon chain harness advanced to just before deneb fork
-    #[cfg(feature = "spec-minimal")]
     async fn get_deneb_chain<E: EthSpec>(
         log: Logger,
         db_path: &TempDir,
@@ -994,7 +981,6 @@ mod test {
     }
 
     #[tokio::test]
-    #[cfg(feature = "spec-minimal")]
     async fn ssz_tagged_beacon_state_encode_decode_equality() {
         type E = MinimalEthSpec;
         let altair_fork_epoch = Epoch::new(1);
@@ -1011,6 +997,13 @@ mod test {
         spec.bellatrix_fork_epoch = Some(bellatrix_fork_epoch);
         spec.capella_fork_epoch = Some(capella_fork_epoch);
         spec.deneb_fork_epoch = Some(deneb_fork_epoch);
+        let genesis_block = execution_layer::test_utils::generate_genesis_block(
+            spec.terminal_total_difficulty,
+            DEFAULT_TERMINAL_BLOCK,
+        )
+        .unwrap();
+        spec.terminal_block_hash = genesis_block.block_hash;
+        spec.terminal_block_hash_activation_epoch = bellatrix_fork_epoch;
 
         let harness = BeaconChainHarness::builder(E::default())
             .spec(spec)
@@ -1069,7 +1062,6 @@ mod test {
         assert_eq!(state, decoded, "Encoded and decoded states should be equal");
     }
 
-    #[cfg(feature = "spec-minimal")]
     async fn availability_pending_block<E, Hot, Cold>(
         harness: &BeaconChainHarness<BaseHarnessType<E, Hot, Cold>>,
         log: Logger,
@@ -1162,7 +1154,6 @@ mod test {
     }
 
     #[tokio::test]
-    #[cfg(feature = "spec-minimal")]
     async fn overflow_cache_test_insert_components() {
         type E = MinimalEthSpec;
         type T = DiskHarnessType<E>;
@@ -1283,7 +1274,6 @@ mod test {
     }
 
     #[tokio::test]
-    #[cfg(feature = "spec-minimal")]
     async fn overflow_cache_test_overflow() {
         type E = MinimalEthSpec;
         type T = DiskHarnessType<E>;
@@ -1443,7 +1433,6 @@ mod test {
     }
 
     #[tokio::test]
-    #[cfg(feature = "spec-minimal")]
     async fn overflow_cache_test_maintenance() {
         type E = MinimalEthSpec;
         type T = DiskHarnessType<E>;
@@ -1595,7 +1584,6 @@ mod test {
     }
 
     #[tokio::test]
-    #[cfg(feature = "spec-minimal")]
     async fn overflow_cache_test_persist_recover() {
         type E = MinimalEthSpec;
         type T = DiskHarnessType<E>;

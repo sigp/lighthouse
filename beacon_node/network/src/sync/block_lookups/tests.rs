@@ -1,5 +1,5 @@
-#![cfg(feature = "spec-minimal")]
 use crate::network_beacon_processor::NetworkBeaconProcessor;
+
 use crate::service::RequestId;
 use crate::sync::manager::RequestId as SyncId;
 use crate::NetworkMessage;
@@ -44,7 +44,7 @@ impl TestRig {
         let log = build_log(slog::Level::Debug, enable_log);
 
         // Initialise a new beacon chain
-        let harness = BeaconChainHarness::<EphemeralHarnessType<E>>::builder(E::default())
+        let harness = BeaconChainHarness::<EphemeralHarnessType<E>>::builder(E)
             .default_spec()
             .logger(log.clone())
             .deterministic_keypairs(1)
@@ -114,7 +114,7 @@ impl TestRig {
             };
             let (bundle, transactions) = execution_layer::test_utils::generate_random_blobs::<E>(
                 num_blobs,
-                &self.harness.chain.kzg.as_ref().unwrap(),
+                self.harness.chain.kzg.as_ref().unwrap(),
             )
             .unwrap();
 
@@ -145,8 +145,8 @@ impl TestRig {
                     block_parent_root: block.parent_root(),
                     proposer_index: block.message().proposer_index(),
                     blob: blob.clone(),
-                    kzg_commitment: kzg_commitment.clone(),
-                    kzg_proof: kzg_proof.clone(),
+                    kzg_commitment,
+                    kzg_proof,
                 });
             }
         }
@@ -1390,7 +1390,7 @@ mod deneb_only {
 
         fn blobs_response_was_valid(mut self) -> Self {
             self.rig.expect_empty_network();
-            if self.blobs.len() > 0 {
+            if !self.blobs.is_empty() {
                 self.rig.expect_block_process(ResponseType::Blob);
             }
             self
