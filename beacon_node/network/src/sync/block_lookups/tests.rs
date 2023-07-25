@@ -20,7 +20,8 @@ use tokio::sync::mpsc;
 use types::{
     map_fork_name, map_fork_name_with,
     test_utils::{SeedableRng, TestRandom, XorShiftRng},
-    BeaconBlock, EthSpec, ForkName, FullPayloadDeneb, MinimalEthSpec as E, SignedBeaconBlock,
+    BeaconBlock, BlobSidecar, EthSpec, ForkName, FullPayloadDeneb, MinimalEthSpec as E,
+    SignedBeaconBlock,
 };
 
 type T = Witness<ManualSlotClock, CachingEth1Backend<E>, E, MemoryStore<E>, MemoryStore<E>>;
@@ -304,7 +305,13 @@ fn test_single_block_lookup_happy_path() {
 
     // The peer provides the correct block, should not be penalized. Now the block should be sent
     // for processing.
-    bl.single_lookup_response(id, peer_id, Some(block.into()), D, &mut cx);
+    bl.single_lookup_response::<BlockRequestState<Current>>(
+        id,
+        peer_id,
+        Some(block.into()),
+        D,
+        &cx,
+    );
     rig.expect_empty_network();
     rig.expect_block_process(response_type);
 
@@ -313,11 +320,10 @@ fn test_single_block_lookup_happy_path() {
 
     // Send the stream termination. Peer should have not been penalized, and the request removed
     // after processing.
-    bl.single_lookup_response(id, peer_id, None, D, &mut cx);
-    bl.single_block_component_processed(
+    bl.single_lookup_response::<BlockRequestState<Current>>(id, peer_id, None, D, &cx);
+    bl.single_block_component_processed::<BlockRequestState<Current>>(
         id,
         BlockProcessingResult::Ok(AvailabilityProcessingStatus::Imported(block_root)),
-        response_type,
         &mut cx,
     );
     rig.expect_empty_network();
@@ -346,7 +352,7 @@ fn test_single_block_lookup_empty_response() {
     }
 
     // The peer does not have the block. It should be penalized.
-    bl.single_lookup_response(id, peer_id, None, D, &mut cx);
+    bl.single_lookup_response::<BlockRequestState<Current>>(id, peer_id, None, D, &cx);
     rig.expect_penalty();
 
     rig.expect_block_request(response_type); // it should be retried
@@ -375,12 +381,18 @@ fn test_single_block_lookup_wrong_response() {
 
     // Peer sends something else. It should be penalized.
     let bad_block = rig.rand_block(fork_name);
-    bl.single_lookup_response(id, peer_id, Some(bad_block.into()), D, &mut cx);
+    bl.single_lookup_response::<BlockRequestState<Current>>(
+        id,
+        peer_id,
+        Some(bad_block.into()),
+        D,
+        &cx,
+    );
     rig.expect_penalty();
     rig.expect_block_request(response_type); // should be retried
 
     // Send the stream termination. This should not produce an additional penalty.
-    bl.single_lookup_response(id, peer_id, None, D, &mut cx);
+    bl.single_lookup_response::<BlockRequestState<Current>>(id, peer_id, None, D, &cx);
     rig.expect_empty_network();
 }
 
@@ -406,7 +418,12 @@ fn test_single_block_lookup_failure() {
     }
 
     // The request fails. RPC failures are handled elsewhere so we should not penalize the peer.
-    bl.single_block_lookup_failed(id, &peer_id, &mut cx, RPCError::UnsupportedProtocol);
+    bl.single_block_lookup_failed::<BlockRequestState<Current>>(
+        id,
+        &peer_id,
+        &cx,
+        RPCError::UnsupportedProtocol,
+    );
     rig.expect_block_request(response_type);
     rig.expect_empty_network();
 }
@@ -438,7 +455,13 @@ fn test_single_block_lookup_becomes_parent_request() {
 
     // The peer provides the correct block, should not be penalized. Now the block should be sent
     // for processing.
-    bl.single_lookup_response(id, peer_id, Some(block.clone()), D, &mut cx);
+    bl.single_lookup_response::<BlockRequestState<Current>>(
+        id,
+        peer_id,
+        Some(block.clone()),
+        D,
+        &cx,
+    );
     rig.expect_empty_network();
     rig.expect_block_process(response_type);
 
@@ -447,10 +470,9 @@ fn test_single_block_lookup_becomes_parent_request() {
 
     // Send the stream termination. Peer should have not been penalized, and the request moved to a
     // parent request after processing.
-    bl.single_block_component_processed(
+    bl.single_block_component_processed::<BlockRequestState<Current>>(
         id,
         BlockError::ParentUnknown(block.into()).into(),
-        response_type,
         &mut cx,
     );
     assert_eq!(bl.single_block_lookups.len(), 1);
@@ -491,22 +513,23 @@ fn test_parent_lookup_happy_path() {
     }
 
     // Peer sends the right block, it should be sent for processing. Peer should not be penalized.
-    bl.parent_lookup_response(id, peer_id, Some(parent.into()), D, &mut cx);
+    bl.parent_lookup_response::<BlockRequestState<Parent>>(
+        id,
+        peer_id,
+        Some(parent.into()),
+        D,
+        &cx,
+    );
     rig.expect_block_process(response_type);
     rig.expect_empty_network();
 
     // Processing succeeds, now the rest of the chain should be sent for processing.
-    bl.parent_block_processed(
-        chain_hash,
-        BlockError::BlockIsAlreadyKnown.into(),
-        response_type,
-        &mut cx,
-    );
+    bl.parent_block_processed(chain_hash, BlockError::BlockIsAlreadyKnown.into(), &mut cx);
     rig.expect_parent_chain_process();
     let process_result = BatchProcessResult::Success {
         was_non_empty: true,
     };
-    bl.parent_chain_processed(chain_hash, process_result, &mut cx);
+    bl.parent_chain_processed(chain_hash, process_result, &cx);
     assert_eq!(bl.parent_lookups.len(), 0);
 }
 
@@ -538,30 +561,41 @@ fn test_parent_lookup_wrong_response() {
 
     // Peer sends the wrong block, peer should be penalized and the block re-requested.
     let bad_block = rig.rand_block(fork_name);
-    bl.parent_lookup_response(id1, peer_id, Some(bad_block.into()), D, &mut cx);
+    bl.parent_lookup_response::<BlockRequestState<Parent>>(
+        id1,
+        peer_id,
+        Some(bad_block.into()),
+        D,
+        &cx,
+    );
     rig.expect_penalty();
     let id2 = rig.expect_parent_request(response_type);
 
     // Send the stream termination for the first request. This should not produce extra penalties.
-    bl.parent_lookup_response(id1, peer_id, None, D, &mut cx);
+    bl.parent_lookup_response::<BlockRequestState<Parent>>(id1, peer_id, None, D, &cx);
     rig.expect_empty_network();
 
     // Send the right block this time.
-    bl.parent_lookup_response(id2, peer_id, Some(parent.into()), D, &mut cx);
+    bl.parent_lookup_response::<BlockRequestState<Parent>>(
+        id2,
+        peer_id,
+        Some(parent.into()),
+        D,
+        &cx,
+    );
     rig.expect_block_process(response_type);
 
     // Processing succeeds, now the rest of the chain should be sent for processing.
     bl.parent_block_processed(
         chain_hash,
         BlockProcessingResult::Ok(AvailabilityProcessingStatus::Imported(block_root)),
-        response_type,
         &mut cx,
     );
     rig.expect_parent_chain_process();
     let process_result = BatchProcessResult::Success {
         was_non_empty: true,
     };
-    bl.parent_chain_processed(chain_hash, process_result, &mut cx);
+    bl.parent_chain_processed(chain_hash, process_result, &cx);
     assert_eq!(bl.parent_lookups.len(), 0);
 }
 
@@ -592,26 +626,31 @@ fn test_parent_lookup_empty_response() {
     }
 
     // Peer sends an empty response, peer should be penalized and the block re-requested.
-    bl.parent_lookup_response(id1, peer_id, None, D, &mut cx);
+    bl.parent_lookup_response::<BlockRequestState<Parent>>(id1, peer_id, None, D, &cx);
     rig.expect_penalty();
     let id2 = rig.expect_parent_request(response_type);
 
     // Send the right block this time.
-    bl.parent_lookup_response(id2, peer_id, Some(parent.into()), D, &mut cx);
+    bl.parent_lookup_response::<BlockRequestState<Parent>>(
+        id2,
+        peer_id,
+        Some(parent.into()),
+        D,
+        &cx,
+    );
     rig.expect_block_process(response_type);
 
     // Processing succeeds, now the rest of the chain should be sent for processing.
     bl.parent_block_processed(
         chain_hash,
         BlockProcessingResult::Ok(AvailabilityProcessingStatus::Imported(block_root)),
-        response_type,
         &mut cx,
     );
     rig.expect_parent_chain_process();
     let process_result = BatchProcessResult::Success {
         was_non_empty: true,
     };
-    bl.parent_chain_processed(chain_hash, process_result, &mut cx);
+    bl.parent_chain_processed(chain_hash, process_result, &cx);
     assert_eq!(bl.parent_lookups.len(), 0);
 }
 
@@ -642,10 +681,10 @@ fn test_parent_lookup_rpc_failure() {
     }
 
     // The request fails. It should be tried again.
-    bl.parent_lookup_failed(
+    bl.parent_lookup_failed::<BlockRequestState<Parent>>(
         id1,
         peer_id,
-        &mut cx,
+        &cx,
         RPCError::ErrorResponse(
             RPCResponseErrorCode::ResourceUnavailable,
             "older than deneb".into(),
@@ -654,21 +693,26 @@ fn test_parent_lookup_rpc_failure() {
     let id2 = rig.expect_parent_request(response_type);
 
     // Send the right block this time.
-    bl.parent_lookup_response(id2, peer_id, Some(parent.into()), D, &mut cx);
+    bl.parent_lookup_response::<BlockRequestState<Parent>>(
+        id2,
+        peer_id,
+        Some(parent.into()),
+        D,
+        &cx,
+    );
     rig.expect_block_process(response_type);
 
     // Processing succeeds, now the rest of the chain should be sent for processing.
     bl.parent_block_processed(
         chain_hash,
         BlockProcessingResult::Ok(AvailabilityProcessingStatus::Imported(block_root)),
-        response_type,
         &mut cx,
     );
     rig.expect_parent_chain_process();
     let process_result = BatchProcessResult::Success {
         was_non_empty: true,
     };
-    bl.parent_chain_processed(chain_hash, process_result, &mut cx);
+    bl.parent_chain_processed(chain_hash, process_result, &cx);
     assert_eq!(bl.parent_lookups.len(), 0);
 }
 
@@ -701,10 +745,10 @@ fn test_parent_lookup_too_many_attempts() {
             // make sure every error is accounted for
             0 => {
                 // The request fails. It should be tried again.
-                bl.parent_lookup_failed(
+                bl.parent_lookup_failed::<BlockRequestState<Parent>>(
                     id,
                     peer_id,
-                    &mut cx,
+                    &cx,
                     RPCError::ErrorResponse(
                         RPCResponseErrorCode::ResourceUnavailable,
                         "older than deneb".into(),
@@ -714,9 +758,15 @@ fn test_parent_lookup_too_many_attempts() {
             _ => {
                 // Send a bad block this time. It should be tried again.
                 let bad_block = rig.rand_block(fork_name);
-                bl.parent_lookup_response(id, peer_id, Some(bad_block.into()), D, &mut cx);
+                bl.parent_lookup_response::<BlockRequestState<Parent>>(
+                    id,
+                    peer_id,
+                    Some(bad_block.into()),
+                    D,
+                    &cx,
+                );
                 // Send the stream termination
-                bl.parent_lookup_response(id, peer_id, None, D, &mut cx);
+                bl.parent_lookup_response::<BlockRequestState<Parent>>(id, peer_id, None, D, &cx);
                 rig.expect_penalty();
             }
         }
@@ -764,10 +814,10 @@ fn test_parent_lookup_too_many_download_attempts_no_blacklist() {
         }
         if i % 2 != 0 {
             // The request fails. It should be tried again.
-            bl.parent_lookup_failed(
+            bl.parent_lookup_failed::<BlockRequestState<Parent>>(
                 id,
                 peer_id,
-                &mut cx,
+                &cx,
                 RPCError::ErrorResponse(
                     RPCResponseErrorCode::ResourceUnavailable,
                     "older than deneb".into(),
@@ -776,7 +826,13 @@ fn test_parent_lookup_too_many_download_attempts_no_blacklist() {
         } else {
             // Send a bad block this time. It should be tried again.
             let bad_block = rig.rand_block(fork_name);
-            bl.parent_lookup_response(id, peer_id, Some(bad_block.into()), D, &mut cx);
+            bl.parent_lookup_response::<BlockRequestState<Parent>>(
+                id,
+                peer_id,
+                Some(bad_block.into()),
+                D,
+                &cx,
+            );
             rig.expect_penalty();
         }
         if i < parent_lookup::PARENT_FAIL_TOLERANCE {
@@ -825,10 +881,10 @@ fn test_parent_lookup_too_many_processing_attempts_must_blacklist() {
             let _ = rig.expect_parent_request(ResponseType::Blob);
         }
         // The request fails. It should be tried again.
-        bl.parent_lookup_failed(
+        bl.parent_lookup_failed::<BlockRequestState<Parent>>(
             id,
             peer_id,
-            &mut cx,
+            &cx,
             RPCError::ErrorResponse(
                 RPCResponseErrorCode::ResourceUnavailable,
                 "older than deneb".into(),
@@ -846,14 +902,15 @@ fn test_parent_lookup_too_many_processing_attempts_must_blacklist() {
         // we don't require a response because we're generateing 0-blob blocks in this test.
         assert!(!bl.failed_chains.contains(&block_root));
         // send the right parent but fail processing
-        bl.parent_lookup_response(id, peer_id, Some(parent.clone()), D, &mut cx);
-        bl.parent_block_processed(
-            block_root,
-            BlockError::InvalidSignature.into(),
-            response_type,
-            &mut cx,
+        bl.parent_lookup_response::<BlockRequestState<Parent>>(
+            id,
+            peer_id,
+            Some(parent.clone()),
+            D,
+            &cx,
         );
-        bl.parent_lookup_response(id, peer_id, None, D, &mut cx);
+        bl.parent_block_processed(block_root, BlockError::InvalidSignature.into(), &mut cx);
+        bl.parent_lookup_response::<BlockRequestState<Parent>>(id, peer_id, None, D, &cx);
         rig.expect_penalty();
     }
 
@@ -902,16 +959,21 @@ fn test_parent_lookup_too_deep() {
             let _ = rig.expect_parent_request(ResponseType::Blob);
         }
         // the block
-        bl.parent_lookup_response(id, peer_id, Some(block.clone()), D, &mut cx);
+        bl.parent_lookup_response::<BlockRequestState<Parent>>(
+            id,
+            peer_id,
+            Some(block.clone()),
+            D,
+            &cx,
+        );
         // the stream termination
-        bl.parent_lookup_response(id, peer_id, None, D, &mut cx);
+        bl.parent_lookup_response::<BlockRequestState<Parent>>(id, peer_id, None, D, &cx);
         // the processing request
         rig.expect_block_process(response_type);
         // the processing result
         bl.parent_block_processed(
             chain_hash,
             BlockError::ParentUnknown(block.into()).into(),
-            response_type,
             &mut cx,
         )
     }
@@ -971,7 +1033,13 @@ fn test_single_block_lookup_ignored_response() {
 
     // The peer provides the correct block, should not be penalized. Now the block should be sent
     // for processing.
-    bl.single_lookup_response(id, peer_id, Some(block.into()), D, &mut cx);
+    bl.single_lookup_response::<BlockRequestState<Current>>(
+        id,
+        peer_id,
+        Some(block.into()),
+        D,
+        &cx,
+    );
     rig.expect_empty_network();
     rig.expect_block_process(response_type);
 
@@ -980,9 +1048,13 @@ fn test_single_block_lookup_ignored_response() {
 
     // Send the stream termination. Peer should have not been penalized, and the request removed
     // after processing.
-    bl.single_lookup_response(id, peer_id, None, D, &mut cx);
+    bl.single_lookup_response::<BlockRequestState<Current>>(id, peer_id, None, D, &cx);
     // Send an Ignored response, the request should be dropped
-    bl.single_block_component_processed(id, BlockProcessingResult::Ignored, response_type, &mut cx);
+    bl.single_block_component_processed::<BlockRequestState<Current>>(
+        id,
+        BlockProcessingResult::Ignored,
+        &mut cx,
+    );
     rig.expect_empty_network();
     assert_eq!(bl.single_block_lookups.len(), 0);
 }
@@ -1015,17 +1087,18 @@ fn test_parent_lookup_ignored_response() {
     }
 
     // Peer sends the right block, it should be sent for processing. Peer should not be penalized.
-    bl.parent_lookup_response(id, peer_id, Some(parent.into()), D, &mut cx);
+    bl.parent_lookup_response::<BlockRequestState<Parent>>(
+        id,
+        peer_id,
+        Some(parent.into()),
+        D,
+        &cx,
+    );
     rig.expect_block_process(response_type);
     rig.expect_empty_network();
 
     // Return an Ignored result. The request should be dropped
-    bl.parent_block_processed(
-        chain_hash,
-        BlockProcessingResult::Ignored,
-        response_type,
-        &mut cx,
-    );
+    bl.parent_block_processed(chain_hash, BlockProcessingResult::Ignored, &mut cx);
     rig.expect_empty_network();
     assert_eq!(bl.parent_lookups.len(), 0);
 }
@@ -1092,25 +1165,25 @@ fn test_same_chain_race_condition() {
             let _ = rig.expect_parent_request(ResponseType::Blob);
         }
         // the block
-        bl.parent_lookup_response(id, peer_id, Some(block.clone()), D, &mut cx);
+        bl.parent_lookup_response::<BlockRequestState<Parent>>(
+            id,
+            peer_id,
+            Some(block.clone()),
+            D,
+            &cx,
+        );
         // the stream termination
-        bl.parent_lookup_response(id, peer_id, None, D, &mut cx);
+        bl.parent_lookup_response::<BlockRequestState<Parent>>(id, peer_id, None, D, &cx);
         // the processing request
         rig.expect_block_process(response_type);
         // the processing result
         if i + 2 == depth {
             // one block was removed
-            bl.parent_block_processed(
-                chain_hash,
-                BlockError::BlockIsAlreadyKnown.into(),
-                response_type,
-                &mut cx,
-            )
+            bl.parent_block_processed(chain_hash, BlockError::BlockIsAlreadyKnown.into(), &mut cx)
         } else {
             bl.parent_block_processed(
                 chain_hash,
                 BlockError::ParentUnknown(block.into()).into(),
-                response_type,
                 &mut cx,
             )
         }
@@ -1137,7 +1210,7 @@ fn test_same_chain_race_condition() {
     let process_result = BatchProcessResult::Success {
         was_non_empty: true,
     };
-    bl.parent_chain_processed(chain_hash, process_result, &mut cx);
+    bl.parent_chain_processed(chain_hash, process_result, &cx);
     assert_eq!(bl.parent_lookups.len(), 0);
 }
 
@@ -1307,12 +1380,12 @@ mod deneb_only {
 
         fn parent_block_response(mut self) -> Self {
             self.rig.expect_empty_network();
-            self.bl.parent_lookup_response(
+            self.bl.parent_lookup_response::<BlockRequestState<Parent>>(
                 self.parent_block_req_id.expect("parent request id"),
                 self.peer_id,
                 self.parent_block.clone(),
                 D,
-                &mut self.cx,
+                &self.cx,
             );
 
             assert_eq!(self.bl.parent_lookups.len(), 1);
@@ -1321,22 +1394,24 @@ mod deneb_only {
 
         fn parent_blob_response(mut self) -> Self {
             for blob in &self.parent_blobs {
-                self.bl.parent_lookup_blob_response(
-                    self.parent_blob_req_id.expect("parent blob request id"),
-                    self.peer_id,
-                    Some(blob.clone()),
-                    D,
-                    &mut self.cx,
-                );
+                self.bl
+                    .parent_lookup_response::<BlobRequestState<Parent, E>>(
+                        self.parent_blob_req_id.expect("parent blob request id"),
+                        self.peer_id,
+                        Some(blob.clone()),
+                        D,
+                        &self.cx,
+                    );
                 assert_eq!(self.bl.parent_lookups.len(), 1);
             }
-            self.bl.parent_lookup_blob_response(
-                self.parent_blob_req_id.expect("blob request id"),
-                self.peer_id,
-                None,
-                D,
-                &mut self.cx,
-            );
+            self.bl
+                .parent_lookup_response::<BlobRequestState<Parent, E>>(
+                    self.parent_blob_req_id.expect("blob request id"),
+                    self.peer_id,
+                    None,
+                    D,
+                    &self.cx,
+                );
 
             self
         }
@@ -1353,13 +1428,14 @@ mod deneb_only {
         fn block_response(mut self) -> Self {
             // The peer provides the correct block, should not be penalized. Now the block should be sent
             // for processing.
-            self.bl.single_lookup_response(
-                self.block_req_id.expect("block request id"),
-                self.peer_id,
-                self.block.clone(),
-                D,
-                &mut self.cx,
-            );
+            self.bl
+                .single_lookup_response::<BlockRequestState<Current>>(
+                    self.block_req_id.expect("block request id"),
+                    self.peer_id,
+                    self.block.clone(),
+                    D,
+                    &self.cx,
+                );
             self.rig.expect_empty_network();
 
             // The request should still be active.
@@ -1369,22 +1445,24 @@ mod deneb_only {
 
         fn blobs_response(mut self) -> Self {
             for blob in &self.blobs {
-                self.bl.single_blob_lookup_response(
-                    self.blob_req_id.expect("blob request id"),
-                    self.peer_id,
-                    Some(blob.clone()),
-                    D,
-                    &mut self.cx,
-                );
+                self.bl
+                    .single_lookup_response::<BlobRequestState<Current, E>>(
+                        self.blob_req_id.expect("blob request id"),
+                        self.peer_id,
+                        Some(blob.clone()),
+                        D,
+                        &self.cx,
+                    );
                 assert_eq!(self.bl.single_block_lookups.len(), 1);
             }
-            self.bl.single_blob_lookup_response(
-                self.blob_req_id.expect("blob request id"),
-                self.peer_id,
-                None,
-                D,
-                &mut self.cx,
-            );
+            self.bl
+                .single_lookup_response::<BlobRequestState<Current, E>>(
+                    self.blob_req_id.expect("blob request id"),
+                    self.peer_id,
+                    None,
+                    D,
+                    &self.cx,
+                );
             self
         }
 
@@ -1402,58 +1480,63 @@ mod deneb_only {
         }
 
         fn empty_block_response(mut self) -> Self {
-            self.bl.single_lookup_response(
-                self.block_req_id.expect("block request id"),
-                self.peer_id,
-                None,
-                D,
-                &mut self.cx,
-            );
+            self.bl
+                .single_lookup_response::<BlockRequestState<Current>>(
+                    self.block_req_id.expect("block request id"),
+                    self.peer_id,
+                    None,
+                    D,
+                    &self.cx,
+                );
             self
         }
 
         fn empty_blobs_response(mut self) -> Self {
-            self.bl.single_blob_lookup_response(
-                self.blob_req_id.expect("blob request id"),
-                self.peer_id,
-                None,
-                D,
-                &mut self.cx,
-            );
+            self.bl
+                .single_lookup_response::<BlobRequestState<Current, E>>(
+                    self.blob_req_id.expect("blob request id"),
+                    self.peer_id,
+                    None,
+                    D,
+                    &self.cx,
+                );
             self
         }
 
         fn empty_parent_block_response(mut self) -> Self {
-            self.bl.parent_lookup_response(
+            self.bl.parent_lookup_response::<BlockRequestState<Parent>>(
                 self.parent_block_req_id.expect("block request id"),
                 self.peer_id,
                 None,
                 D,
-                &mut self.cx,
+                &self.cx,
             );
             self
         }
 
         fn empty_parent_blobs_response(mut self) -> Self {
-            self.bl.parent_lookup_blob_response(
-                self.parent_blob_req_id.expect("blob request id"),
-                self.peer_id,
-                None,
-                D,
-                &mut self.cx,
-            );
+            self.bl
+                .parent_lookup_response::<BlobRequestState<Parent, E>>(
+                    self.parent_blob_req_id.expect("blob request id"),
+                    self.peer_id,
+                    None,
+                    D,
+                    &self.cx,
+                );
             self
         }
 
         fn block_imported(mut self) -> Self {
             // Missing blobs should be the request is not removed, the outstanding blobs request should
             // mean we do not send a new request.
-            self.bl.single_block_component_processed(
-                self.block_req_id.expect("block request id"),
-                BlockProcessingResult::Ok(AvailabilityProcessingStatus::Imported(self.block_root)),
-                ResponseType::Block,
-                &mut self.cx,
-            );
+            self.bl
+                .single_block_component_processed::<BlockRequestState<Current>>(
+                    self.block_req_id.expect("block request id"),
+                    BlockProcessingResult::Ok(AvailabilityProcessingStatus::Imported(
+                        self.block_root,
+                    )),
+                    &mut self.cx,
+                );
             self.rig.expect_empty_network();
             assert_eq!(self.bl.single_block_lookups.len(), 0);
             self
@@ -1463,7 +1546,6 @@ mod deneb_only {
             self.bl.parent_block_processed(
                 self.block_root,
                 BlockProcessingResult::Ok(AvailabilityProcessingStatus::Imported(self.block_root)),
-                ResponseType::Block,
                 &mut self.cx,
             );
             self.rig.expect_empty_network();
@@ -1477,7 +1559,6 @@ mod deneb_only {
                 BlockProcessingResult::Err(BlockError::ParentUnknown(RpcBlock::new_without_blobs(
                     self.parent_block.clone().expect("parent block"),
                 ))),
-                ResponseType::Block,
                 &mut self.cx,
             );
             assert_eq!(self.bl.parent_lookups.len(), 1);
@@ -1488,7 +1569,6 @@ mod deneb_only {
             self.bl.parent_block_processed(
                 self.block_root,
                 BlockProcessingResult::Err(BlockError::ProposalSignatureInvalid),
-                ResponseType::Block,
                 &mut self.cx,
             );
             assert_eq!(self.bl.parent_lookups.len(), 1);
@@ -1496,53 +1576,53 @@ mod deneb_only {
         }
 
         fn invalid_block_processed(mut self) -> Self {
-            self.bl.single_block_component_processed(
-                self.block_req_id.expect("block request id"),
-                BlockProcessingResult::Err(BlockError::ProposalSignatureInvalid),
-                ResponseType::Block,
-                &mut self.cx,
-            );
+            self.bl
+                .single_block_component_processed::<BlockRequestState<Current>>(
+                    self.block_req_id.expect("block request id"),
+                    BlockProcessingResult::Err(BlockError::ProposalSignatureInvalid),
+                    &mut self.cx,
+                );
             assert_eq!(self.bl.single_block_lookups.len(), 1);
             self
         }
 
         fn invalid_blob_processed(mut self) -> Self {
-            self.bl.single_block_component_processed(
-                self.blob_req_id.expect("blob request id"),
-                BlockProcessingResult::Err(BlockError::BlobValidation(
-                    BlobError::ProposerSignatureInvalid,
-                )),
-                ResponseType::Blob,
-                &mut self.cx,
-            );
+            self.bl
+                .single_block_component_processed::<BlobRequestState<Current, E>>(
+                    self.blob_req_id.expect("blob request id"),
+                    BlockProcessingResult::Err(BlockError::BlobValidation(
+                        BlobError::ProposerSignatureInvalid,
+                    )),
+                    &mut self.cx,
+                );
             assert_eq!(self.bl.single_block_lookups.len(), 1);
             self
         }
 
         fn missing_components_from_block_request(mut self) -> Self {
-            self.bl.single_block_component_processed(
-                self.block_req_id.expect("block request id"),
-                BlockProcessingResult::Ok(AvailabilityProcessingStatus::MissingComponents(
-                    self.slot,
-                    self.block_root,
-                )),
-                ResponseType::Block,
-                &mut self.cx,
-            );
+            self.bl
+                .single_block_component_processed::<BlockRequestState<Current>>(
+                    self.block_req_id.expect("block request id"),
+                    BlockProcessingResult::Ok(AvailabilityProcessingStatus::MissingComponents(
+                        self.slot,
+                        self.block_root,
+                    )),
+                    &mut self.cx,
+                );
             assert_eq!(self.bl.single_block_lookups.len(), 1);
             self
         }
 
         fn missing_components_from_blob_request(mut self) -> Self {
-            self.bl.single_block_component_processed(
-                self.blob_req_id.expect("blob request id"),
-                BlockProcessingResult::Ok(AvailabilityProcessingStatus::MissingComponents(
-                    self.slot,
-                    self.block_root,
-                )),
-                ResponseType::Blob,
-                &mut self.cx,
-            );
+            self.bl
+                .single_block_component_processed::<BlobRequestState<Current, E>>(
+                    self.blob_req_id.expect("blob request id"),
+                    BlockProcessingResult::Ok(AvailabilityProcessingStatus::MissingComponents(
+                        self.slot,
+                        self.block_root,
+                    )),
+                    &mut self.cx,
+                );
             assert_eq!(self.bl.single_block_lookups.len(), 1);
             self
         }

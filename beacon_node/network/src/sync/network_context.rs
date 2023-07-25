@@ -7,7 +7,7 @@ use super::range_sync::{BatchId, ByRangeRequestType, ChainId};
 use crate::network_beacon_processor::NetworkBeaconProcessor;
 use crate::service::{NetworkMessage, RequestId};
 use crate::status::ToStatusMessage;
-use crate::sync::block_lookups::{BlobRequestId, BlockRequestId};
+use crate::sync::block_lookups::LookupType;
 use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::{BeaconChain, BeaconChainTypes, EngineState};
 use fnv::FnvHashMap;
@@ -37,7 +37,7 @@ pub struct SyncNetworkContext<T: BeaconChainTypes> {
     network_send: mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
 
     /// A sequential ID for all RPC requests.
-    request_id: std::cell::Cell<Id>,
+    request_id: Id,
 
     /// BlocksByRange requests made by the range syncing algorithm.
     range_requests: FnvHashMap<Id, (ChainId, BatchId)>,
@@ -93,7 +93,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         SyncNetworkContext {
             network_send,
             execution_engine_state: EngineState::Online, // always assume `Online` at the start
-            request_id: std::cell::Cell::new(1),
+            request_id: 1,
             range_requests: FnvHashMap::default(),
             backfill_requests: FnvHashMap::default(),
             range_blocks_and_blobs_requests: FnvHashMap::default(),
@@ -463,7 +463,8 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 "Sending BlobsByRoot Request";
                 "method" => "BlobsByRoot",
                 "count" => blob_request.blob_ids.len(),
-                "peer" => %blob_peer_id
+                "peer" => %blob_peer_id,
+                "lookup_type" => ?lookup_type
             );
 
             self.send_network_msg(NetworkMessage::SendRequest {
@@ -539,10 +540,10 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         &self.network_beacon_processor
     }
 
-    pub fn next_id(&self) -> Id {
-        let current_value = self.request_id.get();
-        self.request_id.set(current_value + 1);
-        current_value
+    pub(crate) fn next_id(&mut self) -> Id {
+        let id = self.request_id;
+        self.request_id += 1;
+        id
     }
 
     /// Check whether a batch for this epoch (and only this epoch) should request just blocks or

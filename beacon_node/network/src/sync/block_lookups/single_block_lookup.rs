@@ -1,5 +1,4 @@
 use super::{PeerShouldHave, ResponseType};
-use crate::sync::block_lookups::parent_lookup::RequestError::SendFailed;
 use crate::sync::block_lookups::parent_lookup::PARENT_FAIL_TOLERANCE;
 use crate::sync::block_lookups::{
     BlockLookups, Id, LookupType, RootBlobsTuple, RootBlockTuple, SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS,
@@ -9,7 +8,6 @@ use crate::sync::network_context::SyncNetworkContext;
 use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::data_availability_checker::DataAvailabilityChecker;
 use beacon_chain::{get_block_root, BeaconChainTypes};
-use itertools::Itertools;
 use lighthouse_network::rpc::methods::BlobsByRootRequest;
 use lighthouse_network::{rpc::BlocksByRootRequest, PeerId};
 use rand::seq::IteratorRandom;
@@ -94,9 +92,6 @@ pub trait RequestState<L: Lookup, T: BeaconChainTypes> {
     fn get_state_mut(&mut self) -> &mut SingleLookupRequestState;
     fn processing_peer(&self) -> Result<PeerShouldHave, ()> {
         self.get_state().processing_peer()
-    }
-    fn downloading_peer(&self) -> Result<PeerShouldHave, ()> {
-        self.get_state().peer()
     }
     fn set_component_processed(&mut self) {
         self.get_state_mut().component_processed = true;
@@ -185,7 +180,7 @@ pub trait RequestState<L: Lookup, T: BeaconChainTypes> {
         request_state.failed_processing >= request_state.failed_downloading
     }
     fn get_peer(&mut self) -> Result<PeerId, LookupRequestError> {
-        let mut request_state = self.get_state_mut();
+        let request_state = self.get_state_mut();
         let Some(peer_id) =         request_state
             .available_peers
             .iter()
@@ -441,7 +436,7 @@ impl<L: Lookup, T: EthSpec> BlobRequestState<L, T> {
             requested_ids: <_>::default(),
             blob_download_queue: <_>::default(),
             state: SingleLookupRequestState::new(peer_source),
-            _phantom: PhantomData::default(),
+            _phantom: PhantomData,
         }
     }
 }
@@ -457,7 +452,7 @@ impl<L: Lookup> BlockRequestState<L> {
         Self {
             requested_block_root: block_root,
             state: SingleLookupRequestState::new(peers),
-            _phantom: PhantomData::default(),
+            _phantom: PhantomData,
         }
     }
 }
@@ -585,10 +580,10 @@ impl<L: Lookup, T: BeaconChainTypes> SingleBlockLookup<L, T> {
         unknown_parent_components: Option<UnknownParentComponents<T::EthSpec>>,
         peers: &[PeerShouldHave],
         da_checker: Arc<DataAvailabilityChecker<T>>,
-        cx: &SyncNetworkContext<T>,
+        id: Id,
     ) -> Self {
         Self {
-            id: cx.next_id(),
+            id,
             block_request_state: BlockRequestState::new(requested_block_root, peers),
             blob_request_state: BlobRequestState::new(peers),
             da_checker,
@@ -732,27 +727,6 @@ impl<L: Lookup, T: BeaconChainTypes> SingleBlockLookup<L, T> {
             self.unknown_parent_components = Some(components);
         }
     }
-    pub fn add_unknown_parent_block(&mut self, block: Arc<SignedBeaconBlock<T::EthSpec>>) {
-        if let Some(ref mut components) = self.unknown_parent_components {
-            components.add_unknown_parent_block(block)
-        } else {
-            self.unknown_parent_components = Some(UnknownParentComponents {
-                downloaded_block: Some(block),
-                downloaded_blobs: FixedBlobSidecarList::default(),
-            })
-        }
-    }
-
-    pub fn add_unknown_parent_blobs(&mut self, blobs: FixedBlobSidecarList<T::EthSpec>) {
-        if let Some(ref mut components) = self.unknown_parent_components {
-            components.add_unknown_parent_blobs(blobs)
-        } else {
-            self.unknown_parent_components = Some(UnknownParentComponents {
-                downloaded_block: None,
-                downloaded_blobs: blobs,
-            })
-        }
-    }
 
     pub fn add_peers(&mut self, peers: &[PeerShouldHave]) {
         for peer in peers {
@@ -886,14 +860,6 @@ impl SingleLookupRequestState {
         }
     }
 
-    pub fn peer(&self) -> Result<PeerShouldHave, ()> {
-        match &self.state {
-            State::Processing { peer_id } => Ok(*peer_id),
-            State::Downloading { peer_id } => Ok(*peer_id),
-            _ => Err(()),
-        }
-    }
-
     pub fn remove_peer_if_useless(&mut self, peer_id: &PeerId) {
         if !self.available_peers.is_empty() || self.potential_peers.len() > 1 {
             self.potential_peers.remove(peer_id);
@@ -981,6 +947,26 @@ mod tests {
     }
     type T = Witness<TestingSlotClock, CachingEth1Backend<E>, E, MemoryStore<E>, MemoryStore<E>>;
 
+    struct TestLookup1;
+
+    impl Lookup for TestLookup1 {
+        const MAX_ATTEMPTS: u8 = 3;
+
+        fn lookup_type() -> LookupType {
+            panic!()
+        }
+    }
+
+    struct TestLookup2;
+
+    impl Lookup for TestLookup2 {
+        const MAX_ATTEMPTS: u8 = 4;
+
+        fn lookup_type() -> LookupType {
+            panic!()
+        }
+    }
+
     #[test]
     fn test_happy_path() {
         let peer_id = PeerShouldHave::BlockAndBlobs(PeerId::random());
@@ -998,15 +984,28 @@ mod tests {
             DataAvailabilityChecker::new(slot_clock, None, store.into(), spec)
                 .expect("data availability checker"),
         );
-        let mut sl =
-            SingleBlockLookup::<4, T>::new(block.canonical_root(), None, &[peer_id], da_checker);
-        sl.request_block().unwrap();
-        sl.verify_block(Some(block.into())).unwrap().unwrap();
+        let mut sl = SingleBlockLookup::<TestLookup1, T>::new(
+            block.canonical_root(),
+            None,
+            &[peer_id],
+            da_checker,
+            1,
+        );
+        <BlockRequestState<TestLookup1> as RequestState<TestLookup1, T>>::build_request(
+            &mut sl.block_request_state,
+        )
+        .unwrap();
+        <BlockRequestState<TestLookup1> as RequestState<TestLookup1, T>>::verify_response(
+            &mut sl.block_request_state,
+            block.canonical_root(),
+            Some(block.into()),
+        )
+        .unwrap()
+        .unwrap();
     }
 
     #[test]
     fn test_block_lookup_failures() {
-        const FAILURES: u8 = 3;
         let peer_id = PeerShouldHave::BlockAndBlobs(PeerId::random());
         let block = rand_block();
         let spec = E::default_spec();
@@ -1024,25 +1023,40 @@ mod tests {
                 .expect("data availability checker"),
         );
 
-        let mut sl = SingleBlockLookup::<FAILURES, T>::new(
+        let mut sl = SingleBlockLookup::<TestLookup2, T>::new(
             block.canonical_root(),
             None,
             &[peer_id],
             da_checker,
+            1,
         );
-        for _ in 1..FAILURES {
-            sl.request_block().unwrap();
+        for _ in 1..TestLookup2::MAX_ATTEMPTS {
+            <BlockRequestState<TestLookup2> as RequestState<TestLookup2, T>>::build_request(
+                &mut sl.block_request_state,
+            )
+            .unwrap();
             sl.block_request_state.state.register_failure_downloading();
         }
 
         // Now we receive the block and send it for processing
-        sl.request_block().unwrap();
-        sl.verify_block(Some(block.into())).unwrap().unwrap();
+        <BlockRequestState<TestLookup2> as RequestState<TestLookup2, T>>::build_request(
+            &mut sl.block_request_state,
+        )
+        .unwrap();
+        <BlockRequestState<TestLookup2> as RequestState<TestLookup2, T>>::verify_response(
+            &mut sl.block_request_state,
+            block.canonical_root(),
+            Some(block.into()),
+        )
+        .unwrap()
+        .unwrap();
 
         // One processing failure maxes the available attempts
         sl.block_request_state.state.register_failure_processing();
         assert_eq!(
-            sl.request_block(),
+            <BlockRequestState<TestLookup2> as RequestState<TestLookup2, T>>::build_request(
+                &mut sl.block_request_state
+            ),
             Err(LookupRequestError::TooManyAttempts {
                 cannot_process: false
             })

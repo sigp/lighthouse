@@ -3,7 +3,6 @@ use super::{DownloadedBlocks, PeerShouldHave};
 use crate::sync::block_lookups::single_block_lookup::{
     Parent, RequestState, State, UnknownParentComponents,
 };
-use crate::sync::block_lookups::Lookup;
 use crate::sync::{manager::SLOT_IMPORT_TOLERANCE, network_context::SyncNetworkContext};
 use beacon_chain::block_verification_types::AsBlock;
 use beacon_chain::block_verification_types::RpcBlock;
@@ -14,8 +13,6 @@ use lighthouse_network::PeerId;
 use std::sync::Arc;
 use store::Hash256;
 use strum::IntoStaticStr;
-use types::blob_sidecar::FixedBlobSidecarList;
-use types::SignedBeaconBlock;
 
 /// How many attempts we try to find a parent of a block before we give up trying.
 pub(crate) const PARENT_FAIL_TOLERANCE: u8 = 5;
@@ -67,14 +64,14 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
         parent_root: Hash256,
         peer_id: PeerShouldHave,
         da_checker: Arc<DataAvailabilityChecker<T>>,
-        cx: &SyncNetworkContext<T>,
+        cx: &mut SyncNetworkContext<T>,
     ) -> Self {
         let current_parent_request = SingleBlockLookup::new(
             parent_root,
             Some(<_>::default()),
             &[peer_id],
             da_checker,
-            cx,
+            cx.next_id(),
         );
 
         Self {
@@ -142,16 +139,6 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
         // Reset the unknown parent components.
         self.current_parent_request.unknown_parent_components =
             Some(UnknownParentComponents::default());
-    }
-
-    pub fn add_current_request_block(&mut self, block: Arc<SignedBeaconBlock<T::EthSpec>>) {
-        // Cache the block.
-        self.current_parent_request.add_unknown_parent_block(block);
-    }
-
-    pub fn add_current_request_blobs(&mut self, blobs: FixedBlobSidecarList<T::EthSpec>) {
-        // Cache the blobs.
-        self.current_parent_request.add_unknown_parent_blobs(blobs);
     }
 
     pub fn processing_peer(&self) -> Result<PeerShouldHave, ()> {
@@ -234,8 +221,7 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
         // be dropped and the peer downscored.
         if let Some(parent_root) = root_and_block
             .as_ref()
-            .map(|(_, block)| R::get_parent_root(block))
-            .flatten()
+            .and_then(|(_, block)| R::get_parent_root(block))
         {
             if failed_chains.contains(&parent_root) {
                 request_state.register_failure_downloading();
