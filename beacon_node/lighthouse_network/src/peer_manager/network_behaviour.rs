@@ -21,7 +21,6 @@ use super::{ConnectingType, PeerManager, PeerManagerEvent, ReportSource};
 
 impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
     type ConnectionHandler = ConnectionHandler;
-
     type ToSwarm = PeerManagerEvent;
 
     /* Required trait members */
@@ -128,7 +127,14 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
                 remaining_established,
                 ..
             }) => self.on_connection_closed(peer_id, remaining_established),
-            FromSwarm::DialFailure(DialFailure { peer_id, .. }) => self.on_dial_failure(peer_id),
+            FromSwarm::DialFailure(DialFailure {
+                peer_id,
+                error,
+                connection_id: _,
+            }) => {
+                debug!(self.log, "Failed to dial peer"; "peer_id"=> ?peer_id, "error" => %error);
+                self.on_dial_failure(peer_id);
+            }
             FromSwarm::ExternalAddrConfirmed(_) => {
                 // TODO: we likely want to check this against our assumed external tcp
                 // address

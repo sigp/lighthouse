@@ -1470,23 +1470,23 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                 } => {
                     let error_repr = match error {
                         libp2p::swarm::ListenError::Aborted => {
-                            "incoming connection aborted".to_string()
+                            "Incoming connection aborted".to_string()
                         }
                         libp2p::swarm::ListenError::WrongPeerId { obtained, endpoint } => {
-                            format!("wrong peer id, obtained {obtained}, endpoint {endpoint:?}")
+                            format!("Wrong peer id, obtained {obtained}, endpoint {endpoint:?}")
                         }
                         libp2p::swarm::ListenError::LocalPeerId { endpoint } => {
-                            format!("dialing local peer id {endpoint:?}")
+                            format!("Dialing local peer id {endpoint:?}")
                         }
                         libp2p::swarm::ListenError::Denied { cause } => {
-                            format!("connection was denied with cause {cause}")
+                            format!("Connection was denied with cause {cause}")
                         }
                         libp2p::swarm::ListenError::Transport(t) => match t {
                             libp2p::TransportError::MultiaddrNotSupported(m) => {
-                                format!("transport error: multiaddr not supported: {m}")
+                                format!("Transport error: Multiaddr not supported: {m}")
                             }
                             libp2p::TransportError::Other(e) => {
-                                format!("transport error: other: {e}")
+                                format!("Transport error: other: {e}")
                             }
                         },
                     };
@@ -1494,11 +1494,13 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                     None
                 }
                 SwarmEvent::OutgoingConnectionError {
-                    peer_id,
-                    error,
+                    peer_id: _,
+                    error: _,
                     connection_id: _,
                 } => {
-                    debug!(self.log, "Failed to dial address"; "peer_id" => ?peer_id,  "error" => %error);
+                    // The Behaviour event is more general than the swarm event here. It includes
+                    // connection failures. So we use that log for now, in the peer manager
+                    // behaviour implementation.
                     None
                 }
                 SwarmEvent::NewListenAddr { address, .. } => {
@@ -1527,7 +1529,13 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                         None
                     }
                 }
-                SwarmEvent::Dialing { .. } => None,
+                SwarmEvent::Dialing {
+                    peer_id,
+                    connection_id: _,
+                } => {
+                    debug!(self.log, "Swarm Dialing"; "peer_id" => ?peer_id);
+                    None
+                }
             };
 
             if let Some(ev) = maybe_event {
