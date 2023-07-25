@@ -7,7 +7,7 @@ use super::range_sync::{BatchId, ByRangeRequestType, ChainId};
 use crate::network_beacon_processor::NetworkBeaconProcessor;
 use crate::service::{NetworkMessage, RequestId};
 use crate::status::ToStatusMessage;
-use crate::sync::block_lookups::LookupType;
+use crate::sync::block_lookups::{BlobRequestId, BlockRequestId};
 use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::{BeaconChain, BeaconChainTypes, EngineState};
 use fnv::FnvHashMap;

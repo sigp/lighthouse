@@ -6,7 +6,7 @@ use crate::sync::block_lookups::{
 };
 use crate::sync::manager::BlockProcessType;
 use crate::sync::network_context::SyncNetworkContext;
-use beacon_chain::block_verification_types::{AsBlock, RpcBlock};
+use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::data_availability_checker::DataAvailabilityChecker;
 use beacon_chain::{get_block_root, BeaconChainTypes};
 use itertools::Itertools;
