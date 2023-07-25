@@ -1468,7 +1468,19 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                     error,
                     connection_id: _,
                 } => {
-                    debug!(self.log, "Failed incoming connection"; "our_addr" => %local_addr, "from" => %send_back_addr, "error" => %error);
+                    let error_repr = match error {
+                        libp2p::swarm::ListenError::Aborted => "incoming connection aborted".to_string(),
+                        libp2p::swarm::ListenError::WrongPeerId { obtained, endpoint } => format!("wrong peer id, obtained {obtained}, endpoint {endpoint:?}"),
+                        libp2p::swarm::ListenError::LocalPeerId { endpoint } => format!("dialing local peer id {endpoint:?}"),
+                        libp2p::swarm::ListenError::Denied { cause } => format!("connection was denied with cause {cause}"),
+                        libp2p::swarm::ListenError::Transport(t) => {
+                            match t {
+                                libp2p::TransportError::MultiaddrNotSupported(m) => format!("transport error: multiaddr not supported: {m}"),
+                                libp2p::TransportError::Other(e) => format!("transport error: other: {e}"),
+                            }
+                        },
+                    };
+                    debug!(self.log, "Failed incoming connection"; "our_addr" => %local_addr, "from" => %send_back_addr, "error" => error_repr);
                     None
                 }
                 SwarmEvent::OutgoingConnectionError {
