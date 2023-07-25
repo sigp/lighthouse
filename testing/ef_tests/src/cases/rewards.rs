@@ -118,7 +118,7 @@ impl<E: EthSpec> Case for RewardsTest<E> {
                 let mut validator_statuses = ValidatorStatuses::new(&state, spec)?;
                 validator_statuses.process_attestations(&state)?;
 
-                let deltas = base::rewards_and_penalties::get_attestation_deltas(
+                let deltas = base::rewards_and_penalties::get_attestation_deltas_all(
                     &state,
                     &validator_statuses,
                     spec,

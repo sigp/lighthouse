@@ -123,7 +123,7 @@ impl<E: EthSpec> EpochTransition<E> for RewardsAndPenalties {
             BeaconState::Base(_) => {
                 let mut validator_statuses = base::ValidatorStatuses::new(state, spec)?;
                 validator_statuses.process_attestations(state)?;
-                base::process_rewards_and_penalties(state, &mut validator_statuses, spec)
+                base::process_rewards_and_penalties(state, &validator_statuses, spec)
             }
             BeaconState::Altair(_)
             | BeaconState::Merge(_)

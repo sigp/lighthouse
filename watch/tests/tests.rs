@@ -22,6 +22,7 @@ use watch::{
 };
 
 use log::error;
+use std::env;
 use std::net::SocketAddr;
 use std::time::Duration;
 use tokio::{runtime, task::JoinHandle};
@@ -35,6 +36,11 @@ type E = MainnetEthSpec;
 const VALIDATOR_COUNT: usize = 32;
 const SLOTS_PER_EPOCH: u64 = 32;
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Set this environment variable to use a different hostname for connecting to
+/// the database. Can be set to `host.docker.internal` for docker-in-docker
+/// setups.
+const WATCH_HOST_ENV_VARIABLE: &str = "WATCH_HOST";
 
 fn build_test_config(config: &DatabaseConfig) -> PostgresConfig {
     let mut postgres_config = PostgresConfig::new();
@@ -69,6 +75,10 @@ pub async fn create_test_database(config: &DatabaseConfig) {
     db.execute(&format!("CREATE DATABASE {};", config.dbname), &[])
         .await
         .expect("Database creation failed");
+}
+
+pub fn get_host_from_env() -> String {
+    env::var(WATCH_HOST_ENV_VARIABLE).unwrap_or_else(|_| "localhost".to_string())
 }
 
 struct TesterBuilder {
@@ -107,6 +117,7 @@ impl TesterBuilder {
             database: DatabaseConfig {
                 dbname: random_dbname(),
                 port: database_port,
+                host: get_host_from_env(),
                 ..Default::default()
             },
             server: ServerConfig {
