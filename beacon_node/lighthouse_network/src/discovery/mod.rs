@@ -1054,7 +1054,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
     fn on_swarm_event(&mut self, event: FromSwarm<Self::ConnectionHandler>) {
         match event {
             FromSwarm::DialFailure(DialFailure { peer_id, error, .. }) => {
-                self.on_dial_failure(peer_id, error)
+                self.on_dial_failure(peer_id, &ClearDialError(error))
             }
             FromSwarm::ConnectionEstablished(_)
             | FromSwarm::ConnectionClosed(_)
@@ -1074,25 +1074,8 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
 }
 
 impl<TSpec: EthSpec> Discovery<TSpec> {
-    fn on_dial_failure(&mut self, peer_id: Option<PeerId>, error: &DialError) {
-        if let Some(peer_id) = peer_id {
-            match error {
-                DialError::Banned
-                | DialError::LocalPeerId
-                | DialError::InvalidPeerId(_)
-                | DialError::ConnectionIo(_)
-                | DialError::NoAddresses
-                | DialError::Transport(_)
-                | DialError::WrongPeerId { .. } => {
-                    // set peer as disconnected in discovery DHT
-                    debug!(self.log, "Marking peer disconnected in DHT"; "peer_id" => %peer_id);
-                    self.disconnect_peer(&peer_id);
-                }
-                DialError::ConnectionLimit(_)
-                | DialError::DialPeerConditionFalse(_)
-                | DialError::Aborted => {}
-            }
-        }
+    fn on_dial_failure(&mut self, peer_id: Option<PeerId>, error: &ClearDialError) {
+        
     }
 }
 
@@ -1238,5 +1221,38 @@ mod tests {
 
         // when a peer belongs to multiple subnet ids, we use the highest ttl.
         assert_eq!(results.get(&enr1.peer_id()).unwrap(), &instant1);
+    }
+}
+
+// A wrapper struct that prints a dial error nicely.
+struct ClearDialError<'a>(&'a DialError);
+
+impl<'a> std::fmt::Display for ClearDialError<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+        match &self.0 {
+            DialError::Transport(errors) => {
+                for (multiaddr, transport_error) in errors {
+                    match transport_error {
+                        libp2p::TransportError::MultiaddrNotSupported(multiaddr_error) => {
+                            write!(f, "Multiaddr not supported: {multiaddr_error}")?;
+                        }
+                        libp2p::TransportError::Other(io_error) => {
+                            write!(f, "A transport level io error has occured: {io_error}")?;
+                        }
+                    }
+                }
+
+                Ok(())
+            }
+            DialError::Banned => todo!(),
+            DialError::ConnectionLimit(_) => todo!(),
+            DialError::LocalPeerId => todo!(),
+            DialError::NoAddresses => todo!(),
+            DialError::DialPeerConditionFalse(_) => todo!(),
+            DialError::Aborted => todo!(),
+            DialError::InvalidPeerId(_) => todo!(),
+            DialError::WrongPeerId { obtained, endpoint } => todo!(),
+            DialError::ConnectionIo(_) => todo!(),
+        }
     }
 }
