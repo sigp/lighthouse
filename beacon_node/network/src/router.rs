@@ -482,7 +482,10 @@ impl<T: BeaconChainTypes> Router<T> {
     ) {
         let request_id = match request_id {
             RequestId::Sync(sync_id) => match sync_id {
-                SyncId::SingleBlock { .. } | SyncId::ParentLookup { .. } => {
+                SyncId::SingleBlock { .. }
+                | SyncId::SingleBlob { .. }
+                | SyncId::ParentLookup { .. }
+                | SyncId::ParentLookupBlob { .. } => {
                     unreachable!("Block lookups do not request BBRange requests")
                 }
                 id @ (SyncId::BackFillBlocks { .. }
@@ -550,6 +553,9 @@ impl<T: BeaconChainTypes> Router<T> {
                 | SyncId::BackFillBlockAndBlobs { .. } => {
                     unreachable!("Batch syncing do not request BBRoot requests")
                 }
+                SyncId::SingleBlob { .. } | SyncId::ParentLookupBlob { .. } => {
+                    unreachable!("Blob response to block by roots request")
+                }
             },
             RequestId::Router => unreachable!("All BBRoot requests belong to sync"),
         };
@@ -576,7 +582,10 @@ impl<T: BeaconChainTypes> Router<T> {
     ) {
         let request_id = match request_id {
             RequestId::Sync(sync_id) => match sync_id {
-                id @ (SyncId::SingleBlock { .. } | SyncId::ParentLookup { .. }) => id,
+                id @ (SyncId::SingleBlob { .. } | SyncId::ParentLookupBlob { .. }) => id,
+                SyncId::SingleBlock { .. } | SyncId::ParentLookup { .. } => {
+                    unreachable!("Block response to blobs by roots request")
+                }
                 SyncId::BackFillBlocks { .. }
                 | SyncId::RangeBlocks { .. }
                 | SyncId::RangeBlockAndBlobs { .. }

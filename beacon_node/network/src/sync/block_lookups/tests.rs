@@ -304,7 +304,7 @@ fn test_single_block_lookup_happy_path() {
 
     // The peer provides the correct block, should not be penalized. Now the block should be sent
     // for processing.
-    bl.single_block_lookup_response(id, peer_id, Some(block.into()), D, &mut cx);
+    bl.single_lookup_response(id, peer_id, Some(block.into()), D, &mut cx);
     rig.expect_empty_network();
     rig.expect_block_process(response_type);
 
@@ -313,7 +313,7 @@ fn test_single_block_lookup_happy_path() {
 
     // Send the stream termination. Peer should have not been penalized, and the request removed
     // after processing.
-    bl.single_block_lookup_response(id, peer_id, None, D, &mut cx);
+    bl.single_lookup_response(id, peer_id, None, D, &mut cx);
     bl.single_block_component_processed(
         id,
         BlockProcessingResult::Ok(AvailabilityProcessingStatus::Imported(block_root)),
@@ -346,7 +346,7 @@ fn test_single_block_lookup_empty_response() {
     }
 
     // The peer does not have the block. It should be penalized.
-    bl.single_block_lookup_response(id, peer_id, None, D, &mut cx);
+    bl.single_lookup_response(id, peer_id, None, D, &mut cx);
     rig.expect_penalty();
 
     rig.expect_block_request(response_type); // it should be retried
@@ -375,12 +375,12 @@ fn test_single_block_lookup_wrong_response() {
 
     // Peer sends something else. It should be penalized.
     let bad_block = rig.rand_block(fork_name);
-    bl.single_block_lookup_response(id, peer_id, Some(bad_block.into()), D, &mut cx);
+    bl.single_lookup_response(id, peer_id, Some(bad_block.into()), D, &mut cx);
     rig.expect_penalty();
     rig.expect_block_request(response_type); // should be retried
 
     // Send the stream termination. This should not produce an additional penalty.
-    bl.single_block_lookup_response(id, peer_id, None, D, &mut cx);
+    bl.single_lookup_response(id, peer_id, None, D, &mut cx);
     rig.expect_empty_network();
 }
 
@@ -438,7 +438,7 @@ fn test_single_block_lookup_becomes_parent_request() {
 
     // The peer provides the correct block, should not be penalized. Now the block should be sent
     // for processing.
-    bl.single_block_lookup_response(id, peer_id, Some(block.clone()), D, &mut cx);
+    bl.single_lookup_response(id, peer_id, Some(block.clone()), D, &mut cx);
     rig.expect_empty_network();
     rig.expect_block_process(response_type);
 
@@ -971,7 +971,7 @@ fn test_single_block_lookup_ignored_response() {
 
     // The peer provides the correct block, should not be penalized. Now the block should be sent
     // for processing.
-    bl.single_block_lookup_response(id, peer_id, Some(block.into()), D, &mut cx);
+    bl.single_lookup_response(id, peer_id, Some(block.into()), D, &mut cx);
     rig.expect_empty_network();
     rig.expect_block_process(response_type);
 
@@ -980,7 +980,7 @@ fn test_single_block_lookup_ignored_response() {
 
     // Send the stream termination. Peer should have not been penalized, and the request removed
     // after processing.
-    bl.single_block_lookup_response(id, peer_id, None, D, &mut cx);
+    bl.single_lookup_response(id, peer_id, None, D, &mut cx);
     // Send an Ignored response, the request should be dropped
     bl.single_block_component_processed(id, BlockProcessingResult::Ignored, response_type, &mut cx);
     rig.expect_empty_network();
@@ -1353,7 +1353,7 @@ mod deneb_only {
         fn block_response(mut self) -> Self {
             // The peer provides the correct block, should not be penalized. Now the block should be sent
             // for processing.
-            self.bl.single_block_lookup_response(
+            self.bl.single_lookup_response(
                 self.block_req_id.expect("block request id"),
                 self.peer_id,
                 self.block.clone(),
@@ -1402,7 +1402,7 @@ mod deneb_only {
         }
 
         fn empty_block_response(mut self) -> Self {
-            self.bl.single_block_lookup_response(
+            self.bl.single_lookup_response(
                 self.block_req_id.expect("block request id"),
                 self.peer_id,
                 None,
