@@ -20,6 +20,7 @@ serde_derive = "1.0.116"
 store = { path = "../store" }
 bitvec = "1"
 rand = "0.8.5"
+good_lp = "1.4.1"
 
 [dev-dependencies]
 beacon_chain =  { path = "../beacon_chain" }

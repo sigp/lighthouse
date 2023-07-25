@@ -5,6 +5,7 @@ mod attester_slashing;
 mod bls_to_execution_changes;
 mod max_cover;
 mod metrics;
+mod mip_max_cover;
 mod persistence;
 mod reward_cache;
 mod sync_aggregate_id;
