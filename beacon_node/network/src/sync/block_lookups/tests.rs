@@ -1,23 +1,20 @@
-#![cfg(feature = "spec-minimal")]
-use std::sync::Arc;
+use crate::network_beacon_processor::NetworkBeaconProcessor;
 
 use crate::service::RequestId;
 use crate::sync::manager::RequestId as SyncId;
 use crate::NetworkMessage;
+use std::sync::Arc;
 
 use super::*;
 
-use beacon_chain::{
-    builder::Witness,
-    eth1_chain::CachingEth1Backend,
-    test_utils::{build_log, BeaconChainHarness, EphemeralHarnessType},
-};
+use beacon_chain::builder::Witness;
+use beacon_chain::eth1_chain::CachingEth1Backend;
+use beacon_chain::test_utils::{build_log, BeaconChainHarness, EphemeralHarnessType};
+use beacon_processor::WorkEvent;
 use execution_layer::BlobsBundleV1;
-pub use genesis::{interop_genesis_state, DEFAULT_ETH1_BLOCK_HASH};
 use lighthouse_network::rpc::RPCResponseErrorCode;
 use lighthouse_network::{NetworkGlobals, Request};
-use slot_clock::{SlotClock, TestingSlotClock};
-use std::time::Duration;
+use slot_clock::{ManualSlotClock, SlotClock, TestingSlotClock};
 use store::MemoryStore;
 use tokio::sync::mpsc;
 use types::{
@@ -26,10 +23,10 @@ use types::{
     BeaconBlock, EthSpec, ForkName, FullPayloadDeneb, MinimalEthSpec as E, SignedBeaconBlock,
 };
 
-type T = Witness<TestingSlotClock, CachingEth1Backend<E>, E, MemoryStore<E>, MemoryStore<E>>;
+type T = Witness<ManualSlotClock, CachingEth1Backend<E>, E, MemoryStore<E>, MemoryStore<E>>;
 
 struct TestRig {
-    beacon_processor_rx: mpsc::Receiver<WorkEvent<T>>,
+    beacon_processor_rx: mpsc::Receiver<WorkEvent<E>>,
     network_rx: mpsc::UnboundedReceiver<NetworkMessage<E>>,
     rng: XorShiftRng,
     harness: BeaconChainHarness<T>,
@@ -47,7 +44,7 @@ impl TestRig {
         let log = build_log(slog::Level::Debug, enable_log);
 
         // Initialise a new beacon chain
-        let harness = BeaconChainHarness::<EphemeralHarnessType<E>>::builder(E::default())
+        let harness = BeaconChainHarness::<EphemeralHarnessType<E>>::builder(E)
             .default_spec()
             .logger(log.clone())
             .deterministic_keypairs(1)
@@ -61,8 +58,10 @@ impl TestRig {
 
         let chain = harness.chain.clone();
 
-        let (beacon_processor_tx, beacon_processor_rx) = mpsc::channel(100);
         let (network_tx, network_rx) = mpsc::unbounded_channel();
+        let globals = Arc::new(NetworkGlobals::new_test_globals(Vec::new(), &log));
+        let (network_beacon_processor, beacon_processor_rx) =
+            NetworkBeaconProcessor::null_for_testing(globals);
         let rng = XorShiftRng::from_seed([42; 16]);
         let rig = TestRig {
             beacon_processor_rx,
@@ -76,11 +75,9 @@ impl TestRig {
             log.new(slog::o!("component" => "block_lookups")),
         );
         let cx = {
-            let globals = Arc::new(NetworkGlobals::new_test_globals(Vec::new(), &log));
             SyncNetworkContext::new(
                 network_tx,
-                globals,
-                beacon_processor_tx,
+                Arc::new(network_beacon_processor),
                 chain,
                 log.new(slog::o!("component" => "network_context")),
             )
@@ -104,7 +101,7 @@ impl TestRig {
         let mut blob_sidecars = vec![];
         if let Ok(message) = block.message_deneb_mut() {
             // get random number between 0 and Max Blobs
-            let mut payload: &mut FullPayloadDeneb<E> = &mut message.body.execution_payload;
+            let payload: &mut FullPayloadDeneb<E> = &mut message.body.execution_payload;
             let num_blobs = match num_blobs {
                 NumBlobs::Random => {
                     let mut num_blobs = rand::random::<usize>() % E::max_blobs_per_block();
@@ -117,7 +114,7 @@ impl TestRig {
             };
             let (bundle, transactions) = execution_layer::test_utils::generate_random_blobs::<E>(
                 num_blobs,
-                &self.harness.chain.kzg.as_ref().unwrap(),
+                self.harness.chain.kzg.as_ref().unwrap(),
             )
             .unwrap();
 
@@ -148,8 +145,8 @@ impl TestRig {
                     block_parent_root: block.parent_root(),
                     proposer_index: block.message().proposer_index(),
                     blob: blob.clone(),
-                    kzg_commitment: kzg_commitment.clone(),
-                    kzg_proof: kzg_proof.clone(),
+                    kzg_commitment,
+                    kzg_proof,
                 });
             }
         }
@@ -210,13 +207,13 @@ impl TestRig {
         match response_type {
             ResponseType::Block => match self.beacon_processor_rx.try_recv() {
                 Ok(work) => {
-                    assert_eq!(work.work_type(), crate::beacon_processor::RPC_BLOCK);
+                    assert_eq!(work.work_type(), beacon_processor::RPC_BLOCK);
                 }
                 other => panic!("Expected block process, found {:?}", other),
             },
             ResponseType::Blob => match self.beacon_processor_rx.try_recv() {
                 Ok(work) => {
-                    assert_eq!(work.work_type(), crate::beacon_processor::RPC_BLOB);
+                    assert_eq!(work.work_type(), beacon_processor::RPC_BLOBS);
                 }
                 other => panic!("Expected blob process, found {:?}", other),
             },
@@ -227,7 +224,7 @@ impl TestRig {
     fn expect_parent_chain_process(&mut self) {
         match self.beacon_processor_rx.try_recv() {
             Ok(work) => {
-                assert_eq!(work.work_type(), crate::beacon_processor::CHAIN_SEGMENT);
+                assert_eq!(work.work_type(), beacon_processor::CHAIN_SEGMENT);
             }
             other => panic!("Expected chain segment process, found {:?}", other),
         }
@@ -1393,7 +1390,7 @@ mod deneb_only {
 
         fn blobs_response_was_valid(mut self) -> Self {
             self.rig.expect_empty_network();
-            if self.blobs.len() > 0 {
+            if !self.blobs.is_empty() {
                 self.rig.expect_block_process(ResponseType::Blob);
             }
             self
@@ -1477,7 +1474,7 @@ mod deneb_only {
         fn parent_block_unknown_parent(mut self) -> Self {
             self.bl.parent_block_processed(
                 self.block_root,
-                BlockProcessingResult::Err(BlockError::ParentUnknown(BlockWrapper::Block(
+                BlockProcessingResult::Err(BlockError::ParentUnknown(RpcBlock::new_without_blobs(
                     self.parent_block.clone().expect("parent block"),
                 ))),
                 ResponseType::Block,

@@ -111,7 +111,7 @@ pub fn initialize_beacon_state_from_eth1<T: EthSpec>(
     }
 
     // Now that we have our validators, initialize the caches (including the committees)
-    state.build_all_caches(spec)?;
+    state.build_caches(spec)?;
 
     // Set genesis validators root for domain separation and chain versioning
     *state.genesis_validators_root_mut() = state.update_validators_tree_hash_cache()?;
@@ -134,7 +134,7 @@ pub fn process_activations<T: EthSpec>(
     state: &mut BeaconState<T>,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
-    let (validators, balances) = state.validators_and_balances_mut();
+    let (validators, balances, _) = state.validators_and_balances_and_progressive_balances_mut();
     for (index, validator) in validators.iter_mut().enumerate() {
         let balance = balances
             .get(index)

@@ -1,4 +1,4 @@
-use crate::blob_verification::{AsBlock, BlockWrapper};
+use crate::block_verification_types::{AsBlock, RpcBlock};
 use crate::observed_operations::ObservationOutcome;
 pub use crate::persisted_beacon_chain::PersistedBeaconChain;
 pub use crate::{
@@ -15,7 +15,7 @@ use crate::{
     StateSkipConfig,
 };
 use bls::get_withdrawal_credentials;
-use eth2::types::{FullBlockProposal, SignedBlockContentsTuple};
+use eth2::types::{BlindedBlockProposal, FullBlockProposal, SignedBlockContentsTuple};
 use execution_layer::test_utils::generate_genesis_header;
 use execution_layer::{
     auth::JwtKey,
@@ -519,6 +519,7 @@ where
         let validator_keypairs = self
             .validator_keypairs
             .expect("cannot build without validator keypairs");
+        let chain_config = self.chain_config.unwrap_or_default();
         let trusted_setup: TrustedSetup =
             serde_json::from_reader(eth2_network_config::get_trusted_setup::<E::Kzg>())
                 .map_err(|e| format!("Unable to read trusted setup file: {}", e))
@@ -528,13 +529,17 @@ where
             .logger(log.clone())
             .custom_spec(spec)
             .store(self.store.expect("cannot build without store"))
-            .store_migrator_config(MigratorConfig::default().blocking())
+            .store_migrator_config(
+                MigratorConfig::default()
+                    .blocking()
+                    .epochs_per_migration(chain_config.epochs_per_migration),
+            )
             .task_executor(self.runtime.task_executor.clone())
             .execution_layer(self.execution_layer)
             .dummy_eth1_backend()
             .expect("should build dummy backend")
             .shutdown_sender(shutdown_tx)
-            .chain_config(self.chain_config.unwrap_or_default())
+            .chain_config(chain_config)
             .event_handler(Some(ServerSentEventHandler::new_with_capacity(
                 log.clone(),
                 5,
@@ -689,18 +694,18 @@ where
             .execution_block_generator()
     }
 
-    pub fn get_head_block(&self) -> BlockWrapper<E> {
+    pub fn get_head_block(&self) -> RpcBlock<E> {
         let block = self.chain.head_beacon_block();
         let block_root = block.canonical_root();
         let blobs = self.chain.get_blobs(&block_root).unwrap();
-        BlockWrapper::new(block, blobs)
+        RpcBlock::new(block, blobs).unwrap()
     }
 
-    pub fn get_full_block(&self, block_root: &Hash256) -> BlockWrapper<E> {
+    pub fn get_full_block(&self, block_root: &Hash256) -> RpcBlock<E> {
         let block = self.chain.get_blinded_block(block_root).unwrap().unwrap();
         let full_block = self.chain.store.make_full_block(block_root, block).unwrap();
         let blobs = self.chain.get_blobs(block_root).unwrap();
-        BlockWrapper::new(Arc::new(full_block), blobs)
+        RpcBlock::new(Arc::new(full_block), blobs).unwrap()
     }
 
     pub fn get_all_validators(&self) -> Vec<usize> {
@@ -808,6 +813,30 @@ where
         state.get_block_root(slot).unwrap() == state.get_block_root(slot - 1).unwrap()
     }
 
+    pub async fn make_blinded_block(
+        &self,
+        state: BeaconState<E>,
+        slot: Slot,
+    ) -> (
+        SignedBlockContentsTuple<E, BlindedBlockProposal>,
+        BeaconState<E>,
+    ) {
+        let (unblinded, new_state) = self.make_block(state, slot).await;
+        let maybe_blinded_blob_sidecars = unblinded.1.map(|blob_sidecar_list| {
+            VariableList::new(
+                blob_sidecar_list
+                    .into_iter()
+                    .map(|blob_sidecar| {
+                        let blinded_sidecar: BlindedBlobSidecar = blob_sidecar.message.into();
+                        SignedSidecar::new(Arc::new(blinded_sidecar), blob_sidecar.signature)
+                    })
+                    .collect(),
+            )
+            .unwrap()
+        });
+        ((unblinded.0.into(), maybe_blinded_blob_sidecars), new_state)
+    }
+
     /// Returns a newly created block, signed by the proposer for the given slot.
     pub async fn make_block(
         &self,
@@ -823,9 +852,7 @@ where
         complete_state_advance(&mut state, None, slot, &self.spec)
             .expect("should be able to advance state to slot");
 
-        state
-            .build_all_caches(&self.spec)
-            .expect("should build caches");
+        state.build_caches(&self.spec).expect("should build caches");
 
         let proposer_index = state.get_beacon_proposer_index(slot, &self.spec).unwrap();
 
@@ -902,16 +929,17 @@ where
         &self,
         mut state: BeaconState<E>,
         slot: Slot,
-    ) -> (SignedBeaconBlock<E>, BeaconState<E>) {
+    ) -> (
+        SignedBlockContentsTuple<E, FullBlockProposal>,
+        BeaconState<E>,
+    ) {
         assert_ne!(slot, 0, "can't produce a block at slot 0");
         assert!(slot >= state.slot());
 
         complete_state_advance(&mut state, None, slot, &self.spec)
             .expect("should be able to advance state to slot");
 
-        state
-            .build_all_caches(&self.spec)
-            .expect("should build caches");
+        state.build_caches(&self.spec).expect("should build caches");
 
         let proposer_index = state.get_beacon_proposer_index(slot, &self.spec).unwrap();
 
@@ -944,7 +972,44 @@ where
             &self.spec,
         );
 
-        (signed_block, pre_state)
+        let block_contents: SignedBlockContentsTuple<E, FullBlockProposal> = match &signed_block {
+            SignedBeaconBlock::Base(_)
+            | SignedBeaconBlock::Altair(_)
+            | SignedBeaconBlock::Merge(_)
+            | SignedBeaconBlock::Capella(_) => (signed_block, None),
+            SignedBeaconBlock::Deneb(_) => {
+                if let Some(blobs) = self
+                    .chain
+                    .proposal_blob_cache
+                    .pop(&signed_block.canonical_root())
+                {
+                    let signed_blobs: SignedSidecarList<E, BlobSidecar<E>> = Vec::from(blobs)
+                        .into_iter()
+                        .map(|blob| {
+                            blob.sign(
+                                &self.validator_keypairs[proposer_index].sk,
+                                &state.fork(),
+                                state.genesis_validators_root(),
+                                &self.spec,
+                            )
+                        })
+                        .collect::<Vec<_>>()
+                        .into();
+                    let mut guard = self.blob_signature_cache.write();
+                    for blob in &signed_blobs {
+                        guard.insert(
+                            BlobSignatureKey::new(blob.message.block_root, blob.message.index),
+                            blob.signature.clone(),
+                        );
+                    }
+                    (signed_block, Some(signed_blobs))
+                } else {
+                    (signed_block, None)
+                }
+            }
+        };
+
+        (block_contents, pre_state)
     }
 
     /// Create a randao reveal for a block at `slot`.
@@ -1629,6 +1694,36 @@ where
         .sign(sk, &fork, genesis_validators_root, &self.chain.spec)
     }
 
+    pub fn add_proposer_slashing(&self, validator_index: u64) -> Result<(), String> {
+        let propposer_slashing = self.make_proposer_slashing(validator_index);
+        if let ObservationOutcome::New(verified_proposer_slashing) = self
+            .chain
+            .verify_proposer_slashing_for_gossip(propposer_slashing)
+            .expect("should verify proposer slashing for gossip")
+        {
+            self.chain
+                .import_proposer_slashing(verified_proposer_slashing);
+            Ok(())
+        } else {
+            Err("should observe new proposer slashing".to_string())
+        }
+    }
+
+    pub fn add_attester_slashing(&self, validator_indices: Vec<u64>) -> Result<(), String> {
+        let attester_slashing = self.make_attester_slashing(validator_indices);
+        if let ObservationOutcome::New(verified_attester_slashing) = self
+            .chain
+            .verify_attester_slashing_for_gossip(attester_slashing)
+            .expect("should verify attester slashing for gossip")
+        {
+            self.chain
+                .import_attester_slashing(verified_attester_slashing);
+            Ok(())
+        } else {
+            Err("should observe new attester slashing".to_string())
+        }
+    }
+
     pub fn add_bls_to_execution_change(
         &self,
         validator_index: u64,
@@ -1705,11 +1800,15 @@ where
         state: BeaconState<E>,
         slot: Slot,
         block_modifier: impl FnOnce(&mut BeaconBlock<E>),
-    ) -> (SignedBeaconBlock<E>, BeaconState<E>) {
+    ) -> (
+        SignedBlockContentsTuple<E, FullBlockProposal>,
+        BeaconState<E>,
+    ) {
         assert_ne!(slot, 0, "can't produce a block at slot 0");
         assert!(slot >= state.slot());
 
-        let (block, state) = self.make_block_return_pre_state(state, slot).await;
+        let ((block, blobs), state) = self.make_block_return_pre_state(state, slot).await;
+
         let (mut block, _) = block.deconstruct();
 
         block_modifier(&mut block);
@@ -1722,7 +1821,7 @@ where
             state.genesis_validators_root(),
             &self.spec,
         );
-        (signed_block, state)
+        ((signed_block, blobs), state)
     }
 
     pub fn make_deposits<'a>(
@@ -1798,16 +1897,31 @@ where
         (deposits, state)
     }
 
-    pub async fn process_block<B: Into<BlockWrapper<E>>>(
+    pub async fn process_block(
         &self,
         slot: Slot,
         block_root: Hash256,
-        block: B,
+        block_contents: SignedBlockContentsTuple<E, FullBlockProposal>,
     ) -> Result<SignedBeaconBlockHash, BlockError<E>> {
         self.set_current_slot(slot);
+        let (block, blobs) = block_contents;
+        // Note: we are just dropping signatures here and skipping signature verification.
+        let blobs_without_signatures = blobs.as_ref().map(|blobs| {
+            VariableList::from(
+                blobs
+                    .into_iter()
+                    .map(|blob| blob.message.clone())
+                    .collect::<Vec<_>>(),
+            )
+        });
         let block_hash: SignedBeaconBlockHash = self
             .chain
-            .process_block(block_root, block.into(), NotifyExecutionLayer::Yes)
+            .process_block(
+                block_root,
+                RpcBlock::new(Arc::new(block), blobs_without_signatures).unwrap(),
+                NotifyExecutionLayer::Yes,
+                || Ok(()),
+            )
             .await?
             .try_into()
             .unwrap();
@@ -1815,17 +1929,27 @@ where
         Ok(block_hash)
     }
 
-    pub async fn process_block_result<B: Into<BlockWrapper<E>>>(
+    pub async fn process_block_result(
         &self,
-        block: B,
+        block_contents: SignedBlockContentsTuple<E, FullBlockProposal>,
     ) -> Result<SignedBeaconBlockHash, BlockError<E>> {
-        let wrapped_block = block.into();
+        let (block, blobs) = block_contents;
+        // Note: we are just dropping signatures here and skipping signature verification.
+        let blobs_without_signatures = blobs.as_ref().map(|blobs| {
+            VariableList::from(
+                blobs
+                    .into_iter()
+                    .map(|blob| blob.message.clone())
+                    .collect::<Vec<_>>(),
+            )
+        });
         let block_hash: SignedBeaconBlockHash = self
             .chain
             .process_block(
-                wrapped_block.canonical_root(),
-                wrapped_block,
+                block.canonical_root(),
+                RpcBlock::new(Arc::new(block), blobs_without_signatures).unwrap(),
                 NotifyExecutionLayer::Yes,
+                || Ok(()),
             )
             .await?
             .try_into()
@@ -1898,11 +2022,16 @@ where
         BlockError<E>,
     > {
         self.set_current_slot(slot);
-        let (block, new_state) = self.make_block(state, slot).await;
+        let (block_contents, new_state) = self.make_block(state, slot).await;
+
         let block_hash = self
-            .process_block(slot, block.0.canonical_root(), block.clone())
+            .process_block(
+                slot,
+                block_contents.0.canonical_root(),
+                block_contents.clone(),
+            )
             .await?;
-        Ok((block_hash, block, new_state))
+        Ok((block_hash, block_contents, new_state))
     }
 
     pub fn attest_block(

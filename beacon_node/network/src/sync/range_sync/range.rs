@@ -47,7 +47,7 @@ use crate::status::ToStatusMessage;
 use crate::sync::manager::Id;
 use crate::sync::network_context::SyncNetworkContext;
 use crate::sync::BatchProcessResult;
-use beacon_chain::blob_verification::BlockWrapper;
+use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use lighthouse_network::rpc::GoodbyeReason;
 use lighthouse_network::PeerId;
@@ -210,7 +210,7 @@ where
         chain_id: ChainId,
         batch_id: BatchId,
         request_id: Id,
-        beacon_block: Option<BlockWrapper<T::EthSpec>>,
+        beacon_block: Option<RpcBlock<T::EthSpec>>,
     ) {
         // check if this chunk removes the chain
         match self.chains.call_by_id(chain_id, |chain| {
@@ -379,25 +379,24 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
-    use crate::beacon_processor::WorkEvent as BeaconWorkEvent;
+    use crate::network_beacon_processor::NetworkBeaconProcessor;
     use crate::service::RequestId;
     use crate::NetworkMessage;
-    use beacon_chain::{
-        builder::Witness,
-        eth1_chain::CachingEth1Backend,
-        parking_lot::RwLock,
-        test_utils::{build_log, BeaconChainHarness, EphemeralHarnessType},
-        EngineState,
-    };
-    use lighthouse_network::{
-        rpc::{BlocksByRangeRequest, StatusMessage},
-        NetworkGlobals, Request,
-    };
-    use slog::o;
+
+    use super::*;
+    use beacon_chain::builder::Witness;
+    use beacon_chain::eth1_chain::CachingEth1Backend;
+    use beacon_chain::parking_lot::RwLock;
+    use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
+    use beacon_chain::EngineState;
+    use beacon_processor::WorkEvent as BeaconWorkEvent;
+    use lighthouse_network::rpc::BlocksByRangeRequest;
+    use lighthouse_network::Request;
+    use lighthouse_network::{rpc::StatusMessage, NetworkGlobals};
+    use slog::{o, Drain};
     use slot_clock::TestingSlotClock;
-    use std::{collections::HashSet, sync::Arc};
+    use std::collections::HashSet;
+    use std::sync::Arc;
     use store::MemoryStore;
     use tokio::sync::mpsc;
     use types::{Hash256, MinimalEthSpec as E};
@@ -449,11 +448,23 @@ mod tests {
     type TestBeaconChainType =
         Witness<TestingSlotClock, CachingEth1Backend<E>, E, MemoryStore<E>, MemoryStore<E>>;
 
+    fn build_log(level: slog::Level, enabled: bool) -> slog::Logger {
+        let decorator = slog_term::TermDecorator::new().build();
+        let drain = slog_term::FullFormat::new(decorator).build().fuse();
+        let drain = slog_async::Async::new(drain).build().fuse();
+
+        if enabled {
+            slog::Logger::root(drain.filter_level(level).fuse(), o!())
+        } else {
+            slog::Logger::root(drain.filter(|_| false).fuse(), o!())
+        }
+    }
+
     #[allow(unused)]
     struct TestRig {
         log: slog::Logger,
         /// To check what does sync send to the beacon processor.
-        beacon_processor_rx: mpsc::Receiver<BeaconWorkEvent<TestBeaconChainType>>,
+        beacon_processor_rx: mpsc::Receiver<BeaconWorkEvent<E>>,
         /// To set up different scenarios where sync is told about known/unkown blocks.
         chain: Arc<FakeStorage>,
         /// Needed by range to handle communication with the network.
@@ -581,7 +592,7 @@ mod tests {
         fn expect_chain_segment(&mut self) {
             match self.beacon_processor_rx.try_recv() {
                 Ok(work) => {
-                    assert_eq!(work.work_type(), crate::beacon_processor::CHAIN_SEGMENT);
+                    assert_eq!(work.work_type(), beacon_processor::CHAIN_SEGMENT);
                 }
                 other => panic!("Expected chain segment process, found {:?}", other),
             }
@@ -591,7 +602,7 @@ mod tests {
     fn range(log_enabled: bool) -> (TestRig, RangeSync<TestBeaconChainType, FakeStorage>) {
         let log = build_log(slog::Level::Trace, log_enabled);
         // Initialise a new beacon chain
-        let harness = BeaconChainHarness::<EphemeralHarnessType<E>>::builder(E::default())
+        let harness = BeaconChainHarness::<EphemeralHarnessType<E>>::builder(E)
             .default_spec()
             .logger(log.clone())
             .deterministic_keypairs(1)
@@ -600,17 +611,17 @@ mod tests {
         let chain = harness.chain;
 
         let fake_store = Arc::new(FakeStorage::default());
-        let (beacon_processor_tx, beacon_processor_rx) = mpsc::channel(10);
         let range_sync = RangeSync::<TestBeaconChainType, FakeStorage>::new(
             fake_store.clone(),
             log.new(o!("component" => "range")),
         );
         let (network_tx, network_rx) = mpsc::unbounded_channel();
         let globals = Arc::new(NetworkGlobals::new_test_globals(Vec::new(), &log));
+        let (network_beacon_processor, beacon_processor_rx) =
+            NetworkBeaconProcessor::null_for_testing(globals.clone());
         let cx = SyncNetworkContext::new(
             network_tx,
-            globals.clone(),
-            beacon_processor_tx,
+            Arc::new(network_beacon_processor),
             chain,
             log.new(o!("component" => "network_context")),
         );

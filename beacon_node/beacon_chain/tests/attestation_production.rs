@@ -1,6 +1,6 @@
 #![cfg(not(debug_assertions))]
 
-use beacon_chain::blob_verification::BlockWrapper;
+use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy};
 use beacon_chain::{StateSkipConfig, WhenSlotSkipped};
 use lazy_static::lazy_static;
@@ -133,11 +133,11 @@ async fn produces_attestations() {
             assert_eq!(data.target.epoch, state.current_epoch(), "bad target epoch");
             assert_eq!(data.target.root, target_root, "bad target root");
 
-            let block_wrapper =
-                BlockWrapper::<MainnetEthSpec>::new(Arc::new(block.clone()), blobs.clone());
-            let beacon_chain::blob_verification::MaybeAvailableBlock::Available(available_block) = chain
+            let rpc_block =
+                RpcBlock::<MainnetEthSpec>::new(Arc::new(block.clone()), blobs.clone()).unwrap();
+            let beacon_chain::data_availability_checker::MaybeAvailableBlock::Available(available_block) = chain
                 .data_availability_checker
-                .check_availability(block_wrapper)
+                .check_rpc_block_availability(rpc_block)
                 .unwrap()
                 else {
                     panic!("block should be available")
@@ -209,10 +209,10 @@ async fn early_attester_cache_old_request() {
         .get_blobs(&head.beacon_block_root)
         .expect("should get blobs");
 
-    let block_wrapper = BlockWrapper::<MainnetEthSpec>::new(head.beacon_block.clone(), head_blobs);
-    let beacon_chain::blob_verification::MaybeAvailableBlock::Available(available_block) = harness.chain
+    let rpc_block = RpcBlock::<MainnetEthSpec>::new(head.beacon_block.clone(), head_blobs).unwrap();
+    let beacon_chain::data_availability_checker::MaybeAvailableBlock::Available(available_block) = harness.chain
         .data_availability_checker
-        .check_availability(block_wrapper)
+        .check_rpc_block_availability(rpc_block)
         .unwrap()
         else {
             panic!("block should be available")

@@ -4,11 +4,11 @@
 use super::block_sidecar_coupling::BlocksAndBlobsRequestInfo;
 use super::manager::{Id, RequestId as SyncRequestId};
 use super::range_sync::{BatchId, ByRangeRequestType, ChainId};
-use crate::beacon_processor::WorkEvent;
+use crate::network_beacon_processor::NetworkBeaconProcessor;
 use crate::service::{NetworkMessage, RequestId};
 use crate::status::ToStatusMessage;
 use crate::sync::block_lookups::{BlobRequestId, BlockRequestId};
-use beacon_chain::blob_verification::BlockWrapper;
+use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::{BeaconChain, BeaconChainTypes, EngineState};
 use fnv::FnvHashMap;
 use lighthouse_network::rpc::methods::{BlobsByRangeRequest, BlobsByRootRequest};
@@ -22,7 +22,7 @@ use types::{BlobSidecar, EthSpec, SignedBeaconBlock};
 
 pub struct BlocksAndBlobsByRangeResponse<T: EthSpec> {
     pub batch_id: BatchId,
-    pub responses: Result<Vec<BlockWrapper<T>>, &'static str>,
+    pub responses: Result<Vec<RpcBlock<T>>, &'static str>,
 }
 
 pub struct BlocksAndBlobsByRangeRequest<T: EthSpec> {
@@ -35,9 +35,6 @@ pub struct BlocksAndBlobsByRangeRequest<T: EthSpec> {
 pub struct SyncNetworkContext<T: BeaconChainTypes> {
     /// The network channel to relay messages to the Network service.
     network_send: mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
-
-    /// Access to the network global vars.
-    network_globals: Arc<NetworkGlobals<T::EthSpec>>,
 
     /// A sequential ID for all RPC requests.
     request_id: Id,
@@ -59,8 +56,8 @@ pub struct SyncNetworkContext<T: BeaconChainTypes> {
     /// `beacon_processor_send`.
     execution_engine_state: EngineState,
 
-    /// Channel to send work to the beacon processor.
-    beacon_processor_send: mpsc::Sender<WorkEvent<T>>,
+    /// Sends work to the beacon processor via a channel.
+    network_beacon_processor: Arc<NetworkBeaconProcessor<T>>,
 
     pub chain: Arc<BeaconChain<T>>,
 
@@ -89,29 +86,31 @@ impl<T: EthSpec> From<Option<Arc<BlobSidecar<T>>>> for BlockOrBlob<T> {
 impl<T: BeaconChainTypes> SyncNetworkContext<T> {
     pub fn new(
         network_send: mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
-        network_globals: Arc<NetworkGlobals<T::EthSpec>>,
-        beacon_processor_send: mpsc::Sender<WorkEvent<T>>,
+        network_beacon_processor: Arc<NetworkBeaconProcessor<T>>,
         chain: Arc<BeaconChain<T>>,
         log: slog::Logger,
     ) -> Self {
         SyncNetworkContext {
             network_send,
-            network_globals,
-            request_id: 1,
-            range_requests: Default::default(),
-            backfill_requests: Default::default(),
-            range_blocks_and_blobs_requests: Default::default(),
-            backfill_blocks_and_blobs_requests: Default::default(),
             execution_engine_state: EngineState::Online, // always assume `Online` at the start
-            beacon_processor_send,
+            request_id: 1,
+            range_requests: FnvHashMap::default(),
+            backfill_requests: FnvHashMap::default(),
+            range_blocks_and_blobs_requests: FnvHashMap::default(),
+            backfill_blocks_and_blobs_requests: FnvHashMap::default(),
+            network_beacon_processor,
             chain,
             log,
         }
     }
 
+    pub fn network_globals(&self) -> &NetworkGlobals<T::EthSpec> {
+        &self.network_beacon_processor.network_globals
+    }
+
     /// Returns the Client type of the peer if known
     pub fn client_type(&self, peer_id: &PeerId) -> Client {
-        self.network_globals
+        self.network_globals()
             .peers
             .read()
             .peer_info(peer_id)
@@ -564,13 +563,13 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         })
     }
 
-    pub fn processor_channel_if_enabled(&self) -> Option<&mpsc::Sender<WorkEvent<T>>> {
+    pub fn beacon_processor_if_enabled(&self) -> Option<&Arc<NetworkBeaconProcessor<T>>> {
         self.is_execution_engine_online()
-            .then_some(&self.beacon_processor_send)
+            .then_some(&self.network_beacon_processor)
     }
 
-    pub fn processor_channel(&self) -> &mpsc::Sender<WorkEvent<T>> {
-        &self.beacon_processor_send
+    pub fn beacon_processor(&self) -> &Arc<NetworkBeaconProcessor<T>> {
+        &self.network_beacon_processor
     }
 
     fn next_id(&mut self) -> Id {

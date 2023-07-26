@@ -49,7 +49,7 @@ pub fn get_block_rewards<T: BeaconChainTypes>(
         .map_err(beacon_chain_error)?;
 
     state
-        .build_all_caches(&chain.spec)
+        .build_caches(&chain.spec)
         .map_err(beacon_state_error)?;
 
     let mut reward_cache = Default::default();

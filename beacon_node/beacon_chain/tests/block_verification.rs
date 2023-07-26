@@ -1,12 +1,10 @@
 #![cfg(not(debug_assertions))]
 
-use beacon_chain::blob_verification::BlockWrapper;
+use beacon_chain::block_verification_types::{AsBlock, ExecutedBlock, RpcBlock};
 use beacon_chain::test_utils::BlobSignatureKey;
 use beacon_chain::{
-    blob_verification::AsBlock,
     test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType},
-    AvailabilityProcessingStatus, BeaconChain, BeaconChainTypes, ExecutedBlock,
-    ExecutionPendingBlock,
+    AvailabilityProcessingStatus, BeaconChain, BeaconChainTypes, ExecutionPendingBlock,
 };
 use beacon_chain::{
     BeaconSnapshot, BlockError, ChainSegmentResult, IntoExecutionPendingBlock, NotifyExecutionLayer,
@@ -156,11 +154,13 @@ fn get_harness(validator_count: usize) -> BeaconChainHarness<EphemeralHarnessTyp
 fn chain_segment_blocks(
     chain_segment: &[BeaconSnapshot<E>],
     blobs: &[Option<BlobSidecarList<E>>],
-) -> Vec<BlockWrapper<E>> {
+) -> Vec<RpcBlock<E>> {
     chain_segment
         .iter()
         .zip(blobs.into_iter())
-        .map(|(snapshot, blobs)| BlockWrapper::new(snapshot.beacon_block.clone(), blobs.clone()))
+        .map(|(snapshot, blobs)| {
+            RpcBlock::new(snapshot.beacon_block.clone(), blobs.clone()).unwrap()
+        })
         .collect()
 }
 
@@ -217,7 +217,7 @@ fn update_parent_roots(snapshots: &mut [BeaconSnapshot<E>]) {
 async fn chain_segment_full_segment() {
     let harness = get_harness(VALIDATOR_COUNT);
     let (chain_segment, chain_segment_blobs) = get_chain_segment().await;
-    let blocks: Vec<BlockWrapper<E>> = chain_segment_blocks(&chain_segment, &chain_segment_blobs)
+    let blocks: Vec<RpcBlock<E>> = chain_segment_blocks(&chain_segment, &chain_segment_blobs)
         .into_iter()
         .map(|block| block.into())
         .collect();
@@ -256,11 +256,10 @@ async fn chain_segment_varying_chunk_size() {
     for chunk_size in &[1, 2, 3, 5, 31, 32, 33, 42] {
         let harness = get_harness(VALIDATOR_COUNT);
         let (chain_segment, chain_segment_blobs) = get_chain_segment().await;
-        let blocks: Vec<BlockWrapper<E>> =
-            chain_segment_blocks(&chain_segment, &chain_segment_blobs)
-                .into_iter()
-                .map(|block| block.into())
-                .collect();
+        let blocks: Vec<RpcBlock<E>> = chain_segment_blocks(&chain_segment, &chain_segment_blobs)
+            .into_iter()
+            .map(|block| block.into())
+            .collect();
 
         harness
             .chain
@@ -299,11 +298,10 @@ async fn chain_segment_non_linear_parent_roots() {
     /*
      * Test with a block removed.
      */
-    let mut blocks: Vec<BlockWrapper<E>> =
-        chain_segment_blocks(&chain_segment, &chain_segment_blobs)
-            .into_iter()
-            .map(|block| block.into())
-            .collect();
+    let mut blocks: Vec<RpcBlock<E>> = chain_segment_blocks(&chain_segment, &chain_segment_blobs)
+        .into_iter()
+        .map(|block| block.into())
+        .collect();
     blocks.remove(2);
 
     assert!(
@@ -321,11 +319,10 @@ async fn chain_segment_non_linear_parent_roots() {
     /*
      * Test with a modified parent root.
      */
-    let mut blocks: Vec<BlockWrapper<E>> =
-        chain_segment_blocks(&chain_segment, &chain_segment_blobs)
-            .into_iter()
-            .map(|block| block.into())
-            .collect();
+    let mut blocks: Vec<RpcBlock<E>> = chain_segment_blocks(&chain_segment, &chain_segment_blobs)
+        .into_iter()
+        .map(|block| block.into())
+        .collect();
 
     let (mut block, signature) = blocks[3].as_block().clone().deconstruct();
     *block.parent_root_mut() = Hash256::zero();
@@ -357,11 +354,10 @@ async fn chain_segment_non_linear_slots() {
      * Test where a child is lower than the parent.
      */
 
-    let mut blocks: Vec<BlockWrapper<E>> =
-        chain_segment_blocks(&chain_segment, &chain_segment_blobs)
-            .into_iter()
-            .map(|block| block.into())
-            .collect();
+    let mut blocks: Vec<RpcBlock<E>> = chain_segment_blocks(&chain_segment, &chain_segment_blobs)
+        .into_iter()
+        .map(|block| block.into())
+        .collect();
     let (mut block, signature) = blocks[3].as_block().clone().deconstruct();
     *block.slot_mut() = Slot::new(0);
     blocks[3] = Arc::new(SignedBeaconBlock::from_block(block, signature)).into();
@@ -382,11 +378,10 @@ async fn chain_segment_non_linear_slots() {
      * Test where a child is equal to the parent.
      */
 
-    let mut blocks: Vec<BlockWrapper<E>> =
-        chain_segment_blocks(&chain_segment, &chain_segment_blobs)
-            .into_iter()
-            .map(|block| block.into())
-            .collect();
+    let mut blocks: Vec<RpcBlock<E>> = chain_segment_blocks(&chain_segment, &chain_segment_blobs)
+        .into_iter()
+        .map(|block| block.into())
+        .collect();
     let (mut block, signature) = blocks[3].as_block().clone().deconstruct();
     *block.slot_mut() = blocks[2].slot();
     blocks[3] = Arc::new(SignedBeaconBlock::from_block(block, signature)).into();
@@ -412,10 +407,12 @@ async fn assert_invalid_signature(
     snapshots: &[BeaconSnapshot<E>],
     item: &str,
 ) {
-    let blocks: Vec<BlockWrapper<E>> = snapshots
+    let blocks: Vec<RpcBlock<E>> = snapshots
         .iter()
         .zip(chain_segment_blobs.iter())
-        .map(|(snapshot, blobs)| BlockWrapper::new(snapshot.beacon_block.clone(), blobs.clone()))
+        .map(|(snapshot, blobs)| {
+            RpcBlock::new(snapshot.beacon_block.clone(), blobs.clone()).unwrap()
+        })
         .collect();
 
     // Ensure the block will be rejected if imported in a chain segment.
@@ -440,7 +437,9 @@ async fn assert_invalid_signature(
         .iter()
         .take(block_index)
         .zip(chain_segment_blobs.iter())
-        .map(|(snapshot, blobs)| BlockWrapper::new(snapshot.beacon_block.clone(), blobs.clone()))
+        .map(|(snapshot, blobs)| {
+            RpcBlock::new(snapshot.beacon_block.clone(), blobs.clone()).unwrap()
+        })
         .collect();
     // We don't care if this fails, we just call this to ensure that all prior blocks have been
     // imported prior to this test.
@@ -454,11 +453,13 @@ async fn assert_invalid_signature(
         .chain
         .process_block(
             snapshots[block_index].beacon_block.canonical_root(),
-            BlockWrapper::new(
+            RpcBlock::new(
                 snapshots[block_index].beacon_block.clone(),
                 chain_segment_blobs[block_index].clone(),
-            ),
+            )
+            .unwrap(),
             NotifyExecutionLayer::Yes,
+            || Ok(()),
         )
         .await;
     assert!(
@@ -508,7 +509,7 @@ async fn invalid_signature_gossip_block() {
             .take(block_index)
             .zip(chain_segment_blobs.iter())
             .map(|(snapshot, blobs)| {
-                BlockWrapper::new(snapshot.beacon_block.clone(), blobs.clone())
+                RpcBlock::new(snapshot.beacon_block.clone(), blobs.clone()).unwrap()
             })
             .collect();
         harness
@@ -526,6 +527,7 @@ async fn invalid_signature_gossip_block() {
                         signed_block.canonical_root(),
                         Arc::new(signed_block),
                         NotifyExecutionLayer::Yes,
+                        || Ok(()),
                     )
                     .await,
                 Err(BlockError::InvalidSignature)
@@ -550,11 +552,11 @@ async fn invalid_signature_block_proposal() {
             block.clone(),
             junk_signature(),
         ));
-        let blocks: Vec<BlockWrapper<E>> = snapshots
+        let blocks: Vec<RpcBlock<E>> = snapshots
             .iter()
             .zip(chain_segment_blobs.iter())
             .map(|(snapshot, blobs)| {
-                BlockWrapper::new(snapshot.beacon_block.clone(), blobs.clone())
+                RpcBlock::new(snapshot.beacon_block.clone(), blobs.clone()).unwrap()
             })
             .collect::<Vec<_>>();
         // Ensure the block will be rejected if imported in a chain segment.
@@ -763,11 +765,11 @@ async fn invalid_signature_deposit() {
             Arc::new(SignedBeaconBlock::from_block(block, signature));
         update_parent_roots(&mut snapshots);
         update_proposal_signatures(&mut snapshots, &harness);
-        let blocks: Vec<BlockWrapper<E>> = snapshots
+        let blocks: Vec<RpcBlock<E>> = snapshots
             .iter()
             .zip(chain_segment_blobs.iter())
             .map(|(snapshot, blobs)| {
-                BlockWrapper::new(snapshot.beacon_block.clone(), blobs.clone())
+                RpcBlock::new(snapshot.beacon_block.clone(), blobs.clone()).unwrap()
             })
             .collect();
         assert!(
@@ -849,7 +851,7 @@ async fn block_gossip_verification() {
     {
         let gossip_verified = harness
             .chain
-            .verify_block_for_gossip(snapshot.beacon_block.clone().into())
+            .verify_block_for_gossip(snapshot.beacon_block.clone())
             .await
             .expect("should obtain gossip verified block");
 
@@ -859,6 +861,7 @@ async fn block_gossip_verification() {
                 gossip_verified.block_root,
                 gossip_verified,
                 NotifyExecutionLayer::Yes,
+                || Ok(()),
             )
             .await
             .expect("should import valid gossip verified block");
@@ -1069,22 +1072,14 @@ async fn block_gossip_verification() {
     assert!(
         matches!(
             unwrap_err(harness.chain.verify_block_for_gossip(Arc::new(block.clone()).into()).await),
-            BlockError::RepeatProposal {
-                proposer,
-                slot,
-            }
-            if proposer == other_proposer && slot == block.message().slot()
+            BlockError::BlockIsAlreadyKnown,
         ),
         "should register any valid signature against the proposer, even if the block failed later verification"
     );
 
     let block = chain_segment[block_index].beacon_block.clone();
     assert!(
-        harness
-            .chain
-            .verify_block_for_gossip(block.into())
-            .await
-            .is_ok(),
+        harness.chain.verify_block_for_gossip(block).await.is_ok(),
         "the valid block should be processed"
     );
 
@@ -1106,11 +1101,7 @@ async fn block_gossip_verification() {
                 .await
                 .err()
                 .expect("should error when processing known block"),
-            BlockError::RepeatProposal {
-                proposer,
-                slot,
-            }
-            if proposer == block.message().proposer_index() && slot == block.message().slot()
+            BlockError::BlockIsAlreadyKnown
         ),
         "the second proposal by this validator should be rejected"
     );
@@ -1139,7 +1130,7 @@ async fn verify_block_for_gossip_slashing_detection() {
 
     let verified_block = harness
         .chain
-        .verify_block_for_gossip(Arc::new(block1).into())
+        .verify_block_for_gossip(Arc::new(block1))
         .await
         .unwrap();
 
@@ -1159,13 +1150,14 @@ async fn verify_block_for_gossip_slashing_detection() {
             verified_block.block_root,
             verified_block,
             NotifyExecutionLayer::Yes,
+            || Ok(()),
         )
         .await
         .unwrap();
     unwrap_err(
         harness
             .chain
-            .verify_block_for_gossip(Arc::new(block2).into())
+            .verify_block_for_gossip(Arc::new(block2))
             .await,
     );
 
@@ -1188,7 +1180,7 @@ async fn verify_block_for_gossip_doppelganger_detection() {
 
     let verified_block = harness
         .chain
-        .verify_block_for_gossip(Arc::new(block).into())
+        .verify_block_for_gossip(Arc::new(block))
         .await
         .unwrap();
     let attestations = verified_block.block.message().body().attestations().clone();
@@ -1198,6 +1190,7 @@ async fn verify_block_for_gossip_doppelganger_detection() {
             verified_block.block_root,
             verified_block,
             NotifyExecutionLayer::Yes,
+            || Ok(()),
         )
         .await
         .unwrap();
@@ -1345,6 +1338,7 @@ async fn add_base_block_to_altair_chain() {
                 base_block.canonical_root(),
                 Arc::new(base_block.clone()),
                 NotifyExecutionLayer::Yes,
+                || Ok(()),
             )
             .await
             .err()
@@ -1479,6 +1473,7 @@ async fn add_altair_block_to_base_chain() {
                 altair_block.canonical_root(),
                 Arc::new(altair_block.clone()),
                 NotifyExecutionLayer::Yes,
+                || Ok(()),
             )
             .await
             .err()

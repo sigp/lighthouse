@@ -52,6 +52,7 @@ impl<T: EthSpec, S: Sidecar<T>> SignedSidecar<T, S> {
 /// List of Signed Sidecars that implements `Sidecar`.
 pub type SignedSidecarList<T, Sidecar> =
     VariableList<SignedSidecar<T, Sidecar>, <T as EthSpec>::MaxBlobsPerBlock>;
+pub type SignedBlobSidecarList<T> = SignedSidecarList<T, BlobSidecar<T>>;
 
 pub type SignedBlobSidecar<T> = SignedSidecar<T, BlobSidecar<T>>;
 

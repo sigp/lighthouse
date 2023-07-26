@@ -22,6 +22,7 @@ use crate::{Blob, ChainSpec, Domain, EthSpec, Fork, Hash256, SignedBlobSidecar, 
 
 pub trait Sidecar<E: EthSpec>:
     serde::Serialize
+    + Clone
     + DeserializeOwned
     + Encode
     + Decode
@@ -92,6 +93,21 @@ impl<E: EthSpec> Sidecar<E> for BlobSidecar<E> {
     }
 }
 
+impl<E: EthSpec> From<Arc<BlobSidecar<E>>> for BlindedBlobSidecar {
+    fn from(blob_sidecar: Arc<BlobSidecar<E>>) -> Self {
+        BlindedBlobSidecar {
+            block_root: blob_sidecar.block_root,
+            index: blob_sidecar.index,
+            slot: blob_sidecar.slot,
+            block_parent_root: blob_sidecar.block_parent_root,
+            proposer_index: blob_sidecar.proposer_index,
+            blob_root: blob_sidecar.blob.tree_hash_root(),
+            kzg_commitment: blob_sidecar.kzg_commitment,
+            kzg_proof: blob_sidecar.kzg_proof,
+        }
+    }
+}
+
 impl<T: EthSpec> PartialOrd for BlobSidecar<T> {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         self.index.partial_cmp(&other.index)
@@ -150,7 +166,7 @@ impl<T: EthSpec> BlobSidecar<T> {
         })
     }
 
-    #[allow(clippy::integer_arithmetic)]
+    #[allow(clippy::arithmetic_side_effects)]
     pub fn max_size() -> usize {
         // Fixed part
         Self::empty().as_ssz_bytes().len()

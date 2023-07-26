@@ -1,6 +1,6 @@
-use crate::sync::SyncMessage;
+use crate::network_beacon_processor::NetworkBeaconProcessor;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
-use slog::{crit, warn};
+use slog::crit;
 use slot_clock::SlotClock;
 use std::sync::Arc;
 use tokio::sync::mpsc;
@@ -35,7 +35,7 @@ pub fn spawn_delayed_lookup_service<T: BeaconChainTypes>(
     executor: &task_executor::TaskExecutor,
     beacon_chain: Arc<BeaconChain<T>>,
     mut delayed_lookups_recv: mpsc::Receiver<DelayedLookupMessage>,
-    sync_send: mpsc::UnboundedSender<SyncMessage<T::EthSpec>>,
+    beacon_processor: Arc<NetworkBeaconProcessor<T>>,
     log: slog::Logger,
 ) {
     executor.spawn(
@@ -52,8 +52,8 @@ pub fn spawn_delayed_lookup_service<T: BeaconChainTypes>(
                     } else {
                         delay - seconds_from_current_slot_start
                     };
-                    tokio::time::Instant::now() + duration_until_start
-                                  }
+                    Instant::now() + duration_until_start
+                }
                 _ => {
                     crit!(log,
                         "Failed to read slot clock, delayed lookup service timing will be inaccurate.\
@@ -69,11 +69,8 @@ pub fn spawn_delayed_lookup_service<T: BeaconChainTypes>(
                 while let Ok(msg) = delayed_lookups_recv.try_recv() {
                     match msg {
                         DelayedLookupMessage::MissingComponents(block_root) => {
-                            if let Err(e) = sync_send
-                                .send(SyncMessage::MissingGossipBlockComponentsDelayed(block_root))
-                            {
-                                warn!(log, "Failed to send delayed lookup message"; "error" => ?e);
-                            }
+                            beacon_processor
+                                .send_delayed_lookup(block_root)
                         }
                     }
                 }

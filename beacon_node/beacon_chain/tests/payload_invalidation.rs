@@ -221,7 +221,7 @@ impl InvalidPayloadRig {
         let head = self.harness.chain.head_snapshot();
         let state = head.beacon_state.clone_with_only_committee_caches();
         let slot = slot_override.unwrap_or(state.slot() + 1);
-        let ((block, _), post_state) = self.harness.make_block(state, slot).await;
+        let ((block, blobs), post_state) = self.harness.make_block(state, slot).await;
         let block_root = block.canonical_root();
 
         let set_new_payload = |payload: Payload| match payload {
@@ -285,7 +285,7 @@ impl InvalidPayloadRig {
                 }
                 let root = self
                     .harness
-                    .process_block(slot, block.canonical_root(), block.clone())
+                    .process_block(slot, block.canonical_root(), (block.clone(), blobs.clone()))
                     .await
                     .unwrap();
 
@@ -326,7 +326,7 @@ impl InvalidPayloadRig {
 
                 match self
                     .harness
-                    .process_block(slot, block.canonical_root(), block)
+                    .process_block(slot, block.canonical_root(), (block, blobs))
                     .await
                 {
                     Err(error) if evaluate_error(&error) => (),
@@ -698,6 +698,7 @@ async fn invalidates_all_descendants() {
             fork_block.canonical_root(),
             Arc::new(fork_block),
             NotifyExecutionLayer::Yes,
+            || Ok(()),
         )
         .await
         .unwrap()
@@ -797,6 +798,7 @@ async fn switches_heads() {
             fork_block.canonical_root(),
             Arc::new(fork_block),
             NotifyExecutionLayer::Yes,
+            || Ok(()),
         )
         .await
         .unwrap()
@@ -1055,7 +1057,9 @@ async fn invalid_parent() {
 
     // Ensure the block built atop an invalid payload is invalid for import.
     assert!(matches!(
-        rig.harness.chain.process_block(block.canonical_root(), block.clone(),  NotifyExecutionLayer::Yes).await,
+        rig.harness.chain.process_block(block.canonical_root(), block.clone(), NotifyExecutionLayer::Yes,
+            || Ok(()),
+        ).await,
         Err(BlockError::ParentExecutionPayloadInvalid { parent_root: invalid_root })
         if invalid_root == parent_root
     ));
@@ -1069,8 +1073,9 @@ async fn invalid_parent() {
             Duration::from_secs(0),
             &state,
             PayloadVerificationStatus::Optimistic,
+            rig.harness.chain.config.progressive_balances_mode,
             &rig.harness.chain.spec,
-
+            rig.harness.logger()
         ),
         Err(ForkChoiceError::ProtoArrayStringError(message))
         if message.contains(&format!(
@@ -1341,7 +1346,12 @@ async fn build_optimistic_chain(
     for block in blocks {
         rig.harness
             .chain
-            .process_block(block.canonical_root(), block, NotifyExecutionLayer::Yes)
+            .process_block(
+                block.canonical_root(),
+                block,
+                NotifyExecutionLayer::Yes,
+                || Ok(()),
+            )
             .await
             .unwrap();
     }
@@ -1901,6 +1911,7 @@ async fn recover_from_invalid_head_by_importing_blocks() {
             fork_block.canonical_root(),
             fork_block.clone(),
             NotifyExecutionLayer::Yes,
+            || Ok(()),
         )
         .await
         .unwrap();
