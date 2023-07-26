@@ -98,11 +98,10 @@ use store::{Error as DBError, HotStateSummary, KeyValueStore, StoreOp};
 use task_executor::JoinHandle;
 use tree_hash::TreeHash;
 use types::{
-    BeaconBlockRef, BeaconState, BeaconStateError, BlobSidecar, ChainSpec, CloneConfig, Epoch,
-    EthSpec, ExecutionBlockHash, Hash256, InconsistentFork, PublicKey, PublicKeyBytes,
-    RelativeEpoch, SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
+    BeaconBlockRef, BeaconState, BeaconStateError, ChainSpec, CloneConfig, Epoch, EthSpec,
+    ExecPayload, ExecutionBlockHash, Hash256, InconsistentFork, PublicKey, PublicKeyBytes,
+    RelativeEpoch, SignedBeaconBlock, SignedBeaconBlockHeader, SignedBlobSidecarList, Slot,
 };
-use types::{ExecPayload, SignedSidecarList};
 
 pub const POS_PANDA_BANNER: &str = r#"
     ,,,         ,,,                                               ,,,         ,,,
@@ -664,7 +663,7 @@ pub trait IntoGossipVerifiedBlockContents<T: BeaconChainTypes>: Sized {
         chain: &BeaconChain<T>,
     ) -> Result<GossipVerifiedBlockContents<T>, BlockError<T::EthSpec>>;
     fn inner_block(&self) -> &SignedBeaconBlock<T::EthSpec>;
-    fn inner_blobs(&self) -> Option<SignedSidecarList<T::EthSpec, BlobSidecar<T::EthSpec>>>;
+    fn inner_blobs(&self) -> Option<SignedBlobSidecarList<T::EthSpec>>;
 }
 
 impl<T: BeaconChainTypes> IntoGossipVerifiedBlockContents<T> for GossipVerifiedBlockContents<T> {
@@ -677,7 +676,7 @@ impl<T: BeaconChainTypes> IntoGossipVerifiedBlockContents<T> for GossipVerifiedB
     fn inner_block(&self) -> &SignedBeaconBlock<T::EthSpec> {
         self.0.block.as_block()
     }
-    fn inner_blobs(&self) -> Option<SignedSidecarList<T::EthSpec, BlobSidecar<T::EthSpec>>> {
+    fn inner_blobs(&self) -> Option<SignedBlobSidecarList<T::EthSpec>> {
         self.1.as_ref().map(|blobs| {
             VariableList::from(
                 blobs
@@ -715,7 +714,7 @@ impl<T: BeaconChainTypes> IntoGossipVerifiedBlockContents<T>
         self.signed_block()
     }
 
-    fn inner_blobs(&self) -> Option<SignedSidecarList<T::EthSpec, BlobSidecar<T::EthSpec>>> {
+    fn inner_blobs(&self) -> Option<SignedBlobSidecarList<T::EthSpec>> {
         self.blobs_cloned()
     }
 }

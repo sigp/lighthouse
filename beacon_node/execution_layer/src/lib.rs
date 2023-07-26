@@ -45,7 +45,7 @@ use types::blob_sidecar::BlobsOrBlobRoots;
 use types::builder_bid::BuilderBid;
 use types::KzgProofs;
 use types::{
-    AbstractExecPayload, BeaconStateError, Blobs, ExecPayload, ExecutionPayloadDeneb, VersionedHash,
+    AbstractExecPayload, BeaconStateError, ExecPayload, ExecutionPayloadDeneb, VersionedHash,
 };
 use types::{
     BlindedPayload, BlockType, ChainSpec, Epoch, ExecutionPayloadCapella, ExecutionPayloadMerge,
@@ -104,11 +104,11 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> From<BuilderBid<E, Payload>>
                 payload: builder_bid.header,
                 block_value: builder_bid.value,
             },
-            BuilderBid::Deneb(builder_bid) => BlockProposalContents::PayloadAndBlindedBlobs {
+            BuilderBid::Deneb(builder_bid) => BlockProposalContents::PayloadAndBlobs {
                 payload: builder_bid.header,
                 block_value: builder_bid.value,
                 kzg_commitments: builder_bid.blinded_blobs_bundle.commitments,
-                blob_roots: builder_bid.blinded_blobs_bundle.blob_roots,
+                blobs: BlobsOrBlobRoots::BlobRoots(builder_bid.blinded_blobs_bundle.blob_roots),
                 proofs: builder_bid.blinded_blobs_bundle.proofs,
             },
         };
@@ -161,14 +161,7 @@ pub enum BlockProposalContents<T: EthSpec, Payload: AbstractExecPayload<T>> {
         payload: Payload,
         block_value: Uint256,
         kzg_commitments: KzgCommitments<T>,
-        blobs: Blobs<T>,
-        proofs: KzgProofs<T>,
-    },
-    PayloadAndBlindedBlobs {
-        payload: Payload,
-        block_value: Uint256,
-        kzg_commitments: KzgCommitments<T>,
-        blob_roots: VariableList<Hash256, T::MaxBlobsPerBlock>,
+        blobs: BlobsOrBlobRoots<T>,
         proofs: KzgProofs<T>,
     },
 }
@@ -183,7 +176,7 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> From<GetPayloadResponse<E>>
                 payload: execution_payload.into(),
                 block_value,
                 kzg_commitments: bundle.commitments,
-                blobs: bundle.blobs,
+                blobs: BlobsOrBlobRoots::Blobs(bundle.blobs),
                 proofs: bundle.proofs,
             },
             None => Self::Payload {
@@ -215,24 +208,7 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> BlockProposalContents<T, Paylo
                 kzg_commitments,
                 blobs,
                 proofs,
-            } => (
-                payload,
-                Some(kzg_commitments),
-                Some(BlobsOrBlobRoots::Blobs(blobs)),
-                Some(proofs),
-            ),
-            Self::PayloadAndBlindedBlobs {
-                payload,
-                block_value: _,
-                kzg_commitments,
-                blob_roots,
-                proofs,
-            } => (
-                payload,
-                Some(kzg_commitments),
-                Some(BlobsOrBlobRoots::BlobRoots(blob_roots)),
-                Some(proofs),
-            ),
+            } => (payload, Some(kzg_commitments), Some(blobs), Some(proofs)),
         }
     }
 
@@ -240,21 +216,18 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> BlockProposalContents<T, Paylo
         match self {
             Self::Payload { payload, .. } => payload,
             Self::PayloadAndBlobs { payload, .. } => payload,
-            Self::PayloadAndBlindedBlobs { payload, .. } => payload,
         }
     }
     pub fn to_payload(self) -> Payload {
         match self {
             Self::Payload { payload, .. } => payload,
             Self::PayloadAndBlobs { payload, .. } => payload,
-            Self::PayloadAndBlindedBlobs { payload, .. } => payload,
         }
     }
     pub fn block_value(&self) -> &Uint256 {
         match self {
             Self::Payload { block_value, .. } => block_value,
             Self::PayloadAndBlobs { block_value, .. } => block_value,
-            Self::PayloadAndBlindedBlobs { block_value, .. } => block_value,
         }
     }
     pub fn default_at_fork(fork_name: ForkName) -> Result<Self, BeaconStateError> {
@@ -268,7 +241,7 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> BlockProposalContents<T, Paylo
             ForkName::Deneb => BlockProposalContents::PayloadAndBlobs {
                 payload: Payload::default_at_fork(fork_name)?,
                 block_value: Uint256::zero(),
-                blobs: VariableList::default(),
+                blobs: BlobsOrBlobRoots::Blobs(VariableList::default()),
                 kzg_commitments: VariableList::default(),
                 proofs: VariableList::default(),
             },
