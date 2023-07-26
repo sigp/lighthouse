@@ -346,7 +346,7 @@ jobs:
     steps:
     - uses: actions/checkout@v3
     - name: Install dependencies
-      run: sudo apt install -y git gcc g++ make cmake pkg-config llvm-dev libclang-dev clang protobuf-compiler
+      run: sudo apt install -y git gcc g++ make cmake pkg-config llvm-dev libclang-dev clang
     - name: Use Rust beta
       run: rustup override set beta
     - name: Run make
