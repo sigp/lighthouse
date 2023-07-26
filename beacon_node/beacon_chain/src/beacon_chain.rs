@@ -1105,7 +1105,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ) -> Result<BlobSidecarList<T::EthSpec>, Error> {
         self.early_attester_cache
             .get_blobs(*block_root)
-            .map_or_else(|| self.get_blobs(block_root), |blobs| Ok(blobs))
+            .map_or_else(|| self.get_blobs(block_root), Ok)
     }
 
     /// Returns the block at the given root, if any.
@@ -1185,15 +1185,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// - block and blobs are inconsistent in the database
     /// - this method is called with a pre-deneb block root
     /// - this method is called for a blob that is beyond the prune depth
-    pub fn get_blobs(
-        &self,
-        block_root: &Hash256,
-    ) -> Result<BlobSidecarList<T::EthSpec>, Error> {
+    pub fn get_blobs(&self, block_root: &Hash256) -> Result<BlobSidecarList<T::EthSpec>, Error> {
         match self.store.get_blobs(block_root)? {
             Some(blobs) => Ok(blobs),
-            None => {
-                Ok(BlobSidecarList::default())
-            }
+            None => Ok(BlobSidecarList::default()),
         }
     }
 

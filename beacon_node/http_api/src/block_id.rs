@@ -258,9 +258,9 @@ impl BlockId {
         chain: &BeaconChain<T>,
     ) -> Result<BlobSidecarList<T::EthSpec>, warp::Rejection> {
         let root = self.root(chain)?.0;
-        chain.get_blobs(&root).map_err(
-            |e| warp_utils::reject::beacon_chain_error(e)
-        )
+        chain
+            .get_blobs(&root)
+            .map_err(warp_utils::reject::beacon_chain_error)
     }
 
     pub async fn blob_sidecar_list_filtered<T: BeaconChainTypes>(
