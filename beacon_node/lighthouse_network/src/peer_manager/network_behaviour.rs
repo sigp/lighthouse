@@ -10,9 +10,9 @@ use libp2p::PeerId;
 use slog::{debug, error};
 use types::EthSpec;
 
-use crate::metrics;
 use crate::rpc::GoodbyeReason;
 use crate::types::SyncState;
+use crate::{metrics, ClearDialError};
 
 use super::peerdb::BanResult;
 use super::{ConnectingType, PeerManager, PeerManagerEvent, ReportSource};
@@ -116,7 +116,14 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
                 remaining_established,
                 ..
             }) => self.on_connection_closed(peer_id, remaining_established),
-            FromSwarm::DialFailure(DialFailure { peer_id, .. }) => self.on_dial_failure(peer_id),
+            FromSwarm::DialFailure(DialFailure {
+                peer_id,
+                handler: _,
+                error,
+            }) => {
+                debug!(self.log, "Failed to dial peer"; "peer_id"=> ?peer_id, "error" => %ClearDialError(error));
+                self.on_dial_failure(peer_id)
+            }
             FromSwarm::AddressChange(_)
             | FromSwarm::ListenFailure(_)
             | FromSwarm::NewListener(_)

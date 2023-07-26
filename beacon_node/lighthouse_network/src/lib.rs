@@ -17,6 +17,7 @@ pub mod rpc;
 pub mod types;
 
 pub use config::gossip_max_size;
+use libp2p::swarm::DialError;
 pub use listen_addr::*;
 
 use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
@@ -60,6 +61,38 @@ impl<'de> Deserialize<'de> for PeerIdSerialized {
         Ok(Self(PeerId::from_str(&s).map_err(|e| {
             de::Error::custom(format!("Failed to deserialise peer id: {:?}", e))
         })?))
+    }
+}
+
+// A wrapper struct that prints a dial error nicely.
+struct ClearDialError<'a>(&'a DialError);
+
+impl<'a> std::fmt::Display for ClearDialError<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+        match &self.0 {
+            DialError::Transport(errors) => {
+                for (_, transport_error) in errors {
+                    match transport_error {
+                        libp2p::TransportError::MultiaddrNotSupported(multiaddr_error) => {
+                            write!(f, "Multiaddr not supported: {multiaddr_error}")?;
+                        }
+                        libp2p::TransportError::Other(io_error) => {
+                            write!(f, "A transport level io error has occured: {io_error}")?;
+                        }
+                    }
+                }
+                Ok(())
+            }
+            DialError::Banned => write!(f, "The peer is currently banned"),
+            DialError::ConnectionLimit(_) => write!(f, "The configured limit for simultaneous outgoing connections has been reached."),
+            DialError::LocalPeerId =>  write!(f, "The peer being dialed is the local peer and thus the dial was aborted."),
+            DialError::NoAddresses => write!(f, "NetworkBehaviour::addresses_of_peer returned no addresses for the peer to dial."),
+            DialError::DialPeerConditionFalse(_) => write!(f, "The provided dial_opts::PeerCondition evaluated to false and thus the dial was aborted."),
+            DialError::Aborted => write!(f, "Pending connection attempt has been aborted."),
+            DialError::InvalidPeerId(_) => write!(f, "The provided peer identity is invalid."),
+            DialError::WrongPeerId { .. } =>  write!(f, "The peer identity obtained on the connection did not match the one that was expected."),
+            DialError::ConnectionIo(_) => write!(f, "An I/O error occurred on the connection."),
+        }
     }
 }
 

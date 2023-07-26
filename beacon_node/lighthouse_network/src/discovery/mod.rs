@@ -7,9 +7,9 @@ pub(crate) mod enr;
 pub mod enr_ext;
 
 // Allow external use of the lighthouse ENR builder
-use crate::metrics;
 use crate::service::TARGET_SUBNET_PEERS;
 use crate::{error, Enr, NetworkConfig, NetworkGlobals, Subnet, SubnetDiscovery};
+use crate::{metrics, ClearDialError};
 use discv5::{enr::NodeId, Discv5, Discv5Event};
 pub use enr::{
     build_enr, create_enr_builder_from_config, load_enr_from_disk, use_or_load_enr, CombinedKey,
@@ -1054,7 +1054,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
     fn on_swarm_event(&mut self, event: FromSwarm<Self::ConnectionHandler>) {
         match event {
             FromSwarm::DialFailure(DialFailure { peer_id, error, .. }) => {
-                self.on_dial_failure(peer_id, ClearDialError(error))
+                self.on_dial_failure(peer_id, error)
             }
             FromSwarm::ConnectionEstablished(_)
             | FromSwarm::ConnectionClosed(_)
@@ -1074,9 +1074,9 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
 }
 
 impl<TSpec: EthSpec> Discovery<TSpec> {
-    fn on_dial_failure(&mut self, peer_id: Option<PeerId>, error: ClearDialError) {
+    fn on_dial_failure(&mut self, peer_id: Option<PeerId>, error: &DialError) {
         if let Some(peer_id) = peer_id {
-            match error.0 {
+            match error {
                 DialError::Banned
                 | DialError::LocalPeerId
                 | DialError::InvalidPeerId(_)
@@ -1085,7 +1085,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                 | DialError::Transport(_)
                 | DialError::WrongPeerId { .. } => {
                     // set peer as disconnected in discovery DHT
-                    debug!(self.log, "{:}", error);
+                    debug!(self.log, "Marking peer disconnected in DHT"; "peer_id" => %peer_id, "error" => %ClearDialError(error));
                     self.disconnect_peer(&peer_id);
                 }
                 DialError::ConnectionLimit(_)
@@ -1238,37 +1238,5 @@ mod tests {
 
         // when a peer belongs to multiple subnet ids, we use the highest ttl.
         assert_eq!(results.get(&enr1.peer_id()).unwrap(), &instant1);
-    }
-}
-
-// A wrapper struct that prints a dial error nicely.
-struct ClearDialError<'a>(&'a DialError);
-
-impl<'a> std::fmt::Display for ClearDialError<'a> {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
-        match &self.0 {
-            DialError::Transport(errors) => {
-                for (_, transport_error) in errors {
-                    match transport_error {
-                        libp2p::TransportError::MultiaddrNotSupported(multiaddr_error) => {
-                            write!(f, "Multiaddr not supported: {multiaddr_error}")?;
-                        }
-                        libp2p::TransportError::Other(io_error) => {
-                            write!(f, "A transport level io error has occured: {io_error}")?;
-                        }
-                    }
-                }
-                Ok(())
-            }
-            DialError::Banned => write!(f, "The peer is currently banned"),
-            DialError::ConnectionLimit(_) => write!(f, "The configured limit for simultaneous outgoing connections has been reached."),
-            DialError::LocalPeerId =>  write!(f, "The peer being dialed is the local peer and thus the dial was aborted."),
-            DialError::NoAddresses => write!(f, "NetworkBehaviour::addresses_of_peer returned no addresses for the peer to dial."),
-            DialError::DialPeerConditionFalse(_) => write!(f, "The provided dial_opts::PeerCondition evaluated to false and thus the dial was aborted."),
-            DialError::Aborted => write!(f, "Pending connection attempt has been aborted."),
-            DialError::InvalidPeerId(_) => write!(f, "The provided peer identity is invalid."),
-            DialError::WrongPeerId { .. } =>  write!(f, "The peer identity obtained on the connection did not match the one that was expected."),
-            DialError::ConnectionIo(_) => write!(f, "An I/O error occurred on the connection."),
-        }
     }
 }
