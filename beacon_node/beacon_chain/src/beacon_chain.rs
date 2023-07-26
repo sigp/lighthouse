@@ -7,7 +7,6 @@ use crate::attester_cache::{AttesterCache, AttesterCacheKey};
 use crate::beacon_block_streamer::{BeaconBlockStreamer, CheckEarlyAttesterCache};
 use crate::beacon_proposer_cache::compute_proposer_duties_from_head;
 use crate::beacon_proposer_cache::BeaconProposerCache;
-use crate::blob_cache::BlobCache;
 use crate::blob_verification::{self, BlobError, GossipVerifiedBlob};
 use crate::block_times_cache::BlockTimesCache;
 use crate::block_verification::POS_PANDA_BANNER;
@@ -69,7 +68,7 @@ use crate::validator_monitor::{
 };
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use crate::{metrics, BeaconChainError, BeaconForkChoiceStore, BeaconSnapshot, CachedHead};
-use eth2::types::{EventKind, SseBlock, SseExtendedPayloadAttributes, SyncDuty};
+use eth2::types::{BlockProposal, EventKind, SseBlock, SseExtendedPayloadAttributes, SyncDuty};
 use execution_layer::{
     BlockProposalContents, BuilderParams, ChainHealth, ExecutionLayer, FailedCondition,
     PayloadAttributes, PayloadStatus,
@@ -119,9 +118,6 @@ use tokio_stream::Stream;
 use tree_hash::TreeHash;
 use types::beacon_block_body::KzgCommitments;
 use types::beacon_state::CloneConfig;
-use types::blob_sidecar::{
-    BlindedBlobSidecar, BlindedBlobSidecarList, BlobRoots, BlobSidecarList, Blobs, BlobsOrBlobRoots,
-};
 use types::consts::deneb::MIN_EPOCHS_FOR_BLOB_SIDECARS_REQUESTS;
 use types::*;
 
@@ -480,13 +476,15 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub validator_monitor: RwLock<ValidatorMonitor<T::EthSpec>>,
     /// The slot at which blocks are downloaded back to.
     pub genesis_backfill_slot: Slot,
-    pub proposal_blob_cache: BlobCache<T::EthSpec, BlobSidecar<T::EthSpec>>,
-    pub proposal_blinded_blob_cache: BlobCache<T::EthSpec, BlindedBlobSidecar>,
     pub data_availability_checker: Arc<DataAvailabilityChecker<T>>,
     pub kzg: Option<Arc<Kzg<<T::EthSpec as EthSpec>::Kzg>>>,
 }
 
-type BeaconBlockAndState<T, Payload> = (BeaconBlock<T, Payload>, BeaconState<T>);
+type BeaconBlockAndState<T, B> = (
+    BeaconBlock<T, <B as BlockProposal<T>>::Payload>,
+    BeaconState<T>,
+    Option<SidecarListVariant<T>>,
+);
 
 impl FinalizationAndCanonicity {
     pub fn is_finalized(self) -> bool {
@@ -3819,13 +3817,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// The produced block will not be inherently valid, it must be signed by a block producer.
     /// Block signing is out of the scope of this function and should be done by a separate program.
-    pub async fn produce_block<Payload: AbstractExecPayload<T::EthSpec> + 'static>(
+    pub async fn produce_block<B: BlockProposal<T::EthSpec> + 'static>(
         self: &Arc<Self>,
         randao_reveal: Signature,
         slot: Slot,
         validator_graffiti: Option<Graffiti>,
-    ) -> Result<BeaconBlockAndState<T::EthSpec, Payload>, BlockProductionError> {
-        self.produce_block_with_verification(
+    ) -> Result<BeaconBlockAndState<T::EthSpec, B>, BlockProductionError> {
+        self.produce_block_with_verification::<B>(
             randao_reveal,
             slot,
             validator_graffiti,
@@ -3835,15 +3833,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 
     /// Same as `produce_block` but allowing for configuration of RANDAO-verification.
-    pub async fn produce_block_with_verification<
-        Payload: AbstractExecPayload<T::EthSpec> + 'static,
-    >(
+    pub async fn produce_block_with_verification<B: BlockProposal<T::EthSpec> + 'static>(
         self: &Arc<Self>,
         randao_reveal: Signature,
         slot: Slot,
         validator_graffiti: Option<Graffiti>,
         verification: ProduceBlockVerification,
-    ) -> Result<BeaconBlockAndState<T::EthSpec, Payload>, BlockProductionError> {
+    ) -> Result<BeaconBlockAndState<T::EthSpec, B>, BlockProductionError> {
         // Part 1/2 (blocking)
         //
         // Load the parent state from disk.
@@ -3861,7 +3857,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Part 2/2 (async, with some blocking components)
         //
         // Produce the block upon the state
-        self.produce_block_on_state::<Payload>(
+        self.produce_block_on_state::<B>(
             state,
             state_root_opt,
             slot,
@@ -4433,7 +4429,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// The provided `state_root_opt` should only ever be set to `Some` if the contained value is
     /// equal to the root of `state`. Providing this value will serve as an optimization to avoid
     /// performing a tree hash in some scenarios.
-    pub async fn produce_block_on_state<Payload: AbstractExecPayload<T::EthSpec> + 'static>(
+    pub async fn produce_block_on_state<B: BlockProposal<T::EthSpec> + 'static>(
         self: &Arc<Self>,
         state: BeaconState<T::EthSpec>,
         state_root_opt: Option<Hash256>,
@@ -4441,7 +4437,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         randao_reveal: Signature,
         validator_graffiti: Option<Graffiti>,
         verification: ProduceBlockVerification,
-    ) -> Result<BeaconBlockAndState<T::EthSpec, Payload>, BlockProductionError> {
+    ) -> Result<BeaconBlockAndState<T::EthSpec, B>, BlockProductionError> {
         // Part 1/3 (blocking)
         //
         // Perform the state advance and block-packing functions.
@@ -4450,7 +4446,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .task_executor
             .spawn_blocking_handle(
                 move || {
-                    chain.produce_partial_beacon_block(
+                    chain.produce_partial_beacon_block::<B>(
                         state,
                         state_root_opt,
                         produce_at_slot,
@@ -4486,7 +4482,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self.task_executor
             .spawn_blocking_handle(
                 move || {
-                    chain.complete_partial_beacon_block(
+                    chain.complete_partial_beacon_block::<B>(
                         partial_beacon_block,
                         block_contents,
                         verification,
@@ -4499,14 +4495,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .map_err(BlockProductionError::TokioJoin)?
     }
 
-    fn produce_partial_beacon_block<Payload: AbstractExecPayload<T::EthSpec> + 'static>(
+    fn produce_partial_beacon_block<B: BlockProposal<T::EthSpec> + 'static>(
         self: &Arc<Self>,
         mut state: BeaconState<T::EthSpec>,
         state_root_opt: Option<Hash256>,
         produce_at_slot: Slot,
         randao_reveal: Signature,
         validator_graffiti: Option<Graffiti>,
-    ) -> Result<PartialBeaconBlock<T::EthSpec, Payload>, BlockProductionError> {
+    ) -> Result<PartialBeaconBlock<T::EthSpec, B::Payload>, BlockProductionError> {
         let eth1_chain = self
             .eth1_chain
             .as_ref()
@@ -4738,12 +4734,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         })
     }
 
-    fn complete_partial_beacon_block<Payload: AbstractExecPayload<T::EthSpec>>(
+    fn complete_partial_beacon_block<B: BlockProposal<T::EthSpec>>(
         &self,
-        partial_beacon_block: PartialBeaconBlock<T::EthSpec, Payload>,
-        block_contents: Option<BlockProposalContents<T::EthSpec, Payload>>,
+        partial_beacon_block: PartialBeaconBlock<T::EthSpec, B::Payload>,
+        block_contents: Option<BlockProposalContents<T::EthSpec, B::Payload>>,
         verification: ProduceBlockVerification,
-    ) -> Result<BeaconBlockAndState<T::EthSpec, Payload>, BlockProductionError> {
+    ) -> Result<BeaconBlockAndState<T::EthSpec, B>, BlockProductionError> {
         let (mut state, inner_block, blobs_opt, proofs_opt) =
             Self::merge_block_contents_into_beacon_block(partial_beacon_block, block_contents)?;
 
@@ -4795,40 +4791,45 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         //FIXME(sean)
         // - add a new timer for processing here
-        if let (Some(blobs_or_blobs_roots), Some(proofs)) = (blobs_opt, proofs_opt) {
-            let expected_kzg_commitments = block.body().blob_kzg_commitments().map_err(|_| {
-                BlockProductionError::InvalidBlockVariant(
-                    "DENEB block does not contain kzg commitments".to_string(),
-                )
-            })?;
+        let maybe_sidecar_list = match (blobs_opt, proofs_opt) {
+            (Some(blobs_or_blobs_roots), Some(proofs)) => {
+                let expected_kzg_commitments =
+                    block.body().blob_kzg_commitments().map_err(|_| {
+                        BlockProductionError::InvalidBlockVariant(
+                            "DENEB block does not contain kzg commitments".to_string(),
+                        )
+                    })?;
 
-            if expected_kzg_commitments.len() != blobs_or_blobs_roots.len() {
-                return Err(BlockProductionError::MissingKzgCommitment(format!(
-                    "Missing KZG commitment for slot {}. Expected {}, got: {}",
-                    block.slot(),
-                    blobs_or_blobs_roots.len(),
-                    expected_kzg_commitments.len()
-                )));
-            }
+                if expected_kzg_commitments.len() != blobs_or_blobs_roots.len() {
+                    return Err(BlockProductionError::MissingKzgCommitment(format!(
+                        "Missing KZG commitment for slot {}. Expected {}, got: {}",
+                        block.slot(),
+                        blobs_or_blobs_roots.len(),
+                        expected_kzg_commitments.len()
+                    )));
+                }
 
-            let kzg_proofs = Vec::from(proofs);
+                let kzg_proofs = Vec::from(proofs);
 
-            match blobs_or_blobs_roots {
-                BlobsOrBlobRoots::Blobs(blobs) => self.build_and_cache_blob_sidecars(
-                    &block,
-                    blobs,
-                    expected_kzg_commitments,
-                    kzg_proofs,
-                )?,
-                BlobsOrBlobRoots::BlobRoots(blob_roots) => self
-                    .build_and_cache_blinded_blob_sidecars(
+                match blobs_or_blobs_roots {
+                    BlobsOrBlobRoots::Blobs(blobs) => Some(self.build_blob_sidecars::<B>(
                         &block,
-                        blob_roots,
+                        blobs,
                         expected_kzg_commitments,
                         kzg_proofs,
-                    )?,
+                    )?),
+                    BlobsOrBlobRoots::BlobRoots(blob_roots) => {
+                        Some(self.build_blinded_blob_sidecars::<B>(
+                            &block,
+                            blob_roots,
+                            expected_kzg_commitments,
+                            kzg_proofs,
+                        )?)
+                    }
+                }
             }
-        }
+            _ => None,
+        };
 
         metrics::inc_counter(&metrics::BLOCK_PRODUCTION_SUCCESSES);
 
@@ -4840,7 +4841,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             "slot" => block.slot()
         );
 
-        Ok((block, state))
+        Ok((block, state, maybe_sidecar_list))
     }
 
     /// This method must be called whenever an execution engine indicates that a payload is
@@ -6097,13 +6098,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .unwrap_or(false))
     }
 
-    fn build_and_cache_blob_sidecars<Payload: AbstractExecPayload<T::EthSpec>>(
+    fn build_blob_sidecars<B: BlockProposal<T::EthSpec>>(
         &self,
-        block: &BeaconBlock<T::EthSpec, Payload>,
+        block: &BeaconBlock<T::EthSpec, B::Payload>,
         blobs: Blobs<T::EthSpec>,
         expected_kzg_commitments: &KzgCommitments<T::EthSpec>,
         kzg_proofs: Vec<KzgProof>,
-    ) -> Result<(), BlockProductionError> {
+    ) -> Result<SidecarListVariant<T::EthSpec>, BlockProductionError> {
         let kzg = self
             .kzg
             .as_ref()
@@ -6141,19 +6142,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .collect::<Result<Vec<_>, BlockProductionError>>()?,
         );
 
-        self.proposal_blob_cache
-            .put(beacon_block_root, blob_sidecars);
-
-        Ok(())
+        Ok(SidecarListVariant::Full(blob_sidecars))
     }
 
-    fn build_and_cache_blinded_blob_sidecars<Payload: AbstractExecPayload<T::EthSpec>>(
+    fn build_blinded_blob_sidecars<B: BlockProposal<T::EthSpec>>(
         &self,
-        block: &BeaconBlock<T::EthSpec, Payload>,
+        block: &BeaconBlock<T::EthSpec, B::Payload>,
         blob_roots: BlobRoots<T::EthSpec>,
         expected_kzg_commitments: &KzgCommitments<T::EthSpec>,
         kzg_proofs: Vec<KzgProof>,
-    ) -> Result<(), BlockProductionError> {
+    ) -> Result<SidecarListVariant<T::EthSpec>, BlockProductionError> {
         let beacon_block_root = block.canonical_root();
         let slot = block.slot();
 
@@ -6188,10 +6186,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .collect::<Result<Vec<_>, BlockProductionError>>()?,
         );
 
-        self.proposal_blinded_blob_cache
-            .put(beacon_block_root, blob_sidecars);
-
-        Ok(())
+        Ok(SidecarListVariant::Blinded(blob_sidecars))
     }
 
     #[allow(clippy::type_complexity)] //TODO(jimmy): fix type complexity

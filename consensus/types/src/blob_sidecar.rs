@@ -20,6 +20,11 @@ use test_random_derive::TestRandom;
 use crate::test_utils::TestRandom;
 use crate::{Blob, ChainSpec, Domain, EthSpec, Fork, Hash256, SignedBlobSidecar, SignedRoot, Slot};
 
+pub enum SidecarListVariant<E: EthSpec> {
+    Full(BlobSidecarList<E>),
+    Blinded(BlindedBlobSidecarList<E>),
+}
+
 pub trait Sidecar<E: EthSpec>:
     serde::Serialize
     + Clone

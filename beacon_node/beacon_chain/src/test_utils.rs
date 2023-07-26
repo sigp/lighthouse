@@ -863,9 +863,9 @@ where
 
         let randao_reveal = self.sign_randao_reveal(&state, proposer_index, slot);
 
-        let (block, state) = self
+        let (block, state, maybe_blob_sidecars) = self
             .chain
-            .produce_block_on_state(
+            .produce_block_on_state::<FullBlockProposal>(
                 state,
                 None,
                 slot,
@@ -889,11 +889,7 @@ where
             | SignedBeaconBlock::Merge(_)
             | SignedBeaconBlock::Capella(_) => (signed_block, None),
             SignedBeaconBlock::Deneb(_) => {
-                if let Some(blobs) = self
-                    .chain
-                    .proposal_blob_cache
-                    .pop(&signed_block.canonical_root())
-                {
+                if let Some(SidecarListVariant::Full(blobs)) = maybe_blob_sidecars {
                     let signed_blobs: SignedSidecarList<E, BlobSidecar<E>> = Vec::from(blobs)
                         .into_iter()
                         .map(|blob| {
@@ -952,9 +948,9 @@ where
 
         let pre_state = state.clone();
 
-        let (block, state) = self
+        let (block, state, maybe_blob_sidecars) = self
             .chain
-            .produce_block_on_state(
+            .produce_block_on_state::<FullBlockProposal>(
                 state,
                 None,
                 slot,
@@ -978,11 +974,7 @@ where
             | SignedBeaconBlock::Merge(_)
             | SignedBeaconBlock::Capella(_) => (signed_block, None),
             SignedBeaconBlock::Deneb(_) => {
-                if let Some(blobs) = self
-                    .chain
-                    .proposal_blob_cache
-                    .pop(&signed_block.canonical_root())
-                {
+                if let Some(SidecarListVariant::Full(blobs)) = maybe_blob_sidecars {
                     let signed_blobs: SignedSidecarList<E, BlobSidecar<E>> = Vec::from(blobs)
                         .into_iter()
                         .map(|blob| {

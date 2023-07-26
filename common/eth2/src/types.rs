@@ -1351,7 +1351,7 @@ mod tests {
     }
 }
 
-pub trait BlockProposal<T: EthSpec> {
+pub trait BlockProposal<T: EthSpec>: Send {
     type Payload: AbstractExecPayload<T>;
     type Sidecar: Sidecar<T>;
 }

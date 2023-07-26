@@ -118,7 +118,10 @@ pub use crate::beacon_block_body::{
 pub use crate::beacon_block_header::BeaconBlockHeader;
 pub use crate::beacon_committee::{BeaconCommittee, OwnedBeaconCommittee};
 pub use crate::beacon_state::{BeaconTreeHashCache, Error as BeaconStateError, *};
-pub use crate::blob_sidecar::*;
+pub use crate::blob_sidecar::{
+    BlindedBlobSidecar, BlindedBlobSidecarList, BlobRoots, BlobSidecar, BlobSidecarList, Blobs,
+    BlobsOrBlobRoots, Sidecar, SidecarList, SidecarListVariant,
+};
 pub use crate::bls_to_execution_change::BlsToExecutionChange;
 pub use crate::chain_spec::{ChainSpec, Config, Domain};
 pub use crate::checkpoint::Checkpoint;
