@@ -28,7 +28,7 @@ pub fn build_block_contents<T: BeaconChainTypes>(
                 Ok(BlockContents::BlockAndBlobSidecars(block_and_blobs))
             } else {
                 Err(warp_utils::reject::block_production_error(
-                    BlockProductionError::NoBlobsCached,
+                    BlockProductionError::MissingBlobs,
                 ))
             }
         }
@@ -54,7 +54,7 @@ pub fn build_blinded_block_contents<T: BeaconChainTypes>(
                 Ok(BlockContents::BlindedBlockAndBlobSidecars(block_and_blobs))
             } else {
                 Err(warp_utils::reject::block_production_error(
-                    BlockProductionError::NoBlobsCached,
+                    BlockProductionError::MissingBlobs,
                 ))
             }
         }

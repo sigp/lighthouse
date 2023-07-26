@@ -39,16 +39,6 @@ pub struct SignedSidecar<T: EthSpec, S: Sidecar<T>> {
     pub _phantom: PhantomData<T>,
 }
 
-impl<T: EthSpec, S: Sidecar<T>> SignedSidecar<T, S> {
-    pub fn new(message: Arc<S>, signature: Signature) -> SignedSidecar<T, S> {
-        Self {
-            message,
-            signature,
-            _phantom: Default::default(),
-        }
-    }
-}
-
 /// List of Signed Sidecars that implements `Sidecar`.
 pub type SignedSidecarList<T, Sidecar> =
     VariableList<SignedSidecar<T, Sidecar>, <T as EthSpec>::MaxBlobsPerBlock>;
@@ -56,7 +46,6 @@ pub type SignedBlobSidecarList<T> = SignedSidecarList<T, BlobSidecar<T>>;
 
 pub type SignedBlobSidecar<T> = SignedSidecar<T, BlobSidecar<T>>;
 
-// TODO(jimmy): impl on SignedSidecar instead?
 impl<T: EthSpec> SignedBlobSidecar<T> {
     /// Verify `self.signature`.
     ///

@@ -8,9 +8,7 @@ use crate::{
 use crate::{http_metrics::metrics, validator_store::ValidatorStore};
 use bls::SignatureBytes;
 use environment::RuntimeContext;
-use eth2::types::{
-    BlindedBlockProposal, BlockContents, BlockProposal, FullBlockProposal, SignedBlockContents,
-};
+use eth2::types::{BlockContents, SignedBlockContents};
 use eth2::BeaconNodeHttpClient;
 use slog::{crit, debug, error, info, trace, warn, Logger};
 use slot_clock::SlotClock;
@@ -21,7 +19,10 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio::time::sleep;
-use types::{BlockType, EthSpec, ExecPayload, Graffiti, PublicKeyBytes, Slot};
+use types::{
+    BlindedBlockProposal, BlockProposal, BlockType, EthSpec, ExecPayload, FullBlockProposal,
+    Graffiti, PublicKeyBytes, Slot,
+};
 
 #[derive(Debug)]
 pub enum BlockError {

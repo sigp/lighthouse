@@ -1351,23 +1351,6 @@ mod tests {
     }
 }
 
-pub trait BlockProposal<T: EthSpec>: Send {
-    type Payload: AbstractExecPayload<T>;
-    type Sidecar: Sidecar<T>;
-}
-
-pub struct FullBlockProposal {}
-impl<T: EthSpec> BlockProposal<T> for FullBlockProposal {
-    type Payload = FullPayload<T>;
-    type Sidecar = BlobSidecar<T>;
-}
-
-pub struct BlindedBlockProposal {}
-impl<T: EthSpec> BlockProposal<T> for BlindedBlockProposal {
-    type Payload = BlindedPayload<T>;
-    type Sidecar = BlindedBlobSidecar;
-}
-
 /// A wrapper over a [`BeaconBlock`] or a [`BeaconBlockAndBlobSidecars`].
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(untagged)]
@@ -1446,7 +1429,7 @@ pub type SignedBlockContentsTuple<T, B> = (
 );
 
 /// A wrapper over a [`SignedBeaconBlock`] or a [`SignedBeaconBlockAndBlobSidecars`].
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(untagged)]
 #[serde(bound = "T: EthSpec")]
 pub enum SignedBlockContents<T: EthSpec, B: BlockProposal<T>> {
@@ -1548,14 +1531,14 @@ impl<T: EthSpec, B: BlockProposal<T>> From<SignedBlockContentsTuple<T, B>>
 
 #[derive(Debug, Clone, Serialize, Deserialize, Encode)]
 #[serde(bound = "T: EthSpec")]
-pub struct SignedBeaconBlockAndBlobSidecars<T: EthSpec, B: BlockProposal<T>> {
+pub struct SignedBeaconBlockAndBlobSidecars<T: EthSpec, B: BlockProposal<T> = FullBlockProposal> {
     pub signed_block: SignedBeaconBlock<T, B::Payload>,
     pub signed_blob_sidecars: SignedSidecarList<T, B::Sidecar>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Encode)]
 #[serde(bound = "T: EthSpec, B: BlockProposal<T>")]
-pub struct BeaconBlockAndBlobSidecars<T: EthSpec, B: BlockProposal<T>> {
+pub struct BeaconBlockAndBlobSidecars<T: EthSpec, B: BlockProposal<T> = FullBlockProposal> {
     pub block: BeaconBlock<T, B::Payload>,
     pub blob_sidecars: SidecarList<T, B::Sidecar>,
 }
@@ -1592,7 +1575,7 @@ pub struct SignedBlindedBeaconBlockAndBlobSidecars<
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Encode)]
-#[serde(bound = "T: EthSpec")]
+#[serde(bound = "T: EthSpec, B: BlockProposal<T>")]
 pub struct BlindedBeaconBlockAndBlobSidecars<T: EthSpec, B: BlockProposal<T> = BlindedBlockProposal>
 {
     pub blinded_block: BeaconBlock<T, B::Payload>,

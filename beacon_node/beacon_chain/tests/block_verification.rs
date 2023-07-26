@@ -128,6 +128,7 @@ async fn get_chain_segment_with_signed_blobs() -> (
                                 .get(&BlobSignatureKey::new(block_root, blob_index))
                                 .unwrap()
                                 .clone(),
+                            _phantom: PhantomData,
                         }
                     })
                     .collect::<Vec<_>>();

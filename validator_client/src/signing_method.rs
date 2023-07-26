@@ -4,7 +4,6 @@
 //! - Via a remote signer (Web3Signer)
 
 use crate::http_metrics::metrics;
-use eth2::types::{BlockProposal, FullBlockProposal};
 use eth2_keystore::Keystore;
 use lockfile::Lockfile;
 use parking_lot::Mutex;

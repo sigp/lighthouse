@@ -98,6 +98,7 @@ pub mod slot_data;
 pub mod sqlite;
 
 pub mod blob_sidecar;
+pub mod block_proposal;
 pub mod signed_blob;
 
 use ethereum_types::{H160, H256};
@@ -122,6 +123,7 @@ pub use crate::blob_sidecar::{
     BlindedBlobSidecar, BlindedBlobSidecarList, BlobRoots, BlobSidecar, BlobSidecarList, Blobs,
     BlobsOrBlobRoots, Sidecar, SidecarList, SidecarListVariant,
 };
+pub use crate::block_proposal::{BlindedBlockProposal, BlockProposal, FullBlockProposal};
 pub use crate::bls_to_execution_change::BlsToExecutionChange;
 pub use crate::chain_spec::{ChainSpec, Config, Domain};
 pub use crate::checkpoint::Checkpoint;

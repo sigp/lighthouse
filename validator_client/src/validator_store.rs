@@ -6,7 +6,7 @@ use crate::{
     Config,
 };
 use account_utils::{validator_definitions::ValidatorDefinition, ZeroizeString};
-use eth2::types::{BlindedBlockProposal, BlockProposal, VariableList};
+use eth2::types::VariableList;
 use parking_lot::{Mutex, RwLock};
 use slashing_protection::{
     interchange::Interchange, InterchangeError, NotSafe, Safe, SlashingDatabase,
@@ -20,12 +20,13 @@ use std::sync::Arc;
 use task_executor::TaskExecutor;
 use types::{
     attestation::Error as AttestationError, graffiti::GraffitiString, Address, AggregateAndProof,
-    Attestation, BeaconBlock, ChainSpec, ContributionAndProof, Domain, Epoch, EthSpec, Fork,
-    Graffiti, Hash256, Keypair, PublicKeyBytes, SelectionProof, Sidecar, SidecarList, Signature,
-    SignedAggregateAndProof, SignedBeaconBlock, SignedContributionAndProof, SignedRoot,
-    SignedSidecar, SignedSidecarList, SignedValidatorRegistrationData, SignedVoluntaryExit, Slot,
-    SyncAggregatorSelectionData, SyncCommitteeContribution, SyncCommitteeMessage,
-    SyncSelectionProof, SyncSubnetId, ValidatorRegistrationData, VoluntaryExit,
+    Attestation, BeaconBlock, BlindedBlockProposal, BlockProposal, ChainSpec, ContributionAndProof,
+    Domain, Epoch, EthSpec, Fork, Graffiti, Hash256, Keypair, PublicKeyBytes, SelectionProof,
+    Sidecar, SidecarList, Signature, SignedAggregateAndProof, SignedBeaconBlock,
+    SignedContributionAndProof, SignedRoot, SignedSidecar, SignedSidecarList,
+    SignedValidatorRegistrationData, SignedVoluntaryExit, Slot, SyncAggregatorSelectionData,
+    SyncCommitteeContribution, SyncCommitteeMessage, SyncSelectionProof, SyncSubnetId,
+    ValidatorRegistrationData, VoluntaryExit,
 };
 use validator_dir::ValidatorDir;
 
@@ -564,7 +565,11 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
 
             metrics::inc_counter_vec(&metrics::SIGNED_BLOBS_TOTAL, &[metrics::SUCCESS]);
 
-            signed_blob_sidecars.push(SignedSidecar::new(blob_sidecar, signature));
+            signed_blob_sidecars.push(SignedSidecar {
+                message: blob_sidecar,
+                signature,
+                _phantom: PhantomData,
+            });
         }
 
         Ok(VariableList::from(signed_blob_sidecars))

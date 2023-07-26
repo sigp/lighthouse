@@ -13,8 +13,8 @@ pub use engine_api::*;
 pub use engine_api::{http, http::deposit_methods, http::HttpJsonRpc};
 use engines::{Engine, EngineError};
 pub use engines::{EngineState, ForkchoiceState};
+use eth2::types::SignedBlockContents;
 use eth2::types::{builder_bid::SignedBuilderBid, ForkVersionedResponse};
-use eth2::types::{BlindedBlockProposal, SignedBlockContents};
 use ethers_core::abi::ethereum_types::FromStrRadixErr;
 use ethers_core::types::Transaction as EthersTransaction;
 use fork_choice::ForkchoiceUpdateParameters;
@@ -48,7 +48,8 @@ use types::{
     AbstractExecPayload, BeaconStateError, ExecPayload, ExecutionPayloadDeneb, VersionedHash,
 };
 use types::{
-    BlindedPayload, BlockType, ChainSpec, Epoch, ExecutionPayloadCapella, ExecutionPayloadMerge,
+    BlindedBlockProposal, BlindedPayload, BlockType, ChainSpec, Epoch, ExecutionPayloadCapella,
+    ExecutionPayloadMerge,
 };
 use types::{ProposerPreparationData, PublicKeyBytes, Signature, Slot, Transaction};
 
@@ -1154,7 +1155,6 @@ impl<T: EthSpec> ExecutionLayer<T> {
                     }
                 };
 
-                // TODO(jimmy): cache blobs bundle
                 let payload_response = async {
                     debug!(
                         self.log(),

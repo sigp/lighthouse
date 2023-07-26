@@ -32,9 +32,8 @@ use beacon_chain::{
 pub use block_id::BlockId;
 use directory::DEFAULT_ROOT_DIR;
 use eth2::types::{
-    self as api_types, BlindedBlockProposal, BroadcastValidation, EndpointVersion, ForkChoice,
-    ForkChoiceNode, FullBlockProposal, SignedBlockContents, SkipRandaoVerification, ValidatorId,
-    ValidatorStatus,
+    self as api_types, BroadcastValidation, EndpointVersion, ForkChoice, ForkChoiceNode,
+    FullBlockProposal, SignedBlockContents, SkipRandaoVerification, ValidatorId, ValidatorStatus,
 };
 use lighthouse_network::{types::SyncState, EnrExt, NetworkGlobals, PeerId, PubsubMessage};
 use lighthouse_version::version_with_platform;
@@ -62,10 +61,10 @@ use tokio::sync::mpsc::{Sender, UnboundedSender};
 use tokio_stream::{wrappers::BroadcastStream, StreamExt};
 use types::{
     Attestation, AttestationData, AttestationShufflingId, AttesterSlashing, BeaconStateError,
-    CommitteeCache, ConfigAndPreset, Epoch, EthSpec, ForkName, ProposerPreparationData,
-    ProposerSlashing, RelativeEpoch, SignedAggregateAndProof, SignedBlsToExecutionChange,
-    SignedContributionAndProof, SignedValidatorRegistrationData, SignedVoluntaryExit, Slot,
-    SyncCommitteeMessage, SyncContributionData,
+    BlindedBlockProposal, CommitteeCache, ConfigAndPreset, Epoch, EthSpec, ForkName,
+    ProposerPreparationData, ProposerSlashing, RelativeEpoch, SignedAggregateAndProof,
+    SignedBlsToExecutionChange, SignedContributionAndProof, SignedValidatorRegistrationData,
+    SignedVoluntaryExit, Slot, SyncCommitteeMessage, SyncContributionData,
 };
 use version::{
     add_consensus_version_header, execution_optimistic_finalized_fork_versioned_response,

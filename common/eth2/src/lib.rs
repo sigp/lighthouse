@@ -711,9 +711,9 @@ impl BeaconNodeHttpClient {
     }
 
     /// `POST v2/beacon/blocks`
-    pub async fn post_beacon_blocks_v2<T: EthSpec>(
+    pub async fn post_beacon_blocks_v2<T: EthSpec, B: BlockProposal<T>>(
         &self,
-        block_contents: &SignedBlockContents<T, FullBlockProposal>,
+        block_contents: &SignedBlockContents<T, B>,
         validation_level: Option<BroadcastValidation>,
     ) -> Result<(), Error> {
         self.post_generic_with_consensus_version(

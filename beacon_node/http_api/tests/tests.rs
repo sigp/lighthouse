@@ -63,8 +63,8 @@ struct ApiTester {
     harness: Arc<BeaconChainHarness<EphemeralHarnessType<E>>>,
     chain: Arc<BeaconChain<EphemeralHarnessType<E>>>,
     client: BeaconNodeHttpClient,
-    next_block: SignedBlockContents<E>,
-    reorg_block: SignedBlockContents<E>,
+    next_block: SignedBlockContents<E, FullBlockProposal>,
+    reorg_block: SignedBlockContents<E, FullBlockProposal>,
     attestations: Vec<Attestation<E>>,
     contribution_and_proofs: Vec<SignedContributionAndProof<E>>,
     attester_slashing: AttesterSlashing<E>,
@@ -2385,7 +2385,7 @@ impl ApiTester {
 
             let block = self
                 .client
-                .get_validator_blocks::<E, FullPayload<E>>(slot, &randao_reveal, None)
+                .get_validator_blocks::<E, FullBlockProposal>(slot, &randao_reveal, None)
                 .await
                 .unwrap()
                 .data
@@ -2414,7 +2414,7 @@ impl ApiTester {
 
             let block = self
                 .client
-                .get_validator_blocks_modular::<E, FullPayload<E>>(
+                .get_validator_blocks_modular::<E, FullBlockProposal>(
                     slot,
                     &Signature::infinity().unwrap().into(),
                     None,
@@ -2472,13 +2472,13 @@ impl ApiTester {
 
             // Check failure with no `skip_randao_verification` passed.
             self.client
-                .get_validator_blocks::<E, FullPayload<E>>(slot, &bad_randao_reveal, None)
+                .get_validator_blocks::<E, FullBlockProposal>(slot, &bad_randao_reveal, None)
                 .await
                 .unwrap_err();
 
             // Check failure with `skip_randao_verification` (requires infinity sig).
             self.client
-                .get_validator_blocks_modular::<E, FullPayload<E>>(
+                .get_validator_blocks_modular::<E, FullBlockProposal>(
                     slot,
                     &bad_randao_reveal,
                     None,
@@ -2493,7 +2493,7 @@ impl ApiTester {
         self
     }
 
-    pub async fn test_blinded_block_production<Payload: AbstractExecPayload<E>>(&self) {
+    pub async fn test_blinded_block_production<B: BlockProposal<E>>(&self) {
         let fork = self.chain.canonical_head.cached_head().head_fork();
         let genesis_validators_root = self.chain.genesis_validators_root;
 
@@ -2533,7 +2533,7 @@ impl ApiTester {
 
             let block = self
                 .client
-                .get_validator_blinded_blocks::<E, Payload>(slot, &randao_reveal, None)
+                .get_validator_blinded_blocks::<E, B>(slot, &randao_reveal, None)
                 .await
                 .unwrap()
                 .data;
@@ -2553,15 +2553,13 @@ impl ApiTester {
         }
     }
 
-    pub async fn test_blinded_block_production_no_verify_randao<Payload: AbstractExecPayload<E>>(
-        self,
-    ) -> Self {
+    pub async fn test_blinded_block_production_no_verify_randao<B: BlockProposal<E>>(self) -> Self {
         for _ in 0..E::slots_per_epoch() {
             let slot = self.chain.slot().unwrap();
 
             let block = self
                 .client
-                .get_validator_blinded_blocks_modular::<E, Payload>(
+                .get_validator_blinded_blocks_modular::<E, B>(
                     slot,
                     &Signature::infinity().unwrap().into(),
                     None,
@@ -2577,9 +2575,7 @@ impl ApiTester {
         self
     }
 
-    pub async fn test_blinded_block_production_verify_randao_invalid<
-        Payload: AbstractExecPayload<E>,
-    >(
+    pub async fn test_blinded_block_production_verify_randao_invalid<B: BlockProposal<E>>(
         self,
     ) -> Self {
         let fork = self.chain.canonical_head.cached_head().head_fork();
@@ -2621,13 +2617,13 @@ impl ApiTester {
 
             // Check failure with full randao verification enabled.
             self.client
-                .get_validator_blinded_blocks::<E, Payload>(slot, &bad_randao_reveal, None)
+                .get_validator_blinded_blocks::<E, B>(slot, &bad_randao_reveal, None)
                 .await
                 .unwrap_err();
 
             // Check failure with `skip_randao_verification` (requires infinity sig).
             self.client
-                .get_validator_blinded_blocks_modular::<E, Payload>(
+                .get_validator_blinded_blocks_modular::<E, B>(
                     slot,
                     &bad_randao_reveal,
                     None,
@@ -4600,7 +4596,7 @@ async fn block_production_verify_randao_invalid() {
 async fn blinded_block_production_full_payload_premerge() {
     ApiTester::new()
         .await
-        .test_blinded_block_production::<FullPayload<_>>()
+        .test_blinded_block_production::<FullBlockProposal>()
         .await;
 }
 
@@ -4609,7 +4605,7 @@ async fn blinded_block_production_with_skip_slots_full_payload_premerge() {
     ApiTester::new()
         .await
         .skip_slots(E::slots_per_epoch() * 2)
-        .test_blinded_block_production::<FullPayload<_>>()
+        .test_blinded_block_production::<FullBlockProposal>()
         .await;
 }
 
@@ -4617,7 +4613,7 @@ async fn blinded_block_production_with_skip_slots_full_payload_premerge() {
 async fn blinded_block_production_no_verify_randao_full_payload_premerge() {
     ApiTester::new()
         .await
-        .test_blinded_block_production_no_verify_randao::<FullPayload<_>>()
+        .test_blinded_block_production_no_verify_randao::<FullBlockProposal>()
         .await;
 }
 
@@ -4625,7 +4621,7 @@ async fn blinded_block_production_no_verify_randao_full_payload_premerge() {
 async fn blinded_block_production_verify_randao_invalid_full_payload_premerge() {
     ApiTester::new()
         .await
-        .test_blinded_block_production_verify_randao_invalid::<FullPayload<_>>()
+        .test_blinded_block_production_verify_randao_invalid::<FullBlockProposal>()
         .await;
 }
 
@@ -4633,7 +4629,7 @@ async fn blinded_block_production_verify_randao_invalid_full_payload_premerge() 
 async fn blinded_block_production_blinded_payload_premerge() {
     ApiTester::new()
         .await
-        .test_blinded_block_production::<BlindedPayload<_>>()
+        .test_blinded_block_production::<BlindedBlockProposal>()
         .await;
 }
 
@@ -4642,7 +4638,7 @@ async fn blinded_block_production_with_skip_slots_blinded_payload_premerge() {
     ApiTester::new()
         .await
         .skip_slots(E::slots_per_epoch() * 2)
-        .test_blinded_block_production::<BlindedPayload<_>>()
+        .test_blinded_block_production::<BlindedBlockProposal>()
         .await;
 }
 
@@ -4650,7 +4646,7 @@ async fn blinded_block_production_with_skip_slots_blinded_payload_premerge() {
 async fn blinded_block_production_no_verify_randao_blinded_payload_premerge() {
     ApiTester::new()
         .await
-        .test_blinded_block_production_no_verify_randao::<BlindedPayload<_>>()
+        .test_blinded_block_production_no_verify_randao::<BlindedBlockProposal>()
         .await;
 }
 
@@ -4658,7 +4654,7 @@ async fn blinded_block_production_no_verify_randao_blinded_payload_premerge() {
 async fn blinded_block_production_verify_randao_invalid_blinded_payload_premerge() {
     ApiTester::new()
         .await
-        .test_blinded_block_production_verify_randao_invalid::<BlindedPayload<_>>()
+        .test_blinded_block_production_verify_randao_invalid::<BlindedBlockProposal>()
         .await;
 }
 

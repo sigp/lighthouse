@@ -6,7 +6,7 @@ use beacon_chain::{
     AvailabilityProcessingStatus, BeaconChain, BeaconChainError, BeaconChainTypes, BlockError,
     IntoGossipVerifiedBlockContents, NotifyExecutionLayer,
 };
-use eth2::types::{BlindedBlockProposal, SignedBlockContents};
+use eth2::types::SignedBlockContents;
 use eth2::types::{BroadcastValidation, FullBlockProposal};
 use execution_layer::ProvenancedPayload;
 use lighthouse_network::PubsubMessage;
@@ -19,8 +19,8 @@ use std::time::Duration;
 use tokio::sync::mpsc::UnboundedSender;
 use tree_hash::TreeHash;
 use types::{
-    AbstractExecPayload, BeaconBlockRef, EthSpec, ExecPayload, ExecutionBlockHash, FullPayload,
-    Hash256, SignedBeaconBlock, SignedBlobSidecarList,
+    AbstractExecPayload, BeaconBlockRef, BlindedBlockProposal, EthSpec, ExecPayload,
+    ExecutionBlockHash, FullPayload, Hash256, SignedBeaconBlock, SignedBlobSidecarList,
 };
 use warp::Rejection;
 
@@ -317,7 +317,6 @@ pub async fn reconstruct_block<T: BeaconChainTypes>(
             .into();
             ProvenancedPayload::Local(payload)
         // If we already have an execution payload with this transactions root cached, use it.
-        // TODO(jimmy) get cached blobs
         } else if let Some(cached_payload) =
             el.get_payload_by_root(&payload_header.tree_hash_root())
         {
@@ -365,20 +364,14 @@ pub async fn reconstruct_block<T: BeaconChainTypes>(
         // A block without a payload is pre-merge and we consider it locally
         // built.
         None => block
-            // .deconstruct()
-            // .0
             .try_into_full_block(None)
             .map(SignedBlockContents::Block)
             .map(ProvenancedBlock::local),
         Some(ProvenancedPayload::Local(full_payload)) => block
-            // .deconstruct()
-            // .0
             .try_into_full_block(Some(full_payload))
             .map(SignedBlockContents::Block)
             .map(ProvenancedBlock::local),
         Some(ProvenancedPayload::Builder(full_payload)) => block
-            // .deconstruct()
-            // .0
             .try_into_full_block(Some(full_payload))
             .map(SignedBlockContents::Block)
             .map(ProvenancedBlock::builder),

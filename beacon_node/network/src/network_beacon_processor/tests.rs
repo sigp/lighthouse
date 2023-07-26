@@ -29,8 +29,8 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 use types::blob_sidecar::FixedBlobSidecarList;
 use types::{
-    Attestation, AttesterSlashing, BlobSidecar, Epoch, Hash256, MainnetEthSpec, ProposerSlashing,
-    SignedAggregateAndProof, SignedBeaconBlock, SignedSidecarList, SignedVoluntaryExit, Slot,
+    Attestation, AttesterSlashing, Epoch, Hash256, MainnetEthSpec, ProposerSlashing,
+    SignedAggregateAndProof, SignedBeaconBlock, SignedBlobSidecarList, SignedVoluntaryExit, Slot,
     SubnetId,
 };
 
@@ -52,7 +52,7 @@ const STANDARD_TIMEOUT: Duration = Duration::from_secs(10);
 struct TestRig {
     chain: Arc<BeaconChain<T>>,
     next_block: Arc<SignedBeaconBlock<E>>,
-    next_blobs: Option<SignedSidecarList<E, BlobSidecar<E>>>,
+    next_blobs: Option<SignedBlobSidecarList<E>>,
     attestations: Vec<(Attestation<E>, SubnetId)>,
     next_block_attestations: Vec<(Attestation<E>, SubnetId)>,
     next_block_aggregate_attestations: Vec<SignedAggregateAndProof<E>>,

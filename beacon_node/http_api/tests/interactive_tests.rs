@@ -4,7 +4,7 @@ use beacon_chain::{
     test_utils::{AttestationStrategy, BlockStrategy, SyncCommitteeStrategy},
     ChainConfig,
 };
-use eth2::types::{DepositContractData, StateId};
+use eth2::types::{DepositContractData, FullBlockProposal, StateId};
 use execution_layer::{ForkchoiceState, PayloadAttributes};
 use http_api::test_utils::InteractiveTester;
 use parking_lot::Mutex;
@@ -17,8 +17,8 @@ use std::sync::Arc;
 use std::time::Duration;
 use tree_hash::TreeHash;
 use types::{
-    Address, Epoch, EthSpec, ExecPayload, ExecutionBlockHash, ForkName, FullPayload,
-    MainnetEthSpec, MinimalEthSpec, ProposerPreparationData, Slot,
+    Address, Epoch, EthSpec, ExecPayload, ExecutionBlockHash, ForkName, MainnetEthSpec,
+    MinimalEthSpec, ProposerPreparationData, Slot,
 };
 
 type E = MainnetEthSpec;
@@ -812,7 +812,7 @@ pub async fn fork_choice_before_proposal() {
         .into();
     let block_d = tester
         .client
-        .get_validator_blocks::<E, FullPayload<E>>(slot_d, &randao_reveal, None)
+        .get_validator_blocks::<E, FullBlockProposal>(slot_d, &randao_reveal, None)
         .await
         .unwrap()
         .data

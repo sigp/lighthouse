@@ -15,7 +15,7 @@ use crate::{
     StateSkipConfig,
 };
 use bls::get_withdrawal_credentials;
-use eth2::types::{BlindedBlockProposal, FullBlockProposal, SignedBlockContentsTuple};
+use eth2::types::SignedBlockContentsTuple;
 use execution_layer::test_utils::generate_genesis_header;
 use execution_layer::{
     auth::JwtKey,
@@ -50,6 +50,7 @@ use state_processing::{
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
+use std::marker::PhantomData;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
@@ -828,7 +829,11 @@ where
                     .into_iter()
                     .map(|blob_sidecar| {
                         let blinded_sidecar: BlindedBlobSidecar = blob_sidecar.message.into();
-                        SignedSidecar::new(Arc::new(blinded_sidecar), blob_sidecar.signature)
+                        SignedSidecar {
+                            message: Arc::new(blinded_sidecar),
+                            signature: blob_sidecar.signature,
+                            _phantom: PhantomData,
+                        }
                     })
                     .collect(),
             )
