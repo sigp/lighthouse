@@ -4213,6 +4213,7 @@ dependencies = [
 [[package]]
 name = "kzg_rust"
 version = "0.1.0"
+source = "git+https://github.com/pawanjay176/kzg_rust#e472f272ec1b7fc4d4424721ffed3ad633516535"
 dependencies = [
  "blst 0.3.10",
  "hex",

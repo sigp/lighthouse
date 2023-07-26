@@ -19,7 +19,7 @@ ethereum_hashing = "1.0.0-beta.2"
 c-kzg = { git = "https://github.com/ethereum/c-kzg-4844", rev = "13cec820c08f45318f82ed4e0da0300042758b92" , features = ["mainnet-spec"]}
 c_kzg_min = { package = "c-kzg", git = "https://github.com/ethereum//c-kzg-4844", rev = "13cec820c08f45318f82ed4e0da0300042758b92", features = ["minimal-spec"], optional = true }
 arbitrary = { version = "1.0", features = ["derive"], optional = true }
-kzg_rust = { path = "/Users/pawan/rust/kzg_rust" }
+kzg_rust = { git = "https://github.com/pawanjay176/kzg_rust" }
 
 [features]
 # TODO(deneb): enabled by default for convenience, would need more cfg magic to disable
