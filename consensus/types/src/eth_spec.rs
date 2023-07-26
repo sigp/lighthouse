@@ -1,6 +1,6 @@
 use crate::*;
 
-use kzg::{BlobTrait, KzgPreset, MainnetKzgPreset, MinimalKzgPreset, MainnetRustKzgPreset};
+use kzg::{BlobTrait, KzgPreset, MainnetKzgPreset, MainnetRustKzgPreset, MinimalKzgPreset};
 use safe_arith::SafeArith;
 use serde_derive::{Deserialize, Serialize};
 use ssz_types::typenum::{

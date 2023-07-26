@@ -342,11 +342,11 @@ impl KzgPreset for MainnetRustKzgPreset {
         trusted_setup: &Self::KzgSettings,
     ) -> Result<bool, CryptoError> {
         let commitments: Vec<_> = commitments_bytes
-            .into_iter()
+            .iter()
             .map(|c| kzg_rust::KzgCommitment(*c))
             .collect();
         let proofs: Vec<_> = proofs_bytes
-            .into_iter()
+            .iter()
             .map(|c| kzg_rust::KzgProof(*c))
             .collect();
         kzg_rust::verify_blob_kzg_proof_batch(blobs, &commitments, &proofs, trusted_setup)
