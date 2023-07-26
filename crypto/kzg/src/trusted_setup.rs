@@ -40,6 +40,10 @@ impl TrustedSetup {
     pub fn g1_len(&self) -> usize {
         self.g1_points.len()
     }
+
+    pub fn g2_len(&self) -> usize {
+        self.g2_points.len()
+    }
 }
 
 impl Serialize for G1Point {

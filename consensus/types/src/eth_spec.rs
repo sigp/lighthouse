@@ -1,6 +1,6 @@
 use crate::*;
 
-use kzg::{BlobTrait, KzgPreset, MainnetKzgPreset, MinimalKzgPreset};
+use kzg::{BlobTrait, KzgPreset, MainnetKzgPreset, MinimalKzgPreset, MainnetRustKzgPreset};
 use safe_arith::SafeArith;
 use serde_derive::{Deserialize, Serialize};
 use ssz_types::typenum::{
@@ -283,7 +283,7 @@ macro_rules! params_from_eth_spec {
 pub struct MainnetEthSpec;
 
 impl EthSpec for MainnetEthSpec {
-    type Kzg = MainnetKzgPreset;
+    type Kzg = MainnetRustKzgPreset;
 
     type JustificationBitsLength = U4;
     type SubnetBitfieldLength = U64;

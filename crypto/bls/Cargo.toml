@@ -17,7 +17,7 @@ ethereum_hashing = "1.0.0-beta.2"
 ethereum-types = "0.14.1"
 arbitrary = { version = "1.0", features = ["derive"], optional = true }
 zeroize = { version = "1.4.2", features = ["zeroize_derive"] }
-blst = { version = "0.3.3", optional = true }
+blst = { git = "https://github.com/supranational/blst", optional = true }
 
 [features]
 default = ["supranational"]

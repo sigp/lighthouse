@@ -24,6 +24,7 @@ pub enum Error {
 pub enum CryptoError {
     CKzg(c_kzg::Error),
     CKzgMin(c_kzg_min::Error),
+    RustCKzg(kzg_rust::Error),
 }
 
 impl From<c_kzg::Error> for CryptoError {
@@ -35,6 +36,12 @@ impl From<c_kzg::Error> for CryptoError {
 impl From<c_kzg_min::Error> for CryptoError {
     fn from(e: c_kzg_min::Error) -> Self {
         Self::CKzgMin(e)
+    }
+}
+
+impl From<kzg_rust::Error> for CryptoError {
+    fn from(e: kzg_rust::Error) -> Self {
+        Self::RustCKzg(e)
     }
 }
 
@@ -246,11 +253,142 @@ macro_rules! implement_kzg_preset {
 
 #[derive(Clone, PartialEq, Eq, Debug, Default, Serialize, Deserialize, arbitrary::Arbitrary)]
 pub struct MainnetKzgPreset;
+
+#[derive(Clone, PartialEq, Eq, Debug, Default, Serialize, Deserialize, arbitrary::Arbitrary)]
+pub struct MainnetRustKzgPreset;
+
 #[derive(Clone, PartialEq, Eq, Debug, Default, Serialize, Deserialize, arbitrary::Arbitrary)]
 pub struct MinimalKzgPreset;
 
 implement_kzg_preset!(MainnetKzgPreset, c_kzg, Mainnet);
 implement_kzg_preset!(MinimalKzgPreset, c_kzg_min, Minimal);
+
+impl BlobTrait for kzg_rust::Blob {
+    fn from_bytes(bytes: &[u8]) -> Result<Self, Error> {
+        kzg_rust::Blob::from_bytes(bytes)
+            .map_err(CryptoError::from)
+            .map_err(Error::InvalidBlob)
+    }
+}
+
+impl KzgPreset for MainnetRustKzgPreset {
+    const BYTES_PER_BLOB: usize = kzg_rust::BYTES_PER_BLOB;
+    const BYTES_PER_FIELD_ELEMENT: usize = kzg_rust::BYTES_PER_FIELD_ELEMENT;
+    const FIELD_ELEMENTS_PER_BLOB: usize = kzg_rust::field_elements_per_blob();
+
+    type KzgSettings = kzg_rust::KzgSettings;
+    type Blob = kzg_rust::Blob;
+    type Bytes32 = kzg_rust::Bytes32;
+    type Bytes48 = kzg_rust::Bytes48;
+    type Error = kzg_rust::Error;
+
+    fn spec_name() -> KzgPresetId {
+        KzgPresetId::Mainnet
+    }
+
+    fn load_trusted_setup(trusted_setup: TrustedSetup) -> Result<Self::KzgSettings, CryptoError> {
+        let n1 = trusted_setup.g1_len();
+        let n2 = trusted_setup.g2_len();
+        let g1_points = trusted_setup
+            .g1_points()
+            .into_iter()
+            .fold(vec![], |mut acc, x| {
+                acc.extend_from_slice(&x);
+                acc
+            });
+        let g2_points = trusted_setup
+            .g2_points()
+            .into_iter()
+            .fold(vec![], |mut acc, x| {
+                acc.extend_from_slice(&x);
+                acc
+            });
+        kzg_rust::load_trusted_setup(g1_points, g2_points, n1, n2).map_err(CryptoError::from)
+    }
+
+    fn compute_blob_kzg_proof(
+        blob: Self::Blob,
+        kzg_commitment: KzgCommitment,
+        trusted_setup: &Self::KzgSettings,
+    ) -> Result<KzgProof, CryptoError> {
+        kzg_rust::compute_blob_kzg_proof(
+            &blob,
+            &kzg_rust::KzgCommitment(kzg_commitment.into()),
+            trusted_setup,
+        )
+        .map_err(CryptoError::from)
+        .map(|proof| KzgProof(proof.to_bytes()))
+    }
+
+    fn verify_blob_kzg_proof(
+        blob: Self::Blob,
+        kzg_commitment: KzgCommitment,
+        kzg_proof: KzgProof,
+        trusted_setup: &Self::KzgSettings,
+    ) -> Result<bool, CryptoError> {
+        kzg_rust::verify_blob_kzg_proof(
+            &blob,
+            &kzg_rust::KzgCommitment(kzg_commitment.into()),
+            &kzg_rust::KzgProof(kzg_proof.into()),
+            trusted_setup,
+        )
+        .map_err(CryptoError::from)
+    }
+
+    fn verify_blob_kzg_proof_batch(
+        blobs: &[Self::Blob],
+        commitments_bytes: &[Self::Bytes48],
+        proofs_bytes: &[Self::Bytes48],
+        trusted_setup: &Self::KzgSettings,
+    ) -> Result<bool, CryptoError> {
+        let commitments: Vec<_> = commitments_bytes
+            .into_iter()
+            .map(|c| kzg_rust::KzgCommitment(*c))
+            .collect();
+        let proofs: Vec<_> = proofs_bytes
+            .into_iter()
+            .map(|c| kzg_rust::KzgProof(*c))
+            .collect();
+        kzg_rust::verify_blob_kzg_proof_batch(blobs, &commitments, &proofs, trusted_setup)
+            .map_err(CryptoError::from)
+    }
+
+    fn blob_to_kzg_commitment(
+        blob: Self::Blob,
+        trusted_setup: &Self::KzgSettings,
+    ) -> Result<KzgCommitment, CryptoError> {
+        kzg_rust::blob_to_kzg_commitment(&blob, trusted_setup)
+            .map_err(CryptoError::from)
+            .map(|commitment| KzgCommitment(commitment.to_bytes()))
+    }
+
+    fn compute_kzg_proof(
+        blob: Self::Blob,
+        z: Self::Bytes32,
+        trusted_setup: &Self::KzgSettings,
+    ) -> Result<(KzgProof, Self::Bytes32), CryptoError> {
+        kzg_rust::compute_kzg_proof(&blob, &z, trusted_setup)
+            .map_err(CryptoError::from)
+            .map(|(proof, y)| (KzgProof(proof.to_bytes()), y))
+    }
+
+    fn verify_kzg_proof(
+        kzg_commitment: KzgCommitment,
+        z: Self::Bytes32,
+        y: Self::Bytes32,
+        kzg_proof: KzgProof,
+        trusted_setup: &Self::KzgSettings,
+    ) -> Result<bool, CryptoError> {
+        kzg_rust::verify_kzg_proof(
+            &kzg_rust::KzgCommitment(kzg_commitment.into()),
+            &z,
+            &y,
+            &kzg_rust::KzgProof(kzg_proof.into()),
+            trusted_setup,
+        )
+        .map_err(CryptoError::from)
+    }
+}
 
 /// A wrapper over a kzg library that holds the trusted setup parameters.
 #[derive(Debug)]

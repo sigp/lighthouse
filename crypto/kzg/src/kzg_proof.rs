@@ -17,6 +17,12 @@ impl From<KzgProof> for c_kzg::Bytes48 {
     }
 }
 
+impl From<KzgProof> for kzg_rust::Bytes48 {
+    fn from(value: KzgProof) -> Self {
+        value.0.into()
+    }
+}
+
 impl From<KzgProof> for c_kzg_min::Bytes48 {
     fn from(value: KzgProof) -> Self {
         value.0.into()
