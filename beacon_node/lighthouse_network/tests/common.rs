@@ -139,6 +139,9 @@ pub async fn build_node_pair(
 
     let receiver_multiaddr = receiver.local_enr().multiaddr()[1].clone();
 
+    println!("{:?}", receiver_multiaddr);
+    println!("{:?}", sender.local_enr().multiaddr().clone());
+
     // let the two nodes set up listeners
     let sender_fut = async {
         loop {

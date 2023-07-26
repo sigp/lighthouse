@@ -1054,7 +1054,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
     fn on_swarm_event(&mut self, event: FromSwarm<Self::ConnectionHandler>) {
         match event {
             FromSwarm::DialFailure(DialFailure { peer_id, error, .. }) => {
-                self.on_dial_failure(peer_id, &ClearDialError(error))
+                self.on_dial_failure(peer_id, ClearDialError(error))
             }
             FromSwarm::ConnectionEstablished(_)
             | FromSwarm::ConnectionClosed(_)
@@ -1074,8 +1074,25 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
 }
 
 impl<TSpec: EthSpec> Discovery<TSpec> {
-    fn on_dial_failure(&mut self, peer_id: Option<PeerId>, error: &ClearDialError) {
-        
+    fn on_dial_failure(&mut self, peer_id: Option<PeerId>, error: ClearDialError) {
+        if let Some(peer_id) = peer_id {
+            match error.0 {
+                DialError::Banned
+                | DialError::LocalPeerId
+                | DialError::InvalidPeerId(_)
+                | DialError::ConnectionIo(_)
+                | DialError::NoAddresses
+                | DialError::Transport(_)
+                | DialError::WrongPeerId { .. } => {
+                    // set peer as disconnected in discovery DHT
+                    debug!(self.log, "{:}", error);
+                    self.disconnect_peer(&peer_id);
+                }
+                DialError::ConnectionLimit(_)
+                | DialError::DialPeerConditionFalse(_)
+                | DialError::Aborted => {}
+            }
+        }
     }
 }
 
@@ -1231,7 +1248,7 @@ impl<'a> std::fmt::Display for ClearDialError<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
         match &self.0 {
             DialError::Transport(errors) => {
-                for (multiaddr, transport_error) in errors {
+                for (_, transport_error) in errors {
                     match transport_error {
                         libp2p::TransportError::MultiaddrNotSupported(multiaddr_error) => {
                             write!(f, "Multiaddr not supported: {multiaddr_error}")?;
@@ -1241,18 +1258,17 @@ impl<'a> std::fmt::Display for ClearDialError<'a> {
                         }
                     }
                 }
-
                 Ok(())
             }
-            DialError::Banned => todo!(),
-            DialError::ConnectionLimit(_) => todo!(),
-            DialError::LocalPeerId => todo!(),
-            DialError::NoAddresses => todo!(),
-            DialError::DialPeerConditionFalse(_) => todo!(),
-            DialError::Aborted => todo!(),
-            DialError::InvalidPeerId(_) => todo!(),
-            DialError::WrongPeerId { obtained, endpoint } => todo!(),
-            DialError::ConnectionIo(_) => todo!(),
+            DialError::Banned => write!(f, "The peer is currently banned"),
+            DialError::ConnectionLimit(_) => write!(f, "The configured limit for simultaneous outgoing connections has been reached."),
+            DialError::LocalPeerId =>  write!(f, "The peer being dialed is the local peer and thus the dial was aborted."),
+            DialError::NoAddresses => write!(f, "NetworkBehaviour::addresses_of_peer returned no addresses for the peer to dial."),
+            DialError::DialPeerConditionFalse(_) => write!(f, "The provided dial_opts::PeerCondition evaluated to false and thus the dial was aborted."),
+            DialError::Aborted => write!(f, "Pending connection attempt has been aborted."),
+            DialError::InvalidPeerId(_) => write!(f, "The provided peer identity is invalid."),
+            DialError::WrongPeerId { .. } =>  write!(f, "The peer identity obtained on the connection did not match the one that was expected."),
+            DialError::ConnectionIo(_) => write!(f, "An I/O error occurred on the connection."),
         }
     }
 }
