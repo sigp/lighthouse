@@ -395,7 +395,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
 
                     // If we would otherwise be synced, first check if we need to perform or
                     // complete a backfill sync.
-                    #[cfg(not(feature="disable_backfill"))]
+                    #[cfg(not(feature = "disable_backfill"))]
                     if matches!(sync_state, SyncState::Synced) {
                         // Determine if we need to start/resume/restart a backfill sync.
                         match self.backfill_sync.start(&mut self.network) {
