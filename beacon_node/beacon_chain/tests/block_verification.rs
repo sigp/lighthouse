@@ -67,10 +67,10 @@ async fn get_chain_segment() -> (Vec<BeaconSnapshot<E>>, Vec<Option<BlobSidecarL
             beacon_state: snapshot.beacon_state,
         });
         segment_blobs.push(
-            harness
+            Some(harness
                 .chain
                 .get_blobs(&snapshot.beacon_block_root)
-                .unwrap(),
+                .unwrap()),
         )
     }
     (segment, segment_blobs)
@@ -114,26 +114,22 @@ async fn get_chain_segment_with_signed_blobs() -> (
             .chain
             .get_blobs(&snapshot.beacon_block_root)
             .unwrap()
-            .map(|blobs| {
-                let blobs = blobs
-                    .into_iter()
-                    .map(|blob| {
-                        let block_root = blob.block_root;
-                        let blob_index = blob.index;
-                        SignedBlobSidecar {
-                            message: blob,
-                            signature: harness
-                                .blob_signature_cache
-                                .read()
-                                .get(&BlobSignatureKey::new(block_root, blob_index))
-                                .unwrap()
-                                .clone(),
-                        }
-                    })
-                    .collect::<Vec<_>>();
-                VariableList::from(blobs)
-            });
-        segment_blobs.push(signed_blobs)
+            .into_iter()
+            .map(|blob| {
+                let block_root = blob.block_root;
+                let blob_index = blob.index;
+                SignedBlobSidecar {
+                    message: blob,
+                    signature: harness
+                        .blob_signature_cache
+                        .read()
+                        .get(&BlobSignatureKey::new(block_root, blob_index))
+                        .unwrap()
+                        .clone(),
+                }
+            })
+            .collect::<Vec<_>>();
+        segment_blobs.push(Some(VariableList::from(signed_blobs)))
     }
     (segment, segment_blobs)
 }
