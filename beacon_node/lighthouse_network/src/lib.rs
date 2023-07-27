@@ -21,6 +21,7 @@ use libp2p::swarm::DialError;
 pub use listen_addr::*;
 
 use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
+use std::error::Error;
 use std::str::FromStr;
 
 /// Wrapper over a libp2p `PeerId` which implements `Serialize` and `Deserialize`
@@ -67,7 +68,18 @@ impl<'de> Deserialize<'de> for PeerIdSerialized {
 // A wrapper struct that prints a dial error nicely.
 struct ClearDialError<'a>(&'a DialError);
 
+impl<'a> ClearDialError<'a> {
+    fn most_inner_error(&self, err: &'a(dyn Error + 'static)) -> &'a(dyn Error + 'static) {
+        if let Some(cause) = err.source() {
+            self.most_inner_error(cause)
+        } else {
+            err
+        }
+    }
+}
+
 impl<'a> std::fmt::Display for ClearDialError<'a> {
+   
     fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
         match &self.0 {
             DialError::Transport(errors) => {
@@ -76,8 +88,13 @@ impl<'a> std::fmt::Display for ClearDialError<'a> {
                         libp2p::TransportError::MultiaddrNotSupported(multiaddr_error) => {
                             write!(f, "Multiaddr not supported: {multiaddr_error}")?;
                         }
-                        libp2p::TransportError::Other(io_error) => {
-                            write!(f, "A transport level io error has occured: {io_error}")?;
+                        libp2p::TransportError::Other(other_error) => {
+                            if let Some(source) = other_error.source() {
+                                let inner_error = self.most_inner_error(source);
+                                write!(f, "A nested transport level error has ocurred, inner error: {inner_error}")?;
+                            } else {
+                                write!(f, "A transport level error has ocurred: {other_error}")?;
+                            }
                         }
                     }
                 }
