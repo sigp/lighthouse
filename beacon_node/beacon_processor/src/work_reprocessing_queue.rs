@@ -364,7 +364,7 @@ pub fn spawn_reprocess_scheduler<S: SlotClock + 'static>(
     maximum_gossip_clock_disparity: Duration,
 ) -> Result<(), String> {
     // Sanity check
-    if ADDITIONAL_QUEUED_BLOCK_DELAY > maximum_gossip_clock_disparity {
+    if ADDITIONAL_QUEUED_BLOCK_DELAY >= maximum_gossip_clock_disparity {
         return Err("The block delay and gossip disparity don't match.".to_string());
     }
     let mut queue = ReprocessQueue {
