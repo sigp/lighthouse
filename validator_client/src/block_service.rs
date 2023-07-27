@@ -563,16 +563,15 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                     &metrics::BLOCK_SERVICE_TIMES,
                     &[metrics::BLINDED_BEACON_BLOCK_HTTP_POST],
                 );
-                todo!("need to be adjusted for blobs");
-                // beacon_node
-                //     .post_beacon_blinded_blocks(signed_block_contents.signed_block())
-                //     .await
-                //     .map_err(|e| {
-                //         BlockError::Irrecoverable(format!(
-                //             "Error from beacon node when publishing block: {:?}",
-                //             e
-                //         ))
-                //     })?
+                beacon_node
+                    .post_beacon_blinded_blocks(signed_block_contents)
+                    .await
+                    .map_err(|e| {
+                        BlockError::Irrecoverable(format!(
+                            "Error from beacon node when publishing block: {:?}",
+                            e
+                        ))
+                    })?
             }
         }
         Ok::<_, BlockError>(())

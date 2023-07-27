@@ -1,6 +1,6 @@
 use crate::{
-    test_utils::TestRandom, BlobSidecar, ChainSpec, Domain, EthSpec, Fork, Hash256, Sidecar,
-    Signature, SignedRoot, SigningData,
+    test_utils::TestRandom, BlindedBlobSidecar, Blob, BlobSidecar, ChainSpec, Domain, EthSpec,
+    Fork, Hash256, Sidecar, Signature, SignedRoot, SigningData,
 };
 use bls::PublicKey;
 use derivative::Derivative;
@@ -37,6 +37,26 @@ pub struct SignedSidecar<T: EthSpec, S: Sidecar<T>> {
     #[serde(skip)]
     #[arbitrary(default)]
     pub _phantom: PhantomData<T>,
+}
+
+impl<T: EthSpec> SignedSidecar<T, BlindedBlobSidecar> {
+    pub fn into_full_blob_sidecars(self, blob: Blob<T>) -> SignedSidecar<T, BlobSidecar<T>> {
+        let blinded_sidecar = self.message;
+        SignedSidecar {
+            message: Arc::new(BlobSidecar {
+                block_root: blinded_sidecar.block_root,
+                index: blinded_sidecar.index,
+                slot: blinded_sidecar.slot,
+                block_parent_root: blinded_sidecar.block_parent_root,
+                proposer_index: blinded_sidecar.proposer_index,
+                blob,
+                kzg_commitment: blinded_sidecar.kzg_commitment,
+                kzg_proof: blinded_sidecar.kzg_proof,
+            }),
+            signature: self.signature,
+            _phantom: PhantomData,
+        }
+    }
 }
 
 /// List of Signed Sidecars that implements `Sidecar`.

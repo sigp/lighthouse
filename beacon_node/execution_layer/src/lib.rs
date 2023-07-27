@@ -13,8 +13,8 @@ pub use engine_api::*;
 pub use engine_api::{http, http::deposit_methods, http::HttpJsonRpc};
 use engines::{Engine, EngineError};
 pub use engines::{EngineState, ForkchoiceState};
-use eth2::types::SignedBlockContents;
 use eth2::types::{builder_bid::SignedBuilderBid, ForkVersionedResponse};
+use eth2::types::{FullPayloadContents, SignedBlockContents};
 use ethers_core::abi::ethereum_types::FromStrRadixErr;
 use ethers_core::types::Transaction as EthersTransaction;
 use fork_choice::ForkchoiceUpdateParameters;
@@ -1090,7 +1090,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
             payload_attributes,
             forkchoice_update_params,
             current_fork,
-            Self::cache_payload,
+            Self::cache_payload, // TODO(jimmy): cache blobs as well?
         )
         .await
     }
@@ -1863,7 +1863,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
         &self,
         block_root: Hash256,
         block: &SignedBlockContents<T, BlindedBlockProposal>,
-    ) -> Result<ExecutionPayload<T>, Error> {
+    ) -> Result<FullPayloadContents<T>, Error> {
         debug!(
             self.log(),
             "Sending block to builder";
@@ -1882,11 +1882,12 @@ impl<T: EthSpec> ExecutionLayer<T> {
                 .await;
 
             match &payload_result {
-                Ok(payload) => {
+                Ok(unblinded_response) => {
                     metrics::inc_counter_vec(
                         &metrics::EXECUTION_LAYER_BUILDER_REVEAL_PAYLOAD_OUTCOME,
                         &[metrics::SUCCESS],
                     );
+                    let payload = unblinded_response.payload_ref();
                     info!(
                         self.log(),
                         "Builder successfully revealed payload";

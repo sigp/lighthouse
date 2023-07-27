@@ -657,9 +657,9 @@ impl BeaconNodeHttpClient {
     /// `POST beacon/blinded_blocks`
     ///
     /// Returns `Ok(None)` on a 404 error.
-    pub async fn post_beacon_blinded_blocks<T: EthSpec, Payload: AbstractExecPayload<T>>(
+    pub async fn post_beacon_blinded_blocks<T: EthSpec, B: BlockProposal<T>>(
         &self,
-        block: &SignedBeaconBlock<T, Payload>,
+        block: &SignedBlockContents<T, B>,
     ) -> Result<(), Error> {
         let mut path = self.eth_path(V1)?;
 

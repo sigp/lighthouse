@@ -6,8 +6,8 @@ use beacon_chain::{
     AvailabilityProcessingStatus, BeaconChain, BeaconChainError, BeaconChainTypes, BlockError,
     IntoGossipVerifiedBlockContents, NotifyExecutionLayer,
 };
-use eth2::types::SignedBlockContents;
 use eth2::types::{BroadcastValidation, FullBlockProposal};
+use eth2::types::{FullPayloadContents, SignedBlockContents};
 use execution_layer::ProvenancedPayload;
 use lighthouse_network::PubsubMessage;
 use network::NetworkMessage;
@@ -274,7 +274,7 @@ pub async fn publish_blinded_block<T: BeaconChainTypes>(
     validation_level: BroadcastValidation,
 ) -> Result<(), Rejection> {
     let block_root = block_contents.signed_block().canonical_root();
-    let full_block: ProvenancedBlock<T, SignedBlockContents<T::EthSpec, FullBlockProposal>> =
+    let full_block =
         reconstruct_block(chain.clone(), block_root, block_contents, log.clone()).await?;
     publish_block::<T, _>(
         Some(block_root),
@@ -303,7 +303,7 @@ pub async fn reconstruct_block<T: BeaconChainTypes>(
         })?;
 
         // If the execution block hash is zero, use an empty payload.
-        let full_payload = if payload_header.block_hash() == ExecutionBlockHash::zero() {
+        let full_payload_contents = if payload_header.block_hash() == ExecutionBlockHash::zero() {
             let payload = FullPayload::default_at_fork(
                 chain
                     .spec
@@ -315,13 +315,14 @@ pub async fn reconstruct_block<T: BeaconChainTypes>(
                 ))
             })?
             .into();
-            ProvenancedPayload::Local(payload)
+            ProvenancedPayload::Local(FullPayloadContents::Payload(payload))
         // If we already have an execution payload with this transactions root cached, use it.
+        // TODO(jimmy): blobs should be cached as well
         } else if let Some(cached_payload) =
             el.get_payload_by_root(&payload_header.tree_hash_root())
         {
             info!(log, "Reconstructing a full block using a local payload"; "block_hash" => ?cached_payload.block_hash());
-            ProvenancedPayload::Local(cached_payload)
+            ProvenancedPayload::Local(FullPayloadContents::Payload(cached_payload))
         // Otherwise, this means we are attempting a blind block proposal.
         } else {
             // Perform the logging for late blocks when we publish to the
@@ -338,7 +339,6 @@ pub async fn reconstruct_block<T: BeaconChainTypes>(
                 &log,
             );
 
-            // TODO(jimmy): handle blinded blobs bundle response
             let full_payload = el
                 .propose_blinded_beacon_block(block_root, &block_contents)
                 .await
@@ -352,28 +352,22 @@ pub async fn reconstruct_block<T: BeaconChainTypes>(
             ProvenancedPayload::Builder(full_payload)
         };
 
-        Some(full_payload)
+        Some(full_payload_contents)
     } else {
         None
     };
 
-    // TODO(jimmy) convert full `SignedBlockSidecars`
-    let (block, _maybe_blobs) = block_contents.deconstruct();
-
     match full_payload_opt {
         // A block without a payload is pre-merge and we consider it locally
         // built.
-        None => block
-            .try_into_full_block(None)
-            .map(SignedBlockContents::Block)
+        None => block_contents
+            .try_into_full_block_and_blobs(None)
             .map(ProvenancedBlock::local),
-        Some(ProvenancedPayload::Local(full_payload)) => block
-            .try_into_full_block(Some(full_payload))
-            .map(SignedBlockContents::Block)
+        Some(ProvenancedPayload::Local(full_payload_contents)) => block_contents
+            .try_into_full_block_and_blobs(Some(full_payload_contents))
             .map(ProvenancedBlock::local),
-        Some(ProvenancedPayload::Builder(full_payload)) => block
-            .try_into_full_block(Some(full_payload))
-            .map(SignedBlockContents::Block)
+        Some(ProvenancedPayload::Builder(full_payload_contents)) => block_contents
+            .try_into_full_block_and_blobs(Some(full_payload_contents))
             .map(ProvenancedBlock::builder),
     }
     .ok_or_else(|| {
