@@ -2834,7 +2834,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             notify_execution_layer,
         )?;
 
-        //TODO(sean) error handling?
         publish_fn()?;
 
         let executed_block = self
