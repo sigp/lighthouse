@@ -51,5 +51,4 @@ parking_lot = "0.12.0"
 environment = { path = "../../lighthouse/environment" }
 
 [features]
-# default = ["disable-backfill"]
 disable-backfill = []
