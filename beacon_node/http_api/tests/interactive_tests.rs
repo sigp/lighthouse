@@ -619,7 +619,7 @@ pub async fn proposer_boost_re_org_test(
         .into();
     let unsigned_block_contents_c = tester
         .client
-        .get_validator_blocks(slot_c, &randao_reveal, None)
+        .get_validator_blocks::<E, FullBlockProposal>(slot_c, &randao_reveal, None)
         .await
         .unwrap()
         .data;

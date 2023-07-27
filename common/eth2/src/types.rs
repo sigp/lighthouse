@@ -1445,13 +1445,20 @@ impl<T: EthSpec, B: BlockProposal<T>> SignedBlockContents<T, B> {
         block: SignedBeaconBlock<T, B::Payload>,
         blobs: Option<SignedSidecarList<T, B::Sidecar>>,
     ) -> Self {
-        if let Some(blobs) = blobs {
-            Self::BlockAndBlobSidecars(SignedBeaconBlockAndBlobSidecars {
-                signed_block: block,
-                signed_blob_sidecars: blobs,
-            })
-        } else {
-            Self::Block(block)
+        match (B::block_type(), blobs) {
+            (BlockType::Blinded, Some(blobs)) => {
+                Self::BlockAndBlobSidecars(SignedBeaconBlockAndBlobSidecars {
+                    signed_block: block,
+                    signed_blob_sidecars: blobs,
+                })
+            }
+            (BlockType::Full, Some(blobs)) => {
+                Self::BlindedBlockAndBlobSidecars(SignedBlindedBeaconBlockAndBlobSidecars {
+                    signed_blinded_block: block,
+                    signed_blinded_blob_sidecars: blobs,
+                })
+            }
+            (_, None) => Self::Block(block),
         }
     }
 
