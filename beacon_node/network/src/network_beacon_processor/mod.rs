@@ -11,7 +11,7 @@ use beacon_processor::{
     GossipAggregatePackage, GossipAttestationPackage, Work, WorkEvent as BeaconWorkEvent,
     MAX_SCHEDULED_WORK_QUEUE_LEN, MAX_WORK_EVENT_QUEUE_LEN,
 };
-use environment::null_logger;
+use logging::test_logger;
 use lighthouse_network::{
     rpc::{BlocksByRangeRequest, BlocksByRootRequest, LightClientBootstrapRequest, StatusMessage},
     Client, MessageId, NetworkGlobals, PeerId, PeerRequestId,
@@ -550,7 +550,7 @@ impl<E: EthSpec> NetworkBeaconProcessor<TestBeaconChainType<E>> {
         let (network_tx, _network_rx) = mpsc::unbounded_channel();
         let (sync_tx, _sync_rx) = mpsc::unbounded_channel();
         let (reprocess_tx, _reprocess_rx) = mpsc::channel(MAX_SCHEDULED_WORK_QUEUE_LEN);
-        let log = null_logger().unwrap();
+        let log = test_logger();
         let harness: BeaconChainHarness<TestBeaconChainType<E>> =
             BeaconChainHarness::builder(E::default())
                 .spec(E::default_spec())

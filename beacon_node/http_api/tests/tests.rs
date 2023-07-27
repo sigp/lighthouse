@@ -3,7 +3,7 @@ use beacon_chain::{
     test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType},
     BeaconChain, StateSkipConfig, WhenSlotSkipped, MAXIMUM_GOSSIP_CLOCK_DISPARITY,
 };
-use environment::null_logger;
+use logging::test_logger;
 use eth2::{
     mixin::{RequestAccept, ResponseForkName, ResponseOptional},
     reqwest::RequestBuilder,
@@ -229,7 +229,7 @@ impl ApiTester {
             "precondition: justification"
         );
 
-        let log = null_logger().unwrap();
+        let log = test_logger();
 
         let ApiServer {
             server,
@@ -315,7 +315,7 @@ impl ApiTester {
 
         let chain = harness.chain.clone();
 
-        let log = null_logger().unwrap();
+        let log = test_logger();
 
         let ApiServer {
             server,

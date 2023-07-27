@@ -6,7 +6,7 @@
 use environment::{Environment, EnvironmentBuilder};
 use eth1::{Eth1Endpoint, DEFAULT_CHAIN_ID};
 use eth1_test_rig::{AnvilEth1Instance, DelayThenDeposit, Middleware};
-use genesis::{Eth1Config, Eth1GenesisService};
+use genesis::{Eth1Config, Eth1GenesisService};  
 use sensitive_url::SensitiveUrl;
 use state_processing::is_valid_genesis_state;
 use std::time::Duration;
@@ -16,7 +16,7 @@ pub fn new_env() -> Environment<MinimalEthSpec> {
     EnvironmentBuilder::minimal()
         .multi_threaded_tokio_runtime()
         .expect("should start tokio runtime")
-        .null_logger()
+        .test_logger()
         .expect("should start null logger")
         .build()
         .expect("should build env")
