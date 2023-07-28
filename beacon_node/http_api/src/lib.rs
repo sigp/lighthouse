@@ -1893,6 +1893,20 @@ pub fn serve<T: BeaconChainTypes>(
                                 format!("Naive aggregation pool: {:?}", e),
                             ));
                         }
+
+                        if let Err(e) = chain.add_to_block_inclusion_pool(attestation) {
+                            error!(log,
+                                "Failure adding verified attestation to the operation pool";
+                                "error" => ?e,
+                                "request_index" => index,
+                                "committee_index" => committee_index,
+                                "slot" => slot,
+                            );
+                            failures.push(api_types::Failure::new(
+                                index,
+                                format!("Operation pool: {:?}", e),
+                            ));
+                        }
                     }
 
                     if num_already_known > 0 {

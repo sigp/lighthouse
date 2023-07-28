@@ -376,6 +376,16 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     )
                 }
 
+                if let Err(e) = self.chain.add_to_block_inclusion_pool(verified_attestation) {
+                    debug!(
+                        self.log,
+                        "Attestation invalid for op pool";
+                        "reason" => ?e,
+                        "peer" => %peer_id,
+                        "beacon_block_root" => ?beacon_block_root,
+                    );
+                }
+
                 metrics::inc_counter(
                     &metrics::BEACON_PROCESSOR_UNAGGREGATED_ATTESTATION_IMPORTED_TOTAL,
                 );

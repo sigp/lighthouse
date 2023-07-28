@@ -4716,27 +4716,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .op_pool
             .get_bls_to_execution_changes(&state, &self.spec);
 
-        // Iterate through the naive aggregation pool and ensure all the attestations from there
-        // are included in the operation pool.
-        let unagg_import_timer =
-            metrics::start_timer(&metrics::BLOCK_PRODUCTION_UNAGGREGATED_TIMES);
-        for attestation in self.naive_aggregation_pool.read().iter() {
-            let import = |attestation: &Attestation<T::EthSpec>| {
-                let attesting_indices = get_attesting_indices_from_state(&state, attestation)?;
-                self.op_pool
-                    .insert_attestation(attestation.clone(), attesting_indices)
-            };
-            if let Err(e) = import(attestation) {
-                // Don't stop block production if there's an error, just create a log.
-                error!(
-                    self.log,
-                    "Attestation did not transfer to op pool";
-                    "reason" => ?e
-                );
-            }
-        }
-        drop(unagg_import_timer);
-
         // Override the beacon node's graffiti with graffiti from the validator, if present.
         let graffiti = match validator_graffiti {
             Some(graffiti) => graffiti,

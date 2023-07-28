@@ -49,7 +49,8 @@ pub struct AttestationMap<T: EthSpec> {
 #[derive(Debug, Default, PartialEq)]
 pub struct AttestationDataMap<T: EthSpec> {
     pub aggregate_attestations: HashMap<CompactAttestationData, Vec<CompactIndexedAttestation<T>>>,
-    pub unaggregate_attestations: HashMap<CompactAttestationData, Vec<CompactIndexedAttestation<T>>>,
+    pub unaggregate_attestations:
+        HashMap<CompactAttestationData, Vec<CompactIndexedAttestation<T>>>,
 }
 
 impl<T: EthSpec> SplitAttestation<T> {
@@ -202,12 +203,12 @@ impl<T: EthSpec> AttestationMap<T> {
         self.checkpoint_map
             .retain(|checkpoint_key, _| current_epoch <= checkpoint_key.target_epoch + 1);
     }
-    
+
     pub fn get_attestation_map(
         &self,
         checkpoint_key: &CheckpointKey,
     ) -> Option<&AttestationDataMap<T>> {
-       self.checkpoint_map.get(checkpoint_key)
+        self.checkpoint_map.get(checkpoint_key)
     }
 
     /// Statistics about all attestations stored in the map.
