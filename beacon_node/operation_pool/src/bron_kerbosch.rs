@@ -1,8 +1,7 @@
 /// Entry point for the Bron-Kerbosh algorithm. Takes a vector of `vertices` of type
 /// `T : Compatible<T>`. Returns all the maximal cliques (as a matrix of indices) for the graph
 /// `G = (V,E)` where `V` is `vertices` and `E` encodes the `is_compatible` relationship.
-
-pub fn bron_kerbosh<T, F: Fn(&T, &T) -> bool>(
+pub fn bron_kerbosch<T, F: Fn(&T, &T) -> bool>(
     vertices: &Vec<T>,
     is_compatible: F,
 ) -> Vec<Vec<usize>> {
@@ -25,7 +24,7 @@ pub fn bron_kerbosh<T, F: Fn(&T, &T) -> bool>(
             .filter(|j| neighbourhoods[vi].contains(&ordering[*j]))
             .map(|j| ordering[j])
             .collect();
-        bron_kerbosh_aux(r, p, x, &neighbourhoods, &mut publish_clique)
+        bron_kerbosch_aux(r, p, x, &neighbourhoods, &mut publish_clique)
     }
 
     cliques
@@ -77,7 +76,7 @@ fn degeneracy_order(num_vertices: usize, neighbourhoods: &[Vec<usize>]) -> Vec<u
 ///  * `x` - a set of vertices that have been explored and shouldn't be added to r
 ///  * `neighbourhoods` - a data structure to hold the neighbourhoods of each vertex
 ///  * `publish_clique` - a callback function to call whenever a clique has been produced
-fn bron_kerbosh_aux<F>(
+fn bron_kerbosch_aux<F>(
     r: Vec<usize>,
     p: Vec<usize>,
     x: Vec<usize>,
@@ -115,7 +114,7 @@ fn bron_kerbosh_aux<F>(
         nx.retain(|e| n.contains(e));
 
         // recursive call
-        bron_kerbosh_aux(nr, np, nx, neighbourhoods, publish_clique);
+        bron_kerbosch_aux(nr, np, nx, neighbourhoods, publish_clique);
 
         // p \ { v }, x U { v }
         mp.remove(mp.iter().position(|x| *x == v).unwrap());
@@ -164,6 +163,6 @@ mod tests {
             edges.contains(&(*first, *second)) || edges.contains(&(*first, *second))
         };
 
-        println!("{:?}", bron_kerbosh(&vertices, is_compatible));
+        println!("{:?}", bron_kerbosch(&vertices, is_compatible));
     }
 }

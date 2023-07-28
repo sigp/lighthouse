@@ -20,7 +20,7 @@ pub struct CompactAttestationData {
     pub target_root: Hash256,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct CompactIndexedAttestation<T: EthSpec> {
     pub attesting_indices: Vec<u64>,
     pub aggregation_bits: BitList<T::MaxValidatorsPerCommittee>,
@@ -48,7 +48,8 @@ pub struct AttestationMap<T: EthSpec> {
 
 #[derive(Debug, Default, PartialEq)]
 pub struct AttestationDataMap<T: EthSpec> {
-    attestations: HashMap<CompactAttestationData, Vec<CompactIndexedAttestation<T>>>,
+    pub aggregate_attestations: HashMap<CompactAttestationData, Vec<CompactIndexedAttestation<T>>>,
+    pub unaggregate_attestations: HashMap<CompactAttestationData, Vec<CompactIndexedAttestation<T>>>,
 }
 
 impl<T: EthSpec> SplitAttestation<T> {
@@ -151,23 +152,29 @@ impl<T: EthSpec> AttestationMap<T> {
             indexed,
         } = SplitAttestation::new(attestation, attesting_indices);
 
-        let attestation_map = self.checkpoint_map.entry(checkpoint).or_default();
-        let attestations = attestation_map.attestations.entry(data).or_default();
-
-        // Greedily aggregate the attestation with all existing attestations.
-        // NOTE: this is sub-optimal and in future we will remove this in favour of max-clique
-        // aggregation.
-        let mut aggregated = false;
+        let attestation_map = self
+            .checkpoint_map
+            .entry(checkpoint)
+            .or_default();
+        let attestations = if indexed.attesting_indices.len() > 1 {
+            attestation_map
+                .aggregate_attestations
+                .entry(data)
+                .or_default()
+        } else {
+            attestation_map
+                .unaggregate_attestations
+                .entry(data)
+                .or_insert_with(Vec::new)
+        };
+        let mut observed = false;
         for existing_attestation in attestations.iter_mut() {
-            if existing_attestation.signers_disjoint_from(&indexed) {
-                existing_attestation.aggregate(&indexed);
-                aggregated = true;
-            } else if *existing_attestation == indexed {
-                aggregated = true;
+            if *existing_attestation == indexed {
+                observed = true;
             }
         }
 
-        if !aggregated {
+        if !observed {
             attestations.push(indexed);
         }
     }
@@ -195,6 +202,13 @@ impl<T: EthSpec> AttestationMap<T> {
         self.checkpoint_map
             .retain(|checkpoint_key, _| current_epoch <= checkpoint_key.target_epoch + 1);
     }
+    
+    pub fn get_attestation_map(
+        &self,
+        checkpoint_key: &CheckpointKey,
+    ) -> Option<&AttestationDataMap<T>> {
+       self.checkpoint_map.get(checkpoint_key)
+    }
 
     /// Statistics about all attestations stored in the map.
     pub fn stats(&self) -> AttestationStats {
@@ -216,24 +230,58 @@ impl<T: EthSpec> AttestationDataMap<T> {
         &'a self,
         checkpoint_key: &'a CheckpointKey,
     ) -> impl Iterator<Item = AttestationRef<'a, T>> + 'a {
-        self.attestations.iter().flat_map(|(data, vec_indexed)| {
-            vec_indexed.iter().map(|indexed| AttestationRef {
-                checkpoint: checkpoint_key,
-                data,
-                indexed,
-            })
-        })
+        let aggregates = self
+            .aggregate_attestations
+            .iter()
+            .flat_map(|(data, vec_indexed)| {
+                vec_indexed.iter().map(|indexed| AttestationRef {
+                    checkpoint: checkpoint_key,
+                    data,
+                    indexed,
+                })
+            });
+
+        let unaggregates = self
+            .aggregate_attestations
+            .iter()
+            .flat_map(|(data, vec_indexed)| {
+                vec_indexed.iter().map(|indexed| AttestationRef {
+                    checkpoint: checkpoint_key,
+                    data,
+                    indexed,
+                })
+            });
+
+        aggregates.chain(unaggregates)
     }
 
     pub fn stats(&self) -> AttestationStats {
         let mut stats = AttestationStats::default();
+        let mut data_to_num_attestations: HashMap<&CompactAttestationData, usize> = HashMap::new();
 
-        for aggregates in self.attestations.values() {
+        for (data, aggregates) in self.aggregate_attestations.iter() {
             stats.num_attestations += aggregates.len();
             stats.num_attestation_data += 1;
             stats.max_aggregates_per_data =
                 std::cmp::max(stats.max_aggregates_per_data, aggregates.len());
+
+            data_to_num_attestations.insert(data, aggregates.len());
         }
+
+        for (data, unaggregates) in self.unaggregate_attestations.iter() {
+            stats.num_attestations += unaggregates.len();
+            if let Some(aggregates_num) = data_to_num_attestations.get(data) {
+                stats.max_aggregates_per_data = std::cmp::max(
+                    stats.max_aggregates_per_data,
+                    aggregates_num + unaggregates.len(),
+                );
+            } else {
+                stats.num_attestation_data += 1;
+                stats.max_aggregates_per_data =
+                    std::cmp::max(stats.max_aggregates_per_data, unaggregates.len());
+            }
+        }
+
         stats
     }
 }
