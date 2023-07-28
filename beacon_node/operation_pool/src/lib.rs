@@ -242,6 +242,9 @@ impl<T: EthSpec> OperationPool<T> {
             })
     }
 
+    /// Return a vector of aggregate/unaggregate attestations which are maximal cliques
+    /// with resepct to the graph with attestations as vertices and an edge encoding
+    /// compatibility for aggregation.
     #[allow(clippy::too_many_arguments)]
     fn get_clique_aggregate_attestations_for_epoch<'a>(
         &'a self,
@@ -274,10 +277,10 @@ impl<T: EthSpec> OperationPool<T> {
                         .collect();
                     *num_valid += aggregates.len() as i64;
 
+                    // derive cliques for current attestation data
                     let cliques = bron_kerbosch(&aggregates, is_compatible);
 
-                    // This assumes that the values from bron_kerbosch are valid indices of
-                    // aggregates.
+                    // aggregate each cliques corresponding attestaiions
                     let mut clique_aggregates = cliques.iter().map(|clique| {
                         let mut res_att = aggregates[clique[0]].clone();
                         for ind in clique.iter().skip(1) {
@@ -286,6 +289,8 @@ impl<T: EthSpec> OperationPool<T> {
                         res_att
                     });
 
+                    // aggregate unaggregate attestations into the clique aggregates
+                    // if compatible
                     if let Some(unaggregate_attestations) = unaggregate_attestations.get(&data) {
                         for attestation in unaggregate_attestations.iter().filter(|indexed| {
                             validity_filter(&AttestationRef {
@@ -309,6 +314,8 @@ impl<T: EthSpec> OperationPool<T> {
                     cliqued_atts.extend(clique_aggregates.map(|indexed| (data, indexed)));
                 }
             }
+            // include aggregated attestations from unaggregated attestations whose
+            // attestation data doesn't appear in aggregated_attestations
             for (data, attestations) in unaggregate_attestations {
                 if data.slot + spec.min_attestation_inclusion_delay <= state.slot()
                     && state.slot() <= data.slot + T::slots_per_epoch()
@@ -368,7 +375,8 @@ impl<T: EthSpec> OperationPool<T> {
         let mut num_prev_valid = 0_i64;
         let mut num_curr_valid = 0_i64;
 
-        let prev_cliqued_atts = if prev_epoch_key != curr_epoch_key {
+        // If we're in the genesis epoch, just use the current epoch attestations.
+        let prev_epoch_cliqued_atts = if prev_epoch_key != curr_epoch_key {
             self.get_clique_aggregate_attestations_for_epoch(
                 &prev_epoch_key,
                 &*all_attestations,
@@ -381,7 +389,7 @@ impl<T: EthSpec> OperationPool<T> {
             vec![]
         };
 
-        let prev_epoch_cliqued_atts: Vec<AttMaxCover<T>> = prev_cliqued_atts
+        let prev_epoch_cliqued_atts: Vec<AttMaxCover<T>> = prev_epoch_cliqued_atts
             .iter()
             .map(|(data, indexed)| AttestationRef {
                 checkpoint: &prev_epoch_key,
@@ -393,7 +401,7 @@ impl<T: EthSpec> OperationPool<T> {
             })
             .collect();
 
-        let curr_cliqued_atts = self.get_clique_aggregate_attestations_for_epoch(
+        let curr_epoch_cliqued_atts = self.get_clique_aggregate_attestations_for_epoch(
             &curr_epoch_key,
             &*all_attestations,
             state,
@@ -402,7 +410,7 @@ impl<T: EthSpec> OperationPool<T> {
             spec,
         );
 
-        let curr_epoch_cliqued_atts: Vec<AttMaxCover<T>> = curr_cliqued_atts
+        let curr_epoch_cliqued_atts: Vec<AttMaxCover<T>> = curr_epoch_cliqued_atts
             .iter()
             .map(|(data, indexed)| AttestationRef {
                 checkpoint: &prev_epoch_key,
