@@ -134,7 +134,8 @@ async fn produces_attestations() {
             assert_eq!(data.target.root, target_root, "bad target root");
 
             let rpc_block =
-                RpcBlock::<MainnetEthSpec>::new(Arc::new(block.clone()), Some(blobs.clone())).unwrap();
+                RpcBlock::<MainnetEthSpec>::new(Arc::new(block.clone()), Some(blobs.clone()))
+                    .unwrap();
             let beacon_chain::data_availability_checker::MaybeAvailableBlock::Available(available_block) = chain
                 .data_availability_checker
                 .check_rpc_block_availability(rpc_block)
@@ -209,7 +210,8 @@ async fn early_attester_cache_old_request() {
         .get_blobs(&head.beacon_block_root)
         .expect("should get blobs");
 
-    let rpc_block = RpcBlock::<MainnetEthSpec>::new(head.beacon_block.clone(), Some(head_blobs)).unwrap();
+    let rpc_block =
+        RpcBlock::<MainnetEthSpec>::new(head.beacon_block.clone(), Some(head_blobs)).unwrap();
     let beacon_chain::data_availability_checker::MaybeAvailableBlock::Available(available_block) = harness.chain
         .data_availability_checker
         .check_rpc_block_availability(rpc_block)
