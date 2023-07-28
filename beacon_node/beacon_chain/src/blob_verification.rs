@@ -430,7 +430,6 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
 ///
 /// Note: This is a copy of the `block_verification::cheap_state_advance_to_obtain_committees` to return
 /// a BlobError error type instead.
-/// TODO(pawan): try to unify the 2 functions.
 fn cheap_state_advance_to_obtain_committees<'a, E: EthSpec>(
     state: &'a mut BeaconState<E>,
     state_root_opt: Option<Hash256>,
