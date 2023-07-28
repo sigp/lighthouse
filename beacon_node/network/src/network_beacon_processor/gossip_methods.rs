@@ -5,7 +5,7 @@ use crate::{
     sync::SyncMessage,
 };
 
-use beacon_chain::blob_verification::{BlobError, GossipVerifiedBlob};
+use beacon_chain::blob_verification::{GossipBlobError, GossipVerifiedBlob};
 use beacon_chain::block_verification_types::AsBlock;
 use beacon_chain::store::Error;
 use beacon_chain::{
@@ -635,7 +635,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             }
             Err(err) => {
                 match err {
-                    BlobError::BlobParentUnknown(blob) => {
+                    GossipBlobError::BlobParentUnknown(blob) => {
                         debug!(
                             self.log,
                             "Unknown parent hash for blob";
@@ -645,11 +645,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         );
                         self.send_sync_message(SyncMessage::UnknownParentBlob(peer_id, blob));
                     }
-                    BlobError::ProposerSignatureInvalid
-                    | BlobError::UnknownValidator(_)
-                    | BlobError::ProposerIndexMismatch { .. }
-                    | BlobError::BlobIsNotLaterThanParent { .. }
-                    | BlobError::InvalidSubnet { .. } => {
+                    GossipBlobError::ProposerSignatureInvalid
+                    | GossipBlobError::UnknownValidator(_)
+                    | GossipBlobError::ProposerIndexMismatch { .. }
+                    | GossipBlobError::BlobIsNotLaterThanParent { .. }
+                    | GossipBlobError::InvalidSubnet { .. } => {
                         warn!(
                             self.log,
                             "Could not verify blob sidecar for gossip. Rejecting the blob sidecar";
@@ -670,10 +670,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             MessageAcceptance::Reject,
                         );
                     }
-                    BlobError::FutureSlot { .. }
-                    | BlobError::BeaconChainError(_)
-                    | BlobError::RepeatBlob { .. }
-                    | BlobError::PastFinalizedSlot { .. } => {
+                    GossipBlobError::FutureSlot { .. }
+                    | GossipBlobError::BeaconChainError(_)
+                    | GossipBlobError::RepeatBlob { .. }
+                    | GossipBlobError::PastFinalizedSlot { .. } => {
                         warn!(
                             self.log,
                             "Could not verify blob sidecar for gossip. Ignoring the blob sidecar";
@@ -954,7 +954,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 );
                 return None;
             }
-            Err(e @ BlockError::BlobValidation(_)) | Err(e @ BlockError::AvailabilityCheck(_)) => {
+            Err(e @ BlockError::AvailabilityCheck(_)) => {
                 warn!(self.log, "Could not verify block against known blobs in gossip. Rejecting the block";
                             "error" => %e);
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);

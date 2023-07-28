@@ -21,8 +21,9 @@ use types::{
     Hash256, KzgCommitment, RelativeEpoch, SignedBlobSidecar, Slot,
 };
 
+/// An error occurred while validating a gossip blob.
 #[derive(Debug)]
-pub enum BlobError<T: EthSpec> {
+pub enum GossipBlobError<T: EthSpec> {
     /// The blob sidecar is from a slot that is later than the current slot (with respect to the
     /// gossip clock disparity).
     ///
@@ -109,15 +110,15 @@ pub enum BlobError<T: EthSpec> {
     },
 }
 
-impl<T: EthSpec> From<BeaconChainError> for BlobError<T> {
+impl<T: EthSpec> From<BeaconChainError> for GossipBlobError<T> {
     fn from(e: BeaconChainError) -> Self {
-        BlobError::BeaconChainError(e)
+        GossipBlobError::BeaconChainError(e)
     }
 }
 
-impl<T: EthSpec> From<BeaconStateError> for BlobError<T> {
+impl<T: EthSpec> From<BeaconStateError> for GossipBlobError<T> {
     fn from(e: BeaconStateError) -> Self {
-        BlobError::BeaconChainError(BeaconChainError::BeaconStateError(e))
+        GossipBlobError::BeaconChainError(BeaconChainError::BeaconStateError(e))
     }
 }
 
@@ -137,7 +138,7 @@ impl<T: BeaconChainTypes> GossipVerifiedBlob<T> {
     pub fn new(
         blob: SignedBlobSidecar<T::EthSpec>,
         chain: &BeaconChain<T>,
-    ) -> Result<Self, BlobError<T::EthSpec>> {
+    ) -> Result<Self, GossipBlobError<T::EthSpec>> {
         let blob_index = blob.message.index;
         validate_blob_sidecar_for_gossip(blob, blob_index, chain)
     }
@@ -162,7 +163,7 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
     signed_blob_sidecar: SignedBlobSidecar<T::EthSpec>,
     subnet: u64,
     chain: &BeaconChain<T>,
-) -> Result<GossipVerifiedBlob<T>, BlobError<T::EthSpec>> {
+) -> Result<GossipVerifiedBlob<T>, GossipBlobError<T::EthSpec>> {
     let blob_slot = signed_blob_sidecar.message.slot;
     let blob_index = signed_blob_sidecar.message.index;
     let block_parent_root = signed_blob_sidecar.message.block_parent_root;
@@ -171,7 +172,7 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
 
     // Verify that the blob_sidecar was received on the correct subnet.
     if blob_index != subnet {
-        return Err(BlobError::InvalidSubnet {
+        return Err(GossipBlobError::InvalidSubnet {
             expected: blob_index,
             received: subnet,
         });
@@ -183,7 +184,7 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
         .now_with_future_tolerance(MAXIMUM_GOSSIP_CLOCK_DISPARITY)
         .ok_or(BeaconChainError::UnableToReadSlot)?;
     if blob_slot > latest_permissible_slot {
-        return Err(BlobError::FutureSlot {
+        return Err(GossipBlobError::FutureSlot {
             message_slot: blob_slot,
             latest_permissible_slot,
         });
@@ -196,7 +197,7 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
         .epoch
         .start_slot(T::EthSpec::slots_per_epoch());
     if blob_slot <= latest_finalized_slot {
-        return Err(BlobError::PastFinalizedSlot {
+        return Err(GossipBlobError::PastFinalizedSlot {
             blob_slot,
             finalized_slot: latest_finalized_slot,
         });
@@ -207,9 +208,9 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
         .observed_blob_sidecars
         .read()
         .is_known(&signed_blob_sidecar.message)
-        .map_err(|e| BlobError::BeaconChainError(e.into()))?
+        .map_err(|e| GossipBlobError::BeaconChainError(e.into()))?
     {
-        return Err(BlobError::RepeatBlob {
+        return Err(GossipBlobError::RepeatBlob {
             proposer: blob_proposer_index,
             slot: blob_slot,
             index: blob_index,
@@ -224,13 +225,15 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
         .get_block(&block_parent_root)
     {
         if parent_block.slot >= blob_slot {
-            return Err(BlobError::BlobIsNotLaterThanParent {
+            return Err(GossipBlobError::BlobIsNotLaterThanParent {
                 blob_slot,
                 parent_slot: parent_block.slot,
             });
         }
     } else {
-        return Err(BlobError::BlobParentUnknown(signed_blob_sidecar.message));
+        return Err(GossipBlobError::BlobParentUnknown(
+            signed_blob_sidecar.message,
+        ));
     }
 
     // Note: We check that the proposer_index matches against the shuffling first to avoid
@@ -301,9 +304,9 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
 
             let parent_block = chain
                 .get_blinded_block(&block_parent_root)
-                .map_err(BlobError::BeaconChainError)?
+                .map_err(GossipBlobError::BeaconChainError)?
                 .ok_or_else(|| {
-                    BlobError::from(BeaconChainError::MissingBeaconBlock(block_parent_root))
+                    GossipBlobError::from(BeaconChainError::MissingBeaconBlock(block_parent_root))
                 })?;
 
             let mut parent_state = chain
@@ -338,7 +341,7 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
     };
 
     if proposer_index != blob_proposer_index as usize {
-        return Err(BlobError::ProposerIndexMismatch {
+        return Err(GossipBlobError::ProposerIndexMismatch {
             sidecar: blob_proposer_index as usize,
             local: proposer_index,
         });
@@ -350,11 +353,11 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
             .validator_pubkey_cache
             .try_read_for(VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT)
             .ok_or(BeaconChainError::ValidatorPubkeyCacheLockTimeout)
-            .map_err(BlobError::BeaconChainError)?;
+            .map_err(GossipBlobError::BeaconChainError)?;
 
         let pubkey = pubkey_cache
             .get(proposer_index)
-            .ok_or_else(|| BlobError::UnknownValidator(proposer_index as u64))?;
+            .ok_or_else(|| GossipBlobError::UnknownValidator(proposer_index as u64))?;
 
         signed_blob_sidecar.verify_signature(
             None,
@@ -366,7 +369,7 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
     };
 
     if !signature_is_valid {
-        return Err(BlobError::ProposerSignatureInvalid);
+        return Err(GossipBlobError::ProposerSignatureInvalid);
     }
 
     // Now the signature is valid, store the proposal so we don't accept another blob sidecar
@@ -384,9 +387,9 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
         .observed_blob_sidecars
         .write()
         .observe_sidecar(&signed_blob_sidecar.message)
-        .map_err(|e| BlobError::BeaconChainError(e.into()))?
+        .map_err(|e| GossipBlobError::BeaconChainError(e.into()))?
     {
-        return Err(BlobError::RepeatBlob {
+        return Err(GossipBlobError::RepeatBlob {
             proposer: proposer_index as u64,
             slot: blob_slot,
             index: blob_index,
@@ -418,7 +421,7 @@ fn cheap_state_advance_to_obtain_committees<'a, E: EthSpec>(
     state_root_opt: Option<Hash256>,
     blob_slot: Slot,
     spec: &ChainSpec,
-) -> Result<Cow<'a, BeaconState<E>>, BlobError<E>> {
+) -> Result<Cow<'a, BeaconState<E>>, GossipBlobError<E>> {
     let block_epoch = blob_slot.epoch(E::slots_per_epoch());
 
     if state.current_epoch() == block_epoch {
@@ -429,7 +432,7 @@ fn cheap_state_advance_to_obtain_committees<'a, E: EthSpec>(
 
         Ok(Cow::Borrowed(state))
     } else if state.slot() > blob_slot {
-        Err(BlobError::BlobIsNotLaterThanParent {
+        Err(GossipBlobError::BlobIsNotLaterThanParent {
             blob_slot,
             parent_slot: state.slot(),
         })
@@ -440,7 +443,7 @@ fn cheap_state_advance_to_obtain_committees<'a, E: EthSpec>(
         // Advance the state into the same epoch as the block. Use the "partial" method since state
         // roots are not important for proposer/attester shuffling.
         partial_state_advance(&mut state, state_root_opt, target_slot, spec)
-            .map_err(|e| BlobError::BeaconChainError(BeaconChainError::from(e)))?;
+            .map_err(|e| GossipBlobError::BeaconChainError(BeaconChainError::from(e)))?;
 
         state.build_committee_cache(RelativeEpoch::Previous, spec)?;
         state.build_committee_cache(RelativeEpoch::Current, spec)?;

@@ -8,7 +8,7 @@ use crate::beacon_block_streamer::{BeaconBlockStreamer, CheckEarlyAttesterCache}
 use crate::beacon_proposer_cache::compute_proposer_duties_from_head;
 use crate::beacon_proposer_cache::BeaconProposerCache;
 use crate::blob_cache::BlobCache;
-use crate::blob_verification::{self, BlobError, GossipVerifiedBlob};
+use crate::blob_verification::{self, GossipBlobError, GossipVerifiedBlob};
 use crate::block_times_cache::BlockTimesCache;
 use crate::block_verification::POS_PANDA_BANNER;
 use crate::block_verification::{
@@ -2015,7 +2015,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self: &Arc<Self>,
         blob_sidecar: SignedBlobSidecar<T::EthSpec>,
         subnet_id: u64,
-    ) -> Result<GossipVerifiedBlob<T>, BlobError<T::EthSpec>> {
+    ) -> Result<GossipVerifiedBlob<T>, GossipBlobError<T::EthSpec>> {
         blob_verification::validate_blob_sidecar_for_gossip(blob_sidecar, subnet_id, self)
     }
 
