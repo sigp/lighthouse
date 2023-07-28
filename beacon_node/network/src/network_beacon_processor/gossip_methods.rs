@@ -10,6 +10,7 @@ use beacon_chain::block_verification_types::AsBlock;
 use beacon_chain::store::Error;
 use beacon_chain::{
     attestation_verification::{self, Error as AttnError, VerifiedAttestation},
+    data_availability_checker::AvailabilityCheckError,
     light_client_finality_update_verification::Error as LightClientFinalityUpdateError,
     light_client_optimistic_update_verification::Error as LightClientOptimisticUpdateError,
     observed_operations::ObservationOutcome,
@@ -954,14 +955,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 );
                 return None;
             }
+            // Note: This error variant cannot be reached when doing gossip validation
+            // as we do not do availability checks here.
             Err(e @ BlockError::AvailabilityCheck(_)) => {
-                warn!(self.log, "Could not verify block against known blobs in gossip. Rejecting the block";
-                            "error" => %e);
-                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
-                self.gossip_penalize_peer(
-                    peer_id,
-                    PeerAction::LowToleranceError,
-                    "gossip_blob_low",
+                crit!(self.log, "Internal block gossip validation error. Availability check during
+                 gossip validation";
+                    "error" => %e
                 );
                 return None;
             }
@@ -1141,6 +1140,44 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     "Failed to verify execution payload";
                     "error" => %e
                 );
+            }
+            Err(BlockError::AvailabilityCheck(err)) => {
+                match err {
+                    AvailabilityCheckError::KzgNotInitialized
+                    | AvailabilityCheckError::SszTypes(_)
+                    | AvailabilityCheckError::MissingBlobs
+                    | AvailabilityCheckError::StoreError(_)
+                    | AvailabilityCheckError::DecodeError(_) => {
+                        crit!(
+                            self.log,
+                            "Internal availability check error";
+                            "error" => %err,
+                        );
+                    }
+                    AvailabilityCheckError::Kzg(_)
+                    | AvailabilityCheckError::KzgVerificationFailed
+                    | AvailabilityCheckError::NumBlobsMismatch { .. }
+                    | AvailabilityCheckError::TxKzgCommitmentMismatch(_)
+                    | AvailabilityCheckError::KzgCommitmentMismatch { .. }
+                    | AvailabilityCheckError::BlobIndexInvalid(_)
+                    | AvailabilityCheckError::UnorderedBlobs { .. }
+                    | AvailabilityCheckError::BlockBlobRootMismatch { .. }
+                    | AvailabilityCheckError::BlockBlobSlotMismatch { .. }
+                    | AvailabilityCheckError::KzgCommitmentMismatch { .. } => {
+                        // Note: we cannot penalize the peer that sent us the block
+                        // over gossip here because these errors imply either an issue
+                        // with:
+                        // 1. Blobs we have received over non-gossip sources
+                        //    (from potentially other peers)
+                        // 2. The proposer being malicious and sending inconsistent
+                        //    blocks and blobs.
+                        warn!(
+                            self.log,
+                            "Received invalid blob or malicious proposer";
+                            "error" => %err
+                        );
+                    }
+                }
             }
             other => {
                 debug!(

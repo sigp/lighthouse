@@ -292,8 +292,20 @@ pub enum BlockError<T: EthSpec> {
     /// Honest peers shouldn't forward more than 1 equivocating block from the same proposer, so
     /// we penalise them with a mid-tolerance error.
     Slashable,
-    //TODO(sean) peer scoring docs
     /// The block and blob together failed validation.
+    ///
+    /// ## Peer scoring
+    ///
+    /// This error implies that the block satisfied all block validity conditions except consistency
+    /// with the corresponding blob that we received over gossip/rpc. This is because availability
+    /// checks are always done after all other checks are completed.
+    /// This implies that either:
+    /// 1. The block proposer is faulty
+    /// 2. We received the blob over rpc and it is invalid (inconsistent w.r.t the block).
+    /// 3. It is an internal error
+    /// For all these cases, we cannot penalize the peer that gave us the block.
+    /// TODO: We may need to penalize the peer that gave us a potentially invalid rpc blob.
+    /// https://github.com/sigp/lighthouse/issues/4546
     AvailabilityCheck(AvailabilityCheckError),
 }
 

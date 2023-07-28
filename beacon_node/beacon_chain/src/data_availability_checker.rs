@@ -45,7 +45,6 @@ pub enum AvailabilityCheckError {
     KzgCommitmentMismatch {
         blob_index: u64,
     },
-    IncorrectFork,
     BlobIndexInvalid(u64),
     UnorderedBlobs {
         blob_index: u64,
