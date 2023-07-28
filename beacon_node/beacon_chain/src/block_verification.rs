@@ -48,9 +48,9 @@
 // returned alongside.
 #![allow(clippy::result_large_err)]
 
-use crate::blob_verification::{BlobError, GossipVerifiedBlob};
+use crate::blob_verification::{GossipBlobError, GossipVerifiedBlob};
 use crate::block_verification_types::{
-    AsBlock, BlockImportData, GossipVerifiedBlockContents, RpcBlock,
+    AsBlock, BlockContentsError, BlockImportData, GossipVerifiedBlockContents, RpcBlock,
 };
 use crate::data_availability_checker::{AvailabilityCheckError, MaybeAvailableBlock};
 use crate::eth1_finalization_cache::Eth1FinalizationData;
@@ -293,16 +293,8 @@ pub enum BlockError<T: EthSpec> {
     /// we penalise them with a mid-tolerance error.
     Slashable,
     //TODO(sean) peer scoring docs
-    /// A blob alone failed validation.
-    BlobValidation(BlobError<T>),
     /// The block and blob together failed validation.
     AvailabilityCheck(AvailabilityCheckError),
-}
-
-impl<T: EthSpec> From<BlobError<T>> for BlockError<T> {
-    fn from(e: BlobError<T>) -> Self {
-        Self::BlobValidation(e)
-    }
 }
 
 impl<T: EthSpec> From<AvailabilityCheckError> for BlockError<T> {
@@ -662,7 +654,7 @@ pub trait IntoGossipVerifiedBlockContents<T: BeaconChainTypes>: Sized {
     fn into_gossip_verified_block(
         self,
         chain: &BeaconChain<T>,
-    ) -> Result<GossipVerifiedBlockContents<T>, BlockError<T::EthSpec>>;
+    ) -> Result<GossipVerifiedBlockContents<T>, BlockContentsError<T::EthSpec>>;
     fn inner_block(&self) -> &SignedBeaconBlock<T::EthSpec>;
     fn inner_blobs(&self) -> Option<SignedBlobSidecarList<T::EthSpec>>;
 }
@@ -671,7 +663,7 @@ impl<T: BeaconChainTypes> IntoGossipVerifiedBlockContents<T> for GossipVerifiedB
     fn into_gossip_verified_block(
         self,
         _chain: &BeaconChain<T>,
-    ) -> Result<GossipVerifiedBlockContents<T>, BlockError<T::EthSpec>> {
+    ) -> Result<GossipVerifiedBlockContents<T>, BlockContentsError<T::EthSpec>> {
         Ok(self)
     }
     fn inner_block(&self) -> &SignedBeaconBlock<T::EthSpec> {
@@ -693,16 +685,16 @@ impl<T: BeaconChainTypes> IntoGossipVerifiedBlockContents<T> for SignedBlockCont
     fn into_gossip_verified_block(
         self,
         chain: &BeaconChain<T>,
-    ) -> Result<GossipVerifiedBlockContents<T>, BlockError<T::EthSpec>> {
+    ) -> Result<GossipVerifiedBlockContents<T>, BlockContentsError<T::EthSpec>> {
         let (block, blobs) = self.deconstruct();
         let gossip_verified_block = GossipVerifiedBlock::new(Arc::new(block), chain)?;
         let gossip_verified_blobs = blobs
             .map(|blobs| {
-                Ok::<_, BlobError<T::EthSpec>>(VariableList::from(
+                Ok::<_, GossipBlobError<T::EthSpec>>(VariableList::from(
                     blobs
                         .into_iter()
                         .map(|blob| GossipVerifiedBlob::new(blob, chain))
-                        .collect::<Result<Vec<_>, BlobError<T::EthSpec>>>()?,
+                        .collect::<Result<Vec<_>, GossipBlobError<T::EthSpec>>>()?,
                 ))
             })
             .transpose()?;

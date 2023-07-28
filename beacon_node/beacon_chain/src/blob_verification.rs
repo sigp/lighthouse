@@ -110,6 +110,21 @@ pub enum GossipBlobError<T: EthSpec> {
     },
 }
 
+impl<T: EthSpec> std::fmt::Display for GossipBlobError<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            GossipBlobError::BlobParentUnknown(blob_sidecar) => {
+                write!(
+                    f,
+                    "BlobParentUnknown(parent_root:{})",
+                    blob_sidecar.block_parent_root
+                )
+            }
+            other => write!(f, "{:?}", other),
+        }
+    }
+}
+
 impl<T: EthSpec> From<BeaconChainError> for GossipBlobError<T> {
     fn from(e: BeaconChainError) -> Self {
         GossipBlobError::BeaconChainError(e)

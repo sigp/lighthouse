@@ -1143,7 +1143,7 @@ fn test_same_chain_race_condition() {
 
 mod deneb_only {
     use super::*;
-    use beacon_chain::blob_verification::BlobError;
+    use beacon_chain::data_availability_checker::AvailabilityCheckError;
     use std::ops::IndexMut;
     use std::str::FromStr;
 
@@ -1509,8 +1509,8 @@ mod deneb_only {
         fn invalid_blob_processed(mut self) -> Self {
             self.bl.single_block_component_processed(
                 self.blob_req_id.expect("blob request id"),
-                BlockProcessingResult::Err(BlockError::BlobValidation(
-                    BlobError::ProposerSignatureInvalid,
+                BlockProcessingResult::Err(BlockError::AvailabilityCheck(
+                    AvailabilityCheckError::KzgVerificationFailed,
                 )),
                 ResponseType::Blob,
                 &mut self.cx,
