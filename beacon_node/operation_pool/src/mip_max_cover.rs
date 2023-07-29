@@ -1,95 +1,93 @@
 use std::collections::HashMap;
+use std::hash::Hash;
 use std::iter::Sum;
 use std::ops::Mul;
 
 use good_lp::{constraint, default_solver, variable, variables, Expression, Solution, SolverModel};
 use itertools::Itertools;
-use state_processing::common::base;
-use types::{BeaconState, ChainSpec, EthSpec};
 
-use crate::AttestationRef;
-
-struct MaxCoverAttestation<'a, T: EthSpec> {
-    attn: AttestationRef<'a, T>,
-    mapped_attesting_indices: Vec<usize>,
+struct MipMaxCoverSet<'b, RawSet>
+where
+    RawSet: for<'a> MipMaxCover<'a>,
+{
+    raw_set: &'b RawSet,
+    mapped_set: Vec<usize>,
 }
 
-pub struct MaxCoverProblemInstance<'a, T: EthSpec> {
-    attestations: Vec<MaxCoverAttestation<'a, T>>,
-    weights: Vec<u64>,
+pub struct MipMaxCoverProblemInstance<'b, RawSet>
+where
+    RawSet: for<'a> MipMaxCover<'a>,
+{
+    sets: Vec<MipMaxCoverSet<'b, RawSet>>,
+    weights: Vec<f64>,
     limit: usize,
 }
 
-// TODO: check if clones can be reduced
+pub trait MipMaxCover<'a> {
+    type Element: Clone + Hash + Ord;
 
-impl<'a, T: EthSpec> MaxCoverProblemInstance<'a, T> {
-    pub fn new(
-        attestations: &Vec<AttestationRef<'a, T>>,
-        state: &BeaconState<T>,
-        total_active_balance: u64,
-        spec: &ChainSpec,
-        limit: usize,
-    ) -> MaxCoverProblemInstance<'a, T> {
-        let mapped_index_to_attestor_index: Vec<u64> = attestations
+    fn covering_set(&'a self) -> &'a Vec<Self::Element>;
+
+    fn element_weight(&self, element: &Self::Element) -> Option<f64>;
+}
+
+impl<'b, RawSet> MipMaxCoverProblemInstance<'b, RawSet>
+where
+    RawSet: for<'a> MipMaxCover<'a>,
+{
+    pub fn new(raw_sets: &Vec<RawSet>, limit: usize) -> Option<MipMaxCoverProblemInstance<RawSet>> {
+        let ordered_elements: Vec<&RawSet::Element> = raw_sets
             .iter()
-            .map(|attn| &(attn.indexed.attesting_indices))
+            .map(|s| s.covering_set())
             .flatten()
             .sorted_unstable()
             .dedup()
-            .map(|attestor_index| attestor_index.clone())
             .collect();
 
-        let attestor_index_to_mapped_index: HashMap<u64, usize> = mapped_index_to_attestor_index
+        let element_to_index: HashMap<&RawSet::Element, usize> = ordered_elements
             .iter()
             .enumerate()
-            .map(|(idx, attestor_index)| (*attestor_index, idx))
+            .map(|(idx, element)| (*element, idx))
             .collect();
 
-        let weights = mapped_index_to_attestor_index
+        let mut element_to_weight = HashMap::new();
+
+        raw_sets.iter().for_each(|s| {
+            s.covering_set().iter().for_each(|e| {
+                element_to_weight.insert(e, s.element_weight(&e).unwrap());
+            });
+        });
+
+        let weights = ordered_elements
             .iter()
-            .flat_map(|validator_index| {
-                let reward = base::get_base_reward(
-                    state,
-                    *validator_index as usize,
-                    total_active_balance,
-                    spec,
-                )
-                .ok()?
-                .checked_div(spec.proposer_reward_quotient)?;
-                Some(reward)
-            })
+            .map(|e| *(element_to_weight.get(e).unwrap()))
             .collect();
 
-        let attestations = attestations
+        let sets = raw_sets
             .iter()
-            .map(|attn| MaxCoverAttestation {
-                attn: attn.clone(),
-                mapped_attesting_indices: attn
-                    .indexed
-                    .attesting_indices
+            .map(|s| MipMaxCoverSet {
+                raw_set: s,
+                mapped_set: s
+                    .covering_set()
                     .iter()
-                    .flat_map(|validator_index| {
-                        let mapped_index =
-                            attestor_index_to_mapped_index.get(validator_index)?.clone();
-                        Some(mapped_index)
-                    })
+                    .map(|e| *element_to_index.get(e).unwrap())
                     .collect(),
             })
             .collect();
 
-        MaxCoverProblemInstance {
-            attestations,
+        Some(MipMaxCoverProblemInstance {
+            sets,
             weights,
             limit,
-        }
+        })
     }
 
-    pub fn max_cover(&self) -> Result<Vec<AttestationRef<'a, T>>, &'static str> {
+    pub fn max_cover(&self) -> Result<Vec<&RawSet>, &'static str> {
         // produce lists of sets containing a given element
         let mut sets_with: Vec<Vec<usize>> = vec![];
         sets_with.resize_with(self.weights.len(), Vec::new);
-        for i in 0..self.attestations.len() {
-            for &j in &self.attestations[i].mapped_attesting_indices {
+        for i in 0..self.sets.len() {
+            for &j in &self.sets[i].mapped_set {
                 sets_with[j].push(i);
             }
         }
@@ -97,14 +95,14 @@ impl<'a, T: EthSpec> MaxCoverProblemInstance<'a, T> {
         let mut vars = variables!();
 
         // initialise set variables
-        let xs = vars.add_vector(variable().binary(), self.attestations.len());
+        let xs = vars.add_vector(variable().binary(), self.sets.len());
 
         // initialise element variables
         let ys = vars.add_vector(variable().min(0.0).max(1.0), self.weights.len());
 
         // define objective function as linear combination of element variables and weights
         let objective =
-            Expression::sum((0..self.weights.len()).map(|yi| ys[yi].mul(self.weights[yi] as f64)));
+            Expression::sum((0..self.weights.len()).map(|yi| ys[yi].mul(self.weights[yi])));
         let mut problem = vars.maximise(objective).using(default_solver);
 
         // limit solution size to k sets
@@ -129,7 +127,7 @@ impl<'a, T: EthSpec> MaxCoverProblemInstance<'a, T> {
             .iter()
             .enumerate()
             .filter(|(_, &x)| solution.value(x) > 0.0)
-            .map(|(i, _)| self.attestations[i].attn.clone())
+            .map(|(i, _)| self.sets[i].raw_set)
             .collect())
     }
 }

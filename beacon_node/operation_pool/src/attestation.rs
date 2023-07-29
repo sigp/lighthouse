@@ -1,5 +1,6 @@
 use crate::attestation_storage::AttestationRef;
 use crate::max_cover::MaxCover;
+use crate::mip_max_cover::MipMaxCover;
 use crate::reward_cache::RewardCache;
 use state_processing::common::{
     altair, base, get_attestation_participation_flag_indices, get_attesting_indices,
@@ -163,6 +164,20 @@ impl<'a, T: EthSpec> MaxCover for AttMaxCover<'a, T> {
 
     fn score(&self) -> usize {
         self.fresh_validators_rewards.values().sum::<u64>() as usize
+    }
+}
+
+impl<'a, T: EthSpec> MipMaxCover<'a> for AttMaxCover<'a, T> {
+    type Element = u64;
+
+    fn covering_set(&self) -> &'a Vec<Self::Element> {
+        &self.att.indexed.attesting_indices
+    }
+
+    fn element_weight(&self, element: &Self::Element) -> Option<f64> {
+        self.fresh_validators_rewards
+            .get(&element)
+            .map(|w| *w as f64)
     }
 }
 
