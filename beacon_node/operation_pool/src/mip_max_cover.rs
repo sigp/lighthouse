@@ -134,22 +134,144 @@ where
 
 #[cfg(test)]
 mod tests {
-    // use super::max_cover;
-    //
-    // #[test]
-    // fn small_coverage() {
-    //     let sets = vec![
-    //         vec![0, 1, 2],
-    //         vec![0, 3],
-    //         vec![1, 2],
-    //         vec![3, 2],
-    //         vec![0, 4],
-    //         vec![2, 3, 0],
-    //     ];
-    //     let weights = vec![12.1, 11.3, 3.9, 2.3, 8.2];
-    //     let k = 2;
-    //
-    //     let result = max_cover(sets, weights, k).unwrap();
-    //     assert_eq!(result, vec![0, 4]);
-    // }
+    use super::*;
+
+    #[derive(Debug, PartialEq)]
+    struct RawSet {
+        covering_set: Vec<u64>,
+        weights: HashMap<u64, f64>,
+    }
+
+    impl<'a> MipMaxCover<'a> for RawSet {
+        type Element = u64;
+
+        fn covering_set(&'a self) -> &'a Vec<Self::Element> {
+            &self.covering_set
+        }
+
+        fn element_weight(&self, element: &Self::Element) -> Option<f64> {
+            self.weights.get(element).map(|w| *w)
+        }
+    }
+
+    fn total_quality(sets: &Vec<&RawSet>) -> f64 {
+        let covering_set: Vec<&u64> = sets
+            .iter()
+            .map(|s| s.covering_set())
+            .flatten()
+            .sorted_unstable()
+            .dedup()
+            .collect();
+        covering_set.len() as f64
+    }
+
+    fn example_system() -> Vec<RawSet> {
+        vec![
+            RawSet {
+                covering_set: vec![3],
+                weights: vec![(3, 1.0)].into_iter().collect(),
+            },
+            RawSet {
+                covering_set: vec![1, 2, 4, 5],
+                weights: vec![(1, 1.0), (2, 1.0), (4, 1.0), (5, 1.0)]
+                    .into_iter()
+                    .collect(),
+            },
+            RawSet {
+                covering_set: vec![1, 2, 4, 5],
+                weights: vec![(1, 1.0), (2, 1.0), (4, 1.0), (5, 1.0)]
+                    .into_iter()
+                    .collect(),
+            },
+            RawSet {
+                covering_set: vec![1],
+                weights: vec![(1, 1.0)].into_iter().collect(),
+            },
+            RawSet {
+                covering_set: vec![2, 4, 5],
+                weights: vec![(2, 1.0), (4, 1.0), (5, 1.0)].into_iter().collect(),
+            },
+        ]
+    }
+
+    #[test]
+    fn zero_limit() {
+        let sets = example_system();
+        let instance = MipMaxCoverProblemInstance::new(&sets, 0).unwrap();
+        let cover = instance.max_cover().unwrap();
+        assert_eq!(cover.len(), 0);
+    }
+
+    #[test]
+    fn one_limit() {
+        let sets = example_system();
+        let instance = MipMaxCoverProblemInstance::new(&sets, 1).unwrap();
+        let cover = instance.max_cover().unwrap();
+        assert_eq!(cover.len(), 1);
+        assert_eq!(*cover[0], sets[1]);
+    }
+
+    // Check that even if the limit provides room, we don't include useless items in the soln.
+    #[test]
+    // TODO: This test fails
+    fn exclude_zero_score() {
+        let sets = example_system();
+        for k in 2..10 {
+            let instance = MipMaxCoverProblemInstance::new(&sets, k).unwrap();
+            let cover = instance.max_cover().unwrap();
+            assert_eq!(
+                cover.len(),
+                2,
+                "length of the solution must be 2 at k={}. Proposed solutions={:?}",
+                k,
+                cover
+            );
+            assert_eq!(*cover[0], sets[0]);
+            assert_eq!(*cover[1], sets[1]);
+        }
+    }
+
+    #[test]
+    fn optimality() {
+        let sets = vec![
+            vec![0, 1, 8, 11, 14],
+            vec![2, 3, 7, 9, 10],
+            vec![4, 5, 6, 12, 13],
+            vec![9, 10],
+            vec![5, 6, 7, 8],
+            vec![0, 1, 2, 3, 4],
+        ]
+        .into_iter()
+        .map(|v| RawSet {
+            weights: v.iter().map(|e| (*e, 1.0)).collect(),
+            covering_set: v,
+        })
+        .collect();
+        let instance = MipMaxCoverProblemInstance::new(&sets, 3).unwrap();
+        let cover = instance.max_cover().unwrap();
+        assert_eq!(total_quality(&cover), 15.0);
+    }
+
+    #[test]
+    fn intersecting_ok() {
+        let sets = vec![
+            vec![1, 2, 3, 4, 5, 6, 7, 8],
+            vec![1, 2, 3, 9, 10, 11],
+            vec![4, 5, 6, 12, 13, 14],
+            vec![7, 8, 15, 16, 17, 18],
+            vec![1, 2, 9, 10],
+            vec![1, 5, 6, 8],
+            vec![1, 7, 11, 19],
+        ]
+        .into_iter()
+        .map(|v| RawSet {
+            weights: v.iter().map(|e| (*e, 1.0)).collect(),
+            covering_set: v,
+        })
+        .collect();
+        let instance = MipMaxCoverProblemInstance::new(&sets, 5).unwrap();
+        let cover = instance.max_cover().unwrap();
+        assert_eq!(total_quality(&cover), 19.0);
+        assert_eq!(cover.len(), 5);
+    }
 }
