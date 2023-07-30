@@ -5,7 +5,7 @@ use std::{
     path::PathBuf,
 };
 
-use redb::{ReadableTable, TableDefinition};
+use redb::{ReadableTable, TableDefinition, AccessGuard};
 
 use crate::{
     database::{
@@ -114,24 +114,67 @@ impl Environment {
     }
 }
 
+impl<'env> Database<'env> {
+
+    fn open_database(&self) -> Result<redb::Database, Error> {
+        match redb::Database::open(BASE_DB) {
+            Ok(db) => Ok(db),
+            Err(e) =>Err(Error::DatabaseRedbError(e.into())),
+        }
+    }
+
+    fn create_write_transaction<'a>(&self, database: &'a redb::Database) -> Result<redb::WriteTransaction<'a>, Error> {
+        match database.begin_write() {
+            Ok(transaction) => Ok(transaction),
+            Err(e) => return Err(Error::DatabaseRedbError(e.into())),
+        }
+    }
+
+    fn create_read_transaction<'a>(&self, database: &'a redb::Database) -> Result<redb::ReadTransaction<'a>, Error> {
+        match database.begin_read() {
+            Ok(transaction) => Ok(transaction),
+            Err(e) => return Err(Error::DatabaseRedbError(e.into())),
+        }
+    }
+    
+    fn open_write_table<'a>(&self, tx: &'a redb::WriteTransaction<'a>) -> Result<redb::Table<'a, 'a, &'a[u8], &'a[u8]>, Error> {
+        let table_definition: TableDefinition<'_, &[u8], &[u8]> = TableDefinition::new(self.table.clone());
+        match tx.open_table(table_definition) {
+            Ok(table) => Ok(table),
+            Err(e) =>Err(Error::DatabaseRedbError(e.into())),
+        }
+    }
+
+    fn open_read_table<'a>(&self, tx: &'a redb::ReadTransaction<'a>) -> Result<redb::ReadOnlyTable<'a, &'a[u8], &'a[u8]>, Error> {
+        let table_definition: TableDefinition<'_, &[u8], &[u8]> = TableDefinition::new(self.table.clone());
+        match tx.open_table(table_definition) {
+            Ok(table) => Ok(table),
+            Err(e) =>Err(Error::DatabaseRedbError(e.into())),
+        }
+    }
+}
+
 impl<'env> RwTransaction<'env> {
     pub fn get<K: AsRef<[u8]> + ?Sized>(
         &'env self,
         db: &Database<'env>,
         key: &K,
     ) -> Result<Option<Cow<'env, [u8]>>, Error> {
-        let table_definition: TableDefinition<'_, &[u8], &[u8]> = TableDefinition::new(db.table);
-        let database = redb::Database::open(BASE_DB).unwrap();
-        let tx = database.begin_read().unwrap();
-        let table = tx.open_table(table_definition).unwrap();
-
-        let value = table
-            .get(key.as_ref().borrow())
-            .unwrap()
-            .unwrap()
-            .value()
-            .to_vec();
-        Ok(Some(Cow::from(value)))
+        let database = db.open_database()?;
+        let tx = db.create_write_transaction(&database)?;
+        let table = db.open_write_table(&tx)?;
+        let result = table.get(key.as_ref().borrow());
+        match result {
+            Ok(res) => {
+                if let Some(access_guard) = res {
+                    let value = access_guard.value().to_vec();
+                    Ok(Some(Cow::from(value)))
+                } else {
+                    Ok(None)
+                }  
+            },
+            Err(e) => Err(Error::DatabaseRedbError(e.into())),
+        }
     }
 
     pub fn put<K: AsRef<[u8]>, V: AsRef<[u8]>>(
@@ -141,7 +184,7 @@ impl<'env> RwTransaction<'env> {
         value: V,
     ) -> Result<(), Error> {
         let table_definition: TableDefinition<'_, &[u8], &[u8]> = TableDefinition::new(db.table);
-        let database = redb::Database::open(BASE_DB).unwrap();
+        let database = db.open_database()?;
         let tx = database.begin_write().unwrap();
         {
             let mut table = tx.open_table(table_definition).unwrap();
@@ -155,7 +198,7 @@ impl<'env> RwTransaction<'env> {
 
     pub fn del<K: AsRef<[u8]>>(&mut self, db: &Database, key: K) -> Result<(), Error> {
         let table_definition: TableDefinition<'_, &[u8], &[u8]> = TableDefinition::new(db.table);
-        let database = redb::Database::open(BASE_DB).unwrap();
+        let database = db.open_database()?;
         let tx = database.begin_write().unwrap();
         {
             let mut table = tx.open_table(table_definition).unwrap();
@@ -190,7 +233,7 @@ impl<'env> Cursor<'env> {
     pub fn first_key(&mut self) -> Result<Option<Key>, Error> {
         let table_definition: TableDefinition<'_, &[u8], &[u8]> =
             TableDefinition::new(self.db.table);
-        let database = redb::Database::open(BASE_DB).unwrap();
+        let database = self.db.open_database()?;
         let tx = database.begin_read().unwrap();
         let first = tx
             .open_table(table_definition)
@@ -212,7 +255,7 @@ impl<'env> Cursor<'env> {
     pub fn last_key(&mut self) -> Result<Option<Key<'env>>, Error> {
         let table_definition: TableDefinition<'_, &[u8], &[u8]> =
             TableDefinition::new(self.db.table);
-        let database = redb::Database::open(BASE_DB).unwrap();
+        let database = self.db.open_database()?;
         let tx = database.begin_read().unwrap();
         let last = tx
             .open_table(table_definition)
@@ -235,7 +278,7 @@ impl<'env> Cursor<'env> {
     pub fn next_key(&mut self) -> Result<Option<Key<'env>>, Error> {
         let table_definition: TableDefinition<'_, &[u8], &[u8]> =
             TableDefinition::new(self.db.table);
-        let database = redb::Database::open(BASE_DB).unwrap();
+        let database = self.db.open_database()?;
         let tx = database.begin_read().unwrap();
         let range: std::ops::RangeFrom<&[u8]> = &self.current_key.clone().unwrap()..;
         let next = tx
@@ -258,7 +301,7 @@ impl<'env> Cursor<'env> {
     pub fn get_current(&mut self) -> Result<Option<(Key<'env>, Value<'env>)>, Error> {
         let table_definition: TableDefinition<'_, &[u8], &[u8]> =
             TableDefinition::new(self.db.table);
-        let database = redb::Database::open(BASE_DB).unwrap();
+        let database = self.db.open_database()?;
         let tx = database.begin_read().unwrap();
         let table = tx.open_table(table_definition).unwrap();
         let value = table
@@ -276,7 +319,7 @@ impl<'env> Cursor<'env> {
     pub fn delete_current(&mut self) -> Result<(), Error> {
         let table_definition: TableDefinition<'_, &[u8], &[u8]> =
             TableDefinition::new(self.db.table);
-        let database = redb::Database::open(BASE_DB).unwrap();
+        let database = self.db.open_database()?;
         let tx = database.begin_write().unwrap();
         {
             let mut table = tx.open_table(table_definition).unwrap();
@@ -290,7 +333,7 @@ impl<'env> Cursor<'env> {
     pub fn put<K: AsRef<[u8]>, V: AsRef<[u8]>>(&mut self, key: K, value: V) -> Result<(), Error> {
         let table_definition: TableDefinition<'_, &[u8], &[u8]> =
             TableDefinition::new(self.db.table);
-        let database = redb::Database::open(BASE_DB).unwrap();
+        let database = self.db.open_database()?;
         let tx = database.begin_write().unwrap();
         {
             let mut table = tx.open_table(table_definition).unwrap();
