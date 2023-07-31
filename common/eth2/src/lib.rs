@@ -1640,8 +1640,8 @@ impl BeaconNodeHttpClient {
     pub async fn post_validator_liveness_epoch(
         &self,
         epoch: Epoch,
-        indices: Vec<u64>,
-    ) -> Result<GenericResponse<Vec<StandardLivenessResponseData>>, Error> {
+        indices: &[u64],
+    ) -> Result<GenericResponse<Vec<LivenessResponseData>>, Error> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
