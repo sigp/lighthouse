@@ -1653,6 +1653,24 @@ impl BeaconNodeHttpClient {
         .await
     }
 
+    /// `POST validator/liveness/{epoch}`
+    pub async fn post_validator_liveness_epoch(
+        &self,
+        epoch: Epoch,
+        indices: Vec<u64>,
+    ) -> Result<GenericResponse<Vec<StandardLivenessResponseData>>, Error> {
+        let mut path = self.eth_path(V1)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("validator")
+            .push("liveness")
+            .push(&epoch.to_string());
+
+        self.post_with_timeout_and_response(path, &indices, self.timeouts.liveness)
+            .await
+    }
+
     /// `POST validator/duties/attester/{epoch}`
     pub async fn post_validator_duties_attester(
         &self,

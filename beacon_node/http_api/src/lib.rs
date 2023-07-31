@@ -2086,15 +2086,11 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path::param::<Epoch>())
         .and(warp::path::end())
         .and(warp::body::json())
-        .and(log_filter.clone())
         .and_then(
-            |chain: Arc<BeaconChain<T>>,
-             epoch: Epoch,
-             validators: Vec<ValidatorId>,
-             log: Logger| {
+            |chain: Arc<BeaconChain<T>>, epoch: Epoch, validators: Vec<ValidatorId>| {
                 blocking_json_task(move || {
                     let attestation_rewards = chain
-                        .compute_attestation_rewards(epoch, validators, log)
+                        .compute_attestation_rewards(epoch, validators)
                         .map_err(|e| match e {
                             BeaconChainError::MissingBeaconState(root) => {
                                 warp_utils::reject::custom_not_found(format!(
@@ -2753,6 +2749,7 @@ pub fn serve<T: BeaconChainTypes>(
 
                 fork_versioned_response(endpoint_version, fork_name, block)
                     .map(|response| warp::reply::json(&response).into_response())
+                    .map(|res| add_consensus_version_header(res, fork_name))
             },
         );
 
@@ -2810,6 +2807,7 @@ pub fn serve<T: BeaconChainTypes>(
                 // Pose as a V2 endpoint so we return the fork `version`.
                 fork_versioned_response(V2, fork_name, block)
                     .map(|response| warp::reply::json(&response).into_response())
+                    .map(|res| add_consensus_version_header(res, fork_name))
             },
         );
 
@@ -3353,6 +3351,45 @@ pub fn serve<T: BeaconChainTypes>(
                     }
 
                     Ok(())
+                })
+            },
+        );
+
+    // POST vaidator/liveness/{epoch}
+    let post_validator_liveness_epoch = eth_v1
+        .and(warp::path("validator"))
+        .and(warp::path("liveness"))
+        .and(warp::path::param::<Epoch>())
+        .and(warp::path::end())
+        .and(warp::body::json())
+        .and(chain_filter.clone())
+        .and_then(
+            |epoch: Epoch, indices: Vec<u64>, chain: Arc<BeaconChain<T>>| {
+                blocking_json_task(move || {
+                    // Ensure the request is for either the current, previous or next epoch.
+                    let current_epoch = chain
+                        .epoch()
+                        .map_err(warp_utils::reject::beacon_chain_error)?;
+                    let prev_epoch = current_epoch.saturating_sub(Epoch::new(1));
+                    let next_epoch = current_epoch.saturating_add(Epoch::new(1));
+
+                    if epoch < prev_epoch || epoch > next_epoch {
+                        return Err(warp_utils::reject::custom_bad_request(format!(
+                            "request epoch {} is more than one epoch from the current epoch {}",
+                            epoch, current_epoch
+                        )));
+                    }
+
+                    let liveness: Vec<api_types::StandardLivenessResponseData> = indices
+                        .iter()
+                        .cloned()
+                        .map(|index| {
+                            let is_live = chain.validator_seen_at_epoch(index as usize, epoch);
+                            api_types::StandardLivenessResponseData { index, is_live }
+                        })
+                        .collect();
+
+                    Ok(api_types::GenericResponse::from(liveness))
                 })
             },
         );
@@ -4020,6 +4057,7 @@ pub fn serve<T: BeaconChainTypes>(
                     .uor(post_validator_sync_committee_subscriptions)
                     .uor(post_validator_prepare_beacon_proposer)
                     .uor(post_validator_register_validator)
+                    .uor(post_validator_liveness_epoch)
                     .uor(post_lighthouse_liveness)
                     .uor(post_lighthouse_database_reconstruct)
                     .uor(post_lighthouse_database_historical_blocks)
