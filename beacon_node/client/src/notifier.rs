@@ -404,14 +404,6 @@ async fn merge_readiness_logging<T: BeaconChainTypes>(
                 "config" => ?other
             ),
         },
-        readiness @ MergeReadiness::ExchangeTransitionConfigurationFailed { error: _ } => {
-            error!(
-                log,
-                "Not ready for merge";
-                "info" => %readiness,
-                "hint" => "try updating Lighthouse and/or the execution layer",
-            )
-        }
         readiness @ MergeReadiness::NotSynced => warn!(
             log,
             "Not ready for merge";
