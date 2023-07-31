@@ -330,7 +330,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             // compute ideal head rewards
             let head = get_attestation_component_delta(
                 true,
-                total_balances.previous_epoch_attesters(),
+                total_balances.previous_epoch_head_attesters(),
                 total_balances,
                 base_reward,
                 finality_delay,
@@ -352,7 +352,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             // compute ideal source rewards
             let source = get_attestation_component_delta(
                 true,
-                total_balances.previous_epoch_head_attesters(),
+                total_balances.previous_epoch_attesters(),
                 total_balances,
                 base_reward,
                 finality_delay,

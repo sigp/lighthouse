@@ -17,6 +17,10 @@ env:
   PINNED_NIGHTLY: nightly-2023-04-16
   # Prevent Github API rate limiting.
   LIGHTHOUSE_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  # Enable self-hosted runners for the sigp repo only.
+  SELF_HOSTED_RUNNERS: ${{ github.repository == 'sigp/lighthouse' }}
+  # Self-hosted runners need to reference a different host for `./watch` tests.
+  WATCH_HOST: ${{ github.repository == 'sigp/lighthouse' && 'host.docker.internal' || 'localhost' }}
 jobs:
   target-branch-check:
     name: target-branch-check
@@ -48,11 +52,13 @@ jobs:
       run: make cargo-fmt
   release-tests-ubuntu:
     name: release-tests-ubuntu
-    runs-on: ubuntu-latest
+    # Use self-hosted runners only on the sigp repo.
+    runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "large"]') || 'ubuntu-latest'  }}
     needs: cargo-fmt
     steps:
     - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
+      if: env.SELF_HOSTED_RUNNERS == false
       run: rustup update stable
     - name: Install Protoc
       uses: arduino/setup-protoc@e52d9eb8f7b63115df1ac544a1376fdbf5a39612
@@ -64,11 +70,12 @@ jobs:
       run: make test-release
   release-tests-windows:
     name: release-tests-windows
-    runs-on: windows-2019
+    runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "windows"]') || 'windows-2019'  }}
     needs: cargo-fmt
     steps:
     - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
+      if: env.SELF_HOSTED_RUNNERS == false
       run: rustup update stable
     - name: Use Node.js
       uses: actions/setup-node@v2
@@ -83,6 +90,7 @@ jobs:
     - name: Install make
       run: choco install -y make
     - uses: KyleMayes/install-llvm-action@v1
+      if: env.SELF_HOSTED_RUNNERS == false
       with:
         version: "15.0"
         directory: ${{ runner.temp }}/llvm
@@ -92,11 +100,13 @@ jobs:
       run: make test-release
   beacon-chain-tests:
     name: beacon-chain-tests
-    runs-on: ubuntu-latest
+    # Use self-hosted runners only on the sigp repo.
+    runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "large"]') || 'ubuntu-latest'  }}
     needs: cargo-fmt
     steps:
     - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
+      if: env.SELF_HOSTED_RUNNERS == false
       run: rustup update stable
     - name: Install Protoc
       uses: arduino/setup-protoc@e52d9eb8f7b63115df1ac544a1376fdbf5a39612
@@ -130,11 +140,13 @@ jobs:
       run: make test-slasher
   debug-tests-ubuntu:
     name: debug-tests-ubuntu
-    runs-on: ubuntu-22.04
+    # Use self-hosted runners only on the sigp repo.
+    runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "large"]') || 'ubuntu-latest'  }}
     needs: cargo-fmt
     steps:
     - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
+      if: env.SELF_HOSTED_RUNNERS == false
       run: rustup update stable
     - name: Install Protoc
       uses: arduino/setup-protoc@e52d9eb8f7b63115df1ac544a1376fdbf5a39612
@@ -160,11 +172,13 @@ jobs:
       run: make run-state-transition-tests
   ef-tests-ubuntu:
     name: ef-tests-ubuntu
-    runs-on: ubuntu-latest
+    # Use self-hosted runners only on the sigp repo.
+    runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "small"]') || 'ubuntu-latest'  }}
     needs: cargo-fmt
     steps:
     - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
+      if: env.SELF_HOSTED_RUNNERS == false
       run: rustup update stable
     - name: Install Protoc
       uses: arduino/setup-protoc@e52d9eb8f7b63115df1ac544a1376fdbf5a39612
