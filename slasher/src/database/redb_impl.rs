@@ -5,7 +5,7 @@ use std::{
     path::PathBuf,
 };
 
-use redb::{ReadableTable, TableDefinition, AccessGuard};
+use redb::{ReadableTable, TableDefinition};
 
 use crate::{
     database::{
@@ -116,14 +116,14 @@ impl Environment {
 
 impl<'env> Database<'env> {
 
-    fn open_database(&self) -> Result<redb::Database, Error> {
+    fn open_database(&'env self) -> Result<redb::Database, Error> {
         match redb::Database::open(BASE_DB) {
             Ok(db) => Ok(db),
             Err(e) =>Err(Error::DatabaseRedbError(e.into())),
         }
     }
 
-    fn create_write_transaction(database: &'env redb::Database) -> Result<redb::WriteTransaction<'env>, Error> {
+    fn create_write_transaction(database: &redb::Database) -> Result<redb::WriteTransaction, Error> {
         match database.begin_write() {
             Ok(transaction) => Ok(transaction),
             Err(e) => return Err(Error::DatabaseRedbError(e.into())),
@@ -157,12 +157,13 @@ impl<'env> Database<'env> {
 impl<'env> RwTransaction<'env> {
     pub fn get<K: AsRef<[u8]> + ?Sized>(
         &'env self,
-        db: &Database<'env>,
+        db:  &Database<'env>,
         key: &K,
     ) -> Result<Option<Cow<'env, [u8]>>, Error> {
-        let database = db.open_database()?;
-        let tx = Database::<'env>::create_write_transaction(&database)?;
-        let table = db.open_write_table(&tx)?;
+        let table_definition: TableDefinition<'_, &[u8], &[u8]> = TableDefinition::new(db.table);
+        let database =redb::Database::open(BASE_DB).unwrap();
+        let tx = database.begin_write().unwrap();
+        let table = tx.open_table(table_definition).unwrap();
         let result = table.get(key.as_ref().borrow());
         match result {
             Ok(res) => {
