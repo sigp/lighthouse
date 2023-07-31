@@ -1087,12 +1087,7 @@ async fn test_blobs_by_range() {
             .block_root_at_slot(Slot::new(slot), WhenSlotSkipped::None)
             .unwrap();
         blob_count += root
-            .and_then(|root| {
-                rig.chain
-                    .get_blobs(&root)
-                    .unwrap_or_default()
-                    .map(|blobs| blobs.len())
-            })
+            .map(|root| rig.chain.get_blobs(&root).unwrap_or_default().len())
             .unwrap_or(0);
     }
     let mut actual_count = 0;
