@@ -172,7 +172,7 @@ In order to do so, lighthouse provides the following CLI options/parameters.
   advertises some address, must be
   reachable both over UDP and TCP.
 
-In the general case, an user will not require to set these explicitly. Update
+In the general case, a user will not require to set these explicitly. Update
 these options only if you can guarantee your node is reachable with these
 values.
 
