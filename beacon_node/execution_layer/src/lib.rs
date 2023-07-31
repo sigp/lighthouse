@@ -13,7 +13,7 @@ pub use engine_api::*;
 pub use engine_api::{http, http::deposit_methods, http::HttpJsonRpc};
 use engines::{Engine, EngineError};
 pub use engines::{EngineState, ForkchoiceState};
-use eth2::types::{builder_bid::SignedBuilderBid, ForkVersionedResponse};
+use eth2::types::{builder_bid::SignedBuilderBid, BlobsBundle, ForkVersionedResponse};
 use eth2::types::{FullPayloadContents, SignedBlockContents};
 use ethers_core::abi::ethereum_types::FromStrRadixErr;
 use ethers_core::types::Transaction as EthersTransaction;
@@ -289,6 +289,8 @@ pub enum FailedCondition {
     EpochsSinceFinalization,
 }
 
+type PayloadContentsRefTuple<'a, T> = (ExecutionPayloadRef<'a, T>, Option<&'a BlobsBundleV1<T>>);
+
 struct Inner<E: EthSpec> {
     engine: Arc<Engine>,
     builder: Option<BuilderHttpClient>,
@@ -454,12 +456,28 @@ impl<T: EthSpec> ExecutionLayer<T> {
     }
 
     /// Cache a full payload, keyed on the `tree_hash_root` of the payload
-    fn cache_payload(&self, payload: ExecutionPayloadRef<T>) -> Option<ExecutionPayload<T>> {
-        self.inner.payload_cache.put(payload.clone_from_ref())
+    fn cache_payload(
+        &self,
+        payload_and_blobs: PayloadContentsRefTuple<T>,
+    ) -> Option<FullPayloadContents<T>> {
+        let (payload_ref, maybe_json_blobs_bundle) = payload_and_blobs;
+
+        let payload = payload_ref.clone_from_ref();
+        let maybe_blobs_bundle = maybe_json_blobs_bundle
+            .cloned()
+            .map(|blobs_bundle| BlobsBundle {
+                commitments: blobs_bundle.commitments,
+                proofs: blobs_bundle.proofs,
+                blobs: blobs_bundle.blobs,
+            });
+
+        self.inner
+            .payload_cache
+            .put(FullPayloadContents::new(payload, maybe_blobs_bundle))
     }
 
     /// Attempt to retrieve a full payload from the payload cache by the payload root
-    pub fn get_payload_by_root(&self, root: &Hash256) -> Option<ExecutionPayload<T>> {
+    pub fn get_payload_by_root(&self, root: &Hash256) -> Option<FullPayloadContents<T>> {
         self.inner.payload_cache.get(root)
     }
 
@@ -1090,7 +1108,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
             payload_attributes,
             forkchoice_update_params,
             current_fork,
-            Self::cache_payload, // TODO(jimmy): cache blobs as well?
+            Self::cache_payload,
         )
         .await
     }
@@ -1101,7 +1119,10 @@ impl<T: EthSpec> ExecutionLayer<T> {
         payload_attributes: &PayloadAttributes,
         forkchoice_update_params: ForkchoiceUpdateParameters,
         current_fork: ForkName,
-        f: fn(&ExecutionLayer<T>, ExecutionPayloadRef<T>) -> Option<ExecutionPayload<T>>,
+        cache_fn: fn(
+            &ExecutionLayer<T>,
+            PayloadContentsRefTuple<T>,
+        ) -> Option<FullPayloadContents<T>>,
     ) -> Result<BlockProposalContents<T, Payload>, Error> {
         self.engine()
             .request(move |engine| async move {
@@ -1180,7 +1201,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                         "suggested_fee_recipient" => ?payload_attributes.suggested_fee_recipient(),
                     );
                 }
-                if f(self, payload_response.execution_payload_ref()).is_some() {
+                if cache_fn(self, (payload_response.execution_payload_ref(), payload_response.blobs_bundle().ok())).is_some() {
                     warn!(
                         self.log(),
                         "Duplicate payload cached, this might indicate redundant proposal \
@@ -2202,8 +2223,8 @@ fn ethers_tx_to_ssz<T: EthSpec>(
 
 fn noop<T: EthSpec>(
     _: &ExecutionLayer<T>,
-    _: ExecutionPayloadRef<T>,
-) -> Option<ExecutionPayload<T>> {
+    _: PayloadContentsRefTuple<T>,
+) -> Option<FullPayloadContents<T>> {
     None
 }
 

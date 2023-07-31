@@ -162,8 +162,9 @@ pub use crate::participation_flags::ParticipationFlags;
 pub use crate::participation_list::ParticipationList;
 pub use crate::payload::{
     AbstractExecPayload, BlindedPayload, BlindedPayloadCapella, BlindedPayloadDeneb,
-    BlindedPayloadMerge, BlindedPayloadRef, BlockType, ExecPayload, FullPayload,
-    FullPayloadCapella, FullPayloadDeneb, FullPayloadMerge, FullPayloadRef, OwnedExecPayload,
+    BlindedPayloadMerge, BlindedPayloadRef, BlobsBundle, BlockType, ExecPayload,
+    ExecutionPayloadAndBlobs, FullPayload, FullPayloadCapella, FullPayloadContents,
+    FullPayloadDeneb, FullPayloadMerge, FullPayloadRef, OwnedExecPayload,
 };
 pub use crate::pending_attestation::PendingAttestation;
 pub use crate::preset::{AltairPreset, BasePreset, BellatrixPreset, CapellaPreset};

@@ -317,12 +317,11 @@ pub async fn reconstruct_block<T: BeaconChainTypes>(
             .into();
             ProvenancedPayload::Local(FullPayloadContents::Payload(payload))
         // If we already have an execution payload with this transactions root cached, use it.
-        // TODO(jimmy): blobs should be cached as well
         } else if let Some(cached_payload) =
             el.get_payload_by_root(&payload_header.tree_hash_root())
         {
             info!(log, "Reconstructing a full block using a local payload"; "block_hash" => ?cached_payload.block_hash());
-            ProvenancedPayload::Local(FullPayloadContents::Payload(cached_payload))
+            ProvenancedPayload::Local(cached_payload)
         // Otherwise, this means we are attempting a blind block proposal.
         } else {
             // Perform the logging for late blocks when we publish to the
