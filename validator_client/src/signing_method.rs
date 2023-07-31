@@ -34,10 +34,10 @@ pub enum Error {
 }
 
 /// Enumerates all messages that can be signed by a validator.
-pub enum SignableMessage<'a, T: EthSpec, B: BlockProposal<T> = FullBlockProposal> {
+pub enum SignableMessage<'a, T: EthSpec, Payload: AbstractExecPayload<T> = FullPayload<T>> {
     RandaoReveal(Epoch),
-    BeaconBlock(&'a BeaconBlock<T, B::Payload>),
-    BlobSidecar(&'a B::Sidecar),
+    BeaconBlock(&'a BeaconBlock<T, Payload>),
+    BlobSidecar(&'a Payload::Sidecar),
     AttestationData(&'a AttestationData),
     SignedAggregateAndProof(&'a AggregateAndProof<T>),
     SelectionProof(Slot),
@@ -51,7 +51,7 @@ pub enum SignableMessage<'a, T: EthSpec, B: BlockProposal<T> = FullBlockProposal
     VoluntaryExit(&'a VoluntaryExit),
 }
 
-impl<'a, T: EthSpec, B: BlockProposal<T>> SignableMessage<'a, T, B> {
+impl<'a, T: EthSpec, Payload: AbstractExecPayload<T>> SignableMessage<'a, T, Payload> {
     /// Returns the `SignedRoot` for the contained message.
     ///
     /// The actual `SignedRoot` trait is not used since it also requires a `TreeHash` impl, which is
@@ -120,9 +120,9 @@ impl SigningContext {
 
 impl SigningMethod {
     /// Return the signature of `signable_message`, with respect to the `signing_context`.
-    pub async fn get_signature<T: EthSpec, B: BlockProposal<T>>(
+    pub async fn get_signature<T: EthSpec, Payload: AbstractExecPayload<T>>(
         &self,
-        signable_message: SignableMessage<'_, T, B>,
+        signable_message: SignableMessage<'_, T, Payload>,
         signing_context: SigningContext,
         spec: &ChainSpec,
         executor: &TaskExecutor,
@@ -145,9 +145,9 @@ impl SigningMethod {
             .await
     }
 
-    pub async fn get_signature_from_root<T: EthSpec, B: BlockProposal<T>>(
+    pub async fn get_signature_from_root<T: EthSpec, Payload: AbstractExecPayload<T>>(
         &self,
-        signable_message: SignableMessage<'_, T, B>,
+        signable_message: SignableMessage<'_, T, Payload>,
         signing_root: Hash256,
         executor: &TaskExecutor,
         fork_info: Option<ForkInfo>,

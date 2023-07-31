@@ -85,6 +85,8 @@ pub trait AbstractExecPayload<T: EthSpec>:
     + TryInto<Self::Capella>
     + TryInto<Self::Deneb>
 {
+    type Sidecar: Sidecar<T>;
+
     type Ref<'a>: ExecPayload<T>
         + Copy
         + From<&'a Self::Merge>
@@ -381,6 +383,7 @@ impl<'b, T: EthSpec> ExecPayload<T> for FullPayloadRef<'b, T> {
 }
 
 impl<T: EthSpec> AbstractExecPayload<T> for FullPayload<T> {
+    type Sidecar = BlobSidecar<T>;
     type Ref<'a> = FullPayloadRef<'a, T>;
     type Merge = FullPayloadMerge<T>;
     type Capella = FullPayloadCapella<T>;
@@ -894,6 +897,7 @@ impl_exec_payload_for_fork!(
 );
 
 impl<T: EthSpec> AbstractExecPayload<T> for BlindedPayload<T> {
+    type Sidecar = BlindedBlobSidecar;
     type Ref<'a> = BlindedPayloadRef<'a, T>;
     type Merge = BlindedPayloadMerge<T>;
     type Capella = BlindedPayloadCapella<T>;

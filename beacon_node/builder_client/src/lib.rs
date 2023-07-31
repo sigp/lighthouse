@@ -1,7 +1,7 @@
 use eth2::types::builder_bid::SignedBuilderBid;
 use eth2::types::payload::FullPayloadContents;
 use eth2::types::{
-    AbstractExecPayload, BlindedBlockProposal, EthSpec, ExecutionBlockHash, ForkVersionedResponse,
+    AbstractExecPayload, BlindedPayload, EthSpec, ExecutionBlockHash, ForkVersionedResponse,
     PublicKeyBytes, SignedBlockContents, SignedValidatorRegistrationData, Slot,
 };
 pub use eth2::Error;
@@ -140,7 +140,7 @@ impl BuilderHttpClient {
     /// `POST /eth/v1/builder/blinded_blocks`
     pub async fn post_builder_blinded_blocks<E: EthSpec>(
         &self,
-        blinded_block: &SignedBlockContents<E, BlindedBlockProposal>,
+        blinded_block: &SignedBlockContents<E, BlindedPayload<E>>,
     ) -> Result<ForkVersionedResponse<FullPayloadContents<E>>, Error> {
         let mut path = self.server.full.clone();
 

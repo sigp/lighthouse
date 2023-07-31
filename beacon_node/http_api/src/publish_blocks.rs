@@ -6,7 +6,7 @@ use beacon_chain::{
     AvailabilityProcessingStatus, BeaconChain, BeaconChainError, BeaconChainTypes, BlockError,
     IntoGossipVerifiedBlockContents, NotifyExecutionLayer,
 };
-use eth2::types::{BroadcastValidation, FullBlockProposal};
+use eth2::types::BroadcastValidation;
 use eth2::types::{FullPayloadContents, SignedBlockContents};
 use execution_layer::ProvenancedPayload;
 use lighthouse_network::PubsubMessage;
@@ -19,8 +19,8 @@ use std::time::Duration;
 use tokio::sync::mpsc::UnboundedSender;
 use tree_hash::TreeHash;
 use types::{
-    AbstractExecPayload, BeaconBlockRef, BlindedBlockProposal, EthSpec, ExecPayload,
-    ExecutionBlockHash, FullPayload, Hash256, SignedBeaconBlock, SignedBlobSidecarList,
+    AbstractExecPayload, BeaconBlockRef, BlindedPayload, EthSpec, ExecPayload, ExecutionBlockHash,
+    FullPayload, Hash256, SignedBeaconBlock, SignedBlobSidecarList,
 };
 use warp::Rejection;
 
@@ -267,14 +267,14 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlockConten
 /// Handles a request from the HTTP API for blinded blocks. This converts blinded blocks into full
 /// blocks before publishing.
 pub async fn publish_blinded_block<T: BeaconChainTypes>(
-    block_contents: SignedBlockContents<T::EthSpec, BlindedBlockProposal>,
+    block_contents: SignedBlockContents<T::EthSpec, BlindedPayload<T::EthSpec>>,
     chain: Arc<BeaconChain<T>>,
     network_tx: &UnboundedSender<NetworkMessage<T::EthSpec>>,
     log: Logger,
     validation_level: BroadcastValidation,
 ) -> Result<(), Rejection> {
     let block_root = block_contents.signed_block().canonical_root();
-    let full_block =
+    let full_block: ProvenancedBlock<T, SignedBlockContents<T::EthSpec>> =
         reconstruct_block(chain.clone(), block_root, block_contents, log.clone()).await?;
     publish_block::<T, _>(
         Some(block_root),
@@ -293,9 +293,9 @@ pub async fn publish_blinded_block<T: BeaconChainTypes>(
 pub async fn reconstruct_block<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
     block_root: Hash256,
-    block_contents: SignedBlockContents<T::EthSpec, BlindedBlockProposal>,
+    block_contents: SignedBlockContents<T::EthSpec, BlindedPayload<T::EthSpec>>,
     log: Logger,
-) -> Result<ProvenancedBlock<T, SignedBlockContents<T::EthSpec, FullBlockProposal>>, Rejection> {
+) -> Result<ProvenancedBlock<T, SignedBlockContents<T::EthSpec>>, Rejection> {
     let block = block_contents.signed_block();
     let full_payload_opt = if let Ok(payload_header) = block.message().body().execution_payload() {
         let el = chain.execution_layer.as_ref().ok_or_else(|| {

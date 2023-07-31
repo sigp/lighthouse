@@ -48,8 +48,7 @@ use types::{
     AbstractExecPayload, BeaconStateError, ExecPayload, ExecutionPayloadDeneb, VersionedHash,
 };
 use types::{
-    BlindedBlockProposal, BlindedPayload, BlockType, ChainSpec, Epoch, ExecutionPayloadCapella,
-    ExecutionPayloadMerge,
+    BlindedPayload, BlockType, ChainSpec, Epoch, ExecutionPayloadCapella, ExecutionPayloadMerge,
 };
 use types::{ProposerPreparationData, PublicKeyBytes, Signature, Slot, Transaction};
 
@@ -1883,7 +1882,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
     pub async fn propose_blinded_beacon_block(
         &self,
         block_root: Hash256,
-        block: &SignedBlockContents<T, BlindedBlockProposal>,
+        block: &SignedBlockContents<T, BlindedPayload<T>>,
     ) -> Result<FullPayloadContents<T>, Error> {
         debug!(
             self.log(),

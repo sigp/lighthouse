@@ -512,7 +512,7 @@ mod tests {
                 let block = BeaconBlock::Base(BeaconBlockBase::empty(spec));
                 let block_slot = block.slot();
                 validator_store
-                    .sign_block::<FullBlockProposal>(pubkey, block, block_slot)
+                    .sign_block(pubkey, block, block_slot)
                     .await
                     .unwrap()
             })
@@ -576,11 +576,7 @@ mod tests {
                     let mut altair_block = BeaconBlockAltair::empty(spec);
                     altair_block.slot = altair_fork_slot;
                     validator_store
-                        .sign_block::<FullBlockProposal>(
-                            pubkey,
-                            BeaconBlock::Altair(altair_block),
-                            altair_fork_slot,
-                        )
+                        .sign_block(pubkey, BeaconBlock::Altair(altair_block), altair_fork_slot)
                         .await
                         .unwrap()
                 },
@@ -665,11 +661,7 @@ mod tests {
                 let mut merge_block = BeaconBlockMerge::empty(spec);
                 merge_block.slot = merge_fork_slot;
                 validator_store
-                    .sign_block::<FullBlockProposal>(
-                        pubkey,
-                        BeaconBlock::Merge(merge_block),
-                        merge_fork_slot,
-                    )
+                    .sign_block(pubkey, BeaconBlock::Merge(merge_block), merge_fork_slot)
                     .await
                     .unwrap()
             })

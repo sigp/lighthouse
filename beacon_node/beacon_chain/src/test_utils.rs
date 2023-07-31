@@ -819,7 +819,7 @@ where
         state: BeaconState<E>,
         slot: Slot,
     ) -> (
-        SignedBlockContentsTuple<E, BlindedBlockProposal>,
+        SignedBlockContentsTuple<E, BlindedPayload<E>>,
         BeaconState<E>,
     ) {
         let (unblinded, new_state) = self.make_block(state, slot).await;
@@ -847,10 +847,7 @@ where
         &self,
         mut state: BeaconState<E>,
         slot: Slot,
-    ) -> (
-        SignedBlockContentsTuple<E, FullBlockProposal>,
-        BeaconState<E>,
-    ) {
+    ) -> (SignedBlockContentsTuple<E, FullPayload<E>>, BeaconState<E>) {
         assert_ne!(slot, 0, "can't produce a block at slot 0");
         assert!(slot >= state.slot());
 
@@ -870,7 +867,7 @@ where
 
         let (block, state, maybe_blob_sidecars) = self
             .chain
-            .produce_block_on_state::<FullBlockProposal>(
+            .produce_block_on_state(
                 state,
                 None,
                 slot,
@@ -888,7 +885,7 @@ where
             &self.spec,
         );
 
-        let block_contents: SignedBlockContentsTuple<E, FullBlockProposal> = match &signed_block {
+        let block_contents: SignedBlockContentsTuple<E, FullPayload<E>> = match &signed_block {
             SignedBeaconBlock::Base(_)
             | SignedBeaconBlock::Altair(_)
             | SignedBeaconBlock::Merge(_)
@@ -930,10 +927,7 @@ where
         &self,
         mut state: BeaconState<E>,
         slot: Slot,
-    ) -> (
-        SignedBlockContentsTuple<E, FullBlockProposal>,
-        BeaconState<E>,
-    ) {
+    ) -> (SignedBlockContentsTuple<E, FullPayload<E>>, BeaconState<E>) {
         assert_ne!(slot, 0, "can't produce a block at slot 0");
         assert!(slot >= state.slot());
 
@@ -955,7 +949,7 @@ where
 
         let (block, state, maybe_blob_sidecars) = self
             .chain
-            .produce_block_on_state::<FullBlockProposal>(
+            .produce_block_on_state(
                 state,
                 None,
                 slot,
@@ -973,7 +967,7 @@ where
             &self.spec,
         );
 
-        let block_contents: SignedBlockContentsTuple<E, FullBlockProposal> = match &signed_block {
+        let block_contents: SignedBlockContentsTuple<E, FullPayload<E>> = match &signed_block {
             SignedBeaconBlock::Base(_)
             | SignedBeaconBlock::Altair(_)
             | SignedBeaconBlock::Merge(_)
@@ -1797,10 +1791,7 @@ where
         state: BeaconState<E>,
         slot: Slot,
         block_modifier: impl FnOnce(&mut BeaconBlock<E>),
-    ) -> (
-        SignedBlockContentsTuple<E, FullBlockProposal>,
-        BeaconState<E>,
-    ) {
+    ) -> (SignedBlockContentsTuple<E, FullPayload<E>>, BeaconState<E>) {
         assert_ne!(slot, 0, "can't produce a block at slot 0");
         assert!(slot >= state.slot());
 
@@ -1898,7 +1889,7 @@ where
         &self,
         slot: Slot,
         block_root: Hash256,
-        block_contents: SignedBlockContentsTuple<E, FullBlockProposal>,
+        block_contents: SignedBlockContentsTuple<E, FullPayload<E>>,
     ) -> Result<SignedBeaconBlockHash, BlockError<E>> {
         self.set_current_slot(slot);
         let (block, blobs) = block_contents;
@@ -1928,7 +1919,7 @@ where
 
     pub async fn process_block_result(
         &self,
-        block_contents: SignedBlockContentsTuple<E, FullBlockProposal>,
+        block_contents: SignedBlockContentsTuple<E, FullPayload<E>>,
     ) -> Result<SignedBeaconBlockHash, BlockError<E>> {
         let (block, blobs) = block_contents;
         // Note: we are just dropping signatures here and skipping signature verification.
@@ -2013,7 +2004,7 @@ where
     ) -> Result<
         (
             SignedBeaconBlockHash,
-            SignedBlockContentsTuple<E, FullBlockProposal>,
+            SignedBlockContentsTuple<E, FullPayload<E>>,
             BeaconState<E>,
         ),
         BlockError<E>,

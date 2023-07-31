@@ -33,7 +33,7 @@ pub use block_id::BlockId;
 use directory::DEFAULT_ROOT_DIR;
 use eth2::types::{
     self as api_types, BroadcastValidation, EndpointVersion, ForkChoice, ForkChoiceNode,
-    FullBlockProposal, SignedBlockContents, SkipRandaoVerification, ValidatorId, ValidatorStatus,
+    SignedBlockContents, SkipRandaoVerification, ValidatorId, ValidatorStatus,
 };
 use lighthouse_network::{types::SyncState, EnrExt, NetworkGlobals, PeerId, PubsubMessage};
 use lighthouse_version::version_with_platform;
@@ -61,7 +61,7 @@ use tokio::sync::mpsc::{Sender, UnboundedSender};
 use tokio_stream::{wrappers::BroadcastStream, StreamExt};
 use types::{
     Attestation, AttestationData, AttestationShufflingId, AttesterSlashing, BeaconStateError,
-    BlindedBlockProposal, CommitteeCache, ConfigAndPreset, Epoch, EthSpec, ForkName,
+    BlindedPayload, CommitteeCache, ConfigAndPreset, Epoch, EthSpec, ForkName, FullPayload,
     ProposerPreparationData, ProposerSlashing, RelativeEpoch, SignedAggregateAndProof,
     SignedBlsToExecutionChange, SignedContributionAndProof, SignedValidatorRegistrationData,
     SignedVoluntaryExit, Slot, SyncCommitteeMessage, SyncContributionData,
@@ -1219,7 +1219,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(network_tx_filter.clone())
         .and(log_filter.clone())
         .and_then(
-            |block_contents: SignedBlockContents<T::EthSpec, FullBlockProposal>,
+            |block_contents: SignedBlockContents<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
              log: Logger| async move {
@@ -1247,7 +1247,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(log_filter.clone())
         .then(
             |validation_level: api_types::BroadcastValidationQuery,
-             block_contents: SignedBlockContents<T::EthSpec, FullBlockProposal>,
+             block_contents: SignedBlockContents<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
              log: Logger| async move {
@@ -1288,7 +1288,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(network_tx_filter.clone())
         .and(log_filter.clone())
         .and_then(
-            |block_contents: SignedBlockContents<T::EthSpec, BlindedBlockProposal>,
+            |block_contents: SignedBlockContents<T::EthSpec, BlindedPayload<_>>,
              chain: Arc<BeaconChain<T>>,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
              log: Logger| async move {
@@ -1315,7 +1315,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(log_filter.clone())
         .then(
             |validation_level: api_types::BroadcastValidationQuery,
-             block_contents: SignedBlockContents<T::EthSpec, BlindedBlockProposal>,
+             block_contents: SignedBlockContents<T::EthSpec, BlindedPayload<_>>,
              chain: Arc<BeaconChain<T>>,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
              log: Logger| async move {
@@ -2486,7 +2486,7 @@ pub fn serve<T: BeaconChainTypes>(
                             ))
                         }
                     })
-                        .await
+                    .await
                 }
             },
         );
@@ -2723,7 +2723,7 @@ pub fn serve<T: BeaconChainTypes>(
                     };
 
                 let (block, _, maybe_blobs) = chain
-                    .produce_block_with_verification::<FullBlockProposal>(
+                    .produce_block_with_verification::<FullPayload<T::EthSpec>>(
                         randao_reveal,
                         slot,
                         query.graffiti.map(Into::into),
@@ -2737,7 +2737,7 @@ pub fn serve<T: BeaconChainTypes>(
                     .map_err(inconsistent_fork_rejection)?;
 
                 let block_contents =
-                    build_block_contents::build_block_contents::<T>(fork_name, block, maybe_blobs)?;
+                    build_block_contents::build_block_contents(fork_name, block, maybe_blobs)?;
 
                 fork_versioned_response(endpoint_version, fork_name, block_contents)
                     .map(|response| warp::reply::json(&response).into_response())
@@ -2782,7 +2782,7 @@ pub fn serve<T: BeaconChainTypes>(
                     };
 
                 let (block, _, maybe_blobs) = chain
-                    .produce_block_with_verification::<BlindedBlockProposal>(
+                    .produce_block_with_verification::<BlindedPayload<T::EthSpec>>(
                         randao_reveal,
                         slot,
                         query.graffiti.map(Into::into),
@@ -2796,7 +2796,7 @@ pub fn serve<T: BeaconChainTypes>(
                     .map_err(inconsistent_fork_rejection)?;
 
                 let block_contents =
-                    build_block_contents::build_blinded_block_contents::<T>(fork_name, block, maybe_blobs)?;
+                    build_block_contents::build_blinded_block_contents(fork_name, block, maybe_blobs)?;
 
                 // Pose as a V2 endpoint so we return the fork `version`.
                 fork_versioned_response(V2, fork_name, block_contents)

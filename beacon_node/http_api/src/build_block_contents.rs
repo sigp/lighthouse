@@ -1,19 +1,16 @@
-use beacon_chain::{BeaconChainTypes, BlockProductionError};
-use eth2::types::{
-    BeaconBlockAndBlobSidecars, BlindedBeaconBlockAndBlobSidecars, BlindedBlockProposal,
-    BlockContents, FullBlockProposal,
-};
-use types::{BeaconBlock, BlindedPayload, ForkName, FullPayload, SidecarListVariant};
+use beacon_chain::BlockProductionError;
+use eth2::types::{BeaconBlockAndBlobSidecars, BlindedBeaconBlockAndBlobSidecars, BlockContents};
+use types::{BeaconBlock, BlindedPayload, EthSpec, ForkName, FullPayload, SidecarListVariant};
 
 type Error = warp::reject::Rejection;
-type FullBlockContents<E> = BlockContents<E, FullBlockProposal>;
-type BlindedBlockContents<E> = BlockContents<E, BlindedBlockProposal>;
+type FullBlockContents<E> = BlockContents<E, FullPayload<E>>;
+type BlindedBlockContents<E> = BlockContents<E, BlindedPayload<E>>;
 
-pub fn build_block_contents<T: BeaconChainTypes>(
+pub fn build_block_contents<E: EthSpec>(
     fork_name: ForkName,
-    block: BeaconBlock<T::EthSpec, FullPayload<T::EthSpec>>,
-    maybe_blobs: Option<SidecarListVariant<T::EthSpec>>,
-) -> Result<FullBlockContents<T::EthSpec>, Error> {
+    block: BeaconBlock<E, FullPayload<E>>,
+    maybe_blobs: Option<SidecarListVariant<E>>,
+) -> Result<FullBlockContents<E>, Error> {
     match fork_name {
         ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {
             Ok(BlockContents::Block(block))
@@ -35,11 +32,11 @@ pub fn build_block_contents<T: BeaconChainTypes>(
     }
 }
 
-pub fn build_blinded_block_contents<T: BeaconChainTypes>(
+pub fn build_blinded_block_contents<E: EthSpec>(
     fork_name: ForkName,
-    block: BeaconBlock<T::EthSpec, BlindedPayload<T::EthSpec>>,
-    maybe_blobs: Option<SidecarListVariant<T::EthSpec>>,
-) -> Result<BlindedBlockContents<T::EthSpec>, Error> {
+    block: BeaconBlock<E, BlindedPayload<E>>,
+    maybe_blobs: Option<SidecarListVariant<E>>,
+) -> Result<BlindedBlockContents<E>, Error> {
     match fork_name {
         ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {
             Ok(BlockContents::Block(block))
