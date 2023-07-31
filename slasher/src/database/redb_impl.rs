@@ -123,7 +123,7 @@ impl<'env> Database<'env> {
         }
     }
 
-    fn create_write_transaction<'a>(&self, database: &'a redb::Database) -> Result<redb::WriteTransaction<'a>, Error> {
+    fn create_write_transaction(database: &'env redb::Database) -> Result<redb::WriteTransaction<'env>, Error> {
         match database.begin_write() {
             Ok(transaction) => Ok(transaction),
             Err(e) => return Err(Error::DatabaseRedbError(e.into())),
@@ -161,7 +161,7 @@ impl<'env> RwTransaction<'env> {
         key: &K,
     ) -> Result<Option<Cow<'env, [u8]>>, Error> {
         let database = db.open_database()?;
-        let tx = db.create_write_transaction(&database)?;
+        let tx = Database::<'env>::create_write_transaction(&database)?;
         let table = db.open_write_table(&tx)?;
         let result = table.get(key.as_ref().borrow());
         match result {
