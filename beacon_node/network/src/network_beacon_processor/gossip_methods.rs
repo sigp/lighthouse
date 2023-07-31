@@ -1151,14 +1151,13 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         crit!(
                             self.log,
                             "Internal availability check error";
-                            "error" => %err,
+                            "error" => ?err,
                         );
                     }
                     AvailabilityCheckError::Kzg(_)
                     | AvailabilityCheckError::KzgVerificationFailed
                     | AvailabilityCheckError::NumBlobsMismatch { .. }
                     | AvailabilityCheckError::TxKzgCommitmentMismatch(_)
-                    | AvailabilityCheckError::KzgCommitmentMismatch { .. }
                     | AvailabilityCheckError::BlobIndexInvalid(_)
                     | AvailabilityCheckError::UnorderedBlobs { .. }
                     | AvailabilityCheckError::BlockBlobRootMismatch { .. }
@@ -1174,7 +1173,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         warn!(
                             self.log,
                             "Received invalid blob or malicious proposer";
-                            "error" => %err
+                            "error" => ?err
                         );
                     }
                 }
