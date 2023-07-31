@@ -21,10 +21,14 @@ use futures_util::StreamExt;
 use lighthouse_network::PeerId;
 use pretty_reqwest_error::PrettyReqwestError;
 pub use reqwest;
-use reqwest::{IntoUrl, RequestBuilder, Response};
+use reqwest::{
+    header::{HeaderMap, HeaderValue},
+    Body, IntoUrl, RequestBuilder, Response,
+};
 pub use reqwest::{StatusCode, Url};
 pub use sensitive_url::{SensitiveError, SensitiveUrl};
 use serde::{de::DeserializeOwned, Serialize};
+use ssz::Encode;
 use std::convert::TryFrom;
 use std::fmt;
 use std::iter::Iterator;
@@ -323,6 +327,25 @@ impl BeaconNodeHttpClient {
     }
 
     /// Generic POST function supporting arbitrary responses and timeouts.
+    async fn post_generic_with_ssz_body<T: Into<Body>, U: IntoUrl>(
+        &self,
+        url: U,
+        body: T,
+        timeout: Option<Duration>,
+    ) -> Result<Response, Error> {
+        let mut builder = self.client.post(url);
+        if let Some(timeout) = timeout {
+            builder = builder.timeout(timeout);
+        }
+        let response = builder
+            .header("Content-Type", "application/octet-stream")
+            .body(body)
+            .send()
+            .await?;
+        ok_or_error(response).await
+    }
+
+    /// Generic POST function supporting arbitrary responses and timeouts.
     async fn post_generic_with_consensus_version<T: Serialize, U: IntoUrl>(
         &self,
         url: U,
@@ -339,6 +362,31 @@ impl BeaconNodeHttpClient {
             .json(body)
             .send()
             .await?;
+        ok_or_error(response).await
+    }
+
+    /// Generic POST function supporting arbitrary responses and timeouts.
+    async fn post_generic_with_consensus_version_and_ssz_body<T: Into<Body>, U: IntoUrl>(
+        &self,
+        url: U,
+        body: T,
+        timeout: Option<Duration>,
+        fork: ForkName,
+    ) -> Result<Response, Error> {
+        let mut builder = self.client.post(url);
+        if let Some(timeout) = timeout {
+            builder = builder.timeout(timeout);
+        }
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            CONSENSUS_VERSION_HEADER,
+            HeaderValue::from_str(&fork.to_string()).expect("Failed to create header value"),
+        );
+        headers.insert(
+            "Content-Type",
+            HeaderValue::from_static("application/octet-stream"),
+        );
+        let response = builder.headers(headers).body(body).send().await?;
         ok_or_error(response).await
     }
 
@@ -654,6 +702,26 @@ impl BeaconNodeHttpClient {
         Ok(())
     }
 
+    /// `POST beacon/blocks`
+    ///
+    /// Returns `Ok(None)` on a 404 error.
+    pub async fn post_beacon_blocks_ssz<T: EthSpec, Payload: AbstractExecPayload<T>>(
+        &self,
+        block: &SignedBeaconBlock<T, Payload>,
+    ) -> Result<(), Error> {
+        let mut path = self.eth_path(V1)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("beacon")
+            .push("blocks");
+
+        self.post_generic_with_ssz_body(path, block.as_ssz_bytes(), Some(self.timeouts.proposal))
+            .await?;
+
+        Ok(())
+    }
+
     /// `POST beacon/blinded_blocks`
     ///
     /// Returns `Ok(None)` on a 404 error.
@@ -719,6 +787,23 @@ impl BeaconNodeHttpClient {
         self.post_generic_with_consensus_version(
             self.post_beacon_blocks_v2_path(validation_level)?,
             block,
+            Some(self.timeouts.proposal),
+            block.message().body().fork_name(),
+        )
+        .await?;
+
+        Ok(())
+    }
+
+    /// `POST v2/beacon/blocks`
+    pub async fn post_beacon_blocks_v2_ssz<T: EthSpec, Payload: AbstractExecPayload<T>>(
+        &self,
+        block: &SignedBeaconBlock<T, Payload>,
+        validation_level: Option<BroadcastValidation>,
+    ) -> Result<(), Error> {
+        self.post_generic_with_consensus_version_and_ssz_body(
+            self.post_beacon_blocks_v2_path(validation_level)?,
+            block.as_ssz_bytes(),
             Some(self.timeouts.proposal),
             block.message().body().fork_name(),
         )

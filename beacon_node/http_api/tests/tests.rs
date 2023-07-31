@@ -1247,6 +1247,22 @@ impl ApiTester {
         self
     }
 
+    pub async fn test_post_beacon_blocks_ssz_valid(mut self) -> Self {
+        let next_block = &self.next_block;
+
+        self.client
+            .post_beacon_blocks_ssz(next_block)
+            .await
+            .unwrap();
+
+        assert!(
+            self.network_rx.network_recv.recv().await.is_some(),
+            "valid blocks should be sent to network"
+        );
+
+        self
+    }
+
     pub async fn test_post_beacon_blocks_invalid(mut self) -> Self {
         let block = self
             .harness
@@ -1261,6 +1277,29 @@ impl ApiTester {
             .0;
 
         assert!(self.client.post_beacon_blocks(&block).await.is_err());
+
+        assert!(
+            self.network_rx.network_recv.recv().await.is_some(),
+            "gossip valid blocks should be sent to network"
+        );
+
+        self
+    }
+
+    pub async fn test_post_beacon_blocks_ssz_invalid(mut self) -> Self {
+        let block = self
+            .harness
+            .make_block_with_modifier(
+                self.harness.get_current_state(),
+                self.harness.get_current_slot(),
+                |b| {
+                    *b.state_root_mut() = Hash256::zero();
+                },
+            )
+            .await
+            .0;
+
+        assert!(self.client.post_beacon_blocks_ssz(&block).await.is_err());
 
         assert!(
             self.network_rx.network_recv.recv().await.is_some(),
@@ -4449,6 +4488,22 @@ async fn beacon_get() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn post_beacon_blocks_valid() {
     ApiTester::new().await.test_post_beacon_blocks_valid().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn post_beacon_blocks_ssz_valid() {
+    ApiTester::new()
+        .await
+        .test_post_beacon_blocks_ssz_valid()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_post_beacon_blocks_ssz_invalid() {
+    ApiTester::new()
+        .await
+        .test_post_beacon_blocks_ssz_invalid()
+        .await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
