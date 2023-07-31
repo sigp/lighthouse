@@ -123,29 +123,29 @@ impl<'env> Database<'env> {
         }
     }
 
-    fn create_write_transaction(database: &redb::Database) -> Result<redb::WriteTransaction, Error> {
+    fn create_write_transaction(&'env self, database: &'env redb::Database) -> Result<redb::WriteTransaction, Error> {
         match database.begin_write() {
             Ok(transaction) => Ok(transaction),
             Err(e) => return Err(Error::DatabaseRedbError(e.into())),
         }
     }
 
-    fn create_read_transaction<'a>(&self, database: &'a redb::Database) -> Result<redb::ReadTransaction<'a>, Error> {
+    fn create_read_transaction(&self, database: &'env redb::Database) -> Result<redb::ReadTransaction, Error> {
         match database.begin_read() {
             Ok(transaction) => Ok(transaction),
-            Err(e) => return Err(Error::DatabaseRedbError(e.into())),
+            Err(e) => Err(Error::DatabaseRedbError(e.into())),
         }
     }
     
-    fn open_write_table<'a>(&self, tx: &'a redb::WriteTransaction<'a>) -> Result<redb::Table<'a, 'a, &'a[u8], &'a[u8]>, Error> {
-        let table_definition: TableDefinition<'_, &[u8], &[u8]> = TableDefinition::new(self.table.clone());
+    fn open_write_table(&'env self, tx: &'env redb::WriteTransaction) -> Result<redb::Table<'env, 'env, &'env[u8], &'env[u8]>, Error> {
+        let table_definition: TableDefinition<'_, &[u8], &[u8]> = TableDefinition::new(self.table);
         match tx.open_table(table_definition) {
             Ok(table) => Ok(table),
             Err(e) =>Err(Error::DatabaseRedbError(e.into())),
         }
     }
 
-    fn open_read_table<'a>(&self, tx: &'a redb::ReadTransaction<'a>) -> Result<redb::ReadOnlyTable<'a, &'a[u8], &'a[u8]>, Error> {
+    fn open_read_table(&self, tx: &'env redb::ReadTransaction<'env>) -> Result<redb::ReadOnlyTable<'env, &'env[u8], &'env[u8]>, Error> {
         let table_definition: TableDefinition<'_, &[u8], &[u8]> = TableDefinition::new(self.table.clone());
         match tx.open_table(table_definition) {
             Ok(table) => Ok(table),
@@ -161,14 +161,15 @@ impl<'env> RwTransaction<'env> {
         key: &K,
     ) -> Result<Option<Cow<'env, [u8]>>, Error> {
         let table_definition: TableDefinition<'_, &[u8], &[u8]> = TableDefinition::new(db.table);
-        let database =redb::Database::open(BASE_DB).unwrap();
-        let tx = database.begin_write().unwrap();
+        let database = db.open_database()?;
+        let tx = db.create_write_transaction(&database)?;
+        // let table = db.open_write_table(&tx)?;
         let table = tx.open_table(table_definition).unwrap();
         let result = table.get(key.as_ref().borrow());
         match result {
             Ok(res) => {
                 if let Some(access_guard) = res {
-                    let value = access_guard.value().to_vec();
+                    let value = access_guard.value().to_vec().clone();
                     Ok(Some(Cow::from(value)))
                 } else {
                     Ok(None)
