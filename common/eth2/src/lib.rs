@@ -1639,8 +1639,8 @@ impl BeaconNodeHttpClient {
     /// `POST validator/liveness/{epoch}`
     pub async fn post_validator_liveness_epoch(
         &self,
+        ids: &[u64],
         epoch: Epoch,
-        indices: &[u64],
     ) -> Result<GenericResponse<Vec<LivenessResponseData>>, Error> {
         let mut path = self.eth_path(V1)?;
 
@@ -1650,8 +1650,15 @@ impl BeaconNodeHttpClient {
             .push("liveness")
             .push(&epoch.to_string());
 
-        self.post_with_timeout_and_response(path, &indices, self.timeouts.liveness)
-            .await
+        self.post_with_timeout_and_response(
+            path,
+            &LivenessRequestData {
+                indices: ids.to_vec(),
+                epoch,
+            },
+            self.timeouts.liveness,
+        )
+        .await
     }
 
     /// `POST validator/duties/attester/{epoch}`
