@@ -70,11 +70,11 @@ struct ClearDialError<'a>(&'a DialError);
 
 impl<'a> ClearDialError<'a> {
     fn most_inner_error(err: &'a (dyn Error + 'static)) -> &'a (dyn Error + 'static) {
-        if let Some(cause) = err.source() {
-            ClearDialError::most_inner_error(cause)
-        } else {
-            err
+        let mut current = err;
+        while let Some(source) = current.source() {
+            current = source;
         }
+        current
     }
 }
 
