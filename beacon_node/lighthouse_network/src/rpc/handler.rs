@@ -967,10 +967,7 @@ where
                     OutboundRequestContainer {
                         req: req.clone(),
                         fork_context: self.fork_context.clone(),
-                        max_rpc_size: max_rpc_size(
-                            &self.fork_context,
-                            self.listen_protocol.upgrade().max_rpc_size,
-                        ),
+                        max_rpc_size: self.listen_protocol().upgrade().max_rpc_size,
                     },
                     (),
                 )
