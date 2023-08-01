@@ -5,6 +5,7 @@ use super::BatchProcessResult;
 use super::{manager::BlockProcessType, network_context::SyncNetworkContext};
 use crate::metrics;
 use crate::network_beacon_processor::ChainSegmentProcessId;
+use crate::sync::block_lookups::common::LookupType;
 use crate::sync::block_lookups::parent_lookup::{ParentLookup, RequestError};
 use crate::sync::block_lookups::single_block_lookup::{
     CachedChild, LookupRequestError, LookupVerifyError,
@@ -16,7 +17,6 @@ use beacon_chain::validator_monitor::timestamp_now;
 use beacon_chain::{AvailabilityProcessingStatus, BeaconChainTypes, BlockError};
 pub use common::Current;
 pub use common::Lookup;
-use common::LookupType;
 pub use common::Parent;
 pub use common::RequestState;
 use fnv::FnvHashMap;
@@ -359,16 +359,10 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     /// necessary because we want to make sure all parents are processed before sending a child
     /// for processing, otherwise the block will fail validation and will be returned to the network
     /// layer with an `UnknownParent` error.
-    pub fn has_pending_parent_request(&self, target_id: Id) -> bool {
-        self.single_block_lookups.iter().any(|(id, lookup)| {
-            if *id == target_id {
-                self.parent_lookups
-                    .iter()
-                    .any(|parent_lookup| parent_lookup.chain_hash() == lookup.block_root())
-            } else {
-                false
-            }
-        })
+    pub fn has_pending_parent_request(&self, block_root: Hash256) -> bool {
+        self.parent_lookups
+            .iter()
+            .any(|parent_lookup| parent_lookup.chain_hash() == block_root)
     }
 
     /// Process a block or blob response received from a single lookup request.
@@ -383,8 +377,6 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         let id = lookup_id.id;
         let response_type = R::response_type();
 
-        let chain_hash_opt = self.has_pending_parent_request(id);
-
         let Some(lookup) = self.get_single_lookup::<R>(lookup_id) else {
             if response.is_some() {
                 warn!(
@@ -398,14 +390,8 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
 
         let expected_block_root = lookup.block_root();
 
-        match self.single_lookup_response_inner::<R>(
-            peer_id,
-            response,
-            seen_timestamp,
-            cx,
-            chain_hash_opt,
-            lookup,
-        ) {
+        match self.single_lookup_response_inner::<R>(peer_id, response, seen_timestamp, cx, lookup)
+        {
             Ok(lookup) => {
                 self.single_block_lookups.insert(id, lookup);
             }
@@ -432,7 +418,6 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         response: Option<R::ResponseType>,
         seen_timestamp: Duration,
         cx: &SyncNetworkContext<T>,
-        delay_send: bool,
         mut lookup: SingleBlockLookup<Current, T>,
     ) -> Result<SingleBlockLookup<Current, T>, LookupRequestError> {
         let response_type = R::response_type();
@@ -445,8 +430,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 self.handle_verified_response::<Current, R>(
                     seen_timestamp,
                     cx,
-                    delay_send,
-                    None,
+                    BlockProcessType::SingleBlock { id: lookup.id },
                     verified_response,
                     &mut lookup,
                 )?;
@@ -481,8 +465,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         &self,
         seen_timestamp: Duration,
         cx: &SyncNetworkContext<T>,
-        delay_send: bool,
-        chain_hash: Option<Hash256>,
+        process_type: BlockProcessType,
         verified_response: R::VerifiedResponseType,
         lookup: &mut SingleBlockLookup<L, T>,
     ) -> Result<(), LookupRequestError> {
@@ -494,23 +477,24 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             .component_downloaded = true;
 
         let cached_child = lookup.add_response::<R>(verified_response.clone());
-
         match cached_child {
             CachedChild::Ok(block) => {
-                if let Some(chain_hash) = chain_hash {
-                    if !delay_send {
-                        let process_type = match L::lookup_type() {
-                            LookupType::Parent => BlockProcessType::ParentLookup { chain_hash },
-                            LookupType::Current => BlockProcessType::SingleBlock { id },
-                        };
-                        self.send_block_for_processing(
-                            block_root,
-                            block,
-                            seen_timestamp,
-                            process_type,
-                            cx,
-                        )?
-                    }
+                // If we have an outstanding parent request for this block, delay sending the response until
+                // all parent blocks have been processed, otherwise we will fail validation with an
+                // `UnknownParent`.
+                let delay_send = match L::lookup_type() {
+                    LookupType::Parent => false,
+                    LookupType::Current => self.has_pending_parent_request(lookup.block_root()),
+                };
+
+                if !delay_send {
+                    self.send_block_for_processing(
+                        block_root,
+                        block,
+                        seen_timestamp,
+                        process_type,
+                        cx,
+                    )?
                 }
             }
             CachedChild::DownloadIncomplete => {
@@ -628,8 +612,9 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 self.handle_verified_response::<Parent, R>(
                     seen_timestamp,
                     cx,
-                    false,
-                    Some(parent_lookup.chain_hash()),
+                    BlockProcessType::ParentLookup {
+                        chain_hash: parent_lookup.chain_hash(),
+                    },
                     verified_response,
                     &mut parent_lookup.current_parent_request,
                 )?;
@@ -1181,7 +1166,11 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                         "chain_hash" => ?chain_hash
                     );
                     child_lookup.handle_consistency_failure(cx);
-                    if child_lookup.request_block_and_blobs(cx).is_err() {
+                    if let Err(e) = child_lookup.request_block_and_blobs(cx) {
+                        debug!(self.log,
+                            "Failed to request block and blobs, dropping lookup";
+                            "error" => ?e
+                        );
                         self.single_block_lookups.remove(&child_lookup_id);
                     }
                 }
@@ -1313,7 +1302,11 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                             "error" => ?e
                         );
                         lookup.handle_consistency_failure(cx);
-                        if lookup.request_block_and_blobs(cx).is_err() {
+                        if let Err(e) = lookup.request_block_and_blobs(cx) {
+                            debug!(self.log,
+                                "Failed to request block and blobs, droppingn lookup";
+                                "error" => ?e
+                            );
                             self.single_block_lookups.remove(&id);
                         }
                     }
