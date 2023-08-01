@@ -337,12 +337,11 @@ impl BeaconNodeHttpClient {
         if let Some(timeout) = timeout {
             builder = builder.timeout(timeout);
         }
-        let mut headers = HeaderMap::new();
-        headers.insert(
-            "Content-Type",
-            HeaderValue::from_static("application/octet-stream"),
-        );
-        let response = builder.headers(headers).body(body).send().await?;
+        let response = builder
+            .header("Content-Type", "application/octet-stream")
+            .body(body)
+            .send()
+            .await?;
         ok_or_error(response).await
     }
 
@@ -703,6 +702,26 @@ impl BeaconNodeHttpClient {
         Ok(())
     }
 
+    /// `POST beacon/blocks`
+    ///
+    /// Returns `Ok(None)` on a 404 error.
+    pub async fn post_beacon_blocks_ssz<T: EthSpec, Payload: AbstractExecPayload<T>>(
+        &self,
+        block: &SignedBeaconBlock<T, Payload>,
+    ) -> Result<(), Error> {
+        let mut path = self.eth_path(V1)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("beacon")
+            .push("blocks");
+
+        self.post_generic_with_ssz_body(path, block.as_ssz_bytes(), Some(self.timeouts.proposal))
+            .await?;
+
+        Ok(())
+    }
+
     /// `POST beacon/blinded_blocks`
     ///
     /// Returns `Ok(None)` on a 404 error.
@@ -788,6 +807,23 @@ impl BeaconNodeHttpClient {
         self.post_generic_with_consensus_version(
             self.post_beacon_blocks_v2_path(validation_level)?,
             block,
+            Some(self.timeouts.proposal),
+            block.message().body().fork_name(),
+        )
+        .await?;
+
+        Ok(())
+    }
+
+    /// `POST v2/beacon/blocks`
+    pub async fn post_beacon_blocks_v2_ssz<T: EthSpec, Payload: AbstractExecPayload<T>>(
+        &self,
+        block: &SignedBeaconBlock<T, Payload>,
+        validation_level: Option<BroadcastValidation>,
+    ) -> Result<(), Error> {
+        self.post_generic_with_consensus_version_and_ssz_body(
+            self.post_beacon_blocks_v2_path(validation_level)?,
+            block.as_ssz_bytes(),
             Some(self.timeouts.proposal),
             block.message().body().fork_name(),
         )
@@ -1720,6 +1756,24 @@ impl BeaconNodeHttpClient {
             self.timeouts.liveness,
         )
         .await
+    }
+
+    /// `POST validator/liveness/{epoch}`
+    pub async fn post_validator_liveness_epoch(
+        &self,
+        epoch: Epoch,
+        indices: Vec<u64>,
+    ) -> Result<GenericResponse<Vec<StandardLivenessResponseData>>, Error> {
+        let mut path = self.eth_path(V1)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("validator")
+            .push("liveness")
+            .push(&epoch.to_string());
+
+        self.post_with_timeout_and_response(path, &indices, self.timeouts.liveness)
+            .await
     }
 
     /// `POST validator/duties/attester/{epoch}`
