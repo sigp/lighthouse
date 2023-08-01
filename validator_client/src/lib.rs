@@ -577,6 +577,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             let ctx = Arc::new(http_api::Context {
                 task_executor: self.context.executor.clone(),
                 api_secret,
+                block_service: Some(self.block_service.clone()),
                 validator_store: Some(self.validator_store.clone()),
                 validator_dir: Some(self.config.validator_dir.clone()),
                 secrets_dir: Some(self.config.secrets_dir.clone()),

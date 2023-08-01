@@ -1,4 +1,5 @@
 use crate::beacon_node_fallback::Config;
+use serde_derive::{Deserialize, Serialize};
 use slot_clock::SlotClock;
 use std::cmp::Ordering;
 use std::fmt::{Debug, Display, Formatter};
@@ -20,7 +21,7 @@ type HealthTier = u8;
 type SyncDistance = Slot;
 
 /// Helpful enum which is used when pattern matching to determine health tier.
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 pub enum SyncDistanceTier {
     Synced,
     Small,
@@ -95,19 +96,19 @@ impl Default for BeaconNodeSyncDistanceTiers {
 /// Execution Node health metrics.
 ///
 /// Currently only considers `el_offline`.
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 pub enum ExecutionEngineHealth {
     Healthy,
     Unhealthy,
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 pub enum IsOptimistic {
     Yes,
     No,
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 pub struct BeaconNodeHealthTier {
     pub tier: HealthTier,
     pub sync_distance: SyncDistance,
@@ -158,7 +159,7 @@ impl BeaconNodeHealthTier {
 }
 
 /// Beacon Node Health metrics.
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 pub struct BeaconNodeHealth {
     // The ID of the Beacon Node. This should correspond with its position in the `--beacon-nodes`
     // list. Note that the ID field is used to tie-break nodes with the same health so that nodes

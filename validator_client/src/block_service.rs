@@ -47,8 +47,8 @@ impl From<Errors<BlockError>> for BlockError {
 pub struct BlockServiceBuilder<T, E: EthSpec> {
     validator_store: Option<Arc<ValidatorStore<T, E>>>,
     slot_clock: Option<Arc<T>>,
-    beacon_nodes: Option<Arc<BeaconNodeFallback<T, E>>>,
-    proposer_nodes: Option<Arc<BeaconNodeFallback<T, E>>>,
+    pub beacon_nodes: Option<Arc<BeaconNodeFallback<T, E>>>,
+    pub proposer_nodes: Option<Arc<BeaconNodeFallback<T, E>>>,
     context: Option<RuntimeContext<E>>,
     graffiti: Option<Graffiti>,
     graffiti_file: Option<GraffitiFile>,
@@ -190,8 +190,8 @@ impl<T: SlotClock, E: EthSpec> ProposerFallback<T, E> {
 pub struct Inner<T, E: EthSpec> {
     validator_store: Arc<ValidatorStore<T, E>>,
     slot_clock: Arc<T>,
-    beacon_nodes: Arc<BeaconNodeFallback<T, E>>,
-    proposer_nodes: Option<Arc<BeaconNodeFallback<T, E>>>,
+    pub beacon_nodes: Arc<BeaconNodeFallback<T, E>>,
+    pub proposer_nodes: Option<Arc<BeaconNodeFallback<T, E>>>,
     context: RuntimeContext<E>,
     graffiti: Option<Graffiti>,
     graffiti_file: Option<GraffitiFile>,

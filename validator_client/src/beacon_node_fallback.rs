@@ -132,7 +132,7 @@ impl<E: Debug> fmt::Display for Errors<E> {
 }
 
 /// Reasons why a candidate might not be ready.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Deserialize, Serialize)]
 pub enum CandidateError {
     Uninitialized,
     Offline,
@@ -151,9 +151,9 @@ pub struct CandidateInfo {
 /// for a query.
 #[derive(Debug)]
 pub struct CandidateBeaconNode<E> {
-    id: usize,
-    beacon_node: BeaconNodeHttpClient,
-    health: PLRwLock<Result<BeaconNodeHealth, CandidateError>>,
+    pub id: usize,
+    pub beacon_node: BeaconNodeHttpClient,
+    pub health: PLRwLock<Result<BeaconNodeHealth, CandidateError>>,
     _phantom: PhantomData<E>,
 }
 
@@ -324,7 +324,7 @@ impl<E: EthSpec> CandidateBeaconNode<E> {
 /// identical query.
 #[derive(Clone, Debug)]
 pub struct BeaconNodeFallback<T, E> {
-    candidates: Arc<RwLock<Vec<CandidateBeaconNode<E>>>>,
+    pub candidates: Arc<RwLock<Vec<CandidateBeaconNode<E>>>>,
     disable_run_on_all: bool,
     distance_tiers: BeaconNodeSyncDistanceTiers,
     slot_clock: Option<T>,
