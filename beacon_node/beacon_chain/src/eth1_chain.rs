@@ -678,7 +678,7 @@ fn is_candidate_block(block: &Eth1Block, period_start: u64, spec: &ChainSpec) ->
 #[cfg(test)]
 mod test {
     use super::*;
-    use environment::null_logger;
+    use logging::test_logger;
     use types::{DepositData, MinimalEthSpec, Signature};
 
     type E = MinimalEthSpec;
@@ -743,7 +743,7 @@ mod test {
                 ..Eth1Config::default()
             };
 
-            let log = null_logger().unwrap();
+            let log = test_logger();
             Eth1Chain::new(
                 CachingEth1Backend::new(eth1_config, log, MainnetEthSpec::default_spec()).unwrap(),
             )

@@ -1,5 +1,6 @@
 #![cfg(test)]
 
+use logging::test_logger;
 use environment::EnvironmentBuilder;
 use eth2_network_config::{Eth2NetworkConfig, DEFAULT_HARDCODED_NETWORK};
 use std::path::PathBuf;
@@ -9,7 +10,7 @@ fn builder() -> EnvironmentBuilder<MainnetEthSpec> {
     EnvironmentBuilder::mainnet()
         .multi_threaded_tokio_runtime()
         .expect("should set runtime")
-        .null_logger()
+        .test_logger()
         .expect("should set logger")
 }
 

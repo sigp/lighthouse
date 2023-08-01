@@ -5,7 +5,7 @@ use crate::engine_api::{
     auth::Auth, http::JSONRPC_VERSION, ExecutionBlock, PayloadStatusV1, PayloadStatusV1Status,
 };
 use bytes::Bytes;
-use environment::null_logger;
+use environment::test_logger;
 use execution_block_generator::PoWBlock;
 use handle_rpc::handle_rpc;
 use parking_lot::{Mutex, RwLock, RwLockWriteGuard};
@@ -115,7 +115,7 @@ impl<T: EthSpec> MockServer<T> {
         let ctx: Arc<Context<T>> = Arc::new(Context {
             config: server_config,
             jwt_key,
-            log: null_logger().unwrap(),
+            log: test_logger(),
             last_echo_request: last_echo_request.clone(),
             execution_block_generator: RwLock::new(execution_block_generator),
             previous_request: <_>::default(),

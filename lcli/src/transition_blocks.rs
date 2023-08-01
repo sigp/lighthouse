@@ -66,7 +66,8 @@ use beacon_chain::{
 };
 use clap::ArgMatches;
 use clap_utils::{parse_optional, parse_required};
-use environment::{null_logger, Environment};
+use environment::{Environment, test_logger};
+use logging::test_logger;
 use eth2::{
     types::{BlockId, StateId},
     BeaconNodeHttpClient, SensitiveUrl, Timeouts,
@@ -189,9 +190,10 @@ pub fn run<T: EthSpec>(env: Environment<T>, matches: &ArgMatches) -> Result<(), 
     let store = HotColdDB::open_ephemeral(
         <_>::default(),
         spec.clone(),
-        null_logger().map_err(|e| format!("Failed to create null_logger: {:?}", e))?,
+        test_logger(),
     )
     .map_err(|e| format!("Failed to create ephemeral store: {:?}", e))?;
+
     let store = Arc::new(store);
 
     debug!("Building pubkey cache (might take some time)");
