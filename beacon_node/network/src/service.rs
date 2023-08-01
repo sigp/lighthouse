@@ -971,7 +971,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
     fn get_topic_params(
         &self,
         topic: GossipTopic,
-    ) -> Option<lighthouse_network::libp2p::gossipsub::TopicScoreParams> {
+    ) -> Option<&lighthouse_network::libp2p::gossipsub::TopicScoreParams> {
         self.libp2p.get_topic_params(topic)
     }
 }
