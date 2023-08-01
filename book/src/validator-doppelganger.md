@@ -45,7 +45,8 @@ Staying silent and refusing to sign messages will cause the following:
 - 2-3 missed attestations, incurring penalties and missed rewards.
 - Potentially missed rewards by missing a block proposal (if the validator is an elected block
     proposer, which is unlikely).
-- Sync committee contributions are not delayed as those are not slashable
+
+Notably, sync committee contributions are not slashable and will continue to be produced even when DP is suppressing other messages.
 
 The loss of rewards and penalties incurred due to the missed duties will be very small in
 dollar-values. Generally, they will equate to around one US dollar (at August 2021 figures) or about
