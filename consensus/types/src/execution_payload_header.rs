@@ -80,11 +80,11 @@ pub struct ExecutionPayloadHeader<T: EthSpec> {
     #[superstruct(only(Deneb))]
     #[serde(with = "serde_utils::quoted_u64")]
     #[superstruct(getter(copy))]
-    pub data_gas_used: u64,
+    pub blob_gas_used: u64,
     #[superstruct(only(Deneb))]
     #[serde(with = "serde_utils::quoted_u64")]
     #[superstruct(getter(copy))]
-    pub excess_data_gas: u64,
+    pub excess_blob_gas: u64,
 }
 
 impl<T: EthSpec> ExecutionPayloadHeader<T> {
@@ -155,8 +155,8 @@ impl<T: EthSpec> ExecutionPayloadHeaderCapella<T> {
             block_hash: self.block_hash,
             transactions_root: self.transactions_root,
             withdrawals_root: self.withdrawals_root,
-            data_gas_used: 0,
-            excess_data_gas: 0,
+            blob_gas_used: 0,
+            excess_blob_gas: 0,
         }
     }
 }
@@ -221,8 +221,8 @@ impl<'a, T: EthSpec> From<&'a ExecutionPayloadDeneb<T>> for ExecutionPayloadHead
             block_hash: payload.block_hash,
             transactions_root: payload.transactions.tree_hash_root(),
             withdrawals_root: payload.withdrawals.tree_hash_root(),
-            data_gas_used: payload.data_gas_used,
-            excess_data_gas: payload.excess_data_gas,
+            blob_gas_used: payload.blob_gas_used,
+            excess_blob_gas: payload.excess_blob_gas,
         }
     }
 }

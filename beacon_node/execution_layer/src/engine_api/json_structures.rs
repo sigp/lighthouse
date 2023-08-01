@@ -100,10 +100,10 @@ pub struct JsonExecutionPayload<T: EthSpec> {
     pub withdrawals: VariableList<JsonWithdrawal, T::MaxWithdrawalsPerPayload>,
     #[superstruct(only(V3))]
     #[serde(with = "serde_utils::u64_hex_be")]
-    pub data_gas_used: u64,
+    pub blob_gas_used: u64,
     #[superstruct(only(V3))]
     #[serde(with = "serde_utils::u64_hex_be")]
-    pub excess_data_gas: u64,
+    pub excess_blob_gas: u64,
 }
 
 impl<T: EthSpec> From<ExecutionPayloadMerge<T>> for JsonExecutionPayloadV1<T> {
@@ -175,8 +175,8 @@ impl<T: EthSpec> From<ExecutionPayloadDeneb<T>> for JsonExecutionPayloadV3<T> {
                 .map(Into::into)
                 .collect::<Vec<_>>()
                 .into(),
-            data_gas_used: payload.data_gas_used,
-            excess_data_gas: payload.excess_data_gas,
+            blob_gas_used: payload.blob_gas_used,
+            excess_blob_gas: payload.excess_blob_gas,
         }
     }
 }
@@ -260,8 +260,8 @@ impl<T: EthSpec> From<JsonExecutionPayloadV3<T>> for ExecutionPayloadDeneb<T> {
                 .map(Into::into)
                 .collect::<Vec<_>>()
                 .into(),
-            data_gas_used: payload.data_gas_used,
-            excess_data_gas: payload.excess_data_gas,
+            blob_gas_used: payload.blob_gas_used,
+            excess_blob_gas: payload.excess_blob_gas,
         }
     }
 }

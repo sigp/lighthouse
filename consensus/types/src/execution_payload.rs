@@ -85,10 +85,10 @@ pub struct ExecutionPayload<T: EthSpec> {
     pub withdrawals: Withdrawals<T>,
     #[superstruct(only(Deneb), partial_getter(copy))]
     #[serde(with = "serde_utils::quoted_u64")]
-    pub data_gas_used: u64,
+    pub blob_gas_used: u64,
     #[superstruct(only(Deneb), partial_getter(copy))]
     #[serde(with = "serde_utils::quoted_u64")]
-    pub excess_data_gas: u64,
+    pub excess_blob_gas: u64,
 }
 
 impl<'a, T: EthSpec> ExecutionPayloadRef<'a, T> {

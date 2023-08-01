@@ -574,8 +574,8 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
                         block_hash: ExecutionBlockHash::zero(),
                         transactions: vec![].into(),
                         withdrawals: pa.withdrawals.clone().into(),
-                        data_gas_used: 0,
-                        excess_data_gas: 0,
+                        blob_gas_used: 0,
+                        excess_blob_gas: 0,
                     }),
                 };
 

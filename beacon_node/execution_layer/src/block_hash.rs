@@ -38,11 +38,11 @@ impl<T: EthSpec> ExecutionLayer<T> {
             None
         };
 
-        let rlp_data_gas_used = payload.data_gas_used().ok();
-        let rlp_excess_data_gas = payload.excess_data_gas().ok();
+        let rlp_blob_gas_used = payload.blob_gas_used().ok();
+        let rlp_excess_blob_gas = payload.excess_blob_gas().ok();
 
         // Calculate parent beacon block root (post-Deneb).
-        let rlp_parent_beacon_block_root = rlp_excess_data_gas
+        let rlp_parent_beacon_block_root = rlp_excess_blob_gas
             .as_ref()
             .map(|_| parent_beacon_block_root);
 
@@ -52,8 +52,8 @@ impl<T: EthSpec> ExecutionLayer<T> {
             KECCAK_EMPTY_LIST_RLP.as_fixed_bytes().into(),
             rlp_transactions_root,
             rlp_withdrawals_root,
-            rlp_data_gas_used,
-            rlp_excess_data_gas,
+            rlp_blob_gas_used,
+            rlp_excess_blob_gas,
             rlp_parent_beacon_block_root,
         );
 
@@ -110,11 +110,11 @@ pub fn rlp_encode_block_header(header: &ExecutionBlockHeader) -> Vec<u8> {
     if let Some(withdrawals_root) = &header.withdrawals_root {
         rlp_header_stream.append(withdrawals_root);
     }
-    if let Some(data_gas_used) = &header.data_gas_used {
-        rlp_header_stream.append(data_gas_used);
+    if let Some(blob_gas_used) = &header.blob_gas_used {
+        rlp_header_stream.append(blob_gas_used);
     }
-    if let Some(excess_data_gas) = &header.excess_data_gas {
-        rlp_header_stream.append(excess_data_gas);
+    if let Some(excess_blob_gas) = &header.excess_blob_gas {
+        rlp_header_stream.append(excess_blob_gas);
     }
     if let Some(parent_beacon_block_root) = &header.parent_beacon_block_root {
         rlp_header_stream.append(parent_beacon_block_root);
@@ -165,8 +165,8 @@ mod test {
             nonce: Hash64::zero(),
             base_fee_per_gas: 0x036b_u64.into(),
             withdrawals_root: None,
-            data_gas_used: None,
-            excess_data_gas: None,
+            blob_gas_used: None,
+            excess_blob_gas: None,
             parent_beacon_block_root: None,
         };
         let expected_rlp = "f90200a0e0a94a7a3c9617401586b1a27025d2d9671332d22d540e0af72b069170380f2aa01dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d4934794ba5e000000000000000000000000000000000000a0ec3c94b18b8a1cff7d60f8d258ec723312932928626b4c9355eb4ab3568ec7f7a050f738580ed699f0469702c7ccc63ed2e51bc034be9479b7bff4e68dee84accfa029b0562f7140574dd0d50dee8a271b22e1a0a7b78fca58f7c60370d8317ba2a9b9010000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000830200000188016345785d8a00008301553482079e42a0000000000000000000000000000000000000000000000000000000000000000088000000000000000082036b";
@@ -196,8 +196,8 @@ mod test {
             nonce: Hash64::zero(),
             base_fee_per_gas: 0x036b_u64.into(),
             withdrawals_root: None,
-            data_gas_used: None,
-            excess_data_gas: None,
+            blob_gas_used: None,
+            excess_blob_gas: None,
             parent_beacon_block_root: None,
         };
         let expected_rlp = "f901fda0927ca537f06c783a3a2635b8805eef1c8c2124f7444ad4a3389898dd832f2dbea01dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d4934794ba5e000000000000000000000000000000000000a0e97859b065bd8dbbb4519c7cb935024de2484c2b7f881181b4360492f0b06b82a050f738580ed699f0469702c7ccc63ed2e51bc034be9479b7bff4e68dee84accfa029b0562f7140574dd0d50dee8a271b22e1a0a7b78fca58f7c60370d8317ba2a9b9010000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000800188016345785d8a00008301553482079e42a0000000000000000000000000000000000000000000000000000000000002000088000000000000000082036b";
@@ -228,8 +228,8 @@ mod test {
             nonce: Hash64::zero(),
             base_fee_per_gas: 0x34187b238_u64.into(),
             withdrawals_root: None,
-            data_gas_used: None,
-            excess_data_gas: None,
+            blob_gas_used: None,
+            excess_blob_gas: None,
             parent_beacon_block_root: None,
         };
         let expected_hash =
