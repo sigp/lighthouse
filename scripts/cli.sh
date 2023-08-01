@@ -8,7 +8,7 @@ read -p "Enter Lighthouse version: " version
 binary="curl -LO https://github.com/sigp/lighthouse/releases/download/v$version/lighthouse-v$version-x86_64-unknown-linux-gnu.tar.gz" 
 
 #download the binary to the present working directory
-cd /home/hi/cli/lighthouse/scripts
+cd ./lighthouse/scripts
 $binary 
 
 #extract
