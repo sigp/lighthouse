@@ -318,6 +318,7 @@ impl TestRig {
     }
     pub fn enqueue_single_lookup_rpc_blobs(&self) {
         if let Some(blobs) = self.next_blobs.clone() {
+            dbg!(blobs.len());
             let blobs = FixedBlobSidecarList::from(
                 blobs
                     .into_iter()
@@ -1003,6 +1004,7 @@ async fn test_rpc_block_reprocessing() {
 
     rig.enqueue_single_lookup_rpc_blobs();
     if rig.next_blobs.as_ref().map(|b| b.len()).unwrap_or(0) > 0 {
+        dbg!("here");
         rig.assert_event_journal(&[RPC_BLOBS, WORKER_FREED, NOTHING_TO_DO])
             .await;
     }

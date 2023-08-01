@@ -41,11 +41,10 @@ use super::range_sync::{RangeSync, RangeSyncType, EPOCHS_PER_BATCH};
 use crate::network_beacon_processor::{ChainSegmentProcessId, NetworkBeaconProcessor};
 use crate::service::NetworkMessage;
 use crate::status::ToStatusMessage;
+use crate::sync::block_lookups::common::{Current, Parent};
 use crate::sync::block_lookups::delayed_lookup;
 use crate::sync::block_lookups::delayed_lookup::DelayedLookupMessage;
-use crate::sync::block_lookups::{
-    BlobRequestState, BlockRequestState, Current, Parent, UnknownParentComponents,
-};
+use crate::sync::block_lookups::{BlobRequestState, BlockRequestState, ChildComponents};
 use crate::sync::range_sync::ByRangeRequestType;
 use beacon_chain::block_verification_types::AsBlock;
 use beacon_chain::block_verification_types::RpcBlock;
@@ -84,45 +83,39 @@ pub const DELAY_QUEUE_CHANNEL_SIZE: usize = 128;
 
 pub type Id = u32;
 
-#[derive(Debug, Copy, Clone)]
-pub enum ResponseType {
-    Block,
-    Blob,
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
+pub struct SingleLookupReqId {
+    pub id: Id,
+    pub req_counter: Id,
+}
+
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
+pub struct ParentLookupReqId {
+    pub id: Id,
+    pub req_counter: Id,
 }
 
 /// Id of rpc requests sent by sync to the network.
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum RequestId {
     /// Request searching for a block given a hash.
-    SingleBlock {
-        id: Id,
-    },
-    SingleBlob {
-        id: Id,
-    },
-    /// Request searching for a block's parent. The id is the chain
-    ParentLookup {
-        id: Id,
-    },
-    ParentLookupBlob {
-        id: Id,
-    },
+    SingleBlock { id: SingleLookupReqId },
+    /// Request searching for a set of blobs given a hash.
+    SingleBlob { id: SingleLookupReqId },
+    /// Request searching for a block's parent. The id is the chain, share with the corresponding
+    /// blob id.
+    ParentLookup { id: SingleLookupReqId },
+    /// Request searching for a block's parent blobs. The id is the chain, shared with the corresponding
+    /// block id.
+    ParentLookupBlob { id: SingleLookupReqId },
     /// Request was from the backfill sync algorithm.
-    BackFillBlocks {
-        id: Id,
-    },
+    BackFillBlocks { id: Id },
     /// Backfill request that is composed by both a block range request and a blob range request.
-    BackFillBlockAndBlobs {
-        id: Id,
-    },
+    BackFillBlockAndBlobs { id: Id },
     /// The request was from a chain in the range sync algorithm.
-    RangeBlocks {
-        id: Id,
-    },
+    RangeBlocks { id: Id },
     /// Range request that is composed by both a block range request and a blob range request.
-    RangeBlockAndBlobs {
-        id: Id,
-    },
+    RangeBlockAndBlobs { id: Id },
 }
 
 #[derive(Debug)]
@@ -680,7 +673,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     block_root,
                     parent_root,
                     blob_slot,
-                    Some(UnknownParentComponents::new(None, Some(blobs))),
+                    Some(ChildComponents::new(None, Some(blobs))),
                 );
             }
             SyncMessage::UnknownBlockHashFromAttestation(peer_id, block_hash) => {
@@ -718,16 +711,9 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     }
                 }
             }
-            SyncMessage::MissingGossipBlockComponentsDelayed(block_root) => {
-                if self
-                    .block_lookups
-                    .trigger_lookup_by_root(block_root, &self.network)
-                    .is_err()
-                {
-                    // No request was made for block or blob so the lookup is dropped.
-                    self.block_lookups.remove_lookup_by_root(block_root);
-                }
-            }
+            SyncMessage::MissingGossipBlockComponentsDelayed(block_root) => self
+                .block_lookups
+                .trigger_lookup_by_root(block_root, &self.network),
             SyncMessage::Disconnect(peer_id) => {
                 self.peer_disconnect(&peer_id);
             }
@@ -796,7 +782,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         block_root: Hash256,
         parent_root: Hash256,
         slot: Slot,
-        parent_components: Option<UnknownParentComponents<T::EthSpec>>,
+        parent_components: Option<ChildComponents<T::EthSpec>>,
     ) {
         if self.should_search_for_block(slot, &peer_id) {
             self.block_lookups.search_parent(
@@ -951,7 +937,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     seen_timestamp,
                     &self.network,
                 ),
-            RequestId::SingleBlob { id: _ } => {
+            RequestId::SingleBlob { .. } => {
                 crit!(self.log, "Blob received during block request"; "peer_id" => %peer_id  );
             }
             RequestId::ParentLookup { id } => self
@@ -1023,7 +1009,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         seen_timestamp: Duration,
     ) {
         match request_id {
-            RequestId::SingleBlock { id: _ } => {
+            RequestId::SingleBlock { .. } => {
                 crit!(self.log, "Single blob received during block request"; "peer_id" => %peer_id  );
             }
             RequestId::SingleBlob { id } => self

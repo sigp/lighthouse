@@ -1,12 +1,13 @@
 use crate::network_beacon_processor::NetworkBeaconProcessor;
 
 use crate::service::RequestId;
-use crate::sync::manager::RequestId as SyncId;
+use crate::sync::manager::{RequestId as SyncId, SingleLookupReqId};
 use crate::NetworkMessage;
 use std::sync::Arc;
 
 use super::*;
 
+use crate::sync::block_lookups::common::ResponseType;
 use beacon_chain::builder::Witness;
 use beacon_chain::eth1_chain::CachingEth1Backend;
 use beacon_chain::test_utils::{build_log, BeaconChainHarness, EphemeralHarnessType};
@@ -156,7 +157,7 @@ impl TestRig {
     }
 
     #[track_caller]
-    fn expect_block_request(&mut self, response_type: ResponseType) -> Id {
+    fn expect_block_request(&mut self, response_type: ResponseType) -> SingleLookupReqId {
         match response_type {
             ResponseType::Block => match self.network_rx.try_recv() {
                 Ok(NetworkMessage::SendRequest {
@@ -182,7 +183,7 @@ impl TestRig {
     }
 
     #[track_caller]
-    fn expect_parent_request(&mut self, response_type: ResponseType) -> Id {
+    fn expect_parent_request(&mut self, response_type: ResponseType) -> SingleLookupReqId {
         match response_type {
             ResponseType::Block => match self.network_rx.try_recv() {
                 Ok(NetworkMessage::SendRequest {
@@ -322,7 +323,7 @@ fn test_single_block_lookup_happy_path() {
     // after processing.
     bl.single_lookup_response::<BlockRequestState<Current>>(id, peer_id, None, D, &cx);
     bl.single_block_component_processed::<BlockRequestState<Current>>(
-        id,
+        id.id,
         BlockProcessingResult::Ok(AvailabilityProcessingStatus::Imported(block_root)),
         &mut cx,
     );
@@ -471,7 +472,7 @@ fn test_single_block_lookup_becomes_parent_request() {
     // Send the stream termination. Peer should have not been penalized, and the request moved to a
     // parent request after processing.
     bl.single_block_component_processed::<BlockRequestState<Current>>(
-        id,
+        id.id,
         BlockError::ParentUnknown(block.into()).into(),
         &mut cx,
     );
@@ -766,6 +767,14 @@ fn test_parent_lookup_too_many_attempts() {
                     &cx,
                 );
                 // Send the stream termination
+
+                // Note, previously we would send the same lookup id with a stream terminator,
+                // we'd ignore it because we'd intrepret it as an unrequested response, since
+                // we already got one response for the block. I'm not sure what the intent is
+                // for having this stream terminator line in this test at all. Receiving an invalid
+                // block and a stream terminator with the same Id now results in two failed attempts,
+                // I'm unsure if this is how it should behave?
+                //
                 bl.parent_lookup_response::<BlockRequestState<Parent>>(id, peer_id, None, D, &cx);
                 rig.expect_penalty();
             }
@@ -1051,7 +1060,7 @@ fn test_single_block_lookup_ignored_response() {
     bl.single_lookup_response::<BlockRequestState<Current>>(id, peer_id, None, D, &cx);
     // Send an Ignored response, the request should be dropped
     bl.single_block_component_processed::<BlockRequestState<Current>>(
-        id,
+        id.id,
         BlockProcessingResult::Ignored,
         &mut cx,
     );
@@ -1216,6 +1225,7 @@ fn test_same_chain_race_condition() {
 
 mod deneb_only {
     use super::*;
+    use crate::sync::block_lookups::common::ResponseType;
     use beacon_chain::blob_verification::BlobError;
     use std::ops::IndexMut;
     use std::str::FromStr;
@@ -1229,10 +1239,10 @@ mod deneb_only {
         parent_block: Option<Arc<SignedBeaconBlock<E>>>,
         parent_blobs: Vec<Arc<BlobSidecar<E>>>,
         peer_id: PeerId,
-        block_req_id: Option<u32>,
-        parent_block_req_id: Option<u32>,
-        blob_req_id: Option<u32>,
-        parent_blob_req_id: Option<u32>,
+        block_req_id: Option<SingleLookupReqId>,
+        parent_block_req_id: Option<SingleLookupReqId>,
+        blob_req_id: Option<SingleLookupReqId>,
+        parent_blob_req_id: Option<SingleLookupReqId>,
         slot: Slot,
         block_root: Hash256,
     }
@@ -1296,7 +1306,7 @@ mod deneb_only {
                         block_root = child_root;
                         bl.search_child_block(
                             child_root,
-                            Some(UnknownParentComponents::new(Some(child_block), None)),
+                            Some(ChildComponents::new(Some(child_block), None)),
                             &[PeerShouldHave::Neither(peer_id)],
                             &mut cx,
                         );
@@ -1334,7 +1344,7 @@ mod deneb_only {
                         *blobs.index_mut(0) = Some(child_blob);
                         bl.search_child_block(
                             child_root,
-                            Some(UnknownParentComponents::new(None, Some(blobs))),
+                            Some(ChildComponents::new(None, Some(blobs))),
                             &[PeerShouldHave::Neither(peer_id)],
                             &mut cx,
                         );
@@ -1531,7 +1541,7 @@ mod deneb_only {
             // mean we do not send a new request.
             self.bl
                 .single_block_component_processed::<BlockRequestState<Current>>(
-                    self.block_req_id.expect("block request id"),
+                    self.block_req_id.expect("block request id").id,
                     BlockProcessingResult::Ok(AvailabilityProcessingStatus::Imported(
                         self.block_root,
                     )),
@@ -1578,7 +1588,7 @@ mod deneb_only {
         fn invalid_block_processed(mut self) -> Self {
             self.bl
                 .single_block_component_processed::<BlockRequestState<Current>>(
-                    self.block_req_id.expect("block request id"),
+                    self.block_req_id.expect("block request id").id,
                     BlockProcessingResult::Err(BlockError::ProposalSignatureInvalid),
                     &mut self.cx,
                 );
@@ -1589,7 +1599,7 @@ mod deneb_only {
         fn invalid_blob_processed(mut self) -> Self {
             self.bl
                 .single_block_component_processed::<BlobRequestState<Current, E>>(
-                    self.blob_req_id.expect("blob request id"),
+                    self.blob_req_id.expect("blob request id").id,
                     BlockProcessingResult::Err(BlockError::BlobValidation(
                         BlobError::ProposerSignatureInvalid,
                     )),
@@ -1602,7 +1612,7 @@ mod deneb_only {
         fn missing_components_from_block_request(mut self) -> Self {
             self.bl
                 .single_block_component_processed::<BlockRequestState<Current>>(
-                    self.block_req_id.expect("block request id"),
+                    self.block_req_id.expect("block request id").id,
                     BlockProcessingResult::Ok(AvailabilityProcessingStatus::MissingComponents(
                         self.slot,
                         self.block_root,
@@ -1616,7 +1626,7 @@ mod deneb_only {
         fn missing_components_from_blob_request(mut self) -> Self {
             self.bl
                 .single_block_component_processed::<BlobRequestState<Current, E>>(
-                    self.blob_req_id.expect("blob request id"),
+                    self.blob_req_id.expect("blob request id").id,
                     BlockProcessingResult::Ok(AvailabilityProcessingStatus::MissingComponents(
                         self.slot,
                         self.block_root,

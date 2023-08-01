@@ -7,7 +7,8 @@ use super::range_sync::{BatchId, ByRangeRequestType, ChainId};
 use crate::network_beacon_processor::NetworkBeaconProcessor;
 use crate::service::{NetworkMessage, RequestId};
 use crate::status::ToStatusMessage;
-use crate::sync::block_lookups::LookupType;
+use crate::sync::block_lookups::common::LookupType;
+use crate::sync::manager::SingleLookupReqId;
 use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::{BeaconChain, BeaconChainTypes, EngineState};
 use fnv::FnvHashMap;
@@ -404,23 +405,9 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         }
     }
 
-    /// Sends a blocks by root request for a parent request.
-    pub fn single_lookup_request(
+    pub fn block_lookup_request(
         &self,
-        id: Id,
-        peer_id: PeerId,
-        request: BlocksByRootRequest,
-        blob_peer_id: PeerId,
-        blob_request: BlobsByRootRequest,
-        lookup_type: LookupType,
-    ) -> Result<(), &'static str> {
-        self.single_block_lookup_request_retry(id, peer_id, request, lookup_type)?;
-        self.single_blob_lookup_request_retry(id, blob_peer_id, blob_request, lookup_type)?;
-        Ok(())
-    }
-    pub fn single_block_lookup_request_retry(
-        &self,
-        id: Id,
+        id: SingleLookupReqId,
         peer_id: PeerId,
         request: BlocksByRootRequest,
         lookup_type: LookupType,
@@ -448,14 +435,18 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         Ok(())
     }
 
-    pub fn single_blob_lookup_request_retry(
+    pub fn blob_lookup_request(
         &self,
-        id: Id,
+        id: SingleLookupReqId,
         blob_peer_id: PeerId,
         blob_request: BlobsByRootRequest,
         lookup_type: LookupType,
     ) -> Result<(), &'static str> {
-        let request_id = RequestId::Sync(SyncRequestId::SingleBlob { id });
+        let sync_id = match lookup_type {
+            LookupType::Current => SyncRequestId::SingleBlock { id },
+            LookupType::Parent => SyncRequestId::ParentLookup { id },
+        };
+        let request_id = RequestId::Sync(sync_id);
 
         if !blob_request.blob_ids.is_empty() {
             trace!(
@@ -558,6 +549,12 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             "To deal with alignment with deneb boundaries, batches need to be of just one epoch"
         );
 
+        #[cfg(test)]
+        {
+            // Keep tests only for blocks.
+            ByRangeRequestType::Blocks
+        }
+        #[cfg(not(test))]
         if let Some(data_availability_boundary) = self.chain.data_availability_boundary() {
             if epoch >= data_availability_boundary {
                 ByRangeRequestType::BlocksAndBlobs

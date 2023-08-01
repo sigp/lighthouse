@@ -1,8 +1,7 @@
 use super::single_block_lookup::{LookupRequestError, LookupVerifyError, SingleBlockLookup};
 use super::{DownloadedBlocks, PeerShouldHave};
-use crate::sync::block_lookups::single_block_lookup::{
-    Parent, RequestState, State, UnknownParentComponents,
-};
+use crate::sync::block_lookups::common::Parent;
+use crate::sync::block_lookups::common::RequestState;
 use crate::sync::{manager::SLOT_IMPORT_TOLERANCE, network_context::SyncNetworkContext};
 use beacon_chain::block_verification_types::AsBlock;
 use beacon_chain::block_verification_types::RpcBlock;
@@ -55,7 +54,6 @@ pub enum RequestError {
         cannot_process: bool,
     },
     NoPeers,
-    AlreadyDownloaded,
 }
 
 impl<T: BeaconChainTypes> ParentLookup<T> {
@@ -103,55 +101,42 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
             .map_err(Into::into)
     }
 
-    pub fn check_block_peer_disconnected(&mut self, peer_id: &PeerId) -> Result<(), ()> {
+    pub fn check_peer_disconnected(&mut self, peer_id: &PeerId) -> Result<(), ()> {
         self.current_parent_request
             .block_request_state
             .state
             .check_peer_disconnected(peer_id)
-    }
-
-    pub fn check_blob_peer_disconnected(&mut self, peer_id: &PeerId) -> Result<(), ()> {
-        self.current_parent_request
-            .blob_request_state
-            .state
-            .check_peer_disconnected(peer_id)
+            .and_then(|()| {
+                self.current_parent_request
+                    .blob_request_state
+                    .state
+                    .check_peer_disconnected(peer_id)
+            })
     }
 
     pub fn add_unknown_parent_block(&mut self, block: RpcBlock<T::EthSpec>) {
         let next_parent = block.parent_root();
-
         // Cache the block.
-        let current_root = self
-            .current_parent_request
-            .block_request_state
-            .requested_block_root;
+        let current_root = self.current_parent_request.block_root();
         self.downloaded_blocks.push((current_root, block));
 
-        // Update the block request.
+        // Update the parent request.
         self.current_parent_request
-            .block_request_state
-            .requested_block_root = next_parent;
-        self.current_parent_request.block_request_state.state.state = State::AwaitingDownload;
-
-        // Update the blobs request.
-        self.current_parent_request.blob_request_state.state.state = State::AwaitingDownload;
-
-        // Reset the unknown parent components.
-        self.current_parent_request.unknown_parent_components =
-            Some(UnknownParentComponents::default());
+            .update_requested_parent_block(next_parent)
     }
 
-    pub fn processing_peer(&self) -> Result<PeerShouldHave, ()> {
+    pub fn block_processing_peer(&self) -> Result<PeerShouldHave, ()> {
         self.current_parent_request
             .block_request_state
             .state
             .processing_peer()
-            .or_else(|()| {
-                self.current_parent_request
-                    .blob_request_state
-                    .state
-                    .processing_peer()
-            })
+    }
+
+    pub fn blob_processing_peer(&self) -> Result<PeerShouldHave, ()> {
+        self.current_parent_request
+            .blob_request_state
+            .state
+            .processing_peer()
     }
 
     /// Consumes the parent request and destructures it into it's parts.
@@ -193,11 +178,7 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
             .blob_request_state
             .state
             .register_failure_processing();
-        if let Some(components) = self
-            .current_parent_request
-            .unknown_parent_components
-            .as_mut()
-        {
+        if let Some(components) = self.current_parent_request.cached_child_components.as_mut() {
             components.downloaded_block = None;
             components.downloaded_blobs = <_>::default();
         }
@@ -209,11 +190,8 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
         &mut self,
         block: Option<R::ResponseType>,
         failed_chains: &mut lru_cache::LRUTimeCache<Hash256>,
-    ) -> Result<Option<(Hash256, R::VerifiedResponseType)>, ParentVerifyError> {
-        let expected_block_root = self
-            .current_parent_request
-            .block_request_state
-            .requested_block_root;
+    ) -> Result<Option<R::VerifiedResponseType>, ParentVerifyError> {
+        let expected_block_root = self.current_parent_request.block_root();
         let request_state = R::request_state_mut(&mut self.current_parent_request);
         let root_and_block = request_state.verify_response(expected_block_root, block)?;
 
@@ -221,7 +199,7 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
         // be dropped and the peer downscored.
         if let Some(parent_root) = root_and_block
             .as_ref()
-            .and_then(|(_, block)| R::get_parent_root(block))
+            .and_then(|block| R::get_parent_root(block))
         {
             if failed_chains.contains(&parent_root) {
                 request_state.register_failure_downloading();
@@ -277,7 +255,6 @@ impl From<LookupRequestError> for RequestError {
                 RequestError::TooManyAttempts { cannot_process }
             }
             E::NoPeers => RequestError::NoPeers,
-            E::AlreadyDownloaded => RequestError::AlreadyDownloaded,
             E::SendFailed(msg) => RequestError::SendFailed(msg),
         }
     }
@@ -306,7 +283,6 @@ impl RequestError {
             }
             RequestError::TooManyAttempts { cannot_process: _ } => "too_many_downloading_attempts",
             RequestError::NoPeers => "no_peers",
-            RequestError::AlreadyDownloaded => "already_downloaded",
         }
     }
 }
