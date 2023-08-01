@@ -6,7 +6,7 @@ use crate::signed_attestation::InvalidAttestation;
 use crate::signed_block::InvalidBlock;
 use crate::{signing_root_from_row, NotSafe, Safe, SignedAttestation, SignedBlock, SigningRoot};
 use filesystem::restrict_file_permissions;
-use r2d2::{HandleError, LoggingErrorHandler};
+use r2d2::LoggingErrorHandler;
 use r2d2_sqlite::SqliteConnectionManager;
 use rusqlite::{params, OptionalExtension, Transaction, TransactionBehavior};
 use std::fs::File;
