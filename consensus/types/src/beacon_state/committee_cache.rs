@@ -174,7 +174,7 @@ impl CommitteeCache {
             .ok_or(Error::CommitteeCacheUninitialized(None))?;
 
         initialized_epoch.slot_iter(self.slots_per_epoch).try_fold(
-            Vec::with_capacity(self.slots_per_epoch as usize),
+            Vec::with_capacity(self.epoch_committee_count()),
             |mut vec, slot| {
                 vec.append(&mut self.get_beacon_committees_at_slot(slot)?);
                 Ok(vec)
