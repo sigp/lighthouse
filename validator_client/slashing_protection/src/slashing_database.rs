@@ -6,6 +6,7 @@ use crate::signed_attestation::InvalidAttestation;
 use crate::signed_block::InvalidBlock;
 use crate::{signing_root_from_row, NotSafe, Safe, SignedAttestation, SignedBlock, SigningRoot};
 use filesystem::restrict_file_permissions;
+use r2d2::{HandleError, LoggingErrorHandler};
 use r2d2_sqlite::SqliteConnectionManager;
 use rusqlite::{params, OptionalExtension, Transaction, TransactionBehavior};
 use std::fs::File;
@@ -148,6 +149,7 @@ impl SlashingDatabase {
             .with_flags(rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE)
             .with_init(Self::apply_pragmas);
         let conn_pool = Pool::builder()
+            .error_handler(Box::new(LoggingErrorHandler))
             .max_size(POOL_SIZE)
             .connection_timeout(CONNECTION_TIMEOUT)
             .build(manager)
