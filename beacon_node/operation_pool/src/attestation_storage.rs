@@ -180,17 +180,6 @@ impl<T: EthSpec> AttestationMap<T> {
         }
     }
 
-    /// Iterate all attestations matching the given `checkpoint_key`.
-    pub fn get_attestations<'a>(
-        &'a self,
-        checkpoint_key: &'a CheckpointKey,
-    ) -> impl Iterator<Item = AttestationRef<'a, T>> + 'a {
-        self.checkpoint_map
-            .get(checkpoint_key)
-            .into_iter()
-            .flat_map(|attestation_map| attestation_map.iter(checkpoint_key))
-    }
-
     /// Iterate all attestations in the map.
     pub fn iter(&self) -> impl Iterator<Item = AttestationRef<T>> {
         self.checkpoint_map

@@ -92,7 +92,6 @@ use slog::{crit, debug, error, info, trace, warn, Logger};
 use slot_clock::SlotClock;
 use ssz::Encode;
 use state_processing::{
-    common::get_attesting_indices_from_state,
     per_block_processing,
     per_block_processing::{
         errors::AttestationValidationError, get_expected_withdrawals,

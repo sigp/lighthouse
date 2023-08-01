@@ -218,30 +218,6 @@ impl<T: EthSpec> OperationPool<T> {
         self.attestations.read().stats()
     }
 
-    /// Return all valid attestations for the given epoch, for use in max cover.
-    #[allow(clippy::too_many_arguments)]
-    fn get_valid_attestations_for_epoch<'a>(
-        &'a self,
-        checkpoint_key: &'a CheckpointKey,
-        all_attestations: &'a AttestationMap<T>,
-        state: &'a BeaconState<T>,
-        reward_cache: &'a RewardCache,
-        total_active_balance: u64,
-        validity_filter: impl FnMut(&AttestationRef<'a, T>) -> bool + Send,
-        spec: &'a ChainSpec,
-    ) -> impl Iterator<Item = AttMaxCover<'a, T>> + Send {
-        all_attestations
-            .get_attestations(checkpoint_key)
-            .filter(|att| {
-                att.data.slot + spec.min_attestation_inclusion_delay <= state.slot()
-                    && state.slot() <= att.data.slot + T::slots_per_epoch()
-            })
-            .filter(validity_filter)
-            .filter_map(move |att| {
-                AttMaxCover::new(att, state, reward_cache, total_active_balance, spec)
-            })
-    }
-
     /// Return a vector of aggregate/unaggregate attestations which are maximal cliques
     /// with resepct to the graph with attestations as vertices and an edge encoding
     /// compatibility for aggregation.
