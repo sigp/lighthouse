@@ -1413,7 +1413,7 @@ pub fn serve<T: BeaconChainTypes>(
                         ) {
                             Ok(data) => data,
                             Err(e) => {
-                                return Err(warp_utils::reject::custom_server_error(format!(
+                                return Err(warp_utils::reject::custom_bad_request(format!(
                                     "{:?}",
                                     e
                                 )))
@@ -1492,10 +1492,10 @@ pub fn serve<T: BeaconChainTypes>(
                             Ok(data) => data,
                             Err(_) => {
                                 return warp::reply::with_status(
-                                    StatusCode::INTERNAL_SERVER_ERROR,
-                                    eth2::StatusCode::INTERNAL_SERVER_ERROR,
+                                    StatusCode::BAD_REQUEST,
+                                    eth2::StatusCode::BAD_REQUEST,
                                 )
-                                .into_response()
+                                .into_response();
                             }
                         };
                     match publish_blocks::publish_blinded_block(
