@@ -84,7 +84,6 @@ async fn notify<T: SlotClock + 'static, E: EthSpec>(
         set_gauge(&http_metrics::metrics::ETH2_FALLBACK_CONNECTED, 0);
     }
 
-    // TODO(mac) Store all connected node info into metrics.
     for info in candidate_info {
         if let Some(health) = info.health {
             debug!(

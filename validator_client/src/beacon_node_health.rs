@@ -1,18 +1,17 @@
 use crate::beacon_node_fallback::Config;
 use serde_derive::{Deserialize, Serialize};
-use slot_clock::SlotClock;
 use std::cmp::Ordering;
 use std::fmt::{Debug, Display, Formatter};
 use types::Slot;
 
-// Sync distances between 0 and DEFAULT_SYNC_TOLERANCE are considered `synced`.
-// Sync distance tiers are determined by the different modifiers.
-//
-// The default range is the following:
-// Synced: 0..=8
-// Small: 9..=16
-// Medium: 17..=64
-// Large: 65..
+/// Sync distances between 0 and DEFAULT_SYNC_TOLERANCE are considered `synced`.
+/// Sync distance tiers are determined by the different modifiers.
+///
+/// The default range is the following:
+/// Synced: 0..=8
+/// Small: 9..=16
+/// Medium: 17..=64
+/// Large: 65..
 const DEFAULT_SYNC_TOLERANCE: Slot = Slot::new(8);
 const DEFAULT_SMALL_SYNC_DISTANCE_MODIFIER: Slot = Slot::new(8);
 const DEFAULT_MEDIUM_SYNC_DISTANCE_MODIFIER: Slot = Slot::new(48);
@@ -195,15 +194,14 @@ impl PartialOrd for BeaconNodeHealth {
 }
 
 impl BeaconNodeHealth {
-    pub fn from_status<T: SlotClock>(
+    pub fn from_status(
         id: usize,
+        sync_distance: Slot,
         head: Slot,
         optimistic_status: IsOptimistic,
         execution_status: ExecutionEngineHealth,
         distance_tiers: &BeaconNodeSyncDistanceTiers,
-        slot_clock: &T,
     ) -> Self {
-        let sync_distance = BeaconNodeHealth::compute_sync_distance(head, slot_clock);
         let health_tier = BeaconNodeHealth::compute_health_tier(
             sync_distance,
             optimistic_status,
@@ -226,14 +224,6 @@ impl BeaconNodeHealth {
 
     pub fn get_health_tier(&self) -> BeaconNodeHealthTier {
         self.health_tier
-    }
-
-    fn compute_sync_distance<T: SlotClock>(head: Slot, slot_clock: &T) -> SyncDistance {
-        // TODO(mac) May be worth distinguishing between nodes that are ahead of the `slot_clock`.
-        slot_clock
-            .now()
-            .map(|head_slot| head_slot.saturating_sub(head))
-            .unwrap_or(Slot::max_value())
     }
 
     fn compute_health_tier(
@@ -306,19 +296,12 @@ mod tests {
         SyncDistanceTier,
     };
     use crate::beacon_node_fallback::Config;
-    use slot_clock::{SlotClock, TestingSlotClock};
-    use std::time::Duration;
     use types::Slot;
 
     #[test]
     fn all_possible_health_tiers() {
-        let current_head = Slot::new(64);
-
         let config = Config::default();
         let beacon_node_sync_distance_tiers = BeaconNodeSyncDistanceTiers::from_config(&config);
-
-        let slot_clock =
-            TestingSlotClock::new(current_head, Duration::from_secs(0), Duration::from_secs(1));
 
         let mut health_vec = vec![];
 
@@ -327,11 +310,11 @@ mod tests {
                 for ee_health in &[Healthy, Unhealthy] {
                     let health = BeaconNodeHealth::from_status(
                         0,
+                        Slot::new(0),
                         Slot::new(head_slot),
                         *optimistic_status,
                         *ee_health,
                         &beacon_node_sync_distance_tiers,
-                        &slot_clock,
                     );
                     health_vec.push(health);
                 }

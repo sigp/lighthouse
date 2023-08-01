@@ -23,7 +23,7 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::{sync::RwLock, time::sleep};
-use types::{ChainSpec, Config as ConfigSpec, EthSpec};
+use types::{ChainSpec, Config as ConfigSpec, EthSpec, Slot};
 
 /// Message emitted when the VC detects the BN is using a different spec.
 const UPDATE_REQUIRED_LOG_HINT: &str = "this VC or the remote BN may need updating";
@@ -36,6 +36,10 @@ const UPDATE_REQUIRED_LOG_HINT: &str = "this VC or the remote BN may need updati
 /// an aggregate; this may result in a missed aggregation. If we set this time too late, we risk not
 /// having the correct nodes up and running prior to the start of the slot.
 const SLOT_LOOKAHEAD: Duration = Duration::from_secs(2);
+
+/// If the beacon node slot_clock is within 1 slot, this is deemed acceptable. Otherwise the node
+/// will be marked as CandidateError::TimeDiscrepancy.
+const FUTURE_SLOT_TOLERANCE: Slot = Slot::new(1);
 
 // Configuration for the Beacon Node fallback.
 #[derive(Copy, Clone, Debug, Default, Serialize, Deserialize)]
@@ -213,6 +217,13 @@ impl<E: EthSpec> CandidateBeaconNode<E> {
         if let Some(slot_clock) = slot_clock {
             match check_node_health(&self.beacon_node, log).await {
                 Ok((head, is_optimistic, el_offline)) => {
+                    let slot_clock_head = slot_clock.now().ok_or(CandidateError::Uninitialized)?;
+
+                    if head > slot_clock_head + FUTURE_SLOT_TOLERANCE {
+                        return Err(CandidateError::TimeDiscrepancy);
+                    }
+                    let sync_distance = slot_clock_head.saturating_sub(head);
+
                     // Currently ExecutionEngineHealth is solely determined by online status.
                     let execution_status = if el_offline {
                         ExecutionEngineHealth::Unhealthy
@@ -228,14 +239,12 @@ impl<E: EthSpec> CandidateBeaconNode<E> {
 
                     let new_health = BeaconNodeHealth::from_status(
                         self.id,
+                        sync_distance,
                         head,
                         optimistic_status,
                         execution_status,
                         distance_tiers,
-                        slot_clock,
                     );
-
-                    // TODO(mac): Set metric here.
 
                     *self.health.write() = Ok(new_health);
                     Ok(())
